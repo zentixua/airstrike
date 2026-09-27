@@ -1,0 +1,37 @@
+name: probe
+on:
+  workflow_dispatch:
+    inputs:
+      classes:
+        description: 'Классы для javap -p через пробел (пусто — список API Sable)'
+        required: false
+        default: ''
+  push:
+    branches: [ 'claude/**' ]
+    paths: [ '.github/workflows/probe.yml' ]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: mod } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: jars
+        run: ./gradlew --no-daemon probeJars | tee jars.txt
+      - name: javap
+        env: { CLASSES: '${{ github.event.inputs.classes }}' }
+        run: |
+          CP=$(grep PROBE_JAR jars.txt | awk '{print $2}' | paste -sd:)
+          MC=$(find ~/.gradle build .gradle -name '*.jar' 2>/dev/null | grep -E 'minecraft-patched|neoforge-.*-merged|client-extra' | head -3 | paste -sd:)
+          echo "MC=$MC"
+          if [ -z "$CLASSES" ]; then
+            for j in $(grep PROBE_JAR jars.txt | awk '{print $2}'); do
+              echo "=== $j"; unzip -l "$j" | awk '{print $4}' | grep -E '^dev/ryanhcode/sable/(api|companion)/.*\.class$' | grep -v '\$' | sed 's/\.class$//' | tr / . > cls.txt
+              xargs -a cls.txt javap -cp "$j" -public || true
+              unzip -l "$j" | awk '{print $4}' | grep -iE 'command|argument' | head -50
+            done
+          else
+            javap -cp "$CP:$MC" -p $CLASSES || true
+          fi

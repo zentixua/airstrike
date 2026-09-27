@@ -2,3 +2,7 @@ dist/
 build/
 __pycache__/
 *.pyc
+mod/.gradle/
+mod/build/
+mod/run/
+mod/runs/
