@@ -10,6 +10,18 @@ base { archivesName = mod_id }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+// Проверки только для запусков из Gradle (GameTest, сценарий клиента): в jar мода не попадают
+sourceSets {
+    devtest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+configurations {
+    devtestCompileOnly.extendsFrom compileOnly
+    devtestImplementation.extendsFrom implementation
+}
+
 repositories {
     exclusiveContent {
         forRepository { maven { url = 'https://maven.ryanhcode.dev/releases' } }
@@ -36,6 +48,14 @@ neoForge {
             client()
             gameDirectory = project.file('run/client')
         }
+        // клиент без окна для сценария проверки (см. src/devtest/.../ClientScenario и tools/client_scenario.sh)
+        clientScenario {
+            client()
+            gameDirectory = project.file('run/scenario')
+            systemProperty 'airstrike.scenario', 'all'
+            programArguments.addAll '--width', '1280', '--height', '720'
+            environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
+        }
         server {
             server()
             gameDirectory = project.file('run/server')
@@ -52,9 +72,13 @@ neoForge {
         }
     }
     mods {
-        "${mod_id}" { sourceSet(sourceSets.main) }
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+            sourceSet(sourceSets.devtest)
+        }
     }
 }
+neoForge.addModdingDependenciesTo(sourceSets.devtest)
 
 dependencies {
     // Sable: только API для компиляции; во время игры он есть в сборке
@@ -82,9 +106,10 @@ def copyRuntimeMods = { String runDir ->
         onlyIf { mcModsDir.isDirectory() }
     }
 }
-['client', 'server', 'gametest'].each { copyRuntimeMods(it) }
+['client', 'server', 'gametest', 'scenario'].each { copyRuntimeMods(it) }
 tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRuntimeMods_client' }
 tasks.matching { it.name == 'runServer' }.configureEach { dependsOn 'copyRuntimeMods_server' }
+tasks.matching { it.name == 'runClientScenario' }.configureEach { dependsOn 'copyRuntimeMods_scenario' }
 tasks.matching { it.name == 'runGameTestServer' }.configureEach { dependsOn 'copyRuntimeMods_gametest' }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

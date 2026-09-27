@@ -13,7 +13,11 @@ public final class ModCreativeTabs {
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN = REGISTER.register("main", () -> CreativeModeTab.builder()
             .title(Component.translatable("itemGroup.airstrike"))
             .icon(() -> ModItems.DESIGNATOR.get().getDefaultInstance())
-            .displayItems((params, output) -> output.accept(ModItems.DESIGNATOR.get()))
+            .displayItems((params, output) -> {
+                output.accept(ModItems.DESIGNATOR.get());
+                output.accept(ModItems.GEIGER_COUNTER.get());
+                output.accept(ModItems.TRINITITE.get());
+            })
             .build());
 
     private ModCreativeTabs() {}

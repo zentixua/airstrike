@@ -19,7 +19,9 @@ public enum WeaponType implements StringRepresentable {
     /** Крылатая ракета: бреющий полёт, горка, пикирование; 230 м/с. */
     MISSILE(1, "missile", 15, 30, SirenKind.MISSILE),
     /** B-2 и бетонобойная бомба: пробивает грунт и взрывается под землёй. */
-    BUNKER(2, "bunker", 60, 80, SirenKind.AIR_RAID);
+    BUNKER(2, "bunker", 60, 80, SirenKind.AIR_RAID),
+    /** Межконтинентальная баллистическая ракета с ядерной боеголовкой (см. пакет nuclear). */
+    NUKE(3, "nuke", 200, 300, SirenKind.NUCLEAR);
 
     public static final Codec<WeaponType> CODEC = StringRepresentable.fromEnum(WeaponType::values);
     private static final IntFunction<WeaponType> BY_ID = ByIdMap.continuous(WeaponType::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);
@@ -79,11 +81,12 @@ public enum WeaponType implements StringRepresentable {
             case "drone", "shahed", "шахед", "дрон" -> DRONE;
             case "missile", "ракета" -> MISSILE;
             case "bunker", "bomb", "бомба" -> BUNKER;
+            case "nuke", "icbm", "ядерка", "ядерная" -> NUKE;
             default -> null;
         };
     }
 
     public enum SirenKind {
-        AIR_RAID, MISSILE
+        AIR_RAID, MISSILE, NUCLEAR
     }
 }

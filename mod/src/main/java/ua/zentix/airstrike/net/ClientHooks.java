@@ -23,6 +23,14 @@ public interface ClientHooks {
 
     default void cleared() {}
 
+    default void nukeWarning(S2C.NukeWarning p) {}
+
+    default void nukeDetonation(S2C.NukeDetonation p) {}
+
+    default void nukeSync(S2C.NukeSync p) {}
+
+    default void radiation(S2C.Radiation p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {

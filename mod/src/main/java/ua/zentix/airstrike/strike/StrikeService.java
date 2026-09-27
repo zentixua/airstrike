@@ -18,6 +18,7 @@ import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Local;
@@ -38,18 +39,23 @@ public final class StrikeService {
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
      * @param siren       включить сирену у цели (у залпа сирена одна на весь залп)
-     * @return снаряд или null, если пустить не удалось
+     * @param nuke        мощность и подрыв ядерной боеголовки (для остального оружия не используется)
+     * @return пуск состоялся
      */
-    @Nullable
-    public static StrikeProjectile launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
-                                          @Nullable UUID owner, boolean siren) {
+    public static boolean launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
+        if (weapon == WeaponType.NUKE) {
+            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
+            ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+            return NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), player);
+        }
         StrikeProjectile p = switch (weapon) {
             case DRONE -> launchDrone(level, target, point, approachYaw, owner);
             case MISSILE -> launchMissile(level, target, point, approachYaw, owner);
-            case BUNKER -> launchBomber(level, point, approachYaw, owner);
+            default -> launchBomber(level, point, approachYaw, owner);
         };
         if (p != null && siren) siren(level, weapon, point);
-        return p;
+        return p != null;
     }
 
     /**

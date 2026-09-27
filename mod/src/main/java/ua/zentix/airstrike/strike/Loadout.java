@@ -8,20 +8,38 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.Mth;
 
 /**
- * Настройки пульта (компонент предмета): оружие, количество, разброс, режим цели и выбранный игрок.
- * Значения зажимаются при каждом создании, поэтому из пакета или NBT невалидное не приходит.
+ * Настройки пульта (компонент предмета): оружие, количество, разброс, режим цели, выбранный игрок
+ * и — для ядерной боеголовки — мощность и вид подрыва. Значения зажимаются при каждом создании,
+ * поэтому из пакета или NBT невалидное не приходит.
  */
-public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode, String player) {
+public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode, String player, Nuke nuke) {
     public static final int MAX_COUNT = 100;
     public static final int MAX_SPREAD = 500;
-    public static final Loadout DEFAULT = new Loadout(WeaponType.MISSILE, 1, 25, TargetMode.LOOK, "");
+    public static final Loadout DEFAULT = new Loadout(WeaponType.MISSILE, 1, 0, TargetMode.LOOK, "", Nuke.DEFAULT);
+
+    /** Ядерная боеголовка: мощность, кт, и воздушный (true) или наземный подрыв. */
+    public record Nuke(int yieldKt, boolean airBurst) {
+        public static final int MAX_YIELD = 50_000;
+        public static final Nuke DEFAULT = new Nuke(15, true);
+        public static final Codec<Nuke> CODEC = RecordCodecBuilder.create(i -> i.group(
+                Codec.INT.optionalFieldOf("yield", DEFAULT.yieldKt).forGetter(Nuke::yieldKt),
+                Codec.BOOL.optionalFieldOf("air_burst", DEFAULT.airBurst).forGetter(Nuke::airBurst)
+        ).apply(i, Nuke::new));
+        public static final StreamCodec<ByteBuf, Nuke> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, Nuke::yieldKt, ByteBufCodecs.BOOL, Nuke::airBurst, Nuke::new);
+
+        public Nuke {
+            yieldKt = Mth.clamp(yieldKt, 1, MAX_YIELD);
+        }
+    }
 
     public static final Codec<Loadout> CODEC = RecordCodecBuilder.create(i -> i.group(
             WeaponType.CODEC.optionalFieldOf("weapon", DEFAULT.weapon).forGetter(Loadout::weapon),
             Codec.INT.optionalFieldOf("count", DEFAULT.count).forGetter(Loadout::count),
             Codec.INT.optionalFieldOf("spread", DEFAULT.spread).forGetter(Loadout::spread),
             TargetMode.CODEC.optionalFieldOf("mode", DEFAULT.mode).forGetter(Loadout::mode),
-            Codec.STRING.optionalFieldOf("player", "").forGetter(Loadout::player)
+            Codec.STRING.optionalFieldOf("player", "").forGetter(Loadout::player),
+            Nuke.CODEC.optionalFieldOf("nuke", Nuke.DEFAULT).forGetter(Loadout::nuke)
     ).apply(i, Loadout::new));
 
     public static final StreamCodec<ByteBuf, Loadout> STREAM_CODEC = StreamCodec.composite(
@@ -30,32 +48,38 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
             ByteBufCodecs.VAR_INT, Loadout::spread,
             TargetMode.STREAM_CODEC, Loadout::mode,
             ByteBufCodecs.stringUtf8(16), Loadout::player,
+            Nuke.STREAM_CODEC, Loadout::nuke,
             Loadout::new);
 
     public Loadout {
         count = Mth.clamp(count, 1, MAX_COUNT);
         spread = Mth.clamp(spread, 0, MAX_SPREAD);
         player = player == null ? "" : player.length() > 16 ? player.substring(0, 16) : player;
+        nuke = nuke == null ? Nuke.DEFAULT : nuke;
     }
 
     public Loadout withWeapon(WeaponType w) {
-        return new Loadout(w, count, spread, mode, player);
+        return new Loadout(w, count, spread, mode, player, nuke);
     }
 
     public Loadout withCount(int c) {
-        return new Loadout(weapon, c, spread, mode, player);
+        return new Loadout(weapon, c, spread, mode, player, nuke);
     }
 
     public Loadout withSpread(int s) {
-        return new Loadout(weapon, count, s, mode, player);
+        return new Loadout(weapon, count, s, mode, player, nuke);
     }
 
     public Loadout withMode(TargetMode m) {
-        return new Loadout(weapon, count, spread, m, player);
+        return new Loadout(weapon, count, spread, m, player, nuke);
     }
 
     public Loadout withPlayer(String p) {
-        return new Loadout(weapon, count, spread, mode, p);
+        return new Loadout(weapon, count, spread, mode, p, nuke);
+    }
+
+    public Loadout withNuke(Nuke n) {
+        return new Loadout(weapon, count, spread, mode, player, n);
     }
 
     public boolean isSalvo() {

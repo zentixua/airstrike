@@ -1,0 +1,284 @@
+{
+  "drone.engine": {
+    "subtitle": "subtitles.airstrike.drone",
+    "sounds": [
+      {
+        "name": "airstrike:drone_engine"
+      }
+    ]
+  },
+  "drone.engine.far": {
+    "subtitle": "subtitles.airstrike.drone",
+    "sounds": [
+      {
+        "name": "airstrike:drone_engine_far"
+      }
+    ]
+  },
+  "missile.engine": {
+    "subtitle": "subtitles.airstrike.missile",
+    "sounds": [
+      {
+        "name": "airstrike:missile_engine"
+      }
+    ]
+  },
+  "missile.engine.rear": {
+    "subtitle": "subtitles.airstrike.missile",
+    "sounds": [
+      {
+        "name": "airstrike:missile_engine_rear"
+      }
+    ]
+  },
+  "missile.dive": {
+    "subtitle": "subtitles.airstrike.missile",
+    "sounds": [
+      {
+        "name": "airstrike:missile_dive"
+      }
+    ]
+  },
+  "missile.engine.far": {
+    "subtitle": "subtitles.airstrike.missile",
+    "sounds": [
+      {
+        "name": "airstrike:missile_engine_far"
+      }
+    ]
+  },
+  "missile.whistle": {
+    "subtitle": "subtitles.airstrike.missile.whistle",
+    "sounds": [
+      {
+        "name": "airstrike:missile_whistle"
+      }
+    ]
+  },
+  "bomber.engine": {
+    "subtitle": "subtitles.airstrike.bomber",
+    "sounds": [
+      {
+        "name": "airstrike:bomber_engine"
+      }
+    ]
+  },
+  "bomber.engine.far": {
+    "subtitle": "subtitles.airstrike.bomber",
+    "sounds": [
+      {
+        "name": "airstrike:bomber_engine_far"
+      }
+    ]
+  },
+  "bomb.fall": {
+    "subtitle": "subtitles.airstrike.bomb.fall",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_fall"
+      }
+    ]
+  },
+  "bomb.fall.far": {
+    "subtitle": "subtitles.airstrike.bomb.fall",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_fall_far"
+      }
+    ]
+  },
+  "bomb.drill": {
+    "subtitle": "subtitles.airstrike.bomb.drill",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_drill"
+      }
+    ]
+  },
+  "siren": {
+    "subtitle": "subtitles.airstrike.siren",
+    "sounds": [
+      {
+        "name": "airstrike:siren"
+      }
+    ]
+  },
+  "blast.near": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:blast_near"
+      }
+    ]
+  },
+  "blast.sub": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:blast_sub"
+      }
+    ]
+  },
+  "blast.far": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:blast_far"
+      }
+    ]
+  },
+  "bomb.crack": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_crack"
+      }
+    ]
+  },
+  "bomb.impact": {
+    "subtitle": "subtitles.airstrike.bomb.impact",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_impact"
+      }
+    ]
+  },
+  "bomb.quake": {
+    "subtitle": "subtitles.airstrike.bomb.quake",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_quake"
+      }
+    ]
+  },
+  "bomb.deep": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_deep"
+      }
+    ]
+  },
+  "bomb.vent": {
+    "subtitle": "subtitles.airstrike.bomb.vent",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_vent"
+      }
+    ]
+  },
+  "bomb.cave": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:bomb_cave"
+      }
+    ]
+  },
+  "designator.lock": {
+    "subtitle": "subtitles.airstrike.designator.lock",
+    "sounds": [
+      {
+        "name": "airstrike:designator_lock"
+      }
+    ]
+  },
+  "silent": {
+    "sounds": []
+  },
+  "nuke.alarm": {
+    "subtitle": "subtitles.airstrike.nuke.alarm",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_alarm"
+      }
+    ]
+  },
+  "nuke.launch": {
+    "subtitle": "subtitles.airstrike.nuke.launch",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_launch"
+      }
+    ]
+  },
+  "nuke.reentry": {
+    "subtitle": "subtitles.airstrike.nuke.reentry",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_reentry"
+      }
+    ]
+  },
+  "nuke.crack": {
+    "subtitle": "subtitles.airstrike.nuke.blast",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_crack"
+      }
+    ]
+  },
+  "nuke.boom_far": {
+    "subtitle": "subtitles.airstrike.nuke.blast",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_boom_far"
+      }
+    ]
+  },
+  "nuke.roar": {
+    "subtitle": "subtitles.airstrike.nuke.roar",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_roar"
+      }
+    ]
+  },
+  "nuke.wind": {
+    "subtitle": "subtitles.airstrike.nuke.wind",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_wind"
+      }
+    ]
+  },
+  "nuke.rumble": {
+    "subtitle": "subtitles.airstrike.nuke.rumble",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_rumble"
+      }
+    ]
+  },
+  "nuke.glass": {
+    "subtitle": "subtitles.airstrike.nuke.glass",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_glass"
+      }
+    ]
+  },
+  "nuke.tinnitus": {
+    "sounds": [
+      {
+        "name": "airstrike:nuke_tinnitus"
+      }
+    ]
+  },
+  "nuke.rain": {
+    "subtitle": "subtitles.airstrike.nuke.rain",
+    "sounds": [
+      {
+        "name": "airstrike:nuke_rain"
+      }
+    ]
+  },
+  "geiger.click": {
+    "subtitle": "subtitles.airstrike.geiger",
+    "sounds": [
+      {
+        "name": "airstrike:geiger_click"
+      }
+    ]
+  }
+}

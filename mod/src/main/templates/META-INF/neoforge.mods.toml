@@ -9,6 +9,10 @@ displayName = "${mod_name}"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 
+# открывает Channel.source: фильтр OpenAL для оглушения ядерной волной
+[[accessTransformers]]
+file = "META-INF/accesstransformer.cfg"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"
@@ -21,4 +25,12 @@ modId = "minecraft"
 type = "required"
 versionRange = "${minecraft_version_range}"
 ordering = "NONE"
+side = "BOTH"
+
+# Sable и Create Aeronautics — не обязательны: без них аппаратов просто нет
+[[dependencies.${mod_id}]]
+modId = "sable"
+type = "optional"
+versionRange = "[2.0.5,)"
+ordering = "AFTER"
 side = "BOTH"

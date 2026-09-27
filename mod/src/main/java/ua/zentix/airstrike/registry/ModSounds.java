@@ -16,6 +16,7 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_ENGINE = register("missile.engine");
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_ENGINE_REAR = register("missile.engine.rear");
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_ENGINE_FAR = register("missile.engine.far");
+    public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_DIVE = register("missile.dive");
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_WHISTLE = register("missile.whistle");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMBER_ENGINE = register("bomber.engine");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMBER_ENGINE_FAR = register("bomber.engine.far");
@@ -37,6 +38,20 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> DESIGNATOR_LOCK = register("designator.lock");
     /** Пустое событие: ванильный взрыв не должен звучать — свой звук с задержкой по расстоянию играет клиент. */
     public static final DeferredHolder<SoundEvent, SoundEvent> SILENT = register("silent");
+
+    // ядерный удар: громкость и тембр по давлению у слушателя ставит клиент, по времени прихода фронта
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_ALARM = register("nuke.alarm");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_LAUNCH = register("nuke.launch");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_REENTRY = register("nuke.reentry");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_CRACK = register("nuke.crack");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_BOOM_FAR = register("nuke.boom_far");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_ROAR = register("nuke.roar");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_WIND = register("nuke.wind");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_RUMBLE = register("nuke.rumble");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_GLASS = register("nuke.glass");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_TINNITUS = register("nuke.tinnitus");
+    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_RAIN = register("nuke.rain");
+    public static final DeferredHolder<SoundEvent, SoundEvent> GEIGER_CLICK = register("geiger.click");
 
     private ModSounds() {}
 

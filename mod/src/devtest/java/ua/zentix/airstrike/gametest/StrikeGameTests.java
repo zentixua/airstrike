@@ -108,7 +108,7 @@ public final class StrikeGameTests {
     public static void salvoFiresEveryShot(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 c = top(h, RUNWAY_TARGET);
-        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null);
+        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null, Loadout.Nuke.DEFAULT);
         h.succeedWhen(() -> {
             h.assertTrue(SalvoData.get(level).size() == 0, "залп ещё не закончился");
             List<StrikeProjectile> flying = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(128));
@@ -137,7 +137,7 @@ public final class StrikeGameTests {
 
     @GameTest(template = "pad", timeoutTicks = 5)
     public static void dataSurvivesSaving(GameTestHelper h) {
-        Loadout l = new Loadout(WeaponType.BUNKER, 7, 33, TargetMode.PLAYER, "ENOTzRPG");
+        Loadout l = new Loadout(WeaponType.BUNKER, 7, 33, TargetMode.PLAYER, "ENOTzRPG", new Loadout.Nuke(100, false));
         Loadout back = Loadout.CODEC.parse(NbtOps.INSTANCE, Loadout.CODEC.encodeStart(NbtOps.INSTANCE, l).getOrThrow()).getOrThrow();
         h.assertTrue(l.equals(back), "пульт не пережил сохранение: " + back);
 
@@ -145,7 +145,7 @@ public final class StrikeGameTests {
         Target tb = Target.CODEC.parse(NbtOps.INSTANCE, Target.CODEC.encodeStart(NbtOps.INSTANCE, t).getOrThrow()).getOrThrow();
         h.assertTrue(t.equals(tb), "цель не пережила сохранение: " + tb);
 
-        Loadout huge = new Loadout(WeaponType.DRONE, 10_000, -5, TargetMode.LOOK, "x".repeat(40));
+        Loadout huge = new Loadout(WeaponType.DRONE, 10_000, -5, TargetMode.LOOK, "x".repeat(40), new Loadout.Nuke(0, true));
         h.assertTrue(huge.count() == Loadout.MAX_COUNT && huge.spread() == 0 && huge.player().length() == 16, "зажим значений");
         h.succeed();
     }

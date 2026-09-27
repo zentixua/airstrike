@@ -57,7 +57,7 @@ public final class ServerActions {
         Loadout l = clamp(p.loadout());
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null) return;
-        strike(player, l.weapon(), l.count(), l.spread(), aim);
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke());
     }
 
     public static void setLoadout(C2S.SetLoadout p, IPayloadContext ctx) {
@@ -80,8 +80,15 @@ public final class ServerActions {
     public record Aim(Target target, Vec3 point, @Nullable Component label) {}
 
     public static Loadout clamp(Loadout l) {
+        Loadout.Nuke n = new Loadout.Nuke(Math.min(l.nuke().yieldKt(), AirstrikeConfig.SERVER.nukeMaxYield.get()), l.nuke().airBurst());
+        if (l.weapon() == WeaponType.NUKE) return new Loadout(l.weapon(), 1, 0, l.mode(), l.player(), n); // залпов МБР нет
         return new Loadout(l.weapon(), Math.min(l.count(), AirstrikeConfig.SERVER.maxSalvo.get()),
-                Math.min(l.spread(), AirstrikeConfig.SERVER.maxSpread.get()), l.mode(), l.player());
+                Math.min(l.spread(), AirstrikeConfig.SERVER.maxSpread.get()), l.mode(), l.player(), n);
+    }
+
+    /** Ядерное оружие: включено ли и можно ли этому игроку (по умолчанию — только операторам). */
+    public static boolean mayUseNuke(ServerPlayer player) {
+        return AirstrikeConfig.SERVER.nukeEnabled.get() && (!AirstrikeConfig.SERVER.nukeOpsOnly.get() || player.hasPermissions(2));
     }
 
     /**
@@ -89,22 +96,26 @@ public final class ServerActions {
      *
      * @return true, если пуск состоялся
      */
-    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim) {
+    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
         ServerLevel level = player.serverLevel();
         float yaw = player.getYRot();
+        if (weapon == WeaponType.NUKE && !mayUseNuke(player)) {
+            player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
+                    ? "airstrike.nuke.ops_only" : "airstrike.nuke.disabled").withStyle(ChatFormatting.RED), true);
+            return false;
+        }
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
         if (count <= 1 && spread <= 0) {
-            StrikeProjectile e = StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true);
-            if (e == null) {
+            if (!StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke)) {
                 player.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
                 return false;
             }
             StrikeService.confirm(player, weapon);
             return true;
         }
-        SalvoData.start(level, weapon, Math.max(1, count), spread, aim.target(), aim.point(), yaw, player);
+        SalvoData.start(level, weapon, Math.max(1, count), spread, aim.target(), aim.point(), yaw, player, nuke);
         return true;
     }
 
@@ -210,6 +221,7 @@ public final class ServerActions {
                 e.discard();
             }
             StrikeWorld.clearSalvos(level);
+            n += ua.zentix.airstrike.nuclear.NuclearStrikes.clear(level);
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared());
         return n;

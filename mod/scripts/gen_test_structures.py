@@ -2,7 +2,7 @@
 """Шаблоны для GameTest: плоские площадки с каменным полом (structure .nbt, MC 1.21.1).
 GameTest ставит шаблон на блок выше своей точки отсчёта: слой шаблона y = 0 — это y = 1 в координатах теста.
 
-  python3 scripts/gen_test_structures.py   → src/main/resources/data/airstrike/structure/*.nbt
+  python3 scripts/gen_test_structures.py   → src/devtest/resources/data/airstrike/structure/*.nbt
 """
 import gzip
 import os
@@ -10,7 +10,7 @@ import struct
 
 DATA_VERSION = 3955  # 1.21.1
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                   "src", "main", "resources", "data", "airstrike", "structure")
+                   "src", "devtest", "resources", "data", "airstrike", "structure")
 
 TAG_END, TAG_INT, TAG_STRING, TAG_LIST, TAG_COMPOUND = 0, 3, 8, 9, 10
 

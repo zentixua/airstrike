@@ -22,6 +22,14 @@ public final class ModTags {
     public static final TagKey<Block> BB_FLUID = block("bb_fluid");
     /** Бьются ударной волной. */
     public static final TagKey<Block> SHATTERS = block("shatters");
+    /** Ядерный удар: природный грунт (волна не трогает, только свет — верхний слой — и воронка). */
+    public static final TagKey<Block> NUKE_GROUND = block("nuke_ground");
+    /** Ядерный удар: ломается при 0.5–1 psi. */
+    public static final TagKey<Block> NUKE_FRAGILE = block("nuke_fragile");
+    /** Ядерный удар: лёгкие постройки, 3–5 psi. */
+    public static final TagKey<Block> NUKE_LIGHT = block("nuke_light");
+    /** Ядерный удар: кладка, 10–15 psi. */
+    public static final TagKey<Block> NUKE_MASONRY = block("nuke_masonry");
 
     /** Прозрачны для прицела: «клей», сиденья, служебные сущности Create/Sable. */
     public static final TagKey<EntityType<?>> AIM_IGNORE = TagKey.create(Registries.ENTITY_TYPE, Airstrike.id("aim_ignore"));

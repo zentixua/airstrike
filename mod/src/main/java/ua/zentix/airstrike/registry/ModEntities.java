@@ -12,6 +12,7 @@ import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
+import ua.zentix.airstrike.entity.IcbmEntity;
 
 public final class ModEntities {
     public static final DeferredRegister<EntityType<?>> REGISTER = DeferredRegister.create(Registries.ENTITY_TYPE, Airstrike.MOD_ID);
@@ -24,6 +25,9 @@ public final class ModEntities {
             projectile("bomber", EntityType.Builder.of(BomberEntity::new, MobCategory.MISC).sized(6.0f, 1.5f), 32);
     public static final DeferredHolder<EntityType<?>, EntityType<BunkerBusterEntity>> BUNKER_BUSTER =
             projectile("bunker_buster", EntityType.Builder.of(BunkerBusterEntity::new, MobCategory.MISC).sized(1.0f, 1.0f), 24);
+
+    public static final DeferredHolder<EntityType<?>, EntityType<IcbmEntity>> ICBM =
+            projectile("icbm", EntityType.Builder.of(IcbmEntity::new, MobCategory.MISC).sized(2.0f, 2.0f), 32);
 
     /** Обломки: летят по баллистике, падают блоком или рассыпаются. Как у falling_block — позиция раз в несколько тиков. */
     public static final DeferredHolder<EntityType<?>, EntityType<DebrisEntity>> DEBRIS = REGISTER.register("debris",

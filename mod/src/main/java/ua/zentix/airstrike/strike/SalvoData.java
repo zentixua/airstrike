@@ -76,10 +76,10 @@ public final class SalvoData extends SavedData {
      * @param yaw         курс захода
      */
     public static void start(ServerLevel level, WeaponType weapon, int count, int radius, Target center, Vec3 centerPoint,
-                             float yaw, @Nullable ServerPlayer owner) {
-        Salvo s = new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner == null ? null : owner.getUUID(), 1);
+                             float yaw, @Nullable ServerPlayer owner, Loadout.Nuke nuke) {
+        Salvo s = new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner == null ? null : owner.getUUID(), 1, nuke);
         get(level).add(s);
-        StrikeService.siren(level, weapon, centerPoint);
+        if (weapon != WeaponType.NUKE) StrikeService.siren(level, weapon, centerPoint);
         if (owner != null) {
             owner.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
                     .withStyle(ChatFormatting.RED));
@@ -98,8 +98,10 @@ public final class SalvoData extends SavedData {
         @Nullable
         final UUID owner;
         int cooldown;
+        final Loadout.Nuke nuke;
 
-        Salvo(WeaponType weapon, int total, int remaining, int radius, Target center, Vec3 lastCenter, float yaw, @Nullable UUID owner, int cooldown) {
+        Salvo(WeaponType weapon, int total, int remaining, int radius, Target center, Vec3 lastCenter, float yaw, @Nullable UUID owner, int cooldown,
+              Loadout.Nuke nuke) {
             this.weapon = weapon;
             this.total = total;
             this.remaining = remaining;
@@ -109,6 +111,7 @@ public final class SalvoData extends SavedData {
             this.yaw = yaw;
             this.owner = owner;
             this.cooldown = cooldown;
+            this.nuke = nuke;
         }
 
         boolean tick(ServerLevel level) {
@@ -159,7 +162,7 @@ public final class SalvoData extends SavedData {
                 shot = new Target.Point(point);
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
-            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, false);
+            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, false, nuke);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */
@@ -184,6 +187,7 @@ public final class SalvoData extends SavedData {
             t.putFloat("yaw", yaw);
             if (owner != null) t.putUUID("owner", owner);
             t.putInt("cooldown", cooldown);
+            Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuke).resultOrPartial(Airstrike.LOG::error).ifPresent(n -> t.put("nuke", n));
             return t;
         }
 
@@ -192,8 +196,9 @@ public final class SalvoData extends SavedData {
             if (w == null) return Optional.empty();
             Vec3 last = new Vec3(t.getDouble("x"), t.getDouble("y"), t.getDouble("z"));
             Target c = Target.CODEC.parse(NbtOps.INSTANCE, t.get("center")).resultOrPartial(Airstrike.LOG::error).orElse(new Target.Point(last));
+            Loadout.Nuke nuke = Loadout.Nuke.CODEC.parse(NbtOps.INSTANCE, t.get("nuke")).result().orElse(Loadout.Nuke.DEFAULT);
             return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
-                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown")));
+                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke));
         }
     }
 

@@ -24,6 +24,10 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.Siren.TYPE, S2C.Siren.CODEC, (p, ctx) -> ClientHooks.get().siren(p));
         r.playToClient(S2C.SalvoStatus.TYPE, S2C.SalvoStatus.CODEC, (p, ctx) -> ClientHooks.get().salvoStatus(p));
         r.playToClient(S2C.Cleared.TYPE, S2C.Cleared.CODEC, (p, ctx) -> ClientHooks.get().cleared());
+        r.playToClient(S2C.NukeWarning.TYPE, S2C.NukeWarning.CODEC, (p, ctx) -> ClientHooks.get().nukeWarning(p));
+        r.playToClient(S2C.NukeDetonation.TYPE, S2C.NukeDetonation.CODEC, (p, ctx) -> ClientHooks.get().nukeDetonation(p));
+        r.playToClient(S2C.NukeSync.TYPE, S2C.NukeSync.CODEC, (p, ctx) -> ClientHooks.get().nukeSync(p));
+        r.playToClient(S2C.Radiation.TYPE, S2C.Radiation.CODEC, (p, ctx) -> ClientHooks.get().radiation(p));
         r.playToClient(S2C.OpenRemote.TYPE, S2C.OpenRemote.CODEC, (p, ctx) -> ClientHooks.get().openRemote());
 
         r.playToServer(C2S.Fire.TYPE, C2S.Fire.CODEC, ServerActions::fire);
