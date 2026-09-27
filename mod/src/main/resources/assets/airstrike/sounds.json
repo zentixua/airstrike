@@ -202,14 +202,6 @@
       }
     ]
   },
-  "nuke.reentry": {
-    "subtitle": "subtitles.airstrike.nuke.reentry",
-    "sounds": [
-      {
-        "name": "airstrike:nuke_reentry"
-      }
-    ]
-  },
   "nuke.crack": {
     "subtitle": "subtitles.airstrike.nuke.blast",
     "sounds": [

@@ -3,7 +3,6 @@ package ua.zentix.airstrike.client.nuclear;
 import com.mojang.blaze3d.shaders.FogShape;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ViewportEvent;
@@ -31,7 +30,7 @@ public final class NukeSky {
     static void tick(ClientLevel level) {
         Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         boolean in = false;
-        if (level.canSeeSky(BlockPos.containing(cam))) {
+        if (Detonation.underOpenSky(level, cam)) {
             for (ClientNuclear.Active a : ClientNuclear.detonations()) {
                 if (a.d.blackRain(cam.x, cam.z, level.getGameTime() - a.d.gameTime())) {
                     in = true;
@@ -57,7 +56,7 @@ public final class NukeSky {
         float dust = 0;
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
-            double t = ClientNuclear.seconds(d, partial);
+            double t = a.seconds(partial);
             if (t < 0.5) continue;
             double near = 1 - cam.distanceTo(d.burst()) / (d.radiusMax() * 2);
             if (near <= 0) continue;

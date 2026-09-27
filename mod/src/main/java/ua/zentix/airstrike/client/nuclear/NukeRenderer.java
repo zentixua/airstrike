@@ -18,7 +18,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
@@ -104,7 +103,7 @@ public final class NukeRenderer {
         float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
         float[] fog = RenderSystem.getShaderFogColor();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
-            double t = ClientNuclear.seconds(a.d, partial);
+            double t = a.seconds(partial);
             double vis = a.d.visibility();
             a.puffs.sprites(t, ambient, s -> {
                 double dx = s.x() - cam.x, dy = s.y() - cam.y, dz = s.z() - cam.z;
@@ -145,7 +144,7 @@ public final class NukeRenderer {
         Vec3 cam = camera.getPosition();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
-            double t = ClientNuclear.seconds(d, partial);
+            double t = a.seconds(partial);
             if (t <= 0) continue;
             double tau = t / FireballModel.secondMaximumSeconds(d.yieldKt());
             if (tau > 80) continue;
@@ -212,9 +211,10 @@ public final class NukeRenderer {
                 Vec3 p = head.lerp(tail, i / (double) steps).subtract(cam);
                 double dist = p.length();
                 double k = dist > far ? far / dist : 1;
-                float size = (float) (Math.max(dist * 0.004, 6 * w.scale()) * k * (1 - 0.8 * i / (double) steps));
-                float a = (float) (0.9 * (1 - i / (double) steps));
-                billboard(b, l, up, (float) (p.x * k), (float) (p.y * k), (float) (p.z * k), size, 0, 0, 0, 1, 1, 1f, 0.85f - 0.4f * i / steps, 0.6f - 0.5f * i / steps, a);
+                // угловой размер: голова-звезда ~2°, хвост сужается; раскалённая плазма — от белого к оранжевому
+                float size = (float) (dist * k * (i == 0 ? 0.035 : 0.012 * (1 - 0.7 * i / (double) steps)));
+                float a = (float) (i == 0 ? 1 : 0.8 * (1 - i / (double) steps));
+                billboard(b, l, up, (float) (p.x * k), (float) (p.y * k), (float) (p.z * k), size, 0, 0, 0, 1, 1, 1f, 0.9f - 0.4f * i / steps, 0.7f - 0.5f * i / steps, a);
             }
             draw(b);
         }

@@ -42,7 +42,6 @@ public final class ModSounds {
     // ядерный удар: громкость и тембр по давлению у слушателя ставит клиент, по времени прихода фронта
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_ALARM = register("nuke.alarm");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_LAUNCH = register("nuke.launch");
-    public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_REENTRY = register("nuke.reentry");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_CRACK = register("nuke.crack");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_BOOM_FAR = register("nuke.boom_far");
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_ROAR = register("nuke.roar");

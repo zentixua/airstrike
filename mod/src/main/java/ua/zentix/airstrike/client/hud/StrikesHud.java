@@ -9,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.BomberEntity;
+import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.util.ArrayList;
@@ -30,7 +31,8 @@ public final class StrikesHud {
         UUID me = mc.player.getUUID();
         List<Line> lines = new ArrayList<>();
         for (Entity e : mc.level.entitiesForRendering()) {
-            if (!(e instanceof StrikeProjectile p) || !me.equals(p.ownerId())) continue;
+            // МБР — только разгон, её отсчёт до подрыва показывает ядерный HUD
+            if (!(e instanceof StrikeProjectile p) || p instanceof IcbmEntity || !me.equals(p.ownerId())) continue;
             double v = Math.max(0.1, p.speed());
             double eta = p.isActive() ? p.position().distanceTo(p.aimPoint()) / v / 20.0 : Double.MAX_VALUE;
             String key = p instanceof BomberEntity ? "airstrike.hud.bomber" : p.isActive() ? "airstrike.hud.eta" : "airstrike.hud.waiting";

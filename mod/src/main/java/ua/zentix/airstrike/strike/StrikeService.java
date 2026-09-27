@@ -12,6 +12,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
@@ -113,6 +114,12 @@ public final class StrikeService {
     }
 
     /** Строка над хотбаром и щелчок пульта у того, кто пустил. */
+    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда. */
+    public static void log(String who, WeaponType weapon, int count, int spread, Vec3 point) {
+        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} — {}", weapon.getSerializedName(), count, spread,
+                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), who);
+    }
+
     public static void confirm(ServerPlayer player, WeaponType weapon) {
         player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName()).withStyle(ChatFormatting.RED), true);
         player.playNotifySound(SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.MASTER, 1.0f, weapon == WeaponType.DRONE ? 0.6f : 0.5f);

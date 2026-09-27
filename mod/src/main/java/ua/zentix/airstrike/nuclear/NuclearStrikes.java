@@ -12,12 +12,14 @@ import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.util.Local;
 
 import java.util.ArrayList;
@@ -72,6 +74,8 @@ public final class NuclearStrikes {
         NuclearEvents.ScheduledStrike s = new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now,
                 now + AirstrikeConfig.SERVER.nukeFlightTime.get(), launchPos, Optional.ofNullable(owner));
         events.schedule(s);
+        Airstrike.LOG.info("МБР №{}: {} кт по {} {} {}, подрыв через {} с", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),
+                Mth.floor(target.z), (s.detonateTime() - now) / 20);
         for (ServerPlayer p : level.players()) PacketDistributor.sendToPlayer(p, warning(s, p));
     }
 
@@ -84,17 +88,43 @@ public final class NuclearStrikes {
                 AirstrikeConfig.SERVER.nukeEffectsScale.get().floatValue());
     }
 
-    /** Подрыв без полёта (команда «nuke now», GameTest). */
+    /**
+     * Подрыв без полёта (команда «nuke now»). Если место не загружено — подрыв запланирован на сейчас и случится,
+     * как только чанк догрузится (без остановки сервера на генерацию), тогда вернётся null.
+     */
+    @Nullable
     public static Detonation detonateNow(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner) {
-        return NuclearWarhead.detonate(level, target, Math.min(yieldKt, AirstrikeConfig.SERVER.nukeMaxYield.get()), airBurst, owner);
+        yieldKt = Math.min(yieldKt, AirstrikeConfig.SERVER.nukeMaxYield.get());
+        if (groundLoaded(level, target)) return NuclearWarhead.detonate(level, target, yieldKt, airBurst, owner);
+        NuclearEvents events = NuclearEvents.get(level);
+        long now = level.getGameTime();
+        events.schedule(new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now, now, target, Optional.ofNullable(owner)));
+        return null;
     }
 
     /** Отбой: запланированные удары отменены, следы осадков убраны, очереди остановлены. */
     public static int clear(ServerLevel level) {
+        for (NuclearEvents.ScheduledStrike s : NuclearEvents.get(level).scheduled()) holdGround(level, s, false);
         int n = NuclearEvents.get(level).clear();
         NuclearWorld.get(level).clear(level);
         sync(level);
         return n;
+    }
+
+    /** За сколько тиков до подрыва начинать загрузку чанка эпицентра. */
+    private static final int PRELOAD_TICKS = 200;
+    /** Если чанк так и не загрузился (мир без генерации?), подрыв всё равно происходит — по высоте цели. */
+    private static final int GIVE_UP_TICKS = 600;
+
+    private static boolean groundLoaded(ServerLevel level, Vec3 target) {
+        BlockPos p = BlockPos.containing(target);
+        return level.hasChunk(p.getX() >> 4, p.getZ() >> 4);
+    }
+
+    private static void holdGround(ServerLevel level, NuclearEvents.ScheduledStrike s, boolean hold) {
+        BlockPos p = BlockPos.containing(s.target());
+        UUID owner = UUID.nameUUIDFromBytes(("airstrike-nuke-" + s.id() + "-" + s.launchTime()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        ChunkTickets.CONTROLLER.forceChunk(level, owner, p.getX() >> 4, p.getZ() >> 4, hold, false);
     }
 
     // ---------------------------------------------------------------- события мира
@@ -105,10 +135,14 @@ public final class NuclearStrikes {
         long now = level.getGameTime();
         List<NuclearEvents.ScheduledStrike> due = new ArrayList<>();
         for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
-            if (now >= s.detonateTime()) due.add(s);
+            boolean loaded = groundLoaded(level, s.target());
+            // место подрыва догружается заранее тикетом: высоту земли и грунт воронки нужно знать без остановки сервера
+            if (!loaded && s.detonateTime() - now <= PRELOAD_TICKS) holdGround(level, s, true);
+            if (now >= s.detonateTime() && (loaded || now - s.detonateTime() > GIVE_UP_TICKS)) due.add(s);
         }
         for (NuclearEvents.ScheduledStrike s : due) {
             events.unschedule(s);
+            holdGround(level, s, false);
             NuclearWarhead.detonate(level, s.target(), s.yieldKt(), s.airBurst(), s.owner().orElse(null));
         }
         if (now % 1200 == 0) events.prune(now);

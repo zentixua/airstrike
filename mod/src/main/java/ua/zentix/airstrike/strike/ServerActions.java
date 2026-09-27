@@ -107,6 +107,7 @@ public final class ServerActions {
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
+        StrikeService.log(player.getGameProfile().getName(), weapon, count, spread, aim.point());
         if (count <= 1 && spread <= 0) {
             if (!StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke)) {
                 player.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);

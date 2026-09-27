@@ -72,7 +72,7 @@ public final class RadiationTicker {
         if (!AirstrikeConfig.SERVER.nukeRadiation.get() || level.getGameTime() % 20 != 0) return;
         NuclearEvents events = NuclearEvents.get(level);
         for (ServerPlayer p : level.players()) {
-            if (p.isSpectator() || p.isCreative() && dose(p).doseGy() == 0) continue;
+            if (p.isSpectator()) continue;
             tick(level, p, events);
         }
     }
@@ -88,12 +88,14 @@ public final class RadiationTicker {
         }
         RadiationDose r = dose(p);
         double contamination = r.contamination();
-        boolean outdoors = level.canSeeSky(p.blockPosition().above());
-        if (blackRain && outdoors && AirstrikeConfig.SERVER.nukeBlackRain.get()) contamination = Math.min(contamination + field * 0.05, field * 2);
+        if (blackRain && AirstrikeConfig.SERVER.nukeBlackRain.get() && Detonation.underOpenSky(level, p.getEyePosition())) {
+            contamination = Math.min(contamination + field * 0.05, field * 2);
+        }
         if (p.isInWater()) contamination *= 0.8;
         if (contamination < 0.01) contamination = 0;
-        double rate = field * roofShielding(level, p.blockPosition()) + contamination;
-        double gy = r.doseGy() + rate * GY_PER_R * HOURS_PER_SECOND;
+        double rate = (field > 0 ? field * roofShielding(level, p.blockPosition()) : 0) + contamination;
+        // в творческом режиме счётчик показывает поле, но доза не копится и болезни нет
+        double gy = r.doseGy() + (p.isCreative() ? 0 : rate * GY_PER_R * HOURS_PER_SECOND);
         long exposed = r.isExposed() || gy < 1 ? r.exposedAt() : now;
         RadiationDose next = new RadiationDose((float) gy, (float) contamination, exposed, (float) rate);
         set(p, next);

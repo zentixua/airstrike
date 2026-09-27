@@ -20,7 +20,10 @@ import java.util.function.Consumer;
 public final class CloudPuffs {
     enum Kind { CAP, DOME, STEM, SKIRT, RING, WILSON }
 
-    /** Клуб в мире в этот кадр: центр и размер в блоках, цвет, номер текстуры в атласе, поворот. */
+    /**
+     * Клуб в мире в этот кадр: центр и размер (сторона квадрата; сам клуб на текстуре занимает ~60% её) в блоках,
+     * цвет, номер текстуры в атласе, поворот.
+     */
     public record Sprite(double x, double y, double z, double size, float rot, float r, float g, float b, float a, int tex) {}
 
     private record Puff(Kind kind, float a, float b, float c, float size, int tex, float rot, float spin, float shade) {}
@@ -30,6 +33,7 @@ public final class CloudPuffs {
     private final Detonation d;
     private final Puff[] puffs;
     private final boolean humid;
+    private final int ringCount;
 
     public CloudPuffs(Detonation d) {
         this.d = d;
@@ -43,6 +47,7 @@ public final class CloudPuffs {
             puffs[i] = new Puff(k, r.nextFloat(), r.nextFloat(), r.nextFloat(), 0.7f + 0.6f * r.nextFloat(), r.nextInt(8),
                     r.nextFloat() * Mth.TWO_PI, (r.nextFloat() - 0.5f) * 0.02f, 0.85f + 0.3f * r.nextFloat());
         }
+        ringCount = (int) java.util.Arrays.stream(puffs).filter(p -> p.kind == Kind.RING).count();
     }
 
     /** Влажность в эпицентре (облако Вильсона видно во влажном воздухе): из биома на клиенте. */
@@ -90,8 +95,9 @@ public final class CloudPuffs {
         double glow = Math.exp(-t / (tMax * 60)); // накал изнутри (оранжевый), 15 кт — ~7 с
         int fireRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
         int capRgb = lerpRgb(CAP_BASE, CAP_LATE, Mth.clamp(t / 90, 0, 1));
-        // ножка поднимается с земли за первую четверть подъёма; у высокого воздушного подрыва она тоньше и бледнее
-        double stemTop = capBot * Mth.clamp(t / (stab * 0.25), 0, 1);
+        // ножка — пыль, которую тянет вверх за шаром: догоняет шапку за десятую часть подъёма;
+        // у высокого воздушного подрыва она тоньше и бледнее
+        double stemTop = capBot * Mth.clamp(t / (stab * 0.1), 0, 1);
         double stemAlpha = hob <= rf ? 0.8 : Mth.clamp(1.2 - hob / (rf * 6), 0.35, 0.8);
         double stemR = capR * 0.16;
         // волна у земли: наклонная дальность фронта → радиус по земле
@@ -119,7 +125,7 @@ public final class CloudPuffs {
                     pz = Math.sin(ang) * rh;
                     double vert = Math.sin(th) * fill;
                     py = yc + capH * 0.5 * vert;
-                    size = rt * 0.95 * p.size;
+                    size = rt * 1.25 * p.size;
                     a = 0.9 * capVis;
                     shade *= 0.62 + 0.38 * (vert * 0.5 + 0.5);
                     lit = glow * (0.6 - 0.4 * vert);
@@ -130,7 +136,7 @@ public final class CloudPuffs {
                     px = Math.cos(ang) * rh;
                     pz = Math.sin(ang) * rh;
                     py = yc + capH * (0.2 + 0.25 * p.b);
-                    size = capR * 0.4 * p.size;
+                    size = capR * 0.5 * p.size;
                     a = 0.85 * capVis;
                     shade *= 1.05;
                     lit = glow * 0.3;
@@ -146,7 +152,7 @@ public final class CloudPuffs {
                     px = Math.cos(swirl) * rh;
                     pz = Math.sin(swirl) * rh;
                     py = h;
-                    size = Math.max(stemR * 1.1, r * 0.8) * p.size;
+                    size = Math.max(stemR * 1.8, r * 1.3) * p.size;
                     a = stemAlpha * smooth(4, 20, tau) * Mth.clamp((stemTop - h) / (capBot * 0.05 + 1), 0, 1);
                     shade *= 0.7 + 0.3 * w;
                     lit = glow * 0.25 * w;
@@ -165,12 +171,14 @@ public final class CloudPuffs {
                 case RING -> {
                     double rr = Math.min(groundFront, ringStop);
                     if (rr <= 0) continue;
+                    // стена сплошная: клубы по окружности перекрываются
+                    double spacing = 2 * Math.PI * rr / Math.max(1, ringCount);
                     double reached = groundFront >= ringStop ? t - timeTo(ringStop, hob) : 0;
                     double k = Mth.clamp(BlastModel.psi(BlastModel.overpressureKpa(Math.hypot(rr, hob), y)) / 6, 0.2, 1);
                     px = Math.cos(ang) * rr * (0.97 + 0.06 * p.c);
                     pz = Math.sin(ang) * rr * (0.97 + 0.06 * p.c);
                     py = (20 + 80 * k * p.b) * ys;
-                    size = (30 + 70 * k) * ys * p.size;
+                    size = Math.max((30 + 70 * k) * ys, spacing * 2.2) * p.size;
                     a = 0.65 * k * Mth.clamp(1 - reached / 25, 0, 1);
                     rgb = DUST;
                 }
@@ -184,8 +192,8 @@ public final class CloudPuffs {
                     pz = Math.sin(ang) * Math.cos(el) * r;
                     py = hob + Math.sin(el) * r;
                     if (py < 0) continue;
-                    size = r * 0.35 * p.size;
-                    a = 0.55 * env;
+                    size = r * 0.8 * p.size;
+                    a = 0.3 * env;
                     rgb = WILSON;
                 }
             }

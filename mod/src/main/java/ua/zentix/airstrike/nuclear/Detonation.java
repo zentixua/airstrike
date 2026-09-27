@@ -173,6 +173,15 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         return hours >= 0 && hours < BLACK_RAIN_HOURS;
     }
 
+    /**
+     * Под открытым небом ли точка (на неё падает дождь): над ней нет ничего, что держит движение, — ни крыши,
+     * ни листвы, ни воды. Карта высот есть и на сервере, и на клиенте, поэтому ответ у них одинаковый.
+     */
+    public static boolean underOpenSky(net.minecraft.world.level.Level level, Vec3 pos) {
+        return level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING,
+                net.minecraft.util.Mth.floor(pos.x), net.minecraft.util.Mth.floor(pos.z)) <= pos.y;
+    }
+
     /** Кэши, которые дорого считать на каждый вызов (таблица прихода, наибольший радиус). */
     private static final class Caches {
         private static final java.util.Map<Detonation, ArrivalTable> ARRIVAL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());

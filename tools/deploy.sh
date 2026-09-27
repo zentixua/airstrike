@@ -1,52 +1,59 @@
 #!/usr/bin/env bash
-# Проверка → установка датапака во все миры инстанса → сборка zip в dist/
+# Сборка мода и установка в инстанс Prism.
 #
-#   tools/deploy.sh          датапак во все миры (saves/*/datapacks/airstrike)
-#   tools/deploy.sh --rp     + обновить пакет звуков в resourcepacks/"Airstrike Sounds"
-#   tools/deploy.sh --dry    только проверка и сборка zip, игру не трогать
+#   tools/deploy.sh          сборка и юнит-тесты → jar в mods/ инстанса и в dist/
+#   tools/deploy.sh --test   ещё и GameTest (сервер без окна с Create, Sable и Aeronautics)
+#   tools/deploy.sh --dry    только сборка и проверки, игру не трогать
 #
-# Старые установки под именем shahed (datapacks/shahed, resourcepacks/"Shahed Sounds") убираются.
-#
-# Пути к игре — tools/paths.py (или MC_DIR=/путь/к/minecraft tools/deploy.sh).
-# После деплоя в игре: /reload или перезайти в мир. Пакет звуков — F3+T; друзьям его раздаёт Essential.
+# Ничего не удаляется: старые jar мода, копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
+# (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в airstrike-backup/<время>/ рядом с mods/.
+# Мод заменяет их полностью; настройки датапака он переносит в свой конфиг сам при первом запуске мира.
+# После установки — перезапустить игру. Друзьям нужен тот же jar (dist/airstrike-*.jar) в их mods/.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 path() { python3 "$ROOT/tools/paths.py" "$1"; }
 MC="$(path MC)"
-DP="$(path DATAPACK)"
-RP="$(path RESOURCEPACK)"
-RP_NAME="$(path RP_INSTALL_NAME)"
-OLD_DP="$(path LEGACY_DATAPACK)"
-OLD_RP="$(path LEGACY_RP_INSTALL_NAME)"
+MODS="$(path MODS)"
+DIST="$(path DIST)"
+BACKUP="$(path BACKUP)/$(date +%Y-%m-%d_%H%M%S)"
+export JAVA_HOME="${JAVA_HOME:-$(path JAVA)}"
 
-WITH_RP=0; DRY=0
+TEST=0; DRY=0
 for a in "$@"; do
   case "$a" in
-    --rp) WITH_RP=1 ;;
+    --test) TEST=1 ;;
     --dry) DRY=1 ;;
     *) echo "неизвестный аргумент: $a" >&2; exit 2 ;;
   esac
 done
 
-python3 "$ROOT/tools/validate.py"
-python3 "$ROOT/tools/pack.py"
+cd "$ROOT/mod"
+./gradlew build --console=plain -q
+if [ "$TEST" = 1 ]; then ./gradlew runGameTestServer --console=plain -q; fi
+JAR="$(ls -t build/libs/airstrike-*.jar | grep -v -- '-sources' | head -n1)"
+mkdir -p "$DIST"
+cp "$JAR" "$DIST/"
+echo "собран: $JAR → dist/"
 if [ "$DRY" = 1 ]; then echo "--dry: игра не тронута"; exit 0; fi
 
-[ -d "$MC/saves" ] || { echo "нет папки $MC/saves — проверь tools/paths.py или задай MC_DIR" >&2; exit 1; }
-n=0
-for w in "$MC/saves"/*/; do
-  [ -f "$w/level.dat" ] || continue
-  mkdir -p "$w/datapacks"
-  rm -rf "$w/datapacks/airstrike" "$w/datapacks/$OLD_DP"
-  cp -r "$DP" "$w/datapacks/airstrike"
-  echo "мир: $(basename "$w")"
-  n=$((n + 1))
+[ -d "$MODS" ] || { echo "нет папки $MODS — проверь tools/paths.py или задай MC_DIR" >&2; exit 1; }
+aside() { # перенести в сторону с сохранением пути относительно .minecraft
+  local src="$1" rel="${1#"$MC"/}"
+  mkdir -p "$BACKUP/$(dirname "$rel")"
+  mv "$src" "$BACKUP/$rel"
+  echo "в сторону: $rel"
+}
+for old in "$MODS"/airstrike-*.jar; do
+  if [ -e "$old" ]; then aside "$old"; fi
 done
-echo "датапак установлен в миров: $n"
-
-if [ "$WITH_RP" = 1 ]; then
-  mkdir -p "$MC/resourcepacks"
-  rm -rf "$MC/resourcepacks/$RP_NAME" "$MC/resourcepacks/$OLD_RP"
-  cp -r "$RP" "$MC/resourcepacks/$RP_NAME"
-  echo "пакет звуков обновлён: resourcepacks/$RP_NAME"
-fi
+for w in "$MC/saves"/*/; do
+  for dp in $(path LEGACY_DATAPACKS); do
+    if [ -e "$w/datapacks/$dp" ]; then aside "${w%/}/datapacks/$dp"; fi
+  done
+done
+IFS='|' read -r -a rps <<< "$(path LEGACY_RESOURCEPACKS)"
+for rp in "${rps[@]}"; do
+  if [ -e "$MC/resourcepacks/$rp" ]; then aside "$MC/resourcepacks/$rp"; fi
+done
+cp "$JAR" "$MODS/"
+echo "установлен: mods/$(basename "$JAR") — перезапусти игру"

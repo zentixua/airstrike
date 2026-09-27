@@ -105,7 +105,7 @@ public final class SubLevels {
     }
 
     /**
-     * API Sable не обещает стабильности (см. docs/HANDOFF-mod.md). Если обновление сборки его сломает,
+     * API Sable не обещает стабильности (README Sable). Если обновление сборки его сломает,
      * мод продолжит работать без наведения на аппараты, а причина останется в логе.
      */
     private static void disable(Throwable e) {

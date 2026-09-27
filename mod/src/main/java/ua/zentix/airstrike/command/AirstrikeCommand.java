@@ -155,7 +155,8 @@ public final class AirstrikeCommand {
     private static int nukeNow(CommandSourceStack s, Vec3 pos, Loadout.Nuke nuke) {
         Entity e = s.getEntity();
         var d = NuclearStrikes.detonateNow(s.getLevel(), NuclearStrikes.ground(s.getLevel(), pos), nuke.yieldKt(), nuke.airBurst(), e == null ? null : e.getUUID());
-        s.sendSuccess(() -> Component.translatable("airstrike.nuke.detonated", Math.round(d.yieldKt()),
+        double kt = d != null ? d.yieldKt() : Math.min(nuke.yieldKt(), AirstrikeConfig.SERVER.nukeMaxYield.get());
+        s.sendSuccess(() -> Component.translatable(d != null ? "airstrike.nuke.detonated" : "airstrike.nuke.detonating", Math.round(kt),
                 Component.translatable(nuke.airBurst() ? "airstrike.nuke.burst.air" : "airstrike.nuke.burst.ground"),
                 Mth.floor(pos.x), Mth.floor(pos.y), Mth.floor(pos.z)), true);
         return 1;
@@ -239,6 +240,7 @@ public final class AirstrikeCommand {
         }
         ServerLevel level = s.getLevel();
         float yaw = s.getRotation().y;
+        StrikeService.log(s.getTextName(), w, count, spread, aim.point());
         if (count <= 1 && spread <= 0) {
             return StrikeService.launch(level, w, aim.target(), aim.point(), yaw, null, true, nuke) ? 1 : 0;
         }

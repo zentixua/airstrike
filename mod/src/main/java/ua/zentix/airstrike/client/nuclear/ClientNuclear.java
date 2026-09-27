@@ -19,18 +19,36 @@ import java.util.Map;
  * волна, звук, дождь) и летящие МБР. Сервер присылает по одному пакету на событие — дальше клиент сам.
  */
 public final class ClientNuclear {
-    /** Подрыв, который пришёл «вживую» (не при входе в мир): для него вспышка, звук и тряска. */
+    /**
+     * Подрыв на клиенте. «Вживую» (не при входе в мир) — со вспышкой, звуком и тряской, и его картинка идёт от
+     * момента, когда пришёл пакет: часы клиента могут убежать от сервера на секунду-две (сервер подгружал чанки),
+     * а шар и двойная вспышка длятся доли секунды — их нельзя проскочить.
+     */
     public static final class Active {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
+        /** Игровое время клиента, от которого идёт картинка. */
+        private final long t0;
         final NukeSounds.Schedule sounds;
 
-        Active(Detonation d, boolean live) {
+        Active(Detonation d, boolean live, long clientNow) {
             this.d = d;
             this.live = live;
+            this.t0 = live ? clientNow : d.gameTime();
             this.puffs = new CloudPuffs(d);
-            this.sounds = new NukeSounds.Schedule(d, live);
+            this.sounds = new NukeSounds.Schedule(this);
+        }
+
+        /** Тики после подрыва (с долей кадра), не меньше нуля. */
+        public double ticks(float partialTick) {
+            ClientLevel level = Minecraft.getInstance().level;
+            return level == null ? 0 : Math.max(0, level.getGameTime() - t0 + partialTick);
+        }
+
+        /** Секунды модели после подрыва (с учётом масштаба мира). */
+        public double seconds(float partialTick) {
+            return ticks(partialTick) / (20.0 * d.scale());
         }
     }
 
@@ -52,17 +70,18 @@ public final class ClientNuclear {
     public static void detonation(S2C.NukeDetonation p) {
         Detonation d = p.detonation();
         WARNINGS.values().removeIf(w -> w.target().distanceToSqr(new Vec3(d.burst().x, w.target().y, d.burst().z)) < 4 && Math.abs(w.detonateTime() - d.gameTime()) < 40);
-        if (DETONATIONS.containsKey(d.id())) return;
-        Active a = new Active(d, true);
+        ClientLevel level = Minecraft.getInstance().level;
+        if (DETONATIONS.containsKey(d.id()) || level == null) return;
+        Active a = new Active(d, true, level.getGameTime());
         DETONATIONS.put(d.id(), a);
-        NukeFlash.detonation(d);
+        NukeFlash.detonation(a);
     }
 
     /** Вход в мир или смена измерения: всё, что уже есть, без вспышки и удара (они уже прошли). */
     public static void sync(S2C.NukeSync p) {
         DETONATIONS.clear();
         WARNINGS.clear();
-        for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false));
+        for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, 0));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
     }
 
@@ -123,14 +142,4 @@ public final class ClientNuclear {
         return radiation;
     }
 
-    /** Тики после подрыва (с долей кадра). */
-    public static double ticksSince(Detonation d, float partialTick) {
-        ClientLevel level = Minecraft.getInstance().level;
-        return level == null ? 0 : level.getGameTime() - d.gameTime() + partialTick;
-    }
-
-    /** Секунды модели после подрыва (с учётом масштаба мира). */
-    public static double seconds(Detonation d, float partialTick) {
-        return ticksSince(d, partialTick) / (20.0 * d.scale());
-    }
 }

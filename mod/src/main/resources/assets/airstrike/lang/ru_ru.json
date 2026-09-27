@@ -194,12 +194,12 @@
   "airstrike.config.nuke_tinnitus": "Оглушение и звон в ушах",
   "subtitles.airstrike.nuke.alarm": "Сирена гражданской обороны",
   "subtitles.airstrike.nuke.launch": "Рёв стартующей ракеты",
-  "subtitles.airstrike.nuke.reentry": "Свист входящей боеголовки",
   "subtitles.airstrike.nuke.blast": "Ядерный взрыв",
   "subtitles.airstrike.nuke.roar": "Рёв огненного шара",
   "subtitles.airstrike.nuke.wind": "Ураганный ветер",
   "subtitles.airstrike.nuke.rumble": "Раскаты",
   "subtitles.airstrike.nuke.glass": "Бьются стёкла",
   "subtitles.airstrike.nuke.rain": "Чёрный дождь",
-  "subtitles.airstrike.geiger": "Щелчки счётчика Гейгера"
+  "subtitles.airstrike.geiger": "Щелчки счётчика Гейгера",
+  "airstrike.nuke.detonating": "☢ Подрыв %s кт (%s) в %s %s %s — как только догрузится место"
 }

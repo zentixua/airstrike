@@ -467,20 +467,6 @@ def geiger_click():
     return norm(x * np.clip((0.025 - t) / 0.003, 0, 1), -18, 0.85)
 
 
-def nuke_reentry(dur=4.5):
-    """Боеголовка входит в атмосферу высоко над целью: слабый далёкий двойной хлопок и гул."""
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    x = np.zeros(n)
-    for t0 in (0.05, 0.13):
-        k, L = int(t0 * SR), int(0.02 * SR)
-        x[k:k + L] += np.linspace(1, -1, L)
-    x = F(x, lo=25, hi=600)
-    hum = F(rng.standard_normal(n), lo=20, hi=200) * np.exp(-t / 1.2) * np.minimum(1, t / 0.1)
-    x = x / np.max(np.abs(x)) + 0.3 * hum / np.std(hum)
-    return norm(reverb(x * np.clip((dur - t) / 0.8, 0, 1), t60=3.5, mix=0.55, hi=500), -20, 0.6)
-
-
 if __name__ == "__main__":
     near_far(drone_engine(), "drone_engine", 6.0, far_hi=900)
     write("missile_engine", norm(loop(turbojet(whine_amt=1.25, roar_amt=0.55, hiss_amt=0.5), 6.0), -12))
@@ -520,5 +506,4 @@ if __name__ == "__main__":
     write("nuke_tinnitus", nuke_tinnitus())
     write("nuke_rain", norm(loop(black_rain(), 6.0), -15))
     write("geiger_click", geiger_click())
-    write("nuke_reentry", nuke_reentry())
     print("ok:", len([f for f in os.listdir(OUT) if f.endswith(".ogg")]), "файлов в", OUT)

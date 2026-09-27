@@ -52,7 +52,8 @@ neoForge {
         clientScenario {
             client()
             gameDirectory = project.file('run/scenario')
-            systemProperty 'airstrike.scenario', 'all'
+            // all — обычное оружие, nuke — ядерный удар (tools/client_scenario.sh nuke)
+            systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             programArguments.addAll '--width', '1280', '--height', '720'
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
         }

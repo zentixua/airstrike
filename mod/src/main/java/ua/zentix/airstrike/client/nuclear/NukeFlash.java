@@ -25,7 +25,7 @@ public final class NukeFlash {
     private static final ResourceLocation FLARE = Airstrike.id("textures/nuke/flare.png");
 
     @Nullable
-    private static Detonation current;
+    private static ClientNuclear.Active current;
     /** Сила вспышки 0..1 для этого игрока. */
     private static float strength;
     /** Послеобраз: сколько тиков ещё и сколько было всего. */
@@ -34,7 +34,8 @@ public final class NukeFlash {
 
     private NukeFlash() {}
 
-    static void detonation(Detonation d) {
+    static void detonation(ClientNuclear.Active a) {
+        Detonation d = a.d;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) return;
@@ -50,7 +51,7 @@ public final class NukeFlash {
         s *= inView ? 1 : sees ? 0.45 : 0.3;
         s *= AirstrikeConfig.CLIENT.flash.get();
         if (s <= strength && current != null) return;
-        current = d;
+        current = a;
         strength = (float) s;
         startTick = ticks;
         if (inView && q >= 0.05) {
@@ -77,25 +78,24 @@ public final class NukeFlash {
 
     /** Насколько экран сейчас белый (0..1): для неба и тумана тоже. */
     public static float whiteness(float partialTick) {
-        Detonation d = current;
-        if (d == null || strength <= 0) return 0;
-        double t = ClientNuclear.seconds(d, partialTick);
-        if (t < 0) return 0;
+        ClientNuclear.Active a = current;
+        if (a == null || strength <= 0) return 0;
+        double t = Math.max(a.seconds(partialTick), 1e-4);
         // яркость шара (двойной импульс) и «ослеплённый» глаз, который отпускает за ~1.5 с
         double eye = Math.exp(-(ticks - startTick + partialTick) / 18.0);
-        return (float) (strength * Math.min(1, Math.max(FireballModel.brightness(t, d.yieldKt()) * 1.5, eye)));
+        return (float) (strength * Math.min(1, Math.max(FireballModel.brightness(t, a.d.yieldKt()) * 1.5, eye)));
     }
 
     public static void render(GuiGraphics g, DeltaTracker delta) {
         float partial = delta.getGameTimeDeltaPartialTick(false);
         int w = g.guiWidth(), h = g.guiHeight();
-        if (afterLeft > 0 && current != null) afterimage(g, current, partial, w, h);
+        if (afterLeft > 0 && current != null) afterimage(g, current.d, partial, w, h);
         float white = whiteness(partial);
         if (white > 0.004f) {
             int a = Math.min(255, (int) (white * 255));
             // сначала бело-голубой, потом тёплый
-            double t = ClientNuclear.seconds(current, partial);
-            int rgb = t < FireballModel.firstMinimumSeconds(current.yieldKt()) * 4 ? 0xEEF4FF : 0xFFF8E8;
+            double t = current.seconds(partial);
+            int rgb = t < FireballModel.firstMinimumSeconds(current.d.yieldKt()) * 4 ? 0xEEF4FF : 0xFFF8E8;
             g.fill(0, 0, w, h, (a << 24) | rgb);
         }
     }

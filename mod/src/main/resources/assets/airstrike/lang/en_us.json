@@ -194,12 +194,12 @@
   "airstrike.config.nuke_tinnitus": "Deafness and ringing ears",
   "subtitles.airstrike.nuke.alarm": "Civil defence siren",
   "subtitles.airstrike.nuke.launch": "Missile launch roar",
-  "subtitles.airstrike.nuke.reentry": "Incoming warhead",
   "subtitles.airstrike.nuke.blast": "Nuclear explosion",
   "subtitles.airstrike.nuke.roar": "Fireball roars",
   "subtitles.airstrike.nuke.wind": "Hurricane wind",
   "subtitles.airstrike.nuke.rumble": "Rumbling",
   "subtitles.airstrike.nuke.glass": "Glass shatters",
   "subtitles.airstrike.nuke.rain": "Black rain",
-  "subtitles.airstrike.geiger": "Geiger counter clicks"
+  "subtitles.airstrike.geiger": "Geiger counter clicks",
+  "airstrike.nuke.detonating": "☢ %s kt detonation (%s) at %s %s %s as soon as the area loads"
 }

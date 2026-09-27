@@ -4,6 +4,7 @@
   python3 tools/gen_textures.py   → mod/src/main/resources/assets/airstrike/textures/…
 
   item/strike_designator, item/geiger_counter — пиксель-арт 16×16 (сетка символов + палитра);
+  mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
   nuke/puffs — атлас 4×2 клубов гриба по 64×64 (почти серые: цвет даёт рендерер), nuke/plasma — бесшовная плазма шара 128×128,
   nuke/rain — капля чёрного дождя 8×32, nuke/flare — круглое свечение 64×64 (голова следа боеголовки, вспышка).
@@ -57,7 +58,34 @@ PALETTE = {
     "m": (118, 124, 134, 255),  # тень трубки
     "H": (46, 46, 50, 255),     # рукоять датчика
     "c": (30, 30, 30, 255),     # витой шнур
+    "B": (250, 214, 40, 255),   # знак радиации: жёлтый
+    "b": (20, 20, 20, 255),     # знак радиации: чёрный
+    "F": (255, 214, 90, 255),   # пламя: ядро
+    "f": (240, 120, 30, 255),   # пламя
+    "r": (170, 40, 20, 255),    # пламя: край
 }
+
+# Значок ожогов 18×18: язык пламени
+BURNS_ICON = [
+    "..................",
+    "........r.........",
+    "........rr........",
+    ".......rfr........",
+    ".......rffr.......",
+    "......rfffr...r...",
+    "......rfffrr..rr..",
+    ".....rffFffr.rfr..",
+    ".....rfFFffrrffr..",
+    "....rffFFFffffr...",
+    "....rfFFFFFfffr...",
+    "...rffFFFFFFffr...",
+    "...rfFFFFFFFFfr...",
+    "...rfFFFFFFFFfr...",
+    "...rffFFFFFFffr...",
+    "....rffFFFFffr....",
+    ".....rrffffrr.....",
+    "..................",
+]
 
 # Счётчик Гейгера: жёлтый корпус с ручкой, шкала со стрелкой, динамик, датчик на витом шнуре
 GEIGER = [
@@ -87,9 +115,10 @@ def save(img, name):
 
 
 def paint(rows, name):
-    img = Image.new("RGBA", (16, 16))
+    size = len(rows)
+    img = Image.new("RGBA", (size, size))
     for y, row in enumerate(rows):
-        assert len(row) == 16, (name, y)
+        assert len(row) == size, (name, y)
         for x, c in enumerate(row):
             img.putpixel((x, y), PALETTE[c])
     save(img, name)
@@ -143,6 +172,24 @@ def plasma(N=128):
     return rgba(rgb, np.ones((N, N)))
 
 
+def trefoil(N=18):
+    """Значок лучевой болезни: знак радиации (трилистник) на жёлтом круге, пиксели по полярным координатам."""
+    img = Image.new("RGBA", (N, N))
+    c = (N - 1) / 2
+    for y in range(N):
+        for x in range(N):
+            dx, dy = x - c, c - y
+            r = np.hypot(dx, dy)
+            if r > c + 0.3:
+                continue
+            ang = np.degrees(np.arctan2(dy, dx)) % 360
+            # лепестки с центрами на 30°, 150° и 270°, по 60°
+            blade = any(abs((ang - a + 180) % 360 - 180) <= 30 for a in (30, 150, 270)) and 2.6 <= r <= c - 1.2
+            dark = r <= 1.5 or blade
+            img.putpixel((x, y), PALETTE["b"] if dark else PALETTE["B"])
+    return img
+
+
 def rain_streak(w=8, h=32):
     """Капля чёрного дождя: тонкий хвост сверху, толстая маслянистая голова снизу с бликом."""
     x, y = np.meshgrid(np.arange(w) + 0.5, np.arange(h) + 0.5)
@@ -180,6 +227,8 @@ def trinitite(N=16):
 if __name__ == "__main__":
     paint(DESIGNATOR, "item/strike_designator")
     paint(GEIGER, "item/geiger_counter")
+    save(trefoil(), "mob_effect/radiation_sickness")
+    paint(BURNS_ICON, "mob_effect/burns")
     save(trinitite(), "block/trinitite")
     atlas = Image.new("RGBA", (256, 128))
     for i in range(8):

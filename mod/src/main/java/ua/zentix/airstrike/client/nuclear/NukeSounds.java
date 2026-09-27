@@ -16,8 +16,6 @@ import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.registry.ModSounds;
 
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Звук ядерного удара (DESIGN-nuke §5). Свет приходит сразу, звук — с фронтом ударной волны: каждый тик клиент
@@ -26,10 +24,9 @@ import java.util.Set;
  * ванильного затухания; направление честное (точка в 3 блоках от уха в сторону эпицентра).
  */
 public final class NukeSounds {
-    /** Вход боеголовки виден и слышен последние 3 с. */
+    /** Вход боеголовки виден последние 3 с — беззвучно: на 7 км/с её звук придёт уже после взрыва. */
     static final int REENTRY_TICKS = 60;
 
-    private static final Set<Integer> REENTRY_PLAYED = new HashSet<>();
     @Nullable
     private static RainLoop rainLoop;
 
@@ -50,16 +47,6 @@ public final class NukeSounds {
     }
 
     static void tick(ClientLevel level, long now) {
-        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        for (S2C.NukeWarning w : ClientNuclear.warnings()) {
-            long left = w.detonateTime() - now;
-            if (left <= REENTRY_TICKS && left > 0 && REENTRY_PLAYED.add(w.strikeId())) {
-                Vec3 end = w.target().add(0, w.burstHeight(), 0);
-                if (ear.distanceTo(end) < 8000 * w.scale() + 400) {
-                    ClientSounds.atEar(ModSounds.NUKE_REENTRY.get(), end.add(NukeRenderer.reentryDirection(w).scale(-2000 * w.scale())), 0.9f, 1);
-                }
-            }
-        }
         NukeSky.tick(level);
         if (NukeSky.inBlackRain() && (rainLoop == null || rainLoop.isStopped())) {
             rainLoop = new RainLoop();
@@ -68,7 +55,6 @@ public final class NukeSounds {
     }
 
     static void reset() {
-        REENTRY_PLAYED.clear();
         if (rainLoop != null) rainLoop.end();
         rainLoop = null;
         NukeSky.reset();
@@ -76,6 +62,7 @@ public final class NukeSounds {
 
     /** Звуки одного подрыва у этого слушателя. */
     static final class Schedule {
+        private final ClientNuclear.Active a;
         private final Detonation d;
         private final boolean live;
         private final RandomSource random;
@@ -85,9 +72,10 @@ public final class NukeSounds {
         private final double[] rumbles;
         private int nextRumble;
 
-        Schedule(Detonation d, boolean live) {
-            this.d = d;
-            this.live = live;
+        Schedule(ClientNuclear.Active a) {
+            this.a = a;
+            this.d = a.d;
+            this.live = a.live;
             this.random = RandomSource.create(d.seed() ^ 0x5EED);
             rumbles = new double[3 + random.nextInt(3)];
             for (int i = 0; i < rumbles.length; i++) rumbles[i] = 5 + random.nextDouble() * 55;
@@ -97,7 +85,7 @@ public final class NukeSounds {
         void tick(long now) {
             if (!live) return;
             Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-            double since = now - d.gameTime();
+            double since = a.ticks(0);
             if (!arrived) {
                 double dist = ear.distanceTo(d.burst());
                 if (d.frontRadius(since) < dist) return;
