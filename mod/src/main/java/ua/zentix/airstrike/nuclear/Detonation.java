@@ -29,7 +29,7 @@ import ua.zentix.airstrike.nuclear.model.ThermalModel;
  * @param windSpeed скорость ветра, м/с
  * @param visibility видимость, м (ясно 20 км, дождь 5, гроза 1) — ослабление света
  * @param seed      сид случайных деталей (одинаковый у всех клиентов)
- * @param fallout   след осадков действует (наземный подрыв; отбой его убирает)
+ * @param fallout   есть радиоактивный след (наземный подрыв и включены осадки)
  */
 public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boolean surface, long gameTime,
                          float windDir, float windSpeed, float visibility, long seed, float scale, boolean fallout) {
@@ -146,11 +146,6 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     /** Есть ли у подрыва радиоактивный след. */
     public boolean hasFallout() {
         return fallout && falloutModel().surfaceFraction() > 0;
-    }
-
-    /** Тот же подрыв без следа осадков (отбой). */
-    public Detonation withoutFallout() {
-        return new Detonation(id, burst, groundY, yieldKt, surface, gameTime, windDir, windSpeed, visibility, seed, scale, false);
     }
 
     /**

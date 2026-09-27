@@ -76,11 +76,14 @@ public final class NuclearEvents extends SavedData {
         if (scheduled.remove(s)) setDirty();
     }
 
-    /** Отбой: запланированные удары отменены, радиоактивные следы убраны. Разрушенное остаётся. */
+    /**
+     * Отбой: запланированные удары отменены, подрывы забыты — нет больше ни осадков, ни разрушений в чанках,
+     * которые загрузятся потом. Разрушенное остаётся. Номера подрывов продолжают расти (отметки чанков верны).
+     */
     public int clear() {
-        int n = scheduled.size();
+        int n = scheduled.size() + detonations.size();
         scheduled.clear();
-        detonations.replaceAll(Detonation::withoutFallout);
+        detonations.clear();
         setDirty();
         return n;
     }

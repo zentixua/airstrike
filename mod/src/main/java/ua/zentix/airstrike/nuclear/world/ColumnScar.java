@@ -55,11 +55,16 @@ public final class ColumnScar {
             }
             if (!blockDamage || r.kind() == BlockResponse.Kind.NONE) continue;
             double psi = d.psi(Vec3.atCenterOf(m));
-            if (r.kind() == BlockResponse.Kind.LOG && AirstrikeConfig.SERVER.nukeTreeFall.get()
-                    && psi >= r.thresholdPsi() && BlockResponse.of(level.getBlockState(m.below())).kind() == BlockResponse.Kind.GROUND) {
-                fellTree(level, d, m.immutable(), s);
-                ground = y - 1;
-                break;
+            if (r.kind() == BlockResponse.Kind.LOG && AirstrikeConfig.SERVER.nukeTreeFall.get() && psi >= r.thresholdPsi()) {
+                // столбец идёт сверху: ищем комель — если ствол стоит на грунте, валится всё дерево целиком
+                int base = y;
+                while (base - 1 > bottom && level.getBlockState(m.setY(base - 1)).is(BlockTags.LOGS)) base--;
+                if (BlockResponse.of(level.getBlockState(m.setY(base - 1))).kind() == BlockResponse.Kind.GROUND) {
+                    fellTree(level, d, new BlockPos(x, base, z), s);
+                    ground = base - 1;
+                    break;
+                }
+                m.setY(y);
             }
             if (!r.breaksAt(psi, Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z))))) continue;
             level.setBlock(m, Blocks.AIR.defaultBlockState(), FLAGS);

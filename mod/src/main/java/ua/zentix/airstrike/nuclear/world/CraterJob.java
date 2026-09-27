@@ -67,6 +67,11 @@ public final class CraterJob {
 
     public enum Step { PROGRESS, WAIT, DONE }
 
+    /** Грунт под эпицентром, по которому считается профиль. */
+    public CraterModel.Soil soil() {
+        return soil;
+    }
+
     /** Один столбец. WAIT — чанк по тикету ещё грузится, продолжим в следующем тике. */
     public Step step(ServerLevel level, RandomSource random) {
         if (next >= columns.size()) {
@@ -81,17 +86,18 @@ public final class CraterJob {
         double wobble = 1 + 0.08 * Math.sin(Math.atan2(c[1] - d.burst().z, c[0] - d.burst().x) * 7 + d.seed() % 13);
         r /= wobble;
         double relief = d.blocks(CraterModel.rimHeight(r, d.yieldKt(), soil) - CraterModel.profileDepth(r, d.yieldKt(), soil));
+        // высоты — как у карты высот: первый воздух над грунтом; groundY — такая же высота в эпицентре
         int surface = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c[0], c[1]);
         int target = Mth.floor(d.groundY() + relief);
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos(c[0], 0, c[1]);
         if (target < surface) {
-            for (int y = surface; y > target; y--) {
+            for (int y = surface - 1; y >= target; y--) {
                 BlockState s = level.getBlockState(m.setY(y));
                 if (s.getBlock().defaultDestroyTime() >= 0) level.setBlock(m, Blocks.AIR.defaultBlockState(), ColumnScar.FLAGS);
             }
             // дно и стенки частично стекловидные
             if (d.metres(Math.hypot(c[0] - d.burst().x, c[1] - d.burst().z)) < CraterModel.radius(d.yieldKt(), soil) && random.nextFloat() < 0.3f) {
-                BlockState floor = level.getBlockState(m.setY(target));
+                BlockState floor = level.getBlockState(m.setY(target - 1));
                 if (!floor.isAir() && floor.getFluidState().isEmpty()) level.setBlock(m, ModBlocks.TRINITITE.get().defaultBlockState(), ColumnScar.FLAGS);
             }
         } else if (target > surface && !rim.isEmpty()) {

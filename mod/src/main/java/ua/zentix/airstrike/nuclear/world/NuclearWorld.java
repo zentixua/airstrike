@@ -41,6 +41,7 @@ public final class NuclearWorld {
     private final List<CraterJob> craters = new ArrayList<>();
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
+    private long maxWorkNanos;
 
     private NuclearWorld() {}
 
@@ -59,6 +60,11 @@ public final class NuclearWorld {
 
     public int craterJobs() {
         return craters.size();
+    }
+
+    /** Самая долгая обработка очередей за один тик, нс (для проверки бюджета). */
+    public long maxWorkNanos() {
+        return maxWorkNanos;
     }
 
     // ---------------------------------------------------------------- события
@@ -113,7 +119,8 @@ public final class NuclearWorld {
             if (since >= 0 && since <= d.arrivalTicks(d.radiusMax()) + positivePhaseTicks(d) + 2) front(level, d, since);
             else fronts.remove(d.id());
         }
-        long deadline = System.nanoTime() + AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L;
+        long start = System.nanoTime();
+        long deadline = start + AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L;
         try {
             while (!craters.isEmpty() && System.nanoTime() < deadline) {
                 CraterJob.Step s = craters.getFirst().step(level, level.random);
@@ -125,6 +132,7 @@ public final class NuclearWorld {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
             clear(level);
         }
+        maxWorkNanos = Math.max(maxWorkNanos, System.nanoTime() - start);
     }
 
     private static double positivePhaseTicks(Detonation d) {

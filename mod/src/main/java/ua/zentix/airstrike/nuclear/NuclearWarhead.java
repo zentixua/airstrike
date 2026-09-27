@@ -39,7 +39,10 @@ import java.util.UUID;
  * проникающая радиация. Ударная волна, разрушения и воронка идут дальше по тикам ({@link NuclearWorld}).
  */
 public final class NuclearWarhead {
-    /** Сила ванильного взрыва в сердцевине наземного подрыва (для толчка аппаратов и сущностей рядом). */
+    /**
+     * Наибольшая сила ванильного взрыва в сердцевине наземного подрыва (толчок аппаратов Sable и сущностей рядом);
+     * меньше — по размеру огненного шара, чтобы в уменьшенном мире (effects_scale) сердцевина не была больше шара.
+     */
     private static final float CORE_POWER = 40;
 
     private NuclearWarhead() {}
@@ -49,8 +52,12 @@ public final class NuclearWarhead {
      * @param airBurst воздушный подрыв на оптимальной высоте; иначе — наземный
      */
     public static Detonation detonate(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner) {
+        return detonate(level, target, yieldKt, airBurst, owner, AirstrikeConfig.SERVER.nukeEffectsScale.get().floatValue());
+    }
+
+    /** @param scale масштаб радиусов (1 — как в жизни); обычно из настройки effects_scale, GameTest задаёт свой */
+    public static Detonation detonate(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner, float scale) {
         NuclearEvents events = NuclearEvents.get(level);
-        float scale = AirstrikeConfig.SERVER.nukeEffectsScale.get().floatValue();
         int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(target.x), Mth.floor(target.z));
         double ground = level.hasChunk(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) ? Math.min(groundY, target.y) : target.y;
         if (ground <= level.getMinBuildHeight()) ground = target.y;
@@ -67,7 +74,7 @@ public final class NuclearWarhead {
         // сердцевина у земли: ванильный взрыв толкает аппараты Sable и всё рядом (сам Sable ломает их блоки)
         if (surface) {
             level.explode(null, ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, ownerEntity), null,
-                    d.burst().x, ground + 1, d.burst().z, CORE_POWER, true, Level.ExplosionInteraction.TNT,
+                    d.burst().x, ground + 1, d.burst().z, (float) Mth.clamp(d.fireballRadius() * 0.5, 4, CORE_POWER), true, Level.ExplosionInteraction.TNT,
                     ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);
         }
         lightAndRadiation(level, d, ownerEntity);
@@ -124,7 +131,7 @@ public final class NuclearWarhead {
      * Экранирование проникающей радиации (DESIGN §1.5): шагаем по лучу к точке подрыва на 64 блока,
      * каждый встреченный блок ослабляет по материалу.
      */
-    static double shielding(Level level, Vec3 from, Vec3 burst) {
+    public static double shielding(Level level, Vec3 from, Vec3 burst) {
         Vec3 dir = burst.subtract(from).normalize();
         int stone = 0, earth = 0, water = 0, wood = 0, glass = 0;
         BlockPos last = null;

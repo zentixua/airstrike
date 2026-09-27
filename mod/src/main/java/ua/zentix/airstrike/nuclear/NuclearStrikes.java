@@ -38,20 +38,30 @@ public final class NuclearStrikes {
      * пуск «издалека» — сразу таймер.
      */
     public static boolean launch(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable ServerPlayer owner) {
+        return owner == null ? launchFrom(level, target, yieldKt, airBurst, null, 0, null)
+                : launchFrom(level, target, yieldKt, airBurst, owner.position(), owner.getYRot(), owner.getUUID());
+    }
+
+    /**
+     * @param launcher где стоит запустивший (ракета стартует в 30 блоках позади него по курсу {@code yaw}),
+     *                 null — пуск «издалека», сразу таймер
+     */
+    public static boolean launchFrom(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable Vec3 launcher, float yaw,
+                                     @Nullable UUID owner) {
         if (!AirstrikeConfig.SERVER.nukeEnabled.get()) return false;
         yieldKt = Math.min(yieldKt, AirstrikeConfig.SERVER.nukeMaxYield.get());
-        if (owner != null) {
-            Vec3 back = Local.horizontal(owner.getYRot()).scale(-30);
-            int x = Mth.floor(owner.getX() + back.x), z = Mth.floor(owner.getZ() + back.z);
-            Vec3 pad = new Vec3(x + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z + 0.5);
-            IcbmEntity icbm = ModEntities.ICBM.get().create(level);
-            if (icbm == null) return false;
-            icbm.prepare(pad, target, yieldKt, airBurst, owner.getUUID());
-            if (!level.addFreshEntity(icbm)) return false;
-            schedule(level, target, yieldKt, airBurst, pad, owner.getUUID());
+        if (launcher == null) {
+            schedule(level, target, yieldKt, airBurst, target, owner);
             return true;
         }
-        schedule(level, target, yieldKt, airBurst, target, null);
+        Vec3 back = Local.horizontal(yaw).scale(-30);
+        int x = Mth.floor(launcher.x + back.x), z = Mth.floor(launcher.z + back.z);
+        Vec3 pad = new Vec3(x + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z + 0.5);
+        IcbmEntity icbm = ModEntities.ICBM.get().create(level);
+        if (icbm == null) return false;
+        icbm.prepare(pad, target, owner);
+        if (!level.addFreshEntity(icbm)) return false;
+        schedule(level, target, yieldKt, airBurst, pad, owner);
         return true;
     }
 

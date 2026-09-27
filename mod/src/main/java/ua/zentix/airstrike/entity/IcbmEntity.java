@@ -47,7 +47,7 @@ public class IcbmEntity extends StrikeProjectile {
     }
 
     /** Поставить на стартовую площадку носом вверх. */
-    public void prepare(Vec3 pad, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner) {
+    public void prepare(Vec3 pad, Vec3 target, @Nullable UUID owner) {
         super.launch(pad.add(0, 9, 0), new Target.Point(target), target, owner);
         float[] a = FlightController.anglesTo(pad, target);
         flight.set(a[0], -89);
