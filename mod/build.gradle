@@ -15,7 +15,15 @@ repositories {
         forRepository { maven { url = 'https://maven.ryanhcode.dev/releases' } }
         filter { includeGroupAndSubgroups 'dev.ryanhcode' }
     }
+    mavenCentral()
 }
+
+// Моды сборки «All of Create Aeronautics» для запусков из Gradle (Create, Sable, Aeronautics).
+// NeoForge 1.21.1 работает на mojmap-именах, поэтому jar из mods/ подходят без ремаппинга.
+// Путь переопределяется: -PmcModsDir=... или переменная MC_DIR (как в tools/paths.py).
+def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
+def mcModsDir = file(project.findProperty('mcModsDir') ?: "${mcDir}/mods")
+def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 'create-aeronautics-bundled-1.21.1-*.jar']
 
 neoForge {
     version = project.neo_version
@@ -24,10 +32,18 @@ neoForge {
         minecraftVersion = project.parchment_minecraft_version
     }
     runs {
-        client { client() }
-        server { server(); programArgument '--nogui' }
+        client {
+            client()
+            gameDirectory = project.file('run/client')
+        }
+        server {
+            server()
+            gameDirectory = project.file('run/server')
+            programArgument '--nogui'
+        }
         gameTestServer {
             type = 'gameTestServer'
+            gameDirectory = project.file('run/gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
         configureEach {
@@ -40,19 +56,36 @@ neoForge {
     }
 }
 
-configurations {
-    probe { transitive = false }
-}
-
 dependencies {
+    // Sable: только API для компиляции; во время игры он есть в сборке
     compileOnly "dev.ryanhcode.sable:sable-common-${minecraft_version}:${sable_version}"
-    probe "dev.ryanhcode.sable:sable-common-${minecraft_version}:${sable_version}"
-    probe "dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}"
+    // sable-companion (MIT): мягкая зависимость — без Sable работает встроенная заглушка
+    compileOnly "dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}"
+    jarJar("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}") {
+        version { strictly "[${sable_companion_version}]"; prefer sable_companion_version }
+    }
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-tasks.register('probeJars') {
-    doLast { configurations.probe.files.each { println "PROBE_JAR ${it}" } }
+test {
+    useJUnitPlatform()
 }
+
+// Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
+def copyRuntimeMods = { String runDir ->
+    tasks.register("copyRuntimeMods_${runDir}", Sync) {
+        from(mcModsDir) { runtimeModPatterns.each { include it } }
+        into "run/${runDir}/mods"
+        onlyIf { mcModsDir.isDirectory() }
+    }
+}
+['client', 'server', 'gametest'].each { copyRuntimeMods(it) }
+tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRuntimeMods_client' }
+tasks.matching { it.name == 'runServer' }.configureEach { dependsOn 'copyRuntimeMods_server' }
+tasks.matching { it.name == 'runGameTestServer' }.configureEach { dependsOn 'copyRuntimeMods_gametest' }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
     var replaceProperties = [
@@ -71,5 +104,5 @@ neoForge.ideSyncTask generateModMetadata
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.compilerArgs += ['-Xlint:all,-processing,-serial', '-Xmaxerrs', '1000']
+    options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile', '-Xmaxerrs', '1000']
 }
