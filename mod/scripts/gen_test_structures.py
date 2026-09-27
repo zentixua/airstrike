@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Шаблоны для GameTest: плоские площадки с каменным полом (structure .nbt, MC 1.21.1).
+GameTest ставит шаблон на блок выше своей точки отсчёта: слой шаблона y = 0 — это y = 1 в координатах теста.
 
   python3 scripts/gen_test_structures.py   → src/main/resources/data/airstrike/structure/*.nbt
 """
@@ -67,5 +68,7 @@ def write(name, data):
 
 # маленькая площадка для быстрых проверок
 write("pad", structure(8, 6, 8, ["minecraft:stone"]))
-# полигон: пол из камня (3 слоя) и грунт сверху — для полёта, воронок и бурения
+# полигон: 8 слоёв камня, 2 грунта и дёрн — для воронок, бурения и прицела
 write("range", structure(64, 40, 64, ["minecraft:stone"] * 8 + ["minecraft:dirt"] * 2 + ["minecraft:grass_block"]))
+# взлётная полоса 32×256: снаряды заходят на цель с настоящей дистанции (ракета — с горкой)
+write("runway", structure(32, 64, 256, ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"]))

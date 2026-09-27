@@ -1,0 +1,6 @@
+{
+  "message_id": "airstrike.debris",
+  "exhaustion": 0.1,
+  "scaling": "never",
+  "effects": "hurt"
+}

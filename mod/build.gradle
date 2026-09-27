@@ -104,5 +104,5 @@ neoForge.ideSyncTask generateModMetadata
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile', '-Xmaxerrs', '1000']
+    options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile,-this-escape', '-Xmaxerrs', '1000']
 }

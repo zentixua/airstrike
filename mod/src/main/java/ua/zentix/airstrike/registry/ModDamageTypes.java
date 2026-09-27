@@ -14,6 +14,7 @@ public final class ModDamageTypes {
     public static final ResourceKey<DamageType> STRIKE = key("strike");
     public static final ResourceKey<DamageType> SHOCKWAVE = key("shockwave");
     public static final ResourceKey<DamageType> KINETIC = key("kinetic");
+    public static final ResourceKey<DamageType> DEBRIS = key("debris");
 
     private ModDamageTypes() {}
 

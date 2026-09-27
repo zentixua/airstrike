@@ -6,7 +6,10 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
+import ua.zentix.airstrike.command.AirstrikeCommand;
+import ua.zentix.airstrike.legacy.LegacyMigration;
 import ua.zentix.airstrike.net.AirstrikeNetwork;
 import ua.zentix.airstrike.registry.ModCreativeTabs;
 import ua.zentix.airstrike.registry.ModDataComponents;
@@ -14,6 +17,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ChunkTickets;
+import ua.zentix.airstrike.strike.StrikeWorld;
 
 /**
  * Airstrike: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы.
@@ -36,6 +40,12 @@ public final class Airstrike {
 
         modBus.addListener(AirstrikeNetwork::register);
         modBus.addListener(ChunkTickets::register);
+
+        NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
+        NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelUnload);
+        NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
+        NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
     }
 
     public static ResourceLocation id(String path) {

@@ -2,12 +2,18 @@ package ua.zentix.airstrike.compat;
 
 import dev.ryanhcode.sable.companion.SableCompanion;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
+import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import net.minecraft.core.Position;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3d;
 import ua.zentix.airstrike.Airstrike;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Единственное место работы с летательными аппаратами Sable («sub-levels»), через sable-companion (MIT, вшит в jar).
@@ -51,6 +57,43 @@ public final class SubLevels {
             disable(e);
             return pos;
         }
+    }
+
+    /** Точка плота, которая сейчас находится в мировой точке world (для аппарата sub). */
+    public static Vec3 toPlot(SubLevelAccess sub, Vec3 world) {
+        try {
+            return sub.logicalPose().transformPositionInverse(world);
+        } catch (RuntimeException | LinkageError e) {
+            disable(e);
+            return world;
+        }
+    }
+
+    /** Центр аппарата в мире. */
+    public static Vec3 center(SubLevelAccess sub) {
+        Vector3d c = sub.boundingBox().center();
+        return new Vec3(c.x, c.y, c.z);
+    }
+
+    /** Аппараты в радиусе (по габаритам). */
+    public static List<SubLevelAccess> near(Level level, Vec3 at, double radius) {
+        List<SubLevelAccess> out = new ArrayList<>();
+        if (broken) return out;
+        try {
+            BoundingBox3d box = new BoundingBox3d(at.x - radius, at.y - radius, at.z - radius, at.x + radius, at.y + radius, at.z + radius);
+            for (SubLevelAccess s : companion().getAllIntersecting(level, box)) out.add(s);
+        } catch (RuntimeException | LinkageError e) {
+            disable(e);
+        }
+        return out;
+    }
+
+    @Nullable
+    public static SubLevelAccess byId(Level level, Vec3 near, UUID id) {
+        for (SubLevelAccess s : near(level, near, 2048)) {
+            if (id.equals(s.getUniqueId())) return s;
+        }
+        return null;
     }
 
     /** Имя аппарата для интерфейса. */

@@ -18,7 +18,9 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_ENGINE_FAR = register("missile.engine.far");
     public static final DeferredHolder<SoundEvent, SoundEvent> MISSILE_WHISTLE = register("missile.whistle");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMBER_ENGINE = register("bomber.engine");
+    public static final DeferredHolder<SoundEvent, SoundEvent> BOMBER_ENGINE_FAR = register("bomber.engine.far");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_FALL = register("bomb.fall");
+    public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_FALL_FAR = register("bomb.fall.far");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_DRILL = register("bomb.drill");
     public static final DeferredHolder<SoundEvent, SoundEvent> SIREN = register("siren");
 
@@ -33,6 +35,8 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_VENT = register("bomb.vent");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_CAVE = register("bomb.cave");
     public static final DeferredHolder<SoundEvent, SoundEvent> DESIGNATOR_LOCK = register("designator.lock");
+    /** Пустое событие: ванильный взрыв не должен звучать — свой звук с задержкой по расстоянию играет клиент. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> SILENT = register("silent");
 
     private ModSounds() {}
 

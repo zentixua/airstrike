@@ -26,8 +26,8 @@ import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.guidance.FlightController;
-import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.ChunkTickets;
+import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
 
@@ -36,12 +36,13 @@ import java.util.UUID;
 
 /**
  * Общая основа снарядов: ориентация и поворот ({@link FlightController}), слежение за целью, заметание пути на
- * столкновения (блоки, аппараты Sable, сущности), тикеты чанков по курсу, синхронизация с клиентом, сохранение.
+ * столкновения (блоки, аппараты Sable, люди рядом с траекторией), тикеты чанков по курсу, синхронизация, сохранение.
  * <p>
  * Ошибка в тике одного снаряда не роняет сервер: снаряд удаляется, стек пишется в лог.
  */
 public abstract class StrikeProjectile extends Entity {
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
     private static final EntityDataAccessor<Vector3f> DATA_AIM = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.VECTOR3);
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.OPTIONAL_UUID);
@@ -51,7 +52,10 @@ public abstract class StrikeProjectile extends Entity {
     @Nullable
     protected TargetTracker tracker;
     protected int age;
-    protected float health;
+    /** Сколько урона ещё выдержит; -1 — не задано (берётся {@link #maxHealth()}). */
+    protected float health = -1;
+    /** Сглаженная заданная высота (фильтр как в датапаке: 1/5 разницы за тик). */
+    protected double altFilter;
 
     private final LongSet forcedChunks = new LongOpenHashSet();
 
@@ -64,16 +68,14 @@ public abstract class StrikeProjectile extends Entity {
         super(type, level);
         this.noPhysics = true;
         this.setNoGravity(true);
-        this.health = maxHealth();
     }
 
     // ---------------------------------------------------------------- параметры вида
 
+    public abstract WeaponType weapon();
+
     /** Полудлина корпуса: от центра до носа, блоков. */
     protected abstract double noseLength();
-
-    /** Радиус неконтактного взрывателя по людям и мобам, блоков. */
-    protected abstract double proximityRadius();
 
     /** Через сколько тиков взрываться в любом случае. */
     protected abstract int maxAge();
@@ -81,6 +83,11 @@ public abstract class StrikeProjectile extends Entity {
     /** Прочность: сколько урона выдержит, прежде чем его собьют. 0 — сбить нельзя. */
     protected float maxHealth() {
         return 0;
+    }
+
+    /** Держать ли тикеты чанков по курсу (бомбардировщику не нужно: улетает и исчезает). */
+    protected boolean holdsChunks() {
+        return true;
     }
 
     // ---------------------------------------------------------------- запуск
@@ -91,8 +98,10 @@ public abstract class StrikeProjectile extends Entity {
         float[] a = FlightController.anglesTo(pos, targetPoint);
         this.flight.set(a[0], 0);
         this.moveTo(pos.x, pos.y, pos.z, a[0], 0);
+        this.yRotO = a[0];
         this.entityData.set(DATA_OWNER, Optional.ofNullable(owner));
         syncAim();
+        syncSpeed();
     }
 
     @Nullable
@@ -106,7 +115,7 @@ public abstract class StrikeProjectile extends Entity {
         return id != null && level() instanceof ServerLevel sl ? sl.getServer().getPlayerList().getPlayer(id) : null;
     }
 
-    /** Точка, куда снаряд сейчас целится (синхронизирована — для HUD и тревоги). */
+    /** Точка, куда снаряд сейчас целится (синхронизирована — для HUD, тревоги и свиста ракеты). */
     public Vec3 aimPoint() {
         Vector3f v = entityData.get(DATA_AIM);
         return new Vec3(v.x, v.y, v.z);
@@ -124,12 +133,24 @@ public abstract class StrikeProjectile extends Entity {
         return entityData.get(DATA_ROLL);
     }
 
+    /** Скорость, блоков/тик (на клиенте — синхронизированная). */
     public double speed() {
-        return speed;
+        return level().isClientSide ? entityData.get(DATA_SPEED) : speed;
     }
 
     public int age() {
         return age;
+    }
+
+    /** Снаряд виден и слышен (ракета, ждущая окончания сирены, — нет). */
+    public boolean isActive() {
+        return true;
+    }
+
+    /** Цель, за которой идёт снаряд (сервер). */
+    @Nullable
+    public Target target() {
+        return tracker == null ? null : tracker.target();
     }
 
     // ---------------------------------------------------------------- тик
@@ -139,6 +160,7 @@ public abstract class StrikeProjectile extends Entity {
         super.tick();
         if (level().isClientSide) {
             clientLerp();
+            age++;
             clientTick();
             return;
         }
@@ -149,7 +171,10 @@ public abstract class StrikeProjectile extends Entity {
                 discard();
                 return;
             }
-            serverTick((ServerLevel) level());
+            ServerLevel level = (ServerLevel) level();
+            if (holdsChunks() && forcedChunks.isEmpty()) updateChunkTickets(level, position(), flight.forward());
+            serverTick(level);
+            syncSpeed();
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Снаряд {} в {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
             discard();
@@ -158,7 +183,7 @@ public abstract class StrikeProjectile extends Entity {
 
     protected abstract void serverTick(ServerLevel level);
 
-    /** Клиент: след, свет, дым. Звук ведёт клиентский менеджер звуков. */
+    /** Клиент: след, дым. Звук ведёт клиентский менеджер звуков. */
     protected void clientTick() {}
 
     /** Точка удара достигнута или столкновение: взрыв, бурение и т.п. */
@@ -180,9 +205,35 @@ public abstract class StrikeProjectile extends Entity {
         }
     }
 
+    private void syncSpeed() {
+        if (Math.abs(entityData.get(DATA_SPEED) - speed) > 0.01) entityData.set(DATA_SPEED, (float) speed);
+    }
+
+    /** Угол цели под горизонтом (°, > 0 — ниже), курс на цель (°) и расстояния до цели. */
+    protected record Bearing(double distance, double horizontal, float yaw, float pitch) {}
+
+    protected Bearing bearingTo(Vec3 aim) {
+        Vec3 p = position();
+        double dx = aim.x - p.x, dz = aim.z - p.z;
+        float[] a = FlightController.anglesTo(p, aim);
+        return new Bearing(p.distanceTo(aim), Math.sqrt(dx * dx + dz * dz), a[0], a[1]);
+    }
+
+    /**
+     * Держать высоту: плавный фильтр заданной высоты и тангаж, пропорциональный ошибке (1.2° на блок,
+     * от 15° вверх до 12° вниз), с ограничением угловой скорости и ускорения.
+     */
+    protected void holdAltitude(double desired, double gain, double maxRate, double maxAccel) {
+        altFilter += (desired - altFilter) / 5;
+        double climb = Math.max(-12, Math.min(15, (altFilter - getY()) * 1.2));
+        flight.holdPitch(-climb, gain, maxRate, maxAccel);
+    }
+
     /**
      * Шаг полёта: заметаем путь носа на длину шага. Столкновение (блок, аппарат, человек рядом с траекторией)
      * или достижение цели — {@link #impact}. Возвращает true, если снаряд ещё летит.
+     *
+     * @param reachPad запас дальности подрыва сверх длины шага (как в датапаке: шахед 4.3, ракета 6.5, бомба 5.3)
      */
     protected boolean advance(ServerLevel level, Vec3 aim, double reachPad) {
         Vec3 dir = flight.forward();
@@ -220,13 +271,7 @@ public abstract class StrikeProjectile extends Entity {
         }
 
         Vec3 next = pos.add(dir.scale(speed));
-        setPos(next.x, next.y, next.z);
-        setDeltaMovement(dir.scale(speed));
-        setYRot(flight.yaw());
-        setXRot(flight.pitch());
-        entityData.set(DATA_ROLL, flight.bankAngle(speed));
-        updateChunkTickets(level, next, dir);
-
+        moveAlong(level, next, dir);
         if (next.y < level.getMinBuildHeight() - 64) {
             discard();
             return false;
@@ -234,15 +279,26 @@ public abstract class StrikeProjectile extends Entity {
         return true;
     }
 
-    /** Кто окажется в радиусе неконтактного взрывателя на отрезке пути. */
+    /** Перемещение без проверок (бомбардировщик, бурение). */
+    protected void moveAlong(ServerLevel level, Vec3 next, Vec3 dir) {
+        setPos(next.x, next.y, next.z);
+        setDeltaMovement(dir.scale(speed));
+        setYRot(flight.yaw());
+        setXRot(flight.pitch());
+        float roll = flight.bankAngle(speed);
+        if (Math.abs(roll - entityData.get(DATA_ROLL)) > 0.2f) entityData.set(DATA_ROLL, roll);
+        if (holdsChunks()) updateChunkTickets(level, next, dir);
+    }
+
+    /** Неконтактный взрыватель: как в датапаке, срабатывает на людей рядом с траекторией, а ещё на саму цель. */
     @Nullable
     private Entity proximityVictim(ServerLevel level, Vec3 from, Vec3 to) {
-        double r = proximityRadius();
-        if (r <= 0) return null;
-        AABB sweep = new AABB(from, to).inflate(r);
+        double r = speed / 8 + 1.8;
+        AABB sweep = new AABB(from, to).inflate(r + 1);
         Entity best = null;
         double bestT = Double.MAX_VALUE;
-        for (Entity e : level.getEntities(this, sweep, this::isProximityTarget)) {
+        UUID targetId = tracker != null && tracker.target() instanceof Target.OfEntity e ? e.uuid() : null;
+        for (Entity e : level.getEntities(this, sweep, e -> isProximityTarget(e, targetId))) {
             Vec3 c = e.getBoundingBox().getCenter();
             Vec3 on = closestOnSegment(from, to, c);
             double reach = r + e.getBbWidth() * 0.5;
@@ -257,10 +313,9 @@ public abstract class StrikeProjectile extends Entity {
         return best;
     }
 
-    protected boolean isProximityTarget(Entity e) {
-        if (!e.isAlive() || e.isSpectator() || e instanceof StrikeProjectile || e.getType().is(ModTags.AIM_IGNORE)) return false;
-        if (e instanceof Player p && p.isCreative()) return false;
-        return e instanceof net.minecraft.world.entity.LivingEntity || e.isPickable();
+    private static boolean isProximityTarget(Entity e, @Nullable UUID targetId) {
+        if (!e.isAlive() || e.isSpectator() || e instanceof StrikeProjectile) return false;
+        return e instanceof Player || e.getUUID().equals(targetId);
     }
 
     protected static Vec3 closestOnSegment(Vec3 a, Vec3 b, Vec3 p) {
@@ -272,7 +327,7 @@ public abstract class StrikeProjectile extends Entity {
     }
 
     /** Высота рельефа (верх препятствий) в точке. */
-    protected static double surfaceY(Level level, double x, double z) {
+    public static double surfaceY(Level level, double x, double z) {
         return level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(x), (int) Math.floor(z));
     }
 
@@ -290,11 +345,15 @@ public abstract class StrikeProjectile extends Entity {
 
     // ---------------------------------------------------------------- чанки
 
+    /** Держим свой чанк и чанк впереди по курсу — но только уже загруженные: новые чанки на лету не генерируем. */
     private void updateChunkTickets(ServerLevel level, Vec3 pos, Vec3 dir) {
         long here = ChunkPos.asLong(BlockPos.containing(pos));
         long ahead = ChunkPos.asLong(BlockPos.containing(pos.add(dir.scale(Math.max(16, speed * 3)))));
-        if (forcedChunks.size() == (here == ahead ? 1 : 2) && forcedChunks.contains(here) && forcedChunks.contains(ahead)) return;
-        LongSet want = new LongOpenHashSet(new long[]{here, ahead});
+        if (forcedChunks.contains(here) && forcedChunks.contains(ahead) && forcedChunks.size() == (here == ahead ? 1 : 2)) return;
+        LongSet want = new LongOpenHashSet();
+        for (long c : new long[]{here, ahead}) {
+            if (level.getChunkSource().hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
+        }
         for (long c : forcedChunks.toLongArray()) {
             if (!want.contains(c)) {
                 ChunkTickets.force(level, this, c, false);
@@ -323,7 +382,7 @@ public abstract class StrikeProjectile extends Entity {
 
     @Override
     public boolean isPickable() {
-        return maxHealth() > 0 && !isRemoved();
+        return maxHealth() > 0 && !isRemoved() && isActive();
     }
 
     @Override
@@ -333,8 +392,9 @@ public abstract class StrikeProjectile extends Entity {
 
     @Override
     public boolean hurt(DamageSource source, float amount) {
-        if (isInvulnerableTo(source) || maxHealth() <= 0 || isRemoved()) return false;
+        if (isInvulnerableTo(source) || maxHealth() <= 0 || isRemoved() || !isActive()) return false;
         if (level() instanceof ServerLevel level) {
+            if (health < 0) health = maxHealth();
             health -= amount;
             if (health <= 0) {
                 shotDown(level, source);
@@ -343,7 +403,7 @@ public abstract class StrikeProjectile extends Entity {
         return true;
     }
 
-    /** Сбили: по умолчанию подрыв там, где настигло. */
+    /** Сбили: подрыв там, где настигло. */
     protected void shotDown(ServerLevel level, DamageSource source) {
         impact(level, position(), null);
     }
@@ -353,6 +413,7 @@ public abstract class StrikeProjectile extends Entity {
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         builder.define(DATA_ROLL, 0f);
+        builder.define(DATA_SPEED, 0f);
         builder.define(DATA_PHASE, (byte) 0);
         builder.define(DATA_AIM, new Vector3f());
         builder.define(DATA_OWNER, Optional.empty());
@@ -403,11 +464,13 @@ public abstract class StrikeProjectile extends Entity {
         flight.load(tag.getCompound("flight"));
         speed = tag.getDouble("speed");
         age = tag.getInt("age");
-        health = tag.contains("health") ? tag.getFloat("health") : maxHealth();
+        altFilter = tag.getDouble("alt");
+        health = tag.contains("health") ? tag.getFloat("health") : -1;
         setPhase(tag.getByte("phase"));
         if (tag.contains("tracker")) tracker = TargetTracker.load(tag.getCompound("tracker"));
         if (tag.hasUUID("owner")) entityData.set(DATA_OWNER, Optional.of(tag.getUUID("owner")));
         syncAim();
+        syncSpeed();
     }
 
     @Override
@@ -417,6 +480,7 @@ public abstract class StrikeProjectile extends Entity {
         tag.put("flight", f);
         tag.putDouble("speed", speed);
         tag.putInt("age", age);
+        tag.putDouble("alt", altFilter);
         tag.putFloat("health", health);
         tag.putByte("phase", (byte) phase());
         if (tracker != null) tag.put("tracker", tracker.save());

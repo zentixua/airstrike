@@ -14,7 +14,8 @@ import java.util.function.IntFunction;
 public enum TargetMode implements StringRepresentable {
     LOOK(0, "look"),
     AROUND_ME(1, "around_me"),
-    PLAYER(2, "player");
+    PLAYER(2, "player"),
+    AIRCRAFT(3, "aircraft");
 
     public static final Codec<TargetMode> CODEC = StringRepresentable.fromEnum(TargetMode::values);
     private static final IntFunction<TargetMode> BY_ID = ByIdMap.continuous(TargetMode::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);

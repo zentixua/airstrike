@@ -12,6 +12,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.level.Level;
+import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.strike.Loadout;
 
@@ -34,7 +35,8 @@ public class DesignatorItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (player.isShiftKeyDown()) {
-            // экран открывает клиент; серверу здесь делать нечего
+            // экран пульта — клиентский; пуск с него всё равно проверяет сервер
+            if (level.isClientSide) ClientHooks.get().openRemote();
             return InteractionResultHolder.success(stack);
         }
         player.playSound(SoundEvents.SPYGLASS_USE, 1.0f, 1.0f);
