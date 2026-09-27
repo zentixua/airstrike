@@ -1,0 +1,27 @@
+{
+ "values": [
+  "#minecraft:base_stone_overworld",
+  "#minecraft:stone_ore_replaceables",
+  "minecraft:cobblestone",
+  "minecraft:mossy_cobblestone",
+  "minecraft:calcite",
+  "minecraft:dripstone_block",
+  "minecraft:sandstone",
+  "minecraft:red_sandstone",
+  "minecraft:netherrack",
+  "minecraft:basalt",
+  "minecraft:smooth_basalt",
+  "minecraft:blackstone",
+  "minecraft:end_stone",
+  "#minecraft:terracotta",
+  "#minecraft:coal_ores",
+  "#minecraft:iron_ores",
+  "#minecraft:copper_ores",
+  "#minecraft:gold_ores",
+  "#minecraft:redstone_ores",
+  "#minecraft:lapis_ores",
+  "#minecraft:diamond_ores",
+  "#minecraft:emerald_ores",
+  "minecraft:amethyst_block"
+ ]
+}

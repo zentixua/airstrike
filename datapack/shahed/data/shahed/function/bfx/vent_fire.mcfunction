@@ -1,0 +1,10 @@
+particle minecraft:flame ~0 ~0.5 ~0 0 1 0 1.3 0 force @a
+particle minecraft:flame ~0.3 ~0.5 ~0 0 1 0 1.1 0 force @a
+particle minecraft:flame ~-0.3 ~0.5 ~0.2 0 1 0 1.2 0 force @a
+particle minecraft:flame ~0 ~0.5 ~-0.3 0 1 0 1.0 0 force @a
+particle minecraft:flame ~0.2 ~0.5 ~0.3 0 1 0 1.4 0 force @a
+particle minecraft:large_smoke ~0 ~0.8 ~0 0 1 0 1.0 0 force @a
+particle minecraft:large_smoke ~0.3 ~0.8 ~-0.2 0 1 0 0.8 0 force @a
+particle minecraft:large_smoke ~-0.2 ~0.8 ~0.3 0 1 0 0.9 0 force @a
+particle minecraft:lava ~ ~0.5 ~ 0.3 0.3 0.3 0 6 force @a
+particle minecraft:explosion ~ ~1.5 ~ 0.3 1 0.3 0 1 force @a

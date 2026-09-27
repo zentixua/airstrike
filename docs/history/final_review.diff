@@ -1,0 +1,1017 @@
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/cavity.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/cavity.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/cavity.mcfunction	2026-09-27 19:37:44.355000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/cavity.mcfunction"	2026-09-27 19:37:44.936850557 +0200
+@@ -1,6 +1,6 @@
+ # порода вокруг заряда в неровных комьях заменяется льдом: он не даёт дропа и почти не держит взрыв,
+ # поэтому взрыв сам выгрызает полость рваной, «природной» формы
+-data modify storage shahed:tmp br set value {rx:6,ry:5,rz:6,oy:0,rmin:3,rmax:5,blk:"minecraft:ice",rep:"#shahed:drillable"}
++data modify storage shahed:tmp br set value {rx:6,ry:5,rz:6,oy:0,rmin:3,rmax:5,blk:"minecraft:black_stained_glass",rep:"#shahed:drillable"}
+ scoreboard players set #bn shahed 12
+ function shahed:bfx/blobs
+ execute store result storage shahed:tmp ck.x int 1 run random value -3..3
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/impact.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/impact.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/impact.mcfunction	2026-09-27 19:37:44.354000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/impact.mcfunction"	2026-09-27 19:37:44.936058624 +0200
+@@ -3,7 +3,7 @@
+ particle minecraft:explosion_emitter ~ ~1 ~ 0 0 0 0 1 force @a
+ particle minecraft:explosion ~ ~1 ~ 1 1 1 0 12 force @a
+ execute as @e[type=minecraft:marker,tag=shahed_vent] if score @s shahed_id = #cur_b shahed at @s run function shahed:fx/spray
+-stopsound @a[distance=..400] ambient
++stopsound @a[distance=..60] ambient
+ playsound shahed:bb.crack master @a[distance=..300,scores={shahed_mode=2..}] ~ ~ ~ 12 1 0.5
+ playsound shahed:bb.impact master @a[distance=..300,scores={shahed_mode=2..}] ~ ~ ~ 12 1 0.6
+ playsound minecraft:entity.firework_rocket.large_blast master @a[distance=..300,scores={shahed_mode=..1}] ~ ~ ~ 10 0.5 0.5
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/lights_off.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/lights_off.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/lights_off.mcfunction	2026-09-27 19:37:44.355000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/lights_off.mcfunction"	2026-09-27 19:37:44.938263453 +0200
+@@ -2,7 +2,7 @@
+ execute positioned ~5 ~2 ~0 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+ execute positioned ~-5 ~2 ~0 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+ execute positioned ~0 ~2 ~5 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+-execute positioned ~0 ~-4 ~-5 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
++execute positioned ~0 ~2 ~-5 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+ execute positioned ~0 ~5 ~0 if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+ effect clear @a[tag=shahed_nv] minecraft:night_vision
+ tag @a remove shahed_nv
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/lights_on.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/lights_on.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/lights_on.mcfunction	2026-09-27 19:37:44.355000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/lights_on.mcfunction"	2026-09-27 19:37:44.937929820 +0200
+@@ -2,5 +2,5 @@
+ execute positioned ~5 ~2 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+ execute positioned ~-5 ~2 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+ execute positioned ~0 ~2 ~5 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+-execute positioned ~0 ~-4 ~-5 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
++execute positioned ~0 ~2 ~-5 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+ execute positioned ~0 ~5 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/rubble.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/rubble.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/rubble.mcfunction	2026-09-27 19:37:44.359000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/rubble.mcfunction"	2026-09-27 19:37:44.937568878 +0200
+@@ -1,6 +1,6 @@
+ # что уцелело от ослабленной зоны — дроблёная порода; щебень под сводом осыпается в полость
+-fill ~-11 ~1 ~-11 ~11 ~11 ~11 minecraft:gravel replace minecraft:ice
+-fill ~-11 ~-11 ~-11 ~11 ~0 ~11 minecraft:cobblestone replace minecraft:ice
++fill ~-11 ~1 ~-11 ~11 ~11 ~11 minecraft:gravel replace minecraft:black_stained_glass
++fill ~-11 ~-11 ~-11 ~11 ~0 ~11 minecraft:cobblestone replace minecraft:black_stained_glass
+ data modify storage shahed:tmp br set value {rx:5,ry:1,rz:5,oy:-7,rmin:1,rmax:2,blk:"minecraft:magma_block",rep:"#shahed:bb_rock"}
+ scoreboard players set #bn shahed 3
+ function shahed:bfx/blobs
+diff -ruN shahed_backup_pre_review/data/shahed/function/bfx/start.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/start.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bfx/start.mcfunction	2026-09-27 19:37:44.355000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bfx/start.mcfunction"	2026-09-27 19:37:44.878385176 +0200
+@@ -6,6 +6,7 @@
+ execute positioned over motion_blocking run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_surf","shahed_newsurf"]}
+ execute as @e[type=minecraft:marker,tag=shahed_newsurf] at @s run function shahed:bfx/surf_init
+ function shahed:bfx/cavity
++function shahed:cfg_clamp
+ function shahed:bfx/main_blast with storage shahed:cfg
+ # ударная волна в породе: достаёт и за камнем, без прямой видимости
+ execute as @e[distance=..10,tag=!shahed,type=!minecraft:marker] run damage @s 200 minecraft:explosion
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/bomb_spawn.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomb_spawn.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/bomb_spawn.mcfunction	2026-09-27 19:37:44.351000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomb_spawn.mcfunction"	2026-09-27 19:37:44.865071901 +0200
+@@ -1,3 +1,3 @@
+ scoreboard players add #next shahed_id 1
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_bunker","shahed_new"]}
+-execute as @e[type=minecraft:marker,tag=shahed_new,limit=1] at @s run function shahed:bunker/bomb_init
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_bunker","shahed_snd","shahed_new"]}
++execute as @e[type=minecraft:marker,tag=shahed_new,limit=1,sort=nearest] at @s run function shahed:bunker/bomb_init
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/bomber_spawn.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomber_spawn.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/bomber_spawn.mcfunction	2026-09-27 19:37:44.350000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomber_spawn.mcfunction"	2026-09-27 19:37:44.865762913 +0200
+@@ -1,4 +1,4 @@
+ scoreboard players add #next shahed_id 1
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_bomber","shahed_new"]}
+-execute as @e[type=minecraft:marker,tag=shahed_new,limit=1] run function shahed:bunker/bomber_init
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_bomber","shahed_snd","shahed_new"]}
++execute as @e[type=minecraft:marker,tag=shahed_new,limit=1,sort=nearest] run function shahed:bunker/bomber_init
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/bomber_tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomber_tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/bomber_tick.mcfunction	2026-09-27 19:37:44.350000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/bomber_tick.mcfunction"	2026-09-27 19:37:44.867786085 +0200
+@@ -1,3 +1,5 @@
++# маркер без инициализации (сбой спавна) — убрать, чтобы не сыпал ошибками
++execute unless score @s shahed_id matches 1.. run return run kill @s
+ scoreboard players add @s shahed_t 1
+ function shahed:fly/measure
+ # сброс за ~85 блоков до цели: бомба сама доворачивает и входит почти отвесно
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/drill_visual.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/drill_visual.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/drill_visual.mcfunction	2026-09-27 19:37:44.353000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/drill_visual.mcfunction"	2026-09-27 19:37:44.936430251 +0200
+@@ -4,5 +4,7 @@
+ scoreboard players operation #m3 shahed = @s shahed_t
+ scoreboard players operation #m3 shahed %= #3 shahed
+ execute if score #m3 shahed matches 0 run playsound shahed:bb.drill ambient @a[distance=..96,scores={shahed_mode=2..}] ~ ~ ~ 6 0.85 0
+-execute if score #m3 shahed matches 0 run playsound minecraft:entity.warden.dig ambient @a[distance=..96,scores={shahed_mode=..1}] ~ ~ ~ 6 0.7 0
++scoreboard players operation #m12 shahed = @s shahed_t
++scoreboard players operation #m12 shahed %= #12 shahed
++execute if score #m12 shahed matches 0 run playsound minecraft:entity.warden.dig ambient @a[distance=..96,scores={shahed_mode=..1}] ~ ~ ~ 6 0.7 0
+ execute as @a[distance=..40] unless score @s shahed_quake matches 10.. run scoreboard players set @s shahed_quake 10
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/launch_common.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/launch_common.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/launch_common.mcfunction	2026-09-27 19:37:44.350000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/launch_common.mcfunction"	2026-09-27 19:37:44.919900560 +0200
+@@ -1,6 +1,7 @@
+ execute unless entity @e[type=minecraft:marker,tag=shahed_tgt_new] run return run tellraw @s {"text":"Цель не найдена","color":"red"}
++data remove storage shahed:tmp d
+ # точка прицеливания — поверхность над целью; если цель глубже — бомба пробивается к ней
+-execute at @e[type=minecraft:marker,tag=shahed_tgt_new,limit=1] positioned over motion_blocking_no_leaves run summon minecraft:marker ~ ~-0.5 ~ {Tags:["shahed_tgt_surf"]}
++execute at @e[type=minecraft:marker,tag=shahed_tgt_new,limit=1] positioned over motion_blocking_no_leaves run summon minecraft:marker ~ ~-0.5 ~ {Tags:["shahed","shahed_tgt_surf"]}
+ execute store result storage shahed:tmp j.x double 0.1 run random value -25..25
+ execute store result storage shahed:tmp j.z double 0.1 run random value -25..25
+ execute as @e[type=minecraft:marker,tag=shahed_tgt_surf] at @s run function shahed:bunker/jitter with storage shahed:tmp j
+@@ -20,6 +21,8 @@
+ execute at @e[type=minecraft:marker,tag=shahed_tgt_surf,limit=1] rotated as @s rotated ~ 0 run function shahed:bunker/bomber_spawn_at
+ execute if data storage shahed:cfg {siren:1b} unless score #nosiren shahed matches 1 at @e[type=minecraft:marker,tag=shahed_tgt_surf,limit=1] run function shahed:drone/siren
+ kill @e[type=minecraft:marker,tag=shahed_tgt_new]
++# бомба бьёт по точке и за целью не следит — пометку с сущности снимаем
++execute if data storage shahed:tmp sl.id run function shahed:untag_if_free with storage shahed:tmp sl
+ kill @e[type=minecraft:marker,tag=shahed_tgt_surf]
+ title @s actionbar {"text":"B-2 на боевом курсе. Сброс бетонобойной бомбы через несколько секунд.","color":"red"}
+ playsound minecraft:ui.button.click master @s ~ ~ ~ 1 0.5
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker/tick.mcfunction	2026-09-27 19:37:44.351000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker/tick.mcfunction"	2026-09-27 19:37:44.867400210 +0200
+@@ -1,3 +1,5 @@
++# маркер без инициализации (сбой спавна) — убрать, чтобы не сыпал ошибками
++execute unless score @s shahed_id matches 1.. run return run kill @s
+ scoreboard players add @s shahed_t 1
+ execute if score @s shahed_ph matches 5 run return run function shahed:bunker/drill_tick
+ function shahed:bunker/steer with entity @s data
+diff -ruN shahed_backup_pre_review/data/shahed/function/bunker_strike.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker_strike.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/bunker_strike.mcfunction	2026-09-27 19:37:44.354000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/bunker_strike.mcfunction"	2026-09-27 19:37:44.891699639 +0200
+@@ -1,5 +1,5 @@
+ # /function shahed:bunker_strike {name:"Ник"} — пробивает грунт над игроком и рвётся в его пещере
+-$execute unless entity @a[name=$(name)] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:bunker_strike"}
++$execute unless entity @a[name="$(name)"] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:bunker_strike"}
+ kill @e[type=minecraft:marker,tag=shahed_tgt_new]
+-$execute at @a[name=$(name),limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed_tgt_new"]}
++$execute at @a[name="$(name)",limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed","shahed_tgt_new"]}
+ function shahed:bunker/launch_common
+diff -ruN shahed_backup_pre_review/data/shahed/function/cfg_clamp.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/cfg_clamp.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/cfg_clamp.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/cfg_clamp.mcfunction"	2026-09-27 19:37:44.877289292 +0200
+@@ -0,0 +1,10 @@
++# защита от опечаток в настройках: слишком большой взрыв подвесит сервер
++execute store result score #cp shahed run data get storage shahed:cfg power
++execute if score #cp shahed matches ..0 run data modify storage shahed:cfg power set value 12
++execute if score #cp shahed matches 61.. run data modify storage shahed:cfg power set value 60
++execute store result score #cp shahed run data get storage shahed:cfg missile_power
++execute if score #cp shahed matches ..0 run data modify storage shahed:cfg missile_power set value 20
++execute if score #cp shahed matches 61.. run data modify storage shahed:cfg missile_power set value 60
++execute store result score #cp shahed run data get storage shahed:cfg bunker_power
++execute if score #cp shahed matches ..0 run data modify storage shahed:cfg bunker_power set value 20
++execute if score #cp shahed matches 61.. run data modify storage shahed:cfg bunker_power set value 60
+diff -ruN shahed_backup_pre_review/data/shahed/function/clear.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/clear.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/clear.mcfunction	2026-09-27 19:37:44.324000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/clear.mcfunction"	2026-09-27 19:37:44.934935431 +0200
+@@ -1,9 +1,14 @@
+ execute as @e[type=minecraft:marker,tag=shahed_lamp] at @s if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
++execute as @e[type=minecraft:marker,tag=shahed_fx] at @s run function shahed:fx/lights_off
++execute as @e[type=minecraft:marker,tag=shahed_mfx] at @s run function shahed:mfx/lights_off
++execute as @e[type=minecraft:marker,tag=shahed_bfx] at @s run function shahed:bfx/lights_off
+ kill @e[tag=shahed]
+ function shahed:untag_all
+ kill @e[type=minecraft:marker,tag=shahed_helper]
+ stopsound @a ambient
+ stopsound @a master shahed:siren
++stopsound @a master snassets:signal/siren
++scoreboard players set #siren_t shahed -100000
+ effect clear @a[tag=shahed_nv] minecraft:night_vision
+ tag @a remove shahed_nv
+ scoreboard players reset * shahed_shake
+diff -ruN shahed_backup_pre_review/data/shahed/function/debris/land_check.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/debris/land_check.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/debris/land_check.mcfunction	2026-09-27 19:37:44.345000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/debris/land_check.mcfunction"	2026-09-27 19:37:44.938485479 +0200
+@@ -1,2 +1,4 @@
++# сначала дешёвая проверка блока, NBT — только когда под обломком что-то твёрдое
++execute if block ~ ~-1.2 ~ #shahed:passable run return 0
+ execute store result score #vy shahed run data get entity @s Motion[1] 100
+-execute if score #vy shahed matches ..-5 unless block ~ ~-1.2 ~ #shahed:passable run function shahed:debris/thud
++execute if score #vy shahed matches ..-5 run function shahed:debris/thud
+diff -ruN shahed_backup_pre_review/data/shahed/function/drone/detonate.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/detonate.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/drone/detonate.mcfunction	2026-09-27 19:37:44.327000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/detonate.mcfunction"	2026-09-27 19:37:44.884478437 +0200
+@@ -1,7 +1,8 @@
+ scoreboard players operation #cur shahed_id = @s shahed_id
+-execute if data entity @s data.sl.id run function shahed:untag with entity @s data.sl
++tag @s add shahed_dead
++execute if data entity @s data.sl.id run function shahed:untag_if_free with entity @s data.sl
+ execute as @e[tag=shahed_part] if score @s shahed_id = #cur shahed_id run kill @s
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_fx","shahed_newfx"]}
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_fx","shahed_snd","shahed_newfx"]}
+ execute as @e[type=minecraft:marker,tag=shahed_newfx] at @s run function shahed:fx/start
+ kill @s
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/drone/init.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/init.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/drone/init.mcfunction	2026-09-27 19:37:44.326000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/init.mcfunction"	2026-09-27 19:37:44.896150854 +0200
+@@ -16,7 +16,7 @@
+ scoreboard players add #ty shahed 3000
+ scoreboard players operation #y shahed > #ty shahed
+ scoreboard players set #gy shahed -9999999
+-execute positioned over motion_blocking run summon minecraft:marker ~ ~20 ~ {Tags:["shahed_tmp"]}
++execute positioned over motion_blocking run summon minecraft:marker ~ ~20 ~ {Tags:["shahed","shahed_tmp"]}
+ execute store result score #gy shahed run data get entity @e[type=minecraft:marker,tag=shahed_tmp,limit=1] Pos[1] 100
+ kill @e[type=minecraft:marker,tag=shahed_tmp]
+ scoreboard players operation #y shahed > #gy shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/drone/siren.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/siren.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/drone/siren.mcfunction	2026-09-27 19:37:44.326000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/siren.mcfunction"	2026-09-27 19:37:44.935295185 +0200
+@@ -1,3 +1,9 @@
++# сирена ещё звучит (13 с) — вторую не накладываем, только надпись
++execute store result score #now shahed run time query gametime
++scoreboard players operation #dt shahed = #now shahed
++scoreboard players operation #dt shahed -= #siren_t shahed
++execute if score #dt shahed matches 0..259 run return run title @a[distance=..350] actionbar {"text":"⚠ ВОЗДУШНАЯ ТРЕВОГА ⚠","color":"red","bold":true}
++scoreboard players operation #siren_t shahed = #now shahed
+ playsound shahed:siren master @a[scores={shahed_mode=1..}] ~115 ~15 ~80 16 1 0
+ playsound shahed:siren master @a[scores={shahed_mode=1..}] ~-130 ~15 ~-70 16 0.97 0
+ playsound snassets:signal/siren master @a[distance=..350,scores={shahed_mode=0}] ~ ~ ~ 0.3 1 0.3
+diff -ruN shahed_backup_pre_review/data/shahed/function/drone/spawn.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/spawn.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/drone/spawn.mcfunction	2026-09-27 19:37:44.326000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/spawn.mcfunction"	2026-09-27 19:37:44.863707685 +0200
+@@ -1,4 +1,4 @@
+ scoreboard players add #next shahed_id 1
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_new"]}
+-execute as @e[type=minecraft:marker,tag=shahed_new,limit=1] run function shahed:drone/init
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_snd","shahed_new"]}
++execute as @e[type=minecraft:marker,tag=shahed_new,limit=1,sort=nearest] run function shahed:drone/init
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/drone/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/drone/tick.mcfunction	2026-09-27 19:37:44.327000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/drone/tick.mcfunction"	2026-09-27 19:37:44.866762626 +0200
+@@ -1,3 +1,5 @@
++# маркер без инициализации (сбой спавна) — убрать, чтобы не сыпал ошибками
++execute unless score @s shahed_id matches 1.. run return run kill @s
+ scoreboard players add @s shahed_t 1
+ execute if data entity @s data.who run function shahed:track with entity @s data
+ execute if data entity @s data.sl.px run function shahed:track_slp with entity @s data.sl
+diff -ruN shahed_backup_pre_review/data/shahed/function/fly/measure.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fly/measure.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/fly/measure.mcfunction	2026-09-27 19:37:44.340000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fly/measure.mcfunction"	2026-09-27 19:37:44.883861037 +0200
+@@ -9,6 +9,13 @@
+ scoreboard players operation #dy shahed -= #y shahed
+ scoreboard players operation #dz shahed = @s shahed_tz
+ scoreboard players operation #dz shahed -= #z shahed
++# дальше 2.5 км — зажимаем, чтобы квадраты не переполнили int
++execute if score #dx shahed matches 25001.. run scoreboard players set #dx shahed 25000
++execute if score #dx shahed matches ..-25001 run scoreboard players set #dx shahed -25000
++execute if score #dy shahed matches 25001.. run scoreboard players set #dy shahed 25000
++execute if score #dy shahed matches ..-25001 run scoreboard players set #dy shahed -25000
++execute if score #dz shahed matches 25001.. run scoreboard players set #dz shahed 25000
++execute if score #dz shahed matches ..-25001 run scoreboard players set #dz shahed -25000
+ scoreboard players operation #hd2 shahed = #dx shahed
+ scoreboard players operation #hd2 shahed *= #dx shahed
+ scoreboard players operation #t2 shahed = #dz shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/fx/start.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fx/start.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/fx/start.mcfunction	2026-09-27 19:37:44.328000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fx/start.mcfunction"	2026-09-27 19:37:44.877681103 +0200
+@@ -2,5 +2,6 @@
+ scoreboard players set @s shahed_t 0
+ function shahed:debris/sample
+ function shahed:fx/flash
++function shahed:cfg_clamp
+ function shahed:fx/main_blast with storage shahed:cfg
+ function shahed:fx/mod_burst
+diff -ruN shahed_backup_pre_review/data/shahed/function/fx/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fx/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/fx/tick.mcfunction	2026-09-27 19:37:44.329000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/fx/tick.mcfunction"	2026-09-27 19:37:44.868158899 +0200
+@@ -3,7 +3,8 @@
+ execute if score @s shahed_t matches 1..24 run function shahed:fx/front
+ scoreboard players operation #m3 shahed = @s shahed_t
+ scoreboard players operation #m3 shahed %= #3 shahed
+-execute if score @s shahed_t matches 1..24 if score #m3 shahed matches 0 run function shahed:snd/tail_drone
++execute if score @s shahed_t matches 1..18 if score #m3 shahed matches 0 run function shahed:snd/tail_drone
++execute if score @s shahed_t matches 19 run tag @s remove shahed_snd
+ execute if score @s shahed_t matches 1..20 run function shahed:fx/ring_prep
+ execute if score @s shahed_t matches 1 run function shahed:fx/t1
+ execute if score @s shahed_t matches 3 run function shahed:fx/secondary_a
+diff -ruN shahed_backup_pre_review/data/shahed/function/help.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/help.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/help.mcfunction	2026-09-27 19:37:44.324000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/help.mcfunction"	2026-09-27 19:37:44.939218048 +0200
+@@ -1,16 +1,16 @@
+ tellraw @s {"text":"=== Шахед ===","color":"gold","bold":true}
+ tellraw @s [{"text":"/function shahed:menu","color":"yellow","bold":true,"clickEvent":{"action":"run_command","value":"/function shahed:menu"}},{"text":" — ПУЛЬТ: оружие, количество, разброс и цель кнопками","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:launch","color":"yellow"},{"text":" — удар туда, куда смотришь (до 200 блоков)","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:strike {name:\"Ник\"}","color":"yellow"},{"text":" — удар по игроку","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:missile","color":"yellow"},{"text":" — крылатая ракета туда, куда смотришь","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:missile_strike {name:\"Ник\"}","color":"yellow"},{"text":" — ракетой по игроку","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:bunker","color":"yellow"},{"text":" — B-2 сбрасывает бетонобойную бомбу туда, куда смотришь","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:bunker_strike {name:\"Ник\"}","color":"yellow"},{"text":" — пробить грунт над игроком и взорвать его пещеру","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:salvo {type:\"drone\",count:6,radius:25}","color":"yellow"},{"text":" — залп вокруг того места, где стоишь (drone / missile / bunker)","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:salvo_look {type:\"missile\",count:4,radius:30}","color":"yellow"},{"text":" — залп вокруг точки, куда смотришь","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:clear","color":"yellow"},{"text":" — убрать всё без взрыва","color":"gray"}]
+-tellraw @s [{"text":"Настройки: ","color":"gray"},{"text":"/data modify storage shahed:cfg power set value 12","color":"aqua"},{"text":"  (шахед, 1–127, TNT = 4)","color":"gray"}]
+-tellraw @s [{"text":"/data modify storage shahed:cfg missile_power set value 20","color":"aqua"},{"text":"  (ракета)","color":"gray"}]
++tellraw @s [{"text":"/function shahed:launch","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:launch"}},{"text":" — удар туда, куда смотришь (до 200 блоков)","color":"gray"}]
++tellraw @s [{"text":"/function shahed:strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:strike {name:\"Ник\"}"}},{"text":" — удар по игроку","color":"gray"}]
++tellraw @s [{"text":"/function shahed:missile","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:missile"}},{"text":" — крылатая ракета туда, куда смотришь","color":"gray"}]
++tellraw @s [{"text":"/function shahed:missile_strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:missile_strike {name:\"Ник\"}"}},{"text":" — ракетой по игроку","color":"gray"}]
++tellraw @s [{"text":"/function shahed:bunker","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:bunker"}},{"text":" — B-2 сбрасывает бетонобойную бомбу туда, куда смотришь","color":"gray"}]
++tellraw @s [{"text":"/function shahed:bunker_strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:bunker_strike {name:\"Ник\"}"}},{"text":" — пробить грунт над игроком и взорвать его пещеру","color":"gray"}]
++tellraw @s [{"text":"/function shahed:salvo {type:\"drone\",count:6,radius:25}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:salvo {type:\"drone\",count:6,radius:25}"}},{"text":" — залп вокруг того места, где стоишь (drone / missile / bunker)","color":"gray"}]
++tellraw @s [{"text":"/function shahed:salvo_look {type:\"missile\",count:4,radius:30}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:salvo_look {type:\"missile\",count:4,radius:30}"}},{"text":" — залп вокруг точки, куда смотришь","color":"gray"}]
++tellraw @s [{"text":"/function shahed:clear","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:clear"}},{"text":" — убрать всё без взрыва","color":"gray"}]
++tellraw @s [{"text":"Настройки: ","color":"gray"},{"text":"/data modify storage shahed:cfg power set value 12","color":"aqua","clickEvent":{"action":"suggest_command","value":"/data modify storage shahed:cfg power set value 12"}},{"text":"  (шахед, 1–60, TNT = 4)","color":"gray"}]
++tellraw @s [{"text":"/data modify storage shahed:cfg missile_power set value 20","color":"aqua","clickEvent":{"action":"suggest_command","value":"/data modify storage shahed:cfg missile_power set value 20"}},{"text":"  (ракета)","color":"gray"}]
+ tellraw @s [{"text":"shatter / shake / siren: ","color":"gray"},{"text":"set value 0b","color":"aqua"},{"text":" — выключить стёкла / тряску / сирену","color":"gray"}]
+ tellraw @s [{"text":"debris_stay 0b","color":"aqua"},{"text":" — обломки исчезают при падении (по умолчанию остаются лежать)","color":"gray"}]
+ tellraw @s [{"text":"Сейчас: ","color":"gray"},{"nbt":"","storage":"shahed:cfg","color":"white"}]
+@@ -18,4 +18,4 @@
+ tellraw @s [{"text":"Звук: ","color":"gray"},{"text":"/trigger shahed_rp set 2","color":"aqua"},{"text":" — проверить пакет Shahed Sounds (у каждого игрока свой режим)","color":"gray"}]
+ 
+ tellraw @s [{"text":"Бомба: ","color":"gray"},{"text":"bunker_power","color":"aqua"},{"text":" (сила, 20), ","color":"gray"},{"text":"bunker_energy","color":"aqua"},{"text":" (пробивная способность, 1000 ≈ 30 блоков камня), ","color":"gray"},{"text":"collapse 0b","color":"aqua"},{"text":" — без провала грунта","color":"gray"}]
+-tellraw @s [{"text":"/function shahed:sound_all","color":"yellow"},{"text":" — включить полные звуки всем (если у всех стоит Shahed Sounds v2)","color":"gray"}]
++tellraw @s [{"text":"/function shahed:sound_all","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:sound_all"}},{"text":" — включить полные звуки всем (если у всех стоит Shahed Sounds v2)","color":"gray"}]
+diff -ruN shahed_backup_pre_review/data/shahed/function/load.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/load.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/load.mcfunction	2026-09-27 19:37:44.366000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/load.mcfunction"	2026-09-27 19:37:44.939880565 +0200
+@@ -48,9 +48,7 @@
+ scoreboard players set #-30 shahed -30
+ scoreboard players set #2 shahed 2
+ scoreboard players set #8 shahed 8
+-scoreboard players set #10 shahed 10
+ scoreboard players set #19 shahed 19
+-scoreboard players set #32 shahed 32
+ scoreboard players set #1700 shahed 1700
+ scoreboard players set #5 shahed 5
+ scoreboard players set #35 shahed 35
+@@ -63,8 +61,6 @@
+ execute unless data storage shahed:cfg missile_power run data modify storage shahed:cfg missile_power set value 20
+ execute unless data storage shahed:cfg debris_stay run data modify storage shahed:cfg debris_stay set value 1b
+ execute unless data storage shahed:cfg siren run data modify storage shahed:cfg siren set value 1b
+-scoreboard players set #6 shahed 6
+-scoreboard players set #300 shahed 300
+ execute unless data storage shahed:cfg bunker_power run data modify storage shahed:cfg bunker_power set value 20
+ execute unless data storage shahed:cfg bunker_energy run data modify storage shahed:cfg bunker_energy set value 1000
+ execute unless data storage shahed:cfg collapse run data modify storage shahed:cfg collapse set value 1b
+@@ -74,3 +70,15 @@
+ scoreboard players set #140 shahed 140
+ scoreboard players set #1600 shahed 1600
+ data remove storage shahed:cfg aimdiag
++scoreboard objectives add shahed_px dummy
++scoreboard objectives add shahed_py dummy
++scoreboard objectives add shahed_pz dummy
++scoreboard objectives add shahed_pd0 dummy
++scoreboard objectives add shahed_sid0 dummy
++scoreboard objectives add shahed_pd1 dummy
++scoreboard objectives add shahed_sid1 dummy
++scoreboard objectives add shahed_pd2 dummy
++scoreboard objectives add shahed_sid2 dummy
++scoreboard objectives add shahed_pd3 dummy
++scoreboard objectives add shahed_sid3 dummy
++execute unless score #siren_t shahed = #siren_t shahed run scoreboard players set #siren_t shahed -100000
+diff -ruN shahed_backup_pre_review/data/shahed/function/menu/fire_at.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/menu/fire_at.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/menu/fire_at.mcfunction	2026-09-27 19:37:44.364000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/menu/fire_at.mcfunction"	2026-09-27 19:37:44.888593644 +0200
+@@ -1,7 +1,7 @@
+-$execute unless entity @a[name=$(name)] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:menu/fire_at"}
++$execute unless entity @a[name="$(name)"] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:menu/fire_at"}
+ function shahed:menu/prep
+ data remove storage shahed:tmp sv.sl
+ $data modify storage shahed:tmp sv.who set value "$(name)"
+-$execute at @a[name=$(name),limit=1] rotated as @s run function shahed:salvo/core
++$execute at @a[name="$(name)",limit=1] rotated as @s run function shahed:salvo/core
+ $tellraw @s ["",{"text":"   Цель: ","color":"gray"},{"text":"$(name)","color":"gold"}]
+ playsound minecraft:block.note_block.bass master @s ~ ~ ~ 1 0.5
+diff -ruN shahed_backup_pre_review/data/shahed/function/menu/fire_look.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/menu/fire_look.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/menu/fire_look.mcfunction	2026-09-27 19:37:44.364000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/menu/fire_look.mcfunction"	2026-09-27 19:37:44.887257923 +0200
+@@ -1,6 +1,7 @@
+ function shahed:menu/prep
+ data remove storage shahed:tmp sv.who
+ function shahed:ray/start
++data remove storage shahed:tmp sv.sl
+ data modify storage shahed:tmp sv.sl set from storage shahed:tmp sl
+ execute unless entity @e[type=minecraft:marker,tag=shahed_tgt_new] run return run tellraw @s {"text":"Цель не найдена","color":"red"}
+ execute at @e[type=minecraft:marker,tag=shahed_tgt_new,limit=1] rotated as @s run function shahed:salvo/core
+diff -ruN shahed_backup_pre_review/data/shahed/function/mfx/start.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/start.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/mfx/start.mcfunction	2026-09-27 19:37:44.335000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/start.mcfunction"	2026-09-27 19:37:44.878020673 +0200
+@@ -2,6 +2,8 @@
+ scoreboard players set @s shahed_t 0
+ function shahed:debris/sample
+ function shahed:mfx/flash
++function shahed:cfg_clamp
+ function shahed:mfx/main_blast with storage shahed:cfg
+ function shahed:mfx/mod_burst
+-summon minecraft:lightning_bolt ~ ~16 ~
++particle minecraft:flash ~ ~14 ~ 0 0 0 0 1 force @a
++particle minecraft:flash ~ ~6 ~ 3 3 3 0 4 force @a
+diff -ruN shahed_backup_pre_review/data/shahed/function/mfx/t3.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/t3.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/mfx/t3.mcfunction	2026-09-27 19:37:44.337000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/t3.mcfunction"	2026-09-27 19:37:44.876614901 +0200
+@@ -1,4 +1,4 @@
+-summon minecraft:lightning_bolt ~4 ~20 ~-3
++particle minecraft:flash ~4 ~18 ~-3 0 0 0 0 1 force @a
+ summon minecraft:creeper ~8 ~0 ~-5 {Fuse:0s,ignited:1b,ExplosionRadius:5b,Silent:1b,NoAI:1b,Invulnerable:1b,CustomName:'"Крылатая ракета"',Tags:["shahed"]}
+ summon minecraft:creeper ~-6 ~1 ~7 {Fuse:0s,ignited:1b,ExplosionRadius:5b,Silent:1b,NoAI:1b,Invulnerable:1b,CustomName:'"Крылатая ракета"',Tags:["shahed"]}
+ particle minecraft:explosion_emitter ~ ~4 ~ 5 3 5 0 4 force @a
+diff -ruN shahed_backup_pre_review/data/shahed/function/mfx/t9.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/t9.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/mfx/t9.mcfunction	2026-09-27 19:37:44.338000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/t9.mcfunction"	2026-09-27 19:37:44.876990090 +0200
+@@ -1,3 +1,3 @@
+ function shahed:mfx/lights_off
+ summon minecraft:creeper ~10 ~0 ~2 {Fuse:0s,ignited:1b,ExplosionRadius:3b,Silent:1b,NoAI:1b,Invulnerable:1b,CustomName:'"Крылатая ракета"',Tags:["shahed"]}
+-summon minecraft:lightning_bolt ~-3 ~22 ~4
++particle minecraft:flash ~-3 ~20 ~4 0 0 0 0 1 force @a
+diff -ruN shahed_backup_pre_review/data/shahed/function/mfx/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/mfx/tick.mcfunction	2026-09-27 19:37:44.336000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/mfx/tick.mcfunction"	2026-09-27 19:37:44.875103040 +0200
+@@ -3,7 +3,8 @@
+ execute if score @s shahed_t matches 1..30 run function shahed:mfx/front
+ scoreboard players operation #m3 shahed = @s shahed_t
+ scoreboard players operation #m3 shahed %= #3 shahed
+-execute if score @s shahed_t matches 1..30 if score #m3 shahed matches 0 run function shahed:snd/tail_missile
++execute if score @s shahed_t matches 1..18 if score #m3 shahed matches 0 run function shahed:snd/tail_missile
++execute if score @s shahed_t matches 19 run tag @s remove shahed_snd
+ execute if score @s shahed_t matches 1..30 run function shahed:mfx/ring_prep
+ execute if score @s shahed_t matches 1..10 run function shahed:mfx/sphere_prep
+ execute if score @s shahed_t matches 1 run function shahed:mfx/t1
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile/detonate.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/detonate.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile/detonate.mcfunction	2026-09-27 19:37:44.334000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/detonate.mcfunction"	2026-09-27 19:37:44.884821569 +0200
+@@ -1,8 +1,9 @@
+ scoreboard players operation #cur shahed_id = @s shahed_id
+-execute if data entity @s data.sl.id run function shahed:untag with entity @s data.sl
++tag @s add shahed_dead
++execute if data entity @s data.sl.id run function shahed:untag_if_free with entity @s data.sl
+ execute as @e[type=minecraft:marker,tag=shahed_lamp] if score @s shahed_id = #cur shahed_id at @s if block ~ ~ ~ minecraft:light run setblock ~ ~ ~ minecraft:air
+ execute as @e[tag=shahed_part] if score @s shahed_id = #cur shahed_id run kill @s
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_mfx","shahed_newfx"]}
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_mfx","shahed_snd","shahed_newfx"]}
+ execute as @e[type=minecraft:marker,tag=shahed_newfx] at @s run function shahed:mfx/start
+ kill @s
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile/init.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/init.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile/init.mcfunction	2026-09-27 19:37:44.333000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/init.mcfunction"	2026-09-27 19:37:44.902469703 +0200
+@@ -14,7 +14,7 @@
+ execute store result score #y shahed run data get storage shahed:tmp d.ty 100
+ scoreboard players add #y shahed 1200
+ scoreboard players set #gy shahed -9999999
+-execute positioned over motion_blocking run summon minecraft:marker ~ ~12 ~ {Tags:["shahed_tmp"]}
++execute positioned over motion_blocking run summon minecraft:marker ~ ~12 ~ {Tags:["shahed","shahed_tmp"]}
+ execute store result score #gy shahed run data get entity @e[type=minecraft:marker,tag=shahed_tmp,limit=1] Pos[1] 100
+ kill @e[type=minecraft:marker,tag=shahed_tmp]
+ scoreboard players operation #y shahed > #gy shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile/siren.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/siren.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile/siren.mcfunction	2026-09-27 19:37:44.333000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/siren.mcfunction"	2026-09-27 19:37:44.935692933 +0200
+@@ -1,3 +1,9 @@
++# сирена ещё звучит (13 с) — вторую не накладываем, только надпись
++execute store result score #now shahed run time query gametime
++scoreboard players operation #dt shahed = #now shahed
++scoreboard players operation #dt shahed -= #siren_t shahed
++execute if score #dt shahed matches 0..259 run return run title @a[distance=..350] actionbar {"text":"⚠ РАКЕТНАЯ ОПАСНОСТЬ ⚠","color":"red","bold":true}
++scoreboard players operation #siren_t shahed = #now shahed
+ playsound shahed:siren master @a[scores={shahed_mode=1..}] ~125 ~15 ~-65 16 1 0
+ playsound shahed:siren master @a[scores={shahed_mode=1..}] ~-95 ~15 ~115 16 0.97 0
+ playsound snassets:signal/siren master @a[distance=..350,scores={shahed_mode=0}] ~ ~ ~ 0.3 1 0.3
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile/spawn.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/spawn.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile/spawn.mcfunction	2026-09-27 19:37:44.333000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/spawn.mcfunction"	2026-09-27 19:37:44.864379700 +0200
+@@ -1,4 +1,4 @@
+ scoreboard players add #next shahed_id 1
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_missile","shahed_new"]}
+-execute as @e[type=minecraft:marker,tag=shahed_new,limit=1] run function shahed:missile/init
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_root","shahed_missile","shahed_snd","shahed_new"]}
++execute as @e[type=minecraft:marker,tag=shahed_new,limit=1,sort=nearest] run function shahed:missile/init
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile/tick.mcfunction	2026-09-27 19:37:44.333000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile/tick.mcfunction"	2026-09-27 19:37:44.867083199 +0200
+@@ -1,3 +1,5 @@
++# маркер без инициализации (сбой спавна) — убрать, чтобы не сыпал ошибками
++execute unless score @s shahed_id matches 1.. run return run kill @s
+ scoreboard players add @s shahed_t 1
+ execute if score @s shahed_ph matches 9 run return run function shahed:missile/wait
+ execute if data entity @s data.who run function shahed:track with entity @s data
+diff -ruN shahed_backup_pre_review/data/shahed/function/missile_strike.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile_strike.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/missile_strike.mcfunction	2026-09-27 19:37:44.332000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/missile_strike.mcfunction"	2026-09-27 19:37:44.891158227 +0200
+@@ -1,10 +1,9 @@
+ # /function shahed:missile_strike {name:"Ник"}
+-$execute unless entity @a[name=$(name)] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:missile_strike"}
++$execute unless entity @a[name="$(name)"] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:missile_strike"}
+ kill @e[type=minecraft:marker,tag=shahed_tgt_new]
+ data remove storage shahed:tmp sl
+ data remove storage shahed:tmp wo
+ $data modify storage shahed:tmp who set value "$(name)"
+-$execute at @a[name=$(name),limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed_tgt_new"]}
++$execute at @a[name="$(name)",limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed","shahed_tgt_new"]}
+ function shahed:missile/launch_common
+ data remove storage shahed:tmp who
+-data remove storage shahed:tmp who
+diff -ruN shahed_backup_pre_review/data/shahed/function/ray/hit_ent.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/hit_ent.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/ray/hit_ent.mcfunction	2026-09-27 19:37:44.325000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/hit_ent.mcfunction"	2026-09-27 19:37:44.894748644 +0200
+@@ -2,6 +2,6 @@
+ scoreboard players add #tn shahed 1
+ execute store result storage shahed:tmp sl.id int 1 run scoreboard players get #tn shahed
+ function shahed:ray/tag_ent with storage shahed:tmp sl
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
+ function shahed:ray/offset with storage shahed:tmp sl
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/ray/hit_sl.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/hit_sl.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/ray/hit_sl.mcfunction	2026-09-27 19:37:44.325000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/hit_sl.mcfunction"	2026-09-27 19:37:44.894358020 +0200
+@@ -1,9 +1,10 @@
+ # здесь мы в пространстве аппарата: запоминаем точку попадания в его координатах, цель — её мировое положение
+-summon minecraft:marker ~ ~ ~ {Tags:["shahed_slp"]}
++summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_slp"]}
+ execute store result storage shahed:tmp sl.px double 0.01 run data get entity @e[type=minecraft:marker,tag=shahed_slp,limit=1] Pos[0] 100
+ execute store result storage shahed:tmp sl.py double 0.01 run data get entity @e[type=minecraft:marker,tag=shahed_slp,limit=1] Pos[1] 100
+ execute store result storage shahed:tmp sl.pz double 0.01 run data get entity @e[type=minecraft:marker,tag=shahed_slp,limit=1] Pos[2] 100
+ kill @e[type=minecraft:marker,tag=shahed_slp]
+-execute out_sub_level @i run summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
+-execute unless entity @e[type=minecraft:marker,tag=shahed_tgt_new] out_sub_level @n run summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
++execute out_sub_level @i run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
++execute unless entity @e[type=minecraft:marker,tag=shahed_tgt_new] out_sub_level @n run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
++execute unless entity @e[type=minecraft:marker,tag=shahed_tgt_new] run data remove storage shahed:tmp sl
+ return 1
+diff -ruN shahed_backup_pre_review/data/shahed/function/ray/step.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/step.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/ray/step.mcfunction	2026-09-27 19:37:44.325000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/ray/step.mcfunction"	2026-09-27 19:37:44.895571448 +0200
+@@ -1,6 +1,6 @@
+ execute if score #sln shahed matches 1 in_sub_level @n unless block ~ ~ ~ #shahed:passable run return run function shahed:ray/hit_sl
+ execute if score #steps shahed matches 3.. positioned ~-0.5 ~-0.5 ~-0.5 if entity @e[dx=0,dy=0,dz=0,tag=!shahed,tag=!shahed_shooter,type=!#shahed:aim_ignore] positioned ~0.5 ~0.5 ~0.5 run return run function shahed:ray/hit_ent
+-execute unless block ~ ~ ~ #shahed:passable run return run summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
++execute unless block ~ ~ ~ #shahed:passable run return run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
+ scoreboard players add #steps shahed 1
+-execute if score #steps shahed matches 400.. positioned over motion_blocking_no_leaves run return run summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
++execute if score #steps shahed matches 400.. positioned over motion_blocking_no_leaves run return run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
+ execute positioned ^ ^ ^0.5 run function shahed:ray/step
+diff -ruN shahed_backup_pre_review/data/shahed/function/rp/prompt.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/rp/prompt.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/rp/prompt.mcfunction	2026-09-27 19:37:44.348000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/rp/prompt.mcfunction"	2026-09-27 19:37:44.938851170 +0200
+@@ -1,3 +1,4 @@
+ tellraw @s ["",{"text":"♪ Шахед/ракета: ","color":"gold","bold":true},{"text":"полные звуки — из пакета ресурсов ","color":"gray"},{"text":"Shahed Sounds v2","color":"yellow"},{"text":". Без него играют упрощённые звуки из модов.","color":"gray"}]
+-tellraw @s ["",{"text":"   Нажми ","color":"gray"},{"text":"[▶ Проверить звук]","color":"aqua","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 2"},"hoverEvent":{"action":"show_text","contents":"Проиграет 2 секунды мотора шахеда и свиста ракеты"}},{"text":" и потом ","color":"gray"},{"text":"[✔ Слышу]","color":"green","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 1"},"hoverEvent":{"action":"show_text","contents":"Включить полные звуки для меня"}},{"text":" или ","color":"gray"},{"text":"[✘ Тишина]","color":"red","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 3"},"hoverEvent":{"action":"show_text","contents":"Оставить звуки из модов"}}]
++tellraw @s ["",{"text":"   Нажми ","color":"gray"},{"text":"[▶ Проверить звук]","color":"aqua","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 2"},"hoverEvent":{"action":"show_text","contents":"2 секунды: гул бомбардировщика B-2, затем свист падающей бомбы"}},{"text":" и потом ","color":"gray"},{"text":"[✔ Слышу]","color":"green","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 1"},"hoverEvent":{"action":"show_text","contents":"Включить полные звуки для меня"}},{"text":" или ","color":"gray"},{"text":"[✘ Тишина]","color":"red","clickEvent":{"action":"run_command","value":"/trigger shahed_rp set 3"},"hoverEvent":{"action":"show_text","contents":"Оставить звуки из модов"}}]
+ tellraw @s {"text":"   Нет пакета? Возьми Shahed_Sounds_v2.zip у хоста → положи в папку resourcepacks → Настройки → Пакеты ресурсов → включи.","color":"dark_gray"}
++tellraw @s {"text":"   Звуки идут по ползунку «Окружение» (Настройки → Музыка и звуки) — не держи его на нуле.","color":"dark_gray"}
+diff -ruN shahed_backup_pre_review/data/shahed/function/salvo/done.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/done.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/salvo/done.mcfunction	2026-09-27 19:37:44.361000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/done.mcfunction"	2026-09-27 19:37:44.885183697 +0200
+@@ -1,3 +1,5 @@
+ scoreboard players operation #own shahed = @s shahed_id
+ execute as @a if score @s shahed_own = #own shahed run title @s actionbar {"text":"Залп выпущен полностью","color":"gray"}
++tag @s add shahed_dead
++execute if data entity @s data.sl.id run function shahed:untag_if_free with entity @s data.sl
+ kill @s
+diff -ruN shahed_backup_pre_review/data/shahed/function/salvo/fire.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/fire.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/salvo/fire.mcfunction	2026-09-27 19:37:44.362000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/fire.mcfunction"	2026-09-27 19:37:44.932154757 +0200
+@@ -17,7 +17,7 @@
+ execute if block ~ ~-1 ~ #shahed:passable if block ~ ~-2 ~ #shahed:passable if block ~ ~-3 ~ #shahed:passable run scoreboard players set #air shahed 1
+ execute unless score @s shahed_ph matches 3 if score #r shahed matches 1.. if score #air shahed matches 0 run function shahed:salvo/place with storage shahed:tmp sp2
+ execute unless score @s shahed_ph matches 3 if score #r shahed matches 1.. if score #air shahed matches 1 run function shahed:salvo/place_air with storage shahed:tmp sp2
+-execute unless score @s shahed_ph matches 3 if score #r shahed matches 0 run summon minecraft:marker ~ ~1 ~ {Tags:["shahed_tgt_new"]}
++execute unless score @s shahed_ph matches 3 if score #r shahed matches 0 run summon minecraft:marker ~ ~1 ~ {Tags:["shahed","shahed_tgt_new"]}
+ execute if score @s shahed_ph matches 3 run function shahed:salvo/place_deep with storage shahed:tmp sp2
+ execute store result score #yb shahed run data get entity @s data.yaw 100
+ execute store result score #yo shahed run random value -3500..3500
+diff -ruN shahed_backup_pre_review/data/shahed/function/salvo/place.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/salvo/place.mcfunction	2026-09-27 19:37:44.361000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place.mcfunction"	2026-09-27 19:37:44.930257441 +0200
+@@ -1 +1 @@
+-$execute positioned ~$(x) ~ ~$(z) positioned over motion_blocking_no_leaves run summon minecraft:marker ~ ~-0.5 ~ {Tags:["shahed_tgt_new"]}
++$execute positioned ~$(x) ~ ~$(z) positioned over motion_blocking_no_leaves run summon minecraft:marker ~ ~-0.5 ~ {Tags:["shahed","shahed_tgt_new"]}
+diff -ruN shahed_backup_pre_review/data/shahed/function/salvo/place_air.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place_air.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/salvo/place_air.mcfunction	2026-09-27 19:37:44.362000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place_air.mcfunction"	2026-09-27 19:37:44.931416252 +0200
+@@ -1 +1 @@
+-$execute positioned ~$(x) ~1 ~$(z) run summon minecraft:marker ~ ~ ~ {Tags:["shahed_tgt_new"]}
++$execute positioned ~$(x) ~1 ~$(z) run summon minecraft:marker ~ ~ ~ {Tags:["shahed","shahed_tgt_new"]}
+diff -ruN shahed_backup_pre_review/data/shahed/function/salvo/place_deep.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place_deep.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/salvo/place_deep.mcfunction	2026-09-27 19:37:44.361000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/salvo/place_deep.mcfunction"	2026-09-27 19:37:44.931109927 +0200
+@@ -1 +1 @@
+-$execute positioned ~$(x) ~ ~$(z) run summon minecraft:marker ~ ~1 ~ {Tags:["shahed_tgt_new"]}
++$execute positioned ~$(x) ~ ~$(z) run summon minecraft:marker ~ ~1 ~ {Tags:["shahed","shahed_tgt_new"]}
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/cache.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/cache.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/cache.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/cache.mcfunction"	2026-09-27 19:37:44.862967992 +0200
+@@ -0,0 +1,5 @@
++# позиция игрока (дециблоки) — одно чтение NBT за тик вместо десятков
++data modify storage shahed:tmp pp set from entity @s Pos
++execute store result score @s shahed_px run data get storage shahed:tmp pp[0] 10
++execute store result score @s shahed_py run data get storage shahed:tmp pp[1] 10
++execute store result score @s shahed_pz run data get storage shahed:tmp pp[2] 10
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/dop.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/dop.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop.mcfunction"	2026-09-27 19:37:44.879079751 +0200
+@@ -0,0 +1,6 @@
++scoreboard players operation #slot shahed = #sid shahed
++scoreboard players operation #slot shahed %= #4 shahed
++execute if score #slot shahed matches 0 run return run function shahed:snd/dop0
++execute if score #slot shahed matches 1 run return run function shahed:snd/dop1
++execute if score #slot shahed matches 2 run return run function shahed:snd/dop2
++function shahed:snd/dop3
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/dop0.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop0.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/dop0.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop0.mcfunction"	2026-09-27 19:37:44.879319587 +0200
+@@ -0,0 +1,5 @@
++execute unless score @s shahed_sid0 = #sid shahed run scoreboard players operation @s shahed_pd0 = #ld shahed
++scoreboard players operation @s shahed_sid0 = #sid shahed
++scoreboard players operation #vr shahed = #ld shahed
++scoreboard players operation #vr shahed -= @s shahed_pd0
++scoreboard players operation @s shahed_pd0 = #ld shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/dop1.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop1.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/dop1.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop1.mcfunction"	2026-09-27 19:37:44.879562985 +0200
+@@ -0,0 +1,5 @@
++execute unless score @s shahed_sid1 = #sid shahed run scoreboard players operation @s shahed_pd1 = #ld shahed
++scoreboard players operation @s shahed_sid1 = #sid shahed
++scoreboard players operation #vr shahed = #ld shahed
++scoreboard players operation #vr shahed -= @s shahed_pd1
++scoreboard players operation @s shahed_pd1 = #ld shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/dop2.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop2.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/dop2.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop2.mcfunction"	2026-09-27 19:37:44.879818256 +0200
+@@ -0,0 +1,5 @@
++execute unless score @s shahed_sid2 = #sid shahed run scoreboard players operation @s shahed_pd2 = #ld shahed
++scoreboard players operation @s shahed_sid2 = #sid shahed
++scoreboard players operation #vr shahed = #ld shahed
++scoreboard players operation #vr shahed -= @s shahed_pd2
++scoreboard players operation @s shahed_pd2 = #ld shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/dop3.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop3.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/dop3.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/dop3.mcfunction"	2026-09-27 19:37:44.880053343 +0200
+@@ -0,0 +1,5 @@
++execute unless score @s shahed_sid3 = #sid shahed run scoreboard players operation @s shahed_pd3 = #ld shahed
++scoreboard players operation @s shahed_sid3 = #sid shahed
++scoreboard players operation #vr shahed = #ld shahed
++scoreboard players operation #vr shahed -= @s shahed_pd3
++scoreboard players operation @s shahed_pd3 = #ld shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/fb_fall.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/fb_fall.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/fb_fall.mcfunction	2026-09-27 19:37:44.347000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/fb_fall.mcfunction"	2026-09-27 19:37:44.882775838 +0200
+@@ -5,4 +5,5 @@
+ execute if score #fp shahed matches 201.. run scoreboard players set #fp shahed 200
+ execute store result storage shahed:tmp snd.p double 0.01 run scoreboard players get #fp shahed
+ data modify storage shahed:tmp snd.e set value "minecraft:item.elytra.flying"
++stopsound @s ambient minecraft:item.elytra.flying
+ function shahed:snd/play with storage shahed:tmp snd
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/fb_jet.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/fb_jet.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/fb_jet.mcfunction	2026-09-27 19:37:44.347000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/fb_jet.mcfunction"	2026-09-27 19:37:44.882429145 +0200
+@@ -5,4 +5,5 @@
+ execute if score #fp shahed matches 201.. run scoreboard players set #fp shahed 200
+ execute store result storage shahed:tmp snd.p double 0.01 run scoreboard players get #fp shahed
+ data modify storage shahed:tmp snd.e set value "minecraft:item.elytra.flying"
++stopsound @s ambient minecraft:item.elytra.flying
+ function shahed:snd/play with storage shahed:tmp snd
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/listener.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/listener.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/listener.mcfunction	2026-09-27 19:37:44.346000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/listener.mcfunction"	2026-09-27 19:37:44.878800734 +0200
+@@ -1,8 +1,8 @@
+ # расстояние от уха слушателя до источника (дециблоки)
+-execute store result score #lx shahed run data get entity @s Pos[0] 10
+-execute store result score #ly shahed run data get entity @s Pos[1] 10
++scoreboard players operation #lx shahed = @s shahed_px
++scoreboard players operation #ly shahed = @s shahed_py
+ scoreboard players add #ly shahed 16
+-execute store result score #lz shahed run data get entity @s Pos[2] 10
++scoreboard players operation #lz shahed = @s shahed_pz
+ scoreboard players operation #ex shahed = #sx shahed
+ scoreboard players operation #ex shahed -= #lx shahed
+ scoreboard players operation #ey shahed = #sy shahed
+@@ -67,17 +67,25 @@
+ scoreboard players operation #s shahed /= #2 shahed
+ execute if score #s shahed matches ..0 run scoreboard players set #s shahed 1
+ scoreboard players operation #ld shahed = #s shahed
+-# Доплер: скорость сближения за 3 тика
+-execute if score #nodop shahed matches 1 run scoreboard players operation @s shahed_pd = #ld shahed
+-execute unless score @s shahed_sid = #sid shahed run scoreboard players operation @s shahed_pd = #ld shahed
+-scoreboard players operation @s shahed_sid = #sid shahed
+-scoreboard players operation #vr shahed = #ld shahed
+-scoreboard players operation #vr shahed -= @s shahed_pd
+-scoreboard players operation @s shahed_pd = #ld shahed
+-# шахед: 150 км/ч при скорости звука 343 м/с (±15%); ракета: ~0.65 Маха (до ×2 на подлёте, ×0.6 после)
+-execute if score #kind shahed matches 1 run scoreboard players set #C shahed 515
+-execute if score #kind shahed matches 2 run scoreboard players set #C shahed 515
+-execute if score #kind shahed matches 3.. run scoreboard players set #C shahed 515
++# точка звука: 3 блока от уха в сторону источника (без поиска сущностей)
++scoreboard players operation #ox shahed = #ex shahed
++scoreboard players operation #ox shahed *= #300 shahed
++scoreboard players operation #ox shahed /= #ld shahed
++scoreboard players operation #oy shahed = #ey shahed
++scoreboard players operation #oy shahed *= #300 shahed
++scoreboard players operation #oy shahed /= #ld shahed
++scoreboard players add #oy shahed 160
++scoreboard players operation #oz shahed = #ez shahed
++scoreboard players operation #oz shahed *= #300 shahed
++scoreboard players operation #oz shahed /= #ld shahed
++execute store result storage shahed:tmp snd.x double 0.01 run scoreboard players get #ox shahed
++execute store result storage shahed:tmp snd.y double 0.01 run scoreboard players get #oy shahed
++execute store result storage shahed:tmp snd.z double 0.01 run scoreboard players get #oz shahed
++# Доплер: скорость сближения за 3 тика; у слушателя 4 ячейки памяти — соседние цели в залпе не сбивают друг друга
++scoreboard players set #vr shahed 0
++execute if score #nodop shahed matches 0 run function shahed:snd/dop
++# скорость звука 343 м/с = 51.5 блока за 3 тика
++scoreboard players set #C shahed 515
+ scoreboard players set #p shahed 100
+ execute if score #kind shahed matches 1 if score #sph shahed matches 1 run scoreboard players set #p shahed 112
+ scoreboard players operation #den shahed = #C shahed
+@@ -87,8 +95,7 @@
+ scoreboard players operation #p shahed /= #den shahed
+ execute if score #p shahed matches ..49 run scoreboard players set #p shahed 50
+ execute if score #p shahed matches 201.. run scoreboard players set #p shahed 200
+-# громкость ~ 1/расстояние: шахед на полную с 30 блоков, ракета с 45
+-execute if score #ld shahed matches ..0 run scoreboard players set #ld shahed 1
++# громкость ~ 1/расстояние: шахед на полную с 60 блоков, ракета с 90, B-2 со 120, бомба с 40
+ execute if score #kind shahed matches 1 run scoreboard players set #g shahed 60000
+ execute if score #kind shahed matches 2 run scoreboard players set #g shahed 90000
+ execute if score #kind shahed matches 3 run scoreboard players set #g shahed 120000
+@@ -100,8 +107,10 @@
+ scoreboard players set #var shahed 0
+ execute if score #ld shahed matches 450.. run scoreboard players set #var shahed 1
+ execute if score #ld shahed matches 1300.. run scoreboard players set #var shahed 2
++# свист ракеты на последних 260 блоках — пока она приближается; пролетела мимо — свист обрывается
++execute if score #kind shahed matches 2 if score #wd shahed matches ..2600 if score #m6 shahed matches 0 unless score #vr shahed matches 1.. run function shahed:snd/whistle
++execute if score #kind shahed matches 2 if score #wd shahed matches ..2600 if score #vr shahed matches 1.. run stopsound @s ambient snassets:weapons/bomb_whistle
+ scoreboard players set #cm shahed 0
+-execute if score #kind shahed matches 2 if score #wd shahed matches ..2600 run function shahed:snd/whistle
+ execute if score @s shahed_mode matches 1.. if score #kind shahed matches ..2 run scoreboard players set #cm shahed 1
+ execute if score @s shahed_mode matches 2.. run scoreboard players set #cm shahed 1
+ execute if score #cm shahed matches 1 run function shahed:snd/play_custom
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/play.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/play.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/play.mcfunction	2026-09-27 19:37:44.346000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/play.mcfunction"	2026-09-27 19:37:44.880253998 +0200
+@@ -1 +1 @@
+-$execute facing entity @e[type=minecraft:marker,tag=shahed_src,limit=1] feet positioned ^ ^ ^3 run playsound $(e) ambient @s ~ ~ ~ $(g) $(p) 0
++$playsound $(e) ambient @s ~$(x) ~$(y) ~$(z) $(g) $(p) 0
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/play_fallback.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/play_fallback.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/play_fallback.mcfunction	2026-09-27 19:37:44.347000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/play_fallback.mcfunction"	2026-09-27 19:37:44.882052768 +0200
+@@ -1,5 +1,5 @@
+-# без пакета: те же направление, дальность и Доплер, но звуки из модов (раз в 6 тиков)
+-execute unless score #m6 shahed matches 0 run return 0
++# без пакета: те же направление, дальность и Доплер, но звуки из модов (раз в 12 тиков — меньше наложений)
++execute unless score #m12 shahed matches 0 run return 0
+ execute store result storage shahed:tmp snd.g double 0.01 run scoreboard players get #g shahed
+ execute if score #kind shahed matches 1 run function shahed:snd/fb_drone
+ execute if score #kind shahed matches 2 run function shahed:snd/fb_missile
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/source.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/source.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/source.mcfunction	2026-09-27 19:37:44.345000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/source.mcfunction"	2026-09-27 19:37:44.881013874 +0200
+@@ -1,5 +1,4 @@
+ # источник звука — летящий шахед или ракета
+-tag @s add shahed_src
+ execute store result score #sx shahed run data get entity @s Pos[0] 10
+ execute store result score #sy shahed run data get entity @s Pos[1] 10
+ execute store result score #sz shahed run data get entity @s Pos[2] 10
+@@ -14,5 +13,6 @@
+ scoreboard players operation #wd shahed = #d shahed
+ scoreboard players operation #m6 shahed = @s shahed_t
+ scoreboard players operation #m6 shahed %= #6 shahed
++scoreboard players operation #m12 shahed = @s shahed_t
++scoreboard players operation #m12 shahed %= #12 shahed
+ execute as @a[distance=..320] at @s run function shahed:snd/listener
+-tag @s remove shahed_src
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/tail_drone.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/tail_drone.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/tail_drone.mcfunction	2026-09-27 19:37:44.345000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/tail_drone.mcfunction"	2026-09-27 19:37:44.881336822 +0200
+@@ -1,5 +1,4 @@
+ # звук ещё «летит» к дальним слушателям, пока до них не дошёл фронт взрыва
+-tag @s add shahed_src
+ execute store result score #sx shahed run data get entity @s Pos[0] 10
+ execute store result score #sy shahed run data get entity @s Pos[1] 10
+ execute store result score #sz shahed run data get entity @s Pos[2] 10
+@@ -11,5 +10,6 @@
+ scoreboard players set #wd shahed 99999
+ scoreboard players operation #m6 shahed = @s shahed_t
+ scoreboard players operation #m6 shahed %= #6 shahed
++scoreboard players operation #m12 shahed = @s shahed_t
++scoreboard players operation #m12 shahed %= #12 shahed
+ function shahed:snd/tail_run with storage shahed:tmp band
+-tag @s remove shahed_src
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/tail_missile.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/tail_missile.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/tail_missile.mcfunction	2026-09-27 19:37:44.346000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/tail_missile.mcfunction"	2026-09-27 19:37:44.881672830 +0200
+@@ -1,5 +1,4 @@
+ # звук ещё «летит» к дальним слушателям, пока до них не дошёл фронт взрыва
+-tag @s add shahed_src
+ execute store result score #sx shahed run data get entity @s Pos[0] 10
+ execute store result score #sy shahed run data get entity @s Pos[1] 10
+ execute store result score #sz shahed run data get entity @s Pos[2] 10
+@@ -11,5 +10,6 @@
+ scoreboard players set #wd shahed 99999
+ scoreboard players operation #m6 shahed = @s shahed_t
+ scoreboard players operation #m6 shahed %= #6 shahed
++scoreboard players operation #m12 shahed = @s shahed_t
++scoreboard players operation #m12 shahed %= #12 shahed
+ function shahed:snd/tail_run with storage shahed:tmp band
+-tag @s remove shahed_src
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/whistle.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/whistle.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/whistle.mcfunction	2026-09-27 19:37:44.347000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/whistle.mcfunction"	2026-09-27 19:37:44.880477212 +0200
+@@ -1,4 +1,4 @@
+-# свист на подлёте последних ~260 блоков: чем ближе к цели, тем ниже тон; громкость — по расстоянию до слушателя
++# чем ближе ракета к цели, тем ниже тон; громкость — по расстоянию до слушателя; направление — на ракету
+ scoreboard players operation #wp shahed = #wd shahed
+ scoreboard players operation #wp shahed *= #140 shahed
+ scoreboard players set #k shahed 2600
+@@ -9,7 +9,7 @@
+ scoreboard players operation #wg shahed /= #ld shahed
+ execute if score #wg shahed matches ..19 run scoreboard players set #wg shahed 20
+ execute if score #wg shahed matches 101.. run scoreboard players set #wg shahed 100
+-execute store result storage shahed:tmp ws.p double 0.01 run scoreboard players get #wp shahed
+-execute store result storage shahed:tmp ws.g double 0.01 run scoreboard players get #wg shahed
++execute store result storage shahed:tmp snd.wp double 0.01 run scoreboard players get #wp shahed
++execute store result storage shahed:tmp snd.wg double 0.01 run scoreboard players get #wg shahed
+ stopsound @s ambient snassets:weapons/bomb_whistle
+-function shahed:snd/whistle_m with storage shahed:tmp ws
++function shahed:snd/whistle_m with storage shahed:tmp snd
+diff -ruN shahed_backup_pre_review/data/shahed/function/snd/whistle_m.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/whistle_m.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/snd/whistle_m.mcfunction	2026-09-27 19:37:44.348000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/snd/whistle_m.mcfunction"	2026-09-27 19:37:44.880682616 +0200
+@@ -1 +1 @@
+-$playsound snassets:weapons/bomb_whistle ambient @s ~ ~ ~ $(g) $(p) 0
++$playsound snassets:weapons/bomb_whistle ambient @s ~$(x) ~$(y) ~$(z) $(wg) $(wp) 0
+diff -ruN shahed_backup_pre_review/data/shahed/function/strike.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/strike.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/strike.mcfunction	2026-09-27 19:37:44.324000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/strike.mcfunction"	2026-09-27 19:37:44.890417347 +0200
+@@ -1,10 +1,9 @@
+ # /function shahed:strike {name:"Ник"}
+-$execute unless entity @a[name=$(name)] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:strike"}
++$execute unless entity @a[name="$(name)"] run return run function shahed:ui/notfound {name:"$(name)",cmd:"shahed:strike"}
+ kill @e[type=minecraft:marker,tag=shahed_tgt_new]
+ data remove storage shahed:tmp sl
+ data remove storage shahed:tmp wo
+ $data modify storage shahed:tmp who set value "$(name)"
+-$execute at @a[name=$(name),limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed_tgt_new"]}
++$execute at @a[name="$(name)",limit=1] run summon minecraft:marker ~ ~1 ~ {Tags:["shahed","shahed_tgt_new"]}
+ function shahed:launch_common
+ data remove storage shahed:tmp who
+-data remove storage shahed:tmp who
+diff -ruN shahed_backup_pre_review/data/shahed/function/tick.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/tick.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/tick.mcfunction	2026-09-27 19:37:44.324000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/tick.mcfunction"	2026-09-27 19:37:44.862569057 +0200
+@@ -1,23 +1,28 @@
+-execute as @e[type=minecraft:marker,tag=shahed_root,tag=!shahed_missile,tag=!shahed_bunker,tag=!shahed_bomber] at @s run function shahed:drone/tick
+-execute as @e[type=minecraft:marker,tag=shahed_root,tag=shahed_missile] at @s run function shahed:missile/tick
+-execute as @e[type=minecraft:marker,tag=shahed_fx] at @s run function shahed:fx/tick
+-execute as @e[type=minecraft:marker,tag=shahed_mfx] at @s run function shahed:mfx/tick
+-execute as @e[type=minecraft:falling_block,tag=shahed_debris] at @s run function shahed:fx/debris_trail
+-execute as @a[scores={shahed_shake=1..}] at @s run function shahed:fx/shake
+-scoreboard players add #clk shahed 1
+-execute if score #clk shahed matches 20.. run function shahed:drone/gc
+-
+-# кто зашёл впервые или перезашёл — подсказка про звук; кнопки проверки
++# игроки: подсказки про звук, тряска камеры — всегда
+ execute as @a unless score @s shahed_seen matches 1 run function shahed:rp/welcome
+ execute as @a[scores={shahed_left=1..}] run function shahed:rp/rejoin
+ execute as @a[scores={shahed_rp=1..}] at @s run function shahed:rp/handle
+ execute as @a[scores={shahed_test=1..}] at @s run function shahed:rp/test_tick
++execute as @a[scores={shahed_shake=1..}] at @s run function shahed:fx/shake
++execute as @a[scores={shahed_quake=1..}] at @s run function shahed:bfx/quake
++
++# ничего нашего в мире нет (кроме служебных маркеров) — дальше не считаем
++execute unless entity @e[tag=shahed,tag=!shahed_helper,tag=!shahed_helper2] run return 0
+ 
++# позиции игроков — один раз за тик, пока что-то летит или звучит (звук и слежение берут отсюда)
++execute if entity @e[type=minecraft:marker,tag=shahed_snd] as @a run function shahed:snd/cache
++
++execute as @e[type=minecraft:marker,tag=shahed_root,tag=!shahed_missile,tag=!shahed_bunker,tag=!shahed_bomber] at @s run function shahed:drone/tick
++execute as @e[type=minecraft:marker,tag=shahed_root,tag=shahed_missile] at @s run function shahed:missile/tick
+ execute as @e[type=minecraft:marker,tag=shahed_root,tag=shahed_bomber] at @s run function shahed:bunker/bomber_tick
+ execute as @e[type=minecraft:marker,tag=shahed_root,tag=shahed_bunker] at @s run function shahed:bunker/tick
++execute as @e[type=minecraft:marker,tag=shahed_fx] at @s run function shahed:fx/tick
++execute as @e[type=minecraft:marker,tag=shahed_mfx] at @s run function shahed:mfx/tick
+ execute as @e[type=minecraft:marker,tag=shahed_bfx] at @s run function shahed:bfx/tick
+ execute as @e[type=minecraft:marker,tag=shahed_vent_on] at @s run function shahed:bfx/vent_tick
+ execute as @e[type=minecraft:marker,tag=shahed_surf] at @s run function shahed:bfx/surf_tick
+-execute as @a[scores={shahed_quake=1..}] at @s run function shahed:bfx/quake
+-
++execute as @e[type=minecraft:falling_block,tag=shahed_debris] at @s run function shahed:fx/debris_trail
+ execute as @e[type=minecraft:marker,tag=shahed_salvo] at @s run function shahed:salvo/tick
++
++scoreboard players add #clk shahed 1
++execute if score #clk shahed matches 20.. run function shahed:drone/gc
+diff -ruN shahed_backup_pre_review/data/shahed/function/track.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/track.mcfunction	2026-09-27 19:37:44.365000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track.mcfunction"	2026-09-27 19:37:44.882976493 +0200
+@@ -1,16 +1,17 @@
+-# цель — игрок: каждый тик берём его текущую позицию (центр тела)
+-$execute unless entity @a[name=$(who)] run return 0
+-$execute store result score #t shahed run data get entity @a[name=$(who),limit=1] Pos[0] 100
++# цель — игрок: каждый тик его текущая позиция (центр тела); ушёл в другой мир или далеко — держим последнюю точку
++$execute unless entity @a[name="$(who)",distance=..3000] run return 0
++$scoreboard players operation #t shahed = @a[name="$(who)",distance=..3000,limit=1] shahed_px
++scoreboard players operation #t shahed *= #10 shahed
+ execute store result score #o shahed run data get entity @s data.wo.x
+ scoreboard players operation #t shahed += #o shahed
+ execute store result entity @s data.tx double 0.01 run scoreboard players get #t shahed
+-$execute store result score #t shahed run data get entity @a[name=$(who),limit=1] Pos[1] 100
++$scoreboard players operation #t shahed = @a[name="$(who)",distance=..3000,limit=1] shahed_py
++scoreboard players operation #t shahed *= #10 shahed
+ scoreboard players add #t shahed 100
+ execute store result entity @s data.ty double 0.01 run scoreboard players get #t shahed
+-$execute store result score #t shahed run data get entity @a[name=$(who),limit=1] Pos[2] 100
++$scoreboard players operation #t shahed = @a[name="$(who)",distance=..3000,limit=1] shahed_pz
++scoreboard players operation #t shahed *= #10 shahed
+ execute store result score #o shahed run data get entity @s data.wo.z
+ scoreboard players operation #t shahed += #o shahed
+ execute store result entity @s data.tz double 0.01 run scoreboard players get #t shahed
+-execute store result score @s shahed_tx run data get entity @s data.tx 10
+-execute store result score @s shahed_ty run data get entity @s data.ty 10
+-execute store result score @s shahed_tz run data get entity @s data.tz 10
++function shahed:track_scores
+diff -ruN shahed_backup_pre_review/data/shahed/function/track_slp.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track_slp.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/track_slp.mcfunction	2026-09-27 19:37:44.365000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track_slp.mcfunction"	2026-09-27 19:37:44.883492972 +0200
+@@ -1,3 +1,4 @@
++scoreboard players set #ok shahed 0
+ $execute store success score #ok shahed positioned $(px) $(py) $(pz) out_sub_level @i run tp @e[type=minecraft:marker,tag=shahed_helper2,limit=1] ~ ~ ~
+ $execute unless score #ok shahed matches 1 store success score #ok shahed positioned $(px) $(py) $(pz) out_sub_level @n run tp @e[type=minecraft:marker,tag=shahed_helper2,limit=1] ~ ~ ~
+ execute unless score #ok shahed matches 1 run return 0
+diff -ruN shahed_backup_pre_review/data/shahed/function/track_te.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track_te.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/track_te.mcfunction	2026-09-27 19:37:44.365000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/track_te.mcfunction"	2026-09-27 19:37:44.883174773 +0200
+@@ -1,13 +1,15 @@
+-$execute unless entity @e[tag=shahed_te$(id)] run return 0
+-$execute store result score #a shahed run data get entity @e[tag=shahed_te$(id),limit=1] Pos[0] 100
++# цель — сущность (моб, поезд, механизм): одно чтение позиции за тик
++$execute unless entity @e[tag=shahed_te$(id),distance=..3000] run return 0
++$data modify storage shahed:tmp tp set from entity @e[tag=shahed_te$(id),distance=..3000,limit=1] Pos
++execute store result score #a shahed run data get storage shahed:tmp tp[0] 100
+ $scoreboard players set #b shahed $(ox)
+ scoreboard players operation #a shahed += #b shahed
+ execute store result entity @s data.tx double 0.01 run scoreboard players get #a shahed
+-$execute store result score #a shahed run data get entity @e[tag=shahed_te$(id),limit=1] Pos[1] 100
++execute store result score #a shahed run data get storage shahed:tmp tp[1] 100
+ $scoreboard players set #b shahed $(oy)
+ scoreboard players operation #a shahed += #b shahed
+ execute store result entity @s data.ty double 0.01 run scoreboard players get #a shahed
+-$execute store result score #a shahed run data get entity @e[tag=shahed_te$(id),limit=1] Pos[2] 100
++execute store result score #a shahed run data get storage shahed:tmp tp[2] 100
+ $scoreboard players set #b shahed $(oz)
+ scoreboard players operation #a shahed += #b shahed
+ execute store result entity @s data.tz double 0.01 run scoreboard players get #a shahed
+diff -ruN shahed_backup_pre_review/data/shahed/function/untag_all.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_all.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/untag_all.mcfunction	2026-09-27 19:37:44.365000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_all.mcfunction"	2026-09-27 19:37:44.886196470 +0200
+@@ -1,3 +1,3 @@
+-# снять пометки целей: у сущностей бывают только теги shahed_te<N>; перебираем последние 64
++# снять пометки целей: у сущностей бывают только теги shahed_te<N>; перебираем последние 256
+ execute store result storage shahed:tmp ua.n int 1 run scoreboard players get #tn shahed
+ function shahed:untag_loop with storage shahed:tmp ua
+diff -ruN shahed_backup_pre_review/data/shahed/function/untag_if_free.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_if_free.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/untag_if_free.mcfunction	1970-01-01 01:00:00.000000000 +0100
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_if_free.mcfunction"	2026-09-27 19:37:44.884132930 +0200
+@@ -0,0 +1,4 @@
++# снять пометку с цели, если за ней больше никто не летит (другой снаряд или незаконченный залп)
++$execute if entity @e[type=minecraft:marker,tag=shahed_root,tag=!shahed_dead,nbt={data:{sl:{id:$(id)}}}] run return 0
++$execute if entity @e[type=minecraft:marker,tag=shahed_salvo,tag=!shahed_dead,nbt={data:{sl:{id:$(id)}}}] run return 0
++$tag @e[tag=shahed_te$(id)] remove shahed_te$(id)
+diff -ruN shahed_backup_pre_review/data/shahed/function/untag_loop.mcfunction "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_loop.mcfunction"
+--- shahed_backup_pre_review/data/shahed/function/untag_loop.mcfunction	2026-09-27 19:37:44.366000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/function/untag_loop.mcfunction"	2026-09-27 19:37:44.886543164 +0200
+@@ -3,7 +3,7 @@
+ scoreboard players remove #u shahed 1
+ execute if score #u shahed matches ..0 run return 0
+ scoreboard players operation #lim shahed = #tn shahed
+-scoreboard players remove #lim shahed 64
++scoreboard players remove #lim shahed 256
+ execute if score #u shahed <= #lim shahed run return 0
+ execute store result storage shahed:tmp ua.n int 1 run scoreboard players get #u shahed
+ function shahed:untag_loop with storage shahed:tmp ua
+diff -ruN shahed_backup_pre_review/data/shahed/tags/block/passable.json "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/tags/block/passable.json"
+--- shahed_backup_pre_review/data/shahed/tags/block/passable.json	2026-09-27 19:37:44.366000000 +0200
++++ "/sessions/inspiring-hopeful-shannon/mnt/All of Create Aeronautics/minecraft/saves/New World (3)/datapacks/shahed/data/shahed/tags/block/passable.json"	2026-09-27 19:37:44.940286625 +0200
+@@ -12,6 +12,28 @@
+     "minecraft:soul_fire",
+     "minecraft:structure_void",
+     "minecraft:snow",
+-    "minecraft:dead_bush"
++    "minecraft:dead_bush",
++    "#minecraft:small_flowers",
++    "#minecraft:tall_flowers",
++    "#minecraft:saplings",
++    "#minecraft:wool_carpets",
++    "#minecraft:rails",
++    "#minecraft:crops",
++    "minecraft:moss_carpet",
++    "minecraft:pink_petals",
++    "minecraft:sweet_berry_bush",
++    "minecraft:torch",
++    "minecraft:wall_torch",
++    "minecraft:soul_torch",
++    "minecraft:soul_wall_torch",
++    "minecraft:redstone_torch",
++    "minecraft:redstone_wall_torch",
++    "minecraft:lever",
++    "#minecraft:buttons",
++    "minecraft:tripwire",
++    "minecraft:redstone_wire",
++    "minecraft:cave_vines",
++    "minecraft:cave_vines_plant",
++    "minecraft:hanging_roots"
+   ]
+-}
++}
+\ No newline at end of file

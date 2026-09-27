@@ -1,0 +1,594 @@
+{
+ "drone.near": {
+  "sounds": [
+   {
+    "name": "shahed:drone_near_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_5",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_6",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_near_7",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.front.near": {
+  "sounds": [
+   {
+    "name": "shahed:mfront_near_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_near_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_near_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_near_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_near_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_near_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.rear.near": {
+  "sounds": [
+   {
+    "name": "shahed:mrear_near_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_near_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_near_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_near_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_near_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_near_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.dive.near": {
+  "sounds": [
+   {
+    "name": "shahed:mdive_near_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_near_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_near_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_near_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_near_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_near_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "drone.mid": {
+  "sounds": [
+   {
+    "name": "shahed:drone_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_5",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_6",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_mid_7",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.front.mid": {
+  "sounds": [
+   {
+    "name": "shahed:mfront_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_mid_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.rear.mid": {
+  "sounds": [
+   {
+    "name": "shahed:mrear_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_mid_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.dive.mid": {
+  "sounds": [
+   {
+    "name": "shahed:mdive_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_mid_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "drone.far": {
+  "sounds": [
+   {
+    "name": "shahed:drone_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_5",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_6",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:drone_far_7",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.front.far": {
+  "sounds": [
+   {
+    "name": "shahed:mfront_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mfront_far_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.rear.far": {
+  "sounds": [
+   {
+    "name": "shahed:mrear_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mrear_far_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "missile.dive.far": {
+  "sounds": [
+   {
+    "name": "shahed:mdive_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:mdive_far_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "siren": {
+  "sounds": [
+   {
+    "name": "shahed:siren",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "blast.sub": {
+  "sounds": [
+   {
+    "name": "shahed:blast_sub",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "blast.far": {
+  "sounds": [
+   {
+    "name": "shahed:blast_far",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.jet.mid": {
+  "sounds": [
+   {
+    "name": "shahed:bb_jet_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_mid_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "bb.jet.far": {
+  "sounds": [
+   {
+    "name": "shahed:bb_jet_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_jet_far_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "bb.fall.near": {
+  "sounds": [
+   {
+    "name": "shahed:bb_fall_near_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_near_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_near_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_near_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_near_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_near_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "bb.fall.mid": {
+  "sounds": [
+   {
+    "name": "shahed:bb_fall_mid_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_mid_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_mid_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_mid_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_mid_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_mid_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "bb.fall.far": {
+  "sounds": [
+   {
+    "name": "shahed:bb_fall_far_0",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_far_1",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_far_2",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_far_3",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_far_4",
+    "attenuation_distance": 48
+   },
+   {
+    "name": "shahed:bb_fall_far_5",
+    "attenuation_distance": 48
+   }
+  ]
+ },
+ "bb.drill": {
+  "sounds": [
+   {
+    "name": "shahed:bb_drill_0",
+    "attenuation_distance": 32
+   },
+   {
+    "name": "shahed:bb_drill_1",
+    "attenuation_distance": 32
+   },
+   {
+    "name": "shahed:bb_drill_2",
+    "attenuation_distance": 32
+   },
+   {
+    "name": "shahed:bb_drill_3",
+    "attenuation_distance": 32
+   }
+  ]
+ },
+ "bb.crack": {
+  "sounds": [
+   {
+    "name": "shahed:bb_crack",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.impact": {
+  "sounds": [
+   {
+    "name": "shahed:bb_impact",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.quake": {
+  "sounds": [
+   {
+    "name": "shahed:bb_quake",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.deep": {
+  "sounds": [
+   {
+    "name": "shahed:bb_deep",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.vent": {
+  "sounds": [
+   {
+    "name": "shahed:bb_vent",
+    "attenuation_distance": 16
+   }
+  ]
+ },
+ "bb.cave": {
+  "sounds": [
+   {
+    "name": "shahed:bb_cave",
+    "attenuation_distance": 16
+   }
+  ]
+ }
+}

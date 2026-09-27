@@ -1,0 +1,45 @@
+{
+ "values": [
+  "minecraft:marker",
+  "minecraft:item",
+  "minecraft:experience_orb",
+  "minecraft:block_display",
+  "minecraft:item_display",
+  "minecraft:text_display",
+  "minecraft:arrow",
+  "minecraft:spectral_arrow",
+  "minecraft:falling_block",
+  "minecraft:area_effect_cloud",
+  "minecraft:leash_knot",
+  "minecraft:lightning_bolt",
+  "minecraft:interaction",
+  "minecraft:fireball",
+  "minecraft:small_fireball",
+  "minecraft:wind_charge",
+  "minecraft:snowball",
+  "minecraft:egg",
+  "minecraft:potion",
+  "minecraft:experience_bottle",
+  "minecraft:eye_of_ender",
+  {
+   "id": "simulated:honey_glue",
+   "required": false
+  },
+  {
+   "id": "create:super_glue",
+   "required": false
+  },
+  {
+   "id": "create:seat",
+   "required": false
+  },
+  {
+   "id": "create:crafting_blueprint",
+   "required": false
+  },
+  {
+   "id": "create:potato_projectile",
+   "required": false
+  }
+ ]
+}

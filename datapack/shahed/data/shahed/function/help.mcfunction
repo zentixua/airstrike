@@ -1,0 +1,21 @@
+tellraw @s {"text":"=== Шахед ===","color":"gold","bold":true}
+tellraw @s [{"text":"/function shahed:menu","color":"yellow","bold":true,"clickEvent":{"action":"run_command","value":"/function shahed:menu"}},{"text":" — ПУЛЬТ: оружие, количество, разброс и цель кнопками","color":"gray"}]
+tellraw @s [{"text":"/function shahed:launch","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:launch"}},{"text":" — удар туда, куда смотришь (до 200 блоков)","color":"gray"}]
+tellraw @s [{"text":"/function shahed:strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:strike {name:\"Ник\"}"}},{"text":" — удар по игроку","color":"gray"}]
+tellraw @s [{"text":"/function shahed:missile","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:missile"}},{"text":" — крылатая ракета туда, куда смотришь","color":"gray"}]
+tellraw @s [{"text":"/function shahed:missile_strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:missile_strike {name:\"Ник\"}"}},{"text":" — ракетой по игроку","color":"gray"}]
+tellraw @s [{"text":"/function shahed:bunker","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:bunker"}},{"text":" — B-2 сбрасывает бетонобойную бомбу туда, куда смотришь","color":"gray"}]
+tellraw @s [{"text":"/function shahed:bunker_strike {name:\"Ник\"}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:bunker_strike {name:\"Ник\"}"}},{"text":" — пробить грунт над игроком и взорвать его пещеру","color":"gray"}]
+tellraw @s [{"text":"/function shahed:salvo {type:\"drone\",count:6,radius:25}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:salvo {type:\"drone\",count:6,radius:25}"}},{"text":" — залп вокруг того места, где стоишь (drone / missile / bunker)","color":"gray"}]
+tellraw @s [{"text":"/function shahed:salvo_look {type:\"missile\",count:4,radius:30}","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:salvo_look {type:\"missile\",count:4,radius:30}"}},{"text":" — залп вокруг точки, куда смотришь","color":"gray"}]
+tellraw @s [{"text":"/function shahed:clear","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:clear"}},{"text":" — убрать всё без взрыва","color":"gray"}]
+tellraw @s [{"text":"Настройки: ","color":"gray"},{"text":"/data modify storage shahed:cfg power set value 12","color":"aqua","clickEvent":{"action":"suggest_command","value":"/data modify storage shahed:cfg power set value 12"}},{"text":"  (шахед, 1–60, TNT = 4)","color":"gray"}]
+tellraw @s [{"text":"/data modify storage shahed:cfg missile_power set value 20","color":"aqua","clickEvent":{"action":"suggest_command","value":"/data modify storage shahed:cfg missile_power set value 20"}},{"text":"  (ракета)","color":"gray"}]
+tellraw @s [{"text":"shatter / shake / siren: ","color":"gray"},{"text":"set value 0b","color":"aqua"},{"text":" — выключить стёкла / тряску / сирену","color":"gray"}]
+tellraw @s [{"text":"debris_stay 0b","color":"aqua"},{"text":" — обломки исчезают при падении (по умолчанию остаются лежать)","color":"gray"}]
+tellraw @s [{"text":"Сейчас: ","color":"gray"},{"nbt":"","storage":"shahed:cfg","color":"white"}]
+
+tellraw @s [{"text":"Звук: ","color":"gray"},{"text":"/trigger shahed_rp set 2","color":"aqua"},{"text":" — проверить пакет Shahed Sounds (у каждого игрока свой режим)","color":"gray"}]
+
+tellraw @s [{"text":"Бомба: ","color":"gray"},{"text":"bunker_power","color":"aqua"},{"text":" (сила, 20), ","color":"gray"},{"text":"bunker_energy","color":"aqua"},{"text":" (пробивная способность, 1000 ≈ 30 блоков камня), ","color":"gray"},{"text":"collapse 0b","color":"aqua"},{"text":" — без провала грунта","color":"gray"}]
+tellraw @s [{"text":"/function shahed:sound_all","color":"yellow","clickEvent":{"action":"suggest_command","value":"/function shahed:sound_all"}},{"text":" — включить полные звуки всем (если у всех стоит Shahed Sounds v2)","color":"gray"}]

@@ -1,0 +1,8 @@
+execute positioned ~0 ~2 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~7 ~3 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~-7 ~3 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~0 ~3 ~7 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~0 ~3 ~-7 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~0 ~9 ~0 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~5 ~6 ~5 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]
+execute positioned ~-5 ~6 ~-5 if block ~ ~ ~ #minecraft:air run setblock ~ ~ ~ minecraft:light[level=15]

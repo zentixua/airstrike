@@ -1,0 +1,10 @@
+execute if score #mat shahed matches 1 run function shahed:debris/g1
+execute if score #mat shahed matches 2 run function shahed:debris/g2
+execute if score #mat shahed matches 3 run function shahed:debris/g3
+execute if score #mat shahed matches 4 run function shahed:debris/g4
+execute if score #mat shahed matches 5 run function shahed:debris/g5
+execute if score #mat shahed matches 6 run function shahed:debris/g6
+execute if score #mat shahed matches 7 run function shahed:debris/g7
+execute if score #mat shahed matches 8 run function shahed:debris/g8
+execute if score #mat shahed matches 9 run function shahed:debris/g9
+execute if score #mat shahed matches 10 run function shahed:debris/g10

@@ -1,0 +1,9 @@
+summon minecraft:falling_block ~0.98 ~2.19 ~-0.35 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.2 ~2.13 ~0.97 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~1.0 ~2.3 ~0.0 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.06 ~2.16 ~-1.16 {BlockState:{Name:"minecraft:sand"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~-0.76 ~2.7 ~-1.19 {BlockState:{Name:"minecraft:sand"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~-0.79 ~2.59 ~-0.06 {BlockState:{Name:"minecraft:clay"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.14 ~2.28 ~-0.42 {BlockState:{Name:"minecraft:clay"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.13 ~1.66 ~0.68 {BlockState:{Name:"minecraft:dirt"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.14 ~1.92 ~-0.6 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}

@@ -1,0 +1,9 @@
+summon minecraft:falling_block ~-0.32 ~1.84 ~-0.67 {BlockState:{Name:"minecraft:terracotta"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~-0.73 ~2.44 ~-0.71 {BlockState:{Name:"minecraft:terracotta"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.96 ~2.22 ~0.82 {BlockState:{Name:"minecraft:terracotta"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.37 ~1.63 ~0.72 {BlockState:{Name:"minecraft:clay"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.39 ~2.67 ~0.98 {BlockState:{Name:"minecraft:brown_terracotta"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.6 ~1.77 ~-0.05 {BlockState:{Name:"minecraft:coarse_dirt"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~0.69 ~2.7 ~-0.4 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~1.13 ~2.1 ~-0.25 {BlockState:{Name:"minecraft:terracotta"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
+summon minecraft:falling_block ~1.07 ~1.76 ~0.54 {BlockState:{Name:"minecraft:dirt"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
