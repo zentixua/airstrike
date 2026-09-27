@@ -1,9 +1,0 @@
-summon minecraft:falling_block ~-0.9 ~2.86 ~-0.84 {BlockState:{Name:"minecraft:cobblestone"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~0.74 ~2.74 ~-0.85 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~1.15 ~2.03 ~0.38 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~0.12 ~1.52 ~-0.89 {BlockState:{Name:"minecraft:stone"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~1.13 ~2.29 ~0.36 {BlockState:{Name:"minecraft:cobblestone_slab",Properties:{type:"bottom"}},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~1.04 ~2.81 ~-0.16 {BlockState:{Name:"minecraft:andesite"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~0.78 ~1.88 ~-0.69 {BlockState:{Name:"minecraft:coarse_dirt"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~-0.5 ~2.38 ~-0.62 {BlockState:{Name:"minecraft:dirt"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}
-summon minecraft:falling_block ~-0.58 ~1.7 ~-0.19 {BlockState:{Name:"minecraft:gravel"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:2.0f,FallHurtMax:16,Tags:["shahed","shahed_debris","shahed_newdeb"]}

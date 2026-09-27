@@ -1,7 +1,7 @@
 # Звуки бетонобойной бомбы (GBU-57-подобной) и бомбардировщика B-2.
-"""Синтез звуков бетонобойной бомбы и B-2 (bb_*) для пакета Shahed Sounds.
+"""Синтез звуков бетонобойной бомбы и B-2 (bb_*) для пакета Airstrike Sounds.
   python3 tools/synth_bunker.py [папка_вывода]   (по умолчанию build/sounds); нужны numpy и ffmpeg.
-  Готовые .ogg → resourcepack/shahed-sounds/assets/shahed/sounds/.
+  Готовые .ogg → resourcepack/airstrike-sounds/assets/airstrike/sounds/.
 """
 import numpy as np, subprocess, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

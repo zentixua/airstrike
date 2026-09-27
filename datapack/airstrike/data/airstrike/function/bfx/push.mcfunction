@@ -1,0 +1,3 @@
+execute facing entity @e[type=minecraft:marker,tag=airstrike_bfx,sort=nearest,limit=1] feet rotated ~ 0 positioned ^ ^ ^1.2 run summon minecraft:wind_charge ~ ~0.3 ~ {Motion:[0.0d,-1.5d,0.0d]}
+execute if score #band airstrike matches 1..2 facing entity @e[type=minecraft:marker,tag=airstrike_bfx,sort=nearest,limit=1] feet rotated ~ 0 positioned ^ ^ ^1.2 run summon minecraft:wind_charge ~ ~0.6 ~ {Motion:[0.0d,-1.5d,0.0d]}
+execute if score #band airstrike matches 1 facing entity @e[type=minecraft:marker,tag=airstrike_bfx,sort=nearest,limit=1] feet rotated ~ 0 positioned ^ ^ ^1.2 run summon minecraft:wind_charge ~ ~0.9 ~ {Motion:[0.0d,-1.5d,0.0d]}

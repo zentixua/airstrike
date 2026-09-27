@@ -1,9 +1,9 @@
-"""Синтез звуков шахеда, крылатой ракеты, взрыва и сирены для пакета Shahed Sounds.
+"""Синтез звуков шахеда, крылатой ракеты, взрыва и сирены для пакета Airstrike Sounds.
 
   python3 tools/synth_sounds.py [папка_вывода]      (по умолчанию build/sounds)
 Нужны numpy и ffmpeg. Сирена берётся из мода SnAssets (mods/snassets-*.jar инстанса, см. tools/paths.py).
-Готовые .ogg копируются в resourcepack/shahed-sounds/assets/shahed/sounds/ (имена совпадают),
-события описаны в resourcepack/shahed-sounds/assets/shahed/sounds.json. Сид фиксирован — результат воспроизводим.
+Готовые .ogg копируются в resourcepack/airstrike-sounds/assets/airstrike/sounds/ (имена совпадают),
+события описаны в resourcepack/airstrike-sounds/assets/airstrike/sounds.json. Сид фиксирован — результат воспроизводим.
 """
 import numpy as np, subprocess, os, json, sys, glob
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,7 +56,7 @@ def grains(sig, name, n=8, glen=0.6):
         write(f"{name}_{i}", sig[o:o+L]*w)
 
 # ---------------- ШАХЕД: двухтактный «мопед» ----------------
-def shahed_engine(dur=12.0, f_rot=100.0):
+def airstrike_engine(dur=12.0, f_rot=100.0):
     n = int(dur*SR); t = np.arange(n)/SR
     # обороты гуляют: медленный дрейф + «плавание» под нагрузкой
     fr = f_rot*(1 + 0.018*np.sin(2*np.pi*0.55*t) + 0.008*np.sin(2*np.pi*1.7*t+1) + 0.004*np.cumsum(rng.standard_normal(n))/np.sqrt(n))
@@ -87,7 +87,7 @@ def shahed_engine(dur=12.0, f_rot=100.0):
     x = out/np.std(out) + prop/np.std(prop)*0.6 + mech/np.std(mech)*0.25
     x = np.tanh(x*1.6)  # хрип и «рашпиль»
     return fft_filter(x, lo=55, hi=5000)
-eng = shahed_engine()
+eng = airstrike_engine()
 near = norm(eng, -12)
 mid  = norm(reverb(fft_filter(eng, hi=3200), t60=0.9, mix=0.25), -13)
 far  = norm(reverb(fft_filter(eng, lo=70, hi=900), t60=1.8, mix=0.45), -13)

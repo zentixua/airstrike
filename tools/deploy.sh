@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Проверка → установка датапака во все миры инстанса → сборка zip в dist/
 #
-#   tools/deploy.sh          датапак во все миры (saves/*/datapacks/shahed)
-#   tools/deploy.sh --rp     + обновить пакет звуков в resourcepacks/"Shahed Sounds"
+#   tools/deploy.sh          датапак во все миры (saves/*/datapacks/airstrike)
+#   tools/deploy.sh --rp     + обновить пакет звуков в resourcepacks/"Airstrike Sounds"
 #   tools/deploy.sh --dry    только проверка и сборка zip, игру не трогать
+#
+# Старые установки под именем shahed (datapacks/shahed, resourcepacks/"Shahed Sounds") убираются.
 #
 # Пути к игре — tools/paths.py (или MC_DIR=/путь/к/minecraft tools/deploy.sh).
 # После деплоя в игре: /reload или перезайти в мир. Пакет звуков — F3+T; друзьям его раздаёт Essential.
@@ -14,6 +16,8 @@ MC="$(path MC)"
 DP="$(path DATAPACK)"
 RP="$(path RESOURCEPACK)"
 RP_NAME="$(path RP_INSTALL_NAME)"
+OLD_DP="$(path LEGACY_DATAPACK)"
+OLD_RP="$(path LEGACY_RP_INSTALL_NAME)"
 
 WITH_RP=0; DRY=0
 for a in "$@"; do
@@ -33,8 +37,8 @@ n=0
 for w in "$MC/saves"/*/; do
   [ -f "$w/level.dat" ] || continue
   mkdir -p "$w/datapacks"
-  rm -rf "$w/datapacks/shahed"
-  cp -r "$DP" "$w/datapacks/shahed"
+  rm -rf "$w/datapacks/airstrike" "$w/datapacks/$OLD_DP"
+  cp -r "$DP" "$w/datapacks/airstrike"
   echo "мир: $(basename "$w")"
   n=$((n + 1))
 done
@@ -42,7 +46,7 @@ echo "датапак установлен в миров: $n"
 
 if [ "$WITH_RP" = 1 ]; then
   mkdir -p "$MC/resourcepacks"
-  rm -rf "$MC/resourcepacks/$RP_NAME"
+  rm -rf "$MC/resourcepacks/$RP_NAME" "$MC/resourcepacks/$OLD_RP"
   cp -r "$RP" "$MC/resourcepacks/$RP_NAME"
   echo "пакет звуков обновлён: resourcepacks/$RP_NAME"
 fi

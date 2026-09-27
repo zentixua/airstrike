@@ -1,4 +1,4 @@
-# Shahed — датапак для Minecraft 1.21.1
+# Airstrike — датапак для Minecraft 1.21.1
 
 Реалистичные и кинематографичные удары для модпака **All of Create Aeronautics** (NeoForge 1.21.1):
 дрон-камикадзе в духе Shahed-136, крылатая ракета, B-2 с бетонобойной бомбой и залпы с разбросом.
@@ -8,17 +8,17 @@
 - **Полёт без рывков** — ограниченные по скорости и ускорению повороты, полёт по рельефу, горка и пикирование,
   реальные скорости: шахед ≈150 км/ч, ракета ≈830 км/ч.
 - **Свой 3D-звук** для каждого игрока: направление, затухание, эффект Доплера, «хвост» звука, который догоняет
-  дальних слушателей вместе с ударной волной. Отдельный пакет звуков **Shahed Sounds v2**, без него играют звуки из модов.
+  дальних слушателей вместе с ударной волной. Отдельный пакет звуков **Airstrike Sounds**, без него играют звуки из модов.
 - **Взрывы**: вспышка, фронт ударной волны на скорости звука, тряска камеры, обломки из материала грунта,
   воронки неправильной формы. Бомба пробивает грунт, взрывается в пещере, обрушивает свод и выбрасывает газы.
 - **Пульт в чате** — тип, количество, разброс и цель выбираются кнопками.
 
 ## Установка
 
-1. `dist/shahed_datapack.zip` → `saves/<мир>/datapacks/`, затем `/reload`.
-2. `dist/Shahed_Sounds_v2.zip` → `resourcepacks/`, включить в «Пакетах ресурсов».
+1. `dist/airstrike_datapack.zip` → `saves/<мир>/datapacks/`, затем `/reload`.
+2. `dist/Airstrike_Sounds.zip` → `resourcepacks/`, включить в «Пакетах ресурсов».
    В мультиплеере через Essential пакет раздаётся игрокам автоматически.
-3. `/function shahed:help`
+3. `/function airstrike:help`
 
 Архивы собирает `python3 tools/pack.py` (или `tools/deploy.sh`).
 
@@ -26,22 +26,22 @@
 
 | Команда | Что делает |
 |---|---|
-| `/function shahed:menu` | пульт: оружие, количество, разброс, цель |
-| `/function shahed:launch` | шахед туда, куда смотришь (до 200 блоков) |
-| `/function shahed:strike {name:"Ник"}` | шахед по игроку |
-| `/function shahed:missile` · `missile_strike {name:"Ник"}` | крылатая ракета |
-| `/function shahed:bunker` · `bunker_strike {name:"Ник"}` | B-2 и бетонобойная бомба |
-| `/function shahed:salvo {type:"drone",count:6,radius:25}` | залп вокруг себя: `drone` / `missile` / `bunker`, 1–30 шт., разброс 0–150 |
-| `/function shahed:salvo_look {type:"missile",count:4,radius:30}` | залп вокруг точки взгляда |
-| `/function shahed:clear` | убрать всё без взрыва |
-| `/function shahed:sound_all` | включить полные звуки всем (у всех стоит пакет) |
-| `/trigger shahed_rp set 1` / `2` / `3` | мой звук: полный / проверить / звуки из модов |
+| `/function airstrike:menu` | пульт: оружие, количество, разброс, цель |
+| `/function airstrike:launch` | шахед туда, куда смотришь (до 200 блоков) |
+| `/function airstrike:strike {name:"Ник"}` | шахед по игроку |
+| `/function airstrike:missile` · `missile_strike {name:"Ник"}` | крылатая ракета |
+| `/function airstrike:bunker` · `bunker_strike {name:"Ник"}` | B-2 и бетонобойная бомба |
+| `/function airstrike:salvo {type:"drone",count:6,radius:25}` | залп вокруг себя: `drone` / `missile` / `bunker`, 1–30 шт., разброс 0–150 |
+| `/function airstrike:salvo_look {type:"missile",count:4,radius:30}` | залп вокруг точки взгляда |
+| `/function airstrike:clear` | убрать всё без взрыва |
+| `/function airstrike:sound_all` | включить полные звуки всем (у всех стоит пакет) |
+| `/trigger airstrike_rp set 1` / `2` / `3` | мой звук: полный / проверить / звуки из модов |
 
 Звуки идут по ползунку «Окружение» в настройках звука.
 
 ## Настройки
 
-`/data modify storage shahed:cfg <ключ> set value <значение>`
+`/data modify storage airstrike:cfg <ключ> set value <значение>`
 
 | Ключ | По умолчанию | |
 |---|---|---|
@@ -56,17 +56,17 @@
 ## Разработка
 
 ```
-datapack/shahed/          датапак (pack_format 48) — источник правды
-resourcepack/shahed-sounds/  пакет звуков (pack_format 34), 27 событий
+datapack/airstrike/              датапак (pack_format 48) — источник правды
+resourcepack/airstrike-sounds/   пакет звуков (pack_format 34), 27 событий
 tools/
-  paths.py                пути к Prism и инстансу — единственное место
-  validate.py             статическая проверка
-  deploy.sh               проверка → все миры инстанса → dist/   (--rp, --dry)
-  pack.py                 сборка dist/*.zip
-  logscan.py              выжимка из logs/latest.log
-  synth_sounds.py         синтез звуков шахеда, ракеты, взрыва, сирены (numpy + ffmpeg)
-  synth_bunker.py         синтез звуков бомбы и B-2
-docs/history/             патчи эпохи первой разработки (для справки)
+  paths.py                       пути к Prism и инстансу — единственное место
+  validate.py                    статическая проверка
+  deploy.sh                      проверка → все миры инстанса → dist/   (--rp, --dry)
+  pack.py                        сборка dist/*.zip
+  logscan.py                     выжимка из logs/latest.log
+  synth_sounds.py                синтез звуков шахеда, ракеты, взрыва, сирены (numpy + ffmpeg)
+  synth_bunker.py                синтез звуков бомбы и B-2
+docs/history/                    патчи эпохи первой разработки (для справки)
 ```
 
 ```sh
@@ -77,3 +77,9 @@ python3 tools/logscan.py      # что происходило в последн�
 
 Нужны Python 3 и мод SnAssets в инстансе. Для синтеза звуков дополнительно numpy и ffmpeg.
 Архитектура, соглашения и подводные камни — в [CLAUDE.md](CLAUDE.md).
+
+## Прежнее имя
+
+До 27.09.2026 датапак назывался **shahed** (`/function shahed:…`, пакет «Shahed Sounds»).
+`tools/deploy.sh` убирает старые установки, а при первой загрузке мира `airstrike:migrate/load` переносит
+настройки, выбор звука и пульта каждого игрока (кто был офлайн — при входе).

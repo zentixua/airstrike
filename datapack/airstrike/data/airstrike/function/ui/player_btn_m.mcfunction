@@ -1,0 +1,1 @@
+$tellraw @a[tag=airstrike_viewer] ["",{"text":"    ▶ ","color":"dark_gray"},{"text":"$(name)","color":"gold","underlined":true,"clickEvent":{"action":"run_command","value":"/function $(cmd) {name:\"$(name)\"}"},"hoverEvent":{"action":"show_text","contents":"Цель: $(name)"}}]

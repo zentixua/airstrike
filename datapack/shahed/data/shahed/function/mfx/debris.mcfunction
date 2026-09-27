@@ -1,1 +1,0 @@
-function shahed:debris/missile

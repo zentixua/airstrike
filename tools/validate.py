@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Статическая проверка датапака shahed (Minecraft 1.21.1).
+"""Статическая проверка датапака airstrike (Minecraft 1.21.1).
 
 Запуск из любого места:  python3 tools/validate.py
 Пути к игре — в tools/paths.py (переопределяются MC_DIR / MC_JAR / MC_ASSETS).
@@ -10,7 +10,7 @@
   * константы #N и objectives, используемые в коде, объявлены в load
   * баланс скобок {} [] вне строк
   * JSON в tellraw/title и во всех .json файлах
-  * звуки из playsound существуют (моды + пакет Shahed Sounds + ваниль, если найдены assets)
+  * звуки из playsound существуют (моды + пакет Airstrike Sounds + ваниль, если найдены assets)
   * частицы существуют (ваниль из jar + моды)
 Код выхода 1, если найдены ошибки.
 """
@@ -19,13 +19,13 @@ import glob, json, os, re, sys, zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paths import ROOT, DATAPACK as DP, RESOURCEPACK as RP, MC, JAR, ASSETS, MODS
 
-FN = os.path.join(DP, "data/shahed/function")
+FN = os.path.join(DP, "data/airstrike/function")
 funcs = {}
 for p in glob.glob(FN + "/**/*.mcfunction", recursive=True):
-    funcs["shahed:" + os.path.relpath(p, FN)[:-11].replace(os.sep, "/")] = open(p, encoding="utf-8").read().splitlines()
+    funcs["airstrike:" + os.path.relpath(p, FN)[:-11].replace(os.sep, "/")] = open(p, encoding="utf-8").read().splitlines()
 macro = {n for n, l in funcs.items() if any(x.startswith("$") for x in l)}
-load = "\n".join(funcs.get("shahed:load", []))
-consts = set(re.findall(r"scoreboard players set (#[-\w]+) shahed ", load))
+load = "\n".join(funcs.get("airstrike:load", []))
+consts = set(re.findall(r"scoreboard players set (#[-\w]+) airstrike ", load))
 objs = set(re.findall(r"scoreboard objectives add (\w+)", load))
 
 errs = []
@@ -38,16 +38,16 @@ for n, lines in funcs.items():
         if not l.startswith("$") and "$(" in l:
             errs.append(f"{n}:{i} $(…) вне макро-строки")
         if "tellraw" not in l and "title " not in l:
-            for m in re.finditer(r'(?<![\w:"])function (shahed:[\w/]+)( with| \{)?', l):
+            for m in re.finditer(r'(?<![\w:"])function (airstrike:[\w/]+)( with| \{)?', l):
                 t = m.group(1)
                 if t not in funcs:
                     errs.append(f"{n}:{i} нет функции {t}")
                 elif (t in macro) != bool(m.group(2)):
                     errs.append(f"{n}:{i} {'макро без аргументов' if t in macro else 'аргументы у не-макро'}: {t}")
-        for c in re.findall(r"(#-?\d+) shahed\b", l):
+        for c in re.findall(r"(#-?\d+) airstrike\b", l):
             if c not in consts and not re.search(r"players (add|remove|set) " + re.escape(c) + " ", l):
                 errs.append(f"{n}:{i} константа {c} не объявлена в load")
-        for o in re.findall(r"(?:@s|@a|@e\[[^\]]*\]|#[\w-]+) (shahed_\w+)\b", l):
+        for o in re.findall(r"(?:@s|@a|@e\[[^\]]*\]|#[\w-]+) (airstrike_\w+)\b", l):
             if o not in objs:
                 errs.append(f"{n}:{i} objective {o} не объявлен в load")
         st, q, esc = [], False, False
@@ -76,8 +76,8 @@ for n, lines in funcs.items():
                 errs.append(f"{n}:{i} JSON текста: {e}")
 
 txt = "\n".join(sum(funcs.values(), []))
-for v in re.findall(r'set value "(shahed:[\w/]+)"', txt):
-    if v not in funcs and not re.match(r"shahed:(drone|missile)\.", v):
+for v in re.findall(r'set value "(airstrike:[\w/]+)"', txt):
+    if v not in funcs and not re.match(r"airstrike:(drone|missile)\.", v):
         errs.append("нет функции (строка в storage): " + v)
 
 for r, _, fs in os.walk(DP):
@@ -102,7 +102,7 @@ for j in glob.glob(MODS + "/*.jar"):
             except Exception:
                 pass
 try:
-    snd |= {"shahed:" + k for k in json.load(open(os.path.join(RP, "assets/shahed/sounds.json"), encoding="utf-8"))}
+    snd |= {"airstrike:" + k for k in json.load(open(os.path.join(RP, "assets/airstrike/sounds.json"), encoding="utf-8"))}
 except Exception as e:
     errs.append(f"пакет звуков: {e}")
 have_vanilla = False

@@ -12,12 +12,15 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATAPACK = os.path.join(ROOT, "datapack", "shahed")
-RESOURCEPACK = os.path.join(ROOT, "resourcepack", "shahed-sounds")
+DATAPACK = os.path.join(ROOT, "datapack", "airstrike")
+RESOURCEPACK = os.path.join(ROOT, "resourcepack", "airstrike-sounds")
 DIST = os.path.join(ROOT, "dist")
 BUILD = os.path.join(ROOT, "build")
 
-RP_INSTALL_NAME = "Shahed Sounds"  # имя папки в resourcepacks/ — на него ссылается options.txt игроков
+RP_INSTALL_NAME = "Airstrike Sounds"  # имя папки в resourcepacks/ — на него ссылается options.txt игроков
+# до 27.09.2026 проект назывался shahed: deploy.sh убирает эти установки, чтобы не работали две копии
+LEGACY_DATAPACK = "shahed"
+LEGACY_RP_INSTALL_NAME = "Shahed Sounds"
 INSTANCE = "All of Create Aeronautics"
 PRISM = os.path.expanduser(os.environ.get("PRISM_DIR", "~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher"))
 MC = os.environ.get("MC_DIR", os.path.join(PRISM, "instances", INSTANCE, "minecraft"))

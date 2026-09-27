@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Собрать dist/shahed_datapack.zip и dist/Shahed_Sounds_v2.zip.
+"""Собрать dist/airstrike_datapack.zip и dist/Airstrike_Sounds.zip.
 pack.mcmeta лежит в корне архива — zip можно класть прямо в datapacks/ или resourcepacks/."""
 import os
 import sys
@@ -20,5 +20,5 @@ def zipdir(src, out):
 
 
 os.makedirs(DIST, exist_ok=True)
-zipdir(DATAPACK, os.path.join(DIST, "shahed_datapack.zip"))
-zipdir(RESOURCEPACK, os.path.join(DIST, "Shahed_Sounds_v2.zip"))
+zipdir(DATAPACK, os.path.join(DIST, "airstrike_datapack.zip"))
+zipdir(RESOURCEPACK, os.path.join(DIST, "Airstrike_Sounds.zip"))

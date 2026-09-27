@@ -1,9 +1,9 @@
-# Shahed — датапак для Minecraft 1.21.1 (модпак «All of Create Aeronautics»)
+# Airstrike — датапак для Minecraft 1.21.1 (модпак «All of Create Aeronautics»)
 
 Кинематографичные и при этом реалистичные удары: дрон-камикадзе (как Shahed-136), крылатая ракета,
 B-2 с бетонобойной бомбой, залпы с разбросом, пульт в чате, точное наведение на всё, куда смотрит
 игрок (блоки, мобы, игроки, летательные аппараты Create Aeronautics), свой 3D-звук с Доплером
-и пакет ресурсов «Shahed Sounds v2».
+и пакет ресурсов «Airstrike Sounds».
 
 ## Люди и правила общения
 - Автор/хост: **Артём**, в игре **ZentixUA**. Друзья: **ENOTzRPG**, **WallyFillmark**.
@@ -17,32 +17,32 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 
 ## Где что лежит
 ```
-/mnt/data/projects/shahed-datapack/     ← этот проект (git)
-  datapack/shahed/                      ← ИСТОЧНИК ПРАВДЫ датапака (pack_format 48)
-  resourcepack/shahed-sounds/           ← пакет звуков v2 (pack_format 34), 27 событий;
-                                          в игру ставится как resourcepacks/"Shahed Sounds"
-  tools/paths.py                        ← все пути к игре (единственное место)
-  tools/validate.py                     ← статическая проверка (код выхода 1 при ошибках)
-  tools/deploy.sh                       ← проверка → копия во все миры → dist/*.zip  (--rp, --dry)
-  tools/pack.py                         ← сборка dist/shahed_datapack.zip и dist/Shahed_Sounds_v2.zip
-  tools/logscan.py                      ← выжимка из logs/latest.log по shahed
+/mnt/data/projects/airstrike/            ← этот проект (git)
+  datapack/airstrike/                    ← ИСТОЧНИК ПРАВДЫ датапака (pack_format 48)
+  resourcepack/airstrike-sounds/         ← пакет звуков (pack_format 34), 27 событий;
+                                           в игру ставится как resourcepacks/"Airstrike Sounds"
+  tools/paths.py                         ← все пути к игре (единственное место)
+  tools/validate.py                      ← статическая проверка (код выхода 1 при ошибках)
+  tools/deploy.sh                        ← проверка → копия во все миры → dist/*.zip  (--rp, --dry)
+  tools/pack.py                          ← сборка dist/airstrike_datapack.zip и dist/Airstrike_Sounds.zip
+  tools/logscan.py                       ← выжимка из logs/latest.log
   tools/synth_sounds.py, synth_bunker.py ← генерация всех .ogg (numpy + ffmpeg, фиксированный сид)
-  docs/history/                         ← патч-скрипты первой разработки (для справки, пути в них устарели)
-  dist/, build/                         ← артефакты сборки (в .gitignore)
+  docs/history/                          ← патч-скрипты первой разработки (для справки, пути в них устарели)
+  dist/, build/                          ← артефакты сборки (в .gitignore)
 
-~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/          ← Prism (tools/paths.py: PRISM)
-  instances/All of Create Aeronautics/minecraft/                         ← .minecraft инстанса (MC)
-    saves/<мир>/datapacks/shahed    ← КОПИИ, перезаписываются deploy.sh — руками не править
-    resourcepacks/Shahed Sounds     ← установленный пакет звуков (deploy.sh --rp)
-    logs/latest.log                 ← лог клиента и встроенного сервера
-    mods/                           ← моды (validate.py берёт из них звуки и частицы)
-  libraries/com/mojang/minecraft/1.21.1/minecraft-1.21.1-client.jar  ← ваниль для проверок
-  assets/                           ← ванильные звуки (индекс) для проверок
+~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
+  instances/All of Create Aeronautics/minecraft/                  ← .minecraft инстанса (MC)
+    saves/<мир>/datapacks/airstrike   ← КОПИИ, перезаписываются deploy.sh — руками не править
+    resourcepacks/Airstrike Sounds    ← установленный пакет звуков (deploy.sh --rp)
+    logs/latest.log                   ← лог клиента и встроенного сервера
+    mods/                             ← моды (validate.py берёт из них звуки и частицы)
+  libraries/com/mojang/minecraft/1.21.1/minecraft-1.21.1-client.jar   ← ваниль для проверок
+  assets/                                                             ← ванильные звуки для проверок
 ```
-Команды игрока, настройки `storage shahed:cfg` и установка — в README.md.
+Команды игрока, настройки `storage airstrike:cfg` и установка — в README.md.
 
 ## Рабочий цикл
-1. Правим **только** `datapack/shahed/…` (и `resourcepack/…` для звуков).
+1. Правим **только** `datapack/airstrike/…` (и `resourcepack/…` для звуков).
 2. `python3 tools/validate.py` — должно быть `OK`.
 3. `tools/deploy.sh` (или `--rp`, если трогали пакет звуков). Кладёт датапак во все миры с `level.dat`.
 4. В игре: `/reload` или перезаход в мир. Пакет звуков у хоста — F3+T; друзьям его автоматически
@@ -52,8 +52,18 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 
 Тестового сервера нет: ошибки выполнения функций (макросы с битыми аргументами, неверные диапазоны)
 в `latest.log` **не пишутся** — пишутся только ошибки загрузки. Поэтому: тщательная статическая проверка,
-осторожные правки, при сомнении — временный отладочный `tellraw` за флагом в `storage shahed:cfg`
+осторожные правки, при сомнении — временный отладочный `tellraw` за флагом в `storage airstrike:cfg`
 (так был сделан `aimdiag`; `load` его удаляет).
+
+## Прежнее имя (shahed → airstrike, 27.09.2026)
+Раньше всё называлось `shahed` (пространство имён, objectives `shahed_*`, теги, пакет «Shahed Sounds»).
+- `tools/deploy.sh` удаляет `saves/*/datapacks/shahed` и `resourcepacks/Shahed Sounds` (`LEGACY_*` в paths.py).
+- `airstrike:migrate/load` (из `load`, срабатывает один раз, пока есть `storage shahed:cfg power`): переносит cfg,
+  убивает старые сущности `@e[tag=shahed]`, удаляет старые objectives, кроме `shahed_mode/seen/mt/mn/mr`.
+- `airstrike:migrate/player` переносит режим звука и пульт: онлайн — сразу, остальных — в `rp/welcome` при входе.
+  Эти пять старых objectives нужны для тех, кто ещё не заходил; удалять их можно, когда все зайдут.
+- `salvo {type:"shahed"}` — это синоним `drone`, а не старое имя: не переименовывать.
+- Имя дрона в игре («Шахед», Shahed-136) осталось — переименован датапак, а не дрон.
 
 ## Окружение
 - NeoForge 21.1.250, Minecraft 1.21.1, ~217 модов. Мультиплеер: хост открывает мир через e4mc/Essential.
@@ -64,31 +74,31 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 
 ## Точки входа и настройки (подробно — README.md)
 `launch`/`strike`, `missile`/`missile_strike`, `bunker`/`bunker_strike`, `salvo`/`salvo_look`, `menu` (= `pult`),
-`clear`, `help`, `sound_all`, `trigger shahed_rp`. Настройки `storage shahed:cfg`; сила взрывов зажимается
-`cfg_clamp` в 1..60 (больше вешает сервер). При изменении команд/настроек обновлять README.md и `shahed:help`.
+`clear`, `help`, `sound_all`, `trigger airstrike_rp`. Настройки `storage airstrike:cfg`; сила взрывов зажимается
+`cfg_clamp` в 1..60 (больше вешает сервер). При изменении команд/настроек обновлять README.md и `airstrike:help`.
 
 ## Архитектура
-### tick (`data/minecraft/tags/function/tick.json` → `shahed:tick`)
+### tick (`data/minecraft/tags/function/tick.json` → `airstrike:tick`)
 1. Строки игроков (всегда): приветствие/перезаход (подсказка про звук), trigger, тест звука, тряска `fx/shake`, толчки `bfx/quake`.
-2. **Гейт**: нет ни одной сущности с тегом `shahed` (кроме `shahed_helper`/`helper2`) → `return 0`.
-3. Если есть маркер `shahed_snd` — **кэш позиций игроков** `snd/cache` (1 чтение NBT на игрока за тик → `shahed_px/py/pz`, ×10).
+2. **Гейт**: нет ни одной сущности с тегом `airstrike` (кроме `airstrike_helper`/`helper2`) → `return 0`.
+3. Если есть маркер `airstrike_snd` — **кэш позиций игроков** `snd/cache` (1 чтение NBT на игрока за тик → `airstrike_px/py/pz`, ×10).
 4. Тики сущностей: drone → missile → bomber → bunker → fx → mfx → bfx → vent → surf → debris → salvo; раз в 20 тиков `drone/gc` (сироты-детали).
 
 ### Сущности и теги
-- `shahed` — общий тег на всём нашем (снаряды, детали, эффекты, обломки, временные маркеры). `clear` убивает `@e[tag=shahed]`.
-- `shahed_root` — маркер-«мозг» снаряда (+`shahed_missile` / `shahed_bunker` (бомба) / `shahed_bomber`; без них — шахед).
-  Инициализирован ⇔ есть `shahed_id ≥ 1` (иначе тик его убивает). Данные полёта в `data` (tx/ty/tz, who, sl, wo…).
-- `shahed_part` — block/item_display-детали модели, связаны с корнем по `shahed_id`, телепортируются в `*/visual`.
-- `shahed_fx` / `shahed_mfx` / `shahed_bfx` — маркеры взрывов шахеда (220 т), ракеты (320 т), бомбы (300 т); таймлайн по `shahed_t`.
-- `shahed_snd` — источник звука (снаряды; маркеры взрывов до t=18) → включает кэш позиций.
-- `shahed_salvo` — контроллер залпа. `shahed_helper`/`helper2` — постоянные служебные маркеры (поворот/трансформ точек).
-- Временные: `shahed_tgt_new` (точка цели), `shahed_tgt_surf`, `shahed_tmp`, `shahed_slp`; обломки — `falling_block` с `shahed_debris`.
-- Метка цели-сущности: тег `shahed_te<N>` (N = `#tn`), снимается `untag_if_free`, когда за целью никто не летит.
+- `airstrike` — общий тег на всём нашем (снаряды, детали, эффекты, обломки, временные маркеры). `clear` убивает `@e[tag=airstrike]`.
+- `airstrike_root` — маркер-«мозг» снаряда (+`airstrike_missile` / `airstrike_bunker` (бомба) / `airstrike_bomber`; без них — шахед).
+  Инициализирован ⇔ есть `airstrike_id ≥ 1` (иначе тик его убивает). Данные полёта в `data` (tx/ty/tz, who, sl, wo…).
+- `airstrike_part` — block/item_display-детали модели, связаны с корнем по `airstrike_id`, телепортируются в `*/visual`.
+- `airstrike_fx` / `airstrike_mfx` / `airstrike_bfx` — маркеры взрывов шахеда (220 т), ракеты (320 т), бомбы (300 т); таймлайн по `airstrike_t`.
+- `airstrike_snd` — источник звука (снаряды; маркеры взрывов до t=18) → включает кэш позиций.
+- `airstrike_salvo` — контроллер залпа. `airstrike_helper`/`helper2` — постоянные служебные маркеры (поворот/трансформ точек).
+- Временные: `airstrike_tgt_new` (точка цели), `airstrike_tgt_surf`, `airstrike_tmp`, `airstrike_slp`; обломки — `falling_block` с `airstrike_debris`.
+- Метка цели-сущности: тег `airstrike_te<N>` (N = `#tn`), снимается `untag_if_free`, когда за целью никто не летит.
 
 ### Единицы и скорости
 - Позиции: ×10 («дециблоки») для дальностей (`#dx #dy #dz`, `#d`, `#hd2 = dx²+dz²`), ×100 («сантиблоки») для высот и
   координат цели в `data.tx/ty/tz`. `fly/measure` зажимает `#dx/#dy/#dz` в ±25000, иначе квадраты переполняют int.
-- `shahed_v` — сантиблоки/тик: шахед 210 (≈150 км/ч), ракета 1150 (230 м/с ≈ 0.67 М), бомба 600→1250 (+30/тик),
+- `airstrike_v` — сантиблоки/тик: шахед 210 (≈150 км/ч), ракета 1150 (230 м/с ≈ 0.67 М), бомба 600→1250 (+30/тик),
   B-2 — `tp ^ ^ ^12` (240 м/с). Фронт звука/ударной волны — 17 блоков/тик.
 
 ### Полёт (`fly/*`)
@@ -102,20 +112,20 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 
 ### Наведение (`ray/*`, `track*`)
 `ray/start`: сначала аппарат Sable под взглядом (`centered_in_sub_level @v`), затем луч шагом 0.5 до 400 шагов:
-блок аппарата (`in_sub_level @n`) → сущность (`dx=0…`, без `#shahed:aim_ignore`) → обычный блок.
+блок аппарата (`in_sub_level @n`) → сущность (`dx=0…`, без `#airstrike:aim_ignore`) → обычный блок.
 - аппарат → `sl.px/py/pz` (координаты в «плоте» аппарата) → каждый тик `track_slp` (`out_sub_level @i`/`@n`) — летит за аппаратом;
-- сущность → тег `shahed_te<N>` + смещение `sl.ox/oy/oz` → `track_te`;
-- игрок по нику → `data.who` → `track` (берёт кэш `shahed_px…`, `distance=..3000` — другой мир не преследуем).
+- сущность → тег `airstrike_te<N>` + смещение `sl.ox/oy/oz` → `track_te`;
+- игрок по нику → `data.who` → `track` (берёт кэш `airstrike_px…`, `distance=..3000` — другой мир не преследуем).
 
 ### Звук (`snd/*`)
 Каждые 3 тика снаряд → `snd/source` → для каждого игрока в 320 блоках `snd/listener`:
 расстояние (Ньютон-√), точка звука в 3 блоках от уха в сторону источника (`snd.x/y/z`, без поиска сущностей),
-Доплер по изменению дальности за 3 тика (`#C`=515 — скорость звука; 4 ячейки памяти на игрока `shahed_pd0..3/sid0..3`, ячейка = id%4),
-громкость ~1/d, тембр near/mid/far. Режим игрока `shahed_mode`: 0 — звуки из модов (`play_fallback`, раз в 12 тиков),
-1 — старый пакет (полные только шахед/ракета), 2 — пакет v2 (всё). Звуки пакета — моно-«зёрна» 0.6 с (окно Ханна), позиционные.
+Доплер по изменению дальности за 3 тика (`#C`=515 — скорость звука; 4 ячейки памяти на игрока `airstrike_pd0..3/sid0..3`, ячейка = id%4),
+громкость ~1/d, тембр near/mid/far. Режим игрока `airstrike_mode`: 0 — звуки из модов (`play_fallback`, раз в 12 тиков),
+1 — старый пакет первой версии (полные только шахед/ракета), 2 — Airstrike Sounds (всё). Звуки пакета — моно-«зёрна» 0.6 с (окно Ханна), позиционные.
 - После взрыва дальним слушателям ещё играет «хвост» (`tail_*`, до t=18), пока не дойдёт фронт (`*/arrive` → `stopsound @s ambient`).
 - Свист ракеты (`snd/whistle`) на последних 260 блоках, пока ракета приближается; перезапуск раз в 6 тиков, тон ниже к цели.
-- Сирена: у каждого игрока память 13 с (`shahed_sirt`, `siren_chk`), чтобы не наслаивалась.
+- Сирена: у каждого игрока память 13 с (`airstrike_sirt`, `siren_chk`), чтобы не наслаивалась.
 
 ### Взрывы
 - Источник взрыва — крипер `Fuse:0s,ignited:1b,NoAI,Invulnerable`, сила из cfg. Свет — блоки `light` с **t=1** (не t=0).
@@ -123,7 +133,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   `structure_void` + взрыв), `rubble` (остатки → гравий/булыжник), сейсмика, толчки, выброс газов из скважины (`vent_*`),
   подъём/обрушение поверхности (`surf_*`, `heave`, `collapse`), ночное зрение под землёй.
 - Урон по людям/мобам — дополнительно `/damage` (кинетика, ударная волна), чтобы взрыв реально убивал.
-- `debris/*` — обломки `falling_block` по материалу грунта (`debris/sample` → `shahed_mat`), тлеющие/горящие, стук при падении.
+- `debris/*` — обломки `falling_block` по материалу грунта (`debris/sample` → `airstrike_mat`), тлеющие/горящие, стук при падении.
 
 ## Подводные камни (выучено на практике)
 - Макро-аргументы подставляются без суффикса типа (`1.5`, не `1.5d`); каждая новая комбинация аргументов = новый разбор функции.
@@ -136,17 +146,17 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 - Sable: `execute in_sub_level @e` бросает исключение на первом аппарате, где точки нет → использовать `@n`/`@i`;
   `centered_in_sub_level @e` — проверка «есть ли аппараты»; `out_sub_level` требует, чтобы позиция была в плоте;
   `@v` — аппарат под взглядом. Блоки аппарата живут в далёком «плоте», обычный луч проходит сквозь самолёт.
-- Сущности-«клей»/сиденья Create/Sable прозрачны для прицела — тег `#shahed:aim_ignore`.
+- Сущности-«клей»/сиденья Create/Sable прозрачны для прицела — тег `#airstrike:aim_ignore`.
 - `playsound`: дальность = 16×громкость; `stopsound` по id глушит **все** экземпляры звука у игрока.
 - `execute store success … run <что-то, что бросает>` может не записать 0 → сбрасывать счёт заранее.
 - Ник в селекторе всегда в кавычках: `@a[name="$(name)"]`.
 - `return run …` внутри `execute as …` выходит из всей функции.
 - Scoreboard `/=` — деление с округлением вниз; `%=` — положительный остаток.
-- Предупреждение `Not all defined tags … shahed:bb_*` от Render thread при выходе из мира — безвредно.
+- Предупреждение `Not all defined tags … airstrike:bb_*` от Render thread при выходе из мира — безвредно.
 
 ## Не сделано / идеи
 - Кольца и сферы ударной волны (`fx/ring`, `mfx/sphere`, `bfx/heave`) — макросы с меняющимся радиусом; можно заменить
-  статическими функциями по `shahed_t`, чтобы не разбирать заново каждый тик.
+  статическими функциями по `airstrike_t`, чтобы не разбирать заново каждый тик.
 - Тяжёлые локальные `particle … force @a` можно ограничить `@a[distance=..192]`.
 - Доплер: больше 4 одновременных источников с одинаковым id%4 — эффект обнуляется (не ошибка, ограничение).
 - Два подлетающих одновременно свиста ракет перебивают друг друга (один id звука).
