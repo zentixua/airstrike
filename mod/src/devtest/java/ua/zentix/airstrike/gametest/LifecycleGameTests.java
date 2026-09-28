@@ -164,6 +164,39 @@ public final class LifecycleGameTests {
     }
 
     /**
+     * Неподвижная цель не теряется, как бы далеко ни был снаряд (раньше ракета «издалека», стартовав дальше
+     * 3000 блоков, весь полёт показывала «цель потеряна»); движущаяся теряется, когда пропала или ушла дальше
+     * запаса на погоню, и точка остаётся последней известной.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "tracker_loss")
+    public static void onlyRunawayTargetIsLost(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 far = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(8, 11, 8))).add(0, 0, 5000);
+        TargetTracker point = new TargetTracker(new Target.Point(far), far);
+        for (int i = 0; i < 3; i++) point.tick(level);
+        h.assertFalse(point.isLost(), "неподвижная цель потеряна");
+
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(8, 11, 8)));
+        ArmorStand stand = new ArmorStand(level, at.x, at.y, at.z);
+        level.addFreshEntity(stand);
+        TargetTracker moving = new TargetTracker(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), at);
+        Vec3 near = at.add(20, 0, 0);
+        stand.teleportTo(near.x, near.y, near.z);
+        h.assertTrue(Math.abs(moving.tick(level) - 20) < 1e-6, "сдвиг цели не догоняется");
+        h.assertFalse(moving.isLost(), "цель потеряна в пределах запаса на погоню");
+        Vec3 runaway = near.add(0, 0, TargetTracker.CHASE_BUDGET);
+        stand.teleportTo(runaway.x, runaway.y, runaway.z);
+        h.assertTrue(moving.tick(level) == 0 && moving.isLost(), "цель ушла дальше запаса на погоню и не потеряна");
+        h.assertTrue(moving.point().distanceTo(near) < 1e-6, "потерянная цель сдвинула точку удара");
+
+        TargetTracker gone = new TargetTracker(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), runaway);
+        stand.discard();
+        gone.tick(level);
+        h.assertTrue(gone.isLost(), "пропавшая цель не потеряна");
+        h.succeed();
+    }
+
+    /**
      * Цель ушла далеко (игрок улетел за тысячи блоков, перенацеливание): срок жизни растёт на пролёт этого сдвига.
      * Раньше он оставался по плану до старой точки, и снаряд пропадал в пути без подрыва (стенд нагрузки:
      * 5 «Ланцетов» и ракета за игроком, улетевшим на 3000 блоков и вышедшим там из игры). Запас на погоню
@@ -184,7 +217,7 @@ public final class LifecycleGameTests {
         StrikeProjectile exhausted = virtualWithTwoTicks(level, aside, new Target.Point(near), near);
         net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
         exhausted.saveWithoutId(tag);
-        tag.putDouble("chased", TargetTracker.MAX_TRACK_DISTANCE);
+        tag.getCompound("tracker").putDouble("chased", TargetTracker.CHASE_BUDGET);
         exhausted.load(tag);
         // цель переходит в другой угол площадки (шахеду это ~30 тиков полёта), новая цель — за 1500 блоков
         Vec3 moved = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(56, 11, 8)));
