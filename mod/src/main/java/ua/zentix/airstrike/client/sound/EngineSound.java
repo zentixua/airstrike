@@ -7,8 +7,7 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
-import ua.zentix.airstrike.entity.CruiseMissileEntity;
-import ua.zentix.airstrike.entity.DroneEntity;
+import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.registry.ModSounds;
 
 import java.util.function.Supplier;
@@ -112,17 +111,17 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         switch (layer) {
             case DRONE_NEAR -> {
                 gain = Acoustics.gain(d, 60, 0.12, 300) * near(d, 60, 160);
-                if (phase == DroneEntity.PHASE_DIVE) pitch *= 1.12;
+                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
             }
             case DRONE_FAR -> {
                 gain = Acoustics.gain(d, 60, 0.12, 300) * (1 - near(d, 60, 160));
-                if (phase == DroneEntity.PHASE_DIVE) pitch *= 1.12;
+                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
             }
             case MISSILE_FRONT, MISSILE_REAR, MISSILE_DIVE -> {
                 // спереди — свист вентилятора, сзади — рёв струи, в пике — пронзительный свист
                 Vec3 f = track.forward(te);
                 double front = (1 + f.x * nx + f.y * ny + f.z * nz) / 2;
-                boolean dive = phase == CruiseMissileEntity.PHASE_DIVE;
+                boolean dive = phase == FlightPhase.TERMINAL.ordinal();
                 double w = switch (layer) {
                     case MISSILE_FRONT -> dive ? 0 : front;
                     case MISSILE_DIVE -> dive ? front : 0;

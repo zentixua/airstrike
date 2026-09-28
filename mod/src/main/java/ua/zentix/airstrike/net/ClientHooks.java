@@ -37,6 +37,8 @@ public interface ClientHooks {
     /** Обломок на клиенте, раз в тик: горящий — огонь и чёрный дым, остывший — пыль. */
     default void debrisTick(ua.zentix.airstrike.entity.DebrisEntity e) {}
 
+    default void flights(S2C.Flights p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {

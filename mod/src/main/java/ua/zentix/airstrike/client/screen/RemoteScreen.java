@@ -89,13 +89,31 @@ public class RemoteScreen extends Screen {
 
         // количество и разброс; у ядерной — мощность и подрыв
         int sw = (W - 12) / 2;
-        if (loadout.weapon() == WeaponType.NUKE) {
-            Loadout.Nuke n = loadout.nuke();
+        Loadout.Nuke n = loadout.nuke();
+        if (loadout.nuclear()) {
+            // МБР: мощность и подрыв; ракета и B-2 с ядерной БЧ: переключатель БЧ, мощность, у ракеты — подрыв
+            boolean carrier = loadout.weapon() != WeaponType.NUKE;
+            boolean burst = loadout.weapon() != WeaponType.BUNKER;
+            int cols = (carrier ? 1 : 0) + 1 + (burst ? 1 : 0);
+            int cw = (W - 8 - 4 * (cols - 1)) / cols;
+            int x = x0 + 4;
+            if (carrier) {
+                addRenderableWidget(warheadButton(n, x, y, cw));
+                x += cw + 4;
+            }
             addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.yield", n.yieldKt(), yieldName(n.yieldKt())),
-                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst())))).bounds(x0 + 4, y, sw, 20).build());
-            addRenderableWidget(Button.builder(Component.translatable(n.airBurst() ? "airstrike.remote.burst.air" : "airstrike.remote.burst.ground"),
-                    b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst())))).bounds(x0 + 8 + sw, y, sw, 20)
-                    .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.burst.tooltip"))).build());
+                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20).build());
+            x += cw + 4;
+            if (burst) {
+                addRenderableWidget(Button.builder(Component.translatable(n.airBurst() ? "airstrike.remote.burst.air" : "airstrike.remote.burst.ground"),
+                        b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20)
+                        .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.burst.tooltip"))).build());
+            }
+        } else if (Loadout.carriesNuke(loadout.weapon())) {
+            int cw = (W - 16) / 3;
+            addRenderableWidget(new IntSlider(x0 + 4, y, cw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> set(loadout.withCount(v))));
+            addRenderableWidget(new IntSlider(x0 + 8 + cw, y, cw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> set(loadout.withSpread(v))));
+            addRenderableWidget(warheadButton(n, x0 + 12 + 2 * cw, y, cw));
         } else {
             addRenderableWidget(new IntSlider(x0 + 4, y, sw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> set(loadout.withCount(v))));
             addRenderableWidget(new IntSlider(x0 + 8 + sw, y, sw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> set(loadout.withSpread(v))));
@@ -175,6 +193,15 @@ public class RemoteScreen extends Screen {
         }
     }
 
+    /** Обычная или ядерная БЧ на крылатой ракете и B-2 (сервер проверит права и carrier_nukes). */
+    private Button warheadButton(Loadout.Nuke n, int x, int y, int w) {
+        Component text = n.onCarrier()
+                ? Component.translatable("airstrike.remote.warhead.nuclear").withStyle(ChatFormatting.GOLD)
+                : Component.translatable("airstrike.remote.warhead.conventional");
+        return Button.builder(text, b -> set(loadout.withNuke(n.withOnCarrier(!n.onCarrier())))).bounds(x, y, w, 20)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.warhead.tooltip"))).build();
+    }
+
     /** Следующий пресет мощности (1 кт → 15 → 100 → 300 → 1 Мт → 10 Мт → 1 кт); сервер урежет до max_yield. */
     private static int nextYield(int kt) {
         for (Yield y : Yield.values()) {
@@ -218,7 +245,7 @@ public class RemoteScreen extends Screen {
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
         C2S.Fire packet = new C2S.Fire(loadout, nukePoint(), Optional.ofNullable(aircraft));
         onClose();
-        if (loadout.weapon() == WeaponType.NUKE) {
+        if (loadout.nuclear()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
         } else {
             PacketDistributor.sendToServer(packet);

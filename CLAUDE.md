@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|nuke|far|fx|fx-night] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|nuke|fx|fx-night] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -72,10 +72,18 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   теги, типы урона, компоненты данных (`Loadout` в пульте), вкладка творчества.
 - `strike/` — приказы: `ServerActions` (пакеты пульта, права, отбой), `StrikeService` (пуск одного снаряда, сирена,
   строка в лог), `SalvoData` (залпы, SavedData), `StrikeWorld` (таймлайны взрывов + залпы в конце тика мира),
-  `Loadout`/`WeaponType`/`TargetMode`, `ChunkTickets` (снаряды держат чанки впереди себя).
-- `entity/` — `StrikeProjectile` (общий полёт: удержание высоты по рельефу, неконтактный взрыватель, столкновения),
-  `DroneEntity`, `CruiseMissileEntity`, `BomberEntity` + `BunkerBusterEntity` (бурение), `IcbmEntity` (только разгон),
-  `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением скорости и ускорения.
+  `Loadout`/`WeaponType`/`TargetMode` (`Loadout.Nuke.onCarrier` — ядерная БЧ на ракете и B-2), `ChunkTickets`
+  (снаряды держат чанки впереди себя). Пуск и полёт: `LaunchSite` (где поставить пусковую у игрока: ровно, твёрдо,
+  небо, только готовые чанки), `VirtualFlights` (SavedData: снаряды вне загруженного мира — живые объекты сущностей
+  не в мире; вошёл в тикающие чанки — снова в мир с тем же UUID), `FlightTickets` (свой `TicketType`: район цели
+  грузится в фоне заранее), `FlightStatus` (раз в 5 тиков владельцу — фаза и время до удара его снарядов).
+- `entity/` — `StrikeProjectile` (общий полёт: удержание высоты по рельефу, неконтактный взрыватель со взведением,
+  столкновения, старт с направляющей `launchTick`, `virtualTick`/`materialize` для полёта вне мира, перенацеливание),
+  `FlightPhase` (синхронизирована: на пусковой → поджиг → разгон → набор → маршрут → горка → атака; по ней эффекты
+  и звук), `DroneEntity`, `CruiseMissileEntity`, `BomberEntity` + `BunkerBusterEntity` (бурение), `IcbmEntity`
+  (только разгон), `LauncherEntity` (пусковая: пакет, ячейки, очередь пусков), `SpentBoosterEntity` (отработавший
+  ускоритель), `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением
+  скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины.
 - `target/` — `Target` (точка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
   аппарата → сущность → блок), `TargetTracker`. `compat/SubLevels` — вся связь с Sable (через sable-companion,
   вшит jar-in-jar; сам Sable — compileOnly).
@@ -99,7 +107,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   весь звук взрывов по дальности; `SoundFilters` — фильтр EFX: воздух, преграды, оглушение), `fx/` (вспышка,
   тряска камеры без сдвига прицела; `Explosions` — картинка взрыва, `Exhaust` — факелы, шлейфы, облако старта, горящие
   обломки; `particle/Fx` — свои частицы: дым с накалом, пламя, искры с дымным хвостом, вспышка, ударное кольцо),
-  `hud/`, `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
+  `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки),
+  `cam/ProjectileCamera` (вид с борта, телеметрия, ЛКМ — перенацелить), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
 - `legacy/LegacyMigration` — переезд со старого датапака: выключает `file/airstrike`/`file/shahed`, переносит
@@ -147,6 +156,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
+- Снаряд вне мира (`VirtualFlights`) — объект сущности, которого нет в мире: `isVirtual()` true, в мир его не добавлять
+  (иначе дубль UUID). Возвращаясь, он ставится выше рельефа под собой и впереди на 5 тиков полёта, каждый блок:
+  с шагом 4 блока он пропускал стену и разбивался об неё. Уходящий снаряд (`park`) — это новая сущность: тесты
+  и камера ищут его по UUID, а не по ссылке.
+- GameTest окружает площадку стеной из барьеров (потолок — только без `skyAccess`): снаряд, который заходит
+  снаружи, должен идти выше неё.
 - `Locale.ROOT` для чисел в командах: у Артёма русская локаль, `String.format("%.1f")` даёт запятую.
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
 - Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
@@ -164,4 +179,4 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Essential, e4mc.
 
 ## Не сделано / идеи
-- Ядерная БЧ на крылатой ракете и B-2 (DESIGN §7) — сейчас только МБР.
+- Барражирующий боеприпас (фаза `LOITER` уже есть в `FlightPhase`), РСЗО.

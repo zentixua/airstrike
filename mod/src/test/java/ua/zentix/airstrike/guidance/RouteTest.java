@@ -1,0 +1,68 @@
+package ua.zentix.airstrike.guidance;
+
+import net.minecraft.world.phys.Vec3;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class RouteTest {
+    private static final Vec3 LAUNCH = new Vec3(0, 64, 0);
+    private static final Vec3 TARGET = new Vec3(0, 64, 400);
+    private static final Vec3 NORTH_TO_SOUTH = new Vec3(0, 0, 1);
+
+    @Test
+    void longFlightGetsSideWaypointOfRequestedLength() {
+        // шахед: 50 с × 2.1 бл/тик = 2100 блоков пути, последний участок 300
+        Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
+        assertEquals(2, r.size(), "обход сбоку и точка входа");
+        assertEquals(2100, r.remaining(LAUNCH, TARGET), 1.0, "длина маршрута");
+        Vec3 entry = r.points().get(1);
+        assertEquals(100, entry.z, 1e-6, "вход в 300 блоках до цели по направлению захода");
+        assertTrue(Math.abs(r.points().get(0).x) > 500, "точка обхода вынесена вбок");
+    }
+
+    @Test
+    void sideSwitchesWithSign() {
+        Route left = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
+        Route right = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, -1);
+        assertEquals(-left.points().get(0).x, right.points().get(0).x, 1e-6);
+    }
+
+    @Test
+    void shortFlightGoesStraightToEntry() {
+        Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 100, 300, 1);
+        assertEquals(1, r.size(), "только точка входа");
+    }
+
+    @Test
+    void waypointPassedWhenReachedOrOvershot() {
+        Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
+        Vec3 side = r.points().get(0);
+        r.update(side.add(5, 0, 5), 20);
+        assertEquals(1, r.index(), "точка обхода взята в радиусе захвата");
+        // точку входа проскочили мимо радиуса, но за перпендикуляром — тоже взята
+        Vec3 entry = r.points().get(1);
+        r.update(new Vec3(entry.x + 25, 64, entry.z + 10), 20);
+        assertTrue(r.finished(), "дальше — цель");
+        assertNull(r.current());
+        assertEquals(TARGET.z - entry.z - 10, r.remaining(new Vec3(entry.x, 64, entry.z + 10), TARGET), 1e-6);
+    }
+
+    @Test
+    void skipGoesStraightToTarget() {
+        Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
+        r.skip();
+        assertEquals(400, r.remaining(LAUNCH, TARGET), 1e-6);
+    }
+
+    @Test
+    void survivesSaving() {
+        Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, -1);
+        r.update(r.points().get(0), 20);
+        Route back = Route.load(r.save());
+        assertEquals(r.points(), back.points());
+        assertEquals(r.index(), back.index());
+    }
+}

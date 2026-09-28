@@ -9,7 +9,7 @@ import ua.zentix.airstrike.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class AirstrikeNetwork {
-    public static final String PROTOCOL = "1";
+    public static final String PROTOCOL = "2";
 
     private AirstrikeNetwork() {}
 
@@ -28,10 +28,12 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.NukeDetonation.TYPE, S2C.NukeDetonation.CODEC, (p, ctx) -> ClientHooks.get().nukeDetonation(p));
         r.playToClient(S2C.NukeSync.TYPE, S2C.NukeSync.CODEC, (p, ctx) -> ClientHooks.get().nukeSync(p));
         r.playToClient(S2C.Radiation.TYPE, S2C.Radiation.CODEC, (p, ctx) -> ClientHooks.get().radiation(p));
+        r.playToClient(S2C.Flights.TYPE, S2C.Flights.CODEC, (p, ctx) -> ClientHooks.get().flights(p));
         r.playToClient(S2C.OpenRemote.TYPE, S2C.OpenRemote.CODEC, (p, ctx) -> ClientHooks.get().openRemote());
 
         r.playToServer(C2S.Fire.TYPE, C2S.Fire.CODEC, ServerActions::fire);
         r.playToServer(C2S.SetLoadout.TYPE, C2S.SetLoadout.CODEC, ServerActions::setLoadout);
         r.playToServer(C2S.Clear.TYPE, C2S.Clear.CODEC, ServerActions::clear);
+        r.playToServer(C2S.Retarget.TYPE, C2S.Retarget.CODEC, ServerActions::retarget);
     }
 }

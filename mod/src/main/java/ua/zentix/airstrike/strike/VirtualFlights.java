@@ -1,0 +1,122 @@
+package ua.zentix.airstrike.strike;
+
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.saveddata.SavedData;
+import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.StrikeProjectile;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Снаряды, летящие вне загруженного мира: живые объекты сущностей, не добавленные в мир. Каждый тик —
+ * {@link StrikeProjectile#virtualTick}; вошёл в тикающие чанки — снова добавляется в мир с тем же UUID
+ * (клиенты видят его как новую сущность, камера и HUD узнают по UUID). Хранится в мире: полёт переживает
+ * перезапуск сервера.
+ */
+public final class VirtualFlights extends SavedData {
+    private static final String NAME = Airstrike.MOD_ID + "_virtual_flights";
+
+    private final List<StrikeProjectile> flights = new ArrayList<>();
+    /** Прочитанные с диска и ещё не созданные (сущность создаётся в первом тике мира). */
+    private final List<CompoundTag> pending = new ArrayList<>();
+
+    public static VirtualFlights get(ServerLevel level) {
+        return level.getDataStorage().computeIfAbsent(new Factory<>(VirtualFlights::new, VirtualFlights::load, null), NAME);
+    }
+
+    /**
+     * Снаряд уходит из тикающих чанков: сущность удаляется из мира, а её копия продолжает полёт здесь.
+     *
+     * @return копия, летящая вне мира, или null, если сохранить снаряд не вышло (тогда он просто убран)
+     */
+    public static StrikeProjectile park(ServerLevel level, StrikeProjectile p) {
+        CompoundTag tag = new CompoundTag();
+        boolean saved = p.save(tag);
+        p.discard();
+        if (!saved) return null;
+        StrikeProjectile copy = create(level, tag);
+        if (copy != null) get(level).add(copy);
+        return copy;
+    }
+
+    /** Начать полёт сразу вне мира (заход издалека: B-2, пуск без пусковой рядом). */
+    public static void launch(ServerLevel level, StrikeProjectile p) {
+        get(level).add(p);
+    }
+
+    private void add(StrikeProjectile p) {
+        p.markVirtual();
+        flights.add(p);
+        setDirty();
+    }
+
+    public List<StrikeProjectile> flights() {
+        return flights;
+    }
+
+    public int clear() {
+        int n = flights.size() + pending.size();
+        for (StrikeProjectile p : flights) p.discard();
+        flights.clear();
+        pending.clear();
+        setDirty();
+        return n;
+    }
+
+    void tick(ServerLevel level) {
+        if (!pending.isEmpty()) {
+            for (CompoundTag t : pending) {
+                StrikeProjectile p = create(level, t);
+                if (p != null) {
+                    p.markVirtual();
+                    flights.add(p);
+                }
+            }
+            pending.clear();
+        }
+        if (flights.isEmpty()) return;
+        // снимок: вернувшийся в мир снаряд может в том же тике снова уйти (и добавиться сюда)
+        List<StrikeProjectile> now = new ArrayList<>(flights);
+        flights.clear();
+        for (StrikeProjectile p : now) {
+            p.virtualTick(level);
+            if (p.isRemoved()) continue;
+            if (p.canMaterialize(level)) {
+                p.materialize(level);
+                if (level.addFreshEntity(p)) continue;
+                Airstrike.LOG.warn("Снаряд {} не вернулся в мир у {}", p.getType().getDescriptionId(), p.blockPosition());
+                continue;
+            }
+            flights.add(p);
+        }
+        setDirty();
+    }
+
+    private static StrikeProjectile create(ServerLevel level, CompoundTag tag) {
+        return EntityType.create(tag, level).filter(e -> e instanceof StrikeProjectile).map(e -> (StrikeProjectile) e).orElse(null);
+    }
+
+    private static VirtualFlights load(CompoundTag tag, HolderLookup.Provider registries) {
+        VirtualFlights v = new VirtualFlights();
+        for (Tag t : tag.getList("flights", Tag.TAG_COMPOUND)) v.pending.add((CompoundTag) t);
+        return v;
+    }
+
+    @Override
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+        ListTag list = new ListTag();
+        for (StrikeProjectile p : flights) {
+            CompoundTag t = new CompoundTag();
+            if (p.save(t)) list.add(t);
+        }
+        list.addAll(pending);
+        tag.put("flights", list);
+        return tag;
+    }
+}

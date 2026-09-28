@@ -12,8 +12,9 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * Всё, что длится несколько тиков, но не является сущностью: таймлайны взрывов (живут секунды, не сохраняются)
- * и залпы (сохраняются в мире через {@link SalvoData}). Тикает в конце тика мира.
+ * Всё, что длится несколько тиков, но не является сущностью в мире: таймлайны взрывов (живут секунды, не
+ * сохраняются), залпы ({@link SalvoData}) и полёты вне загруженного мира ({@link VirtualFlights}) — последние два
+ * сохраняются в мире. Тикает в конце тика мира.
  */
 public final class StrikeWorld {
     private static final Map<ServerLevel, StrikeWorld> WORLDS = new WeakHashMap<>();
@@ -39,6 +40,7 @@ public final class StrikeWorld {
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
         SalvoData.get(level).tick(level);
+        VirtualFlights.get(level).tick(level);
         StrikeWorld w = WORLDS.get(level);
         if (w != null) w.tick(level);
     }

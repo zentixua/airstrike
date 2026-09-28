@@ -13,6 +13,8 @@ import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.SpentBoosterEntity;
 
 public final class ModEntities {
     public static final DeferredRegister<EntityType<?>> REGISTER = DeferredRegister.create(Registries.ENTITY_TYPE, Airstrike.MOD_ID);
@@ -28,6 +30,26 @@ public final class ModEntities {
 
     public static final DeferredHolder<EntityType<?>, EntityType<IcbmEntity>> ICBM =
             projectile("icbm", EntityType.Builder.of(IcbmEntity::new, MobCategory.MISC).sized(2.0f, 2.0f), 32);
+
+    /** Мобильная пусковая у стреляющего: стоит на земле, позиция не меняется. */
+    public static final DeferredHolder<EntityType<?>, EntityType<LauncherEntity>> LAUNCHER = REGISTER.register("launcher",
+            () -> EntityType.Builder.<LauncherEntity>of(LauncherEntity::new, MobCategory.MISC)
+                    .sized(3.2f, 2.4f)
+                    .clientTrackingRange(16)
+                    .updateInterval(20)
+                    .fireImmune()
+                    .noSummon()
+                    .build(Airstrike.MOD_ID + ":launcher"));
+
+    /** Отработавший ускоритель: падает по баллистике, как обломок. */
+    public static final DeferredHolder<EntityType<?>, EntityType<SpentBoosterEntity>> SPENT_BOOSTER = REGISTER.register("spent_booster",
+            () -> EntityType.Builder.<SpentBoosterEntity>of(SpentBoosterEntity::new, MobCategory.MISC)
+                    .sized(0.6f, 0.6f)
+                    .clientTrackingRange(16)
+                    .updateInterval(2)
+                    .fireImmune()
+                    .noSummon()
+                    .build(Airstrike.MOD_ID + ":spent_booster"));
 
     /** Обломки: летят по баллистике, падают блоком или рассыпаются. Как у falling_block — позиция раз в несколько тиков. */
     public static final DeferredHolder<EntityType<?>, EntityType<DebrisEntity>> DEBRIS = REGISTER.register("debris",

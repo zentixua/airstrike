@@ -14,14 +14,19 @@ import ua.zentix.airstrike.warhead.Warheads;
 import java.util.UUID;
 
 /**
- * Дрон-камикадзе в духе Shahed-136: ≈150 км/ч (2.1 блока/тик), крейсер над рельефом и не ниже цели+30,
- * пикирование по дуге, когда цель уходит на 18° под горизонт; в пике разгон до 3 блоков/тик.
+ * Дрон-камикадзе в духе Shahed-136: ≈150 км/ч (2.1 блока/тик). Старт с пусковой: твердотопливный ускоритель
+ * под хвостом горит ~2 с и сбрасывается, дальше тянет толкающий винт — набор высоты, доворот на маршрут.
+ * Крейсер над рельефом и не ниже цели+30; на последнем участке — пикирование по дуге, когда цель уходит на 18°
+ * под горизонт; в пике разгон до 3 блоков/тик.
  */
 public class DroneEntity extends StrikeProjectile {
-    public static final int PHASE_CRUISE = 0;
-    public static final int PHASE_DIVE = 1;
+    public static final double CRUISE_SPEED = 2.1;
+    /** Высота крейсера над стартом и целью. */
+    public static final double CRUISE_HEIGHT = 45;
 
-    /** Высота крейсера на старте: не спускаемся ниже, даже если рельеф понижается. */
+    private static final LaunchProfile LAUNCH = new LaunchProfile(8, 38, 0.075, 8, -9);
+
+    /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
 
     public DroneEntity(EntityType<? extends DroneEntity> type, Level level) {
@@ -39,7 +44,12 @@ public class DroneEntity extends StrikeProjectile {
     }
 
     @Override
-    protected int maxAge() {
+    public double cruiseSpeed() {
+        return CRUISE_SPEED;
+    }
+
+    @Override
+    protected int defaultLifetime() {
         return 900;
     }
 
@@ -48,36 +58,73 @@ public class DroneEntity extends StrikeProjectile {
         return 12;
     }
 
-    /** Высота полёта = max(старт, цель+30, рельеф+20). */
+    @Override
+    protected double clearance() {
+        return 20;
+    }
+
+    @Override
+    @Nullable
+    protected LaunchProfile launchProfile() {
+        return LAUNCH;
+    }
+
+    /** Уже в воздухе (заход издалека, тесты): высота полёта = max(старт, цель+30, рельеф+20). */
     @Override
     public void launch(Vec3 pos, Target target, Vec3 targetPoint, @Nullable UUID owner) {
         double y = Math.max(pos.y, targetPoint.y + 30);
         y = Math.max(y, surfaceY(level(), pos.x, pos.z) + 20);
         Vec3 start = new Vec3(pos.x, y, pos.z);
         super.launch(start, target, targetPoint, owner);
-        speed = 2.1;
+        speed = CRUISE_SPEED;
         cruiseAlt = y;
         altFilter = y;
-        setPhase(PHASE_CRUISE);
+        setPhase(FlightPhase.CRUISE);
+    }
+
+    @Override
+    public void placeOnLauncher(Vec3 rail, float yaw, float elevation, int readyTicks, int hiddenTicks, Target target, Vec3 targetPoint,
+                                @Nullable UUID owner) {
+        super.placeOnLauncher(rail, yaw, elevation, readyTicks, hiddenTicks, target, targetPoint, owner);
+        cruiseAlt = Math.max(rail.y, targetPoint.y) + CRUISE_HEIGHT;
     }
 
     @Override
     protected void serverTick(ServerLevel level) {
         Vec3 aim = updateTarget(level);
+        if (launchTick(level)) return;
+
+        Vec3 nav = navPoint(aim, 40);
         Bearing b = bearingTo(aim);
+        Bearing n = bearingTo(nav);
+        FlightPhase ph = flightPhase();
 
-        if (phase() == PHASE_CRUISE && b.pitch() >= 18) setPhase(PHASE_DIVE);
+        if (ph == FlightPhase.CLIMB) {
+            // винт на полных оборотах, скорость после ускорителя спадает к крейсерской
+            speed += (CRUISE_SPEED - speed) * 0.04;
+            double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 15, 30, 45);
+            holdAltitude(Math.max(cruiseAlt, terrain + 18), 0.10, 1.0, 0.12);
+            if (phaseAge() > 60 && Math.abs(cruiseAlt - getY()) < 6) setPhase(FlightPhase.CRUISE);
+        }
+        // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
+        if ((flightPhase() == FlightPhase.CRUISE || flightPhase() == FlightPhase.CLIMB) && onFinalLeg() && b.pitch() >= 18) {
+            setPhase(FlightPhase.TERMINAL);
+        }
 
-        if (phase() == PHASE_CRUISE) {
-            double terrain = terrainAhead(level, 15, 30, 45);
+        if (flightPhase() == FlightPhase.CRUISE) {
+            speed += (CRUISE_SPEED - speed) * 0.05;
+            double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 15, 30, 45);
             double desired = Math.max(Math.max(terrain + 18, cruiseAlt), aim.y + 30);
             holdAltitude(desired, 0.12, 1.2, 0.15);
-        } else {
+        } else if (flightPhase() == FlightPhase.TERMINAL) {
             flight.arcPitch(b.pitch(), speed, b.distance(), 4.0, 0.25);
             speed = Math.min(3.0, speed + 0.04);
         }
-        // над самой целью курс не трогаем
-        if (b.horizontal() > 8) flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
+        // над самой целью курс не трогаем; на старте разворот мягче (скорость ещё мала)
+        if (n.horizontal() > 8) {
+            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.08, 1.6, 0.12);
+            else flight.steerYaw(n.yaw(), 0.15, 3.0, 0.3);
+        }
 
         advance(level, aim, 4.3);
     }

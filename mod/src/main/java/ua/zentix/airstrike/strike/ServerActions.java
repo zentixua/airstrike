@@ -6,6 +6,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -13,9 +14,12 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.DebrisEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
@@ -60,6 +64,22 @@ public final class ServerActions {
         strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke());
     }
 
+    /** Перенацелить свой снаряд из его камеры: сервер находит то же, что под прицелом камеры, и проверяет. */
+    public static void retarget(C2S.Retarget p, IPayloadContext ctx) {
+        if (!(ctx.player() instanceof ServerPlayer player) || !mayUse(player)) return;
+        ServerLevel level = player.serverLevel();
+        if (!(level.getEntity(p.projectile()) instanceof StrikeProjectile proj) || !player.getUUID().equals(proj.ownerId())) return;
+        C2S.AimHint h = p.aim();
+        // из камеры видно не дальше дальности прорисовки снаряда
+        if (h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
+        Aim aim = resolveHint(level, h);
+        if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
+        Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
+        player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
+        Airstrike.LOG.info("Перенацеливание: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
+                Mth.floor(aim.point().y), Mth.floor(aim.point().z), player.getGameProfile().getName());
+    }
+
     public static void setLoadout(C2S.SetLoadout p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         ItemStack stack = player.getItemInHand(p.hand());
@@ -80,8 +100,11 @@ public final class ServerActions {
     public record Aim(Target target, Vec3 point, @Nullable Component label) {}
 
     public static Loadout clamp(Loadout l) {
-        Loadout.Nuke n = new Loadout.Nuke(Math.min(l.nuke().yieldKt(), AirstrikeConfig.SERVER.nukeMaxYield.get()), l.nuke().airBurst());
-        if (l.weapon() == WeaponType.NUKE) return new Loadout(l.weapon(), 1, 0, l.mode(), l.player(), n); // залпов МБР нет
+        boolean onCarrier = l.nuke().onCarrier() && AirstrikeConfig.SERVER.carrierNukes.get();
+        Loadout.Nuke n = new Loadout.Nuke(Math.min(l.nuke().yieldKt(), AirstrikeConfig.SERVER.nukeMaxYield.get()), l.nuke().airBurst(), onCarrier);
+        Loadout clamped = new Loadout(l.weapon(), l.count(), l.spread(), l.mode(), l.player(), n);
+        // ядерных залпов нет: одна МБР, одна ракета, одна бомба
+        if (clamped.nuclear()) return new Loadout(l.weapon(), 1, 0, l.mode(), l.player(), n);
         return new Loadout(l.weapon(), Math.min(l.count(), AirstrikeConfig.SERVER.maxSalvo.get()),
                 Math.min(l.spread(), AirstrikeConfig.SERVER.maxSpread.get()), l.mode(), l.player(), n);
     }
@@ -99,7 +122,8 @@ public final class ServerActions {
     public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
         ServerLevel level = player.serverLevel();
         float yaw = player.getYRot();
-        if (weapon == WeaponType.NUKE && !mayUseNuke(player)) {
+        boolean nuclear = weapon == WeaponType.NUKE || nuke.onCarrier() && Loadout.carriesNuke(weapon);
+        if (nuclear && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
                     ? "airstrike.nuke.ops_only" : "airstrike.nuke.disabled").withStyle(ChatFormatting.RED), true);
             return false;
@@ -109,11 +133,12 @@ public final class ServerActions {
         }
         StrikeService.log(player.getGameProfile().getName(), weapon, count, spread, aim.point());
         if (count <= 1 && spread <= 0) {
-            if (!StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke)) {
+            StrikeService.Result r = StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke, nuke.onCarrier());
+            if (!r.ok()) {
                 player.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
                 return false;
             }
-            StrikeService.confirm(player, weapon);
+            StrikeService.confirm(player, weapon, r.eta());
             return true;
         }
         SalvoData.start(level, weapon, Math.max(1, count), spread, aim.target(), aim.point(), yaw, player, nuke);
@@ -123,12 +148,17 @@ public final class ServerActions {
     /** Цель по подсказке бинокля: сервер находит у себя то же, что видит клиент, и проверяет дальность. */
     @Nullable
     private static Aim fromHint(ServerPlayer player, C2S.AimHint h) {
-        ServerLevel level = player.serverLevel();
         double range = AirstrikeConfig.SERVER.aimRange.get() + 32;
         if (h.point().distanceToSqr(player.getEyePosition()) > range * range) {
             notFound(player);
             return null;
         }
+        return resolveHint(player.serverLevel(), h);
+    }
+
+    /** Цель по подсказке клиента: сущность и аппарат — если они у сервера там же, иначе точка. */
+    @Nullable
+    private static Aim resolveHint(ServerLevel level, C2S.AimHint h) {
         switch (h.kind()) {
             case C2S.AimHint.ENTITY -> {
                 Entity e = level.getEntity(h.entityId());
@@ -219,12 +249,13 @@ public final class ServerActions {
         for (ServerLevel level : server.getAllLevels()) {
             List<Entity> kill = new ArrayList<>();
             for (Entity e : level.getAllEntities()) {
-                if (e instanceof StrikeProjectile || e instanceof DebrisEntity) kill.add(e);
+                if (e instanceof StrikeProjectile || e instanceof DebrisEntity || e instanceof LauncherEntity || e instanceof SpentBoosterEntity) kill.add(e);
             }
             for (Entity e : kill) {
                 if (e instanceof StrikeProjectile) n++;
                 e.discard();
             }
+            n += VirtualFlights.get(level).clear();
             StrikeWorld.clearSalvos(level);
             if (nuclear) n += ua.zentix.airstrike.nuclear.NuclearStrikes.clear(level);
         }

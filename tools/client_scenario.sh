@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland, звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|nuke|fx|fx-night] [shaders]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
-#   all — шахед, ракета, бомба, залп, бинокль и пульт; nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
+#   tools/client_scenario.sh [all|launch|nuke|fx|fx-night] [shaders]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
+#   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (V) до удара;
+#   nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
 #   fx, fx-night — эффекты крупным планом (взрывы шахеда, ракеты, бомбы и старт МБР; днём и ночью);
 #   shaders — ещё Sodium, Iris и шейдерпак хоста из инстанса (как у Артёма)
 set -euo pipefail
