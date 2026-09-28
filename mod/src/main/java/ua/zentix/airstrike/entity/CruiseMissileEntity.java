@@ -10,7 +10,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 

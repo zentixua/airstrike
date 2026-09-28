@@ -1,4 +1,4 @@
-package ua.zentix.airstrike.nuclear.world;
+package ua.zentix.airstrike.util;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;

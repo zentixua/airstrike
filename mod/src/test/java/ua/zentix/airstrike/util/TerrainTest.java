@@ -1,4 +1,4 @@
-package ua.zentix.airstrike.nuclear.world;
+package ua.zentix.airstrike.util;
 
 import org.junit.jupiter.api.Test;
 

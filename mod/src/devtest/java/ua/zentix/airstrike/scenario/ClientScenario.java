@@ -60,14 +60,19 @@ public final class ClientScenario {
     private boolean models;
 
     public ClientScenario(IEventBus modBus) {
-        if (System.getProperty("airstrike.scenario") == null) return;
+        String scenario = System.getProperty("airstrike.scenario");
+        if (scenario == null) return;
+        if (scenario.startsWith("mp-")) {
+            new MultiplayerScenario("mp-a".equals(scenario)); // свой сервер, без мира сценария (tools/mp_scenario.sh)
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onScreen);
-        if ("trailer".equals(System.getProperty("airstrike.scenario"))) {
+        if ("trailer".equals(scenario)) {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
             return;
         }
         NeoForge.EVENT_BUS.addListener(this::onTick);
-        String mode = System.getProperty("airstrike.scenario");
+        String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
@@ -77,6 +82,7 @@ public final class ClientScenario {
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
         else if ("occlusion".equals(mode)) planOcclusion();
+        else if ("nuke-profile".equals(mode)) planNukeProfile();
         else plan();
     }
 
@@ -84,6 +90,12 @@ public final class ClientScenario {
         if (started || !(e.getScreen() instanceof TitleScreen)) return;
         started = true;
         Minecraft mc = Minecraft.getInstance();
+        // копия мира игрока (tools/prod_client.py --world): открыть её, а не создавать мир сценария
+        String world = System.getProperty("airstrike.world");
+        if (world != null) {
+            mc.createWorldOpenFlows().openWorld(world, () -> Airstrike.LOG.error("SCENARIO не открылся мир {}", world));
+            return;
+        }
         deleteOldWorld(mc.gameDirectory.toPath().resolve("saves").resolve(WORLD));
         GameRules rules = new GameRules();
         rules.getRule(GameRules.RULE_DAYLIGHT).set(false, null);
@@ -267,6 +279,34 @@ public final class ClientScenario {
             view();
         });
         at(300, this::nextFx);
+    }
+
+    /**
+     * Замер подрыва на копии мира игрока (tools/prod_client.py nuke-profile --world …): 15 кт в воздухе в 300 блоках
+     * от игрока, потом второй — в 600 с другой стороны. Строка подрыва в логе даёт разбивку времени; рядом — сколько
+     * чанков загружено и сущностей в мире в этот момент.
+     */
+    private void planNukeProfile() {
+        for (int[] shot : new int[][]{{600, 300}, {1800, -600}}) {
+            at(shot[0], () -> {
+                var server = Minecraft.getInstance().getSingleplayerServer();
+                var player = Minecraft.getInstance().player;
+                double x = player.getX(), z = player.getZ() + shot[1];
+                server.execute(() -> {
+                    var level = server.overworld();
+                    int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) x, (int) z);
+                    int entities = 0;
+                    for (var ignored : level.getAllEntities()) entities++;
+                    Airstrike.LOG.info("SCENARIO nuke-profile before: chunks={} entities={} players={}", level.getChunkSource().getLoadedChunksCount(),
+                            entities, level.players().size());
+                    ua.zentix.airstrike.nuclear.NuclearWarhead.detonate(level, new Vec3(x, y, z), 15, true, null);
+                });
+            });
+        }
+        at(2400, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
     }
 
     private void view() {
@@ -617,6 +657,7 @@ public final class ClientScenario {
             });
         }
         for (int t = 240; t <= 1400; t += 12) shot(t, "map");
+        for (int t = 600; t <= 1400; t += 100) at(t, ClientScenario::dumpFlights);
         at(1410, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
@@ -814,6 +855,23 @@ public final class ClientScenario {
                         ua.zentix.airstrike.client.nuclear.NukeSky.blackRain(), rain, mc.getFps());
             }
             Screenshot.grab(mc.gameDirectory, String.format("%s_%04d.png", name, tick), mc.getMainRenderTarget(), c -> {});
+        });
+    }
+
+    /** Снаряды на сервере: в мире и вне его, где, с какой скоростью, тикает ли их чанк. */
+    private static void dumpFlights() {
+        var server = Minecraft.getInstance().getSingleplayerServer();
+        server.execute(() -> {
+            var level = server.overworld();
+            java.util.List<StrikeProjectile> all = new ArrayList<>(level.getEntitiesOfClass(StrikeProjectile.class,
+                    new net.minecraft.world.phys.AABB(-30_000_000, -1000, -30_000_000, 30_000_000, 1000, 30_000_000)));
+            all.addAll(ua.zentix.airstrike.strike.VirtualFlights.get(level).flights());
+            for (StrikeProjectile p : all) {
+                var bp = p.blockPosition();
+                Airstrike.LOG.info("SCENARIO dump {} virtual={} phase={} pos={} speed={} age={} ticking={} loaded={}",
+                        p.weapon(), p.isVirtual(), p.flightPhase(), bp.toShortString(), String.format(java.util.Locale.ROOT, "%.2f", p.speed()), p.age(),
+                        level.isPositionEntityTicking(bp), level.getChunkSource().getChunkNow(bp.getX() >> 4, bp.getZ() >> 4) != null);
+            }
         });
     }
 

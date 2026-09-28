@@ -30,7 +30,7 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEffects;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.net.S2C;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
 

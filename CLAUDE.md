@@ -36,7 +36,10 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента без окна: своя шина D-Bus и свои каталоги XDG
-    stress.sh                            ← стенд нагрузки: выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока
+    mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
+    prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
+                                           ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва
+    stress.sh                            ← стенд нагрузки (облако, xvfb): выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока
                                            без окна; залпы по 30, выход/вход, Незер, ядерка, «Отбой»; сводка — строки STRESS в логе
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
@@ -122,7 +125,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `net/` — `S2C`/`C2S` пакеты; `ClientHooks` — интерфейс, который реализует клиент (сервер не грузит клиентские классы).
 - `command/AirstrikeCommand` — `/airstrike` (то же, что пульт, плюс ядерка, радиация, выдача); `item/` — пульт
   (`DesignatorItem`: бинокль, экран) и счётчик Гейгера; `util/` — `Local` (локальные координаты «^ ^ ^»),
-  `Particles` (разброс частиц как у команды `particle`); `mixin/sable/` — единственный миксин (см. подводные камни).
+  `Particles` (разброс частиц как у команды `particle`), `Terrain` (готовность чанка и высота без ожидания загрузки), `Nbt` (векторы в NBT); `mixin/sable/` — единственный миксин (см. подводные камни).
 - Состояние сервера, которое не сохраняется, — несохраняемые attachments NeoForge (мира: `StrikeWorld`; игрока:
   пауза между пусками, «HUD полётов показан»), а не статические карты: статика переживает смену мира в одиночной игре.
 - `client/` (`@Mod(dist = CLIENT)`) — `render/` (`WeaponModels` — модели снарядов из OBJ и их анимации
@@ -173,7 +176,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - **Ничего не читать в незагруженных чанках из тика**: `getBlockState`, `clip`, ванильный `explode` и даже
   `TicketController.forceChunk` NeoForge грузят/генерируют чанк сразу — сервер вставал на 5–6 с. `hasChunk`/`isLoaded`
   верны и для чанка, который ещё грузится, а `getHeight`/`getBlockState` на нём ждут в `managedBlock` (до 400 мс):
-  проверять готовность через `getChunkNow` (`nuclear/world/Terrain`). Для ядерного удара — ванильный `TicketType`
+  проверять готовность через `getChunkNow` (`util/Terrain`). Для ядерного удара — ванильный `TicketType`
   (`NuclearTickets`, грузит в фоне).
 - Sable 2.0.5 роняет мир («Sub-level assembly attempted inside plot of already removed sub-level»), когда аппарат
   после взрыва распадается на много кусков: кусок без массы удаляется, его плот сразу отдаётся следующему, и дробление
@@ -220,6 +223,9 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания
   KWin у Артёма (Alt+Tab), а kwinrc писал в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
   /component/kwin org.kde.kglobalaccel.Component isActive` — должно остаться `true`.
+- Вся сборка хоста (217 модов) в Gradle-запуске не стартует: Sinytra Connector требует боевую раскладку Minecraft
+  («Could not determine clean minecraft artifact path»). Для проверок с полной сборкой — `tools/prod_client.py`
+  (библиотеки и ForgeWrapper из каталога Prism, копия инстанса в `mod/run/prod`; инстанс Артёма не трогается).
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
 - Клиент без окна работает и в облаке, без KWin и шейдеров: создать `mod/run/scenario/logs` (туда пишет gc.log), затем
   `AIRSTRIKE_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario

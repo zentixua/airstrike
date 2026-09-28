@@ -26,9 +26,9 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.strike.SalvoData;
-import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -277,8 +277,8 @@ public final class StressDirector {
             BlockPos pos = BlockPos.containing(at.add(i * 12, 0, 0));
                         Entity e = EntityType.VILLAGER.create(level);
             if (e == null) continue;
-            if (!ua.zentix.airstrike.nuclear.world.Terrain.ready(level, pos)) continue; // чанк ради цели не грузим
-            e.moveTo(pos.getX() + 0.5, ua.zentix.airstrike.nuclear.world.Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, pos.getX(), pos.getZ()), pos.getZ() + 0.5);
+            if (!ua.zentix.airstrike.util.Terrain.ready(level, pos)) continue; // чанк ради цели не грузим
+            e.moveTo(pos.getX() + 0.5, ua.zentix.airstrike.util.Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, pos.getX(), pos.getZ()), pos.getZ() + 0.5);
             level.addFreshEntity(e);
             villagers.add(e.getUUID());
             if (p != null) run(s, p.createCommandSourceStack().withPermission(4), "airstrike drone " + e.getStringUUID());
@@ -316,7 +316,7 @@ public final class StressDirector {
             } else {
                 point = p.position().add(level.random.nextInt(401) - 200, 0, level.random.nextInt(401) - 200);
                 BlockPos col = BlockPos.containing(point);
-                int y = ua.zentix.airstrike.nuclear.world.Terrain.ready(level, col) ? ua.zentix.airstrike.nuclear.world.Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ()) : 70;
+                int y = Terrain.ready(level, col) ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ()) : 70;
                 point = new Vec3(point.x, y, point.z);
                 t = new Target.Point(point);
             }
