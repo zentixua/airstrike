@@ -21,6 +21,7 @@ import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModSounds;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
 import java.util.HashMap;

@@ -12,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.registry.ModBlocks;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 
 import java.util.ArrayList;

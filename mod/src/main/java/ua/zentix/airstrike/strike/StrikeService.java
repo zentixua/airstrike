@@ -25,7 +25,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Local;

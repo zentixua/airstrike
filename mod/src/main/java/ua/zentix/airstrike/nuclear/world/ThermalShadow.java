@@ -4,6 +4,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.util.Terrain;
 
 /**
  * Видит ли точка огненный шар (DESIGN-nuke §3.4): 16 выборок карты высот вдоль горизонтальной проекции луча —
