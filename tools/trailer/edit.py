@@ -285,7 +285,7 @@ def build_edit(lang="en"):
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
         Clip("loiter_strike", "mark:gone-3.0", 4.5),
-        Clip("rocket_launch", 0.5, 4.5, flash=True),
+        Clip("rocket_launch", "sound:rocket.launch-1.5", 4.5, flash=True),
         Clip("rocket_impact", "sound:blast-1.0", 4.5),
         # B-2: снизу — створки, бомба уходит; с земли — падение, бурение, подземный взрыв
         Clip("bomb_bay", "mark:release-2.0", 3.0, flash=True),
@@ -299,7 +299,7 @@ def build_edit(lang="en"):
         Black(4.5),
         Clip("icbm", 0.0, 5.0, flash=True),
         # из-за плеча наводчика: отсчёт, тревога, вспышка, шар, фронт доходит до вышки
-        Clip("nuke", "mark:detonation-10.0", 16.0),
+        Clip("nuke", "mark:detonation-10.0", 16.0, frame_y=0.0),
         Clip("mushroom", 0.0, 9.0, rate=1.5, xfade=0.6),
         Clip("fallout", 0.5, 6.0, xfade=1.0),
         Black(9.0),
