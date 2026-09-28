@@ -11,10 +11,11 @@ import ua.zentix.airstrike.Airstrike;
 public final class S2C {
     private S2C() {}
 
-    private static final StreamCodec<ByteBuf, Vec3> VEC3 = StreamCodec.composite(
+    /** В 1.21.1 у {@code Vec3} нет своего потокового кодека. */
+    static final StreamCodec<ByteBuf, Vec3> VEC3 = StreamCodec.composite(
             ByteBufCodecs.DOUBLE, Vec3::x, ByteBufCodecs.DOUBLE, Vec3::y, ByteBufCodecs.DOUBLE, Vec3::z, Vec3::new);
 
-    /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй), грунт, высота поверхности над точкой, сид. */
+    /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид. */
     public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed) implements CustomPacketPayload {
         public static final int DRONE = 0, MISSILE = 1, BUNKER = 2, ROCKET = 3;
         public static final Type<Blast> TYPE = new Type<>(Airstrike.id("blast"));
@@ -129,13 +130,16 @@ public final class S2C {
         public static final int TARGET_TYPE = 2;
         /** Аппарат Sable: {@code targetName} — его имя или пусто. */
         public static final int TARGET_AIRCRAFT = 3;
+        /** Длина {@code targetName}, дальше сервер обрезает. */
+        public static final int MAX_NAME = 64;
+        private static final StreamCodec<ByteBuf, String> NAME = ByteBufCodecs.stringUtf8(MAX_NAME);
 
         public static final StreamCodec<ByteBuf, Flight> CODEC = new StreamCodec<>() {
             @Override
             public Flight decode(ByteBuf b) {
                 return new Flight(net.minecraft.core.UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
                         ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readBoolean(),
-                        ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.stringUtf8(64).decode(b), b.readBoolean());
+                        ByteBufCodecs.VAR_INT.decode(b), NAME.decode(b), b.readBoolean());
             }
 
             @Override
@@ -148,7 +152,7 @@ public final class S2C {
                 VEC3.encode(b, f.target);
                 b.writeBoolean(f.nuclear);
                 ByteBufCodecs.VAR_INT.encode(b, f.targetKind);
-                ByteBufCodecs.stringUtf8(64).encode(b, f.targetName);
+                NAME.encode(b, f.targetName);
                 b.writeBoolean(f.targetLost);
             }
         };

@@ -71,8 +71,13 @@ public final class SubLevels {
 
     /** Центр аппарата в мире. */
     public static Vec3 center(SubLevelAccess sub) {
-        Vector3d c = sub.boundingBox().center();
-        return new Vec3(c.x, c.y, c.z);
+        try {
+            Vector3d c = sub.boundingBox().center();
+            return new Vec3(c.x, c.y, c.z);
+        } catch (RuntimeException | LinkageError e) {
+            disable(e);
+            return Vec3.ZERO;
+        }
     }
 
     /** Аппараты в радиусе (по габаритам). */
@@ -98,10 +103,21 @@ public final class SubLevels {
 
     /** Имя аппарата для интерфейса. */
     public static Component describe(@Nullable SubLevelAccess subLevel) {
-        String name = subLevel == null ? null : subLevel.getName();
+        String name = subLevel == null ? null : name(subLevel);
         return name == null || name.isBlank()
                 ? Component.translatable("airstrike.target.aircraft")
                 : Component.translatable("airstrike.target.aircraft.named", name);
+    }
+
+    /** Имя аппарата, которое дал ему игрок; null — без имени. */
+    @Nullable
+    public static String name(SubLevelAccess subLevel) {
+        try {
+            return subLevel.getName();
+        } catch (RuntimeException | LinkageError e) {
+            disable(e);
+            return null;
+        }
     }
 
     /**

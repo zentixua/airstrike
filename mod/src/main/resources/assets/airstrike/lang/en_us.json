@@ -193,7 +193,7 @@
   "airstrike.config.nuclear": "Nuclear weapons",
   "airstrike.config.nuke_enabled": "Nuclear weapons available",
   "airstrike.config.nuke_ops_only": "Operators only",
-  "airstrike.config.nuke_default_yield": "Default yield, kt",
+  "airstrike.config.nuke_default_yield": "Default yield of /airstrike nuke, kt",
   "airstrike.config.nuke_max_yield": "Maximum yield, kt",
   "airstrike.config.nuke_effects_scale": "Radius scale",
   "airstrike.config.nuke_effects_scale.tooltip": "1.0: true to life (1 block = 1 m). Lower for small worlds",

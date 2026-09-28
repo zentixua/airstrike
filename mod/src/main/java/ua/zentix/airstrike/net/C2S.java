@@ -18,8 +18,7 @@ public final class C2S {
     private C2S() {}
 
     static final StreamCodec<ByteBuf, InteractionHand> HAND = ByteBufCodecs.BOOL.map(b -> b ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND, h -> h == InteractionHand.OFF_HAND);
-    private static final StreamCodec<ByteBuf, Vec3> VEC3 = StreamCodec.composite(
-            ByteBufCodecs.DOUBLE, Vec3::x, ByteBufCodecs.DOUBLE, Vec3::y, ByteBufCodecs.DOUBLE, Vec3::z, Vec3::new);
+    private static final StreamCodec<ByteBuf, Vec3> VEC3 = S2C.VEC3;
 
     /**
      * Что клиент видит под прицелом бинокля. Движущуюся цель клиент и сервер видят чуть по-разному,
