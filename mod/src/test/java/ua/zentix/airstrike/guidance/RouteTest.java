@@ -51,6 +51,18 @@ class RouteTest {
     }
 
     @Test
+    void entryBehindLaunchIsTakenWhenOvershot() {
+        // полёт короче последнего участка: точка входа позади старта, шахед разворачивается к ней по кругу
+        // радиусом ~40 блоков и мог кружить вокруг неё вечно, не входя в радиус захвата
+        Vec3 start = new Vec3(0, 64, 200);
+        Route r = Route.plan(start, TARGET, NORTH_TO_SOUTH, 200, 300, 1);
+        Vec3 entry = r.points().get(0);
+        assertEquals(100, entry.z, 1e-6, "вход позади старта");
+        r.update(new Vec3(entry.x + 30, 64, entry.z - 25), 20);
+        assertTrue(r.finished(), "за точкой входа по ходу участка от старта — взята");
+    }
+
+    @Test
     void skipGoesStraightToTarget() {
         Route r = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
         r.skip();
@@ -64,5 +76,8 @@ class RouteTest {
         Route back = Route.load(r.save());
         assertEquals(r.points(), back.points());
         assertEquals(r.index(), back.index());
+        Route orbit = Route.load(Route.plan(new Vec3(0, 64, 200), TARGET, NORTH_TO_SOUTH, 200, 300, 1).save());
+        orbit.update(new Vec3(30, 64, 75), 20);
+        assertTrue(orbit.finished(), "начало маршрута сохраняется");
     }
 }
