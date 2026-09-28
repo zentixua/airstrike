@@ -1,7 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "numpy>=1.26",
+#     "pillow>=10",
+# ]
+# ///
 """Модели снарядов: гладкие сетки OBJ и их текстуры, нарисованные кодом (фиксированный сид).
 
-  python3 tools/gen_models.py   → mod/src/main/resources/assets/airstrike/
+  uv run tools/gen_models.py   → mod/src/main/resources/assets/airstrike/
         models/weapon/<модель>_<деталь>.obj + .json (загрузчик neoforge:obj), models/weapon/<модель>.mtl,
         textures/block/weapon/<модель>.png (атлас блоков: модели рисуются как блоки, под шейдерами — как сущности)
 
