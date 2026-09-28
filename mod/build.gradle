@@ -39,6 +39,9 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 // сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
 def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 
+// каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
+def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
+
 neoForge {
     version = project.neo_version
     parchment {
@@ -53,7 +56,9 @@ neoForge {
         // клиент без окна для сценария проверки (см. src/devtest/.../ClientScenario и tools/client_scenario.sh)
         clientScenario {
             client()
-            gameDirectory = project.file('run/scenario')
+            // мультиплеер (tools/mp_scenario.sh): у каждого клиента свой каталог и ник
+            gameDirectory = project.file(scenarioDir)
+            if (project.findProperty('scenarioUser')) programArguments.addAll '--username', project.findProperty('scenarioUser')
             // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
@@ -63,13 +68,13 @@ neoForge {
             systemProperty 'airstrike.frame', size.join('x')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
-            jvmArgument "-Xlog:gc:file=${project.file('run/scenario/logs/gc.log').absolutePath}:time,uptime"
+            jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
             // профиль JFR по желанию: AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
             if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
         }
         server {
             server()
-            gameDirectory = project.file('run/server')
+            gameDirectory = project.file(project.findProperty('serverDir') ?: 'run/server')
             programArgument '--nogui'
         }
         gameTestServer {
@@ -117,7 +122,7 @@ test {
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
         from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns : runtimeModPatterns).each { include it } }
-        into "run/${runDir}/mods"
+        into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
         onlyIf { mcModsDir.isDirectory() }
     }
 }
@@ -145,4 +150,15 @@ neoForge.ideSyncTask generateModMetadata
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile,-this-escape', '-Xmaxerrs', '1000']
+}
+
+// Тестовая сборка для боевого клиента (tools/prod_client.py): мод вместе со сценариями из devtest.
+// Отдельный каталог, чтобы deploy.sh и релиз никогда не взяли её вместо обычного jar.
+tasks.register('scenarioJar', Jar) {
+    dependsOn tasks.named('jar')
+    archiveClassifier = 'scenario'
+    destinationDirectory = layout.buildDirectory.dir('scenario-libs')
+    from(zipTree(tasks.named('jar').flatMap { it.archiveFile }))
+    from(sourceSets.devtest.output)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

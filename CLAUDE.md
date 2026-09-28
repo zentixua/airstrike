@@ -36,6 +36,9 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента без окна: своя шина D-Bus и свои каталоги XDG
+    mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
+    prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
+                                           ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -209,6 +212,9 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания
   KWin у Артёма (Alt+Tab), а kwinrc писал в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
   /component/kwin org.kde.kglobalaccel.Component isActive` — должно остаться `true`.
+- Вся сборка хоста (217 модов) в Gradle-запуске не стартует: Sinytra Connector требует боевую раскладку Minecraft
+  («Could not determine clean minecraft artifact path»). Для проверок с полной сборкой — `tools/prod_client.py`
+  (библиотеки и ForgeWrapper из каталога Prism, копия инстанса в `mod/run/prod`; инстанс Артёма не трогается).
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
 - Клиент без окна работает и в облаке, без KWin и шейдеров: создать `mod/run/scenario/logs` (туда пишет gc.log), затем
   `AIRSTRIKE_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario
