@@ -65,20 +65,14 @@ public final class Fx {
     }
 
     /**
-     * Доля частиц по настройке «Частицы», расстоянию до камеры и месту в группе облаков ({@link FxBudget#headroom()}):
-     * вдали мелочь не видна, а в большом залпе каждый новый взрыв получает поровну оставшегося места.
+     * Доля частиц по настройке «Частицы» и расстоянию до камеры: вдали мелочь не видна, её можно не рождать.
      */
     public static float density(Vec3 at) {
-        return density(at, FxBudget.CLOUD);
-    }
-
-    /** То же для частиц группы {@code budget}. */
-    public static float density(Vec3 at, FxBudget budget) {
         Minecraft mc = Minecraft.getInstance();
         float k = mc.options.particles().get() == ParticleStatus.ALL ? 1 : mc.options.particles().get() == ParticleStatus.DECREASED ? 0.6f : 0.3f;
         double d = mc.gameRenderer.getMainCamera().getPosition().distanceTo(at);
         if (d > 160) k *= (float) Math.max(0.35, 160 / d);
-        return k * budget.headroom();
+        return k;
     }
 
     /** Сколько частиц из {@code n} рождать в точке (не меньше одной, если n > 0). */
