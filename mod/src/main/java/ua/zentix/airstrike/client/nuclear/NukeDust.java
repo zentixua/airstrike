@@ -3,12 +3,13 @@ package ua.zentix.airstrike.client.nuclear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Vector3f;
+import net.minecraft.world.level.block.Blocks;
+import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.nuclear.Detonation;
 
 /**
@@ -17,7 +18,8 @@ import ua.zentix.airstrike.nuclear.Detonation;
  */
 public final class NukeDust {
     private static final RandomSource RANDOM = RandomSource.create();
-    private static final DustParticleOptions DUST = new DustParticleOptions(new Vector3f(0.47f, 0.39f, 0.3f), 4.0f);
+    private static final BlockParticleOption DIRT = new BlockParticleOption(ParticleTypes.BLOCK, Blocks.DIRT.defaultBlockState());
+    private static final BlockParticleOption LEAVES = new BlockParticleOption(ParticleTypes.BLOCK, Blocks.OAK_LEAVES.defaultBlockState());
     private static float veil;
     private static float veilDecay = 0.97f;
 
@@ -42,13 +44,15 @@ public final class NukeDust {
             double along = -14 + RANDOM.nextDouble() * 20, side = (RANDOM.nextDouble() - 0.5) * 30, up = -2 + RANDOM.nextDouble() * 8;
             Vec3 p = ear.add(away.scale(along)).add(-away.z * side, up, away.x * side);
             double v = speed * (0.7 + RANDOM.nextDouble() * 0.6);
-            // бурая пыль и серый дым; мелкие белые «пуфы» ванили в стене выглядят снегом — их нет
-            if (i % 4 == 0) {
-                level.addParticle(ParticleTypes.CAMPFIRE_COSY_SMOKE, p.x, p.y, p.z, away.x * v, 0.01 + RANDOM.nextDouble() * 0.03, away.z * v);
-            } else if (i % 4 == 1) {
-                level.addParticle(ParticleTypes.LARGE_SMOKE, p.x, p.y, p.z, away.x * v, 0.02, away.z * v);
+            if (i % 5 == 0) {
+                // сорванные листья, земля, щепа — летят и кувыркаются
+                level.addParticle(i % 10 == 0 ? LEAVES : DIRT, p.x, p.y, p.z, away.x * v * 1.3, 0.1 + RANDOM.nextDouble() * 0.2, away.z * v * 1.3);
             } else {
-                level.addParticle(DUST, p.x, p.y, p.z, away.x * v, 0.02, away.z * v);
+                // бурая пыль и серый дым клубами — стена, которая проходит сквозь игрока
+                boolean smoke = i % 5 == 1;
+                Fx.smoke().vel(away.x * v, 0.01 + RANDOM.nextDouble() * 0.04, away.z * v).size(1.2f, 5 + RANDOM.nextFloat() * 3).growFast()
+                        .life(70 + RANDOM.nextInt(90)).color(smoke ? 0x3E3A36 : 0x7A6852, smoke ? 0x6E6A66 : 0xA08E78).alpha(0.7f).drag(0.97f)
+                        .collide().wind(0).fadeIn(2).fadeFrom(0.35f).spawn(level, p);
             }
         }
     }

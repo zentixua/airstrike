@@ -26,8 +26,6 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.util.Local;
-import ua.zentix.airstrike.util.Particles;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
@@ -260,24 +258,6 @@ public class BunkerBusterEntity extends StrikeProjectile {
             if (s.is(ModTags.BB_FLUID)) c = FLUID;
             return c;
         }
-    }
-
-    // ---------------------------------------------------------------- клиент
-
-    @Override
-    protected void clientTick() {
-        Level l = level();
-        if (phase() == PHASE_DRILL) {
-            Vec3 e = entry();
-            Particles.burst(l, ParticleTypes.CAMPFIRE_COSY_SMOKE, e.x, e.y + 0.3, e.z, 0.3, 0.2, 0.3, 0.02, 3);
-            return;
-        }
-        Vec3 p = position();
-        float yr = getYRot(), xr = getXRot();
-        Particles.burst(l, ParticleTypes.CLOUD, Local.at(p, yr, xr, 0, 0, -5.2), 0.08, 0.08, 0.08, 0.004, 3);
-        Particles.burst(l, ParticleTypes.CAMPFIRE_COSY_SMOKE, Local.at(p, yr, xr, 0, 0, -5.5), 0.05, 0.05, 0.05, 0.002, 1);
-        // у звукового барьера — конденсационный «воротник» у головы
-        if (speed() >= 8) Particles.burst(l, ParticleTypes.WHITE_SMOKE, Local.at(p, yr, xr, 0, 0, 2.5), 0.6, 0.6, 0.6, 0.02, 8);
     }
 
     // ---------------------------------------------------------------- данные

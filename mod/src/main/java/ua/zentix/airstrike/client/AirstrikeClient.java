@@ -12,7 +12,6 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
-import net.neoforged.neoforge.client.event.ViewportEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
@@ -22,7 +21,9 @@ import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.fx.Effects;
+import ua.zentix.airstrike.client.fx.Exhaust;
 import ua.zentix.airstrike.client.fx.Flash;
+import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.StrikesHud;
 import ua.zentix.airstrike.client.nuclear.ClientNuclear;
@@ -38,6 +39,8 @@ import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.client.sound.SoundFilters;
+import ua.zentix.airstrike.entity.DebrisEntity;
+import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -51,6 +54,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::keys);
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
+        modBus.addListener(Fx::registerProviders);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
         NeoForge.EVENT_BUS.addListener(CameraShake::apply);
@@ -62,6 +66,7 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::hideCrosshair);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::logout);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
+        NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
@@ -199,6 +204,16 @@ public final class AirstrikeClient {
         @Override
         public void radiation(S2C.Radiation p) {
             ClientNuclear.radiation(p);
+        }
+
+        @Override
+        public void projectileTick(StrikeProjectile e) {
+            Exhaust.tick(e);
+        }
+
+        @Override
+        public void debrisTick(DebrisEntity e) {
+            Exhaust.debris(e);
         }
     }
 }

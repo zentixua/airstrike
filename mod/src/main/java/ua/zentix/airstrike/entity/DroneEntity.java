@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.entity;
 
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -10,8 +9,6 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.util.Local;
-import ua.zentix.airstrike.util.Particles;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
@@ -89,20 +86,6 @@ public class DroneEntity extends StrikeProjectile {
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
         discard();
         Warheads.detonate(level, WeaponType.DRONE, point, this, ownerId());
-    }
-
-    /** Выхлоп: сизый шлейф днём, тусклые искры ночью (как в датапаке, от сопла позади винта). */
-    @Override
-    protected void clientTick() {
-        Level l = level();
-        Vec3 p = position();
-        float yr = getYRot(), xr = getXRot();
-        Particles.burst(l, ParticleTypes.CAMPFIRE_COSY_SMOKE, Local.at(p, yr, xr, 0, 0.05, -3.9), 0.02, 0.02, 0.02, 0.002, 1);
-        Particles.burst(l, ParticleTypes.SMALL_FLAME, Local.at(p, yr, xr, 0, 0.05, -3.8), 0.02, 0.02, 0.02, 0.002, 1);
-        Particles.burst(l, ParticleTypes.SMOKE, Local.at(p, yr, xr, 0, 0.05, -3.8), 0.05, 0.05, 0.05, 0.01, 2);
-        if (phase() == PHASE_DIVE) {
-            Particles.burst(l, ParticleTypes.SMOKE, Local.at(p, yr, xr, 0, 0.05, -3.8), 0.08, 0.08, 0.08, 0.02, 3);
-        }
     }
 
     @Override

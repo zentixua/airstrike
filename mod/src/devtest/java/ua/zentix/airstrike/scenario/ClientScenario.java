@@ -49,12 +49,20 @@ public final class ClientScenario {
     private Vec3 target = Vec3.ZERO;
     private boolean nuke;
     private int detTick = -1;
+    /** Сценарий эффектов: очередь ударов, текущий снаряд, тик его взрыва. */
+    private java.util.ArrayDeque<String> fx;
+    private Vec3 eye = Vec3.ZERO;
+    private StrikeProjectile watched;
+    private String current;
+    private int flightShots;
 
     public ClientScenario(IEventBus modBus) {
         if (System.getProperty("airstrike.scenario") == null) return;
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
-        if ("nuke".equals(System.getProperty("airstrike.scenario"))) planNuke();
+        String mode = System.getProperty("airstrike.scenario");
+        if ("nuke".equals(mode)) planNuke();
+        else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else plan();
     }
 
@@ -90,6 +98,7 @@ public final class ClientScenario {
             if (s.at == tick) s.action.run();
         }
         if (nuke) nukeEvents();
+        if (fx != null) fxEvents();
         if (tick % 10 == 0) logSound();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
     }
@@ -209,6 +218,97 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
+    }
+
+    /**
+     * Эффекты крупным планом: зритель висит в воздухе в 70 блоках от цели и в 25 над ней (полёт в творческом режиме,
+     * взрыв его не сдувает), по очереди шахед, ракета, бомба; кадры — от настоящего взрыва (снаряд пропал), а не
+     * по счётчику. В конце — старт МБР в 80 блоках: факел, шлейф, облако у стола. {@code fx-night} — то же ночью.
+     */
+    private void planFx(boolean night) {
+        fx = new java.util.ArrayDeque<>(List.of("drone", "missile", "bunker", "icbm"));
+        at(40, () -> {
+            cmd(night ? "time set 18000" : "time set 6000");
+            cmd("weather clear");
+            Minecraft.getInstance().options.hideGui = true;
+            // ровное место: ближайшая равнина (на холмах цель и стол МБР прячутся за склонами)
+            var server = Minecraft.getInstance().getSingleplayerServer();
+            server.execute(() -> {
+                var found = server.overworld().findClosestBiome3d(b -> b.is(net.minecraft.world.level.biome.Biomes.PLAINS),
+                        net.minecraft.core.BlockPos.ZERO.atY(64), 6400, 32, 64);
+                var at = found == null ? net.minecraft.core.BlockPos.ZERO : found.getFirst();
+                Minecraft.getInstance().execute(() -> cmd(String.format(java.util.Locale.ROOT, "tp @s %d 170 %d 0 40", at.getX(), at.getZ())));
+            });
+        });
+        at(240, () -> {
+            aimAhead(90);
+            eye = new Vec3(target.x + 0.5, target.y + 18, target.z - 50);
+            Minecraft.getInstance().player.getAbilities().flying = true;
+            view();
+        });
+        at(300, this::nextFx);
+    }
+
+    private void view() {
+        cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z, target.x, target.y + 8, target.z));
+    }
+
+    private void nextFx() {
+        current = fx.poll();
+        watched = null;
+        flightShots = 0;
+        if (current == null) {
+            at(tick + 20, () -> {
+                Airstrike.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        mc.player.getAbilities().flying = true;
+        view();
+        if (current.equals("icbm")) {
+            // МБР со стола в 80 блоках сбоку от зрителя, цель далеко: улетает за потолок мира без подрыва
+            Vec3 pad = new Vec3(eye.x + 60, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) eye.x + 60, (int) eye.z), eye.z);
+            var server = mc.getSingleplayerServer();
+            server.execute(() -> {
+                var level = server.overworld();
+                var icbm = ua.zentix.airstrike.registry.ModEntities.ICBM.get().create(level);
+                icbm.prepare(pad, pad.add(0, 0, 40_000), null);
+                level.addFreshEntity(icbm);
+            });
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z, pad.x, pad.y + 20, pad.z));
+            for (int dt : new int[]{8, 20, 40, 60, 90}) shot(tick + dt, "icbm");
+            at(tick + 100, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z, pad.x, pad.y + 120, pad.z)));
+            for (int dt : new int[]{110, 140, 200, 300, 500}) shot(tick + dt, "icbm");
+            at(tick + 520, this::nextFx);
+            return;
+        }
+        cmd(String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", current, target.x, target.y, target.z));
+    }
+
+    /** Ждём снаряд, снимаем подлёт, затем взрыв — от тика, когда снаряд пропал. */
+    private void fxEvents() {
+        if (current == null || current.equals("icbm") || current.equals("wait")) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (watched == null) {
+            for (var e : mc.level.entitiesForRendering()) {
+                if (e instanceof StrikeProjectile p && p.isActive()) watched = p;
+            }
+            return;
+        }
+        if (!watched.isRemoved()) {
+            if (tick % 8 == 0 && flightShots < 6 && watched.distanceTo(mc.player) < 150) {
+                flightShots++;
+                shot(tick + 1, current + "_flight");
+            }
+            return;
+        }
+        String name = current;
+        current = "wait";
+        Airstrike.LOG.info("SCENARIO {} impact at tick {}", name, tick);
+        for (int dt : new int[]{1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 240, 320}) shot(tick + dt, name);
+        at(tick + 340, this::nextFx);
     }
 
     /** Пуск по точке на земле впереди и кадры каждые 10 тиков, пока летит и горит. */

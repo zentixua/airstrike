@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.entity;
 
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -11,8 +10,6 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.util.Local;
-import ua.zentix.airstrike.util.Particles;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
@@ -113,33 +110,6 @@ public class CruiseMissileEntity extends StrikeProjectile {
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
         discard();
         Warheads.detonate(level, WeaponType.MISSILE, point, this, ownerId());
-    }
-
-    /** Факел, светящийся след и длинный дымный шлейф; в горке — искры, в пике — конденсационный «воротник». */
-    @Override
-    protected void clientTick() {
-        if (!isActive()) return;
-        Level l = level();
-        Vec3 p = position();
-        float yr = getYRot(), xr = getXRot();
-        Particles.burst(l, ParticleTypes.FLAME, Local.at(p, yr, xr, 0, 0, -6.1), 0.06, 0.06, 0.06, 0.01, 4);
-        Particles.burst(l, ParticleTypes.SMALL_FLAME, Local.at(p, yr, xr, 0, 0, -6.3), 0.05, 0.05, 0.05, 0.01, 3);
-        Particles.burst(l, ParticleTypes.SMOKE, Local.at(p, yr, xr, 0, 0, -6.6), 0.12, 0.12, 0.12, 0.01, 4);
-        for (double z : new double[]{-7.4, -11, -15}) {
-            Particles.burst(l, ParticleTypes.CLOUD, Local.at(p, yr, xr, 0, 0, z), 0.04, 0.04, 0.04, 0.003, 1);
-        }
-        for (double z : new double[]{-6.4, -8.5, -10.5, -12.5, -14.5, -16.5}) {
-            Particles.burst(l, ParticleTypes.END_ROD, Local.at(p, yr, xr, 0, 0, z), 0.03, 0.03, 0.03, 0.002, 1);
-        }
-        for (double z : new double[]{-7, -10, -13, -16}) {
-            Particles.burst(l, ParticleTypes.CAMPFIRE_COSY_SMOKE, Local.at(p, yr, xr, 0, 0, z), 0.05, 0.05, 0.05, 0.003, 1);
-        }
-        if (phase() >= PHASE_POP) {
-            Particles.burst(l, ParticleTypes.FIREWORK, Local.at(p, yr, xr, 0, 0, -6.3), 0.05, 0.05, 0.05, 0.03, 4);
-        }
-        if (phase() == PHASE_DIVE) {
-            Particles.burst(l, ParticleTypes.WHITE_SMOKE, Local.at(p, yr, xr, 0, 0, -2), 1.4, 0.1, 1.4, 0.01, 4);
-        }
     }
 
     @Override

@@ -9,12 +9,13 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
+import ua.zentix.airstrike.client.fx.Exhaust;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 /**
  * Снаряд — модель из блоков, повёрнутая как display-сущность датапака (курс, тангаж), плюс крен в вираже.
- * Позиция приходит каждый тик и плавно интерполируется между тиками.
+ * Позиция приходит каждый тик и плавно интерполируется между тиками. За соплом — факел двигателя ({@link PlumeRenderer}).
  */
 public class StrikeProjectileRenderer<T extends StrikeProjectile> extends EntityRenderer<T> {
     private final PartModel model;
@@ -33,9 +34,12 @@ public class StrikeProjectileRenderer<T extends StrikeProjectile> extends Entity
         if (!entity.isActive() || entity instanceof BunkerBusterEntity b && b.isDrilling()) return;
         float yaw = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
         float pitch = Mth.lerp(partialTick, entity.xRotO, entity.getXRot());
+        Quaternionf rotation = new Quaternionf().rotationYXZ(-yaw * Mth.DEG_TO_RAD, pitch * Mth.DEG_TO_RAD, entity.roll() * Mth.DEG_TO_RAD);
         pose.pushPose();
-        pose.mulPose(new Quaternionf().rotationYXZ(-yaw * Mth.DEG_TO_RAD, pitch * Mth.DEG_TO_RAD, entity.roll() * Mth.DEG_TO_RAD));
+        pose.mulPose(rotation);
         model.render(pose, buffers, (entity.age() + partialTick) * propellerSpeed);
+        Exhaust.Plume plume = Exhaust.plume(entity, partialTick);
+        if (plume != null) PlumeRenderer.render(plume, pose, buffers, rotation, entity.getPosition(partialTick), entityRenderDispatcher.camera);
         pose.popPose();
         super.render(entity, entityYaw, partialTick, pose, buffers, packedLight);
     }

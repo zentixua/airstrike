@@ -26,6 +26,7 @@ import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
@@ -161,7 +162,7 @@ public abstract class StrikeProjectile extends Entity {
         if (level().isClientSide) {
             clientLerp();
             age++;
-            clientTick();
+            ClientHooks.get().projectileTick(this);
             return;
         }
         try {
@@ -182,9 +183,6 @@ public abstract class StrikeProjectile extends Entity {
     }
 
     protected abstract void serverTick(ServerLevel level);
-
-    /** Клиент: след, дым. Звук ведёт клиентский менеджер звуков. */
-    protected void clientTick() {}
 
     /** Точка удара достигнута или столкновение: взрыв, бурение и т.п. */
     protected abstract void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity);

@@ -29,6 +29,7 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEntities;
 
@@ -97,7 +98,7 @@ public class DebrisEntity extends Entity {
         setDeltaMovement(getDeltaMovement().scale(0.98));
 
         if (level().isClientSide) {
-            trail();
+            ClientHooks.get().debrisTick(this);
             return;
         }
         ServerLevel level = (ServerLevel) level();
@@ -106,16 +107,6 @@ public class DebrisEntity extends Entity {
             land(level, before);
         } else if (age > MAX_AGE || getY() < level.getMinBuildHeight() - 16) {
             discard();
-        }
-    }
-
-    private void trail() {
-        Level l = level();
-        if (isHot()) {
-            l.addParticle(ParticleTypes.FLAME, getX(), getY() + 0.5, getZ(), 0, 0.01, 0);
-            l.addParticle(ParticleTypes.LARGE_SMOKE, getX(), getY() + 0.5, getZ(), 0, 0.01, 0);
-        } else if (getDeltaMovement().lengthSqr() > 0.01) {
-            l.addParticle(ParticleTypes.SMOKE, getX(), getY() + 0.5, getZ(), 0, 0.01, 0);
         }
     }
 

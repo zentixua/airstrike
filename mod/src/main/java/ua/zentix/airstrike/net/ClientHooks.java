@@ -31,6 +31,12 @@ public interface ClientHooks {
 
     default void radiation(S2C.Radiation p) {}
 
+    /** Снаряд на клиенте, раз в тик: факел, шлейф, облако пуска (клиентский {@code fx/Exhaust}). */
+    default void projectileTick(ua.zentix.airstrike.entity.StrikeProjectile e) {}
+
+    /** Обломок на клиенте, раз в тик: горящий — огонь и чёрный дым, остывший — пыль. */
+    default void debrisTick(ua.zentix.airstrike.entity.DebrisEntity e) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {
