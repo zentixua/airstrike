@@ -9,6 +9,7 @@
 #
 # Моды: MC_DIR (инстанс) или -PmcModsDir; в облаке — python3 tools/fetch_runtime_mods.py и MODS=run/ci-mods.
 # Клиенты рисуют программно (llvmpipe) под xvfb-run — это медленно, но честно: те же пакеты, та же камера, тот же HUD.
+# Без xvfb-run (рабочий стол KDE) каждый клиент идёт в своём вложенном KWin (tools/nested_kwin.sh) на видеокарте.
 # На 4 ядрах облака клиенты съедают процессор, генерация чанков стоит в очереди, и любая синхронная загрузка чанка
 # (телепорт, Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; стоп дольше 2 с пишется со стеком.
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
@@ -68,8 +69,14 @@ tutorialStep:none
 joinedFirstServer:true
 skipMultiplayerWarning:true
 OPT
-  AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role LIBGL_ALWAYS_SOFTWARE=1 \
-    xvfb-run -a -s "-screen 0 854x480x24" ./gradlew --console=plain runStressClient "${MODS_ARG[@]}" > "$RUN/$name.out" 2>&1 &
+  if command -v xvfb-run >/dev/null; then
+    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role LIBGL_ALWAYS_SOFTWARE=1 \
+      xvfb-run -a -s "-screen 0 854x480x24" ./gradlew --console=plain runStressClient "${MODS_ARG[@]}" > "$RUN/$name.out" 2>&1 &
+  else
+    # без xvfb-run (рабочий стол KDE): свой вложенный KWin на клиента, со своей шиной и сокетом
+    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 \
+      "$ROOT/mod/gradlew -p $ROOT/mod --console=plain runStressClient ${MODS_ARG[*]}" > "$RUN/$name.out" 2>&1 &
+  fi
   pids+=("$!")
 }
 client Host host
