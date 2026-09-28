@@ -367,7 +367,7 @@ public final class StressDirector {
     }
 
     /**
-     * Сторож: тик идёт дольше 2 с — стек потока сервера в лог (раз в 2 с, до 5 снимков на остановку). Так видно,
+     * Сторож: тик идёт дольше 0,5 с — стек потока сервера в лог (потом раз в 2 с, до 5 снимков на остановку). Так видно,
      * кто держит тик: ванильная загрузка чанков, мод или сам стенд.
      */
     private void startWatchdog(MinecraftServer s) {
@@ -383,12 +383,13 @@ public final class StressDirector {
                 }
                 long start = watchdogTickStart;
                 long ms = (System.nanoTime() - start) / 1_000_000;
-                if (start == 0 || ms < 2000) continue;
+                // первый стек — на 500 мс (чей долгий тик: наш, Sable или телепорт), дальше — каждые 2 с
+                if (start == 0 || ms < 500) continue;
                 if (dumpedFor != start) {
                     dumpedFor = start;
                     dumps = 0;
                 }
-                if (dumps >= 5 || ms < 2000L * (dumps + 1)) continue;
+                if (dumps >= 5 || ms < (dumps == 0 ? 500 : 2000L * dumps)) continue;
                 dumps++;
                 StringBuilder sb = new StringBuilder();
                 StackTraceElement[] st = server.getStackTrace();
