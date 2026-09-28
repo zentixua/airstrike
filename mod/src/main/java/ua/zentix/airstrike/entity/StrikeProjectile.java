@@ -429,10 +429,18 @@ public abstract class StrikeProjectile extends Entity {
         xRotO = getXRot();
     }
 
-    /** Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта. */
+    /**
+     * Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта. Движущаяся цель
+     * (аппарат, игрок) уводит район за собой: иначе снаряд ждал у неё загрузки, которой не будет, и пропадал
+     * по сроку жизни (28.09.2026: 4 ракеты из 10 за улетающим аппаратом).
+     */
     protected void holdTargetArea(ServerLevel level) {
-        if (heldArea != null || tracker == null) return;
+        if (tracker == null) return;
         Vec3 aim = tracker.point();
+        if (heldArea != null) {
+            if (heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) < 2) return;
+            releaseTargetArea();
+        }
         double d = position().distanceTo(aim);
         if (d <= Math.max(400, Math.max(speed, cruiseSpeed()) * PRELOAD_TICKS)) {
             heldArea = new ChunkPos(BlockPos.containing(aim));
