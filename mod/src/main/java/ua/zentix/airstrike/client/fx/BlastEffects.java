@@ -4,15 +4,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import ua.zentix.airstrike.client.sound.ClientSounds;
+import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.net.S2C;
-import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.util.Particles;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 import ua.zentix.airstrike.warhead.Warheads;
@@ -90,17 +88,6 @@ public final class BlastEffects {
                 Particles.burst(level, ParticleTypes.BUBBLE_POP, pos.add(0, 1, 0), 4, 2, 4, 0.3, scale == 1 ? 150 : 400);
             }
         }
-
-        /** Звук, который слышат рядом (≤ radius блоков): обломки оседают и т.п. */
-        void nearby(double radius, net.minecraft.sounds.SoundEvent event, float volume, float pitch) {
-            Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-            if (ear.distanceTo(pos) <= radius) ClientSounds.at(event, pos, volume, pitch);
-        }
-
-        void nearbyOptional(double radius, String path, float volume, float pitch) {
-            Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-            if (ear.distanceTo(pos) <= radius) ClientSounds.atEarOptional("snassets", path, pos, volume, pitch);
-        }
     }
 
     // ================================================================ шахед (fx)
@@ -139,10 +126,8 @@ public final class BlastEffects {
             if (t == 6) Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 4, 0), 2, 2, 2, 0, 2);
             if (t >= 1 && t <= 14) fireballRise(level, t);
             if (t % 2 == 0 && t >= 2 && t <= 220) smoke(level, t);
-            if (t == 8) ClientSounds.atEarOptional("snassets", "crashfire", pos, 0.9f, 1);
-            if (t == 140) ClientSounds.atEarOptional("snassets", "crashfire", pos, 0.9f, 0.9f);
-            if (t == 16) nearbyOptional(60, "debris/debrissettle_dirtsmall0", 0.9f, 1);
-            if (t == 26) nearbyOptional(60, "debris/debrissettle_stonesmall1", 0.8f, 1);
+            if (t == 8) BlastSounds.fire(pos, 1.1f);
+            if (t == 20) BlastSounds.debris(pos, 60, 1.1f);
             return t < 220;
         }
 
@@ -170,20 +155,7 @@ public final class BlastEffects {
 
         @Override
         void arrive(ClientLevel level, int band) {
-            if (band <= 6) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 1, 1);
-            if (band >= 4) ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, band >= 10 ? 0.55f : 1, 1);
-            if (band <= 3) {
-                ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, 1, 1);
-                ClientSounds.atEar(SoundEvents.GENERIC_EXPLODE.value(), pos, 1, 0.55f);
-                ClientSounds.atEar(SoundEvents.LIGHTNING_BOLT_THUNDER, pos, 1, 0.65f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_heavy", pos, 1, 1);
-                ClientSounds.atEarOptional("snassets", "debris/debris_vehicle0", pos, 0.8f, 1);
-            } else if (band <= 9) {
-                ClientSounds.atEar(SoundEvents.LIGHTNING_BOLT_THUNDER, pos, 0.8f, 0.55f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_distant_heavy", pos, 1, 1);
-            } else {
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_distant_heavy2", pos, 0.55f, 1);
-            }
+            BlastSounds.surface(pos, band, false);
             int shake = band == 1 ? 26 : band == 2 ? 22 : band <= 4 ? 16 : band <= 8 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }
@@ -243,11 +215,10 @@ public final class BlastEffects {
                 }
                 case 5 -> Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 5, 0), 4, 3, 4, 0, 3);
                 case 9 -> Particles.burst(level, ParticleTypes.FLASH, pos.add(-3, 20, 4), 0, 0, 0, 0, 1);
-                case 10 -> ClientSounds.atEarOptional("snassets", "crashfire", pos, 1, 0.9f);
-                case 150 -> ClientSounds.atEarOptional("snassets", "totaledfire", pos, 1, 0.9f);
-                case 18 -> nearbyOptional(90, "debris/debrissettle_dirtsmall1", 1, 0.9f);
-                case 26 -> nearbyOptional(90, "debris/debrissettle_woodlarge1", 0.9f, 0.9f);
-                case 34 -> nearbyOptional(90, "debris/debrissettle_stonesmall0", 0.9f, 0.9f);
+                case 10 -> BlastSounds.fire(pos, 0.9f);
+                case 150 -> BlastSounds.fire(pos, 0.85f);
+                case 20 -> BlastSounds.debris(pos, 90, 0.9f);
+                case 34 -> BlastSounds.debris(pos, 90, 0.8f);
                 case 60, 97, 143 -> cookoff(level);
                 default -> {}
             }
@@ -293,8 +264,7 @@ public final class BlastEffects {
             Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, p, 0, 0, 0, 0, 1);
             Particles.burst(level, ParticleTypes.LAVA, p, 1, 0.5, 1, 0, 25);
             Particles.burst(level, ParticleTypes.FLAME, p, 0.5, 0.5, 0.5, 0.3, 80);
-            ClientSounds.at(SoundEvents.GENERIC_EXPLODE.value(), p, 4, 0.8f);
-            nearbyOptional(200, "explosions/bomblet_distant0", 0.6f, 1);
+            BlastSounds.cookoff(p);
         }
 
         /** Пылевая стена по земле до 105 блоков (mfx/ring). */
@@ -321,24 +291,7 @@ public final class BlastEffects {
 
         @Override
         void arrive(ClientLevel level, int band) {
-            if (band <= 8) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 1, 0.85f);
-            if (band >= 4) ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, band >= 11 ? 0.8f : 1, 0.85f);
-            if (band <= 3) {
-                ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, 1, 0.85f);
-                ClientSounds.atEar(SoundEvents.GENERIC_EXPLODE.value(), pos, 1, 0.5f);
-                ClientSounds.atEar(SoundEvents.LIGHTNING_BOLT_THUNDER, pos, 1, 0.5f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_heavy", pos, 1, 0.9f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_heavy1", pos, 1, 0.8f);
-                ClientSounds.atEarOptional("snassets", "explosions/rocketboom0", pos, 1, 0.7f);
-                ClientSounds.atEarOptional("snassets", "debris/debris_vehicle1", pos, 1, 0.9f);
-            } else if (band <= 10) {
-                ClientSounds.atEar(SoundEvents.LIGHTNING_BOLT_THUNDER, pos, 0.9f, 0.45f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_distant_heavy", pos, 1, 0.9f);
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_distant_heavy1", pos, 0.8f, 0.85f);
-            } else {
-                ClientSounds.atEarOptional("snassets", "explosions/explosion_distant_heavy2", pos, 0.8f, 0.85f);
-                ClientSounds.atEarOptional("snassets", "explosions/plane_totaled_distant_large", pos, 0.5f, 0.7f);
-            }
+            BlastSounds.surface(pos, band, true);
             int shake = band == 1 ? 34 : band == 2 ? 30 : band == 3 ? 26 : band <= 6 ? 22 : band <= 10 ? 16 : band <= 16 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }
@@ -386,8 +339,7 @@ public final class BlastEffects {
                 Particles.burst(level, ParticleTypes.CAMPFIRE_COSY_SMOKE, surface.add(0, 0.5, 0), 3, 0.4, 3, 0.01, 3);
                 Particles.burst(level, FxParticles.dust(mat, 3), surface.add(0, 0.8, 0), 4, 0.5, 4, 0.01, 6);
             }
-            if (t == 12) nearbyOptional(60, "debris/debrissettle_stonesmall0", 1, 0.8f);
-            if (t == 30) nearbyOptional(60, "debris/debrissettle_stonesmall2", 1, 0.7f);
+            if (t == 30) BlastSounds.debris(surface, 60, 0.75f);
             return t < 300;
         }
 
@@ -404,19 +356,9 @@ public final class BlastEffects {
         void arrive(ClientLevel level, int band) {
             Player player = Minecraft.getInstance().player;
             boolean sky = player != null && level.canSeeSky(BlockPos.containing(player.getEyePosition()));
-            if (!sky && band <= 4) {
-                // под землёй рядом — взрыв в замкнутом пространстве: жёстко и с долгим эхом
-                ClientSounds.atEar(ModSounds.BOMB_CAVE.get(), pos, 1, 1);
-                ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 1, 0.8f);
-                ClientSounds.atEar(SoundEvents.GENERIC_EXPLODE.value(), pos, 1, 0.5f);
-                ClientSounds.atEarOptional("snassets", "debris/debris_vehicle0", pos, 1, 0.7f);
-                CameraShake.blast(band == 1 ? 34 : band == 2 ? 30 : 26);
-            } else {
-                // на поверхности — глухой удар из-под земли
-                ClientSounds.atEar(ModSounds.BOMB_DEEP.get(), pos, 1, 1);
-                if (band <= 6) ClientSounds.atEar(SoundEvents.LIGHTNING_BOLT_THUNDER, pos, 0.6f, 0.4f);
-                if (band <= 8) CameraShake.blast(16);
-            }
+            BlastSounds.bunker(pos, band, !sky);
+            if (!sky && band <= 4) CameraShake.blast(band == 1 ? 34 : band == 2 ? 30 : 26);
+            else if (band <= 8) CameraShake.blast(16);
         }
     }
 
@@ -439,11 +381,7 @@ public final class BlastEffects {
 
             @Override
             void arrive(ClientLevel level, int band) {
-                if (band <= 18) {
-                    float v = Math.max(0.3f, 1 - band / 18f);
-                    ClientSounds.atEar(ModSounds.BOMB_CRACK.get(), pos, v, 1);
-                    ClientSounds.atEar(ModSounds.BOMB_IMPACT.get(), pos, v, 1);
-                }
+                BlastSounds.bunkerImpact(pos, band);
             }
         });
     }
@@ -478,7 +416,7 @@ public final class BlastEffects {
 
             @Override
             void arrive(ClientLevel level, int band) {
-                if (band <= 10) ClientSounds.atEar(ModSounds.BOMB_VENT.get(), pos, Math.max(0.3f, 1 - band / 10f), 1);
+                BlastSounds.vent(pos, band);
             }
         });
     }
@@ -495,7 +433,7 @@ public final class BlastEffects {
 
             @Override
             void arrive(ClientLevel level, int band) {
-                if (band <= 7) ClientSounds.atEar(ModSounds.BOMB_QUAKE.get(), pos, Math.max(0.4f, 1 - band / 8f), 0.8f);
+                BlastSounds.collapse(pos, band);
             }
         });
     }

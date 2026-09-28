@@ -10,7 +10,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.fml.ModList;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.util.ArrayList;
@@ -108,26 +107,10 @@ public final class ClientSounds {
     /**
      * Звук, который пришёл к уху «отовсюду сразу» — удар взрывной волны: громкость не зависит от расстояния
      * (её задаёт вызывающий), но направление честное — точка в 3 блоках от уха в сторону источника.
+     * По дороге воздух съедает верха, холм или дом между — глушит ({@link SoundFilters}).
      */
     public static void atEar(SoundEvent event, Vec3 source, float volume, float pitch) {
-        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        Vec3 dir = source.subtract(ear);
-        Vec3 at = dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
-        play(event.getLocation(), at, volume, pitch, SoundInstance.Attenuation.NONE);
-    }
-
-    /** То же для звука из другого мода, если он установлен (SnAssets: взрывы, обломки, пролёт ракеты). */
-    public static void atEarOptional(String modId, String path, Vec3 source, float volume, float pitch) {
-        if (!ModList.get().isLoaded(modId)) return;
-        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        Vec3 dir = source.subtract(ear);
-        Vec3 at = dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
-        play(ResourceLocation.fromNamespaceAndPath(modId, path), at, volume, pitch, SoundInstance.Attenuation.NONE);
-    }
-
-    /** Обычный позиционный звук с ванильным затуханием (громкость > 1 — дальше слышно: 16 блоков на единицу). */
-    public static void at(SoundEvent event, Vec3 pos, float volume, float pitch) {
-        play(event.getLocation(), pos, volume, pitch, SoundInstance.Attenuation.LINEAR);
+        atEar(event, source, volume, pitch, SoundSource.AMBIENT);
     }
 
     /**
@@ -135,18 +118,49 @@ public final class ClientSounds {
      * от того, что «Окружение» у игрока убавлено.
      */
     public static void atEarLoud(SoundEvent event, Vec3 source, float volume, float pitch) {
+        atEar(event, source, volume, pitch, SoundSource.MASTER);
+    }
+
+    private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category) {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         Vec3 dir = source.subtract(ear);
         Vec3 at = dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
-        play(event.getLocation(), at, volume, pitch, SoundInstance.Attenuation.NONE, SoundSource.MASTER);
+        float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
+        // дальние записи уже глухие — воздух добавляет не больше −12 дБ
+        float highs = Math.max(0.25f, SoundFilters.air(dir.length())) * SoundFilters.blockedHighs(open);
+        play(new Shot(event.getLocation(), category, volume, pitch, SoundInstance.Attenuation.NONE, at, SoundFilters.blockedGain(open), highs));
     }
 
-    private static void play(ResourceLocation id, Vec3 at, float volume, float pitch, SoundInstance.Attenuation attenuation) {
-        play(id, at, volume, pitch, attenuation, SoundSource.AMBIENT);
+    /** Обычный позиционный звук с ванильным затуханием (громкость > 1 — дальше слышно: 16 блоков на единицу). */
+    public static void at(SoundEvent event, Vec3 pos, float volume, float pitch) {
+        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        float open = SoundFilters.open(ear, pos.add(0, 1, 0));
+        float highs = SoundFilters.air(ear.distanceTo(pos)) * SoundFilters.blockedHighs(open);
+        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, SoundInstance.Attenuation.LINEAR, pos, SoundFilters.blockedGain(open), highs));
     }
 
-    private static void play(ResourceLocation id, Vec3 at, float volume, float pitch, SoundInstance.Attenuation attenuation, SoundSource source) {
-        Minecraft.getInstance().getSoundManager().play(new SimpleSoundInstance(id, source, volume, pitch, RANDOM,
-                false, 0, attenuation, at.x, at.y, at.z, false));
+    private static void play(SoundInstance sound) {
+        Minecraft.getInstance().getSoundManager().play(sound);
+    }
+
+    /** Разовый звук с фильтром пути (воздух, преграды). */
+    private static final class Shot extends SimpleSoundInstance implements SoundFilters.Muffled {
+        private final float gain, highs;
+
+        Shot(ResourceLocation id, SoundSource category, float volume, float pitch, Attenuation attenuation, Vec3 at, float gain, float highs) {
+            super(id, category, volume, pitch, RANDOM, false, 0, attenuation, at.x, at.y, at.z, false);
+            this.gain = gain;
+            this.highs = highs;
+        }
+
+        @Override
+        public float lowpassGain() {
+            return gain;
+        }
+
+        @Override
+        public float lowpassHighs() {
+            return highs;
+        }
     }
 }

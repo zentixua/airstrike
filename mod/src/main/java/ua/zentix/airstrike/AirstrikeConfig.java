@@ -139,6 +139,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.DoubleValue zoom;
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
+        public final ModConfigSpec.BooleanValue soundMuffling;
 
         public enum CloudQuality {
             LOW(300), MEDIUM(600), HIGH(1200);
@@ -163,6 +164,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
             nukeTinnitus = b.comment("Звон в ушах и глухота после близкой ударной волны.")
                     .translation("airstrike.config.nuke_tinnitus").define("nuke_tinnitus", true);
+            soundMuffling = b.comment("Звук ударов глуше вдали (воздух съедает верха) и за холмом или стеной. С Sound Physics Remastered это делает он.")
+                    .translation("airstrike.config.sound_muffling").define("sound_muffling", true);
         }
     }
 }

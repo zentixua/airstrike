@@ -18,6 +18,9 @@ final class SourceTrack implements Acoustics.Path {
     private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
     private long first = -1, last = -1;
     private long death = Long.MAX_VALUE;
+    /** Открыт ли путь звука к уху (1) или за холмом/домом (0), сглажено; считается раз в тик на все слои. */
+    private float open = 1;
+    private long openTick = -1;
     /** Бомба бурит (для звука бурения), ракета — сколько ей до цели (для свиста). */
     boolean drilling;
     double distanceToAim = Double.MAX_VALUE;
@@ -85,6 +88,16 @@ final class SourceTrack implements Acoustics.Path {
     int phase(double t) {
         long a = (long) Math.max(start(), Math.min(last, Math.floor(t)));
         return phases[(int) (a % CAPACITY)];
+    }
+
+    /** Путь от «запаздывающего» положения p до уха открыт (1) или закрыт (0); плавно, без щелчков. */
+    float open(double now, Vec3 ear, double[] p) {
+        long tick = (long) now;
+        if (tick != openTick) {
+            openTick = tick;
+            open += (SoundFilters.open(ear, new Vec3(p[0], p[1], p[2])) - open) * 0.3f;
+        }
+        return open;
     }
 
     /** Направление носа в момент t (для «спереди свист, сзади рёв»). */

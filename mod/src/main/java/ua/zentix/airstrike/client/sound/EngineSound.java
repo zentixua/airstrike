@@ -17,8 +17,9 @@ import java.util.function.Supplier;
  * Непрерывный звук снаряда: движок каждый тик получает от нас положение, громкость и тон.
  * Положение и скорость берутся в «запаздывающий» момент (звук идёт к уху со скоростью 343 м/с), отсюда Доплер
  * и задержка; громкость ~1/d с полутоном дальности (ближний и дальний слой звука плавно сменяют друг друга).
+ * Воздух по дороге съедает верха, холм или дом между снарядом и ухом глушит ({@link SoundFilters}).
  */
-final class EngineSound extends AbstractTickableSoundInstance {
+final class EngineSound extends AbstractTickableSoundInstance implements SoundFilters.Muffled {
     /** Слои звука: какой файл и как его громкость зависит от расстояния, ракурса и фазы полёта. */
     enum Layer {
         DRONE_NEAR(ModSounds.DRONE_ENGINE::get),
@@ -45,6 +46,7 @@ final class EngineSound extends AbstractTickableSoundInstance {
     private final Layer layer;
     private final double[] p = new double[3];
     private float smoothVolume;
+    private float filterGain = 1, filterHighs = 1;
 
     EngineSound(SourceTrack track, Layer layer) {
         super(layer.event.get(), SoundSource.AMBIENT, RandomSource.create());
@@ -74,6 +76,16 @@ final class EngineSound extends AbstractTickableSoundInstance {
 
     void kill() {
         stop();
+    }
+
+    @Override
+    public float lowpassGain() {
+        return filterGain;
+    }
+
+    @Override
+    public float lowpassHighs() {
+        return filterHighs;
     }
 
     @Override
@@ -142,6 +154,12 @@ final class EngineSound extends AbstractTickableSoundInstance {
         this.x = p[0];
         this.y = p[1];
         this.z = p[2];
+        if (smoothVolume > 0.005f) {
+            float open = track.open(ClientSounds.now(), ear, p);
+            filterGain = SoundFilters.blockedGain(open);
+            filterHighs = SoundFilters.air(d) * SoundFilters.blockedHighs(open);
+            SoundFilters.update(this, filterGain, filterHighs);
+        }
     }
 
     /** Вес ближнего слоя: 1 ближе a, 0 дальше b. */

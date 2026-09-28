@@ -26,7 +26,6 @@ import ua.zentix.airstrike.client.fx.Flash;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.StrikesHud;
 import ua.zentix.airstrike.client.nuclear.ClientNuclear;
-import ua.zentix.airstrike.client.nuclear.Deafness;
 import ua.zentix.airstrike.client.nuclear.Geiger;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.client.nuclear.NukeFlash;
@@ -38,6 +37,7 @@ import ua.zentix.airstrike.client.render.Models;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.ClientSounds;
+import ua.zentix.airstrike.client.sound.SoundFilters;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -50,7 +50,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::renderers);
         modBus.addListener(AirstrikeClient::keys);
         modBus.addListener(AirstrikeClient::layers);
-        modBus.addListener(Deafness::onEngineLoad);
+        modBus.addListener(SoundFilters::onEngineLoad);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
         NeoForge.EVENT_BUS.addListener(CameraShake::apply);
@@ -64,8 +64,8 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
-        NeoForge.EVENT_BUS.addListener(Deafness::onSound);
-        NeoForge.EVENT_BUS.addListener(Deafness::onStream);
+        NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
+        NeoForge.EVENT_BUS.addListener(SoundFilters::onStream);
 
         ClientHooks.set(new Hooks());
     }
@@ -157,10 +157,7 @@ public final class AirstrikeClient {
         @Override
         public void quake(S2C.Quake p) {
             CameraShake.quake(p.ticks());
-            if (p.rumble()) {
-                ua.zentix.airstrike.client.sound.ClientSounds.atEar(ua.zentix.airstrike.registry.ModSounds.BOMB_QUAKE.get(),
-                        Minecraft.getInstance().gameRenderer.getMainCamera().getPosition().add(0, -4, 0), 1, 1);
-            }
+            if (p.rumble()) ua.zentix.airstrike.client.sound.BlastSounds.quake();
         }
 
         @Override
