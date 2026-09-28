@@ -1,0 +1,9 @@
+# rocket_rack: краска и светящиеся детали (срез сопла) — gen_models.py
+newmtl paint
+Kd 1 1 1 1
+map_Kd airstrike:block/weapon/rocket_rack
+
+newmtl glow
+Kd 1 1 1 1
+Ka 1 1 1 1
+map_Kd airstrike:block/weapon/rocket_rack

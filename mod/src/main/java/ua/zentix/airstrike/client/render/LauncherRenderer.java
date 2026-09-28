@@ -10,7 +10,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.InventoryMenu;
 import org.joml.Quaternionf;
 import ua.zentix.airstrike.entity.LauncherEntity;
-import ua.zentix.airstrike.strike.WeaponType;
 
 /** Пусковая: прицеп по курсу и пакет, поднимающийся на угол возвышения вокруг своей оси. */
 public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
@@ -27,11 +26,11 @@ public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
         LaunchModels.TRAILER.render(pose, buffers, 0);
         pose.translate(0, LauncherEntity.PIVOT_UP, -LauncherEntity.PIVOT_BACK);
         pose.mulPose(new Quaternionf().rotationX(-elev * Mth.DEG_TO_RAD));
-        (switch (e.weapon()) {
-            case MISSILE -> LaunchModels.MISSILE_RACK;
-            case ROCKET -> LaunchModels.ROCKET_RACK;
-            default -> LaunchModels.DRONE_RACK;
-        }).render(pose, buffers, 0);
+        switch (e.weapon()) {
+            case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, 0);
+            case ROCKET -> WeaponModels.Mesh.ROCKET_RACK.draw(pose, buffers, packedLight);
+            default -> LaunchModels.DRONE_RACK.render(pose, buffers, 0);
+        }
         pose.popPose();
         super.render(e, entityYaw, partialTick, pose, buffers, packedLight);
     }
