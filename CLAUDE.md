@@ -43,7 +43,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow), не править OBJ руками
     trailer/record.sh [shaders]          ← трейлер: сценарий клиента trailer снимает планы покадрово в 60 fps
                                            (AIRSTRIKE_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
-    trailer/edit.py [--draft]            ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала → dist/airstrike-trailer.mp4
+    trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
+                                           dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах; релиз на GitHub
   docs/releases/<версия>.md              ← заметки к релизу
@@ -207,6 +208,9 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `AIRSTRIKE_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario
   -PmcModsDir=run/ci-mods` (моды — `tools/fetch_runtime_mods.py`; 3–6 fps). На llvmpipe секции чанков строятся
   медленно: сразу после резкой смены точки обзора сущности в кадре могут не появиться на несколько кадров.
+- Трейлер: пока камера плана ждёт прогрузки, сценарий замораживает мир (`/tick freeze`), иначе снаряд долетал до цели
+  раньше начала записи; мод при заморозке стоит целиком (`StrikeWorld`: залпы, снаряды вне мира, взрывы). Кадр — ровно
+  `AIRSTRIKE_SIZE`: экран вложенного KWin больше окна, окно без рамки (`Trailer.exactFrame`), иначе съёмка не начнётся.
 - Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
   когда снаряд пропал (взрыв), в конце — старт МБР. В облаке (без KWin) клиент идёт под `xvfb-run` с llvmpipe
   (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен jar sable-companion.

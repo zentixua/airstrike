@@ -327,6 +327,45 @@ public final class StrikeGameTests {
     }
 
     /**
+     * «/tick freeze»: ракета вне мира стоит, как стоят сущности в мире, и летит дальше после разморозки (иначе снаряды
+     * вне мира уходили вперёд замороженного мира — трейлер замораживает мир, пока камера ждёт прогрузки).
+     * Замороженный мир останавливает и сам тест (его часы — время мира), поэтому размораживает сервер через
+     * секунду: за неё сервер делает ~20 тиков с замороженным миром.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "frozen", skyAccess = true)
+    public static void virtualFlightStopsWhileFrozen(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(point.add(0, 80, -1500), new Target.Point(point), point, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        java.util.UUID id = missile.getUUID();
+        java.util.function.Supplier<Vec3> where = () -> VirtualFlights.get(level).flights().stream()
+                .filter(p -> p.getUUID().equals(id)).map(StrikeProjectile::position).findFirst().orElse(null);
+        var server = level.getServer();
+        int[] tick = {0};
+        boolean[] held = {false}, thawed = {false};
+        h.onEachTick(() -> {
+            if (++tick[0] != 20) return;
+            Vec3 frozenAt = where.get();
+            level.tickRateManager().setFrozen(true);
+            java.util.concurrent.CompletableFuture.delayedExecutor(1, java.util.concurrent.TimeUnit.SECONDS).execute(() -> server.execute(() -> {
+                Vec3 now = where.get();
+                held[0] = frozenAt != null && now != null && now.distanceTo(frozenAt) < 1e-6;
+                level.tickRateManager().setFrozen(false);
+                thawed[0] = true;
+            }));
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(thawed[0], "ещё заморожено");
+            h.assertTrue(held[0], "ракета вне мира двигалась, пока мир заморожен");
+            h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "ракета ещё летит");
+            assertCrater(h, RUNWAY_TARGET, "после разморозки");
+        });
+    }
+
+    /**
      * Движущаяся цель вне загруженного мира: ракета берёт район цели, пока та в начале полосы, а цель уходит на 160
      * блоков — район должен уйти за ней, иначе ракета ждёт у цели загрузки и пропадает по сроку жизни.
      */
