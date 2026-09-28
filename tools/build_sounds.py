@@ -6,7 +6,7 @@
                                         assets/airstrike/sounds.json, SOUND-CREDITS.md
 
 Записи — только с лицензией, разрешающей распространение: CC0 (общественное достояние) и CC BY (с указанием
-автора: SOUND-CREDITS.md в корне и CREDITS.txt рядом со звуками в jar). Список — SOURCES ниже; файлы скачиваются
+автора: SOUND-CREDITS.md в корне и credits.txt рядом со звуками в jar). Список — SOURCES ниже; файлы скачиваются
 с Freesound (превью высокого качества, ogg) в tools/.sound-cache/ и дальше берутся оттуда.
 
 Как собран каждый звук:
@@ -578,7 +578,7 @@ def write_credits():
     txt = ["Airstrike sounds are built from the recordings below (cut, mixed, filtered, resampled)",
            "plus synthesis. CC0 = public domain; CC BY = used with attribution, modified.", ""]
     txt += [f"{a} - \"{t}\" - {lic} - {u}" for a, t, lic, u in rows]
-    with open(os.path.join(OUT, "CREDITS.txt"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(OUT, "credits.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(txt) + "\n")
 
 

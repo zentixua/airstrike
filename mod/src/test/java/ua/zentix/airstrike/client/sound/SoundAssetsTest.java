@@ -48,7 +48,7 @@ class SoundAssetsTest {
         while (m.find()) registered.add(m.group(1));
         assertTrue(registered.size() > 30);
         assertEquals(registered, json.keySet(), "события ModSounds и sounds.json");
-        try (InputStream in = open(ASSETS + "sounds/CREDITS.txt")) {
+        try (InputStream in = open(ASSETS + "sounds/credits.txt")) {
             assertTrue(new String(in.readAllBytes(), StandardCharsets.UTF_8).contains("freesound.org"));
         }
     }
