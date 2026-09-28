@@ -32,6 +32,10 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_LAUNCH = register("rocket.launch");
     public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_INCOMING = register("rocket.incoming");
     public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_BLAST = register("rocket.blast");
+    public static final DeferredHolder<SoundEvent, SoundEvent> LOITER_ENGINE = register("loiter.engine");
+    public static final DeferredHolder<SoundEvent, SoundEvent> LOITER_ENGINE_FAR = register("loiter.engine.far");
+    public static final DeferredHolder<SoundEvent, SoundEvent> LOITER_DIVE = register("loiter.dive");
+    public static final DeferredHolder<SoundEvent, SoundEvent> LOITER_LAUNCH = register("loiter.launch");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_NEAR = register("blast.near");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_SUB = register("blast.sub");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_FAR = register("blast.far");

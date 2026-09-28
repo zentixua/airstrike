@@ -14,6 +14,7 @@
 | craigsmith | [G33-32-Distant Bomb Explosion.wav](https://freesound.org/s/438538/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [G43-14-25 Distant Explosions.wav](https://freesound.org/s/438693/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [G56-25-Low Wind.wav](https://freesound.org/s/438880/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| craigsmith | [R01-04-Catapult Launch.wav](https://freesound.org/s/479922/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [R30-12-Large Gun Shells Fly By and Explode.wav](https://freesound.org/s/483296/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [R09-58-Large Fire with Debris.wav](https://freesound.org/s/483304/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [R12-02-Large Explosions.wav](https://freesound.org/s/486018/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
@@ -43,7 +44,9 @@
 | qubodup | [Explosive.flac [US DoD]](https://freesound.org/s/189778/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | qubodup | [Huge Explosion](https://freesound.org/s/741174/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | qubodup | [Massive Explosion](https://freesound.org/s/741175/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| qubodup | [Quadcopter Drone Flyby](https://freesound.org/s/854352/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | qubodup | [M142 HIMARS Rocket Launch 8 [US DoD]](https://freesound.org/s/854476/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| rcEyeSoar | [rc plane fly-by 2.wav](https://freesound.org/s/176973/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Romaner66 | [Air raid siren in Kyiv](https://freesound.org/s/676589/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | Sanderboah | [Geiger counter (dry)](https://freesound.org/s/674113/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Spennnyyy | [Extremely Close THUNDER! (no rain)](https://freesound.org/s/350506/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |

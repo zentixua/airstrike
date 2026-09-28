@@ -139,6 +139,8 @@
   "subtitles.airstrike.designator.lock": "Target locked",
   "subtitles.airstrike.launch": "Rocket booster roars",
   "subtitles.airstrike.launch.separate": "Booster separates",
+  "subtitles.airstrike.loiter": "Loitering munition buzzes",
+  "subtitles.airstrike.loiter.launch": "Catapult launch",
   "subtitles.airstrike.rocket": "Rocket launches",
   "subtitles.airstrike.rocket.incoming": "Rockets incoming",
   "subtitles.airstrike.debris": "Debris falls",

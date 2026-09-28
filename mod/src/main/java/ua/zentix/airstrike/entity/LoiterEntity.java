@@ -3,8 +3,6 @@ package ua.zentix.airstrike.entity;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
@@ -139,8 +137,6 @@ public class LoiterEntity extends StrikeProjectile {
     @Override
     protected boolean launchTick(ServerLevel level) {
         if (flightPhase() == FlightPhase.IGNITION && phaseAge() == 0) {
-            level.playSound(null, getX(), getY(), getZ(), SoundEvents.PISTON_EXTEND, SoundSource.HOSTILE, 2.5f, 0.55f);
-            level.playSound(null, getX(), getY(), getZ(), SoundEvents.CROSSBOW_SHOOT, SoundSource.HOSTILE, 2.0f, 0.5f);
             Vec3 back = flight.forward().scale(-1);
             level.sendParticles(ParticleTypes.CLOUD, getX() + back.x * 2, getY() + back.y * 2, getZ() + back.z * 2, 14, 0.5, 0.3, 0.5, 0.05);
         }

@@ -460,5 +460,43 @@
         "name": "airstrike:rocket_blast_5"
       }
     ]
+  },
+  "loiter.engine": {
+    "subtitle": "subtitles.airstrike.loiter",
+    "sounds": [
+      {
+        "name": "airstrike:loiter_engine"
+      }
+    ]
+  },
+  "loiter.engine.far": {
+    "subtitle": "subtitles.airstrike.loiter",
+    "sounds": [
+      {
+        "name": "airstrike:loiter_engine_far"
+      }
+    ]
+  },
+  "loiter.dive": {
+    "subtitle": "subtitles.airstrike.loiter",
+    "sounds": [
+      {
+        "name": "airstrike:loiter_dive"
+      }
+    ]
+  },
+  "loiter.launch": {
+    "subtitle": "subtitles.airstrike.loiter.launch",
+    "sounds": [
+      {
+        "name": "airstrike:loiter_launch_1"
+      },
+      {
+        "name": "airstrike:loiter_launch_2"
+      },
+      {
+        "name": "airstrike:loiter_launch_3"
+      }
+    ]
   }
 }
