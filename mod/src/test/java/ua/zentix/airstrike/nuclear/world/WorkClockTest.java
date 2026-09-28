@@ -2,6 +2,7 @@ package ua.zentix.airstrike.nuclear.world;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -36,5 +37,25 @@ class WorkClockTest {
         c.start(1_000_000L);
         c.record(10_000L);
         assertTrue(c.canStart(), "оценка не затухла");
+    }
+
+    /** Считающие часы: очередь из 1000 единиц по 1 мс при бюджете 30 мс идёт по 29 за тик и не больше. */
+    @Test
+    void countingClockSplitsQueueByBudget() {
+        WorkClock c = WorkClock.counting(1_000_000L);
+        int left = 1000, ticks = 0;
+        while (left > 0) {
+            c.start(30_000_000L);
+            int units = 0;
+            while (left > 0 && c.canStart()) {
+                c.end(c.begin());
+                left--;
+                units++;
+            }
+            ticks++;
+            assertTrue(units >= 1 && units <= 30, "за тик " + units + " единиц");
+        }
+        assertEquals(ticks, c.ticksWorked());
+        assertEquals(29, c.maxUnitsPerTick());
     }
 }

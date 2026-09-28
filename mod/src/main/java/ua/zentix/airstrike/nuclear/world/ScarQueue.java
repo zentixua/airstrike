@@ -125,10 +125,9 @@ public final class ScarQueue {
             ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget());
             int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
             while (job.column < 256 && clock.canStart()) {
-                long c0 = System.nanoTime();
+                long c0 = clock.begin();
                 ColumnScar.apply(level, d, x0 + (job.column & 15), z0 + (job.column >> 4), budget, random);
-                long took = System.nanoTime() - c0;
-                clock.record(took);
+                long took = clock.end(c0);
                 // один столбец дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
                 if (took > 50_000_000L && now - lastSlowColumn >= 100) {
                     lastSlowColumn = now;
