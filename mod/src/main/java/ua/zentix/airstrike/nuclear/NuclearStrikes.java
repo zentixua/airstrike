@@ -17,7 +17,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.registry.ModEntities;

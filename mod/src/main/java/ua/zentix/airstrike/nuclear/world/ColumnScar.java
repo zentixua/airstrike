@@ -19,6 +19,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
 import ua.zentix.airstrike.registry.ModBlocks;
+import ua.zentix.airstrike.util.Terrain;
 
 /**
  * Повреждения одного столбца (x, z) от одного подрыва (DESIGN-nuke §3.2–3.4). Надземное (всё выше природного

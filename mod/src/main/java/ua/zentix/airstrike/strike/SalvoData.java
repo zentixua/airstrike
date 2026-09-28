@@ -18,7 +18,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.net.S2C;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Nbt;

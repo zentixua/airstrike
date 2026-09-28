@@ -11,7 +11,7 @@ import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.FalloutModel;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 
 /**
  * Один ядерный подрыв — всё, из чего сервер и каждый клиент по одной и той же модели выводят волну, свет,
