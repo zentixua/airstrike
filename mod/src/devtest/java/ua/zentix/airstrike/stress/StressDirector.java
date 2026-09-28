@@ -95,6 +95,8 @@ public final class StressDirector {
     private final List<Vec3> blastsThisTick = new ArrayList<>();
     private final Map<String, Integer> outcomes = new TreeMap<>();
     private final Map<String, Integer> launchedByType = new TreeMap<>();
+    // подрывы, замеченные за прогон: «Отбой» и забывание убирают их из NuclearEvents, а в сводку идут все
+    private final Set<String> detonationsSeen = new HashSet<>();
     private final ConcurrentLinkedQueue<String> problems = new ConcurrentLinkedQueue<>();
     private int warnings, errors;
 
@@ -438,8 +440,14 @@ public final class StressDirector {
         if (finishing) finishWhenQuiet(s);
     }
 
+    private void seeDetonations(MinecraftServer s) {
+        for (ServerLevel l : s.getAllLevels())
+            for (var d : NuclearEvents.get(l).detonations()) detonationsSeen.add(l.dimension().location() + "#" + d.id());
+    }
+
     /** Все снаряды по UUID: новые, живые (в мире или вне его), пропавшие — со взрывом рядом или без. */
     private void track(MinecraftServer s) {
+        seeDetonations(s);
         Map<UUID, StrikeProjectile> now = new LinkedHashMap<>();
         for (ServerLevel level : s.getAllLevels()) {
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) now.put(p.getUUID(), p);
@@ -549,7 +557,6 @@ public final class StressDirector {
         int active = watched.size();
         for (ServerLevel l : s.getAllLevels()) {
             active += SalvoData.get(l).size();
-            active += NuclearEvents.get(l).detonations().isEmpty() ? 0 : 0;
         }
         if (active > 0) {
             quietSince = -1;
@@ -589,8 +596,8 @@ public final class StressDirector {
         long p50 = sorted.isEmpty() ? 0 : sorted.get(sorted.size() / 2);
         long p99 = sorted.isEmpty() ? 0 : sorted.get(Math.min(sorted.size() - 1, (int) (sorted.size() * 0.99)));
         Runtime rt = Runtime.getRuntime();
-        int nukes = 0;
-        for (ServerLevel l : s.getAllLevels()) nukes += NuclearEvents.get(l).detonations().size();
+        seeDetonations(s);
+        int nukes = detonationsSeen.size();
         // МБР пускали, а подрыва нет: удар потерян (или отменён раньше срока — тогда расписание стенда неверно)
         if (nukes == 0 && launchedByType.containsKey("icbm")) problems.add("МБР пущена, а ядерного подрыва нет");
         log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | ядерных подрывов %d | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d",
