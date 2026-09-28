@@ -75,11 +75,6 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         return true;
     }
 
-    @Override
-    public boolean canPlaySound() {
-        return true;
-    }
-
     String describe() {
         return layer.name().toLowerCase(java.util.Locale.ROOT);
     }

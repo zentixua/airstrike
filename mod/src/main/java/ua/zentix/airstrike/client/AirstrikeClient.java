@@ -41,6 +41,7 @@ import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.render.WeaponModels;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
+import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.client.sound.SoundFilters;
 import ua.zentix.airstrike.entity.DebrisEntity;
@@ -156,6 +157,7 @@ public final class AirstrikeClient {
         ProjectileCamera.reset();
         ClientFlights.reset();
         NukeArming.cancel();
+        Designator.reset();
         ClientNuclear.reset();
     }
 
@@ -183,7 +185,7 @@ public final class AirstrikeClient {
         @Override
         public void quake(S2C.Quake p) {
             CameraShake.quake(p.ticks());
-            if (p.rumble()) ua.zentix.airstrike.client.sound.BlastSounds.quake();
+            if (p.rumble()) BlastSounds.quake();
         }
 
         @Override
@@ -206,6 +208,7 @@ public final class AirstrikeClient {
             ClientSounds.reset();
             Alerts.reset();
             ProjectileCamera.reset();
+            NukeArming.cancel();
         }
 
         @Override
