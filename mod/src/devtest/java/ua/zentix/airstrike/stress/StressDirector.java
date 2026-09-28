@@ -179,8 +179,8 @@ public final class StressDirector {
         as(1500, "Friend2", "airstrike salvo bunker 6 60 Host");
         at(1700, "Friend2 в Незер и обратно", s -> run(s, "execute in minecraft:the_nether run tp Friend2 0 80 0"));
         at(2100, "Friend2 из Незера", s -> tp(s, "Friend2", -620, 420));
-        // ядерка в 1000 блоках, пока идут залпы
-        as(2300, "Host", "airstrike nuke at 0 ~ -1000 15 air");
+        // ядерка в 1000 блоках, пока идут залпы: полёт МБР 1800 тиков — подрыв на 3000, до «Отбоя» (он отменяет и её)
+        as(1200, "Host", "airstrike nuke at 0 ~ -1000 15 air");
         as(2320, "Friend1", "airstrike salvo drone 30 150 Host");
         as(2340, "Host", "airstrike salvo rocket 30 150 Friend2");
         at(2600, "сохранение мира посреди полёта", s -> run(s, "save-all"));
@@ -540,7 +540,7 @@ public final class StressDirector {
         p.saveWithoutId(tag);
         log("%s %s %s у %s фаза %s (%d тиков) возраст %d срок %d погоня %.0f ждал района %d цель %s у %s вне мира %b убран %s тикает %b",
                 what, w.type, id, p.blockPosition().toShortString(), p.flightPhase().getSerializedName(), tag.getInt("phase_age"),
-                p.age(), tag.getInt("lifetime"), tag.getDouble("chased"), tag.getInt("area_wait"), p.target(),
+                p.age(), tag.getInt("lifetime"), tag.getCompound("tracker").getDouble("chased"), tag.getInt("area_wait"), p.target(),
                 BlockPos.containing(p.aimPoint()).toShortString(), p.isVirtual(), p.getRemovalReason(),
                 p.level() instanceof ServerLevel l && l.isPositionEntityTicking(p.blockPosition()));
     }
@@ -591,6 +591,8 @@ public final class StressDirector {
         Runtime rt = Runtime.getRuntime();
         int nukes = 0;
         for (ServerLevel l : s.getAllLevels()) nukes += NuclearEvents.get(l).detonations().size();
+        // МБР пускали, а подрыва нет: удар потерян (или отменён раньше срока — тогда расписание стенда неверно)
+        if (nukes == 0 && launchedByType.containsKey("icbm")) problems.add("МБР пущена, а ядерного подрыва нет");
         log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | ядерных подрывов %d | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d",
                 why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s.overworld()),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors);

@@ -30,6 +30,10 @@ public class CruiseMissileEntity extends StrikeProjectile {
     private static final double DIVE_SPEED = 12.5;
     /** Горка только при заходе хотя бы с такого расстояния: ближе ракете не хватит места набрать высоту. */
     private static final double POP_UP_MIN_RANGE = 185;
+    /** Предельная скорость разворота по курсу, °/тик: на маршруте и атаке, на наборе высоты. */
+    private static final double TURN_RATE = 3.0, CLIMB_TURN_RATE = 2.0;
+    /** Ближе этого (по горизонтали) атаку из-за круга разворота не отменяем. */
+    private static final double REATTACK_MIN = 64;
 
     private static final LaunchProfile LAUNCH = new LaunchProfile(6, 40, 0.15, 8, -14);
 
@@ -115,7 +119,12 @@ public class CruiseMissileEntity extends StrikeProjectile {
             holdAltitude(Math.max(terrain + 25, aim.y + 12), 0.25, 4, 0.6);
             if (speed >= CRUISE_SPEED - 0.01 && phaseAge() > 40) setPhase(FlightPhase.CRUISE);
         }
-        if (flightPhase() == FlightPhase.CRUISE && onFinalLeg() && b.horizontal() <= TERMINAL_RANGE) {
+        // цель внутри круга разворота (сместилась вбок на атаке, перенацеливание, игрок телепортировался): атака
+        // отменяется, ракета уходит прямо, пока цель не выйдет из круга, и заходит снова — как ракета на промахе
+        // у самой цели не отменяем: небольшой промах добирает неконтактный взрыватель, а пролетев, ракета зайдёт снова
+        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? CLIMB_TURN_RATE : TURN_RATE);
+        if (outOfTurn && (flightPhase() == FlightPhase.TERMINAL || flightPhase() == FlightPhase.POP_UP)) setPhase(FlightPhase.CRUISE);
+        if (flightPhase() == FlightPhase.CRUISE && onFinalLeg() && b.horizontal() <= TERMINAL_RANGE && !outOfTurn) {
             setPhase(popUp ? FlightPhase.POP_UP : FlightPhase.TERMINAL);
         }
         if (flightPhase() == FlightPhase.POP_UP && (b.pitch() >= 24 || getY() >= aim.y + 32)) setPhase(FlightPhase.TERMINAL);
@@ -133,9 +142,11 @@ public class CruiseMissileEntity extends StrikeProjectile {
             }
             default -> {}
         }
-        if (n.horizontal() > 8) {
-            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.10, 2.0, 0.15);
-            else flight.steerYaw(n.yaw(), 0.15, 3.0, 0.3);
+        if (outOfTurn) {
+            flight.settleYaw(ph == FlightPhase.CLIMB ? 0.15 : 0.3);
+        } else if (n.horizontal() > 8) {
+            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.10, CLIMB_TURN_RATE, 0.15);
+            else flight.steerYaw(n.yaw(), 0.15, TURN_RATE, 0.3);
         }
 
         advance(level, aim, 6.5);

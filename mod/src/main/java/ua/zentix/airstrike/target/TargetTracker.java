@@ -19,11 +19,18 @@ import java.util.Optional;
 public final class TargetTracker {
     /** Сколько блоков сдвига цели снаряд догоняет сверх плана полёта. */
     public static final double CHASE_BUDGET = 3000;
+    /** Быстрее этого (блоков за тик) цель не движется — это скачок. */
+    private static final double MAX_SPEED = 10;
     /** Сдвиг меньше этого — не сдвиг (дрожание позиции сущности). */
     private static final double MIN_MOVE = 0.01;
 
+    /** Сглаживание скорости цели: доля нового сдвига за тик. */
+    private static final double VELOCITY_SMOOTHING = 0.3;
+
     private Target target;
     private Vec3 point;
+    /** Скорость цели, блоков за тик (сглаженная; не сохраняется — за несколько тиков набирается заново). */
+    private Vec3 velocity = Vec3.ZERO;
     private double chased;
     private boolean lost;
 
@@ -41,17 +48,23 @@ public final class TargetTracker {
         if (lost) return 0;
         Optional<Vec3> now = target.resolve(level);
         if (now.isEmpty()) {
-            lost = true;
+            loseTarget();
             return 0;
         }
-        double moved = point.distanceTo(now.get());
-        if (moved < MIN_MOVE) return 0;
+        Vec3 step = now.get().subtract(point);
+        double moved = step.length();
+        if (moved < MIN_MOVE) {
+            velocity = velocity.scale(1 - VELOCITY_SMOOTHING);
+            return 0;
+        }
         if (chased + moved > CHASE_BUDGET) {
-            lost = true;
+            loseTarget();
             return 0;
         }
         chased += moved;
         point = now.get();
+        // скачок (телепорт, смена измерения) — не скорость
+        velocity = moved > MAX_SPEED ? Vec3.ZERO : velocity.lerp(step, VELOCITY_SMOOTHING);
         return moved;
     }
 
@@ -66,13 +79,24 @@ public final class TargetTracker {
         chased += moved;
         this.target = target;
         this.point = point;
+        velocity = Vec3.ZERO;
         lost = false;
         return moved;
+    }
+
+    private void loseTarget() {
+        lost = true;
+        velocity = Vec3.ZERO;
     }
 
     /** Текущая точка цели. */
     public Vec3 point() {
         return point;
+    }
+
+    /** Скорость цели, блоков за тик: для упреждения на подлёте (у неподвижной и потерянной — ноль). */
+    public Vec3 velocity() {
+        return velocity;
     }
 
     public Target target() {
