@@ -8,7 +8,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.guidance.Orbit;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
@@ -186,13 +186,18 @@ public class LoiterEntity extends StrikeProjectile {
         } else if (ph == FlightPhase.CRUISE) {
             speed += (CRUISE_SPEED - speed) * 0.05;
             holdAltitude(Math.max(cruiseAlt, floor), 0.12, 1.2, 0.15);
-            flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
-            if (strikeNow && b.pitch() >= 30) setPhase(FlightPhase.TERMINAL);
-            else if (b.horizontal() <= orbitRadius + 15) setPhase(strikeNow ? FlightPhase.TERMINAL : FlightPhase.LOITER);
+            if (strikeNow) {
+                flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
+                if (b.pitch() >= 30 || b.horizontal() <= orbitRadius + 15) setPhase(FlightPhase.TERMINAL);
+            } else {
+                // к кругу — по тому же полю курсов, что и на круге: выход на него по касательной, без перелёта
+                orbit().steer(flight, position(), aim, speed);
+                if (orbit().captured(position(), aim, flight.yaw())) setPhase(FlightPhase.LOITER);
+            }
         } else if (ph == FlightPhase.LOITER) {
             speed += (CRUISE_SPEED - speed) * 0.05;
             holdAltitude(Math.max(aim.y + LOITER_HEIGHT, floor), 0.12, 1.2, 0.15);
-            flight.steerYaw(orbitYaw(aim), 0.2, 3.0, 0.3);
+            orbit().steer(flight, position(), aim, speed);
             // заход в пике — когда цель под крылом (под углом 40° и круче) и время вышло
             boolean due = strikeNow || phaseAge() >= loiterTicks;
             if (due && b.pitch() >= 40) setPhase(FlightPhase.TERMINAL);
@@ -207,18 +212,14 @@ public class LoiterEntity extends StrikeProjectile {
         advance(level, aim, 3.0);
     }
 
-    /**
-     * Курс по кругу вокруг цели: касательная, повёрнутая к центру, если снаружи круга, и от центра, если внутри
-     * (отклонение 2.5° на блок, не больше 80°).
-     */
-    private float orbitYaw(Vec3 center) {
-        float toCenter = FlightController.anglesTo(position(), center)[0];
-        double dx = center.x - getX(), dz = center.z - getZ();
-        double r = Math.sqrt(dx * dx + dz * dz);
-        double offset = 90 - Math.max(-60, Math.min(80, (r - orbitRadius) * 2.5));
-        return (float) (toCenter - orbitSide * offset);
+    private Orbit orbit() {
+        return new Orbit(orbitRadius, orbitSide);
     }
 
+    /** Радиус круга этого боеприпаса (у каждого в залпе свой), блоков. */
+    public double orbitRadius() {
+        return orbitRadius;
+    }
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
