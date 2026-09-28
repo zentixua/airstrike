@@ -259,11 +259,11 @@ public final class NuclearWorld {
             double psi = d.psi(nearest);
             if (psi < 3) continue;
             float power = (float) Mth.clamp(6 + (psi - 3) * 1.15, 6, 60);
-            // лучи ванильного взрыва читают блоки — все чанки вокруг должны быть уже загружены
-            if (!Terrain.readyAround(level, nearest, Warheads.reach(power))) continue;
-            level.explode(null, ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
+            // лучи ванильного взрыва читают блоки — только по готовым чанкам
+            Warheads.whenReady(level, nearest, Warheads.reach(power), l -> l.explode(null,
+                    ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
                     nearest.x, nearest.y, nearest.z, power, false, Level.ExplosionInteraction.TNT,
-                    ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);
+                    ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
         }
     }
 }
