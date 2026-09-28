@@ -171,6 +171,8 @@ public final class StrikeService {
                                              double length, double entry, double side, @Nullable UUID owner) {
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
+        // короткий полёт из настроек: старт не ближе точки входа, иначе первым делом разворот назад
+        length = Math.max(length, entry);
         Vec3 start = point.subtract(dir.scale(length)).add(0, weapon == WeaponType.DRONE ? DroneEntity.CRUISE_HEIGHT : 12, 0);
         p.launch(start, target, point, owner);
         p.setRoute(Route.plan(start, point, dir, length, entry, side));

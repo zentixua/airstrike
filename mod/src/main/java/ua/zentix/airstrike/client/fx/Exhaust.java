@@ -72,16 +72,16 @@ public final class Exhaust {
             // твердотопливный ускоритель: на поджиге струя вырастает за полсекунды, дальше — ровный яркий факел
             float grow = ph == FlightPhase.IGNITION ? Math.min(1, (e.phaseAge() + partial) / 10f) : 1;
             return e instanceof DroneEntity
-                    ? new Plume(-0.58f, -3.86f, 3.8f * grow * flicker, 0.24f, 1, false, 0xFFF4E0, 0xFF8A30)
-                    : new Plume(0, -6.88f, 6.5f * grow * flicker, 0.45f, 1, true, 0xFFF4E0, 0xFF8A30);
+                    ? new Plume(-0.29f, -1.93f, 2.2f * grow * flicker, 0.13f, 1, false, 0xFFF4E0, 0xFF8A30)
+                    : new Plume(0, -3.44f, 4.0f * grow * flicker, 0.25f, 1, true, 0xFFF4E0, 0xFF8A30);
         }
         return switch (e) {
             // «Минитмен»: 18 м струи с алмазами, на разгоне длиннее
             case IcbmEntity i -> new Plume(0, -9.7f, (14 + Math.min(10, i.age() * 0.15f)) * flicker, 1.1f, 1, true, 0xFFF4E0, 0xFF8A30);
             // маршевый ТРД почти невидим — тусклое свечение; в пике ярче (форсаж для прорыва ПВО — художественно)
             case CruiseMissileEntity m -> ph == FlightPhase.TERMINAL
-                    ? new Plume(0, -5.75f, 3.2f * flicker, 0.35f, 0.9f, false, 0xFFE8C0, 0xFF6A20)
-                    : new Plume(0, -5.75f, 1.6f * flicker, 0.28f, 0.55f, false, 0xFFD8A0, 0xFF5A18);
+                    ? new Plume(0, -2.88f, 2.0f * flicker, 0.18f, 0.9f, false, 0xFFE8C0, 0xFF6A20)
+                    : new Plume(0, -2.88f, 1.0f * flicker, 0.14f, 0.55f, false, 0xFFD8A0, 0xFF5A18);
             default -> null;
         };
     }
@@ -90,8 +90,8 @@ public final class Exhaust {
 
     /** Поршневой мотор: тонкий сизый выхлоп за винтом; в пике — гуще (мотор на полном газу). */
     private static void drone(ClientLevel level, DroneEntity e, State s) {
-        if (booster(level, e, s, -0.58, -3.9, 0.7f)) return;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0.05, -3.9);
+        if (booster(level, e, s, -0.29, -1.95, 0.55f)) return;
+        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0.03, -1.95);
         boolean dive = e.flightPhase() == FlightPhase.TERMINAL;
         Fx.Spec puff = Fx.smoke().size(0.3f, dive ? 1.6f : 1.2f).life(dive ? 60 : 40).color(0x6A6C72, 0xB6B8BE)
                 .alpha(dive ? 0.3f : 0.18f).drag(0.9f).rise(0.002f).fadeIn(2).fadeFrom(0.2f);
@@ -168,16 +168,16 @@ public final class Exhaust {
 
     /** Горячий след ТРД; в пике — ещё и пар на корпусе (конденсация на околозвуке). */
     private static void missile(ClientLevel level, CruiseMissileEntity e, State s) {
-        if (!e.isActive() || booster(level, e, s, 0, -6.9, 1)) return;
+        if (!e.isActive() || booster(level, e, s, 0, -3.45, 0.8f)) return;
         RandomSource r = level.random;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -6.4);
+        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -3.2);
         Fx.Spec haze = Fx.smoke().size(0.2f, 1.4f).life(60).color(0xB8B4AE, 0xDADAD8).alpha(0.16f).drag(0.94f)
                 .fadeIn(2).fadeFrom(0.25f).rise(0.001f);
         trail(level, s, nozzle, haze, 2.5, r);
         if (e.flightPhase() == FlightPhase.TERMINAL) {
             for (int i = 0; i < 3; i++) {
                 double a = r.nextDouble() * Mth.TWO_PI;
-                Vec3 p = Local.at(e.position(), e.getYRot(), e.getXRot(), Math.cos(a) * 0.7, Math.sin(a) * 0.7, 1.5 - r.nextDouble() * 3);
+                Vec3 p = Local.at(e.position(), e.getYRot(), e.getXRot(), Math.cos(a) * 0.35, Math.sin(a) * 0.35, 0.8 - r.nextDouble() * 1.6);
                 Fx.smoke().size(0.3f, 1.2f).life(8).color(0xF4F6F8, 0xFFFFFF).alpha(0.45f).fadeIn(1).fadeFrom(0.2f).drag(0.8f)
                         .wind(0).spawn(level, p);
             }

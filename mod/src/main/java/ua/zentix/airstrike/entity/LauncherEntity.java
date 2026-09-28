@@ -112,22 +112,41 @@ public class LauncherEntity extends Entity {
         float yaw = getYRot();
         Vec3 pivot = Local.at(position(), yaw, 0, 0, PIVOT_UP, -PIVOT_BACK);
         double left, up, forward;
-        if (weapon() == WeaponType.MISSILE) {
-            left = slot == 0 ? 0.85 : -0.85;
-            up = 0.85;
-            forward = 5.4;
-        } else if (weapon() == WeaponType.ROCKET) {
-            // очередь идёт по рядам слева направо, начиная с верхнего — как на «Граде»
-            int col = slot % ROCKET_COLUMNS, row = ROCKET_ROWS - 1 - slot / ROCKET_COLUMNS;
-            left = (ROCKET_COLUMNS - 1) * TUBE_PITCH / 2 - col * TUBE_PITCH;
-            up = 0.3 + row * TUBE_PITCH;
-            forward = TUBE_LENGTH / 2;
-        } else {
-            left = 0;
-            up = 0.45 + 0.95 * slot;
-            forward = 3.3;
+        switch (weapon()) {
+            case MISSILE -> {
+                left = slot == 0 ? 0.62 : -0.62;
+                up = 0.64;
+                forward = 3.3;
+            }
+            case ROCKET -> {
+                // очередь идёт по рядам слева направо, начиная с верхнего — как на «Граде»
+                int col = slot % ROCKET_COLUMNS, row = ROCKET_ROWS - 1 - slot / ROCKET_COLUMNS;
+                left = (ROCKET_COLUMNS - 1) * TUBE_PITCH / 2 - col * TUBE_PITCH;
+                up = 0.3 + row * TUBE_PITCH;
+                forward = TUBE_LENGTH / 2;
+            }
+            case LOITER -> {
+                left = loiterLeft(slot);
+                up = loiterUp(slot);
+                forward = 1.35;
+            }
+            default -> {
+                // шахеды одна над другой: центр ячейки, 2 м от оси (хвост с ускорителем — у задней стенки)
+                left = 0;
+                up = 0.45 + 0.8 * slot;
+                forward = 2.0;
+            }
         }
         return Local.at(pivot, yaw, -elevation(), left, up, forward);
+    }
+
+    /** Направляющие барражирующих: три внизу, два сверху (0.83 м между осями). */
+    public static float loiterLeft(int slot) {
+        return slot < 3 ? 0.83f - 0.83f * slot : slot == 3 ? 0.415f : -0.415f;
+    }
+
+    public static float loiterUp(int slot) {
+        return slot < 3 ? 0.5f : 1.35f;
     }
 
     /** Наименьший интервал между пусками с одной установки, тиков: РСЗО — полсекунды, остальные — 0.8 с. */

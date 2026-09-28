@@ -44,7 +44,7 @@ public class CruiseMissileEntity extends StrikeProjectile {
 
     @Override
     protected double noseLength() {
-        return 5.88;
+        return 2.96;
     }
 
     @Override
