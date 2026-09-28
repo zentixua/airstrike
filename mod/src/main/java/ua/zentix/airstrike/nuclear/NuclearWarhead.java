@@ -68,15 +68,22 @@ public final class NuclearWarhead {
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
 
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
-        lightAndRadiation(level, d, ownerEntity);
+        long lightStart = System.nanoTime();
+        int entities = lightAndRadiation(level, d, ownerEntity);
+        long queueStart = System.nanoTime();
         NuclearWorld.get(level).onDetonation(level, d);
-        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
-                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
+        long end = System.nanoTime();
+        // разбивка — чтобы по логу игры было видно, что тормозит в момент подрыва
+        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс (свет и радиация {} мс, сущностей {}; очереди {} мс)",
+                d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
+                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (end - started) / 1_000_000,
+                (queueStart - lightStart) / 1_000_000, entities, (end - queueStart) / 1_000_000);
         return d;
     }
 
-    /** Свет и проникающая радиация — одна проверка на сущность в радиусе ожогов 1-й степени. */
-    private static void lightAndRadiation(ServerLevel level, Detonation d, @Nullable Entity owner) {
+    /** Свет и проникающая радиация — одна проверка на сущность в радиусе ожогов 1-й степени. Возвращает, скольких задело. */
+    private static int lightAndRadiation(ServerLevel level, Detonation d, @Nullable Entity owner) {
+        int touched = 0;
         double burnRange = d.blocks(ThermalModel.rangeForFluence(ThermalModel.BURN_1, d.yieldKt(), d.surface(), d.visibility()));
         double radRange = d.blocks(radiusForDose(d.yieldKt(), 50));
         double range = Math.max(burnRange, radRange);
@@ -85,6 +92,7 @@ public final class NuclearWarhead {
             if (!living.isAlive() || living.distanceToSqr(d.burst()) > range * range) continue;
             // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
             if (living instanceof Player p && (p.isCreative() || p.isSpectator())) continue;
+            touched++;
             Vec3 eye = living.getEyePosition();
             if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
             double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
@@ -97,6 +105,7 @@ public final class NuclearWarhead {
                 living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), living.getMaxHealth() * 0.5f);
             }
         }
+        return touched;
     }
 
     /**
