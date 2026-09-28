@@ -2,6 +2,7 @@ package ua.zentix.airstrike.target;
 
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -16,6 +17,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.registry.ModTags;
 
 import java.util.function.Predicate;
@@ -42,7 +44,7 @@ public final class TargetPicker {
     public static Pick pick(Level level, Entity viewer, Vec3 eye, Vec3 look, double range) {
         Vec3 end = eye.add(look.scale(range));
 
-        BlockHitResult block = level.clip(new ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, viewer));
+        BlockHitResult block = level.clip(new ClipContext(eye, readyReach(level, eye, end), ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, viewer));
         Vec3 blockWorld = null;
         SubLevelAccess aircraft = null;
         if (block.getType() != HitResult.Type.MISS) {
@@ -70,11 +72,63 @@ public final class TargetPicker {
 
         // в небо или дальше дальности прицела — поверхность под концом луча, если чанк загружен
         BlockPos col = BlockPos.containing(end);
-        if (!level.isLoaded(col)) return null;
-        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ());
+        if (!Terrain.ready(level, col)) return null;
+        int y = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ());
         Vec3 surface = new Vec3(col.getX() + 0.5, y, col.getZ() + 0.5);
         return new Pick(new Target.Point(surface), surface, Kind.SURFACE, Component.translatable("airstrike.target.surface"), null);
     }
+
+    /**
+     * Докуда луч идёт по готовым чанкам ({@link Terrain#ready}): на сервере {@code clip} читает блоки через
+     * {@code getChunk}, который грузит и генерирует недостающий чанк прямо в тике (дальность прицела — до 1024 блоков).
+     * На клиенте незагруженный чанк — пустой, обрезать нечего.
+     */
+    static Vec3 readyReach(Level level, Vec3 from, Vec3 to) {
+        if (level.isClientSide) return to;
+        double t = readyFraction(from.x, from.z, to.x, to.z, (x, z) -> Terrain.ready(level, x, z));
+        return t >= 1 ? to : from.lerp(to, t);
+    }
+
+    /** Готов ли чанк (x, z). */
+    @FunctionalInterface
+    interface ChunkReady {
+        boolean test(int chunkX, int chunkZ);
+    }
+
+    /**
+     * Доля отрезка (0..1) до первой неготовой колонки чанков на его пути. Колонки обходятся по сетке
+     * (Amanatides–Woo, 2D): ни одна пересечённая колонка не пропускается, даже если отрезок срезает угол.
+     * Конец берётся на {@link #EDGE} блока раньше границы, чтобы последний проверяемый блок остался в готовом чанке.
+     */
+    static double readyFraction(double fromX, double fromZ, double toX, double toZ, ChunkReady ready) {
+        double dx = toX - fromX, dz = toZ - fromZ;
+        int cx = SectionPos.posToSectionCoord(fromX), cz = SectionPos.posToSectionCoord(fromZ);
+        int endX = SectionPos.posToSectionCoord(toX), endZ = SectionPos.posToSectionCoord(toZ);
+        int stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+        // доля пути до следующей границы чанка по x и по z и прирост этой доли на один чанк
+        double tMaxX = dx == 0 ? Double.POSITIVE_INFINITY : ((stepX > 0 ? cx + 1 : cx) * 16.0 - fromX) / dx;
+        double tMaxZ = dz == 0 ? Double.POSITIVE_INFINITY : ((stepZ > 0 ? cz + 1 : cz) * 16.0 - fromZ) / dz;
+        double tDeltaX = dx == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(dx);
+        double tDeltaZ = dz == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(dz);
+        double edge = EDGE / Math.max(1.0e-9, Math.sqrt(dx * dx + dz * dz));
+        double t = 0;
+        while (true) {
+            if (!ready.test(cx, cz)) return Math.max(0, t - edge);
+            if (cx == endX && cz == endZ) return 1;
+            if (tMaxX < tMaxZ) {
+                t = tMaxX;
+                tMaxX += tDeltaX;
+                cx += stepX;
+            } else {
+                t = tMaxZ;
+                tMaxZ += tDeltaZ;
+                cz += stepZ;
+            }
+            if (t >= 1) return 1;
+        }
+    }
+
+    private static final double EDGE = 0.01;
 
     /**
      * Ближайшая сущность на отрезке. Идём отрезками по 16 блоков: один большой AABB на 400 блоков
