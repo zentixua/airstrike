@@ -36,6 +36,7 @@ import ua.zentix.airstrike.client.nuclear.NukeHud;
 import ua.zentix.airstrike.client.nuclear.NukeRenderer;
 import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
+import ua.zentix.airstrike.client.render.LaunchModels;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
@@ -88,6 +89,8 @@ public final class AirstrikeClient {
     private static void renderers(EntityRenderersEvent.RegisterRenderers e) {
         e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::drone));
         e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::missile));
+        e.registerEntityRenderer(ModEntities.ROCKET.get(), ctx -> new StrikeProjectileRenderer<>(ctx,
+                (r, partial, pose, buffers, light) -> LaunchModels.ROCKET.render(pose, buffers, 0)));
         e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomber));
         e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomb));
         e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::icbm));

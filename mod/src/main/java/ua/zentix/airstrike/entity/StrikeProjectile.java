@@ -166,6 +166,11 @@ public abstract class StrikeProjectile extends Entity {
         return null;
     }
 
+    /** Сколько стоять на пусковой до поджига (задаёт {@link #placeOnLauncher}). */
+    protected int readyTicks() {
+        return readyTicks;
+    }
+
     /** Сколько тиков ещё до схода с пусковой и выхода на маршевую скорость (для времени подлёта). */
     protected int launchTicksLeft() {
         LaunchProfile lp = launchProfile();

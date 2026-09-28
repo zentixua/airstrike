@@ -81,6 +81,8 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
     }
 
     public Loadout withWeapon(WeaponType w) {
+        // РСЗО одиночным не стреляет: по умолчанию — очередь из 12 по площади 15 блоков
+        if (w == WeaponType.ROCKET && weapon != WeaponType.ROCKET && count == 1) return new Loadout(w, 12, Math.max(spread, 15), mode, player, nuke);
         return new Loadout(w, count, spread, mode, player, nuke);
     }
 

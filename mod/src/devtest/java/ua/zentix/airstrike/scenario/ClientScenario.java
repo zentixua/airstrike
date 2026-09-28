@@ -66,6 +66,7 @@ public final class ClientScenario {
         if ("nuke".equals(mode)) planNuke();
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
+        else if ("rocket".equals(mode)) planRocket();
         else if ("models".equals(mode)) planModels();
         else plan();
     }
@@ -447,6 +448,40 @@ public final class ClientScenario {
         for (int t = 1020; t <= 1500; t += 6) shot(t, "missile");
         at(1510, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
         at(1520, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * РСЗО: залп из 12 по площади 12 блоков в 200 блоках впереди. Сначала камера снаряда — план у пакета на всю
+     * очередь; второй залп — глазами стреляющего: дуги дымных следов над головой и разрывы у цели.
+     */
+    private void planRocket() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+            cmd("forceload add -32 -48 32 240");
+        });
+        at(200, () -> {
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.launchNearPlayer.set(true);
+            cmd("fill -30 199 -40 30 199 230 minecraft:smooth_stone");
+            cmd("fill -3 200 197 3 203 203 minecraft:oak_planks");
+            cmd("tp @s 0.5 200 0.5 0 5");
+            target = new Vec3(0.5, 204, 200.5);
+        });
+        at(230, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 12 12 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(236, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        for (int t = 240; t <= 640; t += 6) shot(t, "rocket_cam");
+        at(650, () -> {
+            ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
+            // стоим сбоку от линии огня, смотрим на цель: видно и пакет, и дуги, и разрывы
+            cmd("tp @s 24.5 200 50.5 12 -14");
+        });
+        at(1500, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 12 12 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        for (int t = 1510; t <= 1900; t += 8) shot(t, "rocket_view");
+        at(1910, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

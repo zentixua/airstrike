@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -81,10 +81,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `entity/` — `StrikeProjectile` (общий полёт: удержание высоты по рельефу, неконтактный взрыватель со взведением,
   столкновения, старт с направляющей `launchTick`, `virtualTick`/`materialize` для полёта вне мира, перенацеливание),
   `FlightPhase` (синхронизирована: на пусковой → поджиг → разгон → набор → маршрут → горка → атака; по ней эффекты
-  и звук), `DroneEntity`, `CruiseMissileEntity`, `BomberEntity` + `BunkerBusterEntity` (бурение), `IcbmEntity`
+  и звук), `DroneEntity`, `CruiseMissileEntity`, `RocketEntity` (РСЗО: баллистика из трубы пакета), `BomberEntity` +
+  `BunkerBusterEntity` (бурение), `IcbmEntity`
   (только разгон), `LauncherEntity` (пусковая: пакет, ячейки, очередь пусков), `SpentBoosterEntity` (отработавший
   ускоритель), `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением
-  скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины.
+  скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины;
+  `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО).
 - `target/` — `Target` (точка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
   аппарата → сущность → блок), `TargetTracker`. `compat/SubLevels` — вся связь с Sable (через sable-companion,
   вшит jar-in-jar; сам Sable — compileOnly).
@@ -118,7 +120,10 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `storage airstrike:cfg` в конфиг, убирает objectives и старые сущности с тегами.
 
 ## Единицы и масштаб
-- Блок = метр. Скорости снарядов — блоки/тик (шахед 2.1, ракета 11.5, B-2 12, МБР до 25). Звук — 17.15 блока/тик.
+- Блок = метр. Скорости снарядов — блоки/тик (шахед 2.1, ракета 11.5, B-2 12, МБР до 25; РСЗО — по баллистике,
+  g = 0.0245 блока/тик²). Звук — 17.15 блока/тик.
+- `WeaponType.id` = порядковый номер в перечислении (клиент берёт `values()[id]`): новое оружие — только в конец;
+  порядок в пульте и в бинокле — `WeaponType.menu()`.
 - Ядерная модель — в метрах, секундах, килотоннах; `Detonation.blocks/metres` переводят с учётом `effects_scale`
   (`scale`): расстояния × scale, время фронта × scale (фронт в блоках всегда идёт со скоростью звука).
   Игровые часы осадков: 1000 тиков = 1 час.
@@ -191,4 +196,4 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Essential, e4mc.
 
 ## Не сделано / идеи
-- Барражирующий боеприпас (фаза `LOITER` уже есть в `FlightPhase`), РСЗО.
+- Барражирующий боеприпас (фаза `LOITER` уже есть в `FlightPhase`).

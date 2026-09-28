@@ -19,6 +19,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
@@ -130,6 +131,67 @@ public final class StrikeGameTests {
         h.succeedWhen(() -> {
             // уйдя из загруженных чанков, шахед летит вне мира и возвращается новой сущностью с тем же UUID
             h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), "шахед ещё летит: " + last[0]);
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
+    /**
+     * РСЗО: три снаряда из труб одного пакета — очередь, а не разом (даже заказанные, пока пакет поднимается),
+     * баллистическая дуга выше полусотни блоков и попадание в цель в конце полосы.
+     */
+    @GameTest(template = "runway", timeoutTicks = 600, batch = "rocket", skyAccess = true)
+    public static void rocketsRippleFromLauncher(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.ROCKET, null);
+        level.addFreshEntity(launcher);
+        List<RocketEntity> rockets = new java.util.ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            int[] slot = launcher.reserve(level.getGameTime(), 10, ua.zentix.airstrike.strike.StrikeService.ROCKET_RELOAD);
+            RocketEntity r = ModEntities.ROCKET.get().create(level);
+            r.placeInTube(launcher.railPoint(slot[0]), launcher.getYRot(), launcher.elevation(), slot[1], LauncherEntity.DEPLOY_TICKS,
+                    new Target.Point(point), point, null);
+            level.addFreshEntity(r);
+            rockets.add(r);
+        }
+        long[] fired = new long[3];
+        double[] apex = {-1e9};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            for (int i = 0; i < 3; i++) {
+                RocketEntity r = rockets.get(i);
+                if (fired[i] == 0 && r.flightPhase().ordinal() >= FlightPhase.BOOST.ordinal()) fired[i] = level.getGameTime();
+                if (!r.isRemoved()) {
+                    apex[0] = Math.max(apex[0], r.getY() - point.y);
+                    last[0] = "№" + i + " " + r.flightPhase() + " " + h.relativeVec(r.position()) + " v=" + r.speed();
+                }
+            }
+        });
+        h.succeedWhen(() -> {
+            for (RocketEntity r : rockets) h.assertTrue(r.isRemoved(), "снаряд ещё летит: " + last[0]);
+            for (int i = 1; i < 3; i++) {
+                h.assertTrue(fired[i] - fired[i - 1] >= LauncherEntity.spacing(WeaponType.ROCKET), "сход не очередью: " + java.util.Arrays.toString(fired));
+            }
+            h.assertTrue(apex[0] > 40, "не баллистика: вершина дуги " + apex[0] + " над целью");
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
+    /** РСЗО без стреляющего: снаряд с позиции за 600 блоков, полёт вне мира и попадание. */
+    @GameTest(template = "runway", timeoutTicks = 800, batch = "rocket_far", skyAccess = true)
+    public static void rocketFromAfar(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        r.launchFrom(point.add(0, 0, -600), new Target.Point(point), point, null);
+        VirtualFlights.launch(level, r);
+        java.util.UUID id = r.getUUID();
+        String[] last = {""};
+        h.onEachTick(() -> {
+            if (level.getEntity(id) instanceof RocketEntity e) last[0] = "в мире " + e.flightPhase() + " " + h.relativeVec(e.position());
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "снаряд ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
         });
     }

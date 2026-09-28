@@ -26,6 +26,7 @@ public final class AirstrikeConfig {
     public static final class Server {
         public final ModConfigSpec.IntValue dronePower;
         public final ModConfigSpec.IntValue missilePower;
+        public final ModConfigSpec.IntValue rocketPower;
         public final ModConfigSpec.IntValue bunkerPower;
         public final ModConfigSpec.IntValue bunkerEnergy;
         public final ModConfigSpec.BooleanValue blockDamage;
@@ -67,6 +68,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.drone_power").defineInRange("drone_power", 12, 1, 60);
             missilePower = b.comment("Сила взрыва крылатой ракеты.")
                     .translation("airstrike.config.missile_power").defineInRange("missile_power", 20, 1, 60);
+            rocketPower = b.comment("Сила взрыва реактивного снаряда РСЗО (122 мм, как у «Града»): каждого из залпа.")
+                    .translation("airstrike.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
             bunkerPower = b.comment("Сила подземного взрыва бетонобойной бомбы.")
                     .translation("airstrike.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
             bunkerEnergy = b.comment("Пробивная способность бомбы: 1000 ≈ 30 блоков камня.")

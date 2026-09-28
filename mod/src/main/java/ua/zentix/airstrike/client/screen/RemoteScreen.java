@@ -78,9 +78,11 @@ public class RemoteScreen extends Screen {
         int y = y0 + 22;
 
         // оружие
-        int bw = (W - 20) / 4;
-        for (WeaponType w : WeaponType.values()) {
-            int x = x0 + 4 + w.ordinal() * (bw + 4);
+        java.util.List<WeaponType> menu = WeaponType.menu();
+        int nw = menu.size();
+        int bw = (W - 8 - 4 * (nw - 1)) / nw;
+        for (WeaponType w : menu) {
+            int x = x0 + 4 + menu.indexOf(w) * (bw + 4);
             Button b = Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
                     .bounds(x, y, bw, 20).tooltip(net.minecraft.client.gui.components.Tooltip.create(w.description())).build();
             addRenderableWidget(b);

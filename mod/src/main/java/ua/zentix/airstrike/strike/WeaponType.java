@@ -9,6 +9,7 @@ import net.minecraft.util.ByIdMap;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.util.RandomSource;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.function.IntFunction;
 
@@ -21,7 +22,12 @@ public enum WeaponType implements StringRepresentable {
     /** B-2 и бетонобойная бомба: пробивает грунт и взрывается под землёй. */
     BUNKER(2, "bunker", 60, 80, SirenKind.AIR_RAID),
     /** Межконтинентальная баллистическая ракета с ядерной боеголовкой (см. пакет nuclear). */
-    NUKE(3, "nuke", 200, 300, SirenKind.NUCLEAR);
+    NUKE(3, "nuke", 200, 300, SirenKind.NUCLEAR),
+    /**
+     * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
+     * по полсекунды. Номер в {@link #id} — порядок в перечислении (индексы {@code values()} совпадают с id).
+     */
+    ROCKET(4, "rocket", 8, 12, SirenKind.MISSILE);
 
     public static final Codec<WeaponType> CODEC = StringRepresentable.fromEnum(WeaponType::values);
     private static final IntFunction<WeaponType> BY_ID = ByIdMap.continuous(WeaponType::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);
@@ -67,12 +73,19 @@ public enum WeaponType implements StringRepresentable {
         return salvoGapMin + random.nextInt(salvoGapMax - salvoGapMin + 1);
     }
 
+    /** Порядок в пульте и при прокрутке в бинокле: от лёгкого к ядерному. */
+    public static List<WeaponType> menu() {
+        return List.of(DRONE, MISSILE, ROCKET, BUNKER, NUKE);
+    }
+
     public WeaponType next() {
-        return values()[(ordinal() + 1) % values().length];
+        List<WeaponType> m = menu();
+        return m.get((m.indexOf(this) + 1) % m.size());
     }
 
     public WeaponType previous() {
-        return values()[(ordinal() + values().length - 1) % values().length];
+        List<WeaponType> m = menu();
+        return m.get((m.indexOf(this) + m.size() - 1) % m.size());
     }
 
     /** Имена в командах: английские и русские синонимы (как в датапаке, «shahed» — это дрон). */
@@ -82,6 +95,7 @@ public enum WeaponType implements StringRepresentable {
             case "missile", "ракета" -> MISSILE;
             case "bunker", "bomb", "бомба" -> BUNKER;
             case "nuke", "icbm", "ядерка", "ядерная" -> NUKE;
+            case "rocket", "grad", "mlrs", "град", "рсзо" -> ROCKET;
             default -> null;
         };
     }
