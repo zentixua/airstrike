@@ -9,6 +9,7 @@ craigsmith - "G26-27-Huge Storm Sequence.wav" - CC0 1.0 - https://freesound.org/
 craigsmith - "G33-32-Distant Bomb Explosion.wav" - CC0 1.0 - https://freesound.org/s/438538/
 craigsmith - "G43-14-25 Distant Explosions.wav" - CC0 1.0 - https://freesound.org/s/438693/
 craigsmith - "G56-25-Low Wind.wav" - CC0 1.0 - https://freesound.org/s/438880/
+craigsmith - "R01-04-Catapult Launch.wav" - CC0 1.0 - https://freesound.org/s/479922/
 craigsmith - "R30-12-Large Gun Shells Fly By and Explode.wav" - CC0 1.0 - https://freesound.org/s/483296/
 craigsmith - "R09-58-Large Fire with Debris.wav" - CC0 1.0 - https://freesound.org/s/483304/
 craigsmith - "R12-02-Large Explosions.wav" - CC0 1.0 - https://freesound.org/s/486018/
@@ -38,7 +39,9 @@ qubodup - "Launching Anti-Tank Missiles.flac [US DoD]" - CC0 1.0 - https://frees
 qubodup - "Explosive.flac [US DoD]" - CC0 1.0 - https://freesound.org/s/189778/
 qubodup - "Huge Explosion" - CC0 1.0 - https://freesound.org/s/741174/
 qubodup - "Massive Explosion" - CC0 1.0 - https://freesound.org/s/741175/
+qubodup - "Quadcopter Drone Flyby" - CC0 1.0 - https://freesound.org/s/854352/
 qubodup - "M142 HIMARS Rocket Launch 8 [US DoD]" - CC0 1.0 - https://freesound.org/s/854476/
+rcEyeSoar - "rc plane fly-by 2.wav" - CC0 1.0 - https://freesound.org/s/176973/
 Romaner66 - "Air raid siren in Kyiv" - CC BY 4.0 - https://freesound.org/s/676589/
 Sanderboah - "Geiger counter (dry)" - CC0 1.0 - https://freesound.org/s/674113/
 Spennnyyy - "Extremely Close THUNDER! (no rain)" - CC BY 4.0 - https://freesound.org/s/350506/

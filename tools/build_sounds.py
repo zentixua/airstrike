@@ -66,6 +66,10 @@ SOURCES = {
     241839: ("Zagge28", "Incoming mortar 2", CC0, "241/241839_4404989"),
     241840: ("Zagge28", "Incoming mortar 1", CC0, "241/241840_4404989"),
     674897: ("craigsmith", "S18-01 Incoming shells; explosions.wav", CC0, "674/674897_2524442"),
+    # барражирующий боеприпас: электромотор с винтом (радиоуправляемый самолёт), катапульта
+    176973: ("rcEyeSoar", "rc plane fly-by 2.wav", CC0, "176/176973_3283314"),
+    854352: ("qubodup", "Quadcopter Drone Flyby", CC0, "854/854352_71257"),
+    479922: ("craigsmith", "R01-04-Catapult Launch.wav", CC0, "479/479922_2524442"),
     # B-2 и бомба
     152567: ("minian89", "four_jet_engines.wav", CC0, "152/152567_2467357"),
     437931: ("craigsmith", "G11-25_B-52 Jet Fly By.wav", CC0, "437/437931_2524442"),
@@ -378,6 +382,32 @@ def rocket():
     variants("rocket.blast", "subtitles.airstrike.blast", "rocket_blast", blasts)
 
 
+# ================================================================ барражирующий боеприпас
+
+def loiter():
+    """«Ланцет»: электромотор с толкающим винтом — тонкий ровный вой радиоуправляемого самолёта, вдали — жужжание;
+    пуск с катапульты — удар и свист без огня; в пике винт взвывает и свистит рассекаемый воздух."""
+    rc = cut(src(176973), 0.2, 4.2)
+    quad = cut(src(854352), 2.4, 4.6)
+    body = mix((F(rc, lo=120, hi=12000), 1.0), (pad(np.tile(F(quad, lo=200, hi=9000), 3), len(rc)), 0.25))
+    write("loiter_engine", norm(loop(body, 3.6, 0.4), -10), "loiter.engine", "subtitles.airstrike.loiter")
+    far = syn.reverb(F(body, lo=160, hi=2200), t60=1.4, mix=0.4)
+    write("loiter_engine_far", norm(loop(far, 3.6, 0.4), -11), "loiter.engine.far", "subtitles.airstrike.loiter")
+    # пике: пролёт вплотную, выше тоном, и ветер
+    fly = speed(cut(src(176973), 5.0, 8.4), 1.2)
+    air = cut(src(162417), 0, 6.2)
+    dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(air, 2), len(fly)), 0.35))
+    write("loiter_dive", norm(loop(dive, 2.4, 0.3), -9.5), "loiter.dive", "subtitles.airstrike.loiter")
+    # катапульта: удар поршня, свист направляющей
+    cat = src(479922)
+    sigs = []
+    for a in (1.25, 5.07, 13.53):
+        x = align(cut(cat, a - 0.05, a + 1.6), -20, 0.01)
+        x = mix((x, 1.0), (pad(sub_thump(0.5, 70, 25, 0.08), len(x)), 0.4))
+        sigs.append(norm(punch(trim_tail(x, -46, 0.3), 4), -12, 0.95))
+    variants("loiter.launch", "subtitles.airstrike.loiter.launch", "loiter_launch", sigs)
+
+
 # ================================================================ B-2 и бомба
 
 def bomber():
@@ -593,7 +623,8 @@ ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine",
          "blast.far", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
          "designator.lock", "silent", "nuke.alarm", "nuke.launch", "nuke.crack", "nuke.boom_far", "nuke.roar",
          "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click", "rocket.launch",
-         "rocket.incoming", "rocket.blast"]
+         "rocket.incoming", "rocket.blast", "loiter.engine",
+         "loiter.engine.far", "loiter.dive", "loiter.launch"]
 
 
 def write_json():
@@ -637,7 +668,7 @@ if __name__ == "__main__":
         if f.endswith(".ogg"):
             os.remove(os.path.join(OUT, f))
     # новые разделы — в конец: генератор случайных чисел общий, так прежние звуки не меняются
-    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket):
+    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter):
         print(part.__name__)
         part()
     write_json()

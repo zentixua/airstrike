@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -44,7 +44,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            (AIRSTRIKE_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
     trailer/edit.py [--draft]            ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала → dist/airstrike-trailer.mp4
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
+  .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах; релиз на GitHub
+  docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
   instances/All of Create Aeronautics/minecraft/                  ← .minecraft инстанса (MC)
@@ -68,6 +69,8 @@ git commit
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
 CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
+Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
+с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья).
 Сценарий клиента пишет строки `SCENARIO …` в лог (звуки, fps, вспышка) — по ним и по кадрам проверяется картинка и звук.
 
 ## Архитектура (пакеты `ua.zentix.airstrike`)
@@ -84,7 +87,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `entity/` — `StrikeProjectile` (общий полёт: удержание высоты по рельефу, неконтактный взрыватель со взведением,
   столкновения, старт с направляющей `launchTick`, `virtualTick`/`materialize` для полёта вне мира, перенацеливание),
   `FlightPhase` (синхронизирована: на пусковой → поджиг → разгон → набор → маршрут → горка → атака; по ней эффекты
-  и звук), `DroneEntity`, `CruiseMissileEntity`, `RocketEntity` (РСЗО: баллистика из трубы пакета), `BomberEntity` +
+  и звук), `DroneEntity`, `LoiterEntity` («Ланцет»: катапульта, круг `LOITER` над целью, пике по времени или по цели
+  из камеры), `CruiseMissileEntity`, `RocketEntity` (РСЗО: баллистика из трубы пакета), `BomberEntity` +
   `BunkerBusterEntity` (бурение), `IcbmEntity`
   (только разгон), `LauncherEntity` (пусковая: пакет, ячейки, очередь пусков), `SpentBoosterEntity` (отработавший
   ускоритель), `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением
@@ -101,7 +105,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   - `Detonation` — один подрыв (всё, из чего сервер и клиенты выводят картинку и последствия), `NuclearEvents`
     (SavedData: подрывы и запланированные удары), `NuclearWarhead` (подрыв: свет и радиация по сущностям),
     `NuclearStrikes` (пуск МБР, таймер, события мира, синхронизация клиентам);
-  - `world/` — `ScarQueue` (очередь чанков по времени прихода фронта, бюджет `time_budget_ms`), `ColumnScar`
+  - `world/` — `ScarQueue` (очередь чанков по времени прихода фронта, бюджет `destruction_ms_per_tick` через `WorkClock`:
+    столбец начинается, только если по оценке успеет до срока), `ColumnScar`
     (столбец: давление ломает надземное, свет поджигает/выжигает, деревья валятся от эпицентра),
     `BlockResponse` (пороги по тегам `nuke_*` или прочности), `ThermalShadow` (тень по карте высот), `CraterJob`,
     `NuclearWorld` (фронт по сущностям и аппаратам, очереди); отметка чанка — attachment `CHUNK_SCAR`;
@@ -123,7 +128,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `storage airstrike:cfg` в конфиг, убирает objectives и старые сущности с тегами.
 
 ## Единицы и масштаб
-- Блок = метр. Скорости снарядов — блоки/тик (шахед 2.1, ракета 11.5, B-2 12, МБР до 25; РСЗО — по баллистике,
+- Блок = метр. Скорости снарядов — блоки/тик (шахед 2.1, барражирующий 1.6 и в пике 4, ракета 11.5, B-2 12, МБР до 25; РСЗО — по баллистике,
   g = 0.0245 блока/тик²). Звук — 17.15 блока/тик.
 - `WeaponType.id` = порядковый номер в перечислении (клиент берёт `values()[id]`): новое оружие — только в конец;
   порядок в пульте и в бинокле — `WeaponType.menu()`.
@@ -164,6 +169,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса).
 - Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
   профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`.
+- Тесты не должны мерить настенное время на машинах CI (общие раннеры: любой столбец может затянуться): бюджет
+  ядерных очередей GameTest проверяет на считающих часах `WorkClock.counting` (единица работы = 1 мс).
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
@@ -199,4 +206,4 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Essential, e4mc.
 
 ## Не сделано / идеи
-- Барражирующий боеприпас (фаза `LOITER` уже есть в `FlightPhase`).
+- Барражирующий сам ищет цель на круге (сейчас её выбирает оператор из камеры).

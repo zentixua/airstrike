@@ -37,7 +37,11 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         /** Стартовый ускоритель шахеда и ракеты, двигатель МБР; этот же слой отмечает поджиг и отделение ускорителя. */
         BOOSTER(ModSounds.BOOSTER_ENGINE::get),
         /** Снаряд РСЗО на нисходящей ветви: вой рассекаемого воздуха на подлёте. */
-        ROCKET_INCOMING(ModSounds.ROCKET_INCOMING::get);
+        ROCKET_INCOMING(ModSounds.ROCKET_INCOMING::get),
+        /** Барражирующий боеприпас: электромотор с винтом вблизи и вдали, вой винта и ветер в пике. */
+        LOITER_NEAR(ModSounds.LOITER_ENGINE::get),
+        LOITER_FAR(ModSounds.LOITER_ENGINE_FAR::get),
+        LOITER_DIVE(ModSounds.LOITER_DIVE::get);
 
         final Supplier<SoundEvent> event;
 
@@ -117,15 +121,24 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         int phase = track.phase(te);
         double age = track.phaseAge(te);
         switch (layer) {
-            case DRONE_NEAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * near(d, 60, 160) * spool(phase, age, true);
+            case DRONE_NEAR, DRONE_FAR -> {
+                double w = near(d, 60, 160);
+                gain = Acoustics.gain(d, 60, 0.12, 300) * (layer == Layer.DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
                 pitch *= spoolPitch(phase, age, true);
                 if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
             }
-            case DRONE_FAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * (1 - near(d, 60, 160)) * spool(phase, age, true);
-                pitch *= spoolPitch(phase, age, true);
-                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
+            case LOITER_NEAR, LOITER_FAR -> {
+                // маленький электромотор: тонкий вой, слышно ближе шахеда; в пике винт на полном газу — выше тоном,
+                // а громче всего воздух (слой LOITER_DIVE)
+                double w = near(d, 35, 110);
+                boolean dive = phase == FlightPhase.TERMINAL.ordinal();
+                gain = Acoustics.gain(d, 35, 0.12, 200) * (layer == Layer.LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
+                        * (dive ? 0.6 : 1);
+                pitch *= spoolPitch(phase, age, true) * (dive ? 1.15 : 1);
+            }
+            case LOITER_DIVE -> {
+                boolean dive = phase == FlightPhase.TERMINAL.ordinal();
+                gain = dive ? Acoustics.gain(d, 45, 0.1, 250) * Math.min(1, age / 10) : 0;
             }
             case MISSILE_FRONT, MISSILE_REAR, MISSILE_DIVE -> {
                 // спереди — свист вентилятора, сзади — рёв струи, в пике — пронзительный свист
@@ -160,7 +173,10 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             }
             case BOOSTER -> {
                 FlightPhase ph = FlightPhase.byId(phase);
-                if (track.weapon == WeaponType.NUKE) {
+                if (track.weapon == WeaponType.LOITER) {
+                    // катапульта — без огня: только разовый удар и свист (launchEvents)
+                    gain = 0;
+                } else if (track.weapon == WeaponType.NUKE) {
                     // «Минитмен»: низкий рёв твердотопливной ступени, слышно за километр
                     gain = ph.boosterLit() ? Acoustics.gain(d, 400, 0.15, 1500) : 0;
                     pitch *= 0.7;
@@ -205,7 +221,8 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
 
     /**
      * Разовые звуки старта в момент, когда их фронт дошёл до уха: поджиг ускорителя (удар и рёв у пусковой)
-     * и отделение (хлопок пиропатронов и лязг замков), у РСЗО — сход каждого снаряда с трубы.
+     * и отделение (хлопок пиропатронов и лязг замков), у РСЗО — сход каждого снаряда с трубы, у барражирующего —
+     * катапульта.
      * У МБР свой звук пуска ({@code NukeSounds}).
      */
     private void launchEvents(FlightPhase ph, double age, double d) {
@@ -218,10 +235,14 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             // сход реактивного снаряда: резкое «фш-ш» с треском; очередь по полсекунды сливается в рёв залпа
             float v = (float) Acoustics.gain(d, 100, 0.08, 900);
             if (v > 0.01f) ClientSounds.atEar(ModSounds.ROCKET_LAUNCH.get(), at, v, 0.94f + (float) Math.random() * 0.12f);
+        } else if (ph == FlightPhase.IGNITION && (prev >= 0 || age < 5) && track.weapon == WeaponType.LOITER) {
+            // катапульта барражирующего: удар поршня и свист направляющей
+            float v = (float) Acoustics.gain(d, 40, 0.05, 300);
+            if (v > 0.01f) ClientSounds.atEar(ModSounds.LOITER_LAUNCH.get(), at, v, 0.95f + (float) Math.random() * 0.1f);
         } else if (ph == FlightPhase.IGNITION && (prev >= 0 || age < 5)) {
             float v = (float) Acoustics.gain(d, 150, 0.1, 600);
             if (v > 0.01f) ClientSounds.atEar(ModSounds.LAUNCH_BOOSTER.get(), at, v, track.weapon == WeaponType.MISSILE ? 0.92f : 1.05f);
-        } else if (ph == FlightPhase.CLIMB && prev >= 0 && FlightPhase.byId(prev).boosterLit()) {
+        } else if (ph == FlightPhase.CLIMB && prev >= 0 && FlightPhase.byId(prev).boosterLit() && track.weapon != WeaponType.LOITER) {
             float v = (float) Acoustics.gain(d, 40, 0, 250);
             if (v > 0.01f) ClientSounds.atEar(ModSounds.BOOSTER_SEPARATE.get(), at, v, 1);
         }

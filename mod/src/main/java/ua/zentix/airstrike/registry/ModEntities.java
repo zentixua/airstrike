@@ -14,6 +14,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 
@@ -26,6 +27,8 @@ public final class ModEntities {
             projectile("cruise_missile", EntityType.Builder.of(CruiseMissileEntity::new, MobCategory.MISC).sized(1.3f, 1.3f), 24);
     public static final DeferredHolder<EntityType<?>, EntityType<RocketEntity>> ROCKET =
             projectile("rocket", EntityType.Builder.of(RocketEntity::new, MobCategory.MISC).sized(0.5f, 0.5f), 20);
+    public static final DeferredHolder<EntityType<?>, EntityType<LoiterEntity>> LOITER =
+            projectile("loiter", EntityType.Builder.of(LoiterEntity::new, MobCategory.MISC).sized(1.0f, 0.5f), 20);
     public static final DeferredHolder<EntityType<?>, EntityType<BomberEntity>> BOMBER =
             projectile("bomber", EntityType.Builder.of(BomberEntity::new, MobCategory.MISC).sized(6.0f, 1.5f), 32);
     public static final DeferredHolder<EntityType<?>, EntityType<BunkerBusterEntity>> BUNKER_BUSTER =

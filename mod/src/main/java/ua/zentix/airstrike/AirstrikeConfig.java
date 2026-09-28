@@ -27,6 +27,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue dronePower;
         public final ModConfigSpec.IntValue missilePower;
         public final ModConfigSpec.IntValue rocketPower;
+        public final ModConfigSpec.IntValue loiterPower;
         public final ModConfigSpec.IntValue bunkerPower;
         public final ModConfigSpec.IntValue bunkerEnergy;
         public final ModConfigSpec.BooleanValue blockDamage;
@@ -43,6 +44,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue droneFlightTime;
         public final ModConfigSpec.IntValue missileFlightTime;
         public final ModConfigSpec.IntValue bomberFlightTime;
+        public final ModConfigSpec.IntValue loiterTime;
         public final ModConfigSpec.BooleanValue carrierNukes;
 
         public final ModConfigSpec.BooleanValue nukeEnabled;
@@ -70,6 +72,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.missile_power").defineInRange("missile_power", 20, 1, 60);
             rocketPower = b.comment("Сила взрыва реактивного снаряда РСЗО (122 мм, как у «Града»): каждого из залпа.")
                     .translation("airstrike.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
+            loiterPower = b.comment("Сила взрыва барражирующего боеприпаса.")
+                    .translation("airstrike.config.loiter_power").defineInRange("loiter_power", 8, 1, 60);
             bunkerPower = b.comment("Сила подземного взрыва бетонобойной бомбы.")
                     .translation("airstrike.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
             bunkerEnergy = b.comment("Пробивная способность бомбы: 1000 ≈ 30 блоков камня.")
@@ -108,6 +112,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
             bomberFlightTime = b.comment("Подлёт B-2 до сброса, секунд.")
                     .translation("airstrike.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
+            loiterTime = b.comment("Сколько барражирующий боеприпас кружит над целью, прежде чем пикировать, секунд (у каждого в залпе ±20%).")
+                    .translation("airstrike.config.loiter_time").defineInRange("loiter_time", 25, 0, 600);
             b.pop();
 
             b.translation("airstrike.config.nuclear").push("nuclear");
