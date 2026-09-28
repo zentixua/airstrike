@@ -39,6 +39,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
@@ -48,6 +49,7 @@ import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -98,16 +100,71 @@ public final class Warheads {
     // ---------------------------------------------------------------- общие средства
 
     /**
-     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
-     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно.
+     * Докуда читает мир ванильный взрыв силы {@code power}: лучи по блокам гаснут не дальше 1.3·power / 0.225 шагов
+     * по 0.3 блока (≈ 1.73·power), урон ищет сущности в 2·power и пускает к каждой луч видимости.
      */
-    static Explosion explode(ServerLevel level, Vec3 at, float power, boolean fire, @Nullable Entity direct, @Nullable Entity owner,
-                             @Nullable ExplosionDamageCalculator calculator) {
+    public static double reach(float power) {
+        return power * 2 + 1;
+    }
+
+    /**
+     * Сделать то, что читает мир в {@code reach} блоков от {@code centre} (ванильный взрыв), когда там всё готово:
+     * сразу, если готово уже сейчас, иначе — когда тикет {@link BlastArea} догрузит район в фоне. Чтение неготового
+     * чанка грузило бы его прямо в тике: вторичный подрыв залпа у края загруженного мира вставал на 1,2 с.
+     */
+    public static void whenReady(ServerLevel level, Vec3 centre, double reach, Consumer<ServerLevel> action) {
+        if (Terrain.readyAround(level, centre, reach)) {
+            action.accept(level);
+        } else {
+            StrikeWorld.get(level).add(new Deferred(BlastArea.hold(level, centre, reach), action));
+        }
+    }
+
+    /**
+     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
+     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Только по готовым чанкам
+     * ({@link #whenReady}).
+     */
+    static void explode(ServerLevel level, Vec3 at, float power, boolean fire, @Nullable Entity direct, @Nullable Entity owner,
+                        @Nullable ExplosionDamageCalculator calculator) {
         boolean blocks = AirstrikeConfig.SERVER.blockDamage.get();
-        return level.explode(null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
-                at.x, at.y, at.z, power, fire && AirstrikeConfig.SERVER.fire.get(),
+        boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
+        whenReady(level, at, reach(power), l -> l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
+                at.x, at.y, at.z, power, burns,
                 blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);
+                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+    }
+
+    /** Взрыв, который ждёт готовности своего района ({@link #whenReady}). */
+    private static final class Deferred implements Timeline {
+        /** Тикет грузит район за секунды; если за 5 минут не вышло (мир не грузится), взрыв отменяется. */
+        private static final int GIVE_UP_TICKS = 6000;
+        private final BlastArea area;
+        private final Consumer<ServerLevel> action;
+        private int waited;
+
+        Deferred(BlastArea area, Consumer<ServerLevel> action) {
+            this.area = area;
+            this.action = action;
+        }
+
+        @Override
+        public boolean tick(ServerLevel level) {
+            if (area.ready(level)) {
+                action.accept(level);
+                return false;
+            }
+            if (++waited < GIVE_UP_TICKS) return true;
+            Vec3 c = area.centre();
+            Airstrike.LOG.warn("Взрыв у {} {} {} отменён: район не загрузился за {} тиков",
+                    Mth.floor(c.x), Mth.floor(c.y), Mth.floor(c.z), GIVE_UP_TICKS);
+            return false;
+        }
+
+        @Override
+        public void end(ServerLevel level) {
+            area.release(level);
+        }
     }
 
     static float power(WeaponType w) {
@@ -264,11 +321,14 @@ public final class Warheads {
         @Nullable
         private final Entity owner;
         private final GroundMaterial mat;
+        private final BlastArea area;
         private int t;
 
         SurfaceBlast(ServerLevel level, WeaponType weapon, Vec3 pos, @Nullable Entity direct, @Nullable UUID ownerId) {
             this.weapon = weapon;
             this.pos = pos;
+            // вторичные подрывы — до 11 блоков от точки удара, силой до 5
+            this.area = BlastArea.hold(level, pos, Math.max(11 + reach(5), reach(power(weapon))));
             this.direct = direct;
             this.owner = ownerId == null ? null : level.getPlayerByUUID(ownerId);
             this.mat = GroundMaterial.sample(level, BlockPos.containing(pos));
@@ -341,6 +401,11 @@ public final class Warheads {
             return t < 12;
         }
 
+        @Override
+        public void end(ServerLevel level) {
+            area.release(level);
+        }
+
         private void shatterGlass(ServerLevel level, boolean missile) {
             int glass = missile ? shatter(level, pos, 26, 8, 22, ModTags.SHATTERS) : shatter(level, pos, 16, 6, 12, ModTags.SHATTERS);
             if (glass > 0) {
@@ -374,10 +439,13 @@ public final class Warheads {
         private final int depth;
         /** Ослабленная зона: взрыв выгрызает её как пустоту, уцелевшее потом становится щебнем. */
         private final Set<BlockPos> weakened = new HashSet<>();
+        private final BlastArea area;
         private int t;
 
         BunkerBlast(ServerLevel level, Vec3 pos, Vec3 entry, @Nullable Entity direct, @Nullable UUID ownerId) {
             this.pos = pos;
+            // подрывы — до 6 блоков от заряда силой до 12, обрушение свода — до 10 блоков вокруг устья
+            this.area = BlastArea.hold(level, pos, Math.max(6 + reach(12), reach(power(WeaponType.BUNKER))));
             this.entry = entry;
             this.direct = direct;
             this.owner = ownerId == null ? null : level.getPlayerByUUID(ownerId);
@@ -442,6 +510,11 @@ public final class Warheads {
                 effect(p, MobEffects.CONFUSION, 8);
             });
             return t < 24;
+        }
+
+        @Override
+        public void end(ServerLevel level) {
+            area.release(level);
         }
 
         /** Огонь на дне полости (огненные шары датапака). */

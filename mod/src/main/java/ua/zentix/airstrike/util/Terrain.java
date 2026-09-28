@@ -3,6 +3,7 @@ package ua.zentix.airstrike.util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -27,6 +28,16 @@ public final class Terrain {
 
     public static boolean ready(Level level, BlockPos pos) {
         return ready(level, pos.getX() >> 4, pos.getZ() >> 4);
+    }
+
+    /** Готовы все чанки, которых касается квадрат со стороной {@code 2r} вокруг точки. */
+    public static boolean readyAround(Level level, Vec3 centre, double r) {
+        for (int cx = Mth.floor(centre.x - r) >> 4; cx <= Mth.floor(centre.x + r) >> 4; cx++) {
+            for (int cz = Mth.floor(centre.z - r) >> 4; cz <= Mth.floor(centre.z + r) >> 4; cz++) {
+                if (!ready(level, cx, cz)) return false;
+            }
+        }
+        return true;
     }
 
     /**

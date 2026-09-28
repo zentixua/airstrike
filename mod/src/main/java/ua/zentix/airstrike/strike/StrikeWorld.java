@@ -45,12 +45,15 @@ public final class StrikeWorld {
         timelines.addAll(pending);
         pending.clear();
         timelines.removeIf(t -> {
+            boolean done;
             try {
-                return !t.tick(level);
+                done = !t.tick(level);
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Таймлайн удара упал с ошибкой и убран", e);
-                return true;
+                done = true;
             }
+            if (done) t.end(level);
+            return done;
         });
     }
 
