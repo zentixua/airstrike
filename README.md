@@ -116,14 +116,19 @@ tools/
   synth_mod_sounds.py             синтез всех звуков (numpy + ffmpeg, фиксированный сид)
   gen_textures.py                 текстуры, нарисованные кодом
   paths.py                        пути к Prism и инстансу — единственное место
+  fetch_runtime_mods.py           Create, Sable, Aeronautics с Modrinth для GameTest (CI)
 docs/DESIGN-nuke.md               проект ядерного удара (физика, источники, отступления)
 ```
 
 ```sh
 cd mod && ./gradlew build              # сборка и юнит-тесты
 cd mod && ./gradlew runGameTestServer  # GameTest с Create, Sable и Aeronautics
+python3 tools/fetch_runtime_mods.py    # без инстанса: моды для GameTest с Modrinth → -PmcModsDir=run/ci-mods
 tools/deploy.sh                        # установить в инстанс (перезапустить игру)
 python3 tools/logscan.py               # что происходило в последней сессии
 ```
+
+Каждый push и PR собирает [GitHub Actions](.github/workflows/build.yml): сборка, юнит-тесты, GameTest; готовый jar —
+в артефактах запуска.
 
 Архитектура, соглашения и подводные камни — в [CLAUDE.md](CLAUDE.md).
