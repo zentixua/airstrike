@@ -1,7 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "numpy>=1.26",
+#     "pillow>=10",
+# ]
+# ///
 """Текстуры частиц эффектов (дым, огонь, искры, вспышка, ударное кольцо), нарисованные кодом; сид фиксированный.
 
-  python3 tools/gen_particles.py   → mod/src/main/resources/assets/airstrike/textures/particle/…
+  uv run tools/gen_particles.py   → mod/src/main/resources/assets/airstrike/textures/particle/…
 
   smoke_00…15 — 4 клуба дыма × 4 стадии рассеивания (клуб «тает» по краям), почти белые: цвет даёт частица;
   fire_00…07  — клубы пламени: белое ядро, жёлтое и оранжевое тело, тёмно-красные языки по краю;
