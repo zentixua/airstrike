@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -23,6 +24,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.entity.IEntityWithComplexSpawn;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
@@ -39,6 +41,7 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -54,7 +57,7 @@ import java.util.UUID;
  * <p>
  * Ошибка в тике одного снаряда не роняет сервер: снаряд удаляется, стек пишется в лог.
  */
-public abstract class StrikeProjectile extends Entity {
+public abstract class StrikeProjectile extends Entity implements IEntityWithComplexSpawn {
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
@@ -91,6 +94,8 @@ public abstract class StrikeProjectile extends Entity {
     protected Loadout.Nuke nuclear;
 
     private int phaseStart;
+    /** Клиент: фаза, от смены которой отсчитан {@link #phaseStart}. */
+    private byte clientPhase = -1;
     /** Сколько стоять на пусковой до поджига. */
     private int readyTicks;
     /** Включить сирену у цели, когда до удара останется столько тиков; -1 — без сирены. */
@@ -511,8 +516,11 @@ public abstract class StrikeProjectile extends Entity {
 
     protected abstract void serverTick(ServerLevel level);
 
-    /** Точка удара достигнута или столкновение: взрыв, бурение и т.п. */
-    protected abstract void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity);
+    /** Точка удара достигнута или столкновение: по умолчанию — обычная боевая часть своего оружия. */
+    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
+        discard();
+        Warheads.detonate(level, weapon(), point, this, ownerId());
+    }
 
     /**
      * Столкновение до взведения взрывателя (на старте): боевая часть не срабатывает — снаряд разбивается,
@@ -733,6 +741,7 @@ public abstract class StrikeProjectile extends Entity {
 
     /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали. */
     protected double terrainAhead(Level level, double... distances) {
+        if (virtual) return level.getMinBuildHeight(); // вне мира рельеф не читаем
         Vec3 pos = position();
         double yawRad = Math.toRadians(flight.yaw());
         double dx = -Math.sin(yawRad), dz = Math.cos(yawRad);
@@ -829,7 +838,32 @@ public abstract class StrikeProjectile extends Entity {
     @Override
     public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
         super.onSyncedDataUpdated(key);
-        if (DATA_PHASE.equals(key) && level().isClientSide) phaseStart = age;
+        if (DATA_PHASE.equals(key) && level().isClientSide) {
+            byte phase = entityData.get(DATA_PHASE);
+            if (phase != clientPhase) {
+                clientPhase = phase;
+                phaseStart = age;
+            }
+        }
+    }
+
+    /**
+     * Возраст и возраст фазы уходят клиенту вместе с появлением сущности: кто начал видеть снаряд посреди фазы
+     * (подошёл, вернулся в мир), видит анимации фазы (створки, крылья, выход из пусковой) с того же места, что и сервер.
+     * Часы мира для этого не годятся — у клиента они прыгают, когда сервер догоняет отставание.
+     */
+    @Override
+    public void writeSpawnData(RegistryFriendlyByteBuf buf) {
+        buf.writeByte(entityData.get(DATA_PHASE));
+        buf.writeVarInt(age);
+        buf.writeVarInt(phaseAge());
+    }
+
+    @Override
+    public void readSpawnData(RegistryFriendlyByteBuf buf) {
+        clientPhase = buf.readByte();
+        age = buf.readVarInt();
+        phaseStart = age - buf.readVarInt();
     }
 
     @Override

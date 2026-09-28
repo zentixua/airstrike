@@ -13,7 +13,6 @@ import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
 
@@ -108,7 +107,7 @@ public class CruiseMissileEntity extends StrikeProjectile {
         if (ph == FlightPhase.CLIMB) {
             // турбина набирает тягу; ракета переходит с подъёма на снижение к бреющему полёту
             speed = Math.min(CRUISE_SPEED, speed + 0.09);
-            double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 30, 60, 90);
+            double terrain = terrainAhead(level, 30, 60, 90);
             holdAltitude(Math.max(terrain + 25, aim.y + 12), 0.25, 4, 0.6);
             if (speed >= CRUISE_SPEED - 0.01 && phaseAge() > 40) setPhase(FlightPhase.CRUISE);
         }
@@ -120,7 +119,7 @@ public class CruiseMissileEntity extends StrikeProjectile {
         switch (flightPhase()) {
             case CRUISE -> {
                 speed = Math.min(CRUISE_SPEED, speed + 0.09);
-                double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 30, 60, 90);
+                double terrain = terrainAhead(level, 30, 60, 90);
                 holdAltitude(Math.max(terrain + 12, aim.y + 12), 0.30, 8, 1.8);
             }
             case POP_UP -> flight.holdPitch(-20, 0.30, 8, 1.8);
@@ -140,12 +139,12 @@ public class CruiseMissileEntity extends StrikeProjectile {
 
     @Override
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        discard();
-        if (nuclear != null) {
-            NuclearWarhead.detonate(level, NuclearStrikes.ground(level, point), nuclear.yieldKt(), nuclear.airBurst(), ownerId());
+        if (nuclear == null) {
+            super.impact(level, point, hitEntity);
             return;
         }
-        Warheads.detonate(level, WeaponType.MISSILE, point, this, ownerId());
+        discard();
+        NuclearWarhead.detonate(level, NuclearStrikes.ground(level, point), nuclear.yieldKt(), nuclear.airBurst(), ownerId());
     }
 
     @Override

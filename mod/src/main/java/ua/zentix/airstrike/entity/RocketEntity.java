@@ -2,7 +2,6 @@ package ua.zentix.airstrike.entity;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -10,7 +9,6 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
-import ua.zentix.airstrike.warhead.Warheads;
 
 /**
  * Неуправляемый реактивный снаряд РСЗО (122 мм, как у «Града»). Стоит в трубе пакета, поджиг, сход — и дальше
@@ -180,12 +178,6 @@ public class RocketEntity extends StrikeProjectile {
         flightTicks = Math.max(1, ticks);
         v0 = Ballistics.launchVelocity(from, to, flightTicks);
         lifetime = age + flightTicks + 200;
-    }
-
-    @Override
-    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        discard();
-        Warheads.detonate(level, WeaponType.ROCKET, point, this, ownerId());
     }
 
     @Override
