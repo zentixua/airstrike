@@ -59,6 +59,13 @@ SOURCES = {
     774270: ("TheLittleCrow", "Rocket Launch Boost and Burning (Version B)", CC0, "774/774270_5672786"),
     613855: ("felix.blume", "Rocket Launch Rumble at Canaveral", CC0, "613/613855_1661766"),
     675750: ("craigsmith", "S32-27 Titan missile launch; long.wav", CC0, "675/675750_2524442"),
+    # РСЗО: пуск реактивного снаряда (HIMARS, Минобороны США), вой снарядов на подлёте, разрывы
+    854476: ("qubodup", "M142 HIMARS Rocket Launch 8 [US DoD]", CC0, "854/854476_71257"),
+    241837: ("Zagge28", "Incoming mortar 4", CC0, "241/241837_4404989"),
+    241838: ("Zagge28", "Incoming mortar 3", CC0, "241/241838_4404989"),
+    241839: ("Zagge28", "Incoming mortar 2", CC0, "241/241839_4404989"),
+    241840: ("Zagge28", "Incoming mortar 1", CC0, "241/241840_4404989"),
+    674897: ("craigsmith", "S18-01 Incoming shells; explosions.wav", CC0, "674/674897_2524442"),
     # B-2 и бомба
     152567: ("minian89", "four_jet_engines.wav", CC0, "152/152567_2467357"),
     437931: ("craigsmith", "G11-25_B-52 Jet Fly By.wav", CC0, "437/437931_2524442"),
@@ -330,6 +337,47 @@ def launch():
     variants("booster.separate", "subtitles.airstrike.launch.separate", "booster_separate", sep)
 
 
+# ================================================================ РСЗО «Град»
+
+def rocket():
+    """Реактивная система залпового огня: каждый снаряд сходит с трубы резким «фш-ш» с треском (пуск HIMARS,
+    выше тоном и короче — калибр 122 мм меньше), очередь по полсекунды складывается в сплошной рёв; на подлёте
+    снаряды воют (миномётные мины и снаряды над головой), разрывы — жёсткие и сухие, один за другим."""
+    hm = src(854476)
+    decay = cut(hm, 4.1, 5.85)
+    sigs = []
+    for a, r in [(0.0, 1.32), (0.9, 1.45), (1.8, 1.38), (2.6, 1.52), (3.1, 1.28)]:
+        body = join(cut(hm, a, a + 1.6), decay, 0.7)
+        n = len(body)
+        tt = np.arange(n) / SR
+        # хлопок воспламенения: превью съедает атаку, возвращаем короткий треск и толчок
+        crack = F(rng.standard_normal(n), lo=900, hi=12000) * np.exp(-tt / 0.018)
+        x = mix((body, 1.0), (crack, 0.5), (sub_thump(n / SR, 60, 20, 0.12), 0.3))
+        sigs.append(norm(fade(speed(x, r), 0.001, 0.4), -11, 0.95))
+    variants("rocket.launch", "subtitles.airstrike.rocket", "rocket_launch", sigs)
+
+    # вой на подлёте: ровная текстура из середины записей (без начала и разрыва), петля; тон ведёт Доплер
+    grains = [cut(src(241840), 0.25, 1.2), cut(src(241838), 0.35, 1.5), cut(src(241837), 0.25, 1.1),
+              cut(src(241839), 0.25, 1.15), cut(src(674897), 13.9, 15.3)]
+    tex = None
+    for g in grains:
+        part = granular(F(g, lo=250, hi=11000) / max(rms(g), 1e-9), 3.0, 0.22)[int(0.25 * SR):]
+        tex = part if tex is None else join(tex, part, 0.5)
+    write("rocket_incoming", norm(loop(tex, 7.0, 0.8), -10), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
+
+    # разрывы: сухой удар и короткий раскат (снаряды рвутся на поверхности), без долгого эха
+    shells = src(674897)
+    blasts = []
+    for a, b in [(4.05, 8.4), (11.1, 13.75), (15.33, 19.1), (19.15, 23.3), (26.25, 31.4)]:
+        x = align(cut(shells, a, b), -18, 0.01)
+        x = mix((x, 1.0), (pad(sub_thump(0.8, 55, 12, 0.18), len(x)), 0.4))
+        # запись — издали, раскат ровный; снаряд рвётся ближе: после удара раскат спадает (−18 дБ за 2 с)
+        tt = np.arange(len(x)) / SR
+        x = x * 10 ** (-18 * np.clip(tt - 0.12, 0, None) / 2 / 20)
+        blasts.append(norm(punch(trim_tail(gate_hiss(x), -46, 0.4), 7, 0.03), -11, 0.95))
+    variants("rocket.blast", "subtitles.airstrike.blast", "rocket_blast", blasts)
+
+
 # ================================================================ B-2 и бомба
 
 def bomber():
@@ -544,7 +592,8 @@ ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine",
          "bomber.engine.far", "bomb.fall", "bomb.fall.far", "bomb.drill", "siren", "blast.near", "blast.sub",
          "blast.far", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
          "designator.lock", "silent", "nuke.alarm", "nuke.launch", "nuke.crack", "nuke.boom_far", "nuke.roar",
-         "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click"]
+         "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click", "rocket.launch",
+         "rocket.incoming", "rocket.blast"]
 
 
 def write_json():
@@ -587,7 +636,8 @@ if __name__ == "__main__":
     for f in os.listdir(OUT):  # прежние файлы, которых больше нет в сборке
         if f.endswith(".ogg"):
             os.remove(os.path.join(OUT, f))
-    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc):
+    # новые разделы — в конец: генератор случайных чисел общий, так прежние звуки не меняются
+    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket):
         print(part.__name__)
         part()
     write_json()

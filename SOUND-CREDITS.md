@@ -18,6 +18,7 @@
 | craigsmith | [R09-58-Large Fire with Debris.wav](https://freesound.org/s/483304/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [R12-02-Large Explosions.wav](https://freesound.org/s/486018/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [R18-04-Artillery Shells Fly Overhead.wav](https://freesound.org/s/486035/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| craigsmith | [S18-01 Incoming shells; explosions.wav](https://freesound.org/s/674897/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [S16-23 Violent explosion and debris; 2 takes.wav](https://freesound.org/s/674910/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [S32-27 Titan missile launch; long.wav](https://freesound.org/s/675750/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | craigsmith | [S10-19 Falling wooden beam; big interior crash; house collapses; long.wav](https://freesound.org/s/675967/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
@@ -42,6 +43,7 @@
 | qubodup | [Explosive.flac [US DoD]](https://freesound.org/s/189778/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | qubodup | [Huge Explosion](https://freesound.org/s/741174/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | qubodup | [Massive Explosion](https://freesound.org/s/741175/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| qubodup | [M142 HIMARS Rocket Launch 8 [US DoD]](https://freesound.org/s/854476/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Romaner66 | [Air raid siren in Kyiv](https://freesound.org/s/676589/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | Sanderboah | [Geiger counter (dry)](https://freesound.org/s/674113/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Spennnyyy | [Extremely Close THUNDER! (no rain)](https://freesound.org/s/350506/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
@@ -49,3 +51,7 @@
 | TheLittleCrow | [Rocket Launch Boost and Burning (Version B)](https://freesound.org/s/774270/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | wniebelski | [taxing ultralight plane.wav](https://freesound.org/s/695977/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Yoyodaman234 | [Thunder2](https://freesound.org/s/267551/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Zagge28 | [Incoming mortar 4](https://freesound.org/s/241837/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Zagge28 | [Incoming mortar 3](https://freesound.org/s/241838/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Zagge28 | [Incoming mortar 2](https://freesound.org/s/241839/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Zagge28 | [Incoming mortar 1](https://freesound.org/s/241840/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |

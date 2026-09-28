@@ -76,8 +76,8 @@ public final class ClientSounds {
                     ? List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR)
                     : List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL);
             case NUKE -> List.of(EngineSound.Layer.BOOSTER);
-            // РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции беззвучно, слышен только разрыв
-            case ROCKET -> List.of(EngineSound.Layer.BOOSTER);
+            // РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции, на подлёте воет
+            case ROCKET -> List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_INCOMING);
         };
         for (EngineSound.Layer l : layers) {
             EngineSound s = new EngineSound(track, l);
