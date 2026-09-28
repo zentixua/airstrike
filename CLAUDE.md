@@ -41,7 +41,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     gen_particles.py                     ← текстуры частиц эффектов и факела (numpy + Pillow)
     gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow), не править OBJ руками
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
+  .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах; релиз на GitHub
+  docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
   instances/All of Create Aeronautics/minecraft/                  ← .minecraft инстанса (MC)
@@ -65,6 +66,8 @@ git commit
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
 CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
+Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
+с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья).
 Сценарий клиента пишет строки `SCENARIO …` в лог (звуки, fps, вспышка) — по ним и по кадрам проверяется картинка и звук.
 
 ## Архитектура (пакеты `ua.zentix.airstrike`)
@@ -99,7 +102,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   - `Detonation` — один подрыв (всё, из чего сервер и клиенты выводят картинку и последствия), `NuclearEvents`
     (SavedData: подрывы и запланированные удары), `NuclearWarhead` (подрыв: свет и радиация по сущностям),
     `NuclearStrikes` (пуск МБР, таймер, события мира, синхронизация клиентам);
-  - `world/` — `ScarQueue` (очередь чанков по времени прихода фронта, бюджет `time_budget_ms` через `WorkClock`:
+  - `world/` — `ScarQueue` (очередь чанков по времени прихода фронта, бюджет `destruction_ms_per_tick` через `WorkClock`:
     столбец начинается, только если по оценке успеет до срока), `ColumnScar`
     (столбец: давление ломает надземное, свет поджигает/выжигает, деревья валятся от эпицентра),
     `BlockResponse` (пороги по тегам `nuke_*` или прочности), `ThermalShadow` (тень по карте высот), `CraterJob`,
@@ -198,5 +201,4 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Essential, e4mc.
 
 ## Не сделано / идеи
-- Барражирующий сам ищет цель на круге (сейчас её выбирает оператор из камеры); свой звук электромотора
-  (сейчас — звук мотора шахеда выше тоном).
+- Барражирующий сам ищет цель на круге (сейчас её выбирает оператор из камеры).
