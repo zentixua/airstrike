@@ -1,18 +1,15 @@
 package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.entity.EntityTypeTest;
-import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
 
 /**
  * Всё, что длится несколько тиков, но не является сущностью в мире: таймлайны взрывов (живут секунды, не
@@ -20,15 +17,14 @@ import java.util.WeakHashMap;
  * сохраняются в мире. Тикает в конце тика мира.
  */
 public final class StrikeWorld {
-    private static final Map<ServerLevel, StrikeWorld> WORLDS = new WeakHashMap<>();
-
     private final List<Timeline> timelines = new ArrayList<>();
     private final List<Timeline> pending = new ArrayList<>();
 
-    private StrikeWorld() {}
+    /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
+    public StrikeWorld() {}
 
     public static StrikeWorld get(ServerLevel level) {
-        return WORLDS.computeIfAbsent(level, l -> new StrikeWorld());
+        return level.getData(ModAttachments.STRIKE_WORLD);
     }
 
     /** Добавить таймлайн; первый тик — в конце текущего тика мира. */
@@ -36,16 +32,13 @@ public final class StrikeWorld {
         pending.add(timeline);
     }
 
-    public int activeTimelines() {
-        return timelines.size() + pending.size();
-    }
-
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
+        // «/tick freeze» останавливает сущности — снаряды вне мира, залпы и взрывы стоят вместе с ними
+        if (!level.tickRateManager().runsNormally()) return;
         SalvoData.get(level).tick(level);
         VirtualFlights.get(level).tick(level);
-        StrikeWorld w = WORLDS.get(level);
-        if (w != null) w.tick(level);
+        if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).tick(level);
     }
 
     private void tick(ServerLevel level) {
@@ -77,9 +70,5 @@ public final class StrikeWorld {
                 p.parkForShutdown(level);
             }
         }
-    }
-
-    public static void onLevelUnload(LevelEvent.Unload event) {
-        if (event.getLevel() instanceof Level l && l instanceof ServerLevel level) WORLDS.remove(level);
     }
 }

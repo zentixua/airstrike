@@ -57,11 +57,6 @@ public final class StrikeService {
         static final Result FAILED = new Result(false, 0);
     }
 
-    public static boolean launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
-                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
-        return launch(level, weapon, target, point, approachYaw, owner, siren, nuke, false).ok();
-    }
-
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
      * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)
@@ -155,12 +150,40 @@ public final class StrikeService {
         }
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
-        int[] slot = launcher.reserve(level.getGameTime(), 12, 24);
-        Vec3 rail = launcher.railPoint(slot[0]);
-        int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
-        p.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, point, shooter.getUUID());
-        p.setRoute(Route.plan(rail, point, dir, length, entry, side));
+        Slot slot = Slot.reserve(level, launcher, 12, 24);
+        p.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point, shooter.getUUID());
+        p.setRoute(Route.plan(slot.rail(), point, dir, length, entry, side));
         return p;
+    }
+
+    /**
+     * Ячейка пусковой под снаряд.
+     *
+     * @param rail   точка схода на направляющей
+     * @param ready  через сколько тиков поджиг
+     * @param hidden сколько тиков снаряд скрыт в пакете, пока тот поднимается
+     */
+    private record Slot(Vec3 rail, int ready, int hidden) {
+        static Slot reserve(ServerLevel level, LauncherEntity launcher, int minReady, int busyTicks) {
+            long now = level.getGameTime();
+            int[] slot = launcher.reserve(now, minReady, busyTicks);
+            return new Slot(launcher.railPoint(slot[0]), slot[1], launcher.raisingTicks(now));
+        }
+    }
+
+    /**
+     * Пусковая у стреляющего, наведённая на цель (РСЗО, барражирующие): своя — доворачивается, если молчит; нет своей —
+     * ставится новая. {@code null}, если места под неё нет.
+     */
+    @Nullable
+    private static LauncherEntity aimedLauncher(ServerLevel level, ServerPlayer shooter, WeaponType weapon, Vec3 point) {
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon);
+        if (launcher != null) {
+            launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
+            return launcher;
+        }
+        Vec3 site = LaunchSite.find(level, shooter);
+        return site == null ? null : LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], weapon, shooter);
     }
 
     /**
@@ -195,19 +218,11 @@ public final class StrikeService {
         RocketEntity r = ModEntities.ROCKET.get().create(level);
         if (r == null) return null;
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
-            LauncherEntity launcher = LaunchSite.existing(level, shooter, WeaponType.ROCKET);
-            if (launcher == null) {
-                Vec3 site = LaunchSite.find(level, shooter);
-                if (site != null) launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], WeaponType.ROCKET, shooter);
-            } else {
-                launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
-            }
+            LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.ROCKET, point);
             if (launcher != null) {
-                int[] slot = launcher.reserve(level.getGameTime(), 10, ROCKET_RELOAD);
-                Vec3 rail = launcher.railPoint(slot[0]);
-                int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
-                r.placeInTube(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, scatter(level, rail, point),
-                        shooter.getUUID());
+                Slot slot = Slot.reserve(level, launcher, 10, ROCKET_RELOAD);
+                r.placeInTube(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target,
+                        scatter(level, slot.rail(), point), shooter.getUUID());
                 return r;
             }
         }
@@ -230,18 +245,11 @@ public final class StrikeService {
         LoiterEntity e = ModEntities.LOITER.get().create(level);
         if (e == null) return null;
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
-            LauncherEntity launcher = LaunchSite.existing(level, shooter, WeaponType.LOITER);
-            if (launcher == null) {
-                Vec3 site = LaunchSite.find(level, shooter);
-                if (site != null) launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], WeaponType.LOITER, shooter);
-            } else {
-                launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
-            }
+            LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.LOITER, point);
             if (launcher != null) {
-                int[] slot = launcher.reserve(level.getGameTime(), 12, 24);
-                Vec3 rail = launcher.railPoint(slot[0]);
-                int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
-                e.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, point, shooter.getUUID());
+                Slot slot = Slot.reserve(level, launcher, 12, 24);
+                e.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point,
+                        shooter.getUUID());
                 e.setRoute(null);
                 return e;
             }

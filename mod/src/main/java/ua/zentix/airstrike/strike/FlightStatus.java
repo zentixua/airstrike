@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.entity.EntityTypeTest;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import ua.zentix.airstrike.compat.SubLevels;
@@ -15,14 +14,13 @@ import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.target.Target;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,7 +30,6 @@ import java.util.UUID;
  */
 public final class FlightStatus {
     private static final int PERIOD = 5;
-    private static final Set<UUID> LAST = new HashSet<>();
 
     private FlightStatus() {}
 
@@ -44,22 +41,16 @@ public final class FlightStatus {
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true)) collect(byOwner, p);
             for (StrikeProjectile p : VirtualFlights.get(level).flights()) collect(byOwner, p);
         }
-        for (Map.Entry<UUID, List<S2C.Flight>> en : byOwner.entrySet()) {
-            ServerPlayer p = server.getPlayerList().getPlayer(en.getKey());
-            if (p != null) PacketDistributor.sendToPlayer(p, new S2C.Flights(en.getValue()));
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            List<S2C.Flight> flights = byOwner.get(p.getUUID());
+            if (flights != null) {
+                PacketDistributor.sendToPlayer(p, new S2C.Flights(flights));
+                p.setData(ModAttachments.FLIGHTS_SHOWN, true);
+            } else if (p.getData(ModAttachments.FLIGHTS_SHOWN)) {
+                PacketDistributor.sendToPlayer(p, new S2C.Flights(List.of()));
+                p.setData(ModAttachments.FLIGHTS_SHOWN, false);
+            }
         }
-        for (UUID id : LAST) {
-            if (byOwner.containsKey(id)) continue;
-            ServerPlayer p = server.getPlayerList().getPlayer(id);
-            if (p != null) PacketDistributor.sendToPlayer(p, new S2C.Flights(List.of()));
-        }
-        LAST.clear();
-        LAST.addAll(byOwner.keySet());
-    }
-
-    /** Сервер остановлен (одиночная игра: следующий мир — новый сервер в той же игре). */
-    public static void onServerStopped(ServerStoppedEvent e) {
-        LAST.clear();
     }
 
     private static void collect(Map<UUID, List<S2C.Flight>> byOwner, StrikeProjectile p) {
@@ -80,10 +71,10 @@ public final class FlightStatus {
         } else if (t instanceof Target.OfSubLevel s) {
             kind = S2C.Flight.TARGET_AIRCRAFT;
             SubLevelAccess sub = SubLevels.containing(p.level(), s.plotPos());
-            String n = sub == null ? null : sub.getName();
+            String n = sub == null ? null : SubLevels.name(sub);
             name = n == null ? "" : n;
         }
-        if (name.length() > 64) name = name.substring(0, 64);
+        if (name.length() > S2C.Flight.MAX_NAME) name = name.substring(0, S2C.Flight.MAX_NAME);
         byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(new S2C.Flight(p.getUUID(), p.weapon().id(), p.flightPhase().ordinal(),
                 p.etaTicks(), p.position(), p.aimPoint(), p.isNuclear(), kind, name, p.targetLost()));
     }

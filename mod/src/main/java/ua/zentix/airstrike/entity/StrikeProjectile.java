@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -12,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
@@ -22,12 +24,12 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.entity.IEntityWithComplexSpawn;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.guidance.FlightController;
-import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.strike.ChunkTickets;
@@ -38,6 +40,8 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
+import ua.zentix.airstrike.util.Nbt;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -53,7 +57,7 @@ import java.util.UUID;
  * <p>
  * Ошибка в тике одного снаряда не роняет сервер: снаряд удаляется, стек пишется в лог.
  */
-public abstract class StrikeProjectile extends Entity {
+public abstract class StrikeProjectile extends Entity implements IEntityWithComplexSpawn {
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
@@ -95,6 +99,8 @@ public abstract class StrikeProjectile extends Entity {
     protected Loadout.Nuke nuclear;
 
     private int phaseStart;
+    /** Клиент: фаза, от смены которой отсчитан {@link #phaseStart}. */
+    private byte clientPhase = -1;
     /** Сколько стоять на пусковой до поджига. */
     private int readyTicks;
     /** Включить сирену у цели, когда до удара останется столько тиков; -1 — без сирены. */
@@ -372,7 +378,6 @@ public abstract class StrikeProjectile extends Entity {
         if (level().isClientSide) {
             clientLerp();
             age++;
-            ClientHooks.get().projectileTick(this);
             return;
         }
         try {
@@ -452,6 +457,9 @@ public abstract class StrikeProjectile extends Entity {
         setXRot(flight.pitch());
         yRotO = getYRot();
         xRotO = getXRot();
+        // свои тикеты — до входа в мир: чанк мог тикать лишь по чужому тикету (соседний снаряд), и если тот его
+        // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни срока жизни
+        if (holdsChunks()) updateChunkTickets(level, position(), flight.forward());
     }
 
     /**
@@ -532,8 +540,11 @@ public abstract class StrikeProjectile extends Entity {
 
     protected abstract void serverTick(ServerLevel level);
 
-    /** Точка удара достигнута или столкновение: взрыв, бурение и т.п. */
-    protected abstract void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity);
+    /** Точка удара достигнута или столкновение: по умолчанию — обычная боевая часть своего оружия. */
+    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
+        discard();
+        Warheads.detonate(level, weapon(), point, this, ownerId());
+    }
 
     /**
      * Столкновение до взведения взрывателя (на старте): боевая часть не срабатывает — снаряд разбивается,
@@ -742,10 +753,15 @@ public abstract class StrikeProjectile extends Entity {
         return best;
     }
 
+    /**
+     * Цель, выбранная оператором, взводит взрыватель всегда (кроме наблюдателя). Случайный человек у траектории — по
+     * ванильному правилу «кого замечают»: не в творческом режиме и не наблюдатель
+     * ({@link EntitySelector#NO_CREATIVE_OR_SPECTATOR}: так ванильные мобы выбирают, на кого нападать).
+     */
     private static boolean isProximityTarget(Entity e, @Nullable UUID targetId, @Nullable UUID owner) {
         if (!e.isAlive() || e.isSpectator() || e instanceof StrikeProjectile) return false;
         if (e.getUUID().equals(targetId)) return true;
-        return e instanceof Player && !e.getUUID().equals(owner);
+        return e instanceof Player && !e.getUUID().equals(owner) && EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(e);
     }
 
     protected static Vec3 closestOnSegment(Vec3 a, Vec3 b, Vec3 p) {
@@ -766,6 +782,7 @@ public abstract class StrikeProjectile extends Entity {
 
     /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали. */
     protected double terrainAhead(Level level, double... distances) {
+        if (virtual) return level.getMinBuildHeight(); // вне мира рельеф не читаем
         Vec3 pos = position();
         double yawRad = Math.toRadians(flight.yaw());
         double dx = -Math.sin(yawRad), dz = Math.cos(yawRad);
@@ -778,30 +795,32 @@ public abstract class StrikeProjectile extends Entity {
 
     // ---------------------------------------------------------------- чанки
 
-    /** Держим свой чанк и чанк впереди по курсу — но только уже загруженные: новые чанки на лету не генерируем. */
+    /**
+     * Держим свой чанк и чанк впереди по курсу — но только уже готовые ({@link Terrain#ready}): новые чанки на лету
+     * не генерируем, а {@code hasChunk} верен и для чанка, который ещё грузится.
+     */
     private void updateChunkTickets(ServerLevel level, Vec3 pos, Vec3 dir) {
         long here = ChunkPos.asLong(BlockPos.containing(pos));
         long ahead = ChunkPos.asLong(BlockPos.containing(pos.add(dir.scale(Math.max(16, speed * 3)))));
         if (forcedChunks.contains(here) && forcedChunks.contains(ahead) && forcedChunks.size() == (here == ahead ? 1 : 2)) return;
         LongSet want = new LongOpenHashSet();
         for (long c : new long[]{here, ahead}) {
-            // только готовые: forceChunk сразу берёт чанк (getChunk), а на ещё грузящемся он ждал бы загрузку в тике
             if (Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
         }
         for (long c : forcedChunks.toLongArray()) {
             if (!want.contains(c)) {
-                ChunkTickets.force(level, this, c, false);
+                ChunkTickets.hold(level, getUUID(), c, false);
                 forcedChunks.remove(c);
             }
         }
         for (long c : want) {
-            if (forcedChunks.add(c)) ChunkTickets.force(level, this, c, true);
+            if (forcedChunks.add(c)) ChunkTickets.hold(level, getUUID(), c, true);
         }
     }
 
     private void releaseChunkTickets() {
         if (level() instanceof ServerLevel level) {
-            for (long c : forcedChunks) ChunkTickets.force(level, this, c, false);
+            for (long c : forcedChunks) ChunkTickets.hold(level, getUUID(), c, false);
         }
         forcedChunks.clear();
     }
@@ -888,7 +907,32 @@ public abstract class StrikeProjectile extends Entity {
     @Override
     public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
         super.onSyncedDataUpdated(key);
-        if (DATA_PHASE.equals(key) && level().isClientSide) phaseStart = age;
+        if (DATA_PHASE.equals(key) && level().isClientSide) {
+            byte phase = entityData.get(DATA_PHASE);
+            if (phase != clientPhase) {
+                clientPhase = phase;
+                phaseStart = age;
+            }
+        }
+    }
+
+    /**
+     * Возраст и возраст фазы уходят клиенту вместе с появлением сущности: кто начал видеть снаряд посреди фазы
+     * (подошёл, вернулся в мир), видит анимации фазы (створки, крылья, выход из пусковой) с того же места, что и сервер.
+     * Часы мира для этого не годятся — у клиента они прыгают, когда сервер догоняет отставание.
+     */
+    @Override
+    public void writeSpawnData(RegistryFriendlyByteBuf buf) {
+        buf.writeByte(entityData.get(DATA_PHASE));
+        buf.writeVarInt(age);
+        buf.writeVarInt(phaseAge());
+    }
+
+    @Override
+    public void readSpawnData(RegistryFriendlyByteBuf buf) {
+        clientPhase = buf.readByte();
+        age = buf.readVarInt();
+        phaseStart = age - buf.readVarInt();
     }
 
     @Override
@@ -943,7 +987,7 @@ public abstract class StrikeProjectile extends Entity {
         if (tag.contains("tracker")) tracker = TargetTracker.load(tag.getCompound("tracker"));
         if (tag.hasUUID("owner")) entityData.set(DATA_OWNER, Optional.of(tag.getUUID("owner")));
         route = tag.contains("route") ? Route.load(tag.getCompound("route")) : null;
-        launchPos = tag.contains("launch_x") ? new Vec3(tag.getDouble("launch_x"), tag.getDouble("launch_y"), tag.getDouble("launch_z")) : null;
+        launchPos = Nbt.getVec(tag, "launch");
         lifetime = tag.getInt("lifetime");
         areaWait = tag.getInt("area_wait");
         readyTicks = tag.getInt("ready_ticks");
@@ -968,11 +1012,7 @@ public abstract class StrikeProjectile extends Entity {
         UUID owner = ownerId();
         if (owner != null) tag.putUUID("owner", owner);
         if (route != null) tag.put("route", route.save());
-        if (launchPos != null) {
-            tag.putDouble("launch_x", launchPos.x);
-            tag.putDouble("launch_y", launchPos.y);
-            tag.putDouble("launch_z", launchPos.z);
-        }
+        if (launchPos != null) Nbt.putVec(tag, "launch", launchPos);
         tag.putInt("lifetime", lifetime);
         tag.putInt("area_wait", areaWait);
         tag.putInt("ready_ticks", readyTicks);

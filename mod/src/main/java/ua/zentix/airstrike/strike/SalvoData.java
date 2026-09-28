@@ -21,6 +21,7 @@ import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.target.Target;
+import ua.zentix.airstrike.util.Nbt;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,10 +37,11 @@ import java.util.UUID;
  */
 public final class SalvoData extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_salvos";
+    private static final Factory<SalvoData> FACTORY = new Factory<>(SalvoData::new, SalvoData::load, null);
     private final List<Salvo> salvos = new ArrayList<>();
 
     public static SalvoData get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new Factory<>(SalvoData::new, SalvoData::load, null), NAME);
+        return level.getDataStorage().computeIfAbsent(FACTORY, NAME);
     }
 
     public void add(Salvo s) {
@@ -187,9 +189,7 @@ public final class SalvoData extends SavedData {
             t.putInt("remaining", remaining);
             t.putInt("radius", radius);
             Target.CODEC.encodeStart(NbtOps.INSTANCE, center).resultOrPartial(Airstrike.LOG::error).ifPresent(c -> t.put("center", c));
-            t.putDouble("x", lastCenter.x);
-            t.putDouble("y", lastCenter.y);
-            t.putDouble("z", lastCenter.z);
+            Nbt.putVec(t, "", lastCenter);
             t.putFloat("yaw", yaw);
             if (owner != null) t.putUUID("owner", owner);
             t.putInt("cooldown", cooldown);
@@ -200,7 +200,8 @@ public final class SalvoData extends SavedData {
         static Optional<Salvo> load(CompoundTag t) {
             WeaponType w = WeaponType.parse(t.getString("weapon"));
             if (w == null) return Optional.empty();
-            Vec3 last = new Vec3(t.getDouble("x"), t.getDouble("y"), t.getDouble("z"));
+            Vec3 last = Nbt.getVec(t, "");
+            if (last == null) last = Vec3.ZERO;
             Target c = Target.CODEC.parse(NbtOps.INSTANCE, t.get("center")).resultOrPartial(Airstrike.LOG::error).orElse(new Target.Point(last));
             Loadout.Nuke nuke = Loadout.Nuke.CODEC.parse(NbtOps.INSTANCE, t.get("nuke")).result().orElse(Loadout.Nuke.DEFAULT);
             return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),

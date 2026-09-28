@@ -1,6 +1,7 @@
 package ua.zentix.airstrike;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
+import ua.zentix.airstrike.strike.Loadout;
 
 /**
  * Настройки. SERVER хранится в мире (serverconfig/airstrike-server.toml), CLIENT — у каждого игрока.
@@ -97,9 +98,9 @@ public final class AirstrikeConfig {
 
             b.translation("airstrike.config.launch").push("launch");
             maxSalvo = b.comment("Сколько снарядов может быть в одном залпе.")
-                    .translation("airstrike.config.max_salvo").defineInRange("max_salvo", 30, 1, 100);
+                    .translation("airstrike.config.max_salvo").defineInRange("max_salvo", 30, 1, Loadout.MAX_COUNT);
             maxSpread = b.comment("Наибольший разброс залпа, блоков.")
-                    .translation("airstrike.config.max_spread").defineInRange("max_spread", 150, 0, 500);
+                    .translation("airstrike.config.max_spread").defineInRange("max_spread", 150, 0, Loadout.MAX_SPREAD);
             aimRange = b.comment("Дальность прицела пульта, блоков.")
                     .translation("airstrike.config.aim_range").defineInRange("aim_range", 400, 32, 1024);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
@@ -121,10 +122,10 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_enabled").define("enabled", true);
             nukeOpsOnly = b.comment("Ядерный удар могут наносить только операторы.")
                     .translation("airstrike.config.nuke_ops_only").define("ops_only", true);
-            nukeDefaultYield = b.comment("Мощность по умолчанию, кт (15 — Хиросима).")
-                    .translation("airstrike.config.nuke_default_yield").defineInRange("default_yield", 15, 1, 50_000);
+            nukeDefaultYield = b.comment("Мощность для /airstrike nuke без числа, кт (15 — Хиросима). В пульте мощность выбирается на экране.")
+                    .translation("airstrike.config.nuke_default_yield").defineInRange("default_yield", 15, 1, Loadout.Nuke.MAX_YIELD);
             nukeMaxYield = b.comment("Наибольшая мощность, кт.")
-                    .translation("airstrike.config.nuke_max_yield").defineInRange("max_yield", 1000, 1, 50_000);
+                    .translation("airstrike.config.nuke_max_yield").defineInRange("max_yield", 1000, 1, Loadout.Nuke.MAX_YIELD);
             nukeEffectsScale = b.comment("Масштаб всех радиусов: 1.0 — как в жизни (1 блок = 1 м), меньше — для маленьких миров.")
                     .translation("airstrike.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
             nukeBlockDamage = b.comment("Ударная волна разрушает постройки и деревья.")

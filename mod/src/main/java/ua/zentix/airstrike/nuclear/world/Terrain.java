@@ -1,8 +1,8 @@
 package ua.zentix.airstrike.nuclear.world;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -32,37 +32,45 @@ public final class Terrain {
     /**
      * Докуда отрезок {@code from → to} идёт по готовым чанкам: точка чуть до входа в первый неготовый чанк (или
      * {@code to}, если весь путь готов). Луч {@code Level.clip} читает каждый блок на пути, а на сервере чтение
-     * незагруженного чанка грузит и генерирует его прямо в тике — длинный луч прицела (400 блоков) вставал бы
-     * на секунды. Чанки перебираются по сетке вдоль луча (как в {@code BlockGetter.traverse}, только шагом в чанк),
-     * так что угол чанка между соседними точками не пропускается. На клиенте — {@code to}: он ничего не грузит.
+     * незагруженного чанка грузит и генерирует его прямо в тике — длинный луч (прицел до 1024 блоков, нос снаряда)
+     * вставал бы на секунды. На клиенте незагруженный чанк — пустой, обрезать нечего.
      */
     public static Vec3 readyUntil(Level level, Vec3 from, Vec3 to) {
-        double t = readyFraction(level, from, to);
-        if (t >= 1) return to;
-        // чуть не доходя до границы: конечный блок луча должен остаться в готовом чанке
-        double back = 1.0e-3 / Math.max(1.0e-9, from.distanceTo(to));
-        return from.lerp(to, Math.max(0, t - back));
+        if (!(level instanceof ServerLevel)) return to;
+        double t = readyFraction(from.x, from.z, to.x, to.z, (x, z) -> ready(level, x, z));
+        return t >= 1 ? to : from.lerp(to, t);
     }
 
     /** Весь отрезок идёт по готовым чанкам (см. {@link #readyUntil}). */
     public static boolean readyAlong(Level level, Vec3 from, Vec3 to) {
-        return readyFraction(level, from, to) >= 1;
+        return !(level instanceof ServerLevel) || readyFraction(from.x, from.z, to.x, to.z, (x, z) -> ready(level, x, z)) >= 1;
     }
 
-    /** Доля отрезка до входа в первый неготовый чанк; 1 — весь готов. */
-    private static double readyFraction(Level level, Vec3 from, Vec3 to) {
-        if (!(level instanceof ServerLevel)) return 1;
-        double dx = to.x - from.x, dz = to.z - from.z;
-        int cx = Mth.floor(from.x) >> 4, cz = Mth.floor(from.z) >> 4;
-        int endX = Mth.floor(to.x) >> 4, endZ = Mth.floor(to.z) >> 4;
-        int stepX = (int) Math.signum(dx), stepZ = (int) Math.signum(dz);
-        double tDeltaX = stepX == 0 ? Double.MAX_VALUE : 16 / Math.abs(dx);
-        double tDeltaZ = stepZ == 0 ? Double.MAX_VALUE : 16 / Math.abs(dz);
-        double tMaxX = stepX == 0 ? Double.MAX_VALUE : ((stepX > 0 ? (cx + 1) * 16 : cx * 16) - from.x) / dx;
-        double tMaxZ = stepZ == 0 ? Double.MAX_VALUE : ((stepZ > 0 ? (cz + 1) * 16 : cz * 16) - from.z) / dz;
+    /** Готов ли чанк (x, z). */
+    @FunctionalInterface
+    public interface ChunkReady {
+        boolean test(int chunkX, int chunkZ);
+    }
+
+    /**
+     * Доля отрезка (0..1) до первой неготовой колонки чанков на его пути. Колонки обходятся по сетке
+     * (Amanatides–Woo, 2D): ни одна пересечённая колонка не пропускается, даже если отрезок срезает угол.
+     * Конец берётся на {@link #EDGE} блока раньше границы, чтобы последний проверяемый блок остался в готовом чанке.
+     */
+    public static double readyFraction(double fromX, double fromZ, double toX, double toZ, ChunkReady ready) {
+        double dx = toX - fromX, dz = toZ - fromZ;
+        int cx = SectionPos.posToSectionCoord(fromX), cz = SectionPos.posToSectionCoord(fromZ);
+        int endX = SectionPos.posToSectionCoord(toX), endZ = SectionPos.posToSectionCoord(toZ);
+        int stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+        // доля пути до следующей границы чанка по x и по z и прирост этой доли на один чанк
+        double tMaxX = dx == 0 ? Double.POSITIVE_INFINITY : ((stepX > 0 ? cx + 1 : cx) * 16.0 - fromX) / dx;
+        double tMaxZ = dz == 0 ? Double.POSITIVE_INFINITY : ((stepZ > 0 ? cz + 1 : cz) * 16.0 - fromZ) / dz;
+        double tDeltaX = dx == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(dx);
+        double tDeltaZ = dz == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(dz);
+        double edge = EDGE / Math.max(1.0e-9, Math.sqrt(dx * dx + dz * dz));
         double t = 0;
         while (true) {
-            if (!ready(level, cx, cz)) return t;
+            if (!ready.test(cx, cz)) return Math.max(0, t - edge);
             if (cx == endX && cz == endZ) return 1;
             if (tMaxX < tMaxZ) {
                 t = tMaxX;
@@ -73,9 +81,11 @@ public final class Terrain {
                 tMaxZ += tDeltaZ;
                 cz += stepZ;
             }
-            if (t > 1) return 1;
+            if (t >= 1) return 1;
         }
     }
+
+    private static final double EDGE = 0.01;
 
     /** Первый воздух над картой высот (как {@link Level#getHeight}). */
     public static int height(Level level, Heightmap.Types type, int x, int z) {

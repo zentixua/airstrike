@@ -2,9 +2,11 @@ package ua.zentix.airstrike.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -35,6 +37,8 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * /airstrike — то же, что пульт, но для операторов и автоматизации (командные блоки, функции):
@@ -52,6 +56,8 @@ import java.util.Collection;
  * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке.
  */
 public final class AirstrikeCommand {
+    private static final SimpleCommandExceptionType TARGET_NOT_FOUND = new SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found"));
+
     private AirstrikeCommand() {}
 
     public static void register(RegisterCommandsEvent event) {
@@ -72,7 +78,7 @@ public final class AirstrikeCommand {
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))
-                .executes(ctx -> give(ctx, java.util.List.of(ctx.getSource().getPlayerOrException())))
+                .executes(ctx -> give(ctx, List.of(ctx.getSource().getPlayerOrException())))
                 .then(Commands.argument("players", EntityArgument.players())
                         .executes(ctx -> give(ctx, EntityArgument.getPlayers(ctx, "players")))));
 
@@ -80,19 +86,20 @@ public final class AirstrikeCommand {
         root.then(Commands.literal("radiation").requires(s -> s.hasPermission(2))
                 .executes(ctx -> radiation(ctx, ctx.getSource().getPlayerOrException()))
                 .then(Commands.literal("clear")
-                        .executes(ctx -> radiationClear(ctx, java.util.List.of(ctx.getSource().getPlayerOrException())))
+                        .executes(ctx -> radiationClear(ctx, List.of(ctx.getSource().getPlayerOrException())))
                         .then(Commands.argument("players", EntityArgument.players())
                                 .executes(ctx -> radiationClear(ctx, EntityArgument.getPlayers(ctx, "players")))))
                 .then(Commands.argument("player", EntityArgument.player())
                         .executes(ctx -> radiation(ctx, EntityArgument.getPlayer(ctx, "player")))));
 
+        LiteralArgumentBuilder<CommandSourceStack> salvo = Commands.literal("salvo");
         for (WeaponType w : WeaponType.values()) {
             for (String name : names(w)) {
                 root.then(weapon(name, w));
-                root.then(Commands.literal("salvo").then(salvo(name, w)));
+                salvo.then(salvo(name, w));
             }
         }
-        d.register(root);
+        d.register(root.then(salvo));
     }
 
     private static String[] names(WeaponType w) {
@@ -113,7 +120,7 @@ public final class AirstrikeCommand {
     }
 
     /** «[кт] [air|ground]» после любой ядерной команды. */
-    private static <T extends com.mojang.brigadier.builder.ArgumentBuilder<CommandSourceStack, T>> T yieldArgs(T node, NukeAction action) {
+    private static <T extends ArgumentBuilder<CommandSourceStack, T>> T yieldArgs(T node, NukeAction action) {
         return node.executes(ctx -> action.run(ctx, new Loadout.Nuke(AirstrikeConfig.SERVER.nukeDefaultYield.get(), true)))
                 .then(Commands.argument("kt", IntegerArgumentType.integer(1, Loadout.Nuke.MAX_YIELD))
                         .executes(ctx -> action.run(ctx, new Loadout.Nuke(IntegerArgumentType.getInteger(ctx, "kt"), true)))
@@ -152,7 +159,7 @@ public final class AirstrikeCommand {
     private static Vec3 lookPoint(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT), null);
-        if (aim == null) throw new com.mojang.brigadier.exceptions.SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found")).create();
+        if (aim == null) throw TARGET_NOT_FOUND.create();
         return aim.point();
     }
 
@@ -169,8 +176,8 @@ public final class AirstrikeCommand {
     private static int radiation(CommandContext<CommandSourceStack> ctx, ServerPlayer p) {
         RadiationDose r = RadiationTicker.dose(p);
         ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.radiation.report", p.getDisplayName(),
-                String.format(java.util.Locale.ROOT, "%.2f", r.doseGy()), GeigerFormat.rate(r.rate()),
-                String.format(java.util.Locale.ROOT, "%.2f", r.contamination())), false);
+                String.format(Locale.ROOT, "%.2f", r.doseGy()), GeigerFormat.rate(r.rate()),
+                String.format(Locale.ROOT, "%.2f", r.contamination())), false);
         return Math.round(r.doseGy() * 100);
     }
 
@@ -190,8 +197,8 @@ public final class AirstrikeCommand {
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> salvo(String name, WeaponType w) {
-        return Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, 100))
-                .then(Commands.argument("spread", IntegerArgumentType.integer(0, 500))
+        return Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, Loadout.MAX_COUNT))
+                .then(Commands.argument("spread", IntegerArgumentType.integer(0, Loadout.MAX_SPREAD))
                         .executes(ctx -> me(ctx, w, count(ctx), spread(ctx)))
                         .then(Commands.literal("me").executes(ctx -> me(ctx, w, count(ctx), spread(ctx))))
                         .then(Commands.literal("look").executes(ctx -> look(ctx, w, count(ctx), spread(ctx))))

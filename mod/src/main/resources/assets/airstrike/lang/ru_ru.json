@@ -193,7 +193,7 @@
   "airstrike.config.nuclear": "Ядерное оружие",
   "airstrike.config.nuke_enabled": "Ядерное оружие доступно",
   "airstrike.config.nuke_ops_only": "Только операторы",
-  "airstrike.config.nuke_default_yield": "Мощность по умолчанию, кт",
+  "airstrike.config.nuke_default_yield": "Мощность /airstrike nuke по умолчанию, кт",
   "airstrike.config.nuke_max_yield": "Наибольшая мощность, кт",
   "airstrike.config.nuke_effects_scale": "Масштаб радиусов",
   "airstrike.config.nuke_effects_scale.tooltip": "1.0 — как в жизни (1 блок = 1 м). Меньше — для маленьких миров",

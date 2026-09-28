@@ -27,16 +27,20 @@ public final class Fx {
     private Fx() {}
 
     public enum Kind {
-        SMOKE(true, false), FIRE(false, false), SPARK(false, true), FLASH(false, true), RING(true, false);
+        SMOKE(true, false, FxBudget.CLOUD), FIRE(false, false, FxBudget.CLOUD), SPARK(false, true, FxBudget.SPARK),
+        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.CLOUD);
 
         /** Освещается миром (дым, пыль) или светится сам (огонь, искры). */
         final boolean lit;
         /** Свет складывается (искры, вспышка). */
         final boolean additive;
+        /** Группа по умолчанию. */
+        final FxBudget budget;
 
-        Kind(boolean lit, boolean additive) {
+        Kind(boolean lit, boolean additive, FxBudget budget) {
             this.lit = lit;
             this.additive = additive;
+            this.budget = budget;
         }
     }
 
@@ -61,14 +65,20 @@ public final class Fx {
     }
 
     /**
-     * Доля частиц по настройке «Частицы» и расстоянию до камеры: вдали мелочь не видна, её можно не рождать.
+     * Доля частиц по настройке «Частицы», расстоянию до камеры и месту в группе облаков ({@link FxBudget#headroom()}):
+     * вдали мелочь не видна, а в большом залпе каждый новый взрыв получает поровну оставшегося места.
      */
     public static float density(Vec3 at) {
+        return density(at, FxBudget.CLOUD);
+    }
+
+    /** То же для частиц группы {@code budget}. */
+    public static float density(Vec3 at, FxBudget budget) {
         Minecraft mc = Minecraft.getInstance();
         float k = mc.options.particles().get() == ParticleStatus.ALL ? 1 : mc.options.particles().get() == ParticleStatus.DECREASED ? 0.6f : 0.3f;
         double d = mc.gameRenderer.getMainCamera().getPosition().distanceTo(at);
         if (d > 160) k *= (float) Math.max(0.35, 160 / d);
-        return k;
+        return k * budget.headroom();
     }
 
     /** Сколько частиц из {@code n} рождать в точке (не меньше одной, если n > 0). */
@@ -136,9 +146,11 @@ public final class Fx {
         float streak;
         Spec trail;
         float trailStep = 0.8f, trailUntil = 0.7f;
+        FxBudget budget;
 
         Spec(Kind kind) {
             this.kind = kind;
+            this.budget = kind.budget;
         }
 
         public Spec copy() {
@@ -254,6 +266,13 @@ public final class Fx {
         /** Сталкивается с блоками (стелется по земле, не проходит сквозь стены). */
         public Spec collide() {
             collide = true;
+            return this;
+        }
+
+        /** Чьё место занимает частица ({@link FxBudget}); группа должна быть из слоя этого вида частиц. */
+        public Spec budget(FxBudget b) {
+            if (b.additive != kind.additive) throw new IllegalArgumentException(b + " — не слой " + kind);
+            budget = b;
             return this;
         }
 

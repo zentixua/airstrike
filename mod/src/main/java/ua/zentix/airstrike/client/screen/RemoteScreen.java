@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
@@ -13,11 +14,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
@@ -27,12 +30,14 @@ import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.target.TargetPicker;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.IntConsumer;
 
 /**
  * Экран пульта (вместо меню в чате): оружие, количество, разброс и цель — куда смотрю, вокруг меня,
@@ -73,18 +78,17 @@ public class RemoteScreen extends Screen {
 
     @Override
     protected void init() {
-        clearWidgets();
         int x0 = (width - W) / 2, y0 = (height - H) / 2;
         int y = y0 + 22;
 
         // оружие
-        java.util.List<WeaponType> menu = WeaponType.menu();
+        List<WeaponType> menu = WeaponType.menu();
         int nw = menu.size();
         int bw = (W - 8 - 4 * (nw - 1)) / nw;
         for (WeaponType w : menu) {
             int x = x0 + 4 + menu.indexOf(w) * (bw + 4);
             Button b = Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
-                    .bounds(x, y, bw, 20).tooltip(net.minecraft.client.gui.components.Tooltip.create(w.description())).build();
+                    .bounds(x, y, bw, 20).tooltip(Tooltip.create(w.description())).build();
             addRenderableWidget(b);
         }
         y += 38;
@@ -109,16 +113,16 @@ public class RemoteScreen extends Screen {
             if (burst) {
                 addRenderableWidget(Button.builder(Component.translatable(n.airBurst() ? "airstrike.remote.burst.air" : "airstrike.remote.burst.ground"),
                         b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20)
-                        .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.burst.tooltip"))).build());
+                        .tooltip(Tooltip.create(Component.translatable("airstrike.remote.burst.tooltip"))).build());
             }
         } else if (Loadout.carriesNuke(loadout.weapon())) {
             int cw = (W - 16) / 3;
-            addRenderableWidget(new IntSlider(x0 + 4, y, cw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> set(loadout.withCount(v))));
-            addRenderableWidget(new IntSlider(x0 + 8 + cw, y, cw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> set(loadout.withSpread(v))));
+            addRenderableWidget(new IntSlider(x0 + 4, y, cw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> commit(loadout.withCount(v))));
+            addRenderableWidget(new IntSlider(x0 + 8 + cw, y, cw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> commit(loadout.withSpread(v))));
             addRenderableWidget(warheadButton(n, x0 + 12 + 2 * cw, y, cw));
         } else {
-            addRenderableWidget(new IntSlider(x0 + 4, y, sw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> set(loadout.withCount(v))));
-            addRenderableWidget(new IntSlider(x0 + 8 + sw, y, sw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> set(loadout.withSpread(v))));
+            addRenderableWidget(new IntSlider(x0 + 4, y, sw, 20, "airstrike.remote.count", 1, 30, loadout.count(), v -> commit(loadout.withCount(v))));
+            addRenderableWidget(new IntSlider(x0 + 8 + sw, y, sw, 20, "airstrike.remote.spread", 0, 150, loadout.spread(), v -> commit(loadout.withSpread(v))));
         }
         y += 26;
 
@@ -152,11 +156,11 @@ public class RemoteScreen extends Screen {
         if (pages > 1) {
             addRenderableWidget(Button.builder(Component.literal("◀"), b -> {
                 page = (page + pages - 1) % pages;
-                init();
+                rebuildWidgets();
             }).bounds(x0 + W - 48, y0 + 4, 20, 14).build());
             addRenderableWidget(Button.builder(Component.literal("▶"), b -> {
                 page = (page + 1) % pages;
-                init();
+                rebuildWidgets();
             }).bounds(x0 + W - 24, y0 + 4, 20, 14).build());
         }
 
@@ -167,7 +171,7 @@ public class RemoteScreen extends Screen {
         addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.clear"), b -> {
             PacketDistributor.sendToServer(new C2S.Clear());
             onClose();
-        }).bounds(x0 + 136, by, 70, 22).tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.clear.tooltip"))).build());
+        }).bounds(x0 + 136, by, 70, 22).tooltip(Tooltip.create(Component.translatable("airstrike.remote.clear.tooltip"))).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.settings"), b -> openConfig())
                 .bounds(x0 + 210, by, 106, 22).build());
     }
@@ -201,7 +205,7 @@ public class RemoteScreen extends Screen {
                 ? Component.translatable("airstrike.remote.warhead.nuclear").withStyle(ChatFormatting.GOLD)
                 : Component.translatable("airstrike.remote.warhead.conventional");
         return Button.builder(text, b -> set(loadout.withNuke(n.withOnCarrier(!n.onCarrier())))).bounds(x, y, w, 20)
-                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("airstrike.remote.warhead.tooltip"))).build();
+                .tooltip(Tooltip.create(Component.translatable("airstrike.remote.warhead.tooltip"))).build();
     }
 
     /** Следующий пресет мощности (1 кт → 15 → 100 → 300 → 1 Мт → 10 Мт → 1 кт); сервер урежет до max_yield. */
@@ -226,7 +230,13 @@ public class RemoteScreen extends Screen {
     private void set(Loadout l) {
         loadout = l;
         save();
-        init();
+        rebuildWidgets();
+    }
+
+    /** Ползунок меняет только своё число: сохранить, не перестраивая экран (фокус остаётся на ползунке). */
+    private void commit(Loadout l) {
+        loadout = l;
+        save();
     }
 
     private void save() {
@@ -263,10 +273,10 @@ public class RemoteScreen extends Screen {
         if (loadout.weapon() != WeaponType.NUKE || p == null || Minecraft.getInstance().level == null) return Optional.empty();
         return switch (loadout.mode()) {
             case LOOK -> {
-                var pick = ua.zentix.airstrike.target.TargetPicker.pick(Minecraft.getInstance().level, p, p.getEyePosition(), p.getLookAngle(), 400);
-                yield pick == null ? Optional.empty() : Optional.of(new C2S.AimHint(C2S.AimHint.POINT, pick.point(), 0, net.minecraft.world.phys.Vec3.ZERO));
+                var pick = TargetPicker.pick(Minecraft.getInstance().level, p, p.getEyePosition(), p.getLookAngle(), Designator.RANGE);
+                yield pick == null ? Optional.empty() : Optional.of(new C2S.AimHint(C2S.AimHint.POINT, pick.point(), 0, Vec3.ZERO));
             }
-            case AROUND_ME -> Optional.of(new C2S.AimHint(C2S.AimHint.POINT, p.position(), 0, net.minecraft.world.phys.Vec3.ZERO));
+            case AROUND_ME -> Optional.of(new C2S.AimHint(C2S.AimHint.POINT, p.position(), 0, Vec3.ZERO));
             default -> Optional.empty();
         };
     }
@@ -304,18 +314,23 @@ public class RemoteScreen extends Screen {
         return false;
     }
 
-    /** Ползунок с целым значением и подписью «Количество: 5». */
+    /**
+     * Ползунок с целым значением и подписью «Количество: 5». Значение уходит в пульт, когда его отпустили мышью
+     * или сдвинули стрелками; пока тянут мышью — только подпись.
+     */
     private static final class IntSlider extends AbstractSliderButton {
         private final String key;
         private final int min, max;
-        private final java.util.function.IntConsumer onRelease;
+        private final IntConsumer onCommit;
+        private int committed;
 
-        IntSlider(int x, int y, int w, int h, String key, int min, int max, int value, java.util.function.IntConsumer onRelease) {
+        IntSlider(int x, int y, int w, int h, String key, int min, int max, int value, IntConsumer onCommit) {
             super(x, y, w, h, Component.empty(), (double) (Mth.clamp(value, min, max) - min) / (max - min));
             this.key = key;
             this.min = min;
             this.max = max;
-            this.onRelease = onRelease;
+            this.onCommit = onCommit;
+            this.committed = intValue();
             updateMessage();
         }
 
@@ -334,7 +349,21 @@ public class RemoteScreen extends Screen {
         @Override
         public void onRelease(double mouseX, double mouseY) {
             super.onRelease(mouseX, mouseY);
-            onRelease.accept(intValue());
+            commit();
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            boolean handled = super.keyPressed(keyCode, scanCode, modifiers);
+            if (handled) commit();
+            return handled;
+        }
+
+        private void commit() {
+            int v = intValue();
+            if (v == committed) return;
+            committed = v;
+            onCommit.accept(v);
         }
     }
 }

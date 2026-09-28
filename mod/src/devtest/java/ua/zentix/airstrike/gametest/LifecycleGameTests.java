@@ -78,13 +78,11 @@ public final class LifecycleGameTests {
         m.placeOnLauncher(start, 0, 40, 1000, 0, new Target.Point(start.add(0, 0, 3000)), start.add(0, 0, 3000), null);
         m.setRoute(Route.direct());
         level.addFreshEntity(m);
-        long chunk = new ChunkPos(BlockPos.containing(start)).toLong();
-        DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
+        UUID id = m.getUUID();
         h.runAfterDelay(3, () -> {
-            h.assertTrue(tickets.shouldForceTicks(ChunkPos.asLong(BlockPos.containing(m.position()))), "снаряд не взял тикет своего чанка: " + state(level, m));
+            h.assertTrue(chunkTickets(level, id) > 0, "снаряд не взял тикет своего чанка: " + state(level, m));
             m.setRemoved(Entity.RemovalReason.UNLOADED_TO_CHUNK);
-            h.assertFalse(tickets.shouldForceTicks(chunk) || tickets.shouldForceTicks(ChunkPos.asLong(BlockPos.containing(m.position()))),
-                    "тикет чанка остался после выгрузки снаряда");
+            h.assertTrue(chunkTickets(level, id) == 0, "тикет чанка остался после выгрузки снаряда");
             h.succeed();
         });
     }
@@ -123,13 +121,12 @@ public final class LifecycleGameTests {
         m.setRoute(Route.direct());
         level.addFreshEntity(m);
         UUID id = m.getUUID();
-        DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
         h.runAfterDelay(3, () -> {
-            long chunk = ChunkPos.asLong(BlockPos.containing(m.position()));
+            h.assertTrue(chunkTickets(level, id) > 0, "снаряд не взял тикет своего чанка: " + state(level, m));
             m.parkForShutdown(level);
             h.assertTrue(m.isRemoved() && level.getEntity(id) == null, "снаряд остался в мире");
             h.assertTrue(VirtualFlights.get(level).flights().stream().anyMatch(p -> p.getUUID().equals(id)), "снаряд не ушёл в полёт вне мира");
-            h.assertFalse(tickets.shouldForceTicks(chunk), "тикет чанка остался");
+            h.assertTrue(chunkTickets(level, id) == 0, "тикет чанка остался");
             VirtualFlights.get(level).flights().removeIf(p -> {
                 if (!p.getUUID().equals(id)) return false;
                 p.discard();
@@ -185,13 +182,13 @@ public final class LifecycleGameTests {
         h.onEachTick(() -> {
             if (away[0] != null) return;
             if (level.getEntity(id) instanceof StrikeProjectile p && !p.isVirtual()) {
-                if (forcedTickets(level, id) > 0) held[0] = true;
+                if (chunkTickets(level, id) > 0) held[0] = true;
                 h.assertTrue(level.isPositionEntityTicking(p.blockPosition()), "снаряд в мире стоит в чанке без тика: " + state(level, p));
             }
             for (StrikeProjectile p : List.copyOf(VirtualFlights.get(level).flights())) {
                 if (!p.getUUID().equals(id)) continue;
                 // ушёл: снимок того, что осталось за ним, и копия убирается (дальше тесту она не нужна)
-                away[0] = "в мире " + (level.getEntity(id) != null) + ", тикетов " + forcedTickets(level, id);
+                away[0] = "в мире " + (level.getEntity(id) != null) + ", тикетов " + chunkTickets(level, id);
                 VirtualFlights.get(level).flights().remove(p);
                 p.discard();
             }
@@ -208,27 +205,17 @@ public final class LifecycleGameTests {
                 + " phase=" + p.flightPhase() + " ticking=" + level.isPositionEntityTicking(p.blockPosition()) + " age=" + p.age();
     }
 
-    /** Региональные тикеты района цели этого снаряда (ключ — его UUID). */
+    /** Тикеты района цели этого снаряда ({@code FlightTickets}, ключ — его UUID). */
     private static int flightTickets(ServerLevel level, UUID id) {
-        try {
-            Field f = DistanceManager.class.getDeclaredField("tickets");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var map = (Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) f.get(level.getChunkSource().chunkMap.getDistanceManager());
-            int n = 0;
-            for (SortedArraySet<Ticket<?>> set : map.values()) {
-                for (Ticket<?> t : set) {
-                    if (t.getType().toString().equals("airstrike_flight") && id.equals(ticketKey(t))) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
+        return tickets(level, "airstrike_flight", id);
     }
 
-    /** Тикеты NeoForge на чанки, взятые сущностью {@code id} ({@code ForcedChunkManager.TicketOwner.owner}). */
-    private static int forcedTickets(ServerLevel level, UUID id) {
+    /** Тикеты своего чанка и чанка впереди ({@code ChunkTickets}, ключ — UUID снаряда). */
+    private static int chunkTickets(ServerLevel level, UUID id) {
+        return tickets(level, "airstrike_projectile", id);
+    }
+
+    private static int tickets(ServerLevel level, String type, UUID id) {
         try {
             Field f = DistanceManager.class.getDeclaredField("tickets");
             f.setAccessible(true);
@@ -237,11 +224,7 @@ public final class LifecycleGameTests {
             int n = 0;
             for (SortedArraySet<Ticket<?>> set : map.values()) {
                 for (Ticket<?> t : set) {
-                    Object key = ticketKey(t);
-                    if (key == null || !key.getClass().getSimpleName().equals("TicketOwner")) continue;
-                    Field owner = key.getClass().getDeclaredField("owner");
-                    owner.setAccessible(true);
-                    if (id.equals(owner.get(key))) n++;
+                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) n++;
                 }
             }
             return n;

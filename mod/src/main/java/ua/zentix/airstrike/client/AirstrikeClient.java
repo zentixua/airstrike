@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -16,6 +17,7 @@ import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
@@ -41,6 +43,7 @@ import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.render.WeaponModels;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
+import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.client.sound.SoundFilters;
 import ua.zentix.airstrike.entity.DebrisEntity;
@@ -56,12 +59,14 @@ public final class AirstrikeClient {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(AirstrikeClient::renderers);
         modBus.addListener(WeaponModels::register);
+        modBus.addListener(WeaponModels::baked);
         modBus.addListener(AirstrikeClient::keys);
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
+        NeoForge.EVENT_BUS.addListener(AirstrikeClient::entityTick);
         NeoForge.EVENT_BUS.addListener(CameraShake::apply);
         NeoForge.EVENT_BUS.addListener(Designator::fov);
         NeoForge.EVENT_BUS.addListener(Designator::turn);
@@ -117,6 +122,14 @@ public final class AirstrikeClient {
         e.registerAbove(VanillaGuiLayers.HOTBAR, Airstrike.id("geiger"), Geiger::render);
     }
 
+    /** Двигатели снарядов (факел, шлейф, облако пуска) и горящие обломки — после тика сущности в мире клиента. */
+    private static void entityTick(EntityTickEvent.Post e) {
+        Entity entity = e.getEntity();
+        if (!entity.level().isClientSide) return;
+        if (entity instanceof StrikeProjectile p) Exhaust.tick(p);
+        else if (entity instanceof DebrisEntity d) Exhaust.debris(d);
+    }
+
     private static void tick(ClientTickEvent.Post e) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
@@ -158,6 +171,7 @@ public final class AirstrikeClient {
         ProjectileCamera.reset();
         ClientFlights.reset();
         NukeArming.cancel();
+        Designator.reset();
         ClientNuclear.reset();
     }
 
@@ -185,7 +199,7 @@ public final class AirstrikeClient {
         @Override
         public void quake(S2C.Quake p) {
             CameraShake.quake(p.ticks());
-            if (p.rumble()) ua.zentix.airstrike.client.sound.BlastSounds.quake();
+            if (p.rumble()) BlastSounds.quake();
         }
 
         @Override
@@ -208,6 +222,7 @@ public final class AirstrikeClient {
             ClientSounds.reset();
             Alerts.reset();
             ProjectileCamera.reset();
+            NukeArming.cancel();
         }
 
         @Override
@@ -228,16 +243,6 @@ public final class AirstrikeClient {
         @Override
         public void radiation(S2C.Radiation p) {
             ClientNuclear.radiation(p);
-        }
-
-        @Override
-        public void projectileTick(StrikeProjectile e) {
-            Exhaust.tick(e);
-        }
-
-        @Override
-        public void debrisTick(DebrisEntity e) {
-            Exhaust.debris(e);
         }
 
         @Override

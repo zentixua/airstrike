@@ -70,8 +70,7 @@ public class IcbmEntity extends StrikeProjectile {
         // разгон: сначала медленно отрывается от стола, потом всё быстрее
         speed = Math.min(MAX_SPEED, speed + (age < 40 ? 0.08 : 0.35));
         if (age >= 40) setPhase(FlightPhase.BOOST);
-        double climbed = getY() - level.getMinBuildHeight();
-        if (age > 60 && climbed > 0) {
+        if (age > 60) {
             // доворот на курс цели: к пологим 45° над горизонтом
             flight.holdPitch(-45, 0.02, 0.6, 0.05);
         }
