@@ -61,6 +61,10 @@ public final class ClientScenario {
     public ClientScenario(IEventBus modBus) {
         if (System.getProperty("airstrike.scenario") == null) return;
         NeoForge.EVENT_BUS.addListener(this::onScreen);
+        if ("trailer".equals(System.getProperty("airstrike.scenario"))) {
+            new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onTick);
         String mode = System.getProperty("airstrike.scenario");
         if ("nuke".equals(mode)) planNuke();
@@ -81,7 +85,7 @@ public final class ClientScenario {
         rules.getRule(GameRules.RULE_WEATHER_CYCLE).set(false, null);
         rules.getRule(GameRules.RULE_DOMOBSPAWNING).set(false, null);
         LevelSettings settings = new LevelSettings(WORLD, GameType.CREATIVE, false, Difficulty.PEACEFUL, true, rules, WorldDataConfiguration.DEFAULT);
-        mc.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(20260927L, false, false),
+        mc.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(20260927L, "trailer".equals(System.getProperty("airstrike.scenario")), false),
                 WorldPresets::createNormalWorldDimensions, e.getScreen());
     }
 
