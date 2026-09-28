@@ -9,6 +9,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -155,15 +157,22 @@ public final class NuclearGameTests {
     }
 
     /**
-     * Весь путь: подрыв 1 кт (1 блок = 10 м) → очередь по чанкам → стекло в 200 м выбито, чанк помечен номером
+     * Весь путь: подрыв 1 кт (1 блок = 10 м) → очередь по чанкам → стекло в 160 м выбито, чанк помечен номером
      * подрыва, воронка вырыта, и очередь держит бюджет тика. Бюджет проверяется на считающих часах
      * ({@link WorkClock#counting}: каждая единица работы — ровно 1 мс), а не по настенному времени: на общих машинах
      * CI любой столбец может затянуться из-за соседей по машине, и проверка падала бы не по вине очереди.
+     * <p>
+     * <p>
+     * Срок — не проверка скорости: тест кончается, как только стекло выбито. До стекла очередь проходит по порядку
+     * прихода волны десятки чанков по 256 столбцов, ~29 столбцов за тик — 100–200 тиков, и сколько чанков в радиусе
+     * загружено (соседние площадки, фоновая генерация), от запуска к запуску разное; прежний срок в 200 тиков был
+     * впритык. Стекло — в чанке, все соседи которого внутри площадки (x и z от 16 до 47 при любом выравнивании по
+     * чанкам): площадку GameTest грузит сразу, а чанки за её краем догенерируются в фоне, и очередь ждала бы их.
      */
-    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_pipeline", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_pipeline", skyAccess = true)
     public static void detonationRunsBudgetedQueue(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        BlockPos glass = CENTER.west(20);
+        BlockPos glass = CENTER.west(16);
         h.setBlock(glass, Blocks.GLASS);
         NuclearWorld w = NuclearWorld.get(level);
         WorkClock clock = WorkClock.counting(1_000_000L);
@@ -178,6 +187,37 @@ public final class NuclearGameTests {
             h.assertTrue(scar >= d.id(), "чанк не помечен подрывом: " + scar + " < " + d.id());
             h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
             h.assertTrue(clock.ticksWorked() > 1, "вся работа уместилась в один тик — бюджет не проверен");
+            w.useClock(new WorkClock());
+            NuclearStrikes.clear(level);
+        });
+    }
+
+    /**
+     * Свет и проникающая радиация — не в тике подрыва, а под бюджетом, ближние первыми: сразу после подрыва
+     * 40 коров в 300 м (1 кт, 1 блок = 10 м) ещё целы, потом импульс проходит по всем за несколько тиков, ни один
+     * тик не выходит за бюджет (считающие часы, как в {@link #detonationRunsBudgetedQueue}). 31 кал/см² на открытом
+     * месте — смертельные ожоги.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_pulse", skyAccess = true)
+    public static void lightPulseRunsUnderBudget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        List<Cow> cows = new java.util.ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            double a = i * Math.PI * 2 / 40;
+            cows.add(h.spawn(EntityType.COW, CENTER.offset(Mth.floor(Math.cos(a) * 29), 0, Mth.floor(Math.sin(a) * 29))));
+        }
+        NuclearWorld w = NuclearWorld.get(level);
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        w.useClock(clock);
+        NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
+        for (Cow cow : cows) h.assertTrue(cow.isAlive() && !cow.isOnFire() && cow.getHealth() == cow.getMaxHealth(), "подрыв тронул сущность в своём тике");
+        h.assertTrue(w.pulseJobs() == 1, "импульс не поставлен в работу");
+        int budgetMs = AirstrikeConfig.SERVER.nukeTimeBudgetMs.get();
+        h.succeedWhen(() -> {
+            h.assertTrue(w.pulseJobs() == 0, "импульс ещё идёт");
+            long alive = cows.stream().filter(Cow::isAlive).count();
+            h.assertTrue(alive == 0, "живых коров в 300 м: " + alive);
+            h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
             w.useClock(new WorkClock());
             NuclearStrikes.clear(level);
         });

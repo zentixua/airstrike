@@ -3,7 +3,6 @@ package ua.zentix.airstrike.nuclear.world;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -12,6 +11,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
@@ -26,22 +26,26 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
- * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам, очередь
- * повреждений чанков и воронки под общим бюджетом времени. Сам не сохраняется: всё выводится из
- * {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках.
+ * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам; световой импульс
+ * и проникающая радиация по сущностям, очередь повреждений чанков и воронки — под общим бюджетом времени.
+ * В тике подрыва — ничего тяжёлого: и снимки (сущности и чанки в радиусе), и сама работа идут под бюджетом.
+ * Сам не сохраняется: всё выводится из {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках;
+ * импульс по сущностям после перезапуска не повторяется (он длится доли секунды).
  */
 public final class NuclearWorld {
     private static final Map<ServerLevel, NuclearWorld> WORLDS = new WeakHashMap<>();
 
     private final ScarQueue scars = new ScarQueue();
+    private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
     private WorkClock clock = new WorkClock();
-    private long lastFrontNanos, lastCraterNanos, lastScarNanos;
+    private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
 
@@ -64,9 +68,14 @@ public final class NuclearWorld {
         return craters.size();
     }
 
-    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, воронки и очередь чанков, нс. */
+    /** Подрывы, чей световой импульс ещё идёт по сущностям. */
+    public int pulseJobs() {
+        return pulses.size();
+    }
+
+    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, свет и радиация, воронки и очередь чанков, нс. */
     public long[] lastNanos() {
-        return new long[]{lastFrontNanos, lastCraterNanos, lastScarNanos};
+        return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos};
     }
 
     /** Часы бюджета очередей (проверки подменяют их считающими, {@link WorkClock#counting}). */
@@ -80,12 +89,15 @@ public final class NuclearWorld {
 
     // ---------------------------------------------------------------- события
 
-    /** Все загруженные сейчас чанки — в очередь (дальше радиуса очередь их сама отсеет); остальные — при загрузке. */
-    public void onDetonation(ServerLevel level, Detonation d) {
-        for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
-            LevelChunk chunk = level.getChunkSource().getChunkNow(holder.getPos().x, holder.getPos().z);
-            if (chunk != null) scars.offer(chunk, d);
-        }
+    /**
+     * Подрыв: сущности в радиусе света и радиации и загруженные сейчас чанки в радиусе разрушений — к обработке
+     * под бюджетом, даже их снимки (чанки, загруженные позже, — при загрузке). В тике подрыва — ничего тяжёлого.
+     *
+     * @param owner кто запустил (урон записывается на него)
+     */
+    public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
+        pulses.add(new PulseJob(level, d, owner));
+        scars.scanLoaded(d);
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
             craters.add(new CraterJob(d, 0));
@@ -104,6 +116,7 @@ public final class NuclearWorld {
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
         scars.clear();
+        pulses.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
         fronts.clear();
@@ -115,8 +128,19 @@ public final class NuclearWorld {
         long now = level.getGameTime();
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
-        java.util.Set<Integer> active = new java.util.HashSet<>();
+        // бюджет — на всю ядерную работу тика: фронт идёт без бюджета, но его время вычитается из разрушений
+        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
+        // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
+        long pulseStart = System.nanoTime();
+        try {
+            while (!pulses.isEmpty() && pulses.getFirst().work(level, clock)) pulses.removeFirst();
+        } catch (RuntimeException e) {
+            Airstrike.LOG.error("Световой импульс упал с ошибкой; сброшен", e);
+            pulses.clear();
+        }
         long frontStart = System.nanoTime();
+        lastPulseNanos = frontStart - pulseStart;
+        java.util.Set<Integer> active = new java.util.HashSet<>();
         for (Detonation d : events.detonations()) {
             long since = now - d.gameTime();
             if (since >= 0 && since <= d.arrivalTicks(d.radiusMax()) + positivePhaseTicks(d) + 2) {
@@ -128,7 +152,6 @@ public final class NuclearWorld {
         lastFrontNanos = System.nanoTime() - frontStart;
         if (now % 1200 == 0) scars.retainBudgets(events.detonations().stream().map(Detonation::id).collect(java.util.stream.Collectors.toSet()));
         long start = System.nanoTime();
-        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
         try {
             while (!craters.isEmpty() && clock.canStart()) {
                 CraterJob job = craters.getFirst();
