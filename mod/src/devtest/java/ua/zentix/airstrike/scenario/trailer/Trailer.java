@@ -248,6 +248,9 @@ public final class Trailer {
             LauncherEntity l = launcher(WeaponType.LOITER);
             return e != null && l != null && e.distanceTo(l) > 40;
         }, 0);
+        // игрок ближе к деревне: круг «Ланцета» выходит за дальность симуляции от поста, и снаряд уходил
+        // в виртуальный полёт — пропадал из кадра до пике
+        run(() -> placeActor(ground(village.add(toPost.scale(60)).add(side.scale(30))), village));
         shot("loiter_strike").noPrep().length(260).speed(0.8)
                 // за «Ланцетом» вплотную: круг над деревней, пике и взрыв прямо перед камерой (с земли пике закрывают дома)
                 .camera(() -> chaseOf(nearest(LoiterEntity.class, target(side.scale(8)).add(toPost.scale(-10)), 200), 5.5, 1.8, 2.2, 8, 0, 60))
