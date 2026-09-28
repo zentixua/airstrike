@@ -16,7 +16,7 @@ public final class S2C {
 
     /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй), грунт, высота поверхности над точкой, сид. */
     public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed) implements CustomPacketPayload {
-        public static final int DRONE = 0, MISSILE = 1, BUNKER = 2;
+        public static final int DRONE = 0, MISSILE = 1, BUNKER = 2, ROCKET = 3;
         public static final Type<Blast> TYPE = new Type<>(Airstrike.id("blast"));
         public static final StreamCodec<ByteBuf, Blast> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, Blast::kind, VEC3, Blast::pos, ByteBufCodecs.VAR_INT, Blast::material,

@@ -36,6 +36,24 @@ public final class BlastSounds {
         }
     }
 
+    /**
+     * Снаряд РСЗО (~20 кг ВВ): вблизи — сухой жёсткий разрыв, вдали — короткий раскат. Залп ложится очередью,
+     * поэтому тон каждого разрыва чуть свой — цепочка не звучит одним и тем же звуком.
+     */
+    public static void rocket(Vec3 pos, int band) {
+        float p = 0.93f + (float) Math.random() * 0.14f;
+        if (band <= 3) {
+            ClientSounds.atEar(ModSounds.ROCKET_BLAST.get(), pos, 1, p);
+            ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, 0.45f, p * 1.2f);
+            ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 0.5f, p * 1.15f);
+        } else if (band <= 9) {
+            ClientSounds.atEar(ModSounds.ROCKET_BLAST.get(), pos, Math.max(0.35f, 1 - (band - 3) * 0.1f), p);
+            if (band <= 6) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 0.35f, p * 1.1f);
+        } else {
+            ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, Math.max(0.2f, 0.8f - (band - 10) / 30f), p * 1.15f);
+        }
+    }
+
     /** Бетонобойная бомба взорвалась под землёй. underground — слушатель сам под землёй (в той же толще). */
     public static void bunker(Vec3 pos, int band, boolean underground) {
         if (underground && band <= 4) {

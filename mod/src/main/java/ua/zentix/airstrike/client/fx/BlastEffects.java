@@ -29,7 +29,8 @@ public final class BlastEffects {
         switch (p.kind()) {
             case S2C.Blast.MISSILE -> Effects.add(new Missile(p.pos(), mat, p.seed()));
             case S2C.Blast.BUNKER -> Effects.add(new Bunker(p.pos(), mat, p.surfaceY(), p.seed()));
-            default -> Effects.add(new Drone(p.pos(), mat, p.seed()));
+            case S2C.Blast.ROCKET -> Effects.add(new Drone(p.pos(), mat, p.seed(), true));
+            default -> Effects.add(new Drone(p.pos(), mat, p.seed(), false));
         }
     }
 
@@ -97,8 +98,12 @@ public final class BlastEffects {
         /** Радиус огненного шара, блоки (≈ 50 кг ВВ). */
         private static final float R = 5f;
 
-        Drone(Vec3 pos, GroundMaterial mat, long seed) {
+        /** Снаряд РСЗО: картинка та же, звук свой — сухой разрыв; пожара в воронке нет (заряд меньше). */
+        private final boolean rocket;
+
+        Drone(Vec3 pos, GroundMaterial mat, long seed, boolean rocket) {
             super(pos, mat, seed);
+            this.rocket = rocket;
         }
 
         @Override
@@ -111,14 +116,15 @@ public final class BlastEffects {
             }
             if (t == 1) spray(level, 1);
             Explosions.column(level, pos, R, t, 50, 220, random);
-            if (t == 8) BlastSounds.fire(pos, 1.1f);
-            if (t == 20) BlastSounds.debris(pos, 60, 1.1f);
+            if (t == 8 && !rocket) BlastSounds.fire(pos, 1.1f);
+            if (t == 20) BlastSounds.debris(pos, rocket ? 40 : 60, rocket ? 1.25f : 1.1f);
             return t < 240;
         }
 
         @Override
         void arrive(ClientLevel level, int band) {
-            BlastSounds.surface(pos, band, false);
+            if (rocket) BlastSounds.rocket(pos, band);
+            else BlastSounds.surface(pos, band, false);
             int shake = band == 1 ? 26 : band == 2 ? 22 : band <= 4 ? 16 : band <= 8 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }
