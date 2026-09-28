@@ -271,9 +271,9 @@ public final class Trailer {
             Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
             Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
             // низко сбоку и впереди пакета: трубы, поджиг, снаряды уходят над камерой дугами
-            Vec3 a = ground(at.add(right.scale(13)).add(fwd.scale(7))).add(0, 1.2, 0);
-            Vec3 b = ground(at.add(right.scale(11)).add(fwd.scale(11))).add(0, 1.0, 0);
-            return CineCamera.dolly(a, b, 150, () -> at.add(fwd.scale(4)).add(0, 3, 0), 72);
+            Vec3 a = ground(at.add(right.scale(9)).add(fwd.scale(5))).add(0, 2.2, 0);
+            Vec3 b = ground(at.add(right.scale(8)).add(fwd.scale(8))).add(0, 2.0, 0);
+            return CineCamera.dolly(a, b, 150, () -> at.add(fwd.scale(3)).add(0, 2.2, 0), 72);
         });
         shot("rocket_impact").noPrep().length(200).speed(0.6).camera(() -> {
             Vec3 t = village.add(side.scale(-6));
