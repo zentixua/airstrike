@@ -5,7 +5,7 @@
 
     python3 tools/trailer/edit.py [--draft] [--out ФАЙЛ]
     --draft  — быстрый черновик 960×540 (проверить монтаж)
-    результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC)
+    результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC) и dist/airstrike-trailer-lite.mp4 (до 4 Мбит/с, для мессенджеров)
 
 Музыка и шрифты скачиваются один раз в tools/.trailer-cache (проверка sha256). Нужны numpy, scipy, soundfile,
 Pillow и ffmpeg (системный или из пакета imageio-ffmpeg).
@@ -117,9 +117,9 @@ class Shot:
         return self.count / FPS
 
 
-def load_recording():
+def load_recording(rec=REC):
     shots = {}
-    with open(os.path.join(REC, "timeline.jsonl"), encoding="utf-8") as f:
+    with open(os.path.join(rec, "timeline.jsonl"), encoding="utf-8") as f:
         for line in f:
             try:
                 e = json.loads(line)
@@ -131,7 +131,7 @@ def load_recording():
                 continue
             s = shots[name]
             if kind == "frame":
-                path = os.path.join(REC, "frames", name, f"{e['k']:05d}.png")
+                path = os.path.join(rec, "frames", name, f"{e['k']:05d}.png")
                 if os.path.exists(path):
                     s.frames[e["k"]] = path
                     s.cams[e["k"]] = tuple(e["cam"])
@@ -247,18 +247,19 @@ def build_edit():
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         Clip("missile_camera", 0.0, 4.5),
         Clip("impact_missile", "mark:gone-1.5", 4.5),
-        Clip("rocket_launch", 0.5, 7.5, flash=True),
+        # «Ланцет»: рывок с катапульты, круг над целью, пике
+        Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
+        Clip("loiter_strike", "mark:gone-4.5", 6.0),
+        Clip("rocket_launch", 0.5, 6.0, flash=True),
         Clip("rocket_impact", "sound:blast-1.0", 6.0),
-        Clip("bomber", "mark:gone-4.5", 7.5),
-        Clip("salvo", "mark:gone-3.0", 7.5, flash=True),
-        Clip("salvo_missiles", "mark:gone-1.5", 9.0),
+        Clip("bomber", "mark:gone-4.0", 6.0),
+        Clip("salvo", "mark:gone-2.5", 6.0, flash=True),
+        Clip("salvo_missiles", "mark:gone-1.5", 7.5),
         # нарезка разрывов по полутактам
         Clip("impact_drone", "mark:gone+0.8", 1.5, rate=0.8),
         Clip("rocket_impact", "sound:blast#6-0.2", 1.5),
         Clip("salvo", "mark:gone#4-0.3", 1.5),
         Clip("rocket_impact", "sound:blast#9-0.2", 1.5),
-        Clip("bomber", "mark:gone+0.5", 1.5),
-        Clip("salvo_missiles", "mark:gone#3-0.2", 1.5),
         Black(4.5),
         Clip("icbm", 0.0, 5.0, flash=True),
         # из-за плеча наводчика: отсчёт, тревога, вспышка, шар, фронт доходит до вышки
@@ -274,18 +275,24 @@ def build_edit():
     total = t
     nuke = next(c for c in edit if isinstance(c, Clip) and c.shot == "nuke")
     assert abs(nuke.start + 10.0 - FLASH) < 0.05, "вспышка в плане nuke должна прийтись на последний удар музыки"
+    def start(shot, n=1):
+        """Начало n-го плана с этим именем в трейлере (подписи — к своим планам, а не к числам)."""
+        return [c.start for c in edit if getattr(c, "shot", None) == shot][n - 1]
+
+    card = next(c for c in edit if isinstance(c, Black) and c.start > D)  # чёрный кадр перед МБР
     texts = [
         Text(0.6, 3.2, ("ZENTIX UA", "представляет"), "card"),
         Text(5.2, 3.8, ("мод для «All of Create Aeronautics»",), "sub"),
-        Text(21.2, 2.2, ("НАВЕДИ",), "word"),
-        Text(27.6, 1.9, ("ЗАПУСТИ",), "word"),
-        Text(D + 4.8, 3.2, ("ШАХЕД-136", "разгонный блок · маршрут в обход · удар сверху"), "caption"),
-        Text(D + 17.0, 3.2, ("КРЫЛАТАЯ РАКЕТА", "бреющий полёт · горка · вид с борта"), "caption"),
-        Text(D + 30.3, 3.2, ("«ГРАД»", "пакет из 40 труб · залп очередью"), "caption"),
-        Text(D + 44.0, 3.2, ("B-2 SPIRIT", "бетонобойная бомба · подземный взрыв"), "caption"),
-        Text(D + 51.3, 3.2, ("ЗАЛП", "до 100 снарядов с разбросом"), "caption"),
-        Text(D + 76.8, 3.6, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
-        Text(D + 81.5, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
+        Text(start("scope") + 0.5, 2.2, ("НАВЕДИ",), "word"),
+        Text(D - 2.4, 1.9, ("ЗАПУСТИ",), "word"),
+        Text(start("boost") + 0.3, 3.2, ("ШАХЕД-136", "разгонный блок · маршрут в обход · удар сверху"), "caption"),
+        Text(start("launch_missile") + 0.5, 3.2, ("КРЫЛАТАЯ РАКЕТА", "бреющий полёт · горка · вид с борта"), "caption"),
+        Text(start("loiter_launch") + 0.3, 3.2, ("«ЛАНЦЕТ»", "катапульта · круг над целью · пике"), "caption"),
+        Text(start("rocket_launch") + 0.3, 3.2, ("«ГРАД»", "пакет из 40 труб · залп очередью"), "caption"),
+        Text(start("bomber") + 0.5, 3.2, ("B-2 SPIRIT", "бетонобойная бомба · подземный взрыв"), "caption"),
+        Text(start("salvo") + 0.3, 3.2, ("ЗАЛП", "до 100 снарядов с разбросом"), "caption"),
+        Text(card.start + 0.3, 3.6, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
+        Text(start("icbm") + 0.5, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
         Text(total - 9.0 + 0.6, 5.2, ("AIRSTRIKE",), "title"),
         Text(total - 9.0 + 2.0, 3.8, ("NeoForge 1.21.1 · Create Aeronautics", "github.com/zentixua/airstrike"), "sub"),
         Text(total - 3.0, 3.0, ("Музыка: " + MUSIC["credit"], "Звуки мода: Freesound (CC0 / CC BY) — список в SOUND-CREDITS.md"), "credits"),
@@ -293,7 +300,7 @@ def build_edit():
     hits = [
         Hit(D - 4.0, "riser", 4.0, 0.8),
         Hit(D, "boom", 3.0, 1.0),
-        Hit(D + 76.5, "boom", 3.0, 0.9),
+        Hit(card.start, "boom", 3.0, 0.9),
         Hit(FLASH - 5.0, "riser", 5.0, 0.7),
         Hit(total - 9.0 + 0.6, "boom", 5.0, 1.2),
     ]
@@ -658,9 +665,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--draft", action="store_true")
     ap.add_argument("--out", default=os.path.join(DIST, "airstrike-trailer.mp4"))
+    ap.add_argument("--rec", default=REC, help="папка записи (по умолчанию mod/run/scenario/trailer)")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
     args = ap.parse_args()
-    shots = load_recording()
+    shots = load_recording(args.rec)
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()))
@@ -705,8 +713,16 @@ def main():
             if i % 600 == 0:
                 print(f"  {i / FPS:.0f} с")
     enc.stdin.close()
-    enc.wait()
+    if enc.wait() != 0:
+        raise SystemExit("ffmpeg: кодирование не удалось")
     print("готово:", args.out)
+    if not args.draft:
+        # лёгкая версия для мессенджеров: тот же монтаж, поток не выше 4 Мбит/с (~80 МБ на 2.5 мин)
+        lite = os.path.splitext(args.out)[0] + "-lite.mp4"
+        subprocess.run([ffmpeg(), "-loglevel", "error", "-y", "-i", args.out, "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                        "-maxrate", "4M", "-bufsize", "8M", "-pix_fmt", "yuv420p", "-r", str(FPS), "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart", lite], check=True)
+        print("лёгкая версия:", lite)
 
 
 if __name__ == "__main__":

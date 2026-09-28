@@ -33,6 +33,13 @@ OPT
 export AIRSTRIKE_SCENARIO=trailer
 export AIRSTRIKE_SIZE="${AIRSTRIKE_SIZE:-1920x1080}"
 W="${AIRSTRIKE_SIZE%x*}"; H="${AIRSTRIKE_SIZE#*x}"
+# кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)
+NEED_GB=$(( W * H * 12 / 10 * 12000 / 1000000000 + 1 ))
+FREE_GB=$(( $(df -Pk "$RUN" | awk 'NR==2 {print $4}') / 1000000 ))
+if [ "$FREE_GB" -lt "$NEED_GB" ]; then
+  echo "record.sh: для кадров ${W}x${H} нужно ~${NEED_GB} ГБ, свободно ${FREE_GB} ГБ в $RUN" >&2
+  exit 1
+fi
 MC="$(python3 "$ROOT/tools/paths.py" MC)"
 GRADLE_ARGS=(runClientScenario --console=plain)
 if [ ! -d "$MC/mods" ]; then
