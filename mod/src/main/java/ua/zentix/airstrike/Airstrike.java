@@ -52,7 +52,6 @@ public final class Airstrike {
 
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
-        NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);

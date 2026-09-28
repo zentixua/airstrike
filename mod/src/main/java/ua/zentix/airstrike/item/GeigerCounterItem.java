@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * Счётчик Гейгера: пока в руке, клиент щёлкает с частотой по мощности дозы и показывает её на экране
- * (client.nuclear.GeigerClicker). Мощность считает сервер и присылает пакетом {@code Radiation}.
+ * (client.nuclear.Geiger). Мощность считает сервер и присылает пакетом {@code Radiation}.
  */
 public class GeigerCounterItem extends Item {
     public GeigerCounterItem(Properties properties) {

@@ -156,11 +156,6 @@ public class LoiterEntity extends StrikeProjectile {
         };
     }
 
-    /** Время барража, которое ещё осталось (тиков), для HUD и камеры; −1 — не кружит. */
-    public int loiterLeft() {
-        return flightPhase() == FlightPhase.LOITER ? Math.max(0, loiterTicks - phaseAge()) : -1;
-    }
-
     @Override
     protected void onRetarget() {
         // рядом — атака сразу; далеко — лететь туда и кружить уже там

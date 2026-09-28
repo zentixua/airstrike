@@ -57,11 +57,6 @@ public final class StrikeService {
         static final Result FAILED = new Result(false, 0);
     }
 
-    public static boolean launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
-                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
-        return launch(level, weapon, target, point, approachYaw, owner, siren, nuke, false).ok();
-    }
-
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
      * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)

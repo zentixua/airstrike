@@ -181,12 +181,6 @@ public class RocketEntity extends StrikeProjectile {
     }
 
     @Override
-    protected void separate(ServerLevel level) {
-        // ускорителя нет: двигатель — сам снаряд
-    }
-
-
-    @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         elevation = tag.contains("elevation") ? tag.getFloat("elevation") : 50;

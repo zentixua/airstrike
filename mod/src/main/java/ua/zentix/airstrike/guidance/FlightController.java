@@ -28,14 +28,6 @@ public final class FlightController {
         return pitch;
     }
 
-    public float yawRate() {
-        return yawRate;
-    }
-
-    public float pitchRate() {
-        return pitchRate;
-    }
-
     public void set(float yaw, float pitch) {
         this.yaw = Mth.wrapDegrees(yaw);
         this.pitch = Mth.clamp(pitch, -89f, 89f);
@@ -73,7 +65,7 @@ public final class FlightController {
     }
 
     /**
-     * Курс на цель: ω = 0.15·ошибка, |ω| ≤ 3°/тик, |Δω| ≤ 0.3°/тик².
+     * Курс на цель: ω = gain·ошибка, |ω| ≤ maxRate °/тик, |Δω| ≤ maxAccel °/тик².
      *
      * @param targetYaw курс на цель
      */
@@ -119,16 +111,5 @@ public final class FlightController {
         float yaw = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90f;
         float pitch = (float) -(Mth.atan2(dy, h) * Mth.RAD_TO_DEG);
         return new float[]{Mth.wrapDegrees(yaw), pitch};
-    }
-
-    /**
-     * Точка упреждения: где будет цель, когда до неё долетим (одна итерация хватает при скорости снаряда
-     * заметно больше скорости цели). Упреждение ограничено, чтобы не «уводило» за быстрой целью в сторону.
-     */
-    public static Vec3 lead(Vec3 from, Vec3 target, Vec3 targetVelocity, double speed, double maxLeadTicks) {
-        double t = from.distanceTo(target) / Math.max(speed, 0.1);
-        Vec3 p = target.add(targetVelocity.scale(Math.min(t, maxLeadTicks)));
-        t = from.distanceTo(p) / Math.max(speed, 0.1);
-        return target.add(targetVelocity.scale(Math.min(t, maxLeadTicks)));
     }
 }

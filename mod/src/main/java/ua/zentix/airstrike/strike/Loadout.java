@@ -105,8 +105,4 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
     public Loadout withNuke(Nuke n) {
         return new Loadout(weapon, count, spread, mode, player, n);
     }
-
-    public boolean isSalvo() {
-        return count > 1;
-    }
 }

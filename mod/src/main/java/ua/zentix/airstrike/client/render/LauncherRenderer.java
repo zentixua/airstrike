@@ -23,14 +23,14 @@ public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
         float elev = e.deployedElevation(e.level().getGameTime(), partialTick);
         pose.pushPose();
         pose.mulPose(new Quaternionf().rotationY(-e.getYRot() * Mth.DEG_TO_RAD));
-        LaunchModels.TRAILER.render(pose, buffers, 0);
+        LaunchModels.TRAILER.render(pose, buffers, packedLight);
         pose.translate(0, LauncherEntity.PIVOT_UP, -LauncherEntity.PIVOT_BACK);
         pose.mulPose(new Quaternionf().rotationX(-elev * Mth.DEG_TO_RAD));
         switch (e.weapon()) {
-            case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, 0);
+            case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, packedLight);
             case ROCKET -> WeaponModels.Mesh.ROCKET_RACK.draw(pose, buffers, packedLight);
-            case LOITER -> LaunchModels.LOITER_RACK.render(pose, buffers, 0);
-            default -> LaunchModels.DRONE_RACK.render(pose, buffers, 0);
+            case LOITER -> LaunchModels.LOITER_RACK.render(pose, buffers, packedLight);
+            default -> LaunchModels.DRONE_RACK.render(pose, buffers, packedLight);
         }
         pose.popPose();
         super.render(e, entityYaw, partialTick, pose, buffers, packedLight);

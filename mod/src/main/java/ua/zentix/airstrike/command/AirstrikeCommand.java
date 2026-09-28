@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -52,6 +53,8 @@ import java.util.Collection;
  * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке.
  */
 public final class AirstrikeCommand {
+    private static final SimpleCommandExceptionType TARGET_NOT_FOUND = new SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found"));
+
     private AirstrikeCommand() {}
 
     public static void register(RegisterCommandsEvent event) {
@@ -86,13 +89,14 @@ public final class AirstrikeCommand {
                 .then(Commands.argument("player", EntityArgument.player())
                         .executes(ctx -> radiation(ctx, EntityArgument.getPlayer(ctx, "player")))));
 
+        LiteralArgumentBuilder<CommandSourceStack> salvo = Commands.literal("salvo");
         for (WeaponType w : WeaponType.values()) {
             for (String name : names(w)) {
                 root.then(weapon(name, w));
-                root.then(Commands.literal("salvo").then(salvo(name, w)));
+                salvo.then(salvo(name, w));
             }
         }
-        d.register(root);
+        d.register(root.then(salvo));
     }
 
     private static String[] names(WeaponType w) {
@@ -152,7 +156,7 @@ public final class AirstrikeCommand {
     private static Vec3 lookPoint(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT), null);
-        if (aim == null) throw new com.mojang.brigadier.exceptions.SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found")).create();
+        if (aim == null) throw TARGET_NOT_FOUND.create();
         return aim.point();
     }
 
@@ -190,8 +194,8 @@ public final class AirstrikeCommand {
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> salvo(String name, WeaponType w) {
-        return Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, 100))
-                .then(Commands.argument("spread", IntegerArgumentType.integer(0, 500))
+        return Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, Loadout.MAX_COUNT))
+                .then(Commands.argument("spread", IntegerArgumentType.integer(0, Loadout.MAX_SPREAD))
                         .executes(ctx -> me(ctx, w, count(ctx), spread(ctx)))
                         .then(Commands.literal("me").executes(ctx -> me(ctx, w, count(ctx), spread(ctx))))
                         .then(Commands.literal("look").executes(ctx -> look(ctx, w, count(ctx), spread(ctx))))
