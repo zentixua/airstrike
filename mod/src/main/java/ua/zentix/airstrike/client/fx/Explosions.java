@@ -5,6 +5,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 
 /**
@@ -40,7 +41,7 @@ final class Explosions {
         }
         // раскалённые осколки с дымными хвостами — «щупальца» взрыва
         Fx.Spec tail = Fx.smoke().size(r * 0.12f, r * 0.55f).life(140).color(0x3A3430, 0x8A8279).alpha(0.55f).glow(0.6f, 5).drag(0.93f)
-                .rise(0.003f).fadeIn(1).fadeFrom(0.35f);
+                .rise(0.003f).fadeIn(1).fadeFrom(0.35f).budget(FxBudget.DEBRIS);
         n = Math.round(9 * r / 4 * k) + 3;
         for (int i = 0; i < n; i++) {
             Vec3 d = dir(rnd, 0.35);

@@ -7,7 +7,11 @@ import net.minecraft.client.particle.ParticleRenderType;
 import net.minecraft.client.particle.SpriteSet;
 import net.minecraft.client.particle.TextureSheetParticle;
 import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.core.particles.ParticleGroup;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
+
+import java.util.Optional;
 
 /**
  * Частица эффектов по {@link Fx.Spec}: растёт с замедлением, тормозится воздухом, всплывает (горячее) или оседает,
@@ -125,6 +129,22 @@ public class FxParticle extends TextureSheetParticle {
         int world = super.getLightColor(partial);
         int block = Math.max(LightTexture.block(world), (int) (heat(partial) * 15));
         return LightTexture.pack(block, LightTexture.sky(world));
+    }
+
+    /** Место в движке частиц: полная группа — частица не рождается (см. {@link FxBudget}). */
+    @Override
+    public Optional<ParticleGroup> getParticleGroup() {
+        return spec.budget.group;
+    }
+
+    /**
+     * Границы для отсечения по кадру: весь квадрат частицы, а не её точка с запасом в блок (по умолчанию) — иначе
+     * облако в несколько блоков пропадает, как только его центр уходит за край экрана.
+     */
+    @Override
+    public AABB getRenderBoundingBox(float partial) {
+        double r = Math.max(spec.size0, spec.size1) + Math.sqrt(xd * xd + yd * yd + zd * zd);
+        return new AABB(x - r, y - r, z - r, x + r, y + r, z + r);
     }
 
     @Override

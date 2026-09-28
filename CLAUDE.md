@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|nuke|fx|fx-night|models|occlusion] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -197,6 +197,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Свои частицы (`client/fx/particle`) — не через `level.addParticle`, а сразу в движок: нет предела «32 блока», свои
   очереди (по 16384). Слой `GLOW` складывает свет (искры, вспышки); пламя — обычным смешиванием: сложение красного
   с голубым небом даёт розовый. Добавочное смешивание сбрасывается после частиц (`Fx.afterParticles`).
+- Переполненная очередь слоя молча вытесняет самые старые частицы — долгие облака взрывов: в больших залпах они мигали.
+  Каждая частица эффектов входит в ванильный `ParticleGroup` (`FxBudget`: облака, шлейфы, осколки, вспышки, искры);
+  полная группа не рождает новых, сумма групп слоя меньше очереди (`FxBudgetTest`). Новый вид дыма — в свою группу
+  через `Spec.budget`. Границы отсечения частицы (`getRenderBoundingBox`) — весь её квадрат, иначе клуб пропадает
+  у края экрана. Проверка — `tools/client_scenario.sh occlusion [shaders]`: залпы за стеной, в лог — частицы по слоям.
 - Шлейф снаряда кладётся по всему пути за тик (`Exhaust.segment`): на 11–25 блоках за тик иначе он рвётся на бусины.
 - Модели снарядов — OBJ (загрузчик `neoforge:obj`), дополнительные модели (`ModelEvent.RegisterAdditional`), текстуры
   в `textures/block/weapon` — значит, в атласе блоков; рисуются слоем сущностей (`entityCutoutNoCull` по атласу блоков),
