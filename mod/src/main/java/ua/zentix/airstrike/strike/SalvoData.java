@@ -151,7 +151,7 @@ public final class SalvoData extends SavedData {
             if (!(center instanceof Target.Point)) {
                 // движущаяся цель: своё смещение относительно неё
                 shot = center.offset(new Vec3(dx, 0, dz));
-                point = lastCenter.add(dx, 0, dz);
+                point = shot.resolve(level).orElse(lastCenter.add(dx, 0, dz));
             } else if (weapon == WeaponType.BUNKER || radius == 0) {
                 // бомба — на глубине центра (найдёт пещеру под игроком)
                 point = lastCenter.add(dx, 1, dz);
