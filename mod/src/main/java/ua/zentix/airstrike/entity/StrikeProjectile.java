@@ -438,6 +438,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         setXRot(flight.pitch());
         yRotO = getYRot();
         xRotO = getXRot();
+        // свои тикеты — до входа в мир: чанк мог тикать лишь по чужому тикету (соседний снаряд), и если тот его
+        // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни срока жизни
+        if (holdsChunks()) updateChunkTickets(level, position(), flight.forward());
     }
 
     /**
