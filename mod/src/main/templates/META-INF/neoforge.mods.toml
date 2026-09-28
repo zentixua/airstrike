@@ -13,6 +13,10 @@ description = '''${mod_description}'''
 [[accessTransformers]]
 file = "META-INF/accesstransformer.cfg"
 
+# защита от краша Sable при дроблении аппарата (compat/SplitGuard); без Sable не применяется
+[[mixins]]
+config = "airstrike.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"

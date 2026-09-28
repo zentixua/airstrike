@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "ua.zentix.airstrike.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "sable.SubLevelSplitGuardMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
