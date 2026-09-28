@@ -279,17 +279,17 @@ def build_edit(lang="en"):
         Clip("impact_drone", "mark:gone#-1-5.0", 6.0),
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
-        Clip("missile_camera", "mark:video-2.0", 2.0, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
-        Clip("missile_camera", "mark:video", 4.0),  # видео и план попадания: свои полосы кадра — по центру
+        Clip("missile_camera", "mark:video-1.5", 1.5, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
+        Clip("missile_camera", "mark:video", 4.5),  # видео и план попадания: свои полосы кадра — по центру
         Clip("impact_missile", "mark:gone-1.5", 4.5),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
         Clip("loiter_strike", "mark:gone-3.0", 4.5),
         Clip("rocket_launch", "sound:rocket.launch-1.5", 4.5, flash=True),
         Clip("rocket_impact", "sound:blast-1.0", 4.5),
-        # B-2: снизу — створки, бомба уходит; с земли — падение, бурение, подземный взрыв
-        Clip("bomb_bay", "mark:release-2.0", 3.0, flash=True),
-        Clip("bomber", "mark:gone-4.0", 6.0),
+        # B-2: под брюхом — створки, бомба уходит, вираж; с земли — подземный взрыв
+        Clip("bomb_bay", "mark:release-2.5", 4.5, flash=True),
+        Clip("bomber", "mark:gone-0.2", 4.5),
         Clip("salvo", "mark:gone-2.5", 6.0, flash=True),
         Clip("salvo_missiles", "mark:gone-1.5", 6.0),
         # нарезка разрывов по полутактам

@@ -284,13 +284,15 @@ public final class Trailer {
                 .endWhen(() -> nearest(LoiterEntity.class, village, 300) == null, 50);
 
         // --- B-2: снизу-сзади под брюхом — створки отсека открываются, бомба уходит вниз (замедленно). B-2 заходит
-        // из-за спины стреляющего и до сброса летит вне мира; невидимка стоит на курсе за 150 блоков до цели —
-        // тикающие чанки вокруг него накрывают и открытие створок, и сброс. Сброс клиент видит по фазе EGRESS.
-        run(() -> placeHidden(bayTarget().add(toPost.scale(150)).add(0, 40, 0), bayTarget()));
+        // из-за спины стреляющего и до сброса летит вне мира; невидимка стоит на курсе за 150 блоков до цели
+        // (и камера ждёт там же) — тикающие чанки вокруг него накрывают и открытие створок, и сброс. Сброс клиент
+        // видит по фазе EGRESS.
+        run(() -> placeHidden(bayWatch(), bayTarget()));
         shot("bomb_bay").onReady(() -> fire("bunker", bayTarget())).length(400).speed(0.25).hidden()
-                .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bayTarget(), 900), 26, -7, 9, 14, 0, 58))
+                .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bayTarget(), 900), bayWatch(), toPost.scale(-1),
+                        26, -7, 9, 14, 0, 58))
                 .when(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.flightPhase() != FlightPhase.EGRESS, 2400)
-                .endWhen(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 8);
+                .endWhen(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
 
         // --- B-2 и бетонобойная бомба: с высоты у деревни — пролёт, падение, бурение, подземный взрыв
         shot("bomber").onReady(() -> fire("bunker", target(side.scale(-12)))).length(260).speed(0.75).hidden().camera(() -> {
@@ -385,6 +387,18 @@ public final class Trailer {
         shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), village) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
                 .when(() -> sinceDetonation() > 3900, 6000);
+
+        // --- кадр для иконки мода: шахед в разгоне снизу-сбоку, крупно, на фоне дневного неба
+        run(() -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+        });
+        run(this::placeActor);
+        waitTicks(20);
+        run(() -> fire("drone", target(Vec3.ZERO)));
+        shot("icon").after(() -> newest(DroneEntity.class) instanceof DroneEntity d && launcher(WeaponType.DRONE) instanceof LauncherEntity l
+                        && d.distanceTo(l) > 12, 400).noPrep().length(40).speed(0.3).hidden()
+                .camera(() -> chaseOf(newest(DroneEntity.class), 5.5, -1.8, 3.2, 8, 0, 42));
 
         run(() -> {
             rec.finish();
@@ -556,6 +570,11 @@ public final class Trailer {
     /** Наводчик у края деревни: снаряды над деревней — в дальности симуляции от него (в мире, видео с борта). */
     private Vec3 operatorNearVillage() {
         return ground(village.add(toPost.scale(60)).add(side.scale(30)));
+    }
+
+    /** Где невидимка ждёт B-2: на курсе захода, за 150 блоков до цели. */
+    private Vec3 bayWatch() {
+        return bayTarget().add(toPost.scale(150)).add(0, 40, 0);
     }
 
     /** Куда бьёт B-2 в плане с отсеком (в стороне от цели второго B-2 — воронки не совпадают). */
@@ -1055,6 +1074,7 @@ public final class Trailer {
             if (path != null) CineCamera.apply(time);
             if (playerView != null && mc.player != null) {
                 Pose p = playerView.at(time);
+                CineCamera.viewFov = p.fov();
                 mc.player.setYRot(p.yaw());
                 mc.player.yRotO = p.yaw();
                 mc.player.setXRot(p.pitch());
