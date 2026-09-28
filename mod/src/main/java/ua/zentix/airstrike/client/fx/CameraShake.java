@@ -15,6 +15,9 @@ public final class CameraShake {
     /** Толчки грунта (подземный взрыв, бурение): медленнее и мягче. */
     private static int quake;
     private static long ticks;
+    /** Ядерная волна: сколько тиков ещё, сколько всего и размах, °. */
+    private static int nuke, nukeTotal;
+    private static double nukeAmp;
 
     private CameraShake() {}
 
@@ -26,19 +29,34 @@ public final class CameraShake {
         quake = Math.max(quake, ticks);
     }
 
+    /**
+     * Приход ядерной волны: удар и долгое затухающее дрожание. Размах — от давления у игрока
+     * (1 psi — 4°, 5 psi — 9°, 20 psi — 14°), длительность — до 10 с.
+     */
+    public static void nuke(double psi) {
+        double amp = Mth.clamp(4 + 7 * Math.log10(Math.max(1, psi)), 2.5, 16);
+        if (psi < 1) amp = 2.5 + 1.5 * psi;
+        int ticks = (int) Mth.clamp(40 + psi * 12, 40, 200);
+        if (amp >= nukeAmp * Math.max(0, (double) nuke / Math.max(1, nukeTotal))) {
+            nukeAmp = amp;
+            nuke = nukeTotal = ticks;
+        }
+    }
+
     public static void tick() {
         ticks++;
         if (shake > 0) shake--;
         if (quake > 0) quake--;
+        if (nuke > 0) nuke--;
     }
 
     public static void reset() {
-        shake = quake = 0;
+        shake = quake = nuke = 0;
     }
 
     public static void apply(ViewportEvent.ComputeCameraAngles e) {
         double k = AirstrikeConfig.CLIENT.cameraShake.get();
-        if (k <= 0 || shake <= 0 && quake <= 0 || Minecraft.getInstance().isPaused()) return;
+        if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 || Minecraft.getInstance().isPaused()) return;
         double t = ticks + e.getPartialTick();
         // амплитуды датапака: курс/тангаж, °
         double yaw = 0, pitch = 0;
@@ -54,9 +72,19 @@ public final class CameraShake {
             yaw += a[0] * fade * wobble(t, 5.1, 3.1);
             pitch += a[1] * fade * wobble(t, 6.7, 4.4);
         }
+        double roll = 0;
+        if (nuke > 0) {
+            // первые полсекунды — удар (вдвое сильнее и резче), дальше затухание по экспоненте
+            double age = nukeTotal - nuke + e.getPartialTick();
+            double env = Math.exp(-age / (nukeTotal * 0.35)) * (age < 10 ? 2 - age / 10 : 1);
+            double a = nukeAmp * env;
+            yaw += a * wobble(t, 11.3, 0.4);
+            pitch += a * 0.8 * wobble(t, 14.1, 2.2);
+            roll += a * 0.9 * wobble(t, 8.7, 5.1);
+        }
         e.setYaw(e.getYaw() + (float) (yaw * k));
         e.setPitch(e.getPitch() + (float) (pitch * k));
-        e.setRoll(e.getRoll() + (float) (yaw * 0.6 * k));
+        e.setRoll(e.getRoll() + (float) ((yaw * 0.6 + roll) * k));
     }
 
     /** Гладкое «дрожание» из двух синусов разной частоты (Гц при 20 тиках/с), амплитуда ~1. */

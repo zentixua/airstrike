@@ -178,7 +178,7 @@ public final class ClientScenario {
         if (detTick >= 0 || ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
         detTick = tick;
         Airstrike.LOG.info("SCENARIO detonation at tick {}", tick);
-        for (int dt : new int[]{1, 2, 4, 10, 20, 40, 70, 90, 100, 120, 200, 400}) shot(tick + dt, "nuke");
+        for (int dt : new int[]{1, 2, 4, 10, 20, 40, 70, 90, 100, 112, 118, 125, 140, 160, 200, 400}) shot(tick + dt, "nuke");
         // гриб целиком виден издалека: 9 км к югу от эпицентра, взгляд на 30° вверх
         at(tick + 560, () -> {
             var d = ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations().getLast().d;

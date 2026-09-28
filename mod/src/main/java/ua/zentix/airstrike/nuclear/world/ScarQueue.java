@@ -39,6 +39,7 @@ public final class ScarQueue {
     private static final int NEIGHBOUR_RETRY = 40;
 
     private final Long2ObjectOpenHashMap<Job> jobs = new Long2ObjectOpenHashMap<>();
+    private long lastSlowColumn = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
     private final Map<Integer, ColumnScar.Budget> budgets = new HashMap<>();
 
@@ -124,7 +125,14 @@ public final class ScarQueue {
             ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget());
             int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
             while (job.column < 256 && System.nanoTime() < deadline) {
+                long c0 = System.nanoTime();
                 ColumnScar.apply(level, d, x0 + (job.column & 15), z0 + (job.column >> 4), budget, random);
+                long took = System.nanoTime() - c0;
+                // один столбец дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
+                if (took > 50_000_000L && now - lastSlowColumn >= 100) {
+                    lastSlowColumn = now;
+                    ua.zentix.airstrike.Airstrike.LOG.warn("Медленный столбец {} {}: {} мс", x0 + (job.column & 15), z0 + (job.column >> 4), took / 1_000_000);
+                }
                 job.column++;
             }
             if (job.column < 256) return;

@@ -121,10 +121,11 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
             nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут).")
                     .translation("airstrike.config.nuke_flight_time").defineInRange("flight_time", 1800, 200, 72_000);
-            nukeTimeBudgetMs = b.comment("Сколько миллисекунд за тик сервер тратит на разрушения (1–20).")
-                    .translation("airstrike.config.nuke_time_budget").defineInRange("time_budget_ms", 4, 1, 20);
+            nukeTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на разрушения (1–45). По умолчанию 30:",
+                            "разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна.")
+                    .translation("airstrike.config.nuke_time_budget").defineInRange("destruction_ms_per_tick", 30, 1, 45);
             nukeMaxFires = b.comment("Наибольшее число пожаров от одного подрыва.")
-                    .translation("airstrike.config.nuke_max_fires").defineInRange("max_fires", 4000, 0, 50_000);
+                    .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
             b.pop();

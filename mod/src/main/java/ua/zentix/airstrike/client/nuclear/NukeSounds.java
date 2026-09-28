@@ -98,8 +98,11 @@ public final class NukeSounds {
             }
             double after = (now - arrivalTick) / 20.0;
             if (now - arrivalTick == 2 && psi >= 0.3) {
-                ClientSounds.atEar(ModSounds.NUKE_ROAR.get(), d.burst(), (float) Mth.clamp(psi / 3, 0.25, 1), 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_ROAR.get(), d.burst(), (float) Mth.clamp(psi / 3, 0.35, 1), 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_ROAR.get(), d.burst().add(0, -200, 0), (float) Mth.clamp(psi / 4, 0.3, 1), 0.8f);
             }
+            // стена пыли проходит мимо игрока секунды три
+            if (now - arrivalTick < 60 && psi >= 0.5) NukeDust.gust(d, ear, psi, (int) (now - arrivalTick));
             if (nextRumble < rumbles.length && after >= rumbles[nextRumble]) {
                 float v = (float) (Mth.clamp(0.3 + psi / 8, 0.2, 0.9) * (1 - 0.15 * nextRumble));
                 // отражение от рельефа приходит с разных сторон
@@ -110,18 +113,30 @@ public final class NukeSounds {
             }
         }
 
-        /** Фронт у слушателя: удар (N-волна или далёкий гул), тряска, ветер, стёкла, оглушение. */
+        /**
+         * Фронт у слушателя: оглушающий удар (N-волна; несколько источников вместе — одному OpenAL не даёт громче
+         * единицы), тряска, пыльная стена, ветер, стёкла, оглушение. Всё по «Общей громкости».
+         */
         private void arrive(Vec3 ear) {
+            Vec3 b = d.burst();
+            Vec3 side = new Vec3(b.z - ear.z, 0, ear.x - b.x).normalize().scale(40);
             if (psi >= 1) {
-                ClientSounds.atEar(ModSounds.NUKE_CRACK.get(), d.burst(), 1, 1);
-                ClientSounds.atEar(ModSounds.NUKE_BOOM_FAR.get(), d.burst(), (float) Mth.clamp(psi / 4, 0.4, 1), 0.8f);
+                ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b, 1, 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b.add(side), 1, 0.92f);
+                ClientSounds.atEarLoud(ModSounds.NUKE_CRACK.get(), b.subtract(side), 1, 0.85f);
+                ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b, 1, 0.75f);
+                ClientSounds.atEarLoud(ModSounds.BLAST_NEAR.get(), b, 1, 0.55f);
             } else {
-                ClientSounds.atEar(ModSounds.NUKE_BOOM_FAR.get(), d.burst(), (float) Mth.clamp(0.25 + psi, 0.25, 1), 1);
+                float v = (float) Mth.clamp(0.35 + psi, 0.35, 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b, v, 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_BOOM_FAR.get(), b.add(side), v * 0.8f, 0.85f);
+                ClientSounds.atEarLoud(ModSounds.BLAST_FAR.get(), b, v, 0.6f);
             }
-            CameraShake.blast((int) Mth.clamp(12 + psi * 5, 12, 60));
+            CameraShake.nuke(psi);
             CameraShake.quake((int) Mth.clamp(20 + psi * 8, 20, 120));
+            NukeDust.arrive(psi);
             if (psi >= 0.5) {
-                ClientSounds.atEar(ModSounds.NUKE_WIND.get(), d.burst(), (float) Mth.clamp(psi / 5, 0.3, 1), 1);
+                ClientSounds.atEarLoud(ModSounds.NUKE_WIND.get(), d.burst(), (float) Mth.clamp(psi / 4, 0.4, 1), 1);
                 if (psi < 12) ClientSounds.atEar(ModSounds.NUKE_GLASS.get(), ear.add(0, 2, 0), (float) Mth.clamp(psi / 3, 0.3, 0.9), 1);
             }
             if (psi >= 2 && AirstrikeConfig.CLIENT.nukeTinnitus.get()) {

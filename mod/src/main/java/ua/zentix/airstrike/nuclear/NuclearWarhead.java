@@ -99,14 +99,17 @@ public final class NuclearWarhead {
         }
     }
 
-    /** Ожоги по кал/см² (DESIGN §1.4): поджог, эффект ожогов, при ≥ 8 — урон, ≥ 15 — смертельно. */
+    /**
+     * Ожоги по кал/см² (DESIGN §1.4): с 3 — поджог и эффект ожогов, с 8 (ожоги 3-й степени) — тяжёлый урон,
+     * с 10 — смертельно: обожжено всё открытое тело. Тень (стена, холм, крыша) спасает целиком.
+     */
     private static void burn(ServerLevel level, Detonation d, LivingEntity e, double q, @Nullable Entity owner) {
         if (q < ThermalModel.BURN_1) return;
         e.igniteForSeconds((float) Math.min(20, q));
         // без частиц вокруг (в первом лице они лезут в глаза), только значок
         e.addEffect(new MobEffectInstance(ModEffects.BURNS, (int) Math.min(20 * 600, q * 20 * 30), q >= ThermalModel.BURN_3 ? 1 : 0, false, false, true));
         if (q >= ThermalModel.BURN_3) {
-            float dmg = q >= 15 ? Float.MAX_VALUE : (float) ((q - ThermalModel.BURN_3) * 2 + 4);
+            float dmg = q >= 10 ? Float.MAX_VALUE : (float) ((q - ThermalModel.BURN_3) * 4 + 8);
             e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_THERMAL, null, owner), dmg);
         }
     }
