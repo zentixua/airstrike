@@ -554,7 +554,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     protected void crash(ServerLevel level, Vec3 point) {
         discard();
-        level.explode(this, point.x, point.y, point.z, 1.5f, false, Level.ExplosionInteraction.NONE);
+        if (Terrain.readyAround(level, point, Warheads.reach(1.5f))) {
+            level.explode(this, point.x, point.y, point.z, 1.5f, false, Level.ExplosionInteraction.NONE);
+        }
     }
 
     /** Слежение за целью; возвращает текущую точку прицеливания. */

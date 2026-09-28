@@ -48,6 +48,7 @@ import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -98,13 +99,24 @@ public final class Warheads {
     // ---------------------------------------------------------------- общие средства
 
     /**
-     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
-     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно.
+     * Докуда читает мир ванильный взрыв силы {@code power}: лучи по блокам гаснут не дальше 1.3·power / 0.225 шагов
+     * по 0.3 блока (≈ 1.73·power), урон ищет сущности в 2·power и пускает к каждой луч видимости.
      */
-    static Explosion explode(ServerLevel level, Vec3 at, float power, boolean fire, @Nullable Entity direct, @Nullable Entity owner,
-                             @Nullable ExplosionDamageCalculator calculator) {
+    public static double reach(float power) {
+        return power * 2 + 1;
+    }
+
+    /**
+     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
+     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Взрыв читает блоки вокруг
+     * себя, а чтение неготового чанка грузит его прямо в тике (сервер вставал на секунду с лишним): если что-то
+     * в пределах {@link #reach} ещё не готово, этого подрыва нет — там сейчас некому его видеть и не с чем ломаться.
+     */
+    static void explode(ServerLevel level, Vec3 at, float power, boolean fire, @Nullable Entity direct, @Nullable Entity owner,
+                        @Nullable ExplosionDamageCalculator calculator) {
+        if (!Terrain.readyAround(level, at, reach(power))) return;
         boolean blocks = AirstrikeConfig.SERVER.blockDamage.get();
-        return level.explode(null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
+        level.explode(null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
                 at.x, at.y, at.z, power, fire && AirstrikeConfig.SERVER.fire.get(),
                 blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
                 ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);

@@ -22,6 +22,7 @@ import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -180,15 +181,6 @@ public final class NuclearWorld {
                 .ifPresent(d -> craters.add(new CraterJob(d, done))));
     }
 
-    private static boolean loadedAround(ServerLevel level, Vec3 c, double r) {
-        for (int cx = Mth.floor(c.x - r) >> 4; cx <= Mth.floor(c.x + r) >> 4; cx++) {
-            for (int cz = Mth.floor(c.z - r) >> 4; cz <= Mth.floor(c.z + r) >> 4; cz++) {
-                if (!Terrain.ready(level, cx, cz)) return false;
-            }
-        }
-        return true;
-    }
-
     private static double positivePhaseTicks(Detonation d) {
         return BlastModel.positivePhaseSeconds(d.yieldKt()) * 20 * d.scale();
     }
@@ -268,7 +260,7 @@ public final class NuclearWorld {
             if (psi < 3) continue;
             float power = (float) Mth.clamp(6 + (psi - 3) * 1.15, 6, 60);
             // лучи ванильного взрыва читают блоки — все чанки вокруг должны быть уже загружены
-            if (!loadedAround(level, nearest, power * 1.5 + 2)) continue;
+            if (!Terrain.readyAround(level, nearest, Warheads.reach(power))) continue;
             level.explode(null, ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
                     nearest.x, nearest.y, nearest.z, power, false, Level.ExplosionInteraction.TNT,
                     ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);
