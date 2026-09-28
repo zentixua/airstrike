@@ -62,7 +62,7 @@ Shahed-136, барражирующий боеприпас в духе «Ланц
 
 ## Установка
 
-1. `airstrike-2.1.1.jar` положить в `mods/` — **у хоста и у всех, кто играет** (мод нужен и серверу, и клиентам:
+1. `airstrike-<версия>.jar` из последнего релиза положить в `mods/` — **у хоста и у всех, кто играет** (мод нужен и серверу, и клиентам:
    без него на клиенте в мир с модом не пустит). Скачать — в [Releases](https://github.com/zentixua/airstrike/releases/latest);
    хосту это делает `tools/deploy.sh`. Прежний jar Airstrike из `mods/` убрать.
 2. Нужен NeoForge 21.1.x для Minecraft 1.21.1; других обязательных модов нет (sable-companion вшит в jar).
@@ -122,7 +122,7 @@ Shahed-136, барражирующий боеприпас в духе «Ланц
 | | `drone_flight_time` · `missile_flight_time` · `bomber_flight_time` | 50 · 30 · 40 | время полёта до удара (у B-2 — до сброса), секунд |
 | | `loiter_time` | 25 | сколько барражирующий кружит над целью до пике, секунд |
 | `nuclear` | `enabled` · `ops_only` | вкл · вкл | ядерное оружие есть; пускать могут только операторы |
-| | `default_yield` · `max_yield` | 15 · 1000 | мощность, кт |
+| | `default_yield` · `max_yield` | 15 · 1000 | мощность `/airstrike nuke` без числа и наибольшая, кт (в пульте мощность выбирается на экране) |
 | | `effects_scale` | 1.0 | масштаб радиусов (1 блок = 1 м); меньше — для маленьких миров |
 | | `block_damage` · `fires` · `tree_fall` · `crater` | вкл | части разрушений |
 | | `fallout` · `radiation` · `black_rain` | вкл | радиоактивность |
@@ -133,6 +133,7 @@ Shahed-136, барражирующий боеприпас в духе «Ланц
 | клиент | `camera_shake` · `flash` · `zoom` · `hud` | 1 · 1 · 4 · вкл | тряска, вспышка, кратность бинокля, снаряды на экране |
 | | `auto_camera` | выкл | камера снаряда включается сама при пуске |
 | | `nuke_cloud_quality` · `nuke_tinnitus` | MEDIUM · вкл | подробность гриба (300/600/1200 клубов), оглушение |
+| | `sound_muffling` | вкл | звук ударов глуше вдали и за холмом или стеной (с Sound Physics Remastered это делает он) |
 
 Звуки идут по ползунку «Окружение» (ядерные — ещё «Погода» для дождя).
 
@@ -157,6 +158,7 @@ Shahed-136, барражирующий боеприпас в духе «Ланц
 mod/                              исходники мода (ModDevGradle, Java 21)
   src/main/java/ua/zentix/airstrike/
     strike/ entity/ guidance/ warhead/ target/ compat/   обычное оружие, наведение, Sable
+    command/ item/ registry/ net/                        команда /airstrike, пульт и счётчик, регистрации, пакеты
     nuclear/ (model/ world/ radiation/)                  ядерный удар: модель, разрушения, радиация
     client/ (render/ sound/ fx/ hud/ aim/ screen/ nuclear/)
   src/devtest/                    GameTest, шаблоны площадок, сценарий клиента без окна (в jar не входят)
@@ -164,13 +166,17 @@ mod/                              исходники мода (ModDevGradle, Jav
 tools/
   deploy.sh                       сборка → jar в mods/ инстанса и dist/ (--test — ещё GameTest, --dry)
   logscan.py                      выжимка из logs/latest.log
-  client_scenario.sh [all|launch|rocket|loiter|nuke|fx|fx-night|models] [shaders]  клиент без окна: снимки экрана и запись звука (shaders — с Iris)
+  client_scenario.sh <режим> [shaders]  клиент без окна: снимки экрана и запись звука (режимы — в начале скрипта; shaders — с Iris)
   build_sounds.py                 сборка всех звуков из записей (Freesound, CC0/CC BY) и синтеза (synth_mod_sounds.py)
   gen_textures.py                 текстуры, нарисованные кодом
+  gen_particles.py                текстуры частиц эффектов и факела
   gen_models.py                   модели снарядов (OBJ) и их текстуры, построенные кодом
   paths.py                        пути к Prism и инстансу — единственное место
   fetch_runtime_mods.py           Create, Sable, Aeronautics с Modrinth для GameTest (CI)
+  trailer/record.sh, edit.py      трейлер: съёмка сценарием клиента и монтаж под музыку
+mod/scripts/gen_test_structures.py  шаблоны площадок GameTest
 docs/DESIGN-nuke.md               проект ядерного удара (физика, источники, отступления)
+docs/releases/<версия>.md         заметки к релизам
 ```
 
 ```sh
@@ -181,7 +187,7 @@ tools/deploy.sh                        # установить в инстанс 
 python3 tools/logscan.py               # что происходило в последней сессии
 ```
 
-Каждый push и PR собирает [GitHub Actions](.github/workflows/build.yml): сборка, юнит-тесты, GameTest; готовый jar —
+Каждый push в `main` и `claude/**` и каждый PR собирает [GitHub Actions](.github/workflows/build.yml): сборка, юнит-тесты, GameTest; готовый jar —
 в артефактах запуска.
 
 Архитектура, соглашения и подводные камни — в [CLAUDE.md](CLAUDE.md).
