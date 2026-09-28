@@ -7,11 +7,15 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.client.nuclear.NukeView;
 import ua.zentix.airstrike.entity.FlightPhase;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -63,7 +67,16 @@ public final class StrikesHud {
             case TERMINAL, POP_UP -> ChatFormatting.RED;
             default -> ChatFormatting.YELLOW;
         };
-        return Component.translatable("airstrike.hud.flight_line", name, phase, clock(f.etaSeconds(pt))).withStyle(color);
+        MutableComponent line = Component.translatable("airstrike.hud.flight_line", name, phase, clock(f.etaSeconds(pt))).withStyle(color);
+        Component target = targetText(f);
+        if (target != null) line.append(Component.literal(" → ").append(target));
+        return line;
+    }
+
+    /** Подпись цели: кто или что, «цель потеряна», если она пропала. Для точки — null. */
+    static Component targetText(ClientFlights.Tracked f) {
+        if (f.targetLost()) return Component.translatable("airstrike.hud.target_lost").withStyle(ChatFormatting.GRAY);
+        return f.targetLabel();
     }
 
     public static String clock(double seconds) {
@@ -71,32 +84,91 @@ public final class StrikesHud {
         return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60);
     }
 
-    /** Метки в мире: ромб на снаряде (номер и время), крестик на цели. За спиной — не рисуются. */
+    /**
+     * Метки в мире: ромб на снаряде (номер и время) и пунктир от него к его цели; на цели — крестик с номерами
+     * снарядов, которые на неё идут, и подписью, кто это. Цели ближе 4 блоков друг к другу — один крестик (залп по
+     * игроку не рисует десять одинаковых). Потерянная цель — серый крестик. За спиной — не рисуются.
+     */
     private static void markers(GuiGraphics g, Font font, List<ClientFlights.Tracked> flights, float pt) {
         int w = g.guiWidth(), h = g.guiHeight();
+        List<TargetMark> marks = new ArrayList<>();
         for (ClientFlights.Tracked f : flights) {
             if (f.phase() == FlightPhase.READY) continue;
+            TargetMark mark = null;
+            for (TargetMark m : marks) {
+                if (m.lost == f.targetLost() && m.pos.distanceToSqr(f.target()) < 16) {
+                    mark = m;
+                    break;
+                }
+            }
+            if (mark == null) marks.add(mark = new TargetMark(f.target(), f.targetLost(), targetText(f)));
+            mark.numbers.add(f.number);
+
             float[] s = NukeView.project(f.position(pt));
-            if (s != null) {
-                int sx = (int) (s[0] * w), sy = (int) (s[1] * h);
-                if (sx > -20 && sx < w + 20 && sy > -20 && sy < h + 20) {
-                    int c = f.phase() == FlightPhase.TERMINAL ? 0xFFFF4030 : 0xFFFFC040;
-                    diamond(g, sx, sy, 4, c);
-                    String label = "№" + f.number + " " + clock(f.etaSeconds(pt));
-                    g.drawString(font, label, sx - font.width(label) / 2, sy - 14, c);
-                }
-            }
             float[] t = NukeView.project(f.target());
-            if (t != null) {
-                int tx = (int) (t[0] * w), ty = (int) (t[1] * h);
-                if (tx > 0 && tx < w && ty > 0 && ty < h) {
-                    int c = 0xC0FF3030;
-                    for (int i = -4; i <= 4; i++) {
-                        g.fill(tx + i, ty + i, tx + i + 1, ty + i + 1, c);
-                        g.fill(tx + i, ty - i, tx + i + 1, ty - i + 1, c);
-                    }
-                }
+            if (s == null) continue;
+            int sx = (int) (s[0] * w), sy = (int) (s[1] * h);
+            if (sx <= -20 || sx >= w + 20 || sy <= -20 || sy >= h + 20) continue;
+            int c = f.phase() == FlightPhase.TERMINAL ? 0xFFFF4030 : 0xFFFFC040;
+            if (t != null) dotted(g, sx, sy, (int) (t[0] * w), (int) (t[1] * h), (c & 0x00FFFFFF) | 0x70000000);
+            diamond(g, sx, sy, 4, c);
+            String label = "№" + f.number + " " + clock(f.etaSeconds(pt));
+            g.drawString(font, label, sx - font.width(label) / 2, sy - 14, c);
+        }
+        for (TargetMark m : marks) {
+            float[] t = NukeView.project(m.pos);
+            if (t == null) continue;
+            int tx = (int) (t[0] * w), ty = (int) (t[1] * h);
+            if (tx <= 0 || tx >= w || ty <= 0 || ty >= h) continue;
+            int c = m.lost ? 0xC0A0A0A0 : 0xC0FF3030;
+            for (int i = -4; i <= 4; i++) {
+                g.fill(tx + i, ty + i, tx + i + 1, ty + i + 1, c);
+                g.fill(tx + i, ty - i, tx + i + 1, ty - i + 1, c);
             }
+            MutableComponent text = Component.literal(numbers(m.numbers));
+            if (m.label != null) text.append(" · ").append(m.label);
+            g.drawString(font, text, tx - font.width(text) / 2, ty + 7, c | 0xFF000000);
+        }
+    }
+
+    /** Крестик цели: точка, потеряна ли она, подпись и номера снарядов. */
+    private static final class TargetMark {
+        final Vec3 pos;
+        final boolean lost;
+        @Nullable
+        final Component label;
+        final List<Integer> numbers = new ArrayList<>();
+
+        TargetMark(Vec3 pos, boolean lost, @Nullable Component label) {
+            this.pos = pos;
+            this.lost = lost;
+            this.label = label;
+        }
+    }
+
+    /** «№1–3, 5»: номера по возрастанию, подряд идущие — диапазоном. */
+    static String numbers(List<Integer> list) {
+        List<Integer> n = new ArrayList<>(list);
+        Collections.sort(n);
+        StringBuilder sb = new StringBuilder("№");
+        for (int i = 0; i < n.size(); ) {
+            int j = i;
+            while (j + 1 < n.size() && n.get(j + 1) == n.get(j) + 1) j++;
+            if (i > 0) sb.append(", ");
+            sb.append(n.get(i));
+            if (j > i) sb.append(j == i + 1 ? ", " : "–").append(n.get(j));
+            i = j + 1;
+        }
+        return sb.toString();
+    }
+
+    /** Пунктир от снаряда к цели: точка через 6 пикселей. */
+    private static void dotted(GuiGraphics g, int x0, int y0, int x1, int y1, int color) {
+        double dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
+        int steps = (int) Math.min(400, len / 6);
+        for (int i = 1; i < steps; i++) {
+            int x = x0 + (int) (dx * i / steps), y = y0 + (int) (dy * i / steps);
+            g.fill(x, y, x + 1, y + 1, color);
         }
     }
 

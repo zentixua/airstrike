@@ -224,6 +224,7 @@
   "airstrike.nuke.detonating": "☢ Подрыв %s кт (%s) в %s %s %s — как только догрузится место",
   "airstrike.hud.flight": "%s №%s",
   "airstrike.hud.flight_line": "%s · %s · %s",
+  "airstrike.hud.target_lost": "цель потеряна",
   "airstrike.hud.camera_hint": "%s — камера снаряда",
   "airstrike.phase.ready": "на пусковой",
   "airstrike.phase.ignition": "поджиг",

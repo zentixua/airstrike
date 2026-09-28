@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client.hud;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -59,6 +60,25 @@ public final class ClientFlights {
 
         public Vec3 target() {
             return data.target();
+        }
+
+        /** Цель пропала: снаряд идёт в последнюю известную точку. */
+        public boolean targetLost() {
+            return data.targetLost();
+        }
+
+        /** Чья цель: ник, тип сущности, аппарат; для точки — null. */
+        @Nullable
+        public Component targetLabel() {
+            String n = data.targetName();
+            return switch (data.targetKind()) {
+                case S2C.Flight.TARGET_NAMED -> Component.literal(n);
+                case S2C.Flight.TARGET_TYPE -> Component.translatable(n);
+                case S2C.Flight.TARGET_AIRCRAFT -> n.isBlank()
+                        ? Component.translatable("airstrike.target.aircraft")
+                        : Component.translatable("airstrike.target.aircraft.named", n);
+                default -> null;
+            };
         }
 
         /** Сущность снаряда, если клиент её видит. */

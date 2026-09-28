@@ -224,6 +224,7 @@
   "airstrike.nuke.detonating": "☢ %s kt detonation (%s) at %s %s %s as soon as the area loads",
   "airstrike.hud.flight": "%s #%s",
   "airstrike.hud.flight_line": "%s · %s · %s",
+  "airstrike.hud.target_lost": "target lost",
   "airstrike.hud.camera_hint": "%s: projectile camera",
   "airstrike.phase.ready": "on launcher",
   "airstrike.phase.ignition": "ignition",

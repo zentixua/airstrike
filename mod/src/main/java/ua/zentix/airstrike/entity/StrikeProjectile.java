@@ -297,6 +297,11 @@ public abstract class StrikeProjectile extends Entity {
         return !(flightPhase() == FlightPhase.READY && phaseAge() < entityData.get(DATA_HIDDEN));
     }
 
+    /** Цель пропала (умерла, ушла в другой мир, аппарат разобран): снаряд идёт в последнюю известную точку. */
+    public boolean targetLost() {
+        return tracker != null && tracker.isLost();
+    }
+
     /** Цель, за которой идёт снаряд (сервер). */
     @Nullable
     public Target target() {
