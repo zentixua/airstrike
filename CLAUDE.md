@@ -35,7 +35,9 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|nuke|far] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
-    synth_mod_sounds.py, gen_textures.py ← генерация звуков (numpy + ffmpeg) и текстур (Pillow), фиксированный сид
+    build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
+                                           synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
+    gen_textures.py                      ← текстуры (Pillow), фиксированный сид
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
 
@@ -92,7 +94,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
     эффекты лучевой болезни и ожогов.
 - `net/` — `S2C`/`C2S` пакеты; `ClientHooks` — интерфейс, который реализует клиент (сервер не грузит клиентские классы).
 - `client/` (`@Mod(dist = CLIENT)`) — `render/` (модели из блоков, как display-сущности датапака), `sound/` (задержка
-  звука и Доплер: решение уравнения запаздывания, `EngineSound`), `fx/` (вспышка, тряска камеры без сдвига прицела,
+  звука и Доплер: решение уравнения запаздывания, `EngineSound`; `BlastSounds` — весь звук взрывов по дальности;
+  `SoundFilters` — фильтр EFX: воздух, преграды, оглушение), `fx/` (вспышка, тряска камеры без сдвига прицела,
   частицы взрывов), `hud/`, `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
@@ -116,9 +119,13 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   через методы, которым достаточно позиции и UUID (`NuclearStrikes.launchFrom`).
 - Дальняя плоскость отсечения — `renderDistance × 4` блоков: гриб выше рисуется «сжатым» после неба (`NukeRenderer`).
 - Пакет подрыва может прийти на тик раньше, чем часы клиента дойдут до `gameTime` подрыва — время не бывает < 0.
-- Фильтр OpenAL (оглушение) ставится в `PlaySoundSourceEvent` (звуковой поток) только на короткие звуки — он остаётся
-  на источнике до конца звука; `Channel.source` открыт AT (`META-INF/accesstransformer.cfg`, объявлен в
-  `neoforge.mods.toml`). После перезапуска звукового движка фильтр — заново.
+- Фильтр OpenAL (`SoundFilters`: воздух, преграды, оглушение) ставится в `PlaySoundSourceEvent` (звуковой поток) и
+  остаётся на источнике до конца звука, поэтому чужие петли не трогаем, а моторы снарядов обновляем каждый тик через
+  `SoundEngine.instanceToChannel`; `Channel.source`, `SoundManager.soundEngine`, `instanceToChannel` открыты AT
+  (`META-INF/accesstransformer.cfg`). После перезапуска звукового движка фильтр — заново. С Sound Physics Remastered
+  воздух и преграды — его, наше только оглушение.
+- Звуки — только моно (стерео Minecraft не размещает в пространстве); `SoundAssetsTest` это проверяет. libsndfile
+  падает, если писать Vorbis одним большим блоком, — `build_sounds.py` пишет кусками.
 - Сервер может отставать от клиента по тикам (генерация мира): в сценарии клиента кадры привязаны к событиям, не к счётчику.
 - Игровые часы клиента прыгают назад, когда сервер догоняет отставание: время картинки подрыва — свои тики клиента
   от прихода пакета (`ClientNuclear.Active`), а не `level.getGameTime()`.
