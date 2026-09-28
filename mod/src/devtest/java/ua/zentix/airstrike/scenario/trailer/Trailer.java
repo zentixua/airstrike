@@ -1178,6 +1178,25 @@ public final class Trailer {
         }
         if (steps.peek() instanceof Shot shot) shot.applyCamera();
         else CineCamera.apply(idleTime); // между планами камера стоит, где закончила
+        holdTarget();
+    }
+
+    /**
+     * Видео с борта: камера на подвесе смотрит туда, куда игрок ведёт мышью; в трейлере мышь не двигается, и подвес
+     * оставался на курсе входа — в пике в кадре был горизонт. Оператор держит цель в центре кадра.
+     */
+    private void holdTarget() {
+        if (!ProjectileCamera.isViewing() || !(mc.getCameraEntity() instanceof StrikeProjectile p)
+                || !(ua.zentix.airstrike.client.hud.ClientFlights.find(p.getUUID()) instanceof ua.zentix.airstrike.client.hud.ClientFlights.Tracked f)) {
+            return;
+        }
+        Vec3 d = f.target().subtract(p.getPosition(mc.getTimer().getGameTimeDeltaPartialTick(false)));
+        float yaw = (float) (Mth.atan2(d.z, d.x) * Mth.RAD_TO_DEG) - 90;
+        float pitch = (float) (-Mth.atan2(d.y, d.horizontalDistance()) * Mth.RAD_TO_DEG);
+        mc.player.setYRot(yaw);
+        mc.player.yRotO = yaw;
+        mc.player.setXRot(pitch);
+        mc.player.xRotO = pitch;
     }
 
     private void afterFrame(RenderFrameEvent.Post e) {
