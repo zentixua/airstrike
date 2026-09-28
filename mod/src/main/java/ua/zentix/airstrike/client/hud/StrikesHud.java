@@ -36,8 +36,10 @@ public final class StrikesHud {
         if (mc.options.hideGui || mc.level == null || mc.player == null || !AirstrikeConfig.CLIENT.hud.get()) return;
         List<ClientFlights.Tracked> flights = ClientFlights.all();
         if (flights.isEmpty()) return;
+        // в камере снаряда справа вверху — её телеметрия (и время до удара): список поверх неё слипался в кашу
+        if (ProjectileCamera.isActive()) return;
         float pt = delta.getGameTimeDeltaPartialTick(false);
-        if (!ProjectileCamera.isActive()) markers(g, mc.font, flights, pt);
+        markers(g, mc.font, flights, pt);
 
         Font font = mc.font;
         int x = g.guiWidth() - 6, y = 6;

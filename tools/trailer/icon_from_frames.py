@@ -5,7 +5,7 @@
 
 План «icon» снимается сценарием трейлера (AIRSTRIKE_TRAILER_SHOTS=icon); готовая иконка в мод не входит.
 
-Сам выбирает кадр: самый крупный силуэт снаряда (всё, что заметно отличается от неба), целиком в кадре и ближе
+Сам выбирает кадр (кроме первых 10 %, пока камера заходит за шахед): самый крупный силуэт снаряда (всё, что заметно отличается от неба), целиком в кадре и ближе
 к центру. Пишет:
   airstrike-icon.png         512×512: кадр с запасом вокруг силуэта, скруглённые углы, тёплая рамка и тёмный
                              контур снаружи (видно и на тёмной, и на светлой теме Modrinth);
@@ -24,6 +24,7 @@ from scipy import ndimage
 
 N = 512
 RIM, OUTLINE = (255, 138, 42), (20, 16, 14)
+SETTLE = 10  # первая 1/SETTLE кадров плана не берётся
 
 
 def subject(img):
@@ -92,7 +93,9 @@ def main(frames, out):
     os.makedirs(out, exist_ok=True)
     names = sorted(f for f in os.listdir(frames) if f.endswith(".png"))
     best, best_s, best_name = -1, None, None
-    for f in names[:: max(1, len(names) // 60)]:
+    # первые 10 % плана — камера ещё догоняет шахед (он сбоку, «обычная ракета в профиль»); дальше каждый шаг сетки
+    step = max(1, len(names) // 60)
+    for f in [f for i, f in enumerate(names) if i % step == 0 and i >= len(names) // SETTLE]:
         img = Image.open(os.path.join(frames, f))
         sc, s = score(img)
         if sc > best:
