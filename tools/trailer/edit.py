@@ -7,14 +7,19 @@
     --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
     --draft  — быстрый черновик 960×540 (проверить монтаж)
     --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые
+    --jobs   — процессов отрисовки (по умолчанию min(ядер, 6))
     результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
     и …-credits.txt — строки об авторах музыки и звуков для описания ролика
 
 Музыка и шрифты скачиваются один раз в tools/.trailer-cache (проверка sha256). Нужны numpy, scipy, soundfile,
 Pillow и ffmpeg (системный или из пакета imageio-ffmpeg).
+
+Память на 1080p (замер): процесс отрисовки ~0.3 ГБ и главный ~0.3 ГБ — ровно весь монтаж (в очереди не больше
+2×jobs кадров), кодер x264 slow 2.5 ГБ на 4 ядрах и больше с числом потоков; при --jobs 6 пик ~5–6 ГБ.
 """
 import argparse
 import bisect
+import collections
 import hashlib
 import json
 import math
@@ -521,6 +526,19 @@ def _render(i):
     return np.clip(a, 0, 255).astype(np.uint8).tobytes()
 
 
+def render_frames(n, jobs, init):
+    """Кадры трейлера по порядку. В работе и в очереди — не больше 2×jobs кадров: Pool.imap не ждёт потребителя
+    и копит готовые кадры (6 МБ на 1080p), пока кодер x264 медленнее отрисовки, — 16 процессов съедали больше 8 ГБ."""
+    with multiprocessing.Pool(jobs, _init_worker, init) as pool:
+        pending = collections.deque()
+        for i in range(n):
+            pending.append(pool.apply_async(_render, (i,)))
+            if len(pending) >= 2 * jobs:
+                yield pending.popleft().get()
+        while pending:
+            yield pending.popleft().get()
+
+
 # ---------------------------------------------------------------- звук
 
 class SoundBank:
@@ -734,6 +752,8 @@ def main():
     ap.add_argument("--rec", action="append", help="папка записи (по умолчанию mod/run/scenario/trailer); можно несколько — "
                     "планы из следующих (пересъёмка) заменяют одноимённые")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
+    ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 6),
+                    help="процессов отрисовки (по умолчанию не больше 6: каждый ~0.4 ГБ на 1080p)")
     args = ap.parse_args()
     if args.out is None:
         args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
@@ -784,11 +804,10 @@ def main():
            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "256k", "-shortest", args.out]
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     n = int(total * FPS)
-    with multiprocessing.Pool(os.cpu_count(), _init_worker, (edit, texts, shots, size)) as pool:
-        for i, buf in enumerate(pool.imap(_render, range(n), chunksize=8)):
-            enc.stdin.write(buf)
-            if i % 600 == 0:
-                print(f"  {i / FPS:.0f} с")
+    for i, buf in enumerate(render_frames(n, args.jobs, (edit, texts, shots, size))):
+        enc.stdin.write(buf)
+        if i % 600 == 0:
+            print(f"  {i / FPS:.0f} с")
     enc.stdin.close()
     if enc.wait() != 0:
         raise SystemExit("ffmpeg: кодирование не удалось")
