@@ -31,7 +31,6 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
-import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FlightTickets;
@@ -363,7 +362,6 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (level().isClientSide) {
             clientLerp();
             age++;
-            ClientHooks.get().projectileTick(this);
             return;
         }
         try {

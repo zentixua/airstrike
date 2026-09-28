@@ -29,7 +29,6 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEntities;
 
@@ -97,10 +96,7 @@ public class DebrisEntity extends Entity {
         move(MoverType.SELF, getDeltaMovement());
         setDeltaMovement(getDeltaMovement().scale(0.98));
 
-        if (level().isClientSide) {
-            ClientHooks.get().debrisTick(this);
-            return;
-        }
+        if (level().isClientSide) return;
         ServerLevel level = (ServerLevel) level();
         if (hurtsEntities && before.lengthSqr() > 0.09) hurtWhoIsHit(level, before);
         if (onGround() || horizontalCollision && before.y < 0 && getDeltaMovement().horizontalDistanceSqr() < 1.0e-4) {

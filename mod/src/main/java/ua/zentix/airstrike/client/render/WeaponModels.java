@@ -44,14 +44,19 @@ public final class WeaponModels {
         LOITER_BODY("loiter_body"), LOITER_WINGS("loiter_wings"), LOITER_PROP("loiter_prop"), LOITER_DISC("loiter_disc");
 
         final ModelResourceLocation location;
+        /** Грани из запечённой модели: сборная модель OBJ склеивает список заново на каждый вызов {@code getQuads}. */
+        private List<BakedQuad> quads;
 
         Mesh(String name) {
             this.location = ModelResourceLocation.standalone(Airstrike.id("weapon/" + name));
         }
 
         private List<BakedQuad> quads() {
-            return Minecraft.getInstance().getModelManager().getModel(location)
-                    .getQuads(null, null, RandomSource.create(0), ModelData.EMPTY, null);
+            if (quads == null) {
+                quads = List.copyOf(Minecraft.getInstance().getModelManager().getModel(location)
+                        .getQuads(null, null, RandomSource.create(0), ModelData.EMPTY, null));
+            }
+            return quads;
         }
 
         /** Нарисовать деталь в текущей системе координат (нос по +Z). */
@@ -70,6 +75,11 @@ public final class WeaponModels {
 
     public static void register(ModelEvent.RegisterAdditional e) {
         for (Mesh m : Mesh.values()) e.register(m.location);
+    }
+
+    /** Ресурсы перезагружены (F3+T, пакет ресурсов): грани берутся из новых моделей. */
+    public static void baked(ModelEvent.BakingCompleted e) {
+        for (Mesh m : Mesh.values()) m.quads = null;
     }
 
     /** Как нарисовать снаряд в его системе координат. */
