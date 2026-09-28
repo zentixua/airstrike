@@ -111,8 +111,8 @@ public final class WeaponModels {
 
     // ---------------------------------------------------------------- крылатая ракета
 
-    /** Шарниры крыльев: (±0.42, 0, 0.9), поворот вокруг Y; сложенное крыло лежит вдоль корпуса назад. */
-    private static final float WING_PIVOT_X = 0.42f, WING_PIVOT_Z = 0.9f;
+    /** Шарниры крыльев: (±0.21, 0, 0.45), поворот вокруг Y; сложенное крыло лежит вдоль корпуса назад. */
+    private static final float WING_PIVOT_X = 0.21f, WING_PIVOT_Z = 0.45f;
 
     public static void missile(StrikeProjectile e, float partial, PoseStack pose, MultiBufferSource buffers, int light) {
         Mesh.MISSILE_BODY.draw(pose, buffers, light);
@@ -129,7 +129,7 @@ public final class WeaponModels {
         // воздухозаборник выдвигается из брюха после крыльев
         float intake = deployed(e, partial, 8, 6);
         pose.pushPose();
-        pose.translate(0, 0.32f * (1 - intake), 0);
+        pose.translate(0, 0.16f * (1 - intake), 0);
         Mesh.MISSILE_INTAKE.draw(pose, buffers, light);
         pose.popPose();
     }

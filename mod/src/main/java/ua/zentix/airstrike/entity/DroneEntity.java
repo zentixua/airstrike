@@ -40,7 +40,7 @@ public class DroneEntity extends StrikeProjectile {
 
     @Override
     protected double noseLength() {
-        return 3.65;
+        return 1.83;
     }
 
     @Override
