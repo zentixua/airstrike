@@ -163,7 +163,7 @@ public final class Trailer {
         run(() -> mc.options.keyUse.setDown(false));
 
         // --- пусковая за спиной: подъём пакета, поджиг, сход
-        shot("launch_drone").after(() -> launcher(WeaponType.DRONE) != null, 100).noPrep().length(190).camera(() -> {
+        shot("launch_drone").after(() -> launcher(WeaponType.DRONE) != null, 100).noPrep().length(190).speed(0.5).camera(() -> {
             LauncherEntity l = launcher(WeaponType.DRONE);
             Vec3 at = l.position();
             Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
@@ -172,7 +172,12 @@ public final class Trailer {
             Vec3 a = ground(at.add(right.scale(17)).add(fwd.scale(-9))).add(0, 1.7, 0);
             Vec3 b = ground(at.add(right.scale(14)).add(fwd.scale(-5))).add(0, 2.2, 0);
             return CineCamera.dolly(a, b, 190, () -> at.add(fwd.scale(6)).add(0, 3.5, 0), 64);
-        });
+        }).endWhen(() -> {
+            // шахед отошёл от пусковой — сразу за ним, пока он в загруженном мире
+            DroneEntity d = newest(DroneEntity.class);
+            LauncherEntity l = launcher(WeaponType.DRONE);
+            return d != null && l != null && d.distanceTo(l) > 45;
+        }, 0);
         // разгон и отделение ускорителя — замедленно, вплотную, сверху (земля в кадре — видна скорость)
         shot("boost").after(() -> newest(DroneEntity.class) != null, 200).noPrep().length(56).speed(0.4).hidden()
                 .camera(() -> chaseOf(newest(DroneEntity.class), 7, 2.6, 3.2, 14, 0, 62));

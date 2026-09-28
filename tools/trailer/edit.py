@@ -233,35 +233,37 @@ def build_edit():
     D = 30.0                                   # drop в трейлере
     FLASH = D + (192.0 - MUSIC["drop"]) + 0.02  # вспышка = последний удар трека (32 такта после drop)
     edit = [
-        Black(1.0),
-        Clip("dawn", 1.2, 9.5, xfade=0.0),
+        Black(4.0),
+        Clip("dawn", 1.2, 8.5, xfade=0.8),
         Clip("remote", 0.3, 3.0, xfade=0.4),
         Clip("operator", 0.3, 5.5, xfade=0.3),
         Clip("scope", 0.0, 4.0, xfade=0.2),
-        Clip("launch_drone", "sound:launch.booster-7.0", 7.0),
+        Clip("launch_drone", "sound:launch.booster-5.0", 5.0),
         # drop: поджиг и сход шахеда
-        Clip("launch_drone", "sound:launch.booster-0.15", 4.5, flash=True),
-        Clip("boost", 0.0, 3.0),
+        Clip("launch_drone", "sound:launch.booster-0.15", 3.0, flash=True),
+        Clip("boost", 0.0, 4.5),
         Clip("cruise", 1.0, 3.0),
         Clip("impact_drone", "mark:gone-2.5", 6.0),
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
-        Clip("missile_camera", "end-4.5", 4.5),
+        Clip("missile_camera", 0.0, 4.5),
         Clip("impact_missile", "mark:gone-1.5", 4.5),
         Clip("rocket_launch", 0.5, 7.5, flash=True),
         Clip("rocket_impact", "sound:blast-1.0", 6.0),
         Clip("bomber", "mark:gone-4.5", 7.5),
         Clip("salvo", "mark:gone-3.0", 7.5, flash=True),
-        Clip("salvo_missiles", "mark:gone-1.5", 6.0),
+        Clip("salvo_missiles", "mark:gone-1.5", 9.0),
         # нарезка разрывов по полутактам
         Clip("impact_drone", "mark:gone+0.8", 1.5, rate=0.8),
         Clip("rocket_impact", "sound:blast#6-0.2", 1.5),
         Clip("salvo", "mark:gone#4-0.3", 1.5),
+        Clip("rocket_impact", "sound:blast#9-0.2", 1.5),
         Clip("bomber", "mark:gone+0.5", 1.5),
-        Black(3.0),
-        Clip("icbm", 0.0, 13.5, flash=True),
+        Clip("salvo_missiles", "mark:gone#3-0.2", 1.5),
+        Black(4.5),
+        Clip("icbm", 0.0, 5.0, flash=True),
         # из-за плеча наводчика: отсчёт, тревога, вспышка, шар, фронт доходит до вышки
-        Clip("nuke", f"mark:detonation-{FLASH - (D + 87.0):.2f}", 15.0),
-        Clip("mushroom", 0.0, 9.0, rate=2.0, xfade=0.6),
+        Clip("nuke", "mark:detonation-10.0", 16.0),
+        Clip("mushroom", 0.0, 9.0, rate=1.5, xfade=0.6),
         Clip("fallout", 0.5, 6.0, xfade=1.0),
         Black(9.0),
     ]
@@ -270,20 +272,20 @@ def build_edit():
         c.start = t
         t += c.dur
     total = t
-    icbm = next(c for c in edit if isinstance(c, Clip) and c.shot == "icbm")
-    assert abs(icbm.start + icbm.dur - (D + 87.0)) < 1e-6, "план nuke должен начинаться в D+87"
+    nuke = next(c for c in edit if isinstance(c, Clip) and c.shot == "nuke")
+    assert abs(nuke.start + 10.0 - FLASH) < 0.05, "вспышка в плане nuke должна прийтись на последний удар музыки"
     texts = [
-        Text(2.0, 3.6, ("ZENTIX UA", "представляет"), "card"),
-        Text(6.2, 3.8, ("мод для «All of Create Aeronautics»",), "sub"),
-        Text(19.0, 2.2, ("НАВЕДИ",), "word"),
-        Text(27.2, 2.0, ("ЗАПУСТИ",), "word"),
+        Text(0.6, 3.2, ("ZENTIX UA", "представляет"), "card"),
+        Text(5.2, 3.8, ("мод для «All of Create Aeronautics»",), "sub"),
+        Text(21.2, 2.2, ("НАВЕДИ",), "word"),
+        Text(27.6, 1.9, ("ЗАПУСТИ",), "word"),
         Text(D + 4.8, 3.2, ("ШАХЕД-136", "разгонный блок · маршрут в обход · удар сверху"), "caption"),
         Text(D + 17.0, 3.2, ("КРЫЛАТАЯ РАКЕТА", "бреющий полёт · горка · вид с борта"), "caption"),
         Text(D + 30.3, 3.2, ("«ГРАД»", "пакет из 40 труб · залп очередью"), "caption"),
         Text(D + 44.0, 3.2, ("B-2 SPIRIT", "бетонобойная бомба · подземный взрыв"), "caption"),
         Text(D + 51.3, 3.2, ("ЗАЛП", "до 100 снарядов с разбросом"), "caption"),
-        Text(D + 70.5, 3.0, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
-        Text(D + 76.0, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
+        Text(D + 76.8, 3.6, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
+        Text(D + 81.5, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
         Text(total - 9.0 + 0.6, 5.2, ("AIRSTRIKE",), "title"),
         Text(total - 9.0 + 2.0, 3.8, ("NeoForge 1.21.1 · Create Aeronautics", "github.com/zentixua/airstrike"), "sub"),
         Text(total - 3.0, 3.0, ("Музыка: " + MUSIC["credit"], "Звуки мода: Freesound (CC0 / CC BY) — список в SOUND-CREDITS.md"), "credits"),
@@ -291,7 +293,7 @@ def build_edit():
     hits = [
         Hit(D - 4.0, "riser", 4.0, 0.8),
         Hit(D, "boom", 3.0, 1.0),
-        Hit(D + 70.5, "boom", 3.0, 0.9),
+        Hit(D + 76.5, "boom", 3.0, 0.9),
         Hit(FLASH - 5.0, "riser", 5.0, 0.7),
         Hit(total - 9.0 + 0.6, "boom", 5.0, 1.2),
     ]
@@ -656,6 +658,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--draft", action="store_true")
     ap.add_argument("--out", default=os.path.join(DIST, "airstrike-trailer.mp4"))
+    ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
     args = ap.parse_args()
     shots = load_recording()
     for v in FONTS.values():  # скачать до рабочих процессов
@@ -664,11 +667,25 @@ def main():
     edit, texts, hits, total, drop_at, flash = build_edit()
     missing = {c.shot for c in edit if isinstance(c, Clip) and c.shot not in shots}
     if missing:
-        print("  ! нет планов:", ", ".join(sorted(missing)), "— вместо них чёрный кадр")
-        edit = [Black(c.dur, c.start) if isinstance(c, Clip) and c.shot in missing else c for c in edit]
+        # нет плана — его время отдаётся прошлому плану (он идёт медленнее), без чёрных дыр
+        print("  ! нет планов:", ", ".join(sorted(missing)), "— их время у соседних планов")
+        kept = []
+        for c in edit:
+            if isinstance(c, Clip) and c.shot in missing and kept and isinstance(kept[-1], Clip):
+                kept[-1].dur += c.dur
+            elif not (isinstance(c, Clip) and c.shot in missing):
+                kept.append(c)
+        edit = kept
     for c in edit:
         if isinstance(c, Clip):
             c.src = max(0.0, anchor(shots[c.shot], c.at))
+            left = shots[c.shot].duration - c.src
+            if c.dur * c.rate > left > 0:  # не хватает кадров — медленнее, но до конца плана
+                c.rate = left / c.dur
+    t = 0.0
+    for c in edit:
+        c.start = t
+        t += c.dur
     first = next(iter(shots.values()))
     w0, h0 = Image.open(first.frame(0)).size
     size = (960, 540) if args.draft else (w0, h0)
@@ -678,7 +695,7 @@ def main():
     sf.write(audio, mix(edit, texts, hits, shots, total, drop_at, flash), SR, subtype="PCM_16")
     print(f"картинка: {int(total * FPS)} кадров {size[0]}×{size[1]}…")
     cmd = [ffmpeg(), "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(FPS),
-           "-i", "-", "-i", audio, "-c:v", "libx264", "-preset", "veryfast" if args.draft else "slow", "-crf", "23" if args.draft else "15",
+           "-i", "-", "-i", audio, "-c:v", "libx264", "-preset", "veryfast" if args.draft else args.preset, "-crf", "23" if args.draft else "15",
            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "256k", "-shortest", args.out]
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     n = int(total * FPS)

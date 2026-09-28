@@ -40,6 +40,9 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
     gen_particles.py                     ← текстуры частиц эффектов и факела (numpy + Pillow)
     gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow), не править OBJ руками
+    trailer/record.sh [shaders]          ← трейлер: сценарий клиента trailer снимает планы покадрово в 60 fps
+                                           (AIRSTRIKE_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
+    trailer/edit.py [--draft]            ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала → dist/airstrike-trailer.mp4
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
 
