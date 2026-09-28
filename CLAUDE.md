@@ -95,7 +95,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   (только разгон), `LauncherEntity` (пусковая: пакет, ячейки, очередь пусков), `SpentBoosterEntity` (отработавший
   ускоритель), `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением
   скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины;
-  `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО).
+  `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО); `guidance/Orbit` — круг барража
+  (векторное поле курсов с упреждением v/r: выход на круг по касательной).
 - `target/` — `Target` (точка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
   аппарата → сущность → блок), `TargetTracker`. `compat/SubLevels` — вся связь с Sable (через sable-companion,
   вшит jar-in-jar; сам Sable — compileOnly).

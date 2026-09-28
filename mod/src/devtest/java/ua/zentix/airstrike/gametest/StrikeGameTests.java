@@ -231,7 +231,8 @@ public final class StrikeGameTests {
         java.util.UUID id = e.getUUID();
         int[] loiter = {0};
         boolean[] dived = {false};
-        double[] radius = {1e9, 0};
+        // сильнее всего отклонение от своего круга (боеприпас на круг выходит по касательной — с первого тика)
+        double[] drift = {0, 0};
         Vec3[] lastPos = {null};
         String[] last = {""};
         h.onEachTick(() -> {
@@ -241,11 +242,10 @@ public final class StrikeGameTests {
             last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " v=" + l.speed();
             if (l.flightPhase() == FlightPhase.LOITER) {
                 loiter[0]++;
-                double r = Math.hypot(l.getX() - point.x, l.getZ() - point.z);
-                // первые 3 с — выход на круг
-                if (loiter[0] > 60) {
-                    radius[0] = Math.min(radius[0], r);
-                    radius[1] = Math.max(radius[1], r);
+                double off = Math.hypot(l.getX() - point.x, l.getZ() - point.z) - l.orbitRadius();
+                if (Math.abs(off) > Math.abs(drift[0])) {
+                    drift[0] = off;
+                    drift[1] = l.orbitRadius();
                 }
             }
             if (l.flightPhase() == FlightPhase.TERMINAL) dived[0] = true;
@@ -254,7 +254,7 @@ public final class StrikeGameTests {
             h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
             int min = (int) (ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.get() * 20 * 0.8);
             h.assertTrue(loiter[0] >= min, "кружил " + loiter[0] + " тиков, а должен не меньше " + min);
-            h.assertTrue(radius[0] > 20 && radius[1] < 75, "ушёл с круга: радиус от " + radius[0] + " до " + radius[1]);
+            h.assertTrue(Math.abs(drift[0]) <= ua.zentix.airstrike.guidance.Orbit.TOLERANCE, "ушёл с круга радиусом " + drift[1] + " на " + drift[0]);
             h.assertTrue(dived[0], "не пикировал: " + last[0]);
             h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
         });

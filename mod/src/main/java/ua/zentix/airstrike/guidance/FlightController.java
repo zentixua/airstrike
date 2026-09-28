@@ -70,8 +70,17 @@ public final class FlightController {
      * @param targetYaw курс на цель
      */
     public void steerYaw(double targetYaw, double gain, double maxRate, double maxAccel) {
+        trackYaw(targetYaw, 0, gain, maxRate, maxAccel);
+    }
+
+    /**
+     * Курс по кривой: к упреждению {@code feedForward} (°/тик — с какой скоростью поворачивает сама кривая,
+     * например v/R на круге) добавляется поправка gain·ошибка. Без упреждения на установившемся развороте курс
+     * отстаёт на ω/gain, и снаряд сползает с кривой наружу.
+     */
+    public void trackYaw(double targetYaw, double feedForward, double gain, double maxRate, double maxAccel) {
         double err = Mth.wrapDegrees(targetYaw - yaw);
-        double w = Mth.clamp(err * gain, -maxRate, maxRate);
+        double w = Mth.clamp(feedForward + err * gain, -maxRate, maxRate);
         double dw = Mth.clamp(w - yawRate, -maxAccel, maxAccel);
         yawRate += (float) dw;
         yaw = Mth.wrapDegrees(yaw + yawRate);
