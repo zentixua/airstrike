@@ -12,6 +12,8 @@ mkdir -p "$RUN/logs"
 # папка записи: AIRSTRIKE_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
 #   AIRSTRIKE_TRAILER_SHOTS=bomb_bay,targets AIRSTRIKE_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
 #   python3 tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
+# язык игры — AIRSTRIKE_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
+#   AIRSTRIKE_LANG=en_us AIRSTRIKE_TRAILER_SHOTS=remote,scope,targets AIRSTRIKE_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
 export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"
 rm -rf "${RUN:?}/$AIRSTRIKE_TRAILER_DIR"
 # звук с устройства не нужен (игра идёт замедленно, дорожку собирает монтаж), но звуковой движок должен работать
@@ -26,13 +28,14 @@ onboardAccessibility:false
 pauseOnLostFocus:false
 renderDistance:${AIRSTRIKE_RENDER_DISTANCE:-12}
 simulationDistance:16
+entityDistanceScaling:1.0
 guiScale:3
 fov:0.0
 bobView:false
 soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
-lang:ru_ru
+lang:${AIRSTRIKE_LANG:-ru_ru}
 OPT
 export AIRSTRIKE_SCENARIO=trailer
 export AIRSTRIKE_SIZE="${AIRSTRIKE_SIZE:-1920x1080}"
@@ -68,4 +71,6 @@ if command -v kwin_wayland >/dev/null; then
   # сценарий снимает с окна рамку и ставит его ровно ${W}x${H} (Trailer.exactFrame)
   exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-trailer "$((W + 64))" "$((H + 160))" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
 fi
-LIBGL_ALWAYS_SOFTWARE=1 exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"
+# облако: звуковой сервер клиенту закрыт, как в nested_kwin.sh (звук трейлера собирается из журнала)
+LIBGL_ALWAYS_SOFTWARE=1 PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
+  exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"

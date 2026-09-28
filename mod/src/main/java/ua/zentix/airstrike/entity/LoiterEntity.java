@@ -8,6 +8,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.guidance.Dive;
 import ua.zentix.airstrike.guidance.Orbit;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -33,6 +34,8 @@ public class LoiterEntity extends StrikeProjectile {
     private static final double STRIKE_NOW = 140;
     /** Сколько тиков в среднем уходит на пикирование с круга (для времени до удара). */
     private static final int DIVE_TICKS = 25;
+    /** Пике мимо: дальше ближайшего подхода к цели на столько блоков — снова на круг и новый заход. */
+    private static final double MISSED_BY = 20;
 
     /** Катапульта: толчок за полсекунды, без огня; дальше тянет винт. */
     private static final LaunchProfile LAUNCH = new LaunchProfile(4, 10, 0.16, 4, -8);
@@ -43,8 +46,10 @@ public class LoiterEntity extends StrikeProjectile {
     /** Направление круга: +1 или −1 (у залпа — вразнобой). */
     private int orbitSide = 1;
     private double orbitRadius = LOITER_RADIUS;
-    /** Оператор выбрал цель из камеры: пикировать, не дожидаясь конца круга. */
+    /** Оператор выбрал цель из камеры (или пике прошло мимо): пикировать, не дожидаясь конца круга. */
     private boolean strikeNow;
+    /** Ближайший подход к цели в этом пике, блоков. */
+    private double closest = Double.MAX_VALUE;
 
     public LoiterEntity(EntityType<? extends LoiterEntity> type, Level level) {
         super(type, level);
@@ -189,25 +194,36 @@ public class LoiterEntity extends StrikeProjectile {
                 if (b.pitch() >= 30 || b.horizontal() <= orbitRadius + 15) setPhase(FlightPhase.TERMINAL);
             } else {
                 // к кругу — по тому же полю курсов, что и на круге: выход на него по касательной, без перелёта
-                orbit().steer(flight, position(), aim, speed);
-                if (orbit().captured(position(), aim, flight.yaw())) setPhase(FlightPhase.LOITER);
+                orbit().steer(flight, position(), aim, tracker.velocity(), speed);
+                if (orbit().captured(position(), aim, tracker.velocity(), speed, flight.yaw())) setPhase(FlightPhase.LOITER);
             }
         } else if (ph == FlightPhase.LOITER) {
             speed += (CRUISE_SPEED - speed) * 0.05;
             holdAltitude(Math.max(aim.y + LOITER_HEIGHT, floor), 0.12, 1.2, 0.15);
-            orbit().steer(flight, position(), aim, speed);
+            orbit().steer(flight, position(), aim, tracker.velocity(), speed);
             // заход в пике — когда цель под крылом (под углом 40° и круче) и время вышло
             boolean due = strikeNow || phaseAge() >= loiterTicks;
             if (due && b.pitch() >= 40) setPhase(FlightPhase.TERMINAL);
         } else if (ph == FlightPhase.TERMINAL) {
-            flight.arcPitch(b.pitch(), speed, b.distance(), 5.0, 0.4);
-            // с круга цель сбоку: резкий доворот с креном и пике (радиус разворота ~15 блоков)
-            if (b.horizontal() > 3) flight.steerYaw(b.yaw(), 0.4, 8.0, 1.0);
-            else flight.settleYaw(1.0);
-            speed = Math.min(DIVE_SPEED, speed + 0.1);
+            closest = Math.min(closest, b.distance());
+            if (b.distance() > closest + MISSED_BY) {
+                // прошёл мимо (цель увернулась, или угла в пике не хватило): не петлять вокруг неё, а, как настоящий
+                // «Ланцет», уйти на круг и зайти снова, как только цель опять под крылом
+                strikeNow = true;
+                setPhase(FlightPhase.LOITER);
+            } else {
+                Dive.steer(flight, position(), speed, aim, tracker.velocity());
+                speed = Math.min(DIVE_SPEED, speed + 0.1);
+            }
         }
 
         advance(level, aim, 3.0);
+    }
+
+    @Override
+    protected void setPhase(FlightPhase phase) {
+        super.setPhase(phase);
+        if (phase == FlightPhase.TERMINAL) closest = Double.MAX_VALUE;
     }
 
     private Orbit orbit() {

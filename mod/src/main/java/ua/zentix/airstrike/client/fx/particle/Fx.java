@@ -28,7 +28,7 @@ public final class Fx {
 
     public enum Kind {
         SMOKE(true, false, FxBudget.CLOUD), FIRE(false, false, FxBudget.CLOUD), SPARK(false, true, FxBudget.SPARK),
-        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.CLOUD);
+        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.GROUND);
 
         /** Освещается миром (дым, пыль) или светится сам (огонь, искры). */
         final boolean lit;

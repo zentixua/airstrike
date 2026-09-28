@@ -143,7 +143,7 @@ public final class Exhaust {
                         .life(6 + r.nextInt(8)).size(0.05f, 0.02f).spawn(level, s.muzzle);
             }
             Fx.smoke().vel(back.scale(-0.2)).size(0.6f, 2.2f).life(120 + r.nextInt(60)).color(0xE0DCD4, 0xA8A49E).alpha(0.6f)
-                    .drag(0.88f).glow(0.7f, 4).rise(0.002f).fadeIn(1).fadeFrom(0.5f).spin(0.01f).spawn(level, s.muzzle);
+                    .drag(0.88f).glow(0.7f, 4).rise(0.002f).fadeIn(1).fadeFrom(0.5f).spin(0.01f).budget(FxBudget.GROUND).spawn(level, s.muzzle);
         }
         if (age < 6) backblast(level, s.pad, back, 2, r);
         // языки огня летят вместе со снарядом и чуть отстают — иначе за ним остаются огненные бусины
@@ -170,7 +170,7 @@ public final class Exhaust {
             Fx.smoke().vel(back.x * 0.6 + Math.cos(a) * v, back.y * 0.6 + r.nextDouble() * 0.06, back.z * 0.6 + Math.sin(a) * v)
                     .size(0.8f, 4.5f + r.nextFloat() * 2).life(260 + r.nextInt(160)).color(0xE4DFD6, 0xA9A399).alpha(0.75f)
                     .drag(0.9f).glow(0.6f, 6).rise(0.0015f).collide().growFast().fadeIn(2).fadeFrom(0.6f).spin(0.008f)
-                    .spawn(level, rear.x + r.nextGaussian() * 0.2, rear.y + r.nextGaussian() * 0.2, rear.z + r.nextGaussian() * 0.2);
+                    .budget(FxBudget.GROUND).spawn(level, rear.x + r.nextGaussian() * 0.2, rear.y + r.nextGaussian() * 0.2, rear.z + r.nextGaussian() * 0.2);
         }
     }
 
@@ -232,7 +232,7 @@ public final class Exhaust {
                 Fx.smoke().vel(back.x * 0.3 + Math.cos(a) * v, 0.02 + r.nextDouble() * 0.08, back.z * 0.3 + Math.sin(a) * v)
                         .size(1.0f * scale, (5 + r.nextFloat() * 3) * scale).life(240 + r.nextInt(160)).color(0xE9E4DC, 0xB4AEA6)
                         .alpha(0.8f).drag(0.93f).glow(0.6f, 8).rise(0.0015f).collide().growFast().fadeIn(3).fadeFrom(0.6f).spin(0.008f)
-                        .spawn(level, s.pad.x + r.nextGaussian() * 0.5, s.pad.y - 0.5, s.pad.z + r.nextGaussian() * 0.5);
+                        .budget(FxBudget.GROUND).spawn(level, s.pad.x + r.nextGaussian() * 0.5, s.pad.y - 0.5, s.pad.z + r.nextGaussian() * 0.5);
             }
             if (ph == FlightPhase.IGNITION && e.phaseAge() % 2 == 0) Fx.flash().size(3 * scale, 4 * scale).life(3).alpha(0.5f).spawn(level, nozzle);
         }
@@ -272,7 +272,7 @@ public final class Exhaust {
             Fx.smoke().vel(Math.cos(a) * v, 0.05 + r.nextDouble() * 0.15, Math.sin(a) * v).size(2.5f, 11 + r.nextFloat() * 5)
                     .life(500 + r.nextInt(300)).color(0xE9E4DC, 0xB4AEA6).alpha(0.85f).drag(0.95f).glow(age < 40 ? 0.7f : 0.2f, 12)
                     .rise(0.0015f).collide().growFast().fadeIn(3).fadeFrom(0.6f).spin(0.008f)
-                    .spawn(level, pad.x + Math.cos(a) * 2, pad.y + 1 + r.nextDouble() * 2, pad.z + Math.sin(a) * 2);
+                    .budget(FxBudget.GROUND).spawn(level, pad.x + Math.cos(a) * 2, pad.y + 1 + r.nextDouble() * 2, pad.z + Math.sin(a) * 2);
         }
         if (age < 50) {
             for (int i = 0; i < 4; i++) {
@@ -284,7 +284,8 @@ public final class Exhaust {
         // столб, который вытягивает за ракетой
         if (age < 90) {
             Fx.smoke().vel(r.nextGaussian() * 0.1, 0.5 + r.nextDouble() * 0.4, r.nextGaussian() * 0.1).size(3, 9).life(600 + r.nextInt(200))
-                    .color(0xECE8E2, 0xBCB8B2).alpha(0.8f).drag(0.94f).glow(0.4f, 8).fadeIn(3).fadeFrom(0.6f).spawn(level, pad.add(0, 4, 0));
+                    .color(0xECE8E2, 0xBCB8B2).alpha(0.8f).drag(0.94f).glow(0.4f, 8).fadeIn(3).fadeFrom(0.6f).budget(FxBudget.GROUND)
+                    .spawn(level, pad.add(0, 4, 0));
         }
     }
 
@@ -307,7 +308,7 @@ public final class Exhaust {
         if (e.isDrilling()) {
             Vec3 in = e.entry();
             Fx.smoke().vel(r.nextGaussian() * 0.05, 0.08 + r.nextDouble() * 0.08, r.nextGaussian() * 0.05).size(0.6f, 3).life(120)
-                    .color(0x7A7066, 0xA49A90).alpha(0.6f).rise(0.002f).spawn(level, in.x + r.nextGaussian() * 0.4, in.y + 0.4, in.z + r.nextGaussian() * 0.4);
+                    .color(0x7A7066, 0xA49A90).alpha(0.6f).rise(0.002f).budget(FxBudget.GROUND).spawn(level, in.x + r.nextGaussian() * 0.4, in.y + 0.4, in.z + r.nextGaussian() * 0.4);
             return;
         }
         Vec3 tail = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -5.2);

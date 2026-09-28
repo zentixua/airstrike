@@ -2,6 +2,7 @@ package ua.zentix.airstrike.stress;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
@@ -90,6 +91,7 @@ public final class StressDirector {
     private final List<Step> steps = new ArrayList<>();
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
+    private final Set<UUID> overdueSeen = new HashSet<>();
     private final List<Vec3> blastsThisTick = new ArrayList<>();
     private final Map<String, Integer> outcomes = new TreeMap<>();
     private final Map<String, Integer> launchedByType = new TreeMap<>();
@@ -107,6 +109,8 @@ public final class StressDirector {
     private boolean finishing;
     private int quietSince = -1;
     private int finishingSince = -1;
+    /** С какого возраста снаряд попадает в строки «долго летит» (раз в 10 с). */
+    private static final int LONG_LIVED = 2400;
     /** Начало текущего тика для сторожа (поток сторожа читает). */
     private volatile long watchdogTickStart;
 
@@ -175,8 +179,8 @@ public final class StressDirector {
         as(1500, "Friend2", "airstrike salvo bunker 6 60 Host");
         at(1700, "Friend2 в Незер и обратно", s -> run(s, "execute in minecraft:the_nether run tp Friend2 0 80 0"));
         at(2100, "Friend2 из Незера", s -> tp(s, "Friend2", -620, 420));
-        // ядерка в 1000 блоках, пока идут залпы
-        as(2300, "Host", "airstrike nuke at 0 ~ -1000 15 air");
+        // ядерка в 1000 блоках, пока идут залпы: полёт МБР 1800 тиков — подрыв на 3000, до «Отбоя» (он отменяет и её)
+        as(1200, "Host", "airstrike nuke at 0 ~ -1000 15 air");
         as(2320, "Friend1", "airstrike salvo drone 30 150 Host");
         as(2340, "Host", "airstrike salvo rocket 30 150 Friend2");
         at(2600, "сохранение мира посреди полёта", s -> run(s, "save-all"));
@@ -363,7 +367,7 @@ public final class StressDirector {
     }
 
     /**
-     * Сторож: тик идёт дольше 2 с — стек потока сервера в лог (раз в 2 с, до 5 снимков на остановку). Так видно,
+     * Сторож: тик идёт дольше 0,5 с — стек потока сервера в лог (потом раз в 2 с, до 5 снимков на остановку). Так видно,
      * кто держит тик: ванильная загрузка чанков, мод или сам стенд.
      */
     private void startWatchdog(MinecraftServer s) {
@@ -379,12 +383,13 @@ public final class StressDirector {
                 }
                 long start = watchdogTickStart;
                 long ms = (System.nanoTime() - start) / 1_000_000;
-                if (start == 0 || ms < 2000) continue;
+                // первый стек — на 500 мс (чей долгий тик: наш, Sable или телепорт), дальше — каждые 2 с
+                if (start == 0 || ms < 500) continue;
                 if (dumpedFor != start) {
                     dumpedFor = start;
                     dumps = 0;
                 }
-                if (dumps >= 5 || ms < 2000L * (dumps + 1)) continue;
+                if (dumps >= 5 || ms < (dumps == 0 ? 500 : 2000L * dumps)) continue;
                 dumps++;
                 StringBuilder sb = new StringBuilder();
                 StackTraceElement[] st = server.getStackTrace();
@@ -426,6 +431,10 @@ public final class StressDirector {
         }
         track(s);
         if (tick % 100 == 0) stat(s);
+        if (tick % 200 == 0) {
+            // долгожители: по этим строкам видно, кружит снаряд, ждёт района цели или летит далеко
+            for (var en : watched.entrySet()) if (en.getValue().ref.age() >= LONG_LIVED) describe("долго летит", en.getKey(), en.getValue());
+        }
         if (finishing) finishWhenQuiet(s);
     }
 
@@ -464,6 +473,8 @@ public final class StressDirector {
             if (cleared.contains(en.getKey())) outcome = "cleared";
             else if (blastsThisTick.stream().anyMatch(b -> b.distanceToSqr(w.pos) < 48 * 48)) outcome = "impact";
             else if ("bomber".equals(w.type)) outcome = "bomber-gone";
+            // МБР — только разгон: над небом она убирается сама, удар дальше ведёт NuclearStrikes по таймеру
+            else if ("icbm".equals(w.type) && w.pos.y > s.overworld().getMaxBuildHeight()) outcome = "boost-done";
             else {
                 outcome = "lost";
                 log("lost %s %s у %d %d %d (цель %d %d %d, вне мира %b, ушёл: %s)", w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z,
@@ -514,6 +525,26 @@ public final class StressDirector {
         return byType.toString();
     }
 
+    /** Срок жизни снаряда вышел (ожидание района цели в него не входит), а он всё ещё летит. */
+    private static boolean overdue(StrikeProjectile p) {
+        CompoundTag tag = new CompoundTag();
+        p.saveWithoutId(tag);
+        int lifetime = tag.getInt("lifetime");
+        return lifetime > 0 && p.age() - tag.getInt("area_wait") > lifetime + 20;
+    }
+
+    /** Состояние снаряда: срок жизни, погоня и ожидание района цели — из NBT, этого снаружи больше нигде не видно. */
+    private void describe(String what, UUID id, Watch w) {
+        StrikeProjectile p = w.ref;
+        CompoundTag tag = new CompoundTag();
+        p.saveWithoutId(tag);
+        log("%s %s %s у %s фаза %s (%d тиков) возраст %d срок %d погоня %.0f ждал района %d цель %s у %s вне мира %b убран %s тикает %b",
+                what, w.type, id, p.blockPosition().toShortString(), p.flightPhase().getSerializedName(), tag.getInt("phase_age"),
+                p.age(), tag.getInt("lifetime"), tag.getCompound("tracker").getDouble("chased"), tag.getInt("area_wait"), p.target(),
+                BlockPos.containing(p.aimPoint()).toShortString(), p.isVirtual(), p.getRemovalReason(),
+                p.level() instanceof ServerLevel l && l.isPositionEntityTicking(p.blockPosition()));
+    }
+
     private void finishWhenQuiet(MinecraftServer s) {
         int active = watched.size();
         for (ServerLevel l : s.getAllLevels()) {
@@ -523,14 +554,21 @@ public final class StressDirector {
         if (active > 0) {
             quietSince = -1;
             if (finishingSince < 0) finishingSince = tick;
-            if (tick - finishingSince > 3600) {
-                log("не долетели за отведённое время: %d", active);
-                for (var en : watched.entrySet()) {
-                    StrikeProjectile p = en.getValue().ref;
-                    log("  остался %s %s у %s фаза %s возраст %d вне мира %b убран %s тикает %b", en.getValue().type, en.getKey(), p.blockPosition().toShortString(),
-                            p.flightPhase().getSerializedName(), p.age(), p.isVirtual(), p.getRemovalReason(),
-                            p.level() instanceof ServerLevel l && l.isPositionEntityTicking(p.blockPosition()));
+            // снаряд может честно лететь дольше окна (поздний пуск из залпа, ожидание района цели, погоня за целью),
+            // провал — только просроченный: живой после своего срока жизни; или всё окно вышло целиком
+            boolean overdue = false;
+            for (var en : watched.entrySet()) {
+                if (!overdue(en.getValue().ref)) continue;
+                overdue = true;
+                if (overdueSeen.add(en.getKey())) {
+                    describe("просрочен", en.getKey(), en.getValue());
+                    problems.add("снаряд " + en.getValue().type + " " + en.getKey() + " жив после срока жизни");
                 }
+            }
+            int waited = tick - finishingSince;
+            if (waited > 3600 && overdue || waited > 12000) {
+                log("не долетели за отведённое время: %d", active);
+                for (var en : watched.entrySet()) describe("  остался", en.getKey(), en.getValue());
                 summary(s, "timeout");
                 s.halt(false);
             }
@@ -551,8 +589,12 @@ public final class StressDirector {
         long p50 = sorted.isEmpty() ? 0 : sorted.get(sorted.size() / 2);
         long p99 = sorted.isEmpty() ? 0 : sorted.get(Math.min(sorted.size() - 1, (int) (sorted.size() * 0.99)));
         Runtime rt = Runtime.getRuntime();
-        log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d",
-                why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, watched.size(), tickets(s.overworld()),
+        int nukes = 0;
+        for (ServerLevel l : s.getAllLevels()) nukes += NuclearEvents.get(l).detonations().size();
+        // МБР пускали, а подрыва нет: удар потерян (или отменён раньше срока — тогда расписание стенда неверно)
+        if (nukes == 0 && launchedByType.containsKey("icbm")) problems.add("МБР пущена, а ядерного подрыва нет");
+        log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | ядерных подрывов %d | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d",
+                why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s.overworld()),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors);
         for (String p : problems) log("problem: %s", p);
     }

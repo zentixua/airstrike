@@ -6,15 +6,21 @@
     python3 tools/trailer/edit.py [--lang en|ru] [--draft] [--rec ПАПКА …] [--out ФАЙЛ]
     --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
     --draft  — быстрый черновик 960×540 (проверить монтаж)
-    --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые
+    --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые; план с текстом
+               игры в кадре берётся из записи на языке ролика (en_us или ru_ru, record.sh: AIRSTRIKE_LANG)
+    --jobs   — процессов отрисовки (по умолчанию min(ядер, 6))
     результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
     и …-credits.txt — строки об авторах музыки и звуков для описания ролика
 
 Музыка и шрифты скачиваются один раз в tools/.trailer-cache (проверка sha256). Нужны numpy, scipy, soundfile,
 Pillow и ffmpeg (системный или из пакета imageio-ffmpeg).
+
+Память на 1080p (замер): процесс отрисовки ~0.3 ГБ и главный ~0.3 ГБ — ровно весь монтаж (в очереди не больше
+2×jobs кадров), кодер x264 slow 2.5 ГБ на 4 ядрах и больше с числом потоков; при --jobs 6 пик ~5–6 ГБ.
 """
 import argparse
 import bisect
+import collections
 import hashlib
 import json
 import math
@@ -99,6 +105,8 @@ class Shot:
     stops: dict = field(default_factory=dict)       # id → t
     marks: list = field(default_factory=list)       # (t, что)
     count: int = 0
+    hud: bool = False       # в кадре текст интерфейса игры
+    lang: str = "ru_ru"     # язык игры при съёмке (записи до этого поля — только ru_ru)
 
     def sec(self, ticks):
         """Время плана в секундах видео по тикам игры."""
@@ -130,7 +138,7 @@ def load_recording(rec=REC):
                 continue
             kind, name = e["type"], e["shot"]
             if kind == "shot":
-                shots[name] = Shot(name, e["speed"])
+                shots[name] = Shot(name, e["speed"], hud=e.get("hud", False), lang=e.get("lang", "ru_ru"))
                 continue
             s = shots[name]
             if kind == "frame":
@@ -152,6 +160,25 @@ def load_recording(rec=REC):
     for s in shots.values():
         s.keys = sorted(s.frames)
     return {n: s for n, s in shots.items() if s.frames}
+
+
+def pick_takes(recordings, lang):
+    """Дубль каждого плана из записей (--rec по порядку): последний; план с текстом игры в кадре — последний
+    на языке ролика (en_us/ru_ru), а если такого нет — последний какой есть, с предупреждением."""
+    takes = {}
+    for rec in recordings:
+        for name, s in rec.items():
+            takes.setdefault(name, []).append(s)
+    shots = {}
+    for name, cands in takes.items():
+        own = [s for s in cands if s.lang == lang]
+        if any(s.hud for s in cands):
+            if not own:
+                print(f"  ! {name}: нет дубля на {lang}, текст в кадре — {cands[-1].lang}")
+            shots[name] = (own or cands)[-1]
+        else:
+            shots[name] = cands[-1]
+    return shots
 
 
 def anchor(shot, spec):
@@ -243,6 +270,7 @@ http://creativecommons.org/licenses/by/4.0/
 """
 
 # слова на экране: английские — для Modrinth и YouTube, русские — для своих (--lang ru)
+GAME_LANG = {"en": "en_us", "ru": "ru_ru"}  # язык игры для планов с текстом интерфейса в кадре (record.sh: AIRSTRIKE_LANG)
 WORDS = {
     "en": {"presents": "presents", "aim": "AIM", "launch": "LAUNCH", "shahed": "SHAHED-136", "missile": "CRUISE MISSILE",
            "lancet": "LANCET", "grad": "GRAD MLRS", "last": "LAST RESORT", "icbm": "ICBM",
@@ -280,8 +308,9 @@ def build_edit(lang="en"):
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
         Clip("missile_camera", "mark:video-1.5", 1.5, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
-        Clip("missile_camera", "mark:video", 4.5),  # видео и план попадания: свои полосы кадра — по центру
-        Clip("impact_missile", "mark:gone-1.5", 4.5),
+        # видео с борта — последние 150 блоков до взрыва: дальше атмосферный туман шейдерпака заливает кадр белым
+        Clip("missile_camera", "mark:close", 3.0),
+        Clip("impact_missile", "mark:gone-1.5", 6.0),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
         Clip("loiter_strike", "mark:gone-3.0", 4.5),
@@ -502,6 +531,19 @@ def _render(i):
     return np.clip(a, 0, 255).astype(np.uint8).tobytes()
 
 
+def render_frames(n, jobs, init):
+    """Кадры трейлера по порядку. В работе и в очереди — не больше 2×jobs кадров: Pool.imap не ждёт потребителя
+    и копит готовые кадры (6 МБ на 1080p), пока кодер x264 медленнее отрисовки, — 16 процессов съедали больше 8 ГБ."""
+    with multiprocessing.Pool(jobs, _init_worker, init) as pool:
+        pending = collections.deque()
+        for i in range(n):
+            pending.append(pool.apply_async(_render, (i,)))
+            if len(pending) >= 2 * jobs:
+                yield pending.popleft().get()
+        while pending:
+            yield pending.popleft().get()
+
+
 # ---------------------------------------------------------------- звук
 
 class SoundBank:
@@ -715,12 +757,12 @@ def main():
     ap.add_argument("--rec", action="append", help="папка записи (по умолчанию mod/run/scenario/trailer); можно несколько — "
                     "планы из следующих (пересъёмка) заменяют одноимённые")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
+    ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 6),
+                    help="процессов отрисовки (по умолчанию не больше 6: каждый ~0.3 ГБ на 1080p)")
     args = ap.parse_args()
     if args.out is None:
         args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
-    shots = {}
-    for rec in args.rec or [REC]:
-        shots.update(load_recording(rec))
+    shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()))
@@ -739,6 +781,10 @@ def main():
     for c in edit:
         if isinstance(c, Clip):
             c.src = max(0.0, anchor(shots[c.shot], c.at))
+            # камера снаряда вернулась к игроку («exit») — склейка кончается раньше
+            exits = [shots[c.shot].sec(t) for t, m in shots[c.shot].marks if m == "exit"]
+            if exits and exits[0] > c.src and c.src + c.dur * c.rate > exits[0] - 0.1:
+                c.src = max(0.0, exits[0] - 0.1 - c.dur * c.rate)
             left = shots[c.shot].duration - c.src
             if c.dur * c.rate > left > 0:  # не хватает кадров — медленнее, но до конца плана
                 c.rate = left / c.dur
@@ -761,11 +807,10 @@ def main():
            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "256k", "-shortest", args.out]
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     n = int(total * FPS)
-    with multiprocessing.Pool(os.cpu_count(), _init_worker, (edit, texts, shots, size)) as pool:
-        for i, buf in enumerate(pool.imap(_render, range(n), chunksize=8)):
-            enc.stdin.write(buf)
-            if i % 600 == 0:
-                print(f"  {i / FPS:.0f} с")
+    for i, buf in enumerate(render_frames(n, args.jobs, (edit, texts, shots, size))):
+        enc.stdin.write(buf)
+        if i % 600 == 0:
+            print(f"  {i / FPS:.0f} с")
     enc.stdin.close()
     if enc.wait() != 0:
         raise SystemExit("ffmpeg: кодирование не удалось")

@@ -97,7 +97,12 @@ public final class Trailer {
     /** Время, на котором закончился прошлый план: камера между планами стоит там. */
     private double idleTime;
     /** Камера снаряда показывала видео с борта на прошлом тике (переход с карты — отметка «video» для монтажа). */
-    private boolean wasViewing;
+    private boolean wasViewing, cameraWasActive, closeMarked;
+    /** Прорисовка из options.txt (record.sh): план с борта поднимает свою и потом возвращает эту. */
+    private int renderDistance;
+    private static final int ONBOARD_RENDER_DISTANCE = 24;
+    /** С борта ближе этого к цели земля видна и под шейдерами: монтаж берёт видео с отметки «close». */
+    private static final double CLOSE_RANGE = 150;
     private java.util.Map<Integer, String> seen = java.util.Map.of();
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
     /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
@@ -246,14 +251,21 @@ public final class Trailer {
         run(() -> fire("missile", target(side.scale(-4)).add(toPost.scale(-20))));
         shot("missile_camera").after(() -> !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 400)
                 .prepare(() -> {
+                    // туман шейдерпака (Complementary) по дальности — от прорисовки: при 12 чанках видео с борта
+                    // в 200 блоках от цели почти белое, при 24 земля видна раньше
+                    renderDistance = mc.options.renderDistance().get();
+                    mc.options.renderDistance().set(ONBOARD_RENDER_DISTANCE);
                     if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
                 })
                 // карта оператора, пока ракета дальше прорисовки: запись — за ~2 с до перехода на видео
                 .when(() -> onMap() && missileRange() < 700, 3000)
                 // карта, видео с борта: горка, пикирование, «сигнал потерян» и план попадания (облёт)
-                // замедленно: ракета в мире (а значит, и видео с борта) — лишь последние ~200 блоков, это ~20 тиков
-                .length(220).speed(0.35).hud().projectileCamera()
-                .cueEnd(ProjectileCamera::exit);
+                // замедленно: ракета в мире (а значит, и видео с борта) — лишь последние ~250 блоков, это ~20 тиков
+                .length(220).speed(0.2).hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
+                .cueEnd(() -> {
+                    ProjectileCamera.exit();
+                    mc.options.renderDistance().set(renderDistance);
+                });
 
         // --- «Ланцет»: катапульта у поста, круг над деревней, пике
         run(this::placeActor);
@@ -345,6 +357,19 @@ public final class Trailer {
             return CineCamera.dolly(a, b, 170, () -> village.add(0, 4, 0), 60);
         }).when(() -> nearest(CruiseMissileEntity.class, village, 350) != null, 2400);
 
+        // --- кадр для иконки мода: шахед в разгоне снизу-сбоку, целиком, на фоне дневного неба. До МБР: удар
+        // приходится по деревне, и после него у поста всё горит и дымит
+        run(() -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+        });
+        run(this::placeActor);
+        waitTicks(100);
+        run(() -> fire("drone", target(Vec3.ZERO)));
+        shot("icon").after(() -> newest(DroneEntity.class) instanceof DroneEntity d && !d.flightPhase().onLauncher(), 1600).noPrep()
+                .length(40).speed(0.3).hidden()
+                .camera(() -> chaseOf(newest(DroneEntity.class), 11, -3.5, 4.5, 10, 0, 40));
+
         // --- МБР: старт за наводчиком в ~2 км от деревни, подрыв из-за его плеча, гриб издалека
         run(() -> {
             cmd("time set 12500");
@@ -387,18 +412,6 @@ public final class Trailer {
         shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), village) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
                 .when(() -> sinceDetonation() > 3900, 6000);
-
-        // --- кадр для иконки мода: шахед в разгоне снизу-сбоку, крупно, на фоне дневного неба
-        run(() -> {
-            cmd("time set 6000");
-            cmd("weather clear");
-        });
-        run(this::placeActor);
-        waitTicks(20);
-        run(() -> fire("drone", target(Vec3.ZERO)));
-        shot("icon").after(() -> newest(DroneEntity.class) instanceof DroneEntity d && launcher(WeaponType.DRONE) instanceof LauncherEntity l
-                        && d.distanceTo(l) > 12, 400).noPrep().length(40).speed(0.3).hidden()
-                .camera(() -> chaseOf(newest(DroneEntity.class), 5.5, -1.8, 3.2, 8, 0, 42));
 
         run(() -> {
             rec.finish();
@@ -870,7 +883,7 @@ public final class Trailer {
         private boolean hiddenActor;
         private boolean prep = true;
         /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
-        private boolean farView;
+        private int readyChunks = 4;
         private BooleanSupplier after, when, end;
         private int afterTimeout, whenTimeout, endDelay;
         private final List<Cue> cues = new ArrayList<>();
@@ -919,7 +932,12 @@ public final class Trailer {
         }
 
         Shot farView() {
-            farView = true;
+            return readyChunks(10);
+        }
+
+        /** Перед съёмкой ждать мир на {@code chunks} чанков вокруг камеры (не дальше прорисовки). */
+        Shot readyChunks(int chunks) {
+            readyChunks = chunks;
             return this;
         }
 
@@ -1018,7 +1036,7 @@ public final class Trailer {
                 }
                 case 1 -> {
                     followCamera();
-                    readyFor = worldReady(farView) ? readyFor + 1 : 0;
+                    readyFor = worldReady(readyChunks) ? readyFor + 1 : 0;
                     if (readyFor >= 10 && waited >= 40 || waited > 1200) {
                         setFrozen(false);
                         phase = 2;
@@ -1036,7 +1054,7 @@ public final class Trailer {
                         Airstrike.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
                     if (selected()) {
-                        rec.start(name, speed);
+                        rec.start(name, speed, hudOn);
                         recording = this;
                         frameClock = 0;
                         setTickRate(Math.max(1, (float) (8 * rec.step())));
@@ -1100,10 +1118,21 @@ public final class Trailer {
             detonationTime = mc.level.getGameTime();
             if (rec.recording()) rec.mark("detonation");
         }
-        boolean viewing = ProjectileCamera.isViewing();
+        boolean viewing = ProjectileCamera.isViewing(), camera = ProjectileCamera.isActive();
         markImpacts(rec.recording());
         if (rec.recording() && viewing && !wasViewing) rec.mark("video");
+        if (!viewing) {
+            closeMarked = false;
+        } else if (rec.recording() && !closeMarked && mc.getCameraEntity() instanceof StrikeProjectile p
+                && ua.zentix.airstrike.client.hud.ClientFlights.find(p.getUUID()) instanceof ua.zentix.airstrike.client.hud.ClientFlights.Tracked f
+                && p.position().distanceTo(f.target()) < CLOSE_RANGE) {
+            rec.mark("close");
+            closeMarked = true;
+        }
+        // камера снаряда вернулась к игроку: дальше в плане — вид от первого лица, монтаж режет до этой отметки
+        if (rec.recording() && !camera && cameraWasActive) rec.mark("exit");
         wasViewing = viewing;
+        cameraWasActive = camera;
         while (!steps.isEmpty()) {
             if (!steps.peek().tick()) break;
             steps.poll();
@@ -1149,6 +1178,25 @@ public final class Trailer {
         }
         if (steps.peek() instanceof Shot shot) shot.applyCamera();
         else CineCamera.apply(idleTime); // между планами камера стоит, где закончила
+        holdTarget();
+    }
+
+    /**
+     * Видео с борта: камера на подвесе смотрит туда, куда игрок ведёт мышью; в трейлере мышь не двигается, и подвес
+     * оставался на курсе входа — в пике в кадре был горизонт. Оператор держит цель в центре кадра.
+     */
+    private void holdTarget() {
+        if (!ProjectileCamera.isViewing() || !(mc.getCameraEntity() instanceof StrikeProjectile p)
+                || !(ua.zentix.airstrike.client.hud.ClientFlights.find(p.getUUID()) instanceof ua.zentix.airstrike.client.hud.ClientFlights.Tracked f)) {
+            return;
+        }
+        Vec3 d = f.target().subtract(p.getPosition(mc.getTimer().getGameTimeDeltaPartialTick(false)));
+        float yaw = (float) (Mth.atan2(d.z, d.x) * Mth.RAD_TO_DEG) - 90;
+        float pitch = (float) (-Mth.atan2(d.y, d.horizontalDistance()) * Mth.RAD_TO_DEG);
+        mc.player.setYRot(yaw);
+        mc.player.yRotO = yaw;
+        mc.player.setXRot(pitch);
+        mc.player.xRotO = pitch;
     }
 
     private void afterFrame(RenderFrameEvent.Post e) {
@@ -1221,14 +1269,14 @@ public final class Trailer {
     }
 
     /**
-     * Мир вокруг камеры получен и собран в секции для отрисовки. Для общих планов с высоты ({@code far}) — почти на
-     * всю дальность прорисовки: первый план в свежем мире иначе снимал деревню на «острове» над пустотой. Остальным
-     * хватает 4 чанков: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
+     * Мир на {@code chunks} чанков вокруг камеры получен и собран в секции для отрисовки. Общим планам с высоты — 10:
+     * первый план в свежем мире иначе снимал деревню на «острове» над пустотой; видео с борта — вся прорисовка (ракета
+     * смотрит за деревню). Остальным хватает 4: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
      */
-    private boolean worldReady(boolean far) {
+    private boolean worldReady(int chunks) {
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         int cx = Mth.floor(cam.x) >> 4, cz = Mth.floor(cam.z) >> 4;
-        int r = far ? Math.max(4, Math.min(10, mc.options.getEffectiveRenderDistance() - 2)) : 4;
+        int r = Math.max(4, Math.min(chunks, mc.options.getEffectiveRenderDistance() - 2));
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 if (!mc.level.getChunkSource().hasChunk(cx + dx, cz + dz)) return false;

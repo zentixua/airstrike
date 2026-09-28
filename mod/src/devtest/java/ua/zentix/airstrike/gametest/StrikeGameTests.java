@@ -199,6 +199,49 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Крылатая ракета на атаке, у которой цель оказалась сбоку внутри круга разворота (на 12 блоках/тик и 3°/тик —
+     * радиус ~240 блоков): уходит прямо, пока цель не выйдет из круга, и заходит снова. Раньше она кружила вокруг
+     * цели, пока не выходил срок жизни (стенд нагрузки на ноутбуке: ракета убрана в 270 блоках от цели, на атаке).
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "missile_reattack", skyAccess = true)
+    public static void missileReattacksTargetInsideTurn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 target = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 60, 0);
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.launch(target.add(0, 0, -150), new Target.Point(target), target, null);
+        m.setRoute(Route.direct());
+        // курс на восток, цель в 150 блоках к югу, фаза — уже атака, срока жизни — на заход с запасом
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        m.saveWithoutId(tag);
+        tag.getCompound("flight").putFloat("yaw", -90);
+        tag.getCompound("flight").putFloat("pitch", 0);
+        tag.putString("flight_phase", FlightPhase.TERMINAL.getSerializedName());
+        tag.putInt("lifetime", m.age() + 300);
+        m.load(tag);
+        VirtualFlights.launch(level, m);
+        java.util.UUID id = m.getUUID();
+        Vec3[] lastPos = {m.position()};
+        int[] lastAge = {0};
+        boolean[] reattacked = {false};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            StrikeProjectile p = level.getEntity(id) instanceof StrikeProjectile e ? e : VirtualFlights.get(level).flights().stream()
+                    .filter(f -> f.getUUID().equals(id)).findFirst().orElse(null);
+            if (p == null) return;
+            lastPos[0] = p.position();
+            lastAge[0] = p.age();
+            if (p.flightPhase() == FlightPhase.CRUISE) reattacked[0] = true;
+            last[0] = p.flightPhase() + " " + h.relativeVec(p.position()) + " возраст " + p.age();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(level.getEntity(id) == null && VirtualFlights.get(level).flights().stream().noneMatch(f -> f.getUUID().equals(id)),
+                    "ракета ещё летит: " + last[0]);
+            h.assertTrue(reattacked[0], "атака не отменялась: " + last[0]);
+            h.assertTrue(lastPos[0].distanceTo(target) < 20, "ракета убрана не у цели (кружила до конца срока жизни?): " + last[0]);
+        });
+    }
+
     /** Барражирующий по UUID: в мире или вне его (уходя из загруженных чанков, он становится новой сущностью). */
     private static LoiterEntity findLoiter(ServerLevel level, java.util.UUID id) {
         if (level.getEntity(id) instanceof LoiterEntity e) return e;
@@ -290,6 +333,69 @@ public final class StrikeGameTests {
             h.assertTrue(retargeted[0] > 0 && findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
             h.assertTrue(dived[0] - retargeted[0] <= 120, "пике не сразу: через " + (dived[0] - retargeted[0]) + " тиков");
             h.assertTrue(lastPos[0].distanceTo(other) < 8, "подрыв не у новой цели: " + last[0]);
+        });
+    }
+
+    /**
+     * Цель ходит (моб, игрок в полёте кружит): барражирующий кружит за ней и в пике попадает с упреждением
+     * по её скорости. Раньше пике шло туда, где цель сейчас, мимо неё, и снаряд петлял вверх-вниз до конца срока.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "loiter_moving", skyAccess = true)
+    public static void loiterHitsMovingTarget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 center = airTarget(h);
+        ArmorStand stand = new ArmorStand(level, center.x + 16, center.y, center.z);
+        stand.setNoGravity(true);
+        level.addFreshEntity(stand);
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        e.launch(center.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.OfEntity(stand.getUUID(), Vec3.ZERO), stand.position(), null);
+        e.setRoute(null);
+        level.addFreshEntity(e);
+        java.util.UUID id = e.getUUID();
+        int[] loiter = {0}, tick = {0};
+        Vec3[] lastPos = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            // кружит радиусом 16 блоков со скоростью 0.5 блока/тик, как игрок в полёте на стенде нагрузки
+            double a = ++tick[0] * 0.5 / 16;
+            stand.teleportTo(center.x + 16 * Math.cos(a), center.y, center.z + 16 * Math.sin(a));
+            LoiterEntity l = findLoiter(level, id);
+            if (l == null) return;
+            lastPos[0] = l.position();
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " до цели " + String.format(java.util.Locale.ROOT, "%.1f", l.position().distanceTo(stand.position()));
+            if (l.flightPhase() == FlightPhase.LOITER && ++loiter[0] == 60) {
+                h.assertTrue(l.retarget(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), stand.position()), "не принял цель");
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(loiter[0] >= 60, "не вышел на круг над идущей целью: " + last[0]);
+            h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
+            h.assertTrue(lastPos[0].distanceTo(stand.position()) < 10, "подрыв не у цели: " + last[0]);
+            stand.discard();
+        });
+    }
+
+    /**
+     * Залп по цели на краю обрыва: точка снаряда с разбросом — на земле под ней, а не в воздухе на высоте цели
+     * (стенд нагрузки: «Ланцет» пикировал на точку в 64 блоках над землёй и петлял до конца срока).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "spread_ground", skyAccess = true)
+    public static void salvoSpreadAroundEntityLandsOnGround(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos base = RANGE_CENTER.below();
+        for (int y = 1; y <= 12; y++) h.setBlock(base.above(y), Blocks.STONE);
+        Vec3 top = Vec3.atBottomCenterOf(h.absolutePos(base.above(13)));
+        ArmorStand stand = new ArmorStand(level, top.x, top.y, top.z);
+        level.addFreshEntity(stand);
+        Target spread = new Target.OfEntity(stand.getUUID(), new Vec3(0, 1, 0)).offset(new Vec3(12, 0, 0));
+        h.runAfterDelay(10, () -> {
+            h.assertTrue(stand.onGround(), "стойка не стоит на столбе");
+            Vec3 p = spread.resolve(level).orElseThrow();
+            double ground = Vec3.atBottomCenterOf(h.absolutePos(base.above())).y;
+            h.assertTrue(Math.abs(p.y - ground) < 1.5 && Math.abs(p.x - (stand.getX() + 12)) < 1e-6,
+                    "точка залпа не на земле: " + h.relativeVec(p) + ", земля на " + (ground - h.absolutePos(BlockPos.ZERO).getY()));
+            stand.discard();
+            h.succeed();
         });
     }
 

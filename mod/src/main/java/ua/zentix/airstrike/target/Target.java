@@ -3,12 +3,15 @@ package ua.zentix.airstrike.target;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.compat.SubLevels;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -50,12 +53,22 @@ public sealed interface Target permits Target.Point, Target.OfEntity, Target.OfS
         }
     }
 
-    /** Сущность (игрок, моб, поезд, механизм Create) и точка попадания относительно её позиции. */
-    record OfEntity(UUID uuid, Vec3 offset) implements Target {
+    /**
+     * Сущность (игрок, моб, поезд, механизм Create) и точка попадания относительно её позиции. {@code spread} —
+     * смещение снаряда залпа по горизонтали: у цели на земле его точка — на земле в этом месте (цель на краю
+     * обрыва — точка внизу, а не в воздухе над обрывом, куда снаряд пикировал бы без конца), у цели в воздухе
+     * (на аппарате, в полёте) — на её высоте, как у залпа по точке.
+     */
+    record OfEntity(UUID uuid, Vec3 offset, Vec3 spread) implements Target {
         static final MapCodec<OfEntity> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                 UUIDUtil.CODEC.fieldOf("uuid").forGetter(OfEntity::uuid),
-                Vec3.CODEC.fieldOf("offset").forGetter(OfEntity::offset)
+                Vec3.CODEC.fieldOf("offset").forGetter(OfEntity::offset),
+                Vec3.CODEC.optionalFieldOf("spread", Vec3.ZERO).forGetter(OfEntity::spread)
         ).apply(i, OfEntity::new));
+
+        public OfEntity(UUID uuid, Vec3 offset) {
+            this(uuid, offset, Vec3.ZERO);
+        }
 
         public static OfEntity of(Entity entity, Vec3 hit) {
             return new OfEntity(entity.getUUID(), hit.subtract(entity.position()));
@@ -70,12 +83,18 @@ public sealed interface Target permits Target.Point, Target.OfEntity, Target.OfS
         public Optional<Vec3> resolve(ServerLevel level) {
             Entity e = level.getEntity(uuid);
             if (e == null || !e.isAlive()) return Optional.empty();
-            return Optional.of(e.position().add(offset));
+            Vec3 at = e.position().add(offset);
+            if (spread.equals(Vec3.ZERO)) return Optional.of(at);
+            double x = at.x + spread.x, z = at.z + spread.z;
+            BlockPos column = BlockPos.containing(x, 0, z);
+            // высота земли — только из готового чанка (район цели грузится заранее); иначе — на высоте цели
+            if (!e.onGround() || !Terrain.ready(level, column)) return Optional.of(new Vec3(x, at.y, z));
+            return Optional.of(new Vec3(x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()) - 0.5, z));
         }
 
         @Override
         public Target offset(Vec3 delta) {
-            return new OfEntity(uuid, offset.add(delta));
+            return new OfEntity(uuid, offset, spread.add(delta));
         }
 
         @Override

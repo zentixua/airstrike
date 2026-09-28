@@ -8,9 +8,10 @@
 #   AIRSTRIKE_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
 #
 # Моды: MC_DIR (инстанс) или -PmcModsDir; в облаке — python3 tools/fetch_runtime_mods.py и MODS=run/ci-mods.
-# Клиенты рисуют программно (llvmpipe) под xvfb-run — это медленно, но честно: те же пакеты, та же камера, тот же HUD.
+# На рабочем столе KDE каждый клиент идёт в своём вложенном KWin (tools/nested_kwin.sh: без окна и без звука) на видеокарте;
+# в облаке (без KWin) — под xvfb-run программно (llvmpipe): медленно, но честно — те же пакеты, та же камера, тот же HUD.
 # На 4 ядрах облака клиенты съедают процессор, генерация чанков стоит в очереди, и любая синхронная загрузка чанка
-# (телепорт, Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; стоп дольше 2 с пишется со стеком.
+# (телепорт, Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; тик дольше 0,5 с пишется со стеком.
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -68,8 +69,16 @@ tutorialStep:none
 joinedFirstServer:true
 skipMultiplayerWarning:true
 OPT
-  AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role LIBGL_ALWAYS_SOFTWARE=1 \
-    xvfb-run -a -s "-screen 0 854x480x24" ./gradlew --console=plain runStressClient "${MODS_ARG[@]}" > "$RUN/$name.out" 2>&1 &
+  if command -v kwin_wayland >/dev/null; then
+    # рабочий стол KDE: свой вложенный KWin на клиента (без окна, без звука, своя шина и сокет), на видеокарте
+    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 \
+      "$ROOT/mod/gradlew -p $ROOT/mod --console=plain runStressClient ${MODS_ARG[*]}" > "$RUN/$name.out" 2>&1 &
+  else
+    # облако: xvfb-run и программная отрисовка; звуковой сервер клиенту закрыт, как в nested_kwin.sh
+    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role LIBGL_ALWAYS_SOFTWARE=1 \
+      PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
+      xvfb-run -a -s "-screen 0 854x480x24" ./gradlew --console=plain runStressClient "${MODS_ARG[@]}" > "$RUN/$name.out" 2>&1 &
+  fi
   pids+=("$!")
 }
 client Host host
