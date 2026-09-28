@@ -143,7 +143,7 @@ public final class Trailer {
             Vec3 b = village.add(toPost.scale(40)).add(side.scale(10)).add(0, 38, 0);
             Vec3 look = village.add(toPost.scale(-40)).add(0, 5, 0);
             return CineCamera.glide(a, b, 200, () -> look, 60);
-        }).hidden();
+        }).hidden().farView();
 
         // --- наводчик: пульт, бинокль, пуск
         run(() -> cmd("time set 1000"));
@@ -748,6 +748,8 @@ public final class Trailer {
         private boolean hudOn;
         private boolean hiddenActor;
         private boolean prep = true;
+        /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
+        private boolean farView;
         private BooleanSupplier after, when, end;
         private int afterTimeout, whenTimeout, endDelay;
         private final List<Cue> cues = new ArrayList<>();
@@ -792,6 +794,11 @@ public final class Trailer {
 
         Shot hidden() {
             hiddenActor = true;
+            return this;
+        }
+
+        Shot farView() {
+            farView = true;
             return this;
         }
 
@@ -888,7 +895,7 @@ public final class Trailer {
                 }
                 case 1 -> {
                     followCamera();
-                    readyFor = worldReady() ? readyFor + 1 : 0;
+                    readyFor = worldReady(farView) ? readyFor + 1 : 0;
                     if (readyFor >= 10 && waited >= 40 || waited > 1200) {
                         phase = 2;
                         waited = 0;
@@ -1048,12 +1055,17 @@ public final class Trailer {
         server.execute(() -> server.tickRateManager().setTickRate(rate));
     }
 
-    /** Мир вокруг камеры получен и собран в секции для отрисовки. */
-    private boolean worldReady() {
+    /**
+     * Мир вокруг камеры получен и собран в секции для отрисовки. Для общих планов с высоты ({@code far}) — почти на
+     * всю дальность прорисовки: первый план в свежем мире иначе снимал деревню на «острове» над пустотой. Остальным
+     * хватает 4 чанков: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
+     */
+    private boolean worldReady(boolean far) {
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         int cx = Mth.floor(cam.x) >> 4, cz = Mth.floor(cam.z) >> 4;
-        for (int dx = -4; dx <= 4; dx++) {
-            for (int dz = -4; dz <= 4; dz++) {
+        int r = far ? Math.max(4, Math.min(10, mc.options.getEffectiveRenderDistance() - 2)) : 4;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
                 if (!mc.level.getChunkSource().hasChunk(cx + dx, cz + dz)) return false;
             }
         }
