@@ -75,6 +75,8 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::scroll);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::hideCrosshair);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::logout);
+        NeoForge.EVENT_BUS.addListener(ClientFlights::onJoin);
+        NeoForge.EVENT_BUS.addListener(ClientFlights::onLeave);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
         NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);

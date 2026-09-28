@@ -128,17 +128,8 @@ public final class NuclearWarhead {
         double len = dir.length();
         Vec3 near = eye.add(dir.scale(Math.min(1, 48 / Math.max(len, 1e-3))));
         // луч по блокам — только по загруженным чанкам: сервер не должен грузить мир ради проверки
-        if (loadedAlong(level, eye, near) && level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
+        if (Terrain.readyAlong(level, eye, near) && level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
         return ThermalShadow.visible(level, d.burst(), near);
-    }
-
-    /** Все чанки вдоль луча готовы (шаг 4 блока — луч не проскочит угол чужого чанка незамеченным). */
-    private static boolean loadedAlong(Level level, Vec3 from, Vec3 to) {
-        int steps = Math.max(1, (int) Math.ceil(from.distanceTo(to) / 4));
-        for (int i = 0; i <= steps; i++) {
-            if (!Terrain.ready(level, BlockPos.containing(from.lerp(to, i / (double) steps)))) return false;
-        }
-        return true;
     }
 
     /**

@@ -430,7 +430,8 @@ public final class StrikeGameTests {
             h.assertTrue(SalvoData.get(level).size() == 0, "залп ещё не закончился");
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty(), "ещё летят вне мира: " + VirtualFlights.get(level).flights().size());
             List<StrikeProjectile> flying = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(128));
-            h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.size());
+            h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.stream().map(p -> p.flightPhase() + " " + h.relativeVec(p.position())
+                    + " возраст " + p.age() + " до цели " + (int) p.position().distanceTo(p.aimPoint())).toList());
         });
     }
 

@@ -170,8 +170,6 @@ public class LoiterEntity extends StrikeProjectile {
         Vec3 aim = updateTarget(level);
         if (launchTick(level)) return;
 
-        // район круга держим и в мире: стреляющий может быть далеко, а круг выходит за чанки вокруг самого снаряда
-        if (!isVirtual()) holdTargetArea(level);
         Bearing b = bearingTo(aim);
         FlightPhase ph = flightPhase();
         double terrain = terrainAhead(level, 10, 20, 35);

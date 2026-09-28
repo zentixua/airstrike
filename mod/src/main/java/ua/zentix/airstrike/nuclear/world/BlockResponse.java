@@ -3,6 +3,7 @@ package ua.zentix.airstrike.nuclear.world;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import ua.zentix.airstrike.registry.ModTags;
 
 import java.util.IdentityHashMap;
@@ -37,9 +38,13 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
         return CACHE.computeIfAbsent(s, BlockResponse::classify);
     }
 
-    /** Теги могли измениться после /reload. */
+    /** Теги могли измениться: /reload или другой мир в одиночной игре (свои датапаки). */
     public static synchronized void clearCache() {
         CACHE.clear();
+    }
+
+    public static void onTagsUpdated(TagsUpdatedEvent e) {
+        if (e.getUpdateCause() == TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) clearCache();
     }
 
     public boolean breaksAt(double psi, int jitterSeed) {

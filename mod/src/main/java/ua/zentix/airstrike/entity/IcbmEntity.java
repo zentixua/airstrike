@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.entity;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -77,8 +76,13 @@ public class IcbmEntity extends StrikeProjectile {
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));
+        // за пределами неба, по сроку или на краю тикающих чанков МБР больше не нужна: дальше летит «удар» (NuclearStrikes)
+        if (next.y > level.getMaxBuildHeight() + 256 || age >= maxAge()) {
+            discard();
+            return;
+        }
+        if (leavesTickingChunks(level, next)) return;
         moveAlong(level, next, dir);
-        if (getY() > level.getMaxBuildHeight() + 256 || age >= maxAge() || !level.isPositionEntityTicking(BlockPos.containing(next))) discard();
     }
 
     @Override

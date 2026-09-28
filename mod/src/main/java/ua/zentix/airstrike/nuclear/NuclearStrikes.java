@@ -194,9 +194,16 @@ public final class NuclearStrikes {
         }
     }
 
-    /** После смерти доза сброшена (attachment не копируется) — счётчику это нужно сказать. */
+    /**
+     * После смерти доза сброшена (attachment не копируется) — счётчику это нужно сказать. Возрождение может быть
+     * в другом измерении (умер в Незере — встал в верхнем мире), а {@code PlayerChangedDimensionEvent} при этом
+     * не приходит: подрывы и летящие МБР — тоже заново.
+     */
     public static void onRespawn(PlayerEvent.PlayerRespawnEvent e) {
-        if (e.getEntity() instanceof ServerPlayer p) RadiationTicker.sync(p);
+        if (e.getEntity() instanceof ServerPlayer p) {
+            sync(p);
+            RadiationTicker.sync(p);
+        }
     }
 
     private static void sync(ServerPlayer p) {
