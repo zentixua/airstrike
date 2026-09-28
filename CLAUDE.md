@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -121,7 +121,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   обломки; `particle/Fx` — свои частицы: дым с накалом, пламя, искры с дымным хвостом, вспышка, ударное кольцо),
   `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки),
   `cam/ProjectileCamera` (планы: пуск сбоку от пусковой, борт с телеметрией, попадание — помехи и облёт;
-  камера вне снаряда — клиентский `Marker`, не добавленный в мир; ЛКМ — перенацелить), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
+  камера вне снаряда — клиентский `Marker`, не добавленный в мир; ЛКМ — перенацелить; снаряда нет на клиенте —
+  `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
 - `legacy/LegacyMigration` — переезд со старого датапака: выключает `file/airstrike`/`file/shahed`, переносит
@@ -179,6 +180,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
+- Сущность уходит клиенту, только если она ближе `min(clientTrackingRange, дальность прорисовки)` по горизонтали и её
+  чанк отслеживается игроком (`ChunkMap.TrackedEntity.updatePlayer`); смотреть издалека ваниль умеет лишь камерой
+  наблюдателя, которая переносит самого игрока. Поэтому камера снаряда дальше прорисовки показывает карту по телеметрии,
+  а не картинку. В облаке чанки вокруг игрока доходят до «тикают сущности» медленно (генерация на слабом CPU): снаряд
+  в 90 блоках может остаться вне мира — это не баг полёта.
 - Снаряд вне мира (`VirtualFlights`) — объект сущности, которого нет в мире: `isVirtual()` true, в мир его не добавлять
   (иначе дубль UUID). Возвращаясь, он ставится выше рельефа под собой и впереди на 5 тиков полёта, каждый блок:
   с шагом 4 блока он пропускал стену и разбивался об неё. Уходящий снаряд (`park`) — это новая сущность: тесты

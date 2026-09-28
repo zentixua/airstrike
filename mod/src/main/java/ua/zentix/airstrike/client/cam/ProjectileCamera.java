@@ -42,8 +42,9 @@ import java.util.UUID;
  * <p>Как в кино, три плана. <b>Пуск</b>: пока снаряд на пусковой и на ускорителе, камера стоит сбоку от пусковой
  * и ведёт его длинным фокусом. <b>Борт</b>: после отделения ускорителя — вид с борта. <b>Попадание</b>: в момент
  * удара — полсекунды помех, затем камера со стороны захода медленно облетает взрыв несколько секунд; дальше
- * следующий снаряд залпа или возврат к себе. Пока снаряд вне зоны связи (далеко за прорисовкой, вне загруженного
- * мира) — «НЕТ СВЯЗИ» и время до удара. F5 на борту — вид со стороны. Игрок в это время стоит на месте.
+ * следующий снаряд залпа или возврат к себе. Пока снаряда нет на клиенте (дальше прорисовки или вне загруженного
+ * мира) — {@link TacticalMap}: карта по телеметрии сервера; видео включается само, как только сервер пришлёт
+ * сущность. F5 на борту — вид со стороны. Игрок в это время стоит на месте.
  * Съёмочная камера — клиентская сущность-маркер, её нет в мире.
  */
 public final class ProjectileCamera {
@@ -85,6 +86,9 @@ public final class ProjectileCamera {
     @Nullable
     private static Vec3 impactAt;
     private static float orbit;
+    /** Снаряд, который сейчас на карте (видео нет): если он пропадёт, карта покажет, где и чем кончилось. */
+    @Nullable
+    private static ClientFlights.Tracked mapped;
     /** Снаряды, уже виденные (для автокамеры: новый снаряд — сразу на пуск). */
     private static final java.util.Set<UUID> SEEN = new java.util.HashSet<>();
 
@@ -147,6 +151,8 @@ public final class ProjectileCamera {
         pad = null;
         lastPos = lastDir = null;
         lastTerminal = false;
+        mapped = null;
+        TacticalMap.reset();
         StrikeProjectile p = f.entity();
         if (p != null) aimAlong(player, p);
         mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.6f, 0.4f));
@@ -165,6 +171,7 @@ public final class ProjectileCamera {
         if (!active) return;
         active = false;
         following = null;
+        mapped = null;
         lostTicks = 0;
         shot = Shot.WAIT;
         rig = null;
@@ -218,6 +225,7 @@ public final class ProjectileCamera {
         }
         // на пусковой снаряд ещё спрятан в контейнере, пока её разворачивают, — но пусковую уже снимаем
         if (p != null && (p.isActive() || p.flightPhase().onLauncher())) {
+            mapped = null;
             if (p.isActive()) {
                 lastPos = p.position();
                 Vec3 v = p.position().subtract(p.xo, p.yo, p.zo);
@@ -245,10 +253,12 @@ public final class ProjectileCamera {
                 if (mc.getCameraEntity() != p) mc.setCameraEntity(p);
             }
         } else {
-            // вне зоны связи: что видели раньше, уже не место попадания
+            // вне зоны видео: что видели раньше, уже не место попадания; пока — карта
             shot = Shot.WAIT;
             lastPos = null;
             if (mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
+            mapped = f;
+            TacticalMap.tick(f);
         }
     }
 
@@ -420,13 +430,14 @@ public final class ProjectileCamera {
         if (active) exit();
         active = false;
         following = null;
+        mapped = null;
         rig = null;
         SEEN.clear();
     }
 
     // ---------------------------------------------------------------- картинка
 
-    /** Видеоканал: рамка, перекрестие, телеметрия, шум; нет связи — «НЕТ СВЯЗИ», удар — помехи на весь экран. */
+    /** Видеоканал: рамка, перекрестие, телеметрия, шум; нет видео — карта, удар — помехи на весь экран. */
     public static void render(GuiGraphics g, DeltaTracker delta) {
         Minecraft mc = Minecraft.getInstance();
         if (!active || mc.player == null) return;
@@ -453,6 +464,15 @@ public final class ProjectileCamera {
             hint(g, font, w, h);
             return;
         }
+        if (f == null && mapped != null) {
+            // пропал с карты: у цели — попадание, иначе (сбит, отбой) — связь потеряна
+            TacticalMap.render(g, font, mapped, pt);
+            boolean hit = mapped.phase() == FlightPhase.TERMINAL || mapped.phase() == FlightPhase.DRILL
+                    || mapped.position(pt).distanceTo(mapped.target()) < IMPACT_RANGE;
+            Component end = Component.translatable(hit ? "airstrike.map.hit" : "airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
+            big(g, font, end, cx, cy - 30, 2f);
+            return;
+        }
         if (f == null) {
             staticNoise(g, w, h, 1.0f);
             Component lost = Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
@@ -460,13 +480,8 @@ public final class ProjectileCamera {
             return;
         }
         if (!(mc.getCameraEntity() instanceof StrikeProjectile p)) {
-            g.fill(0, 0, w, h, 0xE0101010);
-            staticNoise(g, w, h, 0.35f);
-            Component nolink = Component.translatable("airstrike.camera.no_link").withStyle(ChatFormatting.GRAY, ChatFormatting.BOLD);
-            big(g, font, nolink, cx, cy - 20, 2f);
-            Component eta = Component.translatable("airstrike.camera.eta", f.weapon().displayName(), f.number, StrikesHud.clock(f.etaSeconds(pt)))
-                    .withStyle(ChatFormatting.YELLOW);
-            g.drawString(font, eta, cx - font.width(eta) / 2, cy + 8, 0xFFFFFFFF);
+            // снаряда нет на клиенте (дальше прорисовки или вне загруженного мира): карта по телеметрии сервера
+            TacticalMap.render(g, font, f, pt);
             hint(g, font, w, h);
             return;
         }
@@ -550,11 +565,7 @@ public final class ProjectileCamera {
         if (s == null) return;
         int x = (int) (s[0] * w), y = (int) (s[1] * h);
         if (x < 0 || x > w || y < 0 || y > h) return;
-        int r = 7;
-        g.fill(x - r, y - r, x + r + 1, y - r + 1, color);
-        g.fill(x - r, y + r, x + r + 1, y + r + 1, color);
-        g.fill(x - r, y - r, x - r + 1, y + r + 1, color);
-        g.fill(x + r, y - r, x + r + 1, y + r + 1, color);
+        ua.zentix.airstrike.client.hud.HudDraw.box(g, x, y, 7, color);
     }
 
     private static void big(GuiGraphics g, Font font, Component text, int cx, int y, float scale) {
