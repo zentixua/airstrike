@@ -54,7 +54,7 @@ neoForge {
         clientScenario {
             client()
             gameDirectory = project.file('run/scenario')
-            // all — обычное оружие, nuke — ядерный удар, far — выход из мира во время генерации дальних чанков
+            // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
             def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
@@ -130,7 +130,7 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
         minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
         neo_version: neo_version, loader_version_range: loader_version_range,
         mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
-        mod_authors: mod_authors, mod_description: mod_description,
+        mod_authors: mod_authors, mod_description: mod_description, sable_version: sable_version,
     ]
     inputs.properties replaceProperties
     expand replaceProperties
