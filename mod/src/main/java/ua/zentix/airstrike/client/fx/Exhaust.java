@@ -13,6 +13,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.util.Local;
@@ -32,6 +33,8 @@ public final class Exhaust {
     private static final class State {
         Vec3 lastNozzle;
         Vec3 pad;
+        /** Передний срез трубы РСЗО, из которой сошёл снаряд. */
+        Vec3 muzzle;
         final Vec3[] lastContrail = new Vec3[4];
     }
 
@@ -62,8 +65,8 @@ public final class Exhaust {
         FlightPhase ph = e.flightPhase();
         if (ph == FlightPhase.READY && !(e instanceof IcbmEntity)) return null;
         if (ph.boosterLit() && e instanceof RocketEntity) {
-            // РСЗО: короткая яркая струя, вспыхивает сразу (поджиг — доли секунды)
-            return new Plume(0, -1.5f, 2.4f * flicker, 0.13f, 1, false, 0xFFF4E0, 0xFF8A30);
+            // РСЗО: короткая яркая струя, вспыхивает сразу (поджиг — доли секунды); в трубе её не видно
+            return new Plume(0, -1.5f, 3.0f * flicker, 0.15f, 1, false, 0xFFF4E0, 0xFF8A30);
         }
         if (ph.boosterLit() && (e instanceof DroneEntity || e instanceof CruiseMissileEntity)) {
             // твердотопливный ускоритель: на поджиге струя вырастает за полсекунды, дальше — ровный яркий факел
@@ -98,11 +101,67 @@ public final class Exhaust {
     // ---------------------------------------------------------------- РСЗО
 
     /**
-     * Реактивный снаряд: пока горит двигатель — поджиг, клубы у пакета и плотный дымный след (след залпа висит
-     * дугами над позицией); после выгорания — ничего, снаряд идёт по инерции.
+     * Реактивный снаряд «Града». Поджиг в трубе (3 тика): струя бьёт назад из заднего среза трубы — огонь, вспышка,
+     * клубы, которые стелются по земле под пакетом. Сход: вспышка у переднего среза. Пока горит двигатель — плотный
+     * серо-белый след, который висит дугой над позицией; очередь из 40 труб оставляет веер таких дуг и облако
+     * у пусковой. После выгорания снаряд летит по инерции без следа.
      */
     private static void rocket(ClientLevel level, RocketEntity e, State s) {
-        booster(level, e, s, 0, -1.5, 0.45f);
+        FlightPhase ph = e.flightPhase();
+        if (!e.isActive() || !ph.boosterLit()) return;
+        RandomSource r = level.random;
+        float yaw = e.getYRot(), pitch = e.getXRot();
+        Vec3 back = Local.offset(yaw, pitch, 0, 0, -1);
+        if (s.pad == null) {
+            // первый тик поджига: снаряд ещё в трубе, его центр — середина трубы
+            s.pad = e.position().add(back.scale(LauncherEntity.TUBE_LENGTH / 2));
+            s.muzzle = e.position().subtract(back.scale(LauncherEntity.TUBE_LENGTH / 2));
+        }
+        Vec3 nozzle = Local.at(e.position(), yaw, pitch, 0, 0, -1.5);
+        if (ph == FlightPhase.IGNITION) {
+            // струя из заднего среза трубы
+            for (int i = 0; i < 4; i++) {
+                Fx.fire().vel(back.scale(0.5 + r.nextDouble() * 0.7).add(r.nextGaussian() * 0.08, r.nextGaussian() * 0.08, r.nextGaussian() * 0.08))
+                        .size(0.4f, 1.5f).life(4 + r.nextInt(4)).alpha(0.9f).drag(0.75f).spawn(level, s.pad);
+            }
+            Fx.flash().size(2.5f, 3.5f).life(2).alpha(0.7f).spawn(level, s.pad);
+            backblast(level, s.pad, back, 5, r);
+            return;
+        }
+        int age = e.phaseAge();
+        if (age < 2) {
+            // сход: огонь вырывается из переднего среза вслед за снарядом, искры
+            Fx.flash().size(2, 3).life(2).alpha(0.6f).spawn(level, s.muzzle);
+            for (int i = 0; i < 6; i++) {
+                Fx.spark().vel(back.scale(-0.3 - r.nextDouble() * 0.5).add(r.nextGaussian() * 0.2, r.nextGaussian() * 0.2, r.nextGaussian() * 0.2))
+                        .life(6 + r.nextInt(8)).size(0.05f, 0.02f).spawn(level, s.muzzle);
+            }
+            Fx.smoke().vel(back.scale(-0.2)).size(0.6f, 2.2f).life(120 + r.nextInt(60)).color(0xE0DCD4, 0xA8A49E).alpha(0.6f)
+                    .drag(0.88f).glow(0.7f, 4).rise(0.002f).fadeIn(1).fadeFrom(0.5f).spin(0.01f).spawn(level, s.muzzle);
+        }
+        if (age < 6) backblast(level, s.pad, back, 2, r);
+        // плотный след: у сопла подсвечен, дальше серо-белый, висит полминуты
+        Fx.Spec puff = Fx.smoke().size(0.45f, 2.6f).life(420 + r.nextInt(200)).color(0xEDEAE4, 0xB2AEA8).colorCurve(0.6f)
+                .alpha(0.78f).drag(0.9f).glow(0.85f, 4).rise(0.0012f).fadeIn(2).fadeFrom(0.55f).spin(0.012f);
+        // языки огня летят вместе со снарядом и чуть отстают — иначе за ним остаются огненные бусины
+        Vec3 motion = s.lastNozzle == null ? Vec3.ZERO : nozzle.subtract(s.lastNozzle);
+        trail(level, s, nozzle, puff, 0.35, r);
+        for (int i = 0; i < 2; i++) {
+            Fx.fire().vel(motion.scale(0.85).add(back.scale(0.2 + r.nextDouble() * 0.3)).add(r.nextGaussian() * 0.04, r.nextGaussian() * 0.04, r.nextGaussian() * 0.04))
+                    .size(0.25f, 0.7f).life(2 + r.nextInt(2)).alpha(0.85f).drag(0.95f).spawn(level, nozzle);
+        }
+    }
+
+    /** Выхлоп из заднего среза трубы: бьёт назад, в землю под пакетом, и растекается по ней. */
+    private static void backblast(ClientLevel level, Vec3 rear, Vec3 back, int puffs, RandomSource r) {
+        int n = Fx.count(puffs, rear);
+        for (int i = 0; i < n; i++) {
+            double a = r.nextDouble() * Mth.TWO_PI, v = 0.1 + r.nextDouble() * 0.3;
+            Fx.smoke().vel(back.x * 0.6 + Math.cos(a) * v, back.y * 0.6 + r.nextDouble() * 0.06, back.z * 0.6 + Math.sin(a) * v)
+                    .size(0.8f, 4.5f + r.nextFloat() * 2).life(260 + r.nextInt(160)).color(0xE4DFD6, 0xA9A399).alpha(0.75f)
+                    .drag(0.9f).glow(0.6f, 6).rise(0.0015f).collide().growFast().fadeIn(2).fadeFrom(0.6f).spin(0.008f)
+                    .spawn(level, rear.x + r.nextGaussian() * 0.2, rear.y + r.nextGaussian() * 0.2, rear.z + r.nextGaussian() * 0.2);
+        }
     }
 
     // ---------------------------------------------------------------- крылатая ракета

@@ -747,6 +747,87 @@ def icbm():
                          v3(cx + 0.26, cy - 0.26, -9.66)], glow, v3(0, 0, -1), material="glow", double=False)
     m.write()
 
+# ============================================================================ РСЗО «Град»
+
+def rocket():
+    """Реактивный снаряд 9М22 (122 мм, 2.9 м; калибр чуть преувеличен — иначе в полёте не видно)."""
+    m = Model("rocket", 256, 256)
+    body = m.cv.alloc(160, 240)
+    prof = [(1.45, 0.0, 0.0), (1.42, 0.02, 0.02), (1.25, 0.05, 0.05), (1.0, 0.085, 0.085), (0.85, 0.1, 0.1),
+            (-1.38, 0.1, 0.1), (-1.44, 0.085, 0.085), (-1.5, 0.07, 0.07)]
+    zv = m.lathe("body", prof, body, seg=16)
+    body.paint((86, 94, 70), mottle=0.06)
+    body.rect(0, 0, 1, zv(0.85), (118, 122, 112), 1)                        # головная часть — серая
+    body.rect(0, zv(0.8), 1, zv(0.72), (214, 178, 38), 0.95)                # жёлтая полоса — снаряжён
+    body.lines_v([zv(0.85), zv(0.2), zv(-0.9)], dark=0.45)
+    body.text("9M22", 0.38, zv(-0.1), 2, (225, 225, 215), rot=True)
+    soot(body, zv(-1.2), 0.7)
+    fin = m.cv.alloc(48, 32)
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        S = v3(math.cos(a), math.sin(a), 0)
+        Nn = v3(-math.sin(a), math.cos(a), 0)
+        # складные перья стабилизатора: раскрыты в полёте, в трубе снаряда не видно
+        m.wing("body", S * 0.09 + v3(0, 0, -1.08), S, v3(0, 0, -1), Nn, span=0.13, root_chord=0.34, tip_chord=0.3,
+               sweep=0.02, h_root=0.012, h_tip=0.01, region=fin, ns=1, nc=4, flat=True)
+    fin.paint((70, 76, 58))
+    glow = m.cv.alloc(16, 16)
+    glow.paint((255, 196, 120), mottle=0.1, grain=0.08)
+    m.plate("body", [v3(0.06, 0.06, -1.49), v3(-0.06, 0.06, -1.49), v3(-0.06, -0.06, -1.49), v3(0.06, -0.06, -1.49)],
+            glow, v3(0, 0, -1), material="glow", double=False)
+    m.write()
+
+
+# пакет: 4 ряда по 10 труб — те же числа, что LauncherEntity.ROCKET_COLUMNS/ROWS, TUBE_PITCH, TUBE_LENGTH
+RACK_COLS, RACK_ROWS, TUBE_PITCH, TUBE_LENGTH = 10, 4, 0.3, 3.2
+
+
+def rocket_rack():
+    """Пакет из 40 труб: открытые стволы (внутри — тёмный зев), стяжки и рама. Нос снарядов — по +Z."""
+    m = Model("rocket_rack", 512, 512)
+    tube = m.cv.alloc(96, 256)
+    bore = m.cv.alloc(32, 128)
+    frame = m.cv.alloc(128, 64)
+    r_out, r_in = TUBE_PITCH * 0.46, TUBE_PITCH * 0.38
+    for row in range(RACK_ROWS):
+        for col in range(RACK_COLS):
+            x = (RACK_COLS - 1) * TUBE_PITCH / 2 - col * TUBE_PITCH
+            y = 0.3 + row * TUBE_PITCH
+            m.lathe("body", [(TUBE_LENGTH, r_out, r_out), (0.0, r_out, r_out)], tube, seg=10, center=(x, y))
+            # внутренняя стенка: тот же цилиндр, нормали внутрь (грань к оси)
+            P, UV = [], []
+            for k in range(11):
+                a = -math.pi / 2 + 2 * math.pi * k / 10
+                P.append([v3(x + r_in * math.cos(a), y + r_in * math.sin(a), z) for z in (TUBE_LENGTH, 0.0)])
+                UV.append([bore.uv(k / 10, 0), bore.uv(k / 10, 1)])
+            m.grid("body", P, UV, lambda p, x=x, y=y: v3(x - p[0], y - p[1], 0))
+            # торцы-кольца спереди и сзади
+            for z, n in ((TUBE_LENGTH, 1), (0.0, -1)):
+                for k in range(10):
+                    a0, a1 = -math.pi / 2 + 2 * math.pi * k / 10, -math.pi / 2 + 2 * math.pi * (k + 1) / 10
+                    pts = [v3(x + r_out * math.cos(a0), y + r_out * math.sin(a0), z), v3(x + r_out * math.cos(a1), y + r_out * math.sin(a1), z),
+                           v3(x + r_in * math.cos(a1), y + r_in * math.sin(a1), z), v3(x + r_in * math.cos(a0), y + r_in * math.sin(a0), z)]
+                    m.plate("body", pts, frame, v3(0, 0, n), double=False)
+    w = RACK_COLS * TUBE_PITCH + 0.1
+    h = RACK_ROWS * TUBE_PITCH + 0.1
+    x0, y0 = -w / 2, 0.3 - TUBE_PITCH / 2 - 0.05
+    for z in (0.15, TUBE_LENGTH / 2 - 0.1, TUBE_LENGTH - 0.45):
+        m.box("body", (x0, y0 - 0.08, z), (x0 + w, y0, z + 0.24), frame)
+        m.box("body", (x0, y0 + h, z), (x0 + w, y0 + h + 0.08, z + 0.24), frame)
+        m.box("body", (x0 - 0.08, y0 - 0.08, z), (x0, y0 + h + 0.08, z + 0.24), frame)
+        m.box("body", (x0 + w, y0 - 0.08, z), (x0 + w + 0.08, y0 + h + 0.08, z + 0.24), frame)
+    # продольные балки снизу — на них пакет лежит на люльке
+    for bx in (-0.9, 0.9):
+        m.box("body", (bx - 0.07, y0 - 0.22, 0.0), (bx + 0.07, y0 - 0.08, TUBE_LENGTH), frame)
+    tube.paint((78, 88, 62), mottle=0.08)
+    tube.lines_v([0.03, 0.97], dark=0.4)
+    soot(tube, 0.75, 0.6)                                                   # задние срезы в копоти от стартов
+    streaks(tube, 0.1)
+    bore.paint((26, 26, 26), mottle=0.1)
+    frame.paint((66, 74, 52), mottle=0.07)
+    edge_wear(frame, 0.08, 0.2)
+    m.write()
+
 
 if __name__ == "__main__":
     drone()
@@ -754,3 +835,5 @@ if __name__ == "__main__":
     bomber()
     bomb()
     icbm()
+    rocket()
+    rocket_rack()

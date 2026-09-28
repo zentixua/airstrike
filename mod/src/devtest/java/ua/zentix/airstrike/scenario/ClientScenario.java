@@ -336,6 +336,7 @@ public final class ClientScenario {
                 new Pose("missile_boost", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.BOOST, 12, false),
                 new Pose("missile_cruise", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 12, false),
                 new Pose("bomb", ua.zentix.airstrike.registry.ModEntities.BUNKER_BUSTER, ua.zentix.airstrike.entity.FlightPhase.TERMINAL, 10, false),
+                new Pose("rocket", ua.zentix.airstrike.registry.ModEntities.ROCKET, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 4, false),
                 new Pose("icbm", ua.zentix.airstrike.registry.ModEntities.ICBM, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 20, false),
                 new Pose("b2_closed", ua.zentix.airstrike.registry.ModEntities.BOMBER, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 42, false),
                 new Pose("b2_open", ua.zentix.airstrike.registry.ModEntities.BOMBER, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 42, true));
@@ -438,7 +439,12 @@ public final class ClientScenario {
         });
         // пуск, и сразу камера: план пуска сбоку, борт, попадание
         at(230, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike drone at %.1f %.1f %.1f", target.x, target.y, target.z)));
-        at(236, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        // сервер под llvmpipe отстаёт: снаряда в списке может ещё не быть — пробуем ещё раз
+        for (int t = 236; t <= 266; t += 10) {
+            at(t, () -> {
+                if (!ua.zentix.airstrike.client.cam.ProjectileCamera.isActive()) ua.zentix.airstrike.client.cam.ProjectileCamera.cycle();
+            });
+        }
         for (int t = 240; t <= 1000; t += 8) shot(t, "drone");
         at(1010, () -> {
             ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
@@ -472,7 +478,12 @@ public final class ClientScenario {
             target = new Vec3(0.5, 204, 200.5);
         });
         at(230, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 12 12 at %.1f %.1f %.1f", target.x, target.y, target.z)));
-        at(236, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        // сервер под llvmpipe отстаёт: снаряда в списке может ещё не быть — пробуем ещё раз
+        for (int t = 236; t <= 266; t += 10) {
+            at(t, () -> {
+                if (!ua.zentix.airstrike.client.cam.ProjectileCamera.isActive()) ua.zentix.airstrike.client.cam.ProjectileCamera.cycle();
+            });
+        }
         for (int t = 240; t <= 640; t += 6) shot(t, "rocket_cam");
         at(650, () -> {
             ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
