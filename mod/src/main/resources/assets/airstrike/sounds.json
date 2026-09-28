@@ -40,6 +40,17 @@
       }
     ]
   },
+  "booster.separate": {
+    "subtitle": "subtitles.airstrike.launch.separate",
+    "sounds": [
+      {
+        "name": "airstrike:booster_separate_1"
+      },
+      {
+        "name": "airstrike:booster_separate_2"
+      }
+    ]
+  },
   "missile.engine": {
     "subtitle": "subtitles.airstrike.missile",
     "sounds": [

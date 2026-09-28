@@ -317,6 +317,18 @@ def launch():
     boost = mix((F(burn, lo=40, hi=14000), 1.0), (pad(crackle, len(burn)), 0.45))
     write("booster_engine", norm(loop(boost, 9.0), -9.5), "booster.engine", "subtitles.airstrike.launch")
 
+    # отделение ускорителя: хлопок пиропатрона и металлический лязг замков
+    sep = []
+    for r, f0 in [(1.7, 620), (1.9, 740)]:
+        pop = speed(cut(src(182431), 0, 1.4), r)
+        n = int(1.2 * SR)
+        tt = np.arange(n) / SR
+        clang = sum(a * np.sin(2 * np.pi * f0 * k * tt) * np.exp(-tt / (0.25 / k ** 0.5))
+                    for k, a in [(1, 1), (1.51, 0.7), (2.23, 0.5), (3.07, 0.35), (4.2, 0.2)])
+        clang *= np.minimum(1, tt / 0.001)
+        sep.append(norm(fade(mix((pad(pop, n), 1.0), (clang, 0.5)), 0.001, 0.3), -13, 0.95))
+    variants("booster.separate", "subtitles.airstrike.launch.separate", "booster_separate", sep)
+
 
 # ================================================================ B-2 и бомба
 
@@ -527,7 +539,7 @@ def misc():
 
 # ---------------------------------------------------------------- sounds.json и авторы
 
-ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine", "missile.engine",
+ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine", "booster.separate", "missile.engine",
          "missile.engine.rear", "missile.dive", "missile.engine.far", "missile.whistle", "bomber.engine",
          "bomber.engine.far", "bomb.fall", "bomb.fall.far", "bomb.drill", "siren", "blast.near", "blast.sub",
          "blast.far", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
