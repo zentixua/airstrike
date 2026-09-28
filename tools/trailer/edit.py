@@ -200,6 +200,7 @@ class Clip:
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
     sfx: float = 1.0    # громкость звука игры
     frame_y: float = 0.5  # какая полоса плана видна в окне 2:1: 0 — верхняя (список ударов справа вверху), 0.5 — середина
+    dehaze: float = 0.0  # вернуть контраст дымке (туман шейдеров на дальности): 0 — нет, 1 — уровни по плану целиком
     start: float = 0.0  # заполняется: начало в трейлере
     src: float = 0.0    # заполняется: начало в плане, с
 
@@ -280,8 +281,9 @@ def build_edit(lang="en"):
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
         Clip("missile_camera", "mark:video-1.5", 1.5, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
-        Clip("missile_camera", "mark:video", 4.5),  # видео и план попадания: свои полосы кадра — по центру
-        Clip("impact_missile", "mark:gone-1.5", 4.5),
+        # видео с борта — до взрыва (дальше помехи и вид игрока); туман шейдеров на дальности съедает контраст
+        Clip("missile_camera", "mark:video", 3.0, dehaze=0.8),
+        Clip("impact_missile", "mark:gone-1.5", 6.0),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
         Clip("loiter_strike", "mark:gone-3.0", 4.5),
@@ -479,7 +481,24 @@ def _source(c, t):
         window = img.crop((0, top, w, top + h - 2 * bar))
         img = Image.new("RGB", (w, h))
         img.paste(window, (0, bar))
+    if c.dehaze > 0:
+        img = _dehaze(c, img)
     return _W["look"].apply(img)
+
+
+def _dehaze(c, img):
+    """Уровни по каналам: 0.5 % тёмных и светлых точек — в чёрный и белый. Уровни — одни на склейку (по её
+    середине), иначе картинка мерцала бы от кадра к кадру."""
+    key = ("dehaze", c.shot, c.src)
+    if key not in _W:
+        s = _W["shots"][c.shot]
+        mid = int(round((c.src + c.dur * c.rate / 2) * FPS))
+        ref = np.asarray(Image.open(s.frame(max(0, min(mid, s.count - 1)))).convert("RGB"), np.float32)
+        _W[key] = (np.percentile(ref, 0.5, axis=(0, 1)), np.percentile(ref, 99.5, axis=(0, 1)))
+    lo, hi = _W[key]
+    a = np.asarray(img, np.float32)
+    stretched = (a - lo) / np.maximum(hi - lo, 1) * 255
+    return Image.fromarray(np.clip(a + (stretched - a) * c.dehaze, 0, 255).astype(np.uint8))
 
 
 def _render(i):
@@ -739,6 +758,10 @@ def main():
     for c in edit:
         if isinstance(c, Clip):
             c.src = max(0.0, anchor(shots[c.shot], c.at))
+            # камера снаряда вернулась к игроку («exit») — склейка кончается раньше
+            exits = [shots[c.shot].sec(t) for t, m in shots[c.shot].marks if m == "exit"]
+            if exits and exits[0] > c.src and c.src + c.dur * c.rate > exits[0] - 0.1:
+                c.src = max(0.0, exits[0] - 0.1 - c.dur * c.rate)
             left = shots[c.shot].duration - c.src
             if c.dur * c.rate > left > 0:  # не хватает кадров — медленнее, но до конца плана
                 c.rate = left / c.dur

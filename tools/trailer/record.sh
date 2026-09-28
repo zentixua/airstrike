@@ -26,6 +26,7 @@ onboardAccessibility:false
 pauseOnLostFocus:false
 renderDistance:${AIRSTRIKE_RENDER_DISTANCE:-12}
 simulationDistance:16
+entityDistanceScaling:1.0
 guiScale:3
 fov:0.0
 bobView:false

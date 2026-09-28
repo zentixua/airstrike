@@ -97,7 +97,7 @@ public final class Trailer {
     /** Время, на котором закончился прошлый план: камера между планами стоит там. */
     private double idleTime;
     /** Камера снаряда показывала видео с борта на прошлом тике (переход с карты — отметка «video» для монтажа). */
-    private boolean wasViewing;
+    private boolean wasViewing, cameraWasActive;
     private java.util.Map<Integer, String> seen = java.util.Map.of();
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
     /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
@@ -345,6 +345,19 @@ public final class Trailer {
             return CineCamera.dolly(a, b, 170, () -> village.add(0, 4, 0), 60);
         }).when(() -> nearest(CruiseMissileEntity.class, village, 350) != null, 2400);
 
+        // --- кадр для иконки мода: шахед в разгоне снизу-сбоку, целиком, на фоне дневного неба. До МБР: удар
+        // приходится по деревне, и после него у поста всё горит и дымит
+        run(() -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+        });
+        run(this::placeActor);
+        waitTicks(100);
+        run(() -> fire("drone", target(Vec3.ZERO)));
+        shot("icon").after(() -> newest(DroneEntity.class) instanceof DroneEntity d && !d.flightPhase().onLauncher(), 1600).noPrep()
+                .length(40).speed(0.3).hidden()
+                .camera(() -> chaseOf(newest(DroneEntity.class), 11, -3.5, 4.5, 10, 0, 40));
+
         // --- МБР: старт за наводчиком в ~2 км от деревни, подрыв из-за его плеча, гриб издалека
         run(() -> {
             cmd("time set 12500");
@@ -387,18 +400,6 @@ public final class Trailer {
         shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), village) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
                 .when(() -> sinceDetonation() > 3900, 6000);
-
-        // --- кадр для иконки мода: шахед в разгоне снизу-сбоку, крупно, на фоне дневного неба
-        run(() -> {
-            cmd("time set 6000");
-            cmd("weather clear");
-        });
-        run(this::placeActor);
-        waitTicks(20);
-        run(() -> fire("drone", target(Vec3.ZERO)));
-        shot("icon").after(() -> newest(DroneEntity.class) instanceof DroneEntity d && launcher(WeaponType.DRONE) instanceof LauncherEntity l
-                        && d.distanceTo(l) > 12, 400).noPrep().length(40).speed(0.3).hidden()
-                .camera(() -> chaseOf(newest(DroneEntity.class), 5.5, -1.8, 3.2, 8, 0, 42));
 
         run(() -> {
             rec.finish();
@@ -1100,10 +1101,13 @@ public final class Trailer {
             detonationTime = mc.level.getGameTime();
             if (rec.recording()) rec.mark("detonation");
         }
-        boolean viewing = ProjectileCamera.isViewing();
+        boolean viewing = ProjectileCamera.isViewing(), camera = ProjectileCamera.isActive();
         markImpacts(rec.recording());
         if (rec.recording() && viewing && !wasViewing) rec.mark("video");
+        // камера снаряда вернулась к игроку: дальше в плане — вид от первого лица, монтаж режет до этой отметки
+        if (rec.recording() && !camera && cameraWasActive) rec.mark("exit");
         wasViewing = viewing;
+        cameraWasActive = camera;
         while (!steps.isEmpty()) {
             if (!steps.peek().tick()) break;
             steps.poll();
