@@ -34,7 +34,9 @@ public final class PlumeRenderer {
     public static void render(Exhaust.Plume p, PoseStack pose, MultiBufferSource buffers, Quaternionf rotation, Vec3 origin, Camera camera) {
         Quaternionf inv = new Quaternionf(rotation).conjugate();
         Vec3 c = camera.getPosition().subtract(origin);
-        Vector3f cam = new Vector3f((float) c.x, (float) c.y, (float) c.z).rotate(inv);
+        Vector3f cam = new Vector3f((float) c.x, (float) c.y, (float) c.z).rotate(inv).sub(0, p.y(), 0);
+        pose.pushPose();
+        pose.translate(0, p.y(), 0);
 
         VertexConsumer vc = buffers.getBuffer(RenderType.eyes(p.diamonds() ? DIAMONDS : PLUME));
         strip(vc, pose, cam, p.z(), p.length(), p.radius() * 2.6f, p.outer(), p.intensity() * 0.75f);
@@ -45,6 +47,7 @@ public final class PlumeRenderer {
         float s = p.radius() * 4.5f;
         billboard(halo, pose, new Vector3f(0, 0, p.z() - p.radius() * 0.5f), left, up, s, p.outer(), p.intensity() * 0.8f);
         billboard(halo, pose, new Vector3f(0, 0, p.z() - p.radius() * 0.3f), left, up, s * 0.45f, p.core(), p.intensity());
+        pose.popPose();
     }
 
     /** Полоса от среза сопла назад на {@code length}, повёрнутая вокруг оси Z лицом к камере. */

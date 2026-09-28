@@ -34,11 +34,12 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|nuke|fx|fx-night] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
     gen_particles.py                     ← текстуры частиц эффектов и факела (numpy + Pillow)
+    gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow), не править OBJ руками
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
 
@@ -104,7 +105,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   - `radiation/` — доза игрока (attachment), `RadiationTicker` (раз в секунду: поле осадков × крыша + заражение),
     эффекты лучевой болезни и ожогов.
 - `net/` — `S2C`/`C2S` пакеты; `ClientHooks` — интерфейс, который реализует клиент (сервер не грузит клиентские классы).
-- `client/` (`@Mod(dist = CLIENT)`) — `render/` (модели из блоков, как display-сущности датапака; `PlumeRenderer` —
+- `client/` (`@Mod(dist = CLIENT)`) — `render/` (`WeaponModels` — модели снарядов из OBJ и их анимации
+  по фазе полёта: винт, крылья, воздухозаборник, створки, ускоритель; пусковая — из блоков, `LaunchModels`; `PlumeRenderer` —
   факел двигателя), `sound/` (задержка звука и Доплер: решение уравнения запаздывания, `EngineSound`; `BlastSounds` —
   весь звук взрывов по дальности; `SoundFilters` — фильтр EFX: воздух, преграды, оглушение), `fx/` (вспышка,
   тряска камеры без сдвига прицела; `Explosions` — картинка взрыва, `Exhaust` — факелы, шлейфы, облако старта, горящие
@@ -181,6 +183,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   очереди (по 16384). Слой `GLOW` складывает свет (искры, вспышки); пламя — обычным смешиванием: сложение красного
   с голубым небом даёт розовый. Добавочное смешивание сбрасывается после частиц (`Fx.afterParticles`).
 - Шлейф снаряда кладётся по всему пути за тик (`Exhaust.segment`): на 11–25 блоках за тик иначе он рвётся на бусины.
+- Модели снарядов — OBJ (загрузчик `neoforge:obj`), дополнительные модели (`ModelEvent.RegisterAdditional`), текстуры
+  в `textures/block/weapon` — значит, в атласе блоков; рисуются слоем сущностей (`entityCutoutNoCull` по атласу блоков),
+  поэтому свет мира и шейдеры Iris работают как для сущностей. Светящиеся детали — материал `glow` (`Ka 1 1 1`, запечённый
+  свет). Шарниры подвижных деталей — одни и те же числа в `gen_models.py` и `WeaponModels`. Сценарий `models` ставит
+  клиентские копии снарядов в нужной фазе (через отражение) и снимает их с трёх сторон; частицы в нём гасятся.
 
 ## Окружение
 - NeoForge 21.1.250, Minecraft 1.21.1, ~217 модов. Мультиплеер: хост открывает мир через e4mc/Essential;

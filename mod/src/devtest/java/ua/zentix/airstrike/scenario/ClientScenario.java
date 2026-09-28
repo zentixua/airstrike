@@ -55,6 +55,8 @@ public final class ClientScenario {
     private StrikeProjectile watched;
     private String current;
     private int flightShots;
+    /** Сценарий моделей: частицы не нужны. */
+    private boolean models;
 
     public ClientScenario(IEventBus modBus) {
         if (System.getProperty("airstrike.scenario") == null) return;
@@ -65,6 +67,7 @@ public final class ClientScenario {
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("rocket".equals(mode)) planRocket();
+        else if ("models".equals(mode)) planModels();
         else plan();
     }
 
@@ -101,6 +104,8 @@ public final class ClientScenario {
         }
         if (nuke) nukeEvents();
         if (fx != null) fxEvents();
+        // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
+        if (models) mc.particleEngine.setLevel(mc.level);
         if (tick % 10 == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
@@ -315,6 +320,87 @@ public final class ClientScenario {
         Airstrike.LOG.info("SCENARIO {} impact at tick {}", name, tick);
         for (int dt : new int[]{1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 240, 320}) shot(tick + dt, name);
         at(tick + 340, this::nextFx);
+    }
+
+    /**
+     * Модели крупным планом: каждый снаряд — неподвижная клиентская копия в небе в нужной фазе (на пусковой с
+     * ускорителем, в полёте с раскрытыми крыльями, B-2 с открытым и закрытым бомболюком); камера облетает его и
+     * снимает с трёх сторон. Сервер о копиях не знает — они не летят и не взрываются.
+     */
+    private void planModels() {
+        record Pose(String name, java.util.function.Supplier<? extends net.minecraft.world.entity.EntityType<? extends StrikeProjectile>> type,
+                    ua.zentix.airstrike.entity.FlightPhase phase, double size, boolean aimHere) {}
+        List<Pose> poses = List.of(
+                new Pose("drone_ready", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.READY, 9, false),
+                new Pose("drone_cruise", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 9, false),
+                new Pose("missile_boost", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.BOOST, 12, false),
+                new Pose("missile_cruise", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 12, false),
+                new Pose("bomb", ua.zentix.airstrike.registry.ModEntities.BUNKER_BUSTER, ua.zentix.airstrike.entity.FlightPhase.TERMINAL, 10, false),
+                new Pose("icbm", ua.zentix.airstrike.registry.ModEntities.ICBM, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 20, false),
+                new Pose("b2_closed", ua.zentix.airstrike.registry.ModEntities.BOMBER, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 42, false),
+                new Pose("b2_open", ua.zentix.airstrike.registry.ModEntities.BOMBER, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 42, true));
+        at(40, () -> {
+            cmd("time set 5000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+            Minecraft.getInstance().options.hideGui = true;
+            Minecraft.getInstance().options.cloudStatus().set(net.minecraft.client.CloudStatus.OFF);
+            Minecraft.getInstance().player.getAbilities().flying = true;
+            models = true;
+        });
+        int t = 300;
+        for (Pose pz : poses) {
+            int start = t;
+            at(start, () -> {
+                Minecraft mc = Minecraft.getInstance();
+                mc.player.getAbilities().flying = true;
+                if (watched != null) watched.discard();
+                Vec3 m = new Vec3(0, 200, 0);
+                StrikeProjectile e = pz.type().get().create(mc.level);
+                e.moveTo(m.x, m.y, m.z, 0, 0);
+                e.yRotO = 0;
+                e.xRotO = 0;
+                showPhase(e, pz.phase(), pz.aimHere() ? m : m.add(0, 0, 5000));
+                mc.level.addEntity(e);
+                watched = e;
+            });
+            // слева спереди сверху, сбоку, справа сзади снизу
+            double d = pz.size();
+            double[][] cams = {{-0.8, 0.35, 0.8}, {-1.0, 0.05, 0.0}, {0.7, -0.35, -0.8}};
+            for (int k = 0; k < cams.length; k++) {
+                double[] c = cams[k];
+                at(start + 5 + k * 25, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.2f %.2f %.2f facing %.2f %.2f %.2f",
+                        c[0] * d, 200 + c[1] * d - 1.62, c[2] * d, 0.0, 200.0, 0.0)));
+                // второй раз — первая телепортация после падения игрока не всегда встаёт точно
+                at(start + 15 + k * 25, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.2f %.2f %.2f facing %.2f %.2f %.2f",
+                        c[0] * d, 200 + c[1] * d - 1.62, c[2] * d, 0.0, 200.0, 0.0)));
+                at(start + 24 + k * 25, () -> Airstrike.LOG.info("SCENARIO model {} at {} phase {}", pz.name(), watched.position(), watched.flightPhase()));
+                shot(start + 25 + k * 25, pz.name() + "_" + k);
+            }
+            t += 95;
+        }
+        at(t + 20, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /** Фаза и точка прицеливания у клиентской копии снаряда (синхронные поля — только через отражение). */
+    private static void showPhase(StrikeProjectile e, ua.zentix.airstrike.entity.FlightPhase phase, Vec3 aim) {
+        try {
+            var phaseField = StrikeProjectile.class.getDeclaredField("DATA_PHASE");
+            var aimField = StrikeProjectile.class.getDeclaredField("DATA_AIM");
+            phaseField.setAccessible(true);
+            aimField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var ph = (net.minecraft.network.syncher.EntityDataAccessor<Byte>) phaseField.get(null);
+            @SuppressWarnings("unchecked")
+            var am = (net.minecraft.network.syncher.EntityDataAccessor<org.joml.Vector3f>) aimField.get(null);
+            e.getEntityData().set(ph, (byte) phase.ordinal());
+            e.getEntityData().set(am, new org.joml.Vector3f((float) aim.x, (float) aim.y, (float) aim.z));
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     /** Короткие полёты издалека, без пусковой (для сценария ударов: снаряд приходит за ~5 с). */

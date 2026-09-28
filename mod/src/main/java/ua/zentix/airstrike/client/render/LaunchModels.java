@@ -3,7 +3,7 @@ package ua.zentix.airstrike.client.render;
 import net.minecraft.world.level.block.Blocks;
 
 /**
- * Модели пусковой и отработавших ускорителей — из блоков, как модели снарядов ({@link Models}): размеры в блоках,
+ * Модели пусковой — из блоков ({@link PartModel}): размеры в блоках,
  * нос (направление пуска) по +Z, +X — левый борт. Прицеп и пакет рисуются отдельно: пакет качается вокруг
  * поперечной оси (см. {@link ua.zentix.airstrike.entity.LauncherEntity#PIVOT_UP}) и в своей системе растёт вдоль +Z.
  */
@@ -105,21 +105,22 @@ public final class LaunchModels {
         return b.build();
     }
 
-    /** Ускоритель шахеда (JATO под хвостом): серый цилиндр с соплом. Центр — середина корпуса. */
-    public static final PartModel DRONE_BOOSTER = PartModel.builder()
-            .block(Blocks.GRAY_CONCRETE, -0.2f, -0.2f, -0.8f, 0.4f, 0.4f, 1.5f)
-            .block(Blocks.LIGHT_GRAY_CONCRETE, -0.14f, -0.14f, 0.7f, 0.28f, 0.28f, 0.2f)
-            .block(Blocks.BLACK_CONCRETE, -0.15f, -0.15f, -1.0f, 0.3f, 0.3f, 0.2f)
-            .build();
 
-    /** Стартовый ускоритель крылатой ракеты: белый цилиндр с решётчатым хвостом и соплом. */
-    public static final PartModel MISSILE_BOOSTER = PartModel.builder()
-            .block(Blocks.WHITE_CONCRETE, -0.45f, -0.45f, -1.1f, 0.9f, 0.9f, 2.2f)
-            .block(Blocks.BLACK_CONCRETE, -0.47f, -0.47f, 0.9f, 0.94f, 0.94f, 0.15f)
-            .block(Blocks.GRAY_CONCRETE, -0.3f, -0.3f, -1.45f, 0.6f, 0.6f, 0.35f)
-            .block(Blocks.GRAY_CONCRETE, -0.03f, 0.45f, -1.1f, 0.06f, 0.35f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, -0.03f, -0.8f, -1.1f, 0.06f, 0.35f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, 0.45f, -0.03f, -1.1f, 0.35f, 0.06f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, -0.8f, -0.03f, -1.1f, 0.35f, 0.06f, 0.7f)
+    /**
+     * Реактивный снаряд РСЗО (122 мм, 2.9 м): труба корпуса, конус головной части, кольцо стабилизаторов у сопла.
+     * Калибр чуть преувеличен (0.2 блока), иначе снаряда в полёте не видно. Центр — середина корпуса, нос по +Z.
+     */
+    public static final PartModel ROCKET = PartModel.builder()
+            .block(Blocks.GREEN_TERRACOTTA, -0.1f, -0.1f, -1.45f, 0.2f, 0.2f, 2.3f)
+            .block(Blocks.GRAY_CONCRETE, -0.085f, -0.085f, 0.85f, 0.17f, 0.17f, 0.3f)
+            .block(Blocks.GRAY_CONCRETE, -0.06f, -0.06f, 1.15f, 0.12f, 0.12f, 0.2f)
+            .block(Blocks.BLACK_CONCRETE, -0.03f, -0.03f, 1.35f, 0.06f, 0.06f, 0.1f)
+            .block(Blocks.YELLOW_CONCRETE, -0.105f, -0.105f, 0.7f, 0.21f, 0.21f, 0.06f)
+            // четыре пера стабилизатора крестом
+            .block(Blocks.GRAY_CONCRETE, -0.01f, 0.1f, -1.45f, 0.02f, 0.1f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, -0.01f, -0.2f, -1.45f, 0.02f, 0.1f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, 0.1f, -0.01f, -1.45f, 0.1f, 0.02f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, -0.2f, -0.01f, -1.45f, 0.1f, 0.02f, 0.35f)
+            .glowing().block(Blocks.ORANGE_CONCRETE, -0.06f, -0.06f, -1.5f, 0.12f, 0.12f, 0.05f)
             .build();
 }

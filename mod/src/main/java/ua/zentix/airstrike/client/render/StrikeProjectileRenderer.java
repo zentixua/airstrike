@@ -14,18 +14,15 @@ import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 /**
- * Снаряд — модель из блоков, повёрнутая как display-сущность датапака (курс, тангаж), плюс крен в вираже.
- * Позиция приходит каждый тик и плавно интерполируется между тиками. За соплом — факел двигателя ({@link PlumeRenderer}).
+ * Снаряд — модель {@link WeaponModels}, повёрнутая по курсу и тангажу, плюс крен в вираже. Позиция приходит каждый
+ * тик и плавно интерполируется между тиками. За соплом — факел двигателя ({@link PlumeRenderer}).
  */
 public class StrikeProjectileRenderer<T extends StrikeProjectile> extends EntityRenderer<T> {
-    private final PartModel model;
-    /** Скорость винта, рад/тик (0 — винта нет). */
-    private final float propellerSpeed;
+    private final WeaponModels.Look<? super T> look;
 
-    public StrikeProjectileRenderer(EntityRendererProvider.Context ctx, PartModel model, float propellerSpeed) {
+    public StrikeProjectileRenderer(EntityRendererProvider.Context ctx, WeaponModels.Look<? super T> look) {
         super(ctx);
-        this.model = model;
-        this.propellerSpeed = propellerSpeed;
+        this.look = look;
         this.shadowRadius = 0;
     }
 
@@ -37,7 +34,7 @@ public class StrikeProjectileRenderer<T extends StrikeProjectile> extends Entity
         Quaternionf rotation = new Quaternionf().rotationYXZ(-yaw * Mth.DEG_TO_RAD, pitch * Mth.DEG_TO_RAD, entity.roll() * Mth.DEG_TO_RAD);
         pose.pushPose();
         pose.mulPose(rotation);
-        model.render(pose, buffers, (entity.age() + partialTick) * propellerSpeed);
+        look.render(entity, partialTick, pose, buffers, packedLight);
         Exhaust.Plume plume = Exhaust.plume(entity, partialTick);
         if (plume != null) PlumeRenderer.render(plume, pose, buffers, rotation, entity.getPosition(partialTick), entityRenderDispatcher.camera);
         pose.popPose();
