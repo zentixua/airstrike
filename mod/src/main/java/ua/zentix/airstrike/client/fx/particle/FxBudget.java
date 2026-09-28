@@ -37,6 +37,11 @@ public enum FxBudget {
         this.group = Optional.of(new ParticleGroup(limit));
     }
 
+    /** Сколько частиц группы может жить одновременно. */
+    public int limit() {
+        return limit;
+    }
+
     /** Сколько мест у групп слоя вместе. */
     static int layerTotal(boolean additive) {
         int sum = 0;
