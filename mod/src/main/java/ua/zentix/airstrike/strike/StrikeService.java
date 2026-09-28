@@ -18,6 +18,7 @@ import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
@@ -75,9 +76,10 @@ public final class StrikeService {
             boolean ok = NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
             return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
         }
-        Loadout.Nuke warhead = carrierNuke && weapon != WeaponType.DRONE ? nuke : null;
+        Loadout.Nuke warhead = carrierNuke && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (weapon) {
             case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
+            case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
             default -> launchBomber(level, point, approachYaw, owner);
         };
         if (p == null) return Result.FAILED;
@@ -88,11 +90,12 @@ public final class StrikeService {
         return new Result(true, eta);
     }
 
-    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, B-2 20 с. */
+    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, РСЗО 8 с, B-2 20 с. */
     private static int sirenLead(WeaponType weapon) {
         return switch (weapon) {
             case DRONE -> 500;
             case MISSILE -> 300;
+            case ROCKET -> 160;
             default -> 400;
         };
     }
@@ -172,6 +175,49 @@ public final class StrikeService {
         return p;
     }
 
+    /** Труба пакета РСЗО после пуска перезаряжается минуту. */
+    public static final int ROCKET_RELOAD = 1200;
+    /** Пусковая РСЗО без стреляющего рядом стоит за столько блоков от цели (по направлению захода). */
+    private static final double ROCKET_STANDOFF = 600;
+
+    /**
+     * РСЗО: снаряд в трубе пакета у стреляющего (пакет доворачивается на цель, если молчит), иначе с позиции
+     * за {@link #ROCKET_STANDOFF} блоков. Неуправляемый: своё рассеивание ~1% дальности, за целью не следит.
+     */
+    @Nullable
+    private static StrikeProjectile launchRocket(ServerLevel level, Target target, Vec3 point, float yaw,
+                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter) {
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        if (r == null) return null;
+        if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
+            LauncherEntity launcher = LaunchSite.existing(level, shooter, WeaponType.ROCKET);
+            if (launcher == null) {
+                Vec3 site = LaunchSite.find(level, shooter);
+                if (site != null) launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], WeaponType.ROCKET, shooter);
+            } else {
+                launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
+            }
+            if (launcher != null) {
+                int[] slot = launcher.reserve(level.getGameTime(), 10, ROCKET_RELOAD);
+                Vec3 rail = launcher.railPoint(slot[0]);
+                int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
+                r.placeInTube(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, scatter(level, rail, point),
+                        shooter.getUUID());
+                return r;
+            }
+        }
+        Vec3 from = point.subtract(Local.horizontal(yaw).scale(ROCKET_STANDOFF));
+        r.launchFrom(from, target, scatter(level, from, point), owner);
+        startVirtual(level, r);
+        return r;
+    }
+
+    /** Рассеивание неуправляемого снаряда: ~1% дальности по нормали (у «Града» на 20 км — сотни метров). */
+    private static Vec3 scatter(ServerLevel level, Vec3 from, Vec3 point) {
+        double sigma = Math.max(1, Math.sqrt(from.distanceToSqr(point.x, from.y, point.z)) * 0.01);
+        return point.add(level.random.nextGaussian() * sigma, 0, level.random.nextGaussian() * sigma);
+    }
+
     /**
      * Бомба бьёт по точке на поверхности над целью (с разбросом ±2.5 блока) и за движущейся целью не следит;
      * если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
@@ -201,7 +247,7 @@ public final class StrikeService {
     /** Сирена и «ВОЗДУШНАЯ ТРЕВОГА» у всех в 350 блоках от цели (у каждого своя память, см. клиент). */
     public static void siren(ServerLevel level, WeaponType weapon, Vec3 at) {
         if (!AirstrikeConfig.SERVER.siren.get()) return;
-        int kind = weapon == WeaponType.MISSILE ? S2C.Siren.MISSILE : S2C.Siren.AIR_RAID;
+        int kind = weapon.siren() == WeaponType.SirenKind.MISSILE ? S2C.Siren.MISSILE : S2C.Siren.AIR_RAID;
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, ALERT_RADIUS, new S2C.Siren(at, kind));
     }
 

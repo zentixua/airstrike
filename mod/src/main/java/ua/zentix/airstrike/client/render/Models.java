@@ -96,6 +96,24 @@ public final class Models {
             .glowing().block(Blocks.ORANGE_CONCRETE, -0.5f, -0.5f, -9.8f, 1f, 1f, 0.2f)
             .build();
 
+    /**
+     * Реактивный снаряд РСЗО (122 мм, 2.9 м): труба корпуса, конус головной части, кольцо стабилизаторов у сопла.
+     * Калибр чуть преувеличен (0.2 блока), иначе снаряда в полёте не видно.
+     */
+    public static final PartModel ROCKET = PartModel.builder()
+            .block(Blocks.GREEN_TERRACOTTA, -0.1f, -0.1f, -1.45f, 0.2f, 0.2f, 2.3f)
+            .block(Blocks.GRAY_CONCRETE, -0.085f, -0.085f, 0.85f, 0.17f, 0.17f, 0.3f)
+            .block(Blocks.GRAY_CONCRETE, -0.06f, -0.06f, 1.15f, 0.12f, 0.12f, 0.2f)
+            .block(Blocks.BLACK_CONCRETE, -0.03f, -0.03f, 1.35f, 0.06f, 0.06f, 0.1f)
+            .block(Blocks.YELLOW_CONCRETE, -0.105f, -0.105f, 0.7f, 0.21f, 0.21f, 0.06f)
+            // четыре пера стабилизатора крестом
+            .block(Blocks.GRAY_CONCRETE, -0.01f, 0.1f, -1.45f, 0.02f, 0.1f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, -0.01f, -0.2f, -1.45f, 0.02f, 0.1f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, 0.1f, -0.01f, -1.45f, 0.1f, 0.02f, 0.35f)
+            .block(Blocks.GRAY_CONCRETE, -0.2f, -0.01f, -1.45f, 0.1f, 0.02f, 0.35f)
+            .glowing().block(Blocks.ORANGE_CONCRETE, -0.06f, -0.06f, -1.5f, 0.12f, 0.12f, 0.05f)
+            .build();
+
     public static final PartModel BOMB = PartModel.builder()
             .block(Blocks.GREEN_TERRACOTTA, -0.6f, -0.6f, -3.6f, 1.2f, 1.2f, 6.5f)
             .block(Blocks.GREEN_TERRACOTTA, -0.72f, -0.42f, -3.5f, 1.44f, 0.84f, 6.3f)

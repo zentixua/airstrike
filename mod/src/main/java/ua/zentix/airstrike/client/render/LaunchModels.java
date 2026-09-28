@@ -75,6 +75,36 @@ public final class LaunchModels {
         return b.build();
     }
 
+    /**
+     * Пакет РСЗО: 4 ряда по 10 труб (как у «Града»), тёмные срезы стволов, обвязка рамой. Оси труб совпадают
+     * с {@link ua.zentix.airstrike.entity.LauncherEntity#railPoint} для ROCKET.
+     */
+    public static final PartModel ROCKET_RACK = rocketRack();
+
+    private static PartModel rocketRack() {
+        PartModel.Builder b = PartModel.builder();
+        int cols = ua.zentix.airstrike.entity.LauncherEntity.ROCKET_COLUMNS, rows = ua.zentix.airstrike.entity.LauncherEntity.ROCKET_ROWS;
+        float pitch = ua.zentix.airstrike.entity.LauncherEntity.TUBE_PITCH, len = ua.zentix.airstrike.entity.LauncherEntity.TUBE_LENGTH;
+        float half = pitch * 0.44f;
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
+                float x = (cols - 1) * pitch / 2 - col * pitch, y = 0.3f + row * pitch;
+                b.block(Blocks.GREEN_TERRACOTTA, x - half, y - half, 0, 2 * half, 2 * half, len);
+                // срез ствола: тёмный зев спереди и сзади
+                b.block(Blocks.BLACK_CONCRETE, x - half * 0.6f, y - half * 0.6f, len, half * 1.2f, half * 1.2f, 0.01f);
+                b.block(Blocks.BLACK_CONCRETE, x - half * 0.6f, y - half * 0.6f, -0.01f, half * 1.2f, half * 1.2f, 0.01f);
+            }
+        }
+        float w = cols * pitch + 0.1f, h = rows * pitch + 0.1f, x0 = -w / 2, y0 = 0.3f - pitch / 2 - 0.05f;
+        for (float z : new float[]{0.2f, len / 2 - 0.1f, len - 0.4f}) {
+            b.block(Blocks.GRAY_CONCRETE, x0, y0 - 0.06f, z, w, 0.06f, 0.2f);
+            b.block(Blocks.GRAY_CONCRETE, x0, y0 + h, z, w, 0.06f, 0.2f);
+            b.block(Blocks.GRAY_CONCRETE, x0 - 0.06f, y0 - 0.06f, z, 0.06f, h + 0.12f, 0.2f);
+            b.block(Blocks.GRAY_CONCRETE, x0 + w, y0 - 0.06f, z, 0.06f, h + 0.12f, 0.2f);
+        }
+        return b.build();
+    }
+
     /** Ускоритель шахеда (JATO под хвостом): серый цилиндр с соплом. Центр — середина корпуса. */
     public static final PartModel DRONE_BOOSTER = PartModel.builder()
             .block(Blocks.GRAY_CONCRETE, -0.2f, -0.2f, -0.8f, 0.4f, 0.4f, 1.5f)

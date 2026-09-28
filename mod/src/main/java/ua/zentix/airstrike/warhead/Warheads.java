@@ -103,6 +103,7 @@ public final class Warheads {
         return switch (w) {
             case DRONE -> AirstrikeConfig.SERVER.dronePower.get();
             case MISSILE -> AirstrikeConfig.SERVER.missilePower.get();
+            case ROCKET -> AirstrikeConfig.SERVER.rocketPower.get();
             case BUNKER, NUKE -> AirstrikeConfig.SERVER.bunkerPower.get();
         };
     }

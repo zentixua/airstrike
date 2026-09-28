@@ -13,6 +13,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.util.Local;
 
@@ -46,6 +47,7 @@ public final class Exhaust {
             case IcbmEntity icbm -> icbm(level, icbm, s);
             case CruiseMissileEntity m -> missile(level, m, s);
             case DroneEntity d -> drone(level, d, s);
+            case RocketEntity rk -> rocket(level, rk, s);
             case BomberEntity b -> bomber(level, b, s);
             case BunkerBusterEntity b -> bomb(level, b, s);
             default -> {}
@@ -59,6 +61,10 @@ public final class Exhaust {
         float flicker = 0.9f + 0.1f * Mth.sin((e.age() + partial) * 2.7f) * Mth.sin((e.age() + partial) * 1.3f + 1);
         FlightPhase ph = e.flightPhase();
         if (ph == FlightPhase.READY && !(e instanceof IcbmEntity)) return null;
+        if (ph.boosterLit() && e instanceof RocketEntity) {
+            // РСЗО: короткая яркая струя, вспыхивает сразу (поджиг — доли секунды)
+            return new Plume(-1.5f, 2.4f * flicker, 0.13f, 1, false, 0xFFF4E0, 0xFF8A30);
+        }
         if (ph.boosterLit() && (e instanceof DroneEntity || e instanceof CruiseMissileEntity)) {
             // твердотопливный ускоритель: на поджиге струя вырастает за полсекунды, дальше — ровный яркий факел
             float grow = ph == FlightPhase.IGNITION ? Math.min(1, (e.phaseAge() + partial) / 10f) : 1;
@@ -87,6 +93,16 @@ public final class Exhaust {
         Fx.Spec puff = Fx.smoke().size(0.3f, dive ? 1.6f : 1.2f).life(dive ? 60 : 40).color(0x6A6C72, 0xB6B8BE)
                 .alpha(dive ? 0.3f : 0.18f).drag(0.9f).rise(0.002f).fadeIn(2).fadeFrom(0.2f);
         trail(level, s, nozzle, puff, 0.6, e.level().random);
+    }
+
+    // ---------------------------------------------------------------- РСЗО
+
+    /**
+     * Реактивный снаряд: пока горит двигатель — поджиг, клубы у пакета и плотный дымный след (след залпа висит
+     * дугами над позицией); после выгорания — ничего, снаряд идёт по инерции.
+     */
+    private static void rocket(ClientLevel level, RocketEntity e, State s) {
+        booster(level, e, s, -1.5, 0.45f);
     }
 
     // ---------------------------------------------------------------- крылатая ракета

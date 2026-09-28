@@ -40,6 +40,7 @@ public class LauncherEntity extends Entity {
     public static final double PIVOT_UP = 1.6, PIVOT_BACK = 2.2;
 
     private long[] slotFreeAt = new long[0];
+    private long lastStart = Long.MIN_VALUE / 2;
 
     public LauncherEntity(EntityType<? extends LauncherEntity> type, Level level) {
         super(type, level);
@@ -70,9 +71,13 @@ public class LauncherEntity extends Entity {
         return entityData.get(DATA_DEPLOYED);
     }
 
-    /** Угол возвышения направляющей: шахеды 15°, ракеты 40°. */
+    /** Угол возвышения направляющей: шахеды 15°, ракеты 40°, трубы РСЗО 50°. */
     public static float elevation(WeaponType weapon) {
-        return weapon == WeaponType.MISSILE ? 40f : 15f;
+        return switch (weapon) {
+            case MISSILE -> 40f;
+            case ROCKET -> 50f;
+            default -> 15f;
+        };
     }
 
     public float elevation() {
@@ -87,8 +92,16 @@ public class LauncherEntity extends Entity {
     }
 
     public static int slots(WeaponType weapon) {
-        return weapon == WeaponType.MISSILE ? 2 : 5;
+        return switch (weapon) {
+            case MISSILE -> 2;
+            case ROCKET -> ROCKET_COLUMNS * ROCKET_ROWS;
+            default -> 5;
+        };
     }
+
+    /** Пакет РСЗО: 4 ряда по 10 труб, шаг труб и длина трубы (блоков). */
+    public static final int ROCKET_COLUMNS = 10, ROCKET_ROWS = 4;
+    public static final float TUBE_PITCH = 0.3f, TUBE_LENGTH = 3.2f;
 
     /**
      * Точка ячейки на направляющей (центр снаряда) в координатах мира, при полном подъёме пакета.
@@ -102,12 +115,23 @@ public class LauncherEntity extends Entity {
             left = slot == 0 ? 0.85 : -0.85;
             up = 0.85;
             forward = 5.4;
+        } else if (weapon() == WeaponType.ROCKET) {
+            // очередь идёт по рядам слева направо, начиная с верхнего — как на «Граде»
+            int col = slot % ROCKET_COLUMNS, row = ROCKET_ROWS - 1 - slot / ROCKET_COLUMNS;
+            left = (ROCKET_COLUMNS - 1) * TUBE_PITCH / 2 - col * TUBE_PITCH;
+            up = 0.3 + row * TUBE_PITCH;
+            forward = TUBE_LENGTH / 2;
         } else {
             left = 0;
             up = 0.45 + 0.95 * slot;
             forward = 3.3;
         }
         return Local.at(pivot, yaw, -elevation(), left, up, forward);
+    }
+
+    /** Наименьший интервал между пусками с одной установки, тиков: РСЗО — полсекунды, остальные — 0.8 с. */
+    public static int spacing(WeaponType weapon) {
+        return weapon == WeaponType.ROCKET ? 8 : 16;
     }
 
     /**
@@ -124,8 +148,22 @@ public class LauncherEntity extends Entity {
         }
         long deployDone = deployedAt() + DEPLOY_TICKS + 5;
         long start = Math.max(now + minReady, Math.max(slotFreeAt[best], deployDone));
+        // пуски, заказанные, пока пакет поднимался, не срываются разом: очередь с интервалом
+        start = Math.max(start, lastStart + spacing(weapon()));
+        lastStart = start;
         slotFreeAt[best] = start + busyTicks;
         return new int[]{best, (int) (start - now)};
+    }
+
+    /**
+     * Довернуть пакет на новую цель (РСЗО): если курс отличается больше чем на 15° и установка молчит —
+     * пакет опускается, прицеп поворачивается, пакет поднимается снова (пуски ждут подъёма).
+     */
+    public void turnTo(float yaw, long now) {
+        if (Math.abs(Mth.wrapDegrees(yaw - getYRot())) <= 15 || now < lastStart + 20) return;
+        setYRot(yaw);
+        yRotO = yaw;
+        entityData.set(DATA_DEPLOYED, now);
     }
 
     @Override
