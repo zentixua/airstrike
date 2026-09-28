@@ -16,10 +16,18 @@ import java.util.List;
  */
 public final class Route {
     private final List<Vec3> points;
+    /** Откуда начат маршрут: начало первого участка (для проверки «проскочил» уже на нём). */
+    @Nullable
+    private final Vec3 origin;
     private int next;
 
     public Route(List<Vec3> points) {
+        this(points, null);
+    }
+
+    public Route(List<Vec3> points, @Nullable Vec3 origin) {
         this.points = new ArrayList<>(points);
+        this.origin = origin;
     }
 
     public static Route direct() {
@@ -43,12 +51,13 @@ public final class Route {
 
     /**
      * Точка пройдена, если до неё ближе {@code capture} по горизонтали или она уже позади по ходу участка
-     * (при большом радиусе разворота снаряд не кружит вокруг точки, а идёт дальше).
+     * (при большом радиусе разворота снаряд не кружит вокруг точки, а идёт дальше). Для первой точки участок
+     * начинается в точке пуска: точка входа позади старта (короткий полёт) иначе ловила шахед на вечный круг.
      */
     public void update(Vec3 pos, double capture) {
         while (next < points.size()) {
             Vec3 wp = points.get(next);
-            Vec3 from = next == 0 ? null : points.get(next - 1);
+            Vec3 from = next == 0 ? origin : points.get(next - 1);
             double dx = wp.x - pos.x, dz = wp.z - pos.z;
             boolean reached = dx * dx + dz * dz <= capture * capture;
             if (!reached && from != null) {
@@ -114,7 +123,7 @@ public final class Route {
             pts.add(m.add(perp.scale(h)));
         }
         pts.add(e);
-        return new Route(pts);
+        return new Route(pts, l);
     }
 
     public CompoundTag save() {
@@ -128,6 +137,10 @@ public final class Route {
         }
         tag.put("points", list);
         tag.putInt("next", next);
+        if (origin != null) {
+            tag.putDouble("origin_x", origin.x);
+            tag.putDouble("origin_z", origin.z);
+        }
         return tag;
     }
 
@@ -137,7 +150,8 @@ public final class Route {
             CompoundTag c = (CompoundTag) t;
             pts.add(new Vec3(c.getDouble("x"), 0, c.getDouble("z")));
         }
-        Route r = new Route(pts);
+        Vec3 origin = tag.contains("origin_x") ? new Vec3(tag.getDouble("origin_x"), 0, tag.getDouble("origin_z")) : null;
+        Route r = new Route(pts, origin);
         r.next = Math.min(tag.getInt("next"), pts.size());
         return r;
     }
