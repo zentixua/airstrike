@@ -19,7 +19,8 @@ import java.util.Locale;
 /**
  * Карта оператора — что показывает камера, пока снаряда нет на клиенте. Сервер присылает игроку сущность, только
  * если она ближе {@code min(clientTrackingRange, дальность прорисовки)} по горизонтали и её чанк отслеживается игроком
- * ({@code ChunkMap.TrackedEntity.updatePlayer}); снаряд вне мира ({@code VirtualFlights}) не присылается вовсе.
+ * ({@code ChunkMap.TrackedEntity.updatePlayer}); снаряд вне тикающих чанков летит вне мира ({@code VirtualFlights})
+ * и не присылается вовсе.
  * Смотреть издалека в ванили можно только камерой наблюдателя, которая переносит к цели самого игрока, — поэтому
  * вместо картинки здесь то, что есть: телеметрия {@code FlightStatus} (где снаряд, куда, фаза, время до удара).
  * Как у наземной станции управления БПЛА без видеоканала: карта «север вверх», путь, курс, цель, оператор и граница,
@@ -75,15 +76,18 @@ final class TacticalMap {
     }
 
     /**
-     * Дальность видео, блоков: сервер присылает сущность не дальше дальности прорисовки игрока и дальности
-     * отслеживания её типа. На встроенном сервере последняя умножается на «Дальность прорисовки сущностей»
+     * Дальность видео, блоков. Снаряд в мире только в чанках, где тикают сущности (дальность симуляции сервера,
+     * иначе он летит в {@code VirtualFlights}), а игроку сервер присылает его не дальше дальности прорисовки и
+     * дальности отслеживания типа. Последняя на встроенном сервере умножается на «Дальность прорисовки сущностей»
      * ({@code IntegratedServer.getScaledTrackingDistance}); у выделенного сервера — как есть.
      */
     static int videoRange(ClientFlights.Tracked f) {
         Minecraft mc = Minecraft.getInstance();
         double tracking = ModEntities.of(f.weapon()).clientTrackingRange() * 16;
         if (mc.hasSingleplayerServer()) tracking *= mc.options.entityDistanceScaling().get();
-        return (int) Math.min(tracking, mc.options.getEffectiveRenderDistance() * 16);
+        int chunks = mc.options.getEffectiveRenderDistance();
+        if (mc.level != null) chunks = Math.min(chunks, mc.level.getServerSimulationDistance());
+        return (int) Math.min(tracking, chunks * 16);
     }
 
     static void render(GuiGraphics g, Font font, ClientFlights.Tracked f, float pt) {
