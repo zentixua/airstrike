@@ -242,5 +242,9 @@
   "airstrike.config.carrier_nukes": "Nuclear warhead on missile and B-2",
   "airstrike.config.carrier_nukes.tooltip": "Allow a nuclear warhead on carriers other than the ICBM. Same permissions as the ICBM.",
   "entity.airstrike.launcher": "Launcher",
-  "entity.airstrike.spent_booster": "Spent booster"
+  "entity.airstrike.spent_booster": "Spent booster",
+  "airstrike.camera.launch": "LAUNCH · %s #%s · %s",
+  "airstrike.camera.impact": "IMPACT",
+  "airstrike.config.auto_camera": "Projectile camera on launch",
+  "airstrike.config.auto_camera.tooltip": "Every launch of yours is shown automatically: the launch from the side, the flight from on board, the impact. Shift exits."
 }

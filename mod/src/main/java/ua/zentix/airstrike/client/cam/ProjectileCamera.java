@@ -12,6 +12,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Marker;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
@@ -27,6 +29,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
+import ua.zentix.airstrike.util.Local;
 
 import java.util.List;
 import java.util.Locale;
@@ -36,13 +39,22 @@ import java.util.UUID;
  * Камера снаряда: картинка с его стабилизированной камеры (как у барражирующих боеприпасов). Клавиша камеры —
  * к ближайшему по времени снаряду, ещё раз — к следующему, после последнего — обратно к себе; Shift — выход.
  * Смотреть можно мышью (камера на подвесе), ЛКМ — перенацелить снаряд на то, что в перекрестии.
- * Пока снаряд вне зоны связи (далеко за прорисовкой, вне загруженного мира) — «НЕТ СВЯЗИ» и время до удара;
- * удар — «СИГНАЛ ПОТЕРЯН» и помехи, затем следующий снаряд залпа или возврат к себе.
- * F5 — вид со стороны (камера кружит вокруг снаряда). Игрок в это время стоит на месте: ходьба и действия отключены.
+ * <p>Как в кино, три плана. <b>Пуск</b>: пока снаряд на пусковой и на ускорителе, камера стоит сбоку от пусковой
+ * и ведёт его длинным фокусом. <b>Борт</b>: после отделения ускорителя — вид с борта. <b>Попадание</b>: в момент
+ * удара — полсекунды помех, затем камера со стороны захода медленно облетает взрыв несколько секунд; дальше
+ * следующий снаряд залпа или возврат к себе. Пока снаряд вне зоны связи (далеко за прорисовкой, вне загруженного
+ * мира) — «НЕТ СВЯЗИ» и время до удара. F5 на борту — вид со стороны. Игрок в это время стоит на месте.
+ * Съёмочная камера — клиентская сущность-маркер, её нет в мире.
  */
 public final class ProjectileCamera {
-    /** Сколько тиков держатся помехи после удара. */
+    /** Сколько тиков держатся помехи после потери связи. */
     private static final int LOST_TICKS = 30;
+    /** Попадание: помехи, потом облёт взрыва (тиков). */
+    private static final int IMPACT_STATIC = 8, IMPACT_TICKS = 110;
+    /** Снаряд пропал ближе этого к цели или в пике — это попадание, а не уход из зоны связи. */
+    private static final double IMPACT_RANGE = 40;
+
+    private enum Shot { ONBOARD, LAUNCH, IMPACT, WAIT }
     private static final RandomSource NOISE = RandomSource.create();
 
     @Nullable
@@ -57,16 +69,40 @@ public final class ProjectileCamera {
     private static Vec3 newTarget;
     private static int newTargetTicks;
 
+    private static Shot shot = Shot.WAIT;
+    /** Съёмочная камера (пуск и попадание). */
+    @Nullable
+    private static Marker rig;
+    /** Где снаряд стоял на пусковой — отсюда снимаем пуск. */
+    @Nullable
+    private static Vec3 pad;
+    private static float padYaw;
+    /** Последнее, что видели: положение, курс, фаза — чтобы понять, что это было попадание, и снять его. */
+    @Nullable
+    private static Vec3 lastPos, lastDir;
+    private static boolean lastTerminal;
+    private static int impactTick;
+    @Nullable
+    private static Vec3 impactAt;
+    private static float orbit;
+    /** Снаряды, уже виденные (для автокамеры: новый снаряд — сразу на пуск). */
+    private static final java.util.Set<UUID> SEEN = new java.util.HashSet<>();
+
     private ProjectileCamera() {}
 
     public static boolean isActive() {
         return active;
     }
 
-    /** Камера сейчас смотрит глазами снаряда (а не ждёт связи). */
+    /** Камера сейчас смотрит глазами снаряда (а не ждёт связи и не снимает со стороны). */
     public static boolean isViewing() {
         Minecraft mc = Minecraft.getInstance();
         return active && mc.getCameraEntity() instanceof StrikeProjectile;
+    }
+
+    /** Камера снимает со стороны: пуск или попадание. */
+    public static boolean isFilming() {
+        return active && (shot == Shot.LAUNCH || shot == Shot.IMPACT && impactTick >= IMPACT_STATIC);
     }
 
     /** Клавиша камеры: к ближайшему снаряду, к следующему, после последнего — к себе. */
@@ -107,13 +143,21 @@ public final class ProjectileCamera {
         following = f.id;
         lostTicks = 0;
         newTarget = null;
+        shot = Shot.WAIT;
+        pad = null;
+        lastPos = lastDir = null;
+        lastTerminal = false;
         StrikeProjectile p = f.entity();
-        // взгляд — по курсу снаряда, дальше мышь водит камеру на подвесе
-        if (p != null) {
-            player.setYRot(p.getYRot());
-            player.setXRot(Mth.clamp(p.getXRot() + 8, -89, 89));
-        }
+        if (p != null) aimAlong(player, p);
         mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.6f, 0.4f));
+    }
+
+    /** Взгляд — по курсу снаряда, дальше мышь водит камеру на подвесе. */
+    private static void aimAlong(LocalPlayer player, StrikeProjectile p) {
+        player.setYRot(p.getYRot());
+        player.setXRot(Mth.clamp(p.getXRot() + 8, -89, 89));
+        player.yRotO = player.getYRot();
+        player.xRotO = player.getXRot();
     }
 
     public static void exit() {
@@ -122,6 +166,8 @@ public final class ProjectileCamera {
         active = false;
         following = null;
         lostTicks = 0;
+        shot = Shot.WAIT;
+        rig = null;
         if (mc.player != null) {
             mc.setCameraEntity(mc.player);
             mc.player.setYRot(savedYaw);
@@ -132,6 +178,7 @@ public final class ProjectileCamera {
 
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
+        autoFollow(mc);
         if (!active) return;
         if (mc.player == null || mc.level == null) {
             active = false;
@@ -147,38 +194,181 @@ public final class ProjectileCamera {
         shiftWasDown = shift;
         if (newTargetTicks > 0) newTargetTicks--;
 
-        ClientFlights.Tracked f = following == null ? null : ClientFlights.find(following);
-        if (f == null) {
-            // долетел: помехи, потом следующий снаряд залпа или к себе
-            if (lostTicks == 0) mc.setCameraEntity(mc.player);
-            if (++lostTicks >= LOST_TICKS) {
-                List<ClientFlights.Tracked> rest = ClientFlights.all();
-                if (rest.isEmpty()) exit();
-                else follow(rest.get(0));
-            }
+        if (shot == Shot.IMPACT) {
+            impactTick++;
+            if (impactTick == IMPACT_STATIC) film(mc, impactAt, 0);
+            if (impactTick >= IMPACT_STATIC) orbitImpact(mc);
+            if (impactTick >= IMPACT_STATIC + IMPACT_TICKS) next(mc);
             return;
         }
-        StrikeProjectile p = f.entity();
-        if (p != null && p.isActive()) {
-            if (mc.getCameraEntity() != p) mc.setCameraEntity(p);
-        } else if (mc.getCameraEntity() != mc.player) {
-            mc.setCameraEntity(mc.player);
+
+        ClientFlights.Tracked f = following == null ? null : ClientFlights.find(following);
+        StrikeProjectile p = f == null ? null : f.entity();
+        if (p == null && lastPos != null && (lastTerminal || f == null || lastPos.distanceTo(f.target()) < IMPACT_RANGE)) {
+            // снаряд пропал у цели или в пике: попадание
+            startImpact(mc, f == null ? lastPos : nearer(lastPos, f.target()));
+            return;
+        }
+        if (f == null) {
+            // ушёл без попадания (сбит, отбой): помехи, потом следующий снаряд залпа или к себе
+            if (lostTicks == 0) mc.setCameraEntity(mc.player);
+            shot = Shot.WAIT;
+            if (++lostTicks >= LOST_TICKS) next(mc);
+            return;
+        }
+        // на пусковой снаряд ещё спрятан в контейнере, пока её разворачивают, — но пусковую уже снимаем
+        if (p != null && (p.isActive() || p.flightPhase().onLauncher())) {
+            if (p.isActive()) {
+                lastPos = p.position();
+                Vec3 v = p.position().subtract(p.xo, p.yo, p.zo);
+                if (v.lengthSqr() > 1.0e-4) lastDir = v.normalize();
+                lastTerminal = p.flightPhase() == FlightPhase.TERMINAL || p.flightPhase() == FlightPhase.DRILL;
+            }
+            if (pad == null && p.flightPhase().onLauncher()) {
+                pad = p.position();
+                padYaw = p.getYRot();
+            }
+            boolean launch = pad != null && (p.flightPhase().launching() || p.flightPhase() == FlightPhase.CLIMB && p.phaseAge() < 25);
+            if (launch) {
+                if (shot != Shot.LAUNCH) {
+                    shot = Shot.LAUNCH;
+                    // сбоку от пусковой, чуть впереди и выше: пакет, факел и сход — в одном кадре, пакет не заслоняет
+                    film(mc, Local.at(pad, padYaw, 0, 24, 5, 2), 0);
+                    lookAt(pad, 1);
+                }
+                trackRig(p.getPosition(1));
+            } else {
+                if (shot != Shot.ONBOARD) {
+                    if (shot == Shot.LAUNCH) aimAlong(mc.player, p);
+                    shot = Shot.ONBOARD;
+                }
+                if (mc.getCameraEntity() != p) mc.setCameraEntity(p);
+            }
+        } else {
+            // вне зоны связи: что видели раньше, уже не место попадания
+            shot = Shot.WAIT;
+            lastPos = null;
+            if (mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
         }
     }
 
-    /** Камера на подвесе: направление — взгляд игрока, крен — половина крена снаряда. */
+    /** Автокамера (настройка клиента): новый свой снаряд — сразу к нему, начиная с пуска. */
+    private static void autoFollow(Minecraft mc) {
+        List<ClientFlights.Tracked> all = ClientFlights.all();
+        if (all.isEmpty()) {
+            SEEN.clear();
+            return;
+        }
+        ClientFlights.Tracked fresh = null;
+        for (ClientFlights.Tracked t : all) {
+            if (SEEN.add(t.id) && fresh == null) fresh = t;
+        }
+        if (fresh != null && !active && mc.screen == null && mc.player != null
+                && ua.zentix.airstrike.AirstrikeConfig.CLIENT.autoCamera.get()) {
+            follow(fresh);
+        }
+    }
+
+    /** Следующий снаряд залпа или к себе. */
+    private static void next(Minecraft mc) {
+        List<ClientFlights.Tracked> rest = ClientFlights.all();
+        if (rest.isEmpty()) {
+            exit();
+            return;
+        }
+        follow(rest.get(0));
+        if (mc.player != null && mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
+    }
+
+    private static Vec3 nearer(Vec3 last, Vec3 target) {
+        // снаряд виден с опозданием на тик-два: если цель рядом, взрыв — у неё
+        return last.distanceTo(target) < IMPACT_RANGE ? last.lerp(target, 0.5) : last;
+    }
+
+    /** Попадание: помехи, потом облёт со стороны захода. */
+    private static void startImpact(Minecraft mc, Vec3 at) {
+        shot = Shot.IMPACT;
+        impactTick = 0;
+        impactAt = at;
+        Vec3 d = lastDir == null ? new Vec3(0, 0, 1) : lastDir;
+        orbit = (float) Math.toDegrees(Math.atan2(-d.x, d.z));
+        if (mc.player != null) mc.setCameraEntity(mc.player);
+    }
+
+    /** Облёт взрыва: радиус 42→32 блока, 14–18 над точкой (не ниже рельефа), медленно наезжая. */
+    private static void orbitImpact(Minecraft mc) {
+        if (rig == null || impactAt == null || mc.level == null) return;
+        float t = (impactTick - IMPACT_STATIC) / (float) IMPACT_TICKS;
+        orbit += 0.35f;
+        double r = 42 - 10 * t, rad = Math.toRadians(orbit);
+        Vec3 behind = new Vec3(Math.sin(rad) * r, 0, -Math.cos(rad) * r);
+        Vec3 at = impactAt.add(behind).add(0, 14 + 4 * t, 0);
+        int x = Mth.floor(at.x), z = Mth.floor(at.z);
+        if (mc.level.hasChunk(x >> 4, z >> 4)) {
+            double ground = mc.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z);
+            at = new Vec3(at.x, Math.max(at.y, ground + 4), at.z);
+        }
+        moveRig(at);
+        lookAt(impactAt.add(0, 6, 0), 0.5f);
+    }
+
+    /** Поставить съёмочную камеру и сделать её камерой клиента. */
+    private static void film(Minecraft mc, @Nullable Vec3 at, float yaw) {
+        if (mc.level == null || mc.player == null || at == null) return;
+        if (rig == null || rig.level() != mc.level) rig = EntityType.MARKER.create(mc.level);
+        if (rig == null) return;
+        rig.moveTo(at.x, at.y, at.z, yaw, 0);
+        rig.setOldPosAndRot();
+        mc.setCameraEntity(rig);
+    }
+
+    private static void moveRig(Vec3 at) {
+        if (rig == null) return;
+        rig.setOldPosAndRot();
+        rig.setPos(at);
+    }
+
+    /** Съёмочная камера смотрит на точку (поворот плавный: камера на штативе, а не прибита к цели). */
+    private static void trackRig(Vec3 target) {
+        if (rig == null) return;
+        rig.setOldPosAndRot();
+        // жёстко: ракета после ускорителя проходит по 10 блоков за тик
+        lookAt(target, 0.8f);
+    }
+
+    /** Повернуть камеру к точке, за тик — долю {@code k} оставшегося угла. */
+    private static void lookAt(Vec3 target, float k) {
+        if (rig == null) return;
+        Vec3 d = target.subtract(rig.position());
+        float yaw = (float) Math.toDegrees(Math.atan2(-d.x, d.z));
+        float pitch = (float) -Math.toDegrees(Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)));
+        rig.setYRot(rig.getYRot() + Mth.wrapDegrees(yaw - rig.getYRot()) * k);
+        rig.setXRot(Mth.lerp(k, rig.getXRot(), pitch));
+    }
+
+    /** Камера на подвесе: направление — взгляд игрока, крен — половина крена снаряда; съёмочная — куда смотрит она. */
     public static void angles(ViewportEvent.ComputeCameraAngles e) {
         Minecraft mc = Minecraft.getInstance();
-        if (!active || !(mc.getCameraEntity() instanceof StrikeProjectile p) || mc.player == null) return;
+        if (!active || mc.player == null) return;
+        if (rig != null && mc.getCameraEntity() == rig) {
+            float pt = (float) e.getPartialTick();
+            e.setYaw(rig.getViewYRot(pt));
+            e.setPitch(rig.getViewXRot(pt));
+            e.setRoll(0);
+            return;
+        }
+        if (!(mc.getCameraEntity() instanceof StrikeProjectile p)) return;
         float pt = (float) e.getPartialTick();
         e.setYaw(mc.player.getViewYRot(pt));
         e.setPitch(mc.player.getViewXRot(pt));
         e.setRoll(p.roll() * 0.5f);
     }
 
-    /** Узкий угол зрения — как у камеры с зумом. */
+    /** Узкий угол зрения — как у камеры с зумом; пуск — длинный фокус, облёт взрыва — наезд. */
     public static void fov(ViewportEvent.ComputeFov e) {
         if (isViewing()) e.setFOV(e.getFOV() * 0.75);
+        else if (active && shot == Shot.LAUNCH) e.setFOV(e.getFOV() * 0.7);
+        else if (isFilming()) e.setFOV(e.getFOV() * (0.8 - 0.15 * Math.min(1, (impactTick - IMPACT_STATIC) / (double) IMPACT_TICKS)));
     }
 
     /** Игрок стоит, пока смотрит в камеру. */
@@ -230,6 +420,8 @@ public final class ProjectileCamera {
         if (active) exit();
         active = false;
         following = null;
+        rig = null;
+        SEEN.clear();
     }
 
     // ---------------------------------------------------------------- картинка
@@ -243,6 +435,24 @@ public final class ProjectileCamera {
         float pt = delta.getGameTimeDeltaPartialTick(false);
         ClientFlights.Tracked f = following == null ? null : ClientFlights.find(following);
 
+        if (shot == Shot.IMPACT) {
+            if (impactTick < IMPACT_STATIC) {
+                // удар: сигнал срывается
+                staticNoise(g, w, h, 1.0f);
+                big(g, font, Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), cx, cy - 6, 2f);
+            } else {
+                letterbox(g, w, h);
+                caption(g, font, Component.translatable("airstrike.camera.impact").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), w, h);
+            }
+            return;
+        }
+        if (shot == Shot.LAUNCH && f != null) {
+            letterbox(g, w, h);
+            caption(g, font, Component.translatable("airstrike.camera.launch", f.weapon().displayName(), f.number,
+                    Component.translatable("airstrike.phase." + f.phase().getSerializedName())).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), w, h);
+            hint(g, font, w, h);
+            return;
+        }
         if (f == null) {
             staticNoise(g, w, h, 1.0f);
             Component lost = Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
@@ -310,6 +520,18 @@ public final class ProjectileCamera {
         }
         if (f.nuclear()) g.drawString(font, "☢", cx - font.width("☢") / 2, m + 6, 0xFFFFD020);
         hint(g, font, w, h);
+    }
+
+    /** Кинокадр 2.39:1 — чёрные полосы сверху и снизу. */
+    private static void letterbox(GuiGraphics g, int w, int h) {
+        int bar = Math.max(0, (h - (int) (w / 2.39)) / 2);
+        g.fill(0, 0, w, bar, 0xFF000000);
+        g.fill(0, h - bar, w, h, 0xFF000000);
+    }
+
+    private static void caption(GuiGraphics g, Font font, Component text, int w, int h) {
+        int bar = Math.max(0, (h - (int) (w / 2.39)) / 2);
+        g.drawString(font, text, 20, Math.max(6, bar / 2 - 4), 0xFFFFFFFF);
     }
 
     private static void hint(GuiGraphics g, Font font, int w, int h) {
