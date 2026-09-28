@@ -14,7 +14,7 @@ final class SourceTrack implements Acoustics.Path {
     final int entityId;
     final WeaponType weapon;
     private final double[] xs = new double[CAPACITY], ys = new double[CAPACITY], zs = new double[CAPACITY];
-    private final int[] phases = new int[CAPACITY];
+    private final int[] phases = new int[CAPACITY], phaseAges = new int[CAPACITY];
     private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
     private long first = -1, last = -1;
     private long death = Long.MAX_VALUE;
@@ -40,6 +40,7 @@ final class SourceTrack implements Acoustics.Path {
         yaws[i] = p.getYRot();
         pitches[i] = p.getXRot();
         phases[i] = p.flightPhase().ordinal();
+        phaseAges[i] = p.phaseAge();
         drilling = p instanceof ua.zentix.airstrike.entity.BunkerBusterEntity b && b.isDrilling();
         distanceToAim = p.position().distanceTo(p.aimPoint());
     }
@@ -88,6 +89,13 @@ final class SourceTrack implements Acoustics.Path {
     int phase(double t) {
         long a = (long) Math.max(start(), Math.min(last, Math.floor(t)));
         return phases[(int) (a % CAPACITY)];
+    }
+
+    /** Сколько тиков шла фаза полёта к моменту t (дробно — для плавной раскрутки мотора). */
+    double phaseAge(double t) {
+        double s = Math.max(start(), Math.min(last, t));
+        long a = (long) Math.floor(s);
+        return phaseAges[(int) (a % CAPACITY)] + (s - a);
     }
 
     /** Путь от «запаздывающего» положения p до уха открыт (1) или закрыт (0); плавно, без щелчков. */

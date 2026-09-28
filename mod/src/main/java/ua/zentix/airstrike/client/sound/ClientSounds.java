@@ -69,13 +69,13 @@ public final class ClientSounds {
         SourceTrack track = new SourceTrack(p);
         List<EngineSound> sounds = new ArrayList<>();
         List<EngineSound.Layer> layers = switch (p.weapon()) {
-            case DRONE -> List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR);
+            case DRONE -> List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR, EngineSound.Layer.BOOSTER);
             case MISSILE -> List.of(EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
-                    EngineSound.Layer.MISSILE_FAR, EngineSound.Layer.MISSILE_WHISTLE);
+                    EngineSound.Layer.MISSILE_FAR, EngineSound.Layer.MISSILE_WHISTLE, EngineSound.Layer.BOOSTER);
             case BUNKER -> p instanceof ua.zentix.airstrike.entity.BomberEntity
                     ? List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR)
                     : List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL);
-            case NUKE -> List.of();
+            case NUKE -> List.of(EngineSound.Layer.BOOSTER);
         };
         for (EngineSound.Layer l : layers) {
             EngineSound s = new EngineSound(track, l);
