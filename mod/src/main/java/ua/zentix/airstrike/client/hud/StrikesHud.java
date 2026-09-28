@@ -110,8 +110,8 @@ public final class StrikesHud {
             int sx = (int) (s[0] * w), sy = (int) (s[1] * h);
             if (sx <= -20 || sx >= w + 20 || sy <= -20 || sy >= h + 20) continue;
             int c = f.phase() == FlightPhase.TERMINAL ? 0xFFFF4030 : 0xFFFFC040;
-            if (t != null) dotted(g, sx, sy, (int) (t[0] * w), (int) (t[1] * h), (c & 0x00FFFFFF) | 0x70000000);
-            diamond(g, sx, sy, 4, c);
+            if (t != null) HudDraw.dotted(g, sx, sy, (int) (t[0] * w), (int) (t[1] * h), (c & 0x00FFFFFF) | 0x70000000);
+            HudDraw.diamond(g, sx, sy, 4, c);
             String label = "№" + f.number + " " + clock(f.etaSeconds(pt));
             g.drawString(font, label, sx - font.width(label) / 2, sy - 14, c);
         }
@@ -187,23 +187,5 @@ public final class StrikesHud {
             i = j + 1;
         }
         return sb.toString();
-    }
-
-    /** Пунктир от снаряда к цели: точка через 6 пикселей. */
-    private static void dotted(GuiGraphics g, int x0, int y0, int x1, int y1, int color) {
-        double dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
-        int steps = (int) Math.min(400, len / 6);
-        for (int i = 1; i < steps; i++) {
-            int x = x0 + (int) (dx * i / steps), y = y0 + (int) (dy * i / steps);
-            g.fill(x, y, x + 1, y + 1, color);
-        }
-    }
-
-    private static void diamond(GuiGraphics g, int x, int y, int r, int color) {
-        for (int i = -r; i <= r; i++) {
-            int half = r - Math.abs(i);
-            g.fill(x - half, y + i, x - half + 1, y + i + 1, color);
-            g.fill(x + half, y + i, x + half + 1, y + i + 1, color);
-        }
     }
 }

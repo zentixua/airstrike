@@ -17,6 +17,8 @@ import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
+import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.strike.WeaponType;
 
 public final class ModEntities {
     public static final DeferredRegister<EntityType<?>> REGISTER = DeferredRegister.create(Registries.ENTITY_TYPE, Airstrike.MOD_ID);
@@ -68,6 +70,18 @@ public final class ModEntities {
                     .build(Airstrike.MOD_ID + ":debris"));
 
     private ModEntities() {}
+
+    /** Сущность, которой летит оружие (у B-2 — сам бомбардировщик до сброса). */
+    public static EntityType<? extends StrikeProjectile> of(WeaponType weapon) {
+        return switch (weapon) {
+            case DRONE -> DRONE.get();
+            case MISSILE -> CRUISE_MISSILE.get();
+            case BUNKER -> BOMBER.get();
+            case NUKE -> ICBM.get();
+            case ROCKET -> ROCKET.get();
+            case LOITER -> LOITER.get();
+        };
+    }
 
     /**
      * Снаряды быстрые (до 12.5 блока за тик), поэтому позиция уходит клиентам каждый тик,
