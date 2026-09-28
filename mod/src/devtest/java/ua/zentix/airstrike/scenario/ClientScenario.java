@@ -106,7 +106,7 @@ public final class ClientScenario {
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
         if (models) mc.particleEngine.setLevel(mc.level);
         if (tick % 10 == 0) logSound();
-        if (tick % 20 == 0 && !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty()) logFlights();
+        if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
     }
 
@@ -412,45 +412,41 @@ public final class ClientScenario {
     }
 
     /**
-     * Пуск с пусковой у игрока: площадка в небе (ровно и твёрдо), пусковая шахедов разворачивается позади, пуск,
-     * разгон, отделение ускорителя, камера шахеда до удара; потом то же для крылатой ракеты. Полёты укорочены
-     * (шахед 20 с, ракета 12 с), чтобы сценарий шёл минуты, а не часы.
+     * Пуск с пусковой у игрока: площадка в небе (ровно и твёрдо), пусковая шахедов разворачивается позади; камера
+     * снаряда с самого пуска — план сбоку от пусковой, разгон, отделение ускорителя, борт, попадание и облёт взрыва;
+     * потом то же для крылатой ракеты. Полёты укорочены (шахед 20 с, ракета 12 с), чтобы сценарий шёл минуты.
      */
     private void planLaunch() {
         at(40, () -> {
             cmd("time set 6000");
             cmd("weather clear");
             cmd("tp @s 0 200 0 0 0");
+            // площадка длиннее дальности прорисовки сценария: без этого fill иногда отвечает «не загружено»
+            cmd("forceload add -32 -48 32 136");
         });
         at(200, () -> {
             var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
             c.launchNearPlayer.set(true);
             c.droneFlightTime.set(20);
             c.missileFlightTime.set(12);
-            cmd("fill -30 199 -30 30 199 30 minecraft:smooth_stone");
-            // лицом к цели: пусковая встанет за спиной
+            // площадка в небе: ровная и твёрдая под пусковую, цель — на ней же в 120 блоках впереди
+            cmd("fill -30 199 -40 30 199 130 minecraft:smooth_stone");
+            cmd("fill -2 200 118 2 202 122 minecraft:oak_planks");
             cmd("tp @s 0.5 200 0.5 0 5");
+            target = new Vec3(0.5, 203, 120.5);
         });
-        at(230, () -> {
-            aimAhead(150);
-            cmd(String.format(java.util.Locale.ROOT, "airstrike drone at %.1f %.1f %.1f", target.x, target.y, target.z));
+        // пуск, и сразу камера: план пуска сбоку, борт, попадание
+        at(230, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike drone at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(236, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        for (int t = 240; t <= 1000; t += 8) shot(t, "drone");
+        at(1010, () -> {
+            ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
+            cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", target.x, target.y, target.z));
         });
-        at(234, () -> cmd("tp @s 0.5 200 0.5 180 5"));
-        // смотрим назад, на пусковую: подъём пакета, поджиг, сход, отделение ускорителя
-        for (int t = 240; t <= 360; t += 6) shot(t, "launch_drone");
-        at(370, () -> cmd("tp @s 0.5 200 0.5 0 5"));
-        at(380, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
-        for (int t = 400; t <= 820; t += 20) shot(t, "camera_drone");
-        at(830, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
-        at(840, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", target.x, target.y, target.z)));
-        at(844, () -> cmd("tp @s 0.5 200 0.5 180 5"));
-        for (int t = 850; t <= 960; t += 5) shot(t, "launch_missile");
-        at(965, () -> cmd("tp @s 0.5 200 0.5 0 5"));
-        at(970, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
-        for (int t = 980; t <= 1240; t += 10) shot(t, "camera_missile");
-        at(1250, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
-        for (int t = 1260; t <= 1300; t += 20) shot(t, "after");
-        at(1320, () -> {
+        at(1016, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        for (int t = 1020; t <= 1500; t += 6) shot(t, "missile");
+        at(1510, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
+        at(1520, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
@@ -505,10 +501,18 @@ public final class ClientScenario {
     private static void logFlights() {
         StringBuilder sb = new StringBuilder();
         for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
-            sb.append(String.format(java.util.Locale.ROOT, " %s#%d %s eta=%.0fs;", f.weapon().getSerializedName(), f.number,
+            sb.append(String.format(java.util.Locale.ROOT, " %s#%d %s eta=%.0fs", f.weapon().getSerializedName(), f.number,
                     f.phase().getSerializedName(), f.etaSeconds(0)));
+            if (f.entity() != null) sb.append(" at ").append(xyz(f.entity().position()));
+            sb.append(';');
         }
-        Airstrike.LOG.info("SCENARIO flights{} camera={}", sb, ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing());
+        var cam = Minecraft.getInstance().getCameraEntity();
+        Airstrike.LOG.info("SCENARIO flights{} camera={} filming={} eye={}", sb, ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing(),
+                ua.zentix.airstrike.client.cam.ProjectileCamera.isFilming(), cam == null ? "-" : xyz(cam.position()));
+    }
+
+    private static String xyz(Vec3 v) {
+        return String.format(java.util.Locale.ROOT, "%.0f %.0f %.0f", v.x, v.y, v.z);
     }
 
     /** Что сейчас летит и насколько громко / каким тоном звучит (для проверки Доплера и задержки по логу). */

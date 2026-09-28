@@ -151,6 +151,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.DoubleValue cameraShake;
         public final ModConfigSpec.DoubleValue flash;
         public final ModConfigSpec.BooleanValue hud;
+        public final ModConfigSpec.BooleanValue autoCamera;
         public final ModConfigSpec.DoubleValue zoom;
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
@@ -173,6 +174,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.flash").defineInRange("flash", 1.0, 0.0, 1.0);
             hud = b.comment("Показывать снаряды в полёте и время подлёта.")
                     .translation("airstrike.config.hud").define("hud", true);
+            autoCamera = b.comment("Камера снаряда включается сама при каждом пуске: пуск сбоку, полёт с борта, попадание (Shift — выход).")
+                    .translation("airstrike.config.auto_camera").define("auto_camera", false);
             zoom = b.comment("Кратность бинокля пульта.")
                     .translation("airstrike.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
             nukeCloudQuality = b.comment("Подробность ядерного гриба: LOW / MEDIUM / HIGH — 300 / 600 / 1200 клубов.")
