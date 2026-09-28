@@ -172,6 +172,9 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             }
             default -> gain = 0;
         }
+        // камера снаряда: слушатель сидит на нём самом — мотор в упор, но не оглушающе
+        var cam = Minecraft.getInstance().getCameraEntity();
+        if (cam != null && cam.getId() == track.entityId) gain *= 0.5;
         // сглаживание: смена слоёв и ракурса без щелчков
         smoothVolume += (float) ((gain - smoothVolume) * 0.35);
         this.volume = smoothVolume;

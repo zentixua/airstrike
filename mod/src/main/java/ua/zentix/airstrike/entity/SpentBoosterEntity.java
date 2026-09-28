@@ -48,7 +48,6 @@ public class SpentBoosterEntity extends Entity {
         b.setDeltaMovement(v);
         b.entityData.set(DATA_WEAPON, (byte) from.weapon().id());
         level.addFreshEntity(b);
-        level.playSound(null, at.x, at.y, at.z, SoundEvents.IRON_TRAPDOOR_OPEN, SoundSource.NEUTRAL, 2.5f, 0.6f);
     }
 
     public WeaponType weapon() {
