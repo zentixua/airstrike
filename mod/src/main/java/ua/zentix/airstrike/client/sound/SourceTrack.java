@@ -39,7 +39,7 @@ final class SourceTrack implements Acoustics.Path {
         zs[i] = p.getZ();
         yaws[i] = p.getYRot();
         pitches[i] = p.getXRot();
-        phases[i] = p.phase();
+        phases[i] = p.flightPhase().ordinal();
         drilling = p instanceof ua.zentix.airstrike.entity.BunkerBusterEntity b && b.isDrilling();
         distanceToAim = p.position().distanceTo(p.aimPoint());
     }

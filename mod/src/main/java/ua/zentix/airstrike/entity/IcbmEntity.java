@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.entity;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -35,8 +36,23 @@ public class IcbmEntity extends StrikeProjectile {
     }
 
     @Override
-    protected int maxAge() {
+    public double cruiseSpeed() {
+        return MAX_SPEED;
+    }
+
+    @Override
+    protected int defaultLifetime() {
         return 600;
+    }
+
+    @Override
+    protected boolean fliesVirtually() {
+        return false;
+    }
+
+    @Override
+    protected boolean acceptsRetarget() {
+        return false;
     }
 
     /** Поставить на стартовую площадку носом вверх. */
@@ -47,20 +63,23 @@ public class IcbmEntity extends StrikeProjectile {
         setYRot(a[0]);
         setXRot(-89);
         speed = 0.5;
+        setPhase(FlightPhase.IGNITION);
     }
 
     @Override
     protected void serverTick(ServerLevel level) {
         // разгон: сначала медленно отрывается от стола, потом всё быстрее
         speed = Math.min(MAX_SPEED, speed + (age < 40 ? 0.08 : 0.35));
+        if (age >= 40) setPhase(FlightPhase.BOOST);
         double climbed = getY() - level.getMinBuildHeight();
         if (age > 60 && climbed > 0) {
             // доворот на курс цели: к пологим 45° над горизонтом
             flight.holdPitch(-45, 0.02, 0.6, 0.05);
         }
         Vec3 dir = flight.forward();
-        moveAlong(level, position().add(dir.scale(speed)), dir);
-        if (getY() > level.getMaxBuildHeight() + 256 || age >= maxAge()) discard();
+        Vec3 next = position().add(dir.scale(speed));
+        moveAlong(level, next, dir);
+        if (getY() > level.getMaxBuildHeight() + 256 || age >= maxAge() || !level.isPositionEntityTicking(BlockPos.containing(next))) discard();
     }
 
     @Override

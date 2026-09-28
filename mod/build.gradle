@@ -86,6 +86,8 @@ neoForge {
     }
 }
 neoForge.addModdingDependenciesTo(sourceSets.devtest)
+// юнит-тесты кода, который держит данные в классах Minecraft (Vec3, NBT), без запуска игры
+neoForge.addModdingDependenciesTo(sourceSets.test)
 
 dependencies {
     // Sable: только API для компиляции; во время игры он есть в сборке
@@ -100,7 +102,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     // SoundAssetsTest читает sounds.json
-    testImplementation 'com.google.code.gson:gson:2.11.0'
+    testImplementation 'com.google.code.gson:gson:2.10.1'
 }
 
 test {

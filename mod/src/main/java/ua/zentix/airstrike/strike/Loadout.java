@@ -17,20 +17,42 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
     public static final int MAX_SPREAD = 500;
     public static final Loadout DEFAULT = new Loadout(WeaponType.MISSILE, 1, 0, TargetMode.LOOK, "", Nuke.DEFAULT);
 
-    /** Ядерная боеголовка: мощность, кт, и воздушный (true) или наземный подрыв. */
-    public record Nuke(int yieldKt, boolean airBurst) {
+    /**
+     * Ядерная боеголовка: мощность, кт, воздушный (true) или наземный подрыв и — для крылатой ракеты и B-2 —
+     * нести ли её вместо обычной ({@code onCarrier}; у МБР она всегда ядерная).
+     */
+    public record Nuke(int yieldKt, boolean airBurst, boolean onCarrier) {
         public static final int MAX_YIELD = 50_000;
-        public static final Nuke DEFAULT = new Nuke(15, true);
+        public static final Nuke DEFAULT = new Nuke(15, true, false);
         public static final Codec<Nuke> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.INT.optionalFieldOf("yield", DEFAULT.yieldKt).forGetter(Nuke::yieldKt),
-                Codec.BOOL.optionalFieldOf("air_burst", DEFAULT.airBurst).forGetter(Nuke::airBurst)
+                Codec.BOOL.optionalFieldOf("air_burst", DEFAULT.airBurst).forGetter(Nuke::airBurst),
+                Codec.BOOL.optionalFieldOf("on_carrier", false).forGetter(Nuke::onCarrier)
         ).apply(i, Nuke::new));
         public static final StreamCodec<ByteBuf, Nuke> STREAM_CODEC = StreamCodec.composite(
-                ByteBufCodecs.VAR_INT, Nuke::yieldKt, ByteBufCodecs.BOOL, Nuke::airBurst, Nuke::new);
+                ByteBufCodecs.VAR_INT, Nuke::yieldKt, ByteBufCodecs.BOOL, Nuke::airBurst, ByteBufCodecs.BOOL, Nuke::onCarrier, Nuke::new);
 
         public Nuke {
             yieldKt = Mth.clamp(yieldKt, 1, MAX_YIELD);
         }
+
+        public Nuke(int yieldKt, boolean airBurst) {
+            this(yieldKt, airBurst, false);
+        }
+
+        public Nuke withOnCarrier(boolean on) {
+            return new Nuke(yieldKt, airBurst, on);
+        }
+    }
+
+    /** Эта настройка пульта несёт ядерную БЧ: МБР или ракета/B-2 с ядерной БЧ. */
+    public boolean nuclear() {
+        return weapon == WeaponType.NUKE || nuke.onCarrier() && carriesNuke(weapon);
+    }
+
+    /** Кто может нести ядерную БЧ, кроме МБР. */
+    public static boolean carriesNuke(WeaponType w) {
+        return w == WeaponType.MISSILE || w == WeaponType.BUNKER;
     }
 
     public static final Codec<Loadout> CODEC = RecordCodecBuilder.create(i -> i.group(

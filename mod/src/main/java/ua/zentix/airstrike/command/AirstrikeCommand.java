@@ -244,7 +244,7 @@ public final class AirstrikeCommand {
         float yaw = s.getRotation().y;
         StrikeService.log(s.getTextName(), w, count, spread, aim.point());
         if (count <= 1 && spread <= 0) {
-            return StrikeService.launch(level, w, aim.target(), aim.point(), yaw, null, true, nuke) ? 1 : 0;
+            return StrikeService.launch(level, w, aim.target(), aim.point(), yaw, null, true, nuke, false).ok() ? 1 : 0;
         }
         SalvoData.start(level, w, count, spread, aim.target(), aim.point(), yaw, null, nuke);
         return 1;

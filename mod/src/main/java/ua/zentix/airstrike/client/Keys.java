@@ -27,6 +27,8 @@ public final class Keys {
     };
 
     public static final KeyMapping FIRE = new KeyMapping("key.airstrike.fire", SCOPING, InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_LEFT, CATEGORY);
+    /** Камера снаряда: к ближайшему по времени, к следующему, к себе. */
+    public static final KeyMapping CAMERA = new KeyMapping("key.airstrike.camera", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY);
     public static final KeyMapping MENU = new KeyMapping("key.airstrike.menu", KeyConflictContext.IN_GAME, InputConstants.UNKNOWN, CATEGORY);
 
     private Keys() {}

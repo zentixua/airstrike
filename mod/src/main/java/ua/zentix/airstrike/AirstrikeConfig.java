@@ -38,6 +38,11 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue maxSpread;
         public final ModConfigSpec.IntValue aimRange;
         public final ModConfigSpec.BooleanValue designatorForEveryone;
+        public final ModConfigSpec.BooleanValue launchNearPlayer;
+        public final ModConfigSpec.IntValue droneFlightTime;
+        public final ModConfigSpec.IntValue missileFlightTime;
+        public final ModConfigSpec.IntValue bomberFlightTime;
+        public final ModConfigSpec.BooleanValue carrierNukes;
 
         public final ModConfigSpec.BooleanValue nukeEnabled;
         public final ModConfigSpec.BooleanValue nukeOpsOnly;
@@ -92,6 +97,14 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.aim_range").defineInRange("aim_range", 400, 32, 1024);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
+            launchNearPlayer = b.comment("Шахеды и ракеты стартуют с мобильной пусковой рядом с тем, кто пустил (иначе заходят издалека).")
+                    .translation("airstrike.config.launch_near_player").define("launch_near_player", true);
+            droneFlightTime = b.comment("Полёт шахеда от пуска до цели, секунд: маршрут в обход и заход из-за спины (не меньше прямого пути).")
+                    .translation("airstrike.config.drone_flight_time").defineInRange("drone_flight_time", 50, 5, 600);
+            missileFlightTime = b.comment("Полёт крылатой ракеты от пуска до цели, секунд.")
+                    .translation("airstrike.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
+            bomberFlightTime = b.comment("Подлёт B-2 до сброса, секунд.")
+                    .translation("airstrike.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
             b.pop();
 
             b.translation("airstrike.config.nuclear").push("nuclear");
@@ -128,6 +141,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
+            carrierNukes = b.comment("Ядерная боевая часть и на крылатой ракете и B-2 (кроме МБР).")
+                    .translation("airstrike.config.carrier_nukes").define("carrier_nukes", true);
             b.pop();
         }
     }

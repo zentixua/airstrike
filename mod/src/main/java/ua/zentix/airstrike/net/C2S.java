@@ -51,6 +51,18 @@ public final class C2S {
         }
     }
 
+    /** Перенацелить свой снаряд на то, что под прицелом его камеры. */
+    public record Retarget(UUID projectile, AimHint aim) implements CustomPacketPayload {
+        public static final Type<Retarget> TYPE = new Type<>(Airstrike.id("retarget"));
+        public static final StreamCodec<ByteBuf, Retarget> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, Retarget::projectile, AimHint.CODEC, Retarget::aim, Retarget::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Сохранить настройки пульта в предмете в руке. */
     public record SetLoadout(InteractionHand hand, Loadout loadout) implements CustomPacketPayload {
         public static final Type<SetLoadout> TYPE = new Type<>(Airstrike.id("set_loadout"));

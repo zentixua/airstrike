@@ -63,6 +63,7 @@ public final class ClientScenario {
         String mode = System.getProperty("airstrike.scenario");
         if ("nuke".equals(mode)) planNuke();
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
+        else if ("launch".equals(mode)) planLaunch();
         else plan();
     }
 
@@ -100,6 +101,7 @@ public final class ClientScenario {
         if (nuke) nukeEvents();
         if (fx != null) fxEvents();
         if (tick % 10 == 0) logSound();
+        if (tick % 20 == 0 && !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty()) logFlights();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
     }
 
@@ -111,6 +113,8 @@ public final class ClientScenario {
         });
         // цель — земля в 90 блоках по +Z; зритель — на столбике в 45 блоках от неё и в 25 над ней
         at(240, () -> {
+            // здесь проверяются удары, а не пуск: заход издалека и самый короткий полёт (пуск — сценарий launch)
+            quickFlights();
             aimAhead(90);
             cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:glass", (int) Math.floor(target.x), (int) target.y + 24,
                     (int) Math.floor(target.z) - 45, (int) Math.floor(target.x), (int) target.y + 24, (int) Math.floor(target.z) - 45));
@@ -241,6 +245,7 @@ public final class ClientScenario {
             });
         });
         at(240, () -> {
+            quickFlights();
             aimAhead(90);
             eye = new Vec3(target.x + 0.5, target.y + 18, target.z - 50);
             Minecraft.getInstance().player.getAbilities().flying = true;
@@ -311,6 +316,60 @@ public final class ClientScenario {
         at(tick + 340, this::nextFx);
     }
 
+    /** Короткие полёты издалека, без пусковой (для сценария ударов: снаряд приходит за ~5 с). */
+    private static void quickFlights() {
+        var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
+        c.launchNearPlayer.set(false);
+        c.droneFlightTime.set(5);
+        c.missileFlightTime.set(5);
+        c.bomberFlightTime.set(5);
+    }
+
+    /**
+     * Пуск с пусковой у игрока: площадка в небе (ровно и твёрдо), пусковая шахедов разворачивается позади, пуск,
+     * разгон, отделение ускорителя, камера шахеда до удара; потом то же для крылатой ракеты. Полёты укорочены
+     * (шахед 20 с, ракета 12 с), чтобы сценарий шёл минуты, а не часы.
+     */
+    private void planLaunch() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+        });
+        at(200, () -> {
+            var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
+            c.launchNearPlayer.set(true);
+            c.droneFlightTime.set(20);
+            c.missileFlightTime.set(12);
+            cmd("fill -30 199 -30 30 199 30 minecraft:smooth_stone");
+            // лицом к цели: пусковая встанет за спиной
+            cmd("tp @s 0.5 200 0.5 0 5");
+        });
+        at(230, () -> {
+            aimAhead(150);
+            cmd(String.format(java.util.Locale.ROOT, "airstrike drone at %.1f %.1f %.1f", target.x, target.y, target.z));
+        });
+        at(234, () -> cmd("tp @s 0.5 200 0.5 180 5"));
+        // смотрим назад, на пусковую: подъём пакета, поджиг, сход, отделение ускорителя
+        for (int t = 240; t <= 360; t += 6) shot(t, "launch_drone");
+        at(370, () -> cmd("tp @s 0.5 200 0.5 0 5"));
+        at(380, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        for (int t = 400; t <= 820; t += 20) shot(t, "camera_drone");
+        at(830, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
+        at(840, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(844, () -> cmd("tp @s 0.5 200 0.5 180 5"));
+        for (int t = 850; t <= 960; t += 5) shot(t, "launch_missile");
+        at(965, () -> cmd("tp @s 0.5 200 0.5 0 5"));
+        at(970, ua.zentix.airstrike.client.cam.ProjectileCamera::cycle);
+        for (int t = 980; t <= 1240; t += 10) shot(t, "camera_missile");
+        at(1250, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
+        for (int t = 1260; t <= 1300; t += 20) shot(t, "after");
+        at(1320, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
     /** Пуск по точке на земле впереди и кадры каждые 10 тиков, пока летит и горит. */
     private void strike(int start, String weapon, int frames) {
         at(start, () -> {
@@ -356,13 +415,23 @@ public final class ClientScenario {
         Airstrike.LOG.info("SCENARIO /{}", c);
     }
 
+    /** Полёты по данным сервера: оружие, фаза, время до удара — по ним видно, что пуск и полёт идут по плану. */
+    private static void logFlights() {
+        StringBuilder sb = new StringBuilder();
+        for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
+            sb.append(String.format(java.util.Locale.ROOT, " %s#%d %s eta=%.0fs;", f.weapon().getSerializedName(), f.number,
+                    f.phase().getSerializedName(), f.etaSeconds(0)));
+        }
+        Airstrike.LOG.info("SCENARIO flights{} camera={}", sb, ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing());
+    }
+
     /** Что сейчас летит и насколько громко / каким тоном звучит (для проверки Доплера и задержки по логу). */
     private void logSound() {
         Minecraft mc = Minecraft.getInstance();
         StringBuilder sb = new StringBuilder();
         for (var e : mc.level.entitiesForRendering()) {
             if (e instanceof StrikeProjectile p) {
-                sb.append(String.format(" %s d=%.0f v=%.1f ph=%d;", p.getType().toShortString(), p.distanceTo(mc.player), p.speed(), p.phase()));
+                sb.append(String.format(" %s d=%.0f v=%.1f ph=%s;", p.getType().toShortString(), p.distanceTo(mc.player), p.speed(), p.flightPhase().getSerializedName()));
             }
         }
         Airstrike.LOG.info("SCENARIO t={} [{}] flying:{} engines:{}", tick, mc.getSoundManager().getDebugString(), sb, ClientSounds.describe());

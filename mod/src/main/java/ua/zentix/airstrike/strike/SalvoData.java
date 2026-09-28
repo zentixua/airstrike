@@ -18,6 +18,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.target.Target;
 
@@ -28,7 +29,9 @@ import java.util.UUID;
 
 /**
  * Залпы: N снарядов с разбросом вокруг цели, по одному через случайную паузу (шахеды 20–40 тиков, ракеты 15–30,
- * B-2 60–80). Цель может двигаться — каждый снаряд целится со своим смещением относительно неё.
+ * B-2 60–80) — с одной пусковой по ячейкам. Цель может двигаться — каждый снаряд целится со своим смещением
+ * относительно неё; маршруты разные (обход слева или справа, курс захода ±35°), поэтому залп приходит волной
+ * с разных сторон.
  * Хранится в мире: незаконченный залп продолжится после перезахода.
  */
 public final class SalvoData extends SavedData {
@@ -79,7 +82,6 @@ public final class SalvoData extends SavedData {
                              float yaw, @Nullable ServerPlayer owner, Loadout.Nuke nuke) {
         Salvo s = new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner == null ? null : owner.getUUID(), 1, nuke);
         get(level).add(s);
-        if (weapon != WeaponType.NUKE) StrikeService.siren(level, weapon, centerPoint);
         if (owner != null) {
             owner.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
                     .withStyle(ChatFormatting.RED));
@@ -157,17 +159,21 @@ public final class SalvoData extends SavedData {
                 shot = new Target.Point(point);
             } else {
                 int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
-                int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-                point = new Vec3(lastCenter.x + dx, y - 0.5, lastCenter.z + dz);
+                // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
+                double y = Terrain.ready(level, new BlockPos(x, 0, z))
+                        ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 0.5 : lastCenter.y;
+                point = new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
                 shot = new Target.Point(point);
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
-            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, false, nuke);
+            // сирена одна на залп: её включит первый снаряд, когда его «увидят» на подлёте
+            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, false);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */
         private static boolean inAir(ServerLevel level, Vec3 c) {
             BlockPos p = BlockPos.containing(c);
+            if (!Terrain.ready(level, p)) return false;
             for (int i = 1; i <= 3; i++) {
                 if (!level.getBlockState(p.below(i)).is(ModTags.PASSABLE)) return false;
             }

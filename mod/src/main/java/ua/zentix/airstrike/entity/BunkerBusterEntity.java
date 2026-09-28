@@ -22,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -37,9 +38,6 @@ import java.util.UUID;
  * в полости через 3 тика; кончилась энергия, 70 блоков пути или непробиваемое — через 8 тиков.
  */
 public class BunkerBusterEntity extends StrikeProjectile {
-    public static final int PHASE_FALL = 0;
-    public static final int PHASE_DRILL = 5;
-
     private static final EntityDataAccessor<Vector3f> DATA_ENTRY = SynchedEntityData.defineId(BunkerBusterEntity.class, EntityDataSerializers.VECTOR3);
 
     @Nullable
@@ -63,8 +61,18 @@ public class BunkerBusterEntity extends StrikeProjectile {
     }
 
     @Override
-    protected int maxAge() {
+    public double cruiseSpeed() {
+        return 12.5;
+    }
+
+    @Override
+    protected int defaultLifetime() {
         return 300;
+    }
+
+    @Override
+    protected boolean acceptsRetarget() {
+        return false;
     }
 
     /** Точка входа в грунт (для дыма из скважины и выброса газов). */
@@ -74,7 +82,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
     }
 
     public boolean isDrilling() {
-        return phase() == PHASE_DRILL;
+        return flightPhase() == FlightPhase.DRILL;
     }
 
     /** Сброс с бомбардировщика: нос на 10° вниз, 6 блоков/тик. */
@@ -84,12 +92,12 @@ public class BunkerBusterEntity extends StrikeProjectile {
         moveTo(pos.x, pos.y, pos.z, yaw, 10);
         this.goal = goal;
         this.speed = 6.0;
-        setPhase(PHASE_FALL);
+        setPhase(FlightPhase.TERMINAL);
     }
 
     @Override
     protected void serverTick(ServerLevel level) {
-        if (phase() == PHASE_DRILL) {
+        if (flightPhase() == FlightPhase.DRILL) {
             drillTick(level);
             return;
         }
@@ -105,9 +113,15 @@ public class BunkerBusterEntity extends StrikeProjectile {
 
     @Override
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        if (phase() == PHASE_DRILL) return;
+        if (flightPhase() == FlightPhase.DRILL) return;
+        if (nuclear != null) {
+            // ядерная проникающая БЧ (как B61-11): уходит в грунт на несколько метров — наземный подрыв с воронкой
+            discard();
+            NuclearWarhead.detonate(level, point, nuclear.yieldKt(), false, ownerId());
+            return;
+        }
         setPos(point.x, point.y, point.z);
-        setPhase(PHASE_DRILL);
+        setPhase(FlightPhase.DRILL);
         energy = AirstrikeConfig.SERVER.bunkerEnergy.get();
         traveled = 0;
         fuse = -1;

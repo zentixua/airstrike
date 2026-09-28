@@ -101,6 +101,45 @@ public final class S2C {
         }
     }
 
+    /**
+     * Свои снаряды в полёте — тому, кто их пустил, раз в 5 тиков (и пустой список, когда все долетели): для HUD
+     * с временем до удара, меток на экране и камеры снаряда. Сервер знает и тех, что летят вне загруженного мира.
+     */
+    public record Flights(java.util.List<Flight> flights) implements CustomPacketPayload {
+        public static final Type<Flights> TYPE = new Type<>(Airstrike.id("flights"));
+        public static final StreamCodec<ByteBuf, Flights> CODEC = Flight.CODEC.apply(ByteBufCodecs.list()).map(Flights::new, Flights::flights);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Один снаряд: UUID (тот же после возвращения в мир), оружие, фаза полёта, тиков до удара, где он и куда летит,
+     * ядерная ли БЧ.
+     */
+    public record Flight(java.util.UUID id, int weapon, int phase, int eta, Vec3 pos, Vec3 target, boolean nuclear) {
+        public static final StreamCodec<ByteBuf, Flight> CODEC = new StreamCodec<>() {
+            @Override
+            public Flight decode(ByteBuf b) {
+                return new Flight(net.minecraft.core.UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
+                        ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readBoolean());
+            }
+
+            @Override
+            public void encode(ByteBuf b, Flight f) {
+                net.minecraft.core.UUIDUtil.STREAM_CODEC.encode(b, f.id);
+                ByteBufCodecs.VAR_INT.encode(b, f.weapon);
+                ByteBufCodecs.VAR_INT.encode(b, f.phase);
+                ByteBufCodecs.VAR_INT.encode(b, f.eta);
+                VEC3.encode(b, f.pos);
+                VEC3.encode(b, f.target);
+                b.writeBoolean(f.nuclear);
+            }
+        };
+    }
+
     /** Открыть экран пульта (команда /airstrike menu). */
     public record OpenRemote() implements CustomPacketPayload {
         public static final Type<OpenRemote> TYPE = new Type<>(Airstrike.id("open_remote"));

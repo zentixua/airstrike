@@ -18,6 +18,7 @@ import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
+import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.fx.Effects;
@@ -25,6 +26,7 @@ import ua.zentix.airstrike.client.fx.Exhaust;
 import ua.zentix.airstrike.client.fx.Flash;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.hud.Alerts;
+import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
 import ua.zentix.airstrike.client.nuclear.ClientNuclear;
 import ua.zentix.airstrike.client.nuclear.Geiger;
@@ -34,6 +36,8 @@ import ua.zentix.airstrike.client.nuclear.NukeHud;
 import ua.zentix.airstrike.client.nuclear.NukeRenderer;
 import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
+import ua.zentix.airstrike.client.render.LauncherRenderer;
+import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.Models;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
@@ -71,6 +75,11 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onStream);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::angles);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::fov);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::movement);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::hideHand);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::click);
 
         ClientHooks.set(new Hooks());
     }
@@ -82,11 +91,14 @@ public final class AirstrikeClient {
         e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.BOMB, 0));
         e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.ICBM, 0));
         e.registerEntityRenderer(ModEntities.DEBRIS.get(), DebrisRenderer::new);
+        e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
+        e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
     }
 
     private static void keys(RegisterKeyMappingsEvent e) {
         e.register(Keys.FIRE);
         e.register(Keys.MENU);
+        e.register(Keys.CAMERA);
     }
 
     private static void layers(RegisterGuiLayersEvent e) {
@@ -95,6 +107,7 @@ public final class AirstrikeClient {
         e.registerAbove(VanillaGuiLayers.CROSSHAIR, Airstrike.id("scope"), Designator::renderHud);
         e.registerAbove(VanillaGuiLayers.OVERLAY_MESSAGE, Airstrike.id("alerts"), Alerts::render);
         e.registerAbove(VanillaGuiLayers.SCOREBOARD_SIDEBAR, Airstrike.id("strikes"), StrikesHud::render);
+        e.registerBelow(VanillaGuiLayers.CROSSHAIR, Airstrike.id("projectile_camera"), ProjectileCamera::render);
         e.registerAbove(VanillaGuiLayers.OVERLAY_MESSAGE, Airstrike.id("nuke"), NukeHud::render);
         e.registerAbove(VanillaGuiLayers.HOTBAR, Airstrike.id("geiger"), Geiger::render);
     }
@@ -104,8 +117,11 @@ public final class AirstrikeClient {
         if (mc.level == null) return;
         while (Keys.MENU.consumeClick()) mc.setScreen(new RemoteScreen());
         while (Keys.FIRE.consumeClick()) Designator.fire();
+        while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
         if (mc.isPaused()) return;
         Designator.tick();
+        ClientFlights.tick();
+        ProjectileCamera.tick();
         ClientSounds.tick();
         Effects.tick();
         CameraShake.tick();
@@ -125,7 +141,7 @@ public final class AirstrikeClient {
 
     /** В бинокле своё перекрестие. */
     private static void hideCrosshair(RenderGuiLayerEvent.Pre e) {
-        if (e.getName().equals(VanillaGuiLayers.CROSSHAIR) && Designator.isScoping()) e.setCanceled(true);
+        if (e.getName().equals(VanillaGuiLayers.CROSSHAIR) && (Designator.isScoping() || ProjectileCamera.isActive())) e.setCanceled(true);
     }
 
     private static void logout(ClientPlayerNetworkEvent.LoggingOut e) {
@@ -134,6 +150,8 @@ public final class AirstrikeClient {
         CameraShake.reset();
         Flash.reset();
         Alerts.reset();
+        ProjectileCamera.reset();
+        ClientFlights.reset();
         NukeArming.cancel();
         ClientNuclear.reset();
     }
@@ -184,6 +202,7 @@ public final class AirstrikeClient {
         public void cleared() {
             ClientSounds.reset();
             Alerts.reset();
+            ProjectileCamera.reset();
         }
 
         @Override
@@ -214,6 +233,11 @@ public final class AirstrikeClient {
         @Override
         public void debrisTick(DebrisEntity e) {
             Exhaust.debris(e);
+        }
+
+        @Override
+        public void flights(S2C.Flights p) {
+            ClientFlights.update(p);
         }
     }
 }

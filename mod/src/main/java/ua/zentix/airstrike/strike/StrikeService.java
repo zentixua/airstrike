@@ -17,9 +17,13 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
+import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Local;
@@ -27,9 +31,14 @@ import ua.zentix.airstrike.util.Local;
 import java.util.UUID;
 
 /**
- * Пуск: одно место для команд, пульта, залпов и тестов. Снаряд появляется позади цели по направлению захода
- * (как в датапаке: шахед в 190/140/90/50 блоках и на 45 выше, ракета в 220/170/120/70, B-2 в 260/200/150/110),
- * в первой из этих точек, где мир уже загружен и тикает.
+ * Пуск: одно место для команд, пульта, залпов и тестов.
+ * <p>
+ * Шахед и крылатая ракета стартуют с мобильной пусковой рядом со стреляющим ({@link LaunchSite}): поджиг,
+ * сход с направляющей на ускорителе, сброс ускорителя, выход на маршрут. Маршрут ({@link Route}) — петля в обход
+ * и заход на цель с направления взгляда стреляющего, «из-за спины», на всё время полёта из настроек (шахед 50 с,
+ * ракета 30 с). Большая часть пути проходит вне загруженного мира ({@link VirtualFlights}). Без стреляющего рядом
+ * (консоль, командный блок, игрок в другом мире) или без места под пусковую — заход издалека по той же схеме.
+ * B-2 всегда заходит издалека.
  */
 public final class StrikeService {
     /** Радиус, в котором слышна сирена и видна тревога. */
@@ -38,56 +47,129 @@ public final class StrikeService {
     private StrikeService() {}
 
     /**
-     * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
-     * @param siren       включить сирену у цели (у залпа сирена одна на весь залп)
-     * @param nuke        мощность и подрыв ядерной боеголовки (для остального оружия не используется)
-     * @return пуск состоялся
+     * Итог пуска.
+     *
+     * @param eta через сколько тиков удар (для сообщения стреляющему)
      */
+    public record Result(boolean ok, int eta) {
+        static final Result FAILED = new Result(false, 0);
+    }
+
     public static boolean launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
                                  @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
-        if (weapon == WeaponType.NUKE) {
-            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
-            ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
-            return NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), player);
-        }
-        StrikeProjectile p = switch (weapon) {
-            case DRONE -> launchDrone(level, target, point, approachYaw, owner);
-            case MISSILE -> launchMissile(level, target, point, approachYaw, owner);
-            default -> launchBomber(level, point, approachYaw, owner);
-        };
-        if (p != null && siren) siren(level, weapon, point);
-        return p != null;
+        return launch(level, weapon, target, point, approachYaw, owner, siren, nuke, false).ok();
     }
 
     /**
-     * Первая точка захода, где мир тикает; если ни одна из штатных — ближе к цели шагами по 16 блоков
-     * (сущность в нетикающем чанке так и повисла бы в воздухе). Новые чанки ради пуска не грузим.
+     * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
+     * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)
+     * @param nuke        мощность и подрыв ядерной боеголовки
+     * @param carrierNuke ядерная БЧ на крылатой ракете или бомбе (МБР — всегда ядерная)
      */
-    private static Vec3 start(ServerLevel level, Vec3 point, float yaw, double up, double... distances) {
-        Vec3 back = Local.horizontal(yaw).scale(-1);
-        for (double d : distances) {
-            Vec3 p = point.add(back.scale(d)).add(0, up, 0);
-            if (level.isPositionEntityTicking(BlockPos.containing(p))) return p;
+    public static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                @Nullable UUID owner, boolean siren, Loadout.Nuke nuke, boolean carrierNuke) {
+        ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+        if (shooter != null && shooter.level() != level) shooter = null;
+        if (weapon == WeaponType.NUKE) {
+            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
+            boolean ok = NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
+            return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
         }
-        for (double d = distances[distances.length - 1] - 16; d >= 16; d -= 16) {
-            Vec3 p = point.add(back.scale(d)).add(0, up, 0);
-            if (level.isPositionEntityTicking(BlockPos.containing(p))) return p;
-        }
-        return point.add(back.scale(16)).add(0, up, 0);
+        Loadout.Nuke warhead = carrierNuke && weapon != WeaponType.DRONE ? nuke : null;
+        StrikeProjectile p = switch (weapon) {
+            case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
+            default -> launchBomber(level, point, approachYaw, owner);
+        };
+        if (p == null) return Result.FAILED;
+        p.setNuclear(warhead);
+        if (siren && AirstrikeConfig.SERVER.siren.get()) p.armSiren(sirenLead(weapon));
+        int eta = p.etaTicks();
+        if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
+        return new Result(true, eta);
     }
 
-    private static StrikeProjectile launchDrone(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
-        DroneEntity e = ModEntities.DRONE.get().create(level);
-        if (e == null) return null;
-        e.launch(start(level, point, yaw, 45, 190, 140, 90, 50), target, point, owner);
-        return level.addFreshEntity(e) ? e : null;
+    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, B-2 20 с. */
+    private static int sirenLead(WeaponType weapon) {
+        return switch (weapon) {
+            case DRONE -> 500;
+            case MISSILE -> 300;
+            default -> 400;
+        };
     }
 
-    private static StrikeProjectile launchMissile(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
-        CruiseMissileEntity e = ModEntities.CRUISE_MISSILE.get().create(level);
-        if (e == null) return null;
-        e.launch(start(level, point, yaw, 0, 220, 170, 120, 70), target, point, owner);
-        return level.addFreshEntity(e) ? e : null;
+    private static double cruiseSpeed(WeaponType weapon) {
+        return weapon == WeaponType.DRONE ? DroneEntity.CRUISE_SPEED : CruiseMissileEntity.CRUISE_SPEED;
+    }
+
+    /** Длина маршрута на заданное время полёта. */
+    private static double pathLength(WeaponType weapon) {
+        int seconds = weapon == WeaponType.DRONE ? AirstrikeConfig.SERVER.droneFlightTime.get() : AirstrikeConfig.SERVER.missileFlightTime.get();
+        return cruiseSpeed(weapon) * seconds * 20;
+    }
+
+    /** Последний прямой участок перед целью: шахед 300 блоков, ракета 500 — и всегда из-за спины стреляющего. */
+    private static double entryDistance(WeaponType weapon, Vec3 point, @Nullable ServerPlayer shooter) {
+        double base = weapon == WeaponType.DRONE ? 300 : 500;
+        if (shooter == null) return base;
+        double dx = point.x - shooter.getX(), dz = point.z - shooter.getZ();
+        return Math.max(base, Math.sqrt(dx * dx + dz * dz) + 150);
+    }
+
+    @Nullable
+    private static StrikeProjectile create(ServerLevel level, WeaponType weapon) {
+        return weapon == WeaponType.DRONE ? ModEntities.DRONE.get().create(level) : ModEntities.CRUISE_MISSILE.get().create(level);
+    }
+
+    /** Шахед или ракета: с пусковой рядом со стреляющим, иначе издалека. Снаряд ещё не добавлен в мир. */
+    @Nullable
+    private static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float yaw,
+                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter) {
+        Vec3 dir = Local.horizontal(yaw);
+        double length = pathLength(weapon);
+        double entry = entryDistance(weapon, point, shooter);
+        double side = level.random.nextBoolean() ? 1 : -1;
+        if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
+            StrikeProjectile p = fromLauncher(level, weapon, target, point, dir, length, entry, side, shooter);
+            if (p != null) return p;
+        }
+        return fromAfar(level, weapon, target, point, dir, length, entry, side, owner);
+    }
+
+    @Nullable
+    private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
+                                                 double length, double entry, double side, ServerPlayer shooter) {
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon);
+        if (launcher == null) {
+            Vec3 site = LaunchSite.find(level, shooter);
+            if (site == null) return null;
+            // пакет смотрит на первую точку маршрута
+            Route plan = Route.plan(site, point, dir, length, entry, side);
+            Vec3 first = plan.current() == null ? point : plan.current();
+            launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, first)[0], weapon, shooter);
+        }
+        StrikeProjectile p = create(level, weapon);
+        if (p == null) return null;
+        int[] slot = launcher.reserve(level.getGameTime(), 12, 24);
+        Vec3 rail = launcher.railPoint(slot[0]);
+        int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
+        p.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, point, shooter.getUUID());
+        p.setRoute(Route.plan(rail, point, dir, length, entry, side));
+        return p;
+    }
+
+    /**
+     * Заход издалека: снаряд начинает полёт вне мира на прямой захода, на расстоянии времени полёта от цели
+     * (а если это место уже загружено — сразу в мире).
+     */
+    private static StrikeProjectile fromAfar(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
+                                             double length, double entry, double side, @Nullable UUID owner) {
+        StrikeProjectile p = create(level, weapon);
+        if (p == null) return null;
+        Vec3 start = point.subtract(dir.scale(length)).add(0, weapon == WeaponType.DRONE ? DroneEntity.CRUISE_HEIGHT : 12, 0);
+        p.launch(start, target, point, owner);
+        p.setRoute(Route.plan(start, point, dir, length, entry, side));
+        startVirtual(level, p);
+        return p;
     }
 
     /**
@@ -97,13 +179,23 @@ public final class StrikeService {
     private static StrikeProjectile launchBomber(ServerLevel level, Vec3 point, float yaw, @Nullable UUID owner) {
         double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
         int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
-        int sy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
+        // высота поверхности — только из готового чанка (иначе по высоте цели): чанк ради пуска не грузим
+        double sy = Terrain.ready(level, new BlockPos(sx, 0, sz))
+                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz) : Math.floor(point.y) + 1;
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
         BlockPos goal = surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
-        e.launch(start(level, surface, yaw, 0, 260, 200, 150, 110), surface, goal, owner);
-        return level.addFreshEntity(e) ? e : null;
+        double length = BomberEntity.CRUISE_SPEED * AirstrikeConfig.SERVER.bomberFlightTime.get() * 20 + BomberEntity.RELEASE_DISTANCE;
+        e.launch(surface.subtract(Local.horizontal(yaw).scale(length)), surface, goal, owner);
+        e.setRoute(null);
+        startVirtual(level, e);
+        return e;
+    }
+
+    /** Полёт начинается вне мира; в загруженном месте снаряд вернётся в мир в ближайшем тике. */
+    private static void startVirtual(ServerLevel level, StrikeProjectile p) {
+        VirtualFlights.launch(level, p);
     }
 
     /** Сирена и «ВОЗДУШНАЯ ТРЕВОГА» у всех в 350 блоках от цели (у каждого своя память, см. клиент). */
@@ -113,15 +205,16 @@ public final class StrikeService {
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, ALERT_RADIUS, new S2C.Siren(at, kind));
     }
 
-    /** Строка над хотбаром и щелчок пульта у того, кто пустил. */
     /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда. */
     public static void log(String who, WeaponType weapon, int count, int spread, Vec3 point) {
         Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} — {}", weapon.getSerializedName(), count, spread,
                 Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), who);
     }
 
-    public static void confirm(ServerPlayer player, WeaponType weapon) {
-        player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName()).withStyle(ChatFormatting.RED), true);
+    /** Строка над хотбаром и щелчок пульта у того, кто пустил: что пущено и через сколько удар. */
+    public static void confirm(ServerPlayer player, WeaponType weapon, int etaTicks) {
+        player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName(), (etaTicks + 19) / 20)
+                .withStyle(ChatFormatting.RED), true);
         player.playNotifySound(SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.MASTER, 1.0f, weapon == WeaponType.DRONE ? 0.6f : 0.5f);
     }
 }
