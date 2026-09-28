@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.Nullable;
@@ -36,8 +37,10 @@ import java.util.UUID;
 
 /** Действия игроков с пульта (пакеты) и команд: пуск, настройки пульта, отбой. Всё проверяется здесь. */
 public final class ServerActions {
-    /** Не чаще раза в 4 тика с одного игрока: защита от дребезга кнопки и от спама пакетами. */
+    /** Пуск и отбой — не чаще раза в 4 тика с одного игрока: защита от дребезга кнопки и от спама пакетами. */
     private static final int FIRE_INTERVAL = 4;
+    /** Подсказка клиента об аппарате: его точка в мире не дальше стольких блоков от точки прицела. */
+    private static final double AIRCRAFT_HINT_SLACK = 32;
 
     private ServerActions() {}
 
@@ -53,9 +56,7 @@ public final class ServerActions {
             player.displayClientMessage(Component.translatable("airstrike.no_permission").withStyle(ChatFormatting.RED), true);
             return;
         }
-        long now = player.serverLevel().getGameTime();
-        if (player.hasData(ModAttachments.LAST_FIRE) && now - player.getData(ModAttachments.LAST_FIRE) < FIRE_INTERVAL) return;
-        player.setData(ModAttachments.LAST_FIRE, now);
+        if (tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
 
         Loadout l = clamp(p.loadout());
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
@@ -70,8 +71,9 @@ public final class ServerActions {
         if (!(level.getEntity(p.projectile()) instanceof StrikeProjectile proj) || !player.getUUID().equals(proj.ownerId())) return;
         C2S.AimHint h = p.aim();
         // из камеры видно не дальше дальности прорисовки снаряда
-        if (h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
-        Aim aim = resolveHint(level, h);
+        if (!valid(h) || h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
+        if (tooSoon(player, ModAttachments.LAST_RETARGET.get())) return;
+        Aim aim = resolveHint(level, player, h);
         if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
         Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
         player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
@@ -88,9 +90,26 @@ public final class ServerActions {
 
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
-        if (!mayUse(player)) return;
+        if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
         int n = clearAll(player.server, mayUseNuke(player));
         player.sendSystemMessage(Component.translatable("airstrike.cleared", n).withStyle(ChatFormatting.GRAY));
+    }
+
+    /** Действие того же рода было меньше {@link #FIRE_INTERVAL} тиков назад; иначе запомнить это. */
+    private static boolean tooSoon(ServerPlayer player, AttachmentType<Long> last) {
+        long now = player.serverLevel().getGameTime();
+        if (player.hasData(last) && now - player.getData(last) < FIRE_INTERVAL) return true;
+        player.setData(last, now);
+        return false;
+    }
+
+    /** Координаты подсказки — конечные числа: NaN проходит любые сравнения дальности, бесконечность ломает чанки. */
+    private static boolean valid(C2S.AimHint h) {
+        return finite(h.point()) && finite(h.plotPos());
+    }
+
+    private static boolean finite(Vec3 v) {
+        return Double.isFinite(v.x) && Double.isFinite(v.y) && Double.isFinite(v.z);
     }
 
     // ---------------------------------------------------------------- общая логика
@@ -148,27 +167,32 @@ public final class ServerActions {
     @Nullable
     private static Aim fromHint(ServerPlayer player, C2S.AimHint h) {
         double range = AirstrikeConfig.SERVER.aimRange.get() + 32;
-        if (h.point().distanceToSqr(player.getEyePosition()) > range * range) {
+        if (!valid(h) || h.point().distanceToSqr(player.getEyePosition()) > range * range) {
             notFound(player);
             return null;
         }
-        return resolveHint(player.serverLevel(), h);
+        return resolveHint(player.serverLevel(), player, h);
     }
 
-    /** Цель по подсказке клиента: сущность и аппарат — если они у сервера там же, иначе точка. */
+    /**
+     * Цель по подсказке клиента: сущность и аппарат — если они у сервера там же, где прицел (и в сущность можно
+     * целиться, как в {@link TargetPicker#aimable}), иначе точка прицела.
+     */
     @Nullable
-    private static Aim resolveHint(ServerLevel level, C2S.AimHint h) {
+    private static Aim resolveHint(ServerLevel level, ServerPlayer player, C2S.AimHint h) {
         switch (h.kind()) {
             case C2S.AimHint.ENTITY -> {
                 Entity e = level.getEntity(h.entityId());
-                if (e != null && e.isAlive() && e.getBoundingBox().inflate(8).contains(h.point())) {
+                if (e != null && TargetPicker.aimable(player).test(e) && e.getBoundingBox().inflate(8).contains(h.point())) {
                     return new Aim(Target.OfEntity.of(e, h.point()), h.point(), e.getDisplayName());
                 }
             }
             case C2S.AimHint.AIRCRAFT -> {
                 SubLevelAccess sub = SubLevels.containing(level, h.plotPos());
-                if (sub != null) {
-                    return new Aim(new Target.OfSubLevel(h.plotPos()), SubLevels.toWorld(level, h.plotPos()), SubLevels.describe(sub));
+                Vec3 world = sub == null ? null : SubLevels.toWorld(level, h.plotPos());
+                // иначе проверка дальности по точке прицела не держала бы: точка рядом, а аппарат — где угодно
+                if (world != null && world.distanceToSqr(h.point()) <= AIRCRAFT_HINT_SLACK * AIRCRAFT_HINT_SLACK) {
+                    return new Aim(new Target.OfSubLevel(h.plotPos()), world, SubLevels.describe(sub));
                 }
             }
             default -> {}
