@@ -4,26 +4,16 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.sounds.SoundSource;
-import net.neoforged.neoforge.client.event.sound.PlaySoundSourceEvent;
-import net.neoforged.neoforge.client.event.sound.PlayStreamingSourceEvent;
-import net.neoforged.neoforge.client.event.sound.SoundEngineLoadEvent;
-import org.lwjgl.openal.AL10;
-import org.lwjgl.openal.ALC10;
-import org.lwjgl.openal.EXTEfx;
-import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.registry.ModSounds;
 
 /**
- * Оглушение после близкой ударной волны (DESIGN-nuke §5): 10–20 с все новые звуки игры глухие — фильтр нижних
- * частот OpenAL EFX на каждый новый источник, — и звенит в ушах. Громкость категорий игрока не трогается.
- * Фильтр ставится в {@link PlaySoundSourceEvent}, который звуковой движок шлёт из своего потока, где контекст
- * OpenAL текущий; поле {@code Channel.source} открыто access transformer'ом.
+ * Оглушение после близкой ударной волны (DESIGN-nuke §5): 10–20 с все звуки игры глухие — фильтр нижних частот
+ * OpenAL EFX ({@link ua.zentix.airstrike.client.sound.SoundFilters}), — и звенит в ушах. Громкость категорий
+ * игрока не трогается.
  */
 public final class Deafness {
     private static volatile int left, total;
     private static volatile float depth;
-    /** Номер фильтра OpenAL (создаётся в звуковом потоке при первой нужде), −1 — EFX нет. */
-    private static volatile int filter;
 
     private Deafness() {}
 
@@ -43,46 +33,14 @@ public final class Deafness {
         left = 0;
     }
 
-    /** Звуковой движок перезапущен (F3+T, смена устройства): старый фильтр пропал вместе с контекстом. */
-    public static void onEngineLoad(SoundEngineLoadEvent e) {
-        filter = 0;
-    }
-
-    public static void onSound(PlaySoundSourceEvent e) {
-        apply(e.getSound(), e.getChannel().source);
-    }
-
-    public static void onStream(PlayStreamingSourceEvent e) {
-        apply(e.getSound(), e.getChannel().source);
-    }
-
     /**
-     * Звуковой поток: новому источнику — фильтр нижних частот, сила спадает к концу оглушения. Фильтр остаётся на
-     * источнике до конца звука, поэтому зацикленные звуки и музыку не трогаем — иначе они звучали бы глухо минутами.
+     * Насколько глух этот звук сейчас: 0 — слышно как обычно, 1 — совсем глухо. Первые 60% оглушения — глухо,
+     * потом слух возвращается. Музыку, пластинки и сам звон в ушах не трогаем. Зовут из звукового потока.
      */
-    private static void apply(SoundInstance sound, int source) {
+    public static float depth(SoundInstance sound) {
         int l = left;
-        if (l <= 0 || sound.isLooping() || sound.getSource() == SoundSource.MUSIC || sound.getSource() == SoundSource.RECORDS
-                || sound.getLocation().equals(ModSounds.NUKE_TINNITUS.get().getLocation())) return;
-        if (filter == 0) filter = create();
-        if (filter < 0) return;
-        float k = depth * Math.min(1, l / (total * 0.4f)); // первые 60% — глухо, потом слух возвращается
-        EXTEfx.alFilterf(filter, EXTEfx.AL_LOWPASS_GAIN, 1 - 0.55f * k);
-        EXTEfx.alFilterf(filter, EXTEfx.AL_LOWPASS_GAINHF, Math.max(0.01f, 1 - 0.99f * k));
-        AL10.alSourcei(source, EXTEfx.AL_DIRECT_FILTER, filter);
-    }
-
-    private static int create() {
-        try {
-            long device = ALC10.alcGetContextsDevice(ALC10.alcGetCurrentContext());
-            if (device == 0 || !ALC10.alcIsExtensionPresent(device, "ALC_EXT_EFX")) return -1;
-            int f = EXTEfx.alGenFilters();
-            EXTEfx.alFilteri(f, EXTEfx.AL_FILTER_TYPE, EXTEfx.AL_FILTER_LOWPASS);
-            if (AL10.alGetError() != AL10.AL_NO_ERROR) return -1;
-            return f;
-        } catch (RuntimeException | LinkageError ex) {
-            Airstrike.LOG.warn("OpenAL EFX недоступен — оглушение будет без глухоты: {}", ex.toString());
-            return -1;
-        }
+        if (l <= 0 || sound.getSource() == SoundSource.MUSIC || sound.getSource() == SoundSource.RECORDS
+                || sound.getLocation().equals(ModSounds.NUKE_TINNITUS.get().getLocation())) return 0;
+        return depth * Math.min(1, l / (total * 0.4f));
     }
 }

@@ -15,11 +15,11 @@ import ua.zentix.airstrike.strike.WeaponType;
 
 /**
  * Тревога у тех, по кому бьют: сирена с двух сторон «города» и мигающая надпись над хотбаром.
- * Сирена у каждого своя с памятью 13 с — вторая поверх не включается, но надпись обновляется.
+ * Сирена у каждого своя с памятью 26 с (длина записи) — вторая поверх не включается, но надпись обновляется.
  * И строка хода залпа у того, кто его запустил.
  */
 public final class Alerts {
-    private static final int SIREN_MEMORY = 260;
+    private static final int SIREN_MEMORY = 530;
     private static final int BANNER_TICKS = 100;
 
     private static long ticks;

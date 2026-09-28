@@ -15,6 +15,31 @@
       }
     ]
   },
+  "launch.booster": {
+    "subtitle": "subtitles.airstrike.launch",
+    "sounds": [
+      {
+        "name": "airstrike:launch_booster_1"
+      },
+      {
+        "name": "airstrike:launch_booster_2"
+      },
+      {
+        "name": "airstrike:launch_booster_3"
+      },
+      {
+        "name": "airstrike:launch_booster_4"
+      }
+    ]
+  },
+  "booster.engine": {
+    "subtitle": "subtitles.airstrike.launch",
+    "sounds": [
+      {
+        "name": "airstrike:booster_engine"
+      }
+    ]
+  },
   "missile.engine": {
     "subtitle": "subtitles.airstrike.missile",
     "sounds": [
@@ -107,7 +132,22 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_near"
+        "name": "airstrike:blast_near_1"
+      },
+      {
+        "name": "airstrike:blast_near_2"
+      },
+      {
+        "name": "airstrike:blast_near_3"
+      },
+      {
+        "name": "airstrike:blast_near_4"
+      },
+      {
+        "name": "airstrike:blast_near_5"
+      },
+      {
+        "name": "airstrike:blast_near_6"
       }
     ]
   },
@@ -115,7 +155,10 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_sub"
+        "name": "airstrike:blast_sub_1"
+      },
+      {
+        "name": "airstrike:blast_sub_2"
       }
     ]
   },
@@ -123,7 +166,62 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_far"
+        "name": "airstrike:blast_far_1"
+      },
+      {
+        "name": "airstrike:blast_far_2"
+      },
+      {
+        "name": "airstrike:blast_far_3"
+      },
+      {
+        "name": "airstrike:blast_far_4"
+      },
+      {
+        "name": "airstrike:blast_far_5"
+      },
+      {
+        "name": "airstrike:blast_far_6"
+      },
+      {
+        "name": "airstrike:blast_far_7"
+      },
+      {
+        "name": "airstrike:blast_far_8"
+      },
+      {
+        "name": "airstrike:blast_far_9"
+      },
+      {
+        "name": "airstrike:blast_far_10"
+      },
+      {
+        "name": "airstrike:blast_far_11"
+      }
+    ]
+  },
+  "debris.fall": {
+    "subtitle": "subtitles.airstrike.debris",
+    "sounds": [
+      {
+        "name": "airstrike:debris_fall_1"
+      },
+      {
+        "name": "airstrike:debris_fall_2"
+      },
+      {
+        "name": "airstrike:debris_fall_3"
+      },
+      {
+        "name": "airstrike:debris_fall_4"
+      }
+    ]
+  },
+  "blast.fire": {
+    "subtitle": "subtitles.airstrike.fire",
+    "sounds": [
+      {
+        "name": "airstrike:blast_fire"
       }
     ]
   },
@@ -155,7 +253,10 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:bomb_deep"
+        "name": "airstrike:bomb_deep_1"
+      },
+      {
+        "name": "airstrike:bomb_deep_2"
       }
     ]
   },
@@ -185,7 +286,9 @@
   },
   "silent": {
     "sounds": [
-      "airstrike:silent"
+      {
+        "name": "airstrike:silent"
+      }
     ]
   },
   "nuke.alarm": {
@@ -216,7 +319,10 @@
     "subtitle": "subtitles.airstrike.nuke.blast",
     "sounds": [
       {
-        "name": "airstrike:nuke_boom_far"
+        "name": "airstrike:nuke_boom_far_1"
+      },
+      {
+        "name": "airstrike:nuke_boom_far_2"
       }
     ]
   },
@@ -240,7 +346,13 @@
     "subtitle": "subtitles.airstrike.nuke.rumble",
     "sounds": [
       {
-        "name": "airstrike:nuke_rumble"
+        "name": "airstrike:nuke_rumble_1"
+      },
+      {
+        "name": "airstrike:nuke_rumble_2"
+      },
+      {
+        "name": "airstrike:nuke_rumble_3"
       }
     ]
   },
@@ -248,7 +360,13 @@
     "subtitle": "subtitles.airstrike.nuke.glass",
     "sounds": [
       {
-        "name": "airstrike:nuke_glass"
+        "name": "airstrike:nuke_glass_1"
+      },
+      {
+        "name": "airstrike:nuke_glass_2"
+      },
+      {
+        "name": "airstrike:nuke_glass_3"
       }
     ]
   },
@@ -271,7 +389,16 @@
     "subtitle": "subtitles.airstrike.geiger",
     "sounds": [
       {
-        "name": "airstrike:geiger_click"
+        "name": "airstrike:geiger_click_1"
+      },
+      {
+        "name": "airstrike:geiger_click_2"
+      },
+      {
+        "name": "airstrike:geiger_click_3"
+      },
+      {
+        "name": "airstrike:geiger_click_4"
       }
     ]
   }

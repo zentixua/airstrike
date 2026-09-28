@@ -6,7 +6,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
 
-/** Звуки мода. Файлы — assets/airstrike/sounds, синтез — tools/synth_mod_sounds.py. */
+/** Звуки мода. Файлы и sounds.json собирает tools/build_sounds.py (записи — SOUND-CREDITS.md, остальное — синтез). */
 public final class ModSounds {
     public static final DeferredRegister<SoundEvent> REGISTER = DeferredRegister.create(Registries.SOUND_EVENT, Airstrike.MOD_ID);
 
@@ -23,12 +23,16 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_FALL = register("bomb.fall");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_FALL_FAR = register("bomb.fall.far");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_DRILL = register("bomb.drill");
+    public static final DeferredHolder<SoundEvent, SoundEvent> BOOSTER_ENGINE = register("booster.engine");
     public static final DeferredHolder<SoundEvent, SoundEvent> SIREN = register("siren");
 
-    // разовые
+    // разовые (у взрывов по несколько вариантов в sounds.json — игра выбирает случайно)
+    public static final DeferredHolder<SoundEvent, SoundEvent> LAUNCH_BOOSTER = register("launch.booster");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_NEAR = register("blast.near");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_SUB = register("blast.sub");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_FAR = register("blast.far");
+    public static final DeferredHolder<SoundEvent, SoundEvent> DEBRIS_FALL = register("debris.fall");
+    public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_FIRE = register("blast.fire");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_CRACK = register("bomb.crack");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_IMPACT = register("bomb.impact");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOMB_QUAKE = register("bomb.quake");

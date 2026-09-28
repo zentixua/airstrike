@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
-"""Синтез всех звуков мода Airstrike (numpy + ffmpeg, фиксированный сид — результат воспроизводим).
+"""Синтез для звуков мода Airstrike (numpy, фиксированный сид — результат воспроизводим): библиотека для
+tools/build_sounds.py, который смешивает эти слои с настоящими записями и пишет файлы.
 
-  python3 tools/synth_mod_sounds.py        → mod/src/main/resources/assets/airstrike/sounds/*.ogg
-
-Зацикленные звуки (моторы, свист, бурение) склеены без шва: хвост плавно переходит в начало, поэтому
-клиент крутит их бесконечно и сам меняет громкость и тон (Доплер). Разовые — взрывы, удары, сирена.
-Ядерный удар (nuke_*, geiger_click): сирена ГО, пуск МБР, вход боеголовки, удар фронта вблизи и далеко, рёв,
-раскаты, звон стёкол, звон в ушах, щелчок счётчика Гейгера; петли — ураганный ветер и чёрный дождь.
-Чужих файлов нет: всё синтезировано здесь (сирену тоже, в отличие от старого пакета звуков).
+Синтез даёт то, чего нет в записях или что в них срезано: инфранизкий «удар в грудь» взрывов, N-волну и лязг
+ядерного фронта, скрежет бурения бетона, звон в ушах, сигнал захвата цели; остальное — подмес к записям.
 """
-import os
-import subprocess
-
 import numpy as np
 
 SR = 32000
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "sounds")
 rng = np.random.default_rng(42)
 
 
@@ -74,22 +65,6 @@ def loop(sig, seconds, fade=0.5):
     w = np.linspace(0, np.pi / 2, Fd)
     out[:Fd] = sig[:Fd] * np.sin(w) + sig[L:L + Fd] * np.cos(w)
     return out
-
-
-def write(name, x):
-    os.makedirs(OUT, exist_ok=True)
-    raw = os.path.join(OUT, name + ".f32")
-    x.astype(np.float32).tofile(raw)
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", raw,
-                    "-c:a", "libvorbis", "-q:a", "5", os.path.join(OUT, name + ".ogg")], check=True)
-    os.remove(raw)
-
-
-def near_far(sig, name, seconds, far_hi=900, far_t60=1.8):
-    """Ближний (полный) и дальний (воздух «съел» верха, эхо от рельефа) варианты одной петли."""
-    write(name, norm(loop(sig, seconds), -12))
-    far = reverb(F(sig, lo=60, hi=far_hi), t60=far_t60, mix=0.45)
-    write(name + "_far", norm(loop(far, seconds), -13))
 
 
 # ---------------------------------------------------------------- шахед: двухтактный «мопед» и толкающий винт
@@ -465,47 +440,3 @@ def geiger_click():
         + rng.standard_normal(n) * np.exp(-t / 0.0008) + 0.1 * rng.standard_normal(n) * np.exp(-t / 0.006)
     x[:2] += (1, -0.6)
     return norm(x * np.clip((0.025 - t) / 0.003, 0, 1), -18, 0.85)
-
-
-if __name__ == "__main__":
-    near_far(drone_engine(), "drone_engine", 6.0, far_hi=900)
-    write("missile_engine", norm(loop(turbojet(whine_amt=1.25, roar_amt=0.55, hiss_amt=0.5), 6.0), -12))
-    write("missile_engine_rear", norm(loop(turbojet(whine_amt=0.35, roar_amt=1.2, hiss_amt=0.25), 6.0), -12))
-    write("missile_dive", norm(loop(turbojet(tone=3400, whine_amt=1.6, roar_amt=0.6, hiss_amt=0.9), 6.0), -12))
-    far = reverb(F(turbojet(), lo=60, hi=1500), t60=2.0, mix=0.45)
-    write("missile_engine_far", norm(loop(far, 6.0), -13))
-    write("missile_whistle", norm(loop(whistle(), 5.0), -13))
-    j = jet()
-    write("bomber_engine", norm(loop(reverb(F(j, hi=1600), t60=2.5, mix=0.4), 7.0), -12))
-    write("bomber_engine_far", norm(loop(reverb(F(j, lo=25, hi=500), t60=3.5, mix=0.55), 7.0), -12))
-    b = bomb_fall()
-    write("bomb_fall", norm(loop(b, 6.0), -11))
-    write("bomb_fall_far", norm(loop(reverb(F(b, lo=60, hi=1200), t60=2.0, mix=0.45), 6.0), -12))
-    write("bomb_drill", norm(loop(drill(), 5.0), -11))
-
-    write("blast_near", blast_near())
-    write("blast_sub", blast_sub())
-    write("blast_far", blast_far())
-    write("siren", siren())
-    write("bomb_crack", bomb_crack())
-    write("bomb_impact", bomb_impact())
-    write("bomb_quake", bomb_quake())
-    write("bomb_deep", bomb_deep())
-    write("bomb_vent", bomb_vent())
-    write("bomb_cave", bomb_cave())
-    write("designator_lock", lock_beep())
-
-    write("nuke_alarm", nuke_alarm())
-    write("nuke_launch", nuke_launch())
-    write("nuke_crack", nuke_crack())
-    write("nuke_boom_far", nuke_boom_far())
-    write("nuke_roar", nuke_roar())
-    write("nuke_wind", norm(loop(hurricane(), 8.0, 0.8), -12))
-    write("nuke_rumble", nuke_rumble())
-    write("nuke_glass", nuke_glass())
-    write("nuke_tinnitus", nuke_tinnitus())
-    # тишина для ванильного explode: взрыв звучит своими звуками с задержкой, а пустое событие ваниль ругает в лог
-    write("silent", np.zeros(int(0.05 * SR)))
-    write("nuke_rain", norm(loop(black_rain(), 6.0), -15))
-    write("geiger_click", geiger_click())
-    print("ok:", len([f for f in os.listdir(OUT) if f.endswith(".ogg")]), "файлов в", OUT)

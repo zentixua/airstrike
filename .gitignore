@@ -6,3 +6,4 @@ mod/.gradle/
 mod/build/
 mod/run/
 mod/runs/
+tools/.sound-cache/
