@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    " R ",
+    "ISI",
+    " C "
+  ],
+  "key": {
+    "R": { "item": "minecraft:redstone" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "S": { "item": "minecraft:spyglass" },
+    "C": { "item": "minecraft:compass" }
+  },
+  "result": {
+    "id": "airstrike:strike_designator",
+    "count": 1
+  }
+}

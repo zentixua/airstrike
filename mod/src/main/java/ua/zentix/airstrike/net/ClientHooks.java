@@ -1,0 +1,49 @@
+package ua.zentix.airstrike.net;
+
+/**
+ * Мост к клиентскому коду: сервер регистрирует обработчики пакетов «сервер → клиент», но на выделенном сервере
+ * они никогда не выполняются, а клиентских классов там нет. Клиентский модуль подставляет реализацию при запуске.
+ */
+public interface ClientHooks {
+    default void blast(S2C.Blast p) {}
+
+    default void bunkerImpact(S2C.BunkerImpact p) {}
+
+    default void vent(S2C.Vent p) {}
+
+    default void collapse(S2C.Collapse p) {}
+
+    default void quake(S2C.Quake p) {}
+
+    default void siren(S2C.Siren p) {}
+
+    default void salvoStatus(S2C.SalvoStatus p) {}
+
+    default void openRemote() {}
+
+    default void cleared() {}
+
+    default void nukeWarning(S2C.NukeWarning p) {}
+
+    default void nukeDetonation(S2C.NukeDetonation p) {}
+
+    default void nukeSync(S2C.NukeSync p) {}
+
+    default void radiation(S2C.Radiation p) {}
+
+    ClientHooks NONE = new ClientHooks() {};
+
+    final class Holder {
+        static volatile ClientHooks instance = NONE;
+
+        private Holder() {}
+    }
+
+    static ClientHooks get() {
+        return Holder.instance;
+    }
+
+    static void set(ClientHooks hooks) {
+        Holder.instance = hooks;
+    }
+}
