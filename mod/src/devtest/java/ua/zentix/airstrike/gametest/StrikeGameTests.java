@@ -326,6 +326,47 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Движущаяся цель вне загруженного мира: ракета берёт район цели, пока та в начале полосы, а цель уходит на 160
+     * блоков — район должен уйти за ней, иначе ракета ждёт у цели загрузки и пропадает по сроку жизни.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_moving", skyAccess = true)
+    public static void missileFollowsMovingTargetArea(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 end = top(h, RUNWAY_TARGET);
+        Vec3 start = end.add(0, 0, -160);
+        ArmorStand stand = EntityType.ARMOR_STAND.create(level);
+        stand.setNoGravity(true);
+        stand.moveTo(start.x, start.y, start.z);
+        level.addFreshEntity(stand);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(end.add(0, 80, -1500), Target.OfEntity.center(stand), start, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        java.util.UUID id = missile.getUUID();
+        boolean[] moved = new boolean[1];
+        String[] last = {""};
+        h.onEachTick(() -> {
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+                if (!p.getUUID().equals(id)) continue;
+                last[0] = "вне мира " + p.flightPhase() + " " + h.relativeVec(p.position());
+                // ракета уже взяла район у начала полосы — цель уходит к концу
+                if (!moved[0] && p.position().distanceTo(start) < 700) {
+                    moved[0] = true;
+                    stand.teleportTo(end.x, end.y, end.z);
+                }
+            }
+            if (level.getEntity(id) instanceof CruiseMissileEntity m && !m.isVirtual()) {
+                last[0] = "в мире " + m.flightPhase() + " " + h.relativeVec(m.position());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(moved[0], "цель не сдвинулась");
+            h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "ракета ещё летит: " + last[0]);
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
     @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker", skyAccess = true)
     public static void bunkerBusterDrillsAndDetonatesUnderground(GameTestHelper h) {
         ServerLevel level = h.getLevel();
