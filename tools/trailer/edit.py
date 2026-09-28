@@ -753,7 +753,7 @@ def main():
                     "планы из следующих (пересъёмка) заменяют одноимённые")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 6),
-                    help="процессов отрисовки (по умолчанию не больше 6: каждый ~0.4 ГБ на 1080p)")
+                    help="процессов отрисовки (по умолчанию не больше 6: каждый ~0.3 ГБ на 1080p)")
     args = ap.parse_args()
     if args.out is None:
         args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
