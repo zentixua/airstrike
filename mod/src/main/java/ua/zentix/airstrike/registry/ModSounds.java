@@ -29,6 +29,9 @@ public final class ModSounds {
     // разовые (у взрывов по несколько вариантов в sounds.json — игра выбирает случайно)
     public static final DeferredHolder<SoundEvent, SoundEvent> LAUNCH_BOOSTER = register("launch.booster");
     public static final DeferredHolder<SoundEvent, SoundEvent> BOOSTER_SEPARATE = register("booster.separate");
+    public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_LAUNCH = register("rocket.launch");
+    public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_INCOMING = register("rocket.incoming");
+    public static final DeferredHolder<SoundEvent, SoundEvent> ROCKET_BLAST = register("rocket.blast");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_NEAR = register("blast.near");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_SUB = register("blast.sub");
     public static final DeferredHolder<SoundEvent, SoundEvent> BLAST_FAR = register("blast.far");

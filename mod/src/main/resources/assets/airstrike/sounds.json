@@ -412,5 +412,53 @@
         "name": "airstrike:geiger_click_4"
       }
     ]
+  },
+  "rocket.launch": {
+    "subtitle": "subtitles.airstrike.rocket",
+    "sounds": [
+      {
+        "name": "airstrike:rocket_launch_1"
+      },
+      {
+        "name": "airstrike:rocket_launch_2"
+      },
+      {
+        "name": "airstrike:rocket_launch_3"
+      },
+      {
+        "name": "airstrike:rocket_launch_4"
+      },
+      {
+        "name": "airstrike:rocket_launch_5"
+      }
+    ]
+  },
+  "rocket.incoming": {
+    "subtitle": "subtitles.airstrike.rocket.incoming",
+    "sounds": [
+      {
+        "name": "airstrike:rocket_incoming"
+      }
+    ]
+  },
+  "rocket.blast": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:rocket_blast_1"
+      },
+      {
+        "name": "airstrike:rocket_blast_2"
+      },
+      {
+        "name": "airstrike:rocket_blast_3"
+      },
+      {
+        "name": "airstrike:rocket_blast_4"
+      },
+      {
+        "name": "airstrike:rocket_blast_5"
+      }
+    ]
   }
 }

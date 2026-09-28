@@ -13,6 +13,7 @@ craigsmith - "R30-12-Large Gun Shells Fly By and Explode.wav" - CC0 1.0 - https:
 craigsmith - "R09-58-Large Fire with Debris.wav" - CC0 1.0 - https://freesound.org/s/483304/
 craigsmith - "R12-02-Large Explosions.wav" - CC0 1.0 - https://freesound.org/s/486018/
 craigsmith - "R18-04-Artillery Shells Fly Overhead.wav" - CC0 1.0 - https://freesound.org/s/486035/
+craigsmith - "S18-01 Incoming shells; explosions.wav" - CC0 1.0 - https://freesound.org/s/674897/
 craigsmith - "S16-23 Violent explosion and debris; 2 takes.wav" - CC0 1.0 - https://freesound.org/s/674910/
 craigsmith - "S32-27 Titan missile launch; long.wav" - CC0 1.0 - https://freesound.org/s/675750/
 craigsmith - "S10-19 Falling wooden beam; big interior crash; house collapses; long.wav" - CC0 1.0 - https://freesound.org/s/675967/
@@ -37,6 +38,7 @@ qubodup - "Launching Anti-Tank Missiles.flac [US DoD]" - CC0 1.0 - https://frees
 qubodup - "Explosive.flac [US DoD]" - CC0 1.0 - https://freesound.org/s/189778/
 qubodup - "Huge Explosion" - CC0 1.0 - https://freesound.org/s/741174/
 qubodup - "Massive Explosion" - CC0 1.0 - https://freesound.org/s/741175/
+qubodup - "M142 HIMARS Rocket Launch 8 [US DoD]" - CC0 1.0 - https://freesound.org/s/854476/
 Romaner66 - "Air raid siren in Kyiv" - CC BY 4.0 - https://freesound.org/s/676589/
 Sanderboah - "Geiger counter (dry)" - CC0 1.0 - https://freesound.org/s/674113/
 Spennnyyy - "Extremely Close THUNDER! (no rain)" - CC BY 4.0 - https://freesound.org/s/350506/
@@ -44,3 +46,7 @@ the_yura - "Destruction of the missile" - CC0 1.0 - https://freesound.org/s/7412
 TheLittleCrow - "Rocket Launch Boost and Burning (Version B)" - CC0 1.0 - https://freesound.org/s/774270/
 wniebelski - "taxing ultralight plane.wav" - CC0 1.0 - https://freesound.org/s/695977/
 Yoyodaman234 - "Thunder2" - CC0 1.0 - https://freesound.org/s/267551/
+Zagge28 - "Incoming mortar 4" - CC0 1.0 - https://freesound.org/s/241837/
+Zagge28 - "Incoming mortar 3" - CC0 1.0 - https://freesound.org/s/241838/
+Zagge28 - "Incoming mortar 2" - CC0 1.0 - https://freesound.org/s/241839/
+Zagge28 - "Incoming mortar 1" - CC0 1.0 - https://freesound.org/s/241840/
