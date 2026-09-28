@@ -25,7 +25,7 @@ cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
 renderDistance:${AIRSTRIKE_RENDER_DISTANCE:-12}
-simulationDistance:10
+simulationDistance:16
 guiScale:3
 fov:0.0
 bobView:false
