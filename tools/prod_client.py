@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Боевой клиент со всей сборкой хоста — без Prism и без окна на рабочем столе.
+
+Копирует из инстанса mods/ (кроме Airstrike), config/, options.txt, shaderpacks/, resourcepacks/ и, по желанию, один
+мир в отдельный каталог; кладёт тестовую сборку мода со сценариями (./gradlew scenarioJar) и запускает Minecraft так,
+как его запускает Prism: те же библиотеки из каталога Prism и ForgeWrapper для NeoForge (meta/*.json). Клиент идёт во
+вложенном KWin (tools/nested_kwin.sh). Инстанс, его миры и настройки не меняются.
+
+  tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod]
+  → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
+
+Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
+в свойстве airstrike.world и открывает его вместо нового.
+"""
+import argparse
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+import uuid
+import hashlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import paths  # noqa: E402
+
+
+def maven_path(name):
+    """group:artifact:version[:classifier][@ext] → путь в каталоге библиотек."""
+    ext = "jar"
+    if "@" in name:
+        name, ext = name.split("@", 1)
+    parts = name.split(":")
+    group, artifact, version = parts[0], parts[1], parts[2]
+    classifier = f"-{parts[3]}" if len(parts) > 3 else ""
+    return os.path.join(*group.split("."), artifact, version, f"{artifact}-{version}{classifier}.{ext}")
+
+
+def allowed(lib):
+    """Правила библиотеки Prism/Mojang для Linux: без правил — да, иначе последнее подходящее."""
+    rules = lib.get("rules")
+    if not rules:
+        return True
+    ok = False
+    for r in rules:
+        os_name = r.get("os", {}).get("name")
+        if os_name is None or os_name == "linux":
+            ok = r["action"] == "allow"
+    return ok
+
+
+def offline_uuid(name):
+    h = bytearray(hashlib.md5(("OfflinePlayer:" + name).encode()).digest())
+    h[6] = h[6] & 0x0F | 0x30
+    h[8] = h[8] & 0x3F | 0x80
+    return str(uuid.UUID(bytes=bytes(h)))
+
+
+def copy_instance(dest, world):
+    mc = paths.MC
+    os.makedirs(dest, exist_ok=True)
+    for d in ("mods", "config", "shaderpacks", "resourcepacks", "saves", "logs", "screenshots", "crash-reports"):
+        shutil.rmtree(os.path.join(dest, d), ignore_errors=True)
+    shutil.copytree(os.path.join(mc, "mods"), os.path.join(dest, "mods"),
+                    ignore=lambda d, names: [n for n in names if n.startswith("airstrike-") or not (n.endswith(".jar") or os.path.isdir(os.path.join(d, n)))])
+    for d in ("config", "shaderpacks", "resourcepacks"):
+        if os.path.isdir(os.path.join(mc, d)):
+            shutil.copytree(os.path.join(mc, d), os.path.join(dest, d))
+    # клиент без окна: без паузы при потере фокуса и без экрана приветствия (ключи заменяются — повтор ломает загрузку)
+    override = {"pauseOnLostFocus": "false", "onboardAccessibility": "false"}
+    with open(os.path.join(mc, "options.txt")) as f:
+        lines = [ln.rstrip("\n") for ln in f if ln.split(":", 1)[0] not in override]
+    with open(os.path.join(dest, "options.txt"), "w") as f:
+        f.write("\n".join(lines + [f"{k}:{v}" for k, v in override.items()]) + "\n")
+    if world:
+        shutil.copytree(os.path.join(mc, "saves", world), os.path.join(dest, "saves", world))
+
+
+def launch_args(dest, scenario, world, username):
+    prism = paths.PRISM
+    libs = os.path.join(prism, "libraries")
+    meta = lambda uid, v: json.load(open(os.path.join(prism, "meta", uid, f"{v}.json")))
+    pack = json.load(open(os.path.join(os.path.dirname(paths.MC), "mmc-pack.json")))
+    versions = {c["uid"]: c["version"] for c in pack["components"]}
+    lwjgl, mcm, neo = meta("org.lwjgl3", versions["org.lwjgl3"]), meta("net.minecraft", versions["net.minecraft"]), meta("net.neoforged", versions["net.neoforged"])
+
+    cp, seen = [], set()
+    for lib in neo["libraries"] + mcm["libraries"] + lwjgl["libraries"]:
+        if not allowed(lib):
+            continue
+        key = lib["name"].rsplit(":", 1)[0] if lib["name"].count(":") == 2 else lib["name"]
+        if key in seen:
+            continue
+        seen.add(key)
+        p = os.path.join(libs, maven_path(lib["name"]))
+        if not os.path.isfile(p):
+            sys.exit(f"нет библиотеки {p} — запусти инстанс один раз из Prism")
+        cp.append(p)
+    client_jar = os.path.join(libs, maven_path(mcm["mainJar"]["name"]))
+    cp.append(client_jar)
+    installer = next(os.path.join(libs, maven_path(f["name"])) for f in neo["mavenFiles"] if f["name"].endswith(":installer"))
+
+    subst = {
+        "auth_player_name": username, "version_name": versions["net.minecraft"], "game_directory": dest,
+        "assets_root": os.path.join(prism, "assets"), "assets_index_name": mcm["assetIndex"]["id"],
+        "auth_uuid": offline_uuid(username), "auth_access_token": "0", "user_type": "legacy", "version_type": "release",
+    }
+    game = []
+    for a in neo["minecraftArguments"].split():
+        for k, v in subst.items():
+            a = a.replace("${" + k + "}", v)
+        game.append(a)
+
+    jvm = ["-Xms512m", "-Xmx8196m", "-Duser.language=en",
+           f"-Dforgewrapper.librariesDir={libs}", f"-Dforgewrapper.installer={installer}", f"-Dforgewrapper.minecraft={client_jar}",
+           f"-Dairstrike.scenario={scenario}", f"-Xlog:gc:file={os.path.join(dest, 'logs', 'gc.log')}:time,uptime"]
+    if world:
+        jvm.append(f"-Dairstrike.world={world}")
+    jvm += mcm.get("+jvmArgs", [])
+    return jvm + ["-cp", os.pathsep.join(cp), neo["mainClass"]] + game
+
+
+def main():
+    ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    ap.add_argument("scenario")
+    ap.add_argument("--world")
+    ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
+    ap.add_argument("--user", default="Dev")
+    a = ap.parse_args()
+    dest = os.path.abspath(a.dir)
+
+    subprocess.run([os.path.join(paths.MOD, "gradlew"), "-p", paths.MOD, "scenarioJar", "-q", "--console=plain"], check=True)
+    copy_instance(dest, a.world)
+    jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "airstrike-*-scenario.jar")), key=os.path.getmtime)
+    shutil.copy2(jar, os.path.join(dest, "mods"))
+    os.makedirs(os.path.join(dest, "logs"), exist_ok=True)
+
+    java = os.path.join(os.environ.get("JAVA_HOME") or paths.JAVA, "bin", "java")
+    argfile = os.path.join(dest, "launch.args")
+    with open(argfile, "w") as f:
+        for arg in launch_args(dest, a.scenario, a.world, a.user):
+            f.write('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"\n')
+    socket = "wayland-airstrike-prod-" + os.path.basename(dest)
+    cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
+    sys.exit(subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd]).returncode)
+
+
+if __name__ == "__main__":
+    main()
