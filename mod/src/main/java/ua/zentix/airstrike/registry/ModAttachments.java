@@ -25,8 +25,12 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",
             () -> AttachmentType.builder(StrikeWorld::new).build());
 
-    /** Игрок: игровое время последнего пуска с пульта (защита от дребезга); не сохраняется. */
+    /** Игрок: игровое время последнего пуска или отбоя с пульта (защита от дребезга); не сохраняется. */
     public static final Supplier<AttachmentType<Long>> LAST_FIRE = REGISTER.register("last_fire",
+            () -> AttachmentType.builder(() -> 0L).build());
+
+    /** Игрок: игровое время последнего перенацеливания из камеры снаряда; не сохраняется. */
+    public static final Supplier<AttachmentType<Long>> LAST_RETARGET = REGISTER.register("last_retarget",
             () -> AttachmentType.builder(() -> 0L).build());
 
     /** Игрок: ему показан непустой список снарядов в полёте — погасить HUD, когда всё долетит; не сохраняется. */

@@ -1,12 +1,15 @@
 modLoader = "javafml"
 loaderVersion = "${loader_version_range}"
 license = "${mod_license}"
+issueTrackerURL = "${mod_url}/issues"
 
 [[mods]]
 modId = "${mod_id}"
 version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_authors}"
+displayURL = "${mod_url}"
+credits = "Sounds: Freesound recordings by KVV_Audio, Romaner66, Spennnyyy (CC BY 4.0) and many CC0 authors: full list in assets/airstrike/sounds/credits.txt. Sable integration: sable-companion (MIT)."
 description = '''${mod_description}'''
 
 # открывает Channel.source, SoundManager.soundEngine и SoundEngine.instanceToChannel (фильтр OpenAL: воздух,
