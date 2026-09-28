@@ -65,8 +65,11 @@ final class Recorder implements SoundEventListener {
         return speed;
     }
 
-    /** Начать план: кадры пойдут в {@code frames/<name>/}. {@code speed} < 1 — замедление, > 1 — ускорение. */
-    void start(String name, double speed) {
+    /**
+     * Начать план: кадры пойдут в {@code frames/<name>/}. {@code speed} < 1 — замедление, > 1 — ускорение. {@code hud} —
+     * в кадре текст интерфейса игры: такой план монтаж берёт из записи на языке ролика (язык игры — в заголовке плана).
+     */
+    void start(String name, double speed, boolean hud) {
         this.shot = name;
         this.speed = speed;
         this.nextFrame = 0;
@@ -77,7 +80,8 @@ final class Recorder implements SoundEventListener {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        write(String.format(Locale.ROOT, "{\"type\":\"shot\",\"shot\":\"%s\",\"speed\":%.4f}", name, speed));
+        write(String.format(Locale.ROOT, "{\"type\":\"shot\",\"shot\":\"%s\",\"speed\":%.4f,\"hud\":%b,\"lang\":\"%s\"}", name, speed, hud,
+                Minecraft.getInstance().options.languageCode));
         Airstrike.LOG.info("TRAILER shot {} x{}", name, speed);
     }
 

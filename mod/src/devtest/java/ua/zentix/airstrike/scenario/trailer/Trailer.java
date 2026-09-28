@@ -97,7 +97,12 @@ public final class Trailer {
     /** Время, на котором закончился прошлый план: камера между планами стоит там. */
     private double idleTime;
     /** Камера снаряда показывала видео с борта на прошлом тике (переход с карты — отметка «video» для монтажа). */
-    private boolean wasViewing, cameraWasActive;
+    private boolean wasViewing, cameraWasActive, closeMarked;
+    /** Прорисовка из options.txt (record.sh): план с борта поднимает свою и потом возвращает эту. */
+    private int renderDistance;
+    private static final int ONBOARD_RENDER_DISTANCE = 24;
+    /** С борта ближе этого к цели земля видна и под шейдерами: монтаж берёт видео с отметки «close». */
+    private static final double CLOSE_RANGE = 150;
     private java.util.Map<Integer, String> seen = java.util.Map.of();
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
     /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
@@ -246,14 +251,21 @@ public final class Trailer {
         run(() -> fire("missile", target(side.scale(-4)).add(toPost.scale(-20))));
         shot("missile_camera").after(() -> !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 400)
                 .prepare(() -> {
+                    // туман шейдерпака (Complementary) по дальности — от прорисовки: при 12 чанках видео с борта
+                    // в 200 блоках от цели почти белое, при 24 земля видна раньше
+                    renderDistance = mc.options.renderDistance().get();
+                    mc.options.renderDistance().set(ONBOARD_RENDER_DISTANCE);
                     if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
                 })
                 // карта оператора, пока ракета дальше прорисовки: запись — за ~2 с до перехода на видео
                 .when(() -> onMap() && missileRange() < 700, 3000)
                 // карта, видео с борта: горка, пикирование, «сигнал потерян» и план попадания (облёт)
-                // замедленно: ракета в мире (а значит, и видео с борта) — лишь последние ~200 блоков, это ~20 тиков
-                .length(220).speed(0.35).hud().projectileCamera()
-                .cueEnd(ProjectileCamera::exit);
+                // замедленно: ракета в мире (а значит, и видео с борта) — лишь последние ~250 блоков, это ~20 тиков
+                .length(220).speed(0.2).hud().projectileCamera()
+                .cueEnd(() -> {
+                    ProjectileCamera.exit();
+                    mc.options.renderDistance().set(renderDistance);
+                });
 
         // --- «Ланцет»: катапульта у поста, круг над деревней, пике
         run(this::placeActor);
@@ -1037,7 +1049,7 @@ public final class Trailer {
                         Airstrike.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
                     if (selected()) {
-                        rec.start(name, speed);
+                        rec.start(name, speed, hudOn);
                         recording = this;
                         frameClock = 0;
                         setTickRate(Math.max(1, (float) (8 * rec.step())));
@@ -1104,6 +1116,14 @@ public final class Trailer {
         boolean viewing = ProjectileCamera.isViewing(), camera = ProjectileCamera.isActive();
         markImpacts(rec.recording());
         if (rec.recording() && viewing && !wasViewing) rec.mark("video");
+        if (!viewing) {
+            closeMarked = false;
+        } else if (rec.recording() && !closeMarked && mc.getCameraEntity() instanceof StrikeProjectile p
+                && ua.zentix.airstrike.client.hud.ClientFlights.find(p.getUUID()) instanceof ua.zentix.airstrike.client.hud.ClientFlights.Tracked f
+                && p.position().distanceTo(f.target()) < CLOSE_RANGE) {
+            rec.mark("close");
+            closeMarked = true;
+        }
         // камера снаряда вернулась к игроку: дальше в плане — вид от первого лица, монтаж режет до этой отметки
         if (rec.recording() && !camera && cameraWasActive) rec.mark("exit");
         wasViewing = viewing;

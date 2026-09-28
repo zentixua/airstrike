@@ -6,7 +6,8 @@
     python3 tools/trailer/edit.py [--lang en|ru] [--draft] [--rec ПАПКА …] [--out ФАЙЛ]
     --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
     --draft  — быстрый черновик 960×540 (проверить монтаж)
-    --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые
+    --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые; план с текстом
+               игры в кадре берётся из записи на языке ролика (en_us или ru_ru, record.sh: AIRSTRIKE_LANG)
     --jobs   — процессов отрисовки (по умолчанию min(ядер, 6))
     результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
     и …-credits.txt — строки об авторах музыки и звуков для описания ролика
@@ -104,6 +105,8 @@ class Shot:
     stops: dict = field(default_factory=dict)       # id → t
     marks: list = field(default_factory=list)       # (t, что)
     count: int = 0
+    hud: bool = False       # в кадре текст интерфейса игры
+    lang: str = "ru_ru"     # язык игры при съёмке (записи до этого поля — только ru_ru)
 
     def sec(self, ticks):
         """Время плана в секундах видео по тикам игры."""
@@ -135,7 +138,7 @@ def load_recording(rec=REC):
                 continue
             kind, name = e["type"], e["shot"]
             if kind == "shot":
-                shots[name] = Shot(name, e["speed"])
+                shots[name] = Shot(name, e["speed"], hud=e.get("hud", False), lang=e.get("lang", "ru_ru"))
                 continue
             s = shots[name]
             if kind == "frame":
@@ -157,6 +160,25 @@ def load_recording(rec=REC):
     for s in shots.values():
         s.keys = sorted(s.frames)
     return {n: s for n, s in shots.items() if s.frames}
+
+
+def pick_takes(recordings, lang):
+    """Дубль каждого плана из записей (--rec по порядку): последний; план с текстом игры в кадре — последний
+    на языке ролика (en_us/ru_ru), а если такого нет — последний какой есть, с предупреждением."""
+    takes = {}
+    for rec in recordings:
+        for name, s in rec.items():
+            takes.setdefault(name, []).append(s)
+    shots = {}
+    for name, cands in takes.items():
+        own = [s for s in cands if s.lang == lang]
+        if any(s.hud for s in cands):
+            if not own:
+                print(f"  ! {name}: нет дубля на {lang}, текст в кадре — {cands[-1].lang}")
+            shots[name] = (own or cands)[-1]
+        else:
+            shots[name] = cands[-1]
+    return shots
 
 
 def anchor(shot, spec):
@@ -205,7 +227,6 @@ class Clip:
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
     sfx: float = 1.0    # громкость звука игры
     frame_y: float = 0.5  # какая полоса плана видна в окне 2:1: 0 — верхняя (список ударов справа вверху), 0.5 — середина
-    dehaze: float = 0.0  # вернуть контраст дымке (туман шейдеров на дальности): 0 — нет, 1 — уровни по плану целиком
     start: float = 0.0  # заполняется: начало в трейлере
     src: float = 0.0    # заполняется: начало в плане, с
 
@@ -249,6 +270,7 @@ http://creativecommons.org/licenses/by/4.0/
 """
 
 # слова на экране: английские — для Modrinth и YouTube, русские — для своих (--lang ru)
+GAME_LANG = {"en": "en_us", "ru": "ru_ru"}  # язык игры для планов с текстом интерфейса в кадре (record.sh: AIRSTRIKE_LANG)
 WORDS = {
     "en": {"presents": "presents", "aim": "AIM", "launch": "LAUNCH", "shahed": "SHAHED-136", "missile": "CRUISE MISSILE",
            "lancet": "LANCET", "grad": "GRAD MLRS", "last": "LAST RESORT", "icbm": "ICBM",
@@ -286,8 +308,8 @@ def build_edit(lang="en"):
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
         Clip("missile_camera", "mark:video-1.5", 1.5, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
-        # видео с борта — до взрыва (дальше помехи и вид игрока); туман шейдеров на дальности съедает контраст
-        Clip("missile_camera", "mark:video", 3.0, dehaze=0.8),
+        # видео с борта — последние 150 блоков до взрыва: дальше атмосферный туман шейдерпака заливает кадр белым
+        Clip("missile_camera", "mark:close", 3.0),
         Clip("impact_missile", "mark:gone-1.5", 6.0),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
@@ -486,24 +508,7 @@ def _source(c, t):
         window = img.crop((0, top, w, top + h - 2 * bar))
         img = Image.new("RGB", (w, h))
         img.paste(window, (0, bar))
-    if c.dehaze > 0:
-        img = _dehaze(c, img)
     return _W["look"].apply(img)
-
-
-def _dehaze(c, img):
-    """Уровни по каналам: 0.5 % тёмных и светлых точек — в чёрный и белый. Уровни — одни на склейку (по её
-    середине), иначе картинка мерцала бы от кадра к кадру."""
-    key = ("dehaze", c.shot, c.src)
-    if key not in _W:
-        s = _W["shots"][c.shot]
-        mid = int(round((c.src + c.dur * c.rate / 2) * FPS))
-        ref = np.asarray(Image.open(s.frame(max(0, min(mid, s.count - 1)))).convert("RGB"), np.float32)
-        _W[key] = (np.percentile(ref, 0.5, axis=(0, 1)), np.percentile(ref, 99.5, axis=(0, 1)))
-    lo, hi = _W[key]
-    a = np.asarray(img, np.float32)
-    stretched = (a - lo) / np.maximum(hi - lo, 1) * 255
-    return Image.fromarray(np.clip(a + (stretched - a) * c.dehaze, 0, 255).astype(np.uint8))
 
 
 def _render(i):
@@ -757,9 +762,7 @@ def main():
     args = ap.parse_args()
     if args.out is None:
         args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
-    shots = {}
-    for rec in args.rec or [REC]:
-        shots.update(load_recording(rec))
+    shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()))

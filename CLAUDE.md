@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
                                            ноутбук не засыпает, по выходу гасится всё её
@@ -249,6 +249,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   стоять там, где он вернётся в мир (`CineCamera.chase` с начальной точкой): иначе чанки у цели выгружаются, и снаряд
   вне мира (B-2) так и не появляется. Видео с борта начинается, только когда ракета в мире, — запись идёт с дальностью
   симуляции 16 чанков.
+- Атмосферный туман Complementary густеет с расстоянием от камеры (при прорисовке 12 чанков ~60 % на 100 блоках, почти
+  весь на 200; при 24 — заметно слабее): видео с борта начинается в 200–250 блоках от цели и сначала почти белое, игрок
+  под водой или на суше — без разницы (`tools/client_scenario.sh onboard shaders`, без шейдеров кадр чистый). План
+  трейлера с борта ставит прорисовку 24, монтаж берёт видео с отметки «close» (150 блоков до цели). Язык игры при
+  съёмке — `AIRSTRIKE_LANG`; планы с текстом игры в кадре (`.hud()`) снимаются на en_us и ru_ru, `edit.py` берёт дубль по `--lang`.
 - Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
   когда снаряд пропал (взрыв), в конце — старт МБР. В облаке (без KWin) клиент идёт под `xvfb-run` с llvmpipe
   (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен jar sable-companion.

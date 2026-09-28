@@ -56,6 +56,9 @@ public final class ClientScenario {
     private StrikeProjectile watched;
     private String current;
     private int flightShots;
+    /** Видео с борта: текущий вариант («dry», потом «wet»), тик пуска и снятые кадры. */
+    private String onboard;
+    private int onboardFired = -1, onboardFrames;
     /** Сценарий моделей: частицы не нужны. */
     private boolean models;
 
@@ -83,6 +86,7 @@ public final class ClientScenario {
         else if ("map".equals(mode)) planMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
+        else if ("onboard".equals(mode)) planOnboard();
         else plan();
     }
 
@@ -125,6 +129,7 @@ public final class ClientScenario {
         }
         if (nuke) nukeEvents();
         if (fx != null) fxEvents();
+        if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
         if (models) mc.particleEngine.setLevel(mc.level);
         if (tick % 10 == 0) logSound();
@@ -662,6 +667,67 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
+    }
+
+    /**
+     * Видео с борта ракеты (V) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
+     * картинка с борта не должна зависеть от того, где стоит игрок. Кадры onboard-dry_* и onboard-wet_*, в лог —
+     * среда камеры и игрока. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
+     */
+    private void planOnboard() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0.5 150 0.5 0 20");
+        });
+        at(200, () -> {
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.launchNearPlayer.set(true);
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.missileFlightTime.set(15);
+            cmd("fill -3 149 -3 3 149 3 minecraft:smooth_stone");
+            cmd("fill 37 145 -3 43 152 3 minecraft:glass");
+            cmd("fill 38 146 -2 42 152 2 minecraft:water");
+            cmd("tp @s 0.5 150 0.5 0 20");
+            onboard = "dry";
+        });
+    }
+
+    private void onboardEvents() {
+        Minecraft mc = Minecraft.getInstance();
+        if (onboardFired < 0) {
+            if (tick < 240 || tick % 20 != 0) return;
+            double x = mc.player.getX(), z = mc.player.getZ() + 90;
+            int y = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(x), (int) Math.floor(z));
+            cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %d %.1f", x, y, z));
+            cmd("tick rate 5");
+            onboardFired = tick;
+            onboardFrames = 0;
+            return;
+        }
+        if (!ua.zentix.airstrike.client.cam.ProjectileCamera.isActive()) {
+            if (tick - onboardFired < 200 && tick % 5 == 0) ua.zentix.airstrike.client.cam.ProjectileCamera.cycle();
+        }
+        if (ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing() && tick % 2 == 0) {
+            var camera = mc.gameRenderer.getMainCamera();
+            Airstrike.LOG.info("SCENARIO onboard {} frame={} camera={} fluid={} player={} underwater={} eyeLight={}", onboard, onboardFrames,
+                    xyz(camera.getPosition()), camera.getFluidInCamera(), xyz(mc.player.position()), mc.player.isUnderWater(),
+                    mc.level.getMaxLocalRawBrightness(mc.getCameraEntity().blockPosition()));
+            Screenshot.grab(mc.gameDirectory, String.format("onboard-%s_%04d.png", onboard, tick), mc.getMainRenderTarget(), c -> {});
+            onboardFrames++;
+        }
+        boolean over = tick - onboardFired > 60 && ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty()
+                && !ua.zentix.airstrike.client.cam.ProjectileCamera.isActive();
+        if (!over && tick - onboardFired < 1500) return;
+        Airstrike.LOG.info("SCENARIO onboard {} done: {} frames", onboard, onboardFrames);
+        cmd("tick rate 20");
+        if ("dry".equals(onboard)) {
+            onboard = "wet";
+            onboardFired = -1;
+            cmd("tp @s 40.5 146 0.5 0 20");
+        } else {
+            onboard = null;
+            Airstrike.LOG.info("SCENARIO done");
+            mc.stop();
+        }
     }
 
     /**
