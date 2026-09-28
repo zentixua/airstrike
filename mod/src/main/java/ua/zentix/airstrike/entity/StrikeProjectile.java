@@ -30,8 +30,8 @@ import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.guidance.FlightController;
-import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.guidance.Route;
+import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.nuclear.world.Terrain;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FlightTickets;
@@ -41,6 +41,7 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
+import ua.zentix.airstrike.util.Nbt;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.Optional;
@@ -918,7 +919,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (tag.contains("tracker")) tracker = TargetTracker.load(tag.getCompound("tracker"));
         if (tag.hasUUID("owner")) entityData.set(DATA_OWNER, Optional.of(tag.getUUID("owner")));
         route = tag.contains("route") ? Route.load(tag.getCompound("route")) : null;
-        launchPos = tag.contains("launch_x") ? new Vec3(tag.getDouble("launch_x"), tag.getDouble("launch_y"), tag.getDouble("launch_z")) : null;
+        launchPos = Nbt.getVec(tag, "launch");
         lifetime = tag.getInt("lifetime");
         readyTicks = tag.getInt("ready_ticks");
         sirenLead = tag.contains("siren_lead") ? tag.getInt("siren_lead") : -1;
@@ -942,11 +943,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         UUID owner = ownerId();
         if (owner != null) tag.putUUID("owner", owner);
         if (route != null) tag.put("route", route.save());
-        if (launchPos != null) {
-            tag.putDouble("launch_x", launchPos.x);
-            tag.putDouble("launch_y", launchPos.y);
-            tag.putDouble("launch_z", launchPos.z);
-        }
+        if (launchPos != null) Nbt.putVec(tag, "launch", launchPos);
         tag.putInt("lifetime", lifetime);
         tag.putInt("ready_ticks", readyTicks);
         tag.putInt("siren_lead", sirenLead);

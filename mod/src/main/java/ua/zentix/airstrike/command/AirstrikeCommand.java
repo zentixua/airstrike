@@ -2,6 +2,7 @@ package ua.zentix.airstrike.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -36,6 +37,8 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * /airstrike — то же, что пульт, но для операторов и автоматизации (командные блоки, функции):
@@ -75,7 +78,7 @@ public final class AirstrikeCommand {
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))
-                .executes(ctx -> give(ctx, java.util.List.of(ctx.getSource().getPlayerOrException())))
+                .executes(ctx -> give(ctx, List.of(ctx.getSource().getPlayerOrException())))
                 .then(Commands.argument("players", EntityArgument.players())
                         .executes(ctx -> give(ctx, EntityArgument.getPlayers(ctx, "players")))));
 
@@ -83,7 +86,7 @@ public final class AirstrikeCommand {
         root.then(Commands.literal("radiation").requires(s -> s.hasPermission(2))
                 .executes(ctx -> radiation(ctx, ctx.getSource().getPlayerOrException()))
                 .then(Commands.literal("clear")
-                        .executes(ctx -> radiationClear(ctx, java.util.List.of(ctx.getSource().getPlayerOrException())))
+                        .executes(ctx -> radiationClear(ctx, List.of(ctx.getSource().getPlayerOrException())))
                         .then(Commands.argument("players", EntityArgument.players())
                                 .executes(ctx -> radiationClear(ctx, EntityArgument.getPlayers(ctx, "players")))))
                 .then(Commands.argument("player", EntityArgument.player())
@@ -117,7 +120,7 @@ public final class AirstrikeCommand {
     }
 
     /** «[кт] [air|ground]» после любой ядерной команды. */
-    private static <T extends com.mojang.brigadier.builder.ArgumentBuilder<CommandSourceStack, T>> T yieldArgs(T node, NukeAction action) {
+    private static <T extends ArgumentBuilder<CommandSourceStack, T>> T yieldArgs(T node, NukeAction action) {
         return node.executes(ctx -> action.run(ctx, new Loadout.Nuke(AirstrikeConfig.SERVER.nukeDefaultYield.get(), true)))
                 .then(Commands.argument("kt", IntegerArgumentType.integer(1, Loadout.Nuke.MAX_YIELD))
                         .executes(ctx -> action.run(ctx, new Loadout.Nuke(IntegerArgumentType.getInteger(ctx, "kt"), true)))
@@ -173,8 +176,8 @@ public final class AirstrikeCommand {
     private static int radiation(CommandContext<CommandSourceStack> ctx, ServerPlayer p) {
         RadiationDose r = RadiationTicker.dose(p);
         ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.radiation.report", p.getDisplayName(),
-                String.format(java.util.Locale.ROOT, "%.2f", r.doseGy()), GeigerFormat.rate(r.rate()),
-                String.format(java.util.Locale.ROOT, "%.2f", r.contamination())), false);
+                String.format(Locale.ROOT, "%.2f", r.doseGy()), GeigerFormat.rate(r.rate()),
+                String.format(Locale.ROOT, "%.2f", r.contamination())), false);
         return Math.round(r.doseGy() * 100);
     }
 

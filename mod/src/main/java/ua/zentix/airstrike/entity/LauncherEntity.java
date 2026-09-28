@@ -13,6 +13,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -69,6 +70,11 @@ public class LauncherEntity extends Entity {
 
     public long deployedAt() {
         return entityData.get(DATA_DEPLOYED);
+    }
+
+    /** Сколько тиков ещё поднимается пакет (0 — поднят). */
+    public int raisingTicks(long now) {
+        return (int) Math.max(0, deployedAt() + DEPLOY_TICKS - now);
     }
 
     /** Угол возвышения направляющей: шахеды 15°, катапульта барражирующих 20°, ракеты 40°, трубы РСЗО 50°. */
@@ -209,7 +215,7 @@ public class LauncherEntity extends Entity {
     }
 
     @Override
-    public boolean ignoreExplosion(net.minecraft.world.level.Explosion explosion) {
+    public boolean ignoreExplosion(Explosion explosion) {
         return true;
     }
 

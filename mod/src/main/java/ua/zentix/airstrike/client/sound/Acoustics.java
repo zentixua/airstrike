@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.client.sound;
 
+import ua.zentix.airstrike.nuclear.model.BlastModel;
+
 /**
  * Физика звука без Minecraft (проверяется юнит-тестами): задержка распространения и Доплер.
  * <p>
@@ -9,7 +11,7 @@ package ua.zentix.airstrike.client.sound;
  */
 public final class Acoustics {
     /** Скорость звука: 343 м/с = 17.15 блока за тик. */
-    public static final double SPEED = 17.15;
+    public static final double SPEED = BlastModel.SOUND_SPEED / 20;
 
     private Acoustics() {}
 

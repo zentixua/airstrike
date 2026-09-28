@@ -10,6 +10,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.util.ArrayList;
@@ -73,7 +74,7 @@ public final class ClientSounds {
             case DRONE -> List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR, EngineSound.Layer.BOOSTER);
             case MISSILE -> List.of(EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
                     EngineSound.Layer.MISSILE_FAR, EngineSound.Layer.MISSILE_WHISTLE, EngineSound.Layer.BOOSTER);
-            case BUNKER -> p instanceof ua.zentix.airstrike.entity.BomberEntity
+            case BUNKER -> p instanceof BomberEntity
                     ? List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR)
                     : List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL);
             case NUKE -> List.of(EngineSound.Layer.BOOSTER);
@@ -96,7 +97,8 @@ public final class ClientSounds {
         StringBuilder sb = new StringBuilder();
         for (Tracked t : TRACKS.values()) {
             for (EngineSound s : t.sounds) {
-                if (!s.isStopped() && s.getVolume() > 0.01f) sb.append(String.format(Locale.ROOT, " %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
+                // getVolume читает звук, который движок подставляет при запуске: без звука (нет устройства) его нет
+                if (!s.isStopped() && s.getSound() != null && s.getVolume() > 0.01f) sb.append(String.format(Locale.ROOT, " %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
             }
         }
         return sb.toString();

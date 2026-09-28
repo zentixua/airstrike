@@ -9,6 +9,10 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.target.Target;
+import ua.zentix.airstrike.util.Nbt;
+
+import java.util.UUID;
 
 /**
  * Неуправляемый реактивный снаряд РСЗО (122 мм, как у «Града»). Стоит в трубе пакета, поджиг, сход — и дальше
@@ -38,7 +42,7 @@ public class RocketEntity extends StrikeProjectile {
     /** Тиков от начала текущей траектории. */
     private int n;
     /** Угол возвышения пакета, с которым снаряд стоял на пусковой. */
-    private float elevation = 50;
+    private float elevation = LauncherEntity.elevation(WeaponType.ROCKET);
 
     public RocketEntity(EntityType<? extends RocketEntity> type, Level level) {
         super(type, level);
@@ -82,7 +86,7 @@ public class RocketEntity extends StrikeProjectile {
 
     /** Поставить в трубу: как у шахеда, плюс угол пакета — по нему строится траектория. */
     public void placeInTube(Vec3 rail, float yaw, float elevation, int readyTicks, int hiddenTicks,
-                            ua.zentix.airstrike.target.Target target, Vec3 impact, @Nullable java.util.UUID owner) {
+                            Target target, Vec3 impact, @Nullable UUID owner) {
         placeOnLauncher(rail, yaw, elevation, readyTicks, hiddenTicks, target, impact, owner);
         this.elevation = elevation;
         this.impactAt = impact;
@@ -92,10 +96,10 @@ public class RocketEntity extends StrikeProjectile {
      * Пуск без пусковой (консоль, нет места): снаряд уже на траектории, стартовавшей в {@code from}.
      * Взрыватель взведён — такой снаряд приходит издалека.
      */
-    public void launchFrom(Vec3 from, ua.zentix.airstrike.target.Target target, Vec3 impact, @Nullable java.util.UUID owner) {
+    public void launchFrom(Vec3 from, Target target, Vec3 impact, @Nullable UUID owner) {
         launch(from, target, impact, owner);
         this.impactAt = impact;
-        this.elevation = 50;
+        this.elevation = LauncherEntity.elevation(WeaponType.ROCKET);
         solve(from, impact);
         setPhase(FlightPhase.CRUISE);
         face(v0);
@@ -183,11 +187,12 @@ public class RocketEntity extends StrikeProjectile {
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
-        elevation = tag.contains("elevation") ? tag.getFloat("elevation") : 50;
-        if (tag.contains("impact_x")) impactAt = new Vec3(tag.getDouble("impact_x"), tag.getDouble("impact_y"), tag.getDouble("impact_z"));
+        elevation = tag.contains("elevation") ? tag.getFloat("elevation") : LauncherEntity.elevation(WeaponType.ROCKET);
+        Vec3 impact = Nbt.getVec(tag, "impact");
+        if (impact != null) impactAt = impact;
         if (tag.contains("start_x")) {
-            start = new Vec3(tag.getDouble("start_x"), tag.getDouble("start_y"), tag.getDouble("start_z"));
-            v0 = new Vec3(tag.getDouble("v0_x"), tag.getDouble("v0_y"), tag.getDouble("v0_z"));
+            start = Nbt.getVec(tag, "start");
+            v0 = Nbt.getVec(tag, "v0");
             flightTicks = tag.getInt("flight_ticks");
             n = tag.getInt("n");
         }
@@ -197,18 +202,10 @@ public class RocketEntity extends StrikeProjectile {
     protected void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         tag.putFloat("elevation", elevation);
-        if (impactAt != null) {
-            tag.putDouble("impact_x", impactAt.x);
-            tag.putDouble("impact_y", impactAt.y);
-            tag.putDouble("impact_z", impactAt.z);
-        }
+        if (impactAt != null) Nbt.putVec(tag, "impact", impactAt);
         if (start != null) {
-            tag.putDouble("start_x", start.x);
-            tag.putDouble("start_y", start.y);
-            tag.putDouble("start_z", start.z);
-            tag.putDouble("v0_x", v0.x);
-            tag.putDouble("v0_y", v0.y);
-            tag.putDouble("v0_z", v0.z);
+            Nbt.putVec(tag, "start", start);
+            Nbt.putVec(tag, "v0", v0);
             tag.putInt("flight_ticks", flightTicks);
             tag.putInt("n", n);
         }

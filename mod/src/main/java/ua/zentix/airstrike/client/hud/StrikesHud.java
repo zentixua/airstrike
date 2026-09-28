@@ -10,12 +10,14 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.client.Keys;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.client.nuclear.NukeView;
 import ua.zentix.airstrike.entity.FlightPhase;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -52,7 +54,7 @@ public final class StrikesHud {
             g.drawString(font, more, x - font.width(more), y, 0xFFFFFFFF);
             y += 10;
         }
-        Component hint = Component.translatable("airstrike.hud.camera_hint", ua.zentix.airstrike.client.Keys.CAMERA.getTranslatedKeyMessage())
+        Component hint = Component.translatable("airstrike.hud.camera_hint", Keys.CAMERA.getTranslatedKeyMessage())
                 .withStyle(ChatFormatting.DARK_GRAY);
         g.drawString(font, hint, x - font.width(hint), y + 2, 0xFFFFFFFF);
     }
@@ -123,7 +125,7 @@ public final class StrikesHud {
             m.ty = (int) (t[1] * h);
         }
         // сверху вниз: подпись, которая наехала бы на уже поставленную, опускается на строку
-        marks.sort(java.util.Comparator.comparingInt((TargetMark m) -> m.ty).thenComparingInt(m -> m.tx));
+        marks.sort(Comparator.comparingInt((TargetMark m) -> m.ty).thenComparingInt(m -> m.tx));
         for (TargetMark m : marks) {
             int tx = m.tx, ty = m.ty;
             if (tx <= 0 || tx >= w || ty <= 0 || ty >= h) continue;

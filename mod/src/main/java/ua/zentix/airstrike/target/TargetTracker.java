@@ -5,6 +5,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.util.Nbt;
 
 import java.util.Optional;
 
@@ -49,15 +50,14 @@ public final class TargetTracker {
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         Target.CODEC.encodeStart(NbtOps.INSTANCE, target).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("target", t));
-        tag.putDouble("x", point.x);
-        tag.putDouble("y", point.y);
-        tag.putDouble("z", point.z);
+        Nbt.putVec(tag, "", point);
         tag.putBoolean("lost", lost);
         return tag;
     }
 
     public static TargetTracker load(CompoundTag tag) {
-        Vec3 p = new Vec3(tag.getDouble("x"), tag.getDouble("y"), tag.getDouble("z"));
+        Vec3 p = Nbt.getVec(tag, "");
+        if (p == null) p = Vec3.ZERO;
         Target t = tag.contains("target")
                 ? Target.CODEC.parse(NbtOps.INSTANCE, tag.get("target")).resultOrPartial(Airstrike.LOG::error).orElse(new Target.Point(p))
                 : new Target.Point(p);
