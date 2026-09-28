@@ -804,7 +804,10 @@ public final class ClientScenario {
         });
     }
 
-    /** Частицы по слоям движка (очередь слоя — не больше 16384, лишние вытесняют самые старые). */
+    /**
+     * Частицы по слоям движка (очередь слоя — не больше 16384, лишние вытесняют самые старые) и по группам эффектов:
+     * {@code cloud=счётчик/живых} — расходятся, если кто-то убирает частицы мимо счётчика движка.
+     */
     private static String particleLayers() {
         try {
             var f = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("particles");
@@ -812,6 +815,18 @@ public final class ClientScenario {
             var map = (java.util.Map<?, ?>) f.get(Minecraft.getInstance().particleEngine);
             StringBuilder sb = new StringBuilder();
             map.forEach((type, q) -> sb.append(type).append('=').append(((java.util.Collection<?>) q).size()).append(' '));
+            // группы эффектов: счётчик движка (по нему предел и прореживание) и сколько частиц группы живёт на деле
+            var group = ua.zentix.airstrike.client.fx.particle.FxBudget.class.getDeclaredField("group");
+            group.setAccessible(true);
+            var counts = Minecraft.getInstance().particleEngine.trackedParticleCounts;
+            java.util.Map<Object, Integer> live = new java.util.HashMap<>();
+            map.values().forEach(q -> ((java.util.Collection<?>) q).forEach(o -> ((net.minecraft.client.particle.Particle) o)
+                    .getParticleGroup().ifPresent(g -> live.merge(g, 1, Integer::sum))));
+            for (var b : ua.zentix.airstrike.client.fx.particle.FxBudget.values()) {
+                var g = ((java.util.Optional<?>) group.get(b)).orElseThrow();
+                sb.append(b.name().toLowerCase(java.util.Locale.ROOT)).append('=').append(counts.getInt(g)).append('/')
+                        .append(live.getOrDefault(g, 0)).append(' ');
+            }
             return sb.toString();
         } catch (ReflectiveOperationException e) {
             return e.toString();
