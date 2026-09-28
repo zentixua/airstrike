@@ -79,7 +79,8 @@ public final class ClientSounds {
             // РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции, на подлёте воет
             case ROCKET -> List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_INCOMING);
             // барражирующий: тот же винт, но маленький электромотор — выше и тише (см. EngineSound)
-            case LOITER -> List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR);
+            case LOITER -> List.of(EngineSound.Layer.LOITER_NEAR, EngineSound.Layer.LOITER_FAR, EngineSound.Layer.LOITER_DIVE,
+                    EngineSound.Layer.BOOSTER);
         };
         for (EngineSound.Layer l : layers) {
             EngineSound s = new EngineSound(track, l);

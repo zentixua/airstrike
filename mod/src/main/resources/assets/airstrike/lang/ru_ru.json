@@ -139,6 +139,8 @@
   "subtitles.airstrike.designator.lock": "Захват цели",
   "subtitles.airstrike.launch": "Рёв стартового ускорителя",
   "subtitles.airstrike.launch.separate": "Отделение ускорителя",
+  "subtitles.airstrike.loiter": "Жужжит барражирующий боеприпас",
+  "subtitles.airstrike.loiter.launch": "Пуск с катапульты",
   "subtitles.airstrike.rocket": "Пуск реактивного снаряда",
   "subtitles.airstrike.rocket.incoming": "Вой снарядов на подлёте",
   "subtitles.airstrike.debris": "Сыплются обломки",
