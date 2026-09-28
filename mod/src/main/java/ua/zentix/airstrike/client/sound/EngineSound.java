@@ -9,6 +9,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.registry.ModSounds;
+import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.function.Supplier;
 
@@ -32,7 +33,9 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         BOMBER_FAR(ModSounds.BOMBER_ENGINE_FAR::get),
         BOMB_NEAR(ModSounds.BOMB_FALL::get),
         BOMB_FAR(ModSounds.BOMB_FALL_FAR::get),
-        BOMB_DRILL(ModSounds.BOMB_DRILL::get);
+        BOMB_DRILL(ModSounds.BOMB_DRILL::get),
+        /** Стартовый ускоритель шахеда и ракеты, двигатель МБР; этот же слой отмечает поджиг и отделение ускорителя. */
+        BOOSTER(ModSounds.BOOSTER_ENGINE::get);
 
         final Supplier<SoundEvent> event;
 
@@ -46,6 +49,8 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
     private final double[] p = new double[3];
     private float smoothVolume;
     private float filterGain = 1, filterHighs = 1;
+    /** Фаза, которую слушатель уже «услышал» (на момент излучения), −1 — ещё ничего. */
+    private int heardPhase = -1;
 
     EngineSound(SourceTrack track, Layer layer) {
         super(layer.event.get(), SoundSource.AMBIENT, RandomSource.create());
@@ -108,13 +113,16 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         double gain;
         double pitch = dop;
         int phase = track.phase(te);
+        double age = track.phaseAge(te);
         switch (layer) {
             case DRONE_NEAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * near(d, 60, 160);
+                gain = Acoustics.gain(d, 60, 0.12, 300) * near(d, 60, 160) * spool(phase, age, true);
+                pitch *= spoolPitch(phase, age, true);
                 if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
             }
             case DRONE_FAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * (1 - near(d, 60, 160));
+                gain = Acoustics.gain(d, 60, 0.12, 300) * (1 - near(d, 60, 160)) * spool(phase, age, true);
+                pitch *= spoolPitch(phase, age, true);
                 if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
             }
             case MISSILE_FRONT, MISSILE_REAR, MISSILE_DIVE -> {
@@ -127,9 +135,13 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     case MISSILE_DIVE -> dive ? front : 0;
                     default -> 1 - front;
                 };
-                gain = Acoustics.gain(d, 90, 0.12, 300) * near(d, 60, 170) * w;
+                gain = Acoustics.gain(d, 90, 0.12, 300) * near(d, 60, 170) * w * spool(phase, age, false);
+                pitch *= spoolPitch(phase, age, false);
             }
-            case MISSILE_FAR -> gain = Acoustics.gain(d, 90, 0.12, 300) * (1 - near(d, 60, 170));
+            case MISSILE_FAR -> {
+                gain = Acoustics.gain(d, 90, 0.12, 300) * (1 - near(d, 60, 170)) * spool(phase, age, false);
+                pitch *= spoolPitch(phase, age, false);
+            }
             case MISSILE_WHISTLE -> {
                 // свист на последних 260 блоках, пока ракета приближается; тон ниже к цели
                 double wd = track.distanceToAim;
@@ -143,6 +155,20 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             case BOMB_DRILL -> {
                 gain = track.drilling ? Math.max(0, 1 - d / 96) : 0;
                 pitch = 0.85;
+            }
+            case BOOSTER -> {
+                FlightPhase ph = FlightPhase.byId(phase);
+                if (track.weapon == WeaponType.NUKE) {
+                    // «Минитмен»: низкий рёв твердотопливной ступени, слышно за километр
+                    gain = ph.boosterLit() ? Acoustics.gain(d, 400, 0.15, 1500) : 0;
+                    pitch *= 0.7;
+                } else {
+                    // ускоритель — поверх разового рёва старта у пусковой: этот слой уходит вместе со снарядом
+                    double ramp = ph == FlightPhase.IGNITION ? Math.min(1, age / 6) : 1;
+                    gain = ph.boosterLit() ? Acoustics.gain(d, 150, 0.1, 600) * 0.6 * ramp : 0;
+                    if (track.weapon == WeaponType.MISSILE) pitch *= 0.9;
+                }
+                launchEvents(ph, age, d);
             }
             default -> gain = 0;
         }
@@ -159,6 +185,45 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             filterHighs = SoundFilters.air(d) * SoundFilters.blockedHighs(open);
             SoundFilters.update(this, filterGain, filterHighs);
         }
+    }
+
+    /**
+     * Разовые звуки старта в момент, когда их фронт дошёл до уха: поджиг ускорителя (удар и рёв у пусковой)
+     * и отделение (хлопок пиропатронов и лязг замков). У МБР свой звук пуска ({@code NukeSounds}).
+     */
+    private void launchEvents(FlightPhase ph, double age, double d) {
+        int prev = heardPhase;
+        heardPhase = ph.ordinal();
+        if (prev == ph.ordinal() || track.weapon == WeaponType.NUKE) return;
+        Vec3 at = new Vec3(p[0], p[1], p[2]);
+        // поджиг: при смене фазы или если снаряд попал в поле зрения уже на поджиге
+        if (ph == FlightPhase.IGNITION && (prev >= 0 || age < 5)) {
+            float v = (float) Acoustics.gain(d, 150, 0.1, 600);
+            if (v > 0.01f) ClientSounds.atEar(ModSounds.LAUNCH_BOOSTER.get(), at, v, track.weapon == WeaponType.MISSILE ? 0.92f : 1.05f);
+        } else if (ph == FlightPhase.CLIMB && prev >= 0 && FlightPhase.byId(prev).boosterLit()) {
+            float v = (float) Acoustics.gain(d, 40, 0, 250);
+            if (v > 0.01f) ClientSounds.atEar(ModSounds.BOOSTER_SEPARATE.get(), at, v, 1);
+        }
+    }
+
+    /**
+     * Маршевый мотор на старте, доля громкости. Шахед молотит винтом ещё на пусковой (на малом газу, под рёвом
+     * ускорителя), после отделения выходит на полный газ; турбина ракеты запускается только после отделения
+     * и раскручивается за ~2,5 с.
+     */
+    private static double spool(int phase, double age, boolean drone) {
+        FlightPhase ph = FlightPhase.byId(phase);
+        if (ph.launching()) return drone ? (ph == FlightPhase.READY ? 0.3 : 0.45) : 0;
+        if (ph != FlightPhase.CLIMB) return 1;
+        return drone ? 0.45 + 0.55 * Math.min(1, age / 30) : Acoustics.smoothstep(0, 50, age);
+    }
+
+    /** Множитель тона маршевого мотора на старте (обороты растут). */
+    private static double spoolPitch(int phase, double age, boolean drone) {
+        FlightPhase ph = FlightPhase.byId(phase);
+        if (ph.launching()) return drone ? (ph == FlightPhase.READY ? 0.72 : 0.8) : 0.55;
+        if (ph != FlightPhase.CLIMB) return 1;
+        return drone ? 0.8 + 0.2 * Math.min(1, age / 30) : 0.55 + 0.45 * Acoustics.smoothstep(0, 50, age);
     }
 
     /** Вес ближнего слоя: 1 ближе a, 0 дальше b. */
