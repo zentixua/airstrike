@@ -540,7 +540,7 @@ public final class StressDirector {
         p.saveWithoutId(tag);
         log("%s %s %s у %s фаза %s (%d тиков) возраст %d срок %d погоня %.0f ждал района %d цель %s у %s вне мира %b убран %s тикает %b",
                 what, w.type, id, p.blockPosition().toShortString(), p.flightPhase().getSerializedName(), tag.getInt("phase_age"),
-                p.age(), tag.getInt("lifetime"), tag.getDouble("chased"), tag.getInt("area_wait"), p.target(),
+                p.age(), tag.getInt("lifetime"), tag.getCompound("tracker").getDouble("chased"), tag.getInt("area_wait"), p.target(),
                 BlockPos.containing(p.aimPoint()).toShortString(), p.isVirtual(), p.getRemovalReason(),
                 p.level() instanceof ServerLevel l && l.isPositionEntityTicking(p.blockPosition()));
     }
