@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.strike.WeaponType;
 
@@ -41,7 +42,7 @@ final class SourceTrack implements Acoustics.Path {
         pitches[i] = p.getXRot();
         phases[i] = p.flightPhase().ordinal();
         phaseAges[i] = p.phaseAge();
-        drilling = p instanceof ua.zentix.airstrike.entity.BunkerBusterEntity b && b.isDrilling();
+        drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
         distanceToAim = p.position().distanceTo(p.aimPoint());
     }
 

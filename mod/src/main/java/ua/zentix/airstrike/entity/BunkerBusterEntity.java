@@ -8,12 +8,14 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -104,7 +106,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         Vec3 aim = tracker.point();
         Bearing b = bearingTo(aim);
         flight.arcPitch(b.pitch(), speed, b.distance(), 7, 0.8);
-        speed = Math.min(12.5, speed + 0.3);
+        speed = Math.min(cruiseSpeed(), speed + 0.3);
         if (b.horizontal() > 8) flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
         advance(level, aim, 5.3);
     }
@@ -227,8 +229,8 @@ public class BunkerBusterEntity extends StrikeProjectile {
         }
         Vec3 cv = Vec3.atCenterOf(c);
         level.sendParticles(ParticleTypes.POOF, cv.x, cv.y, cv.z, 3, 0.4, 0.4, 0.4, 0.05);
-        for (Player p : level.getEntitiesOfClass(Player.class, new AABB(c).inflate(1.8), p -> p.distanceToSqr(cv) <= 1.8 * 1.8)) {
-            p.hurt(ModDamageTypes.source(level, ModDamageTypes.KINETIC, this, ownerPlayer()), 100);
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(c).inflate(1.8), e -> e.distanceToSqr(cv) <= 1.8 * 1.8)) {
+            e.hurt(ModDamageTypes.source(level, ModDamageTypes.KINETIC, this, ownerPlayer()), 100);
         }
     }
 
@@ -236,7 +238,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         if (level.getBlockState(p).is(ModTags.DRILLABLE)) level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
     }
 
-    private static void wall(ServerLevel level, BlockPos from, BlockPos to, net.minecraft.tags.TagKey<net.minecraft.world.level.block.Block> tag, BlockState with) {
+    private static void wall(ServerLevel level, BlockPos from, BlockPos to, TagKey<Block> tag, BlockState with) {
         for (BlockPos p : BlockPos.betweenClosed(from, to)) {
             if (level.getBlockState(p).is(tag)) level.setBlock(p, with, 3);
         }

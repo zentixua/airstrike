@@ -13,6 +13,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -131,7 +132,7 @@ public final class ClientFlights {
 
         /** Пройденный путь по пакетам сервера, от старых точек к новым. */
         public Collection<Vec3> trail() {
-            return java.util.Collections.unmodifiableCollection(trail);
+            return Collections.unmodifiableCollection(trail);
         }
     }
 

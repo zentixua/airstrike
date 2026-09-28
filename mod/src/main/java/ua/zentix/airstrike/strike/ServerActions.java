@@ -24,6 +24,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.target.Target;
@@ -250,7 +251,7 @@ public final class ServerActions {
             }
             n += VirtualFlights.get(level).clear();
             StrikeWorld.clearSalvos(level);
-            if (nuclear) n += ua.zentix.airstrike.nuclear.NuclearStrikes.clear(level);
+            if (nuclear) n += NuclearStrikes.clear(level);
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared());
         return n;

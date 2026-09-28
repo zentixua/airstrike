@@ -26,6 +26,10 @@ public class CruiseMissileEntity extends StrikeProjectile {
     public static final double CRUISE_SPEED = 11.5;
     /** Горка перед пикированием начинается в стольких блоках от цели. */
     public static final double TERMINAL_RANGE = 160;
+    /** Предельная скорость в пикировании. */
+    private static final double DIVE_SPEED = 12.5;
+    /** Горка только при заходе хотя бы с такого расстояния: ближе ракете не хватит места набрать высоту. */
+    private static final double POP_UP_MIN_RANGE = 185;
 
     private static final LaunchProfile LAUNCH = new LaunchProfile(6, 40, 0.15, 8, -14);
 
@@ -76,14 +80,14 @@ public class CruiseMissileEntity extends StrikeProjectile {
         speed = CRUISE_SPEED;
         altFilter = y;
         double dx = targetPoint.x - start.x, dz = targetPoint.z - start.z;
-        popUp = dx * dx + dz * dz >= 185 * 185;
+        popUp = dx * dx + dz * dz >= POP_UP_MIN_RANGE * POP_UP_MIN_RANGE;
         setPhase(FlightPhase.CRUISE);
     }
 
     @Override
     protected void onRetarget() {
         Bearing b = bearingTo(tracker.point());
-        popUp = b.horizontal() >= 185;
+        popUp = b.horizontal() >= POP_UP_MIN_RANGE;
         if (flightPhase() == FlightPhase.TERMINAL || flightPhase() == FlightPhase.POP_UP) setPhase(FlightPhase.CRUISE);
     }
 
@@ -125,7 +129,7 @@ public class CruiseMissileEntity extends StrikeProjectile {
             case POP_UP -> flight.holdPitch(-20, 0.30, 8, 1.8);
             case TERMINAL -> {
                 flight.arcPitch(b.pitch(), speed, b.distance(), 16, 3.5);
-                speed = Math.min(12.5, speed + 0.1);
+                speed = Math.min(DIVE_SPEED, speed + 0.1);
             }
             default -> {}
         }

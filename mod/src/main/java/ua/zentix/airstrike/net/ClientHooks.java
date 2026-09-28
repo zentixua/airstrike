@@ -1,5 +1,8 @@
 package ua.zentix.airstrike.net;
 
+import ua.zentix.airstrike.entity.DebrisEntity;
+import ua.zentix.airstrike.entity.StrikeProjectile;
+
 /**
  * Мост к клиентскому коду: сервер регистрирует обработчики пакетов «сервер → клиент», но на выделенном сервере
  * они никогда не выполняются, а клиентских классов там нет. Клиентский модуль подставляет реализацию при запуске.
@@ -32,10 +35,10 @@ public interface ClientHooks {
     default void radiation(S2C.Radiation p) {}
 
     /** Снаряд на клиенте, раз в тик: факел, шлейф, облако пуска (клиентский {@code fx/Exhaust}). */
-    default void projectileTick(ua.zentix.airstrike.entity.StrikeProjectile e) {}
+    default void projectileTick(StrikeProjectile e) {}
 
     /** Обломок на клиенте, раз в тик: горящий — огонь и чёрный дым, остывший — пыль. */
-    default void debrisTick(ua.zentix.airstrike.entity.DebrisEntity e) {}
+    default void debrisTick(DebrisEntity e) {}
 
     default void flights(S2C.Flights p) {}
 
