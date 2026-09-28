@@ -25,6 +25,7 @@ import java.util.UUID;
  */
 public final class SubLevels {
     private static volatile boolean broken;
+    private static volatile long lastFailureLog;
 
     private SubLevels() {}
 
@@ -39,7 +40,7 @@ public final class SubLevels {
         try {
             return companion().getContaining(level, plotPos);
         } catch (RuntimeException | LinkageError e) {
-            disable(e);
+            fail(e);
             return null;
         }
     }
@@ -54,7 +55,7 @@ public final class SubLevels {
         try {
             return companion().projectOutOfSubLevel(level, (Position) pos);
         } catch (RuntimeException | LinkageError e) {
-            disable(e);
+            fail(e);
             return pos;
         }
     }
@@ -64,15 +65,20 @@ public final class SubLevels {
         try {
             return sub.logicalPose().transformPositionInverse(world);
         } catch (RuntimeException | LinkageError e) {
-            disable(e);
+            fail(e);
             return world;
         }
     }
 
     /** Центр аппарата в мире. */
     public static Vec3 center(SubLevelAccess sub) {
-        Vector3d c = sub.boundingBox().center();
-        return new Vec3(c.x, c.y, c.z);
+        try {
+            Vector3d c = sub.boundingBox().center();
+            return new Vec3(c.x, c.y, c.z);
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return Vec3.ZERO;
+        }
     }
 
     /** Аппараты в радиусе (по габаритам). */
@@ -83,7 +89,7 @@ public final class SubLevels {
             BoundingBox3d box = new BoundingBox3d(at.x - radius, at.y - radius, at.z - radius, at.x + radius, at.y + radius, at.z + radius);
             for (SubLevelAccess s : companion().getAllIntersecting(level, box)) out.add(s);
         } catch (RuntimeException | LinkageError e) {
-            disable(e);
+            fail(e);
         }
         return out;
     }
@@ -98,20 +104,41 @@ public final class SubLevels {
 
     /** Имя аппарата для интерфейса. */
     public static Component describe(@Nullable SubLevelAccess subLevel) {
-        String name = subLevel == null ? null : subLevel.getName();
+        String name = subLevel == null ? null : name(subLevel);
         return name == null || name.isBlank()
                 ? Component.translatable("airstrike.target.aircraft")
                 : Component.translatable("airstrike.target.aircraft.named", name);
     }
 
+    /** Имя аппарата, которое дал ему игрок; null — без имени. */
+    @Nullable
+    public static String name(SubLevelAccess subLevel) {
+        try {
+            return subLevel.getName();
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return null;
+        }
+    }
+
     /**
-     * API Sable не обещает стабильности (README Sable). Если обновление сборки его сломает,
-     * мод продолжит работать без наведения на аппараты, а причина останется в логе.
+     * API Sable не обещает стабильности (README Sable). Если обновление сборки его сломает (класса или метода
+     * нет — {@link LinkageError}), мод продолжит работать без наведения на аппараты до перезапуска, а причина
+     * останется в логе. Исключение в отдельном вызове (аппарат в эту секунду дробится или уже удалён) — только
+     * этот вызов: иначе один сбой Sable отключал наведение на все аппараты до перезапуска игры.
      */
-    private static void disable(Throwable e) {
-        if (!broken) {
-            broken = true;
-            Airstrike.LOG.error("Sable companion сломался — наведение на аппараты отключено до перезапуска", e);
+    private static void fail(Throwable e) {
+        if (e instanceof LinkageError) {
+            if (!broken) {
+                broken = true;
+                Airstrike.LOG.error("Sable companion сломался — наведение на аппараты отключено до перезапуска", e);
+            }
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastFailureLog > 60_000) {
+            lastFailureLog = now;
+            Airstrike.LOG.warn("Sable не ответил на запрос об аппарате (запрос пропущен)", e);
         }
     }
 }

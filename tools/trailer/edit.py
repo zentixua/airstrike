@@ -3,9 +3,12 @@
 по монтажному листу EDIT под такт музыки, цвет и кинокаше, титры; звук собирается заново из журнала звуков игры
 (те же файлы мода, громкость по расстоянию до камеры, панорама, Доплер из журнала) и кладётся под музыку.
 
-    python3 tools/trailer/edit.py [--draft] [--out ФАЙЛ]
+    python3 tools/trailer/edit.py [--lang en|ru] [--draft] [--rec ПАПКА …] [--out ФАЙЛ]
+    --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
     --draft  — быстрый черновик 960×540 (проверить монтаж)
-    результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC) и dist/airstrike-trailer-lite.mp4 (до 4 Мбит/с, для мессенджеров)
+    --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые
+    результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
+    и …-credits.txt — строки об авторах музыки и звуков для описания ролика
 
 Музыка и шрифты скачиваются один раз в tools/.trailer-cache (проверка sha256). Нужны numpy, scipy, soundfile,
 Pillow и ffmpeg (системный или из пакета imageio-ffmpeg).
@@ -47,7 +50,7 @@ MUSIC = {
     # сильная доля громкой части: 96.02 с, такт — 3 с (80 уд/мин, 4 доли по 0.75 с)
     "drop": 96.02,
     "bar": 3.0,
-    "credit": "Kevin MacLeod — «Impact Prelude» (incompetech.com), лицензия CC BY 4.0",
+    "credit": "\u201cImpact Prelude\u201d by Kevin MacLeod (incompetech.com), CC BY 4.0",
 }
 FONTS = {
     "title": ("https://raw.githubusercontent.com/google/fonts/main/ofl/russoone/RussoOne-Regular.ttf",
@@ -143,14 +146,17 @@ def load_recording(rec=REC):
             elif kind == "stop":
                 s.stops[e["id"]] = e["t"]
             elif kind == "mark":
-                s.marks.append((e["t"], e["what"]))
+                # «gone» в самом начале — в записях до исправления снаряды, пропавшие между планами
+                if not (e["what"].startswith("gone:") and e["t"] <= 0):
+                    s.marks.append((e["t"], e["what"]))
     for s in shots.values():
         s.keys = sorted(s.frames)
     return {n: s for n, s in shots.items() if s.frames}
 
 
 def anchor(shot, spec):
-    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение) с ±сдвигом."""
+    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение, #-1 —
+    последнее) с ±сдвигом."""
     if isinstance(spec, (int, float)):
         return float(spec)
     off = 0.0
@@ -175,8 +181,8 @@ def anchor(shot, spec):
         hits = [t for t, m in shot.marks if what in m]
     elif kind == "sound":
         hits = [e["t"] for e in shot.sounds if what in e["event"]]
-    if len(hits) >= nth:
-        return shot.sec(hits[nth - 1]) + off
+    if len(hits) >= abs(nth):
+        return shot.sec(hits[nth - 1 if nth > 0 else nth]) + off
     print(f"  ! {shot.name}: нет «{spec}», беру начало плана")
     return off
 
@@ -193,6 +199,7 @@ class Clip:
     flash: bool = False  # белая вспышка на склейке
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
     sfx: float = 1.0    # громкость звука игры
+    frame_y: float = 0.5  # какая полоса плана видна в окне 2:1: 0 — верхняя (список ударов справа вверху), 0.5 — середина
     start: float = 0.0  # заполняется: начало в трейлере
     src: float = 0.0    # заполняется: начало в плане, с
 
@@ -223,8 +230,32 @@ class Hit:
 
 BAR = MUSIC["bar"]
 
+# для описания ролика (Modrinth, YouTube): музыка CC BY требует указать автора, название, источник и лицензию
+CREDITS = """Music: "Impact Prelude" by Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons: By Attribution 4.0 License
+http://creativecommons.org/licenses/by/4.0/
+Sound effects: Freesound contributors (CC0 / CC BY 4.0), full list: https://github.com/zentixua/airstrike/blob/main/SOUND-CREDITS.md
+Fonts: Russo One, Oswald (SIL Open Font License)
 
-def build_edit():
+Музыка: «Impact Prelude», Kevin MacLeod (incompetech.com), лицензия Creative Commons Attribution 4.0
+http://creativecommons.org/licenses/by/4.0/
+Звуки: авторы Freesound (CC0 / CC BY 4.0), список: https://github.com/zentixua/airstrike/blob/main/SOUND-CREDITS.md
+"""
+
+# слова на экране: английские — для Modrinth и YouTube, русские — для своих (--lang ru)
+WORDS = {
+    "en": {"presents": "presents", "aim": "AIM", "launch": "LAUNCH", "shahed": "SHAHED-136", "missile": "CRUISE MISSILE",
+           "lancet": "LANCET", "grad": "GRAD MLRS", "last": "LAST RESORT", "icbm": "ICBM",
+           "platform": "Minecraft 1.21.1 · NeoForge · Create Aeronautics",
+           "music": "Music: ", "sounds": "Sound effects: Freesound contributors (CC0 / CC BY), see SOUND-CREDITS.md"},
+    "ru": {"presents": "представляет", "aim": "НАВЕДИ", "launch": "ЗАПУСТИ", "shahed": "ШАХЕД-136", "missile": "КРЫЛАТАЯ РАКЕТА",
+           "lancet": "«ЛАНЦЕТ»", "grad": "«ГРАД»", "last": "ПОСЛЕДНИЙ ДОВОД", "icbm": "МБР",
+           "platform": "Minecraft 1.21.1 · NeoForge · Create Aeronautics",
+           "music": "Музыка: ", "sounds": "Звуки: авторы Freesound (CC0 / CC BY), список в SOUND-CREDITS.md"},
+}
+
+
+def build_edit(lang="en"):
     """
     Трейлер ~2:36 под «Impact Prelude». Тихая часть — рассвет, наводчик, пусковая; сильная доля музыки (drop) —
     поджиг первого шахеда; дальше склейки по тактам (3 с) и полутактам, нарастание к МБР. Ядерная вспышка —
@@ -243,27 +274,32 @@ def build_edit():
         Clip("launch_drone", "sound:launch.booster-0.15", 3.0, flash=True),
         Clip("boost", 0.0, 4.5),
         Clip("cruise", 1.0, 3.0),
-        Clip("impact_drone", "mark:gone-2.5", 6.0),
-        Clip("launch_missile", "sound:launch.booster-0.4", 6.0, flash=True),
-        Clip("missile_camera", 0.0, 3.0),
+        # глазами наводчика: шахеды проходят над головой к целям, метки целей с номерами и пунктиры
+        Clip("targets", 0.0, 3.0, frame_y=0.0),
+        Clip("impact_drone", "mark:gone#-1-5.0", 6.0),
+        Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
+        # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
+        Clip("missile_camera", "mark:video-1.5", 1.5, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
+        Clip("missile_camera", "mark:video", 4.5),  # видео и план попадания: свои полосы кадра — по центру
         Clip("impact_missile", "mark:gone-1.5", 4.5),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
-        Clip("loiter_strike", "mark:gone-4.5", 6.0),
-        Clip("rocket_launch", 0.5, 6.0, flash=True),
-        Clip("rocket_impact", "sound:blast-1.0", 6.0),
-        Clip("bomber", "mark:gone-4.0", 6.0),
+        Clip("loiter_strike", "mark:gone-3.0", 4.5),
+        Clip("rocket_launch", "sound:rocket.launch-1.5", 4.5, flash=True),
+        Clip("rocket_impact", "sound:blast-1.0", 4.5),
+        # B-2: под брюхом — створки, бомба уходит, вираж; с земли — подземный взрыв
+        Clip("bomb_bay", "mark:release-2.5", 4.5, flash=True),
+        Clip("bomber", "mark:gone-0.2", 4.5),
         Clip("salvo", "mark:gone-2.5", 6.0, flash=True),
-        Clip("salvo_missiles", "mark:gone-1.5", 7.5),
+        Clip("salvo_missiles", "mark:gone-1.5", 6.0),
         # нарезка разрывов по полутактам
-        Clip("impact_drone", "mark:gone+0.8", 1.5, rate=0.8),
+        Clip("impact_drone", "mark:gone#-2+0.3", 1.5, rate=0.8),
         Clip("rocket_impact", "sound:blast#6-0.2", 1.5),
         Clip("salvo", "mark:gone#4-0.3", 1.5),
-        Clip("rocket_impact", "sound:blast#9-0.2", 1.5),
         Black(4.5),
         Clip("icbm", 0.0, 5.0, flash=True),
         # из-за плеча наводчика: отсчёт, тревога, вспышка, шар, фронт доходит до вышки
-        Clip("nuke", "mark:detonation-10.0", 16.0),
+        Clip("nuke", "mark:detonation-10.0", 16.0, frame_y=0.0),
         Clip("mushroom", 0.0, 9.0, rate=1.5, xfade=0.6),
         Clip("fallout", 0.5, 6.0, xfade=1.0),
         Black(9.0),
@@ -280,24 +316,27 @@ def build_edit():
         return [c.start for c in edit if getattr(c, "shot", None) == shot][n - 1]
 
     card = next(c for c in edit if isinstance(c, Black) and c.start > D)  # чёрный кадр перед МБР
+    L = WORDS[lang]
     texts = [
-        Text(0.6, 3.2, ("ZENTIX UA", "представляет"), "card"),
-        Text(5.2, 3.8, ("мод для «All of Create Aeronautics»",), "sub"),
-        Text(start("scope") + 0.5, 2.2, ("НАВЕДИ",), "word"),
-        Text(D - 2.4, 1.9, ("ЗАПУСТИ",), "word"),
-        Text(start("boost") + 0.3, 3.2, ("ШАХЕД-136", "разгонный блок · маршрут в обход · удар сверху"), "caption"),
-        Text(start("launch_missile") + 0.5, 3.2, ("КРЫЛАТАЯ РАКЕТА", "бреющий полёт · горка · вид с борта"), "caption"),
-        Text(start("loiter_launch") + 0.3, 3.2, ("«ЛАНЦЕТ»", "катапульта · круг над целью · пике"), "caption"),
-        Text(start("rocket_launch") + 0.3, 3.2, ("«ГРАД»", "пакет из 40 труб · залп очередью"), "caption"),
-        Text(start("bomber") + 0.5, 3.2, ("B-2 SPIRIT", "бетонобойная бомба · подземный взрыв"), "caption"),
-        Text(start("salvo") + 0.3, 3.2, ("ЗАЛП", "до 100 снарядов с разбросом"), "caption"),
-        Text(card.start + 0.3, 3.6, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
-        Text(start("icbm") + 0.5, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
+        Text(0.6, 3.0, ("ZENTIX UA", L["presents"]), "card"),
+        Text(start("scope") + 0.5, 2.2, (L["aim"],), "word"),
+        Text(D - 2.4, 1.9, (L["launch"],), "word"),
+        # оружие — одним словом, картинка скажет остальное
+        Text(start("boost") + 0.3, 2.6, (L["shahed"],), "caption"),
+        Text(start("launch_missile") + 0.5, 2.6, (L["missile"],), "caption"),
+        Text(start("loiter_launch") + 0.3, 2.6, (L["lancet"],), "caption"),
+        Text(start("rocket_launch") + 0.3, 2.6, (L["grad"],), "caption"),
+        Text(start("bomb_bay") + 0.4, 2.6, ("B-2 SPIRIT",), "caption"),
+        Text(card.start + 0.3, 3.6, (L["last"],), "word"),
+        Text(start("icbm") + 0.5, 2.6, (L["icbm"],), "caption"),
         Text(total - 9.0 + 0.6, 5.2, ("AIRSTRIKE",), "title"),
-        Text(total - 9.0 + 2.0, 3.8, ("NeoForge 1.21.1 · Create Aeronautics", "github.com/zentixua/airstrike"), "sub"),
-        Text(total - 3.0, 3.0, ("Музыка: " + MUSIC["credit"], "Звуки мода: Freesound (CC0 / CC BY) — список в SOUND-CREDITS.md"), "credits"),
+        Text(total - 9.0 + 2.0, 3.8, (L["platform"], "github.com/zentixua/airstrike"), "sub"),
+        Text(total - 3.0, 3.0, (L["music"] + MUSIC["credit"], L["sounds"]), "credits"),
     ]
     hits = [
+        # удар на каждой склейке со вспышкой, свист — на склейках нарезки
+        *[Hit(c.start, "boom", 2.0, 0.45) for c in edit if isinstance(c, Clip) and c.flash and c.start > D + 1],
+        *[Hit(c.start - 0.25, "whoosh", 0.5, 0.5) for c in edit if isinstance(c, Clip) and c.dur <= 1.5],
         Hit(D - 4.0, "riser", 4.0, 0.8),
         Hit(D, "boom", 3.0, 1.0),
         Hit(card.start, "boom", 3.0, 0.9),
@@ -433,6 +472,13 @@ def _source(c, t):
     if abs(z - 1) > 1e-3:
         cw, ch = w / z, h / z
         img = img.resize((w, h), Image.BICUBIC, box=((w - cw) / 2, (h - ch) / 2, (w + cw) / 2, (h + ch) / 2))
+    bar = _W["look"].bar
+    if bar > 0 and c.frame_y != 0.5:
+        # окно 2:1 сдвигается по плану, чтобы кинокаше не срезало интерфейс у края
+        top = int(round(2 * bar * c.frame_y))
+        window = img.crop((0, top, w, top + h - 2 * bar))
+        img = Image.new("RGB", (w, h))
+        img.paste(window, (0, bar))
     return _W["look"].apply(img)
 
 
@@ -664,15 +710,21 @@ def mix(edit, texts, hits, shots, total, drop_at, flash):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--draft", action="store_true")
-    ap.add_argument("--out", default=os.path.join(DIST, "airstrike-trailer.mp4"))
-    ap.add_argument("--rec", default=REC, help="папка записи (по умолчанию mod/run/scenario/trailer)")
+    ap.add_argument("--lang", choices=sorted(WORDS), default="en", help="слова на экране: en — Modrinth и YouTube, ru — для своих")
+    ap.add_argument("--out", help="файл (по умолчанию dist/airstrike-trailer.mp4, для ru — …-ru.mp4)")
+    ap.add_argument("--rec", action="append", help="папка записи (по умолчанию mod/run/scenario/trailer); можно несколько — "
+                    "планы из следующих (пересъёмка) заменяют одноимённые")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
     args = ap.parse_args()
-    shots = load_recording(args.rec)
+    if args.out is None:
+        args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
+    shots = {}
+    for rec in args.rec or [REC]:
+        shots.update(load_recording(rec))
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()))
-    edit, texts, hits, total, drop_at, flash = build_edit()
+    edit, texts, hits, total, drop_at, flash = build_edit(args.lang)
     missing = {c.shot for c in edit if isinstance(c, Clip) and c.shot not in shots}
     if missing:
         # нет плана — его время отдаётся прошлому плану (он идёт медленнее), без чёрных дыр
@@ -696,6 +748,8 @@ def main():
         t += c.dur
     first = next(iter(shots.values()))
     w0, h0 = Image.open(first.frame(0)).size
+    if w0 * 9 != h0 * 16:
+        raise SystemExit(f"кадры {w0}×{h0}, а нужно 16:9 (1920×1080) — переснять: окно клиента было не того размера")
     size = (960, 540) if args.draft else (w0, h0)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     audio = os.path.join(CACHE, "trailer-audio.wav")
@@ -723,6 +777,10 @@ def main():
                         "-maxrate", "4M", "-bufsize", "8M", "-pix_fmt", "yuv420p", "-r", str(FPS), "-c:a", "aac", "-b:a", "192k",
                         "-movflags", "+faststart", lite], check=True)
         print("лёгкая версия:", lite)
+        credits = os.path.splitext(args.out)[0] + "-credits.txt"
+        with open(credits, "w", encoding="utf-8") as f:
+            f.write(CREDITS)
+        print("строки для описания (Modrinth, YouTube):", credits)
 
 
 if __name__ == "__main__":

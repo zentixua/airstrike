@@ -17,7 +17,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -155,8 +155,8 @@ public final class NuclearStrikes {
         if (t3 - t0 > SLOW_TICK_NS && now - lastSlowLog >= 100) {
             lastSlowLog = now;
             long[] w = world.lastNanos();
-            Airstrike.LOG.warn("Ядерный тик {} мс: удары {} мс, фронт {} мс, воронки {} мс, чанки {} мс, радиация {} мс", (t3 - t0) / 1_000_000,
-                    (t1 - t0) / 1_000_000, w[0] / 1_000_000, w[1] / 1_000_000, w[2] / 1_000_000, (t3 - t2) / 1_000_000);
+            Airstrike.LOG.warn("Ядерный тик {} мс: удары {} мс, фронт {} мс, свет {} мс, воронки {} мс, чанки {} мс, радиация {} мс", (t3 - t0) / 1_000_000,
+                    (t1 - t0) / 1_000_000, w[0] / 1_000_000, w[1] / 1_000_000, w[2] / 1_000_000, w[3] / 1_000_000, (t3 - t2) / 1_000_000);
         }
     }
 
@@ -194,9 +194,16 @@ public final class NuclearStrikes {
         }
     }
 
-    /** После смерти доза сброшена (attachment не копируется) — счётчику это нужно сказать. */
+    /**
+     * После смерти доза сброшена (attachment не копируется) — счётчику это нужно сказать. Возрождение может быть
+     * в другом измерении (умер в Незере — встал в верхнем мире), а {@code PlayerChangedDimensionEvent} при этом
+     * не приходит: подрывы и летящие МБР — тоже заново.
+     */
     public static void onRespawn(PlayerEvent.PlayerRespawnEvent e) {
-        if (e.getEntity() instanceof ServerPlayer p) RadiationTicker.sync(p);
+        if (e.getEntity() instanceof ServerPlayer p) {
+            sync(p);
+            RadiationTicker.sync(p);
+        }
     }
 
     private static void sync(ServerPlayer p) {

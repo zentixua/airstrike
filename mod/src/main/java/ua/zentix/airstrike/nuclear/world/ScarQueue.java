@@ -1,13 +1,17 @@
 package ua.zentix.airstrike.nuclear.world;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.registry.ModAttachments;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -20,6 +24,9 @@ import java.util.PriorityQueue;
  * подрыва, чей номер новее отметки {@code chunk_scar} на чанке. Обрабатывается не раньше, чем до него дошла волна
  * (загруженные позже — сразу), столбец за столбцом под общим бюджетом времени; после всех столбцов отметка
  * ставится. Выгрузился посреди обработки — отметки нет, при следующей загрузке пройдёт заново (идемпотентно).
+ * <p>
+ * В момент подрыва загружены тысячи чанков: и их снимок, и постановка в очередь идут уже под бюджетом
+ * ({@link #scanLoaded}), в тике подрыва — ничего.
  */
 public final class ScarQueue {
     /** Работа по одному чанку: подрывы по порядку номеров, текущий столбец. */
@@ -35,6 +42,18 @@ public final class ScarQueue {
         }
     }
 
+    /** Загруженные при подрыве чанки в его радиусе (снимок — первой единицей работы); {@code next} — первый не поставленный. */
+    private static final class Scan {
+        final Detonation d;
+        @Nullable
+        long[] chunks;
+        int next;
+
+        Scan(Detonation d) {
+            this.d = d;
+        }
+    }
+
     /** Через сколько тиков снова проверить чанк, у которого не все соседи загружены. */
     private static final int NEIGHBOUR_RETRY = 40;
 
@@ -42,15 +61,37 @@ public final class ScarQueue {
     private long lastSlowColumn = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
     private final Map<Integer, ColumnScar.Budget> budgets = new HashMap<>();
+    private final ArrayDeque<Scan> scans = new ArrayDeque<>();
 
     public int size() {
         return jobs.size();
     }
 
-    /** Поставить чанк в очередь по подрыву (если он новее отметки на чанке и чанк в радиусе). */
+    /**
+     * Подрыв: загруженные сейчас чанки в его радиусе поставит в очередь {@link #work} — и снимок их координат, и сами
+     * чанки (и их отметки) читаются уже под бюджетом. В тике подрыва — ничего.
+     */
+    public void scanLoaded(Detonation d) {
+        scans.add(new Scan(d));
+    }
+
+    /** Координаты загруженных чанков в радиусе подрыва. Чанк, загруженный после подрыва, поставит {@code onChunkLoad}. */
+    private static long[] loadedInRange(ServerLevel level, Detonation d) {
+        double radius = d.radiusMax();
+        LongArrayList in = new LongArrayList();
+        for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
+            ChunkPos p = holder.getPos();
+            if (nearest(p, d) <= radius) in.add(p.toLong());
+        }
+        return in.toLongArray();
+    }
+
+    /** Поставить чанк в очередь по подрыву (если чанк в радиусе и подрыв новее отметки на чанке). */
     public void offer(LevelChunk chunk, Detonation d) {
-        int applied = chunk.getData(ModAttachments.CHUNK_SCAR);
-        if (d.id() <= applied || !inRange(chunk.getPos(), d)) return;
+        if (!inRange(chunk.getPos(), d)) return;
+        // без отметки — ни одного подрыва ещё не было; getData повесил бы отметку 0 на каждый чанк в радиусе
+        int applied = chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0);
+        if (d.id() <= applied) return;
         long key = chunk.getPos().toLong();
         Job job = jobs.get(key);
         if (job == null) {
@@ -78,6 +119,7 @@ public final class ScarQueue {
     }
 
     public void clear() {
+        scans.clear();
         jobs.clear();
         byDue.clear();
         budgets.clear();
@@ -105,6 +147,22 @@ public final class ScarQueue {
      * @param clock бюджет тика: за столбец берёмся, только если он успеет
      */
     public void work(ServerLevel level, long now, WorkClock clock, RandomSource random) {
+        // сначала — в очередь чанки, загруженные при подрывах. Порядок здесь не важен: очередь сама идёт по приходу
+        // волны, а на постановку тысяч чанков уходит несколько тиков — волна за это время проходит пару чанков
+        while (!scans.isEmpty() && clock.canStart()) {
+            Scan scan = scans.peek();
+            long c0 = clock.begin();
+            if (scan.chunks == null) {
+                scan.chunks = loadedInRange(level, scan.d);
+            } else {
+                long pos = scan.chunks[scan.next++];
+                // выгрузился после подрыва — пропускаем; загрузится снова — поставит onChunkLoad
+                LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(pos), ChunkPos.getZ(pos));
+                if (chunk != null) offer(chunk, scan.d);
+            }
+            clock.end(c0);
+            if (scan.next >= scan.chunks.length) scans.poll();
+        }
         while (!byDue.isEmpty() && clock.canStart()) {
             Job job = byDue.peek();
             if (job.due > now) return;

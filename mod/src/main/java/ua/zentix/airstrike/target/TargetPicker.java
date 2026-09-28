@@ -16,6 +16,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.registry.ModTags;
 
 import java.util.function.Predicate;
@@ -42,7 +43,7 @@ public final class TargetPicker {
     public static Pick pick(Level level, Entity viewer, Vec3 eye, Vec3 look, double range) {
         Vec3 end = eye.add(look.scale(range));
 
-        BlockHitResult block = level.clip(new ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, viewer));
+        BlockHitResult block = level.clip(new ClipContext(eye, Terrain.readyUntil(level, eye, end), ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, viewer));
         Vec3 blockWorld = null;
         SubLevelAccess aircraft = null;
         if (block.getType() != HitResult.Type.MISS) {
@@ -70,8 +71,8 @@ public final class TargetPicker {
 
         // в небо или дальше дальности прицела — поверхность под концом луча, если чанк загружен
         BlockPos col = BlockPos.containing(end);
-        if (!level.isLoaded(col)) return null;
-        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ());
+        if (!Terrain.ready(level, col)) return null;
+        int y = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ());
         Vec3 surface = new Vec3(col.getX() + 0.5, y, col.getZ() + 0.5);
         return new Pick(new Target.Point(surface), surface, Kind.SURFACE, Component.translatable("airstrike.target.surface"), null);
     }

@@ -13,7 +13,6 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -31,14 +30,14 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEffects;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.net.S2C;
-import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
 
 /**
  * Ядерная боеголовка: подрыв (DESIGN-nuke §0, §4). Сервер записывает событие и шлёт его всем в измерении
- * одним пакетом; мгновенно — только то, что действует со скоростью света: световой импульс по сущностям и
- * проникающая радиация. Ударная волна, разрушения и воронка идут дальше по тикам ({@link NuclearWorld}).
+ * одним пакетом. Всё остальное идёт по тикам под бюджетом ({@link NuclearWorld}): световой импульс и проникающая
+ * радиация по сущностям (ближние первыми), ударная волна, разрушения и воронка.
  */
 public final class NuclearWarhead {
     private NuclearWarhead() {}
@@ -67,45 +66,41 @@ public final class NuclearWarhead {
         events.add(d);
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
 
-        Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
-        long lightStart = System.nanoTime();
-        int entities = lightAndRadiation(level, d, ownerEntity);
-        long queueStart = System.nanoTime();
-        NuclearWorld.get(level).onDetonation(level, d);
-        long end = System.nanoTime();
-        // разбивка — чтобы по логу игры было видно, что тормозит в момент подрыва
-        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс (свет и радиация {} мс, сущностей {}; очереди {} мс)",
-                d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
-                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (end - started) / 1_000_000,
-                (queueStart - lightStart) / 1_000_000, entities, (end - queueStart) / 1_000_000);
+        NuclearWorld.get(level).onDetonation(level, d, owner);
+        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
+                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
         return d;
     }
 
-    /** Свет и проникающая радиация — одна проверка на сущность в радиусе ожогов 1-й степени. Возвращает, скольких задело. */
-    private static int lightAndRadiation(ServerLevel level, Detonation d, @Nullable Entity owner) {
-        int touched = 0;
+    /** Дальше этого (блоки) ни свет, ни проникающая радиация сущностей не трогают: ожоги 1-й степени или 50 бэр. */
+    public static double exposureRange(Detonation d) {
         double burnRange = d.blocks(ThermalModel.rangeForFluence(ThermalModel.BURN_1, d.yieldKt(), d.surface(), d.visibility()));
         double radRange = d.blocks(radiusForDose(d.yieldKt(), 50));
-        double range = Math.max(burnRange, radRange);
-        // снимок списка: смерть моба добавляет лут в живую карту сущностей
-        for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(d.burst(), range * 2, range * 2, range * 2))) {
-            if (!living.isAlive() || living.distanceToSqr(d.burst()) > range * range) continue;
-            // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
-            if (living instanceof Player p && (p.isCreative() || p.isSpectator())) continue;
-            touched++;
-            Vec3 eye = living.getEyePosition();
-            if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
-            double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
-            if (rem < 1) continue;
-            if (living instanceof ServerPlayer player) {
-                if (AirstrikeConfig.SERVER.nukeRadiation.get()) RadiationTicker.addDose(player, (float) (rem / PromptRadiationModel.REM_PER_GY));
-            } else if (rem >= 1000) {
-                living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), Float.MAX_VALUE);
-            } else if (rem >= 400) {
-                living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), living.getMaxHealth() * 0.5f);
-            }
+        return Math.max(burnRange, radRange);
+    }
+
+    /**
+     * Свет и проникающая радиация по одной сущности в пределах {@link #exposureRange} (её отбирает вызывающий).
+     * Идёт не в тике подрыва, а под бюджетом ({@link NuclearWorld}).
+     *
+     * @return задело ли (жива и не в творческом режиме)
+     */
+    public static boolean expose(ServerLevel level, Detonation d, LivingEntity living, @Nullable Entity owner) {
+        if (!living.isAlive()) return false;
+        // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
+        if (living instanceof Player p && (p.isCreative() || p.isSpectator())) return false;
+        Vec3 eye = living.getEyePosition();
+        if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
+        double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
+        if (rem < 1) return true;
+        if (living instanceof ServerPlayer player) {
+            if (AirstrikeConfig.SERVER.nukeRadiation.get()) RadiationTicker.addDose(player, (float) (rem / PromptRadiationModel.REM_PER_GY));
+        } else if (rem >= 1000) {
+            living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), Float.MAX_VALUE);
+        } else if (rem >= 400) {
+            living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), living.getMaxHealth() * 0.5f);
         }
-        return touched;
+        return true;
     }
 
     /**
@@ -133,17 +128,8 @@ public final class NuclearWarhead {
         double len = dir.length();
         Vec3 near = eye.add(dir.scale(Math.min(1, 48 / Math.max(len, 1e-3))));
         // луч по блокам — только по загруженным чанкам: сервер не должен грузить мир ради проверки
-        if (loadedAlong(level, eye, near) && level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
+        if (Terrain.readyAlong(level, eye, near) && level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
         return ThermalShadow.visible(level, d.burst(), near);
-    }
-
-    /** Все чанки вдоль луча готовы (шаг 4 блока — луч не проскочит угол чужого чанка незамеченным). */
-    private static boolean loadedAlong(Level level, Vec3 from, Vec3 to) {
-        int steps = Math.max(1, (int) Math.ceil(from.distanceTo(to) / 4));
-        for (int i = 0; i <= steps; i++) {
-            if (!Terrain.ready(level, BlockPos.containing(from.lerp(to, i / (double) steps)))) return false;
-        }
-        return true;
     }
 
     /**

@@ -39,6 +39,9 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 // сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
 def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 
+// каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
+def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
+
 neoForge {
     version = project.neo_version
     parchment {
@@ -53,22 +56,46 @@ neoForge {
         // клиент без окна для сценария проверки (см. src/devtest/.../ClientScenario и tools/client_scenario.sh)
         clientScenario {
             client()
-            gameDirectory = project.file('run/scenario')
-            // all — обычное оружие, nuke — ядерный удар, far — выход из мира во время генерации дальних чанков
+            // мультиплеер (tools/mp_scenario.sh): у каждого клиента свой каталог и ник
+            gameDirectory = project.file(scenarioDir)
+            if (project.findProperty('scenarioUser')) programArguments.addAll '--username', project.findProperty('scenarioUser')
+            // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
             def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
             programArguments.addAll '--width', size[0], '--height', size[1]
+            // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
+            systemProperty 'airstrike.frame', size.join('x')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
-            jvmArgument "-Xlog:gc:file=${project.file('run/scenario/logs/gc.log').absolutePath}:time,uptime"
+            jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
             // профиль JFR по желанию: AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
             if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
         }
         server {
             server()
-            gameDirectory = project.file('run/server')
+            gameDirectory = project.file(project.findProperty('serverDir') ?: 'run/server')
             programArgument '--nogui'
+        }
+        // стенд нагрузки (tools/stress.sh): выделенный сервер с режиссёром и игроки-клиенты, см. src/devtest/.../stress
+        stressServer {
+            server()
+            gameDirectory = project.file('run/stress/server')
+            programArgument '--nogui'
+            systemProperty 'airstrike.stress', System.getenv('AIRSTRIKE_STRESS') ?: 'run'
+            systemProperty 'airstrike.stress.players', System.getenv('AIRSTRIKE_STRESS_PLAYERS') ?: '3'
+            systemProperty 'airstrike.stress.restart', System.getenv('AIRSTRIKE_STRESS_RESTART') ?: 'false'
+            jvmArgument "-Xlog:gc:file=${project.file('run/stress/server/gc.log').absolutePath}:time,uptime"
+            // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента
+            jvmArgument '-Xmx4g'
+        }
+        stressClient {
+            client()
+            def name = System.getenv('AIRSTRIKE_STRESS_NAME') ?: 'Host'
+            gameDirectory = project.file("run/stress/${name}")
+            programArguments.addAll '--username', name, '--quickPlayMultiplayer', 'localhost', '--width', '854', '--height', '480'
+            systemProperty 'airstrike.stress.client', System.getenv('AIRSTRIKE_STRESS_ROLE') ?: 'friend'
+            jvmArgument '-Xmx2g'
         }
         gameTestServer {
             type = 'gameTestServer'
@@ -115,11 +142,17 @@ test {
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
         from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns : runtimeModPatterns).each { include it } }
-        into "run/${runDir}/mods"
+        into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
         onlyIf { mcModsDir.isDirectory() }
     }
 }
 ['client', 'server', 'gametest', 'scenario'].each { copyRuntimeMods(it) }
+tasks.register('copyRuntimeMods_stress', Sync) {
+    from(mcModsDir) { runtimeModPatterns.each { include it } }
+    into "run/stress/mods"
+    onlyIf { mcModsDir.isDirectory() }
+}
+tasks.matching { it.name in ['runStressServer', 'runStressClient'] }.configureEach { dependsOn 'copyRuntimeMods_stress' }
 tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRuntimeMods_client' }
 tasks.matching { it.name == 'runServer' }.configureEach { dependsOn 'copyRuntimeMods_server' }
 tasks.matching { it.name == 'runClientScenario' }.configureEach { dependsOn 'copyRuntimeMods_scenario' }
@@ -130,7 +163,7 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
         minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
         neo_version: neo_version, loader_version_range: loader_version_range,
         mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
-        mod_authors: mod_authors, mod_description: mod_description,
+        mod_authors: mod_authors, mod_description: mod_description, mod_url: mod_url, sable_version: sable_version,
     ]
     inputs.properties replaceProperties
     expand replaceProperties
@@ -143,4 +176,15 @@ neoForge.ideSyncTask generateModMetadata
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.compilerArgs += ['-Xlint:all,-processing,-serial,-classfile,-this-escape', '-Xmaxerrs', '1000']
+}
+
+// Тестовая сборка для боевого клиента (tools/prod_client.py): мод вместе со сценариями из devtest.
+// Отдельный каталог, чтобы deploy.sh и релиз никогда не взяли её вместо обычного jar.
+tasks.register('scenarioJar', Jar) {
+    dependsOn tasks.named('jar')
+    archiveClassifier = 'scenario'
+    destinationDirectory = layout.buildDirectory.dir('scenario-libs')
+    from(zipTree(tasks.named('jar').flatMap { it.archiveFile }))
+    from(sourceSets.devtest.output)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

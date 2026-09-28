@@ -33,6 +33,11 @@ public enum WeaponType implements StringRepresentable {
 
     public static final Codec<WeaponType> CODEC = StringRepresentable.fromEnum(WeaponType::values);
     private static final IntFunction<WeaponType> BY_ID = ByIdMap.continuous(WeaponType::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);
+    /** По номеру; чужой номер (старый мир, другая версия) — ближайшее оружие, а не ошибка. */
+    public static WeaponType byId(int id) {
+        return BY_ID.apply(id);
+    }
+
     public static final StreamCodec<ByteBuf, WeaponType> STREAM_CODEC = ByteBufCodecs.idMapper(BY_ID, WeaponType::id);
 
     private final int id;

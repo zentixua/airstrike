@@ -39,6 +39,8 @@ final class CineCamera {
     @Nullable
     private static Path path;
     private static Pose pose;
+    /** Угол кадра для вида игрока (NaN — как в настройках). */
+    static double viewFov = Double.NaN;
 
     private CineCamera() {}
 
@@ -56,6 +58,7 @@ final class CineCamera {
 
     static void release() {
         path = null;
+        viewFov = Double.NaN;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.setCameraEntity(mc.player);
     }
@@ -84,7 +87,12 @@ final class CineCamera {
     }
 
     static void fov(ViewportEvent.ComputeFov e) {
-        if (path != null && pose != null) e.setFOV(pose.fov());
+        if (path != null && pose != null) {
+            e.setFOV(pose.fov());
+        } else if (!Double.isNaN(viewFov) && e.usedConfiguredFov()) {
+            // вид игрока: угол плана поверх настроек, приближение бинокля (модификатор) сохраняется
+            e.setFOV(e.getFOV() * viewFov / Minecraft.getInstance().options.fov().get());
+        }
     }
 
     // ---------------------------------------------------------------- готовые движения
@@ -119,7 +127,16 @@ final class CineCamera {
      * чуть впереди неё. Положение сущности — с долей тика, как её рисует игра.
      */
     static Path chase(Supplier<Entity> target, double back, double up, double side, double lead, float roll, double fov) {
-        final Vec3[] last = {Vec3.ZERO, new Vec3(0, 0, 1)};
+        return chase(target, Vec3.ZERO, new Vec3(0, 0, 1), back, up, side, lead, roll, fov);
+    }
+
+    /**
+     * То же, но пока цели нет, камера стоит у {@code start} (курс {@code heading}): за камерой ходит невидимка,
+     * и без этого он уходил к нулю мира — чанки у цели выгружались, и снаряд не возвращался в мир.
+     */
+    static Path chase(Supplier<Entity> target, Vec3 start, Vec3 heading, double back, double up, double side, double lead,
+                      float roll, double fov) {
+        final Vec3[] last = {start, heading.normalize()};
         return t -> {
             Entity e = target.get();
             if (e != null) {

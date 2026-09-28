@@ -11,6 +11,7 @@ import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.WeaponType;
 
+import java.util.Locale;
 import java.util.function.Supplier;
 
 /**
@@ -75,13 +76,8 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         return true;
     }
 
-    @Override
-    public boolean canPlaySound() {
-        return true;
-    }
-
     String describe() {
-        return layer.name().toLowerCase(java.util.Locale.ROOT);
+        return layer.name().toLowerCase(Locale.ROOT);
     }
 
     void kill() {

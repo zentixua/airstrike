@@ -231,7 +231,8 @@ public final class StrikeGameTests {
         java.util.UUID id = e.getUUID();
         int[] loiter = {0};
         boolean[] dived = {false};
-        double[] radius = {1e9, 0};
+        // сильнее всего отклонение от своего круга (боеприпас на круг выходит по касательной — с первого тика)
+        double[] drift = {0, 0};
         Vec3[] lastPos = {null};
         String[] last = {""};
         h.onEachTick(() -> {
@@ -241,11 +242,10 @@ public final class StrikeGameTests {
             last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " v=" + l.speed();
             if (l.flightPhase() == FlightPhase.LOITER) {
                 loiter[0]++;
-                double r = Math.hypot(l.getX() - point.x, l.getZ() - point.z);
-                // первые 3 с — выход на круг
-                if (loiter[0] > 60) {
-                    radius[0] = Math.min(radius[0], r);
-                    radius[1] = Math.max(radius[1], r);
+                double off = Math.hypot(l.getX() - point.x, l.getZ() - point.z) - l.orbitRadius();
+                if (Math.abs(off) > Math.abs(drift[0])) {
+                    drift[0] = off;
+                    drift[1] = l.orbitRadius();
                 }
             }
             if (l.flightPhase() == FlightPhase.TERMINAL) dived[0] = true;
@@ -254,7 +254,7 @@ public final class StrikeGameTests {
             h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
             int min = (int) (ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.get() * 20 * 0.8);
             h.assertTrue(loiter[0] >= min, "кружил " + loiter[0] + " тиков, а должен не меньше " + min);
-            h.assertTrue(radius[0] > 20 && radius[1] < 75, "ушёл с круга: радиус от " + radius[0] + " до " + radius[1]);
+            h.assertTrue(Math.abs(drift[0]) <= ua.zentix.airstrike.guidance.Orbit.TOLERANCE, "ушёл с круга радиусом " + drift[1] + " на " + drift[0]);
             h.assertTrue(dived[0], "не пикировал: " + last[0]);
             h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
         });
@@ -327,6 +327,45 @@ public final class StrikeGameTests {
     }
 
     /**
+     * «/tick freeze»: ракета вне мира стоит, как стоят сущности в мире, и летит дальше после разморозки (иначе снаряды
+     * вне мира уходили вперёд замороженного мира — трейлер замораживает мир, пока камера ждёт прогрузки).
+     * Замороженный мир останавливает и сам тест (его часы — время мира), поэтому размораживает сервер через
+     * секунду: за неё сервер делает ~20 тиков с замороженным миром.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "frozen", skyAccess = true)
+    public static void virtualFlightStopsWhileFrozen(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(point.add(0, 80, -1500), new Target.Point(point), point, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        java.util.UUID id = missile.getUUID();
+        java.util.function.Supplier<Vec3> where = () -> VirtualFlights.get(level).flights().stream()
+                .filter(p -> p.getUUID().equals(id)).map(StrikeProjectile::position).findFirst().orElse(null);
+        var server = level.getServer();
+        int[] tick = {0};
+        boolean[] held = {false}, thawed = {false};
+        h.onEachTick(() -> {
+            if (++tick[0] != 20) return;
+            Vec3 frozenAt = where.get();
+            level.tickRateManager().setFrozen(true);
+            java.util.concurrent.CompletableFuture.delayedExecutor(1, java.util.concurrent.TimeUnit.SECONDS).execute(() -> server.execute(() -> {
+                Vec3 now = where.get();
+                held[0] = frozenAt != null && now != null && now.distanceTo(frozenAt) < 1e-6;
+                level.tickRateManager().setFrozen(false);
+                thawed[0] = true;
+            }));
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(thawed[0], "ещё заморожено");
+            h.assertTrue(held[0], "ракета вне мира двигалась, пока мир заморожен");
+            h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "ракета ещё летит");
+            assertCrater(h, RUNWAY_TARGET, "после разморозки");
+        });
+    }
+
+    /**
      * Движущаяся цель вне загруженного мира: ракета берёт район цели, пока та в начале полосы, а цель уходит на 160
      * блоков — район должен уйти за ней, иначе ракета ждёт у цели загрузки и пропадает по сроку жизни.
      */
@@ -391,7 +430,8 @@ public final class StrikeGameTests {
             h.assertTrue(SalvoData.get(level).size() == 0, "залп ещё не закончился");
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty(), "ещё летят вне мира: " + VirtualFlights.get(level).flights().size());
             List<StrikeProjectile> flying = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(128));
-            h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.size());
+            h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.stream().map(p -> p.flightPhase() + " " + h.relativeVec(p.position())
+                    + " возраст " + p.age() + " до цели " + (int) p.position().distanceTo(p.aimPoint())).toList());
         });
     }
 

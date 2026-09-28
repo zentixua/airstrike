@@ -8,3 +8,4 @@ mod/run/
 mod/runs/
 tools/.sound-cache/
 tools/.trailer-cache/
+mod/logs/

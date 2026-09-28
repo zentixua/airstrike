@@ -20,6 +20,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
 import net.neoforged.neoforge.client.event.ComputeFovModifierEvent;
+import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
@@ -28,6 +29,7 @@ import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
+import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
@@ -35,6 +37,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -44,7 +47,7 @@ import java.util.Optional;
  */
 public final class Designator {
     /** Дальность прицела на клиенте; сервер всё равно ограничит своей (aim_range). */
-    private static final double RANGE = 400;
+    public static final double RANGE = 400;
 
     @Nullable
     private static TargetPicker.Pick pick;
@@ -67,8 +70,7 @@ public final class Designator {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null || !isScoping()) {
-            pick = null;
-            lastLocked = null;
+            reset();
             return;
         }
         pick = TargetPicker.pick(mc.level, p, p.getEyePosition(), p.getLookAngle(), RANGE);
@@ -78,6 +80,12 @@ public final class Designator {
             mc.getSoundManager().play(SimpleSoundInstance.forUI(ModSounds.DESIGNATOR_LOCK.get(), 1.0f, 0.6f));
         }
         lastLocked = locked;
+    }
+
+    /** Забыть цель: держит сущность текущего мира, после выхода из него её держать нельзя. */
+    public static void reset() {
+        pick = null;
+        lastLocked = null;
     }
 
     private static Loadout loadout() {
@@ -115,7 +123,7 @@ public final class Designator {
         ItemStack stack = p.getItemInHand(hand);
         Loadout l = DesignatorItem.loadout(stack);
         Loadout next = l.withWeapon(delta < 0 ? l.weapon().next() : l.weapon().previous());
-        stack.set(ua.zentix.airstrike.registry.ModDataComponents.LOADOUT.get(), next);
+        stack.set(ModDataComponents.LOADOUT.get(), next);
         PacketDistributor.sendToServer(new C2S.SetLoadout(hand, next));
         p.displayClientMessage(Component.translatable("airstrike.weapon.selected", next.weapon().displayName()).withStyle(ChatFormatting.GOLD), true);
     }
@@ -135,14 +143,14 @@ public final class Designator {
     }
 
     /** В бинокль руку с пультом не видно. */
-    public static void hideHand(net.neoforged.neoforge.client.event.RenderHandEvent e) {
+    public static void hideHand(RenderHandEvent e) {
         if (isScoping()) e.setCanceled(true);
     }
 
     // ---------------------------------------------------------------- рамка вокруг цели в мире
 
     public static void renderWorld(RenderLevelStageEvent e) {
-        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS || pick == null) return;
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS || pick == null || !isScoping()) return;
         AABB box = null;
         if (pick.entity() != null) {
             box = pick.entity().getBoundingBox().inflate(0.25);
@@ -188,7 +196,7 @@ public final class Designator {
 
         Loadout l = loadout();
         LocalPlayer p = mc.player;
-        String dist = pick == null || p == null ? "—" : String.format("%.0f", pick.point().distanceTo(p.getEyePosition()));
+        String dist = pick == null || p == null ? "—" : String.format(Locale.ROOT, "%.0f", pick.point().distanceTo(p.getEyePosition()));
         Component what = pick == null ? Component.translatable("airstrike.target_not_found") : pick.label();
         Component top = Component.translatable("airstrike.hud.target", what, dist).withStyle(ChatFormatting.WHITE);
         g.drawString(font, top, cx - font.width(top) / 2, cy + 40, 0xFFFFFFFF);

@@ -21,13 +21,14 @@ import java.util.List;
  */
 public final class VirtualFlights extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_virtual_flights";
+    private static final Factory<VirtualFlights> FACTORY = new Factory<>(VirtualFlights::new, VirtualFlights::load, null);
 
     private final List<StrikeProjectile> flights = new ArrayList<>();
     /** Прочитанные с диска и ещё не созданные (сущность создаётся в первом тике мира). */
     private final List<CompoundTag> pending = new ArrayList<>();
 
     public static VirtualFlights get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new Factory<>(VirtualFlights::new, VirtualFlights::load, null), NAME);
+        return level.getDataStorage().computeIfAbsent(FACTORY, NAME);
     }
 
     /**
@@ -91,6 +92,7 @@ public final class VirtualFlights extends SavedData {
                 p.materialize(level);
                 if (level.addFreshEntity(p)) continue;
                 Airstrike.LOG.warn("Снаряд {} не вернулся в мир у {}", p.getType().getDescriptionId(), p.blockPosition());
+                p.discard(); // снять тикеты района цели и своих чанков: в мире его нет, сам он их уже не отпустит
                 continue;
             }
             flights.add(p);

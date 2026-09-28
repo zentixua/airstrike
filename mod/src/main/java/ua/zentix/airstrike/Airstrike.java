@@ -13,6 +13,7 @@ import ua.zentix.airstrike.legacy.LegacyMigration;
 import ua.zentix.airstrike.net.AirstrikeNetwork;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
+import ua.zentix.airstrike.nuclear.world.BlockResponse;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModBlocks;
 import ua.zentix.airstrike.registry.ModCreativeTabs;
@@ -22,7 +23,6 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
-import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
@@ -50,11 +50,10 @@ public final class Airstrike {
         container.registerConfig(ModConfig.Type.CLIENT, AirstrikeConfig.CLIENT_SPEC);
 
         modBus.addListener(AirstrikeNetwork::register);
-        modBus.addListener(ChunkTickets::register);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
-        NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelUnload);
+        NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
@@ -67,6 +66,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);
         NeoForge.EVENT_BUS.addListener(RadiationTicker::onHeal);
+        NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
     }
 
     public static ResourceLocation id(String path) {

@@ -3,17 +3,15 @@ package ua.zentix.airstrike.entity;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.guidance.Orbit;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
 
@@ -158,11 +156,6 @@ public class LoiterEntity extends StrikeProjectile {
         };
     }
 
-    /** Время барража, которое ещё осталось (тиков), для HUD и камеры; −1 — не кружит. */
-    public int loiterLeft() {
-        return flightPhase() == FlightPhase.LOITER ? Math.max(0, loiterTicks - phaseAge()) : -1;
-    }
-
     @Override
     protected void onRetarget() {
         // рядом — атака сразу; далеко — лететь туда и кружить уже там
@@ -177,11 +170,9 @@ public class LoiterEntity extends StrikeProjectile {
         Vec3 aim = updateTarget(level);
         if (launchTick(level)) return;
 
-        // район круга держим и в мире: стреляющий может быть далеко, а круг выходит за чанки вокруг самого снаряда
-        if (!isVirtual()) holdTargetArea(level);
         Bearing b = bearingTo(aim);
         FlightPhase ph = flightPhase();
-        double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 10, 20, 35);
+        double terrain = terrainAhead(level, 10, 20, 35);
         double floor = terrain + 15;
 
         if (ph == FlightPhase.CLIMB) {
@@ -193,13 +184,18 @@ public class LoiterEntity extends StrikeProjectile {
         } else if (ph == FlightPhase.CRUISE) {
             speed += (CRUISE_SPEED - speed) * 0.05;
             holdAltitude(Math.max(cruiseAlt, floor), 0.12, 1.2, 0.15);
-            flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
-            if (strikeNow && b.pitch() >= 30) setPhase(FlightPhase.TERMINAL);
-            else if (b.horizontal() <= orbitRadius + 15) setPhase(strikeNow ? FlightPhase.TERMINAL : FlightPhase.LOITER);
+            if (strikeNow) {
+                flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
+                if (b.pitch() >= 30 || b.horizontal() <= orbitRadius + 15) setPhase(FlightPhase.TERMINAL);
+            } else {
+                // к кругу — по тому же полю курсов, что и на круге: выход на него по касательной, без перелёта
+                orbit().steer(flight, position(), aim, speed);
+                if (orbit().captured(position(), aim, flight.yaw())) setPhase(FlightPhase.LOITER);
+            }
         } else if (ph == FlightPhase.LOITER) {
             speed += (CRUISE_SPEED - speed) * 0.05;
             holdAltitude(Math.max(aim.y + LOITER_HEIGHT, floor), 0.12, 1.2, 0.15);
-            flight.steerYaw(orbitYaw(aim), 0.2, 3.0, 0.3);
+            orbit().steer(flight, position(), aim, speed);
             // заход в пике — когда цель под крылом (под углом 40° и круче) и время вышло
             boolean due = strikeNow || phaseAge() >= loiterTicks;
             if (due && b.pitch() >= 40) setPhase(FlightPhase.TERMINAL);
@@ -214,22 +210,13 @@ public class LoiterEntity extends StrikeProjectile {
         advance(level, aim, 3.0);
     }
 
-    /**
-     * Курс по кругу вокруг цели: касательная, повёрнутая к центру, если снаружи круга, и от центра, если внутри
-     * (отклонение 2.5° на блок, не больше 80°).
-     */
-    private float orbitYaw(Vec3 center) {
-        float toCenter = FlightController.anglesTo(position(), center)[0];
-        double dx = center.x - getX(), dz = center.z - getZ();
-        double r = Math.sqrt(dx * dx + dz * dz);
-        double offset = 90 - Math.max(-60, Math.min(80, (r - orbitRadius) * 2.5));
-        return (float) (toCenter - orbitSide * offset);
+    private Orbit orbit() {
+        return new Orbit(orbitRadius, orbitSide);
     }
 
-    @Override
-    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        discard();
-        Warheads.detonate(level, WeaponType.LOITER, point, this, ownerId());
+    /** Радиус круга этого боеприпаса (у каждого в залпе свой), блоков. */
+    public double orbitRadius() {
+        return orbitRadius;
     }
 
     @Override

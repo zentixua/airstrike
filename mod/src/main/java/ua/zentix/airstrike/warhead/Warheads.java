@@ -1,10 +1,12 @@
 package ua.zentix.airstrike.warhead;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -12,11 +14,16 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.damagesource.DamageType;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.Level;
@@ -27,13 +34,14 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
@@ -42,8 +50,11 @@ import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
@@ -53,8 +64,8 @@ import java.util.function.Predicate;
  * клиент строит сам по пакету {@link S2C.Blast}: частицы, вспышку, звук с задержкой по расстоянию, тряску.
  */
 public final class Warheads {
-    /** Фронт звука и ударной волны: 17 блоков за тик (≈ 343 м/с). */
-    public static final double FRONT_SPEED = 17.0;
+    /** Фронт звука и ударной волны: 343 м/с = 17.15 блока за тик. */
+    public static final double FRONT_SPEED = BlastModel.SOUND_SPEED / 20;
     /** Кому отправлять события взрыва: звук и дым видны и слышны далеко. */
     public static final double FX_RANGE = 640;
 
@@ -114,7 +125,7 @@ public final class Warheads {
     }
 
     static void hurtAround(ServerLevel level, Vec3 c, double radius, @Nullable Entity direct, @Nullable Entity owner,
-                           net.minecraft.resources.ResourceKey<net.minecraft.world.damagesource.DamageType> type, DamageByDistance damage) {
+                           ResourceKey<DamageType> type, DamageByDistance damage) {
         for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(c, c).inflate(radius))) {
             double d = e.position().distanceTo(c);
             if (d > radius || !e.isAlive()) continue;
@@ -143,8 +154,8 @@ public final class Warheads {
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int sx = SectionPos.blockToSectionCoord(min.getX()); sx <= SectionPos.blockToSectionCoord(max.getX()); sx++) {
             for (int sz = SectionPos.blockToSectionCoord(min.getZ()); sz <= SectionPos.blockToSectionCoord(max.getZ()); sz++) {
-                if (!level.hasChunk(sx, sz)) continue;
-                LevelChunk chunk = level.getChunk(sx, sz);
+                LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
+                if (chunk == null) continue;
                 for (int sy = SectionPos.blockToSectionCoord(min.getY()); sy <= SectionPos.blockToSectionCoord(max.getY()); sy++) {
                     int idx = chunk.getSectionIndexFromSectionY(sy);
                     if (idx < 0 || idx >= chunk.getSectionsCount()) continue;
@@ -174,10 +185,10 @@ public final class Warheads {
      * Ударная волна дошла: отбрасывает от эпицентра (вместо зарядов ветра датапака), контузия у тех, кто рядом.
      * Сидящих в транспорте и на сиденьях не трогаем.
      *
-     * @param band номер пояса фронта: 1 — 0..17 блоков, 2 — 17..34 …
+     * @param band номер пояса фронта: 1 — первый тик пути фронта ({@link #FRONT_SPEED} блоков), 2 — второй …
      */
     static void push(ServerLevel level, Vec3 c, int band, double[] strength, Predicate<LivingEntity> filter,
-                     java.util.function.BiConsumer<Player, Integer> effects) {
+                     BiConsumer<Player, Integer> effects) {
         if (band < 1 || band > strength.length) return;
         double r0 = (band - 1) * FRONT_SPEED, r1 = band * FRONT_SPEED;
         double k = strength[band - 1];
@@ -187,14 +198,14 @@ public final class Warheads {
             if (e instanceof Player p && p.getAbilities().flying) continue;
             Vec3 dir = new Vec3(e.getX() - c.x, 0, e.getZ() - c.z);
             dir = dir.lengthSqr() < 1.0e-4 ? new Vec3(0, 0, 0) : dir.normalize();
-            double resist = 1.0 - e.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.EXPLOSION_KNOCKBACK_RESISTANCE);
+            double resist = 1.0 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE);
             e.push(dir.x * k * resist, 0.3 * k * resist, dir.z * k * resist);
             e.hurtMarked = true;
             if (e instanceof Player p) effects.accept(p, band);
         }
     }
 
-    static void effect(Player p, net.minecraft.core.Holder<net.minecraft.world.effect.MobEffect> effect, int seconds) {
+    static void effect(Player p, Holder<MobEffect> effect, int seconds) {
         p.addEffect(new MobEffectInstance(effect, seconds * 20, 0, true, false, true));
     }
 
@@ -217,7 +228,7 @@ public final class Warheads {
      * Неровный «ком» (blob_rand датапака): три пересекающихся бруска — полуоси a по одной оси и b = 0.6·a по двум другим;
      * центр со случайным сдвигом ±(rx, ry, rz) и смещением oy по высоте.
      */
-    static void blob(BlockPos c, int rx, int ry, int rz, int oy, int rmin, int rmax, net.minecraft.util.RandomSource r, java.util.function.Consumer<BlockPos> out) {
+    static void blob(BlockPos c, int rx, int ry, int rz, int oy, int rmin, int rmax, RandomSource r, Consumer<BlockPos> out) {
         int bx = c.getX() + r.nextIntBetweenInclusive(-rx, rx);
         int by = c.getY() + r.nextIntBetweenInclusive(-ry, ry) + oy;
         int bz = c.getZ() + r.nextIntBetweenInclusive(-rz, rz);
@@ -229,7 +240,7 @@ public final class Warheads {
         box(bx - b, by - a, bz - b, bx + b, by + a, bz + b, seen, out);
     }
 
-    private static void box(int x0, int y0, int z0, int x1, int y1, int z1, Set<BlockPos> seen, java.util.function.Consumer<BlockPos> out) {
+    private static void box(int x0, int y0, int z0, int x1, int y1, int z1, Set<BlockPos> seen, Consumer<BlockPos> out) {
         for (int x = x0; x <= x1; x++) for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) {
             BlockPos p = new BlockPos(x, y, z);
             if (seen.add(p)) out.accept(p);
@@ -387,9 +398,9 @@ public final class Warheads {
             }
             ExplosionDamageCalculator weak = new ExplosionDamageCalculator() {
                 @Override
-                public java.util.Optional<Float> getBlockExplosionResistance(Explosion explosion, net.minecraft.world.level.BlockGetter reader, BlockPos p,
-                                                                             BlockState state, net.minecraft.world.level.material.FluidState fluid) {
-                    return weakened.contains(p) ? java.util.Optional.of(0f) : super.getBlockExplosionResistance(explosion, reader, p, state, fluid);
+                public Optional<Float> getBlockExplosionResistance(Explosion explosion, BlockGetter reader, BlockPos p,
+                                                                             BlockState state, FluidState fluid) {
+                    return weakened.contains(p) ? Optional.of(0f) : super.getBlockExplosionResistance(explosion, reader, p, state, fluid);
                 }
             };
             for (int i = 0; i < 2; i++) {
@@ -481,10 +492,5 @@ public final class Warheads {
                 if (p.distanceToSqr(sv) <= 50 * 50) PacketDistributor.sendToPlayer(p, new S2C.Quake(30, false));
             }
         }
-    }
-
-    /** Кто считается «нашим» для урона обломками и т.п. */
-    public static boolean isStrikeEntity(Entity e) {
-        return e instanceof StrikeProjectile;
     }
 }

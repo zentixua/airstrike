@@ -20,7 +20,7 @@ import java.util.List;
 
 /**
  * Пульт наведения. ПКМ (держать) — бинокль; колесо — оружие; ЛКМ — пуск по точке под прицелом;
- * Shift+ПКМ — экран пульта (открывает клиент, см. client.ClientEvents). Пуск всегда проверяет сервер.
+ * Shift+ПКМ — экран пульта (открывает клиент через ClientHooks.openRemote). Пуск всегда проверяет сервер.
  */
 public class DesignatorItem extends Item {
     public DesignatorItem(Properties properties) {

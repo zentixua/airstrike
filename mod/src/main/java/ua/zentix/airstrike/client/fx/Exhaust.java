@@ -107,6 +107,11 @@ public final class Exhaust {
      * серо-белый след, который висит дугой над позицией; очередь из 40 труб оставляет веер таких дуг и облако
      * у пусковой. После выгорания снаряд летит по инерции без следа.
      */
+    /** Шаг клубов следа РСЗО на медленном участке (блоки) и их ширина при рождении в долях шага. */
+    static final double ROCKET_PUFF_STEP = 0.35, ROCKET_PUFF_OVERLAP = 1.3;
+    /** Клубов следа РСЗО за тик: весь пакет, пока горят двигатели, укладывается в группу шлейфов (ExhaustTest). */
+    static final int ROCKET_PUFFS_PER_TICK = 3;
+
     private static void rocket(ClientLevel level, RocketEntity e, State s) {
         FlightPhase ph = e.flightPhase();
         if (!e.isActive() || !ph.boosterLit()) return;
@@ -141,12 +146,16 @@ public final class Exhaust {
                     .drag(0.88f).glow(0.7f, 4).rise(0.002f).fadeIn(1).fadeFrom(0.5f).spin(0.01f).spawn(level, s.muzzle);
         }
         if (age < 6) backblast(level, s.pad, back, 2, r);
-        // плотный след: у сопла подсвечен, дальше серо-белый, висит полминуты
-        Fx.Spec puff = Fx.smoke().size(0.45f, 2.6f).life(420 + r.nextInt(200)).color(0xEDEAE4, 0xB2AEA8).colorCurve(0.6f)
-                .alpha(0.78f).drag(0.9f).glow(0.85f, 4).rise(0.0012f).fadeIn(2).fadeFrom(0.55f).spin(0.012f);
         // языки огня летят вместе со снарядом и чуть отстают — иначе за ним остаются огненные бусины
         Vec3 motion = s.lastNozzle == null ? Vec3.ZERO : nozzle.subtract(s.lastNozzle);
-        trail(level, s, nozzle, puff, 0.35, r);
+        // плотный след: у сопла подсвечен, дальше серо-белый, висит полминуты. Клубов за тик не больше
+        // ROCKET_PUFFS_PER_TICK, иначе полный пакет не влезает в группу шлейфов и у последних ракет след не рождается;
+        // на быстром участке клубы реже, но шире — след остаётся сплошным
+        double step = Math.max(ROCKET_PUFF_STEP, motion.length() / ROCKET_PUFFS_PER_TICK);
+        float width = (float) (step * ROCKET_PUFF_OVERLAP);
+        Fx.Spec puff = Fx.smoke().size(width, Math.max(2.6f, width * 2)).life(420 + r.nextInt(200)).color(0xEDEAE4, 0xB2AEA8)
+                .colorCurve(0.6f).alpha(0.78f).drag(0.9f).glow(0.85f, 4).rise(0.0012f).fadeIn(2).fadeFrom(0.55f).spin(0.012f);
+        trail(level, s, nozzle, puff, step, r);
         for (int i = 0; i < 2; i++) {
             Fx.fire().vel(motion.scale(0.85).add(back.scale(0.2 + r.nextDouble() * 0.3)).add(r.nextGaussian() * 0.04, r.nextGaussian() * 0.04, r.nextGaussian() * 0.04))
                     .size(0.25f, 0.7f).life(2 + r.nextInt(2)).alpha(0.85f).drag(0.95f).spawn(level, nozzle);
