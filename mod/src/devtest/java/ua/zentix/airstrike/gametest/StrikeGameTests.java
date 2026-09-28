@@ -199,6 +199,49 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Крылатая ракета на атаке, у которой цель оказалась сбоку внутри круга разворота (на 12 блоках/тик и 3°/тик —
+     * радиус ~240 блоков): уходит прямо, пока цель не выйдет из круга, и заходит снова. Раньше она кружила вокруг
+     * цели, пока не выходил срок жизни (стенд нагрузки на ноутбуке: ракета убрана в 270 блоках от цели, на атаке).
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "missile_reattack", skyAccess = true)
+    public static void missileReattacksTargetInsideTurn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 target = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 60, 0);
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.launch(target.add(0, 0, -150), new Target.Point(target), target, null);
+        m.setRoute(Route.direct());
+        // курс на восток, цель в 150 блоках к югу, фаза — уже атака, срока жизни — на заход с запасом
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        m.saveWithoutId(tag);
+        tag.getCompound("flight").putFloat("yaw", -90);
+        tag.getCompound("flight").putFloat("pitch", 0);
+        tag.putString("flight_phase", FlightPhase.TERMINAL.getSerializedName());
+        tag.putInt("lifetime", m.age() + 300);
+        m.load(tag);
+        VirtualFlights.launch(level, m);
+        java.util.UUID id = m.getUUID();
+        Vec3[] lastPos = {m.position()};
+        int[] lastAge = {0};
+        boolean[] reattacked = {false};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            StrikeProjectile p = level.getEntity(id) instanceof StrikeProjectile e ? e : VirtualFlights.get(level).flights().stream()
+                    .filter(f -> f.getUUID().equals(id)).findFirst().orElse(null);
+            if (p == null) return;
+            lastPos[0] = p.position();
+            lastAge[0] = p.age();
+            if (p.flightPhase() == FlightPhase.CRUISE) reattacked[0] = true;
+            last[0] = p.flightPhase() + " " + h.relativeVec(p.position()) + " возраст " + p.age();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(level.getEntity(id) == null && VirtualFlights.get(level).flights().stream().noneMatch(f -> f.getUUID().equals(id)),
+                    "ракета ещё летит: " + last[0]);
+            h.assertTrue(reattacked[0], "атака не отменялась: " + last[0]);
+            h.assertTrue(lastPos[0].distanceTo(target) < 20, "ракета убрана не у цели (кружила до конца срока жизни?): " + last[0]);
+        });
+    }
+
     /** Барражирующий по UUID: в мире или вне его (уходя из загруженных чанков, он становится новой сущностью). */
     private static LoiterEntity findLoiter(ServerLevel level, java.util.UUID id) {
         if (level.getEntity(id) instanceof LoiterEntity e) return e;
