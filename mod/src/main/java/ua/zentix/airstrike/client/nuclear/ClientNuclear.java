@@ -99,6 +99,7 @@ public final class ClientNuclear {
         NukeFlash.reset();
         NukeSounds.reset();
         Deafness.reset();
+        NukeDust.reset();
     }
 
     // ---------------------------------------------------------------- тик
@@ -117,6 +118,7 @@ public final class ClientNuclear {
         NukeSounds.tick(level, now);
         NukeFlash.tick();
         Deafness.tick();
+        NukeDust.tick();
         Geiger.tick();
     }
 

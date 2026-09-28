@@ -70,7 +70,21 @@ public final class ColumnScar {
             level.setBlock(m, Blocks.AIR.defaultBlockState(), FLAGS);
             if (r.kind() == BlockResponse.Kind.LEAVES && psi < 3 && lit(level, d, m) >= 10) ignite(level, m, budget, random, 1.0);
         }
-        if (ground != Integer.MIN_VALUE) scorch(level, d, m.set(x, ground, z), budget, random);
+        if (ground != Integer.MIN_VALUE) {
+            // скоростной напор сдирает дёрн и траву: от 8 psi — голая земля, даже в тени
+            if (blockDamage && d.psi(Vec3.atCenterOf(m.set(x, ground, z))) >= STRIP_PSI) strip(level, m, random);
+            scorch(level, d, m.set(x, ground, z), budget, random);
+        }
+    }
+
+    /** С какого давления волна сдирает дёрн. */
+    private static final double STRIP_PSI = 8;
+
+    private static void strip(ServerLevel level, BlockPos pos, RandomSource random) {
+        BlockState s = level.getBlockState(pos);
+        if (s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.PODZOL) || s.is(Blocks.MYCELIUM) || s.is(Blocks.MOSS_BLOCK)) {
+            level.setBlock(pos, (random.nextInt(3) == 0 ? Blocks.DIRT : Blocks.COARSE_DIRT).defaultBlockState(), FLAGS);
+        }
     }
 
     /** Световой импульс на верхнем блоке грунта: пожары, выгоревшая трава, растаявший снег, тринитит у шара. */

@@ -184,7 +184,9 @@
     ]
   },
   "silent": {
-    "sounds": []
+    "sounds": [
+      "airstrike:silent"
+    ]
   },
   "nuke.alarm": {
     "subtitle": "subtitles.airstrike.nuke.alarm",

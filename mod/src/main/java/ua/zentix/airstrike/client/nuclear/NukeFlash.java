@@ -89,6 +89,7 @@ public final class NukeFlash {
     public static void render(GuiGraphics g, DeltaTracker delta) {
         float partial = delta.getGameTimeDeltaPartialTick(false);
         int w = g.guiWidth(), h = g.guiHeight();
+        NukeDust.render(g);
         if (afterLeft > 0 && current != null) afterimage(g, current.d, partial, w, h);
         float white = whiteness(partial);
         if (white > 0.004f) {

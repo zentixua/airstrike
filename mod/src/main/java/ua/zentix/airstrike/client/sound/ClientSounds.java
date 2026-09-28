@@ -130,8 +130,23 @@ public final class ClientSounds {
         play(event.getLocation(), pos, volume, pitch, SoundInstance.Attenuation.LINEAR);
     }
 
+    /**
+     * Ядерный удар по ушам: как {@link #atEar}, но по ползунку «Общая громкость» — его не должно быть тише
+     * от того, что «Окружение» у игрока убавлено.
+     */
+    public static void atEarLoud(SoundEvent event, Vec3 source, float volume, float pitch) {
+        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        Vec3 dir = source.subtract(ear);
+        Vec3 at = dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
+        play(event.getLocation(), at, volume, pitch, SoundInstance.Attenuation.NONE, SoundSource.MASTER);
+    }
+
     private static void play(ResourceLocation id, Vec3 at, float volume, float pitch, SoundInstance.Attenuation attenuation) {
-        Minecraft.getInstance().getSoundManager().play(new SimpleSoundInstance(id, SoundSource.AMBIENT, volume, pitch, RANDOM,
+        play(id, at, volume, pitch, attenuation, SoundSource.AMBIENT);
+    }
+
+    private static void play(ResourceLocation id, Vec3 at, float volume, float pitch, SoundInstance.Attenuation attenuation, SoundSource source) {
+        Minecraft.getInstance().getSoundManager().play(new SimpleSoundInstance(id, source, volume, pitch, RANDOM,
                 false, 0, attenuation, at.x, at.y, at.z, false));
     }
 }

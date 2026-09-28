@@ -39,11 +39,13 @@ public final class CloudPuffs {
         this.d = d;
         this.humid = CloudModel.wilsonCloud(humidity(d));
         int n = AirstrikeConfig.CLIENT.nukeCloudQuality.get().puffs;
+        // кольцо пыли на фронте — отдельно и плотно: оно огромное, редкие клубы в нём видны дырами
+        int ring = n * 4 / 5;
         RandomSource r = RandomSource.create(d.seed());
-        puffs = new Puff[n];
-        for (int i = 0; i < n; i++) {
+        puffs = new Puff[n + ring];
+        for (int i = 0; i < n + ring; i++) {
             float f = (float) i / n;
-            Kind k = f < 0.46f ? Kind.CAP : f < 0.56f ? Kind.DOME : f < 0.74f ? Kind.STEM : f < 0.84f ? Kind.SKIRT : f < 0.94f ? Kind.RING : Kind.WILSON;
+            Kind k = i >= n ? Kind.RING : f < 0.5f ? Kind.CAP : f < 0.61f ? Kind.DOME : f < 0.8f ? Kind.STEM : f < 0.93f ? Kind.SKIRT : Kind.WILSON;
             puffs[i] = new Puff(k, r.nextFloat(), r.nextFloat(), r.nextFloat(), 0.7f + 0.6f * r.nextFloat(), r.nextInt(8),
                     r.nextFloat() * Mth.TWO_PI, (r.nextFloat() - 0.5f) * 0.02f, 0.85f + 0.3f * r.nextFloat());
         }
@@ -103,7 +105,8 @@ public final class CloudPuffs {
         // волна у земли: наклонная дальность фронта → радиус по земле
         double front = d.metres(d.frontRadius(t * 20 * d.scale()));
         double groundFront = Math.sqrt(Math.max(0, front * front - hob * hob));
-        double ringStop = BlastModel.rangeForOverpressure(BlastModel.kpa(1), y);
+        // кольцо идёт с фронтом, пока давление не упадёт до 0.3 psi, дальше расплывается и оседает
+        double ringStop = BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), y);
         double windX = Math.cos(d.windDir()) * d.windSpeed(), windZ = Math.sin(d.windDir()) * d.windSpeed();
         double ys = Math.cbrt(y / 15);
 
@@ -169,17 +172,24 @@ public final class CloudPuffs {
                     rgb = DUST;
                 }
                 case RING -> {
-                    double rr = Math.min(groundFront, ringStop);
-                    if (rr <= 0) continue;
-                    // стена сплошная: клубы по окружности перекрываются
-                    double spacing = 2 * Math.PI * rr / Math.max(1, ringCount);
-                    double reached = groundFront >= ringStop ? t - timeTo(ringStop, hob) : 0;
-                    double k = Mth.clamp(BlastModel.psi(BlastModel.overpressureKpa(Math.hypot(rr, hob), y)) / 6, 0.2, 1);
-                    px = Math.cos(ang) * rr * (0.97 + 0.06 * p.c);
-                    pz = Math.sin(ang) * rr * (0.97 + 0.06 * p.c);
-                    py = (20 + 80 * k * p.b) * ys;
-                    size = Math.max((30 + 70 * k) * ys, spacing * 2.2) * p.size;
-                    a = 0.65 * k * Mth.clamp(1 - reached / 25, 0, 1);
+                    // стена пыли и дыма на фронте ударной волны: катится от эпицентра, высокая у центра,
+                    // ниже к краю; за фронтом тянется шлейф поднятой пыли
+                    double settle = groundFront >= ringStop ? t - timeTo(ringStop, hob) : 0;
+                    double head = Math.min(groundFront, ringStop) + 12 * settle;
+                    if (head <= 0) continue;
+                    double thick = Math.min(head * 0.5, 180 * ys);
+                    double rr = head - thick * (1 - p.c) * (1 - p.c);
+                    double k = Mth.clamp(BlastModel.psi(BlastModel.overpressureKpa(Math.hypot(head, hob), y)) / 5, 0.1, 1);
+                    double wall = (60 + 260 * k) * ys;
+                    // клубы по окружности перекрываются: стена сплошная
+                    double spacing = 2 * Math.PI * head / Math.max(1, ringCount) * 3;
+                    px = Math.cos(ang) * rr;
+                    pz = Math.sin(ang) * rr;
+                    py = wall * p.b * p.b;
+                    size = Math.max(wall * 0.8, spacing) * p.size;
+                    a = 0.85 * Math.max(k, 0.4) * smooth(0, 1.5, t) * Mth.clamp(1 - settle / 150, 0, 1);
+                    shade *= 0.75 + 0.35 * p.b;
+                    lit = glow * 0.4 * (1 - p.b);
                     rgb = DUST;
                 }
                 default -> { // WILSON

@@ -178,7 +178,6 @@ public final class NuclearWorld {
         double reach = Math.max(r, back);
         for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(d.burst(), reach * 2, reach * 2, reach * 2))) {
             if (!living.isAlive() || living.isSpectator() || living.isPassenger()) continue;
-            if (living instanceof Player p && p.getAbilities().invulnerable) continue;
             double dist = living.position().distanceTo(d.burst());
             if (dist >= done[0] && dist < r) hit(level, d, living, dist);
             else if (dist >= done[1] && dist < back) suck(d, living);
@@ -188,21 +187,30 @@ public final class NuclearWorld {
         done[1] = Math.max(done[1], back);
     }
 
+    /**
+     * Удар волны. Смертельно с 12 psi (у людей в жизни — обрушение зданий и удар о препятствия; 20 psi — никто не
+     * выживает), 5 psi — почти смертельно, 1–3 psi — ранения стеклом и броском. В укрытии урон ×0.3, бросок ×0.2.
+     * Творческий режим урона не получает, но волна швыряет и его.
+     */
     private static void hit(ServerLevel level, Detonation d, LivingEntity e, double dist) {
         double kpa = d.overpressureKpa(e.position());
         double psi = BlastModel.psi(kpa);
         if (psi < 0.3) return;
-        boolean cover = !level.canSeeSky(e.blockPosition().above()) && !ua.zentix.airstrike.nuclear.NuclearWarhead.sees(level, d, e);
-        float dmg = psi >= 20 ? Float.MAX_VALUE : (float) (3.2 * psi);
+        boolean cover = !Detonation.underOpenSky(level, e.getEyePosition()) && !ua.zentix.airstrike.nuclear.NuclearWarhead.sees(level, d, e);
+        boolean immune = e instanceof Player p && p.getAbilities().invulnerable;
+        float dmg = psi >= LETHAL_PSI ? Float.MAX_VALUE : (float) (1.6 * Math.pow(psi, 1.35));
         if (cover) dmg *= 0.3f;
-        if (psi >= 0.5) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), dmg);
+        if (psi >= 0.7 && !immune) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), dmg);
         double q = BlastModel.dynamicPressureKpa(kpa);
-        double v = Math.min(4.0, 0.6 * Math.sqrt(q)) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
+        double v = Math.min(6.0, 0.8 * Math.sqrt(q)) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
         Vec3 away = new Vec3(e.getX() - d.burst().x, 0, e.getZ() - d.burst().z);
         away = away.lengthSqr() < 1e-4 ? Vec3.ZERO : away.normalize();
         e.push(away.x * v, 0.3 * v, away.z * v);
         e.hurtMarked = true;
     }
+
+    /** С какого давления волна убивает сразу (вне укрытия). */
+    private static final double LETHAL_PSI = 12;
 
     /** Обратный ветер: воздух возвращается к эпицентру и тянет за собой. */
     private static void suck(Detonation d, LivingEntity e) {

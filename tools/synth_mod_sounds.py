@@ -504,6 +504,8 @@ if __name__ == "__main__":
     write("nuke_rumble", nuke_rumble())
     write("nuke_glass", nuke_glass())
     write("nuke_tinnitus", nuke_tinnitus())
+    # тишина для ванильного explode: взрыв звучит своими звуками с задержкой, а пустое событие ваниль ругает в лог
+    write("silent", np.zeros(int(0.05 * SR)))
     write("nuke_rain", norm(loop(black_rain(), 6.0), -15))
     write("geiger_click", geiger_click())
     print("ok:", len([f for f in os.listdir(OUT) if f.endswith(".ogg")]), "файлов в", OUT)
