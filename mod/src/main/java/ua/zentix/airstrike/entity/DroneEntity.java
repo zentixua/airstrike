@@ -2,14 +2,12 @@ package ua.zentix.airstrike.entity;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
 
@@ -102,7 +100,7 @@ public class DroneEntity extends StrikeProjectile {
         if (ph == FlightPhase.CLIMB) {
             // винт на полных оборотах, скорость после ускорителя спадает к крейсерской
             speed += (CRUISE_SPEED - speed) * 0.04;
-            double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 15, 30, 45);
+            double terrain = terrainAhead(level, 15, 30, 45);
             holdAltitude(Math.max(cruiseAlt, terrain + 18), 0.10, 1.0, 0.12);
             if (phaseAge() > 60 && Math.abs(cruiseAlt - getY()) < 6) setPhase(FlightPhase.CRUISE);
         }
@@ -113,7 +111,7 @@ public class DroneEntity extends StrikeProjectile {
 
         if (flightPhase() == FlightPhase.CRUISE) {
             speed += (CRUISE_SPEED - speed) * 0.05;
-            double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 15, 30, 45);
+            double terrain = terrainAhead(level, 15, 30, 45);
             double desired = Math.max(Math.max(terrain + 18, cruiseAlt), aim.y + 30);
             holdAltitude(desired, 0.12, 1.2, 0.15);
         } else if (flightPhase() == FlightPhase.TERMINAL) {
@@ -129,11 +127,6 @@ public class DroneEntity extends StrikeProjectile {
         advance(level, aim, 4.3);
     }
 
-    @Override
-    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        discard();
-        Warheads.detonate(level, WeaponType.DRONE, point, this, ownerId());
-    }
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {

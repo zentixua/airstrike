@@ -3,7 +3,6 @@ package ua.zentix.airstrike.entity;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -13,7 +12,6 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.UUID;
 
@@ -181,7 +179,7 @@ public class LoiterEntity extends StrikeProjectile {
         if (!isVirtual()) holdTargetArea(level);
         Bearing b = bearingTo(aim);
         FlightPhase ph = flightPhase();
-        double terrain = isVirtual() ? level.getMinBuildHeight() : terrainAhead(level, 10, 20, 35);
+        double terrain = terrainAhead(level, 10, 20, 35);
         double floor = terrain + 15;
 
         if (ph == FlightPhase.CLIMB) {
@@ -226,11 +224,6 @@ public class LoiterEntity extends StrikeProjectile {
         return (float) (toCenter - orbitSide * offset);
     }
 
-    @Override
-    protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
-        discard();
-        Warheads.detonate(level, WeaponType.LOITER, point, this, ownerId());
-    }
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
