@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -95,7 +96,7 @@ public final class ClientSounds {
         StringBuilder sb = new StringBuilder();
         for (Tracked t : TRACKS.values()) {
             for (EngineSound s : t.sounds) {
-                if (!s.isStopped() && s.getVolume() > 0.01f) sb.append(String.format(" %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
+                if (!s.isStopped() && s.getVolume() > 0.01f) sb.append(String.format(Locale.ROOT, " %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
             }
         }
         return sb.toString();
