@@ -146,14 +146,17 @@ def load_recording(rec=REC):
             elif kind == "stop":
                 s.stops[e["id"]] = e["t"]
             elif kind == "mark":
-                s.marks.append((e["t"], e["what"]))
+                # «gone» в самом начале — в записях до исправления снаряды, пропавшие между планами
+                if not (e["what"].startswith("gone:") and e["t"] <= 0):
+                    s.marks.append((e["t"], e["what"]))
     for s in shots.values():
         s.keys = sorted(s.frames)
     return {n: s for n, s in shots.items() if s.frames}
 
 
 def anchor(shot, spec):
-    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение) с ±сдвигом."""
+    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение, #-1 —
+    последнее) с ±сдвигом."""
     if isinstance(spec, (int, float)):
         return float(spec)
     off = 0.0
@@ -178,8 +181,8 @@ def anchor(shot, spec):
         hits = [t for t, m in shot.marks if what in m]
     elif kind == "sound":
         hits = [e["t"] for e in shot.sounds if what in e["event"]]
-    if len(hits) >= nth:
-        return shot.sec(hits[nth - 1]) + off
+    if len(hits) >= abs(nth):
+        return shot.sec(hits[nth - 1 if nth > 0 else nth]) + off
     print(f"  ! {shot.name}: нет «{spec}», беру начало плана")
     return off
 
@@ -196,6 +199,7 @@ class Clip:
     flash: bool = False  # белая вспышка на склейке
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
     sfx: float = 1.0    # громкость звука игры
+    frame_y: float = 0.5  # какая полоса плана видна в окне 2:1: 0 — верхняя (список ударов справа вверху), 0.5 — середина
     start: float = 0.0  # заполняется: начало в трейлере
     src: float = 0.0    # заполняется: начало в плане, с
 
@@ -271,11 +275,12 @@ def build_edit(lang="en"):
         Clip("boost", 0.0, 4.5),
         Clip("cruise", 1.0, 3.0),
         # глазами наводчика: шахеды проходят над головой к целям, метки целей с номерами и пунктиры
-        Clip("targets", 0.0, 3.0),
-        Clip("impact_drone", "mark:gone-2.5", 6.0),
+        Clip("targets", 0.0, 3.0, frame_y=0.0),
+        Clip("impact_drone", "mark:gone#-1-5.0", 6.0),
         Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
         # камера V: карта оператора, пока ракета дальше прорисовки, сама переходит на видео с борта — горка, пике
-        Clip("missile_camera", "mark:video-2.0", 6.0),
+        Clip("missile_camera", "mark:video-2.0", 2.0, frame_y=0.0),  # карта: окно 2:1 по верху, строки целиком
+        Clip("missile_camera", "mark:video", 4.0),  # видео и план попадания: свои полосы кадра — по центру
         Clip("impact_missile", "mark:gone-1.5", 4.5),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
@@ -283,12 +288,12 @@ def build_edit(lang="en"):
         Clip("rocket_launch", 0.5, 4.5, flash=True),
         Clip("rocket_impact", "sound:blast-1.0", 4.5),
         # B-2: снизу — створки, бомба уходит; с земли — падение, бурение, подземный взрыв
-        Clip("bomb_bay", "end-3.0", 3.0, flash=True),
+        Clip("bomb_bay", "mark:release-2.0", 3.0, flash=True),
         Clip("bomber", "mark:gone-4.0", 6.0),
         Clip("salvo", "mark:gone-2.5", 6.0, flash=True),
         Clip("salvo_missiles", "mark:gone-1.5", 6.0),
         # нарезка разрывов по полутактам
-        Clip("impact_drone", "mark:gone+0.8", 1.5, rate=0.8),
+        Clip("impact_drone", "mark:gone#-2+0.3", 1.5, rate=0.8),
         Clip("rocket_impact", "sound:blast#6-0.2", 1.5),
         Clip("salvo", "mark:gone#4-0.3", 1.5),
         Black(4.5),
@@ -467,6 +472,13 @@ def _source(c, t):
     if abs(z - 1) > 1e-3:
         cw, ch = w / z, h / z
         img = img.resize((w, h), Image.BICUBIC, box=((w - cw) / 2, (h - ch) / 2, (w + cw) / 2, (h + ch) / 2))
+    bar = _W["look"].bar
+    if bar > 0 and c.frame_y != 0.5:
+        # окно 2:1 сдвигается по плану, чтобы кинокаше не срезало интерфейс у края
+        top = int(round(2 * bar * c.frame_y))
+        window = img.crop((0, top, w, top + h - 2 * bar))
+        img = Image.new("RGB", (w, h))
+        img.paste(window, (0, bar))
     return _W["look"].apply(img)
 
 

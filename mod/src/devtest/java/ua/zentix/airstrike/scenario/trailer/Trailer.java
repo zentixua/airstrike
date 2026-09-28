@@ -99,6 +99,7 @@ public final class Trailer {
     /** Камера снаряда показывала видео с борта на прошлом тике (переход с карты — отметка «video» для монтажа). */
     private boolean wasViewing;
     private java.util.Map<Integer, String> seen = java.util.Map.of();
+    private final java.util.Set<Integer> released = new java.util.HashSet<>();
 
     private interface Step {
         /** @return шаг закончен */
@@ -208,7 +209,7 @@ public final class Trailer {
                         pitchTo(post.add(0, 1.62, 0), village.add(0, 14, 0)), 0, 62))
                 .when(() -> nearest(DroneEntity.class, post, 90) != null, 2400);
         // удар по деревне: с пригорка у крайних домов, замедленно
-        shot("impact_drone").length(150).speed(0.5).hidden().camera(() -> {
+        shot("impact_drone").length(190).speed(0.5).hidden().camera(() -> {
             Vec3 from = ground(village.add(toPost.scale(30)).add(side.scale(14))).add(0, 7, 0);
             // пока шахеды далеко — узко, чтобы они не терялись точками в небе; к удару — широко
             return CineCamera.track(from, smoothFocus(() -> nearest(DroneEntity.class, village, 300), village.add(0, 3, 0), 0.2),
@@ -278,12 +279,14 @@ public final class Trailer {
                 .when(() -> nearest(LoiterEntity.class, village, 120) instanceof LoiterEntity e && e.flightPhase() == FlightPhase.LOITER, 1600)
                 .endWhen(() -> nearest(LoiterEntity.class, village, 300) == null, 50);
 
-        // --- B-2: снизу-сзади под брюхом — створки отсека открываются, бомба уходит вниз (замедленно)
-        run(() -> placeHidden(bayTarget().add(0, 40, 0)));
+        // --- B-2: снизу-сзади под брюхом — створки отсека открываются, бомба уходит вниз (замедленно). B-2 заходит
+        // из-за спины стреляющего и до сброса летит вне мира; невидимка стоит на курсе за 150 блоков до цели —
+        // тикающие чанки вокруг него накрывают и открытие створок, и сброс. Сброс клиент видит по фазе EGRESS.
+        run(() -> placeHidden(bayTarget().add(toPost.scale(150)).add(0, 40, 0), bayTarget()));
         shot("bomb_bay").onReady(() -> fire("bunker", bayTarget())).length(400).speed(0.25).hidden()
                 .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bayTarget(), 900), 26, -7, 9, 14, 0, 58))
-                .when(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && !b.hasReleased(), 2400)
-                .endWhen(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.hasReleased(), 60);
+                .when(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.flightPhase() != FlightPhase.EGRESS, 2400)
+                .endWhen(() -> nearest(BomberEntity.class, bayTarget(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 8);
 
         // --- B-2 и бетонобойная бомба: с высоты у деревни — пролёт, падение, бурение, подземный взрыв
         shot("bomber").onReady(() -> fire("bunker", target(side.scale(-12)))).length(260).speed(0.75).hidden().camera(() -> {
@@ -593,6 +596,15 @@ public final class Trailer {
         withPlayer((level, p) -> {
             p.setGameMode(GameType.SPECTATOR);
             p.teleportTo(level, at.x, at.y, at.z, p.getYRot(), p.getXRot());
+        });
+    }
+
+    /** То же, но лицом к точке: по взгляду стреляющего выбирается курс захода B-2. */
+    private void placeHidden(Vec3 at, Vec3 facing) {
+        actor = false;
+        withPlayer((level, p) -> {
+            p.setGameMode(GameType.SPECTATOR);
+            p.teleportTo(level, at.x, at.y, at.z, yawTo(at, facing), 0);
         });
     }
 
@@ -1040,10 +1052,8 @@ public final class Trailer {
             if (rec.recording()) rec.mark("detonation");
         }
         boolean viewing = ProjectileCamera.isViewing();
-        if (rec.recording()) {
-            markImpacts();
-            if (viewing && !wasViewing) rec.mark("video");
-        }
+        markImpacts(rec.recording());
+        if (rec.recording() && viewing && !wasViewing) rec.mark("video");
         wasViewing = viewing;
         while (!steps.isEmpty()) {
             if (!steps.peek().tick()) break;
@@ -1052,23 +1062,29 @@ public final class Trailer {
     }
 
     /**
-     * Перед кадром: при записи — доля тика ровно под момент кадра (кадр после тика n показывает мир между тиками
-     * n−1 и n); если клиент ещё не дотикал до момента (кадр отрисовки не в счёт) — кадр не снимается.
+     * Снаряды, что были в кадре и пропали (взрыв), и сброс бомбы B-2: отметки для монтажа — звук приходит позже
+     * картинки. Список обновляется и между планами, иначе снаряды, пропавшие до записи, отмечались бы в начале
+     * следующего плана.
      */
-    /** Снаряды, что были в кадре и пропали (взрыв): отметки для монтажа — звук приходит позже картинки. */
-    private void markImpacts() {
+    private void markImpacts(boolean mark) {
         java.util.Map<Integer, String> now = new java.util.HashMap<>();
         for (Entity e : mc.level.entitiesForRendering()) {
-            if (e instanceof StrikeProjectile p && p.isActive() && !(p instanceof BomberEntity)) {
+            if (e instanceof BomberEntity b) {
+                if (b.flightPhase() == FlightPhase.EGRESS && released.add(b.getId()) && mark) rec.mark("release");
+            } else if (e instanceof StrikeProjectile p && p.isActive()) {
                 now.put(e.getId(), e.getType().toShortString());
             }
         }
         for (var e : seen.entrySet()) {
-            if (!now.containsKey(e.getKey())) rec.mark("gone:" + e.getValue());
+            if (mark && !now.containsKey(e.getKey())) rec.mark("gone:" + e.getValue());
         }
         seen = now;
     }
 
+    /**
+     * Перед кадром: при записи — доля тика ровно под момент кадра (кадр после тика n показывает мир между тиками
+     * n−1 и n); если клиент ещё не дотикал до момента (кадр отрисовки не в счёт) — кадр не снимается.
+     */
     private void beforeFrame(RenderFrameEvent.Pre e) {
         if (!started) return;
         frameReady = false;
