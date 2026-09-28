@@ -9,7 +9,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN="$ROOT/mod/run/scenario"
 mkdir -p "$RUN/logs"
-rm -rf "$RUN/trailer"
+# папка записи: AIRSTRIKE_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
+#   AIRSTRIKE_TRAILER_SHOTS=bomb_bay,targets AIRSTRIKE_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
+#   python3 tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
+export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"
+rm -rf "${RUN:?}/$AIRSTRIKE_TRAILER_DIR"
 # звук с устройства не нужен (игра идёт замедленно, дорожку собирает монтаж), но звуковой движок должен работать
 cat > "$RUN/alsoft.conf" <<CONF
 [general]
@@ -60,6 +64,8 @@ JDK="$(python3 "$ROOT/tools/paths.py" JAVA)"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "$JDK" ]; then export JAVA_HOME="$JDK"; fi
 cd "$ROOT/mod"
 if command -v kwin_wayland >/dev/null; then
-  exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-trailer "$W" "$H" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
+  # экран KWin с запасом: окно клиента с заголовком в размер экрана не влезает и ужимается (было 1920×1052);
+  # сценарий снимает с окна рамку и ставит его ровно ${W}x${H} (Trailer.exactFrame)
+  exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-trailer "$((W + 64))" "$((H + 160))" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
 fi
 LIBGL_ALWAYS_SOFTWARE=1 exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"

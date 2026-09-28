@@ -39,6 +39,8 @@ public final class StrikeWorld {
 
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
+        // «/tick freeze» останавливает сущности — снаряды вне мира, залпы и взрывы стоят вместе с ними
+        if (!level.tickRateManager().runsNormally()) return;
         SalvoData.get(level).tick(level);
         VirtualFlights.get(level).tick(level);
         StrikeWorld w = WORLDS.get(level);
