@@ -102,10 +102,10 @@ public final class ScarQueue {
     /**
      * Обработать, что успеем за бюджет.
      *
-     * @param deadline {@link System#nanoTime()}, после которого останавливаемся
+     * @param clock бюджет тика: за столбец берёмся, только если он успеет
      */
-    public void work(ServerLevel level, long now, long deadline, RandomSource random) {
-        while (!byDue.isEmpty() && System.nanoTime() < deadline) {
+    public void work(ServerLevel level, long now, WorkClock clock, RandomSource random) {
+        while (!byDue.isEmpty() && clock.canStart()) {
             Job job = byDue.peek();
             if (job.due > now) return;
             LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk));
@@ -124,10 +124,11 @@ public final class ScarQueue {
             Detonation d = job.events.get(job.event);
             ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget());
             int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
-            while (job.column < 256 && System.nanoTime() < deadline) {
+            while (job.column < 256 && clock.canStart()) {
                 long c0 = System.nanoTime();
                 ColumnScar.apply(level, d, x0 + (job.column & 15), z0 + (job.column >> 4), budget, random);
                 long took = System.nanoTime() - c0;
+                clock.record(took);
                 // один столбец дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
                 if (took > 50_000_000L && now - lastSlowColumn >= 100) {
                     lastSlowColumn = now;

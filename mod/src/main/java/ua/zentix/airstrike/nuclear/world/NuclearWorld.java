@@ -41,6 +41,7 @@ public final class NuclearWorld {
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
     private long maxWorkNanos;
+    private final WorkClock clock = new WorkClock();
     private long lastFrontNanos, lastCraterNanos, lastScarNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
@@ -124,18 +125,20 @@ public final class NuclearWorld {
         lastFrontNanos = System.nanoTime() - frontStart;
         if (now % 1200 == 0) scars.retainBudgets(events.detonations().stream().map(Detonation::id).collect(java.util.stream.Collectors.toSet()));
         long start = System.nanoTime();
-        long deadline = start + AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L;
+        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
         try {
-            while (!craters.isEmpty() && System.nanoTime() < deadline) {
+            while (!craters.isEmpty() && clock.canStart()) {
                 CraterJob job = craters.getFirst();
+                long u0 = System.nanoTime();
                 CraterJob.Step s = job.step(level, level.random);
+                clock.record(System.nanoTime() - u0);
                 events.craterProgress(job.detonation().id(), job.progress(), s == CraterJob.Step.DONE);
                 if (s == CraterJob.Step.DONE) craters.removeFirst();
                 else if (s == CraterJob.Step.WAIT) break;
             }
             long scarStart = System.nanoTime();
             lastCraterNanos = scarStart - start;
-            scars.work(level, now, deadline, level.random);
+            scars.work(level, now, clock, level.random);
             lastScarNanos = System.nanoTime() - scarStart;
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
