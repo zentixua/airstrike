@@ -3,7 +3,7 @@ package ua.zentix.airstrike.client.render;
 import net.minecraft.world.level.block.Blocks;
 
 /**
- * Модели пусковой и отработавших ускорителей — из блоков, как модели снарядов ({@link Models}): размеры в блоках,
+ * Модели пусковой — из блоков ({@link PartModel}): размеры в блоках,
  * нос (направление пуска) по +Z, +X — левый борт. Прицеп и пакет рисуются отдельно: пакет качается вокруг
  * поперечной оси (см. {@link ua.zentix.airstrike.entity.LauncherEntity#PIVOT_UP}) и в своей системе растёт вдоль +Z.
  */
@@ -74,22 +74,4 @@ public final class LaunchModels {
         }
         return b.build();
     }
-
-    /** Ускоритель шахеда (JATO под хвостом): серый цилиндр с соплом. Центр — середина корпуса. */
-    public static final PartModel DRONE_BOOSTER = PartModel.builder()
-            .block(Blocks.GRAY_CONCRETE, -0.2f, -0.2f, -0.8f, 0.4f, 0.4f, 1.5f)
-            .block(Blocks.LIGHT_GRAY_CONCRETE, -0.14f, -0.14f, 0.7f, 0.28f, 0.28f, 0.2f)
-            .block(Blocks.BLACK_CONCRETE, -0.15f, -0.15f, -1.0f, 0.3f, 0.3f, 0.2f)
-            .build();
-
-    /** Стартовый ускоритель крылатой ракеты: белый цилиндр с решётчатым хвостом и соплом. */
-    public static final PartModel MISSILE_BOOSTER = PartModel.builder()
-            .block(Blocks.WHITE_CONCRETE, -0.45f, -0.45f, -1.1f, 0.9f, 0.9f, 2.2f)
-            .block(Blocks.BLACK_CONCRETE, -0.47f, -0.47f, 0.9f, 0.94f, 0.94f, 0.15f)
-            .block(Blocks.GRAY_CONCRETE, -0.3f, -0.3f, -1.45f, 0.6f, 0.6f, 0.35f)
-            .block(Blocks.GRAY_CONCRETE, -0.03f, 0.45f, -1.1f, 0.06f, 0.35f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, -0.03f, -0.8f, -1.1f, 0.06f, 0.35f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, 0.45f, -0.03f, -1.1f, 0.35f, 0.06f, 0.7f)
-            .block(Blocks.GRAY_CONCRETE, -0.8f, -0.03f, -1.1f, 0.35f, 0.06f, 0.7f)
-            .build();
 }
