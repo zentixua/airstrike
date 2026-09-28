@@ -10,6 +10,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.util.Particles;
@@ -96,7 +97,9 @@ public final class BlastEffects {
 
     static final class Drone extends Timeline {
         /** Радиус огненного шара, блоки (≈ 50 кг ВВ). */
-        private static final float R = 5f;
+        static final float R = 5f;
+        /** Сколько тиков тянется столб дыма. */
+        static final int COLUMN_TICKS = 50;
 
         /** Снаряд РСЗО: картинка та же, звук свой — сухой разрыв; пожара в воронке нет (заряд меньше). */
         private final boolean rocket;
@@ -115,7 +118,7 @@ public final class BlastEffects {
                 return true;
             }
             if (t == 1) spray(level, 1);
-            Explosions.column(level, pos, R, t, 50, 220, random);
+            Explosions.column(level, pos, R, t, COLUMN_TICKS, 220, random);
             if (t == 8 && !rocket) BlastSounds.fire(pos, 1.1f);
             if (t == 20) BlastSounds.debris(pos, rocket ? 40 : 60, rocket ? 1.25f : 1.1f);
             return t < 240;
@@ -134,7 +137,9 @@ public final class BlastEffects {
 
     static final class Missile extends Timeline {
         /** Радиус огненного шара, блоки (≈ 450 кг ВВ). */
-        private static final float R = 8.5f;
+        static final float R = 8.5f;
+        /** Сколько тиков тянется столб дыма. */
+        static final int COLUMN_TICKS = 80;
 
         Missile(Vec3 pos, GroundMaterial mat, long seed) {
             super(pos, mat, seed);
@@ -152,7 +157,7 @@ public final class BlastEffects {
                 spray(level, 2);
                 Explosions.condensation(level, pos.add(0, 2, 0), 30, random);
             }
-            Explosions.column(level, pos, R, t, 80, 320, random);
+            Explosions.column(level, pos, R, t, COLUMN_TICKS, 320, random);
             switch (t) {
                 case 10 -> BlastSounds.fire(pos, 0.9f);
                 case 150 -> BlastSounds.fire(pos, 0.85f);
@@ -213,7 +218,7 @@ public final class BlastEffects {
             if (t % 2 == 0 && t >= 2 && t <= 220) {
                 // пыль и каменная крошка с потолка полости
                 Fx.smoke().vel(random.nextGaussian() * 0.05, 0, random.nextGaussian() * 0.05).size(1, 4).life(160).color(Explosions.rgb(mat), 0x8A8480)
-                        .alpha(0.5f).collide().spawn(level, pos.add(random.nextGaussian() * 5, random.nextGaussian() * 3, random.nextGaussian() * 5));
+                        .alpha(0.5f).collide().budget(FxBudget.GROUND).spawn(level, pos.add(random.nextGaussian() * 5, random.nextGaussian() * 3, random.nextGaussian() * 5));
                 Particles.burst(level, FxParticles.fallingDust(mat), pos.add(0, 7, 0), 7, 1, 7, 0, 14);
             }
             // поверхность: земля «подпрыгивает» расходящимся кольцом, потом курится провал
@@ -221,7 +226,7 @@ public final class BlastEffects {
             if (t % 2 == 0 && t >= 24 && t <= 200 && depth <= 48) {
                 // провал курится
                 Fx.smoke().vel(random.nextGaussian() * 0.03, 0.06 + random.nextDouble() * 0.05, random.nextGaussian() * 0.03).size(0.8f, 4)
-                        .life(200).color(Explosions.rgb(mat), 0x9A948E).alpha(0.45f).rise(0.002f)
+                        .life(200).color(Explosions.rgb(mat), 0x9A948E).alpha(0.45f).rise(0.002f).budget(FxBudget.GROUND)
                         .spawn(level, surface.add(random.nextGaussian() * 3, 0.5, random.nextGaussian() * 3));
             }
             if (t == 30) BlastSounds.debris(surface, 60, 0.75f);
@@ -236,7 +241,7 @@ public final class BlastEffects {
             for (double a = 7; a < 360; a += 30) {
                 Fx.smoke().vel(0, 0.08 + random.nextDouble() * 0.1, 0).size(0.8f, 3.5f).growFast().life(120 + random.nextInt(60))
                         .color(Explosions.rgb(mat), Explosions.lighten(Explosions.rgb(mat), 0.3f)).alpha(0.6f).fadeFrom(0.3f)
-                        .spawn(level, FxParticles.ground(level, surface, a, r).add(0, 0.6, 0));
+                        .budget(FxBudget.GROUND).spawn(level, FxParticles.ground(level, surface, a, r).add(0, 0.6, 0));
             }
         }
 
@@ -300,7 +305,8 @@ public final class BlastEffects {
                             .glow(t < 12 ? 0.8f : 0, 6).drag(0.94f).rise(0.006f).fadeIn(2).fadeFrom(0.45f).spawn(level, pos.add(0, 0.8, 0));
                     if (t <= 88) {
                         Fx.smoke().vel(rnd.nextGaussian() * 0.08, 0.35 + rnd.nextDouble() * 0.3, rnd.nextGaussian() * 0.08).size(0.5f, 2.5f).life(80)
-                                .color(Explosions.rgb(mat), 0xA09A94).alpha(0.6f).gravity(0.006f).fadeFrom(0.3f).spawn(level, pos.add(0, 1, 0));
+                                .color(Explosions.rgb(mat), 0xA09A94).alpha(0.6f).gravity(0.006f).fadeFrom(0.3f).budget(FxBudget.GROUND)
+                                .spawn(level, pos.add(0, 1, 0));
                     }
                 }
                 return t < 168;
@@ -325,7 +331,7 @@ public final class BlastEffects {
                         double a = rnd.nextDouble() * Math.PI * 2;
                         Fx.smoke().vel(Math.cos(a) * 0.3, 0.1 + rnd.nextDouble() * 0.2, Math.sin(a) * 0.3).size(1, 4 + rnd.nextFloat() * 2).growFast()
                                 .life(160 + rnd.nextInt(80)).color(Explosions.rgb(mat), 0xA8A29C).alpha(0.7f).drag(0.9f).collide().fadeFrom(0.35f)
-                                .spawn(level, pos.add(rnd.nextGaussian() * 2, 0.5, rnd.nextGaussian() * 2));
+                                .budget(FxBudget.GROUND).spawn(level, pos.add(rnd.nextGaussian() * 2, 0.5, rnd.nextGaussian() * 2));
                     }
                 }
                 return t < 20;

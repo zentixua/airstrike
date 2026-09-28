@@ -10,6 +10,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.block.Blocks;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.nuclear.Detonation;
 
 /**
@@ -52,7 +53,7 @@ public final class NukeDust {
                 boolean smoke = i % 5 == 1;
                 Fx.smoke().vel(away.x * v, 0.01 + RANDOM.nextDouble() * 0.04, away.z * v).size(1.2f, 5 + RANDOM.nextFloat() * 3).growFast()
                         .life(70 + RANDOM.nextInt(90)).color(smoke ? 0x3E3A36 : 0x7A6852, smoke ? 0x6E6A66 : 0xA08E78).alpha(0.7f).drag(0.97f)
-                        .collide().wind(0).fadeIn(2).fadeFrom(0.35f).spawn(level, p);
+                        .collide().wind(0).fadeIn(2).fadeFrom(0.35f).budget(FxBudget.GROUND).spawn(level, p);
             }
         }
     }

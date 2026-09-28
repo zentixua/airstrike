@@ -31,7 +31,7 @@ final class Explosions {
                     .growFast().life(12 + rnd.nextInt(14)).drag(0.82f).rise(0.012f).spawn(level, c.add(d.scale(r * 0.5 * rnd.nextDouble())).add(0, r * 0.3, 0));
         }
         // тот же шар, остывающий в дым: сначала раскалён (светится сам), через секунду — чёрные клубы
-        n = Math.round(22 * r / 4 * k) + 4;
+        n = ballSmoke(r, k);
         for (int i = 0; i < n; i++) {
             Vec3 d = dir(rnd, 0.1);
             Fx.smoke().vel(d.scale(r * (0.05 + 0.06 * rnd.nextDouble())).add(0, 0.08 + 0.06 * rnd.nextDouble(), 0))
@@ -61,6 +61,11 @@ final class Explosions {
         dustSurge(level, c, r, mat, rnd, k);
     }
 
+    /** Клубов дыма в шаре взрыва радиуса {@code r} при доле частиц {@code k} ({@link Fx#density}). */
+    static int ballSmoke(float r, float k) {
+        return Math.round(22 * r / 4 * k) + 4;
+    }
+
     /** Пыль и дым, которые ударная волна гонит по земле во все стороны. */
     private static void dustSurge(ClientLevel level, Vec3 c, float r, GroundMaterial mat, RandomSource rnd, float k) {
         int n = Math.round(44 * r / 4 * k) + 6;
@@ -69,12 +74,14 @@ final class Explosions {
             double a = rnd.nextDouble() * Mth.TWO_PI, v = 0.5 + rnd.nextDouble() * 0.9;
             Fx.smoke().vel(Math.cos(a) * v * r / 4, 0.03 + rnd.nextDouble() * 0.08, Math.sin(a) * v * r / 4).size(r * 0.35f, r * (0.9f + 0.5f * rnd.nextFloat()))
                     .growFast().life(200 + rnd.nextInt(160)).color(rgb(mat), light).alpha(0.8f).drag(0.88f).collide().rise(0.002f)
-                    .fadeIn(2).fadeFrom(0.4f).spawn(level, c.x + Math.cos(a) * r * 0.5, c.y + 0.6, c.z + Math.sin(a) * r * 0.5);
+                    .fadeIn(2).fadeFrom(0.4f).budget(FxBudget.GROUND).spawn(level, c.x + Math.cos(a) * r * 0.5, c.y + 0.6, c.z + Math.sin(a) * r * 0.5);
         }
     }
 
     /**
-     * Столб: дым тянется за шаром вверх (ножка), в воронке догорает, изредка стреляют угли.
+     * Столб: дым тянется за шаром вверх (ножка), в воронке догорает (группа клубов у земли), изредка стреляют угли. Клуб ножки — один за тик:
+     * он поднимается на 0,2–0,4 блока за тик и рождается шириной почти в полшара, так что ножка и без того сплошная
+     * и непрозрачная, а место в группе облаков нужно дыму всех взрывов залпа ({@code ExplosionsTest}).
      *
      * @param t тик после взрыва (≥ 1)
      */
@@ -82,22 +89,19 @@ final class Explosions {
         float k = Fx.density(c);
         if (t <= columnTicks) {
             float f = (float) t / columnTicks;
-            int n = Math.max(1, Math.round((3 - 2 * f) * k * r / 4));
-            for (int i = 0; i < n; i++) {
-                Fx.smoke().vel(rnd.nextGaussian() * 0.04, 0.22 + 0.2 * rnd.nextDouble() * (1 - f), rnd.nextGaussian() * 0.04)
-                        .size(r * 0.45f, r * (1.1f + 0.4f * rnd.nextFloat())).life(360 + rnd.nextInt(200))
-                        .color(0x2E2A26, 0x7A746E).alpha(0.85f * (1 - 0.5f * f)).glow(t < 10 ? 0.5f : 0, 8).drag(0.95f).rise(0.006f)
-                        .fadeIn(4).fadeFrom(0.5f).spin(0.01f).spawn(level, c.x + rnd.nextGaussian() * r * 0.35, c.y + 0.5, c.z + rnd.nextGaussian() * r * 0.35);
-            }
+            Fx.smoke().vel(rnd.nextGaussian() * 0.04, 0.22 + 0.2 * rnd.nextDouble() * (1 - f), rnd.nextGaussian() * 0.04)
+                    .size(r * 0.45f, r * (1.1f + 0.4f * rnd.nextFloat())).life(360 + rnd.nextInt(200))
+                    .color(0x2E2A26, 0x7A746E).alpha(0.85f * (1 - 0.5f * f)).glow(t < 10 ? 0.5f : 0, 8).drag(0.95f).rise(0.006f)
+                    .fadeIn(4).fadeFrom(0.5f).spin(0.01f).spawn(level, c.x + rnd.nextGaussian() * r * 0.35, c.y + 0.5, c.z + rnd.nextGaussian() * r * 0.35);
         }
         if (t <= fireTicks) {
             float f = (float) t / fireTicks;
             if (rnd.nextFloat() < (1 - f) * k * 1.5f) {
                 Vec3 p = c.add(rnd.nextGaussian() * r * 0.5, 0.3, rnd.nextGaussian() * r * 0.5);
                 Fx.fire().vel(0, 0.06 + 0.05 * rnd.nextDouble(), 0).size(r * 0.1f, r * 0.22f).life(12 + rnd.nextInt(10)).rise(0.004f)
-                        .spawn(level, p);
+                        .budget(FxBudget.GROUND).spawn(level, p);
                 Fx.smoke().vel(0, 0.1, 0).size(r * 0.12f, r * 0.6f).life(140 + rnd.nextInt(80)).color(0x2C2826, 0x6C6660).alpha(0.6f)
-                        .glow(0.5f, 6).rise(0.006f).fadeFrom(0.4f).spawn(level, p.add(0, r * 0.15, 0));
+                        .glow(0.5f, 6).rise(0.006f).fadeFrom(0.4f).budget(FxBudget.GROUND).spawn(level, p.add(0, r * 0.15, 0));
             }
             if (rnd.nextFloat() < (1 - f) * 0.3f) {
                 Fx.spark().vel(rnd.nextGaussian() * 0.05, 0.08 + 0.1 * rnd.nextDouble(), rnd.nextGaussian() * 0.05).size(0.06f, 0.03f)
