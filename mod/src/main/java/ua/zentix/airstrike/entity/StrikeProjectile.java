@@ -355,6 +355,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     public boolean retarget(Target target, Vec3 point) {
         if (tracker == null || !acceptsRetarget()) return false;
+        extendLifetime(tracker.point(), point);
         this.tracker = new TargetTracker(target, point);
         if (route != null) route.skip();
         releaseTargetArea();
@@ -557,9 +558,23 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Слежение за целью; возвращает текущую точку прицеливания. */
     protected Vec3 updateTarget(ServerLevel level) {
+        Vec3 was = tracker.point();
         tracker.tick(level, position());
+        extendLifetime(was, tracker.point());
         syncAim();
         return tracker.point();
+    }
+
+    /**
+     * Цель сдвинулась (ушла, телепортировалась, перенацелена): срок жизни, рассчитанный по плану полёта, растёт
+     * на время пролёта этого сдвига с тем же запасом. Иначе снаряд пропадал без подрыва по дороге к игроку,
+     * улетевшему за 3000 блоков или вышедшему из игры там (стенд нагрузки 28.09.2026: 5 «Ланцетов» и ракета
+     * из 158). Снаряд, который застрял при неподвижной цели, срок жизни по-прежнему убирает.
+     */
+    private void extendLifetime(Vec3 from, Vec3 to) {
+        double moved = from.distanceTo(to);
+        if (moved < 0.01) return;
+        lifetime = maxAge() + (int) Math.ceil(moved / cruiseSpeed() * 1.5);
     }
 
     /** Куда держать курс: следующая точка маршрута или цель. */

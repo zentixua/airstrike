@@ -163,6 +163,51 @@ public final class LifecycleGameTests {
     }
 
     /**
+     * Цель ушла далеко (игрок улетел за тысячи блоков, перенацеливание): срок жизни растёт на пролёт этого сдвига.
+     * Раньше он оставался по плану до старой точки, и снаряд пропадал в пути без подрыва (стенд нагрузки:
+     * 5 «Ланцетов» и ракета за игроком, улетевшим на 3000 блоков и вышедшим там из игры).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "moved_target", skyAccess = true)
+    public static void lifetimeFollowsMovedTarget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // старт над дальним углом площадки: до цели ~70 блоков, за время теста шахед до неё не долетит
+        Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(56, 11, 56))).add(0, 60, 0);
+        Vec3 near = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(8, 11, 8)));
+        ArmorStand stand = new ArmorStand(level, near.x, near.y, near.z);
+        level.addFreshEntity(stand);
+        StrikeProjectile followed = virtualWithTwoTicks(level, start, new Target.OfEntity(stand.getUUID(), Vec3.ZERO), near);
+        StrikeProjectile retargeted = virtualWithTwoTicks(level, start, new Target.Point(near), near);
+        // цель переходит в другой угол площадки (шахеду это ~30 тиков полёта), новая цель — за 1500 блоков
+        Vec3 moved = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(56, 11, 8)));
+        stand.teleportTo(moved.x, moved.y, moved.z);
+        Vec3 far = near.add(0, 0, 1500);
+        h.assertTrue(retargeted.retarget(new Target.Point(far), far), "шахед не принял новую цель");
+        h.runAfterDelay(6, () -> {
+            h.assertFalse(followed.isRemoved(), "шахед за ушедшей целью убрал старый срок жизни: " + state(level, followed));
+            h.assertFalse(retargeted.isRemoved(), "перенацеленный шахед убрал старый срок жизни: " + state(level, retargeted));
+            for (StrikeProjectile m : List.of(followed, retargeted)) {
+                VirtualFlights.get(level).flights().remove(m);
+                m.discard();
+            }
+            stand.discard();
+            h.succeed();
+        });
+    }
+
+    /** Шахед в полёте вне мира, которому по плану осталось два тика жизни. */
+    private static StrikeProjectile virtualWithTwoTicks(ServerLevel level, Vec3 start, Target target, Vec3 point) {
+        StrikeProjectile m = ModEntities.DRONE.get().create(level);
+        m.launch(start, target, point, null);
+        m.setRoute(Route.direct());
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        m.saveWithoutId(tag);
+        tag.putInt("lifetime", m.age() + 2);
+        m.load(tag);
+        VirtualFlights.launch(level, m);
+        return m;
+    }
+
+    /**
      * Снаряд в мире улетает за край загруженного: до выхода он держит тикеты, а уйдя в полёт вне мира, не держит
      * ни одного и в мире не остаётся (раньше он шагал в чанк без тика и мог застрять там с тикетами).
      */
