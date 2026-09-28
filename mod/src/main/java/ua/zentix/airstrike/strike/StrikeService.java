@@ -18,6 +18,7 @@ import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.FlightController;
@@ -80,6 +81,7 @@ public final class StrikeService {
         StrikeProjectile p = switch (weapon) {
             case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
+            case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter);
             default -> launchBomber(level, point, approachYaw, owner);
         };
         if (p == null) return Result.FAILED;
@@ -90,12 +92,13 @@ public final class StrikeService {
         return new Result(true, eta);
     }
 
-    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, РСЗО 8 с, B-2 20 с. */
+    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, РСЗО 8 с, B-2 и барраж 20 с. */
     private static int sirenLead(WeaponType weapon) {
         return switch (weapon) {
             case DRONE -> 500;
             case MISSILE -> 300;
             case ROCKET -> 160;
+            case LOITER -> 400;
             default -> 400;
         };
     }
@@ -210,6 +213,42 @@ public final class StrikeService {
         r.launchFrom(from, target, scatter(level, from, point), owner);
         startVirtual(level, r);
         return r;
+    }
+
+    /** Пусковая барражирующих боеприпасов без стреляющего рядом стоит за столько блоков от цели. */
+    private static final double LOITER_STANDOFF = 500;
+
+    /**
+     * Барражирующий боеприпас: с катапульты у стреляющего (доворачивается на цель, если молчит) прямо к цели,
+     * иначе — издалека на высоте круга.
+     */
+    @Nullable
+    private static StrikeProjectile launchLoiter(ServerLevel level, Target target, Vec3 point, float yaw,
+                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter) {
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        if (e == null) return null;
+        if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
+            LauncherEntity launcher = LaunchSite.existing(level, shooter, WeaponType.LOITER);
+            if (launcher == null) {
+                Vec3 site = LaunchSite.find(level, shooter);
+                if (site != null) launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], WeaponType.LOITER, shooter);
+            } else {
+                launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
+            }
+            if (launcher != null) {
+                int[] slot = launcher.reserve(level.getGameTime(), 12, 24);
+                Vec3 rail = launcher.railPoint(slot[0]);
+                int hidden = (int) Math.max(0, launcher.deployedAt() + LauncherEntity.DEPLOY_TICKS - level.getGameTime());
+                e.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), slot[1], hidden, target, point, shooter.getUUID());
+                e.setRoute(null);
+                return e;
+            }
+        }
+        Vec3 from = point.subtract(Local.horizontal(yaw).scale(LOITER_STANDOFF)).add(0, LoiterEntity.LOITER_HEIGHT, 0);
+        e.launch(from, target, point, owner);
+        e.setRoute(null);
+        startVirtual(level, e);
+        return e;
     }
 
     /** Рассеивание неуправляемого снаряда: ~1% дальности по нормали (у «Града» на 20 км — сотни метров). */

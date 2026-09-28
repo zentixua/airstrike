@@ -19,12 +19,17 @@ public final class FlightTickets {
      * Уровень тикета 33 − 4 = 29: сущности тикают в квадрате 5×5 чанков вокруг цели (±40 блоков), загружено 9×9 —
      * снаряд появляется в мире до цели, а соседние чанки готовы для взрыва и обломков.
      */
-    private static final int DISTANCE = 4;
+    public static final int DISTANCE = 4;
 
     private FlightTickets() {}
 
     public static void hold(ServerLevel level, ChunkPos pos, UUID flight, boolean hold) {
-        if (hold) level.getChunkSource().addRegionTicket(TYPE, pos, DISTANCE, flight);
-        else level.getChunkSource().removeRegionTicket(TYPE, pos, DISTANCE, flight);
+        hold(level, pos, DISTANCE, flight, hold);
+    }
+
+    /** С другим уровнем тикета: {@code distance} 6 — сущности тикают в квадрате 9×9 чанков. */
+    public static void hold(ServerLevel level, ChunkPos pos, int distance, UUID flight, boolean hold) {
+        if (hold) level.getChunkSource().addRegionTicket(TYPE, pos, distance, flight);
+        else level.getChunkSource().removeRegionTicket(TYPE, pos, distance, flight);
     }
 }

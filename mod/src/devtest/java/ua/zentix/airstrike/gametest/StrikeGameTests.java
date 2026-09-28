@@ -19,6 +19,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -193,6 +194,100 @@ public final class StrikeGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "снаряд ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
+    /** Барражирующий по UUID: в мире или вне его (уходя из загруженных чанков, он становится новой сущностью). */
+    private static LoiterEntity findLoiter(ServerLevel level, java.util.UUID id) {
+        if (level.getEntity(id) instanceof LoiterEntity e) return e;
+        for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+            if (p.getUUID().equals(id) && p instanceof LoiterEntity e) return e;
+        }
+        return null;
+    }
+
+    /**
+     * Цель барражирующего — в воздухе на 60 блоков над полосой: круг (ещё на 45 выше) и пике идут над барьерной
+     * стеной полигона, а круг радиусом 40 шире полосы.
+     */
+    private static Vec3 airTarget(GameTestHelper h) {
+        return top(h, RUNWAY_TARGET).add(0, 60, 0);
+    }
+
+    /**
+     * Барражирующий: подлёт, круги над целью всё время барража (из настроек, ±20%) на своём радиусе, потом пике
+     * и подрыв у цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1400, batch = "loiter", skyAccess = true)
+    public static void loiterCirclesThenDives(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = airTarget(h);
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        e.launch(point.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.Point(point), point, null);
+        e.setRoute(null);
+        level.addFreshEntity(e);
+        java.util.UUID id = e.getUUID();
+        int[] loiter = {0};
+        boolean[] dived = {false};
+        double[] radius = {1e9, 0};
+        Vec3[] lastPos = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            LoiterEntity l = findLoiter(level, id);
+            if (l == null) return;
+            lastPos[0] = l.position();
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " v=" + l.speed();
+            if (l.flightPhase() == FlightPhase.LOITER) {
+                loiter[0]++;
+                double r = Math.hypot(l.getX() - point.x, l.getZ() - point.z);
+                // первые 3 с — выход на круг
+                if (loiter[0] > 60) {
+                    radius[0] = Math.min(radius[0], r);
+                    radius[1] = Math.max(radius[1], r);
+                }
+            }
+            if (l.flightPhase() == FlightPhase.TERMINAL) dived[0] = true;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
+            int min = (int) (ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.get() * 20 * 0.8);
+            h.assertTrue(loiter[0] >= min, "кружил " + loiter[0] + " тиков, а должен не меньше " + min);
+            h.assertTrue(radius[0] > 20 && radius[1] < 75, "ушёл с круга: радиус от " + radius[0] + " до " + radius[1]);
+            h.assertTrue(dived[0], "не пикировал: " + last[0]);
+            h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
+        });
+    }
+
+    /** Цель из камеры во время барража: пике сразу, не дожидаясь конца круга, и подрыв у новой цели. */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "loiter", skyAccess = true)
+    public static void loiterStrikesOnRetarget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = airTarget(h);
+        Vec3 other = point.add(8, 0, -12);
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        e.launch(point.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.Point(point), point, null);
+        e.setRoute(null);
+        level.addFreshEntity(e);
+        java.util.UUID id = e.getUUID();
+        int[] loiter = {0};
+        long[] retargeted = {0}, dived = {0};
+        Vec3[] lastPos = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            LoiterEntity l = findLoiter(level, id);
+            if (l == null) return;
+            lastPos[0] = l.position();
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " v=" + l.speed();
+            if (l.flightPhase() == FlightPhase.LOITER && ++loiter[0] == 60) {
+                h.assertTrue(l.retarget(new Target.Point(other), other), "не принял цель");
+                retargeted[0] = level.getGameTime();
+            }
+            if (l.flightPhase() == FlightPhase.TERMINAL && dived[0] == 0) dived[0] = level.getGameTime();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(retargeted[0] > 0 && findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
+            h.assertTrue(dived[0] - retargeted[0] <= 120, "пике не сразу: через " + (dived[0] - retargeted[0]) + " тиков");
+            h.assertTrue(lastPos[0].distanceTo(other) < 8, "подрыв не у новой цели: " + last[0]);
         });
     }
 

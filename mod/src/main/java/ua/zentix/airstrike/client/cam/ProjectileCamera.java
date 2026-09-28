@@ -519,6 +519,11 @@ public final class ProjectileCamera {
             g.drawString(font, right[i], w - m - 6 - font.width(right[i]), m + 6 + 12 * i, i == 3 ? 0xFFFFC040 : 0xFFE8E8E8);
         }
         if (f.nuclear()) g.drawString(font, "☢", cx - font.width("☢") / 2, m + 6, 0xFFFFD020);
+        if (f.phase() == FlightPhase.LOITER && rec) {
+            // барражирующий кружит: оператор ищет цель в кадре
+            Component loiter = Component.translatable("airstrike.camera.loiter").withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD);
+            g.drawString(font, loiter, cx - font.width(loiter) / 2, h - 48, 0xFFFFFFFF);
+        }
         hint(g, font, w, h);
     }
 

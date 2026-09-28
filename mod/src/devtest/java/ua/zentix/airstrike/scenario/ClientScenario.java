@@ -67,6 +67,7 @@ public final class ClientScenario {
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("rocket".equals(mode)) planRocket();
+        else if ("loiter".equals(mode)) planLoiter();
         else if ("models".equals(mode)) planModels();
         else plan();
     }
@@ -493,6 +494,55 @@ public final class ClientScenario {
         at(1500, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 12 12 at %.1f %.1f %.1f", target.x, target.y, target.z)));
         for (int t = 1510; t <= 1900; t += 8) shot(t, "rocket_view");
         at(1910, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Барражирующие: рой из трёх с катапульты по цели в 150 блоках (барраж 8 с). Камера первого: катапульта,
+     * подлёт, круг — «оператор» смотрит на цель; потом со стороны: круги над целью и пике по очереди.
+     */
+    private void planLoiter() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+            cmd("forceload add -48 -48 48 240");
+        });
+        at(200, () -> {
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.launchNearPlayer.set(true);
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.set(8);
+            cmd("fill -46 199 -40 46 199 230 minecraft:smooth_stone");
+            cmd("fill -3 200 147 3 203 153 minecraft:oak_planks");
+            cmd("tp @s 0.5 200 0.5 0 5");
+            target = new Vec3(0.5, 204, 150.5);
+        });
+        at(230, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo loiter 3 6 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        for (int t = 236; t <= 266; t += 10) {
+            at(t, () -> {
+                if (!ua.zentix.airstrike.client.cam.ProjectileCamera.isActive()) ua.zentix.airstrike.client.cam.ProjectileCamera.cycle();
+            });
+        }
+        for (int t = 240; t <= 700; t += 6) {
+            at(t, () -> {
+                // оператор на круге смотрит на цель
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.getCameraEntity() instanceof StrikeProjectile p && p.flightPhase() == ua.zentix.airstrike.entity.FlightPhase.LOITER) {
+                    Vec3 d = target.subtract(mc.gameRenderer.getMainCamera().getPosition());
+                    mc.player.setYRot((float) Math.toDegrees(Math.atan2(-d.x, d.z)));
+                    mc.player.setXRot((float) -Math.toDegrees(Math.atan2(d.y, Math.hypot(d.x, d.z))));
+                }
+            });
+            shot(t, "loiter_cam");
+        }
+        at(710, () -> {
+            ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
+            cmd("tp @s 40.5 200 95.5 38 -32");
+        });
+        at(720, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo loiter 3 6 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        for (int t = 730; t <= 1400; t += 8) shot(t, "loiter_view");
+        at(1410, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

@@ -104,6 +104,7 @@ public final class Warheads {
             case DRONE -> AirstrikeConfig.SERVER.dronePower.get();
             case MISSILE -> AirstrikeConfig.SERVER.missilePower.get();
             case ROCKET -> AirstrikeConfig.SERVER.rocketPower.get();
+            case LOITER -> AirstrikeConfig.SERVER.loiterPower.get();
             case BUNKER, NUKE -> AirstrikeConfig.SERVER.bunkerPower.get();
         };
     }
