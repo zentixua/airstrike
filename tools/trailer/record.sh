@@ -69,4 +69,6 @@ if command -v kwin_wayland >/dev/null; then
   # сценарий снимает с окна рамку и ставит его ровно ${W}x${H} (Trailer.exactFrame)
   exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-trailer "$((W + 64))" "$((H + 160))" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
 fi
-LIBGL_ALWAYS_SOFTWARE=1 exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"
+# облако: звуковой сервер клиенту закрыт, как в nested_kwin.sh (звук трейлера собирается из журнала)
+LIBGL_ALWAYS_SOFTWARE=1 PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
+  exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"

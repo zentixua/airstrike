@@ -35,7 +35,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
-    nested_kwin.sh                       ← вложенный KWin для клиента без окна: своя шина D-Bus и свои каталоги XDG
+    nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
     mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
     prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
                                            ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва
@@ -219,6 +219,10 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - GameTest окружает площадку стеной из барьеров (потолок — только без `skyAccess`): снаряд, который заходит
   снаружи, должен идти выше неё.
 - `Locale.ROOT` для чисел в командах: у Артёма русская локаль, `String.format("%.1f")` даёт запятую.
+- Ничто из проверок не должно доходить до экрана и колонок Артёма: клиенты — только через `tools/nested_kwin.sh`
+  (`--virtual`: внеэкранный буфер на видеокарте, окна на рабочем столе нет; `PIPEWIRE_REMOTE`/`PULSE_SERVER` указывают
+  на несуществующие сокеты — OpenAL не открывает звук хоста). Звук сценария пишется драйвером «wave» в файл, трейлер
+  собирает звук из журнала. Путь без KWin (облако, `xvfb-run`) закрывает звук так же.
 - Вложенный KWin запускать только через `tools/nested_kwin.sh` (своя шина `dbus-run-session`, свои `XDG_*_HOME`):
   на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания
   KWin у Артёма (Alt+Tab), а kwinrc писал в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
