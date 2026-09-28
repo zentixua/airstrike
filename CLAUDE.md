@@ -31,11 +31,13 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
   tools/
     paths.py                             ← все пути к игре (единственное место)
+    fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|nuke|far] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     synth_mod_sounds.py, gen_textures.py ← генерация звуков (numpy + ffmpeg) и текстур (Pillow), фиксированный сид
   docs/DESIGN-nuke.md                    ← проект ядерного удара
+  .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
   instances/All of Create Aeronautics/minecraft/                  ← .minecraft инстанса (MC)
@@ -56,6 +58,9 @@ python3 tools/logscan.py [--since 18:30]  # после игры: ошибки м
 git commit
 ```
 Моды для запусков (`run/*/mods`) копируются из инстанса задачами `copyRuntimeMods_*`; путь — `MC_DIR` или по умолчанию.
+Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
+(Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
+CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
 Сценарий клиента пишет строки `SCENARIO …` в лог (звуки, fps, вспышка) — по ним и по кадрам проверяется картинка и звук.
 
 ## Архитектура (пакеты `ua.zentix.airstrike`)
