@@ -5,6 +5,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.SpriteSet;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 
@@ -32,6 +33,12 @@ public class FxSpark extends FxParticle {
             spec.trail.copy().size(spec.trail.size0 * (1 - 0.6f * f), spec.trail.size1 * (1 - 0.5f * f))
                     .spawn(level, xo + dx * k, yo + dy * k, zo + dz * k);
         }
+    }
+
+    /** Штрих тянется назад на путь за {@code streak} тиков. */
+    @Override
+    public AABB getRenderBoundingBox(float partial) {
+        return super.getRenderBoundingBox(partial).inflate(Math.sqrt(xd * xd + yd * yd + zd * zd) * spec.streak);
     }
 
     @Override

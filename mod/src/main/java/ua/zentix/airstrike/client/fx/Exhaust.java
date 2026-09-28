@@ -6,6 +6,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
@@ -286,7 +287,7 @@ public final class Exhaust {
         for (int i = 0; i < engines.length; i++) {
             Vec3 p = Local.at(e.position(), e.getYRot(), e.getXRot(), engines[i][0], 0.3, engines[i][1]);
             Fx.Spec puff = Fx.smoke().size(0.35f, 2.8f).life(500).color(0xFFFFFF, 0xE6EAF0).alpha(0.65f).drag(0.9f).fadeIn(8)
-                    .fadeFrom(0.4f).wind(0.6f).spin(0.004f);
+                    .fadeFrom(0.4f).wind(0.6f).spin(0.004f).budget(FxBudget.TRAIL);
             s.lastContrail[i] = segment(level, s.lastContrail[i], p, puff, 3, level.random);
         }
     }
@@ -327,18 +328,19 @@ public final class Exhaust {
         if (e.isHot()) {
             Fx.fire().vel(r.nextGaussian() * 0.02, 0.04, r.nextGaussian() * 0.02).size(0.35f, 0.6f).life(8 + r.nextInt(6)).spawn(level, p);
             Fx.Spec smoke = Fx.smoke().vel(0, 0.03, 0).size(0.35f, 1.8f).life(90 + r.nextInt(50)).color(0x221E1C, 0x5E5854).alpha(0.7f)
-                    .glow(0.5f, 4).rise(0.005f).fadeIn(2).fadeFrom(0.35f);
+                    .glow(0.5f, 4).rise(0.005f).fadeIn(2).fadeFrom(0.35f).budget(FxBudget.DEBRIS);
             if (moving) segment(level, from, p, smoke, 0.8, r);
             else if (r.nextInt(3) == 0) smoke.spawn(level, p);
         } else if (moving) {
-            segment(level, from, p, Fx.smoke().size(0.2f, 0.8f).life(40).color(0x8A8278, 0xA8A098).alpha(0.35f).fadeFrom(0.3f), 1.2, r);
+            segment(level, from, p, Fx.smoke().size(0.2f, 0.8f).life(40).color(0x8A8278, 0xA8A098).alpha(0.35f).fadeFrom(0.3f).budget(FxBudget.DEBRIS), 1.2, r);
         }
     }
 
     // ---------------------------------------------------------------- общее
 
+    /** Шлейф снаряда: клубы от прошлого положения сопла до нынешнего, в группе шлейфов. */
     private static void trail(ClientLevel level, State s, Vec3 nozzle, Fx.Spec puff, double step, RandomSource r) {
-        s.lastNozzle = segment(level, s.lastNozzle, nozzle, puff, step, r);
+        s.lastNozzle = segment(level, s.lastNozzle, nozzle, puff.budget(FxBudget.TRAIL), step, r);
     }
 
     /** Клубы по отрезку от прошлого положения сопла до нынешнего через {@code step} блоков (со случайным сдвигом). */

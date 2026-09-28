@@ -76,6 +76,7 @@ public final class ClientScenario {
         else if ("models".equals(mode)) planModels();
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
+        else if ("occlusion".equals(mode)) planOcclusion();
         else plan();
     }
 
@@ -708,6 +709,72 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
+    }
+
+    /**
+     * Эффекты за стеной: зритель в 40 блоках перед каменной стеной 60×14, за ней в 90 блоках — большие залпы РСЗО
+     * и ракет. Над стеной видно дым, за стеной — ничего. Потом камера водит взглядом влево-вправо: клубы у края
+     * кадра не должны пропадать. В лог — сколько частиц в движке (по слоям).
+     */
+    private void planOcclusion() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("forceload add -64 -16 64 256");
+            Minecraft.getInstance().options.hideGui = true;
+            Minecraft.getInstance().player.getAbilities().flying = true;
+        });
+        // площадка выше любого рельефа (fill — не больше 32768 блоков за раз): зритель и цель на одной плоскости
+        at(200, () -> {
+            cmd("fill -60 259 0 60 259 250 minecraft:smooth_stone");
+            cmd("fill -30 260 80 30 273 81 minecraft:stone_bricks");
+            cmd("tp @s 0.5 261 40.5 0 -8");
+            target = new Vec3(0.5, 260, 170.5);
+        });
+        at(210, this::occlusionWhenReady);
+    }
+
+    /** Сервер под llvmpipe отстаёт: залпы — когда зритель уже на площадке и стена построена. */
+    private void occlusionWhenReady() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player.getY() < 259 || !mc.level.getBlockState(new net.minecraft.core.BlockPos(0, 265, 80)).is(net.minecraft.world.level.block.Blocks.STONE_BRICKS)) {
+            at(tick + 5, this::occlusionWhenReady);
+            return;
+        }
+        int t0 = tick;
+        Airstrike.LOG.info("SCENARIO occlusion ready at tick {}", t0);
+        at(t0 + 1, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 40 20 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(t0 + 30, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo missile 6 16 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        for (int dt = 10; dt <= 1100; dt += 6) {
+            int t = t0 + dt, d = dt;
+            at(t, () -> {
+                // с 550-го тика после залпа — водим взглядом: ±35° за 3 с
+                if (d >= 550) {
+                    float yaw = (float) (35 * Math.sin((d - 550) / 60.0 * Math.PI));
+                    cmd(String.format(java.util.Locale.ROOT, "tp @s 0.5 261 40.5 %.1f -8", yaw));
+                }
+                Airstrike.LOG.info("SCENARIO particles t={} {}", d, particleLayers());
+            });
+            shot(t, "occlusion");
+        }
+        at(t0 + 1110, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /** Частицы по слоям движка (очередь слоя — не больше 16384, лишние вытесняют самые старые). */
+    private static String particleLayers() {
+        try {
+            var f = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("particles");
+            f.setAccessible(true);
+            var map = (java.util.Map<?, ?>) f.get(Minecraft.getInstance().particleEngine);
+            StringBuilder sb = new StringBuilder();
+            map.forEach((type, q) -> sb.append(type).append('=').append(((java.util.Collection<?>) q).size()).append(' '));
+            return sb.toString();
+        } catch (ReflectiveOperationException e) {
+            return e.toString();
+        }
     }
 
     /** Пуск по точке на земле впереди и кадры каждые 10 тиков, пока летит и горит. */
