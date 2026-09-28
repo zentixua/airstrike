@@ -261,7 +261,7 @@ public final class Trailer {
                 .when(() -> onMap() && missileRange() < 700, 3000)
                 // карта, видео с борта: горка, пикирование, «сигнал потерян» и план попадания (облёт)
                 // замедленно: ракета в мире (а значит, и видео с борта) — лишь последние ~250 блоков, это ~20 тиков
-                .length(220).speed(0.2).hud().projectileCamera()
+                .length(220).speed(0.2).hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
                 .cueEnd(() -> {
                     ProjectileCamera.exit();
                     mc.options.renderDistance().set(renderDistance);
@@ -883,7 +883,7 @@ public final class Trailer {
         private boolean hiddenActor;
         private boolean prep = true;
         /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
-        private boolean farView;
+        private int readyChunks = 4;
         private BooleanSupplier after, when, end;
         private int afterTimeout, whenTimeout, endDelay;
         private final List<Cue> cues = new ArrayList<>();
@@ -932,7 +932,12 @@ public final class Trailer {
         }
 
         Shot farView() {
-            farView = true;
+            return readyChunks(10);
+        }
+
+        /** Перед съёмкой ждать мир на {@code chunks} чанков вокруг камеры (не дальше прорисовки). */
+        Shot readyChunks(int chunks) {
+            readyChunks = chunks;
             return this;
         }
 
@@ -1031,7 +1036,7 @@ public final class Trailer {
                 }
                 case 1 -> {
                     followCamera();
-                    readyFor = worldReady(farView) ? readyFor + 1 : 0;
+                    readyFor = worldReady(readyChunks) ? readyFor + 1 : 0;
                     if (readyFor >= 10 && waited >= 40 || waited > 1200) {
                         setFrozen(false);
                         phase = 2;
@@ -1245,14 +1250,14 @@ public final class Trailer {
     }
 
     /**
-     * Мир вокруг камеры получен и собран в секции для отрисовки. Для общих планов с высоты ({@code far}) — почти на
-     * всю дальность прорисовки: первый план в свежем мире иначе снимал деревню на «острове» над пустотой. Остальным
-     * хватает 4 чанков: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
+     * Мир на {@code chunks} чанков вокруг камеры получен и собран в секции для отрисовки. Общим планам с высоты — 10:
+     * первый план в свежем мире иначе снимал деревню на «острове» над пустотой; видео с борта — вся прорисовка (ракета
+     * смотрит за деревню). Остальным хватает 4: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
      */
-    private boolean worldReady(boolean far) {
+    private boolean worldReady(int chunks) {
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         int cx = Mth.floor(cam.x) >> 4, cz = Mth.floor(cam.z) >> 4;
-        int r = far ? Math.max(4, Math.min(10, mc.options.getEffectiveRenderDistance() - 2)) : 4;
+        int r = Math.max(4, Math.min(chunks, mc.options.getEffectiveRenderDistance() - 2));
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 if (!mc.level.getChunkSource().hasChunk(cx + dx, cz + dz)) return false;
