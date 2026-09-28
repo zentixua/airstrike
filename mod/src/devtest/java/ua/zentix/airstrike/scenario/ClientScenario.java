@@ -170,25 +170,32 @@ public final class ClientScenario {
         long now = mc.level.getGameTime();
         for (var w : ua.zentix.airstrike.client.nuclear.ClientNuclear.warnings()) {
             long left = w.detonateTime() - now;
-            if (left == 40 || left == 10) shot(tick + 1, "reentry");
+            // боеголовка приходит со стороны пуска (из-за спины) почти отвесно: на 2 с смотрим назад и вверх
+            if (left == 45) cmd("tp @s ~ ~ ~ 0 -65");
+            if (left == 38 || left == 30) shot(tick + 1, "reentry");
+            if (left == 22) cmd("tp @s ~ ~ ~ 180 -8");
         }
         if (detTick >= 0 || ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations().isEmpty()) return;
         detTick = tick;
         Airstrike.LOG.info("SCENARIO detonation at tick {}", tick);
         for (int dt : new int[]{1, 2, 4, 10, 20, 40, 70, 90, 100, 120, 200, 400}) shot(tick + dt, "nuke");
-        // гриб целиком виден издалека: 14 км к югу от эпицентра, взгляд на 25° вверх
+        // гриб целиком виден издалека: 9 км к югу от эпицентра, взгляд на 30° вверх
         at(tick + 560, () -> {
             var d = ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations().getLast().d;
-            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 230 %.1f 180 -25", d.burst().x, d.burst().z + 14_000));
+            int x = (int) Math.floor(d.burst().x), z = (int) Math.floor(d.burst().z + 9_000);
+            cmd(String.format(java.util.Locale.ROOT, "fill %d 229 %d %d 229 %d minecraft:stone_bricks", x - 1, z - 1, x + 1, z + 1));
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 230 %d.5 180 -30", x, z));
         });
         for (int dt : new int[]{600, 1200, 2400, 3600}) shot(tick + dt, "cloud");
-        // в след осадков: 1 км по ветру от эпицентра, через 4 мин после подрыва — чёрный дождь, счётчик в руке
-        at(tick + 4200, () -> {
+        // в след осадков, пока там идёт чёрный дождь (2.5 игровых часа = 2 мин после прихода осадков), счётчик в руке
+        at(tick + 3900, () -> {
             var d = ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations().getLast().d;
-            double x = d.burst().x + Math.cos(d.windDir()) * 1000 * d.scale(), z = d.burst().z + Math.sin(d.windDir()) * 1000 * d.scale();
+            // по ветру туда, куда осадки придут к ~2.5 мин после подрыва (скорость ветра у подрыва своя)
+            double m = Math.min(3000, d.windSpeed() * 150);
+            double x = d.burst().x + Math.cos(d.windDir()) * m * d.scale(), z = d.burst().z + Math.sin(d.windDir()) * m * d.scale();
             cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f 0 0", x, z));
         });
-        at(tick + 4260, () -> {
+        at(tick + 3960, () -> {
             LocalPlayer p = Minecraft.getInstance().player;
             int x = (int) Math.floor(p.getX()), z = (int) Math.floor(p.getZ());
             int y = Minecraft.getInstance().level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
@@ -196,9 +203,9 @@ public final class ClientScenario {
             cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y, z - 1, x + 1, y, z + 1));
             cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 0 0", x, y + 1, z));
         });
-        for (int dt : new int[]{4700, 4740, 4780}) shot(tick + dt, "fallout");
-        at(tick + 4800, () -> Airstrike.LOG.info("SCENARIO radiation {}", ua.zentix.airstrike.client.nuclear.ClientNuclear.radiationState()));
-        at(tick + 4820, () -> {
+        for (int dt : new int[]{4040, 4080, 4120}) shot(tick + dt, "fallout");
+        at(tick + 4140, () -> Airstrike.LOG.info("SCENARIO radiation {}", ua.zentix.airstrike.client.nuclear.ClientNuclear.radiationState()));
+        at(tick + 4160, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

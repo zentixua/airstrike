@@ -21,7 +21,7 @@ public final class ThermalShadow {
             double x = point.x + (fireball.x - point.x) * f;
             double y = point.y + (fireball.y - point.y) * f;
             double z = point.z + (fireball.z - point.z) * f;
-            if (level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z)) > y + 0.5) return false;
+            if (Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z)) > y + 0.5) return false;
         }
         return true;
     }

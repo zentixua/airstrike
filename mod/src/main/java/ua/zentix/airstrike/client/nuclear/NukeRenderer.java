@@ -162,7 +162,8 @@ public final class NukeRenderer {
                 r *= k;
             }
             int rgb = FireballModel.colorArgb(t, d.yieldKt());
-            float fade = (float) (1 - CloudPuffs.smooth(10, 80, tau));
+            // шар гаснет, когда его закрывает шапка (она проступает на тех же τ, см. CloudPuffs)
+            float fade = (float) (1 - CloudPuffs.smooth(8, 45, tau));
             float glow = (float) Math.max(0.35, Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.35)) * fade;
             float cr = ((rgb >> 16) & 0xFF) / 255f, cg = ((rgb >> 8) & 0xFF) / 255f, cb = (rgb & 0xFF) / 255f;
             float scroll = (float) (t * 0.04);
@@ -250,10 +251,10 @@ public final class NukeRenderer {
                 if (top <= bottom) continue;
                 long seed = BlockPos.asLong(x, 0, z) * 3129871L;
                 float off = (seed & 0xFF) / 255f;
-                // четверть блока ширины, лицом к камере
-                float nx = (float) (-ddz / Math.max(hd, 0.01)) * 0.25f, nz = (float) (ddx / Math.max(hd, 0.01)) * 0.25f;
+                // блок ширины, лицом к камере, как ванильный дождь; на текстуре — много тонких капель
+                float nx = (float) (-ddz / Math.max(hd, 0.01)) * 0.5f, nz = (float) (ddx / Math.max(hd, 0.01)) * 0.5f;
                 float px = (float) ddx, pz = (float) ddz;
-                float v0 = -(time * 0.09f + off * 7), v1 = v0 + (top - bottom) / 4;
+                float v0 = -(time * 0.045f + off * 7), v1 = v0 + (top - bottom) / 8;
                 float a = (float) (0.55 * k * (1 - hd / (radius + 1)));
                 float y0 = (float) (bottom - cam.y), y1 = (float) (top - cam.y);
                 b.addVertex(px - nx, y1, pz - nz).setUv(0, v0).setColor(0.12f, 0.11f, 0.10f, a);

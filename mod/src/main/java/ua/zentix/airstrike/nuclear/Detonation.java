@@ -11,6 +11,7 @@ import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.FalloutModel;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
+import ua.zentix.airstrike.nuclear.world.Terrain;
 
 /**
  * Один ядерный подрыв — всё, из чего сервер и каждый клиент по одной и той же модели выводят волну, свет,
@@ -178,7 +179,7 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
      * ни листвы, ни воды. Карта высот есть и на сервере, и на клиенте, поэтому ответ у них одинаковый.
      */
     public static boolean underOpenSky(net.minecraft.world.level.Level level, Vec3 pos) {
-        return level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING,
+        return Terrain.height(level, net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING,
                 net.minecraft.util.Mth.floor(pos.x), net.minecraft.util.Mth.floor(pos.z)) <= pos.y;
     }
 

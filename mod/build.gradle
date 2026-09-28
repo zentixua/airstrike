@@ -36,6 +36,8 @@ repositories {
 def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
 def mcModsDir = file(project.findProperty('mcModsDir') ?: "${mcDir}/mods")
 def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 'create-aeronautics-bundled-1.21.1-*.jar']
+// сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
+def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 
 neoForge {
     version = project.neo_version
@@ -52,10 +54,14 @@ neoForge {
         clientScenario {
             client()
             gameDirectory = project.file('run/scenario')
-            // all — обычное оружие, nuke — ядерный удар (tools/client_scenario.sh nuke)
+            // all — обычное оружие, nuke — ядерный удар, far — выход из мира во время генерации дальних чанков
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             programArguments.addAll '--width', '1280', '--height', '720'
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
+            // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
+            jvmArgument "-Xlog:gc:file=${project.file('run/scenario/logs/gc.log').absolutePath}:time,uptime"
+            // профиль JFR по желанию: AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
+            if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
         }
         server {
             server()
@@ -102,7 +108,7 @@ test {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        from(mcModsDir) { runtimeModPatterns.each { include it } }
+        from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns : runtimeModPatterns).each { include it } }
         into "run/${runDir}/mods"
         onlyIf { mcModsDir.isDirectory() }
     }

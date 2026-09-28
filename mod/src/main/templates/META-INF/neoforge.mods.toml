@@ -9,7 +9,7 @@ displayName = "${mod_name}"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 
-# открывает Channel.source: фильтр OpenAL для оглушения ядерной волной
+# открывает Channel.source (фильтр OpenAL для оглушения) и ChunkMap.getChunks (все загруженные чанки)
 [[accessTransformers]]
 file = "META-INF/accesstransformer.cfg"
 

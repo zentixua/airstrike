@@ -17,9 +17,10 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
+import ua.zentix.airstrike.nuclear.world.Terrain;
+import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.registry.ModEntities;
-import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.util.Local;
 
 import java.util.ArrayList;
@@ -58,7 +59,7 @@ public final class NuclearStrikes {
         }
         Vec3 back = Local.horizontal(yaw).scale(-30);
         int x = Mth.floor(launcher.x + back.x), z = Mth.floor(launcher.z + back.z);
-        Vec3 pad = new Vec3(x + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z + 0.5);
+        Vec3 pad = new Vec3(x + 0.5, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z + 0.5);
         IcbmEntity icbm = ModEntities.ICBM.get().create(level);
         if (icbm == null) return false;
         icbm.prepare(pad, target, owner);
@@ -117,20 +118,18 @@ public final class NuclearStrikes {
     private static final int GIVE_UP_TICKS = 600;
 
     private static boolean groundLoaded(ServerLevel level, Vec3 target) {
-        BlockPos p = BlockPos.containing(target);
-        return level.hasChunk(p.getX() >> 4, p.getZ() >> 4);
+        return Terrain.ready(level, BlockPos.containing(target));
     }
 
     private static void holdGround(ServerLevel level, NuclearEvents.ScheduledStrike s, boolean hold) {
-        BlockPos p = BlockPos.containing(s.target());
-        UUID owner = UUID.nameUUIDFromBytes(("airstrike-nuke-" + s.id() + "-" + s.launchTime()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        ChunkTickets.CONTROLLER.forceChunk(level, owner, p.getX() >> 4, p.getZ() >> 4, hold, false);
+        NuclearTickets.hold(level, new net.minecraft.world.level.ChunkPos(BlockPos.containing(s.target())), hold);
     }
 
     // ---------------------------------------------------------------- события мира
 
     public static void onLevelTick(LevelTickEvent.Post e) {
         if (!(e.getLevel() instanceof ServerLevel level)) return;
+        long t0 = System.nanoTime();
         NuclearEvents events = NuclearEvents.get(level);
         long now = level.getGameTime();
         List<NuclearEvents.ScheduledStrike> due = new ArrayList<>();
@@ -146,9 +145,23 @@ public final class NuclearStrikes {
             NuclearWarhead.detonate(level, s.target(), s.yieldKt(), s.airBurst(), s.owner().orElse(null));
         }
         if (now % 1200 == 0) events.prune(now);
-        NuclearWorld.get(level).tick(level);
+        long t1 = System.nanoTime();
+        NuclearWorld world = NuclearWorld.get(level);
+        world.tick(level);
+        long t2 = System.nanoTime();
         RadiationTicker.tick(level);
+        long t3 = System.nanoTime();
+        // медленный тик — в лог (tools/logscan.py), не чаще раза в 5 с
+        if (t3 - t0 > SLOW_TICK_NS && now - lastSlowLog >= 100) {
+            lastSlowLog = now;
+            long[] w = world.lastNanos();
+            Airstrike.LOG.warn("Ядерный тик {} мс: удары {} мс, фронт {} мс, воронки {} мс, чанки {} мс, радиация {} мс", (t3 - t0) / 1_000_000,
+                    (t1 - t0) / 1_000_000, w[0] / 1_000_000, w[1] / 1_000_000, w[2] / 1_000_000, (t3 - t2) / 1_000_000);
+        }
     }
+
+    private static final long SLOW_TICK_NS = 50_000_000L;
+    private static long lastSlowLog = Long.MIN_VALUE / 2;
 
     public static void onChunkLoad(ChunkEvent.Load e) {
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk) {
@@ -168,11 +181,22 @@ public final class NuclearStrikes {
 
     /** Вход и смена измерения: действующие подрывы и летящие ракеты этого измерения. */
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent e) {
-        if (e.getEntity() instanceof ServerPlayer p) sync(p);
+        if (e.getEntity() instanceof ServerPlayer p) {
+            sync(p);
+            RadiationTicker.sync(p);
+        }
     }
 
     public static void onChangeDimension(PlayerEvent.PlayerChangedDimensionEvent e) {
-        if (e.getEntity() instanceof ServerPlayer p) sync(p);
+        if (e.getEntity() instanceof ServerPlayer p) {
+            sync(p);
+            RadiationTicker.sync(p);
+        }
+    }
+
+    /** После смерти доза сброшена (attachment не копируется) — счётчику это нужно сказать. */
+    public static void onRespawn(PlayerEvent.PlayerRespawnEvent e) {
+        if (e.getEntity() instanceof ServerPlayer p) RadiationTicker.sync(p);
     }
 
     private static void sync(ServerPlayer p) {
@@ -188,7 +212,7 @@ public final class NuclearStrikes {
     /** Точка на земле под целью (для пуска по игроку или сущности — по их позиции). */
     public static Vec3 ground(ServerLevel level, Vec3 at) {
         BlockPos p = BlockPos.containing(at);
-        if (!level.isLoaded(p)) return at;
-        return new Vec3(at.x, Math.min(at.y, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ())), at.z);
+        if (!Terrain.ready(level, p)) return at;
+        return new Vec3(at.x, Math.min(at.y, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ())), at.z);
     }
 }

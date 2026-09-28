@@ -56,10 +56,14 @@ public final class Deafness {
         apply(e.getSound(), e.getChannel().source);
     }
 
-    /** Звуковой поток: новому источнику — фильтр нижних частот, сила спадает к концу оглушения. */
+    /**
+     * Звуковой поток: новому источнику — фильтр нижних частот, сила спадает к концу оглушения. Фильтр остаётся на
+     * источнике до конца звука, поэтому зацикленные звуки и музыку не трогаем — иначе они звучали бы глухо минутами.
+     */
     private static void apply(SoundInstance sound, int source) {
         int l = left;
-        if (l <= 0 || sound.getLocation().equals(ModSounds.NUKE_TINNITUS.get().getLocation())) return;
+        if (l <= 0 || sound.isLooping() || sound.getSource() == SoundSource.MUSIC || sound.getSource() == SoundSource.RECORDS
+                || sound.getLocation().equals(ModSounds.NUKE_TINNITUS.get().getLocation())) return;
         if (filter == 0) filter = create();
         if (filter < 0) return;
         float k = depth * Math.min(1, l / (total * 0.4f)); // первые 60% — глухо, потом слух возвращается

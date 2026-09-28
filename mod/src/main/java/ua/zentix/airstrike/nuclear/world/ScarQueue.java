@@ -35,6 +35,9 @@ public final class ScarQueue {
         }
     }
 
+    /** Через сколько тиков снова проверить чанк, у которого не все соседи загружены. */
+    private static final int NEIGHBOUR_RETRY = 40;
+
     private final Long2ObjectOpenHashMap<Job> jobs = new Long2ObjectOpenHashMap<>();
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
     private final Map<Integer, ColumnScar.Budget> budgets = new HashMap<>();
@@ -66,6 +69,11 @@ public final class ScarQueue {
     public void drop(ChunkPos pos) {
         Job job = jobs.remove(pos.toLong());
         if (job != null) byDue.remove(job);
+    }
+
+    /** Счётчики пожаров только для подрывов, которые ещё помнятся. */
+    public void retainBudgets(java.util.Set<Integer> detonations) {
+        budgets.keySet().retainAll(detonations);
     }
 
     public void clear() {
@@ -103,6 +111,13 @@ public final class ScarQueue {
             if (chunk == null) {
                 byDue.poll();
                 jobs.remove(job.chunk);
+                continue;
+            }
+            if (!NuclearTickets.neighbourhoodLoaded(level, chunk.getPos())) {
+                // край загруженного мира: разрушим, когда подгрузятся соседи (или когда игрок подойдёт)
+                byDue.poll();
+                job.due = now + NEIGHBOUR_RETRY;
+                byDue.add(job);
                 continue;
             }
             Detonation d = job.events.get(job.event);

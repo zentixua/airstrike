@@ -216,13 +216,30 @@ public class RemoteScreen extends Screen {
     private void fire() {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
-        C2S.Fire packet = new C2S.Fire(loadout, Optional.empty(), Optional.ofNullable(aircraft));
+        C2S.Fire packet = new C2S.Fire(loadout, nukePoint(), Optional.ofNullable(aircraft));
         onClose();
         if (loadout.weapon() == WeaponType.NUKE) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
         } else {
             PacketDistributor.sendToServer(packet);
         }
+    }
+
+    /**
+     * МБР бьёт по точке, выбранной в момент нажатия: за 3 с взведения игрок может отвернуться. Для режимов
+     * «куда смотрю» и «вокруг меня» точка фиксируется сразу; игрок и аппарат — цели, их позицию возьмёт сервер.
+     */
+    private Optional<C2S.AimHint> nukePoint() {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (loadout.weapon() != WeaponType.NUKE || p == null || Minecraft.getInstance().level == null) return Optional.empty();
+        return switch (loadout.mode()) {
+            case LOOK -> {
+                var pick = ua.zentix.airstrike.target.TargetPicker.pick(Minecraft.getInstance().level, p, p.getEyePosition(), p.getLookAngle(), 400);
+                yield pick == null ? Optional.empty() : Optional.of(new C2S.AimHint(C2S.AimHint.POINT, pick.point(), 0, net.minecraft.world.phys.Vec3.ZERO));
+            }
+            case AROUND_ME -> Optional.of(new C2S.AimHint(C2S.AimHint.POINT, p.position(), 0, net.minecraft.world.phys.Vec3.ZERO));
+            default -> Optional.empty();
+        };
     }
 
     private void openConfig() {

@@ -61,6 +61,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);
         NeoForge.EVENT_BUS.addListener(RadiationTicker::onHeal);
     }
 

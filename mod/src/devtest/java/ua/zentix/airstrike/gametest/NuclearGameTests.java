@@ -110,34 +110,52 @@ public final class NuclearGameTests {
         h.succeed();
     }
 
-    /** Наземный подрыв 1 Мт, 1 блок = 15 м: чаша по профилю модели ±1 блок, вокруг вал; воздушный подрыв воронки не даёт. */
-    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_crater", skyAccess = true)
+    /**
+     * Наземный подрыв 1 Мт, 1 блок = 15 м: чаша по профилю модели ±1 блок от природного грунта каждого столбца
+     * (бугор в чаше углубляется от своей высоты, холм на валу не срезается), вокруг вал; воздушный подрыв воронки не даёт.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "nuke_crater", skyAccess = true)
     public static void groundBurstDigsCraterProfile(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Detonation d = detonation(h, CENTER, 0, 1000, 0.065f);
-        CraterJob job = new CraterJob(level, d);
+        double dry = d.blocks(CraterModel.radius(d.yieldKt(), CraterModel.Soil.DRY));
+        // бугор из грунта в половине радиуса и холм из камня на валу
+        BlockPos bump = CENTER.north(Mth.floor(dry * 0.5)), hill = CENTER.south(Mth.floor(dry * 1.6));
+        for (int y = 0; y < 3; y++) h.setBlock(bump.above(y), Blocks.DIRT);
+        for (int y = 0; y < 6; y++) h.setBlock(hill.above(y), Blocks.STONE);
+        CraterJob job = new CraterJob(d, 0);
         RandomSource random = RandomSource.create(3);
-        for (int i = 0; i < 20_000 && job.step(level, random) != CraterJob.Step.DONE; i++) {
-            // все чанки площадки загружены: WAIT не бывает
-        }
-        CraterModel.Soil soil = job.soil();
-        double radius = d.blocks(CraterModel.radius(d.yieldKt(), soil));
-        for (double f : new double[]{0, 0.5}) {
-            BlockPos p = h.absolutePos(CENTER.east(Mth.floor(radius * f)));
-            double r = d.metres(Math.hypot(p.getX() + 0.5 - d.burst().x, p.getZ() + 0.5 - d.burst().z));
-            int expected = Mth.floor(d.groundY() - d.blocks(CraterModel.profileDepth(r, d.yieldKt(), soil)));
-            int actual = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ());
-            h.assertTrue(Math.abs(actual - expected) <= 1, "профиль воронки на " + f + " радиуса: высота " + actual + ", ждали " + expected);
-        }
-        BlockPos rim = h.absolutePos(CENTER.east(Mth.floor(radius * 1.05)));
-        h.assertTrue(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, rim.getX(), rim.getZ()) >= d.groundY(), "нет вала за кромкой");
-        h.assertFalse(CraterModel.formsCrater(Yield.optimalBurstHeight(15), 15), "воздушный подрыв на оптимальной высоте роет воронку");
-        h.succeed();
+        h.succeedWhen(() -> {
+            // чанки площадки загружены, но воронка идёт по бюджету: копаем здесь, пока не закончит
+            for (int i = 0; i < 5000 && job.step(level, random) == CraterJob.Step.PROGRESS; i++) {
+            }
+            h.assertTrue(job.step(level, random) == CraterJob.Step.DONE, "воронка ещё роется");
+            CraterModel.Soil soil = job.soil();
+            double radius = d.blocks(CraterModel.radius(d.yieldKt(), soil));
+            for (double f : new double[]{0, 0.3}) {
+                BlockPos p = h.absolutePos(CENTER.east(Mth.floor(radius * f)));
+                assertSurface(h, d, soil, p, d.groundY(), "на " + f + " радиуса");
+            }
+            assertSurface(h, d, soil, h.absolutePos(bump), d.groundY() + 3, "на бугре");
+            BlockPos hillTop = h.absolutePos(hill);
+            h.assertTrue(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, hillTop.getX(), hillTop.getZ()) >= hillTop.getY() + 6,
+                    "холм на валу срезан");
+            BlockPos rim = h.absolutePos(CENTER.east(Mth.floor(radius * 1.05)));
+            h.assertTrue(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, rim.getX(), rim.getZ()) >= d.groundY(), "нет вала за кромкой");
+            h.assertFalse(CraterModel.formsCrater(Yield.optimalBurstHeight(15), 15), "воздушный подрыв на оптимальной высоте роет воронку");
+        });
+    }
+
+    private static void assertSurface(GameTestHelper h, Detonation d, CraterModel.Soil soil, BlockPos p, double ground, String where) {
+        double r = d.metres(Math.hypot(p.getX() + 0.5 - d.burst().x, p.getZ() + 0.5 - d.burst().z));
+        int expected = Mth.floor(ground - d.blocks(CraterModel.profileDepth(r, d.yieldKt(), soil)));
+        int actual = h.getLevel().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ());
+        h.assertTrue(Math.abs(actual - expected) <= 1, "профиль воронки " + where + ": высота " + actual + ", ждали " + expected);
     }
 
     /**
      * Весь путь: подрыв 1 кт (1 блок = 10 м) → очередь по чанкам → стекло в 200 м выбито, чанк помечен номером
-     * подрыва, очередь пуста, и ни в одном тике обработка не вышла за бюджет (+1 мс).
+     * подрыва, воронка вырыта, и ни в одном тике обработка не вышла за бюджет (+1 мс).
      */
     @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_pipeline", skyAccess = true)
     public static void detonationRunsBudgetedQueue(GameTestHelper h) {
@@ -148,7 +166,8 @@ public final class NuclearGameTests {
         long budget = (AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() + 1) * 1_000_000L;
         h.succeedWhen(() -> {
             NuclearWorld w = NuclearWorld.get(level);
-            h.assertTrue(w.queuedChunks() == 0 && w.craterJobs() == 0, "очередь ещё идёт: чанков " + w.queuedChunks());
+            // чанки на краю загруженного мира ждут соседей (иначе Sable догружал бы их на каждом блоке) — они в очереди
+            h.assertTrue(w.craterJobs() == 0, "воронка ещё роется");
             h.assertBlockNotPresent(Blocks.GLASS, glass);
             int scar = level.getChunkAt(h.absolutePos(glass)).getData(ModAttachments.CHUNK_SCAR);
             h.assertTrue(scar >= d.id(), "чанк не помечен подрывом: " + scar + " < " + d.id());

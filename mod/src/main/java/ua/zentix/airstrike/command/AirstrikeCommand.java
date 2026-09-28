@@ -65,8 +65,10 @@ public final class AirstrikeCommand {
             return 1;
         }));
         root.then(Commands.literal("clear").executes(ctx -> {
-            int n = ServerActions.clearAll(ctx.getSource().getServer());
-            ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.cleared", n), true);
+            CommandSourceStack s = ctx.getSource();
+            boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && ServerActions.mayUseNuke(p);
+            int n = ServerActions.clearAll(s.getServer(), nuclear);
+            s.sendSuccess(() -> Component.translatable("airstrike.cleared", n), true);
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))

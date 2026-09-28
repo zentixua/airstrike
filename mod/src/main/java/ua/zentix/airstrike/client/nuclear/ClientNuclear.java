@@ -6,6 +6,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
+import ua.zentix.airstrike.nuclear.NuclearEvents;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,30 +21,30 @@ import java.util.Map;
  */
 public final class ClientNuclear {
     /**
-     * Подрыв на клиенте. «Вживую» (не при входе в мир) — со вспышкой, звуком и тряской, и его картинка идёт от
-     * момента, когда пришёл пакет: часы клиента могут убежать от сервера на секунду-две (сервер подгружал чанки),
-     * а шар и двойная вспышка длятся доли секунды — их нельзя проскочить.
+     * Подрыв на клиенте. «Вживую» (не при входе в мир) — со вспышкой, звуком и тряской. Время картинки считают свои
+     * тики клиента от прихода пакета, а не игровые часы: те прыгают назад, когда сервер догоняет отставание,
+     * а шар и двойная вспышка длятся доли секунды — их нельзя ни проскочить, ни повторить.
      */
     public static final class Active {
         public final Detonation d;
         public final boolean live;
         public final CloudPuffs puffs;
-        /** Игровое время клиента, от которого идёт картинка. */
-        private final long t0;
+        /** Сколько тиков прошло до прихода пакета (у пришедших при входе в мир — с самого подрыва). */
+        private final long before;
+        private long age;
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
             this.d = d;
             this.live = live;
-            this.t0 = live ? clientNow : d.gameTime();
+            this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
             this.puffs = new CloudPuffs(d);
             this.sounds = new NukeSounds.Schedule(this);
         }
 
-        /** Тики после подрыва (с долей кадра), не меньше нуля. */
+        /** Тики после подрыва (с долей кадра). */
         public double ticks(float partialTick) {
-            ClientLevel level = Minecraft.getInstance().level;
-            return level == null ? 0 : Math.max(0, level.getGameTime() - t0 + partialTick);
+            return before + age + partialTick;
         }
 
         /** Секунды модели после подрыва (с учётом масштаба мира). */
@@ -81,7 +82,9 @@ public final class ClientNuclear {
     public static void sync(S2C.NukeSync p) {
         DETONATIONS.clear();
         WARNINGS.clear();
-        for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, 0));
+        ClientLevel level = Minecraft.getInstance().level;
+        long now = level == null ? 0 : level.getGameTime();
+        for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
     }
 
@@ -106,8 +109,9 @@ public final class ClientNuclear {
         long now = level.getGameTime();
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
-            a.sounds.tick(now);
-            if (expired(a.d, now)) it.remove();
+            a.age++;
+            a.sounds.tick();
+            if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }
         WARNINGS.values().removeIf(w -> now > w.detonateTime() + 100);
         NukeSounds.tick(level, now);
@@ -116,11 +120,13 @@ public final class ClientNuclear {
         Geiger.tick();
     }
 
-    /** Подрыв исчезает с клиента, когда гриб рассеялся и чёрный дождь кончился. */
-    private static boolean expired(Detonation d, long now) {
+    /**
+     * Подрыв исчезает с клиента, когда гриб рассеялся, а подрыв с осадками — когда его забудет и сервер
+     * (далеко по ветру осадки и чёрный дождь приходят через десятки игровых часов).
+     */
+    private static double lifeTicks(Detonation d) {
         double cloudTicks = CloudPuffs.lifeSeconds(d) * 20 * d.scale();
-        double rainTicks = d.hasFallout() ? (Detonation.BLACK_RAIN_HOURS + 6) * 1000 : 0;
-        return now - d.gameTime() > Math.max(cloudTicks, rainTicks);
+        return d.hasFallout() ? Math.max(cloudTicks, NuclearEvents.FORGET_AFTER) : cloudTicks;
     }
 
     // ---------------------------------------------------------------- для рисования и звука

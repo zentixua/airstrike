@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland, звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|nuke]   → mod/run/scenario/screenshots/*.png, mod/run/scenario/audio.wav, logs/latest.log
-#   all — шахед, ракета, бомба, залп, бинокль и пульт; nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь
+#   tools/client_scenario.sh [all|nuke] [shaders]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   all — шахед, ракета, бомба, залп, бинокль и пульт; nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
+#   shaders — ещё Sodium, Iris и шейдерпак хоста из инстанса (как у Артёма)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN="$ROOT/mod/run/scenario"
@@ -30,6 +31,17 @@ tutorialStep:none
 joinedFirstServer:true
 OPT
 export AIRSTRIKE_SCENARIO="${1:-all}"
+MC="$(python3 "$ROOT/tools/paths.py" MC)"
+if [ "${2:-}" = shaders ]; then
+  export AIRSTRIKE_SHADERS=1
+  PACK="$(sed -n 's/^shaderPack=//p' "$MC/config/iris.properties")"
+  mkdir -p "$RUN/shaderpacks" "$RUN/config"
+  rm -rf "$RUN/shaderpacks/$PACK"
+  cp -r "$MC/shaderpacks/$PACK" "$RUN/shaderpacks/"
+  printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
+else
+  unset AIRSTRIKE_SHADERS
+fi
 export JAVA_HOME="${JAVA_HOME:-$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta}"
 cd "$ROOT/mod"
 exec env -u DISPLAY -u WAYLAND_DISPLAY kwin_wayland --virtual --xwayland --socket wayland-airstrike-scenario \

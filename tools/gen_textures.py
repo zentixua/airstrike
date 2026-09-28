@@ -7,7 +7,7 @@
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
   nuke/puffs — атлас 4×2 клубов гриба по 64×64 (почти серые: цвет даёт рендерер), nuke/plasma — бесшовная плазма шара 128×128,
-  nuke/rain — капля чёрного дождя 8×32, nuke/flare — круглое свечение 64×64 (голова следа боеголовки, вспышка).
+  nuke/rain — лист капель чёрного дождя 64×256 (бесшовный по вертикали), nuke/flare — круглое свечение 64×64 (голова следа боеголовки, вспышка).
 Нужны Pillow и numpy.
 """
 import os
@@ -190,14 +190,21 @@ def trefoil(N=18):
     return img
 
 
-def rain_streak(w=8, h=32):
-    """Капля чёрного дождя: тонкий хвост сверху, толстая маслянистая голова снизу с бликом."""
-    x, y = np.meshgrid(np.arange(w) + 0.5, np.arange(h) + 0.5)
-    k = y / h
-    width = 0.5 + 1.2 * k ** 3
-    a = (0.15 + 0.7 * k ** 1.5) * np.exp(-((x - w / 2) / width) ** 2) * smooth(0, 1.5, h - 0.5 - y)
-    glint = np.exp(-((x - w / 2 + 0.8) ** 2 + (y - h + 4) ** 2) / 1.5)
-    rgb = np.dstack([0.14, 0.1, 0.07]) + np.dstack([0.2, 0.17, 0.12]) * glint[..., None]
+def rain_sheet(w=64, h=256, drops=46):
+    """Чёрный дождь: лист тонких капель, бесшовный по вертикали (цвет даёт рендерер — здесь почти белые штрихи)."""
+    a = np.zeros((h, w))
+    rgb = np.ones((h, w, 3)) * 0.9
+    for _ in range(drops):
+        x = int(rng.integers(0, w))
+        y0 = int(rng.integers(0, h))
+        length = int(rng.integers(10, 26))
+        for k in range(length):
+            f = k / length
+            a[(y0 + k) % h, x] = max(a[(y0 + k) % h, x], 0.25 + 0.75 * f ** 1.5)
+        # тяжёлая маслянистая голова капли
+        a[(y0 + length) % h, x] = 1.0
+        if x + 1 < w:
+            a[(y0 + length) % h, x + 1] = max(a[(y0 + length) % h, x + 1], 0.5)
     return rgba(rgb, a)
 
 
@@ -235,6 +242,6 @@ if __name__ == "__main__":
         atlas.paste(puff(), ((i % 4) * 64, (i // 4) * 64))
     save(atlas, "nuke/puffs")
     save(plasma(), "nuke/plasma")
-    save(rain_streak(), "nuke/rain")
+    save(rain_sheet(), "nuke/rain")
     save(flare(), "nuke/flare")
     print("ok")

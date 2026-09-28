@@ -1,12 +1,10 @@
 package ua.zentix.airstrike.nuclear.world;
 
 import dev.ryanhcode.sable.companion.SubLevelAccess;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
@@ -20,6 +18,7 @@ import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
+import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModSounds;
 
@@ -31,8 +30,8 @@ import java.util.WeakHashMap;
 
 /**
  * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам, очередь
- * повреждений чанков и воронки под общим бюджетом времени. Не сохраняется: всё выводится из
- * {@link NuclearEvents} и отметок на чанках.
+ * повреждений чанков и воронки под общим бюджетом времени. Сам не сохраняется: всё выводится из
+ * {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках.
  */
 public final class NuclearWorld {
     private static final Map<ServerLevel, NuclearWorld> WORLDS = new WeakHashMap<>();
@@ -42,6 +41,9 @@ public final class NuclearWorld {
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
     private long maxWorkNanos;
+    private long lastFrontNanos, lastCraterNanos, lastScarNanos;
+    /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
+    private boolean restored;
 
     private NuclearWorld() {}
 
@@ -62,6 +64,11 @@ public final class NuclearWorld {
         return craters.size();
     }
 
+    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, воронки и очередь чанков, нс. */
+    public long[] lastNanos() {
+        return new long[]{lastFrontNanos, lastCraterNanos, lastScarNanos};
+    }
+
     /** Самая долгая обработка очередей за один тик, нс (для проверки бюджета). */
     public long maxWorkNanos() {
         return maxWorkNanos;
@@ -69,30 +76,17 @@ public final class NuclearWorld {
 
     // ---------------------------------------------------------------- события
 
+    /** Все загруженные сейчас чанки — в очередь (дальше радиуса очередь их сама отсеет); остальные — при загрузке. */
     public void onDetonation(ServerLevel level, Detonation d) {
-        int view = level.getServer().getPlayerList().getViewDistance() + 1;
-        java.util.Set<Long> seen = new java.util.HashSet<>();
-        for (ServerPlayer p : level.players()) {
-            int pcx = p.chunkPosition().x, pcz = p.chunkPosition().z;
-            for (int cx = pcx - view; cx <= pcx + view; cx++) {
-                for (int cz = pcz - view; cz <= pcz + view; cz++) offer(level, cx, cz, d, seen);
-            }
-        }
-        for (long c : level.getForcedChunks()) offer(level, net.minecraft.world.level.ChunkPos.getX(c), net.minecraft.world.level.ChunkPos.getZ(c), d, seen);
-        BlockPos spawn = level.getSharedSpawnPos();
-        for (int cx = (spawn.getX() >> 4) - 2; cx <= (spawn.getX() >> 4) + 2; cx++) {
-            for (int cz = (spawn.getZ() >> 4) - 2; cz <= (spawn.getZ() >> 4) + 2; cz++) offer(level, cx, cz, d, seen);
+        for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
+            LevelChunk chunk = level.getChunkSource().getChunkNow(holder.getPos().x, holder.getPos().z);
+            if (chunk != null) scars.offer(chunk, d);
         }
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
-                && ua.zentix.airstrike.nuclear.model.CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
-            craters.add(new CraterJob(level, d));
+                && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
+            craters.add(new CraterJob(d, 0));
+            NuclearEvents.get(level).craterProgress(d.id(), 0, false);
         }
-    }
-
-    private void offer(ServerLevel level, int cx, int cz, Detonation d, java.util.Set<Long> seen) {
-        if (!seen.add(net.minecraft.world.level.ChunkPos.asLong(cx, cz))) return;
-        LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
-        if (chunk != null) scars.offer(chunk, d);
     }
 
     public void onChunkLoad(ServerLevel level, LevelChunk chunk) {
@@ -108,31 +102,62 @@ public final class NuclearWorld {
         scars.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
+        fronts.clear();
     }
 
     // ---------------------------------------------------------------- тик
 
     public void tick(ServerLevel level) {
         long now = level.getGameTime();
-        for (Detonation d : NuclearEvents.get(level).detonations()) {
+        NuclearEvents events = NuclearEvents.get(level);
+        if (!restored) restore(events);
+        java.util.Set<Integer> active = new java.util.HashSet<>();
+        long frontStart = System.nanoTime();
+        for (Detonation d : events.detonations()) {
             long since = now - d.gameTime();
-            if (since >= 0 && since <= d.arrivalTicks(d.radiusMax()) + positivePhaseTicks(d) + 2) front(level, d, since);
-            else fronts.remove(d.id());
+            if (since >= 0 && since <= d.arrivalTicks(d.radiusMax()) + positivePhaseTicks(d) + 2) {
+                front(level, d, since);
+                active.add(d.id());
+            }
         }
+        fronts.keySet().retainAll(active);
+        lastFrontNanos = System.nanoTime() - frontStart;
+        if (now % 1200 == 0) scars.retainBudgets(events.detonations().stream().map(Detonation::id).collect(java.util.stream.Collectors.toSet()));
         long start = System.nanoTime();
         long deadline = start + AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L;
         try {
             while (!craters.isEmpty() && System.nanoTime() < deadline) {
-                CraterJob.Step s = craters.getFirst().step(level, level.random);
+                CraterJob job = craters.getFirst();
+                CraterJob.Step s = job.step(level, level.random);
+                events.craterProgress(job.detonation().id(), job.progress(), s == CraterJob.Step.DONE);
                 if (s == CraterJob.Step.DONE) craters.removeFirst();
                 else if (s == CraterJob.Step.WAIT) break;
             }
+            long scarStart = System.nanoTime();
+            lastCraterNanos = scarStart - start;
             scars.work(level, now, deadline, level.random);
+            lastScarNanos = System.nanoTime() - scarStart;
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
             clear(level);
         }
         maxWorkNanos = Math.max(maxWorkNanos, System.nanoTime() - start);
+    }
+
+    /** После загрузки мира: недорытые воронки — дорыть с того чанка, где остановились. */
+    private void restore(NuclearEvents events) {
+        restored = true;
+        events.craters().forEach((id, done) -> events.detonations().stream().filter(d -> d.id() == id).findFirst()
+                .ifPresent(d -> craters.add(new CraterJob(d, done))));
+    }
+
+    private static boolean loadedAround(ServerLevel level, Vec3 c, double r) {
+        for (int cx = Mth.floor(c.x - r) >> 4; cx <= Mth.floor(c.x + r) >> 4; cx++) {
+            for (int cz = Mth.floor(c.z - r) >> 4; cz <= Mth.floor(c.z + r) >> 4; cz++) {
+                if (!Terrain.ready(level, cx, cz)) return false;
+            }
+        }
+        return true;
     }
 
     private static double positivePhaseTicks(Detonation d) {
@@ -149,10 +174,12 @@ public final class NuclearWorld {
         double r = d.frontRadius(since);
         double back = d.frontRadius(since - positivePhaseTicks(d));
         if (r <= done[0] && back <= done[1]) return;
-        for (Entity e : level.getAllEntities()) {
-            if (!(e instanceof LivingEntity living) || !e.isAlive() || e.isSpectator() || e.isPassenger()) continue;
-            if (e instanceof Player p && p.getAbilities().invulnerable) continue;
-            double dist = e.position().distanceTo(d.burst());
+        // снимок списка: удар может убить моба, и из него выпадет лут — живую карту сущностей трогать нельзя
+        double reach = Math.max(r, back);
+        for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(d.burst(), reach * 2, reach * 2, reach * 2))) {
+            if (!living.isAlive() || living.isSpectator() || living.isPassenger()) continue;
+            if (living instanceof Player p && p.getAbilities().invulnerable) continue;
+            double dist = living.position().distanceTo(d.burst());
             if (dist >= done[0] && dist < r) hit(level, d, living, dist);
             else if (dist >= done[1] && dist < back) suck(d, living);
         }
@@ -203,6 +230,8 @@ public final class NuclearWorld {
             double psi = d.psi(nearest);
             if (psi < 3) continue;
             float power = (float) Mth.clamp(6 + (psi - 3) * 1.15, 6, 60);
+            // лучи ванильного взрыва читают блоки — все чанки вокруг должны быть уже загружены
+            if (!loadedAround(level, nearest, power * 1.5 + 2)) continue;
             level.explode(null, ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
                     nearest.x, nearest.y, nearest.z, power, false, Level.ExplosionInteraction.TNT,
                     ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);

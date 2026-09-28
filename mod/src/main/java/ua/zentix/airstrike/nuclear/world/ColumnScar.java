@@ -40,7 +40,7 @@ public final class ColumnScar {
     }
 
     public static void apply(ServerLevel level, Detonation d, int x, int z, Budget budget, RandomSource random) {
-        int top = level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z) - 1;
+        int top = Terrain.height(level, Heightmap.Types.WORLD_SURFACE, x, z) - 1;
         int bottom = Math.max(level.getMinBuildHeight(), top - MAX_DEPTH);
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         boolean blockDamage = AirstrikeConfig.SERVER.nukeBlockDamage.get();
@@ -105,6 +105,8 @@ public final class ColumnScar {
 
     private static void ignite(ServerLevel level, BlockPos.MutableBlockPos pos, Budget budget, RandomSource random, double chance) {
         if (!AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get() || random.nextDouble() >= chance) return;
+        // огонь проверяет и будит соседей: на краю загруженного мира это загрузило бы соседний чанк
+        if (!NuclearTickets.aroundLoaded(level, pos)) return;
         BlockState fire = BaseFireBlock.getState(level, pos);
         if (fire.canSurvive(level, pos)) {
             level.setBlock(pos, fire, Block.UPDATE_ALL);
@@ -135,7 +137,8 @@ public final class ColumnScar {
         BlockState lying = log.hasProperty(RotatedPillarBlock.AXIS) ? log.setValue(BlockStateProperties.AXIS, dir.getAxis()) : log;
         for (int i = 0; i < height; i++) {
             BlockPos p = base.relative(dir, i);
-            BlockPos at = new BlockPos(p.getX(), level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), p.getZ());
+            if (!NuclearTickets.aroundLoaded(level, p)) break; // ствол не тянет за собой загрузку соседнего чанка
+            BlockPos at = new BlockPos(p.getX(), Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), p.getZ());
             if (!level.getBlockState(at).canBeReplaced()) break;
             level.setBlock(at, lying, FLAGS);
         }

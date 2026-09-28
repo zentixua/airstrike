@@ -12,7 +12,9 @@ import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,6 +45,9 @@ public final class NuclearEvents extends SavedData {
 
     private final List<Detonation> detonations = new ArrayList<>();
     private final List<ScheduledStrike> scheduled = new ArrayList<>();
+    /** Недорытые воронки: номер подрыва → сколько чанков уже вырыто. */
+    private final Map<Integer, Integer> craters = new LinkedHashMap<>();
+    private static final Codec<Map<Integer, Integer>> CRATERS_CODEC = Codec.unboundedMap(Codec.STRING.xmap(Integer::parseInt, String::valueOf), Codec.INT);
     private int nextId = 1;
 
     public static NuclearEvents get(ServerLevel level) {
@@ -76,6 +81,16 @@ public final class NuclearEvents extends SavedData {
         if (scheduled.remove(s)) setDirty();
     }
 
+    public Map<Integer, Integer> craters() {
+        return craters;
+    }
+
+    /** Ход воронки: сколько чанков вырыто; {@code done} — вырыта целиком. */
+    public void craterProgress(int detonation, int chunks, boolean done) {
+        Integer prev = done ? craters.remove(detonation) : craters.put(detonation, chunks);
+        if (prev == null || prev != chunks || done) setDirty();
+    }
+
     /**
      * Отбой: запланированные удары отменены, подрывы забыты — нет больше ни осадков, ни разрушений в чанках,
      * которые загрузятся потом. Разрушенное остаётся. Номера подрывов продолжают расти (отметки чанков верны).
@@ -84,6 +99,7 @@ public final class NuclearEvents extends SavedData {
         int n = scheduled.size() + detonations.size();
         scheduled.clear();
         detonations.clear();
+        craters.clear();
         setDirty();
         return n;
     }
@@ -91,6 +107,7 @@ public final class NuclearEvents extends SavedData {
     /** Забыть старые подрывы. */
     public void prune(long now) {
         if (detonations.removeIf(d -> now - d.gameTime() > FORGET_AFTER)) setDirty();
+        if (craters.keySet().removeIf(id -> detonations.stream().noneMatch(d -> d.id() == id))) setDirty();
     }
 
     private static NuclearEvents load(CompoundTag tag, HolderLookup.Provider registries) {
@@ -98,6 +115,7 @@ public final class NuclearEvents extends SavedData {
         e.nextId = Math.max(1, tag.getInt("next_id"));
         Detonation.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("detonations")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.detonations::addAll);
         ScheduledStrike.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("scheduled")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.scheduled::addAll);
+        if (tag.contains("craters")) CRATERS_CODEC.parse(NbtOps.INSTANCE, tag.get("craters")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.craters::putAll);
         return e;
     }
 
@@ -106,6 +124,7 @@ public final class NuclearEvents extends SavedData {
         tag.putInt("next_id", nextId);
         Detonation.CODEC.listOf().encodeStart(NbtOps.INSTANCE, detonations).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("detonations", t));
         ScheduledStrike.CODEC.listOf().encodeStart(NbtOps.INSTANCE, scheduled).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("scheduled", t));
+        CRATERS_CODEC.encodeStart(NbtOps.INSTANCE, craters).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("craters", t));
         return tag;
     }
 }

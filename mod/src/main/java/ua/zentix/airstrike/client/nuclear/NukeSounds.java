@@ -82,10 +82,11 @@ public final class NukeSounds {
             java.util.Arrays.sort(rumbles);
         }
 
-        void tick(long now) {
+        void tick() {
             if (!live) return;
             Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-            double since = a.ticks(0);
+            long now = (long) a.ticks(0);
+            double since = now;
             if (!arrived) {
                 double dist = ear.distanceTo(d.burst());
                 if (d.frontRadius(since) < dist) return;

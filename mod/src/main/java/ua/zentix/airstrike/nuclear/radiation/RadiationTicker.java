@@ -59,6 +59,12 @@ public final class RadiationTicker {
         p.removeEffect(ModEffects.RADIATION_SICKNESS);
     }
 
+    /** Показания счётчика заново целиком: вход в мир, возрождение, смена измерения. */
+    public static void sync(ServerPlayer p) {
+        RadiationDose r = dose(p);
+        PacketDistributor.sendToPlayer(p, new S2C.Radiation(r.doseGy(), r.rate(), r.contamination(), stage(p, r).ordinal()));
+    }
+
     private static void set(ServerPlayer p, RadiationDose next) {
         RadiationDose prev = dose(p);
         p.setData(ModAttachments.RADIATION, next);

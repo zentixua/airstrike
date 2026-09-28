@@ -1,7 +1,6 @@
 package ua.zentix.airstrike.nuclear;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
@@ -9,10 +8,12 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -28,9 +29,9 @@ import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.ThermalShadow;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEffects;
-import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.world.Terrain;
 
 import java.util.UUID;
 
@@ -40,12 +41,6 @@ import java.util.UUID;
  * проникающая радиация. Ударная волна, разрушения и воронка идут дальше по тикам ({@link NuclearWorld}).
  */
 public final class NuclearWarhead {
-    /**
-     * Наибольшая сила ванильного взрыва в сердцевине наземного подрыва (толчок аппаратов Sable и сущностей рядом);
-     * меньше — по размеру огненного шара, чтобы в уменьшенном мире (effects_scale) сердцевина не была больше шара.
-     */
-    private static final float CORE_POWER = 40;
-
     private NuclearWarhead() {}
 
     /**
@@ -60,8 +55,8 @@ public final class NuclearWarhead {
     public static Detonation detonate(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner, float scale) {
         long started = System.nanoTime();
         NuclearEvents events = NuclearEvents.get(level);
-        int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(target.x), Mth.floor(target.z));
-        double ground = level.hasChunk(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) ? Math.min(groundY, target.y) : target.y;
+        int groundY = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(target.x), Mth.floor(target.z));
+        double ground = Terrain.ready(level, Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) ? Math.min(groundY, target.y) : target.y;
         if (ground <= level.getMinBuildHeight()) ground = target.y;
         double hob = airBurst ? Yield.optimalBurstHeight(yieldKt) * scale : 0;
         boolean surface = hob / scale < FireballModel.maxRadius(yieldKt, true);
@@ -73,12 +68,6 @@ public final class NuclearWarhead {
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
 
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
-        // сердцевина у земли: ванильный взрыв толкает аппараты Sable и всё рядом (сам Sable ломает их блоки)
-        if (surface) {
-            level.explode(null, ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, ownerEntity), null,
-                    d.burst().x, ground + 1, d.burst().z, (float) Mth.clamp(d.fireballRadius() * 0.5, 4, CORE_POWER), true, Level.ExplosionInteraction.TNT,
-                    ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT);
-        }
         lightAndRadiation(level, d, ownerEntity);
         NuclearWorld.get(level).onDetonation(level, d);
         Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
@@ -91,8 +80,11 @@ public final class NuclearWarhead {
         double burnRange = d.blocks(ThermalModel.rangeForFluence(ThermalModel.BURN_1, d.yieldKt(), d.surface(), d.visibility()));
         double radRange = d.blocks(radiusForDose(d.yieldKt(), 50));
         double range = Math.max(burnRange, radRange);
-        for (Entity e : level.getAllEntities()) {
-            if (!(e instanceof LivingEntity living) || !e.isAlive() || e.distanceToSqr(d.burst()) > range * range) continue;
+        // снимок списка: смерть моба добавляет лут в живую карту сущностей
+        for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(d.burst(), range * 2, range * 2, range * 2))) {
+            if (!living.isAlive() || living.distanceToSqr(d.burst()) > range * range) continue;
+            // творческий режим и наблюдатели: ни ожогов, ни дозы (как и у урона)
+            if (living instanceof Player p && (p.isCreative() || p.isSpectator())) continue;
             Vec3 eye = living.getEyePosition();
             if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
             double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
@@ -111,7 +103,8 @@ public final class NuclearWarhead {
     private static void burn(ServerLevel level, Detonation d, LivingEntity e, double q, @Nullable Entity owner) {
         if (q < ThermalModel.BURN_1) return;
         e.igniteForSeconds((float) Math.min(20, q));
-        e.addEffect(new MobEffectInstance(ModEffects.BURNS, (int) Math.min(20 * 600, q * 20 * 30), q >= ThermalModel.BURN_3 ? 1 : 0));
+        // без частиц вокруг (в первом лице они лезут в глаза), только значок
+        e.addEffect(new MobEffectInstance(ModEffects.BURNS, (int) Math.min(20 * 600, q * 20 * 30), q >= ThermalModel.BURN_3 ? 1 : 0, false, false, true));
         if (q >= ThermalModel.BURN_3) {
             float dmg = q >= 15 ? Float.MAX_VALUE : (float) ((q - ThermalModel.BURN_3) * 2 + 4);
             e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_THERMAL, null, owner), dmg);
@@ -127,13 +120,23 @@ public final class NuclearWarhead {
         Vec3 dir = d.burst().subtract(eye);
         double len = dir.length();
         Vec3 near = eye.add(dir.scale(Math.min(1, 48 / Math.max(len, 1e-3))));
-        if (level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
+        // луч по блокам — только по загруженным чанкам: сервер не должен грузить мир ради проверки
+        if (loadedAlong(level, eye, near) && level.clip(new ClipContext(eye, near, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, e)).getType() != HitResult.Type.MISS) return false;
         return ThermalShadow.visible(level, d.burst(), near);
     }
 
+    /** Все чанки вдоль луча готовы (шаг 4 блока — луч не проскочит угол чужого чанка незамеченным). */
+    private static boolean loadedAlong(Level level, Vec3 from, Vec3 to) {
+        int steps = Math.max(1, (int) Math.ceil(from.distanceTo(to) / 4));
+        for (int i = 0; i <= steps; i++) {
+            if (!Terrain.ready(level, BlockPos.containing(from.lerp(to, i / (double) steps)))) return false;
+        }
+        return true;
+    }
+
     /**
-     * Экранирование проникающей радиации (DESIGN §1.5): шагаем по лучу к точке подрыва на 64 блока,
-     * каждый встреченный блок ослабляет по материалу.
+     * Экранирование проникающей радиации (DESIGN §1.5): шагаем по лучу к точке подрыва на 64 блока
+     * (не дальше загруженных чанков), каждый встреченный блок ослабляет по материалу.
      */
     public static double shielding(Level level, Vec3 from, Vec3 burst) {
         Vec3 dir = burst.subtract(from).normalize();
@@ -143,6 +146,7 @@ public final class NuclearWarhead {
             BlockPos p = BlockPos.containing(from.add(dir.scale(s)));
             if (p.equals(last)) continue;
             last = p;
+            if (!Terrain.ready(level, p)) break;
             BlockState b = level.getBlockState(p);
             if (b.isAir()) continue;
             if (!b.getFluidState().isEmpty()) water++;

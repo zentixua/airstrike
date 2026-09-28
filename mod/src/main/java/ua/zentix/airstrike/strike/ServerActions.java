@@ -70,7 +70,7 @@ public final class ServerActions {
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player)) return;
-        int n = clearAll(player.server);
+        int n = clearAll(player.server, mayUseNuke(player));
         player.sendSystemMessage(Component.translatable("airstrike.cleared", n).withStyle(ChatFormatting.GRAY));
     }
 
@@ -209,8 +209,12 @@ public final class ServerActions {
         player.displayClientMessage(Component.translatable("airstrike.target_not_found").withStyle(ChatFormatting.RED), true);
     }
 
-    /** Отбой: все снаряды и обломки во всех мирах убраны без взрыва, залпы отменены. */
-    public static int clearAll(MinecraftServer server) {
+    /**
+     * Отбой: все снаряды и обломки во всех мирах убраны без взрыва, залпы отменены.
+     *
+     * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
+     */
+    public static int clearAll(MinecraftServer server, boolean nuclear) {
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
             List<Entity> kill = new ArrayList<>();
@@ -222,7 +226,7 @@ public final class ServerActions {
                 e.discard();
             }
             StrikeWorld.clearSalvos(level);
-            n += ua.zentix.airstrike.nuclear.NuclearStrikes.clear(level);
+            if (nuclear) n += ua.zentix.airstrike.nuclear.NuclearStrikes.clear(level);
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared());
         return n;
