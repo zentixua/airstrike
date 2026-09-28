@@ -1,28 +1,28 @@
 package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
-import net.neoforged.neoforge.common.world.chunk.RegisterTicketControllersEvent;
-import net.neoforged.neoforge.common.world.chunk.TicketController;
-import ua.zentix.airstrike.Airstrike;
+
+import java.util.Comparator;
+import java.util.UUID;
 
 /**
- * Сущности вне тикающих чанков не тикают, а ракета проходит 0.7 чанка за тик. Снаряд держит тикет на свой чанк
- * и на чанк впереди по курсу, пока летит (только уже загруженные: {@code forceChunk} грузит чанк сразу,
- * а новые чанки на лету не генерируем). После перезапуска сервера старые тикеты снимаются — снаряды возьмут новые сами.
+ * Сущности вне тикающих чанков не тикают, а ракета проходит 0.7 чанка за тик. Снаряд держит свой чанк и чанк впереди
+ * по курсу, пока летит. Это ванильный тикет региона (как у {@link FlightTickets}): он не сохраняется в мир и ничего
+ * не грузит синхронно, в отличие от {@code TicketController.forceChunk} NeoForge, который пишет каждое изменение
+ * в {@code ForcedChunksSavedData} и сразу догружает чанк. Ключ — UUID снаряда: соседи по залпу не снимают тикет друг у друга.
  */
 public final class ChunkTickets {
-    public static final TicketController CONTROLLER = new TicketController(Airstrike.id("projectile"),
-            (level, helper) -> java.util.List.copyOf(helper.getEntityTickets().keySet()).forEach(helper::removeAllTickets));
+    private static final TicketType<UUID> TYPE = TicketType.create("airstrike_projectile", Comparator.<UUID>naturalOrder());
+    /** Уровень тикета 33 − 2 = 31: в самом чанке тикают сущности, как у принудительно загруженного тикающего чанка. */
+    private static final int DISTANCE = 2;
 
     private ChunkTickets() {}
 
-    public static void register(RegisterTicketControllersEvent event) {
-        event.register(CONTROLLER);
-    }
-
-    public static void force(ServerLevel level, Entity owner, long chunk, boolean add) {
-        CONTROLLER.forceChunk(level, owner, ChunkPos.getX(chunk), ChunkPos.getZ(chunk), add, true);
+    public static void hold(ServerLevel level, UUID owner, long chunk, boolean hold) {
+        ChunkPos pos = new ChunkPos(chunk);
+        if (hold) level.getChunkSource().addRegionTicket(TYPE, pos, DISTANCE, owner);
+        else level.getChunkSource().removeRegionTicket(TYPE, pos, DISTANCE, owner);
     }
 }

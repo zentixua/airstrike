@@ -739,29 +739,32 @@ public abstract class StrikeProjectile extends Entity {
 
     // ---------------------------------------------------------------- чанки
 
-    /** Держим свой чанк и чанк впереди по курсу — но только уже загруженные: новые чанки на лету не генерируем. */
+    /**
+     * Держим свой чанк и чанк впереди по курсу — но только уже готовые ({@link Terrain#ready}): новые чанки на лету
+     * не генерируем, а {@code hasChunk} верен и для чанка, который ещё грузится.
+     */
     private void updateChunkTickets(ServerLevel level, Vec3 pos, Vec3 dir) {
         long here = ChunkPos.asLong(BlockPos.containing(pos));
         long ahead = ChunkPos.asLong(BlockPos.containing(pos.add(dir.scale(Math.max(16, speed * 3)))));
         if (forcedChunks.contains(here) && forcedChunks.contains(ahead) && forcedChunks.size() == (here == ahead ? 1 : 2)) return;
         LongSet want = new LongOpenHashSet();
         for (long c : new long[]{here, ahead}) {
-            if (level.getChunkSource().hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
+            if (Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
         }
         for (long c : forcedChunks.toLongArray()) {
             if (!want.contains(c)) {
-                ChunkTickets.force(level, this, c, false);
+                ChunkTickets.hold(level, getUUID(), c, false);
                 forcedChunks.remove(c);
             }
         }
         for (long c : want) {
-            if (forcedChunks.add(c)) ChunkTickets.force(level, this, c, true);
+            if (forcedChunks.add(c)) ChunkTickets.hold(level, getUUID(), c, true);
         }
     }
 
     private void releaseChunkTickets() {
         if (level() instanceof ServerLevel level) {
-            for (long c : forcedChunks) ChunkTickets.force(level, this, c, false);
+            for (long c : forcedChunks) ChunkTickets.hold(level, getUUID(), c, false);
         }
         forcedChunks.clear();
     }

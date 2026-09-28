@@ -143,8 +143,8 @@ public final class Warheads {
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int sx = SectionPos.blockToSectionCoord(min.getX()); sx <= SectionPos.blockToSectionCoord(max.getX()); sx++) {
             for (int sz = SectionPos.blockToSectionCoord(min.getZ()); sz <= SectionPos.blockToSectionCoord(max.getZ()); sz++) {
-                if (!level.hasChunk(sx, sz)) continue;
-                LevelChunk chunk = level.getChunk(sx, sz);
+                LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
+                if (chunk == null) continue;
                 for (int sy = SectionPos.blockToSectionCoord(min.getY()); sy <= SectionPos.blockToSectionCoord(max.getY()); sy++) {
                     int idx = chunk.getSectionIndexFromSectionY(sy);
                     if (idx < 0 || idx >= chunk.getSectionsCount()) continue;

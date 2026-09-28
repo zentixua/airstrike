@@ -91,6 +91,7 @@ public final class VirtualFlights extends SavedData {
                 p.materialize(level);
                 if (level.addFreshEntity(p)) continue;
                 Airstrike.LOG.warn("Снаряд {} не вернулся в мир у {}", p.getType().getDescriptionId(), p.blockPosition());
+                p.discard(); // снять тикеты района цели: в мире его нет, сам он их уже не отпустит
                 continue;
             }
             flights.add(p);
