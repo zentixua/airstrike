@@ -28,6 +28,7 @@ import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.nuclear.world.ColumnScar;
 import ua.zentix.airstrike.nuclear.world.CraterJob;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.nuclear.world.ThermalShadow;
 import ua.zentix.airstrike.registry.ModAttachments;
 
@@ -155,23 +156,29 @@ public final class NuclearGameTests {
 
     /**
      * Весь путь: подрыв 1 кт (1 блок = 10 м) → очередь по чанкам → стекло в 200 м выбито, чанк помечен номером
-     * подрыва, воронка вырыта, и ни в одном тике обработка не вышла за бюджет (+1 мс).
+     * подрыва, воронка вырыта, и очередь держит бюджет тика. Бюджет проверяется на считающих часах
+     * ({@link WorkClock#counting}: каждая единица работы — ровно 1 мс), а не по настенному времени: на общих машинах
+     * CI любой столбец может затянуться из-за соседей по машине, и проверка падала бы не по вине очереди.
      */
     @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_pipeline", skyAccess = true)
     public static void detonationRunsBudgetedQueue(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos glass = CENTER.west(20);
         h.setBlock(glass, Blocks.GLASS);
+        NuclearWorld w = NuclearWorld.get(level);
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        w.useClock(clock);
         Detonation d = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
-        long budget = (AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() + 1) * 1_000_000L;
+        int budgetMs = AirstrikeConfig.SERVER.nukeTimeBudgetMs.get();
         h.succeedWhen(() -> {
-            NuclearWorld w = NuclearWorld.get(level);
             // чанки на краю загруженного мира ждут соседей (иначе Sable догружал бы их на каждом блоке) — они в очереди
             h.assertTrue(w.craterJobs() == 0, "воронка ещё роется");
             h.assertBlockNotPresent(Blocks.GLASS, glass);
             int scar = level.getChunkAt(h.absolutePos(glass)).getData(ModAttachments.CHUNK_SCAR);
             h.assertTrue(scar >= d.id(), "чанк не помечен подрывом: " + scar + " < " + d.id());
-            h.assertTrue(w.maxWorkNanos() <= budget, "обработка за тик " + w.maxWorkNanos() / 1e6 + " мс — больше бюджета");
+            h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
+            h.assertTrue(clock.ticksWorked() > 1, "вся работа уместилась в один тик — бюджет не проверен");
+            w.useClock(new WorkClock());
             NuclearStrikes.clear(level);
         });
     }

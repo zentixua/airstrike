@@ -40,8 +40,7 @@ public final class NuclearWorld {
     private final List<CraterJob> craters = new ArrayList<>();
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
-    private long maxWorkNanos;
-    private final WorkClock clock = new WorkClock();
+    private WorkClock clock = new WorkClock();
     private long lastFrontNanos, lastCraterNanos, lastScarNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
@@ -70,9 +69,13 @@ public final class NuclearWorld {
         return new long[]{lastFrontNanos, lastCraterNanos, lastScarNanos};
     }
 
-    /** Самая долгая обработка очередей за один тик, нс (для проверки бюджета). */
-    public long maxWorkNanos() {
-        return maxWorkNanos;
+    /** Часы бюджета очередей (проверки подменяют их считающими, {@link WorkClock#counting}). */
+    public WorkClock clock() {
+        return clock;
+    }
+
+    public void useClock(WorkClock clock) {
+        this.clock = clock;
     }
 
     // ---------------------------------------------------------------- события
@@ -129,9 +132,9 @@ public final class NuclearWorld {
         try {
             while (!craters.isEmpty() && clock.canStart()) {
                 CraterJob job = craters.getFirst();
-                long u0 = System.nanoTime();
+                long u0 = clock.begin();
                 CraterJob.Step s = job.step(level, level.random);
-                clock.record(System.nanoTime() - u0);
+                clock.end(u0);
                 events.craterProgress(job.detonation().id(), job.progress(), s == CraterJob.Step.DONE);
                 if (s == CraterJob.Step.DONE) craters.removeFirst();
                 else if (s == CraterJob.Step.WAIT) break;
@@ -144,7 +147,6 @@ public final class NuclearWorld {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
             clear(level);
         }
-        maxWorkNanos = Math.max(maxWorkNanos, System.nanoTime() - start);
     }
 
     /** После загрузки мира: недорытые воронки — дорыть с того чанка, где остановились. */

@@ -166,6 +166,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса).
 - Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
   профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`.
+- Тесты не должны мерить настенное время на машинах CI (общие раннеры: любой столбец может затянуться): бюджет
+  ядерных очередей GameTest проверяет на считающих часах `WorkClock.counting` (единица работы = 1 мс).
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
