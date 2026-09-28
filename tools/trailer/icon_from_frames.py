@@ -1,7 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "numpy>=1.26",
+#     "pillow>=10",
+#     "scipy>=1.11",
+# ]
+# ///
 """Иконка мода из кадров плана «icon» трейлера (шахед крупно на фоне неба).
 
-    python3 tools/trailer/icon_from_frames.py mod/run/scenario/trailer-icon/frames/icon dist/icon
+    uv run tools/trailer/icon_from_frames.py mod/run/scenario/trailer-icon/frames/icon dist/icon
 
 План «icon» снимается сценарием трейлера (AIRSTRIKE_TRAILER_SHOTS=icon); готовая иконка в мод не входит.
 
@@ -13,7 +21,7 @@
   airstrike-icon-96.png, -64.png — уменьшенный малый вариант;
   preview.png                оба варианта в 128/64/32 px на тёмном и светлом фоне;
   source.txt                 какой кадр взят.
-Нужны numpy, scipy, Pillow (есть для tools/build_sounds.py и gen_textures.py).
+Зависимости — в блоке script выше (PEP 723): uv run ставит их сам.
 """
 import os
 import sys

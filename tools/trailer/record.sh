@@ -11,7 +11,7 @@ RUN="$ROOT/mod/run/scenario"
 mkdir -p "$RUN/logs"
 # папка записи: AIRSTRIKE_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
 #   AIRSTRIKE_TRAILER_SHOTS=bomb_bay,targets AIRSTRIKE_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
-#   python3 tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
+#   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
 # язык игры — AIRSTRIKE_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
 #   AIRSTRIKE_LANG=en_us AIRSTRIKE_TRAILER_SHOTS=remote,scope,targets AIRSTRIKE_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
 export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"

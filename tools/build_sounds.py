@@ -1,8 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "numpy>=1.26",
+#     "scipy>=1.11",
+#     "soundfile>=0.12",
+# ]
+# ///
 """Сборка всех звуков мода Airstrike из настоящих записей и синтеза (numpy + scipy + soundfile).
 
-  python3 -m pip install numpy scipy soundfile
-  python3 tools/build_sounds.py      → mod/src/main/resources/assets/airstrike/sounds/*.ogg,
+  uv run tools/build_sounds.py      → mod/src/main/resources/assets/airstrike/sounds/*.ogg,
                                         assets/airstrike/sounds.json, SOUND-CREDITS.md
 
 Записи — только с лицензией, разрешающей распространение: CC0 (общественное достояние) и CC BY (с указанием
