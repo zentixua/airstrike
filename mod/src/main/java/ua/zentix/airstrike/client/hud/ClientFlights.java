@@ -2,8 +2,9 @@ package ua.zentix.airstrike.client.hud;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -14,7 +15,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -27,6 +30,11 @@ public final class ClientFlights {
     /** Сколько точек пути помнить на снаряд (пакет раз в 5 тиков: ~2 минуты полёта). */
     private static final int TRAIL = 480;
     private static final List<Tracked> FLIGHTS = new ArrayList<>();
+    /**
+     * Снаряды, которые клиент сейчас видит, по UUID. Метки HUD, карта и камера спрашивают сущность каждого полёта
+     * каждый кадр — перебор всех сущностей мира (в сборке с Create их тысячи) на 30–90 полётов был бы заметен.
+     */
+    private static final Map<UUID, StrikeProjectile> VISIBLE = new HashMap<>();
     private static long tick;
     private static int nextNumber = 1;
 
@@ -106,12 +114,9 @@ public final class ClientFlights {
         /** Сущность снаряда, если клиент её видит. */
         @Nullable
         public StrikeProjectile entity() {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.level == null) return null;
-            for (Entity e : mc.level.entitiesForRendering()) {
-                if (e instanceof StrikeProjectile p && p.getUUID().equals(id) && !p.isRemoved()) return p;
-            }
-            return null;
+            StrikeProjectile p = VISIBLE.get(id);
+            // после смены измерения старый мир клиента уходит целиком, без событий по каждой сущности
+            return p != null && !p.isRemoved() && p.level() == Minecraft.getInstance().level ? p : null;
         }
 
         /** Где снаряд сейчас (для метки на экране). */
@@ -153,8 +158,18 @@ public final class ClientFlights {
         tick++;
     }
 
+    public static void onJoin(EntityJoinLevelEvent e) {
+        if (e.getLevel().isClientSide() && e.getEntity() instanceof StrikeProjectile p) VISIBLE.put(p.getUUID(), p);
+    }
+
+    public static void onLeave(EntityLeaveLevelEvent e) {
+        // снаряд, вернувшийся в мир, — новая сущность с тем же UUID: убираем только ту, что ушла
+        if (e.getLevel().isClientSide() && e.getEntity() instanceof StrikeProjectile p) VISIBLE.remove(p.getUUID(), p);
+    }
+
     public static void reset() {
         FLIGHTS.clear();
+        VISIBLE.clear();
         nextNumber = 1;
     }
 

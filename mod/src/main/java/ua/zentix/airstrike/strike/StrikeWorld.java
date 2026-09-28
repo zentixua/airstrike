@@ -2,9 +2,12 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.neoforge.event.level.LevelEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,6 +64,19 @@ public final class StrikeWorld {
     /** Отбой: взрывы в процессе доигрываются (это уже случилось), залпы отменяются. */
     public static void clearSalvos(ServerLevel level) {
         SalvoData.get(level).clear();
+    }
+
+    /**
+     * Сервер останавливается (в том числе «Сохранить и выйти» в одиночной игре): снаряды в мире уходят в полёт вне
+     * мира и сохраняются с ним, а после запуска летят дальше сами — иначе они ждали бы в файлах чанков, пока кто-то
+     * не придёт туда снова, и тикеты района цели после запуска были бы потеряны.
+     */
+    public static void onServerStopping(ServerStoppingEvent event) {
+        for (ServerLevel level : event.getServer().getAllLevels()) {
+            for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) {
+                p.parkForShutdown(level);
+            }
+        }
     }
 
     public static void onLevelUnload(LevelEvent.Unload event) {

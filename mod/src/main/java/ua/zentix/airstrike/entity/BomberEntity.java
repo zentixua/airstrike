@@ -59,9 +59,13 @@ public class BomberEntity extends StrikeProjectile {
         return 120;
     }
 
+    /**
+     * До сброса держит чанки, как все: иначе, стоит игрокам уйти, он замирал в выгруженном чанке и так и не
+     * сбрасывал бомбу. После сброса уходит и исчезает — держать нечего.
+     */
     @Override
     protected boolean holdsChunks() {
-        return false;
+        return !released;
     }
 
     @Override
@@ -124,11 +128,8 @@ public class BomberEntity extends StrikeProjectile {
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));
+        if (leavesTickingChunks(level, next)) return;
         moveAlong(level, next, dir);
-        if (!isVirtual() && !level.isPositionEntityTicking(BlockPos.containing(next))) {
-            if (fliesVirtually()) VirtualFlights.park(level, this);
-            else discard();
-        }
     }
 
     private void release(ServerLevel level, Vec3 aim) {

@@ -65,6 +65,11 @@ public abstract class StrikeProjectile extends Entity {
 
     /** Взрыватель взводится на таком удалении от пусковой (или с выходом на маршевый участок). */
     private static final double ARM_DISTANCE = 96;
+    /**
+     * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
+     * по 9×9 чанков от залпа с разбросом) или цель недостижима.
+     */
+    private static final int AREA_WAIT_LIMIT = 1200;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
 
@@ -96,6 +101,8 @@ public abstract class StrikeProjectile extends Entity {
     private int sirenLead = -1;
     /** Летит вне загруженного мира (см. {@link VirtualFlights}). */
     private boolean virtual;
+    /** Сколько тиков снаряд вне мира ждал у цели загрузки её района: в срок жизни не входит (см. {@link #expired}). */
+    private int areaWait;
     /** Чанк, вокруг которого держится район цели (null — не держится). */
     @Nullable
     private ChunkPos heldArea;
@@ -131,12 +138,21 @@ public abstract class StrikeProjectile extends Entity {
         return lifetime > 0 ? lifetime : defaultLifetime();
     }
 
+    /**
+     * Срок жизни вышел. Ожидание у цели загрузки её района (вне мира) в него не входит: на медленном сервере
+     * генерация района под залп с разбросом идёт дольше запаса в сроке жизни, и снаряды пропадали без подрыва
+     * (стенд нагрузки 28.09.2026: 38 из 41 ракеты РСЗО). У ожидания свой предел — {@link #AREA_WAIT_LIMIT}.
+     */
+    protected final boolean expired() {
+        return age - areaWait >= maxAge();
+    }
+
     /** Прочность: сколько урона выдержит, прежде чем его собьют. 0 — сбить нельзя. */
     protected float maxHealth() {
         return 0;
     }
 
-    /** Держать ли тикеты чанков по курсу (бомбардировщику не нужно: улетает и исчезает). */
+    /** Держать ли тикеты чанков по курсу (бомбардировщику после сброса не нужно: улетает и исчезает). */
     protected boolean holdsChunks() {
         return true;
     }
@@ -369,7 +385,10 @@ public abstract class StrikeProjectile extends Entity {
             ServerLevel level = (ServerLevel) level();
             if (holdsChunks() && forcedChunks.isEmpty()) updateChunkTickets(level, position(), flight.forward());
             serverTick(level);
+            // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
+            if (isRemoved()) return;
             checkSiren(level);
+            holdTargetArea(level);
             syncSpeed();
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Снаряд {} в {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
@@ -393,6 +412,7 @@ public abstract class StrikeProjectile extends Entity {
             yo = getY();
             zo = getZ();
             serverTick(level);
+            if (isRemoved()) return;
             checkSiren(level);
             holdTargetArea(level);
         } catch (RuntimeException e) {
@@ -435,12 +455,14 @@ public abstract class StrikeProjectile extends Entity {
     }
 
     /**
-     * Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта. Движущаяся цель
+     * Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта, — и в мире, и вне
+     * его: снаряд в мире тоже летит туда, где никого нет (залп с разбросом в сотни блоков от игрока), и раньше
+     * район брался только после ухода из тикающих чанков, у самой цели. Движущаяся цель
      * (аппарат, игрок) уводит район за собой: иначе снаряд ждал у неё загрузки, которой не будет, и пропадал
      * по сроку жизни (28.09.2026: 4 ракеты из 10 за улетающим аппаратом).
      */
     protected void holdTargetArea(ServerLevel level) {
-        if (tracker == null) return;
+        if (tracker == null || isRemoved()) return;
         Vec3 aim = tracker.point();
         if (heldArea != null) {
             if (heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) < 2) return;
@@ -600,13 +622,14 @@ public abstract class StrikeProjectile extends Entity {
             impact(level, aim, null);
             return false;
         }
-        if (age >= maxAge()) {
+        if (expired()) {
             impact(level, pos.add(dir.scale(noseLength())), null);
             return false;
         }
 
         Vec3 noseFrom = pos.add(dir.scale(noseLength() * 0.5));
-        Vec3 noseTo = pos.add(dir.scale(speed + noseLength()));
+        // нос не заглядывает в неготовый чанк (clip грузил бы его); туда снаряд и не шагнёт — уйдёт в полёт вне мира
+        Vec3 noseTo = Terrain.readyUntil(level, noseFrom, pos.add(dir.scale(speed + noseLength())));
 
         Vec3 blockPoint = null;
         if (!flightPhase().launching()) {
@@ -633,17 +656,12 @@ public abstract class StrikeProjectile extends Entity {
         }
 
         Vec3 next = pos.add(dir.scale(speed));
-        moveAlong(level, next, dir);
         if (next.y < level.getMinBuildHeight() - 64) {
             discard();
             return false;
         }
-        // уходит из тикающих чанков: дальше — полёт вне мира (или исчезает, если так не умеет)
-        if (!level.isPositionEntityTicking(BlockPos.containing(next))) {
-            if (fliesVirtually()) VirtualFlights.park(level, this);
-            else discard();
-            return false;
-        }
+        if (leavesTickingChunks(level, next)) return false;
+        moveAlong(level, next, dir);
         return true;
     }
 
@@ -652,16 +670,37 @@ public abstract class StrikeProjectile extends Entity {
      * он догрузится: подрыв в незагруженном чанке остановил бы сервер).
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
-        if (age >= maxAge()) {
-            Airstrike.LOG.warn("Снаряд {} так и не долетел до {} (район цели не загрузился) и убран", getType().getDescriptionId(), BlockPos.containing(aim));
+        if (expired()) {
+            Airstrike.LOG.warn("Снаряд {} не долетел до {} за срок жизни и убран", getType().getDescriptionId(), BlockPos.containing(aim));
             discard();
             return false;
         }
         Vec3 pos = position();
         boolean near = onFinalLeg() && pos.distanceTo(aim) <= speed + reachPad + 48;
         BlockPos at = BlockPos.containing(aim);
-        if (near && !(Terrain.ready(level, at) && level.isPositionEntityTicking(at))) return true; // ждём загрузки
+        if (near && !(Terrain.ready(level, at) && level.isPositionEntityTicking(at))) {
+            // ждём загрузки района (тикет взят на подлёте)
+            if (++areaWait > AREA_WAIT_LIMIT) {
+                Airstrike.LOG.warn("Снаряд {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), at);
+                discard();
+                return false;
+            }
+            return true;
+        }
         moveAlong(level, pos.add(dir.scale(speed)), dir);
+        return true;
+    }
+
+    /**
+     * Следующий шаг уходит из чанков, где тикают сущности: снаряд уходит в полёт вне мира с того места, где стоит
+     * (или исчезает, если так не умеет), и шаг делает уже копия вне мира. Проверка — до шага: шагнув в чанк, где
+     * сущности не тикают, снаряд оставался бы в мире без тика, с тикетами, которые снять уже некому, — такие
+     * снаряды висели в мире до конца игры, а их тикеты держали чанки (стенд нагрузки 28.09.2026: 81 тикет на 2 снаряда).
+     */
+    protected final boolean leavesTickingChunks(ServerLevel level, Vec3 next) {
+        if (virtual || level.isPositionEntityTicking(BlockPos.containing(next))) return false;
+        if (fliesVirtually()) VirtualFlights.park(level, this);
+        else discard();
         return true;
     }
 
@@ -746,7 +785,8 @@ public abstract class StrikeProjectile extends Entity {
         if (forcedChunks.contains(here) && forcedChunks.contains(ahead) && forcedChunks.size() == (here == ahead ? 1 : 2)) return;
         LongSet want = new LongOpenHashSet();
         for (long c : new long[]{here, ahead}) {
-            if (level.getChunkSource().hasChunk(ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
+            // только готовые: forceChunk сразу берёт чанк (getChunk), а на ещё грузящемся он ждал бы загрузку в тике
+            if (Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c))) want.add(c);
         }
         for (long c : forcedChunks.toLongArray()) {
             if (!want.contains(c)) {
@@ -766,11 +806,39 @@ public abstract class StrikeProjectile extends Entity {
         forcedChunks.clear();
     }
 
+    /**
+     * Мир перестал его отслеживать — выгрузка вместе с чанком ({@code setRemoved}, без {@code remove}), остановка
+     * сервера, чанк перестал выдаваться: тикеты отпускаются ({@code ServerLevel.EntityCallbacks.onTrackingEnd}).
+     * Вернувшись из чанка, снаряд возьмёт тикеты заново в первом же тике.
+     */
+    @Override
+    public void onRemovedFromLevel() {
+        super.onRemovedFromLevel();
+        releaseTickets();
+    }
+
+    /**
+     * Удаление (взрыв, отбой, уход в полёт вне мира) — всегда здесь: у снаряда вне мира (он в мир не добавлен)
+     * и у снаряда в чанке, который мир уже не отслеживает, {@link #onRemovedFromLevel} не приходит.
+     */
     @Override
     public void remove(RemovalReason reason) {
+        super.remove(reason);
+        releaseTickets();
+    }
+
+    private void releaseTickets() {
         releaseChunkTickets();
         releaseTargetArea();
-        super.remove(reason);
+    }
+
+    /**
+     * Сервер останавливается: снаряд в мире уходит в полёт вне мира ({@link VirtualFlights} сохраняются вместе
+     * с миром), а не замирает в файле чанка, который после запуска никто может не загрузить часами. Тикеты
+     * на чанки после запуска всё равно сняты бы (см. {@link ChunkTickets}).
+     */
+    public void parkForShutdown(ServerLevel level) {
+        if (fliesVirtually()) VirtualFlights.park(level, this);
     }
 
     // ---------------------------------------------------------------- урон: дрон и ракету можно сбить
@@ -877,6 +945,7 @@ public abstract class StrikeProjectile extends Entity {
         route = tag.contains("route") ? Route.load(tag.getCompound("route")) : null;
         launchPos = tag.contains("launch_x") ? new Vec3(tag.getDouble("launch_x"), tag.getDouble("launch_y"), tag.getDouble("launch_z")) : null;
         lifetime = tag.getInt("lifetime");
+        areaWait = tag.getInt("area_wait");
         readyTicks = tag.getInt("ready_ticks");
         sirenLead = tag.contains("siren_lead") ? tag.getInt("siren_lead") : -1;
         setNuclear(tag.contains("nuclear") ? Loadout.Nuke.CODEC.parse(NbtOps.INSTANCE, tag.get("nuclear")).result().orElse(null) : null);
@@ -905,6 +974,7 @@ public abstract class StrikeProjectile extends Entity {
             tag.putDouble("launch_z", launchPos.z);
         }
         tag.putInt("lifetime", lifetime);
+        tag.putInt("area_wait", areaWait);
         tag.putInt("ready_ticks", readyTicks);
         tag.putInt("siren_lead", sirenLead);
         if (nuclear != null) Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuclear).result().ifPresent(n -> tag.put("nuclear", n));

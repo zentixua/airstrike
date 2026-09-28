@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.entity.EntityTypeTest;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import ua.zentix.airstrike.compat.SubLevels;
@@ -54,6 +55,11 @@ public final class FlightStatus {
         }
         LAST.clear();
         LAST.addAll(byOwner.keySet());
+    }
+
+    /** Сервер остановлен (одиночная игра: следующий мир — новый сервер в той же игре). */
+    public static void onServerStopped(ServerStoppedEvent e) {
+        LAST.clear();
     }
 
     private static void collect(Map<UUID, List<S2C.Flight>> byOwner, StrikeProjectile p) {

@@ -35,6 +35,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    stress.sh                            ← стенд нагрузки: выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока
+                                           без окна; залпы по 30, выход/вход, Незер, ядерка, «Отбой»; сводка — строки STRESS в логе
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
@@ -180,6 +182,16 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
+- Луч `Level.clip` на сервере тоже грузит чанки на пути (Sable подменяет clip, но обход ванильный): длинный луч
+  (прицел на 400 блоков, нос снаряда) — только до первого неготового чанка, `Terrain.readyUntil`/`readyAlong`.
+  `TicketController.forceChunk` сразу зовёт `level.getChunk` — тикет брать только на готовый чанк (`Terrain.ready`).
+- `Entity.onRemovedFromLevel` (NeoForge, из `onTrackingEnd`) приходит и тогда, когда чанк просто перестал выдаваться,
+  а сущность, уже невидимая миру, выгружается с чанком (`setRemoved(UNLOADED_TO_CHUNK)`) без него; `remove` при
+  выгрузке не зовётся. Поэтому снаряд отпускает тикеты и в `remove`, и в `onRemovedFromLevel`, а на край тикающих
+  чанков проверяет шаг до перемещения (`leavesTickingChunks`): шагнув в чанк без тика, он висел бы в мире без тика.
+- Стенд нагрузки (`tools/stress.sh`, в облаке `MODS=run/ci-mods`): сервер и три клиента на 4 ядрах и 16 ГБ — у JVM
+  пределы памяти в `build.gradle` (иначе ядро убивает клиента). Остановки тика дольше 2 с режиссёр пишет со стеком
+  сервера: 35 с в облаке — Sable (`PhysicsChunkTicketManager` грузит чанки синхронно), пока генерация стоит в очереди.
 - Сущность уходит клиенту, только если она ближе `min(clientTrackingRange, дальность прорисовки)` по горизонтали и её
   чанк отслеживается игроком (`ChunkMap.TrackedEntity.updatePlayer`); смотреть издалека ваниль умеет лишь камерой
   наблюдателя, которая переносит самого игрока. Поэтому камера снаряда дальше прорисовки показывает карту по телеметрии,

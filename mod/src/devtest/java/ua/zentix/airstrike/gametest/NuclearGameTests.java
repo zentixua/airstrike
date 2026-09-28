@@ -159,8 +159,10 @@ public final class NuclearGameTests {
      * подрыва, воронка вырыта, и очередь держит бюджет тика. Бюджет проверяется на считающих часах
      * ({@link WorkClock#counting}: каждая единица работы — ровно 1 мс), а не по настенному времени: на общих машинах
      * CI любой столбец может затянуться из-за соседей по машине, и проверка падала бы не по вине очереди.
+     * Срок — с запасом на фон: стекло в 20 блоках от края площадки, и его столбец ждёт, пока в фоне сгенерируются
+     * соседние чанки за площадкой (на занятой машине — дольше 10 с; с 200 тиками проверка изредка не дожидалась).
      */
-    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_pipeline", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 600, batch = "nuke_pipeline", skyAccess = true)
     public static void detonationRunsBudgetedQueue(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos glass = CENTER.west(20);

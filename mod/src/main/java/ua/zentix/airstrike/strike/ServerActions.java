@@ -38,6 +38,8 @@ import java.util.WeakHashMap;
 public final class ServerActions {
     /** Не чаще раза в 4 тика с одного игрока: защита от дребезга кнопки и от спама пакетами. */
     private static final Map<ServerPlayer, Long> LAST_FIRE = new WeakHashMap<>();
+    /** Насколько аппарат у сервера может разойтись с тем, что видит клиент (летит, пакет в пути), блоков. */
+    private static final double AIRCRAFT_HINT_SLACK = 24;
 
     private ServerActions() {}
 
@@ -168,8 +170,10 @@ public final class ServerActions {
             }
             case C2S.AimHint.AIRCRAFT -> {
                 SubLevelAccess sub = SubLevels.containing(level, h.plotPos());
-                if (sub != null) {
-                    return new Aim(new Target.OfSubLevel(h.plotPos()), SubLevels.toWorld(level, h.plotPos()), SubLevels.describe(sub));
+                Vec3 world = sub == null ? null : SubLevels.toWorld(level, h.plotPos());
+                // точка плота должна быть там же, где клиент видит аппарат: иначе цель могла бы оказаться где угодно в мире
+                if (world != null && world.distanceToSqr(h.point()) <= AIRCRAFT_HINT_SLACK * AIRCRAFT_HINT_SLACK) {
+                    return new Aim(new Target.OfSubLevel(h.plotPos()), world, SubLevels.describe(sub));
                 }
             }
             default -> {}
