@@ -1,0 +1,10 @@
+{
+  "loader": "neoforge:obj",
+  "model": "airstrike:models/weapon/bomber_door_l_out.obj",
+  "flip_v": false,
+  "emissive_ambient": true,
+  "automatic_culling": false,
+  "textures": {
+    "particle": "airstrike:block/weapon/bomber"
+  }
+}

@@ -26,7 +26,10 @@ public class SpentBoosterRenderer extends EntityRenderer<SpentBoosterEntity> {
         pose.translate(0, missile ? 0.45 : 0.2, 0);
         float tumble = e.landed() ? 90 : e.getXRot() + t * e.spin;
         pose.mulPose(new Quaternionf().rotationYXZ(-e.getYRot() * Mth.DEG_TO_RAD, tumble * Mth.DEG_TO_RAD, 0));
-        (missile ? LaunchModels.MISSILE_BOOSTER : LaunchModels.DRONE_BOOSTER).render(pose, buffers, 0);
+        // сетка ускорителя — в системе снаряда: сдвинуть её середину в начало
+        if (missile) pose.translate(0, 0, 6.3);
+        else pose.translate(0, 0.58, 2.43);
+        (missile ? WeaponModels.Mesh.MISSILE_BOOSTER : WeaponModels.Mesh.DRONE_BOOSTER).draw(pose, buffers, packedLight);
         pose.popPose();
         super.render(e, entityYaw, partialTick, pose, buffers, packedLight);
     }

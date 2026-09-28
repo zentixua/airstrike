@@ -38,8 +38,8 @@ import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
-import ua.zentix.airstrike.client.render.Models;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
+import ua.zentix.airstrike.client.render.WeaponModels;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.client.sound.SoundFilters;
@@ -55,6 +55,7 @@ public final class AirstrikeClient {
     public AirstrikeClient(IEventBus modBus, ModContainer container) {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(AirstrikeClient::renderers);
+        modBus.addListener(WeaponModels::register);
         modBus.addListener(AirstrikeClient::keys);
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
@@ -85,11 +86,11 @@ public final class AirstrikeClient {
     }
 
     private static void renderers(EntityRenderersEvent.RegisterRenderers e) {
-        e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.DRONE, 1.9f));
-        e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.MISSILE, 0));
-        e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.BOMBER, 0));
-        e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.BOMB, 0));
-        e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, Models.ICBM, 0));
+        e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::drone));
+        e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::missile));
+        e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomber));
+        e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomb));
+        e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::icbm));
         e.registerEntityRenderer(ModEntities.DEBRIS.get(), DebrisRenderer::new);
         e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
