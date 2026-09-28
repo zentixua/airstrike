@@ -9,6 +9,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.util.Particles;
@@ -93,6 +94,9 @@ public final class BlastEffects {
     // ================================================================ шахед (fx)
 
     static final class Drone extends Timeline {
+        /** Радиус огненного шара, блоки (≈ 50 кг ВВ). */
+        private static final float R = 5f;
+
         Drone(Vec3 pos, GroundMaterial mat, long seed) {
             super(pos, mat, seed);
         }
@@ -101,56 +105,15 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 flash(level, 240, 0.72f);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 1.5, 0), 0.2, 0.2, 0.2, 0, 10);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 5, 0), 5, 4, 5, 0, 60);
-                Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 1, 0), 2, 1.5, 2, 0, 5);
-                Particles.burst(level, ParticleTypes.EXPLOSION, pos.add(0, 2, 0), 5, 3, 5, 0, 60);
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 1.5, 0), 0.3, 0.3, 0.3, 0.7, 600);
-                Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2, 1, 2, 0, 80);
-                Particles.burst(level, ParticleTypes.END_ROD, pos.add(0, 1.5, 0), 0.1, 0.1, 0.1, 1.1, 160);
-                Particles.burst(level, ParticleTypes.GUST_EMITTER_LARGE, pos.add(0, 1, 0), 0, 0, 0, 0, 1);
-                Particles.burst(level, ParticleTypes.SONIC_BOOM, pos.add(0, 2, 0), 1.5, 1, 1.5, 0, 6);
-                FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos.add(0, 1, 0), 9, 0, 0, 1, 0);
-                FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos.add(0, 5, 0), 6, 0, 0, 1, 0);
-                FxParticles.optional(level, "supplementaries:ember_spark", pos.add(0, 1.5, 0), 2, 1.5, 2, 0.6, 150);
-                FxParticles.optional(level, "supplementaries:bomb_smoke", pos.add(0, 3, 0), 4, 3, 4, 0.08, 60);
-                FxParticles.optional(level, "supplementaries:ash", pos.add(0, 8, 0), 10, 5, 10, 0, 200);
+                Explosions.burst(level, pos, R, mat, random);
+                Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2, 1, 2, 0, 30);
                 return true;
             }
-            if (t <= 20) ring(level, t * 3.2, 10, 1, 0.3, 0.1, 4, 30, 1.0);
-            if (t == 1) {
-                spray(level, 1);
-                Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 2, 0), 4, 2, 4, 0, 4);
-            }
-            if (t == 3) Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 3, 0), 3, 2, 3, 0, 2);
-            if (t == 6) Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 4, 0), 2, 2, 2, 0, 2);
-            if (t >= 1 && t <= 14) fireballRise(level, t);
-            if (t % 2 == 0 && t >= 2 && t <= 220) smoke(level, t);
+            if (t == 1) spray(level, 1);
+            Explosions.column(level, pos, R, t, 50, 220, random);
             if (t == 8) BlastSounds.fire(pos, 1.1f);
             if (t == 20) BlastSounds.debris(pos, 60, 1.1f);
-            return t < 220;
-        }
-
-        private void fireballRise(ClientLevel level, int t) {
-            if (t <= 4) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 3, 0), 2, 1.5, 2, 0.05, 80);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 4, 0), 2.5, 2, 2.5, 0.05, 30);
-            } else if (t <= 9) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 7, 0), 2.5, 1.5, 2.5, 0.04, 60);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 8, 0), 3, 2, 3, 0.04, 40);
-            } else {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 11, 0), 3, 1.5, 3, 0.03, 30);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 12, 0), 3.5, 2, 3.5, 0.03, 50);
-            }
-        }
-
-        private void smoke(ClientLevel level, int t) {
-            Particles.burst(level, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, pos.add(0, 1, 0), 2, 0.5, 2, 0.01, 5);
-            if (t >= 14 && t <= 80) Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 15, 0), 5, 2, 5, 0.02, 20);
-            if (t <= 60) Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 0.8, 0), 3, 0.4, 3, 0.02, 12);
-            if (t <= 40) Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2.5, 0.4, 2.5, 0, 2);
-            Particles.burst(level, ParticleTypes.SMOKE, pos.add(0, 1, 0), 3, 0.5, 3, 0.02, 10);
-            if (t <= 90) Particles.burst(level, FxParticles.dust(mat, 4), pos.add(0, 1, 0), 9, 1, 9, 0.01, 25);
+            return t < 240;
         }
 
         @Override
@@ -159,21 +122,14 @@ public final class BlastEffects {
             int shake = band == 1 ? 26 : band == 2 ? 22 : band <= 4 ? 16 : band <= 8 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }
-
-        /** Кольцо пыли по земле (fx/ring): облака каждые step градусов и порывы ветра между ними. */
-        void ring(ClientLevel level, double r, double step, double spread, double spreadY, double speed, int count, double gustStep, double y) {
-            for (double a = 0; a < 360; a += step) {
-                Particles.burst(level, ParticleTypes.CLOUD, FxParticles.ground(level, pos, a, r).add(0, y * 0.5, 0), spread, spreadY, spread, speed, count);
-            }
-            for (double a = 5; a < 360; a += gustStep) {
-                Particles.burst(level, ParticleTypes.GUST, FxParticles.ground(level, pos, a, r).add(0, y, 0), 0, 0, 0, 0, 1);
-            }
-        }
     }
 
     // ================================================================ крылатая ракета (mfx)
 
     static final class Missile extends Timeline {
+        /** Радиус огненного шара, блоки (≈ 450 кг ВВ). */
+        private static final float R = 8.5f;
+
         Missile(Vec3 pos, GroundMaterial mat, long seed) {
             super(pos, mat, seed);
         }
@@ -182,39 +138,16 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 flash(level, 400, 0.8f);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 2, 0), 0.3, 0.3, 0.3, 0, 20);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 6, 0), 7, 5, 7, 0, 120);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 14, 0), 10, 6, 10, 0, 60);
-                Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 2, 0), 4, 3, 4, 0, 10);
-                Particles.burst(level, ParticleTypes.EXPLOSION, pos.add(0, 3, 0), 8, 5, 8, 0, 120);
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 2, 0), 0.5, 0.5, 0.5, 1.1, 1200);
-                Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 2, 4, 0, 200);
-                Particles.burst(level, ParticleTypes.END_ROD, pos.add(0, 2, 0), 0.2, 0.2, 0.2, 1.6, 300);
-                Particles.burst(level, ParticleTypes.GUST_EMITTER_LARGE, pos.add(0, 1, 0), 2, 1, 2, 0, 4);
-                Particles.burst(level, ParticleTypes.SONIC_BOOM, pos.add(0, 3, 0), 3, 2, 3, 0, 12);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 14, 0), 0, 0, 0, 0, 1);
-                Particles.burst(level, ParticleTypes.FLASH, pos.add(0, 6, 0), 3, 3, 3, 0, 4);
-                FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos.add(0, 1, 0), 14, 0, 0, 1, 0);
-                FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos.add(0, 6, 0), 10, 0, 0, 1, 0);
-                FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos.add(0, 12, 0), 7, 0, 0, 1, 0);
-                FxParticles.optional(level, "supplementaries:ember_spark", pos.add(0, 2, 0), 3, 2, 3, 0.9, 300);
-                FxParticles.optional(level, "supplementaries:bomb_smoke", pos.add(0, 4, 0), 6, 4, 6, 0.1, 150);
-                FxParticles.optional(level, "supplementaries:ash", pos.add(0, 12, 0), 16, 8, 16, 0, 400);
+                Explosions.burst(level, pos, R, mat, random);
+                Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 2, 4, 0, 80);
                 return true;
             }
-            if (t <= 30) ring(level, t * 3.5);
-            if (t <= 10) sphere(level, t * 4.5);
+            if (t == 1) {
+                spray(level, 2);
+                Explosions.condensation(level, pos.add(0, 2, 0), 30, random);
+            }
+            Explosions.column(level, pos, R, t, 80, 320, random);
             switch (t) {
-                case 1 -> {
-                    spray(level, 2);
-                    Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 3, 0), 7, 3, 7, 0, 8);
-                }
-                case 3 -> {
-                    Particles.burst(level, ParticleTypes.FLASH, pos.add(4, 18, -3), 0, 0, 0, 0, 1);
-                    Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 4, 0), 5, 3, 5, 0, 4);
-                }
-                case 5 -> Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 5, 0), 4, 3, 4, 0, 3);
-                case 9 -> Particles.burst(level, ParticleTypes.FLASH, pos.add(-3, 20, 4), 0, 0, 0, 0, 1);
                 case 10 -> BlastSounds.fire(pos, 0.9f);
                 case 150 -> BlastSounds.fire(pos, 0.85f);
                 case 20 -> BlastSounds.debris(pos, 90, 0.9f);
@@ -222,71 +155,15 @@ public final class BlastEffects {
                 case 60, 97, 143 -> cookoff(level);
                 default -> {}
             }
-            if (t >= 1 && t <= 140) mushroom(level, t);
-            if (t % 2 == 0 && t >= 2 && t <= 320) smoke(level, t);
-            return t < 320;
-        }
-
-        /** Огненный шар поднимается и превращается в грибовидную шапку (mfx/fireball_rise). */
-        private void mushroom(ClientLevel level, int t) {
-            if (t <= 4) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 4, 0), 3, 2, 3, 0.06, 150);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 5, 0), 3.5, 2.5, 3.5, 0.05, 60);
-            } else if (t <= 9) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 9, 0), 3.5, 2, 3.5, 0.05, 120);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 10, 0), 4, 2.5, 4, 0.04, 70);
-            } else if (t <= 14) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 14, 0), 4, 2, 4, 0.04, 90);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 15, 0), 5, 2.5, 5, 0.03, 80);
-            } else if (t <= 22) {
-                Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 19, 0), 5, 2, 5, 0.03, 60);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 20, 0), 6, 2.5, 6, 0.03, 90);
-            }
-            if (t >= 18) {
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 26, 0), 9, 2, 9, 0.02, 25);
-                Particles.burst(level, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, pos.add(0, 24, 0), 8, 1.5, 8, 0.01, 4);
-            }
-            if (t >= 18 && t <= 45) Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 22, 0), 5, 1, 5, 0.01, 12);
-        }
-
-        private void smoke(ClientLevel level, int t) {
-            Particles.burst(level, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, pos.add(0, 1, 0), 3.5, 0.6, 3.5, 0.01, 8);
-            Particles.burst(level, ParticleTypes.SMOKE, pos.add(0, 1, 0), 5, 0.6, 5, 0.02, 16);
-            if (t <= 100) Particles.burst(level, ParticleTypes.FLAME, pos.add(0, 0.8, 0), 5, 0.5, 5, 0.02, 20);
-            if (t <= 60) Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 0.5, 4, 0, 4);
-            if (t <= 200) Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 10, 0), 3, 6, 3, 0.03, 10);
-            if (t <= 90) Particles.burst(level, FxParticles.dust(mat, 4), pos.add(0, 1, 0), 9, 1, 9, 0.01, 25);
+            return t < 340;
         }
 
         /** Догорание: вторичные подрывы в воронке. */
         private void cookoff(ClientLevel level) {
-            Vec3 p = pos.add(random.nextIntBetweenInclusive(-9, 9), 1, random.nextIntBetweenInclusive(-9, 9));
-            Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, p, 0, 0, 0, 0, 1);
+            Vec3 p = pos.add(random.nextIntBetweenInclusive(-6, 6), 0.5, random.nextIntBetweenInclusive(-6, 6));
+            Explosions.cookoff(level, p, 3, random);
             Particles.burst(level, ParticleTypes.LAVA, p, 1, 0.5, 1, 0, 25);
-            Particles.burst(level, ParticleTypes.FLAME, p, 0.5, 0.5, 0.5, 0.3, 80);
             BlastSounds.cookoff(p);
-        }
-
-        /** Пылевая стена по земле до 105 блоков (mfx/ring). */
-        private void ring(ClientLevel level, double r) {
-            for (double a = 0; a < 360; a += 7.5) {
-                Particles.burst(level, ParticleTypes.CLOUD, FxParticles.ground(level, pos, a, r).add(0, 0.6, 0), 2, 0.5, 2, 0.12, 6);
-            }
-            for (double a = 3; a < 360; a += 24) {
-                Particles.burst(level, ParticleTypes.GUST, FxParticles.ground(level, pos, a, r).add(0, 1.2, 0), 0, 0, 0, 0, 1);
-            }
-        }
-
-        /** Сфера ударной волны — облако конденсации до 45 блоков (mfx/sphere). */
-        private void sphere(ClientLevel level, double r) {
-            int[][] rings = {{-12, 30}, {-32, 24}, {-52, 16}, {-72, 8}};
-            for (int[] ring : rings) {
-                double step = 360.0 / ring[1];
-                for (double a = 0; a < 360; a += step) {
-                    Particles.burst(level, ParticleTypes.WHITE_SMOKE, FxParticles.sphere(pos, a, ring[0], r), 0.8, 0.8, 0.8, 0.02, 3);
-                }
-            }
-            Particles.burst(level, ParticleTypes.WHITE_SMOKE, FxParticles.sphere(pos, 0, -90, r), 1, 1, 1, 0.02, 6);
         }
 
         @Override
@@ -316,39 +193,44 @@ public final class BlastEffects {
                 flash(level, 70, 0.8f);
                 return true;
             }
-            if (t <= 8) {
-                Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos, 3, 2, 3, 0, 3);
-                Particles.burst(level, ParticleTypes.FLAME, pos, 1, 1, 1, 0.8, 300);
-                Particles.burst(level, ParticleTypes.LAVA, pos, 4, 2, 4, 0, 40);
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos, 5, 3, 5, 0.1, 60);
-                if (t == 1) {
-                    FxParticles.optional(level, "supplementaries:bomb_explosion_emitter", pos, 8, 0, 0, 1, 0);
-                    Particles.burst(level, ParticleTypes.FLASH, pos, 2, 2, 2, 0, 30);
+            if (t <= 6) {
+                // полость: огонь бьёт во все стороны и упирается в стены, дым заполняет объём
+                for (int i = 0; i < 10; i++) {
+                    Fx.fire().vel(Explosions.dir(random, -1).scale(0.3 + random.nextDouble() * 0.4)).size(1.2f, 3).growFast()
+                            .life(8 + random.nextInt(8)).drag(0.75f).collide().spawn(level, pos);
                 }
+                Fx.smoke().vel(Explosions.dir(random, -1).scale(0.3)).size(1.5f, 5).growFast().life(260 + random.nextInt(120))
+                        .color(0x2A2622, 0x5E5852).alpha(0.9f).glow(1, 8).drag(0.85f).collide().rise(0.002f).spawn(level, pos);
+                Particles.burst(level, ParticleTypes.LAVA, pos, 4, 2, 4, 0, 6);
+                if (t == 1) Fx.flash().size(8, 10).life(4).spawn(level, pos);
             }
             if (t % 2 == 0 && t >= 2 && t <= 220) {
-                // дым, пыль и каменная крошка с потолка полости
-                Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos, 6, 4, 6, 0.02, 16);
-                Particles.burst(level, ParticleTypes.CAMPFIRE_COSY_SMOKE, pos.add(0, -6, 0), 5, 1, 5, 0.01, 5);
-                Particles.burst(level, FxParticles.dust(mat, 3), pos, 7, 4, 7, 0.01, 20);
+                // пыль и каменная крошка с потолка полости
+                Fx.smoke().vel(random.nextGaussian() * 0.05, 0, random.nextGaussian() * 0.05).size(1, 4).life(160).color(Explosions.rgb(mat), 0x8A8480)
+                        .alpha(0.5f).collide().spawn(level, pos.add(random.nextGaussian() * 5, random.nextGaussian() * 3, random.nextGaussian() * 5));
                 Particles.burst(level, FxParticles.fallingDust(mat), pos.add(0, 7, 0), 7, 1, 7, 0, 14);
             }
             // поверхность: земля «подпрыгивает» расходящимся кольцом, потом курится провал
             if (t <= 16 && depth <= 60) heave(level, t * 2);
             if (t % 2 == 0 && t >= 24 && t <= 200 && depth <= 48) {
-                Particles.burst(level, ParticleTypes.CAMPFIRE_COSY_SMOKE, surface.add(0, 0.5, 0), 3, 0.4, 3, 0.01, 3);
-                Particles.burst(level, FxParticles.dust(mat, 3), surface.add(0, 0.8, 0), 4, 0.5, 4, 0.01, 6);
+                // провал курится
+                Fx.smoke().vel(random.nextGaussian() * 0.03, 0.06 + random.nextDouble() * 0.05, random.nextGaussian() * 0.03).size(0.8f, 4)
+                        .life(200).color(Explosions.rgb(mat), 0x9A948E).alpha(0.45f).rise(0.002f)
+                        .spawn(level, surface.add(random.nextGaussian() * 3, 0.5, random.nextGaussian() * 3));
             }
             if (t == 30) BlastSounds.debris(surface, 60, 0.75f);
             return t < 300;
         }
 
         private void heave(ClientLevel level, double r) {
+            if (r == 0) Fx.ring().size(1, 36).life(16).alpha(0.4f).color(Explosions.rgb(mat), Explosions.rgb(mat)).spawn(level, surface.add(0, 0.3, 0));
             for (double a = 0; a < 360; a += 15) {
                 Particles.burst(level, FxParticles.block(mat), FxParticles.ground(level, surface, a, r).add(0, 0.2, 0), 0.7, 0.1, 0.7, 0.3, 10);
             }
             for (double a = 7; a < 360; a += 30) {
-                Particles.burst(level, FxParticles.dust(mat, 3), FxParticles.ground(level, surface, a, r).add(0, 0.6, 0), 1, 0.3, 1, 0.02, 6);
+                Fx.smoke().vel(0, 0.08 + random.nextDouble() * 0.1, 0).size(0.8f, 3.5f).growFast().life(120 + random.nextInt(60))
+                        .color(Explosions.rgb(mat), Explosions.lighten(Explosions.rgb(mat), 0.3f)).alpha(0.6f).fadeFrom(0.3f)
+                        .spawn(level, FxParticles.ground(level, surface, a, r).add(0, 0.6, 0));
             }
         }
 
@@ -393,22 +275,26 @@ public final class BlastEffects {
         Effects.add(new Timeline(pos, mat, 0) {
             @Override
             boolean run(ClientLevel level, int t) {
-                if (t < 10) {
-                    for (double[] o : new double[][]{{0, 1.3}, {0.3, 1.1}, {-0.3, 1.2}, {0, 1.0}, {0.2, 1.4}}) {
-                        Particles.burst(level, ParticleTypes.FLAME, pos.add(o[0], 0.5, o[0] * 0.7), 0, 1, 0, o[1], 0);
+                RandomSource rnd = level.random;
+                if (t < 12) {
+                    // огненные струи из скважины
+                    for (int i = 0; i < 5; i++) {
+                        Fx.fire().vel(rnd.nextGaussian() * 0.06, 0.8 + rnd.nextDouble() * 0.7, rnd.nextGaussian() * 0.06).size(0.5f, 1.6f)
+                                .life(10 + rnd.nextInt(8)).drag(0.9f).spawn(level, pos.add(0, 0.5, 0));
                     }
-                    for (double[] o : new double[][]{{0, 1.0}, {0.3, 0.8}, {-0.2, 0.9}}) {
-                        Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(o[0], 0.8, -o[0] * 0.7), 0, 1, 0, o[1], 0);
-                    }
-                    Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 0.5, 0), 0.3, 0.3, 0.3, 0, 6);
-                    Particles.burst(level, ParticleTypes.EXPLOSION, pos.add(0, 1.5, 0), 0.3, 1, 0.3, 0, 1);
+                    Fx.spark().vel(rnd.nextGaussian() * 0.2, 1 + rnd.nextDouble(), rnd.nextGaussian() * 0.2).life(20 + rnd.nextInt(20)).gravity(0.04f)
+                            .spawn(level, pos.add(0, 0.5, 0));
+                    Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 0.5, 0), 0.3, 0.3, 0.3, 0, 4);
                 }
                 if (t < 148) {
-                    Particles.burst(level, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, pos.add(0, 0.5, 0), 0.3, 0.3, 0.3, 0.02, 4);
-                    if (t <= 78) Particles.burst(level, ParticleTypes.LARGE_SMOKE, pos.add(0, 2, 0), 0.4, 1, 0.4, 0.08, 6);
+                    // чёрный столб дыма и пыль грунта
+                    float f = t / 148f;
+                    Fx.smoke().vel(rnd.nextGaussian() * 0.04, (0.7 - 0.5 * f) * (0.8 + 0.4 * rnd.nextDouble()), rnd.nextGaussian() * 0.04)
+                            .size(0.6f, 4.5f).life(260 + rnd.nextInt(120)).color(0x24201E, 0x686260).alpha(0.85f * (1 - 0.6f * f))
+                            .glow(t < 12 ? 0.8f : 0, 6).drag(0.94f).rise(0.006f).fadeIn(2).fadeFrom(0.45f).spawn(level, pos.add(0, 0.8, 0));
                     if (t <= 88) {
-                        Particles.burst(level, FxParticles.dust(mat, 3.5f), pos.add(0, 1, 0), 0, 1, 0, 0.4, 0);
-                        Particles.burst(level, FxParticles.dust(mat, 3.5f), pos.add(0.3, 2, -0.2), 0, 1, 0, 0.3, 0);
+                        Fx.smoke().vel(rnd.nextGaussian() * 0.08, 0.35 + rnd.nextDouble() * 0.3, rnd.nextGaussian() * 0.08).size(0.5f, 2.5f).life(80)
+                                .color(Explosions.rgb(mat), 0xA09A94).alpha(0.6f).gravity(0.006f).fadeFrom(0.3f).spawn(level, pos.add(0, 1, 0));
                     }
                 }
                 return t < 168;
@@ -427,7 +313,15 @@ public final class BlastEffects {
         Effects.add(new Timeline(pos, GroundMaterial.byId(p.material()), 0) {
             @Override
             boolean run(ClientLevel level, int t) {
-                if (t == 0) Particles.burst(level, ParticleTypes.CAMPFIRE_COSY_SMOKE, pos.add(0, 1, 0), 4, 1, 4, 0.02, 60);
+                if (t < 6) {
+                    RandomSource rnd = level.random;
+                    for (int i = 0; i < 12; i++) {
+                        double a = rnd.nextDouble() * Math.PI * 2;
+                        Fx.smoke().vel(Math.cos(a) * 0.3, 0.1 + rnd.nextDouble() * 0.2, Math.sin(a) * 0.3).size(1, 4 + rnd.nextFloat() * 2).growFast()
+                                .life(160 + rnd.nextInt(80)).color(Explosions.rgb(mat), 0xA8A29C).alpha(0.7f).drag(0.9f).collide().fadeFrom(0.35f)
+                                .spawn(level, pos.add(rnd.nextGaussian() * 2, 0.5, rnd.nextGaussian() * 2));
+                    }
+                }
                 return t < 20;
             }
 

@@ -20,6 +20,7 @@ import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.registry.ModEffects;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
+import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -38,6 +39,7 @@ public final class Airstrike {
         ModEntities.REGISTER.register(modBus);
         ModItems.REGISTER.register(modBus);
         ModSounds.REGISTER.register(modBus);
+        ModParticles.REGISTER.register(modBus);
         ModDataComponents.REGISTER.register(modBus);
         ModCreativeTabs.REGISTER.register(modBus);
         ModEffects.REGISTER.register(modBus);

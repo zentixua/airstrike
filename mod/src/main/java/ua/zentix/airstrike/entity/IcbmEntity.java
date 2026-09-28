@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.entity;
 
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -10,8 +9,6 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.util.Local;
-import ua.zentix.airstrike.util.Particles;
 
 import java.util.UUID;
 
@@ -22,10 +19,6 @@ import java.util.UUID;
  */
 public class IcbmEntity extends StrikeProjectile {
     private static final double MAX_SPEED = 25;
-
-    /** Клиент: где стоял стол (там клубится облако старта). */
-    @Nullable
-    private Vec3 pad;
 
     public IcbmEntity(EntityType<? extends IcbmEntity> type, Level level) {
         super(type, level);
@@ -75,24 +68,4 @@ public class IcbmEntity extends StrikeProjectile {
         discard();
     }
 
-    /** Столб огня из сопла и густой дымный след; на старте — облако у площадки. */
-    @Override
-    protected void clientTick() {
-        Level l = level();
-        Vec3 p = position();
-        float yr = getYRot(), xr = getXRot();
-        Vec3 nozzle = Local.at(p, yr, xr, 0, 0, -9.5);
-        Particles.burst(l, ParticleTypes.FLAME, nozzle, 0.3, 0.3, 0.3, 0.15, 30);
-        Particles.burst(l, ParticleTypes.LAVA, nozzle, 0.2, 0.2, 0.2, 0, 4);
-        for (double z = -11; z >= -40; z -= 3) {
-            Particles.burst(l, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, Local.at(p, yr, xr, 0, 0, z), 0.6, 0.6, 0.6, 0.01, 2);
-        }
-        Particles.burst(l, ParticleTypes.CLOUD, Local.at(p, yr, xr, 0, 0, -14), 0.8, 0.8, 0.8, 0.02, 6);
-        if (pad == null) pad = p.add(0, -9, 0);
-        if (age < 80) {
-            Particles.burst(l, ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, pad, 6, 1, 6, 0.04, 20);
-            Particles.burst(l, ParticleTypes.LARGE_SMOKE, pad, 8, 1.5, 8, 0.1, 30);
-            if (age < 30) Particles.burst(l, ParticleTypes.FLAME, pad, 3, 0.5, 3, 0.2, 40);
-        }
-    }
 }

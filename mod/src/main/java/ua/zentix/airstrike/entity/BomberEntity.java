@@ -1,7 +1,6 @@
 package ua.zentix.airstrike.entity;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.server.level.ServerLevel;
@@ -13,8 +12,6 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
-import ua.zentix.airstrike.util.Local;
-import ua.zentix.airstrike.util.Particles;
 
 import java.util.UUID;
 
@@ -95,16 +92,6 @@ public class BomberEntity extends StrikeProjectile {
     @Override
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
         discard();
-    }
-
-    /** Инверсионные следы на эшелоне. */
-    @Override
-    protected void clientTick() {
-        Level l = level();
-        Vec3 p = position();
-        float yr = getYRot(), xr = getXRot();
-        Particles.burst(l, ParticleTypes.CLOUD, Local.at(p, yr, xr, 3.2, 0.3, -9.5), 0.15, 0.15, 0.15, 0.003, 3);
-        Particles.burst(l, ParticleTypes.CLOUD, Local.at(p, yr, xr, -3.2, 0.3, -9.5), 0.15, 0.15, 0.15, 0.003, 3);
     }
 
     @Override

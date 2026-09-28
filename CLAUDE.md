@@ -34,10 +34,11 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|nuke|far] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|nuke|far|fx|fx-night] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     build_sounds.py                      ← все звуки: записи CC0/CC BY с Freesound (кэш tools/.sound-cache) + синтез
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile)
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
+    gen_particles.py                     ← текстуры частиц эффектов и факела (numpy + Pillow)
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах
 
@@ -93,10 +94,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   - `radiation/` — доза игрока (attachment), `RadiationTicker` (раз в секунду: поле осадков × крыша + заражение),
     эффекты лучевой болезни и ожогов.
 - `net/` — `S2C`/`C2S` пакеты; `ClientHooks` — интерфейс, который реализует клиент (сервер не грузит клиентские классы).
-- `client/` (`@Mod(dist = CLIENT)`) — `render/` (модели из блоков, как display-сущности датапака), `sound/` (задержка
-  звука и Доплер: решение уравнения запаздывания, `EngineSound`; `BlastSounds` — весь звук взрывов по дальности;
-  `SoundFilters` — фильтр EFX: воздух, преграды, оглушение), `fx/` (вспышка, тряска камеры без сдвига прицела,
-  частицы взрывов), `hud/`, `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
+- `client/` (`@Mod(dist = CLIENT)`) — `render/` (модели из блоков, как display-сущности датапака; `PlumeRenderer` —
+  факел двигателя), `sound/` (задержка звука и Доплер: решение уравнения запаздывания, `EngineSound`; `BlastSounds` —
+  весь звук взрывов по дальности; `SoundFilters` — фильтр EFX: воздух, преграды, оглушение), `fx/` (вспышка,
+  тряска камеры без сдвига прицела; `Explosions` — картинка взрыва, `Exhaust` — факелы, шлейфы, облако старта, горящие
+  обломки; `particle/Fx` — свои частицы: дым с накалом, пламя, искры с дымным хвостом, вспышка, ударное кольцо),
+  `hud/`, `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
 - `legacy/LegacyMigration` — переезд со старого датапака: выключает `file/airstrike`/`file/shahed`, переносит
@@ -146,6 +149,13 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
 - `Locale.ROOT` для чисел в командах: у Артёма русская локаль, `String.format("%.1f")` даёт запятую.
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
+- Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
+  когда снаряд пропал (взрыв), в конце — старт МБР. В облаке (без KWin) клиент идёт под `xvfb-run` с llvmpipe
+  (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен jar sable-companion.
+- Свои частицы (`client/fx/particle`) — не через `level.addParticle`, а сразу в движок: нет предела «32 блока», свои
+  очереди (по 16384). Слой `GLOW` складывает свет (искры, вспышки); пламя — обычным смешиванием: сложение красного
+  с голубым небом даёт розовый. Добавочное смешивание сбрасывается после частиц (`Fx.afterParticles`).
+- Шлейф снаряда кладётся по всему пути за тик (`Exhaust.segment`): на 11–25 блоках за тик иначе он рвётся на бусины.
 
 ## Окружение
 - NeoForge 21.1.250, Minecraft 1.21.1, ~217 модов. Мультиплеер: хост открывает мир через e4mc/Essential;
