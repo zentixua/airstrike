@@ -108,7 +108,7 @@ mod/                              исходники мода (ModDevGradle, Jav
 tools/
   deploy.sh                       сборка → jar в mods/ инстанса и dist/ (--test — ещё GameTest, --dry)
   logscan.py                      выжимка из logs/latest.log
-  client_scenario.sh [all|nuke]   клиент без окна: снимки экрана и запись звука
+  client_scenario.sh [all|nuke] [shaders]  клиент без окна: снимки экрана и запись звука (shaders — с Iris)
   synth_mod_sounds.py             синтез всех звуков (numpy + ffmpeg, фиксированный сид)
   gen_textures.py                 текстуры, нарисованные кодом
   paths.py                        пути к Prism и инстансу — единственное место

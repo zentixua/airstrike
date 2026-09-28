@@ -34,9 +34,11 @@ import java.util.List;
  * стена, облако Вильсона, след входа боеголовки и чёрный дождь.
  * <p>
  * Дальняя плоскость отсечения в 1.21.1 — 4 × дальность прорисовки, а гриб 15 кт — 12 км в высоту. Всё, что
- * дальше {@code 0.8·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
- * размер сохраняется) и рисуется сразу после неба без глубины — ландшафт потом сам закрывает облако. Ближнее
- * рисуется после погоды с проверкой глубины. Туман ванили на это не действует — своя дымка по настоящей дальности.
+ * дальше {@code 0.97·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
+ * размер сохраняется). Рисуется всё после мира ({@code AFTER_LEVEL}), с проверкой глубины, но без записи: ландшафт
+ * и облака ближе — закрывают гриб, небо — нет. Под шейдерами Iris только этот этап и виден: всё, что нарисовано
+ * раньше, шейдерпак пропускает через свои проходы — туман на дальности прорисовки съедает гриб целиком. Туман
+ * ванили тоже не действует — своя дымка по настоящей дальности.
  */
 public final class NukeRenderer {
     private static final ResourceLocation PUFFS = Airstrike.id("textures/nuke/puffs.png");
@@ -48,22 +50,20 @@ public final class NukeRenderer {
     /** Клуб, уже перенесённый к камере: координаты относительно камеры, размер, цвет. */
     private record Quad(float x, float y, float z, float size, float rot, float r, float g, float b, float a, int tex, double dist) {}
 
-    private static final List<Quad> FAR = new ArrayList<>();
-    private static final List<Quad> NEAR = new ArrayList<>();
+    private static final List<Quad> QUADS = new ArrayList<>();
 
     private NukeRenderer() {}
 
     public static void render(RenderLevelStageEvent e) {
         RenderLevelStageEvent.Stage stage = e.getStage();
-        if (stage != RenderLevelStageEvent.Stage.AFTER_SKY && stage != RenderLevelStageEvent.Stage.AFTER_WEATHER) return;
         if (stage == RenderLevelStageEvent.Stage.AFTER_SKY) NukeView.capture(e);
-        if (ClientNuclear.isEmpty()) return;
+        if (stage != RenderLevelStageEvent.Stage.AFTER_LEVEL || ClientNuclear.isEmpty()) return;
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return;
         Camera camera = e.getCamera();
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
-        float far = mc.gameRenderer.getDepthFar() * 0.8f;
+        float far = mc.gameRenderer.getDepthFar() * 0.97f;
 
         Matrix4fStack mv = RenderSystem.getModelViewStack();
         mv.pushMatrix();
@@ -71,16 +71,11 @@ public final class NukeRenderer {
         mv.mul(e.getModelViewMatrix());
         RenderSystem.applyModelViewMatrix();
         try {
-            if (stage == RenderLevelStageEvent.Stage.AFTER_SKY) {
-                collect(level, camera, partial, far);
-                drawFireballs(camera, partial, far, true);
-                drawQuads(camera, FAR, false);
-                drawReentry(level, camera, partial, far);
-            } else {
-                drawQuads(camera, NEAR, true);
-                drawFireballs(camera, partial, far, false);
-                drawBlackRain(level, camera, partial);
-            }
+            collect(level, camera, partial, far);
+            drawFireballs(camera, partial, far);
+            drawQuads(camera, QUADS);
+            drawReentry(level, camera, partial, far);
+            drawBlackRain(level, camera, partial);
         } finally {
             mv.popMatrix();
             RenderSystem.applyModelViewMatrix();
@@ -95,10 +90,9 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- гриб
 
-    /** Все клубы всех подрывов за кадр: дальние (сжатые) и ближние, отсортированные от дальних к ближним. */
+    /** Все клубы всех подрывов за кадр (дальние — сжатые), отсортированные от дальних к ближним. */
     private static void collect(ClientLevel level, Camera camera, float partial, float far) {
-        FAR.clear();
-        NEAR.clear();
+        QUADS.clear();
         Vec3 cam = camera.getPosition();
         float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
         float[] fog = RenderSystem.getShaderFogColor();
@@ -112,22 +106,16 @@ public final class NukeRenderer {
                 float haze = (float) (1 - Math.exp(-a.d.metres(dist) / vis));
                 float r = Mth.lerp(haze, s.r(), fog[0]), g = Mth.lerp(haze, s.g(), fog[1]), b = Mth.lerp(haze, s.b(), fog[2]);
                 float alpha = s.a() * (1 - 0.5f * haze);
-                if (dist > far) {
-                    double k = far / dist;
-                    FAR.add(new Quad((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) (s.size() * k), s.rot(), r, g, b, alpha, s.tex(), dist));
-                } else {
-                    NEAR.add(new Quad((float) dx, (float) dy, (float) dz, (float) s.size(), s.rot(), r, g, b, alpha, s.tex(), dist));
-                }
+                double k = dist > far ? far / dist : 1;
+                QUADS.add(new Quad((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) (s.size() * k), s.rot(), r, g, b, alpha, s.tex(), dist));
             });
         }
-        Comparator<Quad> backToFront = Comparator.comparingDouble(Quad::dist).reversed();
-        FAR.sort(backToFront);
-        NEAR.sort(backToFront);
+        QUADS.sort(Comparator.comparingDouble(Quad::dist).reversed());
     }
 
-    private static void drawQuads(Camera camera, List<Quad> quads, boolean depthTest) {
+    private static void drawQuads(Camera camera, List<Quad> quads) {
         if (quads.isEmpty()) return;
-        setup(PUFFS, false, depthTest);
+        setup(PUFFS, false);
         Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (Quad q : quads) {
@@ -140,7 +128,7 @@ public final class NukeRenderer {
     // ---------------------------------------------------------------- огненный шар
 
     /** Шар и корона: плазма с прокруткой, складывается со светом (ярче всего вокруг). */
-    private static void drawFireballs(Camera camera, float partial, float far, boolean farPass) {
+    private static void drawFireballs(Camera camera, float partial, float far) {
         Vec3 cam = camera.getPosition();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
@@ -152,9 +140,7 @@ public final class NukeRenderer {
             double cy = d.groundY() + d.blocks(FireballModel.centreHeight(t, d.hobMetres(), d.yieldKt()));
             double dx = d.burst().x - cam.x, dy = cy - cam.y, dz = d.burst().z - cam.z;
             double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            boolean isFar = dist > far;
-            if (isFar != farPass) continue;
-            if (isFar) {
+            if (dist > far) {
                 double k = far / dist;
                 dx *= k;
                 dy *= k;
@@ -167,11 +153,11 @@ public final class NukeRenderer {
             float glow = (float) Math.max(0.35, Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.35)) * fade;
             float cr = ((rgb >> 16) & 0xFF) / 255f, cg = ((rgb >> 8) & 0xFF) / 255f, cb = (rgb & 0xFF) / 255f;
             float scroll = (float) (t * 0.04);
-            setup(PLASMA, true, !farPass);
+            setup(PLASMA, true);
             sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
             sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.9f, cb * 0.8f, glow * 0.35f);
             // ореол: плоское свечение к камере, в 3 раза шире шара
-            setup(FLARE, true, false);
+            setup(FLARE, true);
             Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 3), 0, 0, 0, 1, 1, cr, cg, cb, glow * 0.5f);
@@ -204,7 +190,7 @@ public final class NukeRenderer {
             double path = 60_000 * w.scale();
             Vec3 head = end.add(dir.scale(-path * f));
             Vec3 tail = head.add(dir.scale(-Math.min(path * 0.25, path * (1 - f) + 2000 * w.scale())));
-            setup(FLARE, true, false);
+            setup(FLARE, true);
             Vector3f l = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             int steps = 24;
@@ -239,7 +225,7 @@ public final class NukeRenderer {
         int cx = Mth.floor(cam.x), cz = Mth.floor(cam.z);
         int radius = 10;
         float time = (level.getGameTime() % 100_000) + partial;
-        setup(RAIN, false, true);
+        setup(RAIN, false);
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
@@ -268,7 +254,8 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- общее
 
-    private static void setup(ResourceLocation texture, boolean additive, boolean depthTest) {
+    /** Своя текстура и смешивание; глубина проверяется, но не пишется (прозрачное поверх непрозрачного мира). */
+    private static void setup(ResourceLocation texture, boolean additive) {
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderTexture(0, texture);
         RenderSystem.enableBlend();
@@ -278,7 +265,7 @@ public final class NukeRenderer {
             RenderSystem.defaultBlendFunc();
         }
         RenderSystem.depthMask(false);
-        if (depthTest) RenderSystem.enableDepthTest(); else RenderSystem.disableDepthTest();
+        RenderSystem.enableDepthTest();
         RenderSystem.disableCull();
     }
 

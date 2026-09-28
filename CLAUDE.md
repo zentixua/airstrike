@@ -30,7 +30,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     paths.py                             ← все пути к игре (единственное место)
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|nuke]        ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|nuke|far] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     synth_mod_sounds.py, gen_textures.py ← генерация звуков (numpy + ffmpeg) и текстур (Pillow), фиксированный сид
   docs/DESIGN-nuke.md                    ← проект ядерного удара
 
@@ -102,6 +102,8 @@ git commit
   в клиентском коде (и в общем, что зовёт клиент) только `MOTION_BLOCKING`.
 - GameTest ставит шаблон на 1 блок выше его начала; без `skyAccess = true` площадку накрывает потолок из барьеров
   (и рельеф для полёта — это потолок). Тесты идут на случайных дальних координатах; каждому ядерному тесту — своя партия.
+- Выход из мира в клиенте без окна после дальних телепортов иногда зависал на «Saving worlds» (ванильный цикл выгрузки
+  чанков); после перевода ядерки на фоновую загрузку и готовые чанки не повторялся — если вернётся, снять `jstack`.
 - Мок-игрок GameTest (`makeMockServerPlayerInLevel`) ломается о пакеты Create («simulated:end_sea») — тестировать
   через методы, которым достаточно позиции и UUID (`NuclearStrikes.launchFrom`).
 - Дальняя плоскость отсечения — `renderDistance × 4` блоков: гриб выше рисуется «сжатым» после неба (`NukeRenderer`).
@@ -113,8 +115,17 @@ git commit
 - Игровые часы клиента прыгают назад, когда сервер догоняет отставание: время картинки подрыва — свои тики клиента
   от прихода пакета (`ClientNuclear.Active`), а не `level.getGameTime()`.
 - **Ничего не читать в незагруженных чанках из тика**: `getBlockState`, `clip`, ванильный `explode` и даже
-  `TicketController.forceChunk` NeoForge грузят/генерируют чанк сразу — сервер вставал на 5–6 с. Для ядерного удара —
-  ванильный `TicketType` (`NuclearTickets`, грузит в фоне) и проверка `hasChunk`/`isLoaded` перед чтением.
+  `TicketController.forceChunk` NeoForge грузят/генерируют чанк сразу — сервер вставал на 5–6 с. `hasChunk`/`isLoaded`
+  верны и для чанка, который ещё грузится, а `getHeight`/`getBlockState` на нём ждут в `managedBlock` (до 400 мс):
+  проверять готовность через `getChunkNow` (`nuclear/world/Terrain`). Для ядерного удара — ванильный `TicketType`
+  (`NuclearTickets`, грузит в фоне).
+- Sable на каждое изменение блока читает соседние блоки (физика аппаратов): менять блоки только там, где готовы и
+  соседние чанки (`NuclearTickets.neighbourhoodLoaded`), иначе он синхронно грузит соседа.
+- Под шейдерами Iris (у хоста Complementary) всё, что нарисовано до конца мира, проходит через проходы шейдерпака, и его
+  туман на дальности прорисовки съедает дальнее; ядерная картинка рисуется в `AFTER_LEVEL` — проверено
+  `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса).
+- Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
+  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`.
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
@@ -129,4 +140,3 @@ git commit
 
 ## Не сделано / идеи
 - Ядерная БЧ на крылатой ракете и B-2 (DESIGN §7) — сейчас только МБР.
-- Картинка под шейдерами Iris не проверена клиентом без окна (там Iris нет).
