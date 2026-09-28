@@ -75,6 +75,7 @@ public final class ClientScenario {
         else if ("loiter".equals(mode)) planLoiter();
         else if ("models".equals(mode)) planModels();
         else if ("hud".equals(mode)) planHud();
+        else if ("map".equals(mode)) planMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else plan();
     }
@@ -581,6 +582,42 @@ public final class ClientScenario {
         at(905, () -> cmd("tp @s 0.5 214 70.5 0 20"));
         for (int t = 920; t <= 1100; t += 15) shot(t, "hud_near");
         at(1110, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Камера снаряда дальше прорисовки (12 чанков, как у Артёма): ракета на 800 блоков и три шахеда на 600 с пусковой
+     * рядом. Видео — пока снаряд близко, дальше карта по телеметрии сервера; ракета пропадает у цели — «цель поражена»
+     * на карте, потом камера переходит к шахедам.
+     */
+    private void planMap() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+            cmd("forceload add -32 -48 32 64");
+        });
+        at(200, () -> {
+            var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
+            c.launchNearPlayer.set(true);
+            c.droneFlightTime.set(30);
+            c.missileFlightTime.set(20);
+            cmd("fill -30 199 -40 30 199 60 minecraft:smooth_stone");
+            cmd("tp @s 0.5 200 0.5 0 5");
+        });
+        at(215, () -> {
+            cmd("airstrike missile at 0.5 80 800.5");
+            cmd("airstrike salvo drone 3 8 at 300.5 80 520.5");
+        });
+        for (int t = 225; t <= 265; t += 10) {
+            at(t, () -> {
+                if (!ua.zentix.airstrike.client.cam.ProjectileCamera.isActive()) ua.zentix.airstrike.client.cam.ProjectileCamera.cycle();
+            });
+        }
+        for (int t = 240; t <= 1400; t += 12) shot(t, "map");
+        at(1410, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
