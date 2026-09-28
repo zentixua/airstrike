@@ -242,5 +242,9 @@
   "airstrike.config.carrier_nukes": "Ядерная БЧ на ракете и B-2",
   "airstrike.config.carrier_nukes.tooltip": "Разрешить ядерную боевую часть не только на МБР. Права — как у МБР.",
   "entity.airstrike.launcher": "Пусковая установка",
-  "entity.airstrike.spent_booster": "Отработавший ускоритель"
+  "entity.airstrike.spent_booster": "Отработавший ускоритель",
+  "airstrike.camera.launch": "ПУСК · %s №%s · %s",
+  "airstrike.camera.impact": "ПОПАДАНИЕ",
+  "airstrike.config.auto_camera": "Камера снаряда сама при пуске",
+  "airstrike.config.auto_camera.tooltip": "При каждом твоём пуске камера сама показывает пуск сбоку, полёт с борта и попадание. Shift — выход."
 }
