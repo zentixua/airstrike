@@ -101,6 +101,7 @@ public final class AirstrikeCommand {
             case MISSILE -> new String[]{"missile"};
             case BUNKER -> new String[]{"bunker"};
             case ROCKET -> new String[]{"rocket", "grad"};
+            case LOITER -> new String[]{"loiter", "lancet"};
             case NUKE -> new String[0]; // своя ветка: мощность и подрыв вместо количества и разброса
         };
     }

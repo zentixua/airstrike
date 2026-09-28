@@ -27,7 +27,9 @@ public enum WeaponType implements StringRepresentable {
      * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
      * по полсекунды. Номер в {@link #id} — порядок в перечислении (индексы {@code values()} совпадают с id).
      */
-    ROCKET(4, "rocket", 8, 12, SirenKind.MISSILE);
+    ROCKET(4, "rocket", 8, 12, SirenKind.MISSILE),
+    /** Барражирующий боеприпас в духе «Ланцета»: кружит над целью, пикирует по команде или по истечении барража. */
+    LOITER(5, "loiter", 40, 60, SirenKind.AIR_RAID);
 
     public static final Codec<WeaponType> CODEC = StringRepresentable.fromEnum(WeaponType::values);
     private static final IntFunction<WeaponType> BY_ID = ByIdMap.continuous(WeaponType::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);
@@ -75,7 +77,7 @@ public enum WeaponType implements StringRepresentable {
 
     /** Порядок в пульте и при прокрутке в бинокле: от лёгкого к ядерному. */
     public static List<WeaponType> menu() {
-        return List.of(DRONE, MISSILE, ROCKET, BUNKER, NUKE);
+        return List.of(DRONE, LOITER, MISSILE, ROCKET, BUNKER, NUKE);
     }
 
     public WeaponType next() {
@@ -96,6 +98,7 @@ public enum WeaponType implements StringRepresentable {
             case "bunker", "bomb", "бомба" -> BUNKER;
             case "nuke", "icbm", "ядерка", "ядерная" -> NUKE;
             case "rocket", "grad", "mlrs", "град", "рсзо" -> ROCKET;
+            case "loiter", "lancet", "ланцет", "барраж" -> LOITER;
             default -> null;
         };
     }

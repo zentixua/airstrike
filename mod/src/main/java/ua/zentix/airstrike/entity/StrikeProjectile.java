@@ -96,7 +96,9 @@ public abstract class StrikeProjectile extends Entity {
     private int sirenLead = -1;
     /** Летит вне загруженного мира (см. {@link VirtualFlights}). */
     private boolean virtual;
-    private boolean targetAreaHeld;
+    /** Чанк, вокруг которого держится район цели (null — не держится). */
+    @Nullable
+    private ChunkPos heldArea;
 
     private final LongSet forcedChunks = new LongOpenHashSet();
 
@@ -328,6 +330,7 @@ public abstract class StrikeProjectile extends Entity {
         if (tracker == null || !acceptsRetarget()) return false;
         this.tracker = new TargetTracker(target, point);
         if (route != null) route.skip();
+        releaseTargetArea();
         syncAim();
         onRetarget();
         return true;
@@ -427,14 +430,25 @@ public abstract class StrikeProjectile extends Entity {
     }
 
     /** Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта. */
-    private void holdTargetArea(ServerLevel level) {
-        if (targetAreaHeld || tracker == null) return;
+    protected void holdTargetArea(ServerLevel level) {
+        if (heldArea != null || tracker == null) return;
         Vec3 aim = tracker.point();
         double d = position().distanceTo(aim);
         if (d <= Math.max(400, Math.max(speed, cruiseSpeed()) * PRELOAD_TICKS)) {
-            targetAreaHeld = true;
-            FlightTickets.hold(level, new ChunkPos(BlockPos.containing(aim)), getUUID(), true);
+            heldArea = new ChunkPos(BlockPos.containing(aim));
+            FlightTickets.hold(level, heldArea, targetArea(), getUUID(), true);
         }
+    }
+
+    /** Отпустить район цели (снаряд убран или перенацелен — новый район возьмётся на подлёте). */
+    private void releaseTargetArea() {
+        if (heldArea != null && level() instanceof ServerLevel level) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
+        heldArea = null;
+    }
+
+    /** Размер района цели, который грузится заранее: уровень тикета {@link FlightTickets} (4 — ±40 блоков). */
+    protected int targetArea() {
+        return FlightTickets.DISTANCE;
     }
 
     private void checkSiren(ServerLevel level) {
@@ -742,10 +756,7 @@ public abstract class StrikeProjectile extends Entity {
     @Override
     public void remove(RemovalReason reason) {
         releaseChunkTickets();
-        if (targetAreaHeld && tracker != null && level() instanceof ServerLevel level) {
-            FlightTickets.hold(level, new ChunkPos(BlockPos.containing(tracker.point())), getUUID(), false);
-            targetAreaHeld = false;
-        }
+        releaseTargetArea();
         super.remove(reason);
     }
 

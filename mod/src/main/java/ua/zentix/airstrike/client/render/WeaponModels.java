@@ -26,7 +26,7 @@ import java.util.List;
  * Модели снарядов — гладкие сетки OBJ с текстурами из {@code tools/gen_models.py} (models/weapon, textures/block/weapon).
  * Грузятся как дополнительные модели блоков (атлас блоков), рисуются слоем сущностей: свет и тени мира, под шейдерами
  * Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
- * винт шахеда, крылья и воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
+ * винт шахеда и «Ланцета», крылья ракеты и «Ланцета», воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
  * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}.
  * Шарниры — те же числа, что в gen_models.py.
  */
@@ -40,7 +40,8 @@ public final class WeaponModels {
         MISSILE_INTAKE("missile_intake"), MISSILE_BOOSTER("missile_booster"),
         BOMBER_BODY("bomber_body"), BOMBER_DOOR_L_IN("bomber_door_l_in"), BOMBER_DOOR_L_OUT("bomber_door_l_out"),
         BOMBER_DOOR_R_IN("bomber_door_r_in"), BOMBER_DOOR_R_OUT("bomber_door_r_out"),
-        BOMB_BODY("bomb_body"), ICBM_BODY("icbm_body"), ROCKET_BODY("rocket_body"), ROCKET_RACK("rocket_rack_body");
+        BOMB_BODY("bomb_body"), ICBM_BODY("icbm_body"), ROCKET_BODY("rocket_body"), ROCKET_RACK("rocket_rack_body"),
+        LOITER_BODY("loiter_body"), LOITER_WINGS("loiter_wings"), LOITER_PROP("loiter_prop"), LOITER_DISC("loiter_disc");
 
         final ModelResourceLocation location;
 
@@ -184,6 +185,27 @@ public final class WeaponModels {
         if (!e.flightPhase().onLauncher()) pose.mulPose(new Quaternionf().rotationZ((e.age() + partial) * 0.5f));
         Mesh.ROCKET_BODY.draw(pose, buffers, light);
         pose.popPose();
+    }
+
+    /**
+     * «Ланцет»: крылья сложены вдоль корпуса на катапульте и раскрываются сразу после толчка (рисуем их кресты
+     * вырастающими от корпуса), толкающий винт с размытым диском; на круге — ровный газ, в пике — полный.
+     */
+    public static void loiter(StrikeProjectile e, float partial, PoseStack pose, MultiBufferSource buffers, int light) {
+        Mesh.LOITER_BODY.draw(pose, buffers, light);
+        FlightPhase ph = e.flightPhase();
+        float open = ph.onLauncher() ? 0 : ph == FlightPhase.BOOST ? Mth.clamp((e.phaseAge() + partial - 2) / 6f, 0, 1) : 1;
+        float span = 0.15f + 0.85f * open * open * (3 - 2 * open);
+        pose.pushPose();
+        pose.scale(span, span, 1);
+        Mesh.LOITER_WINGS.draw(pose, buffers, light);
+        pose.popPose();
+        float rate = ph == FlightPhase.READY ? 0 : ph == FlightPhase.TERMINAL ? 3.0f : 2.2f;
+        pose.pushPose();
+        pose.mulPose(new Quaternionf().rotationZ((e.age() + partial) * rate));
+        Mesh.LOITER_PROP.draw(pose, buffers, light);
+        pose.popPose();
+        if (rate > 0) Mesh.LOITER_DISC.draw(pose, buffers.getBuffer(TRANSLUCENT), light, Mth.clamp((rate - 0.6f) / 1.6f, 0, 1));
     }
 
     public static void icbm(StrikeProjectile e, float partial, PoseStack pose, MultiBufferSource buffers, int light) {

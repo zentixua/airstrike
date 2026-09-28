@@ -117,15 +117,14 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
         int phase = track.phase(te);
         double age = track.phaseAge(te);
         switch (layer) {
-            case DRONE_NEAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * near(d, 60, 160) * spool(phase, age, true);
-                pitch *= spoolPitch(phase, age, true);
-                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
-            }
-            case DRONE_FAR -> {
-                gain = Acoustics.gain(d, 60, 0.12, 300) * (1 - near(d, 60, 160)) * spool(phase, age, true);
-                pitch *= spoolPitch(phase, age, true);
-                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
+            case DRONE_NEAR, DRONE_FAR -> {
+                // барражирующий — маленький электромотор: тоньше и тише, слышно ближе; в пике винт взвывает
+                boolean small = track.weapon == WeaponType.LOITER;
+                double ref = small ? 35 : 60, far = small ? 200 : 300;
+                double w = small ? near(d, 35, 110) : near(d, 60, 160);
+                gain = Acoustics.gain(d, ref, 0.12, far) * (layer == Layer.DRONE_NEAR ? w : 1 - w) * spool(phase, age, true) * (small ? 0.7 : 1);
+                pitch *= spoolPitch(phase, age, true) * (small ? 1.75 : 1);
+                if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= small ? 1.2 : 1.12;
             }
             case MISSILE_FRONT, MISSILE_REAR, MISSILE_DIVE -> {
                 // спереди — свист вентилятора, сзади — рёв струи, в пике — пронзительный свист

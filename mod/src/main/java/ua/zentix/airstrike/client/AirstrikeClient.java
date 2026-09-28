@@ -89,6 +89,7 @@ public final class AirstrikeClient {
         e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::drone));
         e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::missile));
         e.registerEntityRenderer(ModEntities.ROCKET.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::rocket));
+        e.registerEntityRenderer(ModEntities.LOITER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::loiter));
         e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomber));
         e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomb));
         e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::icbm));
