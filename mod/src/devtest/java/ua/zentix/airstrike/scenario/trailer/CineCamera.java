@@ -9,6 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -140,6 +141,11 @@ final class CineCamera {
     /** Неподвижная камера, следящая за точкой (например, за снарядом). */
     static Path track(Vec3 from, Supplier<Vec3> at, double fov) {
         return t -> Pose.look(from, at.get(), 0, fov);
+    }
+
+    /** То же с переменным полем зрения (например, «зум» за далёким снарядом). */
+    static Path track(Vec3 from, Supplier<Vec3> at, DoubleSupplier fov) {
+        return t -> Pose.look(from, at.get(), 0, fov.getAsDouble());
     }
 
     /** Взгляд плавно переходит с одной точки на другую за {@code ticks}, камера едет от {@code a} к {@code b}. */

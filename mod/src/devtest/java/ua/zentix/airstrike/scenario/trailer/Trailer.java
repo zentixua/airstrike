@@ -33,6 +33,7 @@ import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.scenario.trailer.CineCamera.Path;
@@ -46,6 +47,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -127,6 +129,7 @@ public final class Trailer {
             c.missileFlightTime.set(20);
             c.bomberFlightTime.set(20);
             c.nukeFlightTime.set(600);
+            c.loiterTime.set(8);
             c.siren.set(false);
         });
         onServer(this::findLocations);
@@ -169,9 +172,9 @@ public final class Trailer {
             Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
             Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
             // сбоку и чуть сзади: видно подъём пакета, облако старта и уход шахеда в небо
-            Vec3 a = ground(at.add(right.scale(17)).add(fwd.scale(-9))).add(0, 1.7, 0);
-            Vec3 b = ground(at.add(right.scale(14)).add(fwd.scale(-5))).add(0, 2.2, 0);
-            return CineCamera.dolly(a, b, 190, () -> at.add(fwd.scale(6)).add(0, 3.5, 0), 64);
+            Vec3 a = ground(at.add(right.scale(11)).add(fwd.scale(-6))).add(0, 1.5, 0);
+            Vec3 b = ground(at.add(right.scale(9)).add(fwd.scale(-3))).add(0, 1.9, 0);
+            return CineCamera.dolly(a, b, 190, () -> at.add(fwd.scale(4)).add(0, 2.6, 0), 64);
         }).endWhen(() -> {
             // шахед отошёл от пусковой — сразу за ним, пока он в загруженном мире
             DroneEntity d = newest(DroneEntity.class);
@@ -180,14 +183,16 @@ public final class Trailer {
         }, 0);
         // разгон и отделение ускорителя — замедленно, вплотную, сверху (земля в кадре — видна скорость)
         shot("boost").after(() -> newest(DroneEntity.class) != null, 200).noPrep().length(56).speed(0.4).hidden()
-                .camera(() -> chaseOf(newest(DroneEntity.class), 7, 2.6, 3.2, 14, 0, 62));
+                .camera(() -> chaseOf(newest(DroneEntity.class), 7.5, 1.6, 2.6, 6, 0, 58));
         // шахед на маршруте
         shot("cruise").after(() -> newest(DroneEntity.class) != null, 200).noPrep().length(110).hidden()
-                .camera(() -> chaseOf(newest(DroneEntity.class), 12, 4.5, -5, 30, 6, 58));
+                .camera(() -> chaseOf(newest(DroneEntity.class), 8, 3, -3.5, 22, 6, 58));
         // удар по деревне: с пригорка у крайних домов, замедленно
         shot("impact_drone").length(150).speed(0.5).hidden().camera(() -> {
             Vec3 from = ground(village.add(toPost.scale(30)).add(side.scale(14))).add(0, 7, 0);
-            return CineCamera.track(from, smoothFocus(() -> nearest(DroneEntity.class, village, 300), village.add(0, 3, 0), 0.2), 64);
+            // пока шахеды далеко — узко, чтобы они не терялись точками в небе; к удару — широко
+            return CineCamera.track(from, smoothFocus(() -> nearest(DroneEntity.class, village, 300), village.add(0, 3, 0), 0.2),
+                    rangeFov(from, () -> nearest(DroneEntity.class, village, 300), 64, 24, 45));
         }).when(() -> nearest(DroneEntity.class, village, 170) != null, 2400)
                 .endWhen(() -> nearest(DroneEntity.class, village, 600) == null, 70);
 
@@ -201,13 +206,14 @@ public final class Trailer {
             Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
             Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
             // впереди-сбоку: ракета сходит с направляющей и уходит над камерой
-            Vec3 from = ground(at.add(fwd.scale(18)).add(right.scale(-9))).add(0, 1.8, 0);
+            Vec3 from = ground(at.add(fwd.scale(12)).add(right.scale(-7))).add(0, 2.4, 0);
             return CineCamera.track(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, at, 150), at.add(0, 2.5, 0), 0.35), 68);
         });
         shot("impact_missile").length(90).speed(0.35).hidden().camera(() -> {
             Vec3 t = target(side.scale(14));
             Vec3 from = ground(t.add(toPost.scale(28)).add(side.scale(-16))).add(0, 4, 0);
-            return CineCamera.track(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, t, 300), t.add(0, 3, 0), 0.5), 62);
+            return CineCamera.track(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, t, 300), t.add(0, 3, 0), 0.5),
+                    rangeFov(from, () -> nearest(CruiseMissileEntity.class, t, 300), 62, 28, 45));
         }).when(() -> nearest(CruiseMissileEntity.class, target(side.scale(14)), 260) != null, 2400)
                 .endWhen(() -> nearest(CruiseMissileEntity.class, target(side.scale(14)), 60) == null, 45);
         run(this::placeActor);
@@ -222,6 +228,34 @@ public final class Trailer {
                 // горка, пикирование, «сигнал потерян» и план попадания (облёт) — до конца
                 .length(160).hud().projectileCamera()
                 .cueEnd(ProjectileCamera::exit);
+
+        // --- «Ланцет»: катапульта у поста, круг над деревней, пике
+        run(this::placeActor);
+        // пусковые шахедов и ракет убраны: катапульта встанет на их место, и в кадре будет только она
+        run(() -> cmd("kill @e[type=airstrike:launcher]"));
+        waitTicks(40);
+        run(() -> fire("loiter", target(side.scale(8)).add(toPost.scale(-10))));
+        shot("loiter_launch").after(() -> launcher(WeaponType.LOITER) != null, 100).noPrep().length(160).speed(0.5).camera(() -> {
+            LauncherEntity l = launcher(WeaponType.LOITER);
+            Vec3 at = l.position();
+            Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
+            Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
+            // сбоку от катапульты: рывок по направляющей, раскрытие крыльев, уход вверх
+            Vec3 from = ground(at.add(right.scale(8)).add(fwd.scale(2))).add(0, 1.9, 0);
+            return CineCamera.track(from, smoothFocus(() -> newest(LoiterEntity.class), at.add(fwd.scale(3)).add(0, 2, 0), 0.35), 62);
+        }).endWhen(() -> {
+            LoiterEntity e = newest(LoiterEntity.class);
+            LauncherEntity l = launcher(WeaponType.LOITER);
+            return e != null && l != null && e.distanceTo(l) > 40;
+        }, 0);
+        // игрок ближе к деревне: круг «Ланцета» выходит за дальность симуляции от поста, и снаряд уходил
+        // в виртуальный полёт — пропадал из кадра до пике
+        run(() -> placeActor(ground(village.add(toPost.scale(60)).add(side.scale(30))), village));
+        shot("loiter_strike").noPrep().length(260).speed(0.8)
+                // за «Ланцетом» вплотную: круг над деревней, пике и взрыв прямо перед камерой (с земли пике закрывают дома)
+                .camera(() -> chaseOf(nearest(LoiterEntity.class, target(side.scale(8)).add(toPost.scale(-10)), 200), 5.5, 1.8, 2.2, 8, 0, 60))
+                .when(() -> nearest(LoiterEntity.class, village, 120) instanceof LoiterEntity e && e.flightPhase() == FlightPhase.LOITER, 1600)
+                .endWhen(() -> nearest(LoiterEntity.class, village, 300) == null, 50);
 
         // --- B-2 и бетонобойная бомба: с высоты у деревни — пролёт, падение, бурение, подземный взрыв
         shot("bomber").onReady(() -> fire("bunker", target(side.scale(-12)))).length(260).speed(0.75).hidden().camera(() -> {
@@ -240,9 +274,9 @@ public final class Trailer {
             Vec3 fwd = Vec3.directionFromRotation(0, l.getYRot());
             Vec3 right = new Vec3(-fwd.z, 0, fwd.x);
             // низко сбоку и впереди пакета: трубы, поджиг, снаряды уходят над камерой дугами
-            Vec3 a = ground(at.add(right.scale(13)).add(fwd.scale(7))).add(0, 1.2, 0);
-            Vec3 b = ground(at.add(right.scale(11)).add(fwd.scale(11))).add(0, 1.0, 0);
-            return CineCamera.dolly(a, b, 150, () -> at.add(fwd.scale(4)).add(0, 3, 0), 72);
+            Vec3 a = ground(at.add(right.scale(9)).add(fwd.scale(5))).add(0, 2.2, 0);
+            Vec3 b = ground(at.add(right.scale(8)).add(fwd.scale(8))).add(0, 2.0, 0);
+            return CineCamera.dolly(a, b, 150, () -> at.add(fwd.scale(3)).add(0, 2.2, 0), 72);
         });
         shot("rocket_impact").noPrep().length(200).speed(0.6).camera(() -> {
             Vec3 t = village.add(side.scale(-6));
@@ -627,6 +661,26 @@ public final class Trailer {
             double k = 1 - Math.pow(1 - rate, dt);
             look[0] = look[0].lerp(want, Mth.clamp(k, 0, 1));
             return look[0];
+        };
+    }
+
+    /**
+     * Поле зрения, при котором снаряд {@code focus} виден с {@code from} одного размера: {@code wide} ближе
+     * {@code near} блоков, дальше — уже (не меньше {@code narrow}); без снаряда (взрыв) — снова {@code wide}.
+     * Сглажено по времени игры, как {@link #smoothFocus}.
+     */
+    private DoubleSupplier rangeFov(Vec3 from, Supplier<? extends Entity> focus, double wide, double narrow, double near) {
+        final double[] fov = {Double.NaN};
+        final double[] lastT = {Double.NaN};
+        return () -> {
+            Entity e = focus.get();
+            double want = e == null ? wide
+                    : Mth.clamp(wide * near / Math.max(near, e.getPosition(CineCamera.partial()).distanceTo(from)), narrow, wide);
+            double t = shotTime();
+            double dt = Double.isNaN(lastT[0]) ? 1e9 : Math.max(0, t - lastT[0]);
+            lastT[0] = t;
+            fov[0] = Double.isNaN(fov[0]) ? want : Mth.lerp(Mth.clamp(1 - Math.pow(0.85, dt), 0, 1), fov[0], want);
+            return fov[0];
         };
     }
 
