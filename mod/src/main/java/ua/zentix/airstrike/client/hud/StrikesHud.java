@@ -115,10 +115,17 @@ public final class StrikesHud {
             String label = "№" + f.number + " " + clock(f.etaSeconds(pt));
             g.drawString(font, label, sx - font.width(label) / 2, sy - 14, c);
         }
+        List<int[]> placed = new ArrayList<>();
         for (TargetMark m : marks) {
             float[] t = NukeView.project(m.pos);
             if (t == null) continue;
-            int tx = (int) (t[0] * w), ty = (int) (t[1] * h);
+            m.tx = (int) (t[0] * w);
+            m.ty = (int) (t[1] * h);
+        }
+        // сверху вниз: подпись, которая наехала бы на уже поставленную, опускается на строку
+        marks.sort(java.util.Comparator.comparingInt((TargetMark m) -> m.ty).thenComparingInt(m -> m.tx));
+        for (TargetMark m : marks) {
+            int tx = m.tx, ty = m.ty;
             if (tx <= 0 || tx >= w || ty <= 0 || ty >= h) continue;
             int c = m.lost ? 0xC0A0A0A0 : 0xC0FF3030;
             for (int i = -4; i <= 4; i++) {
@@ -127,8 +134,26 @@ public final class StrikesHud {
             }
             MutableComponent text = Component.literal(numbers(m.numbers));
             if (m.label != null) text.append(" · ").append(m.label);
-            g.drawString(font, text, tx - font.width(text) / 2, ty + 7, c | 0xFF000000);
+            int tw = font.width(text), x = tx - tw / 2, y = labelY(placed, x, tw, ty + 7);
+            placed.add(new int[] {x, y, tw});
+            g.drawString(font, text, x, y, c | 0xFF000000);
         }
+    }
+
+    /** Строка подписи шириной {@code width} от {@code x}: первая с {@code y} вниз, где она ни на что не наезжает. */
+    static int labelY(List<int[]> placed, int x, int width, int y) {
+        for (int n = 0; n < 32; n++) {
+            boolean free = true;
+            for (int[] r : placed) {
+                if (x < r[0] + r[2] + 4 && r[0] < x + width + 4 && Math.abs(y - r[1]) < 10) {
+                    free = false;
+                    break;
+                }
+            }
+            if (free) return y;
+            y += 10;
+        }
+        return y;
     }
 
     /** Крестик цели: точка, потеряна ли она, подпись и номера снарядов. */
@@ -138,6 +163,8 @@ public final class StrikesHud {
         @Nullable
         final Component label;
         final List<Integer> numbers = new ArrayList<>();
+        /** Место на экране (−1 — за спиной). */
+        int tx = -1, ty = -1;
 
         TargetMark(Vec3 pos, boolean lost, @Nullable Component label) {
             this.pos = pos;

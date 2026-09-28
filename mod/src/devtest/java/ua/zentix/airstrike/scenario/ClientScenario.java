@@ -74,6 +74,7 @@ public final class ClientScenario {
         else if ("rocket".equals(mode)) planRocket();
         else if ("loiter".equals(mode)) planLoiter();
         else if ("models".equals(mode)) planModels();
+        else if ("hud".equals(mode)) planHud();
         else plan();
     }
 
@@ -534,6 +535,51 @@ public final class ClientScenario {
         for (int t = 1020; t <= 1500; t += 6) shot(t, "missile");
         at(1510, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
         at(1520, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * HUD ударов: десять снарядов по пяти целям сразу — стойка с именем (залп из 4), зомби (3), свинья (гибнет в полёте:
+     * серый крестик), точка рядом со стойкой (крестики сливаются) и ракета в дальнюю точку. Зритель — над пусковой,
+     * смотрит на цели: метки, пунктиры, подписи (соседние не наезжают друг на друга) и список справа; потом — вблизи.
+     */
+    private void planHud() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+            cmd("forceload add -32 -48 32 136");
+        });
+        at(200, () -> {
+            var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
+            c.launchNearPlayer.set(true);
+            c.droneFlightTime.set(30);
+            c.missileFlightTime.set(20);
+            cmd("fill -30 199 -40 30 199 130 minecraft:smooth_stone");
+            cmd("tp @s 0.5 200 0.5 0 5");
+            // мирный режим убирает враждебных мобов: цели — стойка с именем, житель и свинья (метки — теги hud)
+            cmd("summon minecraft:armor_stand -11.5 200 105.5 {CustomName:'\"ENOTzRPG\"',Tags:[\"hud_named\"]}");
+            cmd("summon minecraft:villager 12.5 200 112.5 {NoAI:1b,Tags:[\"hud_type\"]}");
+            cmd("summon minecraft:pig 0.5 200 122.5 {NoAI:1b,Tags:[\"hud_lost\"]}");
+            target = new Vec3(0.5, 200, 122.5);
+        });
+        at(215, () -> {
+            cmd("airstrike salvo drone 4 0 @e[tag=hud_named,limit=1]");
+            cmd("airstrike salvo drone 3 0 @e[tag=hud_type,limit=1]");
+            cmd("airstrike drone @e[tag=hud_lost,limit=1]");
+            cmd("airstrike drone at -9.5 200 106.5");
+            cmd("airstrike missile at 20.5 200 128.5");
+        });
+        // зритель над пусковой, за спиной у линии огня: видны и снаряды, и цели
+        at(225, () -> cmd("tp @s 0.5 222 -14.5 0 9"));
+        at(420, () -> cmd("kill @e[tag=hud_lost]"));
+        for (int t = 240; t <= 900; t += 20) shot(t, "hud");
+        // вблизи целей: подписи крупнее на экране
+        at(905, () -> cmd("tp @s 0.5 214 70.5 0 20"));
+        for (int t = 920; t <= 1100; t += 15) shot(t, "hud_near");
+        at(1110, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
