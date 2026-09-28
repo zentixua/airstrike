@@ -119,12 +119,23 @@ public final class S2C {
      * Один снаряд: UUID (тот же после возвращения в мир), оружие, фаза полёта, тиков до удара, где он и куда летит,
      * ядерная ли БЧ.
      */
-    public record Flight(java.util.UUID id, int weapon, int phase, int eta, Vec3 pos, Vec3 target, boolean nuclear) {
+    public record Flight(java.util.UUID id, int weapon, int phase, int eta, Vec3 pos, Vec3 target, boolean nuclear,
+                         int targetKind, String targetName, boolean targetLost) {
+        /** Цель — точка (подписи нет). */
+        public static final int TARGET_POINT = 0;
+        /** Игрок или сущность с именем: {@code targetName} — само имя. */
+        public static final int TARGET_NAMED = 1;
+        /** Сущность без имени: {@code targetName} — ключ перевода её типа. */
+        public static final int TARGET_TYPE = 2;
+        /** Аппарат Sable: {@code targetName} — его имя или пусто. */
+        public static final int TARGET_AIRCRAFT = 3;
+
         public static final StreamCodec<ByteBuf, Flight> CODEC = new StreamCodec<>() {
             @Override
             public Flight decode(ByteBuf b) {
                 return new Flight(net.minecraft.core.UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
-                        ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readBoolean());
+                        ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readBoolean(),
+                        ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.stringUtf8(64).decode(b), b.readBoolean());
             }
 
             @Override
@@ -136,6 +147,9 @@ public final class S2C {
                 VEC3.encode(b, f.pos);
                 VEC3.encode(b, f.target);
                 b.writeBoolean(f.nuclear);
+                ByteBufCodecs.VAR_INT.encode(b, f.targetKind);
+                ByteBufCodecs.stringUtf8(64).encode(b, f.targetName);
+                b.writeBoolean(f.targetLost);
             }
         };
     }

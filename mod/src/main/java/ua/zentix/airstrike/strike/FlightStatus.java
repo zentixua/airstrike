@@ -1,15 +1,20 @@
 package ua.zentix.airstrike.strike;
 
+import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.target.Target;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -54,7 +59,26 @@ public final class FlightStatus {
     private static void collect(Map<UUID, List<S2C.Flight>> byOwner, StrikeProjectile p) {
         UUID owner = p.ownerId();
         if (owner == null || p.isRemoved() || p instanceof IcbmEntity || p instanceof BomberEntity b && b.hasReleased()) return;
+        int kind = S2C.Flight.TARGET_POINT;
+        String name = "";
+        Target t = p.target();
+        if (t instanceof Target.OfEntity e) {
+            Entity ent = p.level() instanceof ServerLevel sl ? sl.getEntity(e.uuid()) : null;
+            if (ent instanceof Player || ent != null && ent.hasCustomName()) {
+                kind = S2C.Flight.TARGET_NAMED;
+                name = ent.getName().getString();
+            } else if (ent != null) {
+                kind = S2C.Flight.TARGET_TYPE;
+                name = ent.getType().getDescriptionId();
+            }
+        } else if (t instanceof Target.OfSubLevel s) {
+            kind = S2C.Flight.TARGET_AIRCRAFT;
+            SubLevelAccess sub = SubLevels.containing(p.level(), s.plotPos());
+            String n = sub == null ? null : sub.getName();
+            name = n == null ? "" : n;
+        }
+        if (name.length() > 64) name = name.substring(0, 64);
         byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(new S2C.Flight(p.getUUID(), p.weapon().id(), p.flightPhase().ordinal(),
-                p.etaTicks(), p.position(), p.aimPoint(), p.isNuclear()));
+                p.etaTicks(), p.position(), p.aimPoint(), p.isNuclear(), kind, name, p.targetLost()));
     }
 }
