@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
@@ -703,10 +704,15 @@ public abstract class StrikeProjectile extends Entity {
         return best;
     }
 
+    /**
+     * Цель, выбранная оператором, взводит взрыватель всегда (кроме наблюдателя). Случайный человек у траектории — по
+     * ванильному правилу «кого замечают»: не в творческом режиме и не наблюдатель
+     * ({@link EntitySelector#NO_CREATIVE_OR_SPECTATOR}: так ванильные мобы выбирают, на кого нападать).
+     */
     private static boolean isProximityTarget(Entity e, @Nullable UUID targetId, @Nullable UUID owner) {
         if (!e.isAlive() || e.isSpectator() || e instanceof StrikeProjectile) return false;
         if (e.getUUID().equals(targetId)) return true;
-        return e instanceof Player && !e.getUUID().equals(owner);
+        return e instanceof Player && !e.getUUID().equals(owner) && EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(e);
     }
 
     protected static Vec3 closestOnSegment(Vec3 a, Vec3 b, Vec3 p) {
