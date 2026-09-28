@@ -27,6 +27,7 @@ import java.util.List;
  * Грузятся как дополнительные модели блоков (атлас блоков), рисуются слоем сущностей: свет и тени мира, под шейдерами
  * Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
  * винт шахеда, крылья и воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
+ * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}.
  * Шарниры — те же числа, что в gen_models.py.
  */
 public final class WeaponModels {
@@ -39,7 +40,7 @@ public final class WeaponModels {
         MISSILE_INTAKE("missile_intake"), MISSILE_BOOSTER("missile_booster"),
         BOMBER_BODY("bomber_body"), BOMBER_DOOR_L_IN("bomber_door_l_in"), BOMBER_DOOR_L_OUT("bomber_door_l_out"),
         BOMBER_DOOR_R_IN("bomber_door_r_in"), BOMBER_DOOR_R_OUT("bomber_door_r_out"),
-        BOMB_BODY("bomb_body"), ICBM_BODY("icbm_body");
+        BOMB_BODY("bomb_body"), ICBM_BODY("icbm_body"), ROCKET_BODY("rocket_body"), ROCKET_RACK("rocket_rack_body");
 
         final ModelResourceLocation location;
 
@@ -174,6 +175,14 @@ public final class WeaponModels {
         pose.pushPose();
         pose.mulPose(new Quaternionf().rotationZ((e.age() + partial) * 0.05f));
         Mesh.BOMB_BODY.draw(pose, buffers, light);
+        pose.popPose();
+    }
+
+    /** Реактивный снаряд РСЗО: в полёте вращается — его крутят косо поставленные перья стабилизатора. */
+    public static void rocket(StrikeProjectile e, float partial, PoseStack pose, MultiBufferSource buffers, int light) {
+        pose.pushPose();
+        if (!e.flightPhase().onLauncher()) pose.mulPose(new Quaternionf().rotationZ((e.age() + partial) * 0.5f));
+        Mesh.ROCKET_BODY.draw(pose, buffers, light);
         pose.popPose();
     }
 

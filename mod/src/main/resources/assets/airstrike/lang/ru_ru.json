@@ -132,6 +132,8 @@
   "subtitles.airstrike.designator.lock": "Захват цели",
   "subtitles.airstrike.launch": "Рёв стартового ускорителя",
   "subtitles.airstrike.launch.separate": "Отделение ускорителя",
+  "subtitles.airstrike.rocket": "Пуск реактивного снаряда",
+  "subtitles.airstrike.rocket.incoming": "Вой снарядов на подлёте",
   "subtitles.airstrike.debris": "Сыплются обломки",
   "subtitles.airstrike.fire": "Гудит пожар",
   "item.airstrike.geiger_counter": "Счётчик Гейгера",

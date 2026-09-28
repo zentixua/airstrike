@@ -132,6 +132,8 @@
   "subtitles.airstrike.designator.lock": "Target locked",
   "subtitles.airstrike.launch": "Rocket booster roars",
   "subtitles.airstrike.launch.separate": "Booster separates",
+  "subtitles.airstrike.rocket": "Rocket launches",
+  "subtitles.airstrike.rocket.incoming": "Rockets incoming",
   "subtitles.airstrike.debris": "Debris falls",
   "subtitles.airstrike.fire": "Fire roars",
   "item.airstrike.geiger_counter": "Geiger Counter",

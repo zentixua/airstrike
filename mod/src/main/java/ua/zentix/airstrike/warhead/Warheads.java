@@ -260,9 +260,13 @@ public final class Warheads {
             this.direct = direct;
             this.owner = ownerId == null ? null : level.getPlayerByUUID(ownerId);
             this.mat = GroundMaterial.sample(level, BlockPos.containing(pos));
-            boolean missile = weapon == WeaponType.MISSILE;
+            int kind = switch (weapon) {
+                case MISSILE -> S2C.Blast.MISSILE;
+                case ROCKET -> S2C.Blast.ROCKET;
+                default -> S2C.Blast.DRONE;
+            };
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
-                    new S2C.Blast(missile ? S2C.Blast.MISSILE : S2C.Blast.DRONE, pos, mat.ordinal(),
+                    new S2C.Blast(kind, pos, mat.ordinal(),
                             (float) level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(pos.x), Mth.floor(pos.z)), level.random.nextLong()));
             explode(level, pos, power(weapon), false, direct, owner, null);
         }
