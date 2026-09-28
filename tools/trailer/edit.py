@@ -150,7 +150,7 @@ def load_recording():
 
 
 def anchor(shot, spec):
-    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (первое совпадение) с ±сдвигом."""
+    """Момент плана в секундах: число, «end», «mark:что» или «sound:часть имени» (#n — n-е совпадение) с ±сдвигом."""
     if isinstance(spec, (int, float)):
         return float(spec)
     off = 0.0
@@ -166,14 +166,17 @@ def anchor(shot, spec):
     if spec == "end":
         return shot.duration + off
     kind, what = spec.split(":", 1)
+    nth = 1
+    if "#" in what:  # «sound:blast#3» — третье совпадение
+        what, n = what.rsplit("#", 1)
+        nth = int(n)
+    hits = []
     if kind == "mark":
-        for t, m in shot.marks:
-            if what in m:
-                return shot.sec(t) + off
+        hits = [t for t, m in shot.marks if what in m]
     elif kind == "sound":
-        for e in shot.sounds:
-            if what in e["event"]:
-                return shot.sec(e["t"]) + off
+        hits = [e["t"] for e in shot.sounds if what in e["event"]]
+    if len(hits) >= nth:
+        return shot.sec(hits[nth - 1]) + off
     print(f"  ! {shot.name}: нет «{spec}», беру начало плана")
     return off
 
@@ -223,35 +226,43 @@ BAR = MUSIC["bar"]
 
 def build_edit():
     """
-    Трейлер ~2:30. Сильная доля музыки (drop) — на поджиг первого шахеда; дальше склейки по тактам (3 с) и полутактам.
-    Ядерная вспышка — на последнем ударе музыки, дальше — тишина, гул взрыва и титр.
+    Трейлер ~2:36 под «Impact Prelude». Тихая часть — рассвет, наводчик, пусковая; сильная доля музыки (drop) —
+    поджиг первого шахеда; дальше склейки по тактам (3 с) и полутактам, нарастание к МБР. Ядерная вспышка —
+    на последний удар музыки (192 с трека), дальше музыки нет: гул взрыва, гриб, чёрный дождь, логотип.
     """
-    D = 34.5  # момент drop в трейлере
+    D = 30.0                                   # drop в трейлере
+    FLASH = D + (192.0 - MUSIC["drop"]) + 0.02  # вспышка = последний удар трека (32 такта после drop)
     edit = [
-        Black(1.5),
-        Clip("dawn", 0.5, 9.0, xfade=0.0),
-        Clip("operator", 0.3, 4.5, xfade=0.5),
-        Clip("remote", 0.4, 3.0, xfade=0.3),
-        Clip("scope", 0.0, 5.0, xfade=0.2),
-        Clip("launch_drone", 0.0, D - 1.5 - 9.0 - 4.5 - 3.0 - 5.0),
-        # drop: поджиг и сход (от звука поджига)
-        Clip("launch_drone", "sound:launch-0.4", 3.0, flash=True),
-        Clip("boost", 0.0, 4.5),
-        Clip("cruise", 0.5, 3.0),
-        Clip("impact_drone", "mark:gone-1.2", 4.5),
-        Clip("impact_drone", "mark:gone+3.5", 1.5, rate=1.5),
-        Clip("launch_missile", "sound:launch-0.6", 3.0, flash=True),
-        Clip("impact_missile", "mark:gone-0.8", 3.0),
-        Clip("missile_camera", "end-4.5", 3.0),
-        Clip("bomber", "mark:gone-4.0", 6.0),
-        Clip("bomber", "mark:gone+2.0", 3.0),
-        Clip("salvo", "mark:gone-2.5", 6.0),
-        Clip("salvo_missiles", "mark:gone-1.0", 6.0),
-        Clip("icbm", 0.0, 3.0, flash=True),
-        Clip("icbm", 5.0, 6.0),
-        Clip("nuke", "mark:detonation-1.5", 9.0),
-        Clip("mushroom", 0.0, 7.5, rate=2.0, xfade=0.5),
-        Clip("fallout", 0.5, 5.5, xfade=1.0),
+        Black(1.0),
+        Clip("dawn", 1.2, 9.5, xfade=0.0),
+        Clip("remote", 0.3, 3.0, xfade=0.4),
+        Clip("operator", 0.3, 5.5, xfade=0.3),
+        Clip("scope", 0.0, 4.0, xfade=0.2),
+        Clip("launch_drone", "sound:launch.booster-7.0", 7.0),
+        # drop: поджиг и сход шахеда
+        Clip("launch_drone", "sound:launch.booster-0.15", 4.5, flash=True),
+        Clip("boost", 0.0, 3.0),
+        Clip("cruise", 1.0, 3.0),
+        Clip("impact_drone", "mark:gone-2.5", 6.0),
+        Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
+        Clip("missile_camera", "end-4.5", 4.5),
+        Clip("impact_missile", "mark:gone-1.5", 4.5),
+        Clip("rocket_launch", 0.5, 7.5, flash=True),
+        Clip("rocket_impact", "sound:blast-1.0", 6.0),
+        Clip("bomber", "mark:gone-4.5", 7.5),
+        Clip("salvo", "mark:gone-3.0", 7.5, flash=True),
+        Clip("salvo_missiles", "mark:gone-1.5", 6.0),
+        # нарезка разрывов по полутактам
+        Clip("impact_drone", "mark:gone+0.8", 1.5, rate=0.8),
+        Clip("rocket_impact", "sound:blast#6-0.2", 1.5),
+        Clip("salvo", "mark:gone#4-0.3", 1.5),
+        Clip("bomber", "mark:gone+0.5", 1.5),
+        Black(3.0),
+        Clip("icbm", 0.0, 13.5, flash=True),
+        # из-за плеча наводчика: отсчёт, тревога, вспышка, шар, фронт доходит до вышки
+        Clip("nuke", f"mark:detonation-{FLASH - (D + 87.0):.2f}", 15.0),
+        Clip("mushroom", 0.0, 9.0, rate=2.0, xfade=0.6),
+        Clip("fallout", 0.5, 6.0, xfade=1.0),
         Black(9.0),
     ]
     t = 0.0
@@ -259,16 +270,20 @@ def build_edit():
         c.start = t
         t += c.dur
     total = t
+    icbm = next(c for c in edit if isinstance(c, Clip) and c.shot == "icbm")
+    assert abs(icbm.start + icbm.dur - (D + 87.0)) < 1e-6, "план nuke должен начинаться в D+87"
     texts = [
-        Text(1.5, 3.4, ("ZENTIX UA", "представляет"), "card"),
-        Text(5.6, 3.6, ("Мод для «All of Create Aeronautics»",), "card"),
-        Text(D - 12.5, 2.3, ("НАВЕДИ",), "word"),
-        Text(D - 5.0, 1.8, ("ЗАПУСТИ",), "word"),
-        Text(D + 3.0, 3.5, ("ШАХЕД-136", "разгонный блок · 50 секунд полёта"), "caption"),
-        Text(D + 16.5, 3.0, ("КРЫЛАТАЯ РАКЕТА", "11 блоков за тик · вид с борта"), "caption"),
-        Text(D + 25.5, 3.5, ("B-2 SPIRIT", "бетонобойная бомба"), "caption"),
-        Text(D + 34.5, 3.5, ("ЗАЛП", "до 100 снарядов"), "caption"),
-        Text(D + 46.5, 3.0, ("МБР", "ядерная боевая часть · 15 кт"), "caption"),
+        Text(2.0, 3.6, ("ZENTIX UA", "представляет"), "card"),
+        Text(6.2, 3.8, ("мод для «All of Create Aeronautics»",), "sub"),
+        Text(19.0, 2.2, ("НАВЕДИ",), "word"),
+        Text(27.2, 2.0, ("ЗАПУСТИ",), "word"),
+        Text(D + 4.8, 3.2, ("ШАХЕД-136", "разгонный блок · маршрут в обход · удар сверху"), "caption"),
+        Text(D + 17.0, 3.2, ("КРЫЛАТАЯ РАКЕТА", "бреющий полёт · горка · вид с борта"), "caption"),
+        Text(D + 30.3, 3.2, ("«ГРАД»", "пакет из 40 труб · залп очередью"), "caption"),
+        Text(D + 44.0, 3.2, ("B-2 SPIRIT", "бетонобойная бомба · подземный взрыв"), "caption"),
+        Text(D + 51.3, 3.2, ("ЗАЛП", "до 100 снарядов с разбросом"), "caption"),
+        Text(D + 70.5, 3.0, ("ПОСЛЕДНИЙ ДОВОД",), "word"),
+        Text(D + 76.0, 3.2, ("МБР", "ядерная боевая часть"), "caption"),
         Text(total - 9.0 + 0.6, 5.2, ("AIRSTRIKE",), "title"),
         Text(total - 9.0 + 2.0, 3.8, ("NeoForge 1.21.1 · Create Aeronautics", "github.com/zentixua/airstrike"), "sub"),
         Text(total - 3.0, 3.0, ("Музыка: " + MUSIC["credit"], "Звуки мода: Freesound (CC0 / CC BY) — список в SOUND-CREDITS.md"), "credits"),
@@ -276,9 +291,11 @@ def build_edit():
     hits = [
         Hit(D - 4.0, "riser", 4.0, 0.8),
         Hit(D, "boom", 3.0, 1.0),
+        Hit(D + 70.5, "boom", 3.0, 0.9),
+        Hit(FLASH - 5.0, "riser", 5.0, 0.7),
         Hit(total - 9.0 + 0.6, "boom", 5.0, 1.2),
     ]
-    return edit, texts, hits, total, D
+    return edit, texts, hits, total, D, FLASH
 
 
 # ---------------------------------------------------------------- картинка
@@ -442,13 +459,13 @@ class SoundBank:
         self.cache = {}
 
     def load(self, loc):
-        """Звук по пути ресурса (namespace:path без .ogg) → моно float32 при SR."""
+        """Звук по пути файла из журнала («namespace:sounds/….ogg») → моно float32 при SR."""
         if loc in self.cache:
             return self.cache[loc]
         ns, path = loc.split(":", 1)
-        f = os.path.join(MOD_ASSETS, ns, "sounds", path + ".ogg")
+        f = os.path.join(MOD_ASSETS, ns, path)
         if not os.path.exists(f):
-            f = self.vanilla.get(f"{ns}/sounds/{path}.ogg") or self.vanilla.get(f"minecraft/sounds/{path}.ogg")
+            f = self.vanilla.get(f"{ns}/{path}")
         if f is None or not os.path.exists(f):
             self.cache[loc] = None
             return None
@@ -607,7 +624,7 @@ def music_track(total, drop_at):
     return out
 
 
-def mix(edit, texts, hits, shots, total, drop_at):
+def mix(edit, texts, hits, shots, total, drop_at, flash):
     bank = SoundBank()
     sfx = render_sfx(edit, shots, total, bank)
     music = music_track(total, drop_at)
@@ -621,15 +638,11 @@ def mix(edit, texts, hits, shots, total, drop_at):
         if h.kind == "riser":  # нарастание кончается в момент удара
             i = max(0, i - len(y))
         extra[i:i + len(y)] += y[: len(extra) - i]
-    # тишина музыки: после ядерной вспышки (гул и ветер игры)
-    for c in edit:
-        if isinstance(c, Clip) and c.shot == "nuke":
-            det = c.start + 1.5
-            i = int(det * SR)
-            k = int(0.08 * SR)
-            music[i:i + k] *= np.linspace(1, 0, k)[:, None]
-            music[i + k:] = 0
-            break
+    # тишина музыки после ядерной вспышки (последний удар трека уже отзвучал): только гул и ветер игры
+    i = int(flash * SR)
+    k = int(0.25 * SR)
+    music[i:i + k] *= np.linspace(1, 0, k)[:, None]
+    music[i + k:] = 0
     out = music * 0.55 + sfx * 0.9 + extra * 0.6
     # мягкий ограничитель
     peak = np.max(np.abs(out)) + 1e-9
@@ -648,7 +661,7 @@ def main():
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()))
-    edit, texts, hits, total, drop_at = build_edit()
+    edit, texts, hits, total, drop_at, flash = build_edit()
     missing = {c.shot for c in edit if isinstance(c, Clip) and c.shot not in shots}
     if missing:
         print("  ! нет планов:", ", ".join(sorted(missing)), "— вместо них чёрный кадр")
@@ -662,7 +675,7 @@ def main():
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     audio = os.path.join(CACHE, "trailer-audio.wav")
     print("звук…")
-    sf.write(audio, mix(edit, texts, hits, shots, total, drop_at), SR, subtype="PCM_16")
+    sf.write(audio, mix(edit, texts, hits, shots, total, drop_at, flash), SR, subtype="PCM_16")
     print(f"картинка: {int(total * FPS)} кадров {size[0]}×{size[1]}…")
     cmd = [ffmpeg(), "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(FPS),
            "-i", "-", "-i", audio, "-c:v", "libx264", "-preset", "veryfast" if args.draft else "slow", "-crf", "23" if args.draft else "15",

@@ -84,6 +84,8 @@ public final class Trailer {
     private Vec3 toPost = new Vec3(0, 0, 1);
     private Vec3 side = new Vec3(1, 0, 0);
     private Vec3 viewpoint = Vec3.ZERO;
+    /** Вторая вышка (подрыв снимается с неё). */
+    private Vec3 watch = Vec3.ZERO;
     /** От деревни к смотровой точке ядерного удара. */
     private Vec3 toView = new Vec3(0, 0, -1);
     private int detonationTick = -1;
@@ -124,7 +126,7 @@ public final class Trailer {
             c.droneFlightTime.set(30);
             c.missileFlightTime.set(20);
             c.bomberFlightTime.set(20);
-            c.nukeFlightTime.set(400);
+            c.nukeFlightTime.set(600);
             c.siren.set(false);
         });
         onServer(this::findLocations);
@@ -212,8 +214,8 @@ public final class Trailer {
                 })
                 .when(() -> mc.getCameraEntity() instanceof CruiseMissileEntity m && (m.flightPhase() == FlightPhase.POP_UP
                         || m.flightPhase() == FlightPhase.TERMINAL), 3000)
-                .length(200).hud().projectileCamera()
-                .endWhen(() -> !ProjectileCamera.isViewing(), 25)
+                // горка, пикирование, «сигнал потерян» и план попадания (облёт) — до конца
+                .length(160).hud().projectileCamera()
                 .cueEnd(ProjectileCamera::exit);
 
         // --- B-2 и бетонобойная бомба: с высоты у деревни — пролёт, падение, бурение, подземный взрыв
@@ -254,8 +256,10 @@ public final class Trailer {
             c.missileFlightTime.set(6);
         });
         shot("salvo").onReady(() -> fire("salvo drone 8 24", village)).length(280).hidden().camera(() -> {
-            Vec3 from = ground(village.add(toPost.scale(95)).add(side.scale(-25))).add(0, 22, 0);
-            return CineCamera.track(from, smoothFocus(() -> centroid(DroneEntity.class, village, 500), village.add(0, 6, 0), 0.08), 58);
+            // деревня в кадре неподвижно, камера чуть наезжает: стая заходит в кадр и накрывает дома
+            Vec3 a = ground(village.add(toPost.scale(95)).add(side.scale(-25))).add(0, 22, 0);
+            Vec3 b = ground(village.add(toPost.scale(80)).add(side.scale(-18))).add(0, 19, 0);
+            return CineCamera.dolly(a, b, 280, () -> village.add(0, 8, 0), 58);
         }).when(() -> nearest(DroneEntity.class, village, 330) != null, 2400)
                 .endWhen(() -> nearest(DroneEntity.class, village, 800) == null, 120);
         shot("salvo_missiles").onReady(() -> fire("salvo missile 5 26", village)).length(170).speed(0.6).hidden().camera(() -> {
@@ -267,35 +271,35 @@ public final class Trailer {
         // --- МБР: старт за наводчиком в ~2 км от деревни, подрыв из-за его плеча, гриб издалека
         run(() -> {
             cmd("time set 12500");
-            // смотровая вышка над окрестностями
-            BlockPos p = BlockPos.containing(viewpoint);
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", p.getX() - 1, p.getY() + 11, p.getZ() - 1,
-                    p.getX() + 1, p.getY() + 11, p.getZ() + 1));
-            placeActor(tower(), village);
+            buildTower(viewpoint);
+            placeActor(viewpoint.add(0, 12, 0), village);
         });
-        shot("icbm").onReady(() -> fire("nuke", village)).length(260).camera(() -> {
+        shot("icbm").onReady(() -> cmd(String.format(Locale.ROOT, "airstrike nuke at %.1f %.1f %.1f 15 ground", village.x, village.y, village.z))).length(260).camera(() -> {
             Vec3 pad = ground(viewpoint.add(toView.scale(30)));
             Vec3 sideV = new Vec3(-toView.z, 0, toView.x);
-            Vec3 from = ground(pad.add(sideV.scale(26)).add(toView.scale(-8))).add(0, 1.5, 0);
-            Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 6, 0), 0.4), 70);
-            return t -> t < 110 ? p.at(t) : CineCamera.zoom(p, 70, 28, 150).at(t - 110);
+            // в 70 блоках сбоку, чтобы облако старта не накрыло камеру; вслед за ракетой — наезд
+            Vec3 from = ground(pad.add(sideV.scale(70)).add(toView.scale(-20))).add(0, 3, 0);
+            Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 8, 0), 0.4), 50);
+            return t -> t < 100 ? p.at(t) : CineCamera.zoom(p, 50, 22, 160).at(t - 100);
         });
-        // подрыв из-за плеча наводчика: вспышка, шар, фронт доходит до вышки
-        shot("nuke").noPrep().length(330).hud().camera(() -> {
+        // подрыв из-за плеча наводчика: вспышка, шар, фронт доходит до вышки. Наводчик уже на второй вышке в 150 блоках
+        // вбок — у первой висит облако старта
+        run(() -> {
+            watch = ground(viewpoint.add(new Vec3(-toView.z, 0, toView.x).scale(150)));
+            buildTower(watch);
+            placeActor(watch.add(0, 12, 0), village);
+        });
+        shot("nuke").noPrep().length(480).hud().camera(() -> {
             Vec3 sideV = new Vec3(-toView.z, 0, toView.x);
-            Vec3 back = tower().add(toView.scale(3.2)).add(sideV.scale(1.3)).add(0, 1.9, 0);
-            return CineCamera.track(back, () -> village.add(0, 330, 0), 62);
-        }).when(() -> warningTicks() <= 30, 2400);
+            Vec3 back = watch.add(0, 12, 0).add(toView.scale(3.2)).add(sideV.scale(1.3)).add(0, 1.9, 0);
+            return CineCamera.track(back, () -> village.add(0, 600, 0), 68);
+        }).when(() -> warningTicks() <= 200, 2400);
         // гриб издалека, ускоренно
         run(() -> {
-            Vec3 far = village.add(toView.scale(9000));
-            placeHidden(new Vec3(far.x, 240, far.z));
+            placeHidden(mushroomView());
         });
         shot("mushroom").length(1600).speed(4).hidden().camera(() -> {
-            // гриб целиком (как в ядерном сценарии клиента): 9 км, взгляд вверх на ~25°
-            Vec3 far = village.add(toView.scale(9000)).add(new Vec3(-toView.z, 0, toView.x).scale(-400));
-            Vec3 from = new Vec3(far.x, 240, far.z);
-            return CineCamera.track(from, () -> village.add(0, 4200, 0), 70);
+            return CineCamera.track(mushroomView(), () -> village.add(0, 1800, 0), 60);
         }).when(() -> detonationTick >= 0 && clientTick - detonationTick > 420, 3000);
         // чёрный дождь в следе осадков, счётчик Гейгера в руке
         run(() -> placeInFallout(false));
@@ -473,9 +477,19 @@ public final class Trailer {
         placeActor(post, village);
     }
 
-    /** Площадка на смотровой вышке (12 блоков над землёй). */
-    private Vec3 tower() {
-        return viewpoint.add(0, 12, 0);
+    /**
+     * Откуда гриб виден целиком: 5 км к югу, взгляд на север — луна и солнце ходят с востока на запад и в кадр
+     * не попадают.
+     */
+    private Vec3 mushroomView() {
+        return new Vec3(village.x, 240, village.z + 5000);
+    }
+
+    /** Смотровая площадка 3×3 в 12 блоках над землёй (наводчик стоит на ней, видно поверх леса и холмов). */
+    private static void buildTower(Vec3 base) {
+        BlockPos p = BlockPos.containing(base);
+        cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", p.getX() - 1, p.getY() + 11, p.getZ() - 1,
+                p.getX() + 1, p.getY() + 11, p.getZ() + 1));
     }
 
     /** Наводчик стоит на посту лицом к цели, в творческом режиме, виден в кадре. */
@@ -565,21 +579,6 @@ public final class Trailer {
             }
         }
         return best;
-    }
-
-    /** Середина стаи (для залпа): камера смотрит на всю группу, а не на один снаряд. */
-    @Nullable
-    private Vec3 centroid(Class<? extends Entity> type, Vec3 p, double radius) {
-        Vec3 sum = Vec3.ZERO;
-        int n = 0;
-        float pt = CineCamera.partial();
-        for (Entity e : mc.level.entitiesForRendering()) {
-            if (type.isInstance(e) && !e.isRemoved() && e.distanceToSqr(p) < radius * radius) {
-                sum = sum.add(e.getPosition(pt));
-                n++;
-            }
-        }
-        return n == 0 ? null : sum.scale(1.0 / n);
     }
 
     /** B-2 — пока он в 450 блоках; после сброса — бомба. */
