@@ -60,7 +60,6 @@ JDK="$(python3 "$ROOT/tools/paths.py" JAVA)"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "$JDK" ]; then export JAVA_HOME="$JDK"; fi
 cd "$ROOT/mod"
 if command -v kwin_wayland >/dev/null; then
-  exec env -u DISPLAY -u WAYLAND_DISPLAY kwin_wayland --virtual --xwayland --socket wayland-airstrike-trailer \
-      --width "$W" --height "$H" --exit-with-session "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
+  exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-trailer "$W" "$H" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
 fi
 LIBGL_ALWAYS_SOFTWARE=1 exec xvfb-run -a -s "-screen 0 ${W}x${H}x24" ./gradlew "${GRADLE_ARGS[@]}"
