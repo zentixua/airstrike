@@ -244,8 +244,8 @@ def build_edit():
         Clip("boost", 0.0, 4.5),
         Clip("cruise", 1.0, 3.0),
         Clip("impact_drone", "mark:gone-2.5", 6.0),
-        Clip("launch_missile", "sound:launch.booster-0.4", 4.5, flash=True),
-        Clip("missile_camera", 0.0, 4.5),
+        Clip("launch_missile", "sound:launch.booster-0.4", 6.0, flash=True),
+        Clip("missile_camera", 0.0, 3.0),
         Clip("impact_missile", "mark:gone-1.5", 4.5),
         # «Ланцет»: рывок с катапульты, круг над целью, пике
         Clip("loiter_launch", "sound:loiter.launch-0.5", 3.0, flash=True),
