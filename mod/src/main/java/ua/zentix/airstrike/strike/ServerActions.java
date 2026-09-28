@@ -24,20 +24,19 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.WeakHashMap;
 
 /** Действия игроков с пульта (пакеты) и команд: пуск, настройки пульта, отбой. Всё проверяется здесь. */
 public final class ServerActions {
     /** Не чаще раза в 4 тика с одного игрока: защита от дребезга кнопки и от спама пакетами. */
-    private static final Map<ServerPlayer, Long> LAST_FIRE = new WeakHashMap<>();
+    private static final int FIRE_INTERVAL = 4;
 
     private ServerActions() {}
 
@@ -54,9 +53,8 @@ public final class ServerActions {
             return;
         }
         long now = player.serverLevel().getGameTime();
-        Long last = LAST_FIRE.get(player);
-        if (last != null && now - last < 4) return;
-        LAST_FIRE.put(player, now);
+        if (player.hasData(ModAttachments.LAST_FIRE) && now - player.getData(ModAttachments.LAST_FIRE) < FIRE_INTERVAL) return;
+        player.setData(ModAttachments.LAST_FIRE, now);
 
         Loadout l = clamp(p.loadout());
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
@@ -227,12 +225,7 @@ public final class ServerActions {
     @Nullable
     public static ServerPlayer findPlayer(MinecraftServer server, String name) {
         if (name == null || name.isBlank()) return null;
-        ServerPlayer exact = server.getPlayerList().getPlayerByName(name);
-        if (exact != null) return exact;
-        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-            if (p.getGameProfile().getName().equalsIgnoreCase(name)) return p;
-        }
-        return null;
+        return server.getPlayerList().getPlayerByName(name); // без учёта регистра, как в ванили
     }
 
     private static void notFound(ServerPlayer player) {

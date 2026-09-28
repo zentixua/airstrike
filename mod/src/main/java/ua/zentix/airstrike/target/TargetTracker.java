@@ -9,17 +9,13 @@ import ua.zentix.airstrike.Airstrike;
 import java.util.Optional;
 
 /**
- * Слежение за целью в полёте: текущая мировая точка и сглаженная скорость цели (блоков/тик) для упреждения.
- * Цель дальше {@link #MAX_TRACK_DISTANCE} или пропавшая не преследуется — снаряд идёт в последнюю точку.
+ * Слежение за целью в полёте: текущая мировая точка цели. Цель дальше {@link #MAX_TRACK_DISTANCE} или пропавшая не преследуется — снаряд идёт в последнюю точку.
  */
 public final class TargetTracker {
     public static final double MAX_TRACK_DISTANCE = 3000;
-    /** Скорость сглаживается, иначе дрожание позиции игрока (прыжки, шаги) дёргает упреждение. */
-    private static final double VELOCITY_SMOOTHING = 0.25;
 
-    private Target target;
+    private final Target target;
     private Vec3 point;
-    private Vec3 velocity = Vec3.ZERO;
     private boolean lost;
 
     public TargetTracker(Target target, Vec3 initialPoint) {
@@ -28,21 +24,13 @@ public final class TargetTracker {
     }
 
     public void tick(ServerLevel level, Vec3 from) {
-        if (lost) {
-            velocity = velocity.scale(0.9);
-            return;
-        }
+        if (lost) return;
         Optional<Vec3> now = target.resolve(level);
         if (now.isEmpty() || now.get().distanceToSqr(from) > MAX_TRACK_DISTANCE * MAX_TRACK_DISTANCE) {
             lost = true;
             return;
         }
-        Vec3 p = now.get();
-        Vec3 v = p.subtract(point);
-        // скачок больше 40 блоков за тик — телепорт цели, а не движение
-        if (v.lengthSqr() > 1600) v = Vec3.ZERO;
-        velocity = velocity.lerp(v, VELOCITY_SMOOTHING);
-        point = p;
+        point = now.get();
     }
 
     /** Текущая точка цели. */
@@ -50,27 +38,12 @@ public final class TargetTracker {
         return point;
     }
 
-    /** Сглаженная скорость цели, блоков/тик. */
-    public Vec3 velocity() {
-        return velocity;
-    }
-
     public Target target() {
         return target;
     }
 
-    public boolean isMoving() {
-        return velocity.lengthSqr() > 0.0025;
-    }
-
     public boolean isLost() {
         return lost;
-    }
-
-    /** Цель переключили на неподвижную точку (например, бомба после сброса бьёт по точке). */
-    public void freeze() {
-        target = new Target.Point(point);
-        velocity = Vec3.ZERO;
     }
 
     public CompoundTag save() {

@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
+import ua.zentix.airstrike.strike.StrikeWorld;
 
 import java.util.function.Supplier;
 
@@ -19,6 +20,18 @@ public final class ModAttachments {
     /** Чанк: номер последнего ядерного подрыва, чьи повреждения к нему уже применены. */
     public static final Supplier<AttachmentType<Integer>> CHUNK_SCAR = REGISTER.register("chunk_scar",
             () -> AttachmentType.builder(() -> 0).serialize(Codec.INT).build());
+
+    /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
+    public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",
+            () -> AttachmentType.builder(StrikeWorld::new).build());
+
+    /** Игрок: игровое время последнего пуска с пульта (защита от дребезга); не сохраняется. */
+    public static final Supplier<AttachmentType<Long>> LAST_FIRE = REGISTER.register("last_fire",
+            () -> AttachmentType.builder(() -> 0L).build());
+
+    /** Игрок: ему показан непустой список снарядов в полёте — погасить HUD, когда всё долетит; не сохраняется. */
+    public static final Supplier<AttachmentType<Boolean>> FLIGHTS_SHOWN = REGISTER.register("flights_shown",
+            () -> AttachmentType.builder(() -> false).build());
 
     private ModAttachments() {}
 }

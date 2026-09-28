@@ -32,7 +32,6 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModSounds;
@@ -481,10 +480,5 @@ public final class Warheads {
                 if (p.distanceToSqr(sv) <= 50 * 50) PacketDistributor.sendToPlayer(p, new S2C.Quake(30, false));
             }
         }
-    }
-
-    /** Кто считается «нашим» для урона обломками и т.п. */
-    public static boolean isStrikeEntity(Entity e) {
-        return e instanceof StrikeProjectile;
     }
 }

@@ -51,7 +51,7 @@ public class SpentBoosterEntity extends Entity {
     }
 
     public WeaponType weapon() {
-        return WeaponType.values()[Math.min(WeaponType.values().length - 1, Math.max(0, entityData.get(DATA_WEAPON)))];
+        return WeaponType.byId(entityData.get(DATA_WEAPON));
     }
 
     public int age() {

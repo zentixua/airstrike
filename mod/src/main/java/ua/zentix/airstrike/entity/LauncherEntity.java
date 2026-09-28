@@ -59,7 +59,7 @@ public class LauncherEntity extends Entity {
     }
 
     public WeaponType weapon() {
-        return WeaponType.values()[Mth.clamp(entityData.get(DATA_WEAPON), 0, WeaponType.values().length - 1)];
+        return WeaponType.byId(entityData.get(DATA_WEAPON));
     }
 
     @Nullable

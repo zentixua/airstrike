@@ -21,13 +21,14 @@ import java.util.List;
  */
 public final class VirtualFlights extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_virtual_flights";
+    private static final Factory<VirtualFlights> FACTORY = new Factory<>(VirtualFlights::new, VirtualFlights::load, null);
 
     private final List<StrikeProjectile> flights = new ArrayList<>();
     /** Прочитанные с диска и ещё не созданные (сущность создаётся в первом тике мира). */
     private final List<CompoundTag> pending = new ArrayList<>();
 
     public static VirtualFlights get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new Factory<>(VirtualFlights::new, VirtualFlights::load, null), NAME);
+        return level.getDataStorage().computeIfAbsent(FACTORY, NAME);
     }
 
     /**

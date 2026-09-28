@@ -183,11 +183,6 @@ public class RocketEntity extends StrikeProjectile {
     }
 
     @Override
-    protected void separate(ServerLevel level) {
-        // ускорителя нет: двигатель — сам снаряд
-    }
-
-    @Override
     protected void impact(ServerLevel level, Vec3 point, @Nullable Entity hitEntity) {
         discard();
         Warheads.detonate(level, WeaponType.ROCKET, point, this, ownerId());

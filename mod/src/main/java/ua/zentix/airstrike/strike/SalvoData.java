@@ -36,10 +36,11 @@ import java.util.UUID;
  */
 public final class SalvoData extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_salvos";
+    private static final Factory<SalvoData> FACTORY = new Factory<>(SalvoData::new, SalvoData::load, null);
     private final List<Salvo> salvos = new ArrayList<>();
 
     public static SalvoData get(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new Factory<>(SalvoData::new, SalvoData::load, null), NAME);
+        return level.getDataStorage().computeIfAbsent(FACTORY, NAME);
     }
 
     public void add(Salvo s) {
