@@ -22,9 +22,9 @@ public final class ModEntities {
     public static final DeferredRegister<EntityType<?>> REGISTER = DeferredRegister.create(Registries.ENTITY_TYPE, Airstrike.MOD_ID);
 
     public static final DeferredHolder<EntityType<?>, EntityType<DroneEntity>> DRONE =
-            projectile("drone", EntityType.Builder.of(DroneEntity::new, MobCategory.MISC).sized(2.0f, 0.9f), 20);
+            projectile("drone", EntityType.Builder.of(DroneEntity::new, MobCategory.MISC).sized(1.6f, 0.6f), 20);
     public static final DeferredHolder<EntityType<?>, EntityType<CruiseMissileEntity>> CRUISE_MISSILE =
-            projectile("cruise_missile", EntityType.Builder.of(CruiseMissileEntity::new, MobCategory.MISC).sized(1.3f, 1.3f), 24);
+            projectile("cruise_missile", EntityType.Builder.of(CruiseMissileEntity::new, MobCategory.MISC).sized(0.8f, 0.8f), 24);
     public static final DeferredHolder<EntityType<?>, EntityType<RocketEntity>> ROCKET =
             projectile("rocket", EntityType.Builder.of(RocketEntity::new, MobCategory.MISC).sized(0.5f, 0.5f), 20);
     public static final DeferredHolder<EntityType<?>, EntityType<LoiterEntity>> LOITER =
@@ -32,7 +32,7 @@ public final class ModEntities {
     public static final DeferredHolder<EntityType<?>, EntityType<BomberEntity>> BOMBER =
             projectile("bomber", EntityType.Builder.of(BomberEntity::new, MobCategory.MISC).sized(6.0f, 1.5f), 32);
     public static final DeferredHolder<EntityType<?>, EntityType<BunkerBusterEntity>> BUNKER_BUSTER =
-            projectile("bunker_buster", EntityType.Builder.of(BunkerBusterEntity::new, MobCategory.MISC).sized(1.0f, 1.0f), 24);
+            projectile("bunker_buster", EntityType.Builder.of(BunkerBusterEntity::new, MobCategory.MISC).sized(0.8f, 0.8f), 24);
 
     public static final DeferredHolder<EntityType<?>, EntityType<IcbmEntity>> ICBM =
             projectile("icbm", EntityType.Builder.of(IcbmEntity::new, MobCategory.MISC).sized(2.0f, 2.0f), 32);

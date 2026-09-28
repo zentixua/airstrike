@@ -23,6 +23,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.strike.WeaponType;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -336,11 +337,11 @@ public final class ClientScenario {
         record Pose(String name, java.util.function.Supplier<? extends net.minecraft.world.entity.EntityType<? extends StrikeProjectile>> type,
                     ua.zentix.airstrike.entity.FlightPhase phase, double size, boolean aimHere) {}
         List<Pose> poses = List.of(
-                new Pose("drone_ready", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.READY, 9, false),
-                new Pose("drone_cruise", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 9, false),
-                new Pose("missile_boost", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.BOOST, 12, false),
-                new Pose("missile_cruise", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 12, false),
-                new Pose("bomb", ua.zentix.airstrike.registry.ModEntities.BUNKER_BUSTER, ua.zentix.airstrike.entity.FlightPhase.TERMINAL, 10, false),
+                new Pose("drone_ready", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.READY, 5, false),
+                new Pose("drone_cruise", ua.zentix.airstrike.registry.ModEntities.DRONE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 5, false),
+                new Pose("missile_boost", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.BOOST, 7, false),
+                new Pose("missile_cruise", ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 7, false),
+                new Pose("bomb", ua.zentix.airstrike.registry.ModEntities.BUNKER_BUSTER, ua.zentix.airstrike.entity.FlightPhase.TERMINAL, 7, false),
                 new Pose("rocket", ua.zentix.airstrike.registry.ModEntities.ROCKET, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 4, false),
                 new Pose("icbm", ua.zentix.airstrike.registry.ModEntities.ICBM, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 20, false),
                 new Pose("b2_closed", ua.zentix.airstrike.registry.ModEntities.BOMBER, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 42, false),
@@ -385,6 +386,28 @@ public final class ClientScenario {
             }
             t += 95;
         }
+        // пусковые с полным пакетом на площадке, рядом — житель (1.95 м) для масштаба
+        at(t, () -> {
+            watched.discard();
+            cmd("fill -16 199 -16 16 199 16 minecraft:smooth_stone");
+        });
+        t += 20;
+        for (WeaponType w : List.of(WeaponType.DRONE, WeaponType.MISSILE, WeaponType.ROCKET, WeaponType.LOITER)) {
+            int start = t;
+            List<net.minecraft.world.entity.Entity> shown = new java.util.ArrayList<>();
+            at(start, () -> shown.addAll(showLauncher(w)));
+            double[][] cams = {{-11, 4, 9}, {-13, 2.5, -1}, {9, 5, -11}};
+            for (int k = 0; k < cams.length; k++) {
+                double[] c = cams[k];
+                for (int d : new int[]{5, 15}) {
+                    at(start + d + k * 25, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.2f %.2f %.2f facing %.2f %.2f %.2f",
+                            c[0], 200 + c[1], c[2], 0.0, 202.0, 0.0)));
+                }
+                shot(start + 25 + k * 25, "launcher_" + w.getSerializedName() + "_" + k);
+            }
+            at(start + 90, () -> shown.forEach(net.minecraft.world.entity.Entity::discard));
+            t += 95;
+        }
         at(t + 20, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
@@ -392,6 +415,58 @@ public final class ClientScenario {
     }
 
     /** Фаза и точка прицеливания у клиентской копии снаряда (синхронные поля — только через отражение). */
+    /** Клиентская пусковая с поднятым пакетом у (0, 200, 0), снаряды во всех ячейках и житель рядом. */
+    private static List<net.minecraft.world.entity.Entity> showLauncher(WeaponType w) {
+        Minecraft mc = Minecraft.getInstance();
+        List<net.minecraft.world.entity.Entity> out = new java.util.ArrayList<>();
+        var l = ua.zentix.airstrike.registry.ModEntities.LAUNCHER.get().create(mc.level);
+        l.moveTo(0.5, 200, 0.5, 0, 0);
+        l.yRotO = 0;
+        try {
+            for (String f : new String[]{"DATA_WEAPON", "DATA_DEPLOYED"}) {
+                var field = ua.zentix.airstrike.entity.LauncherEntity.class.getDeclaredField(f);
+                field.setAccessible(true);
+                if (f.equals("DATA_WEAPON")) {
+                    @SuppressWarnings("unchecked")
+                    var a = (net.minecraft.network.syncher.EntityDataAccessor<Byte>) field.get(null);
+                    l.getEntityData().set(a, (byte) w.id());
+                } else {
+                    @SuppressWarnings("unchecked")
+                    var a = (net.minecraft.network.syncher.EntityDataAccessor<Long>) field.get(null);
+                    l.getEntityData().set(a, mc.level.getGameTime() - 200);
+                }
+            }
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
+        mc.level.addEntity(l);
+        out.add(l);
+        var type = switch (w) {
+            case MISSILE -> ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE.get();
+            case ROCKET -> ua.zentix.airstrike.registry.ModEntities.ROCKET.get();
+            case LOITER -> ua.zentix.airstrike.registry.ModEntities.LOITER.get();
+            default -> ua.zentix.airstrike.registry.ModEntities.DRONE.get();
+        };
+        for (int slot = 0; slot < ua.zentix.airstrike.entity.LauncherEntity.slots(w); slot++) {
+            Vec3 rail = l.railPoint(slot);
+            StrikeProjectile e = type.create(mc.level);
+            e.moveTo(rail.x, rail.y, rail.z, 0, -l.elevation());
+            e.yRotO = 0;
+            e.xRotO = -l.elevation();
+            showPhase(e, ua.zentix.airstrike.entity.FlightPhase.READY, rail.add(0, 0, 500));
+            mc.level.addEntity(e);
+            out.add(e);
+        }
+        var v = net.minecraft.world.entity.EntityType.VILLAGER.create(mc.level);
+        v.moveTo(-2.6, 200, 3.0, 200, 0);
+        v.yHeadRot = 200;
+        v.yBodyRot = 200;
+        mc.level.addEntity(v);
+        out.add(v);
+        Airstrike.LOG.info("SCENARIO launcher {} slots {}", w.getSerializedName(), out.size() - 2);
+        return out;
+    }
+
     private static void showPhase(StrikeProjectile e, ua.zentix.airstrike.entity.FlightPhase phase, Vec3 aim) {
         try {
             var phaseField = StrikeProjectile.class.getDeclaredField("DATA_PHASE");

@@ -28,6 +28,8 @@ import java.util.UUID;
 public final class LaunchSite {
     public static final double REUSE_RADIUS = 96;
     public static final int MAX_PER_OWNER = 3;
+    /** Ближе этого к другой пусковой новую не ставим. */
+    private static final double CLEARANCE = 9;
 
     /** Места относительно игрока: [назад, влево] в блоках, по порядку предпочтения. */
     private static final double[][] CANDIDATES = {
@@ -53,9 +55,14 @@ public final class LaunchSite {
             Vec3 off = Local.offset(yaw, 0, c[1], 0, -c[0]);
             Vec3 p = player.position().add(off);
             Vec3 site = check(level, Mth.floor(p.x), Mth.floor(p.z));
-            if (site != null) return site;
+            if (site != null && !taken(level, site)) return site;
         }
         return null;
+    }
+
+    /** Рядом уже стоит пусковая (своя другого оружия или чужая): прицеп 7.6 м, пакеты выше 4 м — не ставить внахлёст. */
+    private static boolean taken(ServerLevel level, Vec3 site) {
+        return !level.getEntitiesOfClass(LauncherEntity.class, new AABB(site, site).inflate(CLEARANCE, 8, CLEARANCE), LauncherEntity::isAlive).isEmpty();
     }
 
     /** Ровно (±1 блок в квадрате 5×5), твёрдо, не вода, над головой пусто (листва тоже мешает). */

@@ -29,6 +29,7 @@ public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
         switch (e.weapon()) {
             case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, 0);
             case ROCKET -> WeaponModels.Mesh.ROCKET_RACK.draw(pose, buffers, packedLight);
+            case LOITER -> LaunchModels.LOITER_RACK.render(pose, buffers, 0);
             default -> LaunchModels.DRONE_RACK.render(pose, buffers, 0);
         }
         pose.popPose();
