@@ -73,6 +73,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
      * по 9×9 чанков от залпа с разбросом) или цель недостижима.
      */
+    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
+    private static final double TURN_MARGIN = 1.2;
     private static final int AREA_WAIT_LIMIT = 1200;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
@@ -601,6 +603,29 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     private void syncSpeed() {
         if (Math.abs(entityData.get(DATA_SPEED) - speed) > 0.01) entityData.set(DATA_SPEED, (float) speed);
+    }
+
+    /**
+     * Точка внутри круга разворота: с предельной угловой скоростью {@code maxRateDeg} °/тик снаряд до неё не довернёт
+     * и кружил бы вокруг неё, пока не выйдет срок жизни (крылатая ракета на 12 блоках/тик и 3°/тик разворачивается
+     * по кругу радиусом ~240 блоков: цель, сместившаяся вбок на атаке, оставалась внутри). Такой снаряд сначала уходит
+     * прямо, пока точка не выйдет из круга, и заходит снова. С запасом на разгон угловой скорости — {@link #TURN_MARGIN}.
+     */
+    protected final boolean insideTurn(Vec3 point, double maxRateDeg) {
+        Vec3 f = flight.forward();
+        double fl = Math.sqrt(f.x * f.x + f.z * f.z);
+        if (fl < 1e-6 || speed <= 0) return false;
+        double fx = f.x / fl, fz = f.z / fl;
+        double dx = point.x - getX(), dz = point.z - getZ();
+        double r = speed * fl / Math.toRadians(maxRateDeg) * TURN_MARGIN;
+        // центр разворота — сбоку, в сторону точки
+        double nx = -fz, nz = fx;
+        if (nx * dx + nz * dz < 0) {
+            nx = -nx;
+            nz = -nz;
+        }
+        double cx = dx - nx * r, cz = dz - nz * r;
+        return cx * cx + cz * cz < r * r;
     }
 
     /** Угол цели под горизонтом (°, > 0 — ниже), курс на цель (°) и расстояния до цели. */
