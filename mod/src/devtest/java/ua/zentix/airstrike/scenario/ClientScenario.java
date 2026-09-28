@@ -818,7 +818,9 @@ public final class ClientScenario {
             // группы эффектов: счётчик движка (по нему предел и прореживание) и сколько частиц группы живёт на деле
             var group = ua.zentix.airstrike.client.fx.particle.FxBudget.class.getDeclaredField("group");
             group.setAccessible(true);
-            var counts = Minecraft.getInstance().particleEngine.trackedParticleCounts;
+            var tracked = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("trackedParticleCounts");
+            tracked.setAccessible(true);
+            var counts = (it.unimi.dsi.fastutil.objects.Object2IntMap<?>) tracked.get(Minecraft.getInstance().particleEngine);
             java.util.Map<Object, Integer> live = new java.util.HashMap<>();
             map.values().forEach(q -> ((java.util.Collection<?>) q).forEach(o -> ((net.minecraft.client.particle.Particle) o)
                     .getParticleGroup().ifPresent(g -> live.merge(g, 1, Integer::sum))));

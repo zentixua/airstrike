@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.client.fx.particle;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.particles.ParticleGroup;
 
 import java.util.Optional;
@@ -11,8 +10,6 @@ import java.util.Optional;
  * посреди большого залпа они пропадают и появляются. Поэтому каждая частица эффектов входит в группу — ванильный
  * {@link ParticleGroup}: движок не рождает частицу, если её группа полна. Сумма групп слоя меньше очереди, так что
  * вытеснения нет, а важное (облака, вспышки) не делит место с мелочью (шлейфы, хвосты осколков).
- * Чтобы новые взрывы не оставались совсем без дыма, пока группа полна, рождение прореживается заранее
- * ({@link #headroom()}, через {@link Fx#density}).
  */
 public enum FxBudget {
     /** Облака и огонь взрывов, облака старта, ударные кольца. */
@@ -38,22 +35,6 @@ public enum FxBudget {
         this.additive = additive;
         this.limit = limit;
         this.group = Optional.of(new ParticleGroup(limit));
-    }
-
-    /** С какой заполненности группы новые частицы начинают прореживаться. */
-    private static final float THIN_FROM = 0.5f;
-
-    /**
-     * Доля новых частиц, которую группа ещё принимает: 1 до половины заполнения, дальше линейно до 0 у предела —
-     * тогда и залп из десятков ударов делит место поровну, а не «первые с дымом, последние без».
-     */
-    public float headroom() {
-        int live = Minecraft.getInstance().particleEngine.trackedParticleCounts.getInt(group.get());
-        return headroom((float) live / limit);
-    }
-
-    static float headroom(float fill) {
-        return Math.clamp((1 - fill) / (1 - THIN_FROM), 0, 1);
     }
 
     /** Сколько мест у групп слоя вместе. */
