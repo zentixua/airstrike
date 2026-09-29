@@ -871,14 +871,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * <p>
      * Рельефа вне мира снаряд не знает и летит на высоте цели (пуск издалека — над ней, РСЗО — с её высоты, бреющий —
      * над ней же), а цель бывает ниже моря и ниже рельефа (пещера, карьер, овраг): под поверхностью, но не ниже своей
-     * цели на {@link #BELOW_AIM} он ещё летит к ней. Снаряд, который после этого шага вернётся в мир, правило не трогает:
-     * в мире столкновения свои.
+     * цели на {@link #BELOW_AIM} он ещё летит к ней. Путь кончается, только когда шаг пересекает пол сверху вниз: цель,
+     * за которой он держит высоту (ракета +12, шахед +30), может подняться (игрок вышел из оврага, телепорт), и пол
+     * встанет выше снаряда — такой снаряд доворачивает вверх за целью, а не падает там, где его застало (в 3000 блоках
+     * от цели, с ядерной БЧ), даже если в этот тик ещё снижался к её старой высоте.
+     * Снаряд, который после этого шага вернётся в мир, правило не трогает: в мире столкновения свои.
      */
     @Nullable
     private Vec3 groundCrossing(ServerLevel level, Vec3 aim, Vec3 from, Vec3 to) {
         double floor = Math.min(groundBound(level, to.x, to.z), aim.y - BELOW_AIM);
-        if (to.y >= floor || clearAhead(level, to)) return null;
-        double t = from.y > to.y ? Mth.clamp((from.y - floor) / (from.y - to.y), 0, 1) : 0;
+        if (from.y < floor || to.y >= floor || clearAhead(level, to)) return null;
+        double t = (from.y - floor) / (from.y - to.y);
         Vec3 at = from.lerp(to, t);
         // попадание — на поверхности там, где путь её встретил (на склоне конец шага выше или ниже на блоки)
         return new Vec3(at.x, groundBound(level, at.x, at.z), at.z);
