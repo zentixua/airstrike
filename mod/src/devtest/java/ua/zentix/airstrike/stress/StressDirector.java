@@ -169,8 +169,10 @@ public final class StressDirector {
     private final List<Step> steps = new ArrayList<>();
     /** Ожидания, которые проверяются каждый тик (телепорт ждёт район), до {@code true}. */
     private final List<BooleanSupplier> waits = new ArrayList<>();
-    /** Телепорт игрока, который ещё ждёт район: отмена (новый телепорт того же игрока заменяет его). */
-    private final Map<String, Runnable> pendingTeleports = new HashMap<>();
+    /** Игроки, чей телепорт ещё ждёт район. */
+    private final Set<String> pendingTeleports = new HashSet<>();
+    /** Следующий телепорт игрока, пока прежний ждёт район: идёт, когда прежний перенесёт игрока (последний заменяет). */
+    private final Map<String, Runnable> queuedTeleports = new HashMap<>();
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
@@ -371,8 +373,9 @@ public final class StressDirector {
      * без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района не тикают рядом
      * с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
      * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
-     * были самого стенда. Новый телепорт того же игрока отменяет ждущий: иначе оба дождались бы района в одном тике,
-     * и игрок оказался бы там, куда его послали раньше.
+     * были самого стенда. Новый телепорт того же игрока ждёт, пока прежний перенесёт игрока: отменённый прежний
+     * оставлял игрока без места (облако: возврат из дальнего полёта и из Незера отменял сам полёт), а оба сразу
+     * дождались бы района в одном тике, и игрок оказался бы там, куда его послали раньше.
      */
     private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
         ServerPlayer p = need(s, name, "телепорт");
@@ -381,8 +384,11 @@ public final class StressDirector {
             problems.add("шаг пропущен: телепорт " + name + ", мира назначения нет");
             return;
         }
-        Runnable previous = pendingTeleports.remove(name);
-        if (previous != null) previous.run();
+        if (pendingTeleports.contains(name)) {
+            if (queuedTeleports.put(name, () -> tp(s, name, level, x, y, z)) != null) log("tp %s: прежний отложенный телепорт заменён", name);
+            log("tp %s → %d %d ждёт, пока прежний телепорт перенесёт игрока", name, x, z);
+            return;
+        }
         ChunkPos centre = new ChunkPos(x >> 4, z >> 4);
         DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
         UUID key = UUID.randomUUID();
@@ -391,16 +397,9 @@ public final class StressDirector {
         Runnable release = () -> tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
         // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
         int since = s.getTickCount();
-        boolean[] cancelled = {false};
-        pendingTeleports.put(name, () -> {
-            cancelled[0] = true;
-            release.run();
-            log("tp %s → %d %d отменён новым телепортом через %d тиков", name, x, z, s.getTickCount() - since);
-            problems.add(String.format(Locale.ROOT, "телепорт %s → %d %d не дождался района за %d тиков: его заменил следующий", name, x, z, s.getTickCount() - since));
-        });
+        pendingTeleports.add(name);
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
-            if (cancelled[0]) return true;
             if (!areaReady(level, centre, area)) {
                 // не предел: телепорт ждёт дальше (и держит тикет), но в сводке это проблема
                 if (s.getTickCount() - since == TELEPORT_WAIT) {
@@ -415,16 +414,19 @@ public final class StressDirector {
                 now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
                 log("tp %s → %d %d, район ждали %d тиков", name, x, z, s.getTickCount() - since);
             }
-            // дальше район держит тикет игрока: наш отпускается, когда на центральном чанке стоит тикет игрока
-            // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают с задержкой,
-            // DistanceManager.ticketThrottler), — или через TELEPORT_HOLD, если игрока нет или он уже в другом мире
-            // или чанке (вышел, ушёл дальше).
+            // отложенный телепорт того же игрока — теперь (runWaits идёт по копии: новое ожидание — со следующего тика)
+            Runnable next = queuedTeleports.remove(name);
+            if (next != null) next.run();
+            // дальше район держит тикет игрока: наш отпускается, когда тикеты игрока стоят на всём квадрате района
+            // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают по нескольку за тик,
+            // DistanceManager.ticketThrottler: отпущенный по одному центру квадрат терял полную загрузку по краям),
+            // — или через TELEPORT_HOLD, если игрока нет или он уже в другом мире или чанке (вышел, ушёл дальше).
             // Отпустить раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно
             int placed = s.getTickCount();
             waits.add(() -> {
                 ServerPlayer there = s.getPlayerList().getPlayerByName(name);
                 boolean here = there != null && there.serverLevel() == level && there.chunkPosition().equals(centre);
-                boolean arrived = here && playerTicketAt(level, centre);
+                boolean arrived = here && playerTicketsCover(level, centre, Math.min(area, s.getPlayerList().getViewDistance()));
                 // игрок в центральном чанке ждёт своего тикета (до TELEPORT_WAIT), ушедший — не дольше TELEPORT_HOLD
                 if (!arrived && s.getTickCount() - placed < (here ? TELEPORT_WAIT : TELEPORT_HOLD)) return false;
                 release.run();
@@ -435,11 +437,20 @@ public final class StressDirector {
         });
     }
 
-    /** На чанке стоит тикет игрока ({@code TicketType.PLAYER}): район держит сам игрок. */
-    private static boolean playerTicketAt(ServerLevel level, ChunkPos pos) {
+    /**
+     * На каждом чанке квадрата {@code radius} вокруг центра стоит тикет игрока ({@code TicketType.PLAYER}, в дальности
+     * обзора): район держит сам игрок.
+     */
+    private static boolean playerTicketsCover(ServerLevel level, ChunkPos centre, int radius) {
         var map = ticketMap(level.getChunkSource().chunkMap.getDistanceManager());
-        var set = map == null ? null : map.get(pos.toLong());
-        return set != null && set.stream().anyMatch(t -> t.getType() == TicketType.PLAYER);
+        if (map == null) return false;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                var set = map.get(ChunkPos.asLong(centre.x + dx, centre.z + dz));
+                if (set == null || set.stream().noneMatch(t -> t.getType() == TicketType.PLAYER)) return false;
+            }
+        }
+        return true;
     }
 
     private static boolean areaReady(ServerLevel level, ChunkPos centre, int area) {
@@ -776,8 +787,8 @@ public final class StressDirector {
                 log("игроки на местах, часы сценария идут");
                 return;
             } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
-                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
-                log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
+                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports + "), сценарий идёт без них");
+                log("игроки %s не на местах, часы сценария идут", pendingTeleports);
                 placingSince = Integer.MAX_VALUE;
             }
             return;

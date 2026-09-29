@@ -44,6 +44,7 @@ import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.PickHints;
@@ -1180,8 +1181,9 @@ public final class StrikeGameTests {
     static void gameSpeed(GameTestHelper h) {
         long[] last = {System.nanoTime()};
         h.onEachTick(() -> {
-            long wait = 50_000_000L - (System.nanoTime() - last[0]);
-            if (wait > 0) LockSupport.parkNanos(wait);
+            // parkNanos просыпается раньше (задачи чанков будят поток сервера): ждать до срока в цикле
+            long deadline = last[0] + 50_000_000L, left;
+            while ((left = deadline - System.nanoTime()) > 0) LockSupport.parkNanos(left);
             last[0] = System.nanoTime();
         });
     }
@@ -1319,7 +1321,11 @@ public final class StrikeGameTests {
             key.setAccessible(true);
             int n = 0;
             for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
-                for (Ticket<?> t : set) if (type.test(t.getType()) && who.equals(key.get(t))) n++;
+                for (Ticket<?> t : set) {
+                    // у тикета загрузки AreaLoader значение — сам район
+                    Object k = key.get(t);
+                    if (type.test(t.getType()) && who.equals(k instanceof AreaLoader.Area a ? a.key() : k)) n++;
+                }
             }
             return n;
         } catch (ReflectiveOperationException ex) {

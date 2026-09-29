@@ -11,6 +11,7 @@ import ua.zentix.airstrike.nuclear.NuclearEvents;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,8 +72,13 @@ public final class ClientNuclear {
 
     public static void detonation(S2C.NukeDetonation p) {
         Detonation d = p.detonation();
-        // подрыв бывает и позже отсчёта: сервер ждёт, пока догрузится место (NuclearStrikes.GIVE_UP_TICKS)
-        WARNINGS.values().removeIf(w -> w.target().distanceToSqr(new Vec3(d.burst().x, w.target().y, d.burst().z)) < 4 && d.gameTime() >= w.detonateTime() - 40);
+        // подрыв бывает и позже отсчёта: сервер ждёт, пока догрузится место (NuclearStrikes.GIVE_UP_TICKS). Подрыв
+        // номера удара не несёт — снимается одно предупреждение: из подходящих по месту и сроку — с самым ранним
+        // отсчётом (сервер подрывает удары по сроку); другой удар в ту же точку остаётся на экране
+        WARNINGS.values().stream()
+                .filter(w -> w.target().distanceToSqr(new Vec3(d.burst().x, w.target().y, d.burst().z)) < 4 && d.gameTime() >= w.detonateTime() - 40)
+                .min(Comparator.comparingLong(S2C.NukeWarning::detonateTime).thenComparingInt(S2C.NukeWarning::strikeId))
+                .ifPresent(w -> WARNINGS.remove(w.strikeId()));
         ClientLevel level = Minecraft.getInstance().level;
         if (DETONATIONS.containsKey(d.id()) || level == null) return;
         Active a = new Active(d, true, level.getGameTime());

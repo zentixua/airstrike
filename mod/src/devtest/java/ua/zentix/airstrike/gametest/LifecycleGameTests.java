@@ -25,8 +25,10 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FlightTickets;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -434,6 +436,39 @@ public final class LifecycleGameTests {
         });
     }
 
+    private static final TicketType<UUID> SHARED_A = TicketType.create("airstrike_test_shared_a", Comparator.<UUID>naturalOrder());
+    private static final TicketType<UUID> SHARED_B = TicketType.create("airstrike_test_shared_b", Comparator.<UUID>naturalOrder());
+
+    /**
+     * Два района с одним центром, радиусом и ключом, но разными типами (как воронка и очередь разрушений ядерного
+     * удара на одном чанке): отпуск одного, пока оба ещё грузятся, не снимает загрузку другого, и тот догружается
+     * и берётся целиком. Ванильный тикет один на (тип, уровень, значение) — с общим тикетом загрузки второй район
+     * оставался без тикета навсегда.
+     */
+    @GameTest(template = "range", timeoutTicks = 3000, batch = "tickets_shared", skyAccess = true)
+    public static void releasingOneAreaKeepsTwinLoading(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.gameSpeed(h);
+        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        ChunkPos centre = new ChunkPos(base.x + 60, base.z - 60);
+        UUID key = UUID.randomUUID();
+        AreaLoader areas = StrikeWorld.get(level).areas();
+        AreaLoader.Area a = new AreaLoader.Area(SHARED_A, centre, 2, key), b = new AreaLoader.Area(SHARED_B, centre, 2, key);
+        h.assertFalse(Terrain.ready(level, centre.x, centre.z), "район не свежий");
+        areas.hold(level, a);
+        areas.hold(level, b);
+        h.assertTrue(tickets(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
+        areas.release(level, a);
+        h.assertTrue(tickets(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
+        h.onEachTick(() -> {
+            if (!regionRadii(level, "airstrike_test_shared_b", key).equals(List.of(2))) return;
+            h.assertTrue(regionRadii(level, "airstrike_test_shared_a", key).isEmpty(), "отпущенный район снова взят");
+            areas.release(level, b);
+            h.assertTrue(tickets(level, "airstrike_area_load", key) + tickets(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
+            h.succeed();
+        });
+    }
+
     /** Чанк в квадрате {@code radius} вокруг {@code c}, где тикают блоки, а сосед не готов, — или {@code null}. */
     private static String tickingNextToUnready(ServerLevel level, ChunkPos c, int radius) {
         for (int dx = -radius; dx <= radius; dx++) {
@@ -492,9 +527,11 @@ public final class LifecycleGameTests {
         }
     }
 
+    /** Ключ тикета; у тикета загрузки {@code AreaLoader} значение — сам район, ключ — его. */
     private static Object ticketKey(Ticket<?> t) throws ReflectiveOperationException {
         Field key = Ticket.class.getDeclaredField("key");
         key.setAccessible(true);
-        return key.get(t);
+        Object k = key.get(t);
+        return k instanceof AreaLoader.Area a ? a.key() : k;
     }
 }

@@ -151,10 +151,12 @@ public final class NuclearStrikes {
      * Место подрыва грузится с пуска (полёт МБР — полторы минуты), как район цели снаряда ({@link AreaLoader}): за 10 с
      * до подрыва тикет уровня 32 стоял в очереди генерации за районами целей залпов, и на слабом сервере отсчёт доходил
      * до нуля раньше, чем готова земля (облако 29.09.2026: подрыв ждал, пока его не отменил «Отбой»).
-     * Ключ — номер удара (тикеты не сохраняются: после загрузки мира район берётся заново в тике).
+     * Район только грузится, но не тикает: подрыву нужна земля, а не жизнь в ней, и полторы минуты тика 7×7 чанков
+     * вокруг цели были бы лишней работой. Ключ — номер удара (тикеты не сохраняются: после загрузки мира район
+     * берётся заново в тике).
      */
     private static void holdGround(ServerLevel level, NuclearEvents.ScheduledStrike s, boolean hold) {
-        AreaLoader.Area area = new AreaLoader.Area(GROUND, new ChunkPos(BlockPos.containing(s.target())), GROUND_AREA, new UUID(0L, s.id()));
+        AreaLoader.Area area = new AreaLoader.Area(GROUND, new ChunkPos(BlockPos.containing(s.target())), GROUND_AREA, new UUID(0L, s.id()), false);
         if (hold) StrikeWorld.get(level).areas().hold(level, area);
         else StrikeWorld.get(level).areas().release(level, area);
     }

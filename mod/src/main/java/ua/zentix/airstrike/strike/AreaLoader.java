@@ -35,19 +35,33 @@ import java.util.UUID;
  * Проверено на стенде и не годится (снаряды не дожидались района 60 с): предел числа чанков в загрузке, тикет региона
  * только на готовый район, рост района кольцами по тикетам уровня 33 — все они меняли порядок генерации.
  * <p>
+ * Тикет загрузки у каждого района свой (значение тикета — сам район): ваниль хранит одинаковые тикеты (тип, уровень,
+ * значение) одним, и отпуск одного района снял бы загрузку у другого района с тем же центром, радиусом и ключом, но
+ * другим типом (воронка и очередь разрушений ядерного удара держат один чанк), — тот остался бы без тикета навсегда.
+ * <p>
+ * Район без тика ({@link Area#ticks} — false: место ядерного подрыва, пока летит МБР) держит только тикет загрузки:
+ * чанки полностью загружены, но не тикают ни блоками, ни сущностями.
+ * <p>
  * Состояние не сохраняется (как и тикеты): после перезапуска снаряд попросит район заново. Живёт в
  * {@link StrikeWorld}, тикает и при {@code /tick freeze}: загрузка мира — не симуляция, а трейлер ждёт прогрузки
  * района в замороженном мире.
  */
 public final class AreaLoader {
-    private static final TicketType<UUID> LOAD = TicketType.create("airstrike_area_load", Comparator.<UUID>naturalOrder());
-
     /** Район: тикет региона {@code type} с уровнем {@code 33 − distance} в {@code centre}, ключ {@code key}. */
-    public record Area(TicketType<UUID> type, ChunkPos centre, int distance, UUID key) {
+    public record Area(TicketType<UUID> type, ChunkPos centre, int distance, UUID key, boolean ticks) {
+        /** Район, который тикает по мере готовности. */
+        public Area(TicketType<UUID> type, ChunkPos centre, int distance, UUID key) {
+            this(type, centre, distance, key, true);
+        }
+
         int level() {
             return ChunkLevel.byStatus(FullChunkStatus.FULL) - distance;
         }
     }
+
+    private static final TicketType<Area> LOAD = TicketType.create("airstrike_area_load",
+            Comparator.<Area, String>comparing(a -> a.type().toString()).thenComparing(Area::key).thenComparingInt(Area::distance)
+                    .thenComparing(Area::ticks).thenComparingLong(a -> a.centre().toLong()));
 
     /** Радиус тикета региона, взятого районом: −1 — ещё нет. Равен {@code distance} — район взят целиком. */
     private final Map<Area, Integer> requests = new LinkedHashMap<>();
@@ -63,12 +77,12 @@ public final class AreaLoader {
     public void hold(ServerLevel level, Area area, long until) {
         if (requests.containsKey(area)) return;
         if (until != Long.MAX_VALUE) expiring.put(area, until);
-        if (ready(level, area.centre(), area.distance())) {
+        if (area.ticks() && ready(level, area.centre(), area.distance())) {
             level.getChunkSource().addRegionTicket(area.type(), area.centre(), area.distance(), area.key());
             requests.put(area, area.distance());
             return;
         }
-        level.getChunkSource().chunkMap.getDistanceManager().addTicket(LOAD, area.centre(), area.level(), area.key());
+        level.getChunkSource().chunkMap.getDistanceManager().addTicket(LOAD, area.centre(), area.level(), area);
         requests.put(area, -1);
         grow(level, area);
     }
@@ -79,7 +93,7 @@ public final class AreaLoader {
         Integer taken = requests.remove(area);
         if (taken == null) return;
         if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
-        if (taken < area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area.key());
+        if (taken < area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area);
     }
 
     /** Сколько районов с тикетом {@code type} и ключом {@code key} взято или растёт (проверки). */
@@ -98,7 +112,7 @@ public final class AreaLoader {
     /** Тикет региона — на наибольший готовый квадрат вокруг центра; готов весь район — тикет загрузки больше не нужен. */
     private void grow(ServerLevel level, Area area) {
         int taken = requests.get(area);
-        if (taken == area.distance()) return;
+        if (taken == area.distance() || !area.ticks()) return;
         // квадрат взятого радиуса готов и остаётся готовым (его держат тикеты) — проверить хватит колец дальше
         int k = taken;
         while (k < area.distance() && ringReady(level, area.centre(), k + 1)) k++;
@@ -107,7 +121,7 @@ public final class AreaLoader {
         // сначала новый, потом старый: уровни чанков не проседают ни на тик
         level.getChunkSource().addRegionTicket(area.type(), area.centre(), k, area.key());
         if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
-        if (k == area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area.key());
+        if (k == area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area);
         requests.put(area, k);
     }
 
