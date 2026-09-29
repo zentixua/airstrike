@@ -496,19 +496,25 @@ public final class GridGameTests {
     public static void lampPlacedInDarkDistrictGoesOut(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
-        BlockPos first = new BlockPos(18, 12, 18), placed = new BlockPos(22, 12, 22);
-        h.setBlock(first, Blocks.LANTERN);
+        // обе — в чанке середины площадки (он весь на ней): этот чанк каскад уже прошёл
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        int y = h.absolutePos(CENTER).getY() + 1;
+        BlockPos first = new BlockPos(mid.getMinBlockX() + 3, y, mid.getMinBlockZ() + 3), placed = first.offset(6, 0, 6);
+        level.setBlock(first, Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
         Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 1000, -1);
         h.startSequence()
-                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(h.getBlockState(first)), "фонарь " + first + " горит"))
-                .thenExecute(() -> h.setBlock(placed, Blocks.LANTERN))
+                .thenWaitUntil(() -> {
+                    h.assertTrue(GridLights.isUnlit(level.getBlockState(first)), "фонарь " + first + " горит");
+                    // весь каскад прошёл: лампу могла бы погасить только постановка
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "каскад идёт");
+                })
+                .thenExecute(() -> level.setBlock(placed, Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL))
                 .thenIdle(10)
                 .thenExecute(() -> {
-                    h.assertBlockState(placed, s -> s.is(Blocks.LANTERN), () -> "фонарь погас без события: " + h.getBlockState(placed));
-                    BlockPos abs = h.absolutePos(placed);
-                    Blackouts.onBlockPlaced(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, abs), Blocks.STONE.defaultBlockState(), null));
+                    h.assertTrue(level.getBlockState(placed).is(Blocks.LANTERN), "фонарь погас без события: " + level.getBlockState(placed));
+                    Blackouts.onBlockPlaced(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, placed), Blocks.STONE.defaultBlockState(), null));
                 })
-                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(h.getBlockState(placed)), "поставленный фонарь горит"))
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(placed)), "поставленный фонарь горит"))
                 .thenSucceed();
     }
 
