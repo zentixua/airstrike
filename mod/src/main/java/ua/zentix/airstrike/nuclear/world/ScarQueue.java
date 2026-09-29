@@ -10,6 +10,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.nuclear.Detonation;
+import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.ArrayDeque;
@@ -235,7 +236,8 @@ public final class ScarQueue {
             }
             LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
             Detonation d = job.events.get(job.event);
-            ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget());
+            // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
+            ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
             int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
             while (job.column < 256 && clock.canStart()) {
                 long c0 = clock.begin();

@@ -73,6 +73,10 @@ public final class NuclearEvents extends SavedData {
         return past;
     }
 
+    public boolean isPast(int id) {
+        return past.stream().anyMatch(d -> d.id() == id);
+    }
+
     public List<ScheduledStrike> scheduled() {
         return scheduled;
     }
