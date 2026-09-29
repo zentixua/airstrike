@@ -61,13 +61,12 @@ ln -sfn ../mods "$RUN/server/mods"
 # NeoForge объявляет выделенный сервер в LAN (UDP-сокет на 0.0.0.0, рассылка MOTD и порта) — у проверок выключено
 python3 "$ROOT/tools/rig_config.py" "$RUN/server"
 
-pids=()
-cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
-trap cleanup EXIT
+# сервер и клиенты — каждый в своей сессии; выход скрипта (и Ctrl+C) гасит их целиком, с JVM под обёртками
+source "$ROOT/tools/rig_procs.sh"
+rig_trap
 
-"$RIG/stress-server.sh" > "$RUN/server.out" 2>&1 &
-server=$!
-pids+=("$server")
+rig_spawn "$RIG/stress-server.sh" > "$RUN/server.out" 2>&1
+server=$RIG_LAST
 until grep -q 'Done (' "$RUN/server.out" 2>/dev/null; do
   kill -0 "$server" 2>/dev/null || { echo "сервер не запустился: $RUN/server.out"; exit 1; }
   sleep 2
@@ -92,13 +91,12 @@ skipMultiplayerWarning:true
 OPT
   if command -v kwin_wayland >/dev/null; then
     # рабочий стол KDE: свой вложенный KWin на клиента (без окна, без звука, своя шина и сокет), на видеокарте
-    "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1 &
+    rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1
   else
     # облако: xvfb-run и программная отрисовка; звуковой сервер клиенту закрыт, как в nested_kwin.sh
     LIBGL_ALWAYS_SOFTWARE=1 PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
-      xvfb-run -a -s "-screen 0 854x480x24" "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1 &
+      rig_spawn xvfb-run -a -s "-screen 0 854x480x24" "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1
   fi
-  pids+=("$!")
 }
 for i in "${!CLIENTS[@]}"; do
   [ "$i" -gt 0 ] && sleep 20

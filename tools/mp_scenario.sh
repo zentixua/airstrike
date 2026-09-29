@@ -55,9 +55,11 @@ for c in "Alpha mp-a" "Bravo mp-b"; do
     -PscenarioDir="run/$dir" -PscenarioUser="$name" -PrigOut="$dir"
 done
 RIG="$MOD/build/rig"
-"$RIG/mp-server.sh" > "$RUN/mp-server.out" 2>&1 &
-SERVER_PID=$!
-trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+# сервер и клиенты — каждый в своей сессии; выход скрипта (и Ctrl+C) гасит их целиком, с JVM под обёртками
+source "$ROOT/tools/rig_procs.sh"
+rig_trap
+rig_spawn "$RIG/mp-server.sh" > "$RUN/mp-server.out" 2>&1
+SERVER_PID=$RIG_LAST
 for _ in $(seq 600); do
   grep -q 'Done (' "$SERVER/logs/latest.log" 2>/dev/null && break
   kill -0 $SERVER_PID 2>/dev/null || { echo "сервер не запустился: $RUN/mp-server.out" >&2; exit 1; }
@@ -70,21 +72,20 @@ client() { # каталог (он же сценарий)
   rm -rf "$dir/logs" "$dir/screenshots"
   mkdir -p "$dir/logs"
   [ -f "$dir/options.txt" ] || printf 'onboardAccessibility:false\npauseOnLostFocus:false\nrenderDistance:8\nsimulationDistance:8\nsoundCategory_master:0.0\ntutorialStep:none\njoinedFirstServer:true\n' > "$dir/options.txt"
-  "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-$1" 960 540 "$RIG/$1.sh" > "$RUN/$1.out" 2>&1
+  rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-$1" 960 540 "$RIG/$1.sh" > "$RUN/$1.out" 2>&1
 }
-client mp-b &
-B_PID=$!
+client mp-b
+B_PID=$RIG_LAST
 # Alpha заходит, когда Bravo уже в мире: сценарий Alpha бьёт по нему
 for _ in $(seq 600); do
   grep -q 'SCENARIO mp joined' "$RUN/mp-b/logs/latest.log" 2>/dev/null && break
   kill -0 $B_PID 2>/dev/null || break
   sleep 1
 done
-client mp-a &
-A_PID=$!
+client mp-a
+A_PID=$RIG_LAST
 wait $A_PID $B_PID || true
-kill $SERVER_PID 2>/dev/null || true
-wait $SERVER_PID 2>/dev/null || true
+rig_stop $SERVER_PID
 
 echo "== сервер"
 grep -E "joined the game|left the game|Удар|Снаряд|ERROR|Exception|at ua\.zentix" "$SERVER/logs/latest.log" | cut -c1-200 || true
