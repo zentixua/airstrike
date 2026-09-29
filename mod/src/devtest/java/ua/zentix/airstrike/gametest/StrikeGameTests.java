@@ -667,6 +667,46 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Стенд нагрузки засчитывает взрыв снаряду по источнику урона ({@code StressDirector.blastBy}), а не по месту:
+     * боевая часть у неготового района ждёт его загрузки, и отложенный взрыв — уже после уборки снаряда — несёт тот же
+     * снаряд. Район догружает сам тест после тика, в котором взрыв уже ждал (как {@link #blastWaitsForUnreadyChunks}).
+     */
+    @GameTest(template = "runway", timeoutTicks = 100, batch = "deferred_blast_owner", skyAccess = true)
+    public static void deferredBlastKeepsItsProjectile(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 at = Vec3.atCenterOf(FarSite.DEFERRED_BLAST.at(h));
+        // вторичные подрывы наземного взрыва — до 22 блоков от точки (SurfaceBlast): с запасом
+        double area = 32;
+        h.assertFalse(Terrain.readyAround(level, at, area), "район вдали уже загружен");
+        RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+        int[] tick = {0};
+        List<String> foreign = new ArrayList<>();
+        int[] own = {0};
+        int[] firstAt = {-1};
+        java.util.function.Consumer<net.neoforged.neoforge.event.level.ExplosionEvent.Start> onBlast = e -> {
+            Vec3 c = e.getExplosion().center();
+            if (e.getLevel() != level || c.distanceTo(at) > area) return;
+            UUID by = ua.zentix.airstrike.stress.StressDirector.blastBy(e.getExplosion());
+            if (!rocket.getUUID().equals(by)) foreign.add(by + " у " + c.subtract(at));
+            else if (own[0]++ == 0) firstAt[0] = tick[0];
+        };
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(onBlast);
+        afterTest(h, () -> net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(onBlast));
+        h.onEachTick(() -> tick[0]++);
+        Warheads.detonate(level, WeaponType.ROCKET, at, rocket, null);
+        h.assertTrue(own[0] == 0, "взрыв сработал сразу, не дождавшись района");
+        h.runAfterDelay(2, () -> {
+            for (int cx = Mth.floor(at.x - area) >> 4; cx <= Mth.floor(at.x + area) >> 4; cx++)
+                for (int cz = Mth.floor(at.z - area) >> 4; cz <= Mth.floor(at.z + area) >> 4; cz++) level.getChunk(cx, cz);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(foreign.isEmpty(), "взрыв без снаряда или с чужим: " + foreign);
+            h.assertTrue(own[0] >= 2, "взрывов снаряда " + own[0] + " (ждём подрыв и огненный шар)");
+            h.assertTrue(firstAt[0] > 0, "первый взрыв снаряда на тике " + firstAt[0] + " — не отложен");
+        });
+    }
+
     @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker", skyAccess = true)
     public static void bunkerBusterDrillsAndDetonatesUnderground(GameTestHelper h) {
         ServerLevel level = h.getLevel();
@@ -1347,12 +1387,6 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Район цели, отпущенный тестом, готов сразу: чанки 5×5 вокруг — синхронно, тикет уже стоит. Растяжение меряется
-     * тиками, а сервер GameTest тикает без пауз (на CI ~2000 тиков в секунду): фоновая генерация после срока шла
-     * тысячи тиков, и снаряд успевал встать у черты (main, 29.09.2026: «стоял в воздухе 522 тиков»). Так момент
-     * готовности — тик срока, на любой скорости раннера.
-     */
-    /**
      * Места тестов далеко за площадкой (вокруг ничего не загружено, снаряд летит вне мира) — у каждого теста своё,
      * в тысяче блоков и больше от остальных: что тест оставил в мире (скала, воронка), не встаёт на путь другого, если
      * их площадки рядом. Новый тест вдали — новое место здесь.
@@ -1362,7 +1396,8 @@ public final class StrikeGameTests {
         BOMB_RISEN_SURFACE(4000, -4000),
         ROCKET_TICKING_AIM(4000, 4000),
         ROCKET_HILL_BEYOND(-4000, -4000),
-        MISSILE_HILL_BEYOND(-4000, 5200);
+        MISSILE_HILL_BEYOND(-4000, 5200),
+        DEFERRED_BLAST(5200, 0);
 
         private final int dx, dz;
 
@@ -1376,6 +1411,12 @@ public final class StrikeGameTests {
         }
     }
 
+    /**
+     * Район цели, отпущенный тестом, готов сразу: чанки 5×5 вокруг — синхронно, тикет уже стоит. Растяжение меряется
+     * тиками, а сервер GameTest тикает без пауз (на CI ~2000 тиков в секунду): фоновая генерация после срока шла
+     * тысячи тиков, и снаряд успевал встать у черты (main, 29.09.2026: «стоял в воздухе 522 тиков»). Так момент
+     * готовности — тик срока, на любой скорости раннера.
+     */
     private static void generateNow(ServerLevel level, ChunkPos centre) {
         for (int dx = -2; dx <= 2; dx++)
             for (int dz = -2; dz <= 2; dz++) level.getChunk(centre.x + dx, centre.z + dz);

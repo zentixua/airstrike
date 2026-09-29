@@ -15,6 +15,8 @@ import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.Explosion;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -44,6 +46,8 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -260,7 +264,8 @@ public final class StressDirector {
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
-    private final List<Vec3> blastsThisTick = new ArrayList<>();
+    /** Взрывы этого тика по снаряду, чей это взрыв ({@link #blastBy}): первый у каждого снаряда. */
+    private final Map<UUID, Vec3> blastsThisTick = new HashMap<>();
     private final Map<String, Integer> outcomes = new TreeMap<>();
     private final Map<String, Integer> launchedByType = new TreeMap<>();
     // подрывы, замеченные за прогон: «Отбой» и забывание убирают их из NuclearEvents, а в сводку идут все
@@ -295,6 +300,7 @@ public final class StressDirector {
 
     public StressDirector(IEventBus modBus) {
         if (MODE == null) return;
+        checkCollector();
         NeoForge.EVENT_BUS.addListener(this::onStarted);
         NeoForge.EVENT_BUS.addListener(this::onTickPre);
         NeoForge.EVENT_BUS.addListener(this::onTickPost);
@@ -326,6 +332,22 @@ public final class StressDirector {
     /** Ожидания этого тика; новые, добавленные из них, проверяются со следующего. */
     private void runWaits() {
         for (BooleanSupplier w : List.copyOf(waits)) if (w.getAsBoolean()) waits.remove(w);
+    }
+
+    /** Сборщики мусора JVM (имена MXBean: «G1 Young Generation», «ZGC Major Cycles»…). */
+    private static String collectors() {
+        return String.join(", ", ManagementFactory.getGarbageCollectorMXBeans().stream().map(GarbageCollectorMXBean::getName).toList());
+    }
+
+    /**
+     * Сборщик, который заказал {@code build.gradle} ({@code AIRSTRIKE_RIG_JVM=artem} → {@code airstrike.stress.gc=ZGC}), — тот,
+     * с которым JVM и работает: иначе прогон молча мерил бы другую JVM (VPS 29.09.2026: прогон с G1 тулчейна вместо ZGC).
+     */
+    private static void checkCollector() {
+        String want = System.getProperty("airstrike.stress.gc");
+        if (want == null || want.isBlank()) return;
+        if (ManagementFactory.getGarbageCollectorMXBeans().stream().noneMatch(b -> b.getName().startsWith(want)))
+            throw new IllegalStateException("стенд: заказан сборщик " + want + ", а JVM работает с " + collectors());
     }
 
     /** Выключатель стенда из переменной окружения (через {@code build.gradle}): true/1/yes или false/0/no. */
@@ -916,7 +938,8 @@ public final class StressDirector {
     // ---------------------------------------------------------------- наблюдение
 
     private void onStarted(ServerStartedEvent e) {
-        log("сервер запущен, режим %s, пробы %s, перезапуск %s, ждём игроков: %d", MODE, PROBES ? "вкл" : "выкл", RESTART ? "вкл" : "выкл", PLAYERS);
+        log("сервер запущен, режим %s, пробы %s, перезапуск %s, ждём игроков: %d; JVM: сборщик %s, куча до %d МБ", MODE, PROBES ? "вкл" : "выкл",
+                RESTART ? "вкл" : "выкл", PLAYERS, collectors(), Runtime.getRuntime().maxMemory() >> 20);
         startWatchdog(e.getServer());
     }
 
@@ -937,7 +960,7 @@ public final class StressDirector {
                 + " тикает " + ((ServerLevel) e.getLevel()).isPositionEntityTicking(p.blockPosition()));
     }
 
-    /** Снаряд убран, итог — по взрыву рядом, который может прийти позже ({@link #BLAST_WAIT}). */
+    /** Снаряд убран, итог — по его взрыву, который может прийти позже ({@link #BLAST_WAIT}). */
     private record Gone(UUID id, Watch w, Vec3 end, @Nullable String how, int at) {}
 
     /**
@@ -945,21 +968,38 @@ public final class StressDirector {
      * загрузки ({@code Warheads.whenReady}); снаряд, вернувшийся в мир и сбитый в том же тике, взрывается позже.
      */
     private static final int BLAST_WAIT = 200;
-    /**
-     * Взрыв — этого снаряда, если он ближе к месту уборки; в тике уборки — или к месту, где снаряд замечен последним
-     * (путь за тик). Позже — только у места уборки: за {@link #BLAST_WAIT} тиков рядом рвутся соседи по залпу.
-     */
-    private static final double BLAST_AT_END = 16, BLAST_AT_SEEN = 48;
     private final List<Gone> awaitingBlast = new ArrayList<>();
     /** Снаряды, которые мод убрал, не дождавшись загрузки района цели ({@link #GAVE_UP}). */
     private final Set<UUID> gaveUp = new HashSet<>();
 
+    /**
+     * Чей взрыв: снаряд — прямой источник урона взрыва (боевая часть {@code Warheads.explode}, в том числе отложенная до
+     * готовности района, и крушение на старте). Не по месту: снаряд рвётся у цели в 20 блоках впереди места уборки
+     * (шаг и дальность подрыва), а в залпе рядом рвутся соседи. Поля с источником урона у {@link Explosion} открытого нет.
+     */
     @Nullable
-    private Vec3 blastFor(Gone g) {
-        for (Vec3 b : blastsThisTick)
-            if (b.distanceToSqr(g.end) < BLAST_AT_END * BLAST_AT_END
-                    || tick == g.at && b.distanceToSqr(g.w.pos) < BLAST_AT_SEEN * BLAST_AT_SEEN) return b;
-        return null;
+    public static UUID blastBy(Explosion x) {
+        DamageSource source;
+        try {
+            source = (DamageSource) ExplosionSource.FIELD.get(x);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+        return source != null && source.getDirectEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
+    }
+
+    /** {@code Explosion.damageSource} — только когда стенд или тест спрашивает, чей взрыв. */
+    private static final class ExplosionSource {
+        static final Field FIELD;
+
+        static {
+            try {
+                FIELD = Explosion.class.getDeclaredField("damageSource");
+                FIELD.setAccessible(true);
+            } catch (NoSuchFieldException e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     private void ended(Watch w, String outcome) {
@@ -988,7 +1028,8 @@ public final class StressDirector {
     }
 
     private void onExplosion(ExplosionEvent.Start e) {
-        blastsThisTick.add(e.getExplosion().center());
+        UUID by = blastBy(e.getExplosion());
+        if (by != null) blastsThisTick.putIfAbsent(by, e.getExplosion().center());
     }
 
     private void onTickPre(ServerTickEvent.Pre e) {
@@ -1296,7 +1337,7 @@ public final class StressDirector {
         // убранный снаряд ждёт своего взрыва BLAST_WAIT тиков: взрыв у неготового района откладывается до его загрузки
         for (var it = awaitingBlast.iterator(); it.hasNext(); ) {
             Gone g = it.next();
-            Vec3 blast = blastFor(g);
+            Vec3 blast = blastsThisTick.get(g.id);
             if (gaveUp.contains(g.id)) {
                 // мод сам убрал его, не дождавшись района цели (WARN с UUID): не пропажа, а отказ по сроку ожидания
                 it.remove();
@@ -1510,6 +1551,9 @@ public final class StressDirector {
         if (pr.launched == 0) fails.add("ни одного снаряда");
         else if (pr.ordered > 0 && pr.launched != pr.ordered) fails.add("пущено " + pr.launched + " из " + pr.ordered);
         if (vanished > 0) fails.add("пропали без взрыва: " + vanished);
+        // как у проб растяжения: снаряд, не дождавшийся района цели, путь до поверхности не проверил
+        int gaveUp = pr.outcomes.getOrDefault("gave-up", 0);
+        if (gaveUp > 0) fails.add("не дождались района цели: " + gaveUp);
         if (pr.steering && max > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "до поверхности в %.0f блоках от цели (> %.0f)", max, GROUND_OFF_LIMIT));
         if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");
         if (pr.forced != null && !pr.raised) fails.add("цель не поднялась — ракета вне мира не застала подъём");
