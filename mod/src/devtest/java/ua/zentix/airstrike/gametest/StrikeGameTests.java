@@ -29,6 +29,7 @@ import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
@@ -698,52 +699,86 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Снаряд РСЗО сходит с пакета, только когда район точки падения загружен: полёт по дуге короткий, и снаряд, ушедший
-     * сразу, долетал до незагруженного района и ждал его, замерев в воздухе у цели (сценарий пролёта 29.09.2026: вой
-     * обрывался на 8–40 тиков). Район здесь дальний и свежий; тест сам догружает его на 40-м тике — до этого снаряд
-     * стоит в трубе, потом летит без остановок и взрывается у цели.
+     * Снаряд РСЗО по свежему району рядом: сходит с пакета сразу (без ожидания в трубе) и до взрыва движется каждый тик.
+     * Полёт короче загрузки района (сервер GameTest тикает без пауз), и раньше снаряд вне мира замирал в воздухе у цели
+     * (сценарий пролёта 29.09.2026: вой обрывался на 8–40 тиков); теперь конец полёта вне мира растягивается во времени.
      */
-    @GameTest(template = "runway", timeoutTicks = 1200, batch = "tube_wait", skyAccess = true)
-    public static void rocketWaitsInTubeForAimArea(GameTestHelper h) {
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_near", skyAccess = true)
+    public static void rocketToFreshNearAreaNeverFreezes(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 250, 0);
+    }
+
+    /**
+     * Район цели грузится дольше полёта (тест держит его незагруженным 300 тиков при полёте ~100): снаряд сходит сразу,
+     * вне мира подходит к цели всё медленнее, ни одного тика не стоит и, когда район готов, взрывается у цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "rocket_slow_area", skyAccess = true)
+    public static void rocketStretchesFlightWhileAimAreaLoads(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 250, 300);
+    }
+
+    /** Дальний свежий район: полёт длиннее загрузки района — сход на тике приказа, без растяжения и остановок. */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_far", skyAccess = true)
+    public static void rocketToFreshFarAreaLaunchesAtOnce(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 1750, 0);
+    }
+
+    /** @param withhold сколько тиков район цели не грузится (тест снимает тикет снаряда, потом ставит его сам) */
+    private static void rocketLaunchesAtOnceAndNeverFreezes(GameTestHelper h, int distance, int withhold) {
         ServerLevel level = h.getLevel();
         Vec3 rail = Vec3.atCenterOf(h.absolutePos(RUNWAY_TARGET)).add(0, 3, 0);
-        BlockPos far = BlockPos.containing(rail).offset(600, 0, 0);
-        ChunkPos aimChunk = new ChunkPos(far);
+        ChunkPos aimChunk = new ChunkPos(BlockPos.containing(rail).offset(distance, 0, 0));
         Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
         RocketEntity rocket = ModEntities.ROCKET.get().create(level);
-        rocket.placeInTube(rail, -90, LauncherEntity.elevation(WeaponType.ROCKET), 5, 0, new Target.Point(aim), aim, null);
+        int ready = 5;
+        rocket.placeInTube(rail, -90, LauncherEntity.elevation(WeaponType.ROCKET), ready, 0, new Target.Point(aim), aim, null);
         level.addFreshEntity(rocket);
         UUID id = rocket.getUUID();
+        long orderedAt = System.nanoTime();
         int[] tick = {0};
         int[] leftTube = {-1};
+        int[] eta = {0};
+        int[] lastSeen = {0};
         int[] stalls = {0};
         Vec3[] last = {rocket.position()};
+        boolean[] reported = {false};
+        int[] areaReadyAt = {-1};
+        BlockPos aimPos = BlockPos.containing(aim);
         h.onEachTick(() -> {
             tick[0]++;
-            if (tick[0] == 40) {
-                // район цели догружается прямо сейчас (в игре — тикетом в фоне, пока снаряд стоит в трубе)
-                for (int dx = -4; dx <= 4; dx++) {
-                    for (int dz = -4; dz <= 4; dz++) level.getChunk(aimChunk.x + dx, aimChunk.z + dz);
-                }
-            }
+            if (areaReadyAt[0] < 0 && Terrain.ready(level, aimPos) && level.isPositionEntityTicking(aimPos)) areaReadyAt[0] = tick[0];
             StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
                     .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            // район «грузится долго»: тикет снаряда снимается, пока не выйдет срок, потом ставится снова (снимет его снаряд)
+            if (withhold > 0 && p != null) FlightTickets.hold(level, aimChunk, FlightTickets.DISTANCE, id, tick[0] >= withhold);
             if (p == null) return;
+            lastSeen[0] = tick[0];
             boolean moved = p.position().distanceToSqr(last[0]) > 1.0e-6;
             last[0] = p.position();
             // сход — первый сдвиг из трубы; дальше каждый тик до взрыва снаряд движется
             if (leftTube[0] < 0) {
-                if (moved) leftTube[0] = tick[0];
+                if (moved) {
+                    leftTube[0] = tick[0];
+                    eta[0] = p.etaTicks();
+                }
             } else if (!moved) {
                 stalls[0]++;
             }
         });
         h.succeedWhen(() -> {
-            h.assertTrue(leftTube[0] > 40, "снаряд сошёл с пакета на тике " + leftTube[0] + ", до загрузки района цели (40)");
             boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
                     || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
             h.assertFalse(flying, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            // замер для PR: задержка схода и растяжение полёта вне мира (тики сверх расчётного времени полёта)
+            if (!reported[0]) Airstrike.LOG.info("Замер РСЗО {} блоков: сход на тике {} (готов к {}), полёт {} тиков при расчётных {}, растяжение {}, район цели готов на тике {}, {} мс",
+                    distance, leftTube[0], ready + RocketEntity.IGNITION_TICKS, lastSeen[0] - leftTube[0], eta[0],
+                    lastSeen[0] - leftTube[0] - eta[0], areaReadyAt[0],
+                    (System.nanoTime() - orderedAt) / 1_000_000);
+            reported[0] = true;
+            h.assertTrue(leftTube[0] > 0 && leftTube[0] <= ready + RocketEntity.IGNITION_TICKS + 2,
+                    "снаряд сошёл с пакета на тике " + leftTube[0] + ", а готов к " + (ready + RocketEntity.IGNITION_TICKS));
             h.assertTrue(stalls[0] == 0, "снаряд стоял в воздухе " + stalls[0] + " тиков");
+            if (withhold > 0) h.assertTrue(areaReadyAt[0] >= withhold, "район цели загрузился раньше, чем тест его отпустил");
             h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
         });
     }
