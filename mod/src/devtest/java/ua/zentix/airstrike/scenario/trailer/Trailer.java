@@ -571,16 +571,34 @@ public final class Trailer {
         return (hi - lo) * 10 + (dry ? 0 : 1000) + canopy * 15;
     }
 
-    /** Точка в блоке перед стеной башни на высоте {@code y}: идём к её оси с {@code from}-стороны до первого твёрдого блока. */
-    private static Vec3 facade(ServerLevel level, Vec3 tower, int y, Vec3 from) {
+    /**
+     * Точка в полутора блоках перед стеной башни на высоте {@code y} (не выше, чем за 20 блоков до её верха): ось
+     * башни — самая высокая колонка в 32 блоках от намеченной (координаты по карте высот — с шагом 4 блока), от неё
+     * идём с {@code from}-стороны к оси до первого твёрдого блока.
+     */
+    private static Vec3 facade(ServerLevel level, Vec3 near, int y, Vec3 from) {
+        int bx = Mth.floor(near.x), bz = Mth.floor(near.z), top = Integer.MIN_VALUE;
+        Vec3 axis = near;
+        for (int dx = -32; dx <= 32; dx += 2) {
+            for (int dz = -32; dz <= 32; dz += 2) {
+                level.getChunk((bx + dx) >> 4, (bz + dz) >> 4);
+                int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx + dx, bz + dz);
+                if (h > top) {
+                    top = h;
+                    axis = new Vec3(bx + dx + 0.5, near.y, bz + dz + 0.5);
+                }
+            }
+        }
+        double at = Math.min(y, top - 20);
         for (int k = 120; k >= 0; k--) {
-            BlockPos p = BlockPos.containing(tower.add(from.scale(k)).add(0, y - tower.y, 0));
+            BlockPos p = BlockPos.containing(axis.x + from.x * k, at, axis.z + from.z * k);
             level.getChunk(p.getX() >> 4, p.getZ() >> 4);
             if (!level.getBlockState(p).getCollisionShape(level, p).isEmpty()) {
                 return Vec3.atCenterOf(p).add(from.scale(1.5));
             }
         }
-        return tower.add(0, y - tower.y, 0);
+        Airstrike.LOG.warn("TRAILER нет стены у {} на высоте {} (верх {})", axis, at, top);
+        return new Vec3(axis.x, top, axis.z);
     }
 
     /**
@@ -986,6 +1004,8 @@ public final class Trailer {
         private Runnable atEnd, atPrepare, atReady;
 
         private int phase, waited, readyFor, t, endAt = -1;
+        /** Время игры, с которого план ждёт условия (-1 — ещё не ждал). */
+        private long since = -1;
         private Path path;
         /** Тряска камеры плана (null — без неё): дрожь с рук и толчки от взрывов. */
         @Nullable
@@ -1173,12 +1193,13 @@ public final class Trailer {
         public boolean tick() {
             switch (phase) {
                 case 0 -> {
-                    if (after != null && !after.getAsBoolean() && waited++ < afterTimeout) return false;
-                    if (after != null && waited > afterTimeout) {
+                    if (after != null && !after.getAsBoolean() && worldWaited() < afterTimeout) return false;
+                    if (after != null && worldWaited() >= afterTimeout) {
                         Airstrike.LOG.warn("TRAILER {}: не дождались условия, план пропущен", name);
                         return true;
                     }
                     waited = 0;
+                    since = -1;
                     hud = hudOn;
                     if (hiddenActor && actor) {
                         actor = false;
@@ -1214,8 +1235,9 @@ public final class Trailer {
                 case 2 -> {
                     followCamera();
                     if (when != null && !when.getAsBoolean()) {
-                        if (++waited % 200 == 0) Airstrike.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, waited);
-                        if (waited < whenTimeout) return false;
+                        long w = worldWaited();
+                        if (w > 0 && w % 200 == 0) Airstrike.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, w);
+                        if (w < whenTimeout) return false;
                         Airstrike.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
                     if (selected()) {
@@ -1247,6 +1269,16 @@ public final class Trailer {
                 default -> throw new IllegalStateException();
             }
             return false;
+        }
+
+        /**
+         * Сколько тиков игры план ждёт условия: сроки — по времени мира, а не по тикам клиента (у отстающего
+         * сервера — генерация, обновление старых чанков — снаряд летит медленнее, чем идут тики клиента).
+         */
+        private long worldWaited() {
+            long now = mc.level.getGameTime();
+            if (since < 0) since = now;
+            return now - since;
         }
 
         private void runCues() {
