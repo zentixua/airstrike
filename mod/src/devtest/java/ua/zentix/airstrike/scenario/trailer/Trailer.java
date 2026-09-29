@@ -251,8 +251,10 @@ public final class Trailer {
         run(() -> fire("missile", target(side.scale(-4)).add(toPost.scale(-20))));
         shot("missile_camera").after(() -> !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 400)
                 .prepare(() -> {
-                    // туман шейдерпака (Complementary) по дальности — от прорисовки: при 12 чанках видео с борта
-                    // в 200 блоках от цели почти белое, при 24 земля видна раньше
+                    // утром лучи света Complementary (объёмный свет) в разы сильнее, чем в полдень, и на пути к солнцу
+                    // заливают весь кадр с борта розовато-белой пеленой — видео снимается в полдень (дальше снова утро)
+                    cmd("time set 6000");
+                    // туман шейдерпака по дальности — от прорисовки: при 24 чанках земля видна раньше
                     renderDistance = mc.options.renderDistance().get();
                     mc.options.renderDistance().set(ONBOARD_RENDER_DISTANCE);
                     if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
@@ -264,6 +266,7 @@ public final class Trailer {
                 .length(220).speed(0.2).hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
                 .cueEnd(() -> {
                     ProjectileCamera.exit();
+                    cmd("time set 1000");
                     mc.options.renderDistance().set(renderDistance);
                 });
 

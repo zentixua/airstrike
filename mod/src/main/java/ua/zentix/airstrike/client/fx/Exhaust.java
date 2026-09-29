@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.fx;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -33,6 +34,10 @@ public final class Exhaust {
 
     private static final class State {
         Vec3 lastNozzle;
+        /** Сопло на прошлом тике: с борта шлейф кладётся с отставанием на тик (см. {@link #trail}). */
+        Vec3 heldNozzle;
+        /** Камера игрока — на этом снаряде (видео с борта). */
+        boolean onboard;
         Vec3 pad;
         /** Передний срез трубы РСЗО, из которой сошёл снаряд. */
         Vec3 muzzle;
@@ -47,6 +52,7 @@ public final class Exhaust {
     public static void tick(StrikeProjectile e) {
         if (!(e.level() instanceof ClientLevel level)) return;
         State s = STATES.computeIfAbsent(e, k -> new State());
+        s.onboard = Minecraft.getInstance().getCameraEntity() == e;
         switch (e) {
             case IcbmEntity icbm -> icbm(level, icbm, s);
             case CruiseMissileEntity m -> missile(level, m, s);
@@ -184,7 +190,8 @@ public final class Exhaust {
         Fx.Spec haze = Fx.smoke().size(0.2f, 1.4f).life(60).color(0xB8B4AE, 0xDADAD8).alpha(0.16f).drag(0.94f)
                 .fadeIn(2).fadeFrom(0.25f).rise(0.001f);
         trail(level, s, nozzle, haze, 2.5, r);
-        if (e.flightPhase() == FlightPhase.TERMINAL) {
+        // «воротник» пара вокруг корпуса виден только снаружи; с борта он у самого объектива
+        if (e.flightPhase() == FlightPhase.TERMINAL && !s.onboard) {
             for (int i = 0; i < 3; i++) {
                 double a = r.nextDouble() * Mth.TWO_PI;
                 Vec3 p = Local.at(e.position(), e.getYRot(), e.getXRot(), Math.cos(a) * 0.35, Math.sin(a) * 0.35, 0.8 - r.nextDouble() * 1.6);
@@ -348,9 +355,17 @@ public final class Exhaust {
 
     // ---------------------------------------------------------------- общее
 
-    /** Шлейф снаряда: клубы от прошлого положения сопла до нынешнего, в группе шлейфов. */
+    /**
+     * Шлейф снаряда: клубы от прошлого положения сопла до нынешнего, в группе шлейфов. С борта камера стоит между
+     * прошлым и нынешним положением снаряда, и клубы последнего отрезка (на быстрой ракете — до 11 блоков) оказывались
+     * вплотную перед объективом (размытые пятна на весь кадр). Поэтому, пока камера на снаряде, отрезок
+     * кладётся тиком позже — уже за камерой; след остаётся непрерывным.
+     */
     private static void trail(ClientLevel level, State s, Vec3 nozzle, Fx.Spec puff, double step, RandomSource r) {
-        s.lastNozzle = segment(level, s.lastNozzle, nozzle, puff.budget(FxBudget.TRAIL), step, r);
+        Vec3 held = s.heldNozzle;
+        s.heldNozzle = nozzle;
+        Vec3 to = s.onboard ? held : nozzle;
+        if (to != null) s.lastNozzle = segment(level, s.lastNozzle, to, puff.budget(FxBudget.TRAIL), step, r);
     }
 
     /** Клубы по отрезку от прошлого положения сопла до нынешнего через {@code step} блоков (со случайным сдвигом). */
