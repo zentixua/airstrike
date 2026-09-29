@@ -577,15 +577,11 @@ public final class Trailer {
                 .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 190, 110, 250, 0.12, 50))
                 .when(() -> nearest(CruiseMissileEntity.class, DOWNTOWN, 300) != null || nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000)
                 .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2);
-        // затишье после шквала: центр в дыму и догорании, камера медленно наезжает с точки ночного роя;
+        // затишье после шквала: центр в дыму и догорании, облёт шквала продолжается медленнее и шире;
         // замена блэкаута в тишине перед сиреной, если блэкаут не войдёт в версию мода (edit.py --no-blackout)
-        shot("night_after").length(420).hidden().farView().shake(0.03).camera(() -> {
-                    Vec3 from = ground(roofView).add(0, 55, 0);
-                    Vec3 to = from.add(DOWNTOWN.subtract(from).normalize().scale(14));
-                    return CineCamera.spline(true, CineCamera.Key.at(0, from, DOWNTOWN.add(0, 20, 0), 34),
-                            CineCamera.Key.at(420, to, DOWNTOWN.add(0, 16, 0), 30));
-                })
-                .subject(() -> DOWNTOWN.add(0, 20, 0), 60, 0.15);
+        shot("night_after").length(420).hidden().farView().shake(0.03)
+                .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 210, 120, 290, 0.06, 46))
+                .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2);
         blackout();
     }
 
