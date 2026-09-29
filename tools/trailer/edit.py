@@ -609,6 +609,7 @@ def trailer_edit(music):
         Clip("loiter_strike", "mark:gone-1.5", 1.9, impact="mark:gone"),
         Clip("rocket_launch", "sound:rocket.launch-0.5", 1.9, whoosh=True),
         Clip("rocket_impact", "mark:gone-0.5", 1.9, impact="mark:gone"),
+        Clip("fighters", "slowest-1.2", 2.8, whoosh=True),
         Clip("missile_camera", "mark:close", 2.8, frame_y=0.0, whoosh=True),
         Clip("bomb_bay", "mark:release-1.4", 1.9),
         Clip("bomb_impact", "mark:freeze-0.8", 2.8, impact="mark:freeze"),
