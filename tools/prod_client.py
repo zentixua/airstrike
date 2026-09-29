@@ -7,7 +7,7 @@
 вложенном KWin (tools/nested_kwin.sh). Инстанс, его миры и настройки не меняются.
 
   tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod] [--prop airstrike.frametimes=true]
-  tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike] --seconds 180   (замер входа, A/B)
+  tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike | --airstrike-jar F] --seconds 180   (вход, A/B, готовый jar)
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
 Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
@@ -127,19 +127,22 @@ def main():
     ap.add_argument("--world", help="скопировать этот мир игрока; со сценарием — открыть его")
     ap.add_argument("--quickplay", action="store_true", help="сразу войти в --world средствами игры (quickPlaySingleplayer)")
     ap.add_argument("--without-airstrike", action="store_true", help="сборка хоста без Airstrike (сравнение A/B)")
+    ap.add_argument("--airstrike-jar", help="готовый jar мода (сборка CI или релиза) вместо тестовой сборки; без сценариев")
     ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
     ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд")
     ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
     ap.add_argument("--user", default="Dev")
     a = ap.parse_args()
-    if a.without_airstrike and a.scenario:
+    if (a.without_airstrike or a.airstrike_jar) and a.scenario:
         ap.error("сценарии идут из тестовой сборки Airstrike: без неё сценария нет")
     if a.quickplay and not a.world:
         ap.error("--quickplay нужен --world")
     dest = os.path.abspath(a.dir)
 
     copy_instance(dest, a.world)
-    if not a.without_airstrike:
+    if a.airstrike_jar:
+        shutil.copy2(a.airstrike_jar, os.path.join(dest, "mods"))
+    elif not a.without_airstrike:
         subprocess.run([os.path.join(paths.MOD, "gradlew"), "-p", paths.MOD, "scenarioJar", "-q", "--console=plain"], check=True)
         jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "airstrike-*-scenario.jar")), key=os.path.getmtime)
         shutil.copy2(jar, os.path.join(dest, "mods"))

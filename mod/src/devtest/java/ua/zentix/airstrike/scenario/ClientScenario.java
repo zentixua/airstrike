@@ -718,6 +718,8 @@ public final class ClientScenario {
             cmd("time set 6000");
             cmd("weather clear");
             cmd("tp @s 0.5 150 0.5 0 20");
+            // дерево команд мода на месте: справка приходит в чат (и в лог клиента)
+            cmd("airstrike help");
         });
         at(200, () -> {
             ua.zentix.airstrike.AirstrikeConfig.SERVER.launchNearPlayer.set(true);
