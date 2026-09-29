@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -147,11 +148,8 @@ public final class StressDirector {
     /** Команда от имени игрока (как если бы он её набрал): пусковая встаёт у него, снаряды — его. */
     private void as(int t, String player, String command) {
         at(t, player + ": /" + command, s -> {
-            ServerPlayer p = s.getPlayerList().getPlayerByName(player);
-            if (p == null) {
-                log("skip %s: нет игрока", command);
-                return;
-            }
+            ServerPlayer p = need(s, player, "/" + command);
+            if (p == null) return;
             run(s, p.createCommandSourceStack().withPermission(4), command);
         });
     }
@@ -232,8 +230,19 @@ public final class StressDirector {
         tp(s, name, x, z);
     }
 
-    private void tp(MinecraftServer s, String name, int x, int z) {
+    /** Игрок для шага; нет его — шаг пропущен, и это проблема в сводке (стенд не проходит с меньшим числом шагов). */
+    @Nullable
+    private ServerPlayer need(MinecraftServer s, String name, String what) {
         ServerPlayer p = s.getPlayerList().getPlayerByName(name);
+        if (p == null) {
+            log("skip %s: нет игрока %s", what, name);
+            problems.add("шаг пропущен, нет игрока " + name + ": " + what);
+        }
+        return p;
+    }
+
+    private void tp(MinecraftServer s, String name, int x, int z) {
+        ServerPlayer p = need(s, name, "телепорт");
         if (p == null) return;
         ServerLevel level = s.overworld();
         // без загрузки чанка ради высоты: сначала высоко, потом игра сама опустит в полёте творческого режима
@@ -242,7 +251,7 @@ public final class StressDirector {
     }
 
     private void buildCraft(MinecraftServer s, String near) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(near);
+        ServerPlayer p = need(s, near, "аппарат");
         if (p == null) return;
         BlockPos c = p.blockPosition().offset(24, 30, 0);
         // fill и Sable грузили бы неготовые чанки прямо в тике (стенд сам вставал на десятки секунд): ждём готовых
@@ -264,11 +273,18 @@ public final class StressDirector {
     private Vec3 craftCenter;
 
     private void strikeCraft(MinecraftServer s, String shooter, int missiles, int drones) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(shooter);
-        if (p == null || craftCenter == null) return;
+        ServerPlayer p = need(s, shooter, "удар по аппарату");
+        if (p == null) return;
+        if (craftCenter == null) {
+            problems.add("шаг пропущен: удар по аппарату, аппарат не построен");
+            return;
+        }
         var subs = ua.zentix.airstrike.compat.SubLevels.near(s.overworld(), craftCenter, 32);
         log("аппаратов у цели: %d", subs.size());
-        if (subs.isEmpty()) return;
+        if (subs.isEmpty()) {
+            problems.add("шаг пропущен: удар по аппарату, у цели нет аппарата");
+            return;
+        }
         var sub = subs.get(0);
         Vec3 c = ua.zentix.airstrike.compat.SubLevels.center(sub);
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
@@ -282,8 +298,8 @@ public final class StressDirector {
 
     private void villagers(MinecraftServer s, String shooter, String near, int n) {
         ServerLevel level = s.overworld();
-        ServerPlayer p = s.getPlayerList().getPlayerByName(shooter);
-        ServerPlayer host = s.getPlayerList().getPlayerByName(near);
+        ServerPlayer p = need(s, shooter, "жители-цели");
+        ServerPlayer host = need(s, near, "жители-цели");
         if (host == null) return;
         Vec3 at = host.position().add(-40, 0, 30);
         for (int i = 0; i < n; i++) {
@@ -473,10 +489,11 @@ public final class StressDirector {
                 w.update(en.getValue());
             }
             w.seen = tick;
-            // бетонобойные бомбы — путь целиком: одна пропала вне мира в 375 блоках от цели (VPS, 29.09.2026)
-            if ("bunker_buster".equals(w.type) && tick % 10 == 0) {
-                log("путь bunker_buster %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
-                        en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
+            // путь бетонобойных бомб целиком и всех снарядов вне мира: вне мира пропадали бомба (в 375 блоках от цели)
+            // и ракеты РСЗО (под миром) — VPS, 29.09.2026
+            if ((w.virtual || "bunker_buster".equals(w.type)) && tick % 10 == 0) {
+                log("путь %s %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
+                        w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
                         Math.hypot(w.aim.x - w.pos.x, w.aim.z - w.pos.z), w.pos.y - w.aim.y);
             }
         }
@@ -664,7 +681,7 @@ public final class StressDirector {
     }
 
     private void as(MinecraftServer s, String player, String command) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(player);
+        ServerPlayer p = need(s, player, "/" + command);
         if (p != null) run(s, p.createCommandSourceStack().withPermission(4), command);
     }
 
