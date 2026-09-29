@@ -75,7 +75,6 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue gridRestoreMinutes;
         public final ModConfigSpec.IntValue gridRestoreSpread;
         public final ModConfigSpec.BooleanValue gridNuke;
-        public final ModConfigSpec.BooleanValue gridDistantLod;
         public final ModConfigSpec.IntValue gridTimeBudgetMs;
 
         Server(ModConfigSpec.Builder b) {
@@ -194,8 +193,6 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.grid_restore_spread").defineInRange("restore_spread_seconds", 90, 0, 3600);
             gridNuke = b.comment("Ядерный удар обесточивает всё в радиусе своего действия.")
                     .translation("airstrike.config.grid_nuke").define("nuke_blackout", true);
-            gridDistantLod = b.comment("С Distant Horizons: кварталы вдали гаснут и в его LOD — по копии чанка с диска, без загрузки чанка.")
-                    .translation("airstrike.config.grid_distant_lod").define("distant_lod", true);
             gridTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута (1–20).")
                     .translation("airstrike.config.grid_time_budget").defineInRange("ms_per_tick", 4, 1, 20);
             b.pop();

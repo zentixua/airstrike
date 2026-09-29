@@ -73,7 +73,7 @@ final class GridCommand {
 
     /** Все измерения: ядерный удар в Незере гасит Незер, а оператор стоит в верхнем мире. */
     private static int status(CommandContext<CommandSourceStack> ctx) {
-        int outages = 0, nodes = 0, queued = 0, lamps = 0, reading = 0;
+        int outages = 0, nodes = 0, queued = 0, lamps = 0;
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             PowerGrid grid = PowerGrid.get(level);
             outages += grid.outages().size();
@@ -83,10 +83,9 @@ final class GridCommand {
             int[] backlog = BlackoutWorld.get(level).backlog();
             queued += backlog[0];
             lamps += backlog[1];
-            reading += backlog[2];
         }
-        int o = outages, n = nodes, q = queued, l = lamps, r = reading;
-        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, l, r), false);
+        int o = outages, n = nodes, q = queued, l = lamps;
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, l), false);
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             long now = level.getGameTime();
             String dimension = level.dimension().location().toString();
