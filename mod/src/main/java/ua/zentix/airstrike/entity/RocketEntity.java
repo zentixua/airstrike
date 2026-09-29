@@ -228,6 +228,16 @@ public class RocketEntity extends StrikeProjectile {
         return Double.MAX_VALUE;
     }
 
+    /**
+     * Путь кончается там, куда рассчитана баллистика ({@code impactAt}). Цель ракета не обновляет, и точка цели с ней
+     * совпадает; переопределение — страховка на случай, если разойдутся.
+     */
+    @Override
+    @Nullable
+    protected Vec3 pathEnd() {
+        return impactAt != null ? impactAt : super.pathEnd();
+    }
+
     /** Нос по скорости. */
     private void face(Vec3 v) {
         float[] a = FlightController.anglesTo(Vec3.ZERO, v);
