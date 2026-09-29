@@ -51,6 +51,32 @@ class EngineSoundTest {
     }
 
     @Test
+    void missileWhistleWarnsFromThreeKilometres() {
+        // путь по пакетам (раз в 2 тика), как у ракеты вне мира: с 3000 блоков на слушателя у цели; свист слышно
+        // до прихода ракеты не меньше 4 с (d·(1/v − 1/c) ≈ 86 тиков), и история пути не теряет слышимую точку
+        double from = Hearing.WHISTLE + Hearing.FADE, v = 11.5;
+        int arrival = (int) (from / v);
+        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        int first = -1;
+        double firstDistance = 0;
+        for (int k = 0; k <= arrival; k++) {
+            if (k % 2 == 0) {
+                t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0,
+                        FlightPhase.CRUISE.ordinal(), 200 + k, EAR));
+            }
+            double te = Acoustics.emissionTime(t, k, EAR.x, EAR.y, EAR.z);
+            Emission e = Emission.at(t, te, EAR, false);
+            if (first < 0 && te > t.start() + 1 && EngineSound.Layer.MISSILE_WHISTLE.tone(t, e).gain() >= 0.02) {
+                first = k;
+                firstDistance = e.distance();
+            }
+        }
+        assertTrue(first >= 0, "свиста не было");
+        assertTrue(firstDistance > 2800, "свист слышно с " + Math.round(firstDistance) + " блоков");
+        assertTrue(arrival - first >= 80, "свист за " + (arrival - first) + " тиков до прихода ракеты");
+    }
+
+    @Test
     void missileOnDetourDoesNotWhistle() {
         // тот же пролёт над слушателем, но цель в стороне (ракета идёт по обходу маршрута): свиста подлёта нет
         SourceTrack t = missile(1200, new Vec3(-300, 0, 800));

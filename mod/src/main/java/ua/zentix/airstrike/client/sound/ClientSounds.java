@@ -43,8 +43,8 @@ public final class ClientSounds {
      * не обрывал далёкий звук.
      */
     private static final int STALE = 40;
-    /** Звук идёт до уха не дольше: самый дальний слышимый снаряд — ступень МБР, 1580 блоков, ~92 тика. */
-    private static final int RINGOUT = 100;
+    /** Звук идёт до уха не дольше: дальше всех слышно свист крылатой ракеты, 3080 блоков, ~180 тиков. */
+    private static final int RINGOUT = 200;
     /** Движок не дал слою канал (все заняты): через столько тиков попробовать снова. */
     private static final int RETRY = 10;
     private static long tick;
