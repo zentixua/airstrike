@@ -37,13 +37,22 @@ rig_members() {
   return 0
 }
 
-# rig_stop <sid…>: TERM всей сессии (JVM успевает сохранить мир), через RIG_GRACE с (20) оставшимся — KILL.
+# срок до KILL в секундах: RIG_GRACE (тест ставит 2), не число или пусто — 20
+rig_grace() {
+  local g=${RIG_GRACE:-20}
+  [[ $g =~ ^[0-9]+$ ]] || g=20
+  echo $((10#$g))
+}
+
+# rig_stop <sid…>: TERM всей сессии (JVM успевает сохранить мир), через rig_grace с оставшимся — KILL.
 rig_stop() {
-  local sid live=() left
+  local sid live=() left grace
+  grace=$(rig_grace)
   for sid in "$@"; do [ -n "$(rig_members "$sid")" ] && live+=("$sid"); done
   [ ${#live[@]} -eq 0 ] && return 0
   for sid in "${live[@]}"; do pkill -TERM -s "$sid" 2>/dev/null || true; done
-  local deadline=$((SECONDS + ${RIG_GRACE:-20}))
+  left=("${live[@]}") # срок 0 — KILL сразу
+  local deadline=$((SECONDS + grace))
   while [ $SECONDS -lt $deadline ]; do
     left=()
     for sid in "${live[@]}"; do [ -n "$(rig_members "$sid")" ] && left+=("$sid"); done
@@ -55,7 +64,7 @@ rig_stop() {
     local names
     names=$(ps -o comm= -s "$sid" 2>/dev/null | sort -u | tr '\n' ' ') || names=""
     pkill -KILL -s "$sid" 2>/dev/null || true
-    echo "rig: сессия $sid не вышла за ${RIG_GRACE:-20} с после TERM — KILL: $names" >&$RIG_ERR || true
+    echo "rig: сессия $sid не вышла за $grace с после TERM — KILL: $names" >&$RIG_ERR || true
   done
 }
 
@@ -63,7 +72,7 @@ rig_stop_all() {
   # повторный Ctrl+C во время остановки не должен оборвать её до KILL
   trap '' INT TERM HUP PIPE
   if [ ${#RIG_SESSIONS[@]} -gt 0 ]; then
-    [ -n "${RIG_SIG:-}" ] && { echo "rig: останавливаю запуски (до ${RIG_GRACE:-20} с)…" >&$RIG_ERR || true; }
+    [ -n "${RIG_SIG:-}" ] && { echo "rig: останавливаю запуски (до $(rig_grace) с)…" >&$RIG_ERR || true; }
     rig_stop "${RIG_SESSIONS[@]}"
   fi
   # выход по сигналу — тем же сигналом: цикл вокруг скрипта и systemd видят прерывание, а не код ошибки
