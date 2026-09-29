@@ -9,6 +9,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -139,6 +140,8 @@ public class BomberEntity extends StrikeProjectile {
         if (bomb == null) return;
         bomb.drop(position().add(0, -4, 0), flight.yaw(), aim, goal, ownerId());
         bomb.setNuclear(nuclear);
+        // в debug.log: по UUID бомбы из предупреждений снаряда находится её B-2
+        Airstrike.LOG.debug("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
     }
