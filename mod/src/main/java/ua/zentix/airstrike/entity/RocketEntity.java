@@ -22,6 +22,9 @@ import java.util.UUID;
  * <p>
  * В точку падения снаряд приходит ровно на тике {@code N}. Если его сдвинули (возврат из полёта вне мира поднимает над рельефом), траектория
  * пересчитывается от текущего места на оставшееся время. Цель не отслеживается: куда навели при пуске, туда и упадёт.
+ * <p>
+ * Снаряд сходит с пакета, только когда район точки падения загружен и в нём тикают сущности: иначе он долетал бы
+ * до цели раньше, чем район загрузится, и ждал его, замерев в воздухе.
  */
 public class RocketEntity extends StrikeProjectile {
     /** Двигатель горит столько тиков после схода. */
@@ -130,7 +133,13 @@ public class RocketEntity extends StrikeProjectile {
         FlightPhase ph = flightPhase();
         if (ph == FlightPhase.READY) {
             speed = 0;
-            if (phaseAge() >= readyTicks()) setPhase(FlightPhase.IGNITION);
+            if (phaseAge() < readyTicks()) return;
+            // район цели не готов — снаряд ждёт в трубе, а не в воздухе у цели (там он замирал и вой обрывался)
+            if (!aimAreaReady(level, impactAt)) {
+                waitForAimArea(impactAt);
+                return;
+            }
+            if (launcherTurn(level)) setPhase(FlightPhase.IGNITION);
             return;
         }
         if (ph == FlightPhase.IGNITION) {
@@ -159,6 +168,29 @@ public class RocketEntity extends StrikeProjectile {
         if (!advance(level, impactAt, 1.5)) return;
         // вне мира у цели снаряд ждёт загрузки района — тогда он не сдвинулся и время траектории стоит
         if (position().distanceToSqr(before) > 1.0e-6) n++;
+    }
+
+    /** Очередь схода с пакета: установка рядом выпускает не чаще своего интервала; без установки — сразу. */
+    private boolean launcherTurn(ServerLevel level) {
+        LauncherEntity launcher = null;
+        double best = Double.MAX_VALUE;
+        for (LauncherEntity l : level.getEntitiesOfClass(LauncherEntity.class, getBoundingBox().inflate(8))) {
+            double d = l.distanceToSqr(this);
+            if (d < best) {
+                best = d;
+                launcher = l;
+            }
+        }
+        return launcher == null || launcher.takeTurn(level.getGameTime());
+    }
+
+    /**
+     * Район цели грузится с постановки в трубу: полёт по дуге короткий (500 блоков — ~10 с), и район, взятый на
+     * подлёте, не успевал загрузиться — снаряд замирал в воздухе у цели.
+     */
+    @Override
+    protected double preloadDistance() {
+        return Double.MAX_VALUE;
     }
 
     /** Нос по скорости. */

@@ -697,6 +697,57 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Снаряд РСЗО сходит с пакета, только когда район точки падения загружен: полёт по дуге короткий, и снаряд, ушедший
+     * сразу, долетал до незагруженного района и ждал его, замерев в воздухе у цели (сценарий пролёта 29.09.2026: вой
+     * обрывался на 8–40 тиков). Район здесь дальний и свежий; тест сам догружает его на 40-м тике — до этого снаряд
+     * стоит в трубе, потом летит без остановок и взрывается у цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "tube_wait", skyAccess = true)
+    public static void rocketWaitsInTubeForAimArea(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RUNWAY_TARGET)).add(0, 3, 0);
+        BlockPos far = BlockPos.containing(rail).offset(600, 0, 0);
+        ChunkPos aimChunk = new ChunkPos(far);
+        Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
+        RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+        rocket.placeInTube(rail, -90, LauncherEntity.elevation(WeaponType.ROCKET), 5, 0, new Target.Point(aim), aim, null);
+        level.addFreshEntity(rocket);
+        UUID id = rocket.getUUID();
+        int[] tick = {0};
+        int[] leftTube = {-1};
+        int[] stalls = {0};
+        Vec3[] last = {rocket.position()};
+        h.onEachTick(() -> {
+            tick[0]++;
+            if (tick[0] == 40) {
+                // район цели догружается прямо сейчас (в игре — тикетом в фоне, пока снаряд стоит в трубе)
+                for (int dx = -4; dx <= 4; dx++) {
+                    for (int dz = -4; dz <= 4; dz++) level.getChunk(aimChunk.x + dx, aimChunk.z + dz);
+                }
+            }
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            if (p == null) return;
+            boolean moved = p.position().distanceToSqr(last[0]) > 1.0e-6;
+            last[0] = p.position();
+            // сход — первый сдвиг из трубы; дальше каждый тик до взрыва снаряд движется
+            if (leftTube[0] < 0) {
+                if (moved) leftTube[0] = tick[0];
+            } else if (!moved) {
+                stalls[0]++;
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(leftTube[0] > 40, "снаряд сошёл с пакета на тике " + leftTube[0] + ", до загрузки района цели (40)");
+            boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
+                    || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
+            h.assertFalse(flying, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            h.assertTrue(stalls[0] == 0, "снаряд стоял в воздухе " + stalls[0] + " тиков");
+            h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
+        });
+    }
+
     @GameTest(template = "runway", timeoutTicks = 2400, batch = "salvo", skyAccess = true)
     public static void salvoFiresEveryShot(GameTestHelper h) {
         ServerLevel level = h.getLevel();

@@ -43,6 +43,8 @@ public class LauncherEntity extends Entity {
 
     private long[] slotFreeAt = new long[0];
     private long lastStart = Long.MIN_VALUE / 2;
+    /** Когда с установки последний раз сошёл снаряд (не сохраняется). */
+    private long lastIgnition = Long.MIN_VALUE / 2;
 
     public LauncherEntity(EntityType<? extends LauncherEntity> type, Level level) {
         super(type, level);
@@ -164,6 +166,16 @@ public class LauncherEntity extends Entity {
     /** Наименьший интервал между пусками с одной установки, тиков: РСЗО — полсекунды, остальные — 0.8 с. */
     public static int spacing(WeaponType weapon) {
         return weapon == WeaponType.ROCKET ? 8 : 16;
+    }
+
+    /**
+     * Сход снаряда с установки сейчас: не чаще {@link #spacing}. Снаряд, который ждал в трубе загрузки района цели,
+     * уходит в свою очередь, а не разом с соседями, дождавшимися того же района.
+     */
+    public boolean takeTurn(long now) {
+        if (now < lastIgnition + spacing(weapon())) return false;
+        lastIgnition = now;
+        return true;
     }
 
     /**
