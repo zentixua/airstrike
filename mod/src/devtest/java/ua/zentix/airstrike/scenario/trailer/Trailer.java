@@ -901,9 +901,37 @@ public final class Trailer {
         placeActor(post, TOWER);
     }
 
+    /** Куда поставлен наводчик и сколько тиков назад (см. {@link #keepActorOnSpot}). */
+    @Nullable
+    private Vec3 actorSpot, actorFace;
+    private int actorSince;
+
+    /**
+     * Телепорт в ещё не присланный клиенту чанк: игрок падает сквозь пустоту, пока чанк не пришёл, и застревает
+     * в земле (наводчик стоял на 2–8 блоков ниже поста — камера за ним в холме). Первые 10 с после постановки: чанк
+     * у клиента есть, а игрок не на месте — поставить снова.
+     */
+    private void keepActorOnSpot() {
+        if (!actor || actorSpot == null || ++actorSince > 200 || mc.player == null || mc.level == null) return;
+        Vec3 at = actorSpot;
+        if (!mc.level.getChunkSource().hasChunk(Mth.floor(at.x) >> 4, Mth.floor(at.z) >> 4)) return;
+        Vec3 p = mc.player.position();
+        // под постом у клиента пусто — значит, неверна высота поста, а не игрок провалился: переставлять бесполезно
+        if (mc.level.getBlockState(BlockPos.containing(at).below()).isAir()) return;
+        if (Math.abs(p.y - at.y) > 0.6 && Math.hypot(p.x - at.x, p.z - at.z) < 3 && actorSince % 10 == 0) {
+            Airstrike.LOG.info("TRAILER наводчик не на месте ({} вместо {}) — снова на пост", p, at);
+            Vec3 face = actorFace;
+            float yaw = yawTo(at, face);
+            withPlayer((level, sp) -> sp.teleportTo(level, at.x, at.y, at.z, yaw, 0));
+        }
+    }
+
     /** Наводчик стоит на посту лицом к цели, в творческом режиме, виден в кадре. */
     private void placeActor(Vec3 at, Vec3 face) {
         actor = true;
+        actorSpot = at;
+        actorFace = face;
+        actorSince = 0;
         float yaw = yawTo(at, face);
         withPlayer((level, p) -> {
             p.setGameMode(GameType.CREATIVE);
@@ -1698,6 +1726,7 @@ public final class Trailer {
 
     private void onTick(ClientTickEvent.Post e) {
         if (mc.player == null || mc.level == null) return;
+        keepActorOnSpot();
         if (!started) {
             started = true;
             // папка записи: дубль отдельных планов (AIRSTRIKE_TRAILER_SHOTS) — в свою папку, монтаж берёт их поверх основной
