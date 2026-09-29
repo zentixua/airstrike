@@ -44,6 +44,7 @@ import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.PickHints;
@@ -1385,11 +1386,12 @@ public final class StrikeGameTests {
      * (предел {@code AREA_WAIT_LIMIT} — 1200 тиков, минута игры), а сервер GameTest тикает без пауз — на CI около
      * 2000 тиков в секунду, и минута игры проходила за полсекунды, раньше генерации свежего района.
      */
-    private static void gameSpeed(GameTestHelper h) {
+    static void gameSpeed(GameTestHelper h) {
         long[] last = {System.nanoTime()};
         h.onEachTick(() -> {
-            long wait = 50_000_000L - (System.nanoTime() - last[0]);
-            if (wait > 0) LockSupport.parkNanos(wait);
+            // parkNanos просыпается раньше (задачи чанков будят поток сервера): ждать до срока в цикле
+            long deadline = last[0] + 50_000_000L, left;
+            while ((left = deadline - System.nanoTime()) > 0) LockSupport.parkNanos(left);
             last[0] = System.nanoTime();
         });
     }
@@ -1457,8 +1459,9 @@ public final class StrikeGameTests {
 
     /**
      * Подсказка карты под спамом: два игрока кликают по новому месту каждый тик 100 тиков. У каждого в любой тик не
-     * больше одного района подсказки, новый — не чаще раза в {@link PickHints#MIN_INTERVAL} тиков, последний клик
-     * берётся (отложенный), а через {@link PickHints#LIFESPAN} тиков тикет гаснет сам.
+     * больше одного района подсказки (и не больше одного тикета региона), новый — не чаще раза в
+     * {@link PickHints#MIN_INTERVAL} тиков, последний клик берётся (отложенный), а через {@link PickHints#LIFESPAN}
+     * тиков район отпускается сам — ни тикета региона, ни тикета загрузки.
      */
     @GameTest(template = "runway", timeoutTicks = 1000, batch = "pick_spam", skyAccess = true)
     public static void mapPickSpamHoldsOneAreaPerPlayer(GameTestHelper h) {
@@ -1483,8 +1486,8 @@ public final class StrikeGameTests {
                 PickHints.tick(level, who[i], slots[i]);
                 if (slots[i].held() != null && !slots[i].held().equals(lastHeld[i])) taken[i]++;
                 lastHeld[i] = slots[i].held();
-                int held = pickTickets(level, who[i]);
-                if (held > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + held + " на тике " + tick[0]);
+                int held = pickTickets(level, who[i]), areas = PickHints.areas(level, who[i]);
+                if (held > 1 || areas > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + areas + ", тикетов " + held + " на тике " + tick[0]);
             }
         });
         h.runAtTickTime(spam + PickHints.MIN_INTERVAL + 1, () -> {
@@ -1492,18 +1495,30 @@ public final class StrikeGameTests {
                 h.assertTrue(lastClick[i].equals(slots[i].held()), "последний клик не взят: держится " + slots[i].held() + ", клик " + lastClick[i]);
                 int limit = spam / PickHints.MIN_INTERVAL + 2;
                 h.assertTrue(taken[i] <= limit, "новых районов " + taken[i] + " за " + spam + " тиков, предел " + limit);
-                h.assertTrue(pickTickets(level, who[i]) == 1, "тикет последнего клика не стоит");
+                h.assertTrue(PickHints.areas(level, who[i]) == 1, "район последнего клика не взят");
             }
         });
         h.runAtTickTime(spam + PickHints.MIN_INTERVAL + PickHints.LIFESPAN + 20, () -> {
-            for (int i = 0; i < 2; i++) h.assertTrue(pickTickets(level, who[i]) == 0, "тикет подсказки не погас за " + PickHints.LIFESPAN + " тиков");
+            for (int i = 0; i < 2; i++) {
+                h.assertTrue(PickHints.areas(level, who[i]) == 0 && pickTickets(level, who[i]) == 0 && loadTickets(level, who[i]) == 0,
+                        "район подсказки не отпущен за " + PickHints.LIFESPAN + " тиков");
+            }
             h.succeed();
         });
     }
 
     /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
-    @SuppressWarnings("unchecked")
     private static int pickTickets(ServerLevel level, UUID who) {
+        return tickets(level, who, PickHints::isPickTicket);
+    }
+
+    /** Тикеты загрузки района ({@code AreaLoader}) с ключом {@code who}. */
+    private static int loadTickets(ServerLevel level, UUID who) {
+        return tickets(level, who, t -> t.toString().equals("airstrike_area_load"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int tickets(ServerLevel level, UUID who, java.util.function.Predicate<TicketType<?>> type) {
         try {
             Field dm = ChunkMap.class.getDeclaredField("distanceManager");
             dm.setAccessible(true);
@@ -1514,7 +1529,11 @@ public final class StrikeGameTests {
             key.setAccessible(true);
             int n = 0;
             for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
-                for (Ticket<?> t : set) if (PickHints.isPickTicket(t.getType()) && who.equals(key.get(t))) n++;
+                for (Ticket<?> t : set) {
+                    // у тикета загрузки AreaLoader значение — сам район
+                    Object k = key.get(t);
+                    if (type.test(t.getType()) && who.equals(k instanceof AreaLoader.Area a ? a.key() : k)) n++;
+                }
             }
             return n;
         } catch (ReflectiveOperationException ex) {

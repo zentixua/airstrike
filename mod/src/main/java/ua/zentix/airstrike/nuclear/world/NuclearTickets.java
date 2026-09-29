@@ -5,25 +5,31 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Comparator;
+import java.util.UUID;
 
 /**
- * Загрузка чанков для ядерного удара — чанк эпицентра перед подрывом и пятно воронки. Ванильные тикеты грузят и
+ * Загрузка чанков для ядерного удара — пятно воронки и край очереди разрушений. Ванильные тикеты грузят и
  * генерируют чанк в фоне (тикет NeoForge {@code forceChunk} грузил бы его сразу, останавливая сервер), не
  * сохраняются в мире и сами пропадают при перезапуске; кто ждёт чанк — проверяет {@link Terrain#ready}.
  * <p>
  * Менять блоки можно только там, где загружены и соседи: Sable на каждое изменение блока читает соседние блоки
  * (физика аппаратов), и на краю загруженного мира это синхронно грузило соседний чанк — по 30–300 мс на столбец.
+ * <p>
+ * Чанки берутся через {@link AreaLoader}: тикет региона сразу сделал бы чанк тикающим, пока соседи ещё генерируются, —
+ * и хранилище испытаний в нём грузило соседа синхронно (облако 29.09.2026: 2,5 с у чанков очереди разрушений).
  */
 public final class NuclearTickets {
-    private static final TicketType<ChunkPos> TYPE = TicketType.create("airstrike_nuclear", Comparator.comparingLong(ChunkPos::toLong));
+    private static final TicketType<UUID> TYPE = TicketType.create("airstrike_nuclear", Comparator.<UUID>naturalOrder());
     /**
      * Свой тип для очереди разрушений: одинаковый тикет (тип, уровень, значение) у ванили один на всех, и снятие
      * тикета очередью сняло бы тикет воронки на том же чанке.
      */
-    private static final TicketType<ChunkPos> SCAR = TicketType.create("airstrike_nuclear_scar", Comparator.comparingLong(ChunkPos::toLong));
+    private static final TicketType<UUID> SCAR = TicketType.create("airstrike_nuclear_scar", Comparator.<UUID>naturalOrder());
     /** Чанк и соседи вокруг — полностью загружены (и соседние столбцы, и края воронки). */
     private static final int RADIUS = 1;
 
@@ -54,8 +60,10 @@ public final class NuclearTickets {
         hold(level, SCAR, pos, hold);
     }
 
-    private static void hold(ServerLevel level, TicketType<ChunkPos> type, ChunkPos pos, boolean hold) {
-        if (hold) level.getChunkSource().addRegionTicket(type, pos, RADIUS, pos);
-        else level.getChunkSource().removeRegionTicket(type, pos, RADIUS, pos);
+    private static void hold(ServerLevel level, TicketType<UUID> type, ChunkPos pos, boolean hold) {
+        // один район на чанк и тип, как один ванильный тикет (тип, уровень, значение): повторный hold ничего не добавляет
+        AreaLoader.Area area = new AreaLoader.Area(type, pos, RADIUS, new UUID(0L, pos.toLong()));
+        if (hold) StrikeWorld.get(level).areas().hold(level, area);
+        else StrikeWorld.get(level).areas().release(level, area);
     }
 }

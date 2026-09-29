@@ -9,9 +9,10 @@ import java.util.UUID;
 
 /**
  * Сущности вне тикающих чанков не тикают, а ракета проходит 0.7 чанка за тик. Снаряд держит свой чанк и чанк впереди
- * по курсу, пока летит. Это ванильный тикет региона (как у {@link FlightTickets}): он не сохраняется в мир и ничего
- * не грузит синхронно, в отличие от {@code TicketController.forceChunk} NeoForge, который пишет каждое изменение
- * в {@code ForcedChunksSavedData} и сразу догружает чанк. Ключ — UUID снаряда: соседи по залпу не снимают тикет друг у друга.
+ * по курсу, пока летит. Это ванильный тикет региона через {@link AreaLoader} (как у {@link FlightTickets}: тикать
+ * чанки начинают, только когда готовы соседи): он не сохраняется в мир и ничего не грузит синхронно, в отличие от
+ * {@code TicketController.forceChunk} NeoForge, который пишет каждое изменение в {@code ForcedChunksSavedData} и сразу
+ * догружает чанк. Ключ — UUID снаряда: соседи по залпу не снимают тикет друг у друга.
  */
 public final class ChunkTickets {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_projectile", Comparator.<UUID>naturalOrder());
@@ -24,8 +25,8 @@ public final class ChunkTickets {
     private ChunkTickets() {}
 
     public static void hold(ServerLevel level, UUID owner, long chunk, boolean hold) {
-        ChunkPos pos = new ChunkPos(chunk);
-        if (hold) level.getChunkSource().addRegionTicket(TYPE, pos, DISTANCE, owner);
-        else level.getChunkSource().removeRegionTicket(TYPE, pos, DISTANCE, owner);
+        AreaLoader.Area area = new AreaLoader.Area(TYPE, new ChunkPos(chunk), DISTANCE, owner);
+        if (hold) StrikeWorld.get(level).areas().hold(level, area);
+        else StrikeWorld.get(level).areas().release(level, area);
     }
 }
