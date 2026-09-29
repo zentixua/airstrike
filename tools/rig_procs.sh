@@ -8,12 +8,13 @@ RIG_SESSIONS=()
 # номером после оборота PID, но без метки, остановка не тронет
 RIG_TAG="AIRSTRIKE_RIG_TAG=$$.$RANDOM"
 # сообщения — в терминал скрипта, а не в .out, куда перенаправлен вызов rig_spawn
-exec {RIG_ERR}>&2
+exec {RIG_ERR}>&2 || exec {RIG_ERR}>/dev/null # без stderr (закрыт) — сообщения в никуда, скрипт живёт
 
 # rig_spawn <команда…>: в фоне и в новой сессии; RIG_LAST — pid, он же номер сессии (для wait и kill -0).
 # Без управления заданиями фоновый процесс не лидер группы, и setsid делает сессию на месте, без fork.
 rig_spawn() {
-  env "$RIG_TAG" setsid "$@" &
+  # без fd сообщений: сироты после KILL скрипта держали бы открытым его терминал, tee или ssh
+  env "$RIG_TAG" setsid "$@" {RIG_ERR}>&- &
   RIG_LAST=$!
   RIG_SESSIONS+=("$RIG_LAST")
   local sid=""
@@ -23,7 +24,7 @@ rig_spawn() {
     [ -z "$sid" ] && return 0 # уже вышел: скрипт сам увидит это по kill -0 и скажет, что не так
     sleep 0.1
   done
-  echo "rig: $1 не в своей сессии (sid $sid), остановка не найдёт его детей" >&$RIG_ERR
+  echo "rig: $1 не в своей сессии (sid $sid), остановка не найдёт его детей" >&$RIG_ERR || true
   return 1
 }
 
@@ -50,8 +51,11 @@ rig_stop() {
     sleep 0.2
   done
   for sid in "${left[@]}"; do
-    echo "rig: сессия $sid не вышла за 20 с после TERM — KILL: $(ps -o comm= -s "$sid" 2>/dev/null | sort -u | tr '\n' ' ')" >&$RIG_ERR
+    # сначала KILL: сообщение в закрытый терминал (или в убитый tee) не должно его отменить
+    local names
+    names=$(ps -o comm= -s "$sid" 2>/dev/null | sort -u | tr '\n' ' ') || names=""
     pkill -KILL -s "$sid" 2>/dev/null || true
+    echo "rig: сессия $sid не вышла за 20 с после TERM — KILL: $names" >&$RIG_ERR || true
   done
 }
 
