@@ -3,7 +3,9 @@ package ua.zentix.airstrike.stress;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -111,6 +113,11 @@ public final class StressDirector {
     private boolean finishing;
     private int quietSince = -1;
     private int finishingSince = -1;
+    /** Остановка ждёт, пока закончится генерация чанков: с какого тика и сколько тиков подряд её нет. */
+    private int settlingSince = -1;
+    private int settleQuiet;
+    /** Сколько тиков подряд без генерации — «улеглось», и сколько ждать самое большее. */
+    private static final int SETTLE_QUIET = 100, SETTLE_MAX = 6000;
     /** С какого возраста снаряд попадает в строки «долго летит» (раз в 10 с). */
     private static final int LONG_LIVED = 2400;
     /** Начало текущего тика для сторожа (поток сторожа читает). */
@@ -437,7 +444,8 @@ public final class StressDirector {
             // долгожители: по этим строкам видно, кружит снаряд, ждёт района цели или летит далеко
             for (var en : watched.entrySet()) if (en.getValue().ref.age() >= LONG_LIVED) describe("долго летит", en.getKey(), en.getValue());
         }
-        if (finishing) finishWhenQuiet(s);
+        if (settlingSince >= 0) settle(s);
+        else if (finishing) finishWhenQuiet(s);
     }
 
     private void seeDetonations(MinecraftServer s) {
@@ -465,6 +473,12 @@ public final class StressDirector {
                 w.update(en.getValue());
             }
             w.seen = tick;
+            // бетонобойные бомбы — путь целиком: одна пропала вне мира в 375 блоках от цели (VPS, 29.09.2026)
+            if ("bunker_buster".equals(w.type) && tick % 10 == 0) {
+                log("путь bunker_buster %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
+                        en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
+                        Math.hypot(w.aim.x - w.pos.x, w.aim.z - w.pos.z), w.pos.y - w.aim.y);
+            }
         }
         for (var it = watched.entrySet().iterator(); it.hasNext(); ) {
             var en = it.next();
@@ -577,7 +591,7 @@ public final class StressDirector {
                 log("не долетели за отведённое время: %d", active);
                 for (var en : watched.entrySet()) describe("  остался", en.getKey(), en.getValue());
                 summary(s, "timeout");
-                s.halt(false);
+                stopWhenSettled(s);
             }
             return;
         }
@@ -586,6 +600,35 @@ public final class StressDirector {
         if (tick - quietSince == 400) {
             System.gc();
             summary(s, "done");
+            stopWhenSettled(s);
+        }
+    }
+
+    /**
+     * Остановить сервер, когда закончится генерация чанков. Ванильная остановка (1.21.1) снимает тикеты и выгружает
+     * чанки в {@code ChunkMap.processUnloads} с {@code hasMoreTime = () -> true}: выгрузка чанка, на который ещё
+     * держит ссылку генерация соседа ({@code generationRefCount > 0}), тут же ставит себя в очередь выгрузки снова,
+     * и цикл по этой очереди не кончается. Поток сервера крутится в нём и не доходит до задач, которыми генерация
+     * закончилась бы, — остановка висит без конца (VPS и облако 29.09.2026: 4272 чанка со ссылками генерации,
+     * в очереди потока сервера 756). Поэтому сперва игроки выходят, и сервер останавливается, когда
+     * {@link #SETTLE_QUIET} тиков подряд ни у одного чанка нет ссылок генерации.
+     */
+    private void stopWhenSettled(MinecraftServer s) {
+        settlingSince = tick;
+        for (ServerPlayer p : List.copyOf(s.getPlayerList().getPlayers())) p.connection.disconnect(Component.literal("Стенд закончен"));
+        log("остановка: игроки отключены, ждём конца генерации чанков");
+    }
+
+    private void settle(MinecraftServer s) {
+        int generating = 0;
+        for (ServerLevel l : s.getAllLevels()) {
+            for (ChunkHolder holder : l.getChunkSource().chunkMap.getChunks()) if (holder.getGenerationRefCount() > 0) generating++;
+        }
+        settleQuiet = generating == 0 ? settleQuiet + 1 : 0;
+        int waited = tick - settlingSince;
+        if (settleQuiet >= SETTLE_QUIET || waited >= SETTLE_MAX) {
+            if (generating == 0) log("генерация чанков закончилась, остановка через %d тиков", waited);
+            else log("генерация чанков не закончилась за %d тиков (у %d чанков), остановка может зависнуть", waited, generating);
             s.halt(false);
         }
     }
