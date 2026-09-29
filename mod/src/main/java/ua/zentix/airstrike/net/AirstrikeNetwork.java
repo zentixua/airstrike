@@ -9,7 +9,7 @@ import ua.zentix.airstrike.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class AirstrikeNetwork {
-    public static final String PROTOCOL = "6";
+    public static final String PROTOCOL = "5";
 
     private AirstrikeNetwork() {}
 
