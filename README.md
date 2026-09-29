@@ -65,7 +65,7 @@ Shahed-136, барражирующий боеприпас в духе «Ланц
 1. `airstrike-<версия>.jar` из последнего релиза положить в `mods/` — **у хоста и у всех, кто играет** (мод нужен и серверу, и клиентам:
    без него на клиенте в мир с модом не пустит). Скачать — в [Releases](https://github.com/zentixua/airstrike/releases/latest);
    хосту это делает `tools/deploy.sh`. Прежний jar Airstrike из `mods/` убрать.
-2. Нужен NeoForge 21.1.x для Minecraft 1.21.1; других обязательных модов нет (sable-companion вшит в jar).
+2. Нужен NeoForge 21.1.250 или новее для Minecraft 1.21.1; других обязательных модов нет (sable-companion вшит в jar).
    Create Aeronautics и Sable не обязательны: если они есть (как в «All of Create Aeronautics»), летательные
    аппараты становятся целями.
 3. В игре: `/airstrike give` — пульт наведения (или в творческом режиме — вкладка «Airstrike»).
