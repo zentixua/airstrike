@@ -143,6 +143,11 @@ public final class ClientFlights {
         }
     }
 
+    /** Скорость в км/ч из блоков за тик (блок — метр, 20 тиков в секунду). */
+    public static double kmh(double blocksPerTick) {
+        return blocksPerTick * 20 * 3.6;
+    }
+
     public static void update(S2C.Flights packet) {
         List<Tracked> next = new ArrayList<>();
         for (S2C.Flight f : packet.flights()) {

@@ -65,7 +65,7 @@ public final class StrikesHud {
     static Component line(ClientFlights.Tracked f, float pt) {
         MutableComponent name = Component.translatable("airstrike.hud.flight", f.weapon().displayName(), f.number);
         if (f.nuclear()) name = Component.literal("☢ ").withStyle(ChatFormatting.YELLOW).append(name);
-        Component phase = Component.translatable("airstrike.phase." + f.phase().getSerializedName());
+        Component phase = f.phase().displayName();
         ChatFormatting color = switch (f.phase()) {
             case READY, IGNITION, BOOST -> ChatFormatting.GOLD;
             case TERMINAL, POP_UP -> ChatFormatting.RED;

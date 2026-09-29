@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.entity;
 
+import net.minecraft.network.chat.Component;
+
 import java.util.Locale;
 
 /**
@@ -46,6 +48,11 @@ public enum FlightPhase {
 
     public String getSerializedName() {
         return name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Название фазы для игрока (HUD, камера снаряда, карта оператора). */
+    public Component displayName() {
+        return Component.translatable("airstrike.phase." + getSerializedName());
     }
 
     /** Горит стартовый ускоритель (пламя, густой дым, рёв). */

@@ -468,7 +468,7 @@ public final class ProjectileCamera {
         if (shot == Shot.LAUNCH && f != null) {
             letterbox(g, w, h);
             caption(g, font, Component.translatable("airstrike.camera.launch", f.weapon().displayName(), f.number,
-                    Component.translatable("airstrike.phase." + f.phase().getSerializedName())).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), w, h);
+                    f.phase().displayName()).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), w, h);
             hint(g, font, w, h);
             return;
         }
@@ -525,12 +525,12 @@ public final class ProjectileCamera {
 
         // телеметрия
         double alt = p.getY() - ua.zentix.airstrike.entity.StrikeProjectile.surfaceY(mc.level, p.getX(), p.getZ());
-        double kmh = p.speed() * 20 * 3.6;
+        double kmh = ClientFlights.kmh(p.speed());
         double dist = p.position().distanceTo(f.target());
         boolean rec = (mc.level.getGameTime() / 10) % 2 == 0;
         String left1 = (rec ? "● " : "  ") + "REC  " + f.weapon().displayName().getString().toUpperCase(Locale.ROOT) + " №" + f.number;
         g.drawString(font, left1, m + 6, m + 6, rec ? 0xFFFF4040 : 0xFFE8E8E8);
-        g.drawString(font, Component.translatable("airstrike.phase." + f.phase().getSerializedName()).getString().toUpperCase(Locale.ROOT),
+        g.drawString(font, f.phase().displayName().getString().toUpperCase(Locale.ROOT),
                 m + 6, m + 18, f.phase() == FlightPhase.TERMINAL ? 0xFFFF4040 : 0xFFE8E8E8);
         Component[] right = {
                 Component.translatable("airstrike.camera.alt", String.format(Locale.ROOT, "%.0f", alt)),
