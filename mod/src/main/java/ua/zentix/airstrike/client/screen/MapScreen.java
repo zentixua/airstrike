@@ -7,7 +7,9 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
@@ -42,9 +44,11 @@ public class MapScreen extends Screen {
     private static final int BG = 0xFF0A1410, GRID = 0x3060FF90, GRID_TEXT = 0xC060FF90, INK = 0xFFD8F0E0, DIM = 0xFF90A898;
     private static final int PANEL = 0xD0000000, TARGET = 0xFFFF3030, SPREAD = 0xC0FF6040, CRAFT = 0xFFFFD040, ROUTE = 0x90FF6040;
 
-    /** Вид карты помнится между открытиями, пока игрок в том же мире. */
+    /** Вид карты помнится между открытиями, пока игрок в том же мире и измерении. */
     private static double viewX, viewZ, scale = 1;
-    private static boolean placed;
+    /** Измерение, где поставлен вид (как место у {@link MapTarget}); null — ещё не ставился. */
+    @Nullable
+    private static ResourceKey<Level> placedIn;
 
     private final RemoteScreen remote;
     private Button fireButton;
@@ -59,18 +63,20 @@ public class MapScreen extends Screen {
 
     /** Мир сменился: карта снова откроется на игроке. */
     public static void reset() {
-        placed = false;
+        placedIn = null;
         scale = 1;
     }
 
     @Override
     protected void init() {
-        LocalPlayer p = Minecraft.getInstance().player;
-        if (!placed && p != null) {
-            MapTarget.Place at = MapTarget.get(Minecraft.getInstance().level).orElse(new MapTarget.Place(p.getX(), p.getZ()));
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        // в другом измерении прежний вид — чужие координаты: карта открывается на выбранном месте или на игроке
+        if (p != null && mc.level != null && !mc.level.dimension().equals(placedIn)) {
+            MapTarget.Place at = MapTarget.get(mc.level).orElse(new MapTarget.Place(p.getX(), p.getZ()));
             viewX = at.x();
             viewZ = at.z();
-            placed = true;
+            placedIn = mc.level.dimension();
         }
         int by = height - 24;
         fireButton = addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),

@@ -41,6 +41,7 @@ import ua.zentix.airstrike.client.nuclear.NukeRenderer;
 import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
+import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.render.WeaponModels;
@@ -81,6 +82,9 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::logout);
         NeoForge.EVENT_BUS.addListener(ClientFlights::onJoin);
         NeoForge.EVENT_BUS.addListener(ClientFlights::onLeave);
+        NeoForge.EVENT_BUS.addListener(ClientFlights::onLevelUnload);
+        NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
+        NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
         NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);

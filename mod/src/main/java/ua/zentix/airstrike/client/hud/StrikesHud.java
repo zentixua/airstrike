@@ -12,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.Keys;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
-import ua.zentix.airstrike.client.nuclear.NukeView;
+import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.entity.FlightPhase;
 
 import java.util.ArrayList;
@@ -65,7 +65,7 @@ public final class StrikesHud {
     static Component line(ClientFlights.Tracked f, float pt) {
         MutableComponent name = Component.translatable("airstrike.hud.flight", f.weapon().displayName(), f.number);
         if (f.nuclear()) name = Component.literal("☢ ").withStyle(ChatFormatting.YELLOW).append(name);
-        Component phase = Component.translatable("airstrike.phase." + f.phase().getSerializedName());
+        Component phase = f.phase().displayName();
         ChatFormatting color = switch (f.phase()) {
             case READY, IGNITION, BOOST -> ChatFormatting.GOLD;
             case TERMINAL, POP_UP -> ChatFormatting.RED;
@@ -108,8 +108,8 @@ public final class StrikesHud {
             if (mark == null) marks.add(mark = new TargetMark(f.target(), f.targetLost(), targetText(f)));
             mark.numbers.add(f.number);
 
-            float[] s = NukeView.project(f.position(pt));
-            float[] t = NukeView.project(f.target());
+            float[] s = ScreenProjection.project(f.position(pt));
+            float[] t = ScreenProjection.project(f.target());
             if (s == null) continue;
             int sx = (int) (s[0] * w), sy = (int) (s[1] * h);
             if (sx <= -20 || sx >= w + 20 || sy <= -20 || sy >= h + 20) continue;
@@ -121,7 +121,7 @@ public final class StrikesHud {
         }
         List<int[]> placed = new ArrayList<>();
         for (TargetMark m : marks) {
-            float[] t = NukeView.project(m.pos);
+            float[] t = ScreenProjection.project(m.pos);
             if (t == null) continue;
             m.tx = (int) (t[0] * w);
             m.ty = (int) (t[1] * h);

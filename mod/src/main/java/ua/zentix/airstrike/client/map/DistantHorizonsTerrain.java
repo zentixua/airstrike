@@ -25,6 +25,7 @@ import ua.zentix.airstrike.Airstrike;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -48,6 +49,8 @@ final class DistantHorizonsTerrain implements TerrainSource {
 
     /** Для лога: колонки с верхом, без данных, отказы API и первый отказ; почему не открылся мир. */
     private final AtomicLong found = new AtomicLong(), empty = new AtomicLong(), failed = new AtomicLong();
+    /** Исключение из API уже в логе со стеком (дальше — только в счётчике отказов). */
+    private final AtomicBoolean threw = new AtomicBoolean();
     private volatile String firstFailure = "", notOpened = "";
 
     /** {@code DhApi.Delayed} заполнен (после первой инициализации DH). */
@@ -108,7 +111,16 @@ final class DistantHorizonsTerrain implements TerrainSource {
             @Nullable
             @Override
             public Column column(int x, int z) {
-                DhApiResult<DhApiTerrainDataPoint[]> r = repo.getColumnDataAtBlockPos(dhLevel, x, z, cache);
+                DhApiResult<DhApiTerrainDataPoint[]> r;
+                try {
+                    r = repo.getColumnDataAtBlockPos(dhLevel, x, z, cache);
+                } catch (RuntimeException e) {
+                    // отказ API исключением, а не через DhApiResult: колонка без данных, как при любом отказе, —
+                    // одна колонка не роняет всю плитку (её перестраивали бы каждые 5 с со стеком в лог)
+                    if (failed.getAndIncrement() == 0) firstFailure = e.toString();
+                    if (!threw.getAndSet(true)) Airstrike.LOG.warn("Distant Horizons: чтение колонки ({}, {}) бросило исключение", x, z, e);
+                    return null;
+                }
                 if (!r.success || r.payload == null) {
                     if (failed.getAndIncrement() == 0) firstFailure = r.message;
                     return null;
