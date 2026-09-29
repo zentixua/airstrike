@@ -1309,7 +1309,7 @@ public final class Trailer {
             ServerLevel level = server.overworld();
             Vec3 c = eye.subtract(0, 6, 0);
             double here = start.subtract(c).horizontalDistance();
-            double[] radii = {radius, radius * 1.6, here};
+            double[] radii = {radius, radius * 1.6, radius * 2.2, here};
             View best = new View(start, 0, here);
             int bestClear = -1;
             for (double a : arcs) {
@@ -1317,7 +1317,9 @@ public final class Trailer {
                     int clear = 0;
                     for (int k = 0; k <= samples; k++) {
                         Vec3 p = arcPoint(c, start, k / (double) samples, a, r);
-                        if (sees(level, eye, p) && roomy(level, p, 2)) clear++;
+                        // виден и сам шар, и земля под ним: иначе дуга кончалась над краем крыши, и взрыв закрывал
+                        // соседний дом (облако, kf4d — проверка прошла, но в кадре были крыша и дым из-за дома)
+                        if (sees(level, eye, p) && sees(level, eye.subtract(0, 5, 0), p) && roomy(level, p, 2)) clear++;
                     }
                     if (clear > bestClear) {
                         bestClear = clear;

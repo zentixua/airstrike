@@ -119,8 +119,8 @@ final class ShotCheck {
         if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95) {
             // первые промахи плана — в журнал с координатами: по одной строке «ПРОВАЛ» не понять, куда смотрит камера
             if (subjectFrames - inFrame <= 3 || (subjectFrames - inFrame) % 120 == 0) {
-                Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER проверка %s: цель вне кадра — цель (%.1f %.1f %.1f), камера (%.1f %.1f %.1f), x %.2f y %.2f из %.2f × %.2f, fov %.0f",
-                        shot, p.x, p.y, p.z, eye.x, eye.y, eye.z, x, y, tanH, tanV, fov));
+                Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER проверка %s: кадр %d, цель вне кадра — цель (%.1f %.1f %.1f), камера (%.1f %.1f %.1f) поворот %.1f наклон %.1f, x %.2f y %.2f из %.2f × %.2f, fov %.0f",
+                        shot, frames - 1, p.x, p.y, p.z, eye.x, eye.y, eye.z, camera.getYRot(), camera.getXRot(), x, y, tanH, tanV, fov));
             }
             return;
         }
