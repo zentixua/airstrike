@@ -17,6 +17,9 @@ import net.minecraft.world.level.material.MapColor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * Рельеф из данных Distant Horizons через его публичный API ({@code DhApi.Delayed.terrainRepo}): всё, что DH уже
  * посчитал для дальней прорисовки, — на километры вокруг, без загрузки чанков. Чтение идёт из базы DH и может
@@ -29,6 +32,10 @@ final class DistantHorizonsTerrain implements TerrainSource {
     /** С этой версии API есть {@code createSoftCache}; чтение без кэша DH отклоняет. */
     private static final int MIN_API_MAJOR = 5;
     private static final int MAX_WATER_DEPTH = 16;
+
+    /** Для лога: колонки с верхом, без данных, отказы API и первый отказ; почему не открылся мир. */
+    private final AtomicLong found = new AtomicLong(), empty = new AtomicLong(), failed = new AtomicLong();
+    private volatile String firstFailure = "", notOpened = "";
 
     /** DH стоит, но его API старше нужного — источника нет. */
     static boolean supported() {
@@ -45,14 +52,24 @@ final class DistantHorizonsTerrain implements TerrainSource {
     public Reader open(ClientLevel level) {
         IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
         IDhApiLevelWrapper dhLevel = dhLevel(level);
-        if (repo == null || dhLevel == null) return null;
+        if (repo == null || dhLevel == null) {
+            notOpened = repo == null ? "нет terrainRepo" : "нет уровня DH для мира " + level.dimension().location();
+            return null;
+        }
+        notOpened = "";
         IDhApiTerrainDataCache cache = repo.createSoftCache();
         return new Reader() {
             @Nullable
             @Override
             public Column column(int x, int z) {
                 DhApiResult<DhApiTerrainDataPoint[]> r = repo.getColumnDataAtBlockPos(dhLevel, x, z, cache);
-                return r.success && r.payload != null ? top(r.payload) : null;
+                if (!r.success || r.payload == null) {
+                    if (failed.getAndIncrement() == 0) firstFailure = r.message;
+                    return null;
+                }
+                Column c = top(r.payload);
+                (c == null ? empty : found).incrementAndGet();
+                return c;
             }
 
             @Override
@@ -60,6 +77,13 @@ final class DistantHorizonsTerrain implements TerrainSource {
                 cache.close();
             }
         };
+    }
+
+    @Override
+    public String describe() {
+        return String.format(Locale.ROOT, "DH %s (API %d.%d): колонок с верхом %d, пустых %d, отказов %d%s%s", DhApi.getModVersion(),
+                DhApi.getApiMajorVersion(), DhApi.getApiMinorVersion(), found.get(), empty.get(), failed.get(),
+                firstFailure.isEmpty() ? "" : " (первый: " + firstFailure + ")", notOpened.isEmpty() ? "" : ", не открыт: " + notOpened);
     }
 
     /**

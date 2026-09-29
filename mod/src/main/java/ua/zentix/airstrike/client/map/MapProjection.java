@@ -25,7 +25,11 @@ public record MapProjection(double ox, double oy, double cx, double cz, double k
     }
 
     public int[] at(Vec3 p) {
-        return new int[] {x(p.x), y(p.z)};
+        return at(p.x, p.z);
+    }
+
+    public int[] at(double worldX, double worldZ) {
+        return new int[] {x(worldX), y(worldZ)};
     }
 
     public double worldX(double screenX) {

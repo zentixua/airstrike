@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Queue;
@@ -79,8 +80,8 @@ public final class TerrainTiles {
         }
     }
 
-    /** Готовая плитка из фона: пиксели ABGR (как у {@link NativeImage}) и высоты. */
-    private record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty) {}
+    /** Готовая плитка из фона: пиксели ABGR (как у {@link NativeImage}) и высоты; сколько строилась. */
+    private record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty, long nanos) {}
 
     /** Плитки одного источника рельефа. */
     private static final class Layer {
@@ -90,7 +91,10 @@ public final class TerrainTiles {
         final Map<Key, Tile> tiles = new LinkedHashMap<>(256, 0.75f, true);
         final Queue<Built> done = new ConcurrentLinkedQueue<>();
         int jobs;
-        boolean stallLogged;
+        boolean stallLogged, firstLogged;
+        /** Для лога: построено плиток, из них с рельефом, время постройки всех. */
+        int built, withData;
+        long buildNanos;
 
         Layer(String name, TerrainSource source) {
             this.name = name;
@@ -143,6 +147,13 @@ public final class TerrainTiles {
         return layers.size() > 1;
     }
 
+    /** Distant Horizons стоит, но ещё не отдал ни одной плитки с рельефом, а спрошен (занят своей загрузкой). */
+    public static boolean farPending() {
+        if (layers.size() < 2) return false;
+        Layer far = layers.get(0);
+        return far.withData == 0 && far.jobs > 0;
+    }
+
     /** Высота земли в колонке: по самой подробной готовой плитке, чанки клиента первыми. */
     public static OptionalInt height(int x, int z) {
         for (int i = layers.size() - 1; i >= 0; i--) {
@@ -157,6 +168,25 @@ public final class TerrainTiles {
             }
         }
         return OptionalInt.empty();
+    }
+
+    /** Для лога и сценария: по слоям — сколько плиток построено и с рельефом, сколько строится, что отдал источник. */
+    public static String stats() {
+        StringBuilder b = new StringBuilder();
+        long now = System.nanoTime();
+        for (Layer layer : layers) {
+            long oldest = 0;
+            for (Tile t : layer.tiles.values()) {
+                if (t.buildingSince != 0) oldest = Math.max(oldest, now - t.buildingSince);
+            }
+            if (!b.isEmpty()) b.append("; ");
+            b.append(String.format(Locale.ROOT, "%s: плиток %d, с рельефом %d, в среднем %.0f мс, строится %d (дольше всех %.1f с)",
+                    layer.name, layer.built, layer.withData, layer.built == 0 ? 0.0 : layer.buildNanos / 1e6 / layer.built,
+                    layer.jobs, oldest / 1e9));
+            String src = layer.source.describe();
+            if (!src.isEmpty()) b.append(", ").append(src);
+        }
+        return b.toString();
     }
 
     /** Выход из мира: текстуры освобождены, фоновые плитки для него больше не нужны. */
@@ -244,7 +274,7 @@ public final class TerrainTiles {
                             layer.done.add(build(key, gen, reader));
                         } catch (RuntimeException e) {
                             Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
-                            layer.done.add(new Built(key, gen, new int[0], new int[0], true));
+                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
                         }
                     });
                 } else {
@@ -262,8 +292,8 @@ public final class TerrainTiles {
     private static void stalled(Layer layer, Tile t, long now) {
         if (layer.stallLogged || now - t.buildingSince < STALL_NS) return;
         layer.stallLogged = true;
-        Airstrike.LOG.warn("Карта: источник {} не отдаёт плитку {} дольше {} с — рельеф вдали появится, когда он ответит",
-                layer.name, t.key, STALL_NS / 1_000_000_000L);
+        Airstrike.LOG.warn("Карта: источник {} не отдаёт плитку {} дольше {} с — рельеф вдали появится, когда он ответит; {}",
+                layer.name, t.key, STALL_NS / 1_000_000_000L, stats());
     }
 
     /** Забрать плитки, построенные в фоне, и загрузить их в текстуры. */
@@ -280,6 +310,13 @@ public final class TerrainTiles {
         if (t == null) return;
         t.buildingSince = 0;
         t.builtAt = System.nanoTime();
+        layer.built++;
+        layer.buildNanos += b.nanos;
+        if (!b.empty) layer.withData++;
+        if (!b.empty && !layer.firstLogged) {
+            layer.firstLogged = true;
+            Airstrike.LOG.info("Карта: первая плитка с рельефом из {} — {} за {} мс; {}", layer.name, b.key, b.nanos / 1_000_000, stats());
+        }
         if (b.pixels.length == 0) return;
         t.empty = b.empty;
         t.heights = b.heights;
@@ -325,6 +362,7 @@ public final class TerrainTiles {
      * карты ({@code MapItem.update}): склон к северу вверх — светлее, вниз — темнее; вода темнее с глубиной.
      */
     private static Built build(Key key, int gen, TerrainSource.Reader reader) {
+        long start = System.nanoTime();
         int step = 1 << key.level, span = key.span(), off = step / 2;
         int x0 = key.tx * span + off, z0 = key.tz * span + off;
         int[] pixels = new int[SIZE * SIZE];
@@ -349,7 +387,7 @@ public final class TerrainTiles {
             }
             System.arraycopy(heights, z * SIZE, north, 0, SIZE);
         }
-        return new Built(key, gen, pixels, heights, empty);
+        return new Built(key, gen, pixels, heights, empty, System.nanoTime() - start);
     }
 
     /**

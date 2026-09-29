@@ -6,6 +6,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -62,12 +63,25 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
                 Vec3.CODEC.fieldOf("pos").forGetter(Ground::pos)
         ).apply(i, Ground::new));
 
+        /**
+         * Место на карте (x, z): высоту знает только сервер. Чанк готов — верх земли, иначе — рельеф, каким его
+         * строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки чанка, без построек).
+         */
+        public static Ground at(ServerLevel level, double x, double z) {
+            int bx = Mth.floor(x), bz = Mth.floor(z);
+            int y = Terrain.ready(level, new BlockPos(bx, 0, bz))
+                    ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, bx, bz)
+                    : level.getChunkSource().getGenerator().getBaseHeight(bx, bz, Heightmap.Types.WORLD_SURFACE_WG, level,
+                    level.getChunkSource().randomState());
+            return new Ground(new Vec3(x, y - 0.5, z));
+        }
+
         @Override
         public Optional<Vec3> resolve(ServerLevel level) {
             return Optional.of(surface(level));
         }
 
-        /** Середина верхнего блока земли (без листвы); чанк не готов — оценка. */
+        /** Середина верхнего блока земли (без листвы); чанк не готов — оценка из {@link #at}. */
         public Vec3 surface(ServerLevel level) {
             BlockPos column = BlockPos.containing(pos.x, 0, pos.z);
             if (!Terrain.ready(level, column)) return pos;

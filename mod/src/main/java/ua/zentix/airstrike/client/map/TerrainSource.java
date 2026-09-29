@@ -28,4 +28,9 @@ interface TerrainSource {
     /** Читатель для мира, который сейчас у клиента; null — источник для него недоступен. */
     @Nullable
     Reader open(ClientLevel level);
+
+    /** Для лога: что источник отдал с начала мира (колонки, отказы и почему). */
+    default String describe() {
+        return "";
+    }
 }

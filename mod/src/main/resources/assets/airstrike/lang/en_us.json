@@ -260,6 +260,7 @@
   "airstrike.map.km": "%s km",
   "airstrike.map.m": "%s m",
   "airstrike.map.near_only": "Terrain from loaded chunks only; Distant Horizons shows far terrain",
+  "airstrike.map.far_pending": "Distant Horizons is still loading its own terrain; far terrain will appear when it answers",
   "airstrike.map.out_of_range": "Too far: map strikes reach up to %s blocks",
   "airstrike.camera.hint": "LMB new target · %s next · Shift exit · F5 view",
   "airstrike.camera.loiter": "LOITERING · put the crosshair on a target and press LMB to strike",

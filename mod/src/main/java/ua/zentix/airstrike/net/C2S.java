@@ -30,9 +30,9 @@ public final class C2S {
     public record AimHint(int kind, Vec3 point, int entityId, Vec3 plotPos) {
         public static final int POINT = 0, ENTITY = 1, AIRCRAFT = 2, GROUND = 3;
 
-        /** Место на земле, выбранное на карте. */
-        public static AimHint ground(Vec3 point) {
-            return new AimHint(GROUND, point, 0, Vec3.ZERO);
+        /** Место на земле, выбранное на карте: только x и z, высоту земли там находит сервер ({@code Target.Ground.at}). */
+        public static AimHint ground(double x, double z) {
+            return new AimHint(GROUND, new Vec3(x, 0, z), 0, Vec3.ZERO);
         }
         public static final StreamCodec<ByteBuf, AimHint> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, AimHint::kind, VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId, VEC3, AimHint::plotPos, AimHint::new);

@@ -260,6 +260,7 @@
   "airstrike.map.km": "%s км",
   "airstrike.map.m": "%s м",
   "airstrike.map.near_only": "Рельеф — только загруженные чанки; дальний покажет Distant Horizons",
+  "airstrike.map.far_pending": "Distant Horizons ещё загружает свой рельеф; дальний появится, когда он ответит",
   "airstrike.map.out_of_range": "Слишком далеко: удар по карте — не дальше %s блоков",
   "airstrike.camera.hint": "ЛКМ — новая цель · %s — следующий · Shift — выход · F5 — вид",
   "airstrike.camera.loiter": "БАРРАЖ · наведи прицел на цель и нажми ЛКМ — атака",

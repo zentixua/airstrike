@@ -719,6 +719,8 @@ public final class ClientScenario {
             cmd("weather clear");
             // в копии мира игрока (prod_client.py --world) — там, где он стоит
             if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            // новый пульт в руке — настройки по умолчанию: одна ракета без разброса, промах меряется от точки
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
         });
         at(300, () -> {
             ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
@@ -736,11 +738,13 @@ public final class ClientScenario {
             double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
             screen.mouseClicked(x, y, 0);
             screen.mouseReleased(x, y, 0);
-            mapTarget = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
-            Airstrike.LOG.info("SCENARIO map-target selected {} distance {} terrain height {} far {}", mapTarget,
-                    Math.round(Math.hypot(mapTarget.x - Minecraft.getInstance().player.getX(), mapTarget.z - Minecraft.getInstance().player.getZ())),
-                    ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(mapTarget.x), (int) Math.floor(mapTarget.z)),
+            var place = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
+            mapTarget = new Vec3(place.x(), 0, place.z());
+            Airstrike.LOG.info("SCENARIO map-target selected X {} Z {} distance {} terrain height {} far {}", Math.round(place.x()), Math.round(place.z()),
+                    Math.round(Math.hypot(place.x() - Minecraft.getInstance().player.getX(), place.z() - Minecraft.getInstance().player.getZ())),
+                    ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(place.x()), (int) Math.floor(place.z())),
                     ua.zentix.airstrike.client.map.TerrainTiles.farTerrain());
+            Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
         });
         shot(430, "target-map");
         at(440, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
@@ -751,11 +755,15 @@ public final class ClientScenario {
             Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
         });
         for (int t = 520; t <= 1000; t += 80) shot(t, "target-map");
+        for (int t = 600; t <= MAP_TARGET_END; t += 200) {
+            at(t, () -> Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats()));
+        }
         // попадание — первый взрыв на сервере (встроенном): где он и насколько далеко от выбранной точки
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Detonate e) -> {
             Vec3 at = e.getExplosion().center(), aim = mapTarget;
             if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
-            Airstrike.LOG.info("SCENARIO map-target impact {} miss {}", at, Math.round(Math.hypot(at.x - aim.x, at.z - aim.z)));
+            double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
+            Airstrike.LOG.info("SCENARIO map-target impact {} miss {} — {}", at, Math.round(miss), miss <= MAP_MAX_MISS ? "OK" : "FAIL");
             mapImpactTick = tick;
         });
         // конец — через 3 с после попадания (кадры карты после удара) или по сроку
@@ -764,7 +772,7 @@ public final class ClientScenario {
                 if (mapDone) return;
                 if (mapImpactTick < 0 || tick < mapImpactTick + 60) {
                     if (tick < MAP_TARGET_END) return;
-                    Airstrike.LOG.warn("SCENARIO map-target no impact by tick {}", tick);
+                    Airstrike.LOG.warn("SCENARIO map-target no impact by tick {} — FAIL", tick);
                 }
                 mapDone = true;
                 Airstrike.LOG.info("SCENARIO done");
@@ -775,6 +783,8 @@ public final class ClientScenario {
 
     /** Сценарий target-map ждёт попадания до этого тика: пуск на 440-м, ракета на 700 блоков — около 60 тиков, дрон — 350. */
     private static final int MAP_TARGET_END = 2400;
+    /** Одна ракета без разброса: взрыв не дальше этого от выбранной точки (по горизонтали), блоков. */
+    private static final double MAP_MAX_MISS = 2;
     /** Точка, выбранная на карте (сценарий target-map); её читает и поток сервера. */
     @org.jetbrains.annotations.Nullable
     private volatile Vec3 mapTarget;

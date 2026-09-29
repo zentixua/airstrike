@@ -286,12 +286,12 @@ public class RemoteScreen extends Screen {
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
         Optional<C2S.AimHint> aim;
         if (loadout.mode() == TargetMode.MAP) {
-            Optional<Vec3> place = MapTarget.get(Minecraft.getInstance().level);
+            Optional<MapTarget.Place> place = MapTarget.get(Minecraft.getInstance().level);
             if (place.isEmpty()) {
                 openMap();
                 return;
             }
-            aim = place.map(C2S.AimHint::ground);
+            aim = place.map(p -> C2S.AimHint.ground(p.x(), p.z()));
         } else {
             aim = nukePoint();
         }
@@ -337,7 +337,7 @@ public class RemoteScreen extends Screen {
             case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : Component.translatable("airstrike.remote.hint.player");
             case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : Component.translatable("airstrike.remote.hint.aircraft");
             case MAP -> MapTarget.get(minecraft.level)
-                    .<Component>map(p -> Component.translatable("airstrike.remote.hint.map", Mth.floor(p.x), Mth.floor(p.z)))
+                    .<Component>map(p -> Component.translatable("airstrike.remote.hint.map", Mth.floor(p.x()), Mth.floor(p.z())))
                     .orElse(Component.translatable("airstrike.remote.hint.no_map"));
         };
         g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);

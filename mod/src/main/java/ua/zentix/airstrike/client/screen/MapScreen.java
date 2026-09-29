@@ -8,8 +8,8 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.HudDraw;
@@ -21,7 +21,6 @@ import ua.zentix.airstrike.strike.Loadout;
 
 import java.util.Locale;
 import java.util.Optional;
-import java.util.OptionalInt;
 
 /**
  * Карта наведения: как у оператора на планшете — карта «север вверх» с рельефом ({@link TerrainTiles}: Distant
@@ -35,7 +34,10 @@ public class MapScreen extends Screen {
     private static final double ZOOM_STEP = 1.25;
     /** Сдвиг мыши больше этого (пикселей) — перетаскивание карты, а не выбор места. */
     private static final double DRAG_THRESHOLD = 3;
-    private static final int TOP = 22, BOTTOM = 30;
+    /** Метки снарядов за краем карты — на столько пикселей внутрь от края. */
+    private static final int EDGE_MARGIN = 12;
+    /** Сверху — заголовок и курсор; снизу — строка цели (своя, чтобы не лечь на подпись сетки) и кнопки. */
+    private static final int TOP = 22, BOTTOM = 44;
 
     private static final int BG = 0xFF0A1410, GRID = 0x3060FF90, GRID_TEXT = 0xC060FF90, INK = 0xFFD8F0E0, DIM = 0xFF90A898;
     private static final int PANEL = 0xD0000000, TARGET = 0xFFFF3030, SPREAD = 0xC0FF6040, CRAFT = 0xFFFFD040, ROUTE = 0x90FF6040;
@@ -65,12 +67,12 @@ public class MapScreen extends Screen {
     protected void init() {
         LocalPlayer p = Minecraft.getInstance().player;
         if (!placed && p != null) {
-            Vec3 at = MapTarget.get(Minecraft.getInstance().level).orElse(p.position());
-            viewX = at.x;
-            viewZ = at.z;
+            MapTarget.Place at = MapTarget.get(Minecraft.getInstance().level).orElse(new MapTarget.Place(p.getX(), p.getZ()));
+            viewX = at.x();
+            viewZ = at.z();
             placed = true;
         }
-        int by = height - BOTTOM + 5;
+        int by = height - 24;
         fireButton = addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                 b -> fire()).bounds(width / 2 - 154, by, 100, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.map.center"), b -> centerOnPlayer())
@@ -80,7 +82,7 @@ public class MapScreen extends Screen {
         fireButton.active = selected().isPresent();
     }
 
-    private Optional<Vec3> selected() {
+    private Optional<MapTarget.Place> selected() {
         return MapTarget.get(Minecraft.getInstance().level);
     }
 
@@ -103,17 +105,12 @@ public class MapScreen extends Screen {
         viewZ = p.getZ();
     }
 
-    /** Выбрать место: высота — по рельефу карты или чанку клиента; не знаем — на высоте игрока (сервер уточнит). */
+    /** Выбрать место (x, z); высоту земли там найдёт сервер. */
     private void select(double screenX, double screenY) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
+        if (mc.level == null) return;
         MapProjection map = projection();
-        double x = map.worldX(screenX), z = map.worldZ(screenY);
-        int bx = Mth.floor(x), bz = Mth.floor(z);
-        OptionalInt h = TerrainTiles.height(bx, bz);
-        double y = h.isPresent() ? h.getAsInt() - 0.5
-                : mc.level.hasChunk(bx >> 4, bz >> 4) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz) - 0.5 : mc.player.getY();
-        MapTarget.set(mc.level, new Vec3(x, y, z));
+        MapTarget.set(mc.level, new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY)));
         fireButton.active = true;
     }
 
@@ -202,13 +199,22 @@ public class MapScreen extends Screen {
         g.enableScissor(0, TOP, width, bottom);
         map.drawGrid(g, font, 0, TOP, width, bottom, GRID, GRID_TEXT);
 
+        // снаряды — по телеметрии сервера (и вне загруженного мира); кто за краем карты — стрелкой у края в его сторону
         for (ClientFlights.Tracked f : ClientFlights.all()) {
             if (f.phase() == FlightPhase.READY) continue;
             int[] c = map.at(f.position(partialTick)), t = map.at(f.target());
             HudDraw.dotted(g, c[0], c[1], t[0], t[1], ROUTE);
-            Vec3 v = f.velocity();
-            HudDraw.heading(g, c[0], c[1], (float) Math.toDegrees(Math.atan2(-v.x, v.z)), CRAFT);
-            label(g, Component.literal("№" + f.number), c[0], c[1] - 16, CRAFT);
+            Component number = Component.literal("№" + f.number);
+            int[] edge = edge(c[0], c[1], bottom);
+            if (edge == null) {
+                Vec3 v = f.velocity();
+                HudDraw.heading(g, c[0], c[1], (float) Math.toDegrees(Math.atan2(-v.x, v.z)), CRAFT);
+                label(g, number, c[0], c[1] - 16, CRAFT);
+            } else {
+                int cx = width / 2, cy = (TOP + bottom) / 2;
+                HudDraw.heading(g, edge[0], edge[1], (float) Math.toDegrees(Math.atan2(-(c[0] - cx), c[1] - cy)), CRAFT);
+                label(g, number, edge[0], edge[1] + (edge[1] < cy ? 10 : -18), CRAFT);
+            }
         }
 
         Vec3 me = p.getPosition(partialTick);
@@ -217,7 +223,7 @@ public class MapScreen extends Screen {
         label(g, Component.translatable("airstrike.map.you"), op[0], op[1] + 9, 0xFFFFFFFF);
 
         selected().ifPresent(t -> {
-            int[] s = map.at(t);
+            int[] s = map.at(t.x(), t.z());
             Loadout l = remote.loadout();
             if (l.spread() > 0) HudDraw.dottedCircle(g, s[0], s[1], l.spread() * scale, SPREAD);
             g.fill(s[0] - 8, s[1], s[0] - 2, s[1] + 1, TARGET);
@@ -228,6 +234,16 @@ public class MapScreen extends Screen {
             HudDraw.dotted(g, op[0], op[1], s[0], s[1], 0x80FFFFFF);
         });
         g.disableScissor();
+    }
+
+    /** Точка за краем карты — место её метки у края, по лучу из середины карты; на карте — null. */
+    @Nullable
+    private int[] edge(int x, int y, int bottom) {
+        int m = EDGE_MARGIN;
+        if (x >= m && x <= width - m && y >= TOP + m && y <= bottom - m) return null;
+        double cx = width / 2.0, cy = (TOP + bottom) / 2.0, dx = x - cx, dy = y - cy;
+        double f = Math.min(dx == 0 ? Double.MAX_VALUE : (cx - m) / Math.abs(dx), dy == 0 ? Double.MAX_VALUE : (cy - TOP - m) / Math.abs(dy));
+        return new int[] {(int) Math.round(cx + dx * f), (int) Math.round(cy + dy * f)};
     }
 
     @Override
@@ -252,16 +268,14 @@ public class MapScreen extends Screen {
             g.drawString(font, at, width - font.width(at) - 8, 7, INK);
         }
 
-        // над кнопками: выбранное место или подсказка
-        Optional<Vec3> t = selected();
+        // над кнопками, в нижней панели: выбранное место или подсказка
+        Optional<MapTarget.Place> t = selected();
         Component line = t.isPresent()
-                ? Component.translatable("airstrike.map.selected", place(t.get().x, t.get().z, p.position()))
+                ? Component.translatable("airstrike.map.selected", place(t.get().x(), t.get().z(), p.position()))
                 : Component.translatable("airstrike.map.hint");
-        g.drawCenteredString(font, line, width / 2, height - BOTTOM - 12, t.isPresent() ? 0xFFFF6050 : DIM);
-        if (!TerrainTiles.farTerrain()) {
-            Component note = Component.translatable("airstrike.map.near_only").withStyle(ChatFormatting.ITALIC);
-            g.drawString(font, note, 8, TOP + 6, DIM);
-        }
+        g.drawCenteredString(font, line, width / 2, height - BOTTOM + 5, t.isPresent() ? 0xFFFF6050 : DIM);
+        String note = !TerrainTiles.farTerrain() ? "airstrike.map.near_only" : TerrainTiles.farPending() ? "airstrike.map.far_pending" : null;
+        if (note != null) g.drawString(font, Component.translatable(note).withStyle(ChatFormatting.ITALIC), 8, TOP + 6, DIM);
     }
 
     /** «X 1200  Z −340 · 2.40 км · азимут 135°» — дальность и азимут от игрока. */

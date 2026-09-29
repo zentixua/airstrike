@@ -437,6 +437,27 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Место с карты: высоту знает только сервер. У готового чанка — верх земли, у незагруженного — рельеф генератора,
+     * а не дно мира, и чанк при этом не грузится.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void groundAtFindsHeightWithoutLoading(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 here = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
+        Vec3 near = Target.Ground.at(level, here.x, here.z).pos();
+        h.assertTrue(Math.abs(near.y - (h.absolutePos(RANGE_CENTER).getY() + 0.5)) < 1e-6, "у готового чанка не верх земли: " + h.relativeVec(near));
+        Vec3 far = here.add(4096, 0, 0);
+        BlockPos column = BlockPos.containing(far);
+        h.assertFalse(Terrain.ready(level, column), "район вдали уже загружен");
+        Vec3 estimate = Target.Ground.at(level, far.x, far.z).pos();
+        int bottom = level.getMinBuildHeight();
+        h.assertTrue(estimate.y > bottom + 1 && estimate.y < level.getMaxBuildHeight(), "вдали не рельеф генератора: y " + estimate.y);
+        h.assertTrue(estimate.x == far.x && estimate.z == far.z, "место сдвинулось");
+        h.assertFalse(Terrain.ready(level, column), "оценка загрузила чанк");
+        h.succeed();
+    }
+
+    /**
      * Полёт вне загруженных чанков: ракета стартует в 1.5 км от цели, где мира нет, летит «виртуально» и возвращается
      * в мир у цели (чанки цели загружает её же тикет), не трогая по пути незагруженное.
      */
