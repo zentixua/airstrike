@@ -179,6 +179,7 @@
   "airstrike.nuke.alert": "☢ MISSILE ATTACK ☢",
   "airstrike.nuke.alert.eta": "Impact in %s s: take cover, get underground",
   "airstrike.nuke.countdown": "☢ ICBM in flight · %2$s kt · detonation in %1$s s",
+  "airstrike.nuke.delayed": "☢ Detonation delayed: the target area is still loading",
   "airstrike.nuke.detected": "Intercontinental missile launch detected",
   "airstrike.remote.yield": "Yield: %s kt %s",
   "airstrike.remote.burst.air": "Burst: air",
