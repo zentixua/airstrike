@@ -770,6 +770,7 @@ public final class StressDirector {
             }
             m = GAVE_UP.matcher(line);
             if (m.find()) {
+                gaveUp.add(UUID.fromString(m.group(1)));
                 Watch w = watched.get(UUID.fromString(m.group(1)));
                 if (w != null && w.ground != null) w.ground.gaveUp++;
             }
@@ -888,6 +889,8 @@ public final class StressDirector {
     /** Взрыв — этого снаряда, если он ближе к месту уборки или к месту, где снаряд замечен последним (путь за тик). */
     private static final double BLAST_AT_END = 16, BLAST_AT_SEEN = 48;
     private final List<Gone> awaitingBlast = new ArrayList<>();
+    /** Снаряды, которые мод убрал, не дождавшись загрузки района цели ({@link #GAVE_UP}). */
+    private final Set<UUID> gaveUp = new HashSet<>();
 
     @Nullable
     private Vec3 blastFor(Gone g) {
@@ -1210,7 +1213,11 @@ public final class StressDirector {
         for (var it = awaitingBlast.iterator(); it.hasNext(); ) {
             Gone g = it.next();
             Vec3 blast = blastFor(g);
-            if (blast != null) {
+            if (gaveUp.contains(g.id)) {
+                // мод сам убрал его, не дождавшись района цели (WARN с UUID): не пропажа, а отказ по сроку ожидания
+                it.remove();
+                ended(g.w, "gave-up");
+            } else if (blast != null) {
                 it.remove();
                 // взрывы проб и отложенные — строкой: по ним видно, чей взрыв засчитан и где
                 if (tick > g.at || g.w.probe != null || g.w.ground != null)
@@ -1400,6 +1407,7 @@ public final class StressDirector {
                     pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate, expect, pr.outcomes);
             if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
             if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
+            if (pr.outcomes.getOrDefault("gave-up", 0) > 0) problems.add("проба " + pr.name + ": не дождались района цели " + pr.outcomes.get("gave-up"));
         }
         for (GroundProbe pr : groundProbes) groundSummary(pr);
         for (String p : problems) log("problem: %s", p);
