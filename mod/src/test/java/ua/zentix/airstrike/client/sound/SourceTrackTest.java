@@ -22,7 +22,7 @@ class SourceTrackTest {
 
     private static S2C.HeardFlight at(double x, double vx, int phaseAge) {
         return new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0,
-                FlightPhase.CRUISE.ordinal(), phaseAge, 500);
+                FlightPhase.CRUISE.ordinal(), phaseAge, new Vec3(500, 80, 0));
     }
 
     private static double x(SourceTrack t, double time) {
