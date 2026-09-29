@@ -22,6 +22,8 @@ mkdir -p "$RUN/logs"
 #   AIRSTRIKE_SUBFRAMES=1 AIRSTRIKE_KEEP=20 AIRSTRIKE_TRAILER_DIR=check … tools/trailer/record.sh shaders dh
 #   uv run tools/trailer/sheets.py mod/run/scenario/check   → листы «начало, середина, конец» по планам
 export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"
+# куча клиента: без неё — четверть памяти машины, а в облаке (16 ГБ) это 4 ГБ, и проверка планов падала с OutOfMemory
+export AIRSTRIKE_XMX="${AIRSTRIKE_XMX:-8g}"
 rm -rf "${RUN:?}/$AIRSTRIKE_TRAILER_DIR"
 # карта съёмки (Greenfield, уже обновлённая до 1.21.1): AIRSTRIKE_WORLD_SRC — чистая копия, её не трогаем; каждый дубль
 # идёт на свежей копии в saves/ (удары и ядерка меняют мир)

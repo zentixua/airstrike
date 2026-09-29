@@ -1178,6 +1178,25 @@ public final class Trailer {
         return best;
     }
 
+    /** Для журнала ожидания: где снаряды у сервера (в мире и вне его) и сколько их видит клиент. */
+    private String flightsNow() {
+        MinecraftServer server = mc.getSingleplayerServer();
+        if (server == null) return "?";
+        StringBuilder b = new StringBuilder();
+        ServerLevel level = server.overworld();
+        Vec3 me = mc.gameRenderer.getMainCamera().getPosition();
+        int n = 0;
+        for (StrikeProjectile e : level.getEntitiesOfClass(StrikeProjectile.class, new net.minecraft.world.phys.AABB(me, me).inflate(30000))) {
+            if (n++ < 4) b.append(String.format(Locale.ROOT, "%s в мире (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
+        }
+        for (StrikeProjectile e : ua.zentix.airstrike.strike.VirtualFlights.get(level).flights()) {
+            if (n++ < 6) b.append(String.format(Locale.ROOT, "%s вне мира (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
+        }
+        int client = 0;
+        for (Entity e : mc.level.entitiesForRendering()) if (e instanceof StrikeProjectile) client++;
+        return b.append("у клиента ").append(client).toString();
+    }
+
     @Nullable
     private <T extends Entity> T nearest(Class<T> type, Vec3 p, double radius) {
         T best = null;
@@ -1819,7 +1838,7 @@ public final class Trailer {
                     followCamera();
                     if (when != null && !when.getAsBoolean()) {
                         long w = worldWaited();
-                        if (w > 0 && w % 200 == 0) Airstrike.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, w);
+                        if (w > 0 && w % 200 == 0) Airstrike.LOG.info("TRAILER {}: ждём момент ({} тиков); снаряды {}", name, w, flightsNow());
                         if (w < whenTimeout) return false;
                         // без своего момента план пуст (снаряд не долетел): не тратить минуты записи и гигабайты кадров
                         Airstrike.LOG.warn("TRAILER {}: момент не наступил, план пропущен", name);
