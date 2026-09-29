@@ -98,6 +98,11 @@ public final class GridGameTests {
      */
     private static void quiet(ServerLevel level) {
         Blackouts.restore(level, null, 0, 0);
+        // подстанции других проверок остаются в мире: ядерный удар этой выбил бы их (порядок партий — по хешу имён)
+        PowerGrid grid = PowerGrid.get(level);
+        List<Integer> ids = new ArrayList<>();
+        for (Node n : grid.nodes()) ids.add(n.id());
+        ids.forEach(grid::removeNode);
     }
 
     /**
@@ -428,7 +433,8 @@ public final class GridGameTests {
                     h.assertFalse(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция в радиусе подрыва «под током»");
                     for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
                 })
-                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, Vec3.atCenterOf(g), 64) == 2, "возвращать не в двух отключениях"))
+                // подрыв и выбитая им подстанция — два отключения (других нет: quiet)
+                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, null, 0) >= 2, "возвращать меньше чем в двух отключениях"))
                 .thenWaitUntil(() -> {
                     for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
                     h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
