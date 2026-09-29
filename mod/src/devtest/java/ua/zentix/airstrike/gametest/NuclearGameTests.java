@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.gametest;
 
+import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -11,14 +12,18 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
@@ -35,6 +40,7 @@ import ua.zentix.airstrike.nuclear.world.ThermalShadow;
 import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.List;
+import java.util.Locale;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -329,6 +335,83 @@ public final class NuclearGameTests {
             h.assertTrue(inside.isAlive() && inside.getHealth() == inside.getMaxHealth(), "фронт второй раз ударил корову, которую уже прошёл");
             NuclearStrikes.clear(level);
         });
+    }
+
+    /**
+     * Волна по аппарату Sable (доски 5×2×5 над площадкой; 0.1 кт, 1 блок = 20 м — у аппарата ~8 psi): взрыв в его
+     * ближайшей к эпицентру точке ломает доски аппарата и не трогает сущности (их волна бьёт сама, по давлению) —
+     * предмет на земле рядом цел; ванильный взрыв уничтожил бы его.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_aircraft", skyAccess = true)
+    public static void blastBreaksAircraftNotEntities(GameTestHelper h) {
+        aircraftBlast(h, true);
+    }
+
+    /** Без {@code block_damage} взрыв по аппарату не ломает ничего: ни аппарат, ни стекло рядом с ним. */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_aircraft_no_blocks", skyAccess = true)
+    public static void aircraftBlastKeepsBlocksWithoutBlockDamage(GameTestHelper h) {
+        aircraftBlast(h, false);
+    }
+
+    private static void aircraftBlast(GameTestHelper h, boolean blockDamage) {
+        if (!ModList.get().isLoaded("sable")) {
+            h.succeed();
+            return;
+        }
+        ServerLevel level = h.getLevel();
+        BlockPos from = CENTER.offset(6, 5, -2), to = from.offset(4, 1, 4);
+        BlockPos.betweenClosed(from, to).forEach(p -> h.setBlock(p, Blocks.OAK_PLANKS));
+        BlockPos glass = CENTER.offset(8, 0, -5);
+        h.setBlock(glass, Blocks.GLASS);
+        ItemEntity item = h.spawnItem(Items.STONE, CENTER.offset(8, 0, 5));
+        BlockPos a = h.absolutePos(from), b = h.absolutePos(to);
+        var server = level.getServer();
+        server.getCommands().performPrefixedCommand(server.createCommandSourceStack().withLevel(level).withSuppressedOutput(),
+                String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()),
+                        Math.min(a.getZ(), b.getZ()), Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())));
+        Vec3 craft = Vec3.atCenterOf(h.absolutePos(from.offset(2, 0, 2)));
+        SubLevelAccess[] sub = new SubLevelAccess[1];
+        int[] planks = new int[1];
+        boolean fires = AirstrikeConfig.SERVER.nukeFires.get();
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    List<SubLevelAccess> near = SubLevels.near(level, craft, 8);
+                    h.assertFalse(near.isEmpty(), "аппарат не собран");
+                    sub[0] = near.getFirst();
+                })
+                .thenExecute(() -> {
+                    planks[0] = aircraftPlanks(level, sub[0]);
+                    h.assertTrue(planks[0] == 50, "в аппарате досок: " + planks[0]);
+                    // пожары от света сожгли бы предмет на земле — проверяется только волна
+                    AirstrikeConfig.SERVER.nukeFires.set(false);
+                    AirstrikeConfig.SERVER.nukeBlockDamage.set(blockDamage);
+                    NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 0.1, false, null, 0.05f);
+                })
+                .thenIdle(20)
+                .thenExecute(() -> {
+                    AirstrikeConfig.SERVER.nukeFires.set(fires);
+                    AirstrikeConfig.SERVER.nukeBlockDamage.set(true);
+                    NuclearStrikes.clear(level);
+                    int left = aircraftPlanks(level, sub[0]);
+                    if (blockDamage) {
+                        h.assertTrue(left < planks[0], "волна не сломала аппарат: досок " + left);
+                    } else {
+                        h.assertTrue(left == planks[0], "без block_damage волна сломала аппарат: досок " + left);
+                        h.assertBlockPresent(Blocks.GLASS, glass);
+                    }
+                    h.assertTrue(item.isAlive(), "взрыв по аппарату задел предмет на земле");
+                })
+                .thenSucceed();
+    }
+
+    /** Доски в плоте аппарата вокруг его центра. */
+    private static int aircraftPlanks(ServerLevel level, SubLevelAccess sub) {
+        BlockPos c = BlockPos.containing(SubLevels.toPlot(sub, SubLevels.center(sub)));
+        int n = 0;
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-6, -6, -6), c.offset(6, 6, 6))) {
+            if (level.getBlockState(p).is(Blocks.OAK_PLANKS)) n++;
+        }
+        return n;
     }
 
     private static final TicketType<ChunkPos> HOLD = TicketType.create("airstrike_test_hold", Comparator.comparingLong(ChunkPos::toLong));

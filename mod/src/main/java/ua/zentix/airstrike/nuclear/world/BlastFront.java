@@ -1,15 +1,22 @@
 package ua.zentix.airstrike.nuclear.world;
 
 import dev.ryanhcode.sable.companion.SubLevelAccess;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Explosion;
+import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
@@ -37,12 +44,28 @@ import java.util.function.IntPredicate;
  * лут и обработчики смерти всех модов сборки: у эпицентра волна за один тик накрывает сотни мобов, и разом это
  * сотня миллисекунд тика (у хоста — 84 мс в тике подрыва). Очередь ждёт, пока по этому подрыву пройдёт световой
  * импульс: свет приходит раньше волны, и кого волна убьёт, тот уже получил свои ожоги и дозу.
+ * <p>
+ * Аппараты Create Aeronautics (DESIGN §3.6) волна бьёт ванильным взрывом в ближайшей к эпицентру точке аппарата:
+ * лучи взрыва Sable проводит и по блокам аппарата — так ломается корпус и толкается тело. Взрыв — тоже в очереди
+ * под бюджетом (свет им не нужен — не ждут его), ломает только блоки аппаратов (земля — дело {@link ScarQueue}
+ * по давлению), сущностей не трогает (их волна бьёт сама, по давлению) и слушается {@code block_damage}.
  */
 final class BlastFront {
     /** С какого давления волна убивает сразу (вне укрытия). */
     private static final double LETHAL_PSI = 12;
+    /** С какого давления волна бьёт по аппарату. */
+    private static final double AIRCRAFT_PSI = 3;
+    /**
+     * Наибольшая сила взрыва по аппарату. Лучи силы 16 проходят до ~20 блоков корпуса; каждый шаг луча Sable
+     * проверяет пересечение с аппаратами, так что цена взрыва растёт с силой, а прежние 60 — это почти 100 блоков
+     * лучей из 1352 направлений.
+     */
+    private static final float MAX_AIRCRAFT_POWER = 16;
 
     private record Hit(Detonation d, LivingEntity entity) {}
+
+    /** Взрыв по аппарату: в ближайшей к эпицентру точке аппарата, когда его накрыл фронт. */
+    private record AircraftHit(Detonation d, Vec3 at, float power) {}
 
     /**
      * Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. Не сохраняется: после
@@ -52,13 +75,15 @@ final class BlastFront {
     private final Map<Integer, double[]> reached = new HashMap<>();
     /** Кого фронт накрыл, а удар ещё не нанесён: по тикам прихода, в тике — от ближних к дальним. */
     private final ArrayDeque<Hit> hits = new ArrayDeque<>();
+    /** Аппараты, которые фронт накрыл, а взрыва по ним ещё не было: по тикам прихода. */
+    private final ArrayDeque<AircraftHit> aircraft = new ArrayDeque<>();
 
     /** Удары, которые ждут бюджета. */
     int pending() {
-        return hits.size();
+        return hits.size() + aircraft.size();
     }
 
-    /** Где фронт этого тика: кого накрыл — в очередь, обратный ветер и аппараты — сразу (они дёшевы). */
+    /** Где фронт этого тика: кого накрыл (сущности и аппараты) — в очередь, обратный ветер — сразу (он дёшев). */
     void advance(ServerLevel level, List<Detonation> detonations, long now) {
         Set<Integer> active = new HashSet<>();
         for (Detonation d : detonations) {
@@ -98,6 +123,12 @@ final class BlastFront {
      * @param lit по подрыву с этим номером световой импульс уже прошёл
      */
     void work(ServerLevel level, WorkClock clock, IntPredicate lit) {
+        // аппараты — первыми: взрыв там, где аппарат был под фронтом, пока он не улетел
+        while (!aircraft.isEmpty() && clock.canStart()) {
+            long t0 = clock.begin();
+            blast(level, aircraft.removeFirst());
+            clock.end(t0);
+        }
         while (!hits.isEmpty() && lit.test(hits.peekFirst().d().id()) && clock.canStart()) {
             Hit h = hits.removeFirst();
             // за время в очереди моб мог умереть, выгрузиться или сесть в лодку — как при снимке
@@ -112,12 +143,13 @@ final class BlastFront {
     /** Отбой. */
     void clear() {
         reached.clear();
-        hits.clear();
+        dropHits();
     }
 
     /** Удары в очереди — сбросить; докуда фронт прошёл, остаётся (иначе он заново ударил бы всех внутри). */
     void dropHits() {
         hits.clear();
+        aircraft.clear();
     }
 
     private static double positivePhaseTicks(Detonation d) {
@@ -157,11 +189,8 @@ final class BlastFront {
         e.hurtMarked = true;
     }
 
-    /**
-     * Аппараты Create Aeronautics (DESIGN §3.6): где давление ≥ 3 psi, в ближайшей к эпицентру точке аппарата —
-     * ванильный взрыв с силой по давлению: Sable сам ломает его блоки и толкает корпус.
-     */
-    private static void sweepAircraft(ServerLevel level, Detonation d, double from, double to) {
+    /** Аппараты, чья ближайшая к эпицентру точка — в кольце фронта этого тика и под давлением от 3 psi, — в очередь. */
+    private void sweepAircraft(ServerLevel level, Detonation d, double from, double to) {
         if (to <= from) return;
         for (SubLevelAccess sub : SubLevels.near(level, d.burst(), to)) {
             AABB box = sub.boundingBox().toMojang();
@@ -170,13 +199,48 @@ final class BlastFront {
             double dist = nearest.distanceTo(d.burst());
             if (dist < from || dist >= to) continue;
             double psi = d.psi(nearest);
-            if (psi < 3) continue;
-            float power = (float) Mth.clamp(6 + (psi - 3) * 1.15, 6, 60);
-            // лучи ванильного взрыва читают блоки — только по готовым чанкам
-            Warheads.whenReady(level, nearest, Warheads.reach(power), l -> l.explode(null,
-                    ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
-                    nearest.x, nearest.y, nearest.z, power, false, Level.ExplosionInteraction.TNT,
-                    ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+            if (psi < AIRCRAFT_PSI) continue;
+            aircraft.add(new AircraftHit(d, nearest, (float) Mth.clamp(6 + (psi - AIRCRAFT_PSI) * 1.15, 6, MAX_AIRCRAFT_POWER)));
+        }
+    }
+
+    /**
+     * Взрыв по аппарату. Без {@code block_damage} — без разрушений ({@code NONE}): Sable всё равно толкает аппарат
+     * по лучам взрыва. Лучи ванильного взрыва читают блоки — только по готовым чанкам.
+     */
+    private static void blast(ServerLevel level, AircraftHit a) {
+        boolean blocks = AirstrikeConfig.SERVER.nukeBlockDamage.get();
+        Warheads.whenReady(level, a.at(), Warheads.reach(a.power()), l -> l.explode(null,
+                ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), new AircraftOnly(l),
+                a.at().x, a.at().y, a.at().z, a.power(), false,
+                blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
+                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+    }
+
+    /**
+     * Взрыв по аппарату ломает только блоки аппаратов (они лежат в плотах Sable) и не трогает сущности: ни урона,
+     * ни броска — сущности волна уже бьёт по давлению ({@link #hit}).
+     */
+    private static final class AircraftOnly extends ExplosionDamageCalculator {
+        private final Level level;
+
+        AircraftOnly(Level level) {
+            this.level = level;
+        }
+
+        @Override
+        public boolean shouldBlockExplode(Explosion explosion, BlockGetter reader, BlockPos pos, BlockState state, float power) {
+            return !state.isAir() && SubLevels.isInPlot(level, pos.getCenter());
+        }
+
+        @Override
+        public boolean shouldDamageEntity(Explosion explosion, Entity entity) {
+            return false;
+        }
+
+        @Override
+        public float getKnockbackMultiplier(Entity entity) {
+            return 0;
         }
     }
 }
