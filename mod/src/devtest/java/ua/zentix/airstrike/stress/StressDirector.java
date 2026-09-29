@@ -6,10 +6,15 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.DistanceManager;
+import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.Ticket;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -41,6 +46,7 @@ import ua.zentix.airstrike.util.Terrain;
 import java.lang.reflect.Field;
 import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -52,6 +58,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.function.Consumer;
@@ -71,6 +78,23 @@ import java.util.function.Consumer;
 public final class StressDirector {
     private static final String MODE = System.getProperty("airstrike.stress");
     private static final int PLAYERS = Integer.getInteger("airstrike.stress.players", 2);
+    /** Залпы-пробы РСЗО по свежим районам ({@link #probe}); {@code false} — без них (замер A/B остановок сервера). */
+    private static final boolean PROBES = flag("airstrike.stress.probes", true);
+    /** Волна 4 и остановка сервера посреди полёта (продолжение — режим {@code resume}). */
+    private static final boolean RESTART = flag("airstrike.stress.restart", false);
+    /** Район, который стенд грузит под телепорт игрока (ключ — игрок). */
+    private static final TicketType<UUID> TELEPORT = TicketType.create("airstrike_stress_teleport", Comparator.<UUID>naturalOrder());
+    /** Сколько ждать района телепорта, пока это не стало проблемой в сводке, и сколько самое большее держать его после. */
+    private static final int TELEPORT_WAIT = 1200, TELEPORT_HOLD = 100;
+    /**
+     * Уровень тикета района телепорта: 31, как у тикета игрока ({@code DistanceManager.PLAYER_TICKET_LEVEL}), — полностью
+     * загружен квадрат 5×5 и в очереди генерации район стоит наравне с чанками игроков. Уровень 33 (тикет региона
+     * с дистанцией 0 на каждый чанк) стоял за районами целей снарядов (уровни 29–33): телепорт ждал 2353 тика
+     * (облако 29.09.2026), и сценарий шёл без игроков на своих местах.
+     */
+    private static final int TELEPORT_LEVEL = ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING);
+    /** Радиус района телепорта в чанках (5×5): до него уровень тикета доходит до 33 (полностью загружен). */
+    private static final int TELEPORT_AREA = ChunkLevel.byStatus(FullChunkStatus.FULL) - TELEPORT_LEVEL;
 
     private record Step(int at, String what, Consumer<MinecraftServer> action) {}
 
@@ -201,6 +225,10 @@ public final class StressDirector {
     private static final double GROUND_OFF_LIMIT = 32;
 
     private final List<Step> steps = new ArrayList<>();
+    /** Ожидания, которые проверяются каждый тик (телепорт ждёт район), до {@code true}. */
+    private final List<BooleanSupplier> waits = new ArrayList<>();
+    /** Телепорт игрока, который ещё ждёт район: отмена (новый телепорт того же игрока заменяет его). */
+    private final Map<String, Runnable> pendingTeleports = new HashMap<>();
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
@@ -213,6 +241,8 @@ public final class StressDirector {
     private int warnings, errors;
 
     private int tick = -1;
+    /** С какого тика сервера часы сценария ждут, пока игроки встанут на места ({@code MAX_VALUE} — больше не ждут). */
+    private int placingSince = -1;
     private long tickStart;
     private long windowMax, windowSum;
     private int windowTicks;
@@ -232,6 +262,8 @@ public final class StressDirector {
     private static final int LONG_LIVED = 2400;
     /** Начало текущего тика для сторожа (поток сторожа читает). */
     private volatile long watchdogTickStart;
+    /** Сервер внутри тика (между {@code ServerTickEvent.Pre} и {@code Post}), а не ждёт следующего. */
+    private volatile boolean inTick;
 
     public StressDirector(IEventBus modBus) {
         if (MODE == null) return;
@@ -263,6 +295,22 @@ public final class StressDirector {
         });
     }
 
+    /** Ожидания этого тика; новые, добавленные из них, проверяются со следующего. */
+    private void runWaits() {
+        for (BooleanSupplier w : List.copyOf(waits)) if (w.getAsBoolean()) waits.remove(w);
+    }
+
+    /** Выключатель стенда из переменной окружения (через {@code build.gradle}): true/1/yes или false/0/no. */
+    private static boolean flag(String property, boolean fallback) {
+        String v = System.getProperty(property);
+        if (v == null || v.isBlank()) return fallback;
+        return switch (v.trim().toLowerCase(Locale.ROOT)) {
+            case "true", "1", "yes", "on" -> true;
+            case "false", "0", "no", "off" -> false;
+            default -> throw new IllegalArgumentException("стенд: " + property + "=" + v + " — ожидается true/false или 1/0");
+        };
+    }
+
     private void plan() {
         at(0, "подготовка", s -> {
             run(s, "gamerule doDaylightCycle false");
@@ -279,14 +327,14 @@ public final class StressDirector {
         // (в одиночку 80–120 тиков, облако, 4 ядра) — глубокого растяжения быть не должно, мелкое допустимо (сервер
         // встал на секунды). Следом за волной 1 проба мерила очередь генерации, а не растяжение: десятки свежих районов
         // волны впереди, район готов через ~360 тиков на VPS и ~900 в облаке (29.09.2026)
-        at(200, "РСЗО по свежему району в 1500 блоках", s -> probe(s, "Host", "fresh-1500", -1060, -1060, false));
+        if (PROBES) at(200, "РСЗО по свежему району в 1500 блоках", s -> probe(s, "Host", "fresh-1500", -1060, -1060, false));
         // волна 1: залпы по 30 — РСЗО по игроку, шахеды по точке в 800 блоках, барраж по игроку, ракеты по игроку
         as(300, "Host", "airstrike salvo rocket 30 150 Friend1");
         as(320, "Host", "airstrike salvo drone 30 150 at 800 ~ -200");
         as(340, "Friend1", "airstrike salvo loiter 30 150 Friend2");
         as(360, "Friend2", "airstrike salvo missile 20 80 Friend1");
         // РСЗО по свежему району в 250 блоках: полёт короче загрузки района — растяжение ожидается глубокое
-        at(380, "РСЗО по свежему району в 250 блоках", s -> probe(s, "Host", "fresh-250", -180, -175, true));
+        if (PROBES) at(380, "РСЗО по свежему району в 250 блоках", s -> probe(s, "Host", "fresh-250", -180, -175, true));
         // аппарат Sable у второго друга: по нему ракеты, потом его дробит
         at(500, "аппарат у Friend2", s -> buildCraft(s, "Friend2"));
         at(560, "ракеты и шахеды по аппарату", s -> strikeCraft(s, "Host", 10, 30));
@@ -300,7 +348,7 @@ public final class StressDirector {
         at(1900, "Friend1 возвращается", s -> tp(s, "Friend1", 480, 320));
         // бомбардировщики и ракеты в другой мир и по игроку в полёте
         as(1500, "Friend2", "airstrike salvo bunker 6 60 Host");
-        at(1700, "Friend2 в Незер и обратно", s -> run(s, "execute in minecraft:the_nether run tp Friend2 0 80 0"));
+        at(1700, "Friend2 в Незер и обратно", s -> tp(s, "Friend2", s.getLevel(Level.NETHER), 0, 80, 0));
         at(2100, "Friend2 из Незера", s -> tp(s, "Friend2", -620, 420));
         // ядерка в 1000 блоках, пока идут залпы: полёт МБР 1800 тиков — подрыв на 3000, до «Отбоя» (он отменяет и её)
         as(1200, "Host", "airstrike nuke at 0 ~ -1000 15 air");
@@ -327,7 +375,7 @@ public final class StressDirector {
         at(3540, "ракеты по цели ниже рельефа", s -> groundDeep(s, "deep-missile", WeaponType.MISSILE, 5, -1600, -300));
         at(3560, "ракеты по цели, которая поднимется", s -> groundRising(s, "rising-aim", 1500, 1500));
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
-        if (Boolean.getBoolean("airstrike.stress.restart")) {
+        if (RESTART) {
             as(4600, "Host", "airstrike salvo drone 20 100 at 700 ~ 700");
             as(4620, "Host", "airstrike salvo missile 10 100 at -700 ~ 700");
             at(5200, "остановка посреди полёта", s -> {
@@ -378,13 +426,89 @@ public final class StressDirector {
         log("%s выходит", name);
     }
 
+    /** Телепорт в верхний мир на высоту 200: высота без загрузки чанка, дальше игрок в творческом режиме летит. */
     private void tp(MinecraftServer s, String name, int x, int z) {
+        tp(s, name, s.overworld(), x, 200, z);
+    }
+
+    /**
+     * Телепорт игрока, как у игры с загрузкой в фоне: сначала район 5×5 чанков грузится (тикет загрузки уровня
+     * {@link #TELEPORT_LEVEL}, без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района
+     * не тикают рядом с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
+     * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
+     * были самого стенда. Новый телепорт того же игрока отменяет ждущий: иначе оба дождались бы района в одном тике,
+     * и игрок оказался бы там, куда его послали раньше.
+     */
+    private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
         ServerPlayer p = need(s, name, "телепорт");
         if (p == null) return;
-        ServerLevel level = s.overworld();
-        // без загрузки чанка ради высоты: сначала высоко, потом игра сама опустит в полёте творческого режима
-        p.teleportTo(level, x + 0.5, 200, z + 0.5, p.getYRot(), 0);
-        log("tp %s → %d %d", name, x, z);
+        if (level == null) {
+            problems.add("шаг пропущен: телепорт " + name + ", мира назначения нет");
+            return;
+        }
+        Runnable previous = pendingTeleports.remove(name);
+        if (previous != null) previous.run();
+        ChunkPos centre = new ChunkPos(x >> 4, z >> 4);
+        DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
+        UUID key = UUID.randomUUID();
+        tickets.addTicket(TELEPORT, centre, TELEPORT_LEVEL, key);
+        Runnable release = () -> tickets.removeTicket(TELEPORT, centre, TELEPORT_LEVEL, key);
+        // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
+        int since = s.getTickCount();
+        boolean[] cancelled = {false};
+        pendingTeleports.put(name, () -> {
+            cancelled[0] = true;
+            release.run();
+            log("tp %s → %d %d отменён новым телепортом через %d тиков", name, x, z, s.getTickCount() - since);
+            problems.add(String.format(Locale.ROOT, "телепорт %s → %d %d не дождался района за %d тиков: его заменил следующий", name, x, z, s.getTickCount() - since));
+        });
+        log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
+        waits.add(() -> {
+            if (cancelled[0]) return true;
+            if (!areaReady(level, centre)) {
+                // не предел: телепорт ждёт дальше (и держит тикет), но в сводке это проблема
+                if (s.getTickCount() - since == TELEPORT_WAIT) {
+                    log("tp %s → %d %d: район не готов за %d тиков, ждём дальше", name, x, z, TELEPORT_WAIT);
+                    problems.add(String.format(Locale.ROOT, "телепорт %s ждёт район %d %d дольше %d тиков", name, x, z, TELEPORT_WAIT));
+                }
+                return false;
+            }
+            pendingTeleports.remove(name);
+            ServerPlayer now = need(s, name, "телепорт");
+            if (now != null) {
+                now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
+                log("tp %s → %d %d, район ждали %d тиков", name, x, z, s.getTickCount() - since);
+            }
+            // дальше район держит тикет игрока: наш отпускается, когда на центральном чанке стоит тикет игрока
+            // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают с задержкой,
+            // DistanceManager.ticketThrottler), — или через TELEPORT_HOLD, если игрока там нет (вышел, ушёл дальше).
+            // Отпустить раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно
+            int placed = s.getTickCount();
+            waits.add(() -> {
+                ServerPlayer there = s.getPlayerList().getPlayerByName(name);
+                boolean arrived = there != null && there.serverLevel() == level && playerTicketAt(level, centre);
+                if (!arrived && (there != null || s.getTickCount() - placed < TELEPORT_HOLD) && s.getTickCount() - placed < TELEPORT_WAIT) return false;
+                release.run();
+                log("район телепорта %s отпущен через %d тиков%s", name, s.getTickCount() - placed, arrived ? "" : ", тикета игрока на нём нет");
+                return true;
+            });
+            return true;
+        });
+    }
+
+    /** На чанке стоит тикет игрока ({@code TicketType.PLAYER}): район держит сам игрок. */
+    private static boolean playerTicketAt(ServerLevel level, ChunkPos pos) {
+        DistanceManager d = distanceManager(level);
+        var map = d == null ? null : ticketMap(d);
+        var set = map == null ? null : map.get(pos.toLong());
+        return set != null && set.stream().anyMatch(t -> t.getType() == TicketType.PLAYER);
+    }
+
+    private static boolean areaReady(ServerLevel level, ChunkPos centre) {
+        for (int dx = -TELEPORT_AREA; dx <= TELEPORT_AREA; dx++) {
+            for (int dz = -TELEPORT_AREA; dz <= TELEPORT_AREA; dz++) if (!Terrain.ready(level, centre.x + dx, centre.z + dz)) return false;
+        }
+        return true;
     }
 
     /**
@@ -674,7 +798,7 @@ public final class StressDirector {
     // ---------------------------------------------------------------- наблюдение
 
     private void onStarted(ServerStartedEvent e) {
-        log("сервер запущен, режим %s, ждём игроков: %d", MODE, PLAYERS);
+        log("сервер запущен, режим %s, пробы %s, перезапуск %s, ждём игроков: %d", MODE, PROBES ? "вкл" : "выкл", RESTART ? "вкл" : "выкл", PLAYERS);
         startWatchdog(e.getServer());
     }
 
@@ -702,6 +826,7 @@ public final class StressDirector {
     private void onTickPre(ServerTickEvent.Pre e) {
         tickStart = System.nanoTime();
         watchdogTickStart = tickStart;
+        inTick = true;
     }
 
     /**
@@ -728,6 +853,7 @@ public final class StressDirector {
                     dumps = 0;
                 }
                 if (dumps >= 5 || ms < (dumps == 0 ? 500 : 2000L * dumps)) continue;
+                if (dumps == 0) diagnoseStall(s, start);
                 dumps++;
                 StringBuilder sb = new StringBuilder();
                 StackTraceElement[] st = server.getStackTrace();
@@ -739,12 +865,123 @@ public final class StressDirector {
         dog.start();
     }
 
+    /**
+     * Что ждёт стоящий тик: задача в очередь потока чанков каждого мира ({@code ServerChunkCache.mainThreadProcessor}).
+     * Синхронная загрузка ({@code ServerChunkCache.getChunk}) ждёт в {@code managedBlock} и выполняет задачи этой
+     * очереди — отчёт пишется из потока сервера посреди остановки, без гонок с картами тикетов. Задача, дошедшая до
+     * потока уже после этого тика, молчит.
+     */
+    private void diagnoseStall(MinecraftServer s, long stallStart) {
+        for (ServerLevel level : s.getAllLevels()) {
+            try {
+                Field f = net.minecraft.server.level.ServerChunkCache.class.getDeclaredField("mainThreadProcessor");
+                f.setAccessible(true);
+                ((java.util.concurrent.Executor) f.get(level.getChunkSource())).execute(() -> {
+                    // только посреди той же остановки: после неё очередь выполняет задачу между тиками или в следующем
+                    if (inTick && watchdogTickStart == stallStart) log("остановка: %s", stallReport(level));
+                });
+            } catch (ReflectiveOperationException ex) {
+                log("остановка: очередь потока чанков недоступна (%s)", ex);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Строка для замера остановок: какой чанк грузится синхронно (неготовый чанк с тикетом {@code unknown} — его
+     * ставит {@code ServerChunkCache.getChunk}), уровни тикетов 5×5 вокруг него (33 — полностью загружен, 32 — тикают
+     * блоки, 31 — сущности; «·» — чанка нет), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки.
+     */
+    private static String stallReport(ServerLevel level) {
+        DistanceManager d = distanceManager(level);
+        var map = d == null ? null : ticketMap(d);
+        if (map == null) return "тикеты недоступны";
+        var chunkMap = level.getChunkSource().chunkMap;
+        StringBuilder sb = new StringBuilder(level.dimension().location().toString());
+        int sync = 0;
+        for (var en : map.long2ObjectEntrySet()) {
+            if (en.getValue().stream().noneMatch(t -> t.getType() == TicketType.UNKNOWN)) continue;
+            ChunkPos c = new ChunkPos(en.getLongKey());
+            // тикет unknown живёт до конца тика: у готовых чанков он остался от прошлых синхронных загрузок
+            if (Terrain.ready(level, c.x, c.z)) continue;
+            ChunkHolder h = chunkMap.getVisibleChunkIfPresent(c.toLong());
+            sb.append(String.format(Locale.ROOT, " | синхронно %d %d (блок %d %d), статус %s, уровни:", c.x, c.z, c.getMinBlockX(), c.getMinBlockZ(),
+                    h == null ? "-" : h.getLatestStatus()));
+            for (int dz = -2; dz <= 2; dz++) {
+                sb.append(' ');
+                for (int dx = -2; dx <= 2; dx++) {
+                    ChunkHolder n = chunkMap.getVisibleChunkIfPresent(ChunkPos.asLong(c.x + dx, c.z + dz));
+                    sb.append(n == null || n.getTicketLevel() > 33 ? " ·" : String.format(Locale.ROOT, "%3d", n.getTicketLevel()).substring(1));
+                    if (dx < 2) sb.append(',');
+                }
+                if (dz < 2) sb.append(" /");
+            }
+            Map<String, Integer> near = new TreeMap<>();
+            for (int dx = -8; dx <= 8; dx++) {
+                for (int dz = -8; dz <= 8; dz++) {
+                    var set = map.get(ChunkPos.asLong(c.x + dx, c.z + dz));
+                    if (set == null) continue;
+                    for (Ticket<?> t : set) if (t.getType().toString().contains("airstrike")) near.merge(t.getType().toString(), 1, Integer::sum);
+                }
+            }
+            sb.append(", тикеты мода в 8 чанках ").append(near);
+            if (++sync >= 8) break;
+        }
+        // тикет unknown ставит и getChunk на низкий статус, который уже вернулся: неготовых таких чанков бывает несколько,
+        // синхронно грузится один из них — отчёт показывает все (до 8), а не первый
+        if (sync == 0) sb.append(" | синхронной загрузки нет");
+        int waiting = 0;
+        for (ChunkHolder h : chunkMap.getChunks()) {
+            if (h.getTicketLevel() <= 33 && h.getLatestStatus() != net.minecraft.world.level.chunk.status.ChunkStatus.FULL) waiting++;
+        }
+        return sb.append(" | ждут полной загрузки ").append(waiting).append(" чанков").toString();
+    }
+
+    @Nullable
+    private static DistanceManager distanceManager(ServerLevel level) {
+        try {
+            Field dm = net.minecraft.server.level.ChunkMap.class.getDeclaredField("distanceManager");
+            dm.setAccessible(true);
+            return (DistanceManager) dm.get(level.getChunkSource().chunkMap);
+        } catch (ReflectiveOperationException ex) {
+            return null;
+        }
+    }
+
+    @Nullable
+    @SuppressWarnings("unchecked")
+    private static it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>> ticketMap(DistanceManager d) {
+        try {
+            Field tf = DistanceManager.class.getDeclaredField("tickets");
+            tf.setAccessible(true);
+            return (it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) tf.get(d);
+        } catch (ReflectiveOperationException ex) {
+            return null;
+        }
+    }
+
     private void onTickPost(ServerTickEvent.Post e) {
+        inTick = false;
         MinecraftServer s = e.getServer();
         long took = System.nanoTime() - tickStart;
         if (tick < 0) {
             if (s.getPlayerCount() < PLAYERS) return;
             log("все игроки на месте, начинаем");
+        }
+        if (tick == 0 && placingSince != Integer.MAX_VALUE && !pendingTeleports.isEmpty()) {
+            // часы сценария стоят, пока игроки не встанут на свои места: волна 1 бьёт по ним; но не дольше
+            // 2 × TELEPORT_WAIT — иначе при районе, который так и не готов, стенд не дошёл бы до сводки
+            if (placingSince < 0) placingSince = s.getTickCount();
+            runWaits();
+            if (pendingTeleports.isEmpty()) {
+                log("игроки на местах, часы сценария идут");
+            } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
+                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
+                log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
+                placingSince = Integer.MAX_VALUE;
+            } else {
+                return;
+            }
         }
         tick++;
         windowSum += took;
@@ -767,6 +1004,7 @@ public final class StressDirector {
                 }
             }
         }
+        runWaits();
         track(s);
         if (tick % 100 == 0) stat(s);
         if (tick % 200 == 0) {
@@ -888,31 +1126,29 @@ public final class StressDirector {
         Runtime rt = Runtime.getRuntime();
         long used = (rt.totalMemory() - rt.freeMemory()) >> 20;
         log("stat t=%d mspt avg %.1f max %.1f | в мире %d вне %d залпов %d подрывов %d | тикеты %s | чанков %d | heap %d МБ | warn %d err %d",
-                tick, windowSum / 1e6 / Math.max(1, windowTicks), windowMax / 1e6, inWorld, virt, salvos, nukes, tickets(s.overworld()),
+                tick, windowSum / 1e6 / Math.max(1, windowTicks), windowMax / 1e6, inWorld, virt, salvos, nukes, tickets(s),
                 s.overworld().getChunkSource().getLoadedChunksCount(), used, warnings, errors);
         windowSum = windowMax = 0;
         windowTicks = 0;
     }
 
-    /** Тикеты мода в верхнем мире по типам (утечка — тикеты, которые остаются, когда всё долетело). */
-    private static String tickets(ServerLevel level) {
+    /**
+     * Тикеты мода во всех мирах по типам (утечка — тикеты, которые остаются, когда всё долетело); не в верхнем мире —
+     * с именем мира впереди.
+     */
+    private static String tickets(MinecraftServer s) {
         Map<String, Integer> byType = new TreeMap<>();
-        try {
-            Field dm = net.minecraft.server.level.ChunkMap.class.getDeclaredField("distanceManager");
-            dm.setAccessible(true);
-            DistanceManager d = (DistanceManager) dm.get(level.getChunkSource().chunkMap);
-            Field tf = DistanceManager.class.getDeclaredField("tickets");
-            tf.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var map = (it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) tf.get(d);
+        for (ServerLevel level : s.getAllLevels()) {
+            DistanceManager d = distanceManager(level);
+            var map = d == null ? null : ticketMap(d);
+            if (map == null) return "?";
+            String prefix = level.dimension() == Level.OVERWORLD ? "" : level.dimension().location().getPath() + "/";
             for (SortedArraySet<Ticket<?>> set : map.values()) {
                 for (Ticket<?> t : set) {
                     String type = t.getType().toString();
-                    if (type.contains("airstrike") || type.contains("neoforge") || type.contains("forced")) byType.merge(type, 1, Integer::sum);
+                    if (type.contains("airstrike") || type.contains("neoforge") || type.contains("forced")) byType.merge(prefix + type, 1, Integer::sum);
                 }
             }
-        } catch (ReflectiveOperationException ex) {
-            return "?";
         }
         return byType.toString();
     }
@@ -986,7 +1222,7 @@ public final class StressDirector {
     private void stopWhenSettled(MinecraftServer s) {
         settlingSince = tick;
         for (ServerPlayer p : List.copyOf(s.getPlayerList().getPlayers())) p.connection.disconnect(Component.literal("Стенд закончен"));
-        log("остановка: игроки отключены, ждём конца генерации чанков");
+        log("завершение: игроки отключены, ждём конца генерации чанков");
     }
 
     private void settle(MinecraftServer s) {
@@ -1023,7 +1259,7 @@ public final class StressDirector {
         int probeShots = groundProbes.stream().mapToInt(pr -> pr.launched).sum();
         log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | ядерных подрывов %d | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d"
                         + " | в том числе пробы до поверхности (с #118): снарядов %d, дальних районов %d",
-                why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s.overworld()),
+                why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors, probeShots, groundProbes.size());
         for (Probe pr : probes) {
             // судим по готовности района к прибытию, а не по замыслу: сервер, вставший на секунды, тиков не считает, а

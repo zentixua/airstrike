@@ -897,27 +897,37 @@ public final class ClientScenario {
     private boolean mapDone;
 
     /**
-     * Видео с борта ракеты (камера снаряда) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
-     * картинка с борта не должна зависеть от того, где стоит игрок; потом — утром, как снимался план трейлера (цель
-     * к востоку). Кадры onboard-dry_*, onboard-wet_*, onboard-dawn_*; в лог — среда камеры и игрока
-     * и сколько частиц перед объективом. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
-     */
-    /**
      * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
+     * Кроме команд: {@code wait:N} — подождать N тиков, {@code shot:имя} — снимок экрана {@code имя_тик.png}.
      */
     private void planCommands() {
-        String[] commands = System.getProperty("airstrike.commands", "").split(";");
-        for (int i = 0; i < commands.length; i++) {
-            String c = commands[i].strip();
-            if (!c.isEmpty()) at(100 + i * 40, () -> cmd(c));
+        int t = 100;
+        for (String item : System.getProperty("airstrike.commands", "").split(";")) {
+            String c = item.strip();
+            if (c.isEmpty()) continue;
+            if (c.startsWith("wait:")) {
+                t += Integer.parseInt(c.substring("wait:".length()).strip());
+            } else if (c.startsWith("shot:")) {
+                shot(t, c.substring("shot:".length()).strip());
+                t += 20;
+            } else {
+                at(t, () -> cmd(c));
+                t += 40;
+            }
         }
-        at(100 + commands.length * 40 + 100, () -> {
+        at(t + 100, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
     }
 
+    /**
+     * Видео с борта ракеты (камера снаряда) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
+     * картинка с борта не должна зависеть от того, где стоит игрок; потом — утром, как снимался план трейлера (цель
+     * к востоку). Кадры onboard-dry_*, onboard-wet_*, onboard-dawn_*; в лог — среда камеры и игрока
+     * и сколько частиц перед объективом. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
+     */
     private void planOnboard() {
         at(40, () -> {
             cmd("time set 6000");
