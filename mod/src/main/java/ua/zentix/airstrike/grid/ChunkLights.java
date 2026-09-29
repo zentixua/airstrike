@@ -179,25 +179,4 @@ public final class ChunkLights {
         }
         return changed;
     }
-
-    /** В секциях есть лампы сети — горящие или погашенные (по палитрам). */
-    static boolean any(LevelChunkSection[] sections) {
-        for (LevelChunkSection section : sections) {
-            if (section != null && !section.hasOnlyAir() && section.maybeHas(s -> GridLights.isLit(s) || GridLights.isUnlit(s))) return true;
-        }
-        return false;
-    }
-
-    /** Секции копии чанка (не из мира): меняются прямо в палитре. Возвращает, сколько ламп переведено. */
-    public static int apply(LevelChunkSection[] sections, boolean dark) {
-        int[] changed = {0};
-        for (LevelChunkSection section : sections) {
-            if (section == null || !needs(section, dark)) continue;
-            scan(section, dark, (x, y, z, to) -> {
-                section.setBlockState(x, y, z, to, false);
-                changed[0]++;
-            });
-        }
-        return changed[0];
-    }
 }

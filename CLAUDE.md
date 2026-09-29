@@ -49,6 +49,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид
     gen_particles.py                     ← текстуры частиц эффектов и факела (numpy + Pillow)
     gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow), не править OBJ руками
+    gen_grid_assets.py                   ← модели и состояния двойников ламп блэкаута из ванильного jar, не править руками
     trailer/record.sh [shaders]          ← трейлер: сценарий клиента trailer снимает планы покадрово в 60 fps
                                            (AIRSTRIKE_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
@@ -360,7 +361,6 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Модели — в настоящую величину (блок = метр); `gen_models.py` строит часть моделей в старых единицах и уменьшает при
   записи (`Model(scale=…)`). Меняя размер, править вместе: шарниры в `WeaponModels`, факелы и сопла в `Exhaust`,
   `SpentBoosterRenderer`, `noseLength()` сущности, размер хитбокса в `ModEntities`, ячейки в `LauncherEntity.railPoint`.
-
 - LOD Distant Horizons чанков вне мира блэкаут не трогает: DH строит их сам (генератор читает файлы регионов, где
   лампы горят), а обновляет по загрузке чанка — тогда квартал гаснет и в LOD. Свет LOD DH считает по светимости
   блоков (`DhLightingEngine`), подмена блока в `DhApiChunkProcessingEvent` его не меняет.

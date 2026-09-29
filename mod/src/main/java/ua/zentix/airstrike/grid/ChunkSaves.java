@@ -68,7 +68,8 @@ public final class ChunkSaves {
                     continue;
                 }
                 PalettedContainer<BlockState> states = section.getStates().copy();
-                ChunkLights.apply(states, false);
+                // палитра помнит и ушедшие состояния: двойник в ней ещё не значит двойник в секции
+                if (ChunkLights.apply(states, false) == 0) continue;
                 s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
                 changed = true;
             }
@@ -96,8 +97,8 @@ public final class ChunkSaves {
         if (e.getType() != ChunkType.LEVELCHUNK || !(e.getChunk() instanceof LevelChunk chunk) || !(e.getLevel() instanceof ServerLevel level)) return;
         PowerGrid grid = PowerGrid.get(level);
         LevelChunkSection[] sections = chunk.getSections();
-        boolean marked = chunk.hasData(ModAttachments.GRID_DARK);
-        if (!marked && grid.outages().isEmpty() && !ChunkLights.anyUnlit(sections)) return;
+        // отметка GRID_DARK не сохраняется: у чанка с диска её нет
+        if (grid.outages().isEmpty() && !ChunkLights.anyUnlit(sections)) return;
         ChunkPos pos = chunk.getPos();
         boolean dark = grid.dark(pos.x, pos.z, level.getGameTime());
         LongArrayList stale = new LongArrayList();
@@ -112,9 +113,12 @@ public final class ChunkSaves {
                 else lit[0]++;
             });
         }
-        if (lit[0] > 0) chunk.setLightCorrect(false);
+        if (lit[0] > 0) {
+            chunk.setLightCorrect(false);
+            // двойники на диске (сохранение без перехвата) — переписать при следующем сохранении
+            chunk.setUnsaved(true);
+        }
         if (!stale.isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD)) BlackoutWorld.get(level).staleLight(pos, stale);
         if (dark && ChunkLights.anyUnlit(sections)) chunk.setData(ModAttachments.GRID_DARK, true);
-        else if (marked) chunk.removeData(ModAttachments.GRID_DARK);
     }
 }

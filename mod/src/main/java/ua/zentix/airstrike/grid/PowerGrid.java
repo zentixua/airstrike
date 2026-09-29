@@ -28,7 +28,10 @@ public final class PowerGrid extends SavedData {
 
     private final Map<Integer, Node> nodes = new LinkedHashMap<>();
     private final List<Outage> outages = new ArrayList<>();
-    /** Докуда (игровое время) каскад отключения уже пройден по чанкам вне загруженного мира: после перезапуска — дальше. */
+    /**
+     * Докуда (игровое время) каскад отключения уже выдан; {@code Long.MAX_VALUE} — пройден весь район и после
+     * перезапуска не повторяется.
+     */
     private final Map<Integer, Long> darkSwept = new LinkedHashMap<>();
     /** То же для возврата света. */
     private final Map<Integer, Long> lightSwept = new LinkedHashMap<>();
@@ -125,7 +128,7 @@ public final class PowerGrid extends SavedData {
      * Забыть отключения, в которые свет вернулся везде: срок вышел и каскад возврата прошёл весь район (иначе
      * загруженные чанки, до которых он не дошёл, остались бы тёмными).
      */
-    public List<Outage> prune(long now) {
+    public void prune(long now) {
         List<Outage> over = outages.stream().filter(o -> o.over(now) && swept(o.id(), true) == Long.MAX_VALUE).toList();
         if (!over.isEmpty()) {
             outages.removeAll(over);
@@ -135,7 +138,6 @@ public final class PowerGrid extends SavedData {
             });
             setDirty();
         }
-        return over;
     }
 
     public long swept(int outage, boolean restore) {
@@ -146,8 +148,6 @@ public final class PowerGrid extends SavedData {
         Long prev = (restore ? lightSwept : darkSwept).put(outage, upTo);
         if (prev == null || prev != upTo) setDirty();
     }
-
-    // ---------------------------------------------------------------- тёмные чанки
 
     // ---------------------------------------------------------------- сохранение
 

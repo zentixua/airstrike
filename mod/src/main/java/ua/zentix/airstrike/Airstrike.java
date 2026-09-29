@@ -2,6 +2,7 @@ package ua.zentix.airstrike;
 
 import com.mojang.logging.LogUtils;
 import net.minecraft.resources.ResourceLocation;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -83,7 +84,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
-        NeoForge.EVENT_BUS.addListener(ChunkSaves::onSave);
+        // первым: чужие слушатели сохранения видят тег уже без двойников
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, ChunkSaves::onSave);
         NeoForge.EVENT_BUS.addListener(ChunkSaves::onLoad);
     }
 

@@ -46,6 +46,8 @@ import net.minecraft.world.level.chunk.storage.ChunkSerializer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.common.util.BlockSnapshot;
+import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -61,6 +63,7 @@ import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.PowerGrid;
 import ua.zentix.airstrike.grid.SubstationBlock;
 import ua.zentix.airstrike.grid.block.Unlit;
+import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
@@ -89,9 +92,12 @@ public final class GridGameTests {
 
     private GridGameTests() {}
 
-    /** Отключения других проверок — на возврат, чтобы они не гасили площадку посреди этой. */
+    /**
+     * Отключения других проверок — свет во всех кварталах сейчас, чтобы они не гасили площадку посреди этой
+     * (с разбросом команды квартал площадки оставался бы тёмным до 10 с — дольше срока иных проверок).
+     */
     private static void quiet(ServerLevel level) {
-        Blackouts.restore(level, null, 0);
+        Blackouts.restore(level, null, 0, 0);
     }
 
     /**
@@ -398,6 +404,87 @@ public final class GridGameTests {
     }
 
     /**
+     * Ядерный удар гасит свой радиус и выбивает подстанции в нём: подстанция не «под током» (не гудит, искрит), пока
+     * свет не вернут; после возврата — лампы прежние, подстанция работает.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "grid_nuke", skyAccess = true)
+    public static void nukeBlacksOutAndKnocksOutSubstations(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        h.setBlock(CENTER, ModBlocks.SUBSTATION.get());
+        Node node = PowerGrid.get(level).nodeAt(h.absolutePos(CENTER));
+        h.assertTrue(node != null && node.block(), "подстанция не стала узлом сети");
+        List<BlockPos> lamps = List.of(new BlockPos(18, 12, 18), new BlockPos(45, 12, 45));
+        for (BlockPos p : lamps) h.setBlock(p, Blocks.LANTERN);
+        // воздушный подрыв в стороне от подстанции (как в ядерных проверках: 15 кт, масштаб 0.1); сам подрыв здесь не нужен
+        BlockPos g = h.absolutePos(CENTER.east(8));
+        Detonation d = new Detonation(2_000_000 + level.random.nextInt(1000), new Vec3(g.getX() + 0.5, g.getY() + 300, g.getZ() + 0.5), g.getY(),
+                15, false, level.getGameTime(), 0, 0, 20_000, 7, 0.1f, false);
+        h.assertTrue(d.radiusMax() > 64, "радиус подрыва " + d.radiusMax() + " не накрывает площадку");
+        Blackouts.nuke(level, d);
+        h.assertTrue(PowerGrid.get(level).downOutage(node.id(), level.getGameTime()).isPresent(), "ядерный удар не выбил подстанцию");
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    h.assertFalse(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция в радиусе подрыва «под током»");
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
+                })
+                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, Vec3.atCenterOf(g), 64) == 2, "возвращать не в двух отключениях"))
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
+                    h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Лампа, поставленная в тёмном квартале, когда каскад уже прошёл, гаснет — по событию постановки (сама по себе
+     * она не погасла бы: каскад по её чанку больше не придёт).
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_placed", skyAccess = true)
+    public static void lampPlacedInDarkDistrictGoesOut(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        BlockPos first = new BlockPos(18, 12, 18), placed = new BlockPos(22, 12, 22);
+        h.setBlock(first, Blocks.LANTERN);
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 1000, -1);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(h.getBlockState(first)), "фонарь " + first + " горит"))
+                .thenExecute(() -> h.setBlock(placed, Blocks.LANTERN))
+                .thenIdle(10)
+                .thenExecute(() -> {
+                    h.assertBlockState(placed, s -> s.is(Blocks.LANTERN), () -> "фонарь погас без события: " + h.getBlockState(placed));
+                    BlockPos abs = h.absolutePos(placed);
+                    Blackouts.onBlockPlaced(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, abs), Blocks.STONE.defaultBlockState(), null));
+                })
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(h.getBlockState(placed)), "поставленный фонарь горит"))
+                .thenSucceed();
+    }
+
+    /**
+     * Перезапуск посреди каскада: очередь блэкаута не сохраняется (несохраняемый attachment мира) — каскад идёт
+     * заново по сохранённой сети, и район гаснет, как без перезапуска.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "grid_restart", skyAccess = true)
+    public static void cascadeResumesAfterRestart(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        List<BlockPos> lamps = List.of(new BlockPos(18, 12, 18), new BlockPos(45, 12, 45));
+        for (BlockPos p : lamps) h.setBlock(p, Blocks.LANTERN);
+        // медленный каскад (10 блоков в секунду); память блэкаута — как у только что загруженного мира
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 0.5, -1);
+        level.setData(ModAttachments.BLACKOUT_WORLD, new BlackoutWorld());
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
+                })
+                .thenExecute(() -> Blackouts.restore(level, null, 0, 0))
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
+                })
+                .thenSucceed();
+    }
+
+    /**
      * Чанк, сохранённый светлым, в тёмном квартале: каскад его не грузит, он гаснет при загрузке — все 19 ламп ровно
      * двойниками, и свет посчитан по погашенным. Свет вернули — при следующей загрузке он горит прежними лампами.
      */
@@ -625,7 +712,7 @@ public final class GridGameTests {
                     h.assertTrue(level.getBlockEntity(chest[0]) instanceof ChestBlockEntity c && ItemStack.matches(c.getItem(4), loot),
                             "сундук после диска: " + level.getBlockEntity(chest[0]));
                     for (var e : biomes.entrySet()) {
-                        h.assertTrue(level.getBiome(e.getKey()).is(e.getValue()), "биом в " + e.getKey() + ": " + level.getBiome(e.getKey()));
+                        h.assertTrue(level.getBiome(e.getKey()).value() == e.getValue().value(), "биом в " + e.getKey() + ": " + level.getBiome(e.getKey()));
                     }
                     chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
@@ -770,11 +857,5 @@ public final class GridGameTests {
         level.getChunkSource().tick(() -> true, false);
         var holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(p.toLong());
         h.assertTrue(holder == null, "чанк не выгрузился: уровень " + (holder == null ? 0 : holder.getTicketLevel()));
-    }
-
-    /** Верх земли в середине чанка (чанк загружен). */
-    private static BlockPos surface(ServerLevel level, ChunkPos p) {
-        int x = p.getMiddleBlockX(), z = p.getMiddleBlockZ();
-        return new BlockPos(x, level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z), z);
     }
 }

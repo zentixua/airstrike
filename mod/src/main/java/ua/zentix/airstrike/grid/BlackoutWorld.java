@@ -31,10 +31,8 @@ import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -172,8 +170,9 @@ public final class BlackoutWorld {
                 for (int n = 0; n < LAMPS_PER_UNIT && !relight.isEmpty(); n++) {
                     BlockPos pos = BlockPos.of(relight.removeFirstLong());
                     boolean plot = SubLevels.isInPlot(level, Vec3.atCenterOf(pos));
-                    // в мире — только при готовых соседях (Sable читает соседей); в плоте чанки держит сам аппарат
-                    if (!plot && (!Terrain.ready(level, pos) || !NuclearTickets.aroundLoaded(level, pos))) {
+                    // чанк готов (иначе getBlockState грузит его сразу); в мире — ещё и соседи (Sable читает соседей),
+                    // в плоте соседние чанки держит сам аппарат
+                    if (!Terrain.ready(level, pos) || !plot && !NuclearTickets.aroundLoaded(level, pos)) {
                         if (inMemory(level, ChunkPos.asLong(pos)) != null) later.add(pos.asLong());
                         continue;
                     }
@@ -303,7 +302,10 @@ public final class BlackoutWorld {
         }
     }
 
-    /** После загрузки мира: каскады отключений, которые ещё идут, — дальше с того места, где остановились. */
+    /**
+     * После загрузки мира: каскады отключений, которые ещё идут, — заново; кварталы, до которых каскад уже дошёл,
+     * выдаются в первом же тике (загруженные чанки переводятся, остальные — при загрузке).
+     */
     private void restore(ServerLevel level, PowerGrid grid, long now) {
         restored = true;
         for (Outage o : grid.outages()) {
@@ -357,7 +359,8 @@ public final class BlackoutWorld {
             grid.swept(s.outage.id(), s.restore, s.done() ? Long.MAX_VALUE : Math.min(now, s.last));
             if (s.done()) {
                 it.remove();
-                Airstrike.LOG.info("Блэкаут №{}: каскад {} прошёл весь район", s.outage.id(), s.restore ? "возврата света" : "отключения");
+                Airstrike.LOG.info("Блэкаут №{} ({}): каскад {} прошёл весь район", s.outage.id(), level.dimension().location(),
+                        s.restore ? "возврата света" : "отключения");
             }
         }
     }
@@ -450,12 +453,5 @@ public final class BlackoutWorld {
     /** Для проверок: пройдены ли все каскады. */
     public boolean idle() {
         return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty();
-    }
-
-    /** Карта для проверок и статуса: у отключения каскад ещё идёт. */
-    public Map<Integer, Boolean> sweeping() {
-        Map<Integer, Boolean> m = new HashMap<>();
-        for (Sweep s : sweeps) m.merge(s.outage.id(), s.restore, (a, b) -> a || b);
-        return m;
     }
 }
