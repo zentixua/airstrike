@@ -440,17 +440,23 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 && Terrain.ready(level, here) && Terrain.ready(level, next);
     }
 
-    /** Вернуться в мир: не ниже рельефа с запасом. Вызывает {@link VirtualFlights}. */
+    /**
+     * Вернуться в мир: не ниже рельефа с запасом — кроме снаряда на пусковой (ушёл вне мира при остановке сервера):
+     * он встаёт обратно на направляющую, место которой проверил {@link ua.zentix.airstrike.strike.LaunchSite}.
+     * Вызывает {@link VirtualFlights}.
+     */
     public void materialize(ServerLevel level) {
         virtual = false;
-        // рельеф под снарядом и впереди на 5 тиков полёта, каждый блок (только готовые чанки): не возникнуть
-        // перед склоном или стеной, которую не успеть перепрыгнуть
-        double[] ahead = new double[(int) Math.max(80, speed * 5)];
-        for (int i = 0; i < ahead.length; i++) ahead[i] = i + 1;
-        double floor = Math.max(surfaceY(level, getX(), getZ()), terrainAhead(level, ahead)) + clearance();
-        if (getY() < floor) {
-            setPos(getX(), floor, getZ());
-            altFilter = floor;
+        if (!flightPhase().onLauncher()) {
+            // рельеф под снарядом и впереди на 5 тиков полёта, каждый блок (только готовые чанки): не возникнуть
+            // перед склоном или стеной, которую не успеть перепрыгнуть
+            double[] ahead = new double[(int) Math.max(80, speed * 5)];
+            for (int i = 0; i < ahead.length; i++) ahead[i] = i + 1;
+            double floor = Math.max(surfaceY(level, getX(), getZ()), terrainAhead(level, ahead)) + clearance();
+            if (getY() < floor) {
+                setPos(getX(), floor, getZ());
+                altFilter = floor;
+            }
         }
         xo = getX();
         yo = getY();
@@ -1031,6 +1037,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         health = tag.contains("health") ? tag.getFloat("health") : -1;
         entityData.set(DATA_PHASE, (byte) FlightPhase.byName(tag.getString("flight_phase")).ordinal());
         phaseStart = age - tag.getInt("phase_age");
+        entityData.set(DATA_HIDDEN, tag.getInt("hidden_ticks"));
         if (tag.contains("tracker")) tracker = TargetTracker.load(tag.getCompound("tracker"));
         if (tag.hasUUID("owner")) entityData.set(DATA_OWNER, Optional.of(tag.getUUID("owner")));
         route = tag.contains("route") ? Route.load(tag.getCompound("route")) : null;
@@ -1055,6 +1062,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         tag.putFloat("health", health);
         tag.putString("flight_phase", flightPhase().getSerializedName());
         tag.putInt("phase_age", phaseAge());
+        tag.putInt("hidden_ticks", entityData.get(DATA_HIDDEN));
         if (tracker != null) tag.put("tracker", tracker.save());
         UUID owner = ownerId();
         if (owner != null) tag.putUUID("owner", owner);

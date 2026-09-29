@@ -17,6 +17,7 @@ import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
+import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -135,6 +136,30 @@ public final class LifecycleGameTests {
                 p.discard();
                 return true;
             });
+            h.succeed();
+        });
+    }
+
+    /**
+     * Остановка сервера, пока снаряд стоит на пусковой в закрытой ячейке: после запуска он возвращается в мир на ту же
+     * направляющую (а не над рельефом, как снаряд в полёте) и по-прежнему скрыт, пока пакет поднимается.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "shutdown_rail", skyAccess = true)
+    public static void parkedLauncherRoundReturnsToRail(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 1, 0);
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.placeOnLauncher(rail, 0, 40, 1000, 200, new Target.Point(rail.add(0, 0, 3000)), rail.add(0, 0, 3000), null);
+        m.setRoute(Route.direct());
+        level.addFreshEntity(m);
+        UUID id = m.getUUID();
+        h.runAfterDelay(3, () -> m.parkForShutdown(level));
+        h.runAfterDelay(8, () -> {
+            h.assertTrue(level.getEntity(id) instanceof StrikeProjectile, "снаряд не вернулся в мир: " + state(level, m));
+            StrikeProjectile back = (StrikeProjectile) level.getEntity(id);
+            h.assertTrue(back != m && back.position().distanceTo(rail) < 1e-6, "снаряд вернулся не на направляющую: " + back.position() + " вместо " + rail);
+            h.assertTrue(back.flightPhase() == FlightPhase.READY && !back.isActive(), "снаряд в закрытой ячейке виден: " + state(level, back));
+            back.discard();
             h.succeed();
         });
     }
