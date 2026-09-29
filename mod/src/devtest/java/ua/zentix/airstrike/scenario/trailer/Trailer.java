@@ -117,6 +117,8 @@ public final class Trailer {
     private Vec3 towerTop = TOWER;
     /** Крыша средней высоты у намеченного места удара шахедов (см. {@link #roofNear}). */
     private Vec3 droneRoof = DOWNTOWN.add(90, 0, 60);
+    /** Площадка для бетонобойной бомбы у южных башен (см. {@link #plazaNear}). */
+    private Vec3 bombPlaza = SOUTH_TOWERS.add(50, 0, -70);
     private Vec3 eastFacade = EAST_TOWER;
     /** Время игры подрыва (-1 — ещё не было). */
     private long detonationTime = -1;
@@ -511,9 +513,8 @@ public final class Trailer {
                 .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b ? b.flightPhase() != FlightPhase.EGRESS
                         : flightNear(WeaponType.BUNKER, bay.get()) instanceof Vec3 f && f.distanceTo(bay.get()) < 500, 3000)
                 .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
-        // место — один раз: после подрыва ground() там — дно воронки, и цель проверки кадров уходила под землю
-        Vec3[] pitAt = {null};
-        Supplier<Vec3> pit = () -> pitAt[0] != null ? pitAt[0] : (pitAt[0] = ground(SOUTH_TOWERS.add(50, 0, -70)));
+        // место найдено заранее (findLocations): ground() после подрыва — дно воронки, и цель проверки уходила под землю
+        Supplier<Vec3> pit = () -> bombPlaza;
         Vec3[] bombAt = {null};
         run(() -> placeHidden(pit.get().add(toPost.scale(120)).add(0, 30, 0), pit.get()));
         shot("bomb_impact").onReady(() -> fire("bunker", pit.get())).hidden().length(320).shake(0.08)
@@ -856,6 +857,7 @@ public final class Trailer {
         // шахед холодного начала и ракета с борта заходят с запада — в западные стены
         towerTop = top(level, TOWER);
         droneRoof = roofNear(level, DOWNTOWN.add(90, 0, 60), 48);
+        bombPlaza = plazaNear(level, SOUTH_TOWERS.add(50, 0, -70), 90, 14);
         northFacade = facade(level, NORTH_TOWER, 120, new Vec3(-1, 0, 0));
         eastFacade = facade(level, EAST_TOWER, 150, new Vec3(-1, 0, 0));
         Airstrike.LOG.info("TRAILER post {} silo {} tower {} facades {} {}", post, silo, towerTop, northFacade, eastFacade);
@@ -927,6 +929,38 @@ public final class Trailer {
         }
         Airstrike.LOG.info("TRAILER крыша для шахедов: {} (улица {})", found, street);
         return found;
+    }
+
+    /**
+     * Открытое место (площадь, стоянка, сквер) ближе всего к точке: в {@code clear} блоках вокруг ничего не выше земли
+     * больше чем на 3 блока. Бомба среди домов рвалась так, что облёт не видел землю под шаром ни с одной дуги (облако, kf4e: 2/9).
+     */
+    private static Vec3 plazaNear(ServerLevel level, Vec3 near, int r, int clear) {
+        int bx = Mth.floor(near.x), bz = Mth.floor(near.z);
+        Vec3 found = null;
+        double best = Double.MAX_VALUE;
+        for (int dx = -r; dx <= r; dx += 3) {
+            for (int dz = -r; dz <= r; dz += 3) {
+                double d = Math.hypot(dx, dz);
+                if (d > r || d >= best) continue;
+                int x = bx + dx, z = bz + dz;
+                int g = height(level, x, z);
+                boolean open = level.getFluidState(new BlockPos(x, g - 1, z)).isEmpty();
+                for (int ox = -clear; ox <= clear && open; ox += 2) {
+                    for (int oz = -clear; oz <= clear && open; oz += 2) {
+                        if (ox * ox + oz * oz > clear * clear) continue;
+                        level.getChunk((x + ox) >> 4, (z + oz) >> 4);
+                        if (level.getHeight(Heightmap.Types.MOTION_BLOCKING, x + ox, z + oz) > g + 3) open = false;
+                    }
+                }
+                if (open) {
+                    best = d;
+                    found = new Vec3(x + 0.5, g, z + 0.5);
+                }
+            }
+        }
+        Airstrike.LOG.info("TRAILER площадка для бомбы: {}", found);
+        return found != null ? found : new Vec3(near.x, height(level, bx, bz), near.z);
     }
 
     /** Самая высокая колонка в 32 блоках от точки (координаты башен по карте высот — с шагом 4 блока): верх её крыши. */

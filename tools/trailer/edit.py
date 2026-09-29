@@ -623,8 +623,12 @@ def trailer_edit(music):
     tl.stop(fade=0.35)
     # тишина: музыки нет, только фон ночного города после шквала
     # подстанция: ракета, дуга, кварталы гаснут от неё вглубь; щелчки кварталов с общего плана не слышны — из ресурсов мода
-    tl.add(Clip("blackout", "mark:gone-1.2", 6.4, sfx=0.9,
-                game=(("mark:gone+1.6", "grid_power_down_1", 0.35), ("mark:gone+3.4", "grid_power_down_2", 0.25))))
+    # удар по подстанции вживую, потом кварталы гаснут втрое быстрее: волна идёт от подстанции 5–17 с (ноутбук, kfcheck4b),
+    # а на 1× за 6,4 с успевала погаснуть лишь стоянка под ней
+    tl.add(Clip("blackout", "mark:gone-1.2", 3.2, sfx=0.9,
+                game=(("mark:gone+1.6", "grid_power_down_1", 0.35),)))
+    tl.add(Clip("blackout", "mark:gone+2.0", 3.2, rate=3.0, sfx=0.3,
+                game=(("mark:gone+3.4", "grid_power_down_2", 0.25),)))
     tl.play(music.b3, (music.b4, None))
     tl.run([
         Clip("siren", 0.4, 3.7),
