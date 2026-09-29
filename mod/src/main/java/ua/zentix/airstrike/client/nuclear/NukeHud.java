@@ -37,7 +37,15 @@ public final class NukeHud {
 
         for (S2C.NukeWarning w : ClientNuclear.warnings()) {
             double left = (w.detonateTime() - now) / 20.0;
-            if (left < 0) continue;
+            if (left < 0) {
+                // отсчёт дошёл до нуля, а подрыва нет: сервер догружает место удара — не держать «0 с» молча
+                if (w.alarm() || w.mine()) {
+                    Component c = Component.translatable("airstrike.nuke.delayed").withStyle(ChatFormatting.GOLD);
+                    g.drawString(font, c, cx - font.width(c) / 2, y, alpha(pulse) | 0xFFFFFF);
+                    y += 12;
+                }
+                continue;
+            }
             String sec = String.format(java.util.Locale.ROOT, "%.0f", Math.ceil(left));
             if (w.alarm()) {
                 big(g, font, Component.translatable("airstrike.nuke.alert").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), cx, y, 1.5f, alpha(pulse));
