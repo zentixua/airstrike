@@ -40,12 +40,27 @@ final class FrameClock {
         }
     }
 
-    /** К следующему кадру игра продвинется на {@code ticks} тиков (при нынешней длине тика клиента). */
+    /** Длина тика, которую сценарий только что попросил у сервера (до клиента она доходит пакетом позже). */
+    private static volatile float requestedMspt = 50;
+
+    static void requestTickRate(float rate) {
+        requestedMspt = 1000f / rate;
+    }
+
+    /**
+     * К следующему кадру игра продвинется на {@code ticks} тиков (при нынешней длине тика клиента). Недобор безопасен
+     * (кадр не снимается, игра доходит до момента на следующем круге), перебор — нет: клиент уходит вперёд кадра,
+     * и кадры до следующего тика стоят. Поэтому длина тика — меньшая из той, что знает клиент, и той, что запрошена
+     * у сервера (пока пакет с новым темпом не дошёл, таймер делит на одну, а мы умножали на другую — в дубле 1 так
+     * клиент обгонял кадр на тик в планах с замедлением), и миллисекунды — с округлением вниз.
+     */
     static void advanceNext(double ticks) {
         Minecraft mc = Minecraft.getInstance();
-        float mspt = Math.max(50f, mc.level == null ? 50f : mc.level.tickRateManager().millisecondsPerTick());
+        boolean normal = mc.level != null && mc.level.tickRateManager().runsNormally();
+        // таймер клиента на стоящем мире считает тик за 50 мс (Minecraft.getTickTargetMillis)
+        float mspt = normal ? Math.max(50f, Math.min(mc.level.tickRateManager().millisecondsPerTick(), requestedMspt)) : 50f;
         try {
-            LAST_MS.setLong(timer(), Util.getMillis() - Math.round(ticks * mspt));
+            LAST_MS.setLong(timer(), Util.getMillis() - (long) Math.floor(ticks * mspt));
         } catch (IllegalAccessException e) {
             throw new IllegalStateException(e);
         }

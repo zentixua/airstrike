@@ -193,16 +193,16 @@ public final class Trailer {
         onServer(this::findLocations);
         waitTicks(5);
 
-        coldOpen();
-        dawn();
-        operator();
-        dayStrikes();
-        fighters();
-        onboard();
-        dusk();
-        night();
-        nuke();
-        morning();
+        part("coldOpen", this::coldOpen);
+        part("dawn", this::dawn);
+        part("operator", this::operator);
+        part("dayStrikes", this::dayStrikes);
+        part("fighters", this::fighters);
+        part("onboard", this::onboard);
+        part("dusk", this::dusk);
+        part("night", this::night);
+        part("nuke", this::nuke);
+        part("morning", this::morning);
 
         run(() -> {
             rec.finish();
@@ -210,6 +210,15 @@ public final class Trailer {
             // съёмочный мир одноразовый, а его сохранение после дальних перелётов (8 км) идёт минутами — выходим сразу
             Runtime.getRuntime().halt(0);
         });
+    }
+
+    /**
+     * Раздел сценария; AIRSTRIKE_TRAILER_PARTS=fighters,onboard — только эти разделы (проверка одного плана без
+     * часа прочих; разделы ставят время суток и места сами, но руины ждут подрыва из раздела nuke).
+     */
+    private static void part(String name, Runnable section) {
+        String only = System.getenv("AIRSTRIKE_TRAILER_PARTS");
+        if (only == null || only.isBlank() || java.util.Arrays.asList(only.split(",")).contains(name)) section.run();
     }
 
     /** Холодное начало: шахед заходит на башню и проносится в паре метров от объектива (дальше — затемнение). */
@@ -1700,6 +1709,7 @@ public final class Trailer {
     private void setTickRate(float rate) {
         if (rate == tickRate) return;
         tickRate = rate;
+        FrameClock.requestTickRate(rate);
         MinecraftServer server = mc.getSingleplayerServer();
         server.execute(() -> server.tickRateManager().setTickRate(rate));
     }

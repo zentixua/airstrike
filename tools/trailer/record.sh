@@ -15,6 +15,7 @@ mkdir -p "$RUN/logs"
 # папка записи: AIRSTRIKE_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
 #   AIRSTRIKE_TRAILER_SHOTS=bomb_bay,targets AIRSTRIKE_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
 #   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
+# только часть сценария (быстрая проверка): AIRSTRIKE_TRAILER_PARTS=fighters,onboard (разделы — Trailer.script)
 # язык игры — AIRSTRIKE_LANG (по умолчанию en_us: ролик только на английском)
 # размытие движения — AIRSTRIKE_SUBFRAMES подкадров на кадр (начисто — 8, проба — 1)
 # проверка перед долгой съёмкой — тот же вид (шейдеры, DH, размер), без размытия и каждый 20-й кадр на диск:
