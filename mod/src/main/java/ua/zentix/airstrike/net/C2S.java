@@ -9,6 +9,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -18,7 +19,6 @@ public final class C2S {
     private C2S() {}
 
     static final StreamCodec<ByteBuf, InteractionHand> HAND = ByteBufCodecs.BOOL.map(b -> b ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND, h -> h == InteractionHand.OFF_HAND);
-    private static final StreamCodec<ByteBuf, Vec3> VEC3 = S2C.VEC3;
 
     /**
      * Что клиент видит под прицелом бинокля. Движущуюся цель клиент и сервер видят чуть по-разному,
@@ -35,7 +35,7 @@ public final class C2S {
             return new AimHint(GROUND, new Vec3(x, 0, z), 0, Vec3.ZERO);
         }
         public static final StreamCodec<ByteBuf, AimHint> CODEC = StreamCodec.composite(
-                ByteBufCodecs.VAR_INT, AimHint::kind, VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId, VEC3, AimHint::plotPos, AimHint::new);
+                ByteBufCodecs.VAR_INT, AimHint::kind, StreamCodecs.VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId, StreamCodecs.VEC3, AimHint::plotPos, AimHint::new);
     }
 
     /**

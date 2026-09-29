@@ -1,5 +1,6 @@
 {
   "values": [
-    "airstrike:nuclear_thermal"
+    "airstrike:nuclear_thermal",
+    "airstrike:player_nuclear_thermal"
   ]
 }

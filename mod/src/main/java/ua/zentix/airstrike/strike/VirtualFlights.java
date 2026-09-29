@@ -11,7 +11,9 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Снаряды, летящие вне загруженного мира: живые объекты сущностей, не добавленные в мир. Каждый тик —
@@ -61,26 +63,45 @@ public final class VirtualFlights extends SavedData {
         return flights;
     }
 
-    public int clear() {
-        int n = flights.size() + pending.size();
-        for (StrikeProjectile p : flights) p.discard();
-        flights.clear();
-        pending.clear();
-        setDirty();
+    /** Сколько снарядов летит вне мира (с прочитанными с диска, но ещё не созданными). */
+    public int size() {
+        return flights.size() + pending.size();
+    }
+
+    /**
+     * Отбой: убрать без взрыва снаряды, подходящие под {@code which}.
+     *
+     * @return сколько убрано
+     */
+    public int clear(ServerLevel level, Predicate<StrikeProjectile> which) {
+        createPending(level);
+        int n = 0;
+        for (Iterator<StrikeProjectile> it = flights.iterator(); it.hasNext(); ) {
+            StrikeProjectile p = it.next();
+            if (!which.test(p)) continue;
+            p.discard();
+            it.remove();
+            n++;
+        }
+        if (n > 0) setDirty();
         return n;
     }
 
-    void tick(ServerLevel level) {
-        if (!pending.isEmpty()) {
-            for (CompoundTag t : pending) {
-                StrikeProjectile p = create(level, t);
-                if (p != null) {
-                    p.markVirtual();
-                    flights.add(p);
-                }
+    /** Создать сущности прочитанных с диска полётов. */
+    private void createPending(ServerLevel level) {
+        if (pending.isEmpty()) return;
+        for (CompoundTag t : pending) {
+            StrikeProjectile p = create(level, t);
+            if (p != null) {
+                p.markVirtual();
+                flights.add(p);
             }
-            pending.clear();
         }
+        pending.clear();
+    }
+
+    void tick(ServerLevel level) {
+        createPending(level);
         if (flights.isEmpty()) return;
         // снимок: вернувшийся в мир снаряд может в том же тике снова уйти (и добавиться сюда)
         List<StrikeProjectile> now = new ArrayList<>(flights);

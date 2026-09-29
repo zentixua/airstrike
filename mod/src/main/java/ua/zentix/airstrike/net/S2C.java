@@ -9,6 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.Yield;
+import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,16 +18,12 @@ import java.util.UUID;
 public final class S2C {
     private S2C() {}
 
-    /** В 1.21.1 у {@code Vec3} нет своего потокового кодека. */
-    static final StreamCodec<ByteBuf, Vec3> VEC3 = StreamCodec.composite(
-            ByteBufCodecs.DOUBLE, Vec3::x, ByteBufCodecs.DOUBLE, Vec3::y, ByteBufCodecs.DOUBLE, Vec3::z, Vec3::new);
-
     /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид. */
     public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed) implements CustomPacketPayload {
         public static final int DRONE = 0, MISSILE = 1, BUNKER = 2, ROCKET = 3;
         public static final Type<Blast> TYPE = new Type<>(Airstrike.id("blast"));
         public static final StreamCodec<ByteBuf, Blast> CODEC = StreamCodec.composite(
-                ByteBufCodecs.VAR_INT, Blast::kind, VEC3, Blast::pos, ByteBufCodecs.VAR_INT, Blast::material,
+                ByteBufCodecs.VAR_INT, Blast::kind, StreamCodecs.VEC3, Blast::pos, ByteBufCodecs.VAR_INT, Blast::material,
                 ByteBufCodecs.FLOAT, Blast::surfaceY, ByteBufCodecs.VAR_LONG, Blast::seed, Blast::new);
 
         @Override
@@ -39,7 +36,7 @@ public final class S2C {
     public record BunkerImpact(Vec3 pos, int material) implements CustomPacketPayload {
         public static final Type<BunkerImpact> TYPE = new Type<>(Airstrike.id("bunker_impact"));
         public static final StreamCodec<ByteBuf, BunkerImpact> CODEC = StreamCodec.composite(
-                VEC3, BunkerImpact::pos, ByteBufCodecs.VAR_INT, BunkerImpact::material, BunkerImpact::new);
+                StreamCodecs.VEC3, BunkerImpact::pos, ByteBufCodecs.VAR_INT, BunkerImpact::material, BunkerImpact::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -51,7 +48,7 @@ public final class S2C {
     public record Vent(Vec3 pos, int material) implements CustomPacketPayload {
         public static final Type<Vent> TYPE = new Type<>(Airstrike.id("vent"));
         public static final StreamCodec<ByteBuf, Vent> CODEC = StreamCodec.composite(
-                VEC3, Vent::pos, ByteBufCodecs.VAR_INT, Vent::material, Vent::new);
+                StreamCodecs.VEC3, Vent::pos, ByteBufCodecs.VAR_INT, Vent::material, Vent::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -63,7 +60,7 @@ public final class S2C {
     public record Collapse(Vec3 pos, int material) implements CustomPacketPayload {
         public static final Type<Collapse> TYPE = new Type<>(Airstrike.id("collapse"));
         public static final StreamCodec<ByteBuf, Collapse> CODEC = StreamCodec.composite(
-                VEC3, Collapse::pos, ByteBufCodecs.VAR_INT, Collapse::material, Collapse::new);
+                StreamCodecs.VEC3, Collapse::pos, ByteBufCodecs.VAR_INT, Collapse::material, Collapse::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -88,7 +85,7 @@ public final class S2C {
         public static final int AIR_RAID = 0, MISSILE = 1;
         public static final Type<Siren> TYPE = new Type<>(Airstrike.id("siren"));
         public static final StreamCodec<ByteBuf, Siren> CODEC = StreamCodec.composite(
-                VEC3, Siren::pos, ByteBufCodecs.VAR_INT, Siren::kind, Siren::new);
+                StreamCodecs.VEC3, Siren::pos, ByteBufCodecs.VAR_INT, Siren::kind, Siren::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -144,7 +141,7 @@ public final class S2C {
             @Override
             public Flight decode(ByteBuf b) {
                 return new Flight(UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
-                        ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readBoolean(),
+                        ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b), StreamCodecs.VEC3.decode(b), b.readBoolean(),
                         ByteBufCodecs.VAR_INT.decode(b), NAME.decode(b), b.readBoolean());
             }
 
@@ -154,8 +151,8 @@ public final class S2C {
                 ByteBufCodecs.VAR_INT.encode(b, f.weapon);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
                 ByteBufCodecs.VAR_INT.encode(b, f.eta);
-                VEC3.encode(b, f.pos);
-                VEC3.encode(b, f.target);
+                StreamCodecs.VEC3.encode(b, f.pos);
+                StreamCodecs.VEC3.encode(b, f.target);
                 b.writeBoolean(f.nuclear);
                 ByteBufCodecs.VAR_INT.encode(b, f.targetKind);
                 NAME.encode(b, f.targetName);
@@ -191,7 +188,7 @@ public final class S2C {
             @Override
             public HeardFlight decode(ByteBuf b) {
                 return new HeardFlight(UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readBoolean(), b.readBoolean(),
-                        VEC3.decode(b), VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readFloat());
+                        StreamCodecs.VEC3.decode(b), StreamCodecs.VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readFloat());
             }
 
             @Override
@@ -200,8 +197,8 @@ public final class S2C {
                 ByteBufCodecs.VAR_INT.encode(b, f.weapon);
                 b.writeBoolean(f.bomber);
                 b.writeBoolean(f.drilling);
-                VEC3.encode(b, f.pos);
-                VEC3.encode(b, f.velocity);
+                StreamCodecs.VEC3.encode(b, f.pos);
+                StreamCodecs.VEC3.encode(b, f.velocity);
                 b.writeFloat(f.yaw);
                 b.writeFloat(f.pitch);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
@@ -222,10 +219,10 @@ public final class S2C {
         }
     }
 
-    /** Отбой: всё убрано без взрыва — заглушить моторы и тревогу. */
-    public record Cleared() implements CustomPacketPayload {
+    /** Отбой: всё убрано без взрыва — заглушить моторы и тревогу; {@code nuclear} — отменены и ядерные удары. */
+    public record Cleared(boolean nuclear) implements CustomPacketPayload {
         public static final Type<Cleared> TYPE = new Type<>(Airstrike.id("cleared"));
-        public static final StreamCodec<ByteBuf, Cleared> CODEC = StreamCodec.unit(new Cleared());
+        public static final StreamCodec<ByteBuf, Cleared> CODEC = ByteBufCodecs.BOOL.map(Cleared::new, Cleared::nuclear);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -251,15 +248,15 @@ public final class S2C {
         public static final StreamCodec<ByteBuf, NukeWarning> CODEC = new StreamCodec<>() {
             @Override
             public NukeWarning decode(ByteBuf b) {
-                return new NukeWarning(ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), VEC3.decode(b), b.readLong(), b.readLong(), b.readDouble(), b.readBoolean(),
+                return new NukeWarning(ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b), StreamCodecs.VEC3.decode(b), b.readLong(), b.readLong(), b.readDouble(), b.readBoolean(),
                         b.readBoolean(), b.readBoolean(), b.readFloat());
             }
 
             @Override
             public void encode(ByteBuf b, NukeWarning w) {
                 ByteBufCodecs.VAR_INT.encode(b, w.strikeId);
-                VEC3.encode(b, w.target);
-                VEC3.encode(b, w.launchPos);
+                StreamCodecs.VEC3.encode(b, w.target);
+                StreamCodecs.VEC3.encode(b, w.launchPos);
                 b.writeLong(w.launchTime);
                 b.writeLong(w.detonateTime);
                 b.writeDouble(w.yieldKt);

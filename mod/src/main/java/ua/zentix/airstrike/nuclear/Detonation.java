@@ -11,6 +11,7 @@ import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.FalloutModel;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
+import ua.zentix.airstrike.util.StreamCodecs;
 import ua.zentix.airstrike.util.Terrain;
 
 /**
@@ -50,20 +51,17 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
             Codec.BOOL.fieldOf("fallout").forGetter(Detonation::fallout)
     ).apply(i, Detonation::new));
 
-    private static final StreamCodec<ByteBuf, Vec3> VEC3 = StreamCodec.composite(
-            ByteBufCodecs.DOUBLE, Vec3::x, ByteBufCodecs.DOUBLE, Vec3::y, ByteBufCodecs.DOUBLE, Vec3::z, Vec3::new);
-
     public static final StreamCodec<ByteBuf, Detonation> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public Detonation decode(ByteBuf b) {
-            return new Detonation(ByteBufCodecs.VAR_INT.decode(b), VEC3.decode(b), b.readDouble(), b.readDouble(), b.readBoolean(),
+            return new Detonation(ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b), b.readDouble(), b.readDouble(), b.readBoolean(),
                     b.readLong(), b.readFloat(), b.readFloat(), b.readFloat(), b.readLong(), b.readFloat(), b.readBoolean());
         }
 
         @Override
         public void encode(ByteBuf b, Detonation d) {
             ByteBufCodecs.VAR_INT.encode(b, d.id);
-            VEC3.encode(b, d.burst);
+            StreamCodecs.VEC3.encode(b, d.burst);
             b.writeDouble(d.groundY);
             b.writeDouble(d.yieldKt);
             b.writeBoolean(d.surface);
