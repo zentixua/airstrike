@@ -26,6 +26,7 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.strike.SalvoData;
@@ -73,6 +74,8 @@ public final class StressDirector {
         Vec3 pos;
         Vec3 aim;
         boolean virtual;
+        /** Полёт РСЗО вне мира сейчас растянут (темп времени траектории меньше 1). */
+        boolean stretched;
         int seen;
         /** Сам объект: сущность в чанке, который не выдаётся (граница загрузки), в переборе не видна, но жива. */
         StrikeProjectile ref;
@@ -526,6 +529,15 @@ public final class StressDirector {
             w.seen = tick;
             // путь бетонобойных бомб целиком и всех снарядов вне мира: вне мира пропадали бомба (в 375 блоках от цели)
             // и ракеты РСЗО (под миром) — VPS, 29.09.2026
+            // растяжение полёта РСЗО вне мира (район цели не готов): начало и конец — отдельной строкой
+            if (en.getValue() instanceof RocketEntity r) {
+                boolean stretched = r.timeRate() < 0.999;
+                if (stretched != w.stretched) {
+                    log("растяжение %s %s: %s, темп %.2f, у %d %d %d, до цели %.0f", w.type, en.getKey(), stretched ? "началось" : "кончилось",
+                            r.timeRate(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.pos.distanceTo(w.aim));
+                    w.stretched = stretched;
+                }
+            }
             if ((w.virtual || "bunker_buster".equals(w.type)) && tick % 10 == 0) {
                 log("путь %s %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
                         w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
