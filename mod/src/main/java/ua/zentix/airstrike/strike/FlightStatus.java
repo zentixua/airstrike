@@ -6,7 +6,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import ua.zentix.airstrike.compat.SubLevels;
@@ -38,8 +37,7 @@ public final class FlightStatus {
         if (server.getTickCount() % PERIOD != 0) return;
         Map<UUID, List<S2C.Flight>> byOwner = new HashMap<>();
         for (ServerLevel level : server.getAllLevels()) {
-            for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true)) collect(byOwner, p);
-            for (StrikeProjectile p : VirtualFlights.get(level).flights()) collect(byOwner, p);
+            for (StrikeProjectile p : StrikeWorld.projectiles(level)) collect(byOwner, p);
         }
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             List<S2C.Flight> flights = byOwner.get(p.getUUID());

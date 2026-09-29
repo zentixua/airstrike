@@ -21,6 +21,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Local;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -66,6 +67,11 @@ public class LauncherEntity extends Entity {
     @Nullable
     public UUID ownerId() {
         return entityData.get(DATA_OWNER).orElse(null);
+    }
+
+    /** Снаряд этой пусковой: того же оружия и того же владельца (пусковая одна на игрока и оружие рядом с ним). */
+    public boolean serves(StrikeProjectile p) {
+        return p.weapon() == weapon() && Objects.equals(p.ownerId(), ownerId());
     }
 
     public long deployedAt() {

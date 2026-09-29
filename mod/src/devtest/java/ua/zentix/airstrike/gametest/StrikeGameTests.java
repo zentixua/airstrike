@@ -30,6 +30,8 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.SalvoData;
+import ua.zentix.airstrike.strike.ServerActions;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -229,7 +231,7 @@ public final class StrikeGameTests {
             h.assertTrue(step.length() > 1 && f.velocity().distanceTo(step) < 1.0e-6, "скорость " + f.velocity() + ", а сдвиг за тик " + step);
             h.assertTrue(ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(1000, 0, 0), null).isEmpty(), "слышно за 1000 блоков");
             // не долетать: в партии теста больше никого, а снаряд, упавший после конца теста, упал бы на чужую площадку
-            VirtualFlights.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> true);
             h.succeed();
         });
     }
@@ -666,6 +668,106 @@ public final class StrikeGameTests {
             h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.stream().map(p -> p.flightPhase() + " " + h.relativeVec(p.position())
                     + " возраст " + p.age() + " до цели " + (int) p.position().distanceTo(p.aimPoint())).toList());
         });
+    }
+
+    /**
+     * Ядерных залпов нет: приказ от консоли с ядерной БЧ на ракете — одна ракета, а не залп (как у игрока), и снаряды
+     * залпа ядерной БЧ не несут, даже если она попала в залп.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "salvo_nuke", skyAccess = true)
+    public static void salvoNeverCarriesNuke(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // далеко за площадкой: до конца теста никто не долетит
+        Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
+        Loadout.Nuke nuke = new Loadout.Nuke(15, true, true);
+        ServerActions.Aim aim = new ServerActions.Aim(new Target.Point(far), far, null);
+        // свои снаряды — по точке цели (в мире теста могут лететь и чужие)
+        java.util.function.Predicate<StrikeProjectile> ours = p -> p.aimPoint().distanceTo(far) < 40;
+        h.assertTrue(ServerActions.dispatch(level, "GameTest", 0, WeaponType.MISSILE, 5, 20, aim, nuke), "пуск от консоли не прошёл");
+        h.assertTrue(SalvoData.get(level).size() == 0, "ядерный приказ стал залпом");
+        boolean carriers = ua.zentix.airstrike.AirstrikeConfig.SERVER.carrierNukes.get();
+        List<StrikeProjectile> single = VirtualFlights.get(level).flights().stream().filter(ours).toList();
+        h.assertTrue(single.size() == 1 && single.getFirst().isNuclear() == carriers,
+                "не одна ракета с ядерной БЧ: " + single.stream().map(StrikeProjectile::isNuclear).toList());
+        VirtualFlights.get(level).clear(level, ours);
+        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke);
+        h.runAfterDelay(3, () -> {
+            List<StrikeProjectile> fired = VirtualFlights.get(level).flights().stream().filter(ours).toList();
+            h.assertTrue(!fired.isEmpty() && fired.stream().noneMatch(StrikeProjectile::isNuclear),
+                    "снаряды залпа: " + fired.stream().map(StrikeProjectile::isNuclear).toList());
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, ours);
+            h.succeed();
+        });
+    }
+
+    /**
+     * Предел ударов у игрока ({@code max_active_per_player}) считает всё его в работе: невыпущенные снаряды залпа,
+     * снаряды в мире и вне его; чужие — нет. Выпущенный снаряд залпа переходит из одного в другое, итог тот же.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "active_count", skyAccess = true)
+    public static void activeShotsCountEverythingOfOwner(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        java.util.UUID owner = java.util.UUID.randomUUID(), other = java.util.UUID.randomUUID();
+        Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 1, 0);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT);
+        CruiseMissileEntity onRail = ModEntities.CRUISE_MISSILE.get().create(level);
+        onRail.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(far), far, owner);
+        onRail.setRoute(Route.direct());
+        level.addFreshEntity(onRail);
+        for (java.util.UUID id : List.of(owner, other)) {
+            CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+            m.launch(far.add(0, 60, 2000), new Target.Point(far), far, id);
+            m.setRoute(Route.direct());
+            VirtualFlights.launch(level, m);
+        }
+        h.assertTrue(StrikeWorld.active(level.getServer(), owner) == 7, "в работе: " + StrikeWorld.active(level.getServer(), owner));
+        h.runAfterDelay(3, () -> {
+            h.assertTrue(SalvoData.get(level).remaining(owner) < 5, "залп не выпустил ни одного снаряда");
+            h.assertTrue(StrikeWorld.active(level.getServer(), owner) == 7, "после пуска из залпа: " + StrikeWorld.active(level.getServer(), owner));
+            h.assertTrue(StrikeWorld.active(level.getServer(), other) == 1, "у другого игрока: " + StrikeWorld.active(level.getServer(), other));
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()) || other.equals(p.ownerId()));
+            onRail.discard();
+            h.succeed();
+        });
+    }
+
+    /**
+     * Ударная волна выбивает стёкла и листву в своём кубе, по секциям чанков: каждый такой блок внутри (и на
+     * стыках секций), ни одного снаружи и ничего другого.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void shatterBreaksGlassAndLeavesInBox(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER.above(8));
+        // по углам и серединам куба 2r+1 — точки в разных секциях; снаружи — на блок за краем
+        int r = 9;
+        List<BlockPos> inside = new java.util.ArrayList<>();
+        for (int dx : new int[]{-r, 0, r}) {
+            for (int dy : new int[]{-3, 0, 5}) {
+                for (int dz : new int[]{-r, 0, r}) {
+                    if (dx != 0 || dy != 0 || dz != 0) inside.add(c.offset(dx, dy, dz));
+                }
+            }
+        }
+        List<BlockPos> outside = List.of(c.offset(r + 1, 0, 0), c.offset(0, 6, 0), c.offset(0, -4, -r - 1));
+        for (int i = 0; i < inside.size(); i++) level.setBlock(inside.get(i), (i % 2 == 0 ? Blocks.GLASS : Blocks.GLASS_PANE).defaultBlockState(), 3);
+        for (BlockPos p : outside) level.setBlock(p, Blocks.GLASS.defaultBlockState(), 3);
+        BlockPos leaves = c.offset(2, 1, -2), stone = c.offset(-2, 1, 2);
+        level.setBlock(leaves, Blocks.OAK_LEAVES.defaultBlockState(), 3);
+        level.setBlock(stone, Blocks.STONE.defaultBlockState(), 3);
+        Vec3 centre = Vec3.atCenterOf(c);
+        int glass = Warheads.shatter(level, centre, r, 3, 5, ua.zentix.airstrike.registry.ModTags.SHATTERS);
+        h.assertTrue(glass == inside.size(), "выбито стёкол " + glass + " из " + inside.size());
+        for (BlockPos p : inside) h.assertTrue(level.getBlockState(p).isAir(), "стекло осталось в " + h.relativePos(p));
+        for (BlockPos p : outside) h.assertTrue(level.getBlockState(p).is(Blocks.GLASS), "выбито стекло за краем в " + h.relativePos(p));
+        h.assertTrue(level.getBlockState(leaves).is(Blocks.OAK_LEAVES) && level.getBlockState(stone).is(Blocks.STONE), "волна по стёклам тронула не стекло");
+        h.assertTrue(Warheads.shatter(level, centre, r, 3, 5, net.minecraft.tags.BlockTags.LEAVES) == 1 && level.getBlockState(leaves).isAir(),
+                "листва не выбита");
+        h.assertTrue(level.getBlockState(stone).is(Blocks.STONE), "волна по листве тронула камень");
+        h.succeed();
     }
 
     @GameTest(template = "range", timeoutTicks = 20)

@@ -60,11 +60,11 @@ public final class StrikeService {
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
      * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)
-     * @param nuke        мощность и подрыв ядерной боеголовки
-     * @param carrierNuke ядерная БЧ на крылатой ракете или бомбе (МБР — всегда ядерная)
+     * @param nuke        мощность и подрыв ядерной боеголовки; у крылатой ракеты и бомбы — только с {@code onCarrier}
+     *                    (МБР — всегда ядерная)
      */
     public static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
-                                @Nullable UUID owner, boolean siren, Loadout.Nuke nuke, boolean carrierNuke) {
+                                @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (shooter != null && shooter.level() != level) shooter = null;
         if (weapon == WeaponType.NUKE) {
@@ -74,7 +74,7 @@ public final class StrikeService {
                     : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
             return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
         }
-        Loadout.Nuke warhead = carrierNuke && Loadout.carriesNuke(weapon) ? nuke : null;
+        Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (weapon) {
             case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);

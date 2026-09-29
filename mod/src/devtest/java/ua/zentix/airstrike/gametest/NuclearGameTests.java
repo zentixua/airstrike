@@ -19,7 +19,10 @@ import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -33,8 +36,15 @@ import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.nuclear.world.ThermalShadow;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.strike.ServerActions;
+import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.target.Target;
 
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -512,5 +522,64 @@ public final class NuclearGameTests {
         h.assertTrue(icbm.getX() > launcher.x + 25, "ракета стартовала не позади: " + icbm.position());
         double startY = icbm.getY();
         h.succeedWhen(() -> h.assertTrue(icbm.isRemoved() || icbm.getY() > startY + 40, "ракета не набирает высоту: " + icbm.getY()));
+    }
+
+    /**
+     * Обычный отбой (у кого нет права на ядерное оружие) не отменяет ядерных ударов: МБР и её таймер, ракета с ядерной
+     * БЧ на пусковой и вне мира остаются, обычные ракеты убраны. Ядерный отбой убирает всё.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_clear", skyAccess = true)
+    public static void conventionalClearKeepsNuclearStrikes(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 launcher = Vec3.atBottomCenterOf(h.absolutePos(CENTER.west(28)));
+        Vec3 target = launcher.add(-500, 0, 0);
+        h.assertTrue(NuclearStrikes.launchFrom(level, target, 15, true, launcher, 90, null), "пуск МБР не прошёл");
+        IcbmEntity icbm = level.getEntitiesOfClass(IcbmEntity.class, new net.minecraft.world.phys.AABB(launcher, launcher).inflate(64)).getFirst();
+        Loadout.Nuke warhead = new Loadout.Nuke(15, true, true);
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
+        CruiseMissileEntity nuclearOnRail = onRail(level, rail, target, warhead);
+        CruiseMissileEntity conventionalOnRail = onRail(level, rail.add(0, 0, 4), target, null);
+        CruiseMissileEntity nuclearVirtual = virtual(level, target.add(0, 60, 2000), target, warhead);
+        CruiseMissileEntity conventionalVirtual = virtual(level, target.add(0, 60, -2000), target, null);
+        LauncherEntity missileLauncher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, null);
+        LauncherEntity droneLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.DRONE, null);
+        level.addFreshEntity(missileLauncher);
+        level.addFreshEntity(droneLauncher);
+
+        ServerActions.clearAll(level.getServer(), false);
+        h.assertFalse(missileLauncher.isRemoved(), "обычный отбой убрал пусковую из-под ракеты с ядерной БЧ");
+        h.assertTrue(droneLauncher.isRemoved(), "обычный отбой не убрал пустую пусковую");
+        h.assertTrue(!icbm.isRemoved() && NuclearEvents.get(level).scheduled().size() == 1, "обычный отбой отменил МБР");
+        h.assertFalse(nuclearOnRail.isRemoved(), "обычный отбой убрал ракету с ядерной БЧ");
+        h.assertTrue(VirtualFlights.get(level).flights().contains(nuclearVirtual), "обычный отбой убрал ядерную ракету вне мира");
+        h.assertTrue(conventionalOnRail.isRemoved() && conventionalVirtual.isRemoved()
+                && !VirtualFlights.get(level).flights().contains(conventionalVirtual), "обычный отбой не убрал обычные ракеты");
+
+        ServerActions.clearAll(level.getServer(), true);
+        h.assertTrue(icbm.isRemoved() && NuclearEvents.get(level).scheduled().isEmpty(), "ядерный отбой не отменил МБР");
+        h.assertTrue(nuclearOnRail.isRemoved() && nuclearVirtual.isRemoved() && VirtualFlights.get(level).flights().isEmpty(),
+                "ядерный отбой не убрал ракеты с ядерной БЧ");
+        h.assertTrue(missileLauncher.isRemoved(), "ядерный отбой не убрал пусковую");
+        h.succeed();
+    }
+
+    /** Крылатая ракета на направляющей: стоит до поджига. */
+    private static CruiseMissileEntity onRail(ServerLevel level, Vec3 rail, Vec3 target, @Nullable Loadout.Nuke warhead) {
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(target), target, null);
+        m.setRoute(Route.direct());
+        m.setNuclear(warhead);
+        level.addFreshEntity(m);
+        return m;
+    }
+
+    /** Крылатая ракета в полёте вне мира. */
+    private static CruiseMissileEntity virtual(ServerLevel level, Vec3 start, Vec3 target, @Nullable Loadout.Nuke warhead) {
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.launch(start, new Target.Point(target), target, null);
+        m.setRoute(Route.direct());
+        m.setNuclear(warhead);
+        VirtualFlights.launch(level, m);
+        return m;
     }
 }
