@@ -17,8 +17,11 @@ import java.util.UUID;
  * дальние слушатели ещё какое-то время слышат мотор.
  */
 final class SourceTrack implements Acoustics.Path {
-    /** Тиков истории: звук с самого дальнего слышимого снаряда (ступень МБР, 1580 блоков) идёт до уха ~92 тика. */
-    private static final int CAPACITY = 128;
+    /**
+     * Тиков истории: звук с самого дальнего слышимого снаряда (свист крылатой ракеты, {@link ua.zentix.airstrike.strike.Hearing#WHISTLE} + FADE =
+     * 3080 блоков) идёт до уха ~180 тиков.
+     */
+    private static final int CAPACITY = 256;
     /** Разрыв в данных длиннее — это уже другой полёт в поле слуха: история начинается заново. */
     private static final int MAX_GAP = 8;
 

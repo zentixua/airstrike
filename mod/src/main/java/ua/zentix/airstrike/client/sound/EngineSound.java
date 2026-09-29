@@ -110,7 +110,7 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     // WHISTLE_DROP блоках до цели; кроме того рвёт воздух над тем, мимо кого она проходит: слышно, пока
                     // идёт на слушателя, и тон падает при пролёте
                     double wd = e.aimDistance();
-                    double attack = launched(phase) && e.towardAim() && approaching ? Acoustics.gain(d, 110, 0, Hearing.JET) : 0;
+                    double attack = launched(phase) && e.towardAim() && approaching ? Acoustics.gain(d, 110, 0, Hearing.WHISTLE) : 0;
                     double flyby = launched(phase) ? Acoustics.airflow(d, v.length(), e.radial(), 40, 4, Hearing.AIRFLOW) * 0.6 : 0;
                     gain = Math.max(attack, flyby);
                     double attackPitch = (0.6 + 1.4 * Math.min(1, wd / WHISTLE_DROP)) * Math.sqrt(dop);

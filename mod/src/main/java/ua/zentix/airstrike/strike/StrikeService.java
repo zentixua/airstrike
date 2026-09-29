@@ -276,9 +276,8 @@ public final class StrikeService {
     private static StrikeProjectile launchBomber(ServerLevel level, Vec3 point, float yaw, @Nullable UUID owner) {
         double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
         int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
-        // высота поверхности — только из готового чанка (иначе по высоте цели): чанк ради пуска не грузим
-        double sy = Terrain.ready(level, new BlockPos(sx, 0, sz))
-                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz) : Math.floor(point.y) + 1;
+        // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней
+        double sy = Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
         BlockPos goal = surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
