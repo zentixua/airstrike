@@ -32,6 +32,7 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -206,6 +207,12 @@ public final class StressDirector {
         /** Тик постановки пробы: сколько грузился чанк стойки. */
         int setupTick;
         boolean raised;
+        /** B-2 с боевого пуска, перенацеленный вне мира на точку позади себя (#107/#108): заход снова и сброс. */
+        boolean b2Behind;
+        boolean retargeted;
+        int bombs;
+        /** Попадания бомб: от цели по горизонтали (ранний сброс или сброс не с эшелона — бомба далеко от точки). */
+        final List<Double> impactOff = new ArrayList<>();
 
         GroundProbe(String name, String how, Vec3 center, boolean steering, boolean mustGround) {
             this.name = name;
@@ -377,6 +384,7 @@ public final class StressDirector {
             at(3520, "РСЗО по цели ниже рельефа", s -> groundDeep(s, "deep-rocket", WeaponType.ROCKET, 10, 1100, -1300));
             at(3540, "ракеты по цели ниже рельефа", s -> groundDeep(s, "deep-missile", WeaponType.MISSILE, 5, -1600, -300));
             at(3560, "ракеты по цели, которая поднимется", s -> groundRising(s, "rising-aim", 1500, 1500));
+            at(3580, "B-2 с перенацеливанием на точку позади, вне мира", s -> groundB2Behind(s, "b2-behind", 2600, -2400));
         }
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
         if (RESTART) {
@@ -657,10 +665,27 @@ public final class StressDirector {
         log("проба %s: цель-стойка у %d %d, ждём загрузки её чанка", name, x, z);
     }
 
+    /**
+     * B-2 боевым пуском издалека (вне мира, вдали от игроков); когда он вне мира в 400–1000 блоках от точки, его
+     * перенацеливают на точку в 60 блоках позади себя, ближе дальности сброса (как GameTest
+     * bomberRetargetedJustBehindHitsOnReattack): он уходит, заходит снова и сбрасывает — бомба у точки, не раньше.
+     */
+    private void groundB2Behind(MinecraftServer s, String name, int x, int z) {
+        ServerLevel level = s.overworld();
+        Target.Ground aim = Target.Ground.at(level, x + 0.5, z + 0.5);
+        GroundProbe pr = new GroundProbe(name, "боевой пуск B-2 издалека (dispatch), перенацеливание вне мира на 60 блоков позади", aim.pos(), true, false);
+        pr.b2Behind = true;
+        groundProbes.add(pr);
+        log("проба %s: B-2 по %d %d %d", name, x, (int) aim.pos().y, z);
+        ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + name, 0, WeaponType.BUNKER, 1, 0,
+                new ua.zentix.airstrike.strike.ServerActions.Aim(aim, aim.pos(), null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+    }
+
     /** Стойка пробы — когда её чанк готов; подъём — когда ракета вне мира в 300–1000 блоках от неё. */
     private void tickGroundProbes(MinecraftServer s) {
         ServerLevel level = s.overworld();
         for (GroundProbe pr : groundProbes) {
+            if (pr.b2Behind && !pr.retargeted) retargetBehind(level, pr);
             if (pr.forced == null) continue;
             BlockPos c = BlockPos.containing(pr.center);
             if (pr.stand == null && Terrain.ready(level, c) && level.isPositionEntityTicking(c)) {
@@ -696,6 +721,27 @@ public final class StressDirector {
                     break;
                 }
             }
+        }
+    }
+
+    private void retargetBehind(ServerLevel level, GroundProbe pr) {
+        for (Watch w : watched.values()) {
+            if (w.ground != pr || !(w.ref instanceof BomberEntity b) || !w.virtual || b.hasReleased()) continue;
+            Vec3 to = new Vec3(w.aim.x - w.pos.x, 0, w.aim.z - w.pos.z);
+            double d = to.length();
+            if (d < 400 || d > 1000) continue;
+            Vec3 back = w.pos.subtract(to.scale(60 / d));
+            Target.Ground behind = Target.Ground.at(level, back.x, back.z);
+            if (!b.retarget(behind, behind.pos())) {
+                problems.add("проба-поверхность " + pr.name + ": B-2 не принял перенацеливание");
+                pr.retargeted = true;
+                return;
+            }
+            pr.retargeted = true;
+            pr.center = behind.pos();
+            log("проба %s: B-2 вне мира в %.0f блоках от точки перенацелен на %d %d %d (60 блоков позади)", pr.name, d,
+                    (int) behind.pos().x, (int) behind.pos().y, (int) behind.pos().z);
+            return;
         }
     }
 
@@ -1049,6 +1095,7 @@ public final class StressDirector {
                 w.ground = groundProbeFor(w.aim);
                 if (w.ground != null) {
                     w.ground.launched++;
+                    if ("bunker_buster".equals(w.type)) w.ground.bombs++;
                 }
                 if (en.getValue() instanceof RocketEntity && w.ground == null) {
                     w.probe = probeFor(w.aim);
@@ -1119,7 +1166,10 @@ public final class StressDirector {
             }
             outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
             if (w.probe != null) w.probe.outcomes.merge(outcome, 1, Integer::sum);
-            if (w.ground != null) w.ground.outcomes.merge(outcome, 1, Integer::sum);
+            if (w.ground != null) {
+                w.ground.outcomes.merge(outcome, 1, Integer::sum);
+                if ("impact".equals(outcome) && "bunker_buster".equals(w.type)) w.ground.impactOff.add(Math.hypot(end.x - w.aim.x, end.z - w.aim.z));
+            }
         }
         blastsThisTick.clear();
     }
@@ -1328,9 +1378,17 @@ public final class StressDirector {
                     fails.add(String.format(Locale.ROOT, "до поверхности не по курсу от точки сброса: вперёд %.0f, вбок %.0f", ahead, side));
             }
         }
+        double impactMax = pr.impactOff.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        if (pr.b2Behind) {
+            if (!pr.retargeted) fails.add("B-2 не застали вне мира в 400–1000 блоках от точки — перенацеливания не было");
+            else if (pr.bombs == 0) fails.add("бомба не сброшена");
+            if (impactMax > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "бомба попала в %.0f блоках от точки (> %.0f)", impactMax, GROUND_OFF_LIMIT));
+        }
         log("проба-поверхность %s (%s): пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
-                        + "не дождались загрузки %d, вне мира застали %d, итоги %s — %s",
-                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(), pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+                        + "не дождались загрузки %d, вне мира застали %d%s, итоги %s — %s",
+                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(),
+                pr.b2Behind ? String.format(Locale.ROOT, ", бомб %d, попадания бомб от точки: наибольшее %.0f", pr.bombs, impactMax) : "",
+                pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
