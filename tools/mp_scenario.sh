@@ -46,11 +46,12 @@ json.dump([{"uuid": offline("Alpha"), "name": "Alpha", "level": 4, "bypassesPlay
 PY
 
 cd "$MOD"
-# каталог, ник и сценарий клиента Gradle читает при подготовке (-P и окружение), у каждого клиента свой скрипт
-./gradlew --console=plain -q rigLaunch -PrigRun=runServer -PserverDir=run/mp-server -PrigOut=mp-server
+# каталог, ник и сценарий клиента Gradle читает при подготовке (-P и окружение), у каждого клиента свой скрипт;
+# --no-daemon: без живого Gradle после подготовки, даже если ~/.gradle/gradle.properties или GRADLE_OPTS включают демона
+./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runServer -PserverDir=run/mp-server -PrigOut=mp-server
 for c in "Alpha mp-a" "Bravo mp-b"; do
   read -r name dir <<< "$c"
-  AIRSTRIKE_SCENARIO=$dir ./gradlew --console=plain -q rigLaunch -PrigRun=runClientScenario \
+  AIRSTRIKE_SCENARIO=$dir ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runClientScenario \
     -PscenarioDir="run/$dir" -PscenarioUser="$name" -PrigOut="$dir"
 done
 RIG="$MOD/build/rig"

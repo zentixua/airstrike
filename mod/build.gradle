@@ -191,8 +191,11 @@ tasks.matching { it.name.startsWith('run') && it.hasProperty('gameDirectory') }.
 tasks.register('rigLaunch') {
     def runName = project.findProperty('rigRun')
     def out = project.findProperty('rigOut')
-    onlyIf { runName && out }
     if (runName) dependsOn { tasks.named(runName as String).get().taskDependencies }
+    doFirst {
+        // без имени скрипта остался бы прежний build/rig/<имя>.sh, и скрипт проверки запустил бы устаревший запуск
+        if (!runName || !out) throw new GradleException('rigLaunch needs -PrigRun and -PrigOut')
+    }
     doLast {
         def run = tasks.named(runName as String).get()
         File dir = layout.buildDirectory.dir('rig').get().asFile
@@ -202,7 +205,7 @@ tasks.register('rigLaunch') {
             if (!arg.startsWith('@')) return arg
             File src = file(arg.substring(1))
             File copy = new File(dir, "${out}-${src.name}")
-            copy.text = src.text
+            copy.bytes = src.bytes
             return '@' + copy.absolutePath
         }
         List<String> cmd = [run.javaLauncher.get().executablePath.asFile.absolutePath]

@@ -28,12 +28,13 @@ cd "$ROOT/mod"
 export AIRSTRIKE_STRESS_PORT="${AIRSTRIKE_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
 CLIENTS=("Host host" "Friend1 leaver" "Friend2 friend")
 
-# настройки запусков (имя и роль клиента, порт, режим режиссёра) Gradle читает из окружения при подготовке
-AIRSTRIKE_STRESS="${AIRSTRIKE_STRESS:-run}" ./gradlew --console=plain -q rigLaunch -PrigRun=runStressServer -PrigOut=stress-server "${MODS_ARG[@]}"
+# настройки запусков (имя и роль клиента, порт, режим режиссёра) Gradle читает из окружения при подготовке;
+# --no-daemon: без живого Gradle после подготовки, даже если ~/.gradle/gradle.properties или GRADLE_OPTS включают демона
+AIRSTRIKE_STRESS="${AIRSTRIKE_STRESS:-run}" ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressServer -PrigOut=stress-server "${MODS_ARG[@]}"
 for c in "${CLIENTS[@]}"; do
   read -r name role <<< "$c"
   AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role \
-    ./gradlew --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
+    ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
 done
 RIG="$ROOT/mod/build/rig"
 rm -rf "$RUN/server/world" "$RUN/server/logs"
@@ -99,11 +100,10 @@ OPT
   fi
   pids+=("$!")
 }
-client Host
-sleep 20
-client Friend1
-sleep 20
-client Friend2
+for i in "${!CLIENTS[@]}"; do
+  [ "$i" -gt 0 ] && sleep 20
+  client "${CLIENTS[$i]%% *}"
+done
 
 wait "$server" || true
 sleep 30
