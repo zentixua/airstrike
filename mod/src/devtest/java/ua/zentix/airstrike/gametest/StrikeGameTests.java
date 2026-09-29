@@ -204,8 +204,8 @@ public final class StrikeGameTests {
 
     /**
      * Звук снаряда вне мира: снаряд РСЗО летит «виртуально» в 600 блоках от цели — слушатель в 150 блоках от него
-     * получает его путь (фаза, где он, сколько до цели), в 1000 блоках — нет: снаряд вне загруженного мира слышно
-     * так же, как в мире, и не дальше, чем его слышно.
+     * получает его путь (фаза, где он, скорость — его сдвиг за тик, сколько до цели), в 1000 блоках — нет: снаряд
+     * вне загруженного мира слышно так же, как в мире, и не дальше, чем его слышно.
      */
     @GameTest(template = "runway", timeoutTicks = 100, batch = "heard", skyAccess = true)
     public static void virtualFlightIsHeardOnlyInRange(GameTestHelper h) {
@@ -214,6 +214,8 @@ public final class StrikeGameTests {
         RocketEntity r = ModEntities.ROCKET.get().create(level);
         r.launchFrom(point.add(0, 0, -600), new Target.Point(point), point, null);
         VirtualFlights.launch(level, r);
+        Vec3[] before = new Vec3[1];
+        h.runAfterDelay(9, () -> before[0] = r.position());
         h.runAfterDelay(10, () -> {
             var flights = ua.zentix.airstrike.strike.FlightSounds.flights(level);
             h.assertTrue(flights.stream().anyMatch(f -> f.getUUID().equals(r.getUUID()) && f.isVirtual()), "снаряда нет среди летящих вне мира");
@@ -223,6 +225,8 @@ public final class StrikeGameTests {
             var f = near.getFirst();
             h.assertTrue(f.pos().distanceTo(at) < 1.0e-6 && f.weapon() == WeaponType.ROCKET.id() && !f.bomber(), "не тот путь: " + f);
             h.assertTrue(Math.abs(f.distanceToAim() - at.distanceTo(r.aimPoint())) < 0.01, "до цели: " + f.distanceToAim());
+            Vec3 step = at.subtract(before[0]);
+            h.assertTrue(step.length() > 1 && f.velocity().distanceTo(step) < 1.0e-6, "скорость " + f.velocity() + ", а сдвиг за тик " + step);
             h.assertTrue(ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(1000, 0, 0), null).isEmpty(), "слышно за 1000 блоков");
             // не долетать: в партии теста больше никого, а снаряд, упавший после конца теста, упал бы на чужую площадку
             VirtualFlights.get(level).clear();

@@ -60,6 +60,11 @@ import java.util.UUID;
 public abstract class StrikeProjectile extends Entity implements IEntityWithComplexSpawn {
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
+    /**
+     * Сдвиг за последний тик сервера ({@link #velocity()}). Ванильный пакет скорости сущности его не довезёт: он режет
+     * компоненты до 3,9 блока/тик, а ракета летит 11,5, МБР — до 25.
+     */
+    private static final EntityDataAccessor<Vector3f> DATA_VELOCITY = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.VECTOR3);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
     private static final EntityDataAccessor<Vector3f> DATA_AIM = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.VECTOR3);
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.OPTIONAL_UUID);
@@ -307,6 +312,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return entityData.get(DATA_ROLL);
     }
 
+    /**
+     * Сдвиг за последний тик сервера, блоков/тик (на клиенте — синхронизированный). Это правда о движении для звука
+     * (Доплер, обтекание): положение сущности у клиента само по тикам клиента не годится — пакеты тика сервера
+     * приходят то в один тик клиента, то в соседний, и снаряд у клиента то стоит, то прыгает на два шага.
+     */
+    public Vec3 velocity() {
+        if (!level().isClientSide) return getDeltaMovement();
+        Vector3f v = entityData.get(DATA_VELOCITY);
+        return new Vec3(v.x, v.y, v.z);
+    }
+
     /** Скорость, блоков/тик (на клиенте — синхронизированная). */
     public double speed() {
         return level().isClientSide ? entityData.get(DATA_SPEED) : speed;
@@ -394,6 +410,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             serverTick(level);
             // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
             if (isRemoved()) return;
+            updateVelocity();
             checkSiren(level);
             holdTargetArea(level);
             syncSpeed();
@@ -420,6 +437,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             zo = getZ();
             serverTick(level);
             if (isRemoved()) return;
+            updateVelocity();
             checkSiren(level);
             holdTargetArea(level);
         } catch (RuntimeException e) {
@@ -602,6 +620,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
     }
 
+    /**
+     * Скорость — сколько снаряд на деле прошёл за этот тик (от места в начале тика): и в полёте, и в ожидании района
+     * цели, и в бурении. Она же уходит клиентам.
+     */
+    private void updateVelocity() {
+        setDeltaMovement(getX() - xo, getY() - yo, getZ() - zo);
+        Vector3f cur = entityData.get(DATA_VELOCITY);
+        Vec3 v = getDeltaMovement();
+        if (v.distanceToSqr(cur.x, cur.y, cur.z) > 1.0e-6) entityData.set(DATA_VELOCITY, v.toVector3f());
+    }
+
     private void syncSpeed() {
         if (Math.abs(entityData.get(DATA_SPEED) - speed) > 0.01) entityData.set(DATA_SPEED, (float) speed);
     }
@@ -757,7 +786,6 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Перемещение без проверок (бомбардировщик, бурение). */
     protected void moveAlong(ServerLevel level, Vec3 next, Vec3 dir) {
         setPos(next.x, next.y, next.z);
-        setDeltaMovement(dir.scale(speed));
         setYRot(flight.yaw());
         setXRot(flight.pitch());
         float roll = flight.bankAngle(speed);
@@ -944,6 +972,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         builder.define(DATA_ROLL, 0f);
         builder.define(DATA_SPEED, 0f);
+        builder.define(DATA_VELOCITY, new Vector3f());
         builder.define(DATA_PHASE, (byte) FlightPhase.CRUISE.ordinal());
         builder.define(DATA_AIM, new Vector3f());
         builder.define(DATA_OWNER, Optional.empty());
