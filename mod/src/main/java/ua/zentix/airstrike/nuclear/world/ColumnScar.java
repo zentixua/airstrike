@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.Clearable;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
@@ -37,7 +38,13 @@ public final class ColumnScar {
 
     /** Счётчики на подрыв: пожаров не больше заданного. */
     public static final class Budget {
+        /** Поджигает ли подрыв (свежий — да, забытый — только выжигает). */
+        final boolean ignites;
         int fires;
+
+        public Budget(boolean ignites) {
+            this.ignites = ignites;
+        }
     }
 
     public static void apply(ServerLevel level, Detonation d, int x, int z, Budget budget, RandomSource random) {
@@ -68,7 +75,7 @@ public final class ColumnScar {
                 m.setY(y);
             }
             if (!r.breaksAt(psi, Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z))))) continue;
-            level.setBlock(m, Blocks.AIR.defaultBlockState(), FLAGS);
+            replace(level, m, s, Blocks.AIR.defaultBlockState());
             if (r.kind() == BlockResponse.Kind.LEAVES && psi < 3 && lit(level, d, m) >= 10) ignite(level, m, budget, random, 1.0);
         }
         if (ground != Integer.MIN_VALUE) {
@@ -76,6 +83,16 @@ public final class ColumnScar {
             if (blockDamage && d.psi(Vec3.atCenterOf(m.set(x, ground, z))) >= STRIP_PSI) strip(level, m, random);
             scorch(level, d, m.set(x, ground, z), budget, random);
         }
+    }
+
+    /**
+     * Заменить блок без выпадения. {@code UPDATE_SUPPRESS_DROPS} не спасает от содержимого контейнеров: сундук,
+     * бочка, печь высыпают его в {@code onRemove} — в деревне это тысячи предметов на земле, которые потом тикают.
+     * Как {@code /setblock} и {@code /fill}: сперва {@link Clearable#tryClear} очищает блок-сущность.
+     */
+    static void replace(ServerLevel level, BlockPos pos, BlockState old, BlockState with) {
+        if (old.hasBlockEntity()) Clearable.tryClear(level.getBlockEntity(pos));
+        level.setBlock(pos, with, FLAGS);
     }
 
     /** С какого давления волна сдирает дёрн. */
@@ -119,7 +136,7 @@ public final class ColumnScar {
     }
 
     private static void ignite(ServerLevel level, BlockPos.MutableBlockPos pos, Budget budget, RandomSource random, double chance) {
-        if (!AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get() || random.nextDouble() >= chance) return;
+        if (!budget.ignites || !AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get() || random.nextDouble() >= chance) return;
         // огонь проверяет и будит соседей: на краю загруженного мира это загрузило бы соседний чанк
         if (!NuclearTickets.aroundLoaded(level, pos)) return;
         BlockState fire = BaseFireBlock.getState(level, pos);

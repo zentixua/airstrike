@@ -93,8 +93,12 @@ public final class NuclearWarhead {
         if (sees(level, d, living)) burn(level, d, living, d.fluence(eye), owner);
         double rem = PromptRadiationModel.doseRem(Math.max(1, d.metres(eye.distanceTo(d.burst()))), d.yieldKt()) * shielding(level, eye, d.burst());
         if (rem < 1) return true;
+        float gy = (float) (rem / PromptRadiationModel.REM_PER_GY);
         if (living instanceof ServerPlayer player) {
-            if (AirstrikeConfig.SERVER.nukeRadiation.get()) RadiationTicker.addDose(player, (float) (rem / PromptRadiationModel.REM_PER_GY));
+            if (AirstrikeConfig.SERVER.nukeRadiation.get()) RadiationTicker.addDose(player, gy);
+        } else if (AirstrikeConfig.SERVER.nukeMobRadiation.get()) {
+            // мобы болеют, как игроки: от 10 Гр — смерть за сутки, от 50 Гр — за час (нежить и стойки брони не болеют)
+            if (RadiationTicker.affectsMob(living)) RadiationTicker.addDose(living, gy);
         } else if (rem >= 1000) {
             living.hurt(ModDamageTypes.source(level, ModDamageTypes.RADIATION, null, owner), Float.MAX_VALUE);
         } else if (rem >= 400) {

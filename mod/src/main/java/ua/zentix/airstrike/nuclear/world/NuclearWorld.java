@@ -17,6 +17,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
+import ua.zentix.airstrike.nuclear.radiation.MobFallout;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
@@ -33,7 +34,7 @@ import java.util.WeakHashMap;
 
 /**
  * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам; световой импульс
- * и проникающая радиация по сущностям, очередь повреждений чанков и воронки — под общим бюджетом времени.
+ * и проникающая радиация по сущностям, очередь повреждений чанков, воронки и осадки у мобов — под общим бюджетом времени.
  * В тике подрыва — ничего тяжёлого: и снимки (сущности и чанки в радиусе), и сама работа идут под бюджетом.
  * Сам не сохраняется: всё выводится из {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках;
  * импульс по сущностям после перезапуска не повторяется (он длится доли секунды).
@@ -44,6 +45,7 @@ public final class NuclearWorld {
     private final ScarQueue scars = new ScarQueue();
     private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
+    private final MobFallout mobFallout = new MobFallout();
     /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
     private final Map<Integer, double[]> fronts = new HashMap<>();
     private WorkClock clock = new WorkClock();
@@ -108,7 +110,9 @@ public final class NuclearWorld {
     }
 
     public void onChunkLoad(ServerLevel level, LevelChunk chunk) {
-        for (Detonation d : NuclearEvents.get(level).detonations()) scars.offer(chunk, d);
+        NuclearEvents events = NuclearEvents.get(level);
+        for (Detonation d : events.past()) scars.offer(chunk, d);
+        for (Detonation d : events.detonations()) scars.offer(chunk, d);
     }
 
     public void onChunkUnload(LevelChunk chunk) {
@@ -117,11 +121,12 @@ public final class NuclearWorld {
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
-        scars.clear();
+        scars.clear(level);
         pulses.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
         fronts.clear();
+        mobFallout.clear();
     }
 
     // ---------------------------------------------------------------- тик
@@ -168,6 +173,7 @@ public final class NuclearWorld {
             lastCraterNanos = scarStart - start;
             scars.work(level, now, clock, level.random);
             lastScarNanos = System.nanoTime() - scarStart;
+            mobFallout.work(level, events.detonations(), clock);
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
             clear(level);
