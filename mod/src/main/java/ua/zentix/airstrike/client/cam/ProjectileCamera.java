@@ -143,6 +143,8 @@ public final class ProjectileCamera {
             savedPitch = player.getXRot();
             savedCamera = mc.options.getCameraType();
             mc.options.setCameraType(CameraType.FIRST_PERSON);
+            // выход — новым нажатием: Shift, зажатый, когда камера открылась (автокамера на пуске), её не закрывает
+            shiftWasDown = mc.options.keyShift.isDown();
         }
         active = true;
         following = f.id;
