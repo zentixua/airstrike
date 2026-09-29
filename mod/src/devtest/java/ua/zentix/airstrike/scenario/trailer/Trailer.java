@@ -173,7 +173,9 @@ public final class Trailer {
             cmd("gamerule doWeatherCycle false");
             cmd("gamerule doMobSpawning false");
             // автосохранение: надпись «Saving world» в кадре и остановки сервера на копии, которую потом выбросят
-            cmd("save-off");
+            // (команда save-off — уровня 4, игроку одиночной игры её нет: выключаем прямо на сервере)
+            MinecraftServer server = mc.getSingleplayerServer();
+            server.execute(() -> server.getAllLevels().forEach(l -> l.noSave = true));
             cmd("weather clear");
             cmd("time set 6000");
             var c = AirstrikeConfig.SERVER;
@@ -209,7 +211,8 @@ public final class Trailer {
     /** Холодное начало: шахед заходит на башню и проносится в паре метров от объектива (дальше — затемнение). */
     private void coldOpen() {
         fromAfar(true);
-        run(() -> placeHidden(northFacade.add(-240, 20, 0), northFacade));
+        // невидимка ближе к стене: шахед должен попасть в дальность слежения клиента (не дальше прорисовки)
+        run(() -> placeHidden(northFacade.add(-90, 20, 0), northFacade));
         waitTicks(100);
         run(() -> fire("drone", northFacade));
         shot("cold_open").after(() -> nearest(DroneEntity.class, northFacade, 130) != null, 3000).noPrep().length(70).hidden()
@@ -464,7 +467,9 @@ public final class Trailer {
         shot("bomb_bay").onReady(() -> fire("bunker", bay.get())).length(400).speed(0.25).hidden()
                 .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bay.get(), 900), () -> flightNear(WeaponType.BUNKER, bay.get()),
                         bayWatch.get(), toPost.scale(-1), 26, -7, 9, 14, 0, 58))
-                .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() != FlightPhase.EGRESS, 3000)
+                // B-2 у клиента появляется поздно (дальность слежения — прорисовка), а телеметрия владельцу идёт всегда
+                .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b ? b.flightPhase() != FlightPhase.EGRESS
+                        : flightNear(WeaponType.BUNKER, bay.get()) instanceof Vec3 f && f.distanceTo(bay.get()) < 500, 3000)
                 .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
         Supplier<Vec3> pit = () -> ground(SOUTH_TOWERS.add(50, 0, -70));
         run(() -> placeHidden(pit.get().add(toPost.scale(120)).add(0, 30, 0), pit.get()));
@@ -496,7 +501,7 @@ public final class Trailer {
                 .camera(() -> {
                     Vec3 from = ground(roofView).add(0, 55, 0);
                     return CineCamera.spline(true, CineCamera.Key.at(0, from, DOWNTOWN.add(0, 50, 0), 44),
-                            CineCamera.Key.at(320, from.add(DOWNTOWN.subtract(from).normalize().scale(35)), DOWNTOWN.add(0, 25, 0), 38));
+                            CineCamera.Key.at(320, from.add(DOWNTOWN.subtract(from).normalize().scale(12)), DOWNTOWN.add(0, 25, 0), 38));
                 })
                 .when(() -> nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000)
                 .endWhen(() -> nearest(DroneEntity.class, DOWNTOWN, 400) == null, 80);
