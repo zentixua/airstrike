@@ -159,6 +159,11 @@ public class RocketEntity extends StrikeProjectile {
             }
             return;
         }
+        // вне мира путь кончился на поверхности: ни траектории, ни растяжения — ждать там загрузки и попасть
+        if (isGrounded()) {
+            advance(level, impactAt, 1.5);
+            return;
+        }
         if (start == null) solve(position(), impactAt);
 
         // сдвинули с траектории (вернулся в мир выше рельефа) — пересчитать от текущего места на оставшееся время

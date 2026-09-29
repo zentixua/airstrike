@@ -82,6 +82,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
     private static final double TURN_MARGIN = 1.2;
     private static final int AREA_WAIT_LIMIT = 1200;
+    /** Вне мира снаряд под поверхностью ещё летит к цели, пока он не ниже её на столько блоков (см. groundCrossing). */
+    private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
 
@@ -358,6 +360,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return tracker == null ? null : tracker.target();
     }
 
+    /** Вне мира путь встретил поверхность: снаряд ждёт там загрузки места и попадёт, вернувшись в мир. */
+    protected final boolean isGrounded() {
+        return grounded != null;
+    }
+
     public boolean isVirtual() {
         return virtual;
     }
@@ -474,7 +481,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             BlockPos here = BlockPos.containing(position());
             return level.isPositionEntityTicking(here) && Terrain.ready(level, here);
         }
-        return VirtualFlights.clearAhead(position(), flight.forward(), speed,
+        return clearAhead(level, position());
+    }
+
+    /** Из этого места снаряд вернётся в мир: тикает и готов весь путь впереди ({@link VirtualFlights#clearAhead}). */
+    private boolean clearAhead(ServerLevel level, Vec3 pos) {
+        return VirtualFlights.clearAhead(pos, flight.forward(), speed,
                 (x, z) -> Terrain.ready(level, x, z) && level.isPositionEntityTicking(new BlockPos(x << 4, 0, z << 4)));
     }
 
@@ -837,7 +849,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return true;
         }
         Vec3 next = pos.add(dir.scale(speed));
-        Vec3 ground = groundCrossing(level, pos, next);
+        Vec3 ground = groundCrossing(level, aim, pos, next);
         if (ground != null) {
             // мимо цели (или цель под землёй): вне мира столкновений нет, и снаряд падал бы без взрыва до конца срока
             // жизни или до низа мира (бомба на точку позади B-2 — до y=−3022); путь кончается на поверхности
@@ -852,23 +864,31 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Где шаг вне мира уходит под поверхность (null — не уходит). Поверхность — из карты высот готового чанка; у не
-     * готового — уровень моря генератора ({@code Level.getSeaLevel} в 1.21.1 — всегда 63, у плоского мира море −63):
-     * ниже него суша почти не бывает (над водой поверхность — сама вода), а рельеф
-     * генератора ({@code ChunkGenerator.getBaseHeight}) стоит миллисекунды на точку — не для каждого тика. Настоящую высоту
-     * место попадания получает, когда загрузится. В мире с потолком (Незер) карта высот — потолок: там только море.
+     * Где шаг вне мира уходит под землю (null — не уходит). Поверхность — из карты высот готового чанка; у не готового —
+     * уровень моря генератора ({@code Level.getSeaLevel} в 1.21.1 — всегда 63, у плоского мира море −63): ниже него суша
+     * почти не бывает (над водой поверхность — сама вода), а рельеф генератора ({@code ChunkGenerator.getBaseHeight})
+     * стоит миллисекунды на точку — не для каждого тика. В мире с потолком (Незер) карта высот — потолок: там только море.
+     * <p>
+     * Рельефа вне мира снаряд не знает и летит на высоте цели (пуск издалека — над ней, РСЗО — с её высоты, бреющий —
+     * над ней же), а цель бывает ниже моря и ниже рельефа (пещера, карьер, овраг): под поверхностью, но не ниже своей
+     * цели на {@link #BELOW_AIM} он ещё летит к ней. Снаряд, который после этого шага вернётся в мир, правило не трогает:
+     * в мире столкновения свои.
      */
     @Nullable
-    private Vec3 groundCrossing(ServerLevel level, Vec3 from, Vec3 to) {
-        // снаряд в этом же тике вернётся в мир (над рельефом, с запасом впереди — materialize), а там столкновения свои
-        if (canMaterialize(level)) return null;
-        int x = Mth.floor(to.x), z = Mth.floor(to.z);
-        int ground = !level.dimensionType().hasCeiling() && Terrain.ready(level, x >> 4, z >> 4)
-                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, x, z) : level.getChunkSource().getGenerator().getSeaLevel();
-        if (to.y >= ground) return null;
-        double t = from.y > to.y ? Mth.clamp((from.y - ground) / (from.y - to.y), 0, 1) : 0;
+    private Vec3 groundCrossing(ServerLevel level, Vec3 aim, Vec3 from, Vec3 to) {
+        double floor = Math.min(groundBound(level, to.x, to.z), aim.y - BELOW_AIM);
+        if (to.y >= floor || clearAhead(level, to)) return null;
+        double t = from.y > to.y ? Mth.clamp((from.y - floor) / (from.y - to.y), 0, 1) : 0;
         Vec3 at = from.lerp(to, t);
-        return new Vec3(at.x, ground, at.z);
+        // попадание — на поверхности там, где путь её встретил (на склоне конец шага выше или ниже на блоки)
+        return new Vec3(at.x, groundBound(level, at.x, at.z), at.z);
+    }
+
+    /** Поверхность для полёта вне мира: карта высот готового чанка, иначе уровень моря (см. {@link #groundCrossing}). */
+    private static int groundBound(ServerLevel level, double x, double z) {
+        int bx = Mth.floor(x), bz = Mth.floor(z);
+        return !level.dimensionType().hasCeiling() && Terrain.ready(level, bx >> 4, bz >> 4)
+                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, bx, bz) : level.getChunkSource().getGenerator().getSeaLevel();
     }
 
     /**
@@ -948,8 +968,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(x), (int) Math.floor(z));
     }
 
-    /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали (и вне мира: только готовые чанки). */
+    /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали. */
     protected double terrainAhead(Level level, double... distances) {
+        if (virtual) return level.getMinBuildHeight(); // вне мира рельеф не читаем
         Vec3 pos = position();
         double yawRad = Math.toRadians(flight.yaw());
         double dx = -Math.sin(yawRad), dz = Math.cos(yawRad);
