@@ -144,13 +144,19 @@ public final class TerrainTiles {
         g.enableScissor(left, top, right, bottom);
         for (Layer layer : layers) {
             collect(layer);
+            if (!build) {
+                // клеток кадра на такой карте — сотни тысяч, а нового ничего не заводится: рисуются готовые плитки
+                // самого крупного уровня, перебором плиток слоя (их не больше MAX_TILES)
+                draw(g, map, layer, ready(layer, map, left, top, right, bottom), false);
+                continue;
+            }
             // сначала крупные плитки, что уже есть, — подложка, пока строятся нужные (при приближении карта не пустеет)
             for (int l = MAX_LEVEL; l > want; l--) draw(g, map, layer, visible(map, l, left, top, right, bottom), false);
             List<Key> keys = visible(map, want, left, top, right, bottom);
             if (!layer.source.offThread()) keys.removeIf(k -> !nearPlayer(k));
-            draw(g, map, layer, keys, build);
+            draw(g, map, layer, keys, true);
             evict(layer);
-            if (!build || layer.broken) continue;
+            if (layer.broken) continue;
             keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
             request(current, layer, keys);
         }
@@ -262,6 +268,19 @@ public final class TerrainTiles {
         List<Key> keys = new ArrayList<>((x1 - x0 + 1) * (z1 - z0 + 1));
         for (int tz = z0; tz <= z1; tz++) {
             for (int tx = x0; tx <= x1; tx++) keys.add(new Key(l, tx, tz));
+        }
+        return keys;
+    }
+
+    /** Готовые плитки самого крупного уровня, задевающие прямоугольник экрана. */
+    private static List<Key> ready(Layer layer, MapProjection map, int left, int top, int right, int bottom) {
+        double x0 = map.worldX(left), x1 = map.worldX(right), z0 = map.worldZ(top), z1 = map.worldZ(bottom);
+        List<Key> keys = new ArrayList<>();
+        for (Key key : layer.tiles.keySet()) {
+            double span = key.span();
+            if (key.level == MAX_LEVEL && key.tx * span < x1 && (key.tx + 1) * span > x0 && key.tz * span < z1 && (key.tz + 1) * span > z0) {
+                keys.add(key);
+            }
         }
         return keys;
     }
