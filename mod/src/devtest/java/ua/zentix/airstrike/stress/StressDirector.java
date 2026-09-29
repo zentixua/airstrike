@@ -1096,8 +1096,12 @@ public final class StressDirector {
             it.remove();
             String how = leftHow.remove(en.getKey());
             String outcome;
+            // где кончился — по самому объекту: вернувшись в мир, снаряд встаёт над рельефом (materialize, тот же объект)
+            // и может взорваться в том же тике, не попав в перебор стенда; последнее замеченное место — ещё вне мира,
+            // под рельефом (облако 29.09.2026: ракета РСЗО поднята с y 51 до ~95 и взорвалась — засчитана «lost»)
+            Vec3 end = w.ref.position();
             if (cleared.contains(en.getKey())) outcome = "cleared";
-            else if (blastsThisTick.stream().anyMatch(b -> b.distanceToSqr(w.pos) < 48 * 48)) outcome = "impact";
+            else if (blastsThisTick.stream().anyMatch(b -> b.distanceToSqr(end) < 48 * 48 || b.distanceToSqr(w.pos) < 48 * 48)) outcome = "impact";
             else if ("bomber".equals(w.type)) outcome = "bomber-gone";
             // МБР — только разгон: над небом она убирается сама, удар дальше ведёт NuclearStrikes по таймеру
             else if ("icbm".equals(w.type) && w.pos.y > s.overworld().getMaxBuildHeight()) outcome = "boost-done";
@@ -1105,8 +1109,9 @@ public final class StressDirector {
                 outcome = "lost";
                 // конец — по самому объекту: снаряд, убранный вне мира (срок жизни), не шлёт события ухода, и «ушёл»
                 // тогда говорит о его последнем уходе из мира в полёт вне мира, раньше конца
-                log("lost %s %s у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d; последний уход из мира: %s)",
-                        w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual,
+                log("lost %s %s у %d %d %d, замечен последний раз у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d; последний уход из мира: %s)",
+                        w.type, en.getKey(), (int) end.x, (int) end.y, (int) end.z, (int) w.pos.x, (int) w.pos.y, (int) w.pos.z,
+                        (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual,
                         w.ref.getRemovalReason(), w.ref.flightPhase().getSerializedName(), w.ref.age(), how);
             }
             outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
