@@ -40,6 +40,7 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -170,13 +171,17 @@ public final class StressDirector {
     private final List<Step> steps = new ArrayList<>();
     /** Ожидания, которые проверяются каждый тик (телепорт ждёт район), до {@code true}. */
     private final List<BooleanSupplier> waits = new ArrayList<>();
-    /** Игроки, чей телепорт ещё ждёт район, и тик сценария, когда его попросили. */
-    private final Map<String, Integer> pendingTeleports = new HashMap<>();
-    /** Следующий телепорт игрока, пока прежний ждёт район (последний заменяет): тик сценария, когда его попросили. */
-    private record QueuedTeleport(int requestedAt, Runnable start) {}
-    private final Map<String, QueuedTeleport> queuedTeleports = new HashMap<>();
-    /** Отложенный телепорт начался позже сценария больше чем на столько тиков — проблема в сводке. */
-    private static final int TELEPORT_LATE = 200;
+    /** Игроки, чей телепорт ещё ждёт район. */
+    private final Set<String> pendingTeleports = new HashSet<>();
+    /** Телепорт по сценарию: тик сценария, когда его попросили, и как его начать. */
+    private record TpRequest(int requestedAt, Runnable start) {}
+    /** Телепорты игрока, которые ещё не начались (ждут прибытия прежнего или своего тика), по порядку сценария. */
+    private final Map<String, ArrayDeque<TpRequest>> deferredTeleports = new HashMap<>();
+    /** Последний телепорт игрока, который его перенёс: тик сценария, когда его попросили, и когда перенёс. */
+    private record LastTeleport(int requestedAt, int landedAt) {}
+    private final Map<String, LastTeleport> lastTeleports = new HashMap<>();
+    /** Тикеты районов телепорта, которые ещё стоят: стенд кончается, только когда их нет. */
+    private int teleportTickets;
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
@@ -377,10 +382,11 @@ public final class StressDirector {
      * без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района не тикают рядом
      * с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
      * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
-     * были самого стенда. Новый телепорт того же игрока ждёт, пока прежний перенесёт игрока, и начинается через
-     * столько же тиков после прибытия, сколько сценарий отводил между ними: отменённый прежний оставлял игрока без
-     * места (облако: возврат из дальнего полёта и из Незера отменял сам полёт), начатый сразу превращал полёт или Незер
-     * в один тик, а оба сразу дождались бы района в одном тике, и игрок оказался бы там, куда его послали раньше.
+     * были самого стенда. Телепорт игрока начинается через столько тиков после прибытия прежнего, сколько сценарий
+     * отводил между ними, а пока прежний ждёт район, ждёт и он ({@link #nextTeleport}): отменённый прежний оставлял
+     * игрока без места (облако: возврат из дальнего полёта и из Незера отменял сам полёт), начатый сразу превращал
+     * полёт или Незер в один тик, а оба сразу дождались бы района в одном тике, и игрок оказался бы там, куда его
+     * послали раньше.
      */
     private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
         ServerPlayer p = need(s, name, "телепорт");
@@ -389,24 +395,50 @@ public final class StressDirector {
             problems.add("шаг пропущен: телепорт " + name + ", мира назначения нет");
             return;
         }
-        if (pendingTeleports.containsKey(name)) {
-            if (queuedTeleports.put(name, new QueuedTeleport(tick, () -> tp(s, name, level, x, y, z))) != null) {
-                log("tp %s: прежний отложенный телепорт заменён", name);
-                problems.add("телепорт " + name + ": отложенный телепорт заменён следующим, пока прежний ждал район");
+        ArrayDeque<TpRequest> queue = deferredTeleports.computeIfAbsent(name, k -> new ArrayDeque<>());
+        int requestedAt = tick;
+        queue.add(new TpRequest(requestedAt, () -> begin(s, name, level, x, y, z, requestedAt)));
+        if (queue.size() == 1 && !pendingTeleports.contains(name)) nextTeleport(name);
+        else log("tp %s → %d %d: в очереди за прежним телепортом", name, x, z);
+    }
+
+    /**
+     * Первый отложенный телепорт игрока — через столько тиков после прибытия прежнего, сколько сценарий отводил между
+     * ними (не раньше, чем его попросили). До начала он остаётся в очереди: следующий телепорт встаёт за ним, а не
+     * начинается сам.
+     */
+    private void nextTeleport(String name) {
+        ArrayDeque<TpRequest> queue = deferredTeleports.get(name);
+        TpRequest next = queue == null ? null : queue.peek();
+        if (next == null) return;
+        LastTeleport last = lastTeleports.get(name);
+        int start = last == null ? tick : Math.max(tick, last.landedAt() + next.requestedAt() - last.requestedAt());
+        Runnable run = () -> {
+            queue.poll();
+            if (tick > next.requestedAt()) {
+                log("tp %s начинается на %d тиков позже сценария: прежний телепорт ждал район", name, tick - next.requestedAt());
             }
-            log("tp %s → %d %d ждёт, пока прежний телепорт перенесёт игрока", name, x, z);
-            return;
-        }
+            next.start().run();
+        };
+        // шаг в этом тике уже не выполнится (шаги тика перебираются по копии): сейчас — сразу, иначе — шагом
+        if (start <= tick) run.run();
+        else at(start, "отложенный телепорт " + name, sv -> run.run());
+    }
+
+    private void begin(MinecraftServer s, String name, ServerLevel level, int x, int y, int z, int requestedAt) {
         ChunkPos centre = new ChunkPos(x >> 4, z >> 4);
         DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
         UUID key = UUID.randomUUID();
         int area = teleportArea(s), ticketLevel = ChunkLevel.byStatus(FullChunkStatus.FULL) - area;
         tickets.addTicket(TELEPORT, centre, ticketLevel, key);
-        Runnable release = () -> tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
+        teleportTickets++;
+        Runnable release = () -> {
+            tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
+            teleportTickets--;
+        };
         // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
         int since = s.getTickCount();
-        int requestedAt = tick;
-        pendingTeleports.put(name, requestedAt);
+        pendingTeleports.add(name);
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
             if (!areaReady(level, centre, area)) {
@@ -421,18 +453,12 @@ public final class StressDirector {
             ServerPlayer now = need(s, name, "телепорт");
             if (now != null) {
                 now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
-                log("tp %s → %d %d, район ждали %d тиков", name, x, z, s.getTickCount() - since);
+                LastTeleport last = lastTeleports.get(name);
+                log("tp %s → %d %d, район ждали %d тиков%s", name, x, z, s.getTickCount() - since, last == null ? ""
+                    : String.format(Locale.ROOT, "; на прежнем месте %d тиков, по сценарию %d", tick - last.landedAt(), requestedAt - last.requestedAt()));
             }
-            // отложенный телепорт того же игрока — через столько тиков после прибытия, сколько сценарий отводил между
-            // ними (шаг в часах сценария: не раньше следующего тика)
-            QueuedTeleport next = queuedTeleports.remove(name);
-            if (next != null) {
-                int gap = Math.max(1, next.requestedAt() - requestedAt), late = tick + gap - next.requestedAt();
-                if (late > TELEPORT_LATE) {
-                    problems.add(String.format(Locale.ROOT, "телепорт %s начнётся на %d тиков позже сценария: прежний ждал район", name, late));
-                }
-                at(tick + gap, "отложенный телепорт " + name, sv -> next.start().run());
-            }
+            lastTeleports.put(name, new LastTeleport(requestedAt, tick));
+            nextTeleport(name);
             // дальше район держит тикет игрока: наш отпускается, когда тикеты игрока стоят на всём квадрате района
             // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают по нескольку за тик,
             // DistanceManager.ticketThrottler: отпущенный по одному центру квадрат терял полную загрузку по краям),
@@ -727,12 +753,14 @@ public final class StressDirector {
     /**
      * Строка для замера остановок: какой чанк грузится синхронно (неготовый чанк с тикетом {@code unknown} — его
      * ставит {@code ServerChunkCache.getChunk}), уровни тикетов 5×5 вокруг него (33 — полностью загружен, 32 — тикают
-     * блоки, 31 — сущности; «·» — чанка нет), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки.
+     * блоки, 31 — сущности; «·» — чанка нет) и уровни счёта тика там же (блоки тикают, где оба не больше 32), игроки
+     * в 16 чанках (смещение от него), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки.
      */
     private static String stallReport(ServerLevel level) {
         var map = ticketMap(level.getChunkSource().chunkMap.getDistanceManager());
         if (map == null) return "тикеты недоступны";
         var chunkMap = level.getChunkSource().chunkMap;
+        net.minecraft.server.level.TickingTracker ticking = tickingTracker(chunkMap.getDistanceManager());
         StringBuilder sb = new StringBuilder(level.dimension().location().toString());
         int sync = 0;
         for (var en : map.long2ObjectEntrySet()) {
@@ -751,6 +779,24 @@ public final class StressDirector {
                     if (dx < 2) sb.append(',');
                 }
                 if (dz < 2) sb.append(" /");
+            }
+            // уровни счёта тика (32 и меньше — тикают блоки): кто пустил тикать соседа неготового чанка
+            if (ticking != null) {
+                sb.append(", тик:");
+                for (int dz = -2; dz <= 2; dz++) {
+                    sb.append(' ');
+                    for (int dx = -2; dx <= 2; dx++) {
+                        sb.append(String.format(Locale.ROOT, "%3d", ticking.getLevel(new ChunkPos(c.x + dx, c.z + dz))).substring(1));
+                        if (dx < 2) sb.append(',');
+                    }
+                    if (dz < 2) sb.append(" /");
+                }
+            }
+            for (ServerPlayer p : level.players()) {
+                ChunkPos pc = p.chunkPosition();
+                if (Math.max(Math.abs(pc.x - c.x), Math.abs(pc.z - c.z)) <= 16) {
+                    sb.append(String.format(Locale.ROOT, ", игрок %s в %d %d", p.getGameProfile().getName(), pc.x - c.x, pc.z - c.z));
+                }
             }
             Map<String, Integer> near = new TreeMap<>();
             for (int dx = -8; dx <= 8; dx++) {
@@ -771,6 +817,18 @@ public final class StressDirector {
             if (h.getTicketLevel() <= 33 && h.getLatestStatus() != net.minecraft.world.level.chunk.status.ChunkStatus.FULL) waiting++;
         }
         return sb.append(" | ждут полной загрузки ").append(waiting).append(" чанков").toString();
+    }
+
+    /** Счёт тика {@code DistanceManager} (блоки тикают при уровне 32 и меньше), для отчёта об остановке. */
+    @Nullable
+    private static net.minecraft.server.level.TickingTracker tickingTracker(DistanceManager d) {
+        try {
+            Field f = DistanceManager.class.getDeclaredField("tickingTicketsTracker");
+            f.setAccessible(true);
+            return (net.minecraft.server.level.TickingTracker) f.get(d);
+        } catch (ReflectiveOperationException ex) {
+            return null;
+        }
     }
 
     @Nullable
@@ -803,8 +861,8 @@ public final class StressDirector {
                 log("игроки на местах, часы сценария идут");
                 return;
             } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
-                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
-                log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
+                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports + "), сценарий идёт без них");
+                log("игроки %s не на местах, часы сценария идут", pendingTeleports);
                 placingSince = Integer.MAX_VALUE;
             }
             return;
@@ -991,7 +1049,9 @@ public final class StressDirector {
     }
 
     private void finishWhenQuiet(MinecraftServer s) {
-        int active = watched.size();
+        // и телепорты: отложенный возврат и тикет района после сводки — ложный TELEPORT в «тикеты» и проблема мимо сводки
+        int active = watched.size() + teleportTickets;
+        for (ArrayDeque<TpRequest> queue : deferredTeleports.values()) active += queue.size();
         for (ServerLevel l : s.getAllLevels()) {
             active += SalvoData.get(l).size();
         }

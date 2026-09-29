@@ -631,7 +631,8 @@ public final class NuclearGameTests {
      * загрузки (уровень 32 и ниже; без тика — ни тикета региона, ни тика блоков), и свежее место готово раньше,
      * чем кончится отсчёт, — сервер идёт в темпе игры, чтобы генерация успевала как в игре (облако 29.09.2026:
      * за 200 тиков до подрыва тикет стоял в очереди за районами залпов, отсчёт доходил до нуля, а подрыва не
-     * было). Отбой отпускает место.
+     * было). Место только грузится: пока идёт отсчёт, у него нет тикета региона и блоки не тикают — и ещё
+     * {@link #HELD} тиков после того, как готов квадрат 3 × 3, где район с тиком уже затикал бы. Отбой отпускает место.
      */
     @GameTest(template = "range", timeoutTicks = 2400, batch = "nuke_ground", skyAccess = true)
     public static void nukeGroundLoadsFromLaunch(GameTestHelper h) {
@@ -643,7 +644,7 @@ public final class NuclearGameTests {
         h.assertTrue(NuclearStrikes.launchFrom(level, target, 15, true, null, 0, null), "пуск не прошёл");
         long detonate = NuclearEvents.get(level).scheduled().getFirst().detonateTime();
         java.util.UUID groundKey = new java.util.UUID(0L, NuclearEvents.get(level).scheduled().getFirst().id());
-        int[] tick = {0};
+        int[] tick = {0}, readyAt = {-1}, aroundAt = {-1};
         h.onEachTick(() -> {
             tick[0]++;
             var holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(ground.toLong());
@@ -662,11 +663,29 @@ public final class NuclearGameTests {
                 throw new net.minecraft.gametest.framework.GameTestAssertException(failure);
             }
             if (!ready) return;
-            Airstrike.LOG.info("Место подрыва готово через {} тиков после пуска, отсчёт — {}", tick[0], detonate - level.getGameTime() + tick[0]);
+            if (readyAt[0] < 0) {
+                Airstrike.LOG.info("Место подрыва готово через {} тиков после пуска, отсчёт — {}", tick[0], detonate - level.getGameTime() + tick[0]);
+                readyAt[0] = tick[0];
+            }
+            // район с тиком взял бы тикет региона, когда готов весь квадрат 3 × 3, — и центр затикал бы блоками:
+            // проверка идёт ещё HELD тиков после этого
+            if (!aroundReady(level, ground)) return;
+            if (aroundAt[0] < 0) aroundAt[0] = tick[0];
+            if (tick[0] - aroundAt[0] < HELD) return;
             NuclearStrikes.clear(level);
             h.assertTrue(NuclearEvents.get(level).scheduled().isEmpty(), "отбой не отменил удар");
             h.succeed();
         });
+    }
+
+    /** Сколько тиков место подрыва проверяется без тика после того, как готов квадрат 3 × 3 вокруг него. */
+    private static final int HELD = 40;
+
+    private static boolean aroundReady(ServerLevel level, ChunkPos centre) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) if (!ua.zentix.airstrike.util.Terrain.ready(level, centre.x + dx, centre.z + dz)) return false;
+        }
+        return true;
     }
 
     /** МБР стартует у запустившего (в 30 блоках позади) и уходит вверх; удар записан в таймер. */
