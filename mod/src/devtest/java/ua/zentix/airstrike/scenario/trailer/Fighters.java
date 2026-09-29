@@ -126,10 +126,17 @@ final class Fighters {
         return sorties.isEmpty() ? null : sorties.getFirst();
     }
 
-    /** Ведущий уже есть у клиента (его рисуют): до этого камера плана смотрела на пустое место пути. */
+    /**
+     * Ведущий уже есть у клиента (его рисуют) и стоит у клиента на своём месте в строю: до этого камера плана смотрела
+     * на пустое место пути, а собранный на 12 блоков выше аппарат клиент ещё несколько тиков вёл к месту — первый кадр
+     * был общим планом с мелким ведущим (ноутбук, kfcheck3).
+     */
     boolean visible() {
         Sortie lead = lead();
-        return lead != null && renderPose(lead.craft(), 0) != null;
+        Pose3dc pose = lead == null ? null : renderPose(lead.craft(), 0);
+        if (pose == null) return false;
+        Vec3 want = lead.at(lead.time(0));
+        return want.distanceToSqr(pose.position().x(), pose.position().y(), pose.position().z()) < 1.5 * 1.5;
     }
 
     /** Где ведущий в этот кадр у клиента (для проверки кадров), или null. */
