@@ -149,21 +149,29 @@ public final class NuclearGameTests {
      * Отложенная — у чанка, который ещё не тикал: после генерации заглушка «DUMMY» (кровати, колокола, сундуки
      * деревни, {@code WorldGenRegion.setBlock}), после загрузки — сохранённые данные. Раньше замена блока снимала
      * только живую, отложенные данные уходили в сохранение, и чанк при загрузке писал «Tried to load a DUMMY block
-     * entity … found air». Содержимое сундуков не высыпается ни у той, ни у другой.
+     * entity … found air». Содержимое сундуков не высыпается ни у той, ни у другой, а неразвёрнутая добыча сундуков
+     * генерации не разворачивается вовсе (карта исследователя в ней ищет сооружение в потоке сервера).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_block_entities", skyAccess = true)
     public static void scarLeavesNoOrphanBlockEntities(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos chest = CENTER.east(4), packedChest = CENTER.east(6), bell = CENTER.south(4), sign = CENTER.south(6);
+        BlockPos lootChest = CENTER.west(4), packedLootBarrel = CENTER.west(6);
         h.setBlock(chest, Blocks.CHEST);
         h.setBlock(packedChest, Blocks.CHEST);
         h.setBlock(bell, Blocks.BELL);
         h.setBlock(sign, Blocks.OAK_SIGN);
+        h.setBlock(lootChest, Blocks.CHEST);
+        h.setBlock(packedLootBarrel, Blocks.BARREL);
         for (BlockPos p : List.of(chest, packedChest)) {
             if (h.getBlockEntity(p) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity c) c.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 5));
         }
-        // сундук — как после загрузки чанка, который не тикал; колокол и табличка — как после генерации
-        pend(level, h.absolutePos(packedChest), level.getBlockEntity(h.absolutePos(packedChest)).saveWithFullMetadata(level.registryAccess()));
+        // неоткрытые сундук и бочка генерации: таблица добычи (в темнице она никогда не пуста) ещё не развёрнута
+        for (BlockPos p : List.of(lootChest, packedLootBarrel)) {
+            if (h.getBlockEntity(p) instanceof net.minecraft.world.RandomizableContainer c) c.setLootTable(net.minecraft.world.level.storage.loot.BuiltInLootTables.SIMPLE_DUNGEON, 1L);
+        }
+        // сундуки и бочка — как после загрузки чанка, который не тикал; колокол и табличка — как после генерации
+        for (BlockPos p : List.of(packedChest, packedLootBarrel)) pend(level, h.absolutePos(p), level.getBlockEntity(h.absolutePos(p)).saveWithFullMetadata(level.registryAccess()));
         for (BlockPos p : List.of(bell, sign)) {
             BlockPos abs = h.absolutePos(p);
             net.minecraft.nbt.CompoundTag dummy = new net.minecraft.nbt.CompoundTag();
@@ -176,7 +184,7 @@ public final class NuclearGameTests {
 
         scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false)); // без пожаров: на месте блоков — воздух
 
-        for (BlockPos p : List.of(chest, packedChest, bell, sign)) h.assertTrue(h.getBlockState(p).isAir(), "не разрушено: " + h.getBlockState(p));
+        for (BlockPos p : List.of(chest, packedChest, bell, sign, lootChest, packedLootBarrel)) h.assertTrue(h.getBlockState(p).isAir(), "не разрушено: " + h.getBlockState(p));
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
             for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {

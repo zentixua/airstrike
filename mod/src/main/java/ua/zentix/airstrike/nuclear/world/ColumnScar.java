@@ -7,11 +7,13 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.Clearable;
+import net.minecraft.world.RandomizableContainer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -99,9 +101,18 @@ public final class ColumnScar {
      * {@code UPDATE_SUPPRESS_DROPS} не спасает от содержимого контейнеров: сундук, бочка, печь высыпают его
      * в {@code onRemove} — в деревне это тысячи предметов на земле, которые потом тикают. Как {@code /setblock}
      * и {@code /fill}: {@link Clearable#tryClear} очищает блок-сущность до замены.
+     * <p>
+     * Сундук генерации, который ещё не открывали, хранит не предметы, а таблицу добычи: она разворачивается при первом
+     * чтении содержимого — и {@code onRemove} читает его, чтобы высыпать. Карта исследователя в добыче ищет
+     * сооружение и рисует биомы прямо в потоке сервера (на стенде — 567 мс за один сундук). Волна испаряет сундук,
+     * добыча не выпадает: таблица снимается до замены.
      */
     static void replace(ServerLevel level, BlockPos pos, BlockState old, BlockState with) {
-        if (old.hasBlockEntity()) Clearable.tryClear(level.getBlockEntity(pos));
+        if (old.hasBlockEntity()) {
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof RandomizableContainer loot) loot.setLootTable(null);
+            Clearable.tryClear(be);
+        }
         level.setBlock(pos, with, FLAGS);
     }
 
