@@ -88,7 +88,8 @@ public final class ChunkSaves {
     /**
      * Чанк с диска (поток сервера, до того как он станет частью мира): в тёмном квартале лампы гаснут прямо в палитре
      * — без обновлений соседей, без Sable, без мигания. Их свет пришёл с диска вместе с чанком: его убирает
-     * {@link BlackoutWorld}, когда загружены и соседи. Двойник в светлом квартале (сохранение без этого перехвата,
+     * {@link BlackoutWorld} первой же работой по чанку ({@code checkBlock}; к незагруженным соседям снижение света не
+     * идёт — им нечего снижать). Двойник в светлом квартале (сохранение без этого перехвата,
      * двойник, сдвинутый поршнем или аппаратом) снова лампа, и свет пересчитывается при загрузке.
      */
     public static void onLoad(ChunkDataEvent.Load e) {
@@ -112,7 +113,7 @@ public final class ChunkSaves {
             });
         }
         if (lit[0] > 0) chunk.setLightCorrect(false);
-        BlackoutWorld.get(level).staleLight(pos, stale);
+        if (!stale.isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD)) BlackoutWorld.get(level).staleLight(pos, stale);
         if (dark && ChunkLights.anyUnlit(sections)) chunk.setData(ModAttachments.GRID_DARK, true);
         else if (marked) chunk.removeData(ModAttachments.GRID_DARK);
     }

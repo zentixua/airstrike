@@ -342,7 +342,7 @@
   "airstrike.config.grid_time_budget.tooltip": "Milliseconds of each server tick spent on blackout lights.",
   "airstrike.help.12": "/airstrike grid status|blackout|restore|node …: power grid status, cut power to an area, restore power, map nodes",
   "airstrike.grid.no_node": "No grid node #%s",
-  "airstrike.grid.status": "Outages: %s, grid nodes: %s (chunks queued %s, reading from disk %s)",
+  "airstrike.grid.status": "Outages: %s, grid nodes: %s (chunks queued %s, lamps to relight %s, reading from disk %s)",
   "airstrike.grid.outage": "#%s (%s): centre %s %s, radius %s, power %s",
   "airstrike.grid.restore.never": "returns only by command",
   "airstrike.grid.restore.now": "returning",

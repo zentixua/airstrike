@@ -8,7 +8,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.grid.BlackoutWorld;
+import ua.zentix.airstrike.grid.ChunkLights;
 
 import java.util.function.Supplier;
 
@@ -36,6 +39,16 @@ public interface Unlit {
         if (level instanceof ServerLevel server && !oldState.is(state.getBlock()) && BlackoutWorld.powered(server, pos)) {
             BlackoutWorld.get(server).relightLater(pos);
         }
+    }
+
+    /**
+     * Двойник в плоте аппарата Sable получил обновление соседа — зажечь сразу, в этом же тике. Сборка аппарата ставит
+     * блоки прямо в секции плота (без {@code onPlace}), а потом оповещает соседей каждого собранного блока: так
+     * двойник узнаёт, что он в плоте, до автосохранения (плот Sable сохраняет своим кодеком, мимо
+     * {@link ua.zentix.airstrike.grid.ChunkSaves}, а автосохранение идёт раньше конца тика сервера).
+     */
+    static void neighborChanged(BlockState state, Level level, BlockPos pos) {
+        if (level instanceof ServerLevel server && SubLevels.isInPlot(server, Vec3.atCenterOf(pos))) ChunkLights.relight(server, pos, state);
     }
 
     /**

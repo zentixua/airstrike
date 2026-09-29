@@ -280,9 +280,9 @@ public final class GridGameTests {
     /**
      * Аппарат Sable, собранный в тёмном квартале, уносит погашенные лампы в свой плот — не чанк мира: очередь
      * блэкаута его не видит, и сохраняет его Sable своим кодеком, мимо {@code ChunkDataEvent.Save}. У аппарата своё
-     * питание: двойники в плоте снова лампы (обход плотов раз в 5 с).
+     * питание: двойники в плоте снова лампы — в том же тике, что и сборка (обновление соседа), до любого сохранения.
      */
-    @GameTest(template = "range", timeoutTicks = 200, batch = "grid_sable", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_sable", skyAccess = true)
     public static void twinsCarriedIntoSableShipRelight(GameTestHelper h) {
         if (!ModList.get().isLoaded("sable")) {
             h.succeed();
@@ -298,6 +298,7 @@ public final class GridGameTests {
         BlockPos a = h.absolutePos(from), b = h.absolutePos(lantern);
         Vec3 craft = Vec3.atCenterOf(h.absolutePos(from.offset(2, 0, 2)));
         SubLevelAccess[] sub = new SubLevelAccess[1];
+        int[] assembled = {0};
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(PowerGrid.get(level).dark(a.getX() >> 4, a.getZ() >> 4, level.getGameTime())
                         && PowerGrid.get(level).dark(b.getX() >> 4, b.getZ() >> 4, level.getGameTime()), "квартал ещё светлый"))
@@ -307,8 +308,11 @@ public final class GridGameTests {
                     h.setBlock(lantern, GridLights.unlit(Blocks.LANTERN.defaultBlockState()));
                 })
                 .thenIdle(5)
+                // сразу после обхода плотов: до следующего обхода — PLOT_SCAN тиков, зажечь двойников может только сборка
+                .thenWaitUntil(() -> h.assertTrue(server.getTickCount() % BlackoutWorld.PLOT_SCAN == 1, "ждём тик после обхода плотов"))
                 .thenExecute(() -> {
                     h.assertTrue(GridLights.isUnlit(h.getBlockState(sea)), "двойник в тёмном квартале зажёгся: " + h.getBlockState(sea));
+                    assembled[0] = server.getTickCount();
                     server.getCommands().performPrefixedCommand(server.createCommandSourceStack().withLevel(level).withSuppressedOutput(),
                             String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()),
                                     Math.min(a.getZ(), b.getZ()), Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())));
@@ -318,18 +322,31 @@ public final class GridGameTests {
                     h.assertFalse(near.isEmpty(), "аппарат не собран");
                     sub[0] = near.getFirst();
                 })
-                .thenWaitUntil(() -> {
-                    BlockPos c = BlockPos.containing(SubLevels.toPlot(sub[0], SubLevels.center(sub[0])));
-                    int lit = 0, dark = 0;
-                    for (BlockPos p : BlockPos.betweenClosed(c.offset(-6, -6, -6), c.offset(6, 6, 6))) {
-                        BlockState st = level.getBlockState(p);
-                        if (st.is(Blocks.SEA_LANTERN) || st.is(Blocks.LANTERN)) lit++;
-                        if (GridLights.isUnlit(st)) dark++;
-                    }
-                    h.assertTrue(lit == 2 && dark == 0, "в плоте аппарата горит " + lit + ", погашено " + dark);
+                .thenExecute(() -> {
+                    h.assertTrue(server.getTickCount() - assembled[0] < BlackoutWorld.PLOT_SCAN - 1, "аппарат найден уже после обхода плотов — проверять нечего");
+                    // обхода плотов ещё не было: двойники зажглись от сборки (обновление соседа), раньше любого сохранения
+                    int[] lamps = plotLamps(level, sub[0]);
+                    h.assertTrue(lamps[0] == 2 && lamps[1] == 0, "до обхода плотов в плоте горит " + lamps[0] + ", погашено " + lamps[1]);
+                })
+                .thenIdle(BlackoutWorld.PLOT_SCAN + 1)
+                .thenExecute(() -> {
+                    int[] lamps = plotLamps(level, sub[0]);
+                    h.assertTrue(lamps[0] == 2 && lamps[1] == 0, "в плоте аппарата горит " + lamps[0] + ", погашено " + lamps[1]);
                 })
                 .thenExecute(() -> Blackouts.restore(level, null, 0))
                 .thenSucceed();
+    }
+
+    /** Лампы вокруг центра плота аппарата: {горящих, погашенных}. */
+    private static int[] plotLamps(ServerLevel level, SubLevelAccess sub) {
+        BlockPos c = BlockPos.containing(SubLevels.toPlot(sub, SubLevels.center(sub)));
+        int lit = 0, dark = 0;
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-6, -6, -6), c.offset(6, 6, 6))) {
+            BlockState st = level.getBlockState(p);
+            if (st.is(Blocks.SEA_LANTERN) || st.is(Blocks.LANTERN)) lit++;
+            if (GridLights.isUnlit(st)) dark++;
+        }
+        return new int[]{lit, dark};
     }
 
     /**
@@ -454,7 +471,53 @@ public final class GridGameTests {
                 .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь блэкаута не пустеет после возврата"))
                 .thenExecute(() -> {
                     h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк выгрузился");
+                    h.assertFalse(NuclearTickets.neighbourhoodLoaded(level, far), "блэкаут загрузил соседей краевого чанка");
                     chunks.removeRegionTicket(HOLD, far, 0, far);
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Лампа из красного камня на краю загруженного мира: сигнал пропал, пока квартал был тёмным. Свет возвращается
+     * в палитре (соседей нет — сверить сигнал нельзя), лампа — какой была; сверка с сигналом — когда соседи загрузились:
+     * лампа гаснет, как от обновления соседа.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_edge_signal", skyAccess = true)
+    public static void edgeLampFollowsSignalOnceNeighboursLoad(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.west(480)));
+        chunks.addRegionTicket(HOLD, far, 0, far);
+        level.getChunk(far.x, far.z);
+        BlockPos[] lamp = new BlockPos[1];
+        h.startSequence()
+                .thenExecute(() -> {
+                    h.assertFalse(NuclearTickets.neighbourhoodLoaded(level, far), "соседи чанка загружены — проверять нечего");
+                    int x = far.getMiddleBlockX(), z = far.getMiddleBlockZ();
+                    lamp[0] = new BlockPos(x, level.getChunk(far.x, far.z).getHeight(Heightmap.Types.WORLD_SURFACE, x, z) + 3, z);
+                    // без обновлений соседей: они прочли бы соседний чанк
+                    level.setBlock(lamp[0].above(), Blocks.REDSTONE_BLOCK.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    level.setBlock(lamp[0], Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true), Block.UPDATE_CLIENTS);
+                    Blackouts.blackout(level, Vec3.atCenterOf(lamp[0]), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(lamp[0])), "лампа на краю мира горит"))
+                .thenExecute(() -> {
+                    // сигнал пропал в темноте
+                    level.setBlock(lamp[0].above(), Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    Blackouts.restore(level, Vec3.atCenterOf(lamp[0]), 8);
+                })
+                .thenWaitUntil(() -> h.assertTrue(level.getBlockState(lamp[0]).is(Blocks.REDSTONE_LAMP), "свет на краю мира не вернулся"))
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь блэкаута не пустеет"))
+                .thenExecute(() -> {
+                    h.assertTrue(level.getBlockState(lamp[0]).getValue(RedstoneLampBlock.LIT), "лампа без соседей сверилась с сигналом");
+                    h.assertFalse(NuclearTickets.neighbourhoodLoaded(level, far), "блэкаут загрузил соседей краевого чанка");
+                    hold(level, far);
+                })
+                .thenWaitUntil(() -> h.assertFalse(level.getBlockState(lamp[0]).getValue(RedstoneLampBlock.LIT), "лампа не сверилась с сигналом, когда соседи загрузились"))
+                .thenExecute(() -> {
+                    chunks.removeRegionTicket(HOLD, far, 0, far);
+                    chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
                 .thenSucceed();
     }
