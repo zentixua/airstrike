@@ -151,6 +151,7 @@ public final class Trailer {
         NeoForge.EVENT_BUS.addListener(this::hideActor);
         NeoForge.EVENT_BUS.addListener(this::hideHand);
         NeoForge.EVENT_BUS.addListener(this::hideName);
+        NeoForge.EVENT_BUS.addListener(this::hideWallOverlay);
         script();
     }
 
@@ -162,6 +163,8 @@ public final class Trailer {
             cmd("gamerule doDaylightCycle false");
             cmd("gamerule doWeatherCycle false");
             cmd("gamerule doMobSpawning false");
+            // автосохранение: надпись «Saving world» в кадре и остановки сервера на копии, которую потом выбросят
+            cmd("save-off");
             cmd("weather clear");
             cmd("time set 6000");
             var c = AirstrikeConfig.SERVER;
@@ -1539,6 +1542,14 @@ public final class Trailer {
 
     private void hideName(net.neoforged.neoforge.client.event.RenderNameTagEvent e) {
         if (started) e.setCanRender(net.neoforged.neoforge.common.util.TriState.FALSE);
+    }
+
+    /**
+     * Затемнение «голова в блоке» ваниль считает по глазам игрока, а не камеры: у кинокамеры в стороне от наводчика
+     * оно закрывало весь кадр текстурой земли, стоило ему встать у склона.
+     */
+    private void hideWallOverlay(net.neoforged.neoforge.client.event.RenderBlockScreenEffectEvent e) {
+        if (CineCamera.active()) e.setCanceled(true);
     }
 
     private void hideHand(RenderHandEvent e) {

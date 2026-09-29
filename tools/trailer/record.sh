@@ -31,6 +31,7 @@ drivers = wave
 [wave]
 file = /dev/null
 CONF
+# облака ванили — на высоте 192, сквозь небоскрёбы Greenfield (у шейдеров свои)
 cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
@@ -40,6 +41,7 @@ entityDistanceScaling:1.0
 guiScale:3
 fov:0.0
 bobView:false
+renderClouds:"false"
 soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
