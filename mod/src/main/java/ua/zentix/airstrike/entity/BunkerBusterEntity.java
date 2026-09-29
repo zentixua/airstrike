@@ -83,6 +83,11 @@ public class BunkerBusterEntity extends StrikeProjectile {
     }
 
     @Override
+    protected boolean climbs() {
+        return false;
+    }
+
+    @Override
     protected boolean acceptsRetarget() {
         return false;
     }

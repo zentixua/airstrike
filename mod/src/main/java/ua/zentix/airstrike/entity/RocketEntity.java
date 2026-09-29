@@ -83,6 +83,11 @@ public class RocketEntity extends StrikeProjectile {
     }
 
     @Override
+    protected boolean climbs() {
+        return false;
+    }
+
+    @Override
     protected int defaultLifetime() {
         return 2400;
     }

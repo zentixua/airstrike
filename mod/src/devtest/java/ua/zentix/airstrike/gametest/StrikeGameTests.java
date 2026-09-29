@@ -810,6 +810,64 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Бомба вне мира падает над неготовым чанком, где пол полёта — уровень моря, а чанк посреди падения становится
+     * готовым, и настоящая поверхность выше бомбы. Бомба не рулит вверх: ниже поверхности она уже в земле и попадает
+     * в поверхность над собой. Раньше пол «встал» выше неё, пересечения сверху вниз не было, и она падала под мир.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "virtual_risen_ground", skyAccess = true)
+    public static void virtualBombUnderRisenSurfaceHitsIt(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // место падения грузится в фоне, пока бомба ждёт: время ожидания — игровое
+        gameSpeed(h);
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, -4000);
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+        Vec3 behind = from.add(0, -150, -300);
+        int sea = level.getChunkSource().getGenerator().getSeaLevel();
+        // «рельеф», которого вне мира не видно: плита на 80 блоков выше моря генератора
+        int roof = sea + 80;
+        BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+        bomb.drop(from, 0, behind, null, null);
+        VirtualFlights.launch(level, bomb);
+        UUID id = bomb.getUUID();
+        Vec3[] entry = {null};
+        double[] lowest = {from.y};
+        boolean[] risen = {false};
+        List<ChunkPos> held = new ArrayList<>();
+        afterTest(h, () -> held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c)));
+        h.onEachTick(() -> {
+            StrikeProjectile p = flight(level, id);
+            if (p == null) return;
+            lowest[0] = Math.min(lowest[0], p.getY());
+            // бомба вне мира ниже будущей плиты, но выше моря — её чанки готовы, а плита уже над ней
+            if (!risen[0] && p.isVirtual() && p.getY() < roof - 20 && p.getY() > sea + 5) {
+                risen[0] = true;
+                BlockPos at = p.blockPosition();
+                for (int dx = -3; dx <= 3; dx++) {
+                    for (int dz = -8; dz <= 96; dz++) {
+                        BlockPos b = new BlockPos(at.getX() + dx, roof, at.getZ() + dz);
+                        ChunkPos c = new ChunkPos(b);
+                        if (!held.contains(c)) {
+                            // уровень 33: чанк готов (FULL), но не тикает — бомба над ним остаётся вне мира
+                            level.getChunkSource().addRegionTicket(READY_ONLY, c, 0, c);
+                            level.getChunk(c.x, c.z);
+                            held.add(c);
+                        }
+                        level.setBlock(b, Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    }
+                }
+            }
+            if (entry[0] == null && p instanceof BunkerBusterEntity b && b.isDrilling()) entry[0] = b.entry();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(risen[0], "плита не встала над бомбой");
+            h.assertTrue(lowest[0] > level.getMinBuildHeight(), "бомба ушла под мир: y=" + (int) lowest[0]);
+            h.assertTrue(entry[0] != null, "бомба не вошла в грунт, ниже всего y=" + (int) lowest[0]);
+            // вход на 1 блок выше точки попадания (дым из скважины); попадание — верх плиты
+            h.assertTrue(Math.abs(entry[0].y - 1 - (roof + 1)) < 2, "бомба вошла не в плиту над собой: y=" + (int) entry[0].y + ", плита " + roof);
+        });
+    }
+
+    /**
      * Цель ниже рельефа (пещера, карьер, овраг; в обычном мире — всё, что ниже уровня моря 63, у неготовых чанков это
      * и есть поверхность вне мира): вне мира снаряд летит на высоте цели — пуск издалека над ней, РСЗО с её высоты — и
      * под поверхностью, пока не ниже цели, летит дальше. Здесь над местом пуска — «рельеф» из готового, но не тикающего
