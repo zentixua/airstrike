@@ -1075,6 +1075,75 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Цель ниже рельефа (3 блока под землёй), а сразу за ней по курсу — скала на 50 блоков выше: снаряд возвращается
+     * в мир у самой цели и встаёт над рельефом только своего оставшегося пути. Раньше он смотрел рельеф на 80 блоков
+     * вперёд — и за целью: ракету РСЗО поднимало на скалу, и она рвалась в воздухе или на склоне рядом с целью
+     * (стенд нагрузки 29.09.2026: ракета в 10 блоках от цели поднялась с y 51 выше 95).
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rocket_hill_beyond", skyAccess = true)
+    public static void virtualRocketIgnoresTerrainBeyondAim(GameTestHelper h) {
+        returnsUnderOwnTerrain(h, (level, aim) -> {
+            RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+            rocket.launchFrom(aim.add(-300, 0, 0), new Target.Point(aim), aim, null);
+            return rocket;
+        });
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_missile_hill_beyond", skyAccess = true)
+    public static void virtualMissileIgnoresTerrainBeyondAim(GameTestHelper h) {
+        returnsUnderOwnTerrain(h, (level, aim) -> {
+            CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+            // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
+            missile.launch(aim.add(-300, 12, 0), new Target.Point(aim), aim, null);
+            missile.setRoute(Route.direct());
+            return missile;
+        });
+    }
+
+    /** Скала за целью выше рельефа над ней на столько блоков. */
+    private static final int HILL_BEYOND = 50;
+
+    private static void returnsUnderOwnTerrain(GameTestHelper h, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
+        ServerLevel level = h.getLevel();
+        // далеко за площадкой, как virtualRocketDetonatesAtTickingAim: тикает только чанк цели, снаряд приходит вне мира
+        // и возвращается в мир у самой цели
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
+        ChunkPos chunk = new ChunkPos(origin);
+        level.setChunkForced(chunk.x, chunk.z, true);
+        afterTest(h, () -> level.setChunkForced(chunk.x, chunk.z, false));
+        generateNow(level, chunk);
+        int x = chunk.getMiddleBlockX(), z = chunk.getMiddleBlockZ();
+        int surface = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, x, z);
+        Vec3 aim = new Vec3(x + 0.5, surface - 3, z + 0.5);
+        // скала за целью по курсу (+x), в том же чанке: 6–7 блоков за ней
+        for (int bx = x + 6; bx <= x + 7; bx++)
+            for (int bz = z - 1; bz <= z + 1; bz++)
+                for (int by = surface - 4; by < surface + HILL_BEYOND; by++)
+                    level.setBlockAndUpdate(new BlockPos(bx, by, bz), Blocks.STONE.defaultBlockState());
+        StrikeProjectile p = make.apply(level, aim);
+        VirtualFlights.launch(level, p);
+        UUID id = p.getUUID();
+        Vec3[] last = {p.position()};
+        // высота в первом тике в мире и в последнем тике вне мира: возврат поднимает снаряд только над рельефом своего пути
+        double[] back = {Double.NaN, Double.NaN};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            if (f.isVirtual()) back[1] = f.getY();
+            else if (Double.isNaN(back[0])) back[0] = f.getY();
+            last[0] = f.position();
+        });
+        h.succeedWhen(() -> {
+            h.assertFalse(flight(level, id) != null, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            h.assertFalse(Double.isNaN(back[0]) || Double.isNaN(back[1]), "снаряд не прилетел вне мира и не вернулся в мир");
+            // не выше своего пути и рельефа над целью с запасом снаряда (ракета 4, крылатая 12) — не на скале за целью
+            h.assertTrue(back[0] <= Math.max(back[1], surface + 12) + 2,
+                    "снаряд у цели поднят на рельеф за ней: y " + (int) back[0] + " (вне мира " + (int) back[1] + "), рельеф над целью " + surface);
+            h.assertTrue(Math.hypot(last[0].x - aim.x, last[0].z - aim.z) < 4, "снаряд взорвался не у цели: " + last[0].subtract(aim));
+        });
+    }
+
+    /**
      * Снаряд РСЗО по свежему району рядом: сходит с пакета сразу (без ожидания в трубе) и до взрыва движется каждый тик.
      * Полёт (~100 тиков) не длиннее загрузки района, и раньше снаряд вне мира замирал в воздухе у цели (сценарий пролёта
      * 29.09.2026: вой обрывался на 8–40 тиков); теперь конец полёта вне мира растягивается во времени. В игровом темпе:

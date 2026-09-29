@@ -228,6 +228,13 @@ public class RocketEntity extends StrikeProjectile {
         return Double.MAX_VALUE;
     }
 
+    /** Путь кончается в точке падения, а не в точке прицеливания (разброс залпа). */
+    @Override
+    @Nullable
+    protected Vec3 pathEnd() {
+        return impactAt != null ? impactAt : super.pathEnd();
+    }
+
     /** Нос по скорости. */
     private void face(Vec3 v) {
         float[] a = FlightController.anglesTo(Vec3.ZERO, v);

@@ -84,6 +84,13 @@ public class BomberEntity extends StrikeProjectile {
         return !released;
     }
 
+    /** Бомбардировщик проходит цель и уходит дальше: его путь у неё не кончается. */
+    @Override
+    @Nullable
+    protected Vec3 pathEnd() {
+        return null;
+    }
+
     @Override
     protected double clearance() {
         return 120;
