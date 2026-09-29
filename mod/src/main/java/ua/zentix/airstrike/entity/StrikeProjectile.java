@@ -428,6 +428,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             age++;
             if (tracker == null) {
                 // сбой загрузки или спавна без launch(): летать некуда
+                Airstrike.LOG.warn("Снаряд {} {} у {} без цели (сбой загрузки или спавн без пуска) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -449,7 +450,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             holdTargetArea(level);
             syncSpeed();
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} в {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
+            Airstrike.LOG.error("Снаряд {} {} в {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
@@ -463,6 +464,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         try {
             age++;
             if (tracker == null) {
+                Airstrike.LOG.warn("Снаряд {} {} вне мира у {} без цели (сбой загрузки) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -475,7 +477,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             checkSiren(level);
             holdTargetArea(level);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} вне мира у {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
+            Airstrike.LOG.error("Снаряд {} {} вне мира у {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
@@ -509,8 +511,10 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // дошедший до поверхности попадает в неё — поднимать его над рельефом незачем
         if (!flightPhase().onLauncher() && grounded == null) {
             // рельеф под снарядом и впереди на 5 тиков полёта, каждый блок (только готовые чанки): не возникнуть
-            // перед склоном или стеной, которую не успеть перепрыгнуть
-            double[] ahead = new double[(int) Math.max(80, speed * 5)];
+            // перед склоном или стеной, которую не успеть перепрыгнуть. Путь, который кончается у цели, — только до неё:
+            // рельеф за целью поднимал ракету РСЗО, вернувшуюся в 10 блоках от цели ниже рельефа, на десятки блоков, и
+            // она рвалась в воздухе или на склоне рядом с целью (стенд 29.09.2026)
+            double[] ahead = new double[(int) Math.min(Math.max(80, speed * 5), pathLeft())];
             for (int i = 0; i < ahead.length; i++) ahead[i] = i + 1;
             double floor = Math.max(surfaceY(level, getX(), getZ()), terrainAhead(level, ahead)) + clearance();
             if (getY() < floor) {
@@ -528,6 +532,29 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // свои тикеты — до входа в мир: чанк мог тикать лишь по чужому тикету (соседний снаряд), и если тот его
         // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни срока жизни
         if (holdsChunks()) updateChunkTickets(level, position(), flight.forward());
+    }
+
+    /**
+     * Сколько по горизонтали осталось пути вперёд до его конца ({@link #pathEnd}); бесконечность — путь впереди у цели
+     * не кончается (конца нет или он позади: снаряд уходит на новый заход).
+     */
+    private double pathLeft() {
+        Vec3 end = pathEnd();
+        if (end == null) return Double.POSITIVE_INFINITY;
+        double dx = end.x - getX(), dz = end.z - getZ();
+        double d2 = dx * dx + dz * dz;
+        Vec3 f = flight.forward();
+        if (d2 > 1 && f.x * dx + f.z * dz <= 0) return Double.POSITIVE_INFINITY;
+        return Math.sqrt(d2);
+    }
+
+    /**
+     * Где кончается путь снаряда (null — не у точки: бомбардировщик проходит цель, барражирующий кружит над ней):
+     * по умолчанию — цель, когда маршрут пройден.
+     */
+    @Nullable
+    protected Vec3 pathEnd() {
+        return tracker != null && onFinalLeg() ? tracker.point() : null;
     }
 
     /**
@@ -810,6 +837,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
         Vec3 next = pos.add(dir.scale(speed));
         if (next.y < level.getMinBuildHeight() - 64) {
+            Airstrike.LOG.warn("Снаряд {} {} ушёл ниже мира у {} и убран", getType().getDescriptionId(), getUUID(), blockPosition());
             discard();
             return false;
         }
@@ -1042,7 +1070,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         RemovalReason reason = getRemovalReason();
         if (level() instanceof ServerLevel level && level.getServer().isRunning() && isActive()
                 && (reason == null || reason == RemovalReason.UNLOADED_TO_CHUNK)) {
-            Airstrike.LOG.warn("Снаряд {} в полёте выгружен вместе с чанком у {} ({})", getType().getDescriptionId(), blockPosition(),
+            Airstrike.LOG.warn("Снаряд {} {} в полёте выгружен вместе с чанком у {} ({})", getType().getDescriptionId(), getUUID(), blockPosition(),
                     reason == null ? "чанк перестал отслеживаться" : "чанк выгружен");
         }
         super.onRemovedFromLevel();
