@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.registry.ModAttachments;
@@ -25,6 +26,17 @@ import java.util.PriorityQueue;
  * (загруженные позже — сразу), столбец за столбцом под общим бюджетом времени; после всех столбцов отметка
  * ставится. Выгрузился посреди обработки — отметки нет, при следующей загрузке пройдёт заново (идемпотентно).
  * <p>
+ * Чанк в очереди, пока он в памяти, а не пока он полностью загружен: у края видимости чанк то и дело опускается
+ * ниже полной загрузки и поднимается обратно, не выгружаясь, — и {@code ChunkEvent.Load} при этом больше не
+ * приходит (он один на жизнь чанка в памяти). Такой чанк ждёт в очереди, как и чанк без загруженных соседей;
+ * снимок подрыва берёт и его. Иначе он выпадал из очереди навсегда — полосы нетронутых чанков в зоне.
+ * <p>
+ * Чанк на краю загруженного мира (сам загружен, соседи — нет) сам не дождётся соседей, если игрок не подойдёт
+ * ближе, — а на краях двух стоянок игрока так и остаётся нетронутый шов. Такой чанк держит тикет с соседями
+ * ({@link NuclearTickets#holdForScar}): ваниль грузит их в фоне, чанк проходится, тикет снимается. Соседи,
+ * загруженные ради него, сами тикет не берут — иначе загрузка расползлась бы на весь радиус; они пройдутся,
+ * когда их загрузит игрок.
+ * <p>
  * В момент подрыва загружены тысячи чанков: и их снимок, и постановка в очередь идут уже под бюджетом
  * ({@link #scanLoaded}), в тике подрыва — ничего.
  */
@@ -36,9 +48,14 @@ public final class ScarQueue {
         int event;
         int column;
         long due;
+        /** Может держать тикет с соседями: загружен не нашим тикетом. */
+        final boolean mayHold;
+        /** Держит тикет с соседями. */
+        boolean held;
 
-        Job(long chunk) {
+        Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
+            this.mayHold = mayHold;
         }
     }
 
@@ -54,7 +71,7 @@ public final class ScarQueue {
         }
     }
 
-    /** Через сколько тиков снова проверить чанк, у которого не все соседи загружены. */
+    /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 40;
 
     private final Long2ObjectOpenHashMap<Job> jobs = new Long2ObjectOpenHashMap<>();
@@ -75,7 +92,10 @@ public final class ScarQueue {
         scans.add(new Scan(d));
     }
 
-    /** Координаты загруженных чанков в радиусе подрыва. Чанк, загруженный после подрыва, поставит {@code onChunkLoad}. */
+    /**
+     * Координаты чанков в памяти в радиусе подрыва. Чанк, который ещё ни разу не был полностью загружен, поставит
+     * {@code onChunkLoad}, когда загрузится.
+     */
     private static long[] loadedInRange(ServerLevel level, Detonation d) {
         double radius = d.radiusMax();
         LongArrayList in = new LongArrayList();
@@ -84,6 +104,16 @@ public final class ScarQueue {
             if (nearest(p, d) <= radius) in.add(p.toLong());
         }
         return in.toLongArray();
+    }
+
+    /**
+     * Чанк в памяти: полностью загруженный или опущенный ниже (у края видимости), но не выгруженный; null — его нет
+     * в памяти или он ещё не бывал полностью загружен ({@code onChunkLoad} поставит его сам).
+     */
+    @Nullable
+    private static LevelChunk inMemory(ServerLevel level, long pos) {
+        ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(pos);
+        return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
 
     /** Поставить чанк в очередь по подрыву (если чанк в радиусе и подрыв новее отметки на чанке). */
@@ -95,7 +125,7 @@ public final class ScarQueue {
         long key = chunk.getPos().toLong();
         Job job = jobs.get(key);
         if (job == null) {
-            job = new Job(key);
+            job = new Job(key, !nearHeld(chunk.getPos()));
             jobs.put(key, job);
         } else {
             byDue.remove(job);
@@ -108,6 +138,24 @@ public final class ScarQueue {
         byDue.add(job);
     }
 
+    /** Рядом (или сам) чанк, который держит тикет с соседями, — значит, этот чанк, скорее всего, загружен им. */
+    private boolean nearHeld(ChunkPos pos) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                Job j = jobs.get(ChunkPos.asLong(pos.x + dx, pos.z + dz));
+                if (j != null && j.held) return true;
+            }
+        }
+        return false;
+    }
+
+    private static void release(ServerLevel level, Job job) {
+        if (!job.held) return;
+        NuclearTickets.holdForScar(level, new ChunkPos(job.chunk), false);
+        job.held = false;
+    }
+
+    /** Выгружен: работа снимается (чанк с тикетом не выгружается — тикет снят раньше, в {@link #clear}). */
     public void drop(ChunkPos pos) {
         Job job = jobs.remove(pos.toLong());
         if (job != null) byDue.remove(job);
@@ -118,7 +166,8 @@ public final class ScarQueue {
         budgets.keySet().retainAll(detonations);
     }
 
-    public void clear() {
+    public void clear(ServerLevel level) {
+        jobs.values().forEach(j -> release(level, j));
         scans.clear();
         jobs.clear();
         byDue.clear();
@@ -155,9 +204,8 @@ public final class ScarQueue {
             if (scan.chunks == null) {
                 scan.chunks = loadedInRange(level, scan.d);
             } else {
-                long pos = scan.chunks[scan.next++];
                 // выгрузился после подрыва — пропускаем; загрузится снова — поставит onChunkLoad
-                LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(pos), ChunkPos.getZ(pos));
+                LevelChunk chunk = inMemory(level, scan.chunks[scan.next++]);
                 if (chunk != null) offer(chunk, scan.d);
             }
             clock.end(c0);
@@ -166,19 +214,26 @@ public final class ScarQueue {
         while (!byDue.isEmpty() && clock.canStart()) {
             Job job = byDue.peek();
             if (job.due > now) return;
-            LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(job.chunk), ChunkPos.getZ(job.chunk));
-            if (chunk == null) {
+            if (inMemory(level, job.chunk) == null) {
+                // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
                 byDue.poll();
                 jobs.remove(job.chunk);
                 continue;
             }
-            if (!NuclearTickets.neighbourhoodLoaded(level, chunk.getPos())) {
-                // край загруженного мира: разрушим, когда подгрузятся соседи (или когда игрок подойдёт)
+            ChunkPos pos = new ChunkPos(job.chunk);
+            if (!NuclearTickets.neighbourhoodLoaded(level, pos)) {
+                // край загруженного мира (сам чанк или соседи ниже полной загрузки): разрушим, когда загрузятся;
+                // полностью загруженный край сам просит соседей
+                if (!job.held && job.mayHold && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) {
+                    NuclearTickets.holdForScar(level, pos, true);
+                    job.held = true;
+                }
                 byDue.poll();
                 job.due = now + NEIGHBOUR_RETRY;
                 byDue.add(job);
                 continue;
             }
+            LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
             Detonation d = job.events.get(job.event);
             ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget());
             int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
@@ -200,6 +255,7 @@ public final class ScarQueue {
             job.event++;
             byDue.poll();
             if (job.event >= job.events.size()) {
+                release(level, job);
                 jobs.remove(job.chunk);
             } else {
                 job.due = due(job.events.get(job.event), chunk.getPos());
