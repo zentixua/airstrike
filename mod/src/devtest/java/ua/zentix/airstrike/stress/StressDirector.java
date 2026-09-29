@@ -80,14 +80,17 @@ public final class StressDirector {
     /** Сколько ждать района телепорта, пока это не стало проблемой в сводке, и сколько самое большее держать его после. */
     private static final int TELEPORT_WAIT = 1200, TELEPORT_HOLD = 100;
     /**
-     * Уровень тикета района телепорта: 31, как у тикета игрока ({@code DistanceManager.PLAYER_TICKET_LEVEL}), — полностью
-     * загружен квадрат 5×5 и в очереди генерации район стоит наравне с чанками игроков. Уровень 33 (тикет региона
-     * с дистанцией 0 на каждый чанк) стоял за районами целей снарядов (уровни 29–33): телепорт ждал 2353 тика
-     * (облако 29.09.2026), и сценарий шёл без игроков на своих местах.
+     * Радиус района телепорта в чанках: дистанция симуляции сервера + 1. Чанки игрока в дистанции симуляции тикают
+     * блоками, как только полностью загружены, не дожидаясь соседей ({@code DistanceManager.tickingTicketsTracker}),
+     * и хранилище испытаний или улей у края читает соседний чанк, который ещё генерируется, — синхронно: у свежего
+     * места игрока сервер стоял 10–12 с (облако 29.09.2026, «остановка:» без тикетов мода рядом). Это ваниль, а стенд
+     * меряет остановки мода, поэтому игрок переносится в район, где готов весь квадрат симуляции и соседи его края.
+     * Уровень тикета {@code 33 − радиус}: квадрат грузится полностью и в очереди генерации идёт впереди районов целей
+     * (уровни 29–33); с уровнем 33 телепорт ждал 2353 тика, и сценарий шёл без игроков на своих местах.
      */
-    private static final int TELEPORT_LEVEL = ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING);
-    /** Радиус района телепорта в чанках (5×5): до него уровень тикета доходит до 33 (полностью загружен). */
-    private static final int TELEPORT_AREA = ChunkLevel.byStatus(FullChunkStatus.FULL) - TELEPORT_LEVEL;
+    private static int teleportArea(MinecraftServer s) {
+        return s.getPlayerList().getSimulationDistance() + 1;
+    }
 
     private record Step(int at, String what, Consumer<MinecraftServer> action) {}
 
@@ -364,9 +367,9 @@ public final class StressDirector {
     }
 
     /**
-     * Телепорт игрока, как у игры с загрузкой в фоне: сначала район 5×5 чанков грузится (тикет загрузки уровня
-     * {@link #TELEPORT_LEVEL}, без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района
-     * не тикают рядом с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
+     * Телепорт игрока, как у игры с загрузкой в фоне: сначала район ({@link #teleportArea}) грузится (тикет загрузки,
+     * без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района не тикают рядом
+     * с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
      * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
      * были самого стенда. Новый телепорт того же игрока отменяет ждущий: иначе оба дождались бы района в одном тике,
      * и игрок оказался бы там, куда его послали раньше.
@@ -383,8 +386,9 @@ public final class StressDirector {
         ChunkPos centre = new ChunkPos(x >> 4, z >> 4);
         DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
         UUID key = UUID.randomUUID();
-        tickets.addTicket(TELEPORT, centre, TELEPORT_LEVEL, key);
-        Runnable release = () -> tickets.removeTicket(TELEPORT, centre, TELEPORT_LEVEL, key);
+        int area = teleportArea(s), ticketLevel = ChunkLevel.byStatus(FullChunkStatus.FULL) - area;
+        tickets.addTicket(TELEPORT, centre, ticketLevel, key);
+        Runnable release = () -> tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
         // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
         int since = s.getTickCount();
         boolean[] cancelled = {false};
@@ -397,7 +401,7 @@ public final class StressDirector {
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
             if (cancelled[0]) return true;
-            if (!areaReady(level, centre)) {
+            if (!areaReady(level, centre, area)) {
                 // не предел: телепорт ждёт дальше (и держит тикет), но в сводке это проблема
                 if (s.getTickCount() - since == TELEPORT_WAIT) {
                     log("tp %s → %d %d: район не готов за %d тиков, ждём дальше", name, x, z, TELEPORT_WAIT);
@@ -413,13 +417,16 @@ public final class StressDirector {
             }
             // дальше район держит тикет игрока: наш отпускается, когда на центральном чанке стоит тикет игрока
             // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают с задержкой,
-            // DistanceManager.ticketThrottler), — или через TELEPORT_HOLD, если игрока там нет (вышел, ушёл дальше).
+            // DistanceManager.ticketThrottler), — или через TELEPORT_HOLD, если игрока нет или он уже в другом мире
+            // или чанке (вышел, ушёл дальше).
             // Отпустить раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно
             int placed = s.getTickCount();
             waits.add(() -> {
                 ServerPlayer there = s.getPlayerList().getPlayerByName(name);
-                boolean arrived = there != null && there.serverLevel() == level && playerTicketAt(level, centre);
-                if (!arrived && (there != null || s.getTickCount() - placed < TELEPORT_HOLD) && s.getTickCount() - placed < TELEPORT_WAIT) return false;
+                boolean here = there != null && there.serverLevel() == level && there.chunkPosition().equals(centre);
+                boolean arrived = here && playerTicketAt(level, centre);
+                // игрок в центральном чанке ждёт своего тикета (до TELEPORT_WAIT), ушедший — не дольше TELEPORT_HOLD
+                if (!arrived && s.getTickCount() - placed < (here ? TELEPORT_WAIT : TELEPORT_HOLD)) return false;
                 release.run();
                 log("район телепорта %s отпущен через %d тиков%s", name, s.getTickCount() - placed, arrived ? "" : ", тикета игрока на нём нет");
                 return true;
@@ -430,15 +437,14 @@ public final class StressDirector {
 
     /** На чанке стоит тикет игрока ({@code TicketType.PLAYER}): район держит сам игрок. */
     private static boolean playerTicketAt(ServerLevel level, ChunkPos pos) {
-        DistanceManager d = distanceManager(level);
-        var map = d == null ? null : ticketMap(d);
+        var map = ticketMap(level.getChunkSource().chunkMap.getDistanceManager());
         var set = map == null ? null : map.get(pos.toLong());
         return set != null && set.stream().anyMatch(t -> t.getType() == TicketType.PLAYER);
     }
 
-    private static boolean areaReady(ServerLevel level, ChunkPos centre) {
-        for (int dx = -TELEPORT_AREA; dx <= TELEPORT_AREA; dx++) {
-            for (int dz = -TELEPORT_AREA; dz <= TELEPORT_AREA; dz++) if (!Terrain.ready(level, centre.x + dx, centre.z + dz)) return false;
+    private static boolean areaReady(ServerLevel level, ChunkPos centre, int area) {
+        for (int dx = -area; dx <= area; dx++) {
+            for (int dz = -area; dz <= area; dz++) if (!Terrain.ready(level, centre.x + dx, centre.z + dz)) return false;
         }
         return true;
     }
@@ -778,14 +784,15 @@ public final class StressDirector {
             if (placingSince < 0) placingSince = s.getTickCount();
             runWaits();
             if (pendingTeleports.isEmpty()) {
+                // ожидания этого тика уже прошли — сценарий со следующего
                 log("игроки на местах, часы сценария идут");
+                return;
             } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
                 problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
                 log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
                 placingSince = Integer.MAX_VALUE;
-            } else {
-                return;
             }
+            return;
         }
         tick++;
         windowSum += took;
