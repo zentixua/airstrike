@@ -83,6 +83,11 @@ public class RocketEntity extends StrikeProjectile {
     }
 
     @Override
+    protected boolean climbs() {
+        return false;
+    }
+
+    @Override
     protected int defaultLifetime() {
         return 2400;
     }
@@ -157,6 +162,11 @@ public class RocketEntity extends StrikeProjectile {
                 solve(position(), impactAt);
                 setPhase(FlightPhase.BOOST);
             }
+            return;
+        }
+        // вне мира путь кончился на поверхности: ни траектории, ни растяжения — ждать там загрузки и попасть
+        if (isGrounded()) {
+            advance(level, impactAt, 1.5);
             return;
         }
         if (start == null) solve(position(), impactAt);
