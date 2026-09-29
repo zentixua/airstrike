@@ -7,8 +7,10 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -120,6 +122,19 @@ public final class VirtualFlights extends SavedData {
             flights.add(p);
         }
         setDirty();
+    }
+
+    /**
+     * Снаряду можно вернуться в мир: живы (готовы, и в них тикают сущности) все колонки чанков на его пути
+     * на {@code max(16, 3 шага)} блоков вперёд по горизонтали, а не только своя и конечная. Первый шаг в мире
+     * ({@code leavesTickingChunks}) проверяет точку, куда он придёт; срезая угол, путь заходит в чанк, которого нет
+     * ни там, ни там, — снаряд возвращался в мир и тут же уходил обратно каждый тик. Каждый уход и возврат отпускал
+     * и заново брал тикеты района цели, район так и не догружался, и ракета РСЗО стояла у цели до конца срока жизни
+     * (стенд нагрузки 29.09.2026).
+     */
+    public static boolean clearAhead(Vec3 pos, Vec3 forward, double speed, Terrain.ChunkReady live) {
+        Vec3 ahead = pos.add(forward.multiply(1, 0, 1).scale(Math.max(16, speed * 3)));
+        return Terrain.readyFraction(pos.x, pos.z, ahead.x, ahead.z, live) >= 1;
     }
 
     private static StrikeProjectile create(ServerLevel level, CompoundTag tag) {

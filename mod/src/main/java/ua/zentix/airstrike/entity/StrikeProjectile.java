@@ -465,19 +465,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Можно вернуться в мир: снаряд над тикающим и готовым чанком, и впереди по курсу тоже (без этого запаса он
-     * на границе прыгал бы туда-обратно каждый тик). Дошедшему до цели запас не нужен: в мире он взорвётся.
+     * Можно вернуться в мир: снаряд над тикающим и готовым чанком, и весь путь впереди по курсу тоже (без этого
+     * запаса он на границе прыгал бы туда-обратно каждый тик, {@link VirtualFlights#clearAhead}). Дошедшему до цели
+     * запас не нужен: в мире он взорвётся.
      */
     public boolean canMaterialize(ServerLevel level) {
         if (arrived) {
             BlockPos here = BlockPos.containing(position());
             return level.isPositionEntityTicking(here) && Terrain.ready(level, here);
         }
-        Vec3 ahead = position().add(flight.forward().multiply(1, 0, 1).scale(Math.max(16, speed * 3)));
-        BlockPos here = BlockPos.containing(position());
-        BlockPos next = BlockPos.containing(ahead);
-        return level.isPositionEntityTicking(here) && level.isPositionEntityTicking(next)
-                && Terrain.ready(level, here) && Terrain.ready(level, next);
+        return VirtualFlights.clearAhead(position(), flight.forward(), speed,
+                (x, z) -> Terrain.ready(level, x, z) && level.isPositionEntityTicking(new BlockPos(x << 4, 0, z << 4)));
     }
 
     /**
