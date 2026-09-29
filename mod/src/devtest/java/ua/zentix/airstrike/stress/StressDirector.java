@@ -187,6 +187,11 @@ public final class StressDirector {
         /** Бомба на точку позади: путь до поверхности и должен проверяться. */
         final boolean mustGround;
         Vec3 center;
+        /**
+         * Сколько снарядов проба пускает: пущенных меньше — часть пуска потерялась до перебора стенда (0 — не сверяется:
+         * у B-2 в пробе и он сам, и его бомба, которую считает {@code bombs}).
+         */
+        final int ordered;
         int launched;
         /** Снаряды пробы, которых застали вне мира: без них путь вне мира не проверен. */
         final Set<UUID> flewVirtual = new HashSet<>();
@@ -214,8 +219,9 @@ public final class StressDirector {
         /** Попадания бомб: от цели по горизонтали (ранний сброс или сброс не с эшелона — бомба далеко от точки). */
         final List<Double> impactOff = new ArrayList<>();
 
-        GroundProbe(String name, String how, Vec3 center, boolean steering, boolean mustGround) {
+        GroundProbe(String name, String how, Vec3 center, int ordered, boolean steering, boolean mustGround) {
             this.name = name;
+            this.ordered = ordered;
             this.how = how;
             this.center = center;
             this.steering = steering;
@@ -624,7 +630,7 @@ public final class StressDirector {
         }
         if (behind != null) {
             GroundProbe pr = new GroundProbe(name, "бомба сразу вне мира, без B-2 и его захода; баллистика, не управляемая",
-                    behind.add(48 * (count - 1) / 2.0, 0, 0), false, true);
+                    behind.add(48 * (count - 1) / 2.0, 0, 0), count, false, true);
             pr.dropBehind = true;
             groundProbes.add(pr);
         }
@@ -635,7 +641,7 @@ public final class StressDirector {
     private void groundDeep(MinecraftServer s, String name, WeaponType weapon, int count, int x, int z) {
         ServerLevel level = s.overworld();
         Vec3 aim = new Vec3(x + 0.5, 40, z + 0.5);
-        groundProbes.add(new GroundProbe(name, "боевой пуск издалека (dispatch)", aim, true, false));
+        groundProbes.add(new GroundProbe(name, "боевой пуск издалека (dispatch)", aim, count, true, false));
         log("проба %s: %s %d по %d 40 %d (рельеф над целью %d), район %s", name, weapon.name().toLowerCase(Locale.ROOT), count, x, z,
                 (int) Target.Ground.at(level, x, z).pos().y, Terrain.ready(level, x >> 4, z >> 4) ? "уже готов" : "не готов");
         ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + name, 0, weapon, count, 8,
@@ -647,6 +653,8 @@ public final class StressDirector {
 
     /** Высота стойки пробы rising-aim: ниже моря, как цель ниже рельефа у проб deep. */
     private static final int RISING_AIM_Y = 40;
+    /** Ракет по стойке пробы rising-aim. */
+    private static final int RISING_SHOTS = 3;
 
     /**
      * Ракеты издалека по стойке (цель-сущность) в своём принудительно загруженном чанке: стойка ставится, когда чанк
@@ -656,7 +664,7 @@ public final class StressDirector {
      */
     private void groundRising(MinecraftServer s, String name, int x, int z) {
         ServerLevel level = s.overworld();
-        GroundProbe pr = new GroundProbe(name, "боевой пуск издалека (dispatch) по стойке", new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), true, false);
+        GroundProbe pr = new GroundProbe(name, "боевой пуск издалека (dispatch) по стойке", new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), RISING_SHOTS, true, false);
         pr.forced = new ChunkPos(x >> 4, z >> 4);
         pr.setupTick = tick;
         // тикет в фоне, как у района цели: setChunkForced грузит свежий чанк сразу (VPS 29.09.2026: тик 8 с)
@@ -673,7 +681,7 @@ public final class StressDirector {
     private void groundB2Behind(MinecraftServer s, String name, int x, int z) {
         ServerLevel level = s.overworld();
         Target.Ground aim = Target.Ground.at(level, x + 0.5, z + 0.5);
-        GroundProbe pr = new GroundProbe(name, "боевой пуск B-2 издалека (dispatch), перенацеливание вне мира на 60 блоков позади", aim.pos(), true, false);
+        GroundProbe pr = new GroundProbe(name, "боевой пуск B-2 издалека (dispatch), перенацеливание вне мира на 60 блоков позади", aim.pos(), 0, true, false);
         pr.b2Behind = true;
         groundProbes.add(pr);
         log("проба %s: B-2 по %d %d %d", name, x, (int) aim.pos().y, z);
@@ -697,8 +705,8 @@ public final class StressDirector {
                 level.addFreshEntity(stand);
                 pr.stand = stand;
                 pr.center = stand.position();
-                log("проба %s: стойка у %d %d %d (чанк грузился %d тиков), пуск 3 ракет издалека", pr.name, c.getX(), y, c.getZ(), tick - pr.setupTick);
-                ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + pr.name, 0, WeaponType.MISSILE, 3, 0,
+                log("проба %s: стойка у %d %d %d (чанк грузился %d тиков), пуск %d ракет издалека", pr.name, c.getX(), y, c.getZ(), tick - pr.setupTick, RISING_SHOTS);
+                ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + pr.name, 0, WeaponType.MISSILE, RISING_SHOTS, 0,
                         new ua.zentix.airstrike.strike.ServerActions.Aim(Target.OfEntity.center(stand), stand.position(), null),
                         ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
                 continue;
@@ -867,6 +875,50 @@ public final class StressDirector {
         if (e.getLevel().isClientSide() || !(e.getEntity() instanceof StrikeProjectile p)) return;
         leftHow.put(p.getUUID(), p.getRemovalReason() + " фаза " + p.flightPhase().getSerializedName() + " возраст " + p.age()
                 + " тикает " + ((ServerLevel) e.getLevel()).isPositionEntityTicking(p.blockPosition()));
+    }
+
+    /** Снаряд убран, итог — по взрыву рядом, который может прийти позже ({@link #BLAST_WAIT}). */
+    private record Gone(UUID id, Watch w, Vec3 end, @Nullable String how, int at) {}
+
+    /**
+     * Сколько тиков убранный снаряд ждёт своего взрыва: у неготового района ванильный взрыв откладывается до его
+     * загрузки ({@code Warheads.whenReady}); снаряд, вернувшийся в мир и сбитый в том же тике, взрывается позже.
+     */
+    private static final int BLAST_WAIT = 200;
+    /** Взрыв — этого снаряда, если он ближе к месту уборки или к месту, где снаряд замечен последним (путь за тик). */
+    private static final double BLAST_AT_END = 16, BLAST_AT_SEEN = 48;
+    private final List<Gone> awaitingBlast = new ArrayList<>();
+
+    @Nullable
+    private Vec3 blastFor(Gone g) {
+        for (Vec3 b : blastsThisTick)
+            if (b.distanceToSqr(g.end) < BLAST_AT_END * BLAST_AT_END || b.distanceToSqr(g.w.pos) < BLAST_AT_SEEN * BLAST_AT_SEEN) return b;
+        return null;
+    }
+
+    private void ended(Watch w, String outcome) {
+        outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
+        if (w.probe != null) w.probe.outcomes.merge(outcome, 1, Integer::sum);
+        if (w.ground != null) w.ground.outcomes.merge(outcome, 1, Integer::sum);
+    }
+
+    /** Взрыв засчитан; у бомбы пробы — ещё и как далеко от точки она попала (место уборки). */
+    private void impact(Gone g) {
+        ended(g.w, "impact");
+        if (g.w.ground != null && "bunker_buster".equals(g.w.type))
+            g.w.ground.impactOff.add(Math.hypot(g.end.x - g.w.aim.x, g.end.z - g.w.aim.z));
+    }
+
+    private void lost(Gone g, String note) {
+        Watch w = g.w;
+        // конец — по самому объекту: снаряд, убранный вне мира (срок жизни), не шлёт события ухода, и «ушёл»
+        // тогда говорит о его последнем уходе из мира в полёт вне мира, раньше конца
+        log("lost %s %s у %d %d %d, замечен последний раз у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d, взрыва нет %d тиков%s; "
+                        + "последний уход из мира: %s)",
+                w.type, g.id, (int) g.end.x, (int) g.end.y, (int) g.end.z, (int) w.pos.x, (int) w.pos.y, (int) w.pos.z,
+                (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual,
+                w.ref.getRemovalReason(), w.ref.flightPhase().getSerializedName(), w.ref.age(), tick - g.at, note, g.how);
+        ended(w, "lost");
     }
 
     private void onExplosion(ExplosionEvent.Start e) {
@@ -1144,31 +1196,30 @@ public final class StressDirector {
                 continue;
             }
             it.remove();
-            String how = leftHow.remove(en.getKey());
-            String outcome;
             // где кончился — по самому объекту: вернувшись в мир, снаряд встаёт над рельефом (materialize, тот же объект)
             // и может взорваться в том же тике, не попав в перебор стенда; последнее замеченное место — ещё вне мира,
             // под рельефом (облако 29.09.2026: ракета РСЗО поднята с y 51 до ~95 и взорвалась — засчитана «lost»)
-            Vec3 end = w.ref.position();
-            if (cleared.contains(en.getKey())) outcome = "cleared";
-            else if (blastsThisTick.stream().anyMatch(b -> b.distanceToSqr(end) < 48 * 48 || b.distanceToSqr(w.pos) < 48 * 48)) outcome = "impact";
-            else if ("bomber".equals(w.type)) outcome = "bomber-gone";
+            Gone g = new Gone(en.getKey(), w, w.ref.position(), leftHow.remove(en.getKey()), tick);
+            if (cleared.contains(en.getKey())) ended(w, "cleared");
+            else if ("bomber".equals(w.type)) ended(w, "bomber-gone");
             // МБР — только разгон: над небом она убирается сама, удар дальше ведёт NuclearStrikes по таймеру
-            else if ("icbm".equals(w.type) && w.pos.y > s.overworld().getMaxBuildHeight()) outcome = "boost-done";
-            else {
-                outcome = "lost";
-                // конец — по самому объекту: снаряд, убранный вне мира (срок жизни), не шлёт события ухода, и «ушёл»
-                // тогда говорит о его последнем уходе из мира в полёт вне мира, раньше конца
-                log("lost %s %s у %d %d %d, замечен последний раз у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d; последний уход из мира: %s)",
-                        w.type, en.getKey(), (int) end.x, (int) end.y, (int) end.z, (int) w.pos.x, (int) w.pos.y, (int) w.pos.z,
-                        (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual,
-                        w.ref.getRemovalReason(), w.ref.flightPhase().getSerializedName(), w.ref.age(), how);
-            }
-            outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
-            if (w.probe != null) w.probe.outcomes.merge(outcome, 1, Integer::sum);
-            if (w.ground != null) {
-                w.ground.outcomes.merge(outcome, 1, Integer::sum);
-                if ("impact".equals(outcome) && "bunker_buster".equals(w.type)) w.ground.impactOff.add(Math.hypot(end.x - w.aim.x, end.z - w.aim.z));
+            else if ("icbm".equals(w.type) && w.pos.y > s.overworld().getMaxBuildHeight()) ended(w, "boost-done");
+            else awaitingBlast.add(g);
+        }
+        // убранный снаряд ждёт своего взрыва BLAST_WAIT тиков: взрыв у неготового района откладывается до его загрузки
+        for (var it = awaitingBlast.iterator(); it.hasNext(); ) {
+            Gone g = it.next();
+            Vec3 blast = blastFor(g);
+            if (blast != null) {
+                it.remove();
+                // взрывы проб и отложенные — строкой: по ним видно, чей взрыв засчитан и где
+                if (tick > g.at || g.w.probe != null || g.w.ground != null)
+                    log("взрыв %s %s у %d %d %d на t=%d (через %d тиков после уборки), до места уборки %.0f, до замеченного последним %.0f",
+                            g.w.type, g.id, (int) blast.x, (int) blast.y, (int) blast.z, tick, tick - g.at, blast.distanceTo(g.end), blast.distanceTo(g.w.pos));
+                impact(g);
+            } else if (tick - g.at >= BLAST_WAIT) {
+                it.remove();
+                lost(g, "");
             }
         }
         blastsThisTick.clear();
@@ -1233,7 +1284,7 @@ public final class StressDirector {
     }
 
     private void finishWhenQuiet(MinecraftServer s) {
-        int active = watched.size();
+        int active = watched.size() + awaitingBlast.size();
         for (ServerLevel l : s.getAllLevels()) {
             active += SalvoData.get(l).size();
         }
@@ -1314,6 +1365,9 @@ public final class StressDirector {
             if (pr.forced == null) continue;
             s.overworld().getChunkSource().removeRegionTicket(PROBE_TICKET, pr.forced, 2, pr.forced);
         }
+        // сводка раньше конца ожидания (timeout, перезапуск): не дождавшиеся своего взрыва — потеряны
+        for (Gone g : awaitingBlast) lost(g, ", сводка раньше конца ожидания");
+        awaitingBlast.clear();
         seeDetonations(s);
         int nukes = detonationsSeen.size();
         // МБР пускали, а подрыва нет: удар потерян (или отменён раньше срока — тогда расписание стенда неверно)
@@ -1360,6 +1414,7 @@ public final class StressDirector {
         int vanished = pr.outcomes.getOrDefault("lost", 0);
         List<String> fails = new ArrayList<>();
         if (pr.launched == 0) fails.add("ни одного снаряда");
+        else if (pr.ordered > 0 && pr.launched != pr.ordered) fails.add("пущено " + pr.launched + " из " + pr.ordered);
         if (vanished > 0) fails.add("пропали без взрыва: " + vanished);
         if (pr.steering && max > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "до поверхности в %.0f блоках от цели (> %.0f)", max, GROUND_OFF_LIMIT));
         if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");

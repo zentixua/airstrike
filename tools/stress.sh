@@ -6,6 +6,7 @@
 #
 #   tools/stress.sh                 # весь сценарий
 #   AIRSTRIKE_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
+#                                                (пробы пути до поверхности в этом режиме не идут)
 #   AIRSTRIKE_JFR=1 tools/stress.sh   # + профиль JFR сервера (settings=profile) → mod/run/stress/server/stress.jfr
 #   AIRSTRIKE_STRESS_PROBES=false tools/stress.sh   # без залпов-проб РСЗО по свежим районам (замер A/B остановок сервера)
 #
