@@ -135,6 +135,12 @@ public final class Trailer {
 
     private record Seen(String type, Class<?> cls, Vec3 pos) {}
 
+    /** Истребитель в полёте: аппарат, путь, скорость, сдвиг фазы покачивания, тиков в полёте. */
+    private record Sortie(Aircraft craft, Vec3 from, Vec3 to, double speed, double phase, long[] ticks) {}
+
+    /** Истребители в полёте; меняет их только поток сервера. */
+    private final List<Sortie> sorties = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     /** Когда пропал последний снаряд каждого типа (время игры). */
     private final java.util.Map<Class<?>, Long> goneAt = new java.util.HashMap<>();
 
@@ -154,6 +160,7 @@ public final class Trailer {
         NeoForge.EVENT_BUS.addListener(this::hideHand);
         NeoForge.EVENT_BUS.addListener(this::hideName);
         NeoForge.EVENT_BUS.addListener(this::hideWallOverlay);
+        NeoForge.EVENT_BUS.addListener(this::flySorties);
         script();
     }
 
@@ -184,6 +191,7 @@ public final class Trailer {
         dawn();
         operator();
         dayStrikes();
+        fighters();
         onboard();
         dusk();
         night();
@@ -357,6 +365,69 @@ public final class Trailer {
             return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(0, 10, 0), 50), CineCamera.Key.at(220, b, t, 46));
         }).when(() -> nearest(RocketEntity.class, STADIUM, 250) != null, 6000)
                 .endWhen(() -> nearest(RocketEntity.class, STADIUM, 1200) == null, 80);
+    }
+
+    /**
+     * Истребители из аэропорта (он на востоке) идут на запад навстречу крылатой ракете и не успевают: пара
+     * проходит над камерой на крыше, ракета — навстречу, над ними. Истребители — аппараты Sable из блоков
+     * ({@link Aircraft}), ведёт их сервер по прямой с покачиванием крыльев; ракета заходит с запада, из-за спины
+     * невидимки, в западную стену восточной башни.
+     */
+    private void fighters() {
+        fromAfar(true);
+        Supplier<Vec3> roofCam = () -> ground(EAST_TOWER.add(-330, 0, 130)).add(0, 6, 0);
+        run(() -> placeHidden(roofCam.get(), EAST_TOWER));
+        shot("fighters").onReady(() -> fire("missile", eastFacade)).hidden().length(170).speed(0.7).shake(0.1)
+                .cue(0, () -> {
+                    Vec3 c = roofCam.get();
+                    scramble(c.add(300, 42, -14), c.add(-400, 42, -14), 3.5);
+                    scramble(c.add(322, 36, 6), c.add(-378, 36, 6), 3.5);
+                })
+                .camera(() -> {
+                    Vec3 c = roofCam.get();
+                    return CineCamera.track(c, smoothFocus(this::leadFighter, c.add(200, 40, 0), 0.25), 54);
+                })
+                .when(() -> missileRange() < 1100, 6000)
+                .cueEnd(this::landFighters);
+    }
+
+    /** Истребитель в полёте на сервере: из {@code from} в {@code to} со скоростью {@code speed} блоков за тик. */
+    private void scramble(Vec3 from, Vec3 to, double speed) {
+        MinecraftServer server = mc.getSingleplayerServer();
+        server.execute(() -> {
+            float yaw = yawTo(from, to);
+            Aircraft craft = Aircraft.build(server.overworld(), BlockPos.containing(from), yaw);
+            sorties.add(new Sortie(craft, from, to, speed, sorties.size() * 1.7, new long[1]));
+        });
+    }
+
+    @Nullable
+    private Vec3 leadFighter() {
+        for (Sortie s : sorties) if (s.craft().alive()) return s.craft().position();
+        return null;
+    }
+
+    private void landFighters() {
+        MinecraftServer server = mc.getSingleplayerServer();
+        server.execute(() -> {
+            for (Sortie s : sorties) s.craft().remove();
+            sorties.clear();
+        });
+    }
+
+    /** Тик сервера: истребители — в следующую точку пути (мир стоит — стоят и они). */
+    private void flySorties(net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) {
+        if (sorties.isEmpty() || !e.getServer().overworld().tickRateManager().runsNormally()) return;
+        for (Sortie s : sorties) {
+            long n = ++s.ticks()[0];
+            Vec3 dir = s.to().subtract(s.from());
+            double len = dir.length();
+            double k = Math.min(1, n * s.speed() / len);
+            // покачивание: лёгкий крен и снос в сторону, как у пары на маршруте
+            double weave = Math.sin(n * 0.06 + s.phase());
+            Vec3 lateral = new Vec3(-dir.z, 0, dir.x).normalize().scale(weave * 3);
+            s.craft().fly(s.from().lerp(s.to(), k).add(lateral), yawTo(s.from(), s.to()), 0, (float) (weave * 18));
+        }
     }
 
     /**
