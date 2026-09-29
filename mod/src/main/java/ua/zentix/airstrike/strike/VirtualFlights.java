@@ -45,9 +45,10 @@ public final class VirtualFlights extends SavedData {
         CompoundTag tag = new CompoundTag();
         boolean saved = p.save(tag);
         p.discard();
-        if (!saved) return null;
-        StrikeProjectile copy = create(level, tag);
+        StrikeProjectile copy = saved ? create(level, tag) : null;
         if (copy != null) get(level).add(copy);
+        else Airstrike.LOG.warn("Снаряд {} {} у {} не ушёл в полёт вне мира ({}) и убран", p.getType().getDescriptionId(), p.getUUID(),
+                p.blockPosition(), saved ? "копия не создалась" : "не сохранился");
         return copy;
     }
 
@@ -115,7 +116,7 @@ public final class VirtualFlights extends SavedData {
             if (p.canMaterialize(level)) {
                 p.materialize(level);
                 if (level.addFreshEntity(p)) continue;
-                Airstrike.LOG.warn("Снаряд {} не вернулся в мир у {}", p.getType().getDescriptionId(), p.blockPosition());
+                Airstrike.LOG.warn("Снаряд {} {} не вернулся в мир у {}", p.getType().getDescriptionId(), p.getUUID(), p.blockPosition());
                 p.discard(); // снять тикеты района цели и своих чанков: в мире его нет, сам он их уже не отпустит
                 continue;
             }
