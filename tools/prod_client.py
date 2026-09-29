@@ -8,6 +8,8 @@
 
   tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod] [--prop airstrike.frametimes=true]
   tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike | --airstrike-jar F] --seconds 180   (вход, A/B, готовый jar)
+  tools/prod_client.py commands --no-copy --dir mod/run/film/instance/minecraft --world greenfield-film \
+      --prop "airstrike.commands=dh pregen status;chunky"   (готовая копия без перекопирования: проверить моды командами)
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
 Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
@@ -131,6 +133,8 @@ def main():
     ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
     ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд")
     ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
+    ap.add_argument("--no-copy", action="store_true",
+                    help="не копировать инстанс: запустить уже готовый каталог --dir (например копию для съёмки mod/run/film/instance/minecraft)")
     ap.add_argument("--user", default="Dev")
     a = ap.parse_args()
     if (a.without_airstrike or a.airstrike_jar) and a.scenario:
@@ -139,7 +143,14 @@ def main():
         ap.error("--quickplay нужен --world")
     dest = os.path.abspath(a.dir)
 
-    copy_instance(dest, a.world)
+    if a.no_copy:
+        if not os.path.isdir(os.path.join(dest, "mods")):
+            ap.error(f"--no-copy: в {dest} нет mods/")
+        # прошлый запуск мог оставить свою сборку мода — ровно одна, та, что кладётся ниже
+        for old in glob.glob(os.path.join(dest, "mods", "airstrike-*.jar")):
+            os.remove(old)
+    else:
+        copy_instance(dest, a.world)
     if a.airstrike_jar:
         shutil.copy2(a.airstrike_jar, os.path.join(dest, "mods"))
     elif not a.without_airstrike:
