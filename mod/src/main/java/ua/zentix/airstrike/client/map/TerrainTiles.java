@@ -227,8 +227,15 @@ public final class TerrainTiles {
      * только если DH стоит: без него ссылки на API не разрешатся.
      */
     public static void init() {
-        distantHorizons = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported();
-        if (distantHorizons) DistantHorizonsTerrain.subscribe();
+        if (!ModList.get().isLoaded("distanthorizons")) return;
+        try {
+            distantHorizons = DistantHorizonsTerrain.supported();
+            if (distantHorizons) DistantHorizonsTerrain.subscribe();
+        } catch (LinkageError e) {
+            // API DH без нужных классов или методов (DH новее, чем мод знает): игра грузится, рельеф — из чанков
+            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — дальний рельеф на карте выключен", e);
+            distantHorizons = false;
+        }
     }
 
     private static void switchTo(ClientLevel current) {
