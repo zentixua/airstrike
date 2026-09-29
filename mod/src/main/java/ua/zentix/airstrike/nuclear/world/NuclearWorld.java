@@ -1,32 +1,16 @@
 package ua.zentix.airstrike.nuclear.world;
 
-import dev.ryanhcode.sable.companion.SubLevelAccess;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.radiation.MobFallout;
-import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
-import ua.zentix.airstrike.registry.ModDamageTypes;
-import ua.zentix.airstrike.registry.ModSounds;
-import ua.zentix.airstrike.util.Terrain;
-import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -46,10 +30,9 @@ public final class NuclearWorld {
     private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
-    /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
-    private final Map<Integer, double[]> fronts = new HashMap<>();
+    private final BlastFront blast = new BlastFront();
     private WorkClock clock = new WorkClock();
-    private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos;
+    private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
 
@@ -77,9 +60,9 @@ public final class NuclearWorld {
         return pulses.size();
     }
 
-    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, свет и радиация, воронки и очередь чанков, нс. */
+    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, свет и радиация, воронки, очередь чанков и осадки у мобов, нс. */
     public long[] lastNanos() {
-        return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos};
+        return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos};
     }
 
     /** Часы бюджета очередей (проверки подменяют их считающими, {@link WorkClock#counting}). */
@@ -125,7 +108,7 @@ public final class NuclearWorld {
         pulses.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
-        fronts.clear();
+        blast.clear();
         mobFallout.clear();
     }
 
@@ -135,7 +118,7 @@ public final class NuclearWorld {
         long now = level.getGameTime();
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
-        // бюджет — на всю ядерную работу тика: фронт идёт без бюджета, но его время вычитается из разрушений
+        // бюджет — на всю ядерную работу тика
         clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
         // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
         long pulseStart = System.nanoTime();
@@ -147,15 +130,13 @@ public final class NuclearWorld {
         }
         long frontStart = System.nanoTime();
         lastPulseNanos = frontStart - pulseStart;
-        java.util.Set<Integer> active = new java.util.HashSet<>();
-        for (Detonation d : events.detonations()) {
-            long since = now - d.gameTime();
-            if (since >= 0 && since <= d.arrivalTicks(d.radiusMax()) + positivePhaseTicks(d) + 2) {
-                front(level, d, since);
-                active.add(d.id());
-            }
+        try {
+            blast.advance(level, events.detonations(), now);
+            blast.work(level, clock, id -> pulses.stream().noneMatch(p -> p.detonation().id() == id));
+        } catch (RuntimeException e) {
+            Airstrike.LOG.error("Ударная волна по сущностям упала с ошибкой; сброшена", e);
+            blast.clear();
         }
-        fronts.keySet().retainAll(active);
         lastFrontNanos = System.nanoTime() - frontStart;
         if (now % 1200 == 0) scars.retainBudgets(events.detonations().stream().map(Detonation::id).collect(java.util.stream.Collectors.toSet()));
         long start = System.nanoTime();
@@ -172,8 +153,10 @@ public final class NuclearWorld {
             long scarStart = System.nanoTime();
             lastCraterNanos = scarStart - start;
             scars.work(level, now, clock, level.random);
-            lastScarNanos = System.nanoTime() - scarStart;
+            long falloutStart = System.nanoTime();
+            lastScarNanos = falloutStart - scarStart;
             mobFallout.work(level, events.detonations(), clock);
+            lastFalloutNanos = System.nanoTime() - falloutStart;
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
             clear(level);
@@ -185,91 +168,5 @@ public final class NuclearWorld {
         restored = true;
         events.craters().forEach((id, done) -> events.detonations().stream().filter(d -> d.id() == id).findFirst()
                 .ifPresent(d -> craters.add(new CraterJob(d, done))));
-    }
-
-    private static double positivePhaseTicks(Detonation d) {
-        return BlastModel.positivePhaseSeconds(d.yieldKt()) * 20 * d.scale();
-    }
-
-    /**
-     * Фронт по сущностям (DESIGN §4): кольцо между прошлым и текущим радиусом — урон по давлению, бросок от
-     * эпицентра по скоростному напору; через положительную фазу — лёгкий обратный ветер к центру.
-     * В укрытии (нет прямой видимости и крыша над головой) урон ×0.3, толчок ×0.2.
-     */
-    private void front(ServerLevel level, Detonation d, long since) {
-        double[] done = fronts.computeIfAbsent(d.id(), k -> new double[]{0, 0});
-        double r = d.frontRadius(since);
-        double back = d.frontRadius(since - positivePhaseTicks(d));
-        if (r <= done[0] && back <= done[1]) return;
-        // снимок списка: удар может убить моба, и из него выпадет лут — живую карту сущностей трогать нельзя
-        double reach = Math.max(r, back);
-        for (LivingEntity living : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(d.burst(), reach * 2, reach * 2, reach * 2))) {
-            if (!living.isAlive() || living.isSpectator() || living.isPassenger()) continue;
-            double dist = living.position().distanceTo(d.burst());
-            if (dist >= done[0] && dist < r) hit(level, d, living, dist);
-            else if (dist >= done[1] && dist < back) suck(d, living);
-        }
-        sweepAircraft(level, d, done[0], r);
-        done[0] = Math.max(done[0], r);
-        done[1] = Math.max(done[1], back);
-    }
-
-    /**
-     * Удар волны. Смертельно с 12 psi (у людей в жизни — обрушение зданий и удар о препятствия; 20 psi — никто не
-     * выживает), 5 psi — почти смертельно, 1–3 psi — ранения стеклом и броском. В укрытии урон ×0.3, бросок ×0.2.
-     * Творческий режим урона не получает, но волна швыряет и его.
-     */
-    private static void hit(ServerLevel level, Detonation d, LivingEntity e, double dist) {
-        double kpa = d.overpressureKpa(e.position());
-        double psi = BlastModel.psi(kpa);
-        if (psi < 0.3) return;
-        boolean cover = !Detonation.underOpenSky(level, e.getEyePosition()) && !ua.zentix.airstrike.nuclear.NuclearWarhead.sees(level, d, e);
-        boolean immune = e instanceof Player p && p.getAbilities().invulnerable;
-        float dmg = psi >= LETHAL_PSI ? Float.MAX_VALUE : (float) (1.6 * Math.pow(psi, 1.35));
-        if (cover) dmg *= 0.3f;
-        if (psi >= 0.7 && !immune) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), dmg);
-        double q = BlastModel.dynamicPressureKpa(kpa);
-        double v = Math.min(6.0, 0.8 * Math.sqrt(q)) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
-        Vec3 away = new Vec3(e.getX() - d.burst().x, 0, e.getZ() - d.burst().z);
-        away = away.lengthSqr() < 1e-4 ? Vec3.ZERO : away.normalize();
-        e.push(away.x * v, 0.3 * v, away.z * v);
-        e.hurtMarked = true;
-    }
-
-    /** С какого давления волна убивает сразу (вне укрытия). */
-    private static final double LETHAL_PSI = 12;
-
-    /** Обратный ветер: воздух возвращается к эпицентру и тянет за собой. */
-    private static void suck(Detonation d, LivingEntity e) {
-        double psi = d.psi(e.position());
-        if (psi < 1) return;
-        Vec3 to = new Vec3(d.burst().x - e.getX(), 0, d.burst().z - e.getZ());
-        if (to.lengthSqr() < 1e-4) return;
-        to = to.normalize().scale(Math.min(0.6, 0.08 * psi));
-        e.push(to.x, 0.05, to.z);
-        e.hurtMarked = true;
-    }
-
-    /**
-     * Аппараты Create Aeronautics (DESIGN §3.6): где давление ≥ 3 psi, в ближайшей к эпицентру точке аппарата —
-     * ванильный взрыв с силой по давлению: Sable сам ломает его блоки и толкает корпус.
-     */
-    private static void sweepAircraft(ServerLevel level, Detonation d, double from, double to) {
-        if (to <= from) return;
-        for (SubLevelAccess sub : SubLevels.near(level, d.burst(), to)) {
-            AABB box = sub.boundingBox().toMojang();
-            Vec3 nearest = new Vec3(Mth.clamp(d.burst().x, box.minX, box.maxX), Mth.clamp(d.burst().y, box.minY, box.maxY),
-                    Mth.clamp(d.burst().z, box.minZ, box.maxZ));
-            double dist = nearest.distanceTo(d.burst());
-            if (dist < from || dist >= to) continue;
-            double psi = d.psi(nearest);
-            if (psi < 3) continue;
-            float power = (float) Mth.clamp(6 + (psi - 3) * 1.15, 6, 60);
-            // лучи ванильного взрыва читают блоки — только по готовым чанкам
-            Warheads.whenReady(level, nearest, Warheads.reach(power), l -> l.explode(null,
-                    ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), null,
-                    nearest.x, nearest.y, nearest.z, power, false, Level.ExplosionInteraction.TNT,
-                    ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
-        }
     }
 }
