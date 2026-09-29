@@ -68,6 +68,6 @@ public final class FlightSounds {
 
     private static S2C.HeardFlight sample(StrikeProjectile p) {
         return new S2C.HeardFlight(p.getUUID(), p.weapon().id(), p instanceof BomberEntity, p instanceof BunkerBusterEntity b && b.isDrilling(),
-                p.position(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), (float) p.position().distanceTo(p.aimPoint()));
+                p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), (float) p.position().distanceTo(p.aimPoint()));
     }
 }

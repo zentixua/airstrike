@@ -14,8 +14,9 @@ on:
         type: boolean
         default: false
 
+# пуш отменяет прежнюю сборку той же ветки; ручной запуск (релиз) — в своей группе, пуш в main его не отменит
 concurrency:
-  group: build-${{ github.ref }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('release-{0}', github.run_id) || format('build-{0}', github.ref) }}
   cancel-in-progress: true
 
 jobs:
