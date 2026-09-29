@@ -308,7 +308,8 @@ public final class StrikeService {
 
     /** Строка над хотбаром и щелчок пульта у того, кто пустил: что пущено и через сколько удар. */
     public static void confirm(ServerPlayer player, WeaponType weapon, int etaTicks) {
-        player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName(), (etaTicks + 19) / 20)
+        player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName(), (etaTicks + 19) / 20,
+                        Component.keybind(Airstrike.CAMERA_KEY))
                 .withStyle(ChatFormatting.RED), true);
         player.playNotifySound(SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.MASTER, 1.0f, weapon == WeaponType.DRONE ? 0.6f : 0.5f);
     }

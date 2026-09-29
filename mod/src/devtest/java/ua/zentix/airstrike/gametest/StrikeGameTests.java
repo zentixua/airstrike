@@ -345,7 +345,10 @@ public final class StrikeGameTests {
     @GameTest(template = "runway", timeoutTicks = 900, batch = "loiter_moving", skyAccess = true)
     public static void loiterHitsMovingTarget(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        Vec3 center = airTarget(h);
+        // высоко над барьерной стеной вокруг площадки (высота шаблона 64): круг цели доходит до края полосы (x = 32),
+        // и пике у края на высоте стены, как и выход из пике после промаха (до 45 блоков ниже цели) и повторный заход,
+        // били в барьер (CI 29.09.2026: снаряд пропал в 12 блоках от цели)
+        Vec3 center = airTarget(h).add(0, 100, 0);
         ArmorStand stand = new ArmorStand(level, center.x + 16, center.y, center.z);
         stand.setNoGravity(true);
         level.addFreshEntity(stand);
