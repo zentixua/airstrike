@@ -3,6 +3,8 @@
 # KWin (tools/nested_kwin.sh). Alpha (оператор) бьёт по игроку Bravo и по точке и посреди подлёта выходит и заходит
 # снова; Bravo выходит, пока снаряды к нему летят, и возвращается (сценарий — src/devtest/.../MultiplayerScenario).
 #   tools/mp_scenario.sh   → mod/run/mp-server/logs/latest.log, mod/run/mp-a|mp-b/logs/latest.log, сводка в конце
+# Gradle только собирает и готовит запуски (rigLaunch → mod/build/rig/mp-*.sh) и выходит до старта: у живого Gradle
+# UDP-сокет блокировок на 0.0.0.0, а в проверке в сеть не смотрит ничего — сервер и клиенты идут прямо из файлов MDG.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOD="$ROOT/mod"
@@ -44,7 +46,16 @@ json.dump([{"uuid": offline("Alpha"), "name": "Alpha", "level": 4, "bypassesPlay
 PY
 
 cd "$MOD"
-./gradlew runServer -PserverDir=run/mp-server --console=plain > "$RUN/mp-server.out" 2>&1 &
+# каталог, ник и сценарий клиента Gradle читает при подготовке (-P и окружение), у каждого клиента свой скрипт;
+# --no-daemon: без живого Gradle после подготовки, даже если ~/.gradle/gradle.properties или GRADLE_OPTS включают демона
+./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runServer -PserverDir=run/mp-server -PrigOut=mp-server
+for c in "Alpha mp-a" "Bravo mp-b"; do
+  read -r name dir <<< "$c"
+  AIRSTRIKE_SCENARIO=$dir ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runClientScenario \
+    -PscenarioDir="run/$dir" -PscenarioUser="$name" -PrigOut="$dir"
+done
+RIG="$MOD/build/rig"
+"$RIG/mp-server.sh" > "$RUN/mp-server.out" 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 for _ in $(seq 600); do
@@ -54,23 +65,22 @@ for _ in $(seq 600); do
 done
 grep -q 'Done (' "$SERVER/logs/latest.log" || { echo "сервер не поднялся за 10 минут" >&2; exit 1; }
 
-client() { # ник, сценарий, каталог
-  local dir="$RUN/$3"
+client() { # каталог (он же сценарий)
+  local dir="$RUN/$1"
   rm -rf "$dir/logs" "$dir/screenshots"
   mkdir -p "$dir/logs"
   [ -f "$dir/options.txt" ] || printf 'onboardAccessibility:false\npauseOnLostFocus:false\nrenderDistance:8\nsimulationDistance:8\nsoundCategory_master:0.0\ntutorialStep:none\njoinedFirstServer:true\n' > "$dir/options.txt"
-  AIRSTRIKE_SCENARIO="$2" "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-$3" 960 540 \
-      "$MOD/gradlew -p $MOD runClientScenario -PscenarioDir=run/$3 -PscenarioUser=$1 --console=plain" > "$RUN/$3.out" 2>&1
+  "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-$1" 960 540 "$RIG/$1.sh" > "$RUN/$1.out" 2>&1
 }
-client Bravo mp-b mp-b &
+client mp-b &
 B_PID=$!
-# клиенты стартуют по очереди: у них общие файлы запуска clientScenario (MDG пишет их перед стартом)
+# Alpha заходит, когда Bravo уже в мире: сценарий Alpha бьёт по нему
 for _ in $(seq 600); do
   grep -q 'SCENARIO mp joined' "$RUN/mp-b/logs/latest.log" 2>/dev/null && break
   kill -0 $B_PID 2>/dev/null || break
   sleep 1
 done
-client Alpha mp-a mp-a &
+client mp-a &
 A_PID=$!
 wait $A_PID $B_PID || true
 kill $SERVER_PID 2>/dev/null || true

@@ -171,14 +171,56 @@ simulated = ["+create", "+sable"]
 offroad = ["+simulated"]
 aeronautics = ["+simulated", "+offroad"]
 """
+def writeFmlOverrides = { File gameDir ->
+    // без Create Aeronautics в сборке запуска переопределять нечего
+    if (!(mcModsDir.isDirectory() && mcModsDir.list().any { it.contains('aeronautics') })) return
+    File config = new File(gameDir, 'config/fml.toml')
+    config.parentFile.mkdirs()
+    config.text = fmlDependencyOverrides
+}
 // перед каждым запуском из Gradle (клиент, сервер, GameTest, сценарий, стенд): каталог игры — у самой задачи запуска
 tasks.matching { it.name.startsWith('run') && it.hasProperty('gameDirectory') }.configureEach { task ->
-    task.doFirst {
-        // без Create Aeronautics в сборке запуска переопределять нечего
-        if (!(mcModsDir.isDirectory() && mcModsDir.list().any { it.contains('aeronautics') })) return
-        File config = new File(task.gameDirectory.get().asFile, 'config/fml.toml')
-        config.parentFile.mkdirs()
-        config.text = fmlDependencyOverrides
+    task.doFirst { writeFmlOverrides(task.gameDirectory.get().asFile) }
+}
+
+// Запуск без живого Gradle (стенд tools/stress.sh, мультиплеер tools/mp_scenario.sh): процесс Gradle держит UDP-сокет
+// блокировок файлов (DefaultFileLockCommunicator) на 0.0.0.0, и адрес ему не задать. Серверы и клиенты проверок
+// поэтому идут не задачей run*, а скриптом, который пишет эта задача: ./gradlew rigLaunch -PrigRun=runStressServer
+// -PrigOut=stress-server → build/rig/stress-server.sh (тот же java, аргументы, classpath, каталог и окружение, что
+// у задачи запуска; файлы аргументов MDG копируются: у клиентов стенда он один на всех). Gradle выходит, игра — нет.
+tasks.register('rigLaunch') {
+    def runName = project.findProperty('rigRun')
+    def out = project.findProperty('rigOut')
+    if (runName) dependsOn { tasks.named(runName as String).get().taskDependencies }
+    doFirst {
+        // без имени скрипта остался бы прежний build/rig/<имя>.sh, и скрипт проверки запустил бы устаревший запуск
+        if (!runName || !out) throw new GradleException('rigLaunch needs -PrigRun and -PrigOut')
+    }
+    doLast {
+        def run = tasks.named(runName as String).get()
+        File dir = layout.buildDirectory.dir('rig').get().asFile
+        dir.mkdirs()
+        // @файл MDG — копия под своим именем: следующий rigLaunch того же запуска (другой клиент стенда) его перепишет
+        def own = { String arg ->
+            if (!arg.startsWith('@')) return arg
+            File src = file(arg.substring(1))
+            File copy = new File(dir, "${out}-${src.name}")
+            copy.bytes = src.bytes
+            return '@' + copy.absolutePath
+        }
+        List<String> cmd = [run.javaLauncher.get().executablePath.asFile.absolutePath]
+        // allJvmArgs у JavaExec не несёт явных jvmArgs задачи, а в них @файл MDG (модули, --add-opens, -D запуска)
+        cmd += ((run.jvmArgs ?: []) + run.allJvmArgs.findAll { !(it in (run.jvmArgs ?: [])) }).collect(own)
+        cmd += ['-cp', run.classpathProvider.asPath, run.mainClass.get()]
+        cmd += (run.args + run.argumentProviders.collectMany { it.asArguments() as List }).collect(own)
+        def quote = { String v -> "'" + v.replace("'", "'\\''") + "'" }
+        File gameDir = run.gameDirectory.get().asFile
+        writeFmlOverrides(gameDir)
+        File script = new File(dir, "${out}.sh")
+        script.text = "#!/usr/bin/env bash\n# ${runName} без Gradle: пишет ./gradlew rigLaunch (build.gradle)\n" +
+                "mkdir -p ${quote(gameDir.absolutePath)}/logs && cd ${quote(gameDir.absolutePath)} || exit 1\n" +
+                "exec env ${run.environmentProperty.get().collect { k, v -> quote("${k}=${v}") }.join(' ')} ${cmd.collect(quote).join(' ')}\n"
+        script.setExecutable(true)
     }
 }
 
