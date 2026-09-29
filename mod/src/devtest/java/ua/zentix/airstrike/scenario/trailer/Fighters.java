@@ -164,7 +164,9 @@ final class Fighters {
         double e = k * k * (3 - 2 * k);
         double back = Mth.lerp(e, 15, 26), side = Mth.lerp(e, -12, -9), up = Mth.lerp(e, 3, 5);
         Vec3 from = at.add(flat.scale(-back)).add(right.scale(side)).add(0, up, 0);
-        return CineCamera.Pose.look(from, at.add(flat.scale(40)).add(0, -3, 0), fall * 0.5f * lead.path().roll(t), 55);
+        // вблизи взгляд ближе к самому ведущему: при взгляде на 40 блоков вперёд его хвост уходил за правый край кадра
+        double ahead = Mth.lerp(e, 10, 40);
+        return CineCamera.Pose.look(from, at.add(flat.scale(ahead)).add(0, Mth.lerp(e, -1, -3), 0), fall * 0.5f * lead.path().roll(t), 55);
     }
 
     /** Тик клиента: дымка за соплами и пар с законцовок на крутом крене — отрезками по пути за тик. */

@@ -325,7 +325,11 @@ public final class Trailer {
                 })
                 .when(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) != null, 3000)
                 .endWhen(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) == null, 60)
-                .subjectAnyway(() -> roof.get(), 20, 0.03);
+                // камера ведёт ракету по небу, крыша в кадре — только под конец: цель — ракета, после взрыва — крыша
+                .subjectAnyway(() -> {
+                    Entity m = nearest(CruiseMissileEntity.class, roof.get(), 900);
+                    return m != null ? m : roof.get();
+                }, 20, 0.003);
     }
 
     /** День: шахеды, «Ланцет» и «Град» с поста, удары по городу. */
@@ -363,8 +367,8 @@ public final class Trailer {
                 .camera(() -> {
                     Vec3 at = hit.get();
                     // место с чистым видом на попадание и на всю дугу облёта (в центре камера упиралась в стены)
-                    Vec3 from = openView(at, new double[]{75, 95, 120}, new double[]{18, 30, 45, 60}, side.scale(-70).add(toPost.scale(-40)), -80, 40);
-                    return bulletTimeCamera(from, smoothFocus(() -> nearest(DroneEntity.class, at, 400), at.add(0, 3, 0), 0.3), 50, -80, 40);
+                    View v = openView(at, new double[]{75, 95, 120, 150}, new double[]{18, 30, 45, 60, 80}, side.scale(-70).add(toPost.scale(-40)), -80, 40);
+                    return bulletTimeCamera(v.from(), smoothFocus(() -> nearest(DroneEntity.class, at, 400), at.add(0, 3, 0), 0.3), 50, v.arc(), v.radius());
                 })
                 .when(() -> nearest(DroneEntity.class, hit.get(), 260) != null, 3000)
                 .endWhen(() -> nearest(DroneEntity.class, hit.get(), 600) == null, 80)
@@ -505,8 +509,8 @@ public final class Trailer {
                 .camera(() -> {
                     Vec3 at = pit.get();
                     // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
-                    Vec3 from = openView(at, new double[]{70, 95, 120}, new double[]{28, 40, 55}, side.scale(-60).add(toPost.scale(50)), 60, 40);
-                    return bulletTimeCamera(from, smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.3), 55, 60, 40);
+                    View v = openView(at, new double[]{70, 95, 120, 150}, new double[]{28, 40, 55, 75}, side.scale(-60).add(toPost.scale(50)), 60, 40);
+                    return bulletTimeCamera(v.from(), smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.3), 55, v.arc(), v.radius());
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
                 .endWhen(() -> sinceGone(BunkerBusterEntity.class) > 100, 0)
@@ -658,6 +662,9 @@ public final class Trailer {
         side = new Vec3(-toPost.z, 0, toPost.x);
         clearAround(level, BlockPos.containing(post), 34, true);
         clearAround(level, BlockPos.containing(silo), 40, true);
+        // после расчистки — земля заново (под убранным могло быть ниже)
+        post = new Vec3(post.x, height(level, Mth.floor(post.x), Mth.floor(post.z)), post.z);
+        silo = new Vec3(silo.x, height(level, Mth.floor(silo.x), Mth.floor(silo.z)), silo.z);
         // шахед холодного начала и ракета с борта заходят с запада — в западные стены
         towerTop = top(level, TOWER);
         northFacade = facade(level, NORTH_TOWER, 120, new Vec3(-1, 0, 0));
@@ -762,7 +769,16 @@ public final class Trailer {
     /** Высота земли на сервере; чанк грузится (и генерируется) сразу — в сценарии это можно. */
     private static int height(ServerLevel level, int x, int z) {
         level.getChunk(x >> 4, z >> 4);
-        return level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        // карта высот без листвы считает стволы землёй: пост в лесу вставал на верх ствола, а clearAround ствол
+        // убирал — наводчик оказывался в яме, камера за ним в холме
+        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, y - 1, z);
+        while (p.getY() > level.getMinBuildHeight()) {
+            var st = level.getBlockState(p);
+            if (!st.is(net.minecraft.tags.BlockTags.LOGS) && !st.is(net.minecraft.tags.BlockTags.LEAVES) && !st.canBeReplaced()) break;
+            p.move(0, -1, 0);
+        }
+        return p.getY() + 1;
     }
 
     /** Верх того, что стоит в точке (земля, крыша), — по карте высот клиента, а если чанка у клиента нет — спросить сервер. */
@@ -992,13 +1008,20 @@ public final class Trailer {
      * ближе к первому расстоянию и к желаемому направлению {@code prefer}. Лучи — на сервере (чанки там грузятся
      * сразу; в сценарии это можно).
      */
-    private Vec3 openView(Vec3 at, double[] dists, double[] ups, Vec3 prefer, double arcDeg, double radius) {
+    /** Откуда и как облетать место удара ({@link #openView}). */
+    private record View(Vec3 from, double arc, double radius) {}
+
+    private View openView(Vec3 at, double[] dists, double[] ups, Vec3 prefer, double arcDeg, double radius) {
         MinecraftServer server = mc.getSingleplayerServer();
         Vec3 want = new Vec3(prefer.x, 0, prefer.z).normalize();
+        // дуга и радиус облёта — тоже на выбор: в плотном центре дуга к 40 блокам от места уходила в стены
+        double[] arcs = {arcDeg, arcDeg * 0.5, -arcDeg * 0.5, -arcDeg};
+        double[] radii = {radius, radius * 1.6};
+        final int samples = 8;
         return server.submit(() -> {
             ServerLevel level = server.overworld();
             Vec3 eye = at.add(0, 2, 0);
-            Vec3 best = null;
+            View best = null;
             double bestScore = Double.NEGATIVE_INFINITY;
             int bestClear = 0;
             for (double dist : dists) {
@@ -1007,21 +1030,32 @@ public final class Trailer {
                         double a = Math.toRadians(15 * i);
                         Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
                         Vec3 start = at.add(dir.scale(dist)).add(0, up, 0);
-                        int clear = 0;
-                        for (int k = 0; k <= 4; k++) {
-                            Vec3 p = arcPoint(at, start, k / 4.0, arcDeg, radius);
-                            if (sees(level, eye, p) && roomy(level, p, 3)) clear++;
-                        }
-                        double score = clear * 100 - up * 0.5 - Math.abs(dist - dists[0]) * 0.2 + dir.dot(want) * 5;
-                        if (score > bestScore) {
-                            bestScore = score;
-                            best = start;
-                            bestClear = clear;
+                        if (!(sees(level, eye, start) && roomy(level, start, 3))) continue;
+                        for (int ai = 0; ai < arcs.length; ai++) {
+                            for (int ri = 0; ri < radii.length; ri++) {
+                                int clear = 0;
+                                for (int k = 0; k <= samples; k++) {
+                                    Vec3 p = arcPoint(at, start, k / (double) samples, arcs[ai], radii[ri]);
+                                    if (sees(level, eye, p) && roomy(level, p, 3)) clear++;
+                                }
+                                double score = clear * 100 - up * 0.5 - Math.abs(dist - dists[0]) * 0.2 + dir.dot(want) * 5
+                                        - ai * 8 - ri * 6;
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    best = new View(start, arcs[ai], radii[ri]);
+                                    bestClear = clear;
+                                }
+                            }
                         }
                     }
                 }
             }
-            Airstrike.LOG.info("TRAILER вид на {}: {} (чистота {}/5)", at, best, bestClear);
+            if (best == null) best = new View(at.add(want.scale(dists[0])).add(0, ups[ups.length - 1], 0), arcDeg, radius);
+            if (bestClear <= samples) {
+                Airstrike.LOG.warn("TRAILER вид на {}: {} — чистого облёта нет ({}/{})", at, best, bestClear, samples + 1);
+            } else {
+                Airstrike.LOG.info("TRAILER вид на {}: {}", at, best);
+            }
             return best;
         }).join();
     }

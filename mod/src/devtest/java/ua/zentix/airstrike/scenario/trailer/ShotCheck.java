@@ -90,7 +90,9 @@ final class ShotCheck {
         double tanH = tanV * mc.getWindow().getWidth() / Math.max(1, mc.getWindow().getHeight());
         double x = (d.x * left.x() + d.y * left.y() + d.z * left.z()) / z;
         double y = (d.x * up.x() + d.y * up.y() + d.z * up.z()) / z;
-        if (Math.abs(x) > tanH * 0.95 || Math.abs(y) > tanV * 0.95) return;
+        // в кадре хотя бы половина цели: у наводчика в углу кадра центр тела ниже края, а голова и плечо — в кадре
+        double half = size / 4 / z;
+        if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95) return;
         inFrame++;
         if (size / z / (2 * tanV) < subject.minScreen()) tooSmall++;
         if (subject.mustSee()) {
