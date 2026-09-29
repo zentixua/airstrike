@@ -529,7 +529,7 @@ public final class Trailer {
                     BunkerBusterEntity b = nearest(BunkerBusterEntity.class, pit.get(), 600);
                     if (b != null && b.flightPhase() != FlightPhase.DRILL) return b;
                     BomberEntity plane = b == null ? nearest(BomberEntity.class, pit.get(), 450) : null;
-                    return plane != null ? plane : pit.get().add(0, 3, 0);
+                    return plane != null ? plane : pit.get().add(0, 6, 0);
                 }, 12, 0.003);
     }
 
@@ -755,8 +755,14 @@ public final class Trailer {
                     // kfcheck3): взгляд отставал от разгона на десятки блоков, кадр занимало облако старта. Дальше
                     // (ракета поднимается под меньшим углом), шире и почти без сглаживания
                     Vec3 from = ground(pad.add(sideV.scale(140)).add(dir.scale(-25))).add(0, 10, 0);
-                    Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 8, 0), 0.85), 40);
-                    return t -> t < 100 ? p.at(t) : CineCamera.zoom(p, 40, 22, 160).at(t - 100);
+                    // взгляд — между столом и ракетой, ближе к ракете: облако старта остаётся внизу кадра, пока ракета
+                    // невысоко, потом кадр уходит в небо за ней. Взгляд прямо на ракету (облако, kf4b) упирался в чёрное
+                    // небо, а сама ракета при FOV 40 и в 140 блоках была мельче 2 % кадра
+                    Vec3 base = pad.add(0, 15, 0);
+                    return CineCamera.track(from, smoothFocus(() -> {
+                        IcbmEntity m = newest(IcbmEntity.class);
+                        return m == null ? null : base.lerp(m.getPosition(CineCamera.partial()), 0.8);
+                    }, base, 0.85), 30);
                 })
                 .subject(() -> newest(IcbmEntity.class), 3, 0.02);
         // сирена над пустой улицей, отсчёт на экране
@@ -1274,7 +1280,10 @@ public final class Trailer {
             // дуга — вокруг места, для которого openView её проверил (бомба уходит в землю в стороне от него, и дуга
             // вокруг места взрыва входила в дом), взгляд — на сам взрыв
             Vec3 center = arcCenter != null && arcCenter.distanceTo(c) < 60 ? arcCenter : c;
-            return Pose.look(arcPoint(center, from, u, arcDeg, radius), c, 0, fov);
+            // взгляд — на огненный шар над местом, а не на точку подрыва: бетонобойная бомба рвётся под землёй,
+            // и камера смотрела в землю сквозь крышу (облако, kf4b: цель закрыта в 437 кадрах из 539)
+            Vec3 look = arcCenter == null ? c : new Vec3(c.x, Math.max(c.y, arcCenter.y) + 6, c.z);
+            return Pose.look(arcPoint(center, from, u, arcDeg, radius), look, 0, fov);
         };
     }
 
