@@ -262,7 +262,10 @@ public final class BlackoutWorld {
             }
             // пройденное — в сохранение: после перезапуска копии для LOD не повторяются; пройден целиком — навсегда
             grid.swept(s.outage.id(), s.restore, s.done() ? Long.MAX_VALUE : Math.min(now, s.last));
-            if (s.done()) it.remove();
+            if (s.done()) {
+                it.remove();
+                Airstrike.LOG.info("Блэкаут №{}: каскад {} прошёл весь район", s.outage.id(), s.restore ? "возврата света" : "отключения");
+            }
         }
     }
 

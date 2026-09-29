@@ -132,6 +132,7 @@ public final class Blackouts {
             // каскад возврата — заново по новым срокам
             grid.swept(o.id(), true, Long.MIN_VALUE);
             BlackoutWorld.get(level).onRestore(restoring);
+            Airstrike.LOG.info("Блэкаут №{}: свет возвращают по команде", o.id());
             n++;
         }
         Substations.sync(level, grid, now);
