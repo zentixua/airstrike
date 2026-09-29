@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.grid;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
@@ -132,6 +133,7 @@ public final class BlackoutWorld {
     /** Копия с диска готова (или не нужна): в поток сервера. */
     private record Read(long chunk, @Nullable LevelChunk copy, boolean dark, @Nullable Throwable error) {}
 
+    private static final int LOD_REWRITES = 4;
     private static final int PROBES = 16;
     private static final int PROBE_LATER = 1200;
     /** Классы пробы: как в сети, наоборот, другой блок, нет данных. */
@@ -192,6 +194,9 @@ public final class BlackoutWorld {
     private int lodCopies, lodSkipped, lodDiscarded, lodFailed;
     /** С загрузки мира: загруженных чанков отдано DH; DH подтвердил сохранение; подтверждения не дождались. */
     private int lodLive, lodSaved, lodUnconfirmed;
+    /** Погашенный чанк → сколько раз DH переписал его LOD сам (и мы отдали его снова); всего таких раз. */
+    private final Long2IntOpenHashMap lodRewrites = new Long2IntOpenHashMap();
+    private int lodRewrittenCount;
     /** Когда LOD DH начали обновлять (наносекунды; 0 — нечего) и сколько чанков с тех пор прочитано или отдано. */
     private long lodSince;
     private int lodSinceWork;
@@ -350,8 +355,8 @@ public final class BlackoutWorld {
      * Есть ли работа без отключений: очереди, свет с диска, сверка ламп. Мир без отключений и без работы не тикает
      * ({@link Blackouts#onServerTick}).
      */
-    public boolean busy() {
-        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !probes.isEmpty();
+    public boolean busy(ServerLevel level) {
+        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !probes.isEmpty() || DistantHorizons.lodRewritePending(level);
     }
 
     // ---------------------------------------------------------------- тик
@@ -364,8 +369,13 @@ public final class BlackoutWorld {
         drainReads(level, grid, now);
         DistantHorizons.lodSaved(level, c -> {
             if (lodPending.remove(c) != lodPending.defaultReturnValue()) lodSaved++;
+            ChunkPos p = new ChunkPos(c);
+            boolean dark = grid.dark(p.x, p.z, now);
+            DistantHorizons.lodDark(level, c, dark);
+            if (!dark) lodRewrites.remove(c);
             probeNow(level, c, 0, now);
         });
+        DistantHorizons.lodRewritten(level, c -> lodRewritten(level, grid, c, now));
         drainProbes();
         relightPlaced(level, clock);
         scheduleRestoreSweeps(grid, now);
@@ -585,6 +595,25 @@ public final class BlackoutWorld {
         for (int i = 0; i < busy.size(); i++) reads.enqueue(busy.getLong(i));
     }
 
+    /**
+     * DH сам переписал LOD чанка, который мы погасили (его генератор читает файлы регионов, а там лампы горят): если
+     * квартал всё ещё тёмный — отдать чанк снова, не больше {@link #LOD_REWRITES} раз.
+     */
+    private void lodRewritten(ServerLevel level, PowerGrid grid, long c, long now) {
+        ChunkPos p = new ChunkPos(c);
+        if (!grid.dark(p.x, p.z, now)) {
+            DistantHorizons.lodDark(level, c, false);
+            lodRewrites.remove(c);
+            return;
+        }
+        if (lodRewrites.addTo(c, 1) >= LOD_REWRITES) return;
+        lodRewrittenCount++;
+        lodSinceWork++;
+        if (lodSince == 0) lodSince = System.nanoTime();
+        if (inMemory(level, c) != null) lodLoaded.add(c);
+        else if (AirstrikeConfig.SERVER.gridDistantLod.get()) read(c);
+    }
+
     /** Сколько ещё чанков можно отдать DH, не переполняя его очередь. */
     private int lodRoom() {
         return LOD_IN_FLIGHT - lodPending.size() - readsInFlight;
@@ -651,8 +680,8 @@ public final class BlackoutWorld {
     private void logLodDone() {
         if (lodSince == 0 || !sweeps.isEmpty() || !reads.isEmpty() || readsInFlight > 0 || !lodLoaded.isEmpty() || !lodPending.isEmpty()) return;
         if (lodSinceWork > 0) {
-            Airstrike.LOG.info("Блэкаут: LOD DH обновлены за {} с (с загрузки мира: копий с диска {}, загруженных чанков {}, DH сохранил {}, без подтверждения {}; без копии {}, отброшено {}, не прочитано {})",
-                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - lodSince) / 1e9), lodCopies, lodLive, lodSaved, lodUnconfirmed,
+            Airstrike.LOG.info("Блэкаут: LOD DH обновлены за {} с (с загрузки мира: копий с диска {}, загруженных чанков {}, DH сохранил {}, без подтверждения {}, DH переписал сам {}; без копии {}, отброшено {}, не прочитано {})",
+                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - lodSince) / 1e9), lodCopies, lodLive, lodSaved, lodUnconfirmed, lodRewrittenCount,
                     lodSkipped, lodDiscarded, lodFailed);
         }
         lodSince = 0;

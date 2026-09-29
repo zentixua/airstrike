@@ -180,7 +180,7 @@ public final class Blackouts {
             List<SubLevelAccess> ships = plots ? SubLevels.all(level) : List.of();
             if (!ships.isEmpty()) BlackoutWorld.get(level).relightPlots(level, ships);
             // миры без отключений и без работы блэкаута не тратят времени
-            if (!grid.outages().isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy()) {
+            if (!grid.outages().isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy(level)) {
                 BlackoutWorld.get(level).tick(level, clock);
             }
         }
