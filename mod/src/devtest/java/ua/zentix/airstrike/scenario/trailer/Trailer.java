@@ -572,6 +572,8 @@ public final class Trailer {
     private Vec3 substation = DOWNTOWN, substationView = DOWNTOWN, blackoutCore = DOWNTOWN;
     /** С какой стороны центра подстанция и камера: улицы, которые видны и в ночном рое. */
     private static final Vec3 BLACKOUT_SIDE = new Vec3(-120, 0, 95).normalize();
+    /** Камера блэкаута: над землёй, от подстанции, угол кадра по вертикали; докуда земля в кадре (меньше 24 чанков). */
+    private static final double BLACKOUT_HEIGHT = 150, BLACKOUT_BACK = 120, BLACKOUT_FOV = 44, BLACKOUT_REACH = 340;
 
     /**
      * Блэкаут: одна крылатая ракета в подстанцию у края центра в полночь, кварталы гаснут от неё вглубь города и дальше
@@ -598,11 +600,15 @@ public final class Trailer {
         Supplier<Vec3> sub = () -> substation;
         shot("blackout").onReady(() -> fire("salvo missile 1 0", substation.add(0, 1, 0))).hidden().length(300).farView().shake(0.02)
                 .camera(() -> {
-                    // взгляд между подстанцией и самым густым кварталом ламп: подстанция в нижней трети, кварталы за ней
-                    Vec3 look = blackoutCore.add(0, 10, 0);
-                    Vec3 push = look.subtract(substationView).normalize().scale(25);
-                    return CineCamera.spline(true, CineCamera.Key.at(0, substationView, look, 40),
-                            CineCamera.Key.at(300, substationView.add(push), look, 38));
+                    // сверху, круто вниз: верх кадра упирается в землю в BLACKOUT_REACH блоках — дальше прорисовки рельеф DH,
+                    // а его огни пока не гаснут (ноутбук, 29.09); подстанция в нижней трети, самый густой квартал — над центром
+                    Vec3 flat = blackoutCore.subtract(substationView).multiply(1, 0, 1).normalize();
+                    double h = substationView.y - substation.y;
+                    double pitch = Math.toDegrees(Math.atan2(h, BLACKOUT_REACH)) + BLACKOUT_FOV / 2;
+                    double reach = h / Math.tan(Math.toRadians(pitch));
+                    Vec3 look = new Vec3(substationView.x, substation.y, substationView.z).add(flat.scale(reach));
+                    return CineCamera.spline(true, CineCamera.Key.at(0, substationView, look, BLACKOUT_FOV),
+                            CineCamera.Key.at(300, substationView.add(flat.scale(8)), look.add(flat.scale(8)), BLACKOUT_FOV - 2));
                 })
                 .when(() -> nearest(CruiseMissileEntity.class, substation, 350) != null, 4000)
                 .subject(() -> sub.get().add(0, 1.5, 0), 8, 0.004);
@@ -612,8 +618,8 @@ public final class Trailer {
      * Где снимать блэкаут: кварталы гаснут только у ламп сети (светокамень, лампы из красного камня, стержни края…),
      * а факелы, свечи и маяки горят дальше; дальше прорисовки (24 чанка) — рельеф DH. Поэтому: плотность ламп сети
      * по чанкам в 24 чанках от центра, самое густое место (окно 5×5 чанков, ~80 блоков) — середина кадра; подстанция —
-     * на открытом месте в 70 блоках от него к камере, камера — ещё в 180 за ней и в 90 над землёй, с той стороны,
-     * откуда в кадре (конус ±25°, до 380 блоков) больше всего ламп.
+     * на открытом месте в 70 блоках от него к камере, камера — ещё в BLACKOUT_BACK за ней и в BLACKOUT_HEIGHT над ней,
+     * с той стороны, откуда в кадре больше всего ламп.
      */
     private void findSubstation(ServerLevel level) {
         int cx0 = Mth.floor(DOWNTOWN.x) >> 4, cz0 = Mth.floor(DOWNTOWN.z) >> 4, r = 24, n = 2 * r + 1;
@@ -658,10 +664,10 @@ public final class Trailer {
             Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
             Vec3 at = openSpot(level, core.add(dir.scale(70)), 30);
             if (at == null) continue;
-            Vec3 view = at.add(dir.scale(180));
-            view = new Vec3(view.x, height(level, Mth.floor(view.x), Mth.floor(view.z)) + 90, view.z);
+            Vec3 view = at.add(dir.scale(BLACKOUT_BACK));
+            view = new Vec3(view.x, at.y + BLACKOUT_HEIGHT, view.z);
             if (!roomy(level, view, 3) || !sees(level, view, at.add(0, 1.5, 0))) continue;
-            // ламп в кадре: конус ±25° от камеры к ядру, до 380 блоков
+            // ламп в кадре: конус ±30° от камеры к ядру, от 60 до BLACKOUT_REACH блоков
             Vec3 look = core.subtract(view).multiply(1, 0, 1).normalize();
             double inView = 0;
             for (int i = 0; i < n; i++) {
@@ -669,7 +675,7 @@ public final class Trailer {
                     if (lamps[i][j] == 0) continue;
                     Vec3 c = new Vec3(((cx0 + i - r) << 4) + 8 - view.x, 0, ((cz0 + j - r) << 4) + 8 - view.z);
                     double d = c.horizontalDistance();
-                    if (d < 20 || d > 380 || c.normalize().dot(look) < Math.cos(Math.toRadians(25))) continue;
+                    if (d < 60 || d > BLACKOUT_REACH || c.normalize().dot(look) < Math.cos(Math.toRadians(30))) continue;
                     inView += lamps[i][j];
                 }
             }
@@ -682,7 +688,7 @@ public final class Trailer {
         if (bestScore == Double.NEGATIVE_INFINITY) {
             Airstrike.LOG.error("TRAILER blackout: нет места под подстанцию и камеру у {}", core);
             substation = core;
-            substationView = core.add(BLACKOUT_SIDE.scale(250)).add(0, 90, 0);
+            substationView = substation.add(BLACKOUT_SIDE.scale(BLACKOUT_BACK)).add(0, BLACKOUT_HEIGHT, 0);
             bestScore = 0;
         }
         blackoutCore = core;
