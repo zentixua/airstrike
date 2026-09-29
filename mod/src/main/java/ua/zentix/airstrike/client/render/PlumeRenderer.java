@@ -5,13 +5,10 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
-import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.fx.Exhaust;
 
 /**
@@ -20,10 +17,6 @@ import ua.zentix.airstrike.client.fx.Exhaust;
  * как «глаза» паука: светится и ночью, под шейдерами Iris проходит как излучающая текстура.
  */
 public final class PlumeRenderer {
-    private static final ResourceLocation PLUME = Airstrike.id("textures/fx/plume.png");
-    private static final ResourceLocation DIAMONDS = Airstrike.id("textures/fx/plume_diamonds.png");
-    private static final ResourceLocation HALO = Airstrike.id("textures/fx/halo.png");
-
     private PlumeRenderer() {}
 
     /**
@@ -38,12 +31,12 @@ public final class PlumeRenderer {
         pose.pushPose();
         pose.translate(0, p.y(), 0);
 
-        VertexConsumer vc = buffers.getBuffer(RenderType.eyes(p.diamonds() ? DIAMONDS : PLUME));
+        VertexConsumer vc = buffers.getBuffer(p.diamonds() ? WeaponRenderTypes.PLUME_DIAMONDS : WeaponRenderTypes.PLUME);
         strip(vc, pose, cam, p.z(), p.length(), p.radius() * 2.6f, p.outer(), p.intensity() * 0.75f);
         strip(vc, pose, cam, p.z(), p.length() * 0.6f, p.radius(), p.core(), p.intensity());
 
         Vector3f left = camera.getLeftVector().rotate(inv), up = camera.getUpVector().rotate(inv);
-        VertexConsumer halo = buffers.getBuffer(RenderType.eyes(HALO));
+        VertexConsumer halo = buffers.getBuffer(WeaponRenderTypes.PLUME_HALO);
         float s = p.radius() * 4.5f;
         billboard(halo, pose, new Vector3f(0, 0, p.z() - p.radius() * 0.5f), left, up, s, p.outer(), p.intensity() * 0.8f);
         billboard(halo, pose, new Vector3f(0, 0, p.z() - p.radius() * 0.3f), left, up, s * 0.45f, p.core(), p.intensity());
