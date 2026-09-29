@@ -93,6 +93,8 @@ neoForge {
             systemProperty 'airstrike.stress.players', System.getenv('AIRSTRIKE_STRESS_PLAYERS') ?: '3'
             systemProperty 'airstrike.stress.restart', System.getenv('AIRSTRIKE_STRESS_RESTART') ?: 'false'
             jvmArgument "-Xlog:gc:file=${project.file('run/stress/server/gc.log').absolutePath}:time,uptime"
+            // профиль JFR сервера по желанию, как у сценария клиента: AIRSTRIKE_JFR=1 tools/stress.sh → run/stress/server/stress.jfr
+            if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/stress/server/stress.jfr').absolutePath},settings=profile"
             // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента
             jvmArgument '-Xmx4g'
         }
@@ -121,6 +123,9 @@ neoForge {
         }
     }
 }
+// -Xlog:gc пишет в logs/ каталога запуска, а JVM сама каталог не создаёт и не стартует без него (свежий клон, облако)
+tasks.matching { it.name == 'runClientScenario' }.configureEach { doFirst { project.file("${scenarioDir}/logs").mkdirs() } }
+tasks.matching { it.name == 'runStressServer' }.configureEach { doFirst { project.file('run/stress/server').mkdirs() } }
 neoForge.addModdingDependenciesTo(sourceSets.devtest)
 // юнит-тесты кода, который держит данные в классах Minecraft (Vec3, NBT), без запуска игры
 neoForge.addModdingDependenciesTo(sourceSets.test)
@@ -132,8 +137,10 @@ dependencies {
     compileOnly "dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}"
     // Distant Horizons: только API для компиляции — рельеф вдали для карты наведения, если DH стоит (compat/DistantHorizons)
     compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
+    // диапазон, а не ровно версия: Sable несёт тот же companion со своим диапазоном, и FML выбирает одну версию,
+    // подходящую всем, — ровно [1.6.0] не пустил бы игру с Sable, который принесёт 1.6.1
     jarJar("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}") {
-        version { strictly "[${sable_companion_version}]"; prefer sable_companion_version }
+        version { strictly "[${sable_companion_version},2.0)"; prefer sable_companion_version }
     }
 
     testImplementation platform('org.junit:junit-bom:5.10.2')
