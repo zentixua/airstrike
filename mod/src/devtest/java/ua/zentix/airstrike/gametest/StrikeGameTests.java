@@ -659,6 +659,35 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Бомба, сброшенная под точку на своей высоте (цель в воздухе: игрок в полёте, а чанк под ним у пуска не был
+     * готов), не выравнивается и не кружит, а падает на землю задолго до конца срока жизни. Раньше она тянулась
+     * к точке, проходила под ней и уходила на круг радиусом ~240 блоков до конца срока (стенд VPS 29.09.2026).
+     */
+    @GameTest(template = "runway", timeoutTicks = 200, batch = "bunker_air", skyAccess = true)
+    public static void bunkerBusterFallsUnderAirborneAim(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+        Vec3 aim = top(h, RUNWAY_TARGET).add(0, 64, 0);
+        bomb.drop(aim.add(0, -4, -85), 0, aim, null, null);
+        level.addFreshEntity(bomb);
+        double[] lastY = {bomb.getY()};
+        boolean[] drilled = {false};
+        h.onEachTick(() -> {
+            if (bomb.isRemoved()) return;
+            h.assertTrue(bomb.getY() <= lastY[0] + 1e-6, "бомба набирает высоту: " + lastY[0] + " → " + bomb.getY());
+            lastY[0] = bomb.getY();
+            if (bomb.isDrilling()) drilled[0] = true;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(drilled[0], "бомба не вошла в грунт");
+            h.assertTrue(bomb.isRemoved(), "бомба ещё не взорвалась");
+            Vec3 entry = bomb.entry();
+            h.assertTrue(Math.abs(entry.x - aim.x) < 16 && entry.z > aim.z - 85 && entry.z < aim.z + 120,
+                    "бомба упала далеко от цели: " + entry);
+        });
+    }
+
+    /**
      * Снаряд вне мира, долетевший до цели, чей район уже тикает, взрывается у цели, даже если за целью чанки не тикают.
      * В мир он возвращается, только когда тикает и место впереди по курсу (запас от прыжков на границе); у цели в чанке,
      * который тикает один (игрок в воздухе над краем загрузки), этого не бывало, и снаряд пролетал цель без взрыва и

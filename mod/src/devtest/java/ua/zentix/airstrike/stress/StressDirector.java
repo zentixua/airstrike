@@ -551,8 +551,11 @@ public final class StressDirector {
             else if ("icbm".equals(w.type) && w.pos.y > s.overworld().getMaxBuildHeight()) outcome = "boost-done";
             else {
                 outcome = "lost";
-                log("lost %s %s у %d %d %d (цель %d %d %d, вне мира %b, ушёл: %s)", w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z,
-                        (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual, how);
+                // конец — по самому объекту: снаряд, убранный вне мира (срок жизни), не шлёт события ухода, и «ушёл»
+                // тогда говорит о его последнем уходе из мира в полёт вне мира, раньше конца
+                log("lost %s %s у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d; последний уход из мира: %s)",
+                        w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, (int) w.aim.x, (int) w.aim.y, (int) w.aim.z, w.virtual,
+                        w.ref.getRemovalReason(), w.ref.flightPhase().getSerializedName(), w.ref.age(), how);
             }
             outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
         }
