@@ -21,6 +21,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
@@ -39,6 +40,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
 import java.util.List;
@@ -539,8 +541,14 @@ public final class NuclearGameTests {
         CruiseMissileEntity conventionalOnRail = onRail(level, rail.add(0, 0, 4), target, null);
         CruiseMissileEntity nuclearVirtual = virtual(level, target.add(0, 60, 2000), target, warhead);
         CruiseMissileEntity conventionalVirtual = virtual(level, target.add(0, 60, -2000), target, null);
+        LauncherEntity missileLauncher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, null);
+        LauncherEntity droneLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.DRONE, null);
+        level.addFreshEntity(missileLauncher);
+        level.addFreshEntity(droneLauncher);
 
         ServerActions.clearAll(level.getServer(), false);
+        h.assertFalse(missileLauncher.isRemoved(), "обычный отбой убрал пусковую из-под ракеты с ядерной БЧ");
+        h.assertTrue(droneLauncher.isRemoved(), "обычный отбой не убрал пустую пусковую");
         h.assertTrue(!icbm.isRemoved() && NuclearEvents.get(level).scheduled().size() == 1, "обычный отбой отменил МБР");
         h.assertFalse(nuclearOnRail.isRemoved(), "обычный отбой убрал ракету с ядерной БЧ");
         h.assertTrue(VirtualFlights.get(level).flights().contains(nuclearVirtual), "обычный отбой убрал ядерную ракету вне мира");
@@ -551,6 +559,7 @@ public final class NuclearGameTests {
         h.assertTrue(icbm.isRemoved() && NuclearEvents.get(level).scheduled().isEmpty(), "ядерный отбой не отменил МБР");
         h.assertTrue(nuclearOnRail.isRemoved() && nuclearVirtual.isRemoved() && VirtualFlights.get(level).flights().isEmpty(),
                 "ядерный отбой не убрал ракеты с ядерной БЧ");
+        h.assertTrue(missileLauncher.isRemoved(), "ядерный отбой не убрал пусковую");
         h.succeed();
     }
 

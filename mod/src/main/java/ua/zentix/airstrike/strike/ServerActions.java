@@ -318,8 +318,8 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: снаряды и обломки во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета и B-2
-     * с ядерной БЧ) отменяет только ядерный отбой.
+     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета
+     * и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая ракета, остаётся до её пуска.
      *
      * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
      */
@@ -327,16 +327,31 @@ public final class ServerActions {
         Predicate<StrikeProjectile> cancelled = p -> nuclear || !p.isNuclear();
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
+            n += VirtualFlights.get(level).clear(level, cancelled);
             List<Entity> kill = new ArrayList<>();
+            List<LauncherEntity> launchers = new ArrayList<>();
+            // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
+            List<StrikeProjectile> onRail = new ArrayList<>();
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+                if (p.flightPhase().onLauncher()) onRail.add(p);
+            }
             for (Entity e : level.getAllEntities()) {
-                if (e instanceof StrikeProjectile p ? cancelled.test(p)
-                        : e instanceof DebrisEntity || e instanceof LauncherEntity || e instanceof SpentBoosterEntity) kill.add(e);
+                if (e instanceof StrikeProjectile p) {
+                    if (cancelled.test(p)) kill.add(p);
+                    else if (p.flightPhase().onLauncher()) onRail.add(p);
+                } else if (e instanceof LauncherEntity l) {
+                    launchers.add(l);
+                } else if (e instanceof DebrisEntity || e instanceof SpentBoosterEntity) {
+                    kill.add(e);
+                }
+            }
+            for (LauncherEntity l : launchers) {
+                if (onRail.stream().noneMatch(l::serves)) kill.add(l);
             }
             for (Entity e : kill) {
                 if (e instanceof StrikeProjectile) n++;
                 e.discard();
             }
-            n += VirtualFlights.get(level).clear(level, cancelled);
             // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
             StrikeWorld.clearSalvos(level);
             if (nuclear) n += NuclearStrikes.clear(level);
