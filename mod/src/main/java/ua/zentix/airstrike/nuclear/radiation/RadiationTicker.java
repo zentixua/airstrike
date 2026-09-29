@@ -41,7 +41,7 @@ import ua.zentix.airstrike.registry.ModEffects;
  */
 public final class RadiationTicker {
     /** 1 Р ≈ 0.01 Гр в теле. */
-    static final double GY_PER_R = 0.01;
+    public static final double GY_PER_R = 0.01;
     /** Секунда в игровых часах: 20 тиков из 1000. */
     private static final double HOURS_PER_SECOND = 20 / 1000.0;
     private static final ResourceLocation HEALTH_PENALTY = Airstrike.id("radiation_sickness");
@@ -125,7 +125,7 @@ public final class RadiationTicker {
     }
 
     /** Крыша над головой: каждый твёрдый блок до неба ×0.3, но не меньше ×0.001. */
-    static double roofShielding(ServerLevel level, BlockPos pos) {
+    public static double roofShielding(ServerLevel level, BlockPos pos) {
         double k = 1;
         BlockPos.MutableBlockPos m = pos.mutable().move(0, 2, 0);
         for (int i = 0; i < 24 && m.getY() < level.getMaxBuildHeight(); i++, m.move(0, 1, 0)) {

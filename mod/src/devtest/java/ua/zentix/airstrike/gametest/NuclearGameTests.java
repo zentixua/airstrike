@@ -128,6 +128,60 @@ public final class NuclearGameTests {
         return n;
     }
 
+    /**
+     * Выжигание не оставляет данных блок-сущностей там, где теперь воздух: ни у живой блок-сущности, ни у отложенной.
+     * Отложенная — у чанка, который ещё не тикал: после генерации заглушка «DUMMY» (кровати, колокола, сундуки
+     * деревни, {@code WorldGenRegion.setBlock}), после загрузки — сохранённые данные. Раньше замена блока снимала
+     * только живую, отложенные данные уходили в сохранение, и чанк при загрузке писал «Tried to load a DUMMY block
+     * entity … found air». Содержимое сундуков не высыпается ни у той, ни у другой.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_block_entities", skyAccess = true)
+    public static void scarLeavesNoOrphanBlockEntities(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos chest = CENTER.east(4), packedChest = CENTER.east(6), bell = CENTER.south(4), sign = CENTER.south(6);
+        h.setBlock(chest, Blocks.CHEST);
+        h.setBlock(packedChest, Blocks.CHEST);
+        h.setBlock(bell, Blocks.BELL);
+        h.setBlock(sign, Blocks.OAK_SIGN);
+        for (BlockPos p : List.of(chest, packedChest)) {
+            if (h.getBlockEntity(p) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity c) c.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 5));
+        }
+        // сундук — как после загрузки чанка, который не тикал; колокол и табличка — как после генерации
+        pend(level, h.absolutePos(packedChest), level.getBlockEntity(h.absolutePos(packedChest)).saveWithFullMetadata(level.registryAccess()));
+        for (BlockPos p : List.of(bell, sign)) {
+            BlockPos abs = h.absolutePos(p);
+            net.minecraft.nbt.CompoundTag dummy = new net.minecraft.nbt.CompoundTag();
+            dummy.putInt("x", abs.getX());
+            dummy.putInt("y", abs.getY());
+            dummy.putInt("z", abs.getZ());
+            dummy.putString("id", "DUMMY");
+            pend(level, abs, dummy);
+        }
+
+        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false)); // без пожаров: на месте блоков — воздух
+
+        for (BlockPos p : List.of(chest, packedChest, bell, sign)) h.assertTrue(h.getBlockState(p).isAir(), "не разрушено: " + h.getBlockState(p));
+        BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
+        for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
+            for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
+                LevelChunk chunk = level.getChunk(cx, cz);
+                // то, что уйдёт в сохранение чанка (живые и отложенные), — только у блоков с блок-сущностью
+                for (BlockPos p : chunk.getBlockEntitiesPos()) {
+                    h.assertTrue(chunk.getBlockState(p).hasBlockEntity(), "данные блок-сущности у " + chunk.getBlockState(p) + " в " + p.toShortString());
+                }
+            }
+        }
+        h.assertEntityNotPresent(EntityType.ITEM);
+        h.succeed();
+    }
+
+    /** Блок-сущность в {@code pos} — отложенными данными {@code tag}, как у чанка, который ещё не тикал. */
+    private static void pend(ServerLevel level, BlockPos pos, net.minecraft.nbt.CompoundTag tag) {
+        LevelChunk chunk = level.getChunkAt(pos);
+        chunk.removeBlockEntity(pos);
+        chunk.setBlockEntityNbt(tag);
+    }
+
     /** Тень: за стеной огненный шар не виден (ни света, ни пожара), на открытом месте — виден. */
     @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_shadow", skyAccess = true)
     public static void wallCastsThermalShadow(GameTestHelper h) {
@@ -354,6 +408,44 @@ public final class NuclearGameTests {
             h.assertTrue(RadiationTicker.dose(grazing).doseGy() > 0, "в следе осадков моб не набрал дозы");
             h.assertTrue(RadiationTicker.dose(zombie).doseGy() == 0, "нежить набрала дозу");
             h.assertFalse(sick.isAlive(), "моб с 60 Гр ещё жив");
+        });
+    }
+
+    /**
+     * Обход мобов, растянутый бюджетом дольше периода (очередь занята разрушениями: здесь по одной единице работы
+     * за тик на сотни мобов), не теряет времени: прибавка дозы за обход — мощность осадков × всё время с прошлого
+     * снимка. Раньше время обхода обрезалось двумя периодами, и в занятой очереди мобы недобирали дозу.
+     */
+    @GameTest(template = "range", timeoutTicks = 1400, batch = "nuke_mob_fallout_starved", skyAccess = true)
+    public static void starvedFalloutPassKeepsFullDose(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Cow grazing = h.spawn(EntityType.COW, CENTER.west(3));
+        for (int i = 0; i < 2 * MobFallout.PERIOD + 100; i++) h.spawn(EntityType.SHEEP, CENTER.offset(-20 + i % 41, 0, 5 + i / 41));
+        BlockPos g = h.absolutePos(CENTER);
+        Detonation d = new Detonation(1_000_000 + level.random.nextInt(1000), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
+                level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
+        MobFallout fallout = new MobFallout();
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        // когда корова получала дозу (тик и прибавка): по двум соседним прибавкам виден обход целиком
+        List<long[]> gains = new java.util.ArrayList<>();
+        double[] last = {0};
+        h.onEachTick(() -> {
+            clock.start(1_000_000L); // одна единица работы за тик
+            fallout.work(level, List.of(d), clock);
+            double dose = RadiationTicker.dose(grazing).doseGy();
+            if (dose > last[0]) gains.add(new long[]{level.getGameTime(), Double.doubleToLongBits(dose - last[0])});
+            last[0] = dose;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(gains.size() >= 2, "обходов с дозой: " + gains.size());
+            for (int i = 1; i < gains.size(); i++) {
+                long t = gains.get(i)[0], ticks = t - gains.get(i - 1)[0];
+                h.assertTrue(ticks > 2 * MobFallout.PERIOD, "обход короче двух периодов: " + ticks + " тиков — проверка ни о чём");
+                double gain = Double.longBitsToDouble(gains.get(i)[1]);
+                double expected = d.falloutRate(grazing.getX(), grazing.getZ(), t - d.gameTime())
+                        * RadiationTicker.roofShielding(level, grazing.blockPosition()) * RadiationTicker.GY_PER_R * ticks / 1000.0;
+                h.assertTrue(Math.abs(gain / expected - 1) < 0.05, "за обход " + ticks + " тиков доза " + gain + " Гр, ждали " + expected);
+            }
         });
     }
 
