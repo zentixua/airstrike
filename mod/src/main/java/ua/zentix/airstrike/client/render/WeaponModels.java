@@ -14,6 +14,7 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.model.data.ModelData;
+import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.BomberEntity;
@@ -24,8 +25,8 @@ import java.util.List;
 
 /**
  * Модели снарядов — гладкие сетки OBJ с текстурами из {@code tools/gen_models.py} (models/weapon, textures/block/weapon).
- * Грузятся как дополнительные модели блоков (атлас блоков), рисуются слоем сущностей: свет и тени мира, под шейдерами
- * Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
+ * Грузятся как дополнительные модели блоков (атлас блоков), разбираются в {@link QuadMesh} и рисуются слоем
+ * сущностей: свет и тени мира, под шейдерами Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
  * винт шахеда и «Ланцета», крылья ракеты и «Ланцета», воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
  * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}.
  * Шарниры — те же числа, что в gen_models.py.
@@ -44,25 +45,21 @@ public final class WeaponModels {
         LOITER_BODY("loiter_body"), LOITER_WINGS("loiter_wings"), LOITER_PROP("loiter_prop"), LOITER_DISC("loiter_disc");
 
         final ModelResourceLocation location;
-        /** Грани из запечённой модели: сборная модель OBJ склеивает список заново на каждый вызов {@code getQuads}. */
-        private List<BakedQuad> quads;
+        private final QuadMesh.Cached<QuadMesh> mesh = new QuadMesh.Cached<>(this::compile);
 
         Mesh(String name) {
             this.location = ModelResourceLocation.standalone(Airstrike.id("weapon/" + name));
         }
 
-        private List<BakedQuad> quads() {
-            if (quads == null) {
-                quads = List.copyOf(Minecraft.getInstance().getModelManager().getModel(location)
-                        .getQuads(null, null, RandomSource.create(0), ModelData.EMPTY, null));
-            }
-            return quads;
+        private QuadMesh compile() {
+            List<BakedQuad> quads = Minecraft.getInstance().getModelManager().getModel(location)
+                    .getQuads(null, null, RandomSource.create(0), ModelData.EMPTY, null);
+            return QuadMesh.builder().add(quads, new Matrix4f()).build();
         }
 
         /** Нарисовать деталь в текущей системе координат (нос по +Z). */
         public void draw(PoseStack pose, VertexConsumer vc, int light, float alpha) {
-            PoseStack.Pose last = pose.last();
-            for (BakedQuad q : quads()) vc.putBulkData(last, q, 1, 1, 1, alpha, light, OverlayTexture.NO_OVERLAY, false);
+            mesh.get().draw(pose.last(), vc, QuadMesh.white(alpha), light, OverlayTexture.NO_OVERLAY);
         }
 
         public void draw(PoseStack pose, MultiBufferSource buffers, int light) {
@@ -77,9 +74,9 @@ public final class WeaponModels {
         for (Mesh m : Mesh.values()) e.register(m.location);
     }
 
-    /** Ресурсы перезагружены (F3+T, пакет ресурсов): грани берутся из новых моделей. */
+    /** Ресурсы перезагружены (F3+T, пакет ресурсов): сетки снарядов и пусковых собираются из новых моделей. */
     public static void baked(ModelEvent.BakingCompleted e) {
-        for (Mesh m : Mesh.values()) m.quads = null;
+        QuadMesh.Cached.invalidateAll();
     }
 
     /** Как нарисовать снаряд в его системе координат. */
