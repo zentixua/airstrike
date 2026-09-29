@@ -274,8 +274,10 @@ public final class Trailer {
             Vec3 feet = mc.player.position();
             Vec3 city = TOWER.add(0, 110, 0);
             // в 2,8 блока голова закрывала пятую часть кадра: дальше и выше, плечо — в нижнем левом углу
-            Vec3 from = feet.add(toPost.scale(4.6)).add(side.scale(-1.7)).add(0, 2.35, 0);
-            Vec3 to = feet.add(toPost.scale(3.4)).add(side.scale(-1.25)).add(0, 2.15, 0);
+            // и не ниже 2 блоков над землёй под самой камерой: наводчик стоит в ямке или склон за ним выше ног —
+            // камера от ног уходила в землю (дубль 1 на ноутбуке, облачная проверка)
+            Vec3 from = overGround(feet.add(toPost.scale(4.6)).add(side.scale(-1.7)).add(0, 2.35, 0), 2.0);
+            Vec3 to = overGround(feet.add(toPost.scale(3.4)).add(side.scale(-1.25)).add(0, 2.15, 0), 2.0);
             BlockPos under = BlockPos.containing(feet).below();
             Airstrike.LOG.info("TRAILER operator: ноги {} (пост {}), под ногами {}, камера {} (земля там {})", feet, post,
                     mc.level.getBlockState(under), from, ground(from).y);
