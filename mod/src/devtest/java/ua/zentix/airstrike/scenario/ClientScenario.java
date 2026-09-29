@@ -717,26 +717,29 @@ public final class ClientScenario {
         at(40, () -> {
             cmd("time set 6000");
             cmd("weather clear");
-            cmd("tp @s 0.5 120 0.5 0 30");
+            // в копии мира игрока (prod_client.py --world) — там, где он стоит
+            if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
         });
         at(300, () -> {
             ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
             Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
         });
         shot(340, "target-map");
+        // отдалить карту: точка далеко за дальностью прорисовки (≈600 блоков) — рельеф там есть только у DH
         at(360, () -> {
             var screen = Minecraft.getInstance().screen;
-            screen.mouseScrolled(screen.width / 2.0, screen.height / 2.0, 0, -2);
+            screen.mouseScrolled(screen.width / 2.0, screen.height / 2.0, 0, -8);
         });
         shot(400, "target-map");
         at(420, () -> {
             var screen = Minecraft.getInstance().screen;
-            double x = screen.width / 2.0 + 60, y = screen.height / 2.0 - 40;
+            double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
             screen.mouseClicked(x, y, 0);
             screen.mouseReleased(x, y, 0);
-            var selected = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
-            Airstrike.LOG.info("SCENARIO map-target selected {} terrain height {} far {}", selected,
-                    ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(selected.x), (int) Math.floor(selected.z)),
+            mapTarget = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
+            Airstrike.LOG.info("SCENARIO map-target selected {} distance {} terrain height {} far {}", mapTarget,
+                    Math.round(Math.hypot(mapTarget.x - Minecraft.getInstance().player.getX(), mapTarget.z - Minecraft.getInstance().player.getZ())),
+                    ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(mapTarget.x), (int) Math.floor(mapTarget.z)),
                     ua.zentix.airstrike.client.map.TerrainTiles.farTerrain());
         });
         shot(430, "target-map");
@@ -747,12 +750,36 @@ public final class ClientScenario {
             }
             Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
         });
-        for (int t = 520; t <= 700; t += 30) shot(t, "target-map");
-        at(710, () -> {
-            Airstrike.LOG.info("SCENARIO done");
-            Minecraft.getInstance().stop();
+        for (int t = 520; t <= 1000; t += 80) shot(t, "target-map");
+        // попадание — первый взрыв на сервере (встроенном): где он и насколько далеко от выбранной точки
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Detonate e) -> {
+            Vec3 at = e.getExplosion().center(), aim = mapTarget;
+            if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
+            Airstrike.LOG.info("SCENARIO map-target impact {} miss {}", at, Math.round(Math.hypot(at.x - aim.x, at.z - aim.z)));
+            mapImpactTick = tick;
         });
+        // конец — через 3 с после попадания (кадры карты после удара) или по сроку
+        for (int t = 520; t <= MAP_TARGET_END; t += 20) {
+            at(t, () -> {
+                if (mapDone) return;
+                if (mapImpactTick < 0 || tick < mapImpactTick + 60) {
+                    if (tick < MAP_TARGET_END) return;
+                    Airstrike.LOG.warn("SCENARIO map-target no impact by tick {}", tick);
+                }
+                mapDone = true;
+                Airstrike.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+        }
     }
+
+    /** Сценарий target-map ждёт попадания до этого тика: пуск на 440-м, ракета на 700 блоков — около 60 тиков, дрон — 350. */
+    private static final int MAP_TARGET_END = 2400;
+    /** Точка, выбранная на карте (сценарий target-map); её читает и поток сервера. */
+    @org.jetbrains.annotations.Nullable
+    private volatile Vec3 mapTarget;
+    private volatile int mapImpactTick = -1;
+    private boolean mapDone;
 
     /**
      * Видео с борта ракеты (V) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
