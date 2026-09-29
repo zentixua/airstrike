@@ -57,8 +57,8 @@ public final class ChunkSaves {
                 if (index < 0 || index >= chunk.getSectionsCount()) continue;
                 LevelChunkSection section = chunk.getSection(index);
                 if (!ChunkLights.needs(section, false)) continue;
-                var saved = BLOCK_STATES.parse(NbtOps.INSTANCE, s.getCompound("block_states")).result();
-                if (saved.isEmpty() || !same(saved.get(), section.getStates())) {
+                // тег секции — ровно то, что ваниль только что записала из этой секции (кодирование дешевле разбора)
+                if (!s.getCompound("block_states").equals(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, section.getStates()).getOrThrow())) {
                     // тег писал не ванильный конвейер для этого чанка — не наш; двойники этой секции уйдут на диск как есть
                     if (!foreignLogged) {
                         foreignLogged = true;
@@ -83,17 +83,6 @@ public final class ChunkSaves {
                 Airstrike.LOG.error("Блэкаут: чанк {} сохранён с погашенными лампами — вернуть их в тег не вышло", chunk.getPos(), ex);
             }
         }
-    }
-
-    private static boolean same(PalettedContainer<BlockState> a, PalettedContainer<BlockState> b) {
-        for (int y = 0; y < 16; y++) {
-            for (int z = 0; z < 16; z++) {
-                for (int x = 0; x < 16; x++) {
-                    if (a.get(x, y, z) != b.get(x, y, z)) return false;
-                }
-            }
-        }
-        return true;
     }
 
     /**
