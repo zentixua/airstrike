@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Переводы ru и en сходятся: те же ключи и те же аргументы в каждой строке (код передаёт одни аргументы на оба
@@ -23,7 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * зашиваются: их можно переназначить, поэтому подсказка получает клавишу аргументом {@code Component.keybind}.
  */
 class LangTest {
-    private static final Pattern ARG = Pattern.compile("%(?:(\\d+)\\$)?s");
+    /** Как {@code TranslatableContents.FORMAT_PATTERN}: ванильный разбор строки перевода. */
+    private static final Pattern ARG = Pattern.compile("%(?:(\\d+)\\$)?([A-Za-z%]|$)");
 
     @Test
     void ruAndEnHaveSameKeysAndArguments() throws Exception {
@@ -38,6 +40,19 @@ class LangTest {
         assertEquals(Map.of(), diff, "аргументы строк ru_ru и en_us");
     }
 
+    /** Ваниль знает только «%s», «%2$s» и «%%»: на «%d» или «%» в конце строки вместо текста покажется ключ. */
+    @Test
+    void onlyStringArguments() throws Exception {
+        for (String lang : new String[]{"ru_ru", "en_us"}) {
+            for (var e : load(lang).entrySet()) {
+                Matcher m = ARG.matcher(e.getValue().getAsString());
+                while (m.find()) {
+                    assertTrue(m.group(2).equals("s") || m.group(2).equals("%"), lang + " " + e.getKey() + ": «" + m.group() + "»");
+                }
+            }
+        }
+    }
+
     @Test
     void cameraKeyIsNotHardcoded() throws Exception {
         for (String lang : new String[]{"ru_ru", "en_us"}) {
@@ -50,9 +65,9 @@ class LangTest {
     /** Номера аргументов строки: «%s» идут по порядку, «%2$s» — явный номер. */
     private static TreeSet<Integer> args(String s) {
         TreeSet<Integer> out = new TreeSet<>();
-        Matcher m = ARG.matcher(s.replace("%%", ""));
+        Matcher m = ARG.matcher(s);
         int next = 1;
-        while (m.find()) out.add(m.group(1) != null ? Integer.parseInt(m.group(1)) : next++);
+        while (m.find()) if (!m.group(2).equals("%")) out.add(m.group(1) != null ? Integer.parseInt(m.group(1)) : next++);
         return out;
     }
 

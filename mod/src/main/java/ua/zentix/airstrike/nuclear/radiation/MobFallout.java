@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.List;
 
@@ -52,7 +53,8 @@ public final class MobFallout {
     }
 
     private void expose(ServerLevel level, List<Detonation> detonations, Mob mob, long now) {
-        if (!mob.isAlive()) return;
+        // снимок старше тика: чанк моба мог уйти из полной загрузки, а крыша читается блоками
+        if (!mob.isAlive() || !Terrain.ready(level, mob.blockPosition())) return;
         double field = 0;
         for (Detonation d : detonations) {
             if (d.hasFallout()) field += d.falloutRate(mob.getX(), mob.getZ(), now - d.gameTime());
