@@ -46,8 +46,10 @@ bash "$WORK/subject.sh" 2>"$WORK/err1" & T=$!
 set +m
 if wait_for 01 02 03; then
   kill -INT $T; sleep 0.5; kill -INT $T
-  wait $T; st=$?; T=""
-  [ $st -eq 130 ] && ok "Ctrl+C: скрипт умер по INT" || fail "Ctrl+C: код $st, ждали 130"
+  # срок 2 с + запас; скрипт, глухой к INT, не вешает прогон (cleanup добьёт)
+  for _ in $(seq 150); do kill -0 $T 2>/dev/null || break; sleep 0.1; done
+  if kill -0 $T 2>/dev/null; then st="жив через 15 с"; else wait $T; st=$?; T=""; fi
+  [ "$st" = 130 ] && ok "Ctrl+C: скрипт умер по INT" || fail "Ctrl+C: код $st, ждали 130"
   for n in 01 02 03; do alive $n && fail "Ctrl+C: sleep $B$n жив"; done
   alive 01 || alive 02 || alive 03 || ok "Ctrl+C: сирот нет"
   grep -q "не вышла за 2 с после TERM — KILL" "$WORK/err1" && ok "Ctrl+C: KILL глухого к TERM через RIG_GRACE записан" \
@@ -117,6 +119,12 @@ for _ in $(seq 100); do pgrep -f "^sleep ${B}41\$" >/dev/null && break; sleep 0.
 bash "$WORK/subject.sh" 2>"$WORK/err5"; sleep 0.3
 alive 41 && fail "RIG_GRACE=0: sleep $B""41 жив" || ok "RIG_GRACE=0: глухой к TERM добит сразу"
 grep -q "не вышла за 0 с после TERM — KILL" "$WORK/err5" || fail "RIG_GRACE=0: нет строки о KILL: $(cat "$WORK/err5")"
+# не число — через rig_stop целиком: вежливая к TERM сессия гасится, код 0, stderr пуст (без ошибок арифметики)
+subject 'rig_spawn bash -c "sleep ${B}51 & wait" > /dev/null 2>&1
+for _ in $(seq 100); do pgrep -f "^sleep ${B}51\$" >/dev/null && break; sleep 0.1; done' abc
+bash "$WORK/subject.sh" 2>"$WORK/err6"; st=$?; sleep 0.3
+[ $st -eq 0 ] && [ ! -s "$WORK/err6" ] && ! alive 51 && ok "RIG_GRACE=abc: rig_stop гасит сессию без ошибок" \
+  || fail "RIG_GRACE=abc: код $st, stderr: $(cat "$WORK/err6")"
 bad=$FAILS
 for g in abc 20s -3 08; do
   got=$(RIG_GRACE=$g bash -c 'set -euo pipefail; source "$1/tools/rig_procs.sh"; rig_grace' _ "$ROOT" 2>&1)
