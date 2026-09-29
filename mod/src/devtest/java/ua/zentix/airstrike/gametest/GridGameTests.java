@@ -282,7 +282,7 @@ public final class GridGameTests {
      * блэкаута его не видит, и сохраняет его Sable своим кодеком, мимо {@code ChunkDataEvent.Save}. У аппарата своё
      * питание: двойники в плоте снова лампы — в том же тике, что и сборка (обновление соседа), до любого сохранения.
      */
-    @GameTest(template = "range", timeoutTicks = 200, batch = "grid_sable", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_sable", skyAccess = true)
     public static void twinsCarriedIntoSableShipRelight(GameTestHelper h) {
         if (!ModList.get().isLoaded("sable")) {
             h.succeed();
@@ -298,6 +298,7 @@ public final class GridGameTests {
         BlockPos a = h.absolutePos(from), b = h.absolutePos(lantern);
         Vec3 craft = Vec3.atCenterOf(h.absolutePos(from.offset(2, 0, 2)));
         SubLevelAccess[] sub = new SubLevelAccess[1];
+        int[] assembled = {0};
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(PowerGrid.get(level).dark(a.getX() >> 4, a.getZ() >> 4, level.getGameTime())
                         && PowerGrid.get(level).dark(b.getX() >> 4, b.getZ() >> 4, level.getGameTime()), "квартал ещё светлый"))
@@ -307,17 +308,25 @@ public final class GridGameTests {
                     h.setBlock(lantern, GridLights.unlit(Blocks.LANTERN.defaultBlockState()));
                 })
                 .thenIdle(5)
+                // сразу после обхода плотов: до следующего обхода — PLOT_SCAN тиков, зажечь двойников может только сборка
+                .thenWaitUntil(() -> h.assertTrue(server.getTickCount() % BlackoutWorld.PLOT_SCAN == 1, "ждём тик после обхода плотов"))
                 .thenExecute(() -> {
                     h.assertTrue(GridLights.isUnlit(h.getBlockState(sea)), "двойник в тёмном квартале зажёгся: " + h.getBlockState(sea));
+                    assembled[0] = server.getTickCount();
                     server.getCommands().performPrefixedCommand(server.createCommandSourceStack().withLevel(level).withSuppressedOutput(),
                             String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()),
                                     Math.min(a.getZ(), b.getZ()), Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())));
-                    // сборка синхронна: в этом же тике (раньше любого автосохранения и обхода плотов) двойников в плоте нет
+                })
+                .thenWaitUntil(() -> {
                     List<SubLevelAccess> near = SubLevels.near(level, craft, 8);
                     h.assertFalse(near.isEmpty(), "аппарат не собран");
                     sub[0] = near.getFirst();
+                })
+                .thenExecute(() -> {
+                    h.assertTrue(server.getTickCount() - assembled[0] < BlackoutWorld.PLOT_SCAN - 1, "аппарат найден уже после обхода плотов — проверять нечего");
+                    // обхода плотов ещё не было: двойники зажглись от сборки (обновление соседа), раньше любого сохранения
                     int[] lamps = plotLamps(level, sub[0]);
-                    h.assertTrue(lamps[0] == 2 && lamps[1] == 0, "сразу после сборки в плоте горит " + lamps[0] + ", погашено " + lamps[1]);
+                    h.assertTrue(lamps[0] == 2 && lamps[1] == 0, "до обхода плотов в плоте горит " + lamps[0] + ", погашено " + lamps[1]);
                 })
                 .thenIdle(BlackoutWorld.PLOT_SCAN + 1)
                 .thenExecute(() -> {
