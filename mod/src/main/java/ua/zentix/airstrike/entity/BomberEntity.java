@@ -29,6 +29,8 @@ public class BomberEntity extends StrikeProjectile {
     public static final double ALTITUDE = 170;
     public static final double RELEASE_DISTANCE = 85;
     public static final double CRUISE_SPEED = 12;
+    /** Разворот, °/тик: радиус ~690 блоков. */
+    private static final double TURN_RATE = 1.0;
     /** После сброса улетает и исчезает через столько тиков (или раньше — на краю загруженного мира). */
     private static final int EGRESS_TICKS = 400;
 
@@ -116,7 +118,8 @@ public class BomberEntity extends StrikeProjectile {
     protected void serverTick(ServerLevel level) {
         Vec3 aim = tracker.point();
         Bearing b = bearingTo(aim);
-        if (!released && b.horizontal() <= RELEASE_DISTANCE) release(level, aim);
+        // точка сзади (перенацелили за спину): бомба падает по курсу и назад не рулит — не сбрасывать, а зайти снова
+        if (!released && b.horizontal() <= RELEASE_DISTANCE && ahead(b)) release(level, aim);
         // вне мира после сброса лететь незачем: уход никто не увидит
         if (age >= maxAge() || released && (phaseAge() >= EGRESS_TICKS || isVirtual())) {
             discard();
@@ -128,7 +131,10 @@ public class BomberEntity extends StrikeProjectile {
             if (phaseAge() < 60) flight.steerYaw(flight.yaw() + 20 * breakSide, 0.08, 1.2, 0.08);
             else flight.settleYaw(0.08);
         } else if (b.horizontal() > RELEASE_DISTANCE + 40) {
-            flight.steerYaw(b.yaw(), 0.1, 1.0, 0.1);
+            // точка сброса внутри круга разворота (перенацелили сбоку, проскочил её): на пределе поворота он
+            // кружил бы вокруг неё без конца — прямо, пока она не выйдет из круга, и новый заход
+            if (insideTurn(aim, TURN_RATE)) flight.settleYaw(0.1);
+            else flight.steerYaw(b.yaw(), 0.1, TURN_RATE, 0.1);
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));
@@ -147,6 +153,14 @@ public class BomberEntity extends StrikeProjectile {
         Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
+    }
+
+    /**
+     * Точка сброса впереди или почти под брюхом — там, куда бомба может упасть: позади она уже «пройдена»
+     * ({@link BunkerBusterEntity}: падает круто вниз по курсу, не рулит).
+     */
+    private boolean ahead(Bearing b) {
+        return !BunkerBusterEntity.passed(b, flight.yaw());
     }
 
     /**

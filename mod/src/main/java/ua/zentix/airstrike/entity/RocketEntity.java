@@ -34,7 +34,7 @@ public class RocketEntity extends StrikeProjectile {
     /** Ближе этого времени полёта не стреляет: круче задираем трубы (миномётная траектория). */
     private static final int MIN_FLIGHT = 50;
     /** Вне мира, пока район цели не готов, замедляются последние столько тиков траектории (5 с, дольше загрузки района). */
-    static final double STRETCH_TICKS = 100;
+    public static final double STRETCH_TICKS = 100;
     /** Темп полёта вне мира меняется не быстрее этого за тик. */
     private static final double RATE_SLEW = 0.05;
     /**
@@ -80,6 +80,11 @@ public class RocketEntity extends StrikeProjectile {
     @Override
     public double cruiseSpeed() {
         return 4;
+    }
+
+    @Override
+    protected boolean climbs() {
+        return false;
     }
 
     @Override
@@ -159,6 +164,11 @@ public class RocketEntity extends StrikeProjectile {
             }
             return;
         }
+        // вне мира путь кончился на поверхности: ни траектории, ни растяжения — ждать там загрузки и попасть
+        if (isGrounded()) {
+            advance(level, impactAt, 1.5);
+            return;
+        }
         if (start == null) solve(position(), impactAt);
 
         // сдвинули с траектории (вернулся в мир выше рельефа) — пересчитать от текущего места на оставшееся время
@@ -182,6 +192,11 @@ public class RocketEntity extends StrikeProjectile {
         if (!advance(level, impactAt, 1.5)) return;
         // вне мира у самой цели снаряд ждёт загрузки района — тогда он не сдвинулся и время траектории стоит
         if (position().distanceToSqr(before) > 1.0e-6) t += step;
+    }
+
+    /** Темп времени траектории: 1 — как у мира, меньше — полёт вне мира растянут (для стенда). */
+    public double timeRate() {
+        return rate;
     }
 
     /**

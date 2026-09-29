@@ -20,7 +20,7 @@ import java.util.Locale;
  * Время — тики клиента от старта (идут и в меню), шаги — по состоянию подключения.
  */
 final class MultiplayerScenario {
-    private static final String ADDRESS = "localhost:" + System.getProperty("airstrike.mp.port", "25599");
+    private static final String ADDRESS = "127.0.0.1:" + System.getProperty("airstrike.mp.port", "25599");
 
     private final boolean attacker;
     private int tick;

@@ -11,6 +11,7 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySelector;
@@ -81,6 +82,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
     private static final double TURN_MARGIN = 1.2;
     private static final int AREA_WAIT_LIMIT = 1200;
+    /** Вне мира снаряд под поверхностью ещё летит к цели, пока он не ниже её на столько блоков (см. groundCrossing). */
+    private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
 
@@ -118,6 +121,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private int areaWait;
     /** Вне мира дошёл до цели, чей район тикает: вернуться в мир здесь же, без запаса впереди (не сохраняется). */
     private boolean arrived;
+    /**
+     * Вне мира путь снаряда встретил поверхность (столкновений там нет): здесь он ждёт загрузки места, возвращается
+     * в мир и в первом же тике попадает — обычным {@link #impact}. Null — путь поверхности не встречал.
+     */
+    @Nullable
+    private Vec3 grounded;
     /** Чанк, вокруг которого держится район цели (null — не держится). */
     @Nullable
     private ChunkPos heldArea;
@@ -351,6 +360,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return tracker == null ? null : tracker.target();
     }
 
+    /** Вне мира путь встретил поверхность: снаряд ждёт там загрузки места и попадёт, вернувшись в мир. */
+    protected final boolean isGrounded() {
+        return grounded != null;
+    }
+
     public boolean isVirtual() {
         return virtual;
     }
@@ -384,6 +398,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return true;
     }
 
+    /**
+     * Набирает ли высоту за целью: управляемый снаряд держит высоту над ней и под поднявшимся полом полёта вне мира
+     * ({@link #groundCrossing}) доворачивает вверх — пол его не останавливает. Баллистический (бомба, снаряд РСЗО) вверх
+     * не пойдёт: ниже пола на снижении он уже в земле.
+     */
+    protected boolean climbs() {
+        return true;
+    }
+
     /** Можно ли перенацелить (у бомбы после сброса и у бомбардировщика — нельзя). */
     protected boolean acceptsRetarget() {
         return true;
@@ -409,6 +432,14 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 return;
             }
             ServerLevel level = (ServerLevel) level();
+            if (grounded != null) {
+                // вернулся в мир там, где путь вне мира встретил поверхность: попадание здесь
+                Vec3 at = grounded;
+                grounded = null;
+                if (armed()) impact(level, at, null);
+                else crash(level, at);
+                return;
+            }
             if (holdsChunks() && forcedChunks.isEmpty()) updateChunkTickets(level, position(), flight.forward());
             serverTick(level);
             // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
@@ -450,19 +481,22 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Можно вернуться в мир: снаряд над тикающим и готовым чанком, и впереди по курсу тоже (без этого запаса он
-     * на границе прыгал бы туда-обратно каждый тик). Дошедшему до цели запас не нужен: в мире он взорвётся.
+     * Можно вернуться в мир: снаряд над тикающим и готовым чанком, и весь путь впереди по курсу тоже (без этого
+     * запаса он на границе прыгал бы туда-обратно каждый тик, {@link VirtualFlights#clearAhead}). Дошедшему до цели
+     * запас не нужен: в мире он взорвётся.
      */
     public boolean canMaterialize(ServerLevel level) {
         if (arrived) {
             BlockPos here = BlockPos.containing(position());
             return level.isPositionEntityTicking(here) && Terrain.ready(level, here);
         }
-        Vec3 ahead = position().add(flight.forward().multiply(1, 0, 1).scale(Math.max(16, speed * 3)));
-        BlockPos here = BlockPos.containing(position());
-        BlockPos next = BlockPos.containing(ahead);
-        return level.isPositionEntityTicking(here) && level.isPositionEntityTicking(next)
-                && Terrain.ready(level, here) && Terrain.ready(level, next);
+        return clearAhead(level, position());
+    }
+
+    /** Из этого места снаряд вернётся в мир: тикает и готов весь путь впереди ({@link VirtualFlights#clearAhead}). */
+    private boolean clearAhead(ServerLevel level, Vec3 pos) {
+        return VirtualFlights.clearAhead(pos, flight.forward(), speed,
+                (x, z) -> Terrain.ready(level, x, z) && level.isPositionEntityTicking(new BlockPos(x << 4, 0, z << 4)));
     }
 
     /**
@@ -472,7 +506,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     public void materialize(ServerLevel level) {
         virtual = false;
-        if (!flightPhase().onLauncher()) {
+        // дошедший до поверхности попадает в неё — поднимать его над рельефом незачем
+        if (!flightPhase().onLauncher() && grounded == null) {
             // рельеф под снарядом и впереди на 5 тиков полёта, каждый блок (только готовые чанки): не возникнуть
             // перед склоном или стеной, которую не успеть перепрыгнуть
             double[] ahead = new double[(int) Math.max(80, speed * 5)];
@@ -504,7 +539,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     protected void holdTargetArea(ServerLevel level) {
         if (tracker == null || isRemoved()) return;
-        Vec3 aim = tracker.point();
+        // путь вне мира кончился на поверхности: грузится место попадания, а не цель
+        Vec3 aim = grounded != null ? grounded : tracker.point();
         if (heldArea != null) {
             if (heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) < 2) return;
             releaseTargetArea();
@@ -792,6 +828,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * в 900 блоках под миром).
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
+        if (grounded != null) {
+            // стоит на поверхности: вернуться в мир, как только место загрузится (ожидание — с тем же пределом),
+            // на настоящую поверхность из карты высот загруженного чанка
+            if (!aimAreaReady(level, grounded)) return waitForAimArea(grounded);
+            if (!level.dimensionType().hasCeiling()) {
+                grounded = new Vec3(grounded.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(grounded.x), Mth.floor(grounded.z)), grounded.z);
+            }
+            moveAlong(level, grounded, dir);
+            arrived = true;
+            return true;
+        }
         if (expired()) {
             Airstrike.LOG.warn("Снаряд {} {} не долетел до {} за срок жизни и убран у {}", getType().getDescriptionId(), getUUID(),
                     BlockPos.containing(aim), blockPosition());
@@ -810,8 +857,55 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             arrived = true;
             return true;
         }
-        moveAlong(level, pos.add(dir.scale(speed)), dir);
+        Vec3 next = pos.add(dir.scale(speed));
+        Vec3 ground = groundCrossing(level, aim, pos, next);
+        if (ground != null) {
+            // мимо цели (или цель под землёй): вне мира столкновений нет, и снаряд падал бы без взрыва до конца срока
+            // жизни или до низа мира (бомба на точку позади B-2 — до y=−3022); путь кончается на поверхности
+            Airstrike.LOG.info("Снаряд {} {} вне мира дошёл до поверхности у {}, цель {}", getType().getDescriptionId(), getUUID(),
+                    BlockPos.containing(ground), BlockPos.containing(aim));
+            grounded = ground;
+            moveAlong(level, ground, dir);
+            return true;
+        }
+        moveAlong(level, next, dir);
         return true;
+    }
+
+    /**
+     * Где шаг вне мира уходит под землю (null — не уходит). Поверхность — из карты высот готового чанка; у не готового —
+     * уровень моря генератора ({@code Level.getSeaLevel} в 1.21.1 — всегда 63, у плоского мира море −63): ниже него суша
+     * почти не бывает (над водой поверхность — сама вода), а рельеф генератора ({@code ChunkGenerator.getBaseHeight})
+     * стоит миллисекунды на точку — не для каждого тика. В мире с потолком (Незер) карта высот — потолок: там только море.
+     * <p>
+     * Рельефа вне мира снаряд не знает и летит на высоте цели (пуск издалека — над ней, РСЗО — с её высоты, бреющий —
+     * над ней же), а цель бывает ниже моря и ниже рельефа (пещера, карьер, овраг): под поверхностью, но не ниже своей
+     * цели на {@link #BELOW_AIM} он ещё летит к ней. Ниже этого пола на снижении баллистический снаряд (бомба, РСЗО) уже
+     * в земле: попадание — на поверхности над ним (и когда пол встал выше: чанк под ним догрузился). Управляемый
+     * ({@link #climbs}) ниже пола оказывается, только когда пол встал выше него — цель, за которой он держит высоту
+     * (ракета +12, шахед +30), поднялась (игрок вышел из оврага, телепорт), — и ещё несколько тиков снижается, пока
+     * доворачивает вверх: его пол не останавливает, иначе он падал там, где его застало (в 3000 блоках от цели,
+     * с ядерной БЧ). Ниже низа мира не уходит никто. Снаряд, который после этого шага вернётся в мир, правило не
+     * трогает: в мире столкновения свои.
+     */
+    @Nullable
+    private Vec3 groundCrossing(ServerLevel level, Vec3 aim, Vec3 from, Vec3 to) {
+        double floor = Math.min(groundBound(level, to.x, to.z), aim.y - BELOW_AIM);
+        boolean buried = !climbs() && to.y < floor && to.y < from.y;
+        boolean bottom = to.y < level.getMinBuildHeight();
+        if (!(buried || bottom) || clearAhead(level, to)) return null;
+        // шаг пересёк пол — там, где пересёк; уже был под ним (пол встал выше, низ мира) — там, где снаряд сейчас
+        double t = from.y >= floor && from.y > to.y ? (from.y - floor) / (from.y - to.y) : 0;
+        Vec3 at = from.lerp(to, t);
+        // попадание — на поверхности там, где путь её встретил (на склоне конец шага выше или ниже на блоки)
+        return new Vec3(at.x, groundBound(level, at.x, at.z), at.z);
+    }
+
+    /** Поверхность для полёта вне мира: карта высот готового чанка, иначе уровень моря (см. {@link #groundCrossing}). */
+    private static int groundBound(ServerLevel level, double x, double z) {
+        int bx = Mth.floor(x), bz = Mth.floor(z);
+        return !level.dimensionType().hasCeiling() && Terrain.ready(level, bx >> 4, bz >> 4)
+                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, bx, bz) : level.getChunkSource().getGenerator().getSeaLevel();
     }
 
     /**
@@ -1111,6 +1205,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         launchPos = Nbt.getVec(tag, "launch");
         lifetime = tag.getInt("lifetime");
         areaWait = tag.getInt("area_wait");
+        grounded = Nbt.getVec(tag, "grounded");
         readyTicks = tag.getInt("ready_ticks");
         sirenLead = tag.contains("siren_lead") ? tag.getInt("siren_lead") : -1;
         setNuclear(tag.contains("nuclear") ? Loadout.Nuke.CODEC.parse(NbtOps.INSTANCE, tag.get("nuclear")).result().orElse(null) : null);
@@ -1137,6 +1232,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (launchPos != null) Nbt.putVec(tag, "launch", launchPos);
         tag.putInt("lifetime", lifetime);
         tag.putInt("area_wait", areaWait);
+        if (grounded != null) Nbt.putVec(tag, "grounded", grounded);
         tag.putInt("ready_ticks", readyTicks);
         tag.putInt("siren_lead", sirenLead);
         if (nuclear != null) Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuclear).result().ifPresent(n -> tag.put("nuclear", n));

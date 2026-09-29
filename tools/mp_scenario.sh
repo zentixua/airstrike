@@ -7,7 +7,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOD="$ROOT/mod"
 RUN="$MOD/run"
-PORT=25599
+# сервер слушает только петлю и свободный порт (сторож LoopbackGuard роняет сервер, если сокет не на петле)
+PORT="${AIRSTRIKE_MP_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
+export AIRSTRIKE_MP_PORT=$PORT
 export JAVA_HOME="${JAVA_HOME:-$(python3 "$ROOT/tools/paths.py" JAVA)}"
 
 SERVER="$RUN/mp-server"
@@ -15,8 +17,9 @@ rm -rf "$SERVER/world" "$SERVER/logs"
 mkdir -p "$SERVER"
 echo 'eula=true' > "$SERVER/eula.txt"
 cat > "$SERVER/server.properties" <<PROPS
-online-mode=false
+server-ip=127.0.0.1
 server-port=$PORT
+online-mode=false
 spawn-protection=0
 level-seed=20260927
 difficulty=peaceful

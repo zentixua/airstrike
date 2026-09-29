@@ -53,6 +53,11 @@ public class BunkerBusterEntity extends StrikeProjectile {
     /** Падение, когда цели под носом нет. */
     static final float FALL_PITCH = 60;
 
+    /** Точка позади по курсу {@code yaw} (дальше 8 блоков по горизонтали): бомба к ней уже не повернёт. */
+    static boolean passed(Bearing b, float yaw) {
+        return b.horizontal() > 8 && Math.abs(Mth.wrapDegrees(b.yaw() - yaw)) >= 90;
+    }
+
     public BunkerBusterEntity(EntityType<? extends BunkerBusterEntity> type, Level level) {
         super(type, level);
     }
@@ -75,6 +80,11 @@ public class BunkerBusterEntity extends StrikeProjectile {
     @Override
     protected int defaultLifetime() {
         return 300;
+    }
+
+    @Override
+    protected boolean climbs() {
+        return false;
     }
 
     @Override
@@ -112,8 +122,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         Bearing b = bearingTo(aim);
         // свободно падающая бомба не выравнивается и не набирает высоту: точка не ниже MIN_DIVE под носом
         // (цель на высоте бомбы или выше, уже пролетели) — просто падать круто вниз, на рули не надеясь
-        boolean passed = b.horizontal() > 8 && Math.abs(Mth.wrapDegrees(b.yaw() - flight.yaw())) >= 90;
-        boolean below = b.pitch() >= MIN_DIVE && !passed;
+        boolean below = b.pitch() >= MIN_DIVE && !passed(b, flight.yaw());
         flight.arcPitch(below ? b.pitch() : FALL_PITCH, speed, b.distance(), 7, 0.8);
         if (flight.pitch() < MIN_DIVE) flight.set(flight.yaw(), MIN_DIVE);
         speed = Math.min(cruiseSpeed(), speed + 0.3);

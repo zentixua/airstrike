@@ -66,6 +66,7 @@ neoForge {
             // мультиплеер (tools/mp_scenario.sh): у каждого клиента свой каталог и ник
             gameDirectory = project.file(scenarioDir)
             if (project.findProperty('scenarioUser')) programArguments.addAll '--username', project.findProperty('scenarioUser')
+            if (System.getenv('AIRSTRIKE_MP_PORT')) systemProperty 'airstrike.mp.port', System.getenv('AIRSTRIKE_MP_PORT')
             // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
@@ -114,7 +115,10 @@ neoForge {
             client()
             def name = System.getenv('AIRSTRIKE_STRESS_NAME') ?: 'Host'
             gameDirectory = project.file("run/stress/${name}")
-            programArguments.addAll '--username', name, '--quickPlayMultiplayer', 'localhost', '--width', '854', '--height', '480'
+            // сервер стенда слушает только петлю, порт — свободный, его выбирает tools/stress.sh
+            def server = "127.0.0.1:${System.getenv('AIRSTRIKE_STRESS_PORT') ?: '25565'}"
+            programArguments.addAll '--username', name, '--quickPlayMultiplayer', server, '--width', '854', '--height', '480'
+            systemProperty 'airstrike.stress.server', server
             systemProperty 'airstrike.stress.client', System.getenv('AIRSTRIKE_STRESS_ROLE') ?: 'friend'
             jvmArgument '-Xmx2g'
         }
@@ -164,6 +168,30 @@ dependencies {
 
 test {
     useJUnitPlatform()
+}
+
+// Порядок сборки модов для запусков из Gradle. simulated, offroad и aeronautics (всё из Create Aeronautics) в своих
+// конструкторах добавляют обратные вызовы в реестр Create (CreateRegistrateRegistrationCallback), а зависимость
+// на create у них с ordering "NONE": FML строит их параллельно с Create и друг с другом, и HashMultimap обратных
+// вызовов Registrate портится от одновременной записи. В dev (не production) Registrate тогда падает на старте:
+// «Found unused register callbacks» (CI, 29.09.2026). Переопределение зависимостей FML (dependencyOverrides в
+// config/fml.toml, штатная настройка загрузчика) ставит их строго друг за другом после Create: гонки нет, остальные
+// моды по-прежнему строятся параллельно. В игре хоста fml.toml не трогаем: там Registrate от этого не падает.
+def fmlDependencyOverrides = """# Пишет build.gradle перед каждым запуском (файл целиком); остальные ключи FML дополнит сам значениями по умолчанию
+[dependencyOverrides]
+simulated = ["+create", "+sable"]
+offroad = ["+simulated"]
+aeronautics = ["+simulated", "+offroad"]
+"""
+// перед каждым запуском из Gradle (клиент, сервер, GameTest, сценарий, стенд): каталог игры — у самой задачи запуска
+tasks.matching { it.name.startsWith('run') && it.hasProperty('gameDirectory') }.configureEach { task ->
+    task.doFirst {
+        // без Create Aeronautics в сборке запуска переопределять нечего
+        if (!(mcModsDir.isDirectory() && mcModsDir.list().any { it.contains('aeronautics') })) return
+        File config = new File(task.gameDirectory.get().asFile, 'config/fml.toml')
+        config.parentFile.mkdirs()
+        config.text = fmlDependencyOverrides
+    }
 }
 
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
