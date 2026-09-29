@@ -306,6 +306,31 @@ public final class NuclearGameTests {
         });
     }
 
+    /**
+     * Перезапуск посреди волны: {@link NuclearWorld} не сохраняется, фронт по сущностям заводится заново — и отсчёт
+     * у него от фронта прошлого тика, а не от эпицентра. 0.1 кт, 1 блок = 20 м: через 2 тика после подрыва фронт
+     * между 22 и 40 блоками; корова в 10 блоках (5 psi — смерть, если ударить) им уже пройдена и второй раз
+     * не бьётся, корову в 26 блоках (1.2 psi) волна ранит.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_restart_front", skyAccess = true)
+    public static void frontAfterRestartSkipsEntitiesInside(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Cow inside = h.spawn(EntityType.COW, CENTER.east(10));
+        Cow ahead = h.spawn(EntityType.COW, CENTER.east(26));
+        BlockPos g = h.absolutePos(CENTER);
+        Detonation d = new Detonation(1_000_000 + level.random.nextInt(1000), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
+                level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false);
+        h.assertTrue(d.frontRadius(1) > 10 && d.frontRadius(2) > 26 && d.frontRadius(1) < 26, "фронт не там, где ждёт проверка");
+        NuclearEvents.get(level).add(d);
+        // как после перезапуска: ядерные очереди мира — с чистого листа, подрыв — из сохранения
+        level.removeData(ModAttachments.NUCLEAR_WORLD);
+        h.succeedWhen(() -> {
+            h.assertTrue(ahead.getHealth() < ahead.getMaxHealth(), "волна не дошла до коровы впереди фронта");
+            h.assertTrue(inside.isAlive() && inside.getHealth() == inside.getMaxHealth(), "фронт второй раз ударил корову, которую уже прошёл");
+            NuclearStrikes.clear(level);
+        });
+    }
+
     private static final TicketType<ChunkPos> HOLD = TicketType.create("airstrike_test_hold", Comparator.comparingLong(ChunkPos::toLong));
 
     /**

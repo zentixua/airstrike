@@ -44,7 +44,11 @@ final class BlastFront {
 
     private record Hit(Detonation d, LivingEntity entity) {}
 
-    /** Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. */
+    /**
+     * Докуда (радиус, блоки) фронт уже прошёлся по сущностям: прямой фронт и обратный ветер. Не сохраняется: после
+     * перезапуска (или новой {@code BlastFront}) посреди волны отсчёт — от фронта прошлого тика, кто уже внутри,
+     * второй раз не бьётся.
+     */
     private final Map<Integer, double[]> reached = new HashMap<>();
     /** Кого фронт накрыл, а удар ещё не нанесён: по тикам прихода, в тике — от ближних к дальним. */
     private final ArrayDeque<Hit> hits = new ArrayDeque<>();
@@ -68,7 +72,7 @@ final class BlastFront {
     }
 
     private void advance(ServerLevel level, Detonation d, long since) {
-        double[] done = reached.computeIfAbsent(d.id(), k -> new double[]{0, 0});
+        double[] done = reached.computeIfAbsent(d.id(), k -> new double[]{d.frontRadius(since - 1), d.frontRadius(since - 1 - positivePhaseTicks(d))});
         double r = d.frontRadius(since);
         double back = d.frontRadius(since - positivePhaseTicks(d));
         if (r <= done[0] && back <= done[1]) return;
@@ -108,6 +112,11 @@ final class BlastFront {
     /** Отбой. */
     void clear() {
         reached.clear();
+        hits.clear();
+    }
+
+    /** Удары в очереди — сбросить; докуда фронт прошёл, остаётся (иначе он заново ударил бы всех внутри). */
+    void dropHits() {
         hits.clear();
     }
 
