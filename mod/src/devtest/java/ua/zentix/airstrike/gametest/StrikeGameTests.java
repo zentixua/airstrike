@@ -781,6 +781,9 @@ public final class StrikeGameTests {
         // полоса тикающих чанков на курсе от 320 до 120 блоков до цели: B-2 возвращается в мир у её дальнего края
         List<ChunkPos> forced = new ArrayList<>();
         for (int dz = -320; dz <= -120; dz += 16) forced.add(new ChunkPos(x >> 4, (z0 + dz) >> 4));
+        // полоса и по два столбца чанков с каждой стороны — готовы сразу (генерация в фоне не успела бы к сроку теста:
+        // на медленной машине B-2 возвращался бы в мир у края площадки, и тест не ловил бы подъём у полосы)
+        for (ChunkPos c : forced) for (int dx = -2; dx <= 2; dx++) level.getChunk(c.x + dx, c.z);
         for (ChunkPos c : forced) level.setChunkForced(c.x, c.z, true);
         // дом в 70 блоков над грунтом у цели — впереди точки возврата в пределах 80 блоков
         int groundY = Mth.floor(start.y);
