@@ -80,16 +80,17 @@ public final class StressDirector {
     /** Сколько ждать района телепорта, пока это не стало проблемой в сводке, и сколько самое большее держать его после. */
     private static final int TELEPORT_WAIT = 1200, TELEPORT_HOLD = 100;
     /**
-     * Радиус района телепорта в чанках: дистанция симуляции сервера + 1. Чанки игрока в дистанции симуляции тикают
-     * блоками, как только полностью загружены, не дожидаясь соседей ({@code DistanceManager.tickingTicketsTracker}),
-     * и хранилище испытаний или улей у края читает соседний чанк, который ещё генерируется, — синхронно: у свежего
-     * места игрока сервер стоял 10–12 с (облако 29.09.2026, «остановка:» без тикетов мода рядом). Это ваниль, а стенд
-     * меряет остановки мода, поэтому игрок переносится в район, где готов весь квадрат симуляции и соседи его края.
+     * Радиус района телепорта в чанках: дистанция симуляции сервера + 2. Чанки игрока тикают блоками, как только
+     * полностью загружены, не дожидаясь соседей ({@code DistanceManager.tickingTicketsTracker}): тикет симуляции
+     * игрока — уровня {@code 31 − sim}, блоки тикают до уровня 32, то есть в радиусе {@code sim + 1}. Хранилище
+     * испытаний или улей у края читает соседний чанк, который ещё генерируется, — синхронно: у свежего места игрока
+     * сервер стоял 10–12 с (облако 29.09.2026, «остановка:» без тикетов мода рядом). Это ваниль, а стенд меряет
+     * остановки мода, поэтому игрок переносится в район, где готовы все тикающие блоками чанки и их соседи.
      * Уровень тикета {@code 33 − радиус}: квадрат грузится полностью и в очереди генерации идёт впереди районов целей
      * (уровни 29–33); с уровнем 33 телепорт ждал 2353 тика, и сценарий шёл без игроков на своих местах.
      */
     private static int teleportArea(MinecraftServer s) {
-        return s.getPlayerList().getSimulationDistance() + 1;
+        return s.getPlayerList().getSimulationDistance() + 2;
     }
 
     private record Step(int at, String what, Consumer<MinecraftServer> action) {}
@@ -169,10 +170,13 @@ public final class StressDirector {
     private final List<Step> steps = new ArrayList<>();
     /** Ожидания, которые проверяются каждый тик (телепорт ждёт район), до {@code true}. */
     private final List<BooleanSupplier> waits = new ArrayList<>();
-    /** Игроки, чей телепорт ещё ждёт район. */
-    private final Set<String> pendingTeleports = new HashSet<>();
-    /** Следующий телепорт игрока, пока прежний ждёт район: идёт, когда прежний перенесёт игрока (последний заменяет). */
-    private final Map<String, Runnable> queuedTeleports = new HashMap<>();
+    /** Игроки, чей телепорт ещё ждёт район, и тик сценария, когда его попросили. */
+    private final Map<String, Integer> pendingTeleports = new HashMap<>();
+    /** Следующий телепорт игрока, пока прежний ждёт район (последний заменяет): тик сценария, когда его попросили. */
+    private record QueuedTeleport(int requestedAt, Runnable start) {}
+    private final Map<String, QueuedTeleport> queuedTeleports = new HashMap<>();
+    /** Отложенный телепорт начался позже сценария больше чем на столько тиков — проблема в сводке. */
+    private static final int TELEPORT_LATE = 200;
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
@@ -373,9 +377,10 @@ public final class StressDirector {
      * без тика: {@code DistanceManager.addTicket} не трогает счёт тика, и блок-сущности района не тикают рядом
      * с неготовыми соседями), игрок переносится, когда все готовы. Сразу в неготовый район
      * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
-     * были самого стенда. Новый телепорт того же игрока ждёт, пока прежний перенесёт игрока: отменённый прежний
-     * оставлял игрока без места (облако: возврат из дальнего полёта и из Незера отменял сам полёт), а оба сразу
-     * дождались бы района в одном тике, и игрок оказался бы там, куда его послали раньше.
+     * были самого стенда. Новый телепорт того же игрока ждёт, пока прежний перенесёт игрока, и начинается через
+     * столько же тиков после прибытия, сколько сценарий отводил между ними: отменённый прежний оставлял игрока без
+     * места (облако: возврат из дальнего полёта и из Незера отменял сам полёт), начатый сразу превращал полёт или Незер
+     * в один тик, а оба сразу дождались бы района в одном тике, и игрок оказался бы там, куда его послали раньше.
      */
     private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
         ServerPlayer p = need(s, name, "телепорт");
@@ -384,8 +389,11 @@ public final class StressDirector {
             problems.add("шаг пропущен: телепорт " + name + ", мира назначения нет");
             return;
         }
-        if (pendingTeleports.contains(name)) {
-            if (queuedTeleports.put(name, () -> tp(s, name, level, x, y, z)) != null) log("tp %s: прежний отложенный телепорт заменён", name);
+        if (pendingTeleports.containsKey(name)) {
+            if (queuedTeleports.put(name, new QueuedTeleport(tick, () -> tp(s, name, level, x, y, z))) != null) {
+                log("tp %s: прежний отложенный телепорт заменён", name);
+                problems.add("телепорт " + name + ": отложенный телепорт заменён следующим, пока прежний ждал район");
+            }
             log("tp %s → %d %d ждёт, пока прежний телепорт перенесёт игрока", name, x, z);
             return;
         }
@@ -397,7 +405,8 @@ public final class StressDirector {
         Runnable release = () -> tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
         // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
         int since = s.getTickCount();
-        pendingTeleports.add(name);
+        int requestedAt = tick;
+        pendingTeleports.put(name, requestedAt);
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
             if (!areaReady(level, centre, area)) {
@@ -414,9 +423,16 @@ public final class StressDirector {
                 now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
                 log("tp %s → %d %d, район ждали %d тиков", name, x, z, s.getTickCount() - since);
             }
-            // отложенный телепорт того же игрока — теперь (runWaits идёт по копии: новое ожидание — со следующего тика)
-            Runnable next = queuedTeleports.remove(name);
-            if (next != null) next.run();
+            // отложенный телепорт того же игрока — через столько тиков после прибытия, сколько сценарий отводил между
+            // ними (шаг в часах сценария: не раньше следующего тика)
+            QueuedTeleport next = queuedTeleports.remove(name);
+            if (next != null) {
+                int gap = Math.max(1, next.requestedAt() - requestedAt), late = tick + gap - next.requestedAt();
+                if (late > TELEPORT_LATE) {
+                    problems.add(String.format(Locale.ROOT, "телепорт %s начнётся на %d тиков позже сценария: прежний ждал район", name, late));
+                }
+                at(tick + gap, "отложенный телепорт " + name, sv -> next.start().run());
+            }
             // дальше район держит тикет игрока: наш отпускается, когда тикеты игрока стоят на всём квадрате района
             // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают по нескольку за тик,
             // DistanceManager.ticketThrottler: отпущенный по одному центру квадрат терял полную загрузку по краям),
@@ -787,8 +803,8 @@ public final class StressDirector {
                 log("игроки на местах, часы сценария идут");
                 return;
             } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
-                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports + "), сценарий идёт без них");
-                log("игроки %s не на местах, часы сценария идут", pendingTeleports);
+                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
+                log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
                 placingSince = Integer.MAX_VALUE;
             }
             return;

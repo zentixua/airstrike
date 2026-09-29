@@ -627,10 +627,11 @@ public final class NuclearGameTests {
     }
 
     /**
-     * Место подрыва грузится с пуска, а не за 10 с до нуля: в следующем тике у чанка эпицентра уже есть тикет (уровень 32
-     * и ниже), и свежее место готово раньше, чем кончится отсчёт, — сервер идёт в темпе игры, чтобы генерация успевала
-     * как в игре (облако 29.09.2026: за 200 тиков до подрыва тикет стоял в очереди за районами залпов, отсчёт доходил до
-     * нуля, а подрыва не было). Отбой отпускает место.
+     * Место подрыва грузится с пуска, а не за 10 с до нуля: в следующем тике у чанка эпицентра уже есть тикет
+     * загрузки (уровень 32 и ниже; без тика — ни тикета региона, ни тика блоков), и свежее место готово раньше,
+     * чем кончится отсчёт, — сервер идёт в темпе игры, чтобы генерация успевала как в игре (облако 29.09.2026:
+     * за 200 тиков до подрыва тикет стоял в очереди за районами залпов, отсчёт доходил до нуля, а подрыва не
+     * было). Отбой отпускает место.
      */
     @GameTest(template = "range", timeoutTicks = 2400, batch = "nuke_ground", skyAccess = true)
     public static void nukeGroundLoadsFromLaunch(GameTestHelper h) {
@@ -641,6 +642,7 @@ public final class NuclearGameTests {
         h.assertFalse(ua.zentix.airstrike.util.Terrain.ready(level, ground.x, ground.z), "место подрыва не свежее");
         h.assertTrue(NuclearStrikes.launchFrom(level, target, 15, true, null, 0, null), "пуск не прошёл");
         long detonate = NuclearEvents.get(level).scheduled().getFirst().detonateTime();
+        java.util.UUID groundKey = new java.util.UUID(0L, NuclearEvents.get(level).scheduled().getFirst().id());
         int[] tick = {0};
         h.onEachTick(() -> {
             tick[0]++;
@@ -651,6 +653,9 @@ public final class NuclearGameTests {
             }
             boolean ready = ua.zentix.airstrike.util.Terrain.ready(level, ground.x, ground.z);
             if (!ready && level.getGameTime() >= detonate) failure = "отсчёт кончился, а место подрыва не готово";
+            // место только грузится: ни тикета региона, ни тика блоков
+            if (!LifecycleGameTests.regionRadii(level, "airstrike_nuclear_ground", groundKey).isEmpty()) failure = "у места подрыва тикет региона";
+            if (level.shouldTickBlocksAt(ground.toLong())) failure = "место подрыва тикает блоками";
             if (failure != null) {
                 // удар не должен дожить до других тестов этого мира
                 NuclearStrikes.clear(level);

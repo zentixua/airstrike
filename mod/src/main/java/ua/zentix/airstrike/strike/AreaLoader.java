@@ -59,9 +59,15 @@ public final class AreaLoader {
         }
     }
 
+    /**
+     * Порядок тикетов загрузки на одном чанке — он же их равенство у ванили: разные районы не должны сравниваться как
+     * равные. Типы тикетов различаются по имени (у мода имена уникальны), на случай двух типов с одним именем —
+     * ещё и по самому объекту типа.
+     */
     private static final TicketType<Area> LOAD = TicketType.create("airstrike_area_load",
-            Comparator.<Area, String>comparing(a -> a.type().toString()).thenComparing(Area::key).thenComparingInt(Area::distance)
-                    .thenComparing(Area::ticks).thenComparingLong(a -> a.centre().toLong()));
+            Comparator.<Area, String>comparing(a -> a.type().toString()).thenComparingInt(a -> System.identityHashCode(a.type()))
+                    .thenComparing(Area::key).thenComparingInt(Area::distance).thenComparing(Area::ticks)
+                    .thenComparingLong(a -> a.centre().toLong()));
 
     /** Радиус тикета региона, взятого районом: −1 — ещё нет. Равен {@code distance} — район взят целиком. */
     private final Map<Area, Integer> requests = new LinkedHashMap<>();

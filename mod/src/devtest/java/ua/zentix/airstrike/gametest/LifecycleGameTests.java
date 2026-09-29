@@ -486,7 +486,7 @@ public final class LifecycleGameTests {
     }
 
     /** Радиусы тикетов региона {@code type} с ключом {@code id} (уровень тикета — 33 − радиус). */
-    private static List<Integer> regionRadii(ServerLevel level, String type, UUID id) {
+    static List<Integer> regionRadii(ServerLevel level, String type, UUID id) {
         try {
             Field f = DistanceManager.class.getDeclaredField("tickets");
             f.setAccessible(true);
