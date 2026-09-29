@@ -25,12 +25,19 @@ import java.util.UUID;
  */
 public final class NuclearEvents extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_nuclear";
-    /** Подрыв забывается через 7 игровых суток: осадки к тому времени спадают в сотни раз. */
+    /**
+     * Подрыв забывается через 7 игровых суток: осадки к тому времени спадают в сотни раз. Разрушения помнятся
+     * дольше ({@link #past}): чанк, впервые загруженный через месяц, всё равно разрушен.
+     */
     public static final long FORGET_AFTER = 7 * 24_000L;
 
-    /** Запланированный удар: цель, мощность, подрыв, когда и откуда стартовала ракета. */
+    /**
+     * Запланированный удар: цель, мощность, подрыв, когда и откуда стартовала ракета.
+     *
+     * @param surface цель — место на земле (с карты): подрыв на поверхности, какой бы ни была оценка высоты при пуске
+     */
     public record ScheduledStrike(int id, Vec3 target, double yieldKt, boolean airBurst, long launchTime, long detonateTime,
-                                  Vec3 launchPos, Optional<UUID> owner) {
+                                  Vec3 launchPos, Optional<UUID> owner, boolean surface) {
         public static final Codec<ScheduledStrike> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.INT.fieldOf("id").forGetter(ScheduledStrike::id),
                 Vec3.CODEC.fieldOf("target").forGetter(ScheduledStrike::target),
@@ -39,11 +46,14 @@ public final class NuclearEvents extends SavedData {
                 Codec.LONG.fieldOf("launch_time").forGetter(ScheduledStrike::launchTime),
                 Codec.LONG.fieldOf("detonate_time").forGetter(ScheduledStrike::detonateTime),
                 Vec3.CODEC.fieldOf("launch_pos").forGetter(ScheduledStrike::launchPos),
-                UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(ScheduledStrike::owner)
+                UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(ScheduledStrike::owner),
+                Codec.BOOL.optionalFieldOf("surface", false).forGetter(ScheduledStrike::surface)
         ).apply(i, ScheduledStrike::new));
     }
 
     private final List<Detonation> detonations = new ArrayList<>();
+    /** Забытые подрывы: ни осадков, ни картинки — только разрушения в чанках, которые загрузятся позже. */
+    private final List<Detonation> past = new ArrayList<>();
     private final List<ScheduledStrike> scheduled = new ArrayList<>();
     /** Недорытые воронки: номер подрыва → сколько чанков уже вырыто. */
     private final Map<Integer, Integer> craters = new LinkedHashMap<>();
@@ -61,6 +71,15 @@ public final class NuclearEvents extends SavedData {
 
     public List<Detonation> detonations() {
         return detonations;
+    }
+
+    /** Забытые подрывы, которые ещё разрушают загружающиеся чанки (см. {@link #prune}). */
+    public List<Detonation> past() {
+        return past;
+    }
+
+    public boolean isPast(int id) {
+        return past.stream().anyMatch(d -> d.id() == id);
     }
 
     public List<ScheduledStrike> scheduled() {
@@ -99,14 +118,20 @@ public final class NuclearEvents extends SavedData {
         int n = scheduled.size() + detonations.size();
         scheduled.clear();
         detonations.clear();
+        past.clear();
         craters.clear();
         setDirty();
         return n;
     }
 
-    /** Забыть старые подрывы. */
+    /** Забыть старые подрывы: осадки и эффекты кончились, разрушения — остаются в {@link #past}. */
     public void prune(long now) {
-        if (detonations.removeIf(d -> now - d.gameTime() > FORGET_AFTER)) setDirty();
+        List<Detonation> faded = detonations.stream().filter(d -> now - d.gameTime() > FORGET_AFTER).toList();
+        if (!faded.isEmpty()) {
+            detonations.removeAll(faded);
+            past.addAll(faded);
+            setDirty();
+        }
         if (craters.keySet().removeIf(id -> detonations.stream().noneMatch(d -> d.id() == id))) setDirty();
     }
 
@@ -114,6 +139,7 @@ public final class NuclearEvents extends SavedData {
         NuclearEvents e = new NuclearEvents();
         e.nextId = Math.max(1, tag.getInt("next_id"));
         Detonation.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("detonations")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.detonations::addAll);
+        if (tag.contains("past")) Detonation.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("past")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.past::addAll);
         ScheduledStrike.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("scheduled")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.scheduled::addAll);
         if (tag.contains("craters")) CRATERS_CODEC.parse(NbtOps.INSTANCE, tag.get("craters")).resultOrPartial(Airstrike.LOG::error).ifPresent(e.craters::putAll);
         return e;
@@ -123,6 +149,7 @@ public final class NuclearEvents extends SavedData {
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putInt("next_id", nextId);
         Detonation.CODEC.listOf().encodeStart(NbtOps.INSTANCE, detonations).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("detonations", t));
+        Detonation.CODEC.listOf().encodeStart(NbtOps.INSTANCE, past).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("past", t));
         ScheduledStrike.CODEC.listOf().encodeStart(NbtOps.INSTANCE, scheduled).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("scheduled", t));
         CRATERS_CODEC.encodeStart(NbtOps.INSTANCE, craters).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("craters", t));
         return tag;

@@ -164,6 +164,51 @@ public final class S2C {
         };
     }
 
+    /**
+     * Снаряды, которых у клиента нет (дальше, чем ему выдаёт сущности ваниль, или в полёте вне мира), но которые он
+     * уже может слышать ({@link ua.zentix.airstrike.strike.Hearing}): раз в {@link #PERIOD} тиков, по ним клиент ведёт
+     * тот же звук с задержкой и Доплером, что и по сущности.
+     */
+    public record Heard(List<HeardFlight> flights) implements CustomPacketPayload {
+        public static final int PERIOD = 2;
+        public static final Type<Heard> TYPE = new Type<>(Airstrike.id("heard"));
+        public static final StreamCodec<ByteBuf, Heard> CODEC = HeardFlight.CODEC.apply(ByteBufCodecs.list()).map(Heard::new, Heard::flights);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Один слышимый снаряд: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
+     * оружие), бурит ли бомба, где он и куда смотрит нос, фаза полёта и сколько она идёт, сколько ему до цели.
+     */
+    public record HeardFlight(UUID id, int weapon, boolean bomber, boolean drilling, Vec3 pos, float yaw, float pitch,
+                              int phase, int phaseAge, float distanceToAim) {
+        public static final StreamCodec<ByteBuf, HeardFlight> CODEC = new StreamCodec<>() {
+            @Override
+            public HeardFlight decode(ByteBuf b) {
+                return new HeardFlight(UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readBoolean(), b.readBoolean(),
+                        VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readFloat());
+            }
+
+            @Override
+            public void encode(ByteBuf b, HeardFlight f) {
+                UUIDUtil.STREAM_CODEC.encode(b, f.id);
+                ByteBufCodecs.VAR_INT.encode(b, f.weapon);
+                b.writeBoolean(f.bomber);
+                b.writeBoolean(f.drilling);
+                VEC3.encode(b, f.pos);
+                b.writeFloat(f.yaw);
+                b.writeFloat(f.pitch);
+                ByteBufCodecs.VAR_INT.encode(b, f.phase);
+                ByteBufCodecs.VAR_INT.encode(b, f.phaseAge);
+                b.writeFloat(f.distanceToAim);
+            }
+        };
+    }
+
     /** Открыть экран пульта (команда /airstrike menu). */
     public record OpenRemote() implements CustomPacketPayload {
         public static final Type<OpenRemote> TYPE = new Type<>(Airstrike.id("open_remote"));

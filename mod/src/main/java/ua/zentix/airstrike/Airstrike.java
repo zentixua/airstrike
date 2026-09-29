@@ -23,6 +23,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
+import ua.zentix.airstrike.strike.FlightSounds;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
@@ -33,6 +34,11 @@ import ua.zentix.airstrike.strike.StrikeWorld;
 @Mod(Airstrike.MOD_ID)
 public final class Airstrike {
     public static final String MOD_ID = "airstrike";
+    /**
+     * Имя клавиши камеры снаряда: подсказки сервера ссылаются на неё через {@code Component.keybind}, и клиент
+     * показывает ту клавишу, что назначена у игрока, а не зашитую букву.
+     */
+    public static final String CAMERA_KEY = "key.airstrike.camera";
     public static final Logger LOG = LogUtils.getLogger();
 
     public Airstrike(IEventBus modBus, ModContainer container) {
@@ -55,6 +61,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
+        NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
 

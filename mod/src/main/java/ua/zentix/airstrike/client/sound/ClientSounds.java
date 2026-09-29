@@ -12,6 +12,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,14 +21,25 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Звук снарядов на клиенте. У каждого снаряда свой независимый набор зацикленных звуков (никаких «4 ячеек»
  * и перебивающих друг друга свистов, как в датапаке); задержку и Доплер считает {@link EngineSound}.
+ * Путь снаряда — по сущности, а пока её у клиента нет (далеко или летит вне мира) — по пакетам сервера
+ * {@link S2C.Heard}; один и тот же звук по UUID переходит с одного на другое.
  */
 public final class ClientSounds {
-    private static final Map<Integer, Tracked> TRACKS = new HashMap<>();
+    private static final Map<UUID, Tracked> TRACKS = new HashMap<>();
     private static final RandomSource RANDOM = RandomSource.create();
+    /**
+     * Без новых данных столько тиков (сущность пропала, пакетов о ней нет) — полёт кончился. Молчит звук раньше, как
+     * только слушателю нечего слышать ({@link SourceTrack#covers}); этот срок — чтобы сервер, вставший на секунду,
+     * не обрывал далёкий звук.
+     */
+    private static final int STALE = 40;
+    /** Звук идёт до уха не дольше: самый дальний слышимый снаряд — ступень МБР, 1580 блоков, ~92 тика. */
+    private static final int RINGOUT = 100;
     private static long tick;
 
     private ClientSounds() {}
@@ -48,38 +61,50 @@ public final class ClientSounds {
         tick++;
         for (Entity e : level.entitiesForRendering()) {
             if (!(e instanceof StrikeProjectile p) || !p.isActive()) continue;
-            Tracked t = TRACKS.get(p.getId());
-            if (t == null || t.track.isDead()) {
-                t = start(p);
-                TRACKS.put(p.getId(), t);
-            }
-            t.track.record(tick, p);
+            track(p.getUUID(), p.weapon(), p instanceof BomberEntity).record(tick, p);
         }
         Iterator<Tracked> it = TRACKS.values().iterator();
         while (it.hasNext()) {
             Tracked t = it.next();
-            if (!t.track.isDead() && t.track.lastTick() < tick) t.track.die(tick);
-            // через 3 секунды после взрыва звук уже дошёл до любого слушателя (60 блоков · 17/тик…)
-            if (t.track.isDead() && tick - t.track.deathTick() > 60) {
+            if (!t.track.isDead() && tick - t.track.lastTick() > STALE) t.track.die(tick);
+            if (t.track.isDead() && tick - t.track.deathTick() > RINGOUT) {
                 t.sounds.forEach(EngineSound::kill);
                 it.remove();
             }
         }
     }
 
-    private static Tracked start(StrikeProjectile p) {
-        SourceTrack track = new SourceTrack(p);
+    /** Снаряды, которых у клиента нет, но которые уже слышно: путь по данным сервера. */
+    public static void heard(S2C.Heard packet) {
+        if (Minecraft.getInstance().level == null) return;
+        for (S2C.HeardFlight f : packet.flights()) {
+            track(f.id(), WeaponType.byId(f.weapon()), f.bomber()).record(tick, f);
+        }
+    }
+
+    /** Звук снаряда: уже идущий или новый (прошлый полёт с тем же UUID уже отзвучал). */
+    private static SourceTrack track(UUID id, WeaponType weapon, boolean bomber) {
+        Tracked t = TRACKS.get(id);
+        if (t == null || t.track.isDead()) {
+            if (t != null) t.sounds.forEach(EngineSound::kill);
+            t = start(new SourceTrack(id, weapon, bomber));
+            TRACKS.put(id, t);
+        }
+        return t.track;
+    }
+
+    private static Tracked start(SourceTrack track) {
         List<EngineSound> sounds = new ArrayList<>();
-        List<EngineSound.Layer> layers = switch (p.weapon()) {
+        List<EngineSound.Layer> layers = switch (track.weapon) {
             case DRONE -> List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR, EngineSound.Layer.BOOSTER);
             case MISSILE -> List.of(EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
                     EngineSound.Layer.MISSILE_FAR, EngineSound.Layer.MISSILE_WHISTLE, EngineSound.Layer.BOOSTER);
-            case BUNKER -> p instanceof BomberEntity
+            case BUNKER -> track.bomber
                     ? List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR)
                     : List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL);
             case NUKE -> List.of(EngineSound.Layer.BOOSTER);
-            // РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции, на подлёте воет
-            case ROCKET -> List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_INCOMING);
+            // РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции и воет рассекаемым воздухом
+            case ROCKET -> List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_AIR);
             // барражирующий: тот же винт, но маленький электромотор — выше и тише (см. EngineSound)
             case LOITER -> List.of(EngineSound.Layer.LOITER_NEAR, EngineSound.Layer.LOITER_FAR, EngineSound.Layer.LOITER_DIVE,
                     EngineSound.Layer.BOOSTER);
@@ -92,14 +117,24 @@ public final class ClientSounds {
         return new Tracked(track, sounds);
     }
 
-    /** Слышимые сейчас слои: «оружие/слой громкость×тон» — для отладки звука по логу. */
+    /**
+     * Слышимые сейчас слои: «оружие (откуда путь: e — сущность, s — пакеты сервера; до уха, блоков) слой громкость×тон»
+     * — для отладки звука по логу.
+     */
     public static String describe() {
         StringBuilder sb = new StringBuilder();
+        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        double[] p = new double[3];
         for (Tracked t : TRACKS.values()) {
+            StringBuilder layers = new StringBuilder();
             for (EngineSound s : t.sounds) {
                 // getVolume читает звук, который движок подставляет при запуске: без звука (нет устройства) его нет
-                if (!s.isStopped() && s.getSound() != null && s.getVolume() > 0.01f) sb.append(String.format(Locale.ROOT, " %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
+                if (!s.isStopped() && s.getSound() != null && s.getVolume() > 0.01f) layers.append(String.format(Locale.ROOT, " %s %.2f×%.2f", s.describe(), s.getVolume(), s.getPitch()));
             }
+            if (layers.isEmpty()) continue;
+            t.track.at(t.track.lastTick(), p);
+            sb.append(String.format(Locale.ROOT, " %s(%s %.0f)", t.track.weapon.getSerializedName(), t.track.fromServer() ? "s" : "e",
+                    Math.sqrt((p[0] - ear.x) * (p[0] - ear.x) + (p[1] - ear.y) * (p[1] - ear.y) + (p[2] - ear.z) * (p[2] - ear.z)))).append(layers);
         }
         return sb.toString();
     }

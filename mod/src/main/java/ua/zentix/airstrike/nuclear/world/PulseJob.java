@@ -40,6 +40,10 @@ final class PulseJob {
         this.startTick = level.getGameTime();
     }
 
+    Detonation detonation() {
+        return d;
+    }
+
     /** Живые сущности в радиусе света и радиации, ближние первыми. */
     private static List<LivingEntity> inRange(ServerLevel level, Detonation d) {
         double range = NuclearWarhead.exposureRange(d);
