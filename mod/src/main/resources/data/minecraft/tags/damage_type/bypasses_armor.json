@@ -1,6 +1,7 @@
 {
   "values": [
     "airstrike:shockwave",
-    "airstrike:radiation"
+    "airstrike:radiation",
+    "airstrike:player_radiation"
   ]
 }
