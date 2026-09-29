@@ -179,15 +179,16 @@ public final class S2C {
 
     /**
      * Один слышимый снаряд: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
-     * оружие), бурит ли бомба, где он и куда смотрит нос, фаза полёта и сколько она идёт, сколько ему до цели.
+     * оружие), бурит ли бомба, где он, сдвиг за последний тик ({@code StrikeProjectile.velocity}) и куда смотрит нос,
+     * фаза полёта и сколько она идёт, сколько ему до цели.
      */
-    public record HeardFlight(UUID id, int weapon, boolean bomber, boolean drilling, Vec3 pos, float yaw, float pitch,
+    public record HeardFlight(UUID id, int weapon, boolean bomber, boolean drilling, Vec3 pos, Vec3 velocity, float yaw, float pitch,
                               int phase, int phaseAge, float distanceToAim) {
         public static final StreamCodec<ByteBuf, HeardFlight> CODEC = new StreamCodec<>() {
             @Override
             public HeardFlight decode(ByteBuf b) {
                 return new HeardFlight(UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readBoolean(), b.readBoolean(),
-                        StreamCodecs.VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readFloat());
+                        StreamCodecs.VEC3.decode(b), StreamCodecs.VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readFloat());
             }
 
             @Override
@@ -197,6 +198,7 @@ public final class S2C {
                 b.writeBoolean(f.bomber);
                 b.writeBoolean(f.drilling);
                 StreamCodecs.VEC3.encode(b, f.pos);
+                StreamCodecs.VEC3.encode(b, f.velocity);
                 b.writeFloat(f.yaw);
                 b.writeFloat(f.pitch);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
