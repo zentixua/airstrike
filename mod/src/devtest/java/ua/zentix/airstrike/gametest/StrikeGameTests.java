@@ -62,7 +62,9 @@ import ua.zentix.airstrike.warhead.Warheads;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
 
@@ -685,25 +687,12 @@ public final class StrikeGameTests {
      * перенацелил бомбардировщик в 200 блоках от него), уходит прямо, заходит снова и сбрасывает бомбу. Раньше он
      * на пределе поворота кружил вокруг точки в 300–480 блоках от неё до «Отбоя».
      */
-    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_reattack", skyAccess = true)
+    @GameTest(template = "runway", timeoutTicks = 2000, batch = "bomber_reattack", skyAccess = true)
     public static void bomberReattacksAimInsideItsTurn(GameTestHelper h) {
-        ServerLevel level = h.getLevel();
         Vec3 start = top(h, RUNWAY_TARGET);
-        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
         // курс на +z, далеко вперёд; сразу перенацеливание на 150 блоков вбок и 60 вперёд — внутрь круга разворота
-        bomber.launch(start, start.add(0, 0, 3000), null, null);
         Vec3 aside = start.add(150, 0, 60);
-        h.assertTrue(bomber.retarget(new Target.Point(aside), aside), "бомбардировщик не принял перенацеливание");
-        level.addFreshEntity(bomber);
-        UUID id = bomber.getUUID();
-        BomberEntity[] last = {bomber};
-        h.onEachTick(() -> {
-            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
-                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
-            if (p instanceof BomberEntity b) last[0] = b;
-        });
-        h.succeedWhen(() -> h.assertTrue(last[0].hasReleased(), "бомба не сброшена, B-2 в " + (int) last[0].position().subtract(aside).horizontalDistance()
-                + " блоках от точки сброса"));
+        bomberEntersNear(h, start, start.add(0, 0, 3000), aside, aside);
     }
 
     /**
@@ -713,26 +702,128 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_behind", skyAccess = true)
     public static void bomberRetargetedJustBehindHitsOnReattack(GameTestHelper h) {
-        ServerLevel level = h.getLevel();
         Vec3 start = top(h, RUNWAY_TARGET);
-        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
         // курс на +z; точка сброса — в 60 блоках позади, ближе RELEASE_DISTANCE
-        bomber.launch(start, start.add(0, 0, 3000), null, null);
         Vec3 behind = start.add(0, 0, -60);
-        h.assertTrue(bomber.retarget(new Target.Point(behind), behind), "бомбардировщик не принял перенацеливание");
-        level.addFreshEntity(bomber);
+        bomberEntersNear(h, start, start.add(0, 0, 3000), behind, behind);
+    }
+
+    /*
+     * Эшелон B-2 — над тем местом, куда упадёт бомба, а не над первой оценкой поверхности у пуска: перенацеленный
+     * на точку ниже прежней на 43 блока B-2 сбрасывал бомбу с 214 блоков вместо 170, и она входила в грунт в 42 блоках
+     * за точкой (стенд, 29.09.2026). Теперь он меняет эшелон и сбрасывает только на нём (или заходит снова).
+     */
+
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_lower", skyAccess = true)
+    public static void bomberRetargetedLowerHits(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 behind = start.add(0, 0, -60);
+        bomberEntersNear(h, start, start.add(0, 43, 3000), behind, behind);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_higher", skyAccess = true)
+    public static void bomberRetargetedHigherHits(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 behind = start.add(0, 0, -60);
+        bomberEntersNear(h, start, start.add(0, -43, 3000), behind, behind);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 2000, batch = "bomber_much_lower", skyAccess = true)
+    public static void bomberRetargetedMuchLowerHits(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 behind = start.add(0, 0, -60);
+        bomberEntersNear(h, start, start.add(0, 100, 3000), behind, behind);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 2000, batch = "bomber_much_higher", skyAccess = true)
+    public static void bomberRetargetedMuchHigherHits(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 behind = start.add(0, 0, -60);
+        bomberEntersNear(h, start, start.add(0, -100, 3000), behind, behind);
+    }
+
+    /*
+     * Сброс — только на тике, когда B-2 пересекает дальность сброса: вышедший на эшелон уже внутри неё сбрасывал бомбу
+     * оттуда, и она перелетала точку на 130–155 блоков (ревью #126: эшелон на 43 блока ниже, пуск в 670–710 блоках);
+     * перенацеленный на точку в 40 блоках впереди сбрасывал сразу и промахивался на 111. Теперь он заходит снова.
+     */
+
+    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_level_650", skyAccess = true)
+    public static void bomberNotOnLevelAtReleaseDistanceReattacks(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        bomberEntersNear(h, start.add(0, 0, -650), start.add(0, 43, 0), null, start);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_level_690", skyAccess = true)
+    public static void bomberReachingLevelInsideReleaseDistanceReattacks(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        bomberEntersNear(h, start.add(0, 0, -690), start.add(0, 43, 0), null, start);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_ahead_40", skyAccess = true)
+    public static void bomberRetargetedJustAheadReattacks(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 ahead = start.add(0, 0, 40);
+        bomberEntersNear(h, start, start.add(0, 0, 3000), ahead, ahead);
+    }
+
+    /** Без перенацеливания: над целью башня в 40 блоков, которой не было в оценке поверхности у пуска (крыша, чанк не готов). */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_tower", skyAccess = true)
+    public static void bomberHitsTowerTopMissingFromFirstEstimate(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        for (int i = 1; i <= 40; i++) h.setBlock(RUNWAY_TARGET.above(i), Blocks.STONE);
+        bomberEntersNear(h, start.add(0, 0, -2000), start, null, start.add(0, 40, 0));
+    }
+
+    /** Точка в воздухе (игрок в полёте, #105) позади: бомба — в грунт под ней, эшелон — над грунтом. */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_airborne", skyAccess = true)
+    public static void bomberRetargetedAtAirbornePointHitsGroundUnder(GameTestHelper h) {
+        Vec3 start = top(h, RUNWAY_TARGET);
+        Vec3 behind = start.add(0, 0, -60);
+        bomberEntersNear(h, start, start.add(0, 0, 3000), behind.add(0, 64, 0), behind);
+    }
+
+    /**
+     * B-2 с пуска {@code from} на поверхность {@code aim} (эшелон — над ней), сразу перенацеленный на {@code retarget}
+     * (null — нет); бомба, одна, должна войти в грунт в 16 блоках от {@code expect} по горизонтали и на его высоте
+     * (не в стену барьеров площадки) — сброшена не раньше и не позже, не пропала.
+     */
+    private static void bomberEntersNear(GameTestHelper h, Vec3 from, Vec3 aim, @Nullable Vec3 retarget, Vec3 expect) {
+        ServerLevel level = h.getLevel();
+        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
+        // свой владелец — считать только свою бомбу
+        UUID owner = UUID.randomUUID();
+        bomber.launch(from, aim, null, owner);
+        // срок жизни по плану полёта, как у боевого пуска (StrikeService.launchBomber)
+        bomber.setRoute(null);
+        if (retarget != null) h.assertTrue(bomber.retarget(new Target.Point(retarget), retarget), "бомбардировщик не принял перенацеливание");
+        // как боевой пуск: начало полёта — вне мира, в загруженном месте он вернётся в мир в ближайшем тике (пуск
+        // издалека через addFreshEntity в незагруженный чанк не тикал бы)
+        VirtualFlights.launch(level, bomber);
+        UUID id = bomber.getUUID();
+        BomberEntity[] last = {bomber};
         Vec3[] entry = {null};
+        Set<UUID> bombs = new HashSet<>();
         h.onEachTick(() -> {
-            if (entry[0] != null) return;
-            List<BunkerBusterEntity> bombs = level.getEntitiesOfClass(BunkerBusterEntity.class, new AABB(behind, behind).inflate(400, 400, 400));
-            for (StrikeProjectile p : VirtualFlights.get(level).flights()) if (p instanceof BunkerBusterEntity b) bombs = java.util.stream.Stream
-                    .concat(bombs.stream(), java.util.stream.Stream.of(b)).toList();
-            for (BunkerBusterEntity b : bombs) if (b.isDrilling()) entry[0] = b.entry();
+            StrikeProjectile now = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            if (now instanceof BomberEntity b) last[0] = b;
+            List<BunkerBusterEntity> seen = new ArrayList<>(level.getEntitiesOfClass(BunkerBusterEntity.class, new AABB(expect, expect).inflate(400, 400, 400)));
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) if (p instanceof BunkerBusterEntity b) seen.add(b);
+            for (BunkerBusterEntity b : seen) {
+                if (!owner.equals(b.ownerId())) continue;
+                bombs.add(b.getUUID());
+                if (entry[0] == null && b.isDrilling()) entry[0] = b.entry();
+            }
         });
         h.succeedWhen(() -> {
-            h.assertTrue(entry[0] != null, "бомба ещё не вошла в грунт");
-            double miss = entry[0].subtract(behind).horizontalDistance();
-            h.assertTrue(miss < 16, "бомба вошла в грунт в " + (int) miss + " блоках от точки сброса");
+            h.assertTrue(entry[0] != null, "бомба ещё не вошла в грунт (бомб " + bombs.size() + "); B-2 в "
+                    + (int) last[0].position().subtract(expect).horizontalDistance() + " блоках от точки, на высоте " + (int) (last[0].getY() - expect.y)
+                    + ", вне мира " + last[0].isVirtual() + ", сброс " + last[0].hasReleased() + ", убран " + last[0].isRemoved());
+            h.assertTrue(bombs.size() == 1, "бомб " + bombs.size());
+            double miss = entry[0].subtract(expect).horizontalDistance();
+            h.assertTrue(miss < 16 && Math.abs(entry[0].y - expect.y) < 4, "бомба вошла в грунт в " + (int) miss
+                    + " блоках от точки, на высоте " + (int) (entry[0].y - expect.y));
         });
     }
 

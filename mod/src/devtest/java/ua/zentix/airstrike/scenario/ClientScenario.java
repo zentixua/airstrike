@@ -896,28 +896,56 @@ public final class ClientScenario {
     private int mapOpened = -1;
     private boolean mapDone;
 
+    /** Самое долгое {@code wait:N} сценария commands — час игры, тиков. */
+    private static final int COMMANDS_MAX_WAIT = 72_000;
+
+    /**
+     * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
+     * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
+     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
+     * {@code имя_тик.png}. Шаги идут друг за другом: после команды — 40 тиков, после снимка — 20, и {@code wait:N}
+     * прибавляется к ним ({@code cmd;wait:1200;shot:x} снимает через 1240 тиков после команды). Неверный {@code wait:}
+     * пишется в лог и пропускается: исключение здесь остановило бы загрузку модов, и «SCENARIO done» не пришёл бы.
+     */
+    private void planCommands() {
+        int t = 100;
+        for (String item : System.getProperty("airstrike.commands", "").split(";")) {
+            String c = item.strip();
+            if (c.isEmpty()) continue;
+            if (c.startsWith("wait:")) {
+                String n = c.substring("wait:".length()).strip();
+                int ticks;
+                try {
+                    ticks = Integer.parseInt(n);
+                } catch (NumberFormatException e) {
+                    ticks = -1;
+                }
+                if (ticks < 0 || ticks > COMMANDS_MAX_WAIT) {
+                    Airstrike.LOG.warn("SCENARIO commands: «{}» пропущено — нужно целое число тиков от 0 до {}", c,
+                        COMMANDS_MAX_WAIT);
+                    continue;
+                }
+                t += ticks;
+            } else if (c.startsWith("shot:")) {
+                shot(t, c.substring("shot:".length()).strip());
+                t += 20;
+            } else {
+                at(t, () -> cmd(c));
+                t += 40;
+            }
+        }
+        at(t + 100, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
     /**
      * Видео с борта ракеты (камера снаряда) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
      * картинка с борта не должна зависеть от того, где стоит игрок; потом — утром, как снимался план трейлера (цель
      * к востоку). Кадры onboard-dry_*, onboard-wet_*, onboard-dawn_*; в лог — среда камеры и игрока
      * и сколько частиц перед объективом. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
      */
-    /**
-     * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
-     * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
-     */
-    private void planCommands() {
-        String[] commands = System.getProperty("airstrike.commands", "").split(";");
-        for (int i = 0; i < commands.length; i++) {
-            String c = commands[i].strip();
-            if (!c.isEmpty()) at(100 + i * 40, () -> cmd(c));
-        }
-        at(100 + commands.length * 40 + 100, () -> {
-            Airstrike.LOG.info("SCENARIO done");
-            Minecraft.getInstance().stop();
-        });
-    }
-
     private void planOnboard() {
         at(40, () -> {
             cmd("time set 6000");

@@ -20,6 +20,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # процессы стенда и мультиплеера гасятся целиком, без сирот (tools/rig_procs.sh), ~4 с; без Java и модов — своей задачей
+  rig:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Остановка проверок
+        timeout-minutes: 2
+        run: tools/test_rig_procs.sh
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
