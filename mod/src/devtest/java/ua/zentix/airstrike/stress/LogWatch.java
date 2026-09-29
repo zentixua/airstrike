@@ -8,19 +8,29 @@ import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
 
 import java.util.Queue;
+import java.util.function.Consumer;
 
-/** Все WARN/ERROR в логе (кроме строк стенда) — в счётчики; с исключением или от мода — в список проблем. */
+/**
+ * Все WARN/ERROR в логе (кроме строк стенда) — в счётчики; с исключением или от мода — в список проблем. Строки мода
+ * любого уровня (кроме строк стенда) — ещё и в {@code modLines}: по ним режиссёр видит события снарядов, которых не
+ * видно снаружи (путь вне мира дошёл до поверхности, не дождался загрузки района).
+ */
 final class LogWatch {
     private LogWatch() {}
 
     static void install(Queue<String> problems, Runnable onWarn, Runnable onError) {
+        install(problems, onWarn, onError, line -> {});
+    }
+
+    static void install(Queue<String> problems, Runnable onWarn, Runnable onError, Consumer<String> modLines) {
         LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
         AbstractAppender app = new AbstractAppender("airstrike-stress", null, null, true, Property.EMPTY_ARRAY) {
             @Override
             public void append(LogEvent event) {
-                if (!event.getLevel().isMoreSpecificThan(Level.WARN)) return;
                 String msg = event.getMessage().getFormattedMessage();
                 if (msg.startsWith("STRESS")) return;
+                if (event.getLoggerName().contains("airstrike")) modLines.accept(msg);
+                if (!event.getLevel().isMoreSpecificThan(Level.WARN)) return;
                 boolean error = event.getLevel().isMoreSpecificThan(Level.ERROR);
                 if (error) onError.run();
                 else onWarn.run();
