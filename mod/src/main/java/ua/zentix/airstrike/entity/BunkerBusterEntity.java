@@ -48,6 +48,11 @@ public class BunkerBusterEntity extends StrikeProjectile {
     private int traveled;
     private int fuse = -1;
 
+    /** Нос вниз не меньше, чем при сбросе: с 170 блоков бомба на земле самое позднее через ~80 тиков. */
+    static final float MIN_DIVE = 10;
+    /** Падение, когда цели под носом нет. */
+    static final float FALL_PITCH = 60;
+
     public BunkerBusterEntity(EntityType<? extends BunkerBusterEntity> type, Level level) {
         super(type, level);
     }
@@ -105,9 +110,14 @@ public class BunkerBusterEntity extends StrikeProjectile {
         }
         Vec3 aim = tracker.point();
         Bearing b = bearingTo(aim);
-        flight.arcPitch(b.pitch(), speed, b.distance(), 7, 0.8);
+        // свободно падающая бомба не выравнивается и не набирает высоту: точка не ниже MIN_DIVE под носом
+        // (цель на высоте бомбы или выше, уже пролетели) — просто падать круто вниз, на рули не надеясь
+        boolean passed = b.horizontal() > 8 && Math.abs(Mth.wrapDegrees(b.yaw() - flight.yaw())) >= 90;
+        boolean below = b.pitch() >= MIN_DIVE && !passed;
+        flight.arcPitch(below ? b.pitch() : FALL_PITCH, speed, b.distance(), 7, 0.8);
+        if (flight.pitch() < MIN_DIVE) flight.set(flight.yaw(), MIN_DIVE);
         speed = Math.min(cruiseSpeed(), speed + 0.3);
-        if (b.horizontal() > 8) flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
+        if (below && b.horizontal() > 8) flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
         advance(level, aim, 5.3);
     }
 

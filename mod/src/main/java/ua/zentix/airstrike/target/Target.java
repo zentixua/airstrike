@@ -71,10 +71,7 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
          */
         public static Ground at(ServerLevel level, double x, double z) {
             int bx = Mth.floor(x), bz = Mth.floor(z);
-            int y = Terrain.ready(level, new BlockPos(bx, 0, bz))
-                    ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, bx, bz)
-                    : level.getChunkSource().getGenerator().getBaseHeight(bx, bz, Heightmap.Types.WORLD_SURFACE_WG, level,
-                    level.getChunkSource().randomState());
+            int y = Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING, bx, bz);
             return new Ground(new Vec3(x, y - 0.5, z));
         }
 
