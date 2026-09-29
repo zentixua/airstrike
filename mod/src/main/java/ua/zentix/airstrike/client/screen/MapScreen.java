@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import ua.zentix.airstrike.client.hud.ClientFlights;
@@ -19,6 +20,7 @@ import ua.zentix.airstrike.client.map.MapProjection;
 import ua.zentix.airstrike.client.map.MapTarget;
 import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.entity.FlightPhase;
+import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.strike.Loadout;
 
 import java.util.Locale;
@@ -86,6 +88,13 @@ public class MapScreen extends Screen {
         addRenderableWidget(Button.builder(Component.translatable("airstrike.map.back"), b -> onClose())
                 .bounds(width / 2 + 54, by, 100, 20).build());
         fireButton.active = selected().isPresent() && !ceiling();
+        // карта открыта с уже выбранным местом — его район тоже грузится заранее (тот же район сервер только продлит)
+        if (!ceiling()) selected().ifPresent(MapScreen::preload);
+    }
+
+    /** Район места начинает грузиться на сервере уже сейчас: к приказу он чаще всего готов. */
+    private static void preload(MapTarget.Place place) {
+        PacketDistributor.sendToServer(new C2S.Pick(place.x(), place.z()));
     }
 
     private Optional<MapTarget.Place> selected() {
@@ -122,7 +131,9 @@ public class MapScreen extends Screen {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || ceiling()) return;
         MapProjection map = projection();
-        MapTarget.set(mc.level, new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY)));
+        MapTarget.Place place = new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY));
+        MapTarget.set(mc.level, place);
+        preload(place);
         fireButton.active = true;
     }
 

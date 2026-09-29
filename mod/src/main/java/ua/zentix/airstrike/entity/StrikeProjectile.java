@@ -510,10 +510,35 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             releaseTargetArea();
         }
         double d = position().distanceTo(aim);
-        if (d <= Math.max(400, Math.max(speed, cruiseSpeed()) * PRELOAD_TICKS)) {
+        if (d <= preloadDistance()) {
             heldArea = new ChunkPos(BlockPos.containing(aim));
             FlightTickets.hold(level, heldArea, targetArea(), getUUID(), true);
         }
+    }
+
+    /** С какого расстояния до цели её район грузится заранее: {@link #PRELOAD_TICKS} полёта, не меньше 400 блоков. */
+    protected double preloadDistance() {
+        return Math.max(400, Math.max(speed, cruiseSpeed()) * PRELOAD_TICKS);
+    }
+
+    /** Район цели загружен и в нём тикают сущности: снаряд, пришедший туда, взорвётся в мире. */
+    protected final boolean aimAreaReady(ServerLevel level, Vec3 aim) {
+        BlockPos at = BlockPos.containing(aim);
+        return Terrain.ready(level, at) && level.isPositionEntityTicking(at);
+    }
+
+    /**
+     * Ещё тик ожидания загрузки района цели. Ожидание не входит в срок жизни, у него свой предел
+     * {@link #AREA_WAIT_LIMIT}: исчерпан — снаряд убран (false).
+     */
+    protected final boolean waitForAimArea(Vec3 aim) {
+        if (++areaWait > AREA_WAIT_LIMIT) {
+            Airstrike.LOG.warn("Снаряд {} {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), getUUID(),
+                    BlockPos.containing(aim));
+            discard();
+            return false;
+        }
+        return true;
     }
 
     /** Отпустить район цели (снаряд убран или перенацелен — новый район возьмётся на подлёте). */
@@ -775,15 +800,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
         Vec3 pos = position();
         boolean near = onFinalLeg() && pos.distanceTo(aim) <= speed + reachPad + 48;
-        BlockPos at = BlockPos.containing(aim);
-        if (near && !(Terrain.ready(level, at) && level.isPositionEntityTicking(at))) {
+        if (near && !aimAreaReady(level, aim)) {
             // ждём загрузки района (тикет взят на подлёте)
-            if (++areaWait > AREA_WAIT_LIMIT) {
-                Airstrike.LOG.warn("Снаряд {} {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), getUUID(), at);
-                discard();
-                return false;
-            }
-            return true;
+            return waitForAimArea(aim);
         }
         if (onFinalLeg() && pos.distanceTo(aim) <= speed + reachPad) {
             // район цели тикает (иначе ждали бы выше): вернуться в мир у цели — VirtualFlights сделает это в этом же тике

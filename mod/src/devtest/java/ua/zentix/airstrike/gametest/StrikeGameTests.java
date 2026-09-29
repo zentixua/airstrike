@@ -1,11 +1,17 @@
 package ua.zentix.airstrike.gametest;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.Ticket;
 import net.minecraft.util.Mth;
+import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -29,7 +35,9 @@ import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -41,6 +49,7 @@ import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.UUID;
 
@@ -724,6 +733,158 @@ public final class StrikeGameTests {
             h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
             level.setChunkForced(chunk.x, chunk.z, false);
         });
+    }
+
+    /**
+     * Снаряд РСЗО по свежему району рядом: сходит с пакета сразу (без ожидания в трубе) и до взрыва движется каждый тик.
+     * Полёт короче загрузки района (сервер GameTest тикает без пауз), и раньше снаряд вне мира замирал в воздухе у цели
+     * (сценарий пролёта 29.09.2026: вой обрывался на 8–40 тиков); теперь конец полёта вне мира растягивается во времени.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_near", skyAccess = true)
+    public static void rocketToFreshNearAreaNeverFreezes(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 250, 0);
+    }
+
+    /**
+     * Район цели грузится дольше полёта (тест держит его незагруженным 300 тиков при полёте ~100): снаряд сходит сразу,
+     * вне мира подходит к цели всё медленнее, ни одного тика не стоит и, когда район готов, взрывается у цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "rocket_slow_area", skyAccess = true)
+    public static void rocketStretchesFlightWhileAimAreaLoads(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 250, 300);
+    }
+
+    /** Дальний свежий район: полёт длиннее загрузки района — сход на тике приказа, без растяжения и остановок. */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_far", skyAccess = true)
+    public static void rocketToFreshFarAreaLaunchesAtOnce(GameTestHelper h) {
+        rocketLaunchesAtOnceAndNeverFreezes(h, 1750, 0);
+    }
+
+    /** @param withhold сколько тиков район цели не грузится (тест снимает тикет снаряда, потом ставит его сам) */
+    private static void rocketLaunchesAtOnceAndNeverFreezes(GameTestHelper h, int distance, int withhold) {
+        ServerLevel level = h.getLevel();
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RUNWAY_TARGET)).add(0, 3, 0);
+        ChunkPos aimChunk = new ChunkPos(BlockPos.containing(rail).offset(distance, 0, 0));
+        Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
+        RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+        int ready = 5;
+        rocket.placeInTube(rail, -90, LauncherEntity.elevation(WeaponType.ROCKET), ready, 0, new Target.Point(aim), aim, null);
+        level.addFreshEntity(rocket);
+        UUID id = rocket.getUUID();
+        long orderedAt = System.nanoTime();
+        int[] tick = {0};
+        int[] leftTube = {-1};
+        int[] eta = {0};
+        int[] lastSeen = {0};
+        int[] stalls = {0};
+        Vec3[] last = {rocket.position()};
+        boolean[] reported = {false};
+        int[] areaReadyAt = {-1};
+        BlockPos aimPos = BlockPos.containing(aim);
+        h.onEachTick(() -> {
+            tick[0]++;
+            if (areaReadyAt[0] < 0 && Terrain.ready(level, aimPos) && level.isPositionEntityTicking(aimPos)) areaReadyAt[0] = tick[0];
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            // район «грузится долго»: тикет снаряда снимается, пока не выйдет срок, потом ставится снова (снимет его снаряд)
+            if (withhold > 0 && p != null) FlightTickets.hold(level, aimChunk, FlightTickets.DISTANCE, id, tick[0] >= withhold);
+            if (p == null) return;
+            lastSeen[0] = tick[0];
+            boolean moved = p.position().distanceToSqr(last[0]) > 1.0e-6;
+            last[0] = p.position();
+            // сход — первый сдвиг из трубы; дальше каждый тик до взрыва снаряд движется
+            if (leftTube[0] < 0) {
+                if (moved) {
+                    leftTube[0] = tick[0];
+                    eta[0] = p.etaTicks();
+                }
+            } else if (!moved) {
+                stalls[0]++;
+            }
+        });
+        h.succeedWhen(() -> {
+            boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
+                    || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
+            h.assertFalse(flying, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            // замер для PR: задержка схода и растяжение полёта вне мира (тики сверх расчётного времени полёта)
+            if (!reported[0]) Airstrike.LOG.info("Замер РСЗО {} блоков: сход на тике {} (готов к {}), полёт {} тиков при расчётных {}, растяжение {}, район цели готов на тике {}, {} мс",
+                    distance, leftTube[0], ready + RocketEntity.IGNITION_TICKS, lastSeen[0] - leftTube[0], eta[0],
+                    lastSeen[0] - leftTube[0] - eta[0], areaReadyAt[0],
+                    (System.nanoTime() - orderedAt) / 1_000_000);
+            reported[0] = true;
+            h.assertTrue(leftTube[0] > 0 && leftTube[0] <= ready + RocketEntity.IGNITION_TICKS + 2,
+                    "снаряд сошёл с пакета на тике " + leftTube[0] + ", а готов к " + (ready + RocketEntity.IGNITION_TICKS));
+            h.assertTrue(stalls[0] == 0, "снаряд стоял в воздухе " + stalls[0] + " тиков");
+            if (withhold > 0) h.assertTrue(areaReadyAt[0] >= withhold, "район цели загрузился раньше, чем тест его отпустил");
+            h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
+        });
+    }
+
+    /**
+     * Подсказка карты под спамом: два игрока кликают по новому месту каждый тик 100 тиков. У каждого в любой тик не
+     * больше одного района подсказки, новый — не чаще раза в {@link PickHints#MIN_INTERVAL} тиков, последний клик
+     * берётся (отложенный), а через {@link PickHints#LIFESPAN} тиков тикет гаснет сам.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1000, batch = "pick_spam", skyAccess = true)
+    public static void mapPickSpamHoldsOneAreaPerPlayer(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET);
+        UUID[] who = {UUID.randomUUID(), UUID.randomUUID()};
+        PickHints.Slot[] slots = {new PickHints.Slot(), new PickHints.Slot()};
+        int[] tick = {0};
+        int[] taken = {0, 0};
+        ChunkPos[] lastHeld = {null, null};
+        ChunkPos[] lastClick = {null, null};
+        int spam = 100;
+        h.onEachTick(() -> {
+            tick[0]++;
+            for (int i = 0; i < 2; i++) {
+                if (tick[0] <= spam) {
+                    // каждый клик — другой свежий район (шаг 500 блоков), у второго игрока — в другую сторону
+                    double x = origin.getX() + (i == 0 ? 1 : -1) * 500.0 * tick[0], z = origin.getZ() + 3000 * i;
+                    PickHints.pick(level, who[i], slots[i], x, z);
+                    lastClick[i] = new ChunkPos(BlockPos.containing(x, 0, z));
+                }
+                PickHints.tick(level, who[i], slots[i]);
+                if (slots[i].held() != null && !slots[i].held().equals(lastHeld[i])) taken[i]++;
+                lastHeld[i] = slots[i].held();
+                int held = pickTickets(level, who[i]);
+                if (held > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + held + " на тике " + tick[0]);
+            }
+        });
+        h.runAtTickTime(spam + PickHints.MIN_INTERVAL + 1, () -> {
+            for (int i = 0; i < 2; i++) {
+                h.assertTrue(lastClick[i].equals(slots[i].held()), "последний клик не взят: держится " + slots[i].held() + ", клик " + lastClick[i]);
+                int limit = spam / PickHints.MIN_INTERVAL + 2;
+                h.assertTrue(taken[i] <= limit, "новых районов " + taken[i] + " за " + spam + " тиков, предел " + limit);
+                h.assertTrue(pickTickets(level, who[i]) == 1, "тикет последнего клика не стоит");
+            }
+        });
+        h.runAtTickTime(spam + PickHints.MIN_INTERVAL + PickHints.LIFESPAN + 20, () -> {
+            for (int i = 0; i < 2; i++) h.assertTrue(pickTickets(level, who[i]) == 0, "тикет подсказки не погас за " + PickHints.LIFESPAN + " тиков");
+            h.succeed();
+        });
+    }
+
+    /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
+    @SuppressWarnings("unchecked")
+    private static int pickTickets(ServerLevel level, UUID who) {
+        try {
+            Field dm = ChunkMap.class.getDeclaredField("distanceManager");
+            dm.setAccessible(true);
+            DistanceManager d = (DistanceManager) dm.get(level.getChunkSource().chunkMap);
+            Field tf = DistanceManager.class.getDeclaredField("tickets");
+            tf.setAccessible(true);
+            Field key = Ticket.class.getDeclaredField("key");
+            key.setAccessible(true);
+            int n = 0;
+            for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
+                for (Ticket<?> t : set) if (PickHints.isPickTicket(t.getType()) && who.equals(key.get(t))) n++;
+            }
+            return n;
+        } catch (ReflectiveOperationException ex) {
+            throw new GameTestAssertException("очередь тикетов не читается: " + ex);
+        }
     }
 
     @GameTest(template = "runway", timeoutTicks = 2400, batch = "salvo", skyAccess = true)

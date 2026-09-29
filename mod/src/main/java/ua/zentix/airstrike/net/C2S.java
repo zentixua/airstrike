@@ -80,6 +80,21 @@ public final class C2S {
         }
     }
 
+    /**
+     * Место выбрано на карте (клик), приказа ещё нет: сервер начинает грузить район заранее ({@code PickHints}).
+     * Только x и z; проверки те же, что у приказа по карте.
+     */
+    public record Pick(double x, double z) implements CustomPacketPayload {
+        public static final Type<Pick> TYPE = new Type<>(Airstrike.id("pick"));
+        public static final StreamCodec<ByteBuf, Pick> CODEC = StreamCodec.composite(
+                ByteBufCodecs.DOUBLE, Pick::x, ByteBufCodecs.DOUBLE, Pick::z, Pick::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Отбой: убрать все летящие снаряды и залпы без взрыва. */
     public record Clear() implements CustomPacketPayload {
         public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));
