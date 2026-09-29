@@ -5,6 +5,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 
@@ -70,7 +71,8 @@ public final class ClientNuclear {
 
     public static void detonation(S2C.NukeDetonation p) {
         Detonation d = p.detonation();
-        WARNINGS.values().removeIf(w -> w.target().distanceToSqr(new Vec3(d.burst().x, w.target().y, d.burst().z)) < 4 && Math.abs(w.detonateTime() - d.gameTime()) < 40);
+        // подрыв бывает и позже отсчёта: сервер ждёт, пока догрузится место (NuclearStrikes.GIVE_UP_TICKS)
+        WARNINGS.values().removeIf(w -> w.target().distanceToSqr(new Vec3(d.burst().x, w.target().y, d.burst().z)) < 4 && d.gameTime() >= w.detonateTime() - 40);
         ClientLevel level = Minecraft.getInstance().level;
         if (DETONATIONS.containsKey(d.id()) || level == null) return;
         Active a = new Active(d, true, level.getGameTime());
@@ -115,7 +117,8 @@ public final class ClientNuclear {
             a.sounds.tick();
             if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }
-        WARNINGS.values().removeIf(w -> now > w.detonateTime() + 100);
+        // предупреждение живёт, пока не придёт подрыв (или отбой — сервер пришлёт всё заново), но не дольше срока ожидания места
+        WARNINGS.values().removeIf(w -> now > w.detonateTime() + NuclearStrikes.GIVE_UP_TICKS + 100);
         NukeSky.tick(level);
         NukeSounds.tick();
         NukeFlash.tick();

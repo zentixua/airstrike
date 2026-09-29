@@ -4,7 +4,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -18,14 +20,17 @@ import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.util.Terrain;
-import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.FlightTickets;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Local;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -87,6 +92,7 @@ public final class NuclearStrikes {
         NuclearEvents.ScheduledStrike s = new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now,
                 now + AirstrikeConfig.SERVER.nukeFlightTime.get(), launchPos, Optional.ofNullable(owner), surface);
         events.schedule(s);
+        holdGround(level, s, true);
         Airstrike.LOG.info("МБР №{}: {} кт по {} {} {}, подрыв через {} с", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),
                 Mth.floor(target.z), (s.detonateTime() - now) / 20);
         for (ServerPlayer p : level.players()) PacketDistributor.sendToPlayer(p, warning(s, p));
@@ -124,17 +130,33 @@ public final class NuclearStrikes {
         return n;
     }
 
-    /** За сколько тиков до подрыва начинать загрузку чанка эпицентра. */
-    private static final int PRELOAD_TICKS = 200;
-    /** Если чанк так и не загрузился (мир без генерации?), подрыв всё равно происходит — по высоте цели. */
-    private static final int GIVE_UP_TICKS = 600;
+    /**
+     * Если чанк так и не загрузился (мир без генерации?), подрыв всё равно происходит — по высоте цели. Столько же
+     * клиент показывает «подрыв задерживается» после нуля отсчёта.
+     */
+    public static final int GIVE_UP_TICKS = 600;
+    /**
+     * Район эпицентра, который грузится с пуска, — как район цели снаряда ({@link FlightTickets#DISTANCE}): нужны 3×3
+     * чанка (высота земли, грунт воронки, соседи для Sable), но очередь генерации идёт по уровню тикета, и с уровнем 32
+     * (радиус 1) место не догружалось за все 90 с полёта, пока залпы держали районы целей уровня 29 (облако 29.09.2026).
+     */
+    private static final int GROUND_AREA = FlightTickets.DISTANCE;
+    private static final TicketType<UUID> GROUND = TicketType.create("airstrike_nuclear_ground", Comparator.<UUID>naturalOrder());
 
     private static boolean groundLoaded(ServerLevel level, Vec3 target) {
         return Terrain.ready(level, BlockPos.containing(target));
     }
 
+    /**
+     * Место подрыва грузится с пуска (полёт МБР — полторы минуты), как район цели снаряда ({@link AreaLoader}): за 10 с
+     * до подрыва тикет уровня 32 стоял в очереди генерации за районами целей залпов, и на слабом сервере отсчёт доходил
+     * до нуля раньше, чем готова земля (облако 29.09.2026: подрыв ждал, пока его не отменил «Отбой»).
+     * Ключ — номер удара (тикеты не сохраняются: после загрузки мира район берётся заново в тике).
+     */
     private static void holdGround(ServerLevel level, NuclearEvents.ScheduledStrike s, boolean hold) {
-        NuclearTickets.hold(level, new net.minecraft.world.level.ChunkPos(BlockPos.containing(s.target())), hold);
+        AreaLoader.Area area = new AreaLoader.Area(GROUND, new ChunkPos(BlockPos.containing(s.target())), GROUND_AREA, new UUID(0L, s.id()));
+        if (hold) StrikeWorld.get(level).areas().hold(level, area);
+        else StrikeWorld.get(level).areas().release(level, area);
     }
 
     // ---------------------------------------------------------------- события мира
@@ -161,8 +183,9 @@ public final class NuclearStrikes {
         List<NuclearEvents.ScheduledStrike> due = new ArrayList<>();
         for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
             boolean loaded = groundLoaded(level, s.target());
-            // место подрыва догружается заранее тикетом: высоту земли и грунт воронки нужно знать без остановки сервера
-            if (!loaded && s.detonateTime() - now <= PRELOAD_TICKS) holdGround(level, s, true);
+            // место подрыва держится с пуска (и после загрузки мира: тикеты не сохраняются): высоту земли и грунт
+            // воронки нужно знать без остановки сервера
+            holdGround(level, s, true);
             if (now >= s.detonateTime() && (loaded || now - s.detonateTime() > GIVE_UP_TICKS)) due.add(s);
         }
         for (NuclearEvents.ScheduledStrike s : due) {

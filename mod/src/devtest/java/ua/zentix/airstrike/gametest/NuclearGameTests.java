@@ -626,6 +626,49 @@ public final class NuclearGameTests {
         h.succeed();
     }
 
+    /**
+     * Место подрыва грузится с пуска, а не за 10 с до нуля: в следующем тике у чанка эпицентра уже есть тикет (уровень 32
+     * и ниже), и свежее место готово раньше, чем кончится отсчёт, — сервер идёт в темпе игры, чтобы генерация успевала
+     * как в игре (облако 29.09.2026: за 200 тиков до подрыва тикет стоял в очереди за районами залпов, отсчёт доходил до
+     * нуля, а подрыва не было). Отбой отпускает место.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "nuke_ground", skyAccess = true)
+    public static void nukeGroundLoadsFromLaunch(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        long[] last = {System.nanoTime()};
+        h.onEachTick(() -> {
+            long wait = 50_000_000L - (System.nanoTime() - last[0]);
+            if (wait > 0) java.util.concurrent.locks.LockSupport.parkNanos(wait);
+            last[0] = System.nanoTime();
+        });
+        Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(CENTER).offset(1500, 0, -1500));
+        ChunkPos ground = new ChunkPos(BlockPos.containing(target));
+        h.assertFalse(ua.zentix.airstrike.util.Terrain.ready(level, ground.x, ground.z), "место подрыва не свежее");
+        h.assertTrue(NuclearStrikes.launchFrom(level, target, 15, true, null, 0, null), "пуск не прошёл");
+        long detonate = NuclearEvents.get(level).scheduled().getFirst().detonateTime();
+        int[] tick = {0};
+        h.onEachTick(() -> {
+            tick[0]++;
+            var holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(ground.toLong());
+            String failure = null;
+            if (tick[0] == 2 && (holder == null || holder.getTicketLevel() > 32)) {
+                failure = "место подрыва не грузится с пуска: уровень " + (holder == null ? "-" : holder.getTicketLevel());
+            }
+            boolean ready = ua.zentix.airstrike.util.Terrain.ready(level, ground.x, ground.z);
+            if (!ready && level.getGameTime() >= detonate) failure = "отсчёт кончился, а место подрыва не готово";
+            if (failure != null) {
+                // удар не должен дожить до других тестов этого мира
+                NuclearStrikes.clear(level);
+                throw new net.minecraft.gametest.framework.GameTestAssertException(failure);
+            }
+            if (!ready) return;
+            Airstrike.LOG.info("Место подрыва готово через {} тиков после пуска, отсчёт — {}", tick[0], detonate - level.getGameTime() + tick[0]);
+            NuclearStrikes.clear(level);
+            h.assertTrue(NuclearEvents.get(level).scheduled().isEmpty(), "отбой не отменил удар");
+            h.succeed();
+        });
+    }
+
     /** МБР стартует у запустившего (в 30 блоках позади) и уходит вверх; удар записан в таймер. */
     @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_icbm", skyAccess = true)
     public static void icbmLiftsOffBehindLauncher(GameTestHelper h) {

@@ -26,12 +26,18 @@ import java.util.UUID;
 public final class StrikeWorld {
     private final List<Timeline> timelines = new ArrayList<>();
     private final List<Timeline> pending = new ArrayList<>();
+    private final AreaLoader areas = new AreaLoader();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public StrikeWorld() {}
 
     public static StrikeWorld get(ServerLevel level) {
         return level.getData(ModAttachments.STRIKE_WORLD);
+    }
+
+    /** Районы, которые мод грузит заранее (районы целей, подсказки карты). */
+    public AreaLoader areas() {
+        return areas;
     }
 
     /** Добавить таймлайн; первый тик — в конце текущего тика мира. */
@@ -42,6 +48,8 @@ public final class StrikeWorld {
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
         if (level.players().isEmpty() && busy(level)) level.resetEmptyTime();
+        // загрузка районов — не симуляция: идёт и в замороженном мире (трейлер ждёт прогрузки плана)
+        if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).areas.tick(level);
         // «/tick freeze» останавливает сущности — снаряды вне мира, залпы и взрывы стоят вместе с ними
         if (!level.tickRateManager().runsNormally()) return;
         SalvoData.get(level).tick(level);

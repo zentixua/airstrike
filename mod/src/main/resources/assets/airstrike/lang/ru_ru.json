@@ -179,6 +179,7 @@
   "airstrike.nuke.alert": "☢ РАКЕТНОЕ НАПАДЕНИЕ ☢",
   "airstrike.nuke.alert.eta": "До удара %s с — в укрытие, под землю",
   "airstrike.nuke.countdown": "☢ МБР в полёте · %2$s кт · подрыв через %1$s с",
+  "airstrike.nuke.delayed": "☢ Подрыв задерживается: догружается место удара",
   "airstrike.nuke.detected": "Зафиксирован пуск межконтинентальной ракеты",
   "airstrike.remote.yield": "Мощность: %s кт %s",
   "airstrike.remote.burst.air": "Подрыв: воздушный",

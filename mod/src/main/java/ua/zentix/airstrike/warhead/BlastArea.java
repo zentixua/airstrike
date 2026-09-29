@@ -5,14 +5,16 @@ import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Comparator;
 import java.util.UUID;
 
 /**
- * Чанки, до которых достаёт взрыв (или весь таймлайн взрыва): ванильный тикет региона держит их загруженными целиком,
- * а неготовые грузит в фоне. Нужен потому, что снаряд, взорвавшись, отпускает свои тикеты и тикет района цели:
+ * Чанки, до которых достаёт взрыв (или весь таймлайн взрыва): ванильный тикет региона ({@link AreaLoader}: тикать
+ * начинают, только когда готовы соседи) держит их загруженными целиком, а неготовые грузит в фоне. Нужен потому, что снаряд, взорвавшись, отпускает свои тикеты и тикет района цели:
  * соседние чанки сразу опускаются ниже «готового», и вторичный подрыв через несколько тиков читал бы их синхронно,
  * ожидая загрузку прямо в тике. Тикет не сохраняется в мире; ключ — свой у каждого района, соседние взрывы залпа
  * не снимают его друг у друга.
@@ -41,7 +43,7 @@ final class BlastArea {
     /** Взять район: всё в {@code reach} блоков от {@code centre} грузится и остаётся готовым до {@link #release}. */
     static BlastArea hold(ServerLevel level, Vec3 centre, double reach) {
         BlastArea area = new BlastArea(centre, reach);
-        level.getChunkSource().addRegionTicket(TYPE, area.chunk, area.distance, area.key);
+        StrikeWorld.get(level).areas().hold(level, area.area());
         return area;
     }
 
@@ -50,7 +52,11 @@ final class BlastArea {
     }
 
     void release(ServerLevel level) {
-        level.getChunkSource().removeRegionTicket(TYPE, chunk, distance, key);
+        StrikeWorld.get(level).areas().release(level, area());
+    }
+
+    private AreaLoader.Area area() {
+        return new AreaLoader.Area(TYPE, chunk, distance, key);
     }
 
     Vec3 centre() {
