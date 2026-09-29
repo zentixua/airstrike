@@ -55,9 +55,7 @@ public final class NukeRenderer {
     private NukeRenderer() {}
 
     public static void render(RenderLevelStageEvent e) {
-        RenderLevelStageEvent.Stage stage = e.getStage();
-        if (stage == RenderLevelStageEvent.Stage.AFTER_SKY) NukeView.capture(e);
-        if (stage != RenderLevelStageEvent.Stage.AFTER_LEVEL || ClientNuclear.isEmpty()) return;
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || ClientNuclear.isEmpty()) return;
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return;
