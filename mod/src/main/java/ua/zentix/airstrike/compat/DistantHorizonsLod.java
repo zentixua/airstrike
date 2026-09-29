@@ -47,10 +47,6 @@ final class DistantHorizonsLod {
     /** Мир → чанки, отданные DH и ещё не подтверждённые (ключ — {@code ServerLevel}, мир не держит). */
     private static final Map<Object, Set<Long>> WATCHED = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Queue<Long>> CONFIRMED = Collections.synchronizedMap(new WeakHashMap<>());
-    /** Мир → чанки, чей LOD погашен нами (сохранение подтверждено) и должен таким остаться, пока квартал тёмный. */
-    private static final Map<Object, Set<Long>> DARK = Collections.synchronizedMap(new WeakHashMap<>());
-    /** Мир → чанки из {@link #DARK}, чей LOD DH после этого переписал сам. */
-    private static final Map<Object, Queue<Long>> REWRITTEN = Collections.synchronizedMap(new WeakHashMap<>());
 
     /**
      * Пробы читают базу DH по одной в своём потоке: чтение API ждёт пул ввода-вывода DH без срока, и в общем пуле
@@ -108,28 +104,6 @@ final class DistantHorizonsLod {
         while ((c = q.poll()) != null) consumer.accept(c);
     }
 
-    /** LOD чанка погашен нами ({@code dark}) или больше не должен быть тёмным (поток сервера). */
-    static void dark(ServerLevel level, long chunk, boolean dark) {
-        if (dark) DARK.computeIfAbsent(level, k -> ConcurrentHashMap.newKeySet()).add(chunk);
-        else {
-            Set<Long> set = DARK.get(level);
-            if (set != null) set.remove(chunk);
-        }
-    }
-
-    /** Погашенные нами чанки, чей LOD DH с тех пор переписал сам (поток сервера). */
-    static void rewritten(ServerLevel level, LongConsumer consumer) {
-        Queue<Long> q = REWRITTEN.get(level);
-        if (q == null) return;
-        Long c;
-        while ((c = q.poll()) != null) consumer.accept(c);
-    }
-
-    static boolean anyRewritten(ServerLevel level) {
-        Queue<Long> q = REWRITTEN.get(level);
-        return q != null && !q.isEmpty();
-    }
-
     /** Подтверждения чанка больше не ждать (DH его пропустил: не изменился или уже стоял в очереди). */
     static void forget(ServerLevel level, long chunk) {
         Set<Long> watched = WATCHED.get(level);
@@ -166,14 +140,8 @@ final class DistantHorizonsLod {
                 Object level = input.value.levelWrapper.getWrappedMcObject();
                 long pos = ChunkPos.asLong(input.value.chunkX, input.value.chunkZ);
                 Set<Long> watched = WATCHED.get(level);
-                if (watched != null && watched.remove(pos)) {
-                    CONFIRMED.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos);
-                    return;
-                }
-                // DH обновил чанк сам (генерация по файлам регионов, где лампы горят, сохранение): погашенный нами LOD
-                // мог снова загореться
-                Set<Long> dark = DARK.get(level);
-                if (dark != null && dark.contains(pos)) REWRITTEN.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos);
+                // чанки, которые DH обновил сам (загрузка, сохранение), — не наши
+                if (watched != null && watched.remove(pos)) CONFIRMED.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos);
             }
         });
         // без подписки каждая отдача ждёт полный срок: блэкаут в LOD идёт, но медленно

@@ -69,24 +69,6 @@ public final class DistantHorizons {
         return present() ? DistantHorizonsLod.sample(level, pos) : CompletableFuture.completedFuture(null);
     }
 
-    /**
-     * LOD чанка погашен ({@code dark}: DH сохранил тёмный) или квартал снова со светом: за погашенными DH следит —
-     * если он перепишет такой LOD сам, чанк придёт в {@link #lodRewritten}. Без DH — ничего.
-     */
-    public static void lodDark(ServerLevel level, long chunk, boolean dark) {
-        if (present()) DistantHorizonsLod.dark(level, chunk, dark);
-    }
-
-    /** Погашенные чанки, чей LOD DH с тех пор переписал сам (например, генератором по файлам регионов). Без DH — ничего. */
-    public static void lodRewritten(ServerLevel level, LongConsumer consumer) {
-        if (present()) DistantHorizonsLod.rewritten(level, consumer);
-    }
-
-    /** Есть ли переписанные DH чанки, ещё не забранные {@link #lodRewritten}. */
-    public static boolean lodRewritePending(ServerLevel level) {
-        return present() && DistantHorizonsLod.anyRewritten(level);
-    }
-
     /** Подтверждения для чанка больше не ждать. */
     public static void lodForget(ServerLevel level, long chunk) {
         if (present()) DistantHorizonsLod.forget(level, chunk);
