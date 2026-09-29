@@ -436,7 +436,8 @@ public final class Trailer {
      */
     private void onboard() {
         run(() -> cmd("time set 6000"));
-        run(() -> placeActor(ground(EAST_TOWER.add(-260, 0, 120)), EAST_TOWER));
+        // видео с борта — только в 256 блоках от наводчика: в 290 ракета так и дошла до цели на карте
+        run(() -> placeActor(ground(eastFacade.add(-150, 0, 70)), EAST_TOWER));
         waitTicks(60);
         run(() -> fire("missile", eastFacade));
         shot("missile_camera").after(() -> !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 400)
@@ -461,8 +462,8 @@ public final class Trailer {
         Supplier<Vec3> bayWatch = () -> bay.get().add(toPost.scale(150)).add(0, 40, 0);
         run(() -> placeHidden(bayWatch.get(), bay.get()));
         shot("bomb_bay").onReady(() -> fire("bunker", bay.get())).length(400).speed(0.25).hidden()
-                .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bay.get(), 900), bayWatch.get(), toPost.scale(-1),
-                        26, -7, 9, 14, 0, 58))
+                .camera(() -> CineCamera.chase(() -> nearest(BomberEntity.class, bay.get(), 900), () -> flightNear(WeaponType.BUNKER, bay.get()),
+                        bayWatch.get(), toPost.scale(-1), 26, -7, 9, 14, 0, 58))
                 .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() != FlightPhase.EGRESS, 3000)
                 .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
         Supplier<Vec3> pit = () -> ground(SOUTH_TOWERS.add(50, 0, -70));
@@ -472,7 +473,8 @@ public final class Trailer {
                 .bulletTime(BunkerBusterEntity.class, pit, 150, 0.3)
                 .camera(() -> {
                     Vec3 at = pit.get();
-                    Vec3 from = ground(at.add(side.scale(-60)).add(toPost.scale(50))).add(0, 16, 0);
+                    // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
+                    Vec3 from = ground(at.add(side.scale(-60)).add(toPost.scale(50))).add(0, 28, 0);
                     return bulletTimeCamera(from, smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.3), 55, 60, 34);
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
@@ -974,6 +976,18 @@ public final class Trailer {
                 heading.lengthSqr() < 1e-6 ? new Vec3(0, 0, 1) : heading, back, up, side, lead, roll, fov);
     }
 
+    /** Ближайший к точке снаряд этого оружия по данным сервера (в том числе вне мира клиента), или null. */
+    @Nullable
+    private static Vec3 flightNear(WeaponType weapon, Vec3 at) {
+        Vec3 best = null;
+        for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
+            if (f.weapon() != weapon) continue;
+            Vec3 p = f.position(CineCamera.partial());
+            if (best == null || p.distanceToSqr(at) < best.distanceToSqr(at)) best = p;
+        }
+        return best;
+    }
+
     /** Где снаряд по данным сервера (полёт вне мира клиента), или null. */
     @Nullable
     private static Vec3 flightAt(java.util.UUID id) {
@@ -1345,7 +1359,11 @@ public final class Trailer {
                         long w = worldWaited();
                         if (w > 0 && w % 200 == 0) Airstrike.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, w);
                         if (w < whenTimeout) return false;
-                        Airstrike.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
+                        // без своего момента план пуст (снаряд не долетел): не тратить минуты записи и гигабайты кадров
+                        Airstrike.LOG.warn("TRAILER {}: момент не наступил, план пропущен", name);
+                        idleTime = 0;
+                        setTickRate(20);
+                        return true;
                     }
                     if (selected()) {
                         if (speedCurve != null) rec.start(name, speed, speedCurve, hudOn);
