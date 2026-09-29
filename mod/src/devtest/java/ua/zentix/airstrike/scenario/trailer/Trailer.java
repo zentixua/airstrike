@@ -374,7 +374,11 @@ public final class Trailer {
                 })
                 .when(() -> nearest(DroneEntity.class, hit.get(), 260) != null, 3000)
                 .endWhen(() -> nearest(DroneEntity.class, hit.get(), 600) == null, 80)
-                .subject(() -> hit.get().add(0, 3, 0), 10, 0.03);
+                // до попадания камера ведёт шахед по небу: цель — он, после взрыва — место удара
+                .subject(() -> {
+                    Entity d = nearest(DroneEntity.class, hit.get(), 400);
+                    return d != null ? d : hit.get().add(0, 3, 0);
+                }, 10, 0.003);
 
         // «Ланцет»: катапульта у поста, круг над стадионом, пике
         run(this::placeActor);
@@ -516,7 +520,13 @@ public final class Trailer {
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
                 .endWhen(() -> sinceGone(BunkerBusterEntity.class) > 100, 0)
-                .subject(() -> pit.get().add(0, 3, 0), 12, 0.03);
+                // до сброса и в падении камера ведёт B-2 и бомбу (bomberFocus): цель — то, за чем она следит
+                .subject(() -> {
+                    BunkerBusterEntity b = nearest(BunkerBusterEntity.class, pit.get(), 600);
+                    if (b != null && b.flightPhase() != FlightPhase.DRILL) return b;
+                    BomberEntity plane = b == null ? nearest(BomberEntity.class, pit.get(), 450) : null;
+                    return plane != null ? plane : pit.get().add(0, 3, 0);
+                }, 12, 0.003);
     }
 
     /** Ночь: стая над городом, ночной «Град», шквал по центру с высоты. */
@@ -1124,12 +1134,14 @@ public final class Trailer {
         MinecraftServer server = mc.getSingleplayerServer();
         Vec3 want = new Vec3(prefer.x, 0, prefer.z).normalize();
         // дуга и радиус облёта — тоже на выбор: в плотном центре дуга к 40 блокам от места уходила в стены
-        double[] arcs = {arcDeg, arcDeg * 0.5, -arcDeg * 0.5, -arcDeg};
-        double[] radii = {radius, radius * 1.6};
+        // последний вариант — почти без облёта: неподвижный чистый вид лучше облёта сквозь стены
+        double[] arcs = {arcDeg, arcDeg * 0.5, -arcDeg * 0.5, -arcDeg, arcDeg * 0.15};
+        double[] radii = {radius, radius * 1.6, radius * 2.5};
         final int samples = 8;
         return server.submit(() -> {
             ServerLevel level = server.overworld();
-            Vec3 eye = at.add(0, 2, 0);
+            // середина огненного шара, а не земля под ним: из улицы между башнями у земли не видно почти ничего
+            Vec3 eye = at.add(0, 6, 0);
             View best = null;
             double bestScore = Double.NEGATIVE_INFINITY;
             int bestClear = 0;
