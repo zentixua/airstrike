@@ -730,6 +730,42 @@ public final class StrikeGameTests {
         });
     }
 
+    /**
+     * Ударная волна выбивает стёкла и листву в своём кубе, по секциям чанков: каждый такой блок внутри (и на
+     * стыках секций), ни одного снаружи и ничего другого.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void shatterBreaksGlassAndLeavesInBox(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER.above(8));
+        // по углам и серединам куба 2r+1 — точки в разных секциях; снаружи — на блок за краем
+        int r = 9;
+        List<BlockPos> inside = new java.util.ArrayList<>();
+        for (int dx : new int[]{-r, 0, r}) {
+            for (int dy : new int[]{-3, 0, 5}) {
+                for (int dz : new int[]{-r, 0, r}) {
+                    if (dx != 0 || dy != 0 || dz != 0) inside.add(c.offset(dx, dy, dz));
+                }
+            }
+        }
+        List<BlockPos> outside = List.of(c.offset(r + 1, 0, 0), c.offset(0, 6, 0), c.offset(0, -4, -r - 1));
+        for (int i = 0; i < inside.size(); i++) level.setBlock(inside.get(i), (i % 2 == 0 ? Blocks.GLASS : Blocks.GLASS_PANE).defaultBlockState(), 3);
+        for (BlockPos p : outside) level.setBlock(p, Blocks.GLASS.defaultBlockState(), 3);
+        BlockPos leaves = c.offset(2, 1, -2), stone = c.offset(-2, 1, 2);
+        level.setBlock(leaves, Blocks.OAK_LEAVES.defaultBlockState(), 3);
+        level.setBlock(stone, Blocks.STONE.defaultBlockState(), 3);
+        Vec3 centre = Vec3.atCenterOf(c);
+        int glass = Warheads.shatter(level, centre, r, 3, 5, ua.zentix.airstrike.registry.ModTags.SHATTERS);
+        h.assertTrue(glass == inside.size(), "выбито стёкол " + glass + " из " + inside.size());
+        for (BlockPos p : inside) h.assertTrue(level.getBlockState(p).isAir(), "стекло осталось в " + h.relativePos(p));
+        for (BlockPos p : outside) h.assertTrue(level.getBlockState(p).is(Blocks.GLASS), "выбито стекло за краем в " + h.relativePos(p));
+        h.assertTrue(level.getBlockState(leaves).is(Blocks.OAK_LEAVES) && level.getBlockState(stone).is(Blocks.STONE), "волна по стёклам тронула не стекло");
+        h.assertTrue(Warheads.shatter(level, centre, r, 3, 5, net.minecraft.tags.BlockTags.LEAVES) == 1 && level.getBlockState(leaves).isAir(),
+                "листва не выбита");
+        h.assertTrue(level.getBlockState(stone).is(Blocks.STONE), "волна по листве тронула камень");
+        h.succeed();
+    }
+
     @GameTest(template = "range", timeoutTicks = 20)
     public static void pickerSeesBlockAndEntity(GameTestHelper h) {
         ServerLevel level = h.getLevel();
