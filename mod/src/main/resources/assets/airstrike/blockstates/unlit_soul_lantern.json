@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "hanging=false": {
+      "model": "airstrike:block/unlit_soul_lantern"
+    },
+    "hanging=true": {
+      "model": "airstrike:block/unlit_soul_lantern_hanging"
+    }
+  }
+}

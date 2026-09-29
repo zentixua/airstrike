@@ -49,6 +49,7 @@ import java.util.Locale;
  *   /airstrike nuke at x y z [кт] [air|ground]         МБР по точке
  *   /airstrike nuke now [at x y z] [кт] [air|ground]   подрыв сразу, без полёта (отладка)
  *   /airstrike radiation [игрок] | radiation clear [игроки]
+ *   /airstrike grid …                                  сеть и блэкаут ({@link GridCommand})
  * </pre>
  * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке.
  */
@@ -80,6 +81,7 @@ public final class AirstrikeCommand {
                         .executes(ctx -> give(ctx, EntityArgument.getPlayers(ctx, "players")))));
 
         root.then(nuke());
+        root.then(GridCommand.build());
         root.then(Commands.literal("radiation").requires(s -> s.hasPermission(2))
                 .executes(ctx -> radiation(ctx, ctx.getSource().getPlayerOrException()))
                 .then(Commands.literal("clear")
@@ -259,7 +261,7 @@ public final class AirstrikeCommand {
     private static int help(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack s = ctx.getSource();
         s.sendSystemMessage(Component.translatable("airstrike.help.title").withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD));
-        for (int i = 1; i <= 11; i++) {
+        for (int i = 1; i <= 12; i++) {
             s.sendSystemMessage(Component.translatable("airstrike.help." + i).withStyle(ChatFormatting.GRAY));
         }
         return 1;

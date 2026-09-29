@@ -32,6 +32,30 @@ public final class S2C {
         }
     }
 
+    /** Подстанция выбита: хлопок, дуга и искры, затихающий гул трансформатора. */
+    public record GridFailure(Vec3 pos, long seed) implements CustomPacketPayload {
+        public static final Type<GridFailure> TYPE = new Type<>(Airstrike.id("grid_failure"));
+        public static final StreamCodec<ByteBuf, GridFailure> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, GridFailure::pos, ByteBufCodecs.VAR_LONG, GridFailure::seed, GridFailure::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** Квартал рядом погас (щелчок реле, гул обрывается) или в него вернулся свет ({@code on}). */
+    public record GridDistrict(Vec3 pos, boolean on) implements CustomPacketPayload {
+        public static final Type<GridDistrict> TYPE = new Type<>(Airstrike.id("grid_district"));
+        public static final StreamCodec<ByteBuf, GridDistrict> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, GridDistrict::pos, ByteBufCodecs.BOOL, GridDistrict::on, GridDistrict::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Бомба вошла в грунт: звуковой удар, удар о землю, фонтан у входного отверстия. */
     public record BunkerImpact(Vec3 pos, int material) implements CustomPacketPayload {
         public static final Type<BunkerImpact> TYPE = new Type<>(Airstrike.id("bunker_impact"));

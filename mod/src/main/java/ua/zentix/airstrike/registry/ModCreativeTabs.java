@@ -17,6 +17,7 @@ public final class ModCreativeTabs {
                 output.accept(ModItems.DESIGNATOR.get());
                 output.accept(ModItems.GEIGER_COUNTER.get());
                 output.accept(ModItems.TRINITITE.get());
+                output.accept(ModItems.SUBSTATION.get());
             })
             .build());
 
