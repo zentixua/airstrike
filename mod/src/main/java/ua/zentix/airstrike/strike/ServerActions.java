@@ -3,6 +3,7 @@ package ua.zentix.airstrike.strike;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,6 +35,7 @@ import ua.zentix.airstrike.target.TargetPicker;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /** Действия игроков с пульта (пакеты) и команд: пуск, настройки пульта, отбой. Всё проверяется здесь. */
 public final class ServerActions {
@@ -91,8 +93,9 @@ public final class ServerActions {
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
-        int n = clearAll(player.server, mayUseNuke(player));
-        player.sendSystemMessage(Component.translatable("airstrike.cleared", n).withStyle(ChatFormatting.GRAY));
+        boolean nuclear = mayUseNuke(player);
+        int n = clearAll(player.server, nuclear);
+        player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
     }
 
     /** Действие того же рода было меньше {@link #FIRE_INTERVAL} тиков назад; иначе запомнить это. */
@@ -289,26 +292,35 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: все снаряды и обломки во всех мирах убраны без взрыва, залпы отменены.
+     * Отбой: снаряды и обломки во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета и B-2
+     * с ядерной БЧ) отменяет только ядерный отбой.
      *
      * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
      */
     public static int clearAll(MinecraftServer server, boolean nuclear) {
+        Predicate<StrikeProjectile> cancelled = p -> nuclear || !p.isNuclear();
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
             List<Entity> kill = new ArrayList<>();
             for (Entity e : level.getAllEntities()) {
-                if (e instanceof StrikeProjectile || e instanceof DebrisEntity || e instanceof LauncherEntity || e instanceof SpentBoosterEntity) kill.add(e);
+                if (e instanceof StrikeProjectile p ? cancelled.test(p)
+                        : e instanceof DebrisEntity || e instanceof LauncherEntity || e instanceof SpentBoosterEntity) kill.add(e);
             }
             for (Entity e : kill) {
                 if (e instanceof StrikeProjectile) n++;
                 e.discard();
             }
-            n += VirtualFlights.get(level).clear();
+            n += VirtualFlights.get(level).clear(level, cancelled);
+            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
             StrikeWorld.clearSalvos(level);
             if (nuclear) n += NuclearStrikes.clear(level);
         }
-        PacketDistributor.sendToAllPlayers(new S2C.Cleared());
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear));
         return n;
+    }
+
+    /** Итог отбоя для того, кто его дал: отменены ли и ядерные удары. */
+    public static MutableComponent clearedMessage(int n, boolean nuclear) {
+        return Component.translatable(nuclear ? "airstrike.cleared" : "airstrike.cleared.conventional", n);
     }
 }

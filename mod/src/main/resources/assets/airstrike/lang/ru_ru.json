@@ -48,6 +48,7 @@
   "airstrike.alert.air_raid": "⚠ ВОЗДУШНАЯ ТРЕВОГА ⚠",
   "airstrike.alert.missile": "⚠ РАКЕТНАЯ ОПАСНОСТЬ ⚠",
   "airstrike.cleared": "Все шахеды, ракеты, бомбы, залпы и ядерные удары отменены (всего: %s). Разрушенное не возвращается.",
+  "airstrike.cleared.conventional": "Шахеды, ракеты, бомбы и залпы отменены (всего: %s); ядерных ударов этот отбой не касается. Разрушенное не возвращается.",
   "airstrike.given": "Пульт наведения выдан (%s).",
   "airstrike.no_permission": "Пульт работает только у операторов (настройка designator_for_everyone)",
   "airstrike.player_not_found": "Игрок «%s» не найден",

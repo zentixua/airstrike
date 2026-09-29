@@ -48,6 +48,7 @@
   "airstrike.alert.air_raid": "⚠ AIR RAID ALERT ⚠",
   "airstrike.alert.missile": "⚠ MISSILE THREAT ⚠",
   "airstrike.cleared": "All drones, missiles, bombs, salvos and nuclear strikes cancelled (total: %s). Destroyed blocks are not restored.",
+  "airstrike.cleared.conventional": "Drones, missiles, bombs and salvos cancelled (total: %s); nuclear strikes are not affected. Destroyed blocks are not restored.",
   "airstrike.given": "Strike Designator given (%s).",
   "airstrike.no_permission": "The designator is for operators only (designator_for_everyone setting)",
   "airstrike.player_not_found": "Player “%s” not found",

@@ -261,6 +261,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         entityData.set(DATA_NUCLEAR, nuke != null);
     }
 
+    /** Несёт ядерную боевую часть: её отменяет только ядерный отбой. */
     public boolean isNuclear() {
         return entityData.get(DATA_NUCLEAR);
     }

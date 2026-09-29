@@ -54,6 +54,12 @@ public class IcbmEntity extends StrikeProjectile {
         return false;
     }
 
+    /** МБР всегда ядерная, хотя подрывает не она, а запланированный удар ({@code NuclearStrikes}). */
+    @Override
+    public boolean isNuclear() {
+        return true;
+    }
+
     /** Поставить на стартовую площадку носом вверх. */
     public void prepare(Vec3 pad, Vec3 target, @Nullable UUID owner) {
         super.launch(pad.add(0, 9, 0), new Target.Point(target), target, owner);

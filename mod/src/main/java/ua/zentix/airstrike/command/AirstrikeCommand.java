@@ -74,7 +74,7 @@ public final class AirstrikeCommand {
             CommandSourceStack s = ctx.getSource();
             boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && ServerActions.mayUseNuke(p);
             int n = ServerActions.clearAll(s.getServer(), nuclear);
-            s.sendSuccess(() -> Component.translatable("airstrike.cleared", n), true);
+            s.sendSuccess(() -> ServerActions.clearedMessage(n, nuclear), true);
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))

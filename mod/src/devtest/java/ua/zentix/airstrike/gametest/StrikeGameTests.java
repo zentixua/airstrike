@@ -225,7 +225,7 @@ public final class StrikeGameTests {
             h.assertTrue(Math.abs(f.distanceToAim() - at.distanceTo(r.aimPoint())) < 0.01, "до цели: " + f.distanceToAim());
             h.assertTrue(ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(1000, 0, 0), null).isEmpty(), "слышно за 1000 блоков");
             // не долетать: в партии теста больше никого, а снаряд, упавший после конца теста, упал бы на чужую площадку
-            VirtualFlights.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> true);
             h.succeed();
         });
     }
