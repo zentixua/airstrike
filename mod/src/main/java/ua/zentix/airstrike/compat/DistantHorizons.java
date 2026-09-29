@@ -1,10 +1,12 @@
 package ua.zentix.airstrike.compat;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.neoforged.fml.ModList;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.function.LongConsumer;
 
 /**
@@ -57,6 +59,14 @@ public final class DistantHorizons {
      */
     public static void lodSaved(ServerLevel level, LongConsumer consumer) {
         if (present()) DistantHorizonsLod.confirmed(level, consumer);
+    }
+
+    /**
+     * Проба хранилища LOD DH: id блока и свет на его месте ({@code null} — данных нет или DH нет). Результат — в
+     * фоновом потоке.
+     */
+    public static CompletableFuture<String> lodSample(ServerLevel level, BlockPos pos) {
+        return present() ? DistantHorizonsLod.sample(level, pos) : CompletableFuture.completedFuture(null);
     }
 
     /** Подтверждения для чанка больше не ждать. */

@@ -7,7 +7,11 @@ import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
 import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiChunkModifiedEvent;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
+import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
+import com.seibel.distanthorizons.api.objects.data.DhApiTerrainDataPoint;
+import net.minecraft.Util;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -19,6 +23,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.LongConsumer;
@@ -92,6 +97,27 @@ final class DistantHorizonsLod {
     static void forget(ServerLevel level, long chunk) {
         Set<Long> watched = WATCHED.get(level);
         if (watched != null) watched.remove(chunk);
+    }
+
+    /**
+     * Что лежит в хранилище LOD DH на месте блока (самая мелкая детализация): id блока и свет, или null — данных нет.
+     * Читает базу DH — только в фоновом потоке.
+     */
+    static CompletableFuture<String> sample(ServerLevel level, BlockPos pos) {
+        IDhApiWorldProxy world = DhApi.Delayed.worldProxy;
+        IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
+        if (world == null || repo == null || !world.worldLoaded()) return CompletableFuture.completedFuture(null);
+        IDhApiLevelWrapper wrapper = wrapper(world, level);
+        if (wrapper == null) return CompletableFuture.completedFuture(null);
+        return CompletableFuture.supplyAsync(() -> {
+            try (IDhApiTerrainDataCache cache = repo.createSoftCache()) {
+                DhApiResult<DhApiTerrainDataPoint> r = repo.getSingleDataPointAtBlockPos(wrapper, pos.getX(), pos.getY(), pos.getZ(), cache);
+                if (!r.success || r.payload == null || r.payload.blockStateWrapper == null) return null;
+                return r.payload.blockStateWrapper.getSerialString() + ", свет " + r.payload.blockLightLevel;
+            } catch (Exception e) {
+                return null;
+            }
+        }, Util.backgroundExecutor());
     }
 
     private static synchronized void subscribe() {
