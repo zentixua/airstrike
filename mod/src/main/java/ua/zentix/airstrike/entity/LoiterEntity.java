@@ -80,6 +80,13 @@ public class LoiterEntity extends StrikeProjectile {
         return 4;
     }
 
+    /** Путь кончается у цели только в пике: на подлёте и на круге барража он идёт мимо неё. */
+    @Override
+    @Nullable
+    protected Vec3 pathEnd() {
+        return flightPhase() == FlightPhase.TERMINAL ? super.pathEnd() : null;
+    }
+
     @Override
     protected double clearance() {
         return 25;

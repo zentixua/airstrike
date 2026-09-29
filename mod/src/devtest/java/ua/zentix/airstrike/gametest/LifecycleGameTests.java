@@ -3,10 +3,12 @@ package ua.zentix.airstrike.gametest;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.Ticket;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -23,7 +25,10 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.ChunkTickets;
+import ua.zentix.airstrike.strike.FlightTickets;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -31,6 +36,7 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -92,7 +98,7 @@ public final class LifecycleGameTests {
     }
 
     /**
-     * Район цели (региональный тикет) держит и барражирующий в мире; выгрузка с чанком отпускает и его.
+     * Район цели (тикет региона или прогрев по чанкам) держит и барражирующий в мире; выгрузка с чанком отпускает и его.
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "tickets_area", skyAccess = true)
     public static void targetAreaReleasedWhenUnloadedWithChunk(GameTestHelper h) {
@@ -360,9 +366,142 @@ public final class LifecycleGameTests {
                 + " phase=" + p.flightPhase() + " ticking=" + level.isPositionEntityTicking(p.blockPosition()) + " age=" + p.age();
     }
 
-    /** Тикеты района цели этого снаряда ({@code FlightTickets}, ключ — его UUID). */
+    /**
+     * Тикеты района цели этого снаряда (ключ — его UUID): тикет региона {@code FlightTickets} и, пока район
+     * не готов целиком, тикет загрузки {@code AreaLoader}.
+     */
     private static int flightTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_flight", id);
+        return tickets(level, "airstrike_flight", id) + tickets(level, "airstrike_area_load", id);
+    }
+
+    /** Тикет района «как раньше» — ванильный тикет региона сразу на весь район (контроль проверки). */
+    private static final TicketType<UUID> PLAIN_AREA = TicketType.create("airstrike_test_plain_area", Comparator.<UUID>naturalOrder());
+
+    /**
+     * Районы целей в свежем мире ({@code AreaLoader}): в любой тик блоки района тикают только там, где готовы все
+     * соседние чанки (VPS 29.09.2026: улей у края района, выпуская пчелу, грузил соседа синхронно, сервер стоял
+     * 2–18 с); у района один тикет региона, и его квадрат готов; тикет загрузки стоит, пока район не взят целиком;
+     * сущности в центре тикают; отпущенный район не оставляет тикетов. Контроль — ванильный тикет региона на свежий
+     * район, как было до {@code AreaLoader}: проверка должна поймать у него тикающие блоки рядом с неготовым чанком.
+     */
+    @GameTest(template = "range", timeoutTicks = 6000, batch = "tickets_background", skyAccess = true)
+    public static void targetAreasTickOnlyNextToReadyChunks(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // районы грузятся в фоне: срок — игровой (сервер GameTest тикает без пауз, на CI он прошёл бы раньше генерации)
+        StrikeGameTests.gameSpeed(h);
+        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        ChunkPos[] centre = {new ChunkPos(base.x + 40, base.z), new ChunkPos(base.x + 70, base.z + 30), new ChunkPos(base.x - 50, base.z - 40)};
+        int[] distance = {FlightTickets.DISTANCE, FlightTickets.DISTANCE, 6};
+        UUID[] id = {UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()};
+        ChunkPos plain = new ChunkPos(base.x - 40, base.z + 60);
+        UUID plainId = UUID.randomUUID();
+        for (int i = 0; i < 3; i++) {
+            h.assertFalse(Terrain.ready(level, centre[i].x, centre[i].z), "район " + i + " не свежий");
+            FlightTickets.hold(level, centre[i], distance[i], id[i], true);
+        }
+        h.assertFalse(Terrain.ready(level, plain.x, plain.z), "контрольный район не свежий");
+        level.getChunkSource().addRegionTicket(PLAIN_AREA, plain, FlightTickets.DISTANCE, plainId);
+        int[] tick = {0}, plainTicking = {-1}, plainViolations = {0};
+        int[] ticking = {-1, -1, -1};
+        h.onEachTick(() -> {
+            tick[0]++;
+            for (int i = 0; i < 3; i++) {
+                String where = "район " + i + ", тик " + tick[0] + ": ";
+                String bad = tickingNextToUnready(level, centre[i], distance[i] + 1);
+                if (bad != null) throw new GameTestAssertException(where + "блоки тикают в " + bad);
+                List<Integer> radii = regionRadii(level, "airstrike_flight", id[i]);
+                if (radii.size() > 1) throw new GameTestAssertException(where + "тикеты региона " + radii);
+                int r = radii.isEmpty() ? -1 : radii.get(0);
+                for (int dx = -r; dx <= r; dx++) {
+                    for (int dz = -r; dz <= r; dz++) {
+                        if (!Terrain.ready(level, centre[i].x + dx, centre[i].z + dz)) throw new GameTestAssertException(where + "тикет региона радиуса " + r + " на неготовый чанк " + dx + " " + dz);
+                    }
+                }
+                int load = tickets(level, "airstrike_area_load", id[i]);
+                if (load != (r == distance[i] ? 0 : 1)) throw new GameTestAssertException(where + "тикетов загрузки " + load + " при радиусе " + r);
+                if (ticking[i] < 0 && level.isPositionEntityTicking(centre[i].getMiddleBlockPosition(64))) ticking[i] = tick[0];
+            }
+            if (tickingNextToUnready(level, plain, FlightTickets.DISTANCE + 1) != null) plainViolations[0]++;
+            if (plainTicking[0] < 0 && level.isPositionEntityTicking(plain.getMiddleBlockPosition(64))) plainTicking[0] = tick[0];
+            boolean done = plainTicking[0] >= 0;
+            for (int i = 0; i < 3; i++) done &= ticking[i] >= 0 && regionRadii(level, "airstrike_flight", id[i]).equals(List.of(distance[i]));
+            if (!done) return;
+            for (int i = 0; i < 3; i++) FlightTickets.hold(level, centre[i], distance[i], id[i], false);
+            level.getChunkSource().removeRegionTicket(PLAIN_AREA, plain, FlightTickets.DISTANCE, plainId);
+            for (int i = 0; i < 3; i++) h.assertTrue(flightTickets(level, id[i]) == 0, "тикеты района " + i + " остались после отпуска");
+            Airstrike.LOG.info("Районы целей в фоне: сущности в центре тикают на тиках {}, район взят целиком на {}; ванильный тикет — на {}, тикающих блоков рядом с неготовым чанком у него {} тиков",
+                    java.util.Arrays.toString(ticking), tick[0], plainTicking[0], plainViolations[0]);
+            h.assertTrue(plainViolations[0] > 0, "проверка не поймала ванильный тикет региона на свежем районе");
+            h.succeed();
+        });
+    }
+
+    private static final TicketType<UUID> SHARED_A = TicketType.create("airstrike_test_shared_a", Comparator.<UUID>naturalOrder());
+    private static final TicketType<UUID> SHARED_B = TicketType.create("airstrike_test_shared_b", Comparator.<UUID>naturalOrder());
+
+    /**
+     * Два района с одним центром, радиусом и ключом, но разными типами (как воронка и очередь разрушений ядерного
+     * удара на одном чанке): отпуск одного, пока оба ещё грузятся, не снимает загрузку другого, и тот догружается
+     * и берётся целиком. Ванильный тикет один на (тип, уровень, значение) — с общим тикетом загрузки второй район
+     * оставался без тикета навсегда.
+     */
+    @GameTest(template = "range", timeoutTicks = 3000, batch = "tickets_shared", skyAccess = true)
+    public static void releasingOneAreaKeepsTwinLoading(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.gameSpeed(h);
+        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        ChunkPos centre = new ChunkPos(base.x + 60, base.z - 60);
+        UUID key = UUID.randomUUID();
+        AreaLoader areas = StrikeWorld.get(level).areas();
+        AreaLoader.Area a = new AreaLoader.Area(SHARED_A, centre, 2, key), b = new AreaLoader.Area(SHARED_B, centre, 2, key);
+        h.assertFalse(Terrain.ready(level, centre.x, centre.z), "район не свежий");
+        areas.hold(level, a);
+        areas.hold(level, b);
+        h.assertTrue(tickets(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
+        areas.release(level, a);
+        h.assertTrue(tickets(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
+        h.onEachTick(() -> {
+            if (!regionRadii(level, "airstrike_test_shared_b", key).equals(List.of(2))) return;
+            h.assertTrue(regionRadii(level, "airstrike_test_shared_a", key).isEmpty(), "отпущенный район снова взят");
+            areas.release(level, b);
+            h.assertTrue(tickets(level, "airstrike_area_load", key) + tickets(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
+            h.succeed();
+        });
+    }
+
+    /** Чанк в квадрате {@code radius} вокруг {@code c}, где тикают блоки, а сосед не готов, — или {@code null}. */
+    private static String tickingNextToUnready(ServerLevel level, ChunkPos c, int radius) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                int x = c.x + dx, z = c.z + dz;
+                if (!level.shouldTickBlocksAt(ChunkPos.asLong(x, z))) continue;
+                for (int nx = -1; nx <= 1; nx++) {
+                    for (int nz = -1; nz <= 1; nz++) {
+                        if (!Terrain.ready(level, x + nx, z + nz)) return "чанке " + dx + " " + dz + " (сосед " + nx + " " + nz + " не готов)";
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Радиусы тикетов региона {@code type} с ключом {@code id} (уровень тикета — 33 − радиус). */
+    static List<Integer> regionRadii(ServerLevel level, String type, UUID id) {
+        try {
+            Field f = DistanceManager.class.getDeclaredField("tickets");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var map = (Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) f.get(level.getChunkSource().chunkMap.getDistanceManager());
+            List<Integer> radii = new java.util.ArrayList<>();
+            for (SortedArraySet<Ticket<?>> set : map.values()) {
+                for (Ticket<?> t : set) {
+                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) radii.add(33 - t.getTicketLevel());
+                }
+            }
+            return radii;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** Тикеты своего чанка и чанка впереди ({@code ChunkTickets}, ключ — UUID снаряда). */
@@ -388,9 +527,11 @@ public final class LifecycleGameTests {
         }
     }
 
+    /** Ключ тикета; у тикета загрузки {@code AreaLoader} значение — сам район, ключ — его. */
     private static Object ticketKey(Ticket<?> t) throws ReflectiveOperationException {
         Field key = Ticket.class.getDeclaredField("key");
         key.setAccessible(true);
-        return key.get(t);
+        Object k = key.get(t);
+        return k instanceof AreaLoader.Area a ? a.key() : k;
     }
 }
