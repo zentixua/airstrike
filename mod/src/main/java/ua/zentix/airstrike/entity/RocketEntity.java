@@ -184,6 +184,11 @@ public class RocketEntity extends StrikeProjectile {
         if (position().distanceToSqr(before) > 1.0e-6) t += step;
     }
 
+    /** Темп времени траектории: 1 — как у мира, меньше — полёт вне мира растянут (для стенда). */
+    public double timeRate() {
+        return rate;
+    }
+
     /**
      * Темп полёта вне мира. Район точки падения не готов — последние {@link #STRETCH_TICKS} тиков траектории до
      * {@link #HOLD_OFF} блоков от цели замедляются плавно (темп = оставшееся до них время / STRETCH_TICKS, меняется

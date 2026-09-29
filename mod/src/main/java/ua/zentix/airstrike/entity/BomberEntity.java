@@ -29,6 +29,8 @@ public class BomberEntity extends StrikeProjectile {
     public static final double ALTITUDE = 170;
     public static final double RELEASE_DISTANCE = 85;
     public static final double CRUISE_SPEED = 12;
+    /** Разворот, °/тик: радиус ~690 блоков. */
+    private static final double TURN_RATE = 1.0;
     /** После сброса улетает и исчезает через столько тиков (или раньше — на краю загруженного мира). */
     private static final int EGRESS_TICKS = 400;
 
@@ -128,7 +130,10 @@ public class BomberEntity extends StrikeProjectile {
             if (phaseAge() < 60) flight.steerYaw(flight.yaw() + 20 * breakSide, 0.08, 1.2, 0.08);
             else flight.settleYaw(0.08);
         } else if (b.horizontal() > RELEASE_DISTANCE + 40) {
-            flight.steerYaw(b.yaw(), 0.1, 1.0, 0.1);
+            // точка сброса внутри круга разворота (перенацелили сбоку, проскочил её): на пределе поворота он
+            // кружил бы вокруг неё без конца — прямо, пока она не выйдет из круга, и новый заход
+            if (insideTurn(aim, TURN_RATE)) flight.settleYaw(0.1);
+            else flight.steerYaw(b.yaw(), 0.1, TURN_RATE, 0.1);
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));

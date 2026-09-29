@@ -23,6 +23,7 @@ import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SplitGuard;
+import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DebrisEntity;
@@ -665,6 +666,32 @@ public final class StrikeGameTests {
             h.assertFalse(h.getBlockState(RUNWAY_TARGET).is(Blocks.GRASS_BLOCK), "нет входного отверстия");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET.below()).is(Blocks.DIRT), "бомба не пробила грунт");
         });
+    }
+
+    /**
+     * B-2, у которого точка сброса оказалась внутри круга разворота (перенацелили сбоку; стенд VPS 29.09.2026: стенд
+     * перенацелил бомбардировщик в 200 блоках от него), уходит прямо, заходит снова и сбрасывает бомбу. Раньше он
+     * на пределе поворота кружил вокруг точки в 300–480 блоках от неё до «Отбоя».
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_reattack", skyAccess = true)
+    public static void bomberReattacksAimInsideItsTurn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 start = top(h, RUNWAY_TARGET);
+        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
+        // курс на +z, далеко вперёд; сразу перенацеливание на 150 блоков вбок и 60 вперёд — внутрь круга разворота
+        bomber.launch(start, start.add(0, 0, 3000), null, null);
+        Vec3 aside = start.add(150, 0, 60);
+        h.assertTrue(bomber.retarget(new Target.Point(aside), aside), "бомбардировщик не принял перенацеливание");
+        level.addFreshEntity(bomber);
+        UUID id = bomber.getUUID();
+        BomberEntity[] last = {bomber};
+        h.onEachTick(() -> {
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            if (p instanceof BomberEntity b) last[0] = b;
+        });
+        h.succeedWhen(() -> h.assertTrue(last[0].hasReleased(), "бомба не сброшена, B-2 в " + (int) last[0].position().subtract(aside).horizontalDistance()
+                + " блоках от точки сброса"));
     }
 
     /**
