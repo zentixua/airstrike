@@ -180,6 +180,8 @@ public final class StressDirector {
     private int warnings, errors;
 
     private int tick = -1;
+    /** С какого тика сервера часы сценария ждут, пока игроки встанут на места ({@code MAX_VALUE} — больше не ждут). */
+    private int placingSince = -1;
     private long tickStart;
     private long windowMax, windowSum;
     private int windowTicks;
@@ -409,19 +411,29 @@ public final class StressDirector {
                 now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
                 log("tp %s → %d %d, район ждали %d тиков", name, x, z, s.getTickCount() - since);
             }
-            // дальше район держит тикет игрока: наш отпускается, когда игрок числится в центральном чанке (тикет игрока
-            // встаёт по нему), — или через TELEPORT_HOLD, если игрока там нет (вышел, телепортирован дальше)
+            // дальше район держит тикет игрока: наш отпускается, когда на центральном чанке стоит тикет игрока
+            // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают с задержкой,
+            // DistanceManager.ticketThrottler), — или через TELEPORT_HOLD, если игрока там нет (вышел, ушёл дальше).
+            // Отпустить раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно
             int placed = s.getTickCount();
             waits.add(() -> {
                 ServerPlayer there = s.getPlayerList().getPlayerByName(name);
-                boolean arrived = there != null && there.serverLevel() == level && there.chunkPosition().equals(centre);
-                if (!arrived && s.getTickCount() - placed < TELEPORT_HOLD) return false;
+                boolean arrived = there != null && there.serverLevel() == level && playerTicketAt(level, centre);
+                if (!arrived && (there != null || s.getTickCount() - placed < TELEPORT_HOLD) && s.getTickCount() - placed < TELEPORT_WAIT) return false;
                 release.run();
-                log("район телепорта %s отпущен через %d тиков%s", name, s.getTickCount() - placed, arrived ? "" : ", игрока в нём нет");
+                log("район телепорта %s отпущен через %d тиков%s", name, s.getTickCount() - placed, arrived ? "" : ", тикета игрока на нём нет");
                 return true;
             });
             return true;
         });
+    }
+
+    /** На чанке стоит тикет игрока ({@code TicketType.PLAYER}): район держит сам игрок. */
+    private static boolean playerTicketAt(ServerLevel level, ChunkPos pos) {
+        DistanceManager d = distanceManager(level);
+        var map = d == null ? null : ticketMap(d);
+        var set = map == null ? null : map.get(pos.toLong());
+        return set != null && set.stream().anyMatch(t -> t.getType() == TicketType.PLAYER);
     }
 
     private static boolean areaReady(ServerLevel level, ChunkPos centre) {
@@ -760,11 +772,20 @@ public final class StressDirector {
             if (s.getPlayerCount() < PLAYERS) return;
             log("все игроки на месте, начинаем");
         }
-        if (tick == 0 && !pendingTeleports.isEmpty()) {
-            // часы сценария стоят, пока игроки не встанут на свои места: волна 1 бьёт по ним
+        if (tick == 0 && placingSince != Integer.MAX_VALUE && !pendingTeleports.isEmpty()) {
+            // часы сценария стоят, пока игроки не встанут на свои места: волна 1 бьёт по ним; но не дольше
+            // 2 × TELEPORT_WAIT — иначе при районе, который так и не готов, стенд не дошёл бы до сводки
+            if (placingSince < 0) placingSince = s.getTickCount();
             runWaits();
-            if (pendingTeleports.isEmpty()) log("игроки на местах, часы сценария идут");
-            return;
+            if (pendingTeleports.isEmpty()) {
+                log("игроки на местах, часы сценария идут");
+            } else if (s.getTickCount() - placingSince >= 2 * TELEPORT_WAIT) {
+                problems.add("игроки не на местах за " + 2 * TELEPORT_WAIT + " тиков (" + pendingTeleports.keySet() + "), сценарий идёт без них");
+                log("игроки %s не на местах, часы сценария идут", pendingTeleports.keySet());
+                placingSince = Integer.MAX_VALUE;
+            } else {
+                return;
+            }
         }
         tick++;
         windowSum += took;
