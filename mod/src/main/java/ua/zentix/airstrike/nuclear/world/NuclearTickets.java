@@ -19,6 +19,11 @@ import java.util.Comparator;
  */
 public final class NuclearTickets {
     private static final TicketType<ChunkPos> TYPE = TicketType.create("airstrike_nuclear", Comparator.comparingLong(ChunkPos::toLong));
+    /**
+     * Свой тип для очереди разрушений: одинаковый тикет (тип, уровень, значение) у ванили один на всех, и снятие
+     * тикета очередью сняло бы тикет воронки на том же чанке.
+     */
+    private static final TicketType<ChunkPos> SCAR = TicketType.create("airstrike_nuclear_scar", Comparator.comparingLong(ChunkPos::toLong));
     /** Чанк и соседи вокруг — полностью загружены (и соседние столбцы, и края воронки). */
     private static final int RADIUS = 1;
 
@@ -41,7 +46,16 @@ public final class NuclearTickets {
     }
 
     public static void hold(ServerLevel level, ChunkPos pos, boolean hold) {
-        if (hold) level.getChunkSource().addRegionTicket(TYPE, pos, RADIUS, pos);
-        else level.getChunkSource().removeRegionTicket(TYPE, pos, RADIUS, pos);
+        hold(level, TYPE, pos, hold);
+    }
+
+    /** Чанк на краю загруженного мира и его соседи — пока очередь разрушений его не пройдёт ({@link ScarQueue}). */
+    static void holdForScar(ServerLevel level, ChunkPos pos, boolean hold) {
+        hold(level, SCAR, pos, hold);
+    }
+
+    private static void hold(ServerLevel level, TicketType<ChunkPos> type, ChunkPos pos, boolean hold) {
+        if (hold) level.getChunkSource().addRegionTicket(type, pos, RADIUS, pos);
+        else level.getChunkSource().removeRegionTicket(type, pos, RADIUS, pos);
     }
 }

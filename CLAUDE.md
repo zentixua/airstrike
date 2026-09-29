@@ -204,6 +204,10 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Нельзя убивать сущности, перебирая `level.getAllEntities()` (живая карта: лут добавляется прямо в неё) — брать
   снимок `getEntitiesOfClass`.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
+- `ChunkEvent.Load` приходит один раз за жизнь чанка в памяти: у края видимости чанк опускается ниже полной загрузки
+  (`getChunkNow` — null) и поднимается обратно без выгрузки и без нового события. Очередь, которая держит чанки,
+  снимает их только по `ChunkEvent.Unload`; «чанк в памяти» — `ChunkMap.getVisibleChunkIfPresent` (AT) +
+  `getChunkIfPresentUnchecked(FULL)`. Иначе — полосы нетронутых чанков после ядерки (`ScarQueue`).
 - Длинный луч `Level.clip` на сервере (прицел до 1024 блоков, нос снаряда, тень света ядерки) — только до первого
   неготового чанка: `Terrain.readyUntil`/`readyAlong` (обход колонок чанков по сетке).
 - `Entity.onRemovedFromLevel` (NeoForge, из `onTrackingEnd`) приходит и тогда, когда чанк просто перестал выдаваться,
