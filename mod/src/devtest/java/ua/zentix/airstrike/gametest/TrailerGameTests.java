@@ -24,15 +24,15 @@ import java.util.Locale;
 public final class TrailerGameTests {
     private static final BlockPos RANGE_CENTER = new BlockPos(32, 11, 32);
     private static final TicketType<ChunkPos> PATH = TicketType.create("airstrike_test_path", Comparator.comparingLong(ChunkPos::toLong));
-    /** Путь: 200 блоков на восток по 3 блока за тик, крен покачивается ±25°. */
-    private static final double LENGTH = 200, SPEED = 3;
+    /** Путь: 400 блоков на восток по 10 блоков за тик (как в трейлере, 200 м/с), крен покачивается ±25°. */
+    private static final double LENGTH = 400, SPEED = 10;
 
     private TrailerGameTests() {}
 
     /**
-     * Истребитель из блоков собирается в аппарат Sable и летит по прямой 200 блоков со скоростью 3 блока за тик:
+     * Истребитель из блоков собирается в аппарат Sable и летит по прямой 400 блоков со скоростью 10 блоков за тик:
      * физика Sable между тиками не уводит его от поставленной точки (не дальше 0.05 блока), нос смотрит по курсу,
-     * крен — какой задан, блоки аппарата на месте.
+     * крен — какой задан, блоки аппарата на месте, срезы сопел (откуда клиент рисует факел) — позади, на корме.
      */
     @GameTest(template = "range", timeoutTicks = 1200, batch = "trailer_aircraft", skyAccess = true)
     public static void aircraftFliesScriptedPath(GameTestHelper h) {
@@ -114,6 +114,10 @@ public final class TrailerGameTests {
                     h.assertTrue(flown >= LENGTH, "пролетел только " + flown);
                     h.assertTrue(worst[0] < 0.05, "физика увела аппарат с пути на " + worst[0]);
                     h.assertTrue(left == a.builtBlocks(), "в аппарате блоков " + left + " из " + a.builtBlocks());
+                    for (Vec3 n : a.nozzles()) {
+                        double behind = a.subLevel().logicalPose().transformPosition(n).subtract(a.position()).dot(dir);
+                        h.assertTrue(behind < -3 && behind > -10, "сопло не на корме: " + behind + " блока от центра масс");
+                    }
                     a.remove();
                     for (ChunkPos c : path) level.getChunkSource().removeRegionTicket(PATH, c, 3, c);
                 })

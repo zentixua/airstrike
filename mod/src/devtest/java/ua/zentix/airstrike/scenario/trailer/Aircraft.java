@@ -8,9 +8,11 @@ import dev.ryanhcode.sable.companion.math.BoundingBox3i;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.EndRodBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaterniond;
@@ -42,11 +44,14 @@ public final class Aircraft {
     private final ServerLevel level;
     private final ServerSubLevel sub;
     private final int blocks;
+    /** Угол постройки ({@code origin} в {@link #shape}) в координатах плота. */
+    private final Vec3 originLocal;
 
-    private Aircraft(ServerLevel level, ServerSubLevel sub, int blocks) {
+    private Aircraft(ServerLevel level, ServerSubLevel sub, int blocks, Vec3 originLocal) {
         this.level = level;
         this.sub = sub;
         this.blocks = blocks;
+        this.originLocal = originLocal;
     }
 
     /**
@@ -70,7 +75,9 @@ public final class Aircraft {
         List<BlockPos> blocks = new ArrayList<>(shape.keySet());
         ServerSubLevel sub = SubLevelAssemblyHelper.assembleBlocks(level, origin, blocks,
                 new BoundingBox3i(minX, minY, minZ, maxX, maxY, maxZ));
-        Aircraft a = new Aircraft(level, sub, blocks.size());
+        // точки постройки — в координатах плота (общих у сервера и клиента): клиент переводит их в мир своей позой
+        // аппарата (факел форсажа, след с законцовок)
+        Aircraft a = new Aircraft(level, sub, blocks.size(), sub.logicalPose().transformPositionInverse(Vec3.atLowerCornerOf(origin)));
         a.fly(a.position(), yaw, 0, 0);
         return a;
     }
@@ -104,6 +111,24 @@ public final class Aircraft {
     public Vec3 rightWing() {
         Vector3d n = sub.logicalPose().orientation().transform(new Vector3d(-1, 0, 0));
         return new Vec3(n.x, n.y, n.z);
+    }
+
+    /**
+     * Точка постройки (в осях {@link #shape}, от {@code origin}) в координатах плота — общих у сервера и клиента;
+     * в мир её переводит поза аппарата ({@code pose.transformPosition}).
+     */
+    public Vec3 local(Vec3 inShape) {
+        return originLocal.add(inShape);
+    }
+
+    /** Срезы сопел в координатах плота. */
+    public List<Vec3> nozzles() {
+        return NOZZLES.stream().map(this::local).toList();
+    }
+
+    /** Законцовки крыла (правая, левая) в координатах плота. */
+    public List<Vec3> wingtips() {
+        return List.of(local(new Vec3(-6.5, 0.5, 4.5)), local(new Vec3(7.5, 0.5, 4.5)));
     }
 
     public ServerSubLevel subLevel() {
@@ -145,44 +170,63 @@ public final class Aircraft {
                 .rotateZ(Math.toRadians(roll));
     }
 
+    /** Центры срезов сопел в осях постройки ({@link #shape}): от них назад идёт факел форсажа. */
+    static final List<Vec3> NOZZLES = List.of(new Vec3(1.5, 0.5, 0), new Vec3(-0.5, 0.5, 0));
+
     /**
-     * Силуэт истребителя носом на +Z: фюзеляж 12 блоков, стреловидное треугольное крыло размахом 11, фонарь
-     * кабины, стабилизаторы и киль, сопло. {@code origin} — хвост фюзеляжа по оси.
+     * Силуэт двухдвигательного истребителя носом на +Z (около 16 × 15 блоков, как F-22 в метрах): широкий
+     * фюзеляж в два тона серого, горб и фонарь, треугольное крыло из плит (тонкое), ракеты на законцовках,
+     * стабилизаторы за крылом, два киля, два сопла. {@code origin} — хвост фюзеляжа по оси.
      */
     static Map<BlockPos, BlockState> shape(BlockPos origin) {
         Map<BlockPos, BlockState> m = new LinkedHashMap<>();
         BlockState hull = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
-        BlockState wing = Blocks.GRAY_CONCRETE.defaultBlockState();
-        BlockState dark = Blocks.BLACK_CONCRETE.defaultBlockState();
+        BlockState panel = Blocks.SMOOTH_STONE_SLAB.defaultBlockState();
+        BlockState dark = Blocks.GRAY_CONCRETE.defaultBlockState();
+        BlockState nozzle = Blocks.POLISHED_BLACKSTONE.defaultBlockState();
+        BlockState intake = Blocks.BLACK_CONCRETE.defaultBlockState();
         BlockState canopy = Blocks.TINTED_GLASS.defaultBlockState();
-        // фюзеляж: сопло, корпус, нос
-        m.put(origin, dark);
-        for (int z = 1; z <= 10; z++) m.put(origin.offset(0, 0, z), hull);
-        m.put(origin.offset(0, 0, 11), dark);
-        // воздухозаборники по бокам корпуса
-        for (int z = 5; z <= 7; z++) {
-            m.put(origin.offset(1, 0, z), hull);
-            m.put(origin.offset(-1, 0, z), hull);
+        BlockState missile = Blocks.WHITE_CONCRETE.defaultBlockState();
+        // фюзеляж: ось с носом, бока с воздухозаборниками спереди, сопла сзади
+        for (int z = 0; z <= 13; z++) m.put(origin.offset(0, 0, z), hull);
+        for (int x : new int[]{-1, 1}) {
+            m.put(origin.offset(x, 0, 0), nozzle);
+            for (int z = 1; z <= 10; z++) m.put(origin.offset(x, 0, z), z < 4 ? dark : hull);
+            m.put(origin.offset(x, 0, 11), intake);
         }
-        // фонарь кабины
-        m.put(origin.offset(0, 1, 7), canopy);
-        m.put(origin.offset(0, 1, 8), canopy);
-        // треугольное крыло: кромка уходит назад к законцовкам
-        int[][] rows = {{2, 5}, {3, 4}, {4, 3}, {5, 2}};
-        for (int[] r : rows) {
-            for (int x = -r[1]; x <= r[1]; x++) {
-                if (x != 0) m.putIfAbsent(origin.offset(x, 0, r[0]), wing);
+        m.put(origin.offset(0, 0, 14), panel);
+        m.put(origin.offset(0, 0, 15), Blocks.END_ROD.defaultBlockState().setValue(EndRodBlock.FACING, Direction.SOUTH));
+        // горб за кабиной и фонарь
+        for (int z = 2; z <= 8; z++) m.put(origin.offset(0, 1, z), panel);
+        for (int z = 9; z <= 11; z++) m.put(origin.offset(0, 1, z), canopy);
+        m.put(origin.offset(0, 1, 12), panel);
+        // треугольное крыло (плиты — тонкое): размах растёт к задней кромке
+        for (int z = 3; z <= 8; z++) {
+            int span = 10 - z;
+            for (int x = 2; x <= span; x++) {
+                m.put(origin.offset(x, 0, z), panel);
+                m.put(origin.offset(-x, 0, z), panel);
             }
         }
-        // стабилизаторы
-        for (int x = -2; x <= 2; x++) if (x != 0) m.put(origin.offset(x, 0, 1), wing);
-        // киль
-        m.put(origin.offset(0, 1, 1), wing);
-        m.put(origin.offset(0, 2, 1), wing);
-        m.put(origin.offset(0, 1, 2), wing);
-        m.put(origin.offset(0, 3, 0), wing);
-        m.put(origin.offset(0, 2, 0), wing);
-        m.put(origin.offset(0, 1, 0), wing);
+        // ракеты на законцовках
+        for (int x : new int[]{-7, 7}) for (int z = 4; z <= 5; z++) m.put(origin.offset(x, 0, z), missile);
+        // стабилизаторы за крылом (щель на z = 2)
+        for (int x = 2; x <= 4; x++) {
+            m.put(origin.offset(x, 0, 0), panel);
+            m.put(origin.offset(-x, 0, 0), panel);
+        }
+        for (int x = 2; x <= 3; x++) {
+            m.put(origin.offset(x, 0, 1), panel);
+            m.put(origin.offset(-x, 0, 1), panel);
+        }
+        // два киля над двигателями, со скосом передней кромки
+        for (int x : new int[]{-1, 1}) {
+            m.put(origin.offset(x, 1, 1), dark);
+            m.put(origin.offset(x, 1, 2), dark);
+            m.put(origin.offset(x, 2, 0), dark);
+            m.put(origin.offset(x, 2, 1), dark);
+            m.put(origin.offset(x, 3, 0), dark);
+        }
         return m;
     }
 }

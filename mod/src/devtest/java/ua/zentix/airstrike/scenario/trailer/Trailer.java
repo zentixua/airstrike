@@ -135,11 +135,13 @@ public final class Trailer {
 
     private record Seen(String type, Class<?> cls, Vec3 pos) {}
 
-    /** Истребитель в полёте: аппарат, путь, скорость, сдвиг фазы покачивания, тиков в полёте. */
-    private record Sortie(Aircraft craft, Vec3 from, Vec3 to, double speed, double phase, long[] ticks) {}
+    /** Истребители: 10 блоков за тик (200 м/с), план — 150 тиков (7,5 с); куда валится камера с креном. */
+    private static final double FIGHTER_SPEED = 10;
+    private static final int FIGHTER_TICKS = 150;
+    private static final float FIGHTER_CAMERA_FALL = 1;
 
-    /** Истребители в полёте; меняет их только поток сервера. */
-    private final List<Sortie> sorties = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** Пара истребителей плана fighters. */
+    private final Fighters fighters = new Fighters();
 
     /** Когда пропал последний снаряд каждого типа (время игры). */
     private final java.util.Map<Class<?>, Long> goneAt = new java.util.HashMap<>();
@@ -160,7 +162,9 @@ public final class Trailer {
         NeoForge.EVENT_BUS.addListener(this::hideHand);
         NeoForge.EVENT_BUS.addListener(this::hideName);
         NeoForge.EVENT_BUS.addListener(this::hideWallOverlay);
-        NeoForge.EVENT_BUS.addListener(this::flySorties);
+        NeoForge.EVENT_BUS.addListener(fighters::fly);
+        NeoForge.EVENT_BUS.addListener(fighters::fx);
+        NeoForge.EVENT_BUS.addListener(fighters::render);
         script();
     }
 
@@ -386,83 +390,40 @@ public final class Trailer {
     }
 
     /**
-     * Истребители из аэропорта (он на востоке) идут на запад навстречу крылатой ракете и не успевают: пара
-     * проходит над камерой на крыше, ракета — навстречу, над ними. Истребители — аппараты Sable из блоков
-     * ({@link Aircraft}), ведёт их сервер по прямой с покачиванием крыльев; ракета заходит с запада, из-за спины
-     * невидимки, в западную стену восточной башни.
+     * Истребители из аэропорта (он на востоке) идут на запад навстречу крылатой ракете: пара на форсаже в вираже
+     * с креном над городом, камера в строю. Истребители — аппараты Sable из блоков ({@link Aircraft}), путь —
+     * координированный вираж на 200 м/с ({@link FlightPath}), факел и след — {@link Fighters}.
      */
     private void fighters() {
         fromAfar(true);
         Supplier<Vec3> roofCam = () -> ground(EAST_TOWER.add(-330, 0, 130)).add(0, 6, 0);
-        run(() -> placeHidden(roofCam.get(), EAST_TOWER));
-        // аппарат Sable, вошедший в чанк без тика, выгружается: коридор пролёта держим загруженным
+        FlightPath[] route = new FlightPath[1];
         run(() -> {
             Vec3 c = roofCam.get();
-            for (int dx = -380; dx <= 300; dx += 80) forceload(c.add(dx, 0, 0), 40);
+            // конец — над крышей к западу, курсом на запад; до него левый вираж с креном 70°
+            route[0] = FlightPath.turn(c.add(-600, 45, -10), 90, FIGHTER_SPEED, FIGHTER_TICKS, -70, 20, 125, 18);
+            placeHidden(route[0].start().add(-25, 6, 0), EAST_TOWER);
+            // аппарат Sable, вошедший в чанк без тика, выгружается: коридор пролёта держим загруженным
+            Vec3[] pts = route[0].points();
+            for (int i = 0; i < pts.length; i += 8) forceload(pts[i], 48);
         });
-        shot("fighters").onReady(() -> fire("missile", eastFacade)).hidden().length(170).speed(0.7).shake(0.1)
-                .cue(0, () -> {
-                    Vec3 c = roofCam.get();
-                    scramble(c.add(260, 42, -14), c.add(-360, 42, -14), 3.5);
-                    scramble(c.add(282, 36, 6), c.add(-338, 36, 6), 3.5);
+        shot("fighters").hidden().length(FIGHTER_TICKS).shake(0.08)
+                .onReady(() -> {
+                    fire("missile", eastFacade);
+                    fighters.scramble(mc.getSingleplayerServer(), route[0], 24);
                 })
-                // в строю: камера сбоку-сзади ведущего, по тому же пути (не по позе с сервера — она ступенчатая по тикам)
+                .cue(0, fighters::go)
+                // в строю: камера по позе ведущего, какой её рисует клиент (плавно между тиками)
                 .camera(() -> t -> {
-                    Sortie lead = sorties.isEmpty() ? null : sorties.getFirst();
-                    Vec3 c = roofCam.get();
-                    if (lead == null) return Pose.look(c.add(0, 30, 0), c.add(200, 40, 0), 0, 50);
-                    Vec3 dir = lead.to().subtract(lead.from());
-                    double len = dir.length();
-                    dir = dir.normalize();
-                    double n = lead.ticks()[0] + CineCamera.partial();
-                    Vec3 at = lead.from().lerp(lead.to(), Math.min(1, n * lead.speed() / len));
-                    Vec3 right = new Vec3(-dir.z, 0, dir.x);
-                    return Pose.look(at.add(right.scale(-15)).add(dir.scale(-19)).add(0, 3.5, 0), at.add(dir.scale(10)).add(0, -1, 0), -4, 50);
+                    Pose p = fighters.camera(t / FIGHTER_TICKS, FIGHTER_CAMERA_FALL);
+                    Vec3 s = route[0] == null ? roofCam.get() : route[0].start();
+                    return p != null ? p : Pose.look(s.add(-25, 6, 0), s, 0, 55);
                 })
                 .when(() -> missileRange() < 1100, 6000)
                 .cueEnd(() -> {
-                    landFighters();
+                    fighters.land(mc.getSingleplayerServer());
                     cmd("forceload remove all");
                 });
-    }
-
-    /** Истребитель в полёте на сервере: из {@code from} в {@code to} со скоростью {@code speed} блоков за тик. */
-    private void scramble(Vec3 from, Vec3 to, double speed) {
-        MinecraftServer server = mc.getSingleplayerServer();
-        server.execute(() -> {
-            float yaw = yawTo(from, to);
-            Aircraft craft = Aircraft.build(server.overworld(), BlockPos.containing(from), yaw);
-            sorties.add(new Sortie(craft, from, to, speed, sorties.size() * 1.7, new long[1]));
-        });
-    }
-
-    @Nullable
-    private Vec3 leadFighter() {
-        for (Sortie s : sorties) if (s.craft().alive()) return s.craft().position();
-        return null;
-    }
-
-    private void landFighters() {
-        MinecraftServer server = mc.getSingleplayerServer();
-        server.execute(() -> {
-            for (Sortie s : sorties) s.craft().remove();
-            sorties.clear();
-        });
-    }
-
-    /** Тик сервера: истребители — в следующую точку пути (мир стоит — стоят и они). */
-    private void flySorties(net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) {
-        if (sorties.isEmpty() || !e.getServer().overworld().tickRateManager().runsNormally()) return;
-        for (Sortie s : sorties) {
-            long n = ++s.ticks()[0];
-            Vec3 dir = s.to().subtract(s.from());
-            double len = dir.length();
-            double k = Math.min(1, n * s.speed() / len);
-            // покачивание: лёгкий крен и снос в сторону, как у пары на маршруте
-            double weave = Math.sin(n * 0.06 + s.phase());
-            Vec3 lateral = new Vec3(-dir.z, 0, dir.x).normalize().scale(weave * 3);
-            s.craft().fly(s.from().lerp(s.to(), k).add(lateral), yawTo(s.from(), s.to()), 0, (float) (weave * 18));
-        }
     }
 
     /**
