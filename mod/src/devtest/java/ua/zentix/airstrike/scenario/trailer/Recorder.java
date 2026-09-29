@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -83,6 +84,11 @@ final class Recorder implements SoundEventListener {
         write(String.format(Locale.ROOT, "{\"type\":\"shot\",\"shot\":\"%s\",\"speed\":%.4f,\"hud\":%b,\"lang\":\"%s\"}", name, speed, hud,
                 Minecraft.getInstance().options.languageCode));
         Airstrike.LOG.info("TRAILER shot {} x{}", name, speed);
+        // петли, что зазвучали раньше плана и звучат дальше (моторы снарядов в полёте, начатые на пуске), — с начала
+        // плана: движок сообщает о звуке только при запуске, и без этого планы погони шли без мотора
+        for (SoundInstance sound : List.copyOf(Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel.keySet())) {
+            if (sound.isLooping()) log(sound);
+        }
     }
 
     void stop() {
@@ -144,7 +150,10 @@ final class Recorder implements SoundEventListener {
     /** Звук начал играть (движок уже выбрал файл). Музыку и фоновые звуки игры не берём — у трейлера своя музыка. */
     @Override
     public void onPlaySound(SoundInstance sound, WeighedSoundEvents accessor, float range) {
-        if (shot == null) return;
+        if (shot != null) log(sound);
+    }
+
+    private void log(SoundInstance sound) {
         SoundSource source = sound.getSource();
         if (source == SoundSource.MUSIC || source == SoundSource.RECORDS) return;
         Sound s = sound.getSound();
