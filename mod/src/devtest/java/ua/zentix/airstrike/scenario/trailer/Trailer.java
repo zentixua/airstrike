@@ -231,8 +231,9 @@ public final class Trailer {
                 CineCamera.Key.at(170, new Vec3(190, 290, -650), EAST_TOWER.add(0, 120, 0), 44)));
         run(() -> cmd("time set 23500"));
         shot("dawn_tower").length(130).hidden().farView().shake(0.04).camera(() -> CineCamera.spline(true,
-                CineCamera.Key.at(0, new Vec3(-430, 135, -470), TOWER.add(0, 205, 0), 24),
-                CineCamera.Key.at(130, new Vec3(-370, 148, -486), TOWER.add(0, 215, 0), 17)));
+                // в пределах прорисовки съёмки (24 чанка): дальше башни нет вовсе, только небо и солнце
+                CineCamera.Key.at(0, new Vec3(-200, 135, -470), TOWER.add(0, 150, 0), 34),
+                CineCamera.Key.at(130, new Vec3(-160, 146, -486), TOWER.add(0, 160, 0), 26)));
     }
 
     /** Наводчик на холмах: со спины на фоне города, бинокль, место удара на карте — пуск ракеты. */
@@ -380,18 +381,26 @@ public final class Trailer {
         fromAfar(true);
         Supplier<Vec3> roofCam = () -> ground(EAST_TOWER.add(-330, 0, 130)).add(0, 6, 0);
         run(() -> placeHidden(roofCam.get(), EAST_TOWER));
+        // аппарат Sable, вошедший в чанк без тика, выгружается: коридор пролёта держим загруженным
+        run(() -> {
+            Vec3 c = roofCam.get();
+            for (int dx = -380; dx <= 300; dx += 80) forceload(c.add(dx, 0, 0), 40);
+        });
         shot("fighters").onReady(() -> fire("missile", eastFacade)).hidden().length(170).speed(0.7).shake(0.1)
                 .cue(0, () -> {
                     Vec3 c = roofCam.get();
-                    scramble(c.add(300, 42, -14), c.add(-400, 42, -14), 3.5);
-                    scramble(c.add(322, 36, 6), c.add(-378, 36, 6), 3.5);
+                    scramble(c.add(260, 42, -14), c.add(-360, 42, -14), 3.5);
+                    scramble(c.add(282, 36, 6), c.add(-338, 36, 6), 3.5);
                 })
                 .camera(() -> {
                     Vec3 c = roofCam.get();
                     return CineCamera.track(c, smoothFocus(this::leadFighter, c.add(200, 40, 0), 0.25), 54);
                 })
                 .when(() -> missileRange() < 1100, 6000)
-                .cueEnd(this::landFighters);
+                .cueEnd(() -> {
+                    landFighters();
+                    cmd("forceload remove all");
+                });
     }
 
     /** Истребитель в полёте на сервере: из {@code from} в {@code to} со скоростью {@code speed} блоков за тик. */
@@ -449,8 +458,11 @@ public final class Trailer {
                     mc.options.renderDistance().set(ONBOARD_RENDER_DISTANCE);
                     if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
                 })
-                .when(() -> onMap() && missileRange() < 700, 4000)
+                // с запасом: подготовка (прогрузка 14 чанков вокруг) идёт при стоящем мире, а видео с борта — лишь
+                // последние ~250 блоков (≈22 тика); кончается план вскоре после попадания, а не по длине
+                .when(() -> onMap() && missileRange() < 1500, 4000)
                 .length(220).speed(0.2).hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
+                .endWhen(() -> sinceGone(CruiseMissileEntity.class) > 25, 0)
                 .cueEnd(() -> {
                     ProjectileCamera.exit();
                     mc.options.renderDistance().set(renderDistance);
@@ -1383,6 +1395,8 @@ public final class Trailer {
                         setTickRate(20);
                         return true;
                     }
+                    // попадания прошлых планов не в счёт: sinceGone в условиях этого плана — только о его снарядах
+                    goneAt.clear();
                     if (selected()) {
                         if (speedCurve != null) rec.start(name, speed, speedCurve, hudOn);
                         else rec.start(name, speed, hudOn);
