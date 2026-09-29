@@ -886,7 +886,10 @@ public final class StressDirector {
      * загрузки ({@code Warheads.whenReady}); снаряд, вернувшийся в мир и сбитый в том же тике, взрывается позже.
      */
     private static final int BLAST_WAIT = 200;
-    /** Взрыв — этого снаряда, если он ближе к месту уборки или к месту, где снаряд замечен последним (путь за тик). */
+    /**
+     * Взрыв — этого снаряда, если он ближе к месту уборки; в тике уборки — или к месту, где снаряд замечен последним
+     * (путь за тик). Позже — только у места уборки: за {@link #BLAST_WAIT} тиков рядом рвутся соседи по залпу.
+     */
     private static final double BLAST_AT_END = 16, BLAST_AT_SEEN = 48;
     private final List<Gone> awaitingBlast = new ArrayList<>();
     /** Снаряды, которые мод убрал, не дождавшись загрузки района цели ({@link #GAVE_UP}). */
@@ -895,7 +898,8 @@ public final class StressDirector {
     @Nullable
     private Vec3 blastFor(Gone g) {
         for (Vec3 b : blastsThisTick)
-            if (b.distanceToSqr(g.end) < BLAST_AT_END * BLAST_AT_END || b.distanceToSqr(g.w.pos) < BLAST_AT_SEEN * BLAST_AT_SEEN) return b;
+            if (b.distanceToSqr(g.end) < BLAST_AT_END * BLAST_AT_END
+                    || tick == g.at && b.distanceToSqr(g.w.pos) < BLAST_AT_SEEN * BLAST_AT_SEEN) return b;
         return null;
     }
 
