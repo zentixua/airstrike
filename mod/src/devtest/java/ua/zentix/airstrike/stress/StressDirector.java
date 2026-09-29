@@ -104,8 +104,13 @@ public final class StressDirector {
     private static final class Probe {
         final String name;
         final Vec3 center;
-        final boolean expectStretch;
+        /** Ждём глубокого растяжения (полёт короче загрузки района) или его не должно быть. */
+        final boolean expectDeep;
+        final ServerLevel level;
+        final int fired;
         int launched, stretchOn, stretchOff;
+        /** Через сколько тиков после пуска чанк цели готов и в нём тикают сущности (-1 — ещё нет). */
+        int readyAfter = -1;
         /**
          * Самый низкий темп полёта среди снарядов пробы и сколько снарядов опускались ниже {@link #DEEP}: растяжение
          * из-за неготового района глубокое, а сервер, вставший на секунды (ванильная синхронная загрузка), даёт
@@ -115,10 +120,12 @@ public final class StressDirector {
         final Set<UUID> deep = new HashSet<>();
         final Map<String, Integer> outcomes = new TreeMap<>();
 
-        Probe(String name, Vec3 center, boolean expectStretch) {
+        Probe(String name, Vec3 center, boolean expectDeep, ServerLevel level, int fired) {
             this.name = name;
             this.center = center;
-            this.expectStretch = expectStretch;
+            this.expectDeep = expectDeep;
+            this.level = level;
+            this.fired = fired;
         }
     }
 
@@ -209,7 +216,9 @@ public final class StressDirector {
         as(340, "Friend1", "airstrike salvo loiter 30 150 Friend2");
         as(360, "Friend2", "airstrike salvo missile 20 80 Friend1");
         // РСЗО по свежим районам вдали от игроков (растяжение полёта вне мира): 250 блоков — полёт короче загрузки
-        // района, растяжение ожидается; 1500 — полёт длиннее загрузки, растяжения быть не должно
+        // района, растяжение ожидается глубокое; 1500 — полёт (~400 тиков) длиннее загрузки района в одиночку (80–120 тиков,
+        // облако, 4 ядра), глубокого растяжения быть не должно. Мелкое там допустимо: проба идёт следом за волной 1, чьи
+        // десятки свежих районов генерируются в той же очереди (VPS 29.09.2026: район готов через ~360 тиков, темп до 0,77)
         at(380, "РСЗО по свежему району в 250 блоках", s -> probe(s, "Host", "fresh-250", -180, -175, true));
         at(400, "РСЗО по свежему району в 1500 блоках", s -> probe(s, "Host", "fresh-1500", -1060, -1060, false));
         // аппарат Sable у второго друга: по нему ракеты, потом его дробит
@@ -374,7 +383,7 @@ public final class StressDirector {
      * Залп РСЗО из 10 по точке на земле (x, z): высота — без загрузки чанка ({@link Target.Ground#at}), район свежий,
      * если рядом никто не был. Снаряды относятся к пробе по точке цели.
      */
-    private void probe(MinecraftServer s, String shooter, String name, int x, int z, boolean expectStretch) {
+    private void probe(MinecraftServer s, String shooter, String name, int x, int z, boolean expectDeep) {
         ServerPlayer p = need(s, shooter, "залп-проба " + name);
         if (p == null) return;
         ServerLevel level = p.serverLevel();
@@ -383,7 +392,7 @@ public final class StressDirector {
         boolean fresh = !Terrain.ready(level, x >> 4, z >> 4);
         Target.Ground ground = Target.Ground.at(level, x, z);
         Vec3 point = ground.pos();
-        probes.add(new Probe(name, point, expectStretch));
+        probes.add(new Probe(name, point, expectDeep, level, tick));
         log("проба %s: РСЗО 10 по %d %d %d, %.0f блоков от %s, район %s", name, x, (int) point.y, z, Math.hypot(x - p.getX(), z - p.getZ()),
                 shooter, fresh ? "не готов" : "уже готов");
         if (!fresh) problems.add("проба " + name + ": район уже готов — растяжение не проверено");
@@ -575,6 +584,10 @@ public final class StressDirector {
     /** Все снаряды по UUID: новые, живые (в мире или вне его), пропавшие — со взрывом рядом или без. */
     private void track(MinecraftServer s) {
         seeDetonations(s);
+        for (Probe pr : probes) {
+            BlockPos c = BlockPos.containing(pr.center);
+            if (pr.readyAfter < 0 && Terrain.ready(pr.level, c) && pr.level.isPositionEntityTicking(c)) pr.readyAfter = tick - pr.fired;
+        }
         Map<UUID, StrikeProjectile> now = new LinkedHashMap<>();
         for (ServerLevel level : s.getAllLevels()) {
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) now.put(p.getUUID(), p);
@@ -792,9 +805,12 @@ public final class StressDirector {
                 why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s.overworld()),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors);
         for (Probe pr : probes) {
-            log("проба %s: пущено %d, растяжение началось %d, кончилось %d, глубоко (темп < %.1f) у %d, наименьший темп %.2f (ожидалось %s), итоги %s",
-                    pr.name, pr.launched, pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate,
-                    pr.expectStretch ? "растяжение" : "без растяжения", pr.outcomes);
+            log("проба %s: пущено %d, район готов через %d тиков после пуска, растяжение началось %d, кончилось %d, глубоко (темп < %.1f) у %d, "
+                            + "наименьший темп %.2f (ожидалось %s), итоги %s",
+                    pr.name, pr.launched, pr.readyAfter, pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate,
+                    pr.expectDeep ? "глубокое растяжение" : "без глубокого растяжения", pr.outcomes);
+            if (!pr.expectDeep && !pr.deep.isEmpty())
+                problems.add("проба " + pr.name + ": глубокое растяжение у " + pr.deep.size() + " (район готов через " + pr.readyAfter + " тиков)");
             if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
             if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
         }
