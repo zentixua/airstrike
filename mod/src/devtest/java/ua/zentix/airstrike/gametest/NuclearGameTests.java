@@ -468,10 +468,15 @@ public final class NuclearGameTests {
                     chunks.removeRegionTicket(HOLD, dPos, 0, dPos);
                 })
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(dPos.x, dPos.z) == null, "D не опустился ниже полной загрузки"))
-                .thenExecute(() -> det[0] = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 15, true, null, 0.1f))
-                // снимок и очередь успели взять C; у C нет полностью загруженных соседей — он ждёт
-                .thenIdle(20)
-                .thenExecute(() -> chunks.removeRegionTicket(HOLD, c, 0, c))
+                .thenExecute(() -> {
+                    // снимок подрыва взял C полностью загруженным; у C нет полностью загруженных соседей — он ждёт.
+                    // Держатель снимается в том же тике: чанк опускается на следующем тике мира, раньше, чем до него
+                    // дойдёт очередь (волна приходит к нему через несколько тиков). Дошедшая до ещё полного C очередь
+                    // сама держит его и соседей (край загруженного мира), и тогда он уже не опустился бы: с паузой
+                    // в 20 тиков тест зависел от того, успела ли очередь до C (на CI не всегда)
+                    det[0] = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 15, true, null, 0.1f);
+                    chunks.removeRegionTicket(HOLD, c, 0, c);
+                })
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(c.x, c.z) == null, "C не опустился ниже полной загрузки"))
                 // дольше повтора очереди (40 тиков): раньше здесь C выпадал из неё навсегда
                 .thenIdle(60)
