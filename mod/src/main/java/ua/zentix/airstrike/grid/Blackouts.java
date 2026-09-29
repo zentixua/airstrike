@@ -16,6 +16,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import dev.ryanhcode.sable.companion.SubLevelAccess;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
@@ -172,9 +173,10 @@ public final class Blackouts {
         boolean plots = server.getTickCount() % BlackoutWorld.PLOT_SCAN == 0 && ModList.get().isLoaded("sable");
         for (ServerLevel level : levels) {
             // двойники в плотах аппаратов Sable — и после перезапуска, когда отключений уже нет
-            if (plots && !SubLevels.all(level).isEmpty()) BlackoutWorld.get(level).relightPlots(level);
-            // миры без сети не тратят ни времени, ни памяти
-            if (level.hasData(ModAttachments.BLACKOUT_WORLD) || !PowerGrid.get(level).outages().isEmpty()) {
+            List<SubLevelAccess> ships = plots ? SubLevels.all(level) : List.of();
+            if (!ships.isEmpty()) BlackoutWorld.get(level).relightPlots(level, ships);
+            // миры без отключений и без работы блэкаута не тратят времени
+            if (!PowerGrid.get(level).outages().isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy()) {
                 BlackoutWorld.get(level).tick(level, clock);
             }
         }
@@ -196,6 +198,10 @@ public final class Blackouts {
                 && (chunk.hasData(ModAttachments.GRID_DARK) || PowerGrid.get(level).covered(chunk.getPos().x, chunk.getPos().z)
                 || ChunkLights.anyUnlit(chunk.getSections()))) {
             BlackoutWorld.get(level).enqueue(chunk.getPos().toLong());
+        }
+        // соседу этого чанка, возможно, только его и не хватало для сверки ламп с сигналом
+        if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof LevelChunk chunk && level.hasData(ModAttachments.BLACKOUT_WORLD)) {
+            BlackoutWorld.get(level).neighbourLoaded(chunk.getPos());
         }
     }
 

@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.grid;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
@@ -84,7 +85,7 @@ public final class ChunkLights {
                     for (int x = 0; x < 16; x++) {
                         BlockState to = GridLights.toward(section.getBlockState(x, y, z), dark);
                         if (to == null || !level.setBlock(p.set(x0 + x, y0 + y, z0 + z), to, FLAGS)) continue;
-                        if (!dark && (to.getBlock() instanceof RedstoneLampBlock || to.getBlock() instanceof CopperBulbBlock)) signalled.add(p.immutable());
+                        if (!dark && signal(to)) signalled.add(p.immutable());
                         if (++changed >= limit) break sections;
                     }
                 }
@@ -99,8 +100,11 @@ public final class ChunkLights {
      * прямо в палитре — без обновлений соседей и без Sable, которые прочли бы соседний чанк и загрузили его сразу.
      * Свет — {@code checkBlock} по месту (снижение и рост расходятся и туда, где соседи есть), клиентам — изменение
      * блока (тем, кому чанк выдан). Не больше {@code limit} ламп.
+     * <p>
+     * Лампы от сигнала, зажжённые здесь, сверить с сигналом нельзя (он читается у соседей, а запланированный тик
+     * в чанке без тика пропадает): их места — в {@code signalled}, сверка — когда соседи загружены ({@link #resignal}).
      */
-    public static int applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit) {
+    public static int applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit, LongArrayList signalled) {
         LevelChunkSection[] sections = chunk.getSections();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         var light = level.getChunkSource().getLightEngine();
@@ -119,6 +123,7 @@ public final class ChunkLights {
                         BlockPos p = new BlockPos(x0 + x, y0 + y, z0 + z);
                         light.checkBlock(p);
                         level.getChunkSource().blockChanged(p);
+                        if (!dark && signal(to)) signalled.add(p.asLong());
                         if (++changed >= limit) break sections;
                     }
                 }
@@ -132,13 +137,21 @@ public final class ChunkLights {
     public static void relight(ServerLevel level, BlockPos pos, BlockState twin) {
         BlockState lit = GridLights.lit(twin);
         if (lit == null || !level.setBlock(pos, lit, FLAGS)) return;
-        if (lit.getBlock() instanceof RedstoneLampBlock || lit.getBlock() instanceof CopperBulbBlock) resignal(level, pos);
+        if (signal(lit)) resignal(level, pos);
     }
 
-    /** Лампа от сигнала сверяется с сигналом, как от обновления соседа. */
-    private static void resignal(ServerLevel level, BlockPos pos) {
+    /** Лампа, которая горит от сигнала (из красного камня, медная). */
+    static boolean signal(BlockState state) {
+        return state.getBlock() instanceof RedstoneLampBlock || state.getBlock() instanceof CopperBulbBlock;
+    }
+
+    /**
+     * Лампа от сигнала сверяется с сигналом, как от обновления соседа (медная — и переключается по нему, как при
+     * установке). Другой блок на этом месте (лампу сломали, квартал снова погас) не трогается.
+     */
+    static void resignal(ServerLevel level, BlockPos pos) {
         BlockState s = level.getBlockState(pos);
-        s.handleNeighborChanged(level, pos, s.getBlock(), pos, false);
+        if (signal(s)) s.handleNeighborChanged(level, pos, s.getBlock(), pos, false);
     }
 
     /** В секциях есть погашенные лампы (по палитрам). */

@@ -342,7 +342,7 @@
   "airstrike.config.grid_time_budget.tooltip": "Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута.",
   "airstrike.help.12": "/airstrike grid status|blackout|restore|node … — энергосеть: состояние, обесточить район, вернуть свет, узлы для карт",
   "airstrike.grid.no_node": "Узла сети №%s нет",
-  "airstrike.grid.status": "Отключений: %s, узлов сети: %s (чанков в очереди %s, читаются с диска %s)",
+  "airstrike.grid.status": "Отключений: %s, узлов сети: %s (чанков в очереди %s, ламп к зажиганию %s, читаются с диска %s)",
   "airstrike.grid.outage": "№%s (%s): центр %s %s, радиус %s — свет %s",
   "airstrike.grid.restore.never": "вернут только командой",
   "airstrike.grid.restore.now": "возвращается",

@@ -20,6 +20,7 @@ import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.Outage;
 import ua.zentix.airstrike.grid.PowerGrid;
+import ua.zentix.airstrike.registry.ModAttachments;
 
 /**
  * /airstrike grid — сеть и блэкаут (операторы):
@@ -72,17 +73,20 @@ final class GridCommand {
 
     /** Все измерения: ядерный удар в Незере гасит Незер, а оператор стоит в верхнем мире. */
     private static int status(CommandContext<CommandSourceStack> ctx) {
-        int outages = 0, nodes = 0, queued = 0, reading = 0;
+        int outages = 0, nodes = 0, queued = 0, lamps = 0, reading = 0;
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             PowerGrid grid = PowerGrid.get(level);
             outages += grid.outages().size();
             for (Node ignored : grid.nodes()) nodes++;
+            // мир, где блэкаута не было, — без очередей (и без лишнего состояния)
+            if (!level.hasData(ModAttachments.BLACKOUT_WORLD)) continue;
             int[] backlog = BlackoutWorld.get(level).backlog();
             queued += backlog[0];
-            reading += backlog[1];
+            lamps += backlog[1];
+            reading += backlog[2];
         }
-        int o = outages, n = nodes, q = queued, r = reading;
-        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, r), false);
+        int o = outages, n = nodes, q = queued, l = lamps, r = reading;
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, l, r), false);
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             long now = level.getGameTime();
             String dimension = level.dimension().location().toString();
