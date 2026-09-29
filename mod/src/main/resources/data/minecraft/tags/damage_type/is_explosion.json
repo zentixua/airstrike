@@ -2,6 +2,7 @@
   "values": [
     "airstrike:strike",
     "airstrike:shockwave",
-    "airstrike:nuclear_blast"
+    "airstrike:nuclear_blast",
+    "airstrike:player_nuclear_blast"
   ]
 }

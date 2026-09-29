@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.nuclear.world;
 
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
@@ -9,42 +10,40 @@ import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.radiation.MobFallout;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
+import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.WeakHashMap;
 
 /**
  * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам; световой импульс
- * и проникающая радиация по сущностям, очередь повреждений чанков, воронки и осадки у мобов — под общим бюджетом времени.
+ * и проникающая радиация по сущностям, очередь повреждений чанков, воронки и осадки у мобов — под общим бюджетом времени
+ * (один на тик сервера, для всех измерений: {@link #clock(MinecraftServer)}).
  * В тике подрыва — ничего тяжёлого: и снимки (сущности и чанки в радиусе), и сама работа идут под бюджетом.
  * Сам не сохраняется: всё выводится из {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках;
- * импульс по сущностям после перезапуска не повторяется (он длится доли секунды).
+ * импульс по сущностям после перезапуска не повторяется (он длится доли секунды), фронт идёт дальше с того места, где был.
  */
 public final class NuclearWorld {
-    private static final Map<ServerLevel, NuclearWorld> WORLDS = new WeakHashMap<>();
+    /** Медленный ядерный тик пишется в лог не чаще, тиков. */
+    private static final int SLOW_LOG_PERIOD = 100;
 
     private final ScarQueue scars = new ScarQueue();
     private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
     private final BlastFront blast = new BlastFront();
-    private WorkClock clock = new WorkClock();
     private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
+    /** Игровое время мира, когда медленный тик в последний раз писался в лог. */
+    private long lastSlowLog = Long.MIN_VALUE / 2;
 
-    private NuclearWorld() {}
+    /** Для {@link ModAttachments#NUCLEAR_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
+    public NuclearWorld() {}
 
     public static NuclearWorld get(ServerLevel level) {
-        return WORLDS.computeIfAbsent(level, l -> new NuclearWorld());
-    }
-
-    public static void forget(ServerLevel level) {
-        NuclearWorld w = WORLDS.remove(level);
-        if (w != null) w.craters.forEach(c -> c.release(level));
+        return level.getData(ModAttachments.NUCLEAR_WORLD);
     }
 
     public int queuedChunks() {
@@ -65,13 +64,24 @@ public final class NuclearWorld {
         return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos};
     }
 
-    /** Часы бюджета очередей (проверки подменяют их считающими, {@link WorkClock#counting}). */
-    public WorkClock clock() {
-        return clock;
+    /**
+     * Часы бюджета ядерной работы — одни на сервер: бюджет {@code destruction_ms_per_tick} — на тик сервера, а не на
+     * измерение. Живут в верхнем мире (как общие данные сервера в ванили): он есть, пока жив сервер.
+     */
+    public static WorkClock clock(MinecraftServer server) {
+        return server.overworld().getData(ModAttachments.NUCLEAR_CLOCK);
     }
 
-    public void useClock(WorkClock clock) {
-        this.clock = clock;
+    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}). */
+    public static void useClock(MinecraftServer server, WorkClock clock) {
+        server.overworld().setData(ModAttachments.NUCLEAR_CLOCK, clock);
+    }
+
+    /** Медленный тик — в лог не чаще раза в 5 с (tools/logscan.py): true — пора писать, отметка поставлена. */
+    public boolean slowLogDue(long now) {
+        if (now - lastSlowLog < SLOW_LOG_PERIOD) return false;
+        lastSlowLog = now;
+        return true;
     }
 
     // ---------------------------------------------------------------- события
@@ -84,6 +94,7 @@ public final class NuclearWorld {
      */
     public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
         pulses.add(new PulseJob(level, d, owner));
+        blast.onDetonation(d, owner);
         scars.scanLoaded(d);
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
@@ -114,19 +125,21 @@ public final class NuclearWorld {
 
     // ---------------------------------------------------------------- тик
 
-    public void tick(ServerLevel level) {
+    /** @param clock бюджет тика сервера, общий для всех измерений (уже запущен) */
+    public void tick(ServerLevel level, WorkClock clock) {
         long now = level.getGameTime();
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
-        // бюджет — на всю ядерную работу тика
-        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
         // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
         long pulseStart = System.nanoTime();
-        try {
-            while (!pulses.isEmpty() && pulses.getFirst().work(level, clock)) pulses.removeFirst();
-        } catch (RuntimeException e) {
-            Airstrike.LOG.error("Световой импульс упал с ошибкой; сброшен", e);
-            pulses.clear();
+        while (!pulses.isEmpty()) {
+            PulseJob job = pulses.getFirst();
+            try {
+                if (!job.work(level, clock)) break;
+            } catch (RuntimeException e) {
+                Airstrike.LOG.error("Световой импульс подрыва №{} упал с ошибкой; снят", job.detonation().id(), e);
+            }
+            pulses.removeFirst();
         }
         long frontStart = System.nanoTime();
         lastPulseNanos = frontStart - pulseStart;
@@ -134,32 +147,50 @@ public final class NuclearWorld {
             blast.advance(level, events.detonations(), now);
             blast.work(level, clock, id -> pulses.stream().noneMatch(p -> p.detonation().id() == id));
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Ударная волна по сущностям упала с ошибкой; сброшена", e);
-            blast.clear();
+            // докуда фронт уже прошёл, остаётся: иначе он заново ударил бы всех внутри
+            Airstrike.LOG.error("Ударная волна по сущностям упала с ошибкой; удары в очереди сброшены", e);
+            blast.dropHits();
         }
         lastFrontNanos = System.nanoTime() - frontStart;
         if (now % 1200 == 0) scars.retainBudgets(events.detonations().stream().map(Detonation::id).collect(java.util.stream.Collectors.toSet()));
-        long start = System.nanoTime();
+        long craterStart = System.nanoTime();
+        digCraters(level, events, clock);
+        long scarStart = System.nanoTime();
+        lastCraterNanos = scarStart - craterStart;
+        scars.work(level, now, clock, level.random);
+        long falloutStart = System.nanoTime();
+        lastScarNanos = falloutStart - scarStart;
         try {
-            while (!craters.isEmpty() && clock.canStart()) {
-                CraterJob job = craters.getFirst();
-                long u0 = clock.begin();
-                CraterJob.Step s = job.step(level, level.random);
-                clock.end(u0);
-                events.craterProgress(job.detonation().id(), job.progress(), s == CraterJob.Step.DONE);
-                if (s == CraterJob.Step.DONE) craters.removeFirst();
-                else if (s == CraterJob.Step.WAIT) break;
-            }
-            long scarStart = System.nanoTime();
-            lastCraterNanos = scarStart - start;
-            scars.work(level, now, clock, level.random);
-            long falloutStart = System.nanoTime();
-            lastScarNanos = falloutStart - scarStart;
             mobFallout.work(level, events.detonations(), clock);
-            lastFalloutNanos = System.nanoTime() - falloutStart;
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Ядерные разрушения упали с ошибкой; очереди сброшены", e);
-            clear(level);
+            Airstrike.LOG.error("Осадки у мобов упали с ошибкой; обход сброшен", e);
+            mobFallout.clear();
+        }
+        lastFalloutNanos = System.nanoTime() - falloutStart;
+    }
+
+    /**
+     * Воронки по очереди, сколько успеем за бюджет. Воронка, упавшая с ошибкой, снимается одна (со своими тикетами);
+     * её ход в сохранении остаётся — после перезапуска она дороется с того же чанка.
+     */
+    private void digCraters(ServerLevel level, NuclearEvents events, WorkClock clock) {
+        while (!craters.isEmpty() && clock.canStart()) {
+            CraterJob job = craters.getFirst();
+            CraterJob.Step s;
+            long u0 = clock.begin();
+            try {
+                s = job.step(level, level.random);
+            } catch (RuntimeException e) {
+                Airstrike.LOG.error("Воронка подрыва №{} упала с ошибкой; снята", job.detonation().id(), e);
+                job.release(level);
+                craters.removeFirst();
+                continue;
+            } finally {
+                clock.end(u0);
+            }
+            events.craterProgress(job.detonation().id(), job.progress(), s == CraterJob.Step.DONE);
+            if (s == CraterJob.Step.DONE) craters.removeFirst();
+            else if (s == CraterJob.Step.WAIT) break;
         }
     }
 

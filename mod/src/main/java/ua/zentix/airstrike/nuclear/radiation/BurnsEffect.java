@@ -9,7 +9,7 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 
 import java.util.Set;
 
-/** Ожоги от светового импульса: пока действует — нет естественной регенерации, а бег причиняет боль. */
+/** Ожоги от светового импульса: пока действует, бег причиняет боль (урон раз в секунду). Лечению не мешает. */
 public class BurnsEffect extends MobEffect {
     public BurnsEffect() {
         super(MobEffectCategory.HARMFUL, 0xB5461E);
