@@ -134,6 +134,8 @@ public final class BlackoutWorld {
     private record Read(long chunk, @Nullable LevelChunk copy, boolean dark, @Nullable Throwable error) {}
 
     private static final int LOD_REWRITES = 4;
+    /** Сколько ещё ждать подтверждения после {@link #LOD_TIMEOUT} (наносекунды). */
+    private static final long LOD_LATE = 120_000_000_000L;
     private static final int PROBES = 16;
     private static final int PROBE_LATER = 1200;
     /** Классы пробы: как в сети, наоборот, другой блок, нет данных. */
@@ -187,6 +189,12 @@ public final class BlackoutWorld {
     /** Чанк, отданный DH, → когда (наносекунды); снимается подтверждением DH или по {@link #LOD_TIMEOUT}. */
     private final Long2LongOpenHashMap lodPending = new Long2LongOpenHashMap();
     /**
+     * Не подтверждённые за {@link #LOD_TIMEOUT} → с какого времени (наносекунды): DH ещё может их сохранить, и тогда
+     * чанк отдаётся ещё раз (один раз, {@link #lodRetried}); через {@link #LOD_LATE} ждать перестаём.
+     */
+    private final Long2LongOpenHashMap lodLate = new Long2LongOpenHashMap();
+    private final LongOpenHashSet lodRetried = new LongOpenHashSet();
+    /**
      * Для строки в лог, с загрузки мира: копий чанков отдано DH; без копии (файла или чанка на диске нет, в чанке
      * нет ламп, он другой версии игры или не полный); отброшено (чанк загрузился или сеть в нём сменилась, пока копия
      * читалась); не прочитано (ошибка).
@@ -194,6 +202,8 @@ public final class BlackoutWorld {
     private int lodCopies, lodSkipped, lodDiscarded, lodFailed;
     /** С загрузки мира: загруженных чанков отдано DH; DH подтвердил сохранение; подтверждения не дождались. */
     private int lodLive, lodSaved, lodUnconfirmed;
+    /** Опоздавших отдано ещё раз; DH не принял чанк (вызов API не прошёл). */
+    private int lodRetries, lodRefused;
     /** Погашенный чанк → сколько раз DH переписал его LOD сам (и мы отдали его снова); всего таких раз. */
     private final Long2IntOpenHashMap lodRewrites = new Long2IntOpenHashMap();
     private int lodRewrittenCount;
@@ -356,7 +366,7 @@ public final class BlackoutWorld {
      * ({@link Blackouts#onServerTick}).
      */
     public boolean busy(ServerLevel level) {
-        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !probes.isEmpty() || DistantHorizons.lodRewritePending(level);
+        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !probes.isEmpty() || !lodLate.isEmpty() || DistantHorizons.lodRewritePending(level);
     }
 
     // ---------------------------------------------------------------- тик
@@ -369,6 +379,14 @@ public final class BlackoutWorld {
         drainReads(level, grid, now);
         DistantHorizons.lodSaved(level, c -> {
             if (lodPending.remove(c) != lodPending.defaultReturnValue()) lodSaved++;
+            // опоздавший: это могло быть сохранение прежней отдачи, а новую DH пропустил (чанк ещё стоял в его очереди
+            // или сверил её с прежним хешем в базе) — ещё раз, теперь, когда прежняя записана
+            if (lodLate.remove(c) != lodLate.defaultReturnValue() && lodRetried.add(c)) {
+                lodRetries++;
+                lodAgain(level, c);
+            } else {
+                lodRetried.remove(c);
+            }
             ChunkPos p = new ChunkPos(c);
             boolean dark = grid.dark(p.x, p.z, now);
             DistantHorizons.lodDark(level, c, dark);
@@ -386,11 +404,20 @@ public final class BlackoutWorld {
             var chunkMap = level.getChunkSource().chunkMap;
             staleLight.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
             long expired = System.nanoTime() - LOD_TIMEOUT;
+            long nanos = System.nanoTime();
             lodPending.long2LongEntrySet().removeIf(e -> {
                 if (e.getLongValue() > expired) return false;
-                DistantHorizons.lodForget(level, e.getLongKey());
+                // не забыт: подтверждение ещё может прийти (ждём его в lodLate)
+                lodLate.put(e.getLongKey(), nanos);
                 lodUnconfirmed++;
                 probeNow(level, e.getLongKey(), 0, now);
+                return true;
+            });
+            long lateExpired = nanos - LOD_LATE;
+            lodLate.long2LongEntrySet().removeIf(e -> {
+                if (e.getLongValue() > lateExpired) return false;
+                if (!lodPending.containsKey(e.getLongKey())) DistantHorizons.lodForget(level, e.getLongKey());
+                lodRetried.remove(e.getLongKey());
                 return true;
             });
             resignal.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
@@ -608,6 +635,11 @@ public final class BlackoutWorld {
         }
         if (lodRewrites.addTo(c, 1) >= LOD_REWRITES) return;
         lodRewrittenCount++;
+        lodAgain(level, c);
+    }
+
+    /** Отдать чанк DH ещё раз в его нынешнем виде: загруженный — из мира, иначе копию с диска. */
+    private void lodAgain(ServerLevel level, long c) {
         lodSinceWork++;
         if (lodSince == 0) lodSince = System.nanoTime();
         if (inMemory(level, c) != null) lodLoaded.add(c);
@@ -635,11 +667,13 @@ public final class BlackoutWorld {
                 if (AirstrikeConfig.SERVER.gridDistantLod.get()) read(c);
                 continue;
             }
+            lodSinceWork++;
             if (DistantHorizons.updateLod(level, chunk)) {
                 probe(c, chunk, PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime()));
                 lodPending.put(c, System.nanoTime());
                 lodLive++;
-                lodSinceWork++;
+            } else {
+                lodRefused++;
             }
         }
     }
@@ -666,6 +700,8 @@ public final class BlackoutWorld {
                     probe(r.chunk, r.copy, r.dark);
                     lodPending.put(r.chunk, System.nanoTime());
                     lodCopies++;
+                } else {
+                    lodRefused++;
                 }
             } else {
                 lodDiscarded++;
@@ -680,8 +716,8 @@ public final class BlackoutWorld {
     private void logLodDone() {
         if (lodSince == 0 || !sweeps.isEmpty() || !reads.isEmpty() || readsInFlight > 0 || !lodLoaded.isEmpty() || !lodPending.isEmpty()) return;
         if (lodSinceWork > 0) {
-            Airstrike.LOG.info("Блэкаут: LOD DH обновлены за {} с (с загрузки мира: копий с диска {}, загруженных чанков {}, DH сохранил {}, без подтверждения {}, DH переписал сам {}; без копии {}, отброшено {}, не прочитано {})",
-                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - lodSince) / 1e9), lodCopies, lodLive, lodSaved, lodUnconfirmed, lodRewrittenCount,
+            Airstrike.LOG.info("Блэкаут: LOD DH обновлены за {} с (с загрузки мира: копий с диска {}, загруженных чанков {}, DH сохранил {}, без подтверждения {}, из них отдано ещё раз {}, DH переписал сам {}, DH не принял {}; без копии {}, отброшено {}, не прочитано {})",
+                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - lodSince) / 1e9), lodCopies, lodLive, lodSaved, lodUnconfirmed, lodRetries, lodRewrittenCount, lodRefused,
                     lodSkipped, lodDiscarded, lodFailed);
         }
         lodSince = 0;

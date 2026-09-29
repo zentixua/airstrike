@@ -149,7 +149,7 @@ final class DistantHorizonsLod {
     private static synchronized void subscribe() {
         if (subscribed) return;
         subscribed = true;
-        DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
+        DhApiResult<Void> r = DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
             @Override
             public void onChunkModified(DhApiEventParam<EventParam> input) {
                 Object level = input.value.levelWrapper.getWrappedMcObject();
@@ -165,6 +165,8 @@ final class DistantHorizonsLod {
                 if (dark != null && dark.contains(pos)) REWRITTEN.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos);
             }
         });
+        // без подписки каждая отдача ждёт полный срок: блэкаут в LOD идёт, но медленно
+        if (!r.success) Airstrike.LOG.warn("Distant Horizons: подписка на сохранения LOD не вышла ({}), блэкаут в LOD — без подтверждений", r.message);
     }
 
     /** Мир DH для мира сервера (в одиночной игре у DH свои обёртки клиента и сервера — нужна серверная). */
