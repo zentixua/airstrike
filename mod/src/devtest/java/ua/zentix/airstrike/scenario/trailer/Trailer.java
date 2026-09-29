@@ -541,8 +541,11 @@ public final class Trailer {
                 .length(260).shake(0.1).camera(() -> {
                     Vec3 dir = TOWER.subtract(silo).multiply(1, 0, 1).normalize();
                     Vec3 sideV = new Vec3(-dir.z, 0, dir.x);
-                    Vec3 pad = ground(silo.add(dir.scale(30)));
-                    Vec3 from = ground(pad.add(sideV.scale(70)).add(dir.scale(-20))).add(0, 3, 0);
+                    // стол МБР — в 30 блоках ЗА спиной наводчика (NuclearStrikes.launchFrom: назад от взгляда), а не впереди:
+                    // в дубле 1 камера смотрела мимо, и ракета едва мелькала в углу кадра
+                    Vec3 pad = ground(silo.subtract(dir.scale(30)));
+                    // сбоку и чуть сзади стола, низко: ракета поднимается на фоне неба, наводчик — силуэтом у старта
+                    Vec3 from = ground(pad.add(sideV.scale(55)).add(dir.scale(-35))).add(0, 2.5, 0);
                     Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 8, 0), 0.4), 50);
                     return t -> t < 100 ? p.at(t) : CineCamera.zoom(p, 50, 22, 160).at(t - 100);
                 });
