@@ -219,10 +219,14 @@ public final class S2C {
         }
     }
 
-    /** Отбой: всё убрано без взрыва — заглушить моторы и тревогу; {@code nuclear} — отменены и ядерные удары. */
-    public record Cleared(boolean nuclear) implements CustomPacketPayload {
+    /**
+     * Отбой: убрано без взрыва — заглушить моторы отменённых снарядов ({@code projectiles}) и тревогу;
+     * {@code nuclear} — отменены и ядерные удары (иначе ядерные снаряды летят дальше, их звук и камера остаются).
+     */
+    public record Cleared(boolean nuclear, List<UUID> projectiles) implements CustomPacketPayload {
         public static final Type<Cleared> TYPE = new Type<>(Airstrike.id("cleared"));
-        public static final StreamCodec<ByteBuf, Cleared> CODEC = ByteBufCodecs.BOOL.map(Cleared::new, Cleared::nuclear);
+        public static final StreamCodec<ByteBuf, Cleared> CODEC = StreamCodec.composite(
+                ByteBufCodecs.BOOL, Cleared::nuclear, UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), Cleared::projectiles, Cleared::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

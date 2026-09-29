@@ -13,6 +13,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
@@ -71,20 +72,20 @@ public final class VirtualFlights extends SavedData {
     /**
      * Отбой: убрать без взрыва снаряды, подходящие под {@code which}.
      *
-     * @return сколько убрано
+     * @return UUID убранных
      */
-    public int clear(ServerLevel level, Predicate<StrikeProjectile> which) {
+    public List<UUID> clear(ServerLevel level, Predicate<StrikeProjectile> which) {
         createPending(level);
-        int n = 0;
+        List<UUID> removed = new ArrayList<>();
         for (Iterator<StrikeProjectile> it = flights.iterator(); it.hasNext(); ) {
             StrikeProjectile p = it.next();
             if (!which.test(p)) continue;
             p.discard();
             it.remove();
-            n++;
+            removed.add(p.getUUID());
         }
-        if (n > 0) setDirty();
-        return n;
+        if (!removed.isEmpty()) setDirty();
+        return removed;
     }
 
     /** Создать сущности прочитанных с диска полётов. */
