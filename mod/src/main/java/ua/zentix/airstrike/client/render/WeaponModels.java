@@ -4,11 +4,13 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.model.ModelResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.model.data.ModelData;
@@ -23,8 +25,8 @@ import java.util.List;
 
 /**
  * Модели снарядов — гладкие сетки OBJ с текстурами из {@code tools/gen_models.py} (models/weapon, textures/block/weapon).
- * Грузятся как дополнительные модели блоков (атлас блоков), разбираются в {@link QuadMesh} и рисуются слоями
- * {@link WeaponRenderTypes} — путём сущностей: свет и тени мира, под шейдерами Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
+ * Грузятся как дополнительные модели блоков (атлас блоков), разбираются в {@link QuadMesh} и рисуются слоем
+ * сущностей: свет и тени мира, под шейдерами Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
  * винт шахеда и «Ланцета», крылья ракеты и «Ланцета», воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
  * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}.
  * Шарниры — те же числа, что в gen_models.py.
@@ -43,7 +45,7 @@ public final class WeaponModels {
         LOITER_BODY("loiter_body"), LOITER_WINGS("loiter_wings"), LOITER_PROP("loiter_prop"), LOITER_DISC("loiter_disc");
 
         final ModelResourceLocation location;
-        private final QuadMesh.Cached mesh = new QuadMesh.Cached(this::compile);
+        private final QuadMesh.Cached<QuadMesh> mesh = new QuadMesh.Cached<>(this::compile);
 
         Mesh(String name) {
             this.location = ModelResourceLocation.standalone(Airstrike.id("weapon/" + name));
@@ -61,9 +63,12 @@ public final class WeaponModels {
         }
 
         public void draw(PoseStack pose, MultiBufferSource buffers, int light) {
-            draw(pose, buffers.getBuffer(WeaponRenderTypes.MODEL), light, 1);
+            draw(pose, buffers.getBuffer(SOLID), light, 1);
         }
     }
+
+    private static final RenderType SOLID = RenderType.entityCutoutNoCull(InventoryMenu.BLOCK_ATLAS);
+    private static final RenderType TRANSLUCENT = RenderType.entityTranslucent(InventoryMenu.BLOCK_ATLAS);
 
     public static void register(ModelEvent.RegisterAdditional e) {
         for (Mesh m : Mesh.values()) e.register(m.location);
@@ -108,7 +113,7 @@ public final class WeaponModels {
         Mesh.DRONE_PROP.draw(pose, buffers, light);
         pose.popPose();
         // размытый диск: чем быстрее винт, тем он плотнее
-        Mesh.DRONE_DISC.draw(pose, buffers.getBuffer(WeaponRenderTypes.MODEL_TRANSLUCENT), light, Mth.clamp((rate - 0.6f) / 1.6f, 0, 1));
+        Mesh.DRONE_DISC.draw(pose, buffers.getBuffer(TRANSLUCENT), light, Mth.clamp((rate - 0.6f) / 1.6f, 0, 1));
     }
 
     // ---------------------------------------------------------------- крылатая ракета
@@ -207,7 +212,7 @@ public final class WeaponModels {
         pose.mulPose(new Quaternionf().rotationZ((e.age() + partial) * rate));
         Mesh.LOITER_PROP.draw(pose, buffers, light);
         pose.popPose();
-        if (rate > 0) Mesh.LOITER_DISC.draw(pose, buffers.getBuffer(WeaponRenderTypes.MODEL_TRANSLUCENT), light, Mth.clamp((rate - 0.6f) / 1.6f, 0, 1));
+        if (rate > 0) Mesh.LOITER_DISC.draw(pose, buffers.getBuffer(TRANSLUCENT), light, Mth.clamp((rate - 0.6f) / 1.6f, 0, 1));
     }
 
     public static void icbm(StrikeProjectile e, float partial, PoseStack pose, MultiBufferSource buffers, int light) {

@@ -13,6 +13,7 @@ import org.joml.Vector3f;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 
 /**
  * Сетка из граней запечённых моделей, разобранная один раз: позиция, UV и нормаль каждой вершины — числами,
@@ -25,14 +26,18 @@ import java.util.function.Supplier;
 final class QuadMesh {
     /** x y z, u v, нормаль x y z. */
     private static final int STRIDE = 8;
+    private static final int WHITE = 0xFFFFFF;
 
     private final float[] vertices;
     /** Запечённый свет вершин (упакован как свет мира) или {@code null}, если его нет ни у одной. */
     private final int[] bakedLight;
+    /** Оттенок вершин (RGB, окраска блока по {@code tintIndex}) или {@code null}, если все белые. */
+    private final int[] tint;
 
-    private QuadMesh(float[] vertices, int[] bakedLight) {
+    private QuadMesh(float[] vertices, int[] bakedLight, int[] tint) {
         this.vertices = vertices;
         this.bakedLight = bakedLight;
+        this.tint = tint;
     }
 
     /**
@@ -48,7 +53,8 @@ final class QuadMesh {
             m.transformPosition(v[i], v[i + 1], v[i + 2], p);
             pose.transformNormal(v[i + 5], v[i + 6], v[i + 7], n);
             int l = bakedLight == null ? light : brighter(light, bakedLight[k]);
-            vc.addVertex(p.x, p.y, p.z, color, v[i + 3], v[i + 4], overlay, l, n.x, n.y, n.z);
+            int c = tint == null ? color : FastColor.ARGB32.multiply(color, 0xFF000000 | tint[k]);
+            vc.addVertex(p.x, p.y, p.z, c, v[i + 3], v[i + 4], overlay, l, n.x, n.y, n.z);
         }
     }
 
@@ -68,14 +74,21 @@ final class QuadMesh {
     static final class Builder {
         private float[] vertices = new float[STRIDE * 256];
         private int[] light = new int[256];
+        private int[] tint = new int[256];
         private int count;
-        private boolean anyLight;
+        private boolean anyLight, anyTint;
 
         /** Грани, сдвинутые и растянутые {@code transform} (нормали — обратной транспонированной, заново единичные). */
         Builder add(List<BakedQuad> quads, Matrix4f transform) {
+            return add(quads, transform, q -> WHITE);
+        }
+
+        /** То же с оттенком грани (RGB), как окраска блока по {@code tintIndex} в {@code renderSingleBlock}. */
+        Builder add(List<BakedQuad> quads, Matrix4f transform, ToIntFunction<BakedQuad> tintOf) {
             Matrix3f normals = transform.normal(new Matrix3f());
             Vector3f p = new Vector3f(), n = new Vector3f();
             for (BakedQuad q : quads) {
+                int rgb = tintOf.applyAsInt(q) & WHITE;
                 int[] d = q.getVertices();
                 Vec3i face = q.getDirection().getNormal();
                 for (int o = 0; o < d.length; o += IQuadTransformer.STRIDE) {
@@ -89,17 +102,20 @@ final class QuadMesh {
                     else n.set(face.getX(), face.getY(), face.getZ());
                     normals.transform(n).normalize();
                     int baked = d[o + IQuadTransformer.UV2];
-                    vertex(p, Float.intBitsToFloat(d[o + IQuadTransformer.UV0]), Float.intBitsToFloat(d[o + IQuadTransformer.UV0 + 1]), n, baked);
+                    vertex(p, Float.intBitsToFloat(d[o + IQuadTransformer.UV0]), Float.intBitsToFloat(d[o + IQuadTransformer.UV0 + 1]), n, baked, rgb);
                 }
             }
             return this;
         }
 
-        private void vertex(Vector3f p, float u, float v, Vector3f n, int baked) {
+        private void vertex(Vector3f p, float u, float v, Vector3f n, int baked, int rgb) {
             if ((count + 1) * STRIDE > vertices.length) {
                 vertices = Arrays.copyOf(vertices, vertices.length * 2);
                 light = Arrays.copyOf(light, light.length * 2);
+                tint = Arrays.copyOf(tint, tint.length * 2);
             }
+            tint[count] = rgb;
+            anyTint |= rgb != WHITE;
             int i = count * STRIDE;
             vertices[i] = p.x;
             vertices[i + 1] = p.y;
@@ -114,26 +130,27 @@ final class QuadMesh {
         }
 
         QuadMesh build() {
-            return new QuadMesh(Arrays.copyOf(vertices, count * STRIDE), anyLight ? Arrays.copyOf(light, count) : null);
+            return new QuadMesh(Arrays.copyOf(vertices, count * STRIDE), anyLight ? Arrays.copyOf(light, count) : null,
+                    anyTint ? Arrays.copyOf(tint, count) : null);
         }
     }
 
     /**
-     * Сетка, собранная при первом рисовании и заново после каждой перезагрузки моделей (F3+T, пакет ресурсов):
+     * Сетка (или несколько), собранная при первом рисовании и заново после каждой перезагрузки моделей (F3+T, пакет ресурсов):
      * грани берутся из менеджера моделей, а он готов только после загрузки ресурсов.
      */
-    static final class Cached {
+    static final class Cached<T> {
         private static int generation;
 
-        private final Supplier<QuadMesh> build;
-        private QuadMesh mesh;
+        private final Supplier<T> build;
+        private T mesh;
         private int builtAt = -1;
 
-        Cached(Supplier<QuadMesh> build) {
+        Cached(Supplier<T> build) {
             this.build = build;
         }
 
-        QuadMesh get() {
+        T get() {
             if (builtAt != generation) {
                 mesh = build.get();
                 builtAt = generation;
