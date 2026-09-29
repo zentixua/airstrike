@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client.sound;
 
 import ua.zentix.airstrike.nuclear.model.BlastModel;
+import ua.zentix.airstrike.strike.Hearing;
 
 /**
  * Физика звука без Minecraft (проверяется юнит-тестами): задержка распространения и Доплер.
@@ -60,12 +61,27 @@ public final class Acoustics {
         return SPEED / (SPEED - radial);
     }
 
-    /** Громкость по расстоянию: полная ближе ref, дальше ~1/d, но не тише floor; за cutoff плавно гаснет. */
+    /** Громкость по расстоянию: полная ближе ref, дальше ~1/d, но не тише floor; за cutoff плавно гаснет ({@link Hearing#FADE}). */
     public static double gain(double d, double ref, double floor, double cutoff) {
         double g = Math.min(1.0, ref / Math.max(d, 1.0e-3));
         g = Math.max(g, floor);
-        if (d > cutoff) g *= Math.max(0, 1 - (d - cutoff) / 80.0);
+        if (d > cutoff) g *= Math.max(0, 1 - (d - cutoff) / Hearing.FADE);
         return g;
+    }
+
+    /**
+     * Шум обтекания у слушателя: по расстоянию (без «пола»: вдали его нет, срез — {@link Hearing#AIRFLOW}), по ракурсу
+     * (на подлёте громче всего, вслед — 0.3: шум уносит вперёд) и по скорости (на медленном участке тише, как квадрат
+     * скорости; с {@code fast} блоков/тик — полная громкость).
+     *
+     * @param speed  скорость источника, блоков/тик
+     * @param radial её проекция на направление от источника к слушателю (больше нуля — идёт на слушателя)
+     */
+    public static double airflow(double d, double speed, double radial, double ref, double fast) {
+        if (speed < 1.0e-6) return 0;
+        double front = (1 + radial / speed) / 2;
+        double s = Math.min(1, speed / fast);
+        return gain(d, ref, 0, Hearing.AIRFLOW) * (0.3 + 0.7 * front * front) * s * s;
     }
 
     /** Плавная ступенька 0→1 между a и b. */

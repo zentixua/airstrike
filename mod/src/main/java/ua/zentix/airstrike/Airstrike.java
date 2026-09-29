@@ -23,6 +23,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
+import ua.zentix.airstrike.strike.FlightSounds;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
@@ -60,6 +61,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
+        NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
 

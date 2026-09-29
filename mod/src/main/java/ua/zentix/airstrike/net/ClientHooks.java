@@ -33,6 +33,8 @@ public interface ClientHooks {
 
     default void flights(S2C.Flights p) {}
 
+    default void heard(S2C.Heard p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {
