@@ -768,7 +768,9 @@ public final class StrikeGameTests {
         BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, 4000);
         ChunkPos chunk = new ChunkPos(origin);
         level.setChunkForced(chunk.x, chunk.z, true);
-        level.getChunk(chunk.x, chunk.z);
+        // сущности в чанке цели тикают, только когда готовы соседи (5×5), а их фоновая генерация на CI (сервер тикает без
+        // пауз) шла дольше срока теста — снаряд ждал района у цели («ещё летит, до цели 65»); соседи — готовые, но не тикающие
+        generateNow(level, chunk);
         Vec3 aim = new Vec3(chunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 140, chunk.getMiddleBlockZ() + 0.5);
         RocketEntity rocket = ModEntities.ROCKET.get().create(level);
         rocket.launchFrom(aim.add(-300, -140, 0), new Target.Point(aim), aim, null);
@@ -796,11 +798,14 @@ public final class StrikeGameTests {
 
     /**
      * Снаряд РСЗО по свежему району рядом: сходит с пакета сразу (без ожидания в трубе) и до взрыва движется каждый тик.
-     * Полёт короче загрузки района (сервер GameTest тикает без пауз), и раньше снаряд вне мира замирал в воздухе у цели
-     * (сценарий пролёта 29.09.2026: вой обрывался на 8–40 тиков); теперь конец полёта вне мира растягивается во времени.
+     * Полёт (~100 тиков) не длиннее загрузки района, и раньше снаряд вне мира замирал в воздухе у цели (сценарий пролёта
+     * 29.09.2026: вой обрывался на 8–40 тиков); теперь конец полёта вне мира растягивается во времени. В игровом темпе:
+     * без пауз фоновая генерация идёт тысячи тиков, и снаряд вставал бы у черты; растяжение на всю длину, до готовности
+     * района, проверяет тест с удержанным районом ({@link #rocketStretchesFlightWhileAimAreaLoads}).
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_near", skyAccess = true)
     public static void rocketToFreshNearAreaNeverFreezes(GameTestHelper h) {
+        gameSpeed(h);
         rocketLaunchesAtOnceAndNeverFreezes(h, 250, 0);
     }
 
