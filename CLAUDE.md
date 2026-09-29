@@ -75,6 +75,8 @@ tools/deploy.sh                           # jar → mods/ инстанса (Ар
 python3 tools/logscan.py [--since 18:30]  # после игры: ошибки мода, удары, подрывы, Sable
 git commit
 ```
+Скрипты с пакетами (numpy, scipy, soundfile, Pillow: звуки, текстуры, модели, трейлер) объявляют их сами блоком
+`# /// script` (PEP 723) — запуск `uv run tools/<скрипт>.py`, в системный Python ничего не ставить.
 Моды для запусков (`run/*/mods`) копируются из инстанса задачами `copyRuntimeMods_*`; путь — `MC_DIR` или по умолчанию.
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).

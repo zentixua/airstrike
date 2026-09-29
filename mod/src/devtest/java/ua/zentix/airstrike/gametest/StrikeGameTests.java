@@ -34,6 +34,8 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
+import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.List;
 
@@ -509,6 +511,29 @@ public final class StrikeGameTests {
             h.assertTrue(moved[0], "цель не сдвинулась");
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "ракета ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
+    /**
+     * Взрыв у неготовых чанков не читает их в тике (сервер вставал на секунду с лишним): ждёт, пока тикет района
+     * догрузит их в фоне, и срабатывает, когда всё в его досягаемости готово.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "deferred_blast")
+    public static void blastWaitsForUnreadyChunks(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(4096, 0, 0);
+        double reach = Warheads.reach(4);
+        h.assertFalse(Terrain.readyAround(level, far, reach), "район вдали уже загружен");
+        boolean[] ran = new boolean[1];
+        boolean[] readyWhenRan = new boolean[1];
+        Warheads.whenReady(level, far, reach, l -> {
+            ran[0] = true;
+            readyWhenRan[0] = Terrain.readyAround(l, far, reach);
+        });
+        h.assertFalse(ran[0], "взрыв сработал сразу, не дождавшись района");
+        h.succeedWhen(() -> {
+            h.assertTrue(ran[0], "взрыв всё ещё ждёт района");
+            h.assertTrue(readyWhenRan[0], "взрыв сработал до готовности района");
         });
     }
 

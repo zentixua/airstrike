@@ -1,7 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "numpy>=1.26",
+#     "pillow>=10",
+# ]
+# ///
 """Текстуры мода, нарисованные кодом (фиксированный сид — результат воспроизводим).
 
-  python3 tools/gen_textures.py   → mod/src/main/resources/assets/airstrike/textures/…
+  uv run tools/gen_textures.py   → mod/src/main/resources/assets/airstrike/textures/…
 
   item/strike_designator, item/geiger_counter — пиксель-арт 16×16 (сетка символов + палитра);
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
