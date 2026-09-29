@@ -45,6 +45,10 @@ jobs:
           key: runtime-mods-${{ hashFiles('tools/fetch_runtime_mods.py') }}
       - run: python3 ../tools/fetch_runtime_mods.py run/ci-mods
 
+      # процессы стенда и мультиплеера гасятся целиком, без сирот (tools/rig_procs.sh), ~4 с
+      - name: Остановка проверок
+        run: ../tools/test_rig_procs.sh
+
       - name: Сборка и юнит-тесты
         run: ./gradlew build --console=plain
 
