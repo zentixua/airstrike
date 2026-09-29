@@ -12,6 +12,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.client.event.ClientChatReceivedEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -32,7 +33,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * Игрок стенда нагрузки (только devtest, свойство {@code airstrike.stress.client}): заходит на сервер
  * ({@code --quickPlayMultiplayer}), летает по кругу (движущаяся цель), время от времени смотрит камерой снаряда
  * и перенацеливает его ЛКМ, пускает с пульта (пакет, как экран пульта и бинокль). Роль {@code leaver} выходит
- * посреди удара и возвращается. Раз в 5 с пишет {@code STRESSC}: fps, снаряды на клиенте и в HUD, ошибки.
+ * посреди удара, когда велит режиссёр ({@link StressDirector#LEAVE}), и возвращается. Раз в 5 с пишет {@code STRESSC}: fps, снаряды на клиенте и в HUD, ошибки.
  * Когда сервер останавливается, клиент выходит.
  */
 @Mod(value = Airstrike.MOD_ID, dist = Dist.CLIENT)
@@ -47,11 +48,20 @@ public final class StressClient {
     private int away = -1;
     private int disconnectedFor;
     private int joins;
+    /** Режиссёр велел выйти: выход — в следующем тике клиента, не из обработчика пакета. */
+    private volatile boolean leave;
 
     public StressClient(IEventBus modBus) {
         if (ROLE == null) return;
         LogWatch.install(problems, () -> warnings++, () -> errors++);
         NeoForge.EVENT_BUS.addListener(this::onTick);
+        NeoForge.EVENT_BUS.addListener(this::onChat);
+    }
+
+    private void onChat(ClientChatReceivedEvent.System e) {
+        if (!StressDirector.LEAVE.equals(e.getMessage().getString())) return;
+        e.setCanceled(true);
+        if ("leaver".equals(ROLE)) leave = true;
     }
 
     private void onTick(ClientTickEvent.Post e) {
@@ -81,7 +91,8 @@ public final class StressClient {
             log("ЛКМ в камере");
         }
         if (tick % 600 == 480 && ProjectileCamera.isActive()) ProjectileCamera.exit();
-        if ("leaver".equals(ROLE) && (tick == 2400 || tick == 4200)) {
+        if (leave) {
+            leave = false;
             log("выхожу посреди удара");
             away = tick;
             mc.level.disconnect();
