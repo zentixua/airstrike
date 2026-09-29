@@ -265,7 +265,7 @@ public final class Trailer {
         // почти полдень: наводчик смотрит на восток, в город, и с утра низкое солнце заливало кадр и бинокль
         // (на восходе — прямо в объектив, в 7:30 — белая засветка горизонта под шейдерами)
         run(() -> cmd("time set 5000"));
-        run(this::placeActor);
+        standAt(() -> post, () -> TOWER);
         run(() -> cmd("give @s airstrike:strike_designator[airstrike:loadout={weapon:\"missile\",count:1,spread:0}]"));
         waitTicks(40);
         // через плечо: голова и плечо наводчика слева внизу, город (рельеф DH за 4 км) — посередине; наезд
@@ -337,7 +337,7 @@ public final class Trailer {
     /** День: шахеды, «Ланцет» и «Град» с поста, удары по городу. */
     private void dayStrikes() {
         run(() -> cmd("time set 3000"));
-        run(this::placeActor);
+        standAt(() -> post, () -> TOWER);
         waitTicks(40);
         Vec3 droneAim = DOWNTOWN.add(90, 0, 60);
         run(() -> fire("salvo drone 3 40", ground(droneAim)));
@@ -381,7 +381,7 @@ public final class Trailer {
                 }, 10, 0.003);
 
         // «Ланцет»: катапульта у поста, круг над стадионом, пике
-        run(this::placeActor);
+        standAt(() -> post, () -> TOWER);
         run(() -> cmd("kill @e[type=airstrike:launcher]"));
         waitTicks(40);
         run(() -> fire("loiter", ground(STADIUM)));
@@ -400,7 +400,7 @@ public final class Trailer {
                 .endWhen(() -> nearest(LoiterEntity.class, STADIUM, 400) == null, 50);
 
         // «Град»: пакет из 40 труб у поста, залп очередью по стадиону
-        run(this::placeActor);
+        standAt(() -> post, () -> TOWER);
         waitTicks(40);
         run(() -> fire("salvo rocket 40 60", ground(STADIUM)));
         shot("rocket_launch").after(() -> launcher(WeaponType.ROCKET) != null, 200).noPrep().length(170).speed(0.7).shake(0.2).camera(() -> {
@@ -451,7 +451,7 @@ public final class Trailer {
                     Vec3 s = route[0] == null ? roofCam.get() : route[0].start();
                     return p != null ? p : Pose.look(s.add(-25, 6, 0), s, 0, 55);
                 })
-                .when(() -> missileRange() < 1100, 6000)
+                .when(() -> missileRange() < 1100 && fighters.visible(), 6000)
                 .subject(fighters::leadOnScreen, 16, 0.05)
                 .cueEnd(() -> {
                     fighters.land(mc.getSingleplayerServer());
@@ -472,7 +472,7 @@ public final class Trailer {
         // от наводчика) лишь у самой цели и на кадр не успевала; своя ракета с соседней улицы в мире с пуска
         fromAfar(false);
         // видео с борта — только в 256 блоках от наводчика: в 290 ракета так и дошла до цели на карте
-        run(() -> placeActor(ground(eastFacade.add(-150, 0, 70)), EAST_TOWER));
+        standAt(() -> ground(eastFacade.add(-150, 0, 70)), () -> EAST_TOWER);
         waitTicks(60);
         run(() -> fire("missile", eastFacade));
         shot("missile_camera").after(() -> !ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 400)
@@ -486,6 +486,8 @@ public final class Trailer {
                 .hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
                 // запись — с первого кадра видео с борта (в 256 блоках от наводчика): до того на экране карта «нет видео»
                 .when(ProjectileCamera::isViewing, 4000)
+                // монтаж берёт видео с отметки «close»: она ставится только при видео с борта
+                .requires("видео с борта в " + CLOSE_RANGE + " блоках от цели", () -> closeMarked)
                 .endWhen(() -> ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 25)
                 .cueEnd(() -> {
                     ProjectileCamera.exit();
@@ -567,7 +569,7 @@ public final class Trailer {
     }
 
     /** Подстанция у края центра и камера за ней (план «blackout»); ставятся после шквала — его ракеты её не заденут. */
-    private Vec3 substation = DOWNTOWN, substationView = DOWNTOWN;
+    private Vec3 substation = DOWNTOWN, substationView = DOWNTOWN, blackoutCore = DOWNTOWN;
     /** С какой стороны центра подстанция и камера: улицы, которые видны и в ночном рое. */
     private static final Vec3 BLACKOUT_SIDE = new Vec3(-120, 0, 95).normalize();
 
@@ -596,7 +598,8 @@ public final class Trailer {
         Supplier<Vec3> sub = () -> substation;
         shot("blackout").onReady(() -> fire("salvo missile 1 0", substation.add(0, 1, 0))).hidden().length(300).farView().shake(0.02)
                 .camera(() -> {
-                    Vec3 look = DOWNTOWN.add(0, 20, 0);
+                    // взгляд между подстанцией и самым густым кварталом ламп: подстанция в нижней трети, кварталы за ней
+                    Vec3 look = blackoutCore.add(0, 10, 0);
                     Vec3 push = look.subtract(substationView).normalize().scale(25);
                     return CineCamera.spline(true, CineCamera.Key.at(0, substationView, look, 40),
                             CineCamera.Key.at(300, substationView.add(push), look, 38));
@@ -606,15 +609,97 @@ public final class Trailer {
     }
 
     /**
-     * Подстанция — на открытом месте у края центра (двор или улица: 7×7 без построек над землёй), откуда её видно
-     * с камеры в 280 блоках дальше от центра и в 110 над землёй; из годных — ближе к намеченной точке.
+     * Где снимать блэкаут: кварталы гаснут только у ламп сети (светокамень, лампы из красного камня, стержни края…),
+     * а факелы, свечи и маяки горят дальше; дальше прорисовки (24 чанка) — рельеф DH. Поэтому: плотность ламп сети
+     * по чанкам в 24 чанках от центра, самое густое место (окно 5×5 чанков, ~80 блоков) — середина кадра; подстанция —
+     * на открытом месте в 70 блоках от него к камере, камера — ещё в 180 за ней и в 90 над землёй, с той стороны,
+     * откуда в кадре (конус ±25°, до 380 блоков) больше всего ламп.
      */
     private void findSubstation(ServerLevel level) {
-        Vec3 want = DOWNTOWN.add(BLACKOUT_SIDE.scale(230));
+        int cx0 = Mth.floor(DOWNTOWN.x) >> 4, cz0 = Mth.floor(DOWNTOWN.z) >> 4, r = 24, n = 2 * r + 1;
+        int[][] lamps = new int[n][n];
+        long total = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if ((i - r) * (i - r) + (j - r) * (j - r) > r * r) continue;
+                var chunk = level.getChunk(cx0 + i - r, cz0 + j - r);
+                int c = 0;
+                for (var section : chunk.getSections()) {
+                    if (section.hasOnlyAir() || !section.getStates().maybeHas(ua.zentix.airstrike.grid.GridLights::isLit)) continue;
+                    for (int y = 0; y < 16; y++) {
+                        for (int z = 0; z < 16; z++) {
+                            for (int x = 0; x < 16; x++) {
+                                if (ua.zentix.airstrike.grid.GridLights.isLit(section.getBlockState(x, y, z))) c++;
+                            }
+                        }
+                    }
+                }
+                lamps[i][j] = c;
+                total += c;
+            }
+        }
+        int bi = r, bj = r, best = -1;
+        for (int i = 2; i < n - 2; i++) {
+            for (int j = 2; j < n - 2; j++) {
+                int sum = 0;
+                for (int di = -2; di <= 2; di++) for (int dj = -2; dj <= 2; dj++) sum += lamps[i + di][j + dj];
+                if (sum > best) {
+                    best = sum;
+                    bi = i;
+                    bj = j;
+                }
+            }
+        }
+        Vec3 core = new Vec3(((cx0 + bi - r) << 4) + 8, 0, ((cz0 + bj - r) << 4) + 8);
+        core = new Vec3(core.x, height(level, Mth.floor(core.x), Mth.floor(core.z)), core.z);
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int k = 0; k < 16; k++) {
+            double a = Math.toRadians(22.5 * k);
+            Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
+            Vec3 at = openSpot(level, core.add(dir.scale(70)), 30);
+            if (at == null) continue;
+            Vec3 view = at.add(dir.scale(180));
+            view = new Vec3(view.x, height(level, Mth.floor(view.x), Mth.floor(view.z)) + 90, view.z);
+            if (!roomy(level, view, 3) || !sees(level, view, at.add(0, 1.5, 0))) continue;
+            // ламп в кадре: конус ±25° от камеры к ядру, до 380 блоков
+            Vec3 look = core.subtract(view).multiply(1, 0, 1).normalize();
+            double inView = 0;
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < n; j++) {
+                    if (lamps[i][j] == 0) continue;
+                    Vec3 c = new Vec3(((cx0 + i - r) << 4) + 8 - view.x, 0, ((cz0 + j - r) << 4) + 8 - view.z);
+                    double d = c.horizontalDistance();
+                    if (d < 20 || d > 380 || c.normalize().dot(look) < Math.cos(Math.toRadians(25))) continue;
+                    inView += lamps[i][j];
+                }
+            }
+            if (inView > bestScore) {
+                bestScore = inView;
+                substation = at;
+                substationView = view;
+            }
+        }
+        if (bestScore == Double.NEGATIVE_INFINITY) {
+            Airstrike.LOG.error("TRAILER blackout: нет места под подстанцию и камеру у {}", core);
+            substation = core;
+            substationView = core.add(BLACKOUT_SIDE.scale(250)).add(0, 90, 0);
+            bestScore = 0;
+        }
+        blackoutCore = core;
+        Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER blackout: ламп сети в 24 чанках %d, ядро %s (%d в 80 блоках), подстанция %s, камера %s, ламп в кадре %.0f",
+                total, core, best, substation, substationView, bestScore));
+    }
+
+    /** Открытое место (7×7 без построек, сухо) ближе всего к точке в радиусе {@code r}, или null. */
+    @Nullable
+    private static Vec3 openSpot(ServerLevel level, Vec3 near, int r) {
+        Vec3 found = null;
         double best = Double.MAX_VALUE;
-        for (int dx = -60; dx <= 60; dx += 4) {
-            for (int dz = -60; dz <= 60; dz += 4) {
-                int x = Mth.floor(want.x) + dx, z = Mth.floor(want.z) + dz;
+        for (int dx = -r; dx <= r; dx += 3) {
+            for (int dz = -r; dz <= r; dz += 3) {
+                double d = Math.hypot(dx, dz);
+                if (d > r || d >= best) continue;
+                int x = Mth.floor(near.x) + dx, z = Mth.floor(near.z) + dz;
                 int g = height(level, x, z);
                 boolean open = true;
                 for (int ox = -3; ox <= 3 && open; ox++) {
@@ -623,25 +708,13 @@ public final class Trailer {
                         if (Math.abs(h - g) > 1 || !level.getFluidState(new BlockPos(x + ox, h - 1, z + oz)).isEmpty()) open = false;
                     }
                 }
-                if (!open) continue;
-                Vec3 at = new Vec3(x + 0.5, g, z + 0.5);
-                Vec3 view = at.add(BLACKOUT_SIDE.scale(280));
-                view = new Vec3(view.x, height(level, Mth.floor(view.x), Mth.floor(view.z)) + 110, view.z);
-                if (!sees(level, view, at.add(0, 1.5, 0))) continue;
-                double score = Math.hypot(dx, dz);
-                if (score < best) {
-                    best = score;
-                    substation = at;
-                    substationView = view;
+                if (open) {
+                    best = d;
+                    found = new Vec3(x + 0.5, g, z + 0.5);
                 }
             }
         }
-        if (best == Double.MAX_VALUE) {
-            Airstrike.LOG.error("TRAILER blackout: нет открытого места под подстанцию у {}", want);
-            substation = new Vec3(want.x, height(level, Mth.floor(want.x), Mth.floor(want.z)), want.z);
-            substationView = substation.add(BLACKOUT_SIDE.scale(280)).add(0, 110, 0);
-        }
-        Airstrike.LOG.info("TRAILER blackout: подстанция {}, камера {}", substation, substationView);
+        return found;
     }
 
     /**
@@ -659,7 +732,7 @@ public final class Trailer {
             forceload(PORT, 128);
         });
         fromAfar(false);
-        run(() -> placeActor(silo, TOWER));
+        standAt(() -> silo, () -> TOWER);
         waitTicks(80);
         shot("icbm").onReady(() -> cmd(String.format(Locale.ROOT, "airstrike nuke at %.1f %.1f %.1f %d ground", TOWER.x, TOWER.y, TOWER.z, NUKE_KT)))
                 .length(260).shake(0.1).camera(() -> {
@@ -669,9 +742,10 @@ public final class Trailer {
                     // в дубле 1 камера смотрела мимо, и ракета едва мелькала в углу кадра
                     Vec3 pad = ground(silo.subtract(dir.scale(30)));
                     // сбоку и чуть сзади стола, низко: ракета поднимается на фоне неба; в 65 блоках ночью она была мелкой
-                    Vec3 from = ground(pad.add(sideV.scale(30)).add(dir.scale(-20))).add(0, 2.5, 0);
-                    Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 8, 0), 0.4), 44);
-                    return t -> t < 100 ? p.at(t) : CineCamera.zoom(p, 44, 20, 160).at(t - 100);
+                    // в 36 блоках камеру накрывало облако старта (ноутбук, круг 2): дальше и выше, уже по углу
+                    Vec3 from = ground(pad.add(sideV.scale(70)).add(dir.scale(-25))).add(0, 5, 0);
+                    Path p = CineCamera.track(from, smoothFocus(() -> newest(IcbmEntity.class), pad.add(0, 8, 0), 0.4), 34);
+                    return t -> t < 100 ? p.at(t) : CineCamera.zoom(p, 34, 16, 160).at(t - 100);
                 })
                 .subject(() -> newest(IcbmEntity.class), 3, 0.02);
         // сирена над пустой улицей, отсчёт на экране
@@ -682,7 +756,7 @@ public final class Trailer {
                     CineCamera.Key.at(180, from.add(TOWER.subtract(from).normalize().scale(12)), TOWER.add(0, 200, 0), 36));
         }).when(() -> warningTicks() <= 420, 3000);
         // вспышка с холма из-за плеча наводчика: ночь становится днём
-        run(() -> placeActor(post, TOWER));
+        standAt(() -> post, () -> TOWER);
         shot("flash").hud().length(200).shake(0.06).camera(() -> {
             Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(1.2)).add(0, 1.9, 0), 1.7);
             return CineCamera.track(back, () -> TOWER.add(0, 400, 0), 60);
@@ -690,7 +764,7 @@ public final class Trailer {
         // волна приходит: улица (~900), порт (~1450), холм (~4000 блоков)
         wave("wave_street", () -> ground(STREET).add(0, 26, 0), 0.5);
         wave("wave_port", () -> ground(PORT.add(-40, 0, 30)).add(0, 20, 0), 0.5);
-        run(() -> placeActor(post, TOWER));
+        standAt(() -> post, () -> TOWER);
         shot("wave_hill").hud().length(140).shake(0.06).camera(() -> {
             Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(-1.3)).add(0, 1.8, 0), 1.7);
             return CineCamera.track(back, () -> TOWER.add(0, 250, 0), 64);
@@ -909,6 +983,27 @@ public final class Trailer {
 
     private void placeActor() {
         placeActor(post, TOWER);
+    }
+
+    /**
+     * Наводчик на место без провала: сперва невидимкой (наблюдатель не падает), пока чанк места не придёт клиенту,
+     * потом — на землю. Телепорт сразу в творческом режиме в неприсланный чанк ронял его на 2–8 блоков в землю.
+     */
+    private void standAt(Supplier<Vec3> at, Supplier<Vec3> face) {
+        final Vec3[] spot = new Vec3[1];
+        run(() -> {
+            spot[0] = at.get();
+            placeHidden(spot[0].add(0, 1, 0), face.get());
+        });
+        final int[] waited = {0};
+        then(() -> {
+            Vec3 p = spot[0];
+            boolean ready = mc.level != null && mc.player != null
+                    && mc.level.getChunkSource().hasChunk(Mth.floor(p.x) >> 4, Mth.floor(p.z) >> 4)
+                    && mc.player.position().distanceTo(p) < 4;
+            return ready || ++waited[0] > 400;
+        });
+        run(() -> placeActor(spot[0], face.get()));
     }
 
     /** Куда поставлен наводчик и сколько тиков назад (см. {@link #keepActorOnSpot}). */
@@ -1396,6 +1491,10 @@ public final class Trailer {
         @Nullable
         private ShotCheck.Subject subject;
         @Nullable
+        private String mustHappen;
+        @Nullable
+        private BooleanSupplier happens;
+        @Nullable
         private ShotCheck check;
         private boolean hudOn;
         private boolean hiddenActor;
@@ -1468,6 +1567,13 @@ public final class Trailer {
          * Что снимаем — для проверки кадров ({@link ShotCheck}): сущность или точка ({@code size} блоков), в кадре
          * не мельче {@code minScreen} высоты кадра и не закрыта блоками.
          */
+        /** Что должно случиться за план хоть раз, иначе проверка кадров — провал. */
+        Shot requires(String what, BooleanSupplier when) {
+            mustHappen = what;
+            happens = when;
+            return this;
+        }
+
         Shot subject(Supplier<Object> what, double size, double minScreen) {
             subject = new ShotCheck.Subject(what, size, minScreen, true);
             return this;
@@ -1670,7 +1776,7 @@ public final class Trailer {
                     // попадания прошлых планов не в счёт: sinceGone в условиях этого плана — только о его снарядах
                     goneAt.clear();
                     if (selected()) {
-                        check = new ShotCheck(name, subject, projectileCamera ? ProjectileCamera::isViewing : null);
+                        check = new ShotCheck(name, subject, projectileCamera ? ProjectileCamera::isViewing : null).requires(mustHappen, happens);
                         if (speedCurve != null) rec.start(name, speed, speedCurve, hudOn);
                         else rec.start(name, speed, hudOn);
                         freezeArmed = false;

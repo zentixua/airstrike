@@ -126,6 +126,12 @@ final class Fighters {
         return sorties.isEmpty() ? null : sorties.getFirst();
     }
 
+    /** Ведущий уже есть у клиента (его рисуют): до этого камера плана смотрела на пустое место пути. */
+    boolean visible() {
+        Sortie lead = lead();
+        return lead != null && renderPose(lead.craft(), 0) != null;
+    }
+
     /** Где ведущий в этот кадр у клиента (для проверки кадров), или null. */
     @Nullable
     Object leadOnScreen() {

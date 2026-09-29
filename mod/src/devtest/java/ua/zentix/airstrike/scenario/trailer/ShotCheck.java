@@ -38,12 +38,27 @@ final class ShotCheck {
     @Nullable
     private final BooleanSupplier video;
     private int frames, nearBlocks, blocked, underground, inFluid, subjectFrames, inFrame, tooSmall, hidden, videoFrames;
+    /** Кадры после того, как цель была и пропала (снаряд взорвался, МБР ушла из мира): для неё не в счёт. */
+    private int afterGone;
+    private boolean seenSubject;
+    /** Что должно случиться за план хоть раз (например, видео с борта в 150 блоках от цели) и случилось ли. */
+    @Nullable
+    private String mustHappen;
+    @Nullable
+    private BooleanSupplier happens;
+    private boolean happened;
     private double minClearance = Double.MAX_VALUE;
 
     ShotCheck(String shot, @Nullable Subject subject, @Nullable BooleanSupplier video) {
         this.shot = shot;
         this.subject = subject;
         this.video = video;
+    }
+
+    ShotCheck requires(@Nullable String what, @Nullable BooleanSupplier when) {
+        mustHappen = what;
+        happens = when;
+        return this;
     }
 
     /** Кадр снят: камера — как её нарисовали, {@code fov} — вертикальный угол кадра, градусы. */
@@ -53,6 +68,7 @@ final class ShotCheck {
         if (level == null) return;
         frames++;
         if (video != null && video.getAsBoolean()) videoFrames++;
+        if (happens != null && !happened && happens.getAsBoolean()) happened = true;
         Vec3 eye = camera.getPosition();
         // камера у самого экрана игрока (вид от первого лица, видео с борта) — блоки вокруг не в счёт
         boolean ownView = camera.getEntity() == mc.player && !camera.isDetached() || !(camera.getEntity() instanceof net.minecraft.world.entity.Marker);
@@ -79,8 +95,10 @@ final class ShotCheck {
             p = v;
             size = subject.size();
         } else {
+            if (seenSubject) afterGone++;
             return;
         }
+        seenSubject = true;
         subjectFrames++;
         Vec3 d = p.subtract(eye);
         Vector3f f = camera.getLookVector(), up = camera.getUpVector(), left = camera.getLeftVector();
@@ -127,12 +145,16 @@ final class ShotCheck {
         flag(bad, inFluid, "камера в воде");
         if (subject != null) {
             int seen = subjectFrames == 0 ? 0 : inFrame - tooSmall - (subject.mustSee() ? hidden : 0);
-            if (subjectFrames < frames * 0.5) bad.append(String.format(Locale.ROOT, "; цели нет в %d%% кадров", 100 - 100 * subjectFrames / frames));
+            int expected = frames - afterGone;
+            if (subjectFrames < expected * 0.5) {
+                bad.append(String.format(Locale.ROOT, "; цели нет в %d%% кадров", 100 - 100 * subjectFrames / Math.max(1, expected)));
+            }
             else if (seen < subjectFrames * 0.6) {
                 bad.append(String.format(Locale.ROOT, "; цель видна в %d%% кадров (вне кадра %d, мельче %.0f%% кадра %d, закрыта %d)",
                         100 * seen / subjectFrames, subjectFrames - inFrame, subject.minScreen() * 100, tooSmall, hidden));
             }
         }
+        if (happens != null && !happened) bad.append("; не было: ").append(mustHappen);
         if (video != null && videoFrames < frames * 0.2) {
             bad.append(String.format(Locale.ROOT, "; видео с борта в %d%% кадров", 100 * videoFrames / frames));
         }
