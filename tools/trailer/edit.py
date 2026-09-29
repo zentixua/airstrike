@@ -33,6 +33,7 @@ uv run ставит их сам); ffmpeg — системный или из па
 import argparse
 import bisect
 import collections
+import functools
 import hashlib
 import json
 import math
@@ -417,6 +418,8 @@ class Clip:
     impact: str = None      # якорь удара в плане: низкий удар монтажа
     frame_y: float = 0.5    # какая полоса плана видна в кинокаше: 0 — верхняя (строки интерфейса), 0.5 — середина
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
+    game: tuple = ()        # звуки мода не по месту: ((якорь, файл в assets/airstrike/sounds, громкость), …) — то, что
+                            # игра играет только вблизи (щелчок и глохнущий гул квартала), для общего плана издалека
     start: float = 0.0      # заполняется: начало в трейлере, с
     src: float = 0.0        # заполняется: начало в плане, с
 
@@ -619,7 +622,9 @@ def trailer_edit(music):
     ], until="a_end")
     tl.stop(fade=0.35)
     # тишина: музыки нет, только фон ночного города после шквала
-    tl.add(Clip("barrage", "mark:gone#-1+1.2", 3.6, sfx=0.9))
+    # подстанция: ракета, дуга, кварталы гаснут от неё вглубь; щелчки кварталов с общего плана не слышны — из ресурсов мода
+    tl.add(Clip("blackout", "mark:gone-1.2", 6.4, sfx=0.9,
+                game=(("mark:gone+1.6", "grid_power_down_1", 0.35), ("mark:gone+3.4", "grid_power_down_2", 0.25))))
     tl.play(music.b3, (music.b4, None))
     tl.run([
         Clip("siren", 0.4, 3.7),
@@ -727,6 +732,10 @@ def sfx_layer(cut, shots, music):
             v = anchor(s, c.impact)
             if v is not None and c.start <= c.trailer_time(v) < end:
                 hits.append(Hit(c.trailer_time(v), "sub", 2.4, 0.8))
+        for at, name, gain in c.game:
+            v = anchor(s, at)
+            if v is not None and c.start <= c.trailer_time(v) < end:
+                hits.append(Hit(c.trailer_time(v), "game:" + name, 3.0, gain))
         for f0, f1 in s.freezes():
             t0, t1 = c.trailer_time(f0), c.trailer_time(f1)
             if t1 <= c.start or t0 >= end:
@@ -1315,12 +1324,26 @@ def _stereo(y, pan=None):
     return np.stack([y * left, y * right], 1).astype(np.float32)
 
 
+GAME_SOUNDS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "sounds")
+
+
+@functools.lru_cache(maxsize=None)
+def game_sound(name):
+    """Звук мода из его ресурсов (моно OGG) как звук монтажа: (стерео float32, 0, 1.0)."""
+    x, sr = sf.read(os.path.join(GAME_SOUNDS, name + ".ogg"), dtype="float32", always_2d=True)
+    x = x[:, :1]
+    if sr != SR:
+        g = math.gcd(sr, SR)
+        x = resample_poly(x, SR // g, sr // g, axis=0).astype(np.float32)
+    return np.repeat(x, 2, axis=1), 0, 1.0
+
+
 def render_hits(cut, lib, n):
     out = np.zeros((n, 2), np.float32)
     counters = collections.Counter()
     for h in cut.hits:
         rng = np.random.default_rng(zlib.crc32(f"{h.kind}:{counters[h.kind]}".encode()))   # тот же звук при каждой сборке
-        got = lib.get(h.kind, counters[h.kind])
+        got = game_sound(h.kind[5:]) if h.kind.startswith("game:") else lib.get(h.kind, counters[h.kind])
         counters[h.kind] += 1
         if got is not None:
             y, sync, gain = got

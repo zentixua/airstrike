@@ -551,6 +551,85 @@ public final class Trailer {
                 .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 190, 110, 250, 0.12, 50))
                 .when(() -> nearest(CruiseMissileEntity.class, DOWNTOWN, 300) != null || nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000)
                 .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2);
+        blackout();
+    }
+
+    /** Подстанция у края центра и камера за ней (план «blackout»); ставятся после шквала — его ракеты её не заденут. */
+    private Vec3 substation = DOWNTOWN, substationView = DOWNTOWN;
+    /** С какой стороны центра подстанция и камера: улицы, которые видны и в ночном рое. */
+    private static final Vec3 BLACKOUT_SIDE = new Vec3(-120, 0, 95).normalize();
+
+    /**
+     * Блэкаут: одна крылатая ракета в подстанцию у края центра в полночь, кварталы гаснут от неё вглубь города и дальше
+     * в рельефе DH. Общий план с высоты, подстанция в нижней трети, камера почти стоит (медленный наезд).
+     */
+    private void blackout() {
+        run(() -> {
+            cmd("airstrike clear");
+            cmd("time set 18000");
+            cmd("weather clear");
+            AirstrikeConfig.SERVER.gridNodeRadius.set(900);
+            AirstrikeConfig.SERVER.gridCascadeSpeed.set(130.0);
+            AirstrikeConfig.SERVER.gridRestoreMinutes.set(15);
+            MinecraftServer server = mc.getSingleplayerServer();
+            server.submit(() -> findSubstation(server.overworld())).join();
+            Vec3 d = substation.subtract(substationView);
+            String facing = net.minecraft.core.Direction.getNearest(d.x, 0, d.z).getOpposite().getSerializedName();
+            cmd(String.format(Locale.ROOT, "setblock %d %d %d airstrike:substation[facing=%s]",
+                    Mth.floor(substation.x), Mth.floor(substation.y), Mth.floor(substation.z), facing));
+            forceload(substation, 48);
+            placeHidden(substationView, DOWNTOWN);
+        });
+        waitTicks(60);
+        Supplier<Vec3> sub = () -> substation;
+        shot("blackout").onReady(() -> fire("salvo missile 1 0", substation.add(0, 1, 0))).hidden().length(300).farView().shake(0.02)
+                .camera(() -> {
+                    Vec3 look = DOWNTOWN.add(0, 20, 0);
+                    Vec3 push = look.subtract(substationView).normalize().scale(25);
+                    return CineCamera.spline(true, CineCamera.Key.at(0, substationView, look, 40),
+                            CineCamera.Key.at(300, substationView.add(push), look, 38));
+                })
+                .when(() -> nearest(CruiseMissileEntity.class, substation, 350) != null, 4000)
+                .subject(() -> sub.get().add(0, 1.5, 0), 8, 0.004);
+    }
+
+    /**
+     * Подстанция — на открытом месте у края центра (двор или улица: 7×7 без построек над землёй), откуда её видно
+     * с камеры в 280 блоках дальше от центра и в 110 над землёй; из годных — ближе к намеченной точке.
+     */
+    private void findSubstation(ServerLevel level) {
+        Vec3 want = DOWNTOWN.add(BLACKOUT_SIDE.scale(230));
+        double best = Double.MAX_VALUE;
+        for (int dx = -60; dx <= 60; dx += 4) {
+            for (int dz = -60; dz <= 60; dz += 4) {
+                int x = Mth.floor(want.x) + dx, z = Mth.floor(want.z) + dz;
+                int g = height(level, x, z);
+                boolean open = true;
+                for (int ox = -3; ox <= 3 && open; ox++) {
+                    for (int oz = -3; oz <= 3 && open; oz++) {
+                        int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x + ox, z + oz);
+                        if (Math.abs(h - g) > 1 || !level.getFluidState(new BlockPos(x + ox, h - 1, z + oz)).isEmpty()) open = false;
+                    }
+                }
+                if (!open) continue;
+                Vec3 at = new Vec3(x + 0.5, g, z + 0.5);
+                Vec3 view = at.add(BLACKOUT_SIDE.scale(280));
+                view = new Vec3(view.x, height(level, Mth.floor(view.x), Mth.floor(view.z)) + 110, view.z);
+                if (!sees(level, view, at.add(0, 1.5, 0))) continue;
+                double score = Math.hypot(dx, dz);
+                if (score < best) {
+                    best = score;
+                    substation = at;
+                    substationView = view;
+                }
+            }
+        }
+        if (best == Double.MAX_VALUE) {
+            Airstrike.LOG.error("TRAILER blackout: нет открытого места под подстанцию у {}", want);
+            substation = new Vec3(want.x, height(level, Mth.floor(want.x), Mth.floor(want.z)), want.z);
+            substationView = substation.add(BLACKOUT_SIDE.scale(280)).add(0, 110, 0);
+        }
+        Airstrike.LOG.info("TRAILER blackout: подстанция {}, камера {}", substation, substationView);
     }
 
     /**

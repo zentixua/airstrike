@@ -298,7 +298,7 @@ def test_trailer_layout_on_beats(key):
     for a, b in zip(cut.items, cut.items[1:]):
         assert b.start == pytest.approx(a.start + a.dur)
     assert 85 < cut.total < 115, cut.total
-    long_ok = {"barrage", "flash", "missile_tower", "fallout", "siren", "icbm"}
+    long_ok = {"barrage", "blackout", "flash", "missile_tower", "fallout", "siren", "icbm"}
     for it in cut.items:
         if isinstance(it, edit.Clip) and it.shot not in long_ok:
             assert it.dur <= 3.1, (it.shot, it.dur)
