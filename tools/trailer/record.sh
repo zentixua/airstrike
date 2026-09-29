@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Съёмка трейлера: клиент без окна проигрывает сценарий (mod/src/devtest/.../scenario/trailer/Trailer) и пишет
 # кадры 60 fps по времени игры и журнал звуков в mod/run/scenario/trailer/; монтаж — tools/trailer/edit.py.
-#   tools/trailer/record.sh [shaders]
+#   tools/trailer/record.sh [shaders] [dh]
 #   shaders — Sodium, Iris и шейдерпак хоста из инстанса (только на ПК с инстансом и KWin)
+#   dh — ещё Distant Horizons из инстанса
+# вид (шейдерпак с его настройками shaderpacks/<пак>.txt, конфиг DH) — из AIRSTRIKE_LOOK_DIR, .minecraft копии для съёмки
+# (по умолчанию — инстанс): у копии облака шейдерпака выше небоскрёбов и свои настройки DH
 # Размер кадра — AIRSTRIKE_SIZE (по умолчанию 1920x1080). Без инстанса (облако) Create/Sable/Aeronautics
 # скачиваются tools/fetch_runtime_mods.py, клиент идёт под xvfb-run с программной отрисовкой.
 set -euo pipefail
@@ -63,16 +66,28 @@ if [ ! -d "$MC/mods" ]; then
   python3 "$ROOT/tools/fetch_runtime_mods.py"
   GRADLE_ARGS+=(-PmcModsDir=run/ci-mods)
 fi
-if [ "${1:-}" = shaders ]; then
-  export AIRSTRIKE_SHADERS=1
-  PACK="$(sed -n 's/^shaderPack=//p' "$MC/config/iris.properties")"
-  mkdir -p "$RUN/shaderpacks" "$RUN/config"
-  rm -rf "$RUN/shaderpacks/$PACK"
-  cp -r "$MC/shaderpacks/$PACK" "$RUN/shaderpacks/"
-  printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
-else
-  unset AIRSTRIKE_SHADERS
-fi
+unset AIRSTRIKE_SHADERS AIRSTRIKE_DH
+LOOK="${AIRSTRIKE_LOOK_DIR:-$MC}"
+for opt in "$@"; do
+  case "$opt" in
+    shaders)
+      export AIRSTRIKE_SHADERS=1
+      PACK="$(sed -n 's/^shaderPack=//p' "$LOOK/config/iris.properties")"
+      mkdir -p "$RUN/shaderpacks" "$RUN/config"
+      rm -rf "${RUN:?}/shaderpacks/$PACK" "$RUN/shaderpacks/$PACK.txt"
+      cp -r "$LOOK/shaderpacks/$PACK" "$RUN/shaderpacks/"
+      # настройки пака (Iris хранит их рядом с ним): без них — значения по умолчанию, облака на своей высоте
+      if [ -f "$LOOK/shaderpacks/$PACK.txt" ]; then cp "$LOOK/shaderpacks/$PACK.txt" "$RUN/shaderpacks/"; fi
+      printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
+      ;;
+    dh)
+      export AIRSTRIKE_DH=1
+      mkdir -p "$RUN/config"
+      if [ -f "$LOOK/config/DistantHorizons.toml" ]; then cp "$LOOK/config/DistantHorizons.toml" "$RUN/config/"; fi
+      ;;
+    *) echo "record.sh: неизвестный параметр: $opt (есть shaders, dh)" >&2; exit 2 ;;
+  esac
+done
 JDK="$(python3 "$ROOT/tools/paths.py" JAVA)"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "$JDK" ]; then export JAVA_HOME="$JDK"; fi
 cd "$ROOT/mod"
