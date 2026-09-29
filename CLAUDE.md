@@ -202,7 +202,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   туман на дальности прорисовки съедает дальнее; ядерная картинка рисуется в `AFTER_LEVEL` — проверено
   `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса).
 - Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
-  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`.
+  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`; для сервера стенда — `AIRSTRIKE_JFR=1 tools/stress.sh`
+  → `mod/run/stress/server/stress.jfr`.
 - Сервер GameTest тикает без пауз (`GameTestServer.waitUntilNextTick` только выполняет задачи): срок в тиках проходит
   быстрее фоновой генерации. Чанки площадки грузятся сразу, соседние за её краем — в фоне; что должно успеть к сроку,
   держать в чанках, чьи соседи тоже на площадке (x и z от 16 до 47 у площадки 64×64).
