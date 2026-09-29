@@ -1103,7 +1103,7 @@ public final class StrikeGameTests {
     }
 
     /** Уборка после теста — и когда он прошёл, и когда упал (в {@code succeedWhen} она шла бы только после успеха). */
-    private static void afterTest(GameTestHelper h, Runnable cleanup) {
+    static void afterTest(GameTestHelper h, Runnable cleanup) {
         h.testInfo.addListener(new GameTestListener() {
             @Override
             public void testStructureLoaded(GameTestInfo info) {
