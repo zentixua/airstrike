@@ -9,6 +9,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
@@ -41,6 +42,7 @@ import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Проверки без окна ({@code ./gradlew runGameTestServer}): каждое оружие долетает и взрывается, шахед сходит
@@ -653,6 +655,45 @@ public final class StrikeGameTests {
             h.assertTrue(bomb.isRemoved(), "бомба ещё не взорвалась");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET).is(Blocks.GRASS_BLOCK), "нет входного отверстия");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET.below()).is(Blocks.DIRT), "бомба не пробила грунт");
+        });
+    }
+
+    /**
+     * Снаряд вне мира, долетевший до цели, чей район уже тикает, взрывается у цели, даже если за целью чанки не тикают.
+     * В мир он возвращается, только когда тикает и место впереди по курсу (запас от прыжков на границе); у цели в чанке,
+     * который тикает один (игрок в воздухе над краем загрузки), этого не бывало, и снаряд пролетал цель без взрыва и
+     * падал по баллистике до конца срока жизни: стенд VPS 29.09.2026 — 3 ракеты РСЗО из ~360 в 900 блоках под миром.
+     */
+    @GameTest(template = "runway", timeoutTicks = 600, batch = "virtual_arrival", skyAccess = true)
+    public static void virtualRocketDetonatesAtTickingAim(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // далеко за площадкой: тикает только чанк цели (принудительно), соседи — нет
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, 4000);
+        ChunkPos chunk = new ChunkPos(origin);
+        level.setChunkForced(chunk.x, chunk.z, true);
+        level.getChunk(chunk.x, chunk.z);
+        Vec3 aim = new Vec3(chunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 140, chunk.getMiddleBlockZ() + 0.5);
+        RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+        rocket.launchFrom(aim.add(-300, -140, 0), new Target.Point(aim), aim, null);
+        VirtualFlights.launch(level, rocket);
+        UUID id = rocket.getUUID();
+        Vec3[] last = {rocket.position()};
+        boolean[] passed = {false};
+        h.onEachTick(() -> {
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            if (p == null) return;
+            last[0] = p.position();
+            // пролетел цель: дальше неё по курсу (снаряд идёт по +x)
+            if (p.getX() > aim.x + 16) passed[0] = true;
+        });
+        h.succeedWhen(() -> {
+            h.assertFalse(passed[0], "снаряд пролетел цель: " + last[0].subtract(aim));
+            boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
+                    || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
+            h.assertFalse(flying, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
+            level.setChunkForced(chunk.x, chunk.z, false);
         });
     }
 
