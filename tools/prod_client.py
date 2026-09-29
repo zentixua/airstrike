@@ -80,7 +80,7 @@ def copy_instance(dest, world):
         shutil.copytree(os.path.join(mc, "saves", world), os.path.join(dest, "saves", world))
 
 
-def launch_args(dest, props, username, game_extra):
+def launch_args(dest, props, username, game_extra, extra_jvm=()):
     prism = paths.PRISM
     libs = os.path.join(prism, "libraries")
     meta = lambda uid, v: json.load(open(os.path.join(prism, "meta", uid, f"{v}.json")))
@@ -120,6 +120,8 @@ def launch_args(dest, props, username, game_extra):
            f"-Xlog:gc:file={os.path.join(dest, 'logs', 'gc.log')}:time,uptime"]
     jvm += [f"-D{k}={v}" for k, v in props.items()]
     jvm += mcm.get("+jvmArgs", [])
+    # свои аргументы — последними: из двух -Xmx JVM берёт последний
+    jvm += list(extra_jvm)
     return jvm + ["-cp", os.pathsep.join(cp), neo["mainClass"]] + game + game_extra
 
 
@@ -131,6 +133,8 @@ def main():
     ap.add_argument("--without-airstrike", action="store_true", help="сборка хоста без Airstrike (сравнение A/B)")
     ap.add_argument("--airstrike-jar", help="готовый jar мода (сборка CI или релиза) вместо тестовой сборки; без сценариев")
     ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
+    ap.add_argument("--jvm", action="append", default=[], metavar="ARG",
+                    help="аргумент JVM поверх обычных, например --jvm=-Xmx12G --jvm=-XX:+UseZGC --jvm=-XX:+ZGenerational")
     ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд")
     ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
     ap.add_argument("--no-copy", action="store_true",
@@ -169,7 +173,7 @@ def main():
     java = os.path.join(os.environ.get("JAVA_HOME") or paths.JAVA, "bin", "java")
     argfile = os.path.join(dest, "launch.args")
     with open(argfile, "w") as f:
-        for arg in launch_args(dest, props, a.user, game_extra):
+        for arg in launch_args(dest, props, a.user, game_extra, a.jvm):
             f.write('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"\n')
     # звук — как у client_scenario.sh: драйвер OpenAL Soft «wave» пишет всё, что слышит клиент, в <dest>/audio.wav
     # (звуковой сервер хоста клиенту закрыт nested_kwin.sh, так что только в файл)
