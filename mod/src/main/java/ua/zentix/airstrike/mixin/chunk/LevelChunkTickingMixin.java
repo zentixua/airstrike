@@ -32,8 +32,9 @@ public abstract class LevelChunkTickingMixin {
 
     @Inject(method = "isTicking", at = @At("RETURN"), cancellable = true)
     private void airstrike$neighboursReady(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        if (!(level instanceof ServerLevel server)) return;
         BlockTicking.checked();
-        if (!cir.getReturnValueZ() || !(level instanceof ServerLevel server)) return;
+        if (!cir.getReturnValueZ()) return;
         long now = server.getGameTime();
         if (airstrike$readyTick != now) {
             airstrike$readyTick = now;

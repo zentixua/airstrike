@@ -5,6 +5,7 @@ import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
 
@@ -27,7 +28,11 @@ import ua.zentix.airstrike.Airstrike;
 public final class BlockTicking {
     /** Через столько тиков после запуска сервера — проверка, что условие действительно стоит на тике блок-сущностей. */
     private static final int CHECK_EVERY = 1200;
-    /** Сколько раз условие спрашивали (миксин встал и тик блок-сущностей идёт через {@code LevelChunk.isTicking}). */
+    /**
+     * Сколько раз сервер спрашивал условие (миксин встал и тик блок-сущностей идёт через {@code LevelChunk.isTicking})
+     * и сказана ли уже строка о нём. Только поток сервера; с каждым запуском сервера — заново ({@link #onServerStarting}):
+     * статика переживает смену мира в одиночной игре.
+     */
     private static long checks;
     private static boolean reported;
 
@@ -39,13 +44,18 @@ public final class BlockTicking {
         return holder == null || holder.getTickingChunk() != null;
     }
 
-    /** Миксин: условие спросили. */
+    /** Миксин: сервер спросил условие. */
     public static void checked() {
         checks++;
     }
 
     public static long checks() {
         return checks;
+    }
+
+    public static void onServerStarting(ServerStartingEvent e) {
+        checks = 0;
+        reported = false;
     }
 
     /**

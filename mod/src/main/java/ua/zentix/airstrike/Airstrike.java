@@ -64,6 +64,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
+        NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
