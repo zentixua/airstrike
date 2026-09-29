@@ -68,6 +68,16 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue nukeMaxFires;
         public final ModConfigSpec.IntValue nukeWarningRadius;
 
+        public final ModConfigSpec.BooleanValue gridEnabled;
+        public final ModConfigSpec.IntValue gridNodeRadius;
+        public final ModConfigSpec.IntValue gridMaxRadius;
+        public final ModConfigSpec.DoubleValue gridCascadeSpeed;
+        public final ModConfigSpec.IntValue gridRestoreMinutes;
+        public final ModConfigSpec.IntValue gridRestoreSpread;
+        public final ModConfigSpec.BooleanValue gridNuke;
+        public final ModConfigSpec.BooleanValue gridDistantLod;
+        public final ModConfigSpec.IntValue gridTimeBudgetMs;
+
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
             dronePower = b.comment("Сила взрыва шахеда (TNT = 4). Больше 60 вешает сервер.")
@@ -166,6 +176,28 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
             carrierNukes = b.comment("Ядерная боевая часть и на крылатой ракете и B-2 (кроме МБР).")
                     .translation("airstrike.config.carrier_nukes").define("carrier_nukes", true);
+            b.pop();
+
+            b.translation("airstrike.config.grid").push("grid");
+            gridEnabled = b.comment("Блэкаут: удар по подстанции обесточивает район — электрические лампы гаснут по кварталам.",
+                            "Факелы, свечи, костры и печи горят дальше: они не от сети.")
+                    .translation("airstrike.config.grid_enabled").define("enabled", true);
+            gridNodeRadius = b.comment("Радиус района, который питает подстанция, блоков.")
+                    .translation("airstrike.config.grid_node_radius").defineInRange("node_radius", 512, 16, 4096);
+            gridMaxRadius = b.comment("Наибольший радиус одного отключения, блоков (ядерный удар гасит не дальше).")
+                    .translation("airstrike.config.grid_max_radius").defineInRange("max_radius", 4096, 64, 16_384);
+            gridCascadeSpeed = b.comment("Скорость, с которой отключение расходится от подстанции по кварталам, блоков в секунду.")
+                    .translation("airstrike.config.grid_cascade_speed").defineInRange("cascade_speed", 60.0, 1.0, 10_000.0);
+            gridRestoreMinutes = b.comment("Через сколько минут свет начинают возвращать (0 — только командой /airstrike grid restore).")
+                    .translation("airstrike.config.grid_restore_minutes").defineInRange("restore_minutes", 15, 0, 10_080);
+            gridRestoreSpread = b.comment("За сколько секунд свет возвращается во все кварталы (вразнобой).")
+                    .translation("airstrike.config.grid_restore_spread").defineInRange("restore_spread_seconds", 90, 0, 3600);
+            gridNuke = b.comment("Ядерный удар обесточивает всё в радиусе своего действия.")
+                    .translation("airstrike.config.grid_nuke").define("nuke_blackout", true);
+            gridDistantLod = b.comment("С Distant Horizons: кварталы вдали гаснут и в его LOD — по копии чанка с диска, без загрузки чанка.")
+                    .translation("airstrike.config.grid_distant_lod").define("distant_lod", true);
+            gridTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута (1–20).")
+                    .translation("airstrike.config.grid_time_budget").defineInRange("ms_per_tick", 4, 1, 20);
             b.pop();
         }
     }

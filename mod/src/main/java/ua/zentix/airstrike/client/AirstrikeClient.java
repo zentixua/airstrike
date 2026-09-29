@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.Block;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -10,6 +11,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
@@ -26,6 +28,7 @@ import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.fx.Effects;
 import ua.zentix.airstrike.client.fx.Exhaust;
 import ua.zentix.airstrike.client.fx.Flash;
+import ua.zentix.airstrike.client.fx.GridEffects;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.ClientFlights;
@@ -54,11 +57,15 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.registry.ModBlocks;
 import ua.zentix.airstrike.registry.ModEntities;
 
 /** Клиентская половина мода: модели, звук, эффекты, камера, HUD, пульт. На выделенном сервере не загружается. */
 @Mod(value = Airstrike.MOD_ID, dist = Dist.CLIENT)
 public final class AirstrikeClient {
+    /** Притушенный цвет ламп без питания. */
+    private static final int UNLIT_TINT = 0x7C7C84;
+
     public AirstrikeClient(IEventBus modBus, ModContainer container) {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(AirstrikeClient::renderers);
@@ -68,6 +75,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
+        modBus.addListener(AirstrikeClient::blockColors);
         TerrainTiles.init();
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
@@ -111,6 +119,14 @@ public final class AirstrikeClient {
         e.registerEntityRenderer(ModEntities.DEBRIS.get(), DebrisRenderer::new);
         e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
+    }
+
+    /**
+     * Лампы без питания (двойники блэкаута) — те же текстуры, притушенные: днём видно, что лампа не горит.
+     * Окраска действует только на модели с {@code tintindex} (светокамень, фонари, стержень края…).
+     */
+    private static void blockColors(RegisterColorHandlersEvent.Block e) {
+        e.register((state, level, pos, tint) -> UNLIT_TINT, ModBlocks.UNLIT.stream().map(p -> p.unlit().get()).toArray(Block[]::new));
     }
 
     private static void keys(RegisterKeyMappingsEvent e) {
@@ -277,6 +293,16 @@ public final class AirstrikeClient {
         @Override
         public void heard(S2C.Heard p) {
             ClientSounds.heard(p);
+        }
+
+        @Override
+        public void gridFailure(S2C.GridFailure p) {
+            GridEffects.failure(p);
+        }
+
+        @Override
+        public void gridDistrict(S2C.GridDistrict p) {
+            GridEffects.district(p);
         }
     }
 }

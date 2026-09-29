@@ -17,6 +17,7 @@ public final class ModItems {
     public static final DeferredItem<GeigerCounterItem> GEIGER_COUNTER = REGISTER.registerItem("geiger_counter",
             GeigerCounterItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredItem<BlockItem> TRINITITE = REGISTER.registerSimpleBlockItem(ModBlocks.TRINITITE);
+    public static final DeferredItem<BlockItem> SUBSTATION = REGISTER.registerSimpleBlockItem(ModBlocks.SUBSTATION);
 
     private ModItems() {}
 }

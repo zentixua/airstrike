@@ -19,6 +19,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.grid.Blackouts;
+import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
 import ua.zentix.airstrike.nuclear.model.PromptRadiationModel;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
@@ -29,7 +31,6 @@ import ua.zentix.airstrike.nuclear.world.ThermalShadow;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModEffects;
 import ua.zentix.airstrike.registry.ModTags;
-import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
@@ -67,6 +68,7 @@ public final class NuclearWarhead {
         PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
 
         NuclearWorld.get(level).onDetonation(level, d, owner);
+        Blackouts.nuke(level, d);
         Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
                 Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
         return d;

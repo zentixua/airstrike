@@ -9,6 +9,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import ua.zentix.airstrike.command.AirstrikeCommand;
+import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.legacy.LegacyMigration;
 import ua.zentix.airstrike.net.AirstrikeNetwork;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -75,6 +76,11 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);
         NeoForge.EVENT_BUS.addListener(RadiationTicker::onHeal);
         NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
+
+        NeoForge.EVENT_BUS.addListener(Blackouts::onServerTick);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
     }
 
     public static ResourceLocation id(String path) {

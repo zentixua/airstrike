@@ -21,6 +21,8 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.BunkerImpact.TYPE, S2C.BunkerImpact.CODEC, (p, ctx) -> ClientHooks.get().bunkerImpact(p));
         r.playToClient(S2C.Vent.TYPE, S2C.Vent.CODEC, (p, ctx) -> ClientHooks.get().vent(p));
         r.playToClient(S2C.Collapse.TYPE, S2C.Collapse.CODEC, (p, ctx) -> ClientHooks.get().collapse(p));
+        r.playToClient(S2C.GridFailure.TYPE, S2C.GridFailure.CODEC, (p, ctx) -> ClientHooks.get().gridFailure(p));
+        r.playToClient(S2C.GridDistrict.TYPE, S2C.GridDistrict.CODEC, (p, ctx) -> ClientHooks.get().gridDistrict(p));
         r.playToClient(S2C.Quake.TYPE, S2C.Quake.CODEC, (p, ctx) -> ClientHooks.get().quake(p));
         r.playToClient(S2C.Siren.TYPE, S2C.Siren.CODEC, (p, ctx) -> ClientHooks.get().siren(p));
         r.playToClient(S2C.SalvoStatus.TYPE, S2C.SalvoStatus.CODEC, (p, ctx) -> ClientHooks.get().salvoStatus(p));

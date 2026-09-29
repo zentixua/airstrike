@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=x": {
+      "model": "airstrike:block/unlit_pearlescent_froglight_horizontal",
+      "x": 90,
+      "y": 90
+    },
+    "axis=y": {
+      "model": "airstrike:block/unlit_pearlescent_froglight"
+    },
+    "axis=z": {
+      "model": "airstrike:block/unlit_pearlescent_froglight_horizontal",
+      "x": 90
+    }
+  }
+}

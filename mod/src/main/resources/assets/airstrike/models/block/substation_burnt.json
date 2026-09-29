@@ -1,0 +1,11 @@
+{
+  "parent": "airstrike:block/substation",
+  "textures": {
+    "side": "airstrike:block/substation_side_burnt",
+    "front": "airstrike:block/substation_front_burnt",
+    "top": "airstrike:block/substation_top_burnt",
+    "fins": "airstrike:block/substation_fins_burnt",
+    "insulator": "airstrike:block/substation_insulator_burnt",
+    "particle": "airstrike:block/substation_side_burnt"
+  }
+}

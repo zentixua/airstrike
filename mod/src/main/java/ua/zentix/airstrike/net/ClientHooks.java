@@ -15,6 +15,10 @@ public interface ClientHooks {
 
     default void quake(S2C.Quake p) {}
 
+    default void gridFailure(S2C.GridFailure p) {}
+
+    default void gridDistrict(S2C.GridDistrict p) {}
+
     default void siren(S2C.Siren p) {}
 
     default void salvoStatus(S2C.SalvoStatus p) {}
