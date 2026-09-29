@@ -488,29 +488,32 @@ public final class Trailer {
             AirstrikeConfig.SERVER.droneFlightTime.set(20);
         });
         fromAfar(true);
-        Vec3 portView = PORT.add(40, 0, -60);
-        run(() -> placeHidden(ground(portView).add(0, 45, 0), DOWNTOWN));
-        shot("swarm_night").onReady(() -> fire("salvo drone 16 180", ground(DOWNTOWN))).hidden().length(320).farView().shake(0.05)
+        // камеры ночью — в 120–180 блоках от попаданий: дальше прорисовки клиент не видит ни снарядов, ни частиц,
+        // а из-за домов на переднем плане не видно улиц
+        Vec3 roofView = DOWNTOWN.add(-120, 0, 95);
+        run(() -> placeHidden(ground(roofView).add(0, 55, 0), DOWNTOWN));
+        shot("swarm_night").onReady(() -> fire("salvo drone 16 120", ground(DOWNTOWN))).hidden().length(320).farView().shake(0.05)
                 .camera(() -> {
-                    Vec3 from = ground(portView).add(0, 45, 0);
-                    return CineCamera.spline(true, CineCamera.Key.at(0, from, DOWNTOWN.add(0, 60, 0), 38),
-                            CineCamera.Key.at(320, from.add(DOWNTOWN.subtract(from).normalize().scale(60)), DOWNTOWN.add(0, 40, 0), 34));
+                    Vec3 from = ground(roofView).add(0, 55, 0);
+                    return CineCamera.spline(true, CineCamera.Key.at(0, from, DOWNTOWN.add(0, 50, 0), 44),
+                            CineCamera.Key.at(320, from.add(DOWNTOWN.subtract(from).normalize().scale(35)), DOWNTOWN.add(0, 25, 0), 38));
                 })
-                .when(() -> nearest(DroneEntity.class, DOWNTOWN, 700) != null, 6000)
-                .endWhen(() -> nearest(DroneEntity.class, DOWNTOWN, 1500) == null, 80);
+                .when(() -> nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000)
+                .endWhen(() -> nearest(DroneEntity.class, DOWNTOWN, 400) == null, 80);
         Vec3 gradAim = DOWNTOWN.add(260, 0, 180);
-        run(() -> placeHidden(ground(gradAim.add(0, 0, 320)).add(0, 50, 0), gradAim));
-        shot("grad_night").onReady(() -> fire("salvo rocket 40 120", ground(gradAim))).hidden().length(260).speed(0.7).shake(0.1)
-                .camera(() -> CineCamera.track(ground(gradAim.add(0, 0, 320)).add(0, 50, 0), () -> gradAim.add(0, 20, 0), 48))
-                .when(() -> nearest(RocketEntity.class, gradAim, 400) != null, 6000)
-                .endWhen(() -> nearest(RocketEntity.class, gradAim, 1500) == null, 100);
-        run(() -> placeHidden(DOWNTOWN.add(0, 330, 0), DOWNTOWN));
+        Vec3 gradView = gradAim.add(-70, 0, 150);
+        run(() -> placeHidden(ground(gradView).add(0, 70, 0), gradAim));
+        shot("grad_night").onReady(() -> fire("salvo rocket 30 90", ground(gradAim))).hidden().length(260).speed(0.7).shake(0.1)
+                .camera(() -> CineCamera.track(ground(gradView).add(0, 70, 0), () -> gradAim.add(0, 10, 0), 52))
+                .when(() -> nearest(RocketEntity.class, gradAim, 260) != null, 6000)
+                .endWhen(() -> nearest(RocketEntity.class, gradAim, 400) == null, 100);
+        run(() -> placeHidden(DOWNTOWN.add(0, 120, 0), DOWNTOWN));
         shot("barrage").onReady(() -> {
-                    fire("salvo missile 12 220", ground(DOWNTOWN));
-                    fire("salvo drone 12 260", ground(DOWNTOWN));
+                    fire("salvo missile 12 160", ground(DOWNTOWN));
+                    fire("salvo drone 12 180", ground(DOWNTOWN));
                 }).hidden().length(300).farView().shake(0.04)
-                .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 520, 300, 250, 0.12, 46))
-                .when(() -> nearest(CruiseMissileEntity.class, DOWNTOWN, 900) != null || nearest(DroneEntity.class, DOWNTOWN, 700) != null, 6000);
+                .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 190, 110, 250, 0.12, 50))
+                .when(() -> nearest(CruiseMissileEntity.class, DOWNTOWN, 300) != null || nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000);
     }
 
     /**
@@ -520,6 +523,8 @@ public final class Trailer {
      */
     private void nuke() {
         run(() -> {
+            // шахеды ночного роя, сбившиеся с пути, не должны висеть в списке полётов под отсчётом
+            cmd("airstrike clear");
             cmd("time set 18000");
             AirstrikeConfig.SERVER.siren.set(true);
             forceload(STREET, 160);
@@ -547,7 +552,7 @@ public final class Trailer {
         // вспышка с холма из-за плеча наводчика: ночь становится днём
         run(() -> placeActor(post, TOWER));
         shot("flash").hud().length(200).shake(0.06).camera(() -> {
-            Vec3 back = post.add(toPost.scale(2.6)).add(side.scale(1.2)).add(0, 1.9, 0);
+            Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(1.2)).add(0, 1.9, 0), 1.7);
             return CineCamera.track(back, () -> TOWER.add(0, 400, 0), 60);
         }).when(() -> warningTicks() <= 60, 3000).endWhen(() -> sinceDetonation() > 30, 0);
         // волна приходит: улица (~900), порт (~1450), холм (~4000 блоков)
@@ -555,7 +560,7 @@ public final class Trailer {
         wave("wave_port", () -> ground(PORT.add(-40, 0, 30)).add(0, 20, 0), 0.5);
         run(() -> placeActor(post, TOWER));
         shot("wave_hill").hud().length(140).shake(0.06).camera(() -> {
-            Vec3 back = post.add(toPost.scale(2.6)).add(side.scale(-1.3)).add(0, 1.8, 0);
+            Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(-1.3)).add(0, 1.8, 0), 1.7);
             return CineCamera.track(back, () -> TOWER.add(0, 250, 0), 64);
         }).when(() -> sinceDetonation() >= arrivalAt(post) - 60, 6000);
         // гриб издалека, ускоренно: из-за порта, над заливом
@@ -583,17 +588,20 @@ public final class Trailer {
             cmd("weather rain");
             AirstrikeConfig.SERVER.siren.set(false);
         });
-        run(() -> placeHidden(TOWER.add(-300, 90, 120), TOWER));
+        run(() -> placeHidden(overGround(TOWER.add(-300, 150, 120), 35), TOWER));
         // разрушения в только что загруженных чанках идут сразу, под бюджетом: дать им время
         waitTicks(600);
+        // над крышами: башни у эпицентра в полторы сотни блоков, камера на постоянной высоте уходила в стены
         shot("ruins").hidden().length(220).shake(0.05).camera(() -> CineCamera.spline(true,
-                CineCamera.Key.at(0, TOWER.add(-300, 90, 120), TOWER.add(0, 20, 0), 50),
-                CineCamera.Key.at(110, TOWER.add(-180, 60, 60), TOWER.add(0, 10, 0), 48),
-                CineCamera.Key.at(220, TOWER.add(-110, 45, -40), TOWER, 46)));
+                CineCamera.Key.at(0, overGround(TOWER.add(-300, 150, 120), 35), TOWER.add(0, 20, 0), 50),
+                CineCamera.Key.at(110, overGround(TOWER.add(-180, 110, 60), 35), TOWER.add(0, 10, 0), 48),
+                CineCamera.Key.at(220, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)));
         run(() -> placeInFallout(false));
         waitTicks(40);
         run(() -> placeInFallout(true));
         run(() -> cmd("item replace entity @s weapon.mainhand with airstrike:geiger_counter"));
+        // в творческом доза не копится (RadiationTicker): у счётчика в кадре должна расти и она
+        run(() -> cmd("gamemode adventure @s"));
         shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), TOWER) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
                 .when(() -> sinceDetonation() > 3900, 8000);
@@ -718,6 +726,11 @@ public final class Trailer {
     }
 
     /** Верх того, что стоит в точке (земля, крыша), — по карте высот клиента, а если чанка у клиента нет — спросить сервер. */
+    /** Точка не ниже {@code clearance} над рельефом: камера за спиной наводчика на склоне уходила в холм. */
+    private Vec3 overGround(Vec3 p, double clearance) {
+        return new Vec3(p.x, Math.max(p.y, ground(p).y + clearance), p.z);
+    }
+
     private Vec3 ground(Vec3 p) {
         int x = Mth.floor(p.x), z = Mth.floor(p.z);
         if (mc.level != null && mc.level.getChunkSource().hasChunk(x >> 4, z >> 4)) {
@@ -1502,6 +1515,8 @@ public final class Trailer {
     private void beforeFrame(RenderFrameEvent.Pre e) {
         if (!started) return;
         frameReady = false;
+        // всплывашки (достижение за моба, убитого взрывом) — не для кадра
+        mc.getToasts().clear();
         if (recording != null) {
             double partial = recording.time() - (recording.t - 1);
             if (partial > 1.0001) {
