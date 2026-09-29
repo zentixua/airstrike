@@ -15,7 +15,10 @@ import java.util.UUID;
  */
 public final class ChunkTickets {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_projectile", Comparator.<UUID>naturalOrder());
-    /** Уровень тикета 33 − 2 = 31: в самом чанке тикают сущности, как у принудительно загруженного тикающего чанка. */
+    /**
+     * Уровень тикета 33 − 2 = 31: чанк тикает сущности. Принудительно загруженным он от этого не становится: мир без
+     * игроков всё равно засыпает через 300 тиков — пока идёт удар, его будит {@link StrikeWorld}.
+     */
     private static final int DISTANCE = 2;
 
     private ChunkTickets() {}

@@ -11,6 +11,7 @@ import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -21,6 +22,7 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -287,6 +289,44 @@ public final class LifecycleGameTests {
             h.assertTrue(away[0] != null, "снаряд не ушёл в полёт вне мира: " + state(level, m));
             h.assertTrue(held[0], "в мире снаряд не держал тикетов — проверять нечего");
             h.assertTrue(away[0].equals("в мире false, тикетов 0"), "после ухода из мира: " + away[0]);
+        });
+    }
+
+    /**
+     * Мир без игроков (Незер, куда никто не заходил) через 300 тиков перестаёт тикать сущности, а тикеты снаряда
+     * принудительной загрузкой не считаются: пока в мире идёт удар, мир не засыпает. Снаряд на направляющей стоит
+     * до поджига и тикает на месте — его возраст растёт, только пока мир тикает сущности.
+     */
+    @GameTest(template = "pad", timeoutTicks = 1200, batch = "empty_dimension")
+    public static void strikeKeepsEmptyDimensionAwake(GameTestHelper h) {
+        ServerLevel nether = h.getLevel().getServer().getLevel(Level.NETHER);
+        h.assertTrue(nether != null && nether.players().isEmpty(), "нет Незера без игроков");
+        // над крышей из бедрока, в колонке площадки теста (свои, дальние координаты у каждого запуска)
+        BlockPos at = new BlockPos(h.absolutePos(BlockPos.ZERO).getX(), 140, h.absolutePos(BlockPos.ZERO).getZ());
+        ChunkPos chunk = new ChunkPos(at);
+        UUID holder = UUID.randomUUID();
+        ChunkTickets.hold(nether, holder, chunk.toLong(), true);
+        // сущности в чанке тикают, когда готовы и соседи в два чанка: в тесте — сразу, без ожидания фоновой генерации
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) nether.getChunk(chunk.x + dx, chunk.z + dz);
+        }
+        Vec3 rail = Vec3.atBottomCenterOf(at);
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(nether);
+        m.placeOnLauncher(rail, 0, 40, 5000, 0, new Target.Point(rail.add(0, 0, 3000)), rail.add(0, 0, 3000), null);
+        m.setRoute(Route.direct());
+        long[] placed = {-1};
+        h.onEachTick(() -> {
+            if (placed[0] < 0 && nether.isPositionEntityTicking(at)) {
+                nether.addFreshEntity(m);
+                placed[0] = h.getTick();
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(placed[0] >= 0 && h.getTick() - placed[0] >= 400, "ждём 400 тиков после пуска: " + state(nether, m));
+            // без удара мир уснул бы не позже чем через 300 тиков, и возраст снаряда остановился бы
+            h.assertTrue(m.age() >= 390, "мир без игроков уснул посреди удара: " + state(nether, m));
+            m.discard();
+            ChunkTickets.hold(nether, holder, chunk.toLong(), false);
         });
     }
 

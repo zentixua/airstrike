@@ -15,6 +15,11 @@ import java.util.List;
  * Всё, что длится несколько тиков, но не является сущностью в мире: таймлайны взрывов (живут секунды, не
  * сохраняются), залпы ({@link SalvoData}) и полёты вне загруженного мира ({@link VirtualFlights}) — последние два
  * сохраняются в мире. Тикает в конце тика мира.
+ * <p>
+ * Мир без игроков через 300 тиков перестаёт тикать сущности ({@code ServerLevel.tick}, {@code emptyTime}), если в нём
+ * нет принудительно загруженных чанков, а тикеты регионов ({@link ChunkTickets}, {@link FlightTickets}) ими не считаются:
+ * снаряды повисли бы в воздухе, пока залпы и полёты вне мира шли бы дальше. Пока в мире идёт удар, он не засыпает —
+ * так же, как ванильный переход сущности между мирами ({@code Entity.changeDimension}) будит мир назначения.
  */
 public final class StrikeWorld {
     private final List<Timeline> timelines = new ArrayList<>();
@@ -34,11 +39,25 @@ public final class StrikeWorld {
 
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
+        if (level.players().isEmpty() && busy(level)) level.resetEmptyTime();
         // «/tick freeze» останавливает сущности — снаряды вне мира, залпы и взрывы стоят вместе с ними
         if (!level.tickRateManager().runsNormally()) return;
         SalvoData.get(level).tick(level);
         VirtualFlights.get(level).tick(level);
         if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).tick(level);
+    }
+
+    /** В мире идёт удар: снаряды в мире и вне его, залпы, взрывы. */
+    private static boolean busy(ServerLevel level) {
+        if (SalvoData.get(level).size() > 0 || VirtualFlights.get(level).size() > 0) return true;
+        if (level.hasData(ModAttachments.STRIKE_WORLD) && !get(level).idle()) return true;
+        List<StrikeProjectile> any = new ArrayList<>(1);
+        level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved(), any, 1);
+        return !any.isEmpty();
+    }
+
+    private boolean idle() {
+        return timelines.isEmpty() && pending.isEmpty();
     }
 
     private void tick(ServerLevel level) {

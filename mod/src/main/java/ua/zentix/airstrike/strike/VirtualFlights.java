@@ -61,6 +61,11 @@ public final class VirtualFlights extends SavedData {
         return flights;
     }
 
+    /** Сколько снарядов летит вне мира (с прочитанными с диска, но ещё не созданными). */
+    public int size() {
+        return flights.size() + pending.size();
+    }
+
     public int clear() {
         int n = flights.size() + pending.size();
         for (StrikeProjectile p : flights) p.discard();
