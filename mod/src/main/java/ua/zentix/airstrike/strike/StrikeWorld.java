@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.strike;
 
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -10,6 +11,7 @@ import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Всё, что длится несколько тиков, но не является сущностью в мире: таймлайны взрывов (живут секунды, не
@@ -74,6 +76,28 @@ public final class StrikeWorld {
             if (done) t.end(level);
             return done;
         });
+    }
+
+    /** Все снаряды мира: в мире и вне его ({@link VirtualFlights}). */
+    public static List<StrikeProjectile> projectiles(ServerLevel level) {
+        List<StrikeProjectile> all = new ArrayList<>(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved()));
+        all.addAll(VirtualFlights.get(level).flights());
+        return all;
+    }
+
+    /**
+     * Сколько снарядов игрока в работе во всех мирах: в полёте (в мире и вне его) и ещё не выпущенных в залпах —
+     * для предела {@code max_active_per_player}.
+     */
+    public static int active(MinecraftServer server, UUID owner) {
+        int n = 0;
+        for (ServerLevel level : server.getAllLevels()) {
+            n += SalvoData.get(level).remaining(owner);
+            for (StrikeProjectile p : projectiles(level)) {
+                if (owner.equals(p.ownerId())) n++;
+            }
+        }
+        return n;
     }
 
     /** Отбой: взрывы в процессе доигрываются (это уже случилось), залпы отменяются. */

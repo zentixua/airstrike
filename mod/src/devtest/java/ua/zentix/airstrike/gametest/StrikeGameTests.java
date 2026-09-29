@@ -31,6 +31,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -692,6 +693,39 @@ public final class StrikeGameTests {
                     "снаряды залпа: " + fired.stream().map(StrikeProjectile::isNuclear).toList());
             SalvoData.get(level).clear();
             VirtualFlights.get(level).clear(level, ours);
+            h.succeed();
+        });
+    }
+
+    /**
+     * Предел ударов у игрока ({@code max_active_per_player}) считает всё его в работе: невыпущенные снаряды залпа,
+     * снаряды в мире и вне его; чужие — нет. Выпущенный снаряд залпа переходит из одного в другое, итог тот же.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "active_count", skyAccess = true)
+    public static void activeShotsCountEverythingOfOwner(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        java.util.UUID owner = java.util.UUID.randomUUID(), other = java.util.UUID.randomUUID();
+        Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 1, 0);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT);
+        CruiseMissileEntity onRail = ModEntities.CRUISE_MISSILE.get().create(level);
+        onRail.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(far), far, owner);
+        onRail.setRoute(Route.direct());
+        level.addFreshEntity(onRail);
+        for (java.util.UUID id : List.of(owner, other)) {
+            CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+            m.launch(far.add(0, 60, 2000), new Target.Point(far), far, id);
+            m.setRoute(Route.direct());
+            VirtualFlights.launch(level, m);
+        }
+        h.assertTrue(StrikeWorld.active(level.getServer(), owner) == 7, "в работе: " + StrikeWorld.active(level.getServer(), owner));
+        h.runAfterDelay(3, () -> {
+            h.assertTrue(SalvoData.get(level).remaining(owner) < 5, "залп не выпустил ни одного снаряда");
+            h.assertTrue(StrikeWorld.active(level.getServer(), owner) == 7, "после пуска из залпа: " + StrikeWorld.active(level.getServer(), owner));
+            h.assertTrue(StrikeWorld.active(level.getServer(), other) == 1, "у другого игрока: " + StrikeWorld.active(level.getServer(), other));
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()) || other.equals(p.ownerId()));
+            onRail.discard();
             h.succeed();
         });
     }

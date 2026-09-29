@@ -3,7 +3,6 @@ package ua.zentix.airstrike.strike;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -41,10 +40,8 @@ public final class FlightSounds {
 
     /** Все снаряды мира в полёте: в мире и вне его (на пусковой в закрытой ячейке — нет). */
     public static List<StrikeProjectile> flights(ServerLevel level) {
-        List<StrikeProjectile> flights = new ArrayList<>(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), StrikeProjectile::isActive));
-        for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
-            if (p.isActive()) flights.add(p);
-        }
+        List<StrikeProjectile> flights = StrikeWorld.projectiles(level);
+        flights.removeIf(p -> !p.isActive());
         return flights;
     }
 

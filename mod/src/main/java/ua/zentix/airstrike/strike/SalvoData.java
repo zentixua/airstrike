@@ -60,6 +60,15 @@ public final class SalvoData extends SavedData {
         return salvos.size();
     }
 
+    /** Сколько снарядов ещё не выпущено в залпах этого игрока. */
+    public int remaining(UUID owner) {
+        int n = 0;
+        for (Salvo s : salvos) {
+            if (owner.equals(s.owner)) n += s.remaining;
+        }
+        return n;
+    }
+
     void tick(ServerLevel level) {
         if (salvos.isEmpty()) return;
         salvos.removeIf(s -> {
@@ -79,15 +88,16 @@ public final class SalvoData extends SavedData {
      * @param center      цель (точка, сущность или аппарат)
      * @param centerPoint где цель сейчас
      * @param yaw         курс захода
+     * @param owner       кто пустил (ему — сообщения о залпе), null — консоль или командный блок
      */
     public static void start(ServerLevel level, WeaponType weapon, int count, int radius, Target center, Vec3 centerPoint,
-                             float yaw, @Nullable ServerPlayer owner, Loadout.Nuke nuke) {
-        Salvo s = new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner == null ? null : owner.getUUID(), 1, nuke);
-        get(level).add(s);
-        if (owner != null) {
-            owner.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
+                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke) {
+        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke));
+        ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+        if (player != null) {
+            player.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
                     .withStyle(ChatFormatting.RED));
-            PacketDistributor.sendToPlayer(owner, new S2C.SalvoStatus(weapon.id(), 0, count));
+            PacketDistributor.sendToPlayer(player, new S2C.SalvoStatus(weapon.id(), 0, count));
         }
     }
 

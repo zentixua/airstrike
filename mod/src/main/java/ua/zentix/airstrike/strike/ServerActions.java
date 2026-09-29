@@ -147,6 +147,14 @@ public final class ServerActions {
                     ? "airstrike.nuke.ops_only" : "airstrike.nuke.disabled").withStyle(ChatFormatting.RED), true);
             return false;
         }
+        int limit = AirstrikeConfig.SERVER.maxActivePerPlayer.get();
+        if (limit > 0 && !player.hasPermissions(2)) {
+            int active = StrikeWorld.active(player.server, player.getUUID());
+            if (active >= limit) {
+                player.displayClientMessage(Component.translatable("airstrike.too_many_active", active, limit).withStyle(ChatFormatting.RED), true);
+                return false;
+            }
+        }
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
@@ -171,11 +179,12 @@ public final class ServerActions {
     /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
     private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
         StrikeService.log(who, l.weapon(), l.count(), l.spread(), aim.point());
+        UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
-            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, owner, l.nuke());
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke());
             return true;
         }
-        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, owner == null ? null : owner.getUUID(), true, l.nuke());
+        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke());
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
             else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
