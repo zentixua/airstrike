@@ -67,6 +67,13 @@ public final class BlackoutWorld {
     public static final int PLOT_SCAN = 100;
     /** Копий с диска в работе одновременно: чтение идёт в очереди ввода-вывода вместе с загрузкой чанков игроков. */
     private static final int MAX_READS = 8;
+    /**
+     * Чанков, отданных DH и ещё не сохранённых им (вместе с читающимися): его очередь переполненная вытесняет дальние
+     * чанки молча, а предел у неё — 1000 на поток DH ({@link DistantHorizons#updateLod}).
+     */
+    private static final int LOD_IN_FLIGHT = 384;
+    /** Сколько ждать подтверждения от DH: неизменившийся чанк DH пропускает без события (наносекунды). */
+    private static final long LOD_TIMEOUT = 10_000_000_000L;
     /** Звук квартала — игрокам ближе этого (блоки по горизонтали). */
     private static final double DISTRICT_SOUND_RANGE = 96;
 
@@ -145,14 +152,21 @@ public final class BlackoutWorld {
     private final LongLinkedOpenHashSet relight = new LongLinkedOpenHashSet();
     private final ConcurrentLinkedQueue<Read> readsDone = new ConcurrentLinkedQueue<>();
     private int readsInFlight;
+    /** Загруженные чанки, чей LOD пора обновить (после перевода), — по мере места в очереди DH. */
+    private final LongLinkedOpenHashSet lodLoaded = new LongLinkedOpenHashSet();
+    /** Чанк, отданный DH, → когда (наносекунды); снимается подтверждением DH или по {@link #LOD_TIMEOUT}. */
+    private final Long2LongOpenHashMap lodPending = new Long2LongOpenHashMap();
     /**
      * Для строки в лог, с загрузки мира: копий чанков отдано DH; без копии (файла или чанка на диске нет, в чанке
      * нет ламп, он другой версии игры или не полный); отброшено (чанк загрузился или сеть в нём сменилась, пока копия
      * читалась); не прочитано (ошибка).
      */
     private int lodCopies, lodSkipped, lodDiscarded, lodFailed;
-    /** Когда очередь копий для LOD начала работу (наносекунды; 0 — очередь пуста): для строки в лог о её конце. */
-    private long readsSince;
+    /** С загрузки мира: загруженных чанков отдано DH; DH подтвердил сохранение; подтверждения не дождались. */
+    private int lodLive, lodSaved, lodUnconfirmed;
+    /** Когда LOD DH начали обновлять (наносекунды; 0 — нечего) и сколько чанков с тех пор прочитано или отдано. */
+    private long lodSince;
+    private int lodSinceWork;
     private boolean readFailureLogged;
     /** Квартал → когда в нём последний раз играл звук (щелчок и гул на весь квартал — один раз). */
     private final Long2LongOpenHashMap sounded = new Long2LongOpenHashMap();
@@ -291,7 +305,7 @@ public final class BlackoutWorld {
 
     /** Сколько чанков ждёт перевода, двойников — зажигания и копий с диска (для /airstrike grid status). */
     public int[] backlog() {
-        return new int[]{ready.size(), relight.size(), reads.size() + readsInFlight};
+        return new int[]{ready.size(), relight.size(), reads.size() + readsInFlight + lodLoaded.size() + lodPending.size()};
     }
 
     /**
@@ -310,16 +324,30 @@ public final class BlackoutWorld {
         PowerGrid grid = PowerGrid.get(level);
         if (!restored) restore(level, grid, now);
         drainReads(level, grid, now);
+        DistantHorizons.lodSaved(level, c -> {
+            if (lodPending.remove(c) != lodPending.defaultReturnValue()) lodSaved++;
+        });
         relightPlaced(level, clock);
         scheduleRestoreSweeps(grid, now);
         if (now % 20 == 0) {
             grid.prune(now);
-            Substations.sync(level, grid, now);
             sounded.long2LongEntrySet().removeIf(e -> now - e.getLongValue() > 200);
             // чанк ушёл из памяти, не став полным (кольцо вокруг краевых чанков): события выгрузки у него нет
             var chunkMap = level.getChunkSource().chunkMap;
             staleLight.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
+            long expired = System.nanoTime() - LOD_TIMEOUT;
+            lodPending.long2LongEntrySet().removeIf(e -> {
+                if (e.getLongValue() > expired) return false;
+                DistantHorizons.lodForget(level, e.getLongKey());
+                lodUnconfirmed++;
+                return true;
+            });
             resignal.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
+            // сосед вернулся к полной загрузке без события (опускался ниже у края видимости) — сверка сигнала сейчас
+            for (long c : resignal.keySet()) {
+                ChunkPos p = new ChunkPos(c);
+                if (level.getChunkSource().getChunkNow(p.x, p.z) != null && NuclearTickets.neighbourhoodLoaded(level, p)) enqueue(c);
+            }
         }
         advanceSweeps(level, grid, now, clock);
         while (!ready.isEmpty() && clock.canStart()) {
@@ -334,7 +362,9 @@ public final class BlackoutWorld {
                 clock.end(c0);
             }
         }
+        feedLoadedLods(level);
         startReads(level, grid, now);
+        logLodDone();
     }
 
     /** После загрузки мира: каскады отключений, которые ещё идут, — дальше с того места, где остановились. */
@@ -460,7 +490,7 @@ public final class BlackoutWorld {
             chunk.removeData(ModAttachments.GRID_DARK);
         }
         if (changed > 0) {
-            DistantHorizons.updateLod(level, chunk);
+            if (DistantHorizons.present()) lodLoaded.add(c);
             districtSound(level, pos, dark, now);
         }
     }
@@ -484,21 +514,58 @@ public final class BlackoutWorld {
     private void startReads(ServerLevel level, PowerGrid grid, long now) {
         if (regionFolder == null) return;
         Path folder = regionFolder;
-        if (readsSince == 0 && !reads.isEmpty()) readsSince = System.nanoTime();
-        while (readsInFlight < MAX_READS && !reads.isEmpty()) {
+        if (lodSince == 0 && !reads.isEmpty()) lodSince = System.nanoTime();
+        LongArrayList busy = new LongArrayList();
+        while (readsInFlight < MAX_READS && lodRoom() > 0 && !reads.isEmpty()) {
             long c = reads.dequeueLong();
-            readsQueued.remove(c);
             ChunkPos pos = new ChunkPos(c);
             if (inMemory(level, c) != null) {
+                readsQueued.remove(c);
                 enqueue(c);
                 continue;
             }
+            // чанк ещё в очереди DH — второй раз DH его не возьмёт (свет вернули раньше, чем он сохранил темноту)
+            if (lodPending.containsKey(c)) {
+                busy.add(c);
+                continue;
+            }
+            readsQueued.remove(c);
             boolean dark = grid.dark(pos.x, pos.z, now);
             readsInFlight++;
             CompletableFuture.supplyAsync(() -> DiskChunks.regionExists(folder, pos), Util.backgroundExecutor())
                     .thenCompose(exists -> exists ? level.getChunkSource().chunkMap.read(pos) : CompletableFuture.completedFuture(Optional.empty()))
                     .thenApplyAsync(tag -> tag.map(t -> DiskChunks.copy(level, pos, t, dark)).orElse(null), Util.backgroundExecutor())
                     .whenComplete((copy, error) -> readsDone.add(new Read(c, copy, dark, error)));
+        }
+        for (int i = 0; i < busy.size(); i++) reads.enqueue(busy.getLong(i));
+    }
+
+    /** Сколько ещё чанков можно отдать DH, не переполняя его очередь. */
+    private int lodRoom() {
+        return LOD_IN_FLIGHT - lodPending.size() - readsInFlight;
+    }
+
+    /** Загруженные чанки после перевода — в DH, пока есть место. */
+    private void feedLoadedLods(ServerLevel level) {
+        int n = lodLoaded.size();
+        if (lodSince == 0 && n > 0) lodSince = System.nanoTime();
+        for (int i = 0; i < n && lodRoom() > 0 && !lodLoaded.isEmpty(); i++) {
+            long c = lodLoaded.removeFirstLong();
+            if (lodPending.containsKey(c)) {
+                lodLoaded.add(c);
+                continue;
+            }
+            LevelChunk chunk = inMemory(level, c);
+            if (chunk == null) {
+                // выгрузился, не дождавшись: на диске он уже такой, какой нужен
+                if (AirstrikeConfig.SERVER.gridDistantLod.get()) read(c);
+                continue;
+            }
+            if (DistantHorizons.updateLod(level, chunk)) {
+                lodPending.put(c, System.nanoTime());
+                lodLive++;
+                lodSinceWork++;
+            }
         }
     }
 
@@ -507,6 +574,7 @@ public final class BlackoutWorld {
         Read r;
         while ((r = readsDone.poll()) != null) {
             readsInFlight--;
+            lodSinceWork++;
             if (r.error != null) {
                 lodFailed++;
                 if (!readFailureLogged) {
@@ -519,17 +587,29 @@ public final class BlackoutWorld {
             if (r.copy == null) {
                 lodSkipped++;
             } else if (inMemory(level, r.chunk) == null && grid.dark(pos.x, pos.z, now) == r.dark) {
-                DistantHorizons.updateLod(level, r.copy);
-                lodCopies++;
+                if (DistantHorizons.updateLod(level, r.copy)) {
+                    lodPending.put(r.chunk, System.nanoTime());
+                    lodCopies++;
+                }
             } else {
                 lodDiscarded++;
             }
         }
-        if (readsSince != 0 && reads.isEmpty() && readsInFlight == 0) {
-            Airstrike.LOG.info("Блэкаут: копии чанков для LOD DH отданы за {} с (с загрузки мира: в DH {}, без копии {}, отброшено {}, не прочитано {})",
-                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - readsSince) / 1e9), lodCopies, lodSkipped, lodDiscarded, lodFailed);
-            readsSince = 0;
+    }
+
+    /**
+     * Все LOD каскадов отданы и сохранены DH — строка в лог, одна на все каскады (очередь пустеет и между кварталами
+     * одного каскада). Крупные LOD вдали DH пересчитывает из них сам, после этого.
+     */
+    private void logLodDone() {
+        if (lodSince == 0 || !sweeps.isEmpty() || !reads.isEmpty() || readsInFlight > 0 || !lodLoaded.isEmpty() || !lodPending.isEmpty()) return;
+        if (lodSinceWork > 0) {
+            Airstrike.LOG.info("Блэкаут: LOD DH обновлены за {} с (с загрузки мира: копий с диска {}, загруженных чанков {}, DH сохранил {}, без подтверждения {}; без копии {}, отброшено {}, не прочитано {})",
+                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - lodSince) / 1e9), lodCopies, lodLive, lodSaved, lodUnconfirmed,
+                    lodSkipped, lodDiscarded, lodFailed);
         }
+        lodSince = 0;
+        lodSinceWork = 0;
     }
 
     /**
@@ -544,7 +624,8 @@ public final class BlackoutWorld {
 
     /** Для проверок: пройдены ли все каскады. */
     public boolean idle() {
-        return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty() && reads.isEmpty() && readsInFlight == 0;
+        return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty() && reads.isEmpty() && readsInFlight == 0
+                && lodLoaded.isEmpty() && lodPending.isEmpty();
     }
 
     /** Карта для проверок и статуса: у отключения каскад ещё идёт. */

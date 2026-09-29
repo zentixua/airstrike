@@ -5,6 +5,8 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.neoforged.fml.ModList;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.function.LongConsumer;
+
 /**
  * Связь с Distant Horizons (необязателен): стоит ли он и подходит ли его API. Классы DH трогаются только за этой
  * проверкой ({@link DistantHorizonsLod}, клиентская карта) — без DH ссылки на его API не разрешатся.
@@ -42,8 +44,23 @@ public final class DistantHorizons {
     /**
      * Передать DH чанк, чтобы его LOD обновился сразу, а не при сохранении чанка (так кварталы вдали гаснут
      * по каскаду). Чанк — из мира или копия с диска; зовётся из потока сервера. Без DH — ничего.
+     *
+     * @return DH принял чанк в свою очередь — жди {@link #lodSaved}
      */
-    public static void updateLod(ServerLevel level, ChunkAccess chunk) {
-        if (present()) DistantHorizonsLod.update(level, chunk);
+    public static boolean updateLod(ServerLevel level, ChunkAccess chunk) {
+        return present() && DistantHorizonsLod.update(level, chunk);
+    }
+
+    /**
+     * Чанки, чей LOD DH сохранил после {@link #updateLod} (событие DH; дальше он сам пересчитывает крупные LOD вдали).
+     * Без DH — ничего.
+     */
+    public static void lodSaved(ServerLevel level, LongConsumer consumer) {
+        if (present()) DistantHorizonsLod.confirmed(level, consumer);
+    }
+
+    /** Подтверждения для чанка больше не ждать. */
+    public static void lodForget(ServerLevel level, long chunk) {
+        if (present()) DistantHorizonsLod.forget(level, chunk);
     }
 }

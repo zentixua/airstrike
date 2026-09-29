@@ -4,20 +4,43 @@ import com.seibel.distanthorizons.api.DhApi;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
+import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiChunkModifiedEvent;
+import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.LongConsumer;
 
 /**
  * Обновление LOD через публичный API DH: {@code IDhApiTerrainDataRepo.overwriteChunkDataAsync} с чанком и его миром
  * (javadoc: «если чанк потом изменится иначе, данные заменятся тем, что в чанке», — то есть это та же дорога, что
  * у сохранения чанка, только сразу). Игрокам на сервере DH сам разошлёт изменения (обновления в реальном времени).
  * Грузится только при стоящем DH ({@link DistantHorizons#present}).
+ * <p>
+ * Вызов только ставит чанк в очередь DH (DH 3.3.3 {@code SharedApi.applyChunkUpdate} → {@code ChunkUpdateQueueManager}),
+ * а у очереди предел ({@code 1000 × потоки DH × игроки}): переполненная молча вытесняет чанк дальше всех от игрока, то
+ * есть как раз дальние LOD, ради которых всё и затевается; чанк, который уже стоит в очереди, второй раз не берётся.
+ * Поэтому вызывающий держит в работе ограниченное число чанков, а DH подтверждает каждый сохранённый чанк событием
+ * {@link DhApiChunkModifiedEvent} (после записи в хранилище LOD; дальше DH сам пересчитывает крупные LOD вдали).
  */
 final class DistantHorizonsLod {
     private static boolean failureLogged;
+    private static volatile boolean subscribed;
+    /** Мир → чанки, отданные DH и ещё не подтверждённые (ключ — {@code ServerLevel}, мир не держит). */
+    private static final Map<Object, Set<Long>> WATCHED = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, Queue<Long>> CONFIRMED = Collections.synchronizedMap(new WeakHashMap<>());
 
     private DistantHorizonsLod() {}
 
@@ -29,12 +52,18 @@ final class DistantHorizonsLod {
         return DhApi.getModVersion();
     }
 
-    static void update(ServerLevel level, ChunkAccess chunk) {
+    /** @return DH принял чанк в очередь (его сохранение придёт в {@link #confirmed}) */
+    static boolean update(ServerLevel level, ChunkAccess chunk) {
         IDhApiWorldProxy world = DhApi.Delayed.worldProxy;
         IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
-        if (world == null || repo == null || !world.worldLoaded()) return;
+        if (world == null || repo == null || !world.worldLoaded()) return false;
         IDhApiLevelWrapper wrapper = wrapper(world, level);
-        if (wrapper == null) return;
+        if (wrapper == null) return false;
+        if (!subscribed) subscribe();
+        long pos = chunk.getPos().toLong();
+        // до вызова: подтверждение приходит из потока DH
+        Set<Long> watched = WATCHED.computeIfAbsent(level, k -> ConcurrentHashMap.newKeySet());
+        watched.add(pos);
         String failure;
         try {
             DhApiResult<Void> r = repo.overwriteChunkDataAsync(wrapper, new Object[]{chunk, level});
@@ -42,10 +71,42 @@ final class DistantHorizonsLod {
         } catch (RuntimeException e) {
             failure = e.toString();
         }
-        if (failure != null && !failureLogged) {
+        if (failure == null) return true;
+        watched.remove(pos);
+        if (!failureLogged) {
             failureLogged = true;
             Airstrike.LOG.warn("Distant Horizons не принял чанк {} для LOD: {}", chunk.getPos(), failure);
         }
+        return false;
+    }
+
+    /** Чанки мира, которые DH сохранил с последнего вызова (поток сервера). */
+    static void confirmed(ServerLevel level, LongConsumer consumer) {
+        Queue<Long> q = CONFIRMED.get(level);
+        if (q == null) return;
+        Long c;
+        while ((c = q.poll()) != null) consumer.accept(c);
+    }
+
+    /** Подтверждения чанка больше не ждать (DH его пропустил: не изменился или уже стоял в очереди). */
+    static void forget(ServerLevel level, long chunk) {
+        Set<Long> watched = WATCHED.get(level);
+        if (watched != null) watched.remove(chunk);
+    }
+
+    private static synchronized void subscribe() {
+        if (subscribed) return;
+        subscribed = true;
+        DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
+            @Override
+            public void onChunkModified(DhApiEventParam<EventParam> input) {
+                Object level = input.value.levelWrapper.getWrappedMcObject();
+                long pos = ChunkPos.asLong(input.value.chunkX, input.value.chunkZ);
+                Set<Long> watched = WATCHED.get(level);
+                // чанки, которые DH обновил сам (генерация, сохранения), — не наши
+                if (watched != null && watched.remove(pos)) CONFIRMED.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos);
+            }
+        });
     }
 
     /** Мир DH для мира сервера (в одиночной игре у DH свои обёртки клиента и сервера — нужна серверная). */

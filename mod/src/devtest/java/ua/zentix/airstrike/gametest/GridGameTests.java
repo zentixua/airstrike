@@ -523,6 +523,54 @@ public final class GridGameTests {
     }
 
     /**
+     * То же, но соседи краевого чанка уже бывали загружены и лишь опустились ниже полной загрузки (игрок отошёл): когда
+     * они поднимаются обратно, события загрузки нет, а лампа всё равно сверяется с сигналом.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_edge_signal_back", skyAccess = true)
+    public static void edgeLampFollowsSignalWhenNeighboursReturn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.west(480).north(480)));
+        chunks.addRegionTicket(HOLD, far, 0, far);
+        // соседи — полностью загружены (событие загрузки было), потом опускаются ниже, оставаясь в памяти
+        hold(level, far);
+        BlockPos[] lamp = new BlockPos[1];
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(NuclearTickets.neighbourhoodLoaded(level, far), "соседи грузятся"))
+                .thenExecute(() -> {
+                    int x = far.getMiddleBlockX(), z = far.getMiddleBlockZ();
+                    lamp[0] = new BlockPos(x, level.getChunk(far.x, far.z).getHeight(Heightmap.Types.WORLD_SURFACE, x, z) + 3, z);
+                    level.setBlock(lamp[0].above(), Blocks.REDSTONE_BLOCK.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    level.setBlock(lamp[0], Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true), Block.UPDATE_CLIENTS);
+                    chunks.removeRegionTicket(HOLD, far, 2, far);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertFalse(NuclearTickets.neighbourhoodLoaded(level, far), "соседи ещё полностью загружены");
+                    h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(ChunkPos.asLong(far.x + 1, far.z)) != null, "сосед выгрузился совсем");
+                })
+                .thenExecute(() -> Blackouts.blackout(level, Vec3.atCenterOf(lamp[0]), 200, 1000, -1))
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(lamp[0])), "лампа на краю мира горит"))
+                .thenExecute(() -> {
+                    level.setBlock(lamp[0].above(), Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    Blackouts.restore(level, Vec3.atCenterOf(lamp[0]), 8);
+                })
+                .thenWaitUntil(() -> h.assertTrue(level.getBlockState(lamp[0]).is(Blocks.REDSTONE_LAMP), "свет на краю мира не вернулся"))
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь блэкаута не пустеет"))
+                .thenExecute(() -> {
+                    h.assertTrue(level.getBlockState(lamp[0]).getValue(RedstoneLampBlock.LIT), "лампа без соседей сверилась с сигналом");
+                    // соседи снова полностью загружены — без события загрузки: чанки те же, что были
+                    chunks.addRegionTicket(HOLD, far, 2, far);
+                })
+                .thenWaitUntil(() -> h.assertFalse(level.getBlockState(lamp[0]).getValue(RedstoneLampBlock.LIT), "лампа не сверилась с сигналом, когда соседи вернулись"))
+                .thenExecute(() -> {
+                    chunks.removeRegionTicket(HOLD, far, 0, far);
+                    chunks.removeRegionTicket(HOLD, far, 2, far);
+                })
+                .thenSucceed();
+    }
+
+    /**
      * Тёмный чанк через диск туда и обратно. Сохраняется он с настоящими лампами (ни одного {@code airstrike:unlit}
      * в теге, свет — пересчитать); загруженный, пока квартал тёмный, — снова ровно двойники всех 19 ламп, сундук
      * с содержимым и биомы те же, свет посчитан по погашенным. Свет вернули, пока чанк на диске, — загружается он
