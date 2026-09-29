@@ -115,7 +115,8 @@ public final class SalvoData extends SavedData {
             this.yaw = yaw;
             this.owner = owner;
             this.cooldown = cooldown;
-            this.nuke = nuke;
+            // ядерных залпов нет (ServerActions.clamp): снаряды залпа ядерной БЧ не несут
+            this.nuke = nuke.withOnCarrier(false);
         }
 
         boolean tick(ServerLevel level) {
@@ -169,7 +170,7 @@ public final class SalvoData extends SavedData {
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
             // сирена одна на залп: её включит первый снаряд, когда его «увидят» на подлёте
-            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, false);
+            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */

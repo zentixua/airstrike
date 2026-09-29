@@ -60,7 +60,7 @@ public final class ServerActions {
         }
         if (tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
 
-        Loadout l = clamp(p.loadout());
+        Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null) return;
         strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke());
@@ -136,15 +136,13 @@ public final class ServerActions {
     }
 
     /**
-     * Пустить: один снаряд точно в цель или залп.
+     * Пустить от имени игрока (заход из-за его спины): один снаряд точно в цель или залп — после проверки прав.
      *
      * @return true, если пуск состоялся
      */
     public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        ServerLevel level = player.serverLevel();
-        float yaw = player.getYRot();
-        boolean nuclear = weapon == WeaponType.NUKE || nuke.onCarrier() && Loadout.carriesNuke(weapon);
-        if (nuclear && !mayUseNuke(player)) {
+        Loadout l = order(weapon, count, spread, nuke);
+        if (l.nuclear() && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
                     ? "airstrike.nuke.ops_only" : "airstrike.nuke.disabled").withStyle(ChatFormatting.RED), true);
             return false;
@@ -152,18 +150,37 @@ public final class ServerActions {
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
-        StrikeService.log(player.getGameProfile().getName(), weapon, count, spread, aim.point());
-        if (count <= 1 && spread <= 0) {
-            StrikeService.Result r = StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke, nuke.onCarrier());
-            if (!r.ok()) {
-                player.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
-                return false;
-            }
-            StrikeService.confirm(player, weapon, r.eta());
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim);
+    }
+
+    /**
+     * Пустить без игрока — от консоли или командного блока ({@code who} — для лога): заход по курсу {@code yaw}.
+     * Права проверяет сама команда.
+     *
+     * @return true, если пуск состоялся
+     */
+    public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim);
+    }
+
+    /** Приказ в пределах настроек сервера ({@link #clamp}). */
+    private static Loadout order(WeaponType weapon, int count, int spread, Loadout.Nuke nuke) {
+        return clamp(new Loadout(weapon, count, spread, TargetMode.LOOK, "", nuke));
+    }
+
+    /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
+    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
+        StrikeService.log(who, l.weapon(), l.count(), l.spread(), aim.point());
+        if (l.count() > 1 || l.spread() > 0) {
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, owner, l.nuke());
             return true;
         }
-        SalvoData.start(level, weapon, Math.max(1, count), spread, aim.target(), aim.point(), yaw, player, nuke);
-        return true;
+        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, owner == null ? null : owner.getUUID(), true, l.nuke());
+        if (owner != null) {
+            if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
+            else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
+        }
+        return r.ok();
     }
 
     /**

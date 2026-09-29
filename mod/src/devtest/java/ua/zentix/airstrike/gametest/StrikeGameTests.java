@@ -30,6 +30,7 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.SalvoData;
+import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -661,6 +662,37 @@ public final class StrikeGameTests {
             List<StrikeProjectile> flying = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(128));
             h.assertTrue(flying.isEmpty(), "ещё летят: " + flying.stream().map(p -> p.flightPhase() + " " + h.relativeVec(p.position())
                     + " возраст " + p.age() + " до цели " + (int) p.position().distanceTo(p.aimPoint())).toList());
+        });
+    }
+
+    /**
+     * Ядерных залпов нет: приказ от консоли с ядерной БЧ на ракете — одна ракета, а не залп (как у игрока), и снаряды
+     * залпа ядерной БЧ не несут, даже если она попала в залп.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "salvo_nuke", skyAccess = true)
+    public static void salvoNeverCarriesNuke(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // далеко за площадкой: до конца теста никто не долетит
+        Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
+        Loadout.Nuke nuke = new Loadout.Nuke(15, true, true);
+        ServerActions.Aim aim = new ServerActions.Aim(new Target.Point(far), far, null);
+        // свои снаряды — по точке цели (в мире теста могут лететь и чужие)
+        java.util.function.Predicate<StrikeProjectile> ours = p -> p.aimPoint().distanceTo(far) < 40;
+        h.assertTrue(ServerActions.dispatch(level, "GameTest", 0, WeaponType.MISSILE, 5, 20, aim, nuke), "пуск от консоли не прошёл");
+        h.assertTrue(SalvoData.get(level).size() == 0, "ядерный приказ стал залпом");
+        boolean carriers = ua.zentix.airstrike.AirstrikeConfig.SERVER.carrierNukes.get();
+        List<StrikeProjectile> single = VirtualFlights.get(level).flights().stream().filter(ours).toList();
+        h.assertTrue(single.size() == 1 && single.getFirst().isNuclear() == carriers,
+                "не одна ракета с ядерной БЧ: " + single.stream().map(StrikeProjectile::isNuclear).toList());
+        VirtualFlights.get(level).clear(level, ours);
+        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke);
+        h.runAfterDelay(3, () -> {
+            List<StrikeProjectile> fired = VirtualFlights.get(level).flights().stream().filter(ours).toList();
+            h.assertTrue(!fired.isEmpty() && fired.stream().noneMatch(StrikeProjectile::isNuclear),
+                    "снаряды залпа: " + fired.stream().map(StrikeProjectile::isNuclear).toList());
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, ours);
+            h.succeed();
         });
     }
 
