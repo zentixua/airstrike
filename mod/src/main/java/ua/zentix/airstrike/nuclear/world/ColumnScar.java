@@ -38,7 +38,13 @@ public final class ColumnScar {
 
     /** Счётчики на подрыв: пожаров не больше заданного. */
     public static final class Budget {
+        /** Поджигает ли подрыв (свежий — да, забытый — только выжигает). */
+        final boolean ignites;
         int fires;
+
+        public Budget(boolean ignites) {
+            this.ignites = ignites;
+        }
     }
 
     public static void apply(ServerLevel level, Detonation d, int x, int z, Budget budget, RandomSource random) {
@@ -130,7 +136,7 @@ public final class ColumnScar {
     }
 
     private static void ignite(ServerLevel level, BlockPos.MutableBlockPos pos, Budget budget, RandomSource random, double chance) {
-        if (!AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get() || random.nextDouble() >= chance) return;
+        if (!budget.ignites || !AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get() || random.nextDouble() >= chance) return;
         // огонь проверяет и будит соседей: на краю загруженного мира это загрузило бы соседний чанк
         if (!NuclearTickets.aroundLoaded(level, pos)) return;
         BlockState fire = BaseFireBlock.getState(level, pos);

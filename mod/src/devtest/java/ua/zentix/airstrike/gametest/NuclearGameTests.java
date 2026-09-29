@@ -63,9 +63,12 @@ public final class NuclearGameTests {
 
     /** Все столбцы площадки — как их прошла бы очередь разрушений. */
     private static void scarAll(GameTestHelper h, Detonation d) {
+        scarAll(h, d, new ColumnScar.Budget(true));
+    }
+
+    private static void scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
         ServerLevel level = h.getLevel();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
-        ColumnScar.Budget budget = new ColumnScar.Budget();
         RandomSource random = RandomSource.create(1);
         for (int x = Math.min(a.getX(), b.getX()); x <= Math.max(a.getX(), b.getX()); x++) {
             for (int z = Math.min(a.getZ(), b.getZ()); z <= Math.max(a.getZ(), b.getZ()); z++) ColumnScar.apply(level, d, x, z, budget, random);
@@ -104,6 +107,25 @@ public final class NuclearGameTests {
         h.assertTrue(lying >= 3, "дерево не легло от эпицентра: брёвен вдоль x " + lying);
         h.assertTrue(!h.getBlockState(CENTER.east(10).below()).isAir(), "волна тронула грунт");
         h.succeed();
+    }
+
+    /** Забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает; свежий — поджигает. */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_fires", skyAccess = true)
+    public static void forgottenDetonationDoesNotIgnite(GameTestHelper h) {
+        Detonation d = detonation(h, CENTER, 60, 15, 0.025f);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        h.assertTrue(fires(h) == 0, "забытый подрыв поджёг: " + fires(h));
+        scarAll(h, d, new ColumnScar.Budget(true));
+        h.assertTrue(fires(h) > 0, "свежий подрыв не поджёг — проверка выше ничего не значит");
+        h.succeed();
+    }
+
+    private static int fires(GameTestHelper h) {
+        int n = 0;
+        for (BlockPos p : BlockPos.betweenClosed(BlockPos.ZERO, new BlockPos(63, 16, 63))) {
+            if (h.getBlockState(p).is(BlockTags.FIRE)) n++;
+        }
+        return n;
     }
 
     /** Тень: за стеной огненный шар не виден (ни света, ни пожара), на открытом месте — виден. */
@@ -373,6 +395,7 @@ public final class NuclearGameTests {
         events.prune(level.getGameTime());
         h.assertFalse(events.detonations().contains(old), "старый подрыв не забыт");
         h.assertTrue(events.past().contains(old), "забытый подрыв не помнится для разрушений");
+        h.assertTrue(events.isPast(old.id()), "забытый подрыв не узнаётся по номеру");
         NuclearStrikes.clear(level);
         h.assertTrue(NuclearEvents.get(level).scheduled().isEmpty(), "отбой не отменил удар");
         h.assertTrue(events.past().isEmpty(), "отбой не забыл прошлые подрывы");
