@@ -164,7 +164,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   (кварталы — ячейки Вороного по сетке 5×5 чанков, всё из координат), `Outage` (каскад и возврат света — функции квартала
   и времени), `GridLights`/`ChunkLights` (лампа ↔ двойник без света `grid/block/Unlit*`, все свойства состояния),
   `BlackoutWorld` (несохраняемый attachment мира: каскады под бюджетом `grid.ms_per_tick`, чанки вне мира не грузит —
-  переводит при загрузке, а для DH читает копию с диска `DiskChunks` и отдаёт её `compat/DistantHorizons`), `Blackouts`
+  переводит при загрузке), `Blackouts`
   (входы: взрыв у узла, ядерка, команда `GridCommand`; события), `SubstationBlock`/`Substations` (узел-блок, «под током»),
   `ChunkSaves` (двойников на диске не бывает: `ChunkDataEvent.Save` пишет секции с лампами и `isLightOn=false`,
   `ChunkDataEvent.Load` гасит лампы тёмного квартала в палитре до входа чанка в мир, их свет с диска убирает
@@ -383,9 +383,9 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   записи (`Model(scale=…)`). Меняя размер, править вместе: шарниры в `WeaponModels`, факелы и сопла в `Exhaust`,
   `SpentBoosterRenderer`, `noseLength()` сущности, размер хитбокса в `ModEntities`, ячейки в `LauncherEntity.railPoint`.
 
-- `ChunkStorage.read`/`RegionFileStorage.getRegionFile` создают пустой файл региона `.mca`, если его нет: чтение копии
-  чанка с диска (`grid/DiskChunks`) сперва проверяет, что файл региона есть. Все чтения `IOWorker` — первоочередные, наравне
-  с загрузкой чанков игроков: копий в работе не больше 8.
+- LOD Distant Horizons чанков вне мира блэкаут не трогает: DH строит их сам (генератор читает файлы регионов, где
+  лампы горят), а обновляет по загрузке чанка — тогда квартал гаснет и в LOD. Свет LOD DH считает по светимости
+  блоков (`DhLightingEngine`), подмена блока в `DhApiChunkProcessingEvent` его не меняет.
 - Модели и состояния двойников ламп — `tools/gen_grid_assets.py` из ванильного jar (не править руками); текстуры
   подстанции — `tools/gen_textures.py`. Слой «вырезка» фонарям и стержню края ваниль задаёт в коде
   (`ItemBlockRenderTypes`), не в модели — двойнику он нужен в модели (`render_type`). `ofFullCopy` не переносит таблицу

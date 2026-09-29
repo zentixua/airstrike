@@ -171,12 +171,16 @@ public final class Blackouts {
         server.getAllLevels().forEach(levels::add);
         Collections.rotate(levels, -(server.getTickCount() % levels.size()));
         boolean plots = server.getTickCount() % BlackoutWorld.PLOT_SCAN == 0 && ModList.get().isLoaded("sable");
+        boolean second = server.getTickCount() % 20 == 0;
         for (ServerLevel level : levels) {
+            PowerGrid grid = PowerGrid.get(level);
+            // подстанции следуют за сетью и без отключений: блок, чей чанк не был готов, выравнивается, когда станет
+            if (second) Substations.sync(level, grid, level.getGameTime());
             // двойники в плотах аппаратов Sable — и после перезапуска, когда отключений уже нет
             List<SubLevelAccess> ships = plots ? SubLevels.all(level) : List.of();
             if (!ships.isEmpty()) BlackoutWorld.get(level).relightPlots(level, ships);
             // миры без отключений и без работы блэкаута не тратят времени
-            if (!PowerGrid.get(level).outages().isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy()) {
+            if (!grid.outages().isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy()) {
                 BlackoutWorld.get(level).tick(level, clock);
             }
         }

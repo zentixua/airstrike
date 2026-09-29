@@ -6,7 +6,6 @@ import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import net.minecraft.Util;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -24,8 +23,6 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
-import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.compat.DistantHorizons;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
@@ -33,16 +30,12 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.util.Terrain;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Блэкаут в мире измерения: приводит чанки к состоянию сети ({@link PowerGrid}) под бюджетом времени тика.
@@ -50,8 +43,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * <ul>
  *   <li>Каскад ({@link Sweep}): чанки района отключения по времени, когда до их квартала доходит отключение (или
  *   возврат света). Загруженный чанк переводится сразу (лампы — в двойников или обратно); чанк вне загруженного
- *   мира не грузится — он переведётся, когда его загрузят ({@link #onChunkLoad}), а вдали его LOD в Distant
- *   Horizons обновляется копией с диска ({@link DiskChunks}), так кварталы гаснут по каскаду до горизонта.</li>
+ *   мира не грузится — он переведётся, когда его загрузят ({@link #onChunkLoad}).</li>
  *   <li>Чанк, у которого загружены и соседи, переводится через мир (свет, клиенты, Sable). Чанк на краю загруженного
  *   мира (соседей нет, а на выделенном сервере они могут не прийти вовсе) — прямо в палитре
  *   ({@link ChunkLights#applyInPlace}): Sable на каждое изменение блока читает соседей и грузил бы их синхронно
@@ -65,8 +57,6 @@ public final class BlackoutWorld {
     static final int LAMPS_PER_UNIT = 32;
     /** Раз во сколько тиков обходить плоты аппаратов Sable ({@link #relightPlots}). */
     public static final int PLOT_SCAN = 100;
-    /** Копий с диска в работе одновременно: чтение идёт в очереди ввода-вывода вместе с загрузкой чанков игроков. */
-    private static final int MAX_READS = 8;
     /** Звук квартала — игрокам ближе этого (блоки по горизонтали). */
     private static final double DISTRICT_SOUND_RANGE = 96;
 
@@ -74,8 +64,6 @@ public final class BlackoutWorld {
     private static final class Sweep {
         final Outage outage;
         final boolean restore;
-        /** До этого времени каскад уже прошёл до перезапуска: копии для LOD не повторяются. */
-        final long doneUntil;
         final int minX, maxX, maxZ;
         /** Следующий ряд чанков (z), который ещё не разобран. */
         int row;
@@ -84,10 +72,9 @@ public final class BlackoutWorld {
         /** Следующий момент, чанки которого ещё не выданы. */
         long cursor = Long.MIN_VALUE;
 
-        Sweep(Outage outage, boolean restore, long doneUntil) {
+        Sweep(Outage outage, boolean restore) {
             this.outage = outage;
             this.restore = restore;
-            this.doneUntil = doneUntil;
             // квартал внутри радиуса может задевать чанки за ним: запас в полторы клетки
             double r = outage.radius() + Districts.CELL * 16 * 1.5;
             minX = (int) Math.floor((outage.x() - r) / 16);
@@ -120,17 +107,11 @@ public final class BlackoutWorld {
         }
     }
 
-    /** Копия с диска готова (или не нужна): в поток сервера. */
-    private record Read(long chunk, @Nullable LevelChunk copy, boolean dark, @Nullable Throwable error) {}
-
     private final List<Sweep> sweeps = new ArrayList<>();
     /** Чанки, которые пора перевести: из каскада, загрузки, поставленной лампы. */
     private final LongArrayFIFOQueue ready = new LongArrayFIFOQueue();
     /** Чанки в {@link #ready}: каждый — один раз, сколько бы поводов ни пришло. */
     private final LongOpenHashSet queued = new LongOpenHashSet();
-    private final LongArrayFIFOQueue reads = new LongArrayFIFOQueue();
-    /** Чанки в {@link #reads}: копия читается один раз и по сети на момент чтения. */
-    private final LongOpenHashSet readsQueued = new LongOpenHashSet();
     /**
      * Лампы, погашенные при загрузке чанка ({@link ChunkSaves}), чей свет пришёл с диска: убрать его первой же
      * работой по чанку (в загруженных соседей снижение света заходит само, в незагруженных света нет).
@@ -143,21 +124,8 @@ public final class BlackoutWorld {
     private final Long2ObjectOpenHashMap<LongArrayList> resignal = new Long2ObjectOpenHashMap<>();
     /** Двойники не от блэкаута, которые пора зажечь ({@link #relightLater}): каждое место — один раз. */
     private final LongLinkedOpenHashSet relight = new LongLinkedOpenHashSet();
-    private final ConcurrentLinkedQueue<Read> readsDone = new ConcurrentLinkedQueue<>();
-    private int readsInFlight;
-    /**
-     * Для строки в лог, с загрузки мира: копий чанков отдано DH; без копии (файла или чанка на диске нет, в чанке
-     * нет ламп, он другой версии игры или не полный); отброшено (чанк загрузился или сеть в нём сменилась, пока копия
-     * читалась); не прочитано (ошибка).
-     */
-    private int lodCopies, lodSkipped, lodDiscarded, lodFailed;
-    /** Когда очередь копий для LOD начала работу (наносекунды; 0 — очередь пуста): для строки в лог о её конце. */
-    private long readsSince;
-    private boolean readFailureLogged;
     /** Квартал → когда в нём последний раз играл звук (щелчок и гул на весь квартал — один раз). */
     private final Long2LongOpenHashMap sounded = new Long2LongOpenHashMap();
-    @Nullable
-    private Path regionFolder;
     private boolean restored;
 
     /** Для {@link ModAttachments#BLACKOUT_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
@@ -171,13 +139,13 @@ public final class BlackoutWorld {
 
     /** Новое отключение: его каскад — с этого тика. */
     void onOutage(Outage o) {
-        sweeps.add(new Sweep(o, false, Long.MIN_VALUE));
+        sweeps.add(new Sweep(o, false));
     }
 
     /** Отключению назначили возврат света: каскад возврата вместо прежнего (если он уже шёл). */
     void onRestore(Outage o) {
         sweeps.removeIf(s -> s.restore && s.outage.id() == o.id());
-        sweeps.add(new Sweep(o, true, Long.MIN_VALUE));
+        sweeps.add(new Sweep(o, true));
     }
 
     /** Привести чанк к сети при первой возможности (загружен, поставили лампу). */
@@ -279,19 +247,15 @@ public final class BlackoutWorld {
         }
     }
 
-    private void read(long chunk) {
-        if (readsQueued.add(chunk)) reads.enqueue(chunk);
-    }
-
     /** Чанк загружен с погашенными в палитре лампами {@code at}: их свет с диска убрать (см. {@link #staleLight}). */
     void staleLight(ChunkPos chunk, LongArrayList at) {
         if (at.isEmpty()) staleLight.remove(chunk.toLong());
         else staleLight.put(chunk.toLong(), at);
     }
 
-    /** Сколько чанков ждёт перевода, двойников — зажигания и копий с диска (для /airstrike grid status). */
+    /** Сколько чанков ждёт перевода и двойников — зажигания (для /airstrike grid status). */
     public int[] backlog() {
-        return new int[]{ready.size(), relight.size(), reads.size() + readsInFlight};
+        return new int[]{ready.size(), relight.size()};
     }
 
     /**
@@ -309,17 +273,20 @@ public final class BlackoutWorld {
         long now = level.getGameTime();
         PowerGrid grid = PowerGrid.get(level);
         if (!restored) restore(level, grid, now);
-        drainReads(level, grid, now);
         relightPlaced(level, clock);
         scheduleRestoreSweeps(grid, now);
         if (now % 20 == 0) {
             grid.prune(now);
-            Substations.sync(level, grid, now);
             sounded.long2LongEntrySet().removeIf(e -> now - e.getLongValue() > 200);
             // чанк ушёл из памяти, не став полным (кольцо вокруг краевых чанков): события выгрузки у него нет
             var chunkMap = level.getChunkSource().chunkMap;
             staleLight.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
             resignal.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
+            // сосед вернулся к полной загрузке без события (опускался ниже у края видимости) — сверка сигнала сейчас
+            for (long c : resignal.keySet()) {
+                ChunkPos p = new ChunkPos(c);
+                if (level.getChunkSource().getChunkNow(p.x, p.z) != null && NuclearTickets.neighbourhoodLoaded(level, p)) enqueue(c);
+            }
         }
         advanceSweeps(level, grid, now, clock);
         while (!ready.isEmpty() && clock.canStart()) {
@@ -334,7 +301,6 @@ public final class BlackoutWorld {
                 clock.end(c0);
             }
         }
-        startReads(level, grid, now);
     }
 
     /** После загрузки мира: каскады отключений, которые ещё идут, — дальше с того места, где остановились. */
@@ -345,10 +311,9 @@ public final class BlackoutWorld {
             // отключение, начатое до первого тика (команда, взрыв), уже со своим каскадом
             boolean hasDark = sweeps.stream().anyMatch(sw -> !sw.restore && sw.outage.id() == o.id());
             boolean hasLight = sweeps.stream().anyMatch(sw -> sw.restore && sw.outage.id() == o.id());
-            if (!hasDark && dark < o.lastDark()) sweeps.add(new Sweep(o, false, dark));
-            if (!hasLight && o.restoreAt() != Outage.NEVER && now >= o.restoreAt()) sweeps.add(new Sweep(o, true, grid.swept(o.id(), true)));
+            if (!hasDark && dark < o.lastDark()) sweeps.add(new Sweep(o, false));
+            if (!hasLight && o.restoreAt() != Outage.NEVER && now >= o.restoreAt()) sweeps.add(new Sweep(o, true));
         }
-        regionFolder = DiskChunks.regionFolder(level);
     }
 
     /** Отключения, чей свет пора возвращать: каскад возврата (один на отключение). */
@@ -356,7 +321,7 @@ public final class BlackoutWorld {
         for (Outage o : grid.outages()) {
             if (o.restoreAt() == Outage.NEVER || now < o.restoreAt()) continue;
             if (sweeps.stream().noneMatch(s -> s.restore && s.outage.id() == o.id()) && grid.swept(o.id(), true) < o.restoreAt()) {
-                sweeps.add(new Sweep(o, true, Long.MIN_VALUE));
+                sweeps.add(new Sweep(o, true));
             }
         }
     }
@@ -378,24 +343,21 @@ public final class BlackoutWorld {
                 clock.end(c0);
             }
             if (!s.built()) continue;
-            boolean readsNeeded = DistantHorizons.present() && AirstrikeConfig.SERVER.gridDistantLod.get();
             while (s.cursor <= now && s.cursor <= s.last) {
                 LongArrayList chunks = s.byDue.remove(s.cursor);
                 if (chunks != null) {
                     for (int i = 0; i < chunks.size(); i++) {
                         long c = chunks.getLong(i);
                         if (inMemory(level, c) != null) enqueue(c);
-                        else if (readsNeeded && s.cursor > s.doneUntil) read(c);
                     }
                 }
                 s.cursor++;
             }
-            // пройденное — в сохранение: после перезапуска копии для LOD не повторяются; пройден целиком — навсегда
+            // пройденное — в сохранение: пройден целиком — после перезапуска не повторяется
             grid.swept(s.outage.id(), s.restore, s.done() ? Long.MAX_VALUE : Math.min(now, s.last));
             if (s.done()) {
                 it.remove();
-                Airstrike.LOG.info("Блэкаут №{}: каскад {} прошёл весь район (копий для LOD DH ещё в очереди: {})",
-                        s.outage.id(), s.restore ? "возврата света" : "отключения", reads.size() + readsInFlight);
+                Airstrike.LOG.info("Блэкаут №{}: каскад {} прошёл весь район", s.outage.id(), s.restore ? "возврата света" : "отключения");
             }
         }
     }
@@ -403,7 +365,7 @@ public final class BlackoutWorld {
     /**
      * Один чанк — одна единица работы: загружен — сперва убрать свет с диска и сверить лампы от сигнала (по
      * {@link #LAMPS_PER_UNIT} мест за единицу), потом перевести до {@link #LAMPS_PER_UNIT} ламп; осталось ещё — чанк
-     * первым в очереди. Не загружен — обновить его LOD копией с диска (переведётся сам при загрузке).
+     * первым в очереди. Не загружен — пропустить (переведётся сам при загрузке).
      */
     private void handle(ServerLevel level, PowerGrid grid, long c, long now) {
         LevelChunk chunk = inMemory(level, c);
@@ -412,7 +374,6 @@ public final class BlackoutWorld {
             queued.remove(c);
             staleLight.remove(c);
             resignal.remove(c);
-            if (DistantHorizons.present() && AirstrikeConfig.SERVER.gridDistantLod.get()) read(c);
             return;
         }
         // край загруженного мира: чанк в памяти, соседи — нет (и не будут, пока игрок не подойдёт); ждать их нельзя —
@@ -459,10 +420,7 @@ public final class BlackoutWorld {
             // без отметки — не трогать: снятие помечает чанк несохранённым
             chunk.removeData(ModAttachments.GRID_DARK);
         }
-        if (changed > 0) {
-            DistantHorizons.updateLod(level, chunk);
-            districtSound(level, pos, dark, now);
-        }
+        if (changed > 0) districtSound(level, pos, dark, now);
     }
 
     /** Щелчок реле и обрыв гула (или гул, набирающий силу) — тем, кто рядом с кварталом, один раз на квартал. */
@@ -479,59 +437,6 @@ public final class BlackoutWorld {
         }
     }
 
-    // ---------------------------------------------------------------- копии с диска для LOD
-
-    private void startReads(ServerLevel level, PowerGrid grid, long now) {
-        if (regionFolder == null) return;
-        Path folder = regionFolder;
-        if (readsSince == 0 && !reads.isEmpty()) readsSince = System.nanoTime();
-        while (readsInFlight < MAX_READS && !reads.isEmpty()) {
-            long c = reads.dequeueLong();
-            readsQueued.remove(c);
-            ChunkPos pos = new ChunkPos(c);
-            if (inMemory(level, c) != null) {
-                enqueue(c);
-                continue;
-            }
-            boolean dark = grid.dark(pos.x, pos.z, now);
-            readsInFlight++;
-            CompletableFuture.supplyAsync(() -> DiskChunks.regionExists(folder, pos), Util.backgroundExecutor())
-                    .thenCompose(exists -> exists ? level.getChunkSource().chunkMap.read(pos) : CompletableFuture.completedFuture(Optional.empty()))
-                    .thenApplyAsync(tag -> tag.map(t -> DiskChunks.copy(level, pos, t, dark)).orElse(null), Util.backgroundExecutor())
-                    .whenComplete((copy, error) -> readsDone.add(new Read(c, copy, dark, error)));
-        }
-    }
-
-    /** Готовые копии — в DH, если чанк так и не загрузился и сеть в нём всё та же. */
-    private void drainReads(ServerLevel level, PowerGrid grid, long now) {
-        Read r;
-        while ((r = readsDone.poll()) != null) {
-            readsInFlight--;
-            if (r.error != null) {
-                lodFailed++;
-                if (!readFailureLogged) {
-                    readFailureLogged = true;
-                    Airstrike.LOG.warn("Блэкаут: копия чанка {} с диска для LOD не вышла", new ChunkPos(r.chunk), r.error);
-                }
-                continue;
-            }
-            ChunkPos pos = new ChunkPos(r.chunk);
-            if (r.copy == null) {
-                lodSkipped++;
-            } else if (inMemory(level, r.chunk) == null && grid.dark(pos.x, pos.z, now) == r.dark) {
-                DistantHorizons.updateLod(level, r.copy);
-                lodCopies++;
-            } else {
-                lodDiscarded++;
-            }
-        }
-        if (readsSince != 0 && reads.isEmpty() && readsInFlight == 0) {
-            Airstrike.LOG.info("Блэкаут: копии чанков для LOD DH отданы за {} с (с загрузки мира: в DH {}, без копии {}, отброшено {}, не прочитано {})",
-                    String.format(Locale.ROOT, "%.1f", (System.nanoTime() - readsSince) / 1e9), lodCopies, lodSkipped, lodDiscarded, lodFailed);
-            readsSince = 0;
-        }
-    }
-
     /**
      * Чанк в памяти: полностью загруженный или опущенный ниже (у края видимости), но не выгруженный; null — его нет
      * в памяти (как в {@code ScarQueue}).
@@ -544,7 +449,7 @@ public final class BlackoutWorld {
 
     /** Для проверок: пройдены ли все каскады. */
     public boolean idle() {
-        return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty() && reads.isEmpty() && readsInFlight == 0;
+        return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty();
     }
 
     /** Карта для проверок и статуса: у отключения каскад ещё идёт. */
