@@ -113,6 +113,8 @@ public final class Trailer {
     private Vec3 side = new Vec3(0, 0, -1);
     /** Точки на фасадах башен, куда бьют шахед холодного начала и ракета с борта (снаряд входит в стену, а не в крышу). */
     private Vec3 northFacade = NORTH_TOWER;
+    /** Середина крыши главной башни (цель с карты). */
+    private Vec3 towerTop = TOWER;
     private Vec3 eastFacade = EAST_TOWER;
     /** Время игры подрыва (-1 — ещё не было). */
     private long detonationTime = -1;
@@ -245,7 +247,7 @@ public final class Trailer {
         shot("map").length(150).hud().player(t -> new Pose(Vec3.ZERO, yawTo(post, TOWER), 10, 0, 70))
                 .cue(0, () -> {
                     ua.zentix.airstrike.client.screen.MapScreen.reset();
-                    ua.zentix.airstrike.client.map.MapTarget.set(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(TOWER.x, TOWER.z));
+                    ua.zentix.airstrike.client.map.MapTarget.set(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(towerTop.x, towerTop.z));
                     mc.setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
                 })
                 .cues(20, 70, 8, () -> {
@@ -266,7 +268,7 @@ public final class Trailer {
             return CineCamera.track(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, at, 200), at.add(0, 2.5, 0), 0.35), 66);
         });
         // ракета в крышу главной башни: с соседней крыши, на подлёте замедление, взрыв замирает, камера его облетает
-        Supplier<Vec3> roof = () -> ground(TOWER);
+        Supplier<Vec3> roof = () -> towerTop;
         shot("missile_tower").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(CruiseMissileEntity.class, roof, 220, 0.2))
                 .bulletTime(CruiseMissileEntity.class, roof, 170, 0.35)
@@ -536,9 +538,10 @@ public final class Trailer {
         clearAround(level, BlockPos.containing(post), 34, true);
         clearAround(level, BlockPos.containing(silo), 40, true);
         // шахед холодного начала и ракета с борта заходят с запада — в западные стены
+        towerTop = top(level, TOWER);
         northFacade = facade(level, NORTH_TOWER, 120, new Vec3(-1, 0, 0));
         eastFacade = facade(level, EAST_TOWER, 150, new Vec3(-1, 0, 0));
-        Airstrike.LOG.info("TRAILER post {} silo {} facades {} {}", post, silo, northFacade, eastFacade);
+        Airstrike.LOG.info("TRAILER post {} silo {} tower {} facades {} {}", post, silo, towerTop, northFacade, eastFacade);
     }
 
     /** Самое ровное сухое место без леса в радиусе {@code r} от точки (площадка под пусковую). */
@@ -574,12 +577,8 @@ public final class Trailer {
         return (hi - lo) * 10 + (dry ? 0 : 1000) + canopy * 15;
     }
 
-    /**
-     * Точка в полутора блоках перед стеной башни на высоте {@code y} (не выше, чем за 20 блоков до её верха): ось
-     * башни — самая высокая колонка в 32 блоках от намеченной (координаты по карте высот — с шагом 4 блока), от неё
-     * идём с {@code from}-стороны к оси до первого твёрдого блока.
-     */
-    private static Vec3 facade(ServerLevel level, Vec3 near, int y, Vec3 from) {
+    /** Самая высокая колонка в 32 блоках от точки (координаты башен по карте высот — с шагом 4 блока): верх её крыши. */
+    private static Vec3 top(ServerLevel level, Vec3 near) {
         int bx = Mth.floor(near.x), bz = Mth.floor(near.z), top = Integer.MIN_VALUE;
         Vec3 axis = near;
         for (int dx = -32; dx <= 32; dx += 2) {
@@ -588,10 +587,20 @@ public final class Trailer {
                 int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx + dx, bz + dz);
                 if (h > top) {
                     top = h;
-                    axis = new Vec3(bx + dx + 0.5, near.y, bz + dz + 0.5);
+                    axis = new Vec3(bx + dx + 0.5, h, bz + dz + 0.5);
                 }
             }
         }
+        return axis;
+    }
+
+    /**
+     * Точка в полутора блоках перед стеной башни на высоте {@code y} (не выше, чем за 20 блоков до её верха): ось
+     * башни — {@link #top}, от неё идём с {@code from}-стороны к оси до первого твёрдого блока.
+     */
+    private static Vec3 facade(ServerLevel level, Vec3 near, int y, Vec3 from) {
+        Vec3 axis = top(level, near);
+        int top = Mth.floor(axis.y);
         double at = Math.min(y, top - 20);
         for (int k = 120; k >= 0; k--) {
             BlockPos p = BlockPos.containing(axis.x + from.x * k, at, axis.z + from.z * k);
@@ -1137,7 +1146,11 @@ public final class Trailer {
                     last[0] = e.getPosition(CineCamera.partial());
                     return false;
                 }
-                if (last[0] == null) return false;
+                // пропал далеко от цели — ушёл из дальности сущностей (полёт вне мира), а не взорвался
+                if (last[0] == null || last[0].distanceTo(at.get()) > 40) {
+                    last[0] = null;
+                    return false;
+                }
                 impact = last[0];
                 return true;
             }, frames, camSpeed);
