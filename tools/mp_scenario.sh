@@ -20,6 +20,8 @@ cat > "$SERVER/server.properties" <<PROPS
 server-ip=127.0.0.1
 server-port=$PORT
 online-mode=false
+enable-rcon=false
+enable-query=false
 spawn-protection=0
 level-seed=20260927
 difficulty=peaceful

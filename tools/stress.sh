@@ -33,6 +33,8 @@ cat > "$RUN/server/server.properties" <<PROPS
 server-ip=127.0.0.1
 server-port=$AIRSTRIKE_STRESS_PORT
 online-mode=false
+enable-rcon=false
+enable-query=false
 enforce-secure-profile=false
 view-distance=8
 simulation-distance=6

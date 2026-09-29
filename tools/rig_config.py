@@ -17,5 +17,9 @@ cfg = pathlib.Path(sys.argv[1]) / "config" / "neoforge-server.toml"
 cfg.parent.mkdir(parents=True, exist_ok=True)
 text = cfg.read_text(encoding="utf-8") if cfg.exists() else ""
 line = re.compile(rf"^(\s*{KEY}\s*=\s*).*$", re.M)
-text = line.sub(r"\1false", text) if line.search(text) else text + f"{KEY} = false\n"
+if line.search(text):
+    text = line.sub(r"\1false", text)
+else:
+    # файл без перевода строки в конце: ключ — с новой строки, иначе он склеится с последней (TOML не прочтётся)
+    text += ("" if text.endswith("\n") or not text else "\n") + f"{KEY} = false\n"
 cfg.write_text(text, encoding="utf-8")
