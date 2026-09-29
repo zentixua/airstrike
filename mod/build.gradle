@@ -132,8 +132,10 @@ dependencies {
     compileOnly "dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}"
     // Distant Horizons: только API для компиляции — рельеф вдали для карты наведения, если DH стоит (compat/DistantHorizons)
     compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
+    // диапазон, а не ровно версия: Sable несёт тот же companion со своим диапазоном, и FML выбирает одну версию,
+    // подходящую всем, — ровно [1.6.0] не пустил бы игру с Sable, который принесёт 1.6.1
     jarJar("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}") {
-        version { strictly "[${sable_companion_version}]"; prefer sable_companion_version }
+        version { strictly "[${sable_companion_version},2.0)"; prefer sable_companion_version }
     }
 
     testImplementation platform('org.junit:junit-bom:5.10.2')
