@@ -18,7 +18,7 @@ public final class Hearing {
     /** Четыре двигателя B-2 вблизи. */
     public static final double BOMBER = 330;
     /**
-     * Дальний гул реактивного двигателя (ракета, B-2). На 0,7 скорости звука снаряд догоняет собственный звук: его
+     * Дальний гул реактивного двигателя (ракета, B-2) и свист крылатой ракеты на подлёте. На 0,7 скорости звука снаряд догоняет собственный звук: его
      * слышно лишь на d·(1/v − 1/c) раньше, чем он пройдёт над головой, — с 1500 блоков это ~2 с, с 380 — полсекунды.
      */
     public static final double JET = 1500;
@@ -28,8 +28,13 @@ public final class Hearing {
     public static final double BOOSTER = 600;
     /** Двигатель снаряда РСЗО, пока горит, и разовый сход каждого снаряда с трубы. */
     public static final double ROCKET_BOOSTER = 500, ROCKET_LAUNCH = 900;
-    /** Снаряд РСЗО и крылатая ракета по инерции и на подлёте: рассекаемый воздух. */
+    /** Крылатая ракета мимо слушателя: рассекаемый воздух. */
     public static final double AIRFLOW = 350;
+    /**
+     * Снаряд РСЗО по инерции: вой воздуха слышно так же далеко, как горевший перед этим двигатель, — после выгорания
+     * полёт не замолкает.
+     */
+    public static final double ROCKET_AIR = ROCKET_BOOSTER;
     /** Ступень МБР. */
     public static final double ICBM = 1500;
 
@@ -44,7 +49,7 @@ public final class Hearing {
             case MISSILE -> launching ? BOOSTER : JET;
             case BUNKER -> p instanceof BomberEntity ? JET : ENGINE;
             case NUKE -> ph.boosterLit() ? ICBM : 0;
-            case ROCKET -> launching ? ROCKET_LAUNCH : AIRFLOW;
+            case ROCKET -> launching ? ROCKET_LAUNCH : ROCKET_AIR;
             case LOITER -> ph.onLauncher() ? ENGINE : LOITER_DIVE;
         };
         return cutoff > 0 ? cutoff + FADE : 0;
