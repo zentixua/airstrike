@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client.sound;
 
 import org.junit.jupiter.api.Test;
+import ua.zentix.airstrike.strike.Hearing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,8 +69,8 @@ class AcousticsTest {
     @Test
     void airflowIsLoudestOnTheApproach() {
         // тот же снаряд в 100 блоках: идёт на слушателя — громко, уходит — треть того
-        double toward = Acoustics.airflow(100, 4, 4, 50, 4);
-        double away = Acoustics.airflow(100, 4, -4, 50, 4);
+        double toward = Acoustics.airflow(100, 4, 4, 50, 4, Hearing.AIRFLOW);
+        double away = Acoustics.airflow(100, 4, -4, 50, 4, Hearing.AIRFLOW);
         assertEquals(0.5, toward, 1e-9);
         assertEquals(0.3, away / toward, 1e-9);
     }
@@ -77,8 +78,8 @@ class AcousticsTest {
     @Test
     void airflowFadesWithSpeedAndDistance() {
         // у вершины дуги вдвое медленнее — вчетверо тише; дальше среза и затухания — тишина
-        assertEquals(0.25, Acoustics.airflow(100, 2, 2, 50, 4) / Acoustics.airflow(100, 4, 4, 50, 4), 1e-9);
-        assertEquals(0, Acoustics.airflow(ua.zentix.airstrike.strike.Hearing.AIRFLOW + ua.zentix.airstrike.strike.Hearing.FADE, 4, 4, 50, 4), 1e-12);
-        assertEquals(0, Acoustics.airflow(10, 0, 0, 50, 4), 1e-12);
+        assertEquals(0.25, Acoustics.airflow(100, 2, 2, 50, 4, Hearing.AIRFLOW) / Acoustics.airflow(100, 4, 4, 50, 4, Hearing.AIRFLOW), 1e-9);
+        assertEquals(0, Acoustics.airflow(Hearing.AIRFLOW + Hearing.FADE, 4, 4, 50, 4, Hearing.AIRFLOW), 1e-12);
+        assertEquals(0, Acoustics.airflow(10, 0, 0, 50, 4, Hearing.AIRFLOW), 1e-12);
     }
 }

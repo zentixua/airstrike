@@ -29,27 +29,28 @@ import java.util.function.Supplier;
 final class EngineSound extends AbstractTickableSoundInstance implements SoundFilters.Muffled {
     /** Слои звука: какой файл и как его громкость зависит от расстояния, ракурса и фазы полёта. */
     enum Layer {
-        DRONE_NEAR(ModSounds.DRONE_ENGINE::get),
-        DRONE_FAR(ModSounds.DRONE_ENGINE_FAR::get),
-        MISSILE_FRONT(ModSounds.MISSILE_ENGINE::get),
-        MISSILE_REAR(ModSounds.MISSILE_ENGINE_REAR::get),
-        MISSILE_DIVE(ModSounds.MISSILE_DIVE::get),
-        MISSILE_FAR(ModSounds.MISSILE_ENGINE_FAR::get),
-        MISSILE_WHISTLE(ModSounds.MISSILE_WHISTLE::get),
-        BOMBER_NEAR(ModSounds.BOMBER_ENGINE::get),
-        BOMBER_FAR(ModSounds.BOMBER_ENGINE_FAR::get),
-        BOMB_NEAR(ModSounds.BOMB_FALL::get),
-        BOMB_FAR(ModSounds.BOMB_FALL_FAR::get),
-        BOMB_DRILL(ModSounds.BOMB_DRILL::get),
+        DRONE_NEAR(() -> ModSounds.DRONE_ENGINE.get()),
+        DRONE_FAR(() -> ModSounds.DRONE_ENGINE_FAR.get()),
+        MISSILE_FRONT(() -> ModSounds.MISSILE_ENGINE.get()),
+        MISSILE_REAR(() -> ModSounds.MISSILE_ENGINE_REAR.get()),
+        MISSILE_DIVE(() -> ModSounds.MISSILE_DIVE.get()),
+        MISSILE_FAR(() -> ModSounds.MISSILE_ENGINE_FAR.get()),
+        MISSILE_WHISTLE(() -> ModSounds.MISSILE_WHISTLE.get()),
+        BOMBER_NEAR(() -> ModSounds.BOMBER_ENGINE.get()),
+        BOMBER_FAR(() -> ModSounds.BOMBER_ENGINE_FAR.get()),
+        BOMB_NEAR(() -> ModSounds.BOMB_FALL.get()),
+        BOMB_FAR(() -> ModSounds.BOMB_FALL_FAR.get()),
+        BOMB_DRILL(() -> ModSounds.BOMB_DRILL.get()),
         /** Стартовый ускоритель шахеда и ракеты, двигатель МБР; этот же слой отмечает поджиг и отделение ускорителя. */
-        BOOSTER(ModSounds.BOOSTER_ENGINE::get),
+        BOOSTER(() -> ModSounds.BOOSTER_ENGINE.get()),
         /** Снаряд РСЗО после того, как догорел двигатель: вой рассекаемого воздуха — над головой и на подлёте. */
-        ROCKET_AIR(ModSounds.ROCKET_INCOMING::get),
+        ROCKET_AIR(() -> ModSounds.ROCKET_INCOMING.get()),
         /** Барражирующий боеприпас: электромотор с винтом вблизи и вдали, вой винта и ветер в пике. */
-        LOITER_NEAR(ModSounds.LOITER_ENGINE::get),
-        LOITER_FAR(ModSounds.LOITER_ENGINE_FAR::get),
-        LOITER_DIVE(ModSounds.LOITER_DIVE::get);
+        LOITER_NEAR(() -> ModSounds.LOITER_ENGINE.get()),
+        LOITER_FAR(() -> ModSounds.LOITER_ENGINE_FAR.get()),
+        LOITER_DIVE(() -> ModSounds.LOITER_DIVE.get());
 
+        /** Звук из реестра берётся, только когда слой запускают: громкость и тон считаются и без реестров (юнит-тесты). */
         final Supplier<SoundEvent> event;
 
         Layer(Supplier<SoundEvent> event) {
@@ -67,7 +68,7 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             switch (this) {
                 case DRONE_NEAR, DRONE_FAR -> {
                     double w = near(d, 60, 160);
-                    gain = Acoustics.gain(d, 60, 0.12, Hearing.ENGINE) * (this == DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
+                    gain = Acoustics.gain(d, 60, 0.12, Hearing.ENGINE) * share(this == DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
                     pitch *= spoolPitch(phase, age, true);
                     if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
                 }
@@ -76,7 +77,7 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     // а громче всего воздух (слой LOITER_DIVE)
                     double w = near(d, 35, 110);
                     boolean dive = phase == FlightPhase.TERMINAL.ordinal();
-                    gain = Acoustics.gain(d, 35, 0.12, Hearing.LOITER) * (this == LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
+                    gain = Acoustics.gain(d, 35, 0.12, Hearing.LOITER) * share(this == LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
                             * (dive ? 0.6 : 1);
                     pitch *= spoolPitch(phase, age, true) * (dive ? 1.15 : 1);
                 }
@@ -94,30 +95,32 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                         case MISSILE_DIVE -> dive ? front : 0;
                         default -> 1 - front;
                     };
-                    gain = Acoustics.gain(d, 90, 0.12, Hearing.ENGINE) * near(d, 60, 170) * w * spool(phase, age, false);
+                    gain = Acoustics.gain(d, 90, 0.12, Hearing.ENGINE) * share(near(d, 60, 170)) * share(w) * spool(phase, age, false);
                     pitch *= spoolPitch(phase, age, false);
                 }
                 case MISSILE_FAR -> {
                     // вдали не тише «пола» до среза ближнего гула, дальше ~1/d до километра с лишним
                     gain = Math.max(Acoustics.gain(d, 90, 0.12, Hearing.ENGINE), Acoustics.gain(d, 90, 0, Hearing.JET))
-                            * (1 - near(d, 60, 170)) * spool(phase, age, false);
+                            * share(1 - near(d, 60, 170)) * spool(phase, age, false);
                     pitch *= spoolPitch(phase, age, false);
                 }
                 case MISSILE_WHISTLE -> {
-                    // у цели — свист на последних 260 блоках, пока ракета приближается, тон ниже к цели; кроме того рвёт
-                    // воздух над тем, мимо кого она проходит: слышно, пока идёт на слушателя, и тон падает при пролёте
-                    double wd = track.distanceToAim;
-                    double attack = wd <= 260 && approaching ? Acoustics.gain(d, 110, 0.2, Hearing.ENGINE) : 0;
-                    double flyby = launched(phase) ? Acoustics.airflow(d, v.length(), e.radial(), 40, 4) * 0.6 : 0;
+                    // подлёт: всё время, пока ракета идёт на цель (заход по прямой, а не обход сбоку) и на слушателя, —
+                    // свист слышно издалека, как дальний гул (верха по дороге съедает воздух), тон падает на последних
+                    // WHISTLE_DROP блоках до цели; кроме того рвёт воздух над тем, мимо кого она проходит: слышно, пока
+                    // идёт на слушателя, и тон падает при пролёте
+                    double wd = e.aimDistance();
+                    double attack = launched(phase) && e.towardAim() && approaching ? Acoustics.gain(d, 110, 0, Hearing.WHISTLE) : 0;
+                    double flyby = launched(phase) ? Acoustics.airflow(d, v.length(), e.radial(), 40, 4, Hearing.AIRFLOW) * 0.6 : 0;
                     gain = Math.max(attack, flyby);
-                    double attackPitch = (0.6 + 1.4 * Math.min(1, wd / 260)) * Math.sqrt(dop);
+                    double attackPitch = (0.6 + 1.4 * Math.min(1, wd / WHISTLE_DROP)) * Math.sqrt(dop);
                     pitch = gain > 0 ? (attack * attackPitch + flyby * 0.8 * Math.sqrt(dop)) / (attack + flyby) : attackPitch;
                 }
-                case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * near(d, 120, 260);
+                case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * share(near(d, 120, 260));
                 case BOMBER_FAR -> gain = Math.max(Acoustics.gain(d, 120, 0.12, Hearing.BOMBER), Acoustics.gain(d, 120, 0, Hearing.JET))
-                        * (1 - near(d, 120, 260));
-                case BOMB_NEAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * near(d, 45, 140);
-                case BOMB_FAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * (1 - near(d, 45, 140));
+                        * share(1 - near(d, 120, 260));
+                case BOMB_NEAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(near(d, 45, 140));
+                case BOMB_FAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(1 - near(d, 45, 140));
                 case BOMB_DRILL -> {
                     gain = track.drilling ? Math.max(0, 1 - d / 96) : 0;
                     pitch = 0.85;
@@ -143,14 +146,17 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     }
                 }
                 case ROCKET_AIR -> {
-                    // по инерции: вой воздуха по всей дуге — громче, пока снаряд идёт на слушателя, тише у вершины
-                    // (скорость меньше); у точки падения, пока он идёт на слушателя, — ещё и громче к земле
+                    // по инерции: вой воздуха по всей дуге, от выгорания двигателя до падения, и слышно его так же
+                    // далеко, как двигатель; громче, пока снаряд идёт на слушателя. Громкость по скорости — только
+                    // у медленного снаряда: скорости в игре — десятая доля настоящих (у «Града» до 700 м/с), и на
+                    // вершине дуги (2–3 блока/тик) он рвёт воздух так же. У точки падения, пока он идёт на слушателя,
+                    // — ещё и громче к земле
                     FlightPhase ph = FlightPhase.byId(phase);
                     boolean coasting = ph == FlightPhase.CRUISE || ph == FlightPhase.TERMINAL;
-                    double wd = track.distanceToAim;
+                    double wd = e.aimDistance();
                     double incoming = ph == FlightPhase.TERMINAL && wd <= 220 && approaching
-                            ? Acoustics.gain(d, 70, 0.1, Hearing.AIRFLOW) * (0.35 + 0.65 * (1 - wd / 220)) : 0;
-                    gain = coasting ? Math.max(incoming, Acoustics.airflow(d, v.length(), e.radial(), 50, 4)) : 0;
+                            ? Acoustics.gain(d, 70, 0.1, Hearing.ROCKET_AIR) * (0.35 + 0.65 * (1 - wd / 220)) : 0;
+                    gain = coasting ? Math.max(incoming, Acoustics.airflow(d, v.length(), e.radial(), 50, 2, Hearing.ROCKET_AIR)) : 0;
                     pitch = Math.sqrt(dop);
                 }
                 default -> gain = 0;
@@ -160,6 +166,9 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             return new Tone(gain, Math.max(0.5, Math.min(2.0, pitch)));
         }
     }
+
+    /** Тон свиста крылатой ракеты падает на стольких последних блоках до цели. */
+    private static final double WHISTLE_DROP = 260;
 
     /** Громкость и тон слоя в этот тик. */
     record Tone(double gain, double pitch) {}
@@ -304,5 +313,15 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
     /** Вес ближнего слоя: 1 ближе a, 0 дальше b. */
     private static double near(double d, double a, double b) {
         return 1 - Acoustics.smoothstep(a, b, d);
+    }
+
+    /**
+     * Доля слоя в переходе между разными записями (ближняя и дальняя, спереди и сзади): доли {@code w} и {@code 1 − w}
+     * складываются по мощности (корень), а не по амплитуде. Записи разные и не коррелированы, поэтому при весах
+     * 0,5 и 0,5 сумма по амплитуде тише на 3 дБ: ракета проседала на пролёте прямо над головой и на смене ближнего
+     * гула дальним (60–170 блоков), становясь тише, хотя приближалась.
+     */
+    static double share(double w) {
+        return Math.sqrt(Math.max(0, w));
     }
 }

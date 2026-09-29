@@ -3,7 +3,9 @@ package ua.zentix.airstrike.stress;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -37,6 +39,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -111,6 +114,11 @@ public final class StressDirector {
     private boolean finishing;
     private int quietSince = -1;
     private int finishingSince = -1;
+    /** Остановка ждёт, пока закончится генерация чанков: с какого тика и сколько тиков подряд её нет. */
+    private int settlingSince = -1;
+    private int settleQuiet;
+    /** Сколько тиков подряд без генерации — «улеглось», и сколько ждать самое большее. */
+    private static final int SETTLE_QUIET = 100, SETTLE_MAX = 6000;
     /** С какого возраста снаряд попадает в строки «долго летит» (раз в 10 с). */
     private static final int LONG_LIVED = 2400;
     /** Начало текущего тика для сторожа (поток сторожа читает). */
@@ -140,11 +148,8 @@ public final class StressDirector {
     /** Команда от имени игрока (как если бы он её набрал): пусковая встаёт у него, снаряды — его. */
     private void as(int t, String player, String command) {
         at(t, player + ": /" + command, s -> {
-            ServerPlayer p = s.getPlayerList().getPlayerByName(player);
-            if (p == null) {
-                log("skip %s: нет игрока", command);
-                return;
-            }
+            ServerPlayer p = need(s, player, "/" + command);
+            if (p == null) return;
             run(s, p.createCommandSourceStack().withPermission(4), command);
         });
     }
@@ -185,6 +190,9 @@ public final class StressDirector {
         as(1200, "Host", "airstrike nuke at 0 ~ -1000 15 air");
         as(2320, "Friend1", "airstrike salvo drone 30 150 Host");
         as(2340, "Host", "airstrike salvo rocket 30 150 Friend2");
+        // Friend1 выходит посреди удара и возвращается (клиент — через 300 своих тиков); выход — по команде режиссёра,
+        // а не по часам клиента: иначе он попадал на шаг, где Friend1 пускает сам (VPS 29.09.2026: залп ракет пропущен)
+        at(2400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
         at(2600, "сохранение мира посреди полёта", s -> run(s, "save-all"));
         // «Отбой» посреди волны 2, затем волна 3
         at(3200, "Отбой", s -> {
@@ -194,6 +202,7 @@ public final class StressDirector {
         as(3300, "Host", "airstrike salvo loiter 30 150 at 600 ~ 600");
         as(3320, "Friend1", "airstrike salvo missile 30 150 Friend2");
         as(3340, "Friend2", "airstrike salvo rocket 30 150 Host");
+        at(3400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
         if (Boolean.getBoolean("airstrike.stress.restart")) {
             as(4600, "Host", "airstrike salvo drone 20 100 at 700 ~ 700");
@@ -225,8 +234,29 @@ public final class StressDirector {
         tp(s, name, x, z);
     }
 
-    private void tp(MinecraftServer s, String name, int x, int z) {
+    /** Игрок для шага; нет его — шаг пропущен, и это проблема в сводке (стенд не проходит с меньшим числом шагов). */
+    @Nullable
+    private ServerPlayer need(MinecraftServer s, String name, String what) {
         ServerPlayer p = s.getPlayerList().getPlayerByName(name);
+        if (p == null) {
+            log("skip %s: нет игрока %s", what, name);
+            problems.add("шаг пропущен, нет игрока " + name + ": " + what);
+        }
+        return p;
+    }
+
+    /** Строка, по которой клиент стенда выходит из игры сам, как игрок посреди удара ({@link StressClient}). */
+    static final String LEAVE = "airstrike-stress: leave";
+
+    private void leave(MinecraftServer s, String name) {
+        ServerPlayer p = need(s, name, "выход");
+        if (p == null) return;
+        p.sendSystemMessage(Component.literal(LEAVE));
+        log("%s выходит", name);
+    }
+
+    private void tp(MinecraftServer s, String name, int x, int z) {
+        ServerPlayer p = need(s, name, "телепорт");
         if (p == null) return;
         ServerLevel level = s.overworld();
         // без загрузки чанка ради высоты: сначала высоко, потом игра сама опустит в полёте творческого режима
@@ -234,36 +264,64 @@ public final class StressDirector {
         log("tp %s → %d %d", name, x, z);
     }
 
+    /**
+     * Аппарат Sable в 24 блоках от игрока, на земле: игрок летает на высоте 200, и аппарат, собранный в воздухе,
+     * падал к удару на десятки блоков. Ищется потом по своему UUID, а не по месту.
+     */
     private void buildCraft(MinecraftServer s, String near) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(near);
+        ServerPlayer p = need(s, near, "аппарат");
         if (p == null) return;
-        BlockPos c = p.blockPosition().offset(24, 30, 0);
+        ServerLevel level = p.serverLevel();
+        BlockPos at = p.blockPosition().offset(24, 0, 0);
         // fill и Sable грузили бы неготовые чанки прямо в тике (стенд сам вставал на десятки секунд): ждём готовых
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
-                if (!Terrain.ready(p.serverLevel(), (c.getX() >> 4) + dx, (c.getZ() >> 4) + dz)) {
+                if (!Terrain.ready(level, (at.getX() >> 4) + dx, (at.getZ() >> 4) + dz)) {
                     log("чанки под аппаратом ещё грузятся — через секунду");
                     at(tick + 20, "аппарат у " + near + " (повтор)", sv -> buildCraft(sv, near));
                     return;
                 }
             }
         }
+        BlockPos c = new BlockPos(at.getX(), level.getHeight(Heightmap.Types.MOTION_BLOCKING, at.getX(), at.getZ()) + 1, at.getZ());
         run(s, String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_planks", c.getX() - 4, c.getY(), c.getZ() - 3, c.getX() + 4, c.getY() + 2, c.getZ() + 3));
         run(s, String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:glass", c.getX() - 2, c.getY() + 3, c.getZ() - 1, c.getX() + 2, c.getY() + 3, c.getZ() + 1));
         run(s, s.createCommandSourceStack(), String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", c.getX() - 4, c.getY(), c.getZ() - 3, c.getX() + 4, c.getY() + 3, c.getZ() + 3));
         craftCenter = Vec3.atCenterOf(c);
+        findCraft(s, 0);
+    }
+
+    /** UUID собранного аппарата: Sable может достроить его не в том же тике — ищем до секунды. */
+    private void findCraft(MinecraftServer s, int attempt) {
+        var subs = ua.zentix.airstrike.compat.SubLevels.near(s.overworld(), craftCenter, 8);
+        if (!subs.isEmpty()) {
+            craftId = subs.get(0).getUniqueId();
+            log("аппарат %s собран у %.0f %.0f %.0f", craftId, craftCenter.x, craftCenter.y, craftCenter.z);
+        } else if (attempt < 20) {
+            at(tick + 1, "поиск аппарата", sv -> findCraft(sv, attempt + 1));
+        } else {
+            problems.add(String.format(Locale.ROOT, "аппарат не собрался у %.0f %.0f %.0f", craftCenter.x, craftCenter.y, craftCenter.z));
+        }
     }
 
     private Vec3 craftCenter;
+    @Nullable
+    private UUID craftId;
 
     private void strikeCraft(MinecraftServer s, String shooter, int missiles, int drones) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(shooter);
-        if (p == null || craftCenter == null) return;
-        var subs = ua.zentix.airstrike.compat.SubLevels.near(s.overworld(), craftCenter, 32);
-        log("аппаратов у цели: %d", subs.size());
-        if (subs.isEmpty()) return;
-        var sub = subs.get(0);
+        ServerPlayer p = need(s, shooter, "удар по аппарату");
+        if (p == null) return;
+        if (craftId == null) {
+            problems.add("шаг пропущен: удар по аппарату, аппарат не построен");
+            return;
+        }
+        var sub = ua.zentix.airstrike.compat.SubLevels.byId(s.overworld(), craftCenter, craftId);
+        if (sub == null) {
+            problems.add("шаг пропущен: удар по аппарату, аппарата " + craftId + " больше нет");
+            return;
+        }
         Vec3 c = ua.zentix.airstrike.compat.SubLevels.center(sub);
+        log("аппарат %s у %.0f %.0f %.0f", craftId, c.x, c.y, c.z);
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
@@ -275,8 +333,8 @@ public final class StressDirector {
 
     private void villagers(MinecraftServer s, String shooter, String near, int n) {
         ServerLevel level = s.overworld();
-        ServerPlayer p = s.getPlayerList().getPlayerByName(shooter);
-        ServerPlayer host = s.getPlayerList().getPlayerByName(near);
+        ServerPlayer p = need(s, shooter, "жители-цели");
+        ServerPlayer host = need(s, near, "жители-цели");
         if (host == null) return;
         Vec3 at = host.position().add(-40, 0, 30);
         for (int i = 0; i < n; i++) {
@@ -437,7 +495,8 @@ public final class StressDirector {
             // долгожители: по этим строкам видно, кружит снаряд, ждёт района цели или летит далеко
             for (var en : watched.entrySet()) if (en.getValue().ref.age() >= LONG_LIVED) describe("долго летит", en.getKey(), en.getValue());
         }
-        if (finishing) finishWhenQuiet(s);
+        if (settlingSince >= 0) settle(s);
+        else if (finishing) finishWhenQuiet(s);
     }
 
     private void seeDetonations(MinecraftServer s) {
@@ -465,6 +524,13 @@ public final class StressDirector {
                 w.update(en.getValue());
             }
             w.seen = tick;
+            // путь бетонобойных бомб целиком и всех снарядов вне мира: вне мира пропадали бомба (в 375 блоках от цели)
+            // и ракеты РСЗО (под миром) — VPS, 29.09.2026
+            if ((w.virtual || "bunker_buster".equals(w.type)) && tick % 10 == 0) {
+                log("путь %s %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
+                        w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
+                        Math.hypot(w.aim.x - w.pos.x, w.aim.z - w.pos.z), w.pos.y - w.aim.y);
+            }
         }
         for (var it = watched.entrySet().iterator(); it.hasNext(); ) {
             var en = it.next();
@@ -577,7 +643,7 @@ public final class StressDirector {
                 log("не долетели за отведённое время: %d", active);
                 for (var en : watched.entrySet()) describe("  остался", en.getKey(), en.getValue());
                 summary(s, "timeout");
-                s.halt(false);
+                stopWhenSettled(s);
             }
             return;
         }
@@ -586,6 +652,35 @@ public final class StressDirector {
         if (tick - quietSince == 400) {
             System.gc();
             summary(s, "done");
+            stopWhenSettled(s);
+        }
+    }
+
+    /**
+     * Остановить сервер, когда закончится генерация чанков. Ванильная остановка (1.21.1) снимает тикеты и выгружает
+     * чанки в {@code ChunkMap.processUnloads} с {@code hasMoreTime = () -> true}: выгрузка чанка, на который ещё
+     * держит ссылку генерация соседа ({@code generationRefCount > 0}), тут же ставит себя в очередь выгрузки снова,
+     * и цикл по этой очереди не кончается. Поток сервера крутится в нём и не доходит до задач, которыми генерация
+     * закончилась бы, — остановка висит без конца (VPS и облако 29.09.2026: 4272 чанка со ссылками генерации,
+     * в очереди потока сервера 756). Поэтому сперва игроки выходят, и сервер останавливается, когда
+     * {@link #SETTLE_QUIET} тиков подряд ни у одного чанка нет ссылок генерации.
+     */
+    private void stopWhenSettled(MinecraftServer s) {
+        settlingSince = tick;
+        for (ServerPlayer p : List.copyOf(s.getPlayerList().getPlayers())) p.connection.disconnect(Component.literal("Стенд закончен"));
+        log("остановка: игроки отключены, ждём конца генерации чанков");
+    }
+
+    private void settle(MinecraftServer s) {
+        int generating = 0;
+        for (ServerLevel l : s.getAllLevels()) {
+            for (ChunkHolder holder : l.getChunkSource().chunkMap.getChunks()) if (holder.getGenerationRefCount() > 0) generating++;
+        }
+        settleQuiet = generating == 0 ? settleQuiet + 1 : 0;
+        int waited = tick - settlingSince;
+        if (settleQuiet >= SETTLE_QUIET || waited >= SETTLE_MAX) {
+            if (generating == 0) log("генерация чанков закончилась, остановка через %d тиков", waited);
+            else log("генерация чанков не закончилась за %d тиков (у %d чанков), остановка может зависнуть", waited, generating);
             s.halt(false);
         }
     }
@@ -621,7 +716,7 @@ public final class StressDirector {
     }
 
     private void as(MinecraftServer s, String player, String command) {
-        ServerPlayer p = s.getPlayerList().getPlayerByName(player);
+        ServerPlayer p = need(s, player, "/" + command);
         if (p != null) run(s, p.createCommandSourceStack().withPermission(4), command);
     }
 
