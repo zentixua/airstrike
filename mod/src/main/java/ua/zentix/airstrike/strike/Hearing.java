@@ -17,11 +17,13 @@ public final class Hearing {
     public static final double ENGINE = 300;
     /** Четыре двигателя B-2 вблизи. */
     public static final double BOMBER = 330;
-    /**
-     * Дальний гул реактивного двигателя (ракета, B-2) и свист крылатой ракеты на подлёте. На 0,7 скорости звука снаряд догоняет собственный звук: его
-     * слышно лишь на d·(1/v − 1/c) раньше, чем он пройдёт над головой, — с 1500 блоков это ~2 с, с 380 — полсекунды.
-     */
+    /** Дальний гул реактивного двигателя (ракета, B-2). */
     public static final double JET = 1500;
+    /**
+     * Свист крылатой ракеты, которая идёт на цель. На 0,67 скорости звука ракета догоняет собственный звук: его
+     * слышно лишь на d·(1/v − 1/c) раньше, чем она придёт, — с 3000 блоков это ~86 тиков (4,3 с), с 1500 — ~2 с.
+     */
+    public static final double WHISTLE = 3000;
     /** Электромотор барражирующего и вой винта в его пике. */
     public static final double LOITER = 200, LOITER_DIVE = 250;
     /** Стартовый ускоритель шахеда и ракеты, его разовый рёв у пусковой. */
@@ -46,7 +48,7 @@ public final class Hearing {
         boolean launching = ph.onLauncher() || ph.boosterLit();
         double cutoff = switch (p.weapon()) {
             case DRONE -> launching ? BOOSTER : ENGINE;
-            case MISSILE -> launching ? BOOSTER : JET;
+            case MISSILE -> launching ? BOOSTER : WHISTLE;
             case BUNKER -> p instanceof BomberEntity ? JET : ENGINE;
             case NUKE -> ph.boosterLit() ? ICBM : 0;
             case ROCKET -> launching ? ROCKET_LAUNCH : ROCKET_AIR;
