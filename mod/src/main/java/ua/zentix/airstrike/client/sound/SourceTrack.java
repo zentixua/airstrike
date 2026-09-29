@@ -178,12 +178,12 @@ final class SourceTrack implements Acoustics.Path {
         return phaseAges[(int) (a % CAPACITY)] + (s - a);
     }
 
-    /** Путь от «запаздывающего» положения p до уха открыт (1) или закрыт (0); плавно, без щелчков. */
-    float open(double now, Vec3 ear, double[] p) {
+    /** Путь от «запаздывающего» положения до уха открыт (1) или закрыт (0); плавно, без щелчков. */
+    float open(double now, Vec3 ear, Vec3 at) {
         long tick = (long) now;
         if (tick != openTick) {
             openTick = tick;
-            open += (SoundFilters.open(ear, new Vec3(p[0], p[1], p[2])) - open) * 0.3f;
+            open += (SoundFilters.open(ear, at) - open) * 0.3f;
         }
         return open;
     }

@@ -98,6 +98,7 @@ public final class ClientNuclear {
         radiation = null;
         NukeFlash.reset();
         NukeSounds.reset();
+        NukeSky.reset();
         Deafness.reset();
         NukeDust.reset();
     }
@@ -115,7 +116,8 @@ public final class ClientNuclear {
             if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }
         WARNINGS.values().removeIf(w -> now > w.detonateTime() + 100);
-        NukeSounds.tick(level, now);
+        NukeSky.tick(level);
+        NukeSounds.tick();
         NukeFlash.tick();
         Deafness.tick();
         NukeDust.tick();

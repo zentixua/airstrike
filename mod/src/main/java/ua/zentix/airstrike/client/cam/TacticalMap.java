@@ -155,10 +155,10 @@ final class TacticalMap {
         Component name = Component.literal(f.weapon().displayName().getString().toUpperCase(Locale.ROOT) + " №" + f.number);
         g.drawString(font, name, x, y, INK);
         y += 11;
-        g.drawString(font, Component.translatable("airstrike.phase." + f.phase().getSerializedName()).getString().toUpperCase(Locale.ROOT),
+        g.drawString(font, f.phase().displayName().getString().toUpperCase(Locale.ROOT),
                 x, y, f.phase() == FlightPhase.TERMINAL ? 0xFFFF4040 : INK);
         y += 14;
-        double kmh = v.length() * 20 * 3.6;
+        double kmh = ClientFlights.kmh(v.length());
         Component[] lines = {
                 Component.translatable("airstrike.map.height", String.format(Locale.ROOT, "%.0f", craft.y)),
                 Component.translatable("airstrike.camera.speed", String.format(Locale.ROOT, "%.0f", kmh)),

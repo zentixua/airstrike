@@ -19,11 +19,12 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
-import ua.zentix.airstrike.client.nuclear.NukeView;
+import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
@@ -142,6 +143,8 @@ public final class ProjectileCamera {
             savedPitch = player.getXRot();
             savedCamera = mc.options.getCameraType();
             mc.options.setCameraType(CameraType.FIRST_PERSON);
+            // выход — новым нажатием: Shift, зажатый, когда камера открылась (автокамера на пуске), её не закрывает
+            shiftWasDown = mc.options.keyShift.isDown();
         }
         active = true;
         following = f.id;
@@ -426,6 +429,11 @@ public final class ProjectileCamera {
         mc.getSoundManager().play(SimpleSoundInstance.forUI(ua.zentix.airstrike.registry.ModSounds.DESIGNATOR_LOCK.get(), 1.0f, 0.8f));
     }
 
+    /** Мир клиента уходит (смена измерения): съёмочная камера в нём больше не нужна и не должна его держать. */
+    public static void onLevelUnload(LevelEvent.Unload e) {
+        if (rig != null && rig.level() == e.getLevel()) rig = null;
+    }
+
     public static void reset() {
         if (active) exit();
         active = false;
@@ -460,7 +468,7 @@ public final class ProjectileCamera {
         if (shot == Shot.LAUNCH && f != null) {
             letterbox(g, w, h);
             caption(g, font, Component.translatable("airstrike.camera.launch", f.weapon().displayName(), f.number,
-                    Component.translatable("airstrike.phase." + f.phase().getSerializedName())).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), w, h);
+                    f.phase().displayName()).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), w, h);
             hint(g, font, w, h);
             return;
         }
@@ -517,12 +525,12 @@ public final class ProjectileCamera {
 
         // телеметрия
         double alt = p.getY() - ua.zentix.airstrike.entity.StrikeProjectile.surfaceY(mc.level, p.getX(), p.getZ());
-        double kmh = p.speed() * 20 * 3.6;
+        double kmh = ClientFlights.kmh(p.speed());
         double dist = p.position().distanceTo(f.target());
         boolean rec = (mc.level.getGameTime() / 10) % 2 == 0;
         String left1 = (rec ? "● " : "  ") + "REC  " + f.weapon().displayName().getString().toUpperCase(Locale.ROOT) + " №" + f.number;
         g.drawString(font, left1, m + 6, m + 6, rec ? 0xFFFF4040 : 0xFFE8E8E8);
-        g.drawString(font, Component.translatable("airstrike.phase." + f.phase().getSerializedName()).getString().toUpperCase(Locale.ROOT),
+        g.drawString(font, f.phase().displayName().getString().toUpperCase(Locale.ROOT),
                 m + 6, m + 18, f.phase() == FlightPhase.TERMINAL ? 0xFFFF4040 : 0xFFE8E8E8);
         Component[] right = {
                 Component.translatable("airstrike.camera.alt", String.format(Locale.ROOT, "%.0f", alt)),
@@ -561,7 +569,7 @@ public final class ProjectileCamera {
     }
 
     private static void target(GuiGraphics g, Vec3 at, int w, int h, int color) {
-        float[] s = NukeView.project(at);
+        float[] s = ScreenProjection.project(at);
         if (s == null) return;
         int x = (int) (s[0] * w), y = (int) (s[1] * h);
         if (x < 0 || x > w || y < 0 || y > h) return;

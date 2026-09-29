@@ -1,9 +1,13 @@
 package ua.zentix.airstrike.client.map;
 
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.material.MapColor;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TerrainTilesTest {
     /** Плитка не мельче пикселя экрана: 1 пиксель на блок и крупнее — подробная, дальше — вдвое крупнее на каждую октаву. */
@@ -28,5 +32,42 @@ class TerrainTilesTest {
         assertEquals(MapColor.Brightness.NORMAL, TerrainTiles.shade(flat, 63, 16, 0), "на крупной клетке блок перепада — ровное");
         assertEquals(MapColor.Brightness.HIGH, TerrainTiles.shade(new TerrainSource.Column(64, MapColor.WATER, 1), 64, 1, 0), "мелко");
         assertEquals(MapColor.Brightness.LOW, TerrainTiles.shade(new TerrainSource.Column(64, MapColor.WATER, 12), 64, 1, 0), "глубоко");
+    }
+
+    /** Фоновая плитка возвращается в слой при любом исходе, и при Error: иначе слой навсегда ждал бы её задачу. */
+    @Test
+    void backgroundTileReturnsEvenOnError() {
+        TerrainTiles.Layer layer = new TerrainTiles.Layer("test", new TerrainSource() {
+            @Override
+            public boolean offThread() {
+                return true;
+            }
+
+            @Nullable
+            @Override
+            public Reader open(ClientLevel level) {
+                return null;
+            }
+        });
+        boolean[] closed = {false};
+        TerrainSource.Reader reader = new TerrainSource.Reader() {
+            @Nullable
+            @Override
+            public TerrainSource.Column column(int x, int z) {
+                throw new StackOverflowError();
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+            }
+        };
+        TerrainTiles.Key key = new TerrainTiles.Key(2, 3, -1);
+        assertThrows(StackOverflowError.class, () -> TerrainTiles.buildOffThread(layer, key, 7, reader), "Error не глотается");
+        TerrainTiles.Built b = layer.done.poll();
+        assertEquals(new TerrainTiles.Key(2, 3, -1), b.key());
+        assertEquals(7, b.generation());
+        assertEquals(0, b.pixels().length, "без пикселей — спросят снова");
+        assertTrue(closed[0], "читатель закрыт");
     }
 }

@@ -56,7 +56,7 @@ public final class TerrainTiles {
     /** Нет данных о высоте. */
     private static final int NO_HEIGHT = Integer.MIN_VALUE;
 
-    private record Key(int level, int tx, int tz) {
+    record Key(int level, int tx, int tz) {
         int span() {
             return SIZE << level;
         }
@@ -83,10 +83,15 @@ public final class TerrainTiles {
     }
 
     /** Готовая плитка из фона: пиксели ABGR (как у {@link NativeImage}) и высоты; сколько строилась. */
-    private record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty, long nanos) {}
+    record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty, long nanos) {
+        /** Плитка не построена: без пикселей, её спросят снова, как пустую. */
+        static Built failed(Key key, int generation) {
+            return new Built(key, generation, new int[0], new int[0], true, 0);
+        }
+    }
 
     /** Плитки одного источника рельефа. */
-    private static final class Layer {
+    static final class Layer {
         final String name;
         final TerrainSource source;
         /** Порядок доступа: первая — давно не показанная. */
@@ -94,8 +99,8 @@ public final class TerrainTiles {
         final Queue<Built> done = new ConcurrentLinkedQueue<>();
         int jobs;
         boolean stallLogged, firstLogged;
-        /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. */
-        boolean broken;
+        /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. Пишет фоновый поток. */
+        volatile boolean broken;
         /** Для лога: построено плиток, из них с рельефом, время постройки всех. */
         int built, withData;
         long buildNanos;
@@ -139,13 +144,19 @@ public final class TerrainTiles {
         g.enableScissor(left, top, right, bottom);
         for (Layer layer : layers) {
             collect(layer);
+            if (!build) {
+                // клеток кадра на такой карте — сотни тысяч, а нового ничего не заводится: рисуются готовые плитки
+                // самого крупного уровня, перебором плиток слоя (их не больше MAX_TILES)
+                draw(g, map, layer, ready(layer, map, left, top, right, bottom), false);
+                continue;
+            }
             // сначала крупные плитки, что уже есть, — подложка, пока строятся нужные (при приближении карта не пустеет)
             for (int l = MAX_LEVEL; l > want; l--) draw(g, map, layer, visible(map, l, left, top, right, bottom), false);
             List<Key> keys = visible(map, want, left, top, right, bottom);
             if (!layer.source.offThread()) keys.removeIf(k -> !nearPlayer(k));
-            draw(g, map, layer, keys, build);
+            draw(g, map, layer, keys, true);
             evict(layer);
-            if (!build || layer.broken) continue;
+            if (layer.broken) continue;
             keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
             request(current, layer, keys);
         }
@@ -199,7 +210,11 @@ public final class TerrainTiles {
         return b.toString();
     }
 
-    /** Выход из мира: текстуры освобождены, фоновые плитки для него больше не нужны. */
+    /**
+     * Выход из мира или смена измерения: текстуры освобождены, фоновые плитки для него больше не нужны. Потоки —
+     * новые: чтение DH для старого мира может ждать сколько угодно, и новый мир стоял бы за ним в очереди. Старые
+     * потоки прерываются и кончаются сами (демоны), их плитки — старого поколения, выбрасываются.
+     */
     public static void reset() {
         for (Layer layer : layers) {
             for (Tile t : layer.tiles.values()) release(t);
@@ -207,6 +222,10 @@ public final class TerrainTiles {
         layers = List.of();
         level = null;
         generation++;
+        if (executor != null) {
+            executor.shutdownNow();
+            executor = null;
+        }
     }
 
     /**
@@ -214,8 +233,15 @@ public final class TerrainTiles {
      * только если DH стоит: без него ссылки на API не разрешатся.
      */
     public static void init() {
-        distantHorizons = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported();
-        if (distantHorizons) DistantHorizonsTerrain.subscribe();
+        if (!ModList.get().isLoaded("distanthorizons")) return;
+        try {
+            distantHorizons = DistantHorizonsTerrain.supported();
+            if (distantHorizons) DistantHorizonsTerrain.subscribe();
+        } catch (LinkageError e) {
+            // API DH без нужных классов или методов (DH новее, чем мод знает): игра грузится, рельеф — из чанков
+            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — дальний рельеф на карте выключен", e);
+            distantHorizons = false;
+        }
     }
 
     private static void switchTo(ClientLevel current) {
@@ -242,6 +268,19 @@ public final class TerrainTiles {
         List<Key> keys = new ArrayList<>((x1 - x0 + 1) * (z1 - z0 + 1));
         for (int tz = z0; tz <= z1; tz++) {
             for (int tx = x0; tx <= x1; tx++) keys.add(new Key(l, tx, tz));
+        }
+        return keys;
+    }
+
+    /** Готовые плитки самого крупного уровня, задевающие прямоугольник экрана. */
+    private static List<Key> ready(Layer layer, MapProjection map, int left, int top, int right, int bottom) {
+        double x0 = map.worldX(left), x1 = map.worldX(right), z0 = map.worldZ(top), z1 = map.worldZ(bottom);
+        List<Key> keys = new ArrayList<>();
+        for (Key key : layer.tiles.keySet()) {
+            double span = key.span();
+            if (key.level == MAX_LEVEL && key.tx * span < x1 && (key.tx + 1) * span > x0 && key.tz * span < z1 && (key.tz + 1) * span > z0) {
+                keys.add(key);
+            }
         }
         return keys;
     }
@@ -286,19 +325,7 @@ public final class TerrainTiles {
                     t.buildingSince = now;
                     layer.jobs++;
                     int gen = generation;
-                    executor().execute(() -> {
-                        try (reader) {
-                            layer.done.add(build(key, gen, reader));
-                        } catch (RuntimeException e) {
-                            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
-                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
-                        } catch (LinkageError e) {
-                            // другая версия API DH, чем при сборке: источник выключается до смены мира
-                            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
-                            layer.broken = true;
-                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
-                        }
-                    });
+                    executor().execute(() -> buildOffThread(layer, key, gen, reader));
                 } else {
                     if (System.nanoTime() > deadline) return;
                     if (inFrame == null) inFrame = src.open(current);
@@ -308,6 +335,25 @@ public final class TerrainTiles {
             }
         } finally {
             if (inFrame != null) inFrame.close();
+        }
+    }
+
+    /**
+     * Постройка плитки в фоновом потоке. Плитка возвращается в слой при любом исходе, и при {@link Error} (оно летит
+     * дальше): иначе задача слоя и отметка «строится» у плитки остались бы навсегда, а с ними — и слой.
+     */
+    static void buildOffThread(Layer layer, Key key, int gen, TerrainSource.Reader reader) {
+        Built result = Built.failed(key, gen);
+        try (reader) {
+            result = build(key, gen, reader);
+        } catch (RuntimeException e) {
+            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
+        } catch (LinkageError e) {
+            // другая версия API DH, чем при сборке: источник выключается до смены мира
+            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
+            layer.broken = true;
+        } finally {
+            layer.done.add(result);
         }
     }
 
