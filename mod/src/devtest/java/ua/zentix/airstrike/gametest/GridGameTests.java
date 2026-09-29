@@ -1,14 +1,30 @@
 package ua.zentix.airstrike.gametest;
 
+import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CopperBulbBlock;
@@ -17,10 +33,18 @@ import net.minecraft.world.level.block.LanternBlock;
 import net.minecraft.world.level.block.LightBlock;
 import net.minecraft.world.level.block.RedstoneLampBlock;
 import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.UpgradeData;
+import net.minecraft.world.level.chunk.status.ChunkType;
+import net.minecraft.world.level.chunk.storage.ChunkSerializer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
@@ -28,6 +52,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkLights;
+import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.grid.GridLights;
 import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.PowerGrid;
@@ -37,14 +62,17 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModBlocks;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Блэкаут: лампы гаснут двойниками и возвращаются точно такими же, каскад от выбитой подстанции идёт под бюджетом,
- * незагруженные чанки не грузятся (переводятся при загрузке), «вернуть свет везде» доходит и до них.
+ * незагруженные чанки не грузятся (переводятся при загрузке), на диск двойники не попадают никогда.
  * Каждый тест — в своей партии: сеть одна на мир. Перед каждым — свет, погашенный другими проверками (ядерные тесты
  * тоже обесточивают район), возвращается.
  */
@@ -58,7 +86,7 @@ public final class GridGameTests {
 
     /** Отключения других проверок — на возврат, чтобы они не гасили площадку посреди этой. */
     private static void quiet(ServerLevel level) {
-        Blackouts.restore(level, null, 0, false);
+        Blackouts.restore(level, null, 0);
     }
 
     /**
@@ -86,37 +114,16 @@ public final class GridGameTests {
         h.assertTrue(pairs == 19, "ламп сети: " + pairs);
 
         ServerLevel level = h.getLevel();
-        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
-        BlockPos row = new BlockPos(20, 12, 24);
-        int[] x = {0};
-        java.util.function.BiConsumer<BlockPos, BlockState> put = (rel, s) -> {
-            h.setBlock(rel, s);
-            placed.put(h.absolutePos(rel), h.getBlockState(rel));
-        };
-        java.util.function.Function<Integer, BlockPos> next = dy -> row.offset(x[0] += 2, dy, 0);
-        BlockPos hanging = next.apply(1);
-        h.setBlock(hanging.above(), Blocks.STONE);
-        put.accept(hanging, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true).setValue(LanternBlock.WATERLOGGED, true));
-        put.accept(next.apply(0), Blocks.SOUL_LANTERN.defaultBlockState());
-        put.accept(next.apply(0), Blocks.SEA_LANTERN.defaultBlockState());
-        put.accept(next.apply(0), Blocks.GLOWSTONE.defaultBlockState());
-        put.accept(next.apply(0), Blocks.SHROOMLIGHT.defaultBlockState());
-        put.accept(next.apply(0), Blocks.OCHRE_FROGLIGHT.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X));
-        put.accept(next.apply(0), Blocks.VERDANT_FROGLIGHT.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.Z));
-        put.accept(next.apply(0), Blocks.PEARLESCENT_FROGLIGHT.defaultBlockState());
-        put.accept(next.apply(0), Blocks.END_ROD.defaultBlockState().setValue(EndRodBlock.FACING, Direction.EAST));
-        BlockPos lamp = next.apply(0);
-        h.setBlock(lamp.above(), Blocks.REDSTONE_BLOCK);
-        put.accept(lamp, Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true));
-        put.accept(next.apply(0), Blocks.COPPER_BULB.defaultBlockState().setValue(CopperBulbBlock.LIT, true));
-        BlockPos bulb = next.apply(0);
-        h.setBlock(bulb.above(), Blocks.REDSTONE_BLOCK);
-        put.accept(bulb, Blocks.WAXED_OXIDIZED_COPPER_BULB.defaultBlockState().setValue(CopperBulbBlock.LIT, true).setValue(CopperBulbBlock.POWERED, true));
-        put.accept(next.apply(1), Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, 7).setValue(BlockStateProperties.WATERLOGGED, true));
-
+        // в чанке середины площадки (он весь на ней)
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        Map<BlockPos, BlockState> placed = lampCases(level, new BlockPos(mid.getMinBlockX() + 3, h.absolutePos(CENTER).getY() + 1, mid.getMinBlockZ() + 3));
         List<ChunkPos> chunks = placed.keySet().stream().map(ChunkPos::new).distinct().toList();
-        int dark = 0;
-        for (ChunkPos c : chunks) dark += ChunkLights.apply(level, level.getChunk(c.x, c.z), true);
+        h.assertTrue(chunks.size() == 1, "лампы в " + chunks.size() + " чанках");
+        // единица работы — не больше заданного числа ламп, остальное — следующей
+        LevelChunk chunk = level.getChunk(chunks.get(0).x, chunks.get(0).z);
+        int dark = ChunkLights.apply(level, chunk, true, 5);
+        h.assertTrue(dark == 5, "за единицу погашено " + dark + " вместо 5");
+        dark += ChunkLights.apply(level, chunk, true);
         h.assertTrue(dark == placed.size(), "погашено " + dark + " из " + placed.size());
         for (var e : placed.entrySet()) {
             BlockState now = level.getBlockState(e.getKey());
@@ -136,6 +143,130 @@ public final class GridGameTests {
             h.assertTrue(now == e.getValue(), "было " + e.getValue() + ", стало " + now);
         }
         h.succeed();
+    }
+
+    /**
+     * Все 19 ламп сети в «неудобных» состояниях — висящий фонарь под водой, жабосветы по осям, стержень края
+     * на восток, лампа из красного камня и медная под сигналом, блок света 7 под водой — двумя рядами по x
+     * от {@code origin} (10 × 3 блока). Возвращает поставленное: позиция → состояние.
+     */
+    private static Map<BlockPos, BlockState> lampCases(ServerLevel level, BlockPos origin) {
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        List<BlockState> states = new ArrayList<>(List.of(
+                Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true).setValue(LanternBlock.WATERLOGGED, true),
+                Blocks.SOUL_LANTERN.defaultBlockState(),
+                Blocks.SEA_LANTERN.defaultBlockState(),
+                Blocks.GLOWSTONE.defaultBlockState(),
+                Blocks.SHROOMLIGHT.defaultBlockState(),
+                Blocks.OCHRE_FROGLIGHT.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X),
+                Blocks.VERDANT_FROGLIGHT.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.Z),
+                Blocks.PEARLESCENT_FROGLIGHT.defaultBlockState(),
+                Blocks.END_ROD.defaultBlockState().setValue(EndRodBlock.FACING, Direction.EAST),
+                Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true),
+                Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, 7).setValue(BlockStateProperties.WATERLOGGED, true)));
+        Block[] bulbs = {Blocks.COPPER_BULB, Blocks.EXPOSED_COPPER_BULB, Blocks.WEATHERED_COPPER_BULB, Blocks.OXIDIZED_COPPER_BULB,
+                Blocks.WAXED_COPPER_BULB, Blocks.WAXED_EXPOSED_COPPER_BULB, Blocks.WAXED_WEATHERED_COPPER_BULB, Blocks.WAXED_OXIDIZED_COPPER_BULB};
+        for (int i = 0; i < bulbs.length; i++) {
+            // через одну — под сигналом
+            states.add(bulbs[i].defaultBlockState().setValue(CopperBulbBlock.LIT, true).setValue(CopperBulbBlock.POWERED, i % 2 == 1));
+        }
+        for (int i = 0; i < states.size(); i++) {
+            BlockState s = states.get(i);
+            BlockPos p = origin.offset(i % 10, 0, i / 10 * 3);
+            // опора висящему фонарю, сигнал лампе из красного камня и медным «под сигналом»
+            boolean powered = s.is(Blocks.REDSTONE_LAMP) || s.hasProperty(CopperBulbBlock.POWERED) && s.getValue(CopperBulbBlock.POWERED);
+            if (s.is(Blocks.LANTERN) || powered) level.setBlock(p.above(), (powered ? Blocks.REDSTONE_BLOCK : Blocks.STONE).defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(p, s, Block.UPDATE_ALL);
+            placed.put(p, level.getBlockState(p));
+        }
+        for (var e : placed.entrySet()) {
+            if (!GridLights.isLit(e.getValue())) throw new IllegalStateException("не лампа сети: " + e.getValue() + " в " + e.getKey());
+        }
+        if (placed.size() != 19) throw new IllegalStateException("ламп " + placed.size());
+        return placed;
+    }
+
+    /**
+     * Лампа из красного камня и медная лампа, у которых в темноте пропал или появился сигнал, после возврата света
+     * ведут себя, как от обновления соседа: первая гаснет, вторая переключается.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "grid_signal", skyAccess = true)
+    public static void restoredLampsFollowSignalChangedInTheDark(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        BlockPos lamp = new BlockPos(20, 13, 20), bulb = new BlockPos(24, 13, 20);
+        h.setBlock(lamp.above(), Blocks.REDSTONE_BLOCK);
+        h.setBlock(lamp, Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true));
+        h.setBlock(bulb, Blocks.COPPER_BULB);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(lamp));
+        h.assertTrue(chunk == level.getChunkAt(h.absolutePos(bulb)), "лампы в разных чанках");
+        h.assertTrue(ChunkLights.apply(level, chunk, true) == 2, "лампы не погасли");
+        // в темноте: у лампы из красного камня сигнал пропал, медной — появился
+        h.setBlock(lamp.above(), Blocks.AIR);
+        h.setBlock(bulb.above(), Blocks.REDSTONE_BLOCK);
+        h.assertTrue(GridLights.isUnlit(h.getBlockState(lamp)) && GridLights.isUnlit(h.getBlockState(bulb)), "двойники сменились от соседей");
+        h.assertTrue(ChunkLights.apply(level, chunk, false) == 2, "лампы не зажглись");
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    h.assertBlockState(lamp, s -> s.is(Blocks.REDSTONE_LAMP) && !s.getValue(RedstoneLampBlock.LIT), () -> "лампа без сигнала горит");
+                    h.assertBlockState(bulb, s -> s.is(Blocks.COPPER_BULB) && s.getValue(CopperBulbBlock.LIT) && s.getValue(CopperBulbBlock.POWERED),
+                            () -> "медная лампа не заметила сигнал: " + h.getBlockState(bulb));
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Погашенная лампа даёт ту же добычу, что лампа (у двойника нет своей таблицы): те же предметы киркой и киркой
+     * с шёлковым касанием, и разбитая в мире — выпадает.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "grid_loot", skyAccess = true)
+    public static void brokenTwinDropsTheLampsLoot(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos at = h.absolutePos(CENTER);
+        ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE), silk = new ItemStack(Items.DIAMOND_PICKAXE);
+        silk.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.SILK_TOUCH), 1);
+        for (ModBlocks.UnlitPair pair : ModBlocks.UNLIT) {
+            BlockState lamp = pair.lit().get().defaultBlockState(), twin = GridLights.unlit(lamp);
+            h.assertTrue(twin.getBlock().getLootTable() == lamp.getBlock().getLootTable(),
+                    "таблица добычи " + twin + ": " + twin.getBlock().getLootTable().location());
+            for (ItemStack tool : List.of(pickaxe, silk)) {
+                var want = Block.getDrops(lamp, level, at, null, null, tool).stream().map(ItemStack::getItem).collect(Collectors.toSet());
+                var got = Block.getDrops(twin, level, at, null, null, tool).stream().map(ItemStack::getItem).collect(Collectors.toSet());
+                h.assertTrue(want.equals(got), twin + " даёт " + got + ", лампа — " + want + " (" + tool + ")");
+            }
+        }
+        Map<Block, Item> drops = Map.of(Blocks.LANTERN, Items.LANTERN, Blocks.OCHRE_FROGLIGHT, Items.OCHRE_FROGLIGHT,
+                Blocks.REDSTONE_LAMP, Items.REDSTONE_LAMP, Blocks.WAXED_COPPER_BULB, Items.WAXED_COPPER_BULB);
+        int i = 0;
+        for (var e : drops.entrySet()) {
+            BlockPos p = new BlockPos(16 + 8 * i++, 13, 16);
+            h.setBlock(p, GridLights.unlit(e.getKey().defaultBlockState()));
+            level.destroyBlock(h.absolutePos(p), true);
+            h.assertItemEntityPresent(e.getValue(), p, 2);
+        }
+        h.succeed();
+    }
+
+    /**
+     * Двойник не от блэкаута в светлом квартале снова лампа: поставленный в мир (поршень, аппарат) — сразу, а в чанке
+     * с диска (сохранение старой версии) — ещё в палитре, до того как чанк станет частью мира.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "grid_stray", skyAccess = true)
+    public static void strayTwinRelightsInLitDistrict(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        BlockPos moved = new BlockPos(20, 13, 20), legacy = new BlockPos(24, 13, 20);
+        BlockState froglight = Blocks.VERDANT_FROGLIGHT.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X);
+        h.setBlock(moved, GridLights.unlit(froglight));
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(legacy));
+        BlockPos abs = h.absolutePos(legacy);
+        chunk.getSection(chunk.getSectionIndex(abs.getY())).setBlockState(abs.getX() & 15, abs.getY() & 15, abs.getZ() & 15,
+                GridLights.unlit(Blocks.GLOWSTONE.defaultBlockState()), false);
+        ChunkSaves.onLoad(new ChunkDataEvent.Load(chunk, new CompoundTag(), ChunkType.LEVELCHUNK));
+        h.assertTrue(level.getBlockState(abs).is(Blocks.GLOWSTONE), "двойник из сохранения остался: " + level.getBlockState(abs));
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertBlockState(moved, s -> s == froglight, () -> "сдвинутый двойник не зажёгся: " + h.getBlockState(moved)))
+                .thenSucceed();
     }
 
     /**
@@ -160,6 +291,10 @@ public final class GridGameTests {
                 .thenIdle(1)
                 .thenExecute(() -> {
                     Vec3 c = Vec3.atCenterOf(h.absolutePos(CENTER.east(3)));
+                    // порыв заряда ветра (радиус 1.2, «задеть блоки») — не взрыв для подстанции
+                    level.explode(null, null, null, c.x, c.y, c.z, 1.2f, false, Level.ExplosionInteraction.TRIGGER,
+                            ParticleTypes.GUST_EMITTER_SMALL, ParticleTypes.GUST_EMITTER_LARGE, SoundEvents.WIND_CHARGE_BURST);
+                    h.assertTrue(PowerGrid.get(level).downOutage(node.id(), level.getGameTime()).isEmpty(), "заряд ветра выбил подстанцию");
                     level.explode(null, c.x, c.y, c.z, 2f, Level.ExplosionInteraction.NONE);
                     h.assertTrue(PowerGrid.get(level).downOutage(node.id(), level.getGameTime()).isPresent(), "взрыв не выбил подстанцию");
                 })
@@ -171,8 +306,7 @@ public final class GridGameTests {
                 .thenExecute(() -> {
                     h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
                     h.assertTrue(clock.ticksWorked() > 1, "вся работа уместилась в один тик — бюджет не проверен");
-                    int[] r = Blackouts.restore(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 8, false);
-                    h.assertTrue(r[0] >= 1, "возвращать нечего");
+                    h.assertTrue(Blackouts.restore(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 8) >= 1, "возвращать нечего");
                 })
                 .thenWaitUntil(() -> {
                     for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
@@ -184,85 +318,227 @@ public final class GridGameTests {
     }
 
     /**
-     * Чанк вне загруженного мира каскад не грузит: он гаснет, когда его загрузят. Свет вернули — при следующей загрузке
-     * он горит.
+     * Чанк, сохранённый светлым, в тёмном квартале: каскад его не грузит, он гаснет при загрузке — все 19 ламп ровно
+     * двойниками, и свет посчитан по погашенным. Свет вернули — при следующей загрузке он горит прежними лампами.
      */
-    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_lazy", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 3600, batch = "grid_lazy", skyAccess = true)
     public static void unloadedChunkDarkensOnLoad(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
         var chunks = level.getChunkSource();
         ChunkPos far = new ChunkPos(h.absolutePos(CENTER.east(480)));
-        BlockPos[] lamp = new BlockPos[1];
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockPos[] glow = new BlockPos[1];
         chunks.addRegionTicket(HOLD, far, 2, far);
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
                 .thenExecute(() -> {
-                    lamp[0] = surface(level, far);
-                    level.setBlock(lamp[0], Blocks.GLOWSTONE.defaultBlockState(), Block.UPDATE_ALL);
+                    placed.putAll(lampCases(level, caseOrigin(level, far)));
+                    glow[0] = find(placed, Blocks.GLOWSTONE);
                     chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
                 .thenWaitUntil(() -> unloaded(h, level, far))
-                .thenExecute(() -> Blackouts.blackout(level, Vec3.atCenterOf(lamp[0]), 200, 1000, -1))
+                .thenExecute(() -> {
+                    assertNoTwinsOnDisk(h, level, far);
+                    Blackouts.blackout(level, Vec3.atCenterOf(glow[0]), 200, 1000, -1);
+                })
                 .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "каскад идёт"))
                 .thenExecute(() -> {
                     h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "каскад загрузил чанк");
                     chunks.addRegionTicket(HOLD, far, 2, far);
                 })
-                .thenWaitUntil(() -> h.assertTrue(level.getBlockState(lamp[0]).is(ModBlocks.UNLIT.get(0).unlit().get()),
-                        "светокамень в загруженном чанке горит: " + level.getBlockState(lamp[0])))
-                .thenExecute(() -> Blackouts.restore(level, Vec3.atCenterOf(lamp[0]), 8, false))
-                .thenWaitUntil(() -> h.assertTrue(level.getBlockState(lamp[0]).is(Blocks.GLOWSTONE), "свет не вернулся"))
+                .thenWaitUntil(() -> {
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
+                    assertLamps(h, level, placed, true);
+                    assertBlockLight(h, level, glow[0].above(), 0);
+                })
+                .thenExecute(() -> Blackouts.restore(level, Vec3.atCenterOf(glow[0]), 8))
+                .thenWaitUntil(() -> {
+                    assertLamps(h, level, placed, false);
+                    assertBlockLight(h, level, glow[0].above(), 14);
+                })
                 .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
                 .thenSucceed();
     }
 
     /**
-     * «Вернуть свет везде» (перед удалением мода): погашенный чанк вне загруженного мира загружается, лампы в нём
-     * зажигаются и сохраняются на диск — после всего, без отключений и отметок, загруженный снова чанк светит.
+     * Тёмный чанк через диск туда и обратно. Сохраняется он с настоящими лампами (ни одного {@code airstrike:unlit}
+     * в теге, свет — пересчитать); загруженный, пока квартал тёмный, — снова ровно двойники всех 19 ламп, сундук
+     * с содержимым и биомы те же, свет посчитан по погашенным. Свет вернули, пока чанк на диске, — загружается он
+     * прежними лампами и светит.
      */
-    @GameTest(template = "range", timeoutTicks = 4000, batch = "grid_restore_all", skyAccess = true)
-    public static void restoreEverywhereReachesUnloadedChunks(GameTestHelper h) {
+    @GameTest(template = "range", timeoutTicks = 4800, batch = "grid_disk", skyAccess = true)
+    public static void darkChunkRoundTripsThroughDisk(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
         var chunks = level.getChunkSource();
-        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.west(480)));
-        BlockPos[] lamp = new BlockPos[1];
-        BlockState lantern = Blocks.SOUL_LANTERN.defaultBlockState();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.north(480)));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        Map<BlockPos, Holder<Biome>> biomes = new LinkedHashMap<>();
+        BlockPos[] glow = new BlockPos[1], chest = new BlockPos[1];
+        ItemStack loot = new ItemStack(Items.DIAMOND, 7);
         chunks.addRegionTicket(HOLD, far, 2, far);
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
                 .thenExecute(() -> {
-                    lamp[0] = surface(level, far);
-                    level.setBlock(lamp[0], lantern, Block.UPDATE_ALL);
-                    Blackouts.blackout(level, Vec3.atCenterOf(lamp[0]), 200, 1000, -1);
+                    BlockPos origin = caseOrigin(level, far);
+                    placed.putAll(lampCases(level, origin));
+                    glow[0] = find(placed, Blocks.GLOWSTONE);
+                    chest[0] = origin.offset(0, 0, 9);
+                    level.setBlock(chest[0], Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
+                    ((ChestBlockEntity) level.getBlockEntity(chest[0])).setItem(4, loot.copy());
+                    for (int y = level.getMinBuildHeight(); y < level.getMaxBuildHeight(); y += 16) {
+                        BlockPos p = new BlockPos(far.getMinBlockX() + 5, y, far.getMinBlockZ() + 9);
+                        biomes.put(p, level.getBiome(p));
+                    }
+                    Blackouts.blackout(level, Vec3.atCenterOf(glow[0]), 200, 1000, -1);
                 })
-                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(lamp[0])), "фонарь не погас"))
+                .thenWaitUntil(() -> {
+                    assertLamps(h, level, placed, true);
+                    assertBlockLight(h, level, glow[0].above(), 0);
+                })
+                .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenWaitUntil(() -> unloaded(h, level, far))
                 .thenExecute(() -> {
-                    h.assertTrue(PowerGrid.get(level).darkChunks().contains(far.toLong()), "чанка нет в указателе тёмных");
+                    CompoundTag saved = assertNoTwinsOnDisk(h, level, far);
+                    h.assertFalse(saved.getBoolean(ChunkSerializer.IS_LIGHT_ON_TAG), "свет погашенных сохранён как верный");
+                    h.assertTrue(saved.toString().contains("minecraft:glowstone"), "светокамня нет в сохранении");
+                    h.assertTrue(PowerGrid.get(level).dark(far.x, far.z, level.getGameTime()), "квартал уже светлый");
+                    chunks.addRegionTicket(HOLD, far, 2, far);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
+                    assertLamps(h, level, placed, true);
+                    assertBlockLight(h, level, glow[0].above(), 0);
+                })
+                .thenExecute(() -> {
+                    h.assertTrue(level.getChunkAt(glow[0]).hasData(ModAttachments.GRID_DARK), "загруженный тёмным чанк не отмечен");
+                    h.assertTrue(level.getBlockEntity(chest[0]) instanceof ChestBlockEntity c && ItemStack.matches(c.getItem(4), loot),
+                            "сундук после диска: " + level.getBlockEntity(chest[0]));
+                    for (var e : biomes.entrySet()) {
+                        h.assertTrue(level.getBiome(e.getKey()).is(e.getValue()), "биом в " + e.getKey() + ": " + level.getBiome(e.getKey()));
+                    }
                     chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
                 .thenWaitUntil(() -> unloaded(h, level, far))
                 .thenExecute(() -> {
-                    int[] r = Blackouts.restore(level, null, 0, true);
-                    h.assertTrue(r[1] >= 1, "незагруженных тёмных чанков к загрузке: " + r[1]);
+                    assertNoTwinsOnDisk(h, level, far);
+                    h.assertTrue(Blackouts.restore(level, Vec3.atCenterOf(glow[0]), 8) == 1, "возвращать нечего");
+                })
+                .thenWaitUntil(() -> h.assertFalse(PowerGrid.get(level).dark(far.x, far.z, level.getGameTime()), "квартал ещё тёмный"))
+                .thenExecute(() -> {
+                    h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "возврат света загрузил чанк");
+                    chunks.addRegionTicket(HOLD, far, 2, far);
                 })
                 .thenWaitUntil(() -> {
-                    PowerGrid grid = PowerGrid.get(level);
-                    h.assertFalse(grid.darkChunks().contains(far.toLong()), "чанк ещё в указателе тёмных");
-                    h.assertTrue(grid.outages().isEmpty(), "отключения ещё не кончились: " + grid.outages().size());
-                    h.assertTrue(BlackoutWorld.get(level).idle(), "блэкаут ещё работает: " + java.util.Arrays.toString(BlackoutWorld.get(level).backlog())
-                            + " каскады " + BlackoutWorld.get(level).sweeping());
-                    h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "чанк держится после возврата света");
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
+                    assertLamps(h, level, placed, false);
+                    assertBlockLight(h, level, glow[0].above(), 14);
                 })
-                .thenExecute(() -> chunks.addRegionTicket(HOLD, far, 2, far))
-                .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится снова"))
                 .thenExecute(() -> {
-                    BlockState s = level.getBlockState(lamp[0]);
-                    h.assertTrue(s == lantern, "на диске остался " + s);
+                    h.assertFalse(level.getChunkAt(glow[0]).hasData(ModAttachments.GRID_DARK), "светлый чанк отмечен тёмным");
                     chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
                 .thenSucceed();
+    }
+
+    /**
+     * Перехват сохранения трогает только тег, который написала ваниль для этого же чанка. Свой тег (как в чанке)
+     * — лампы вместо двойников; чужие — пустой, секции не списком, секции вне высоты мира, блоки секции не тем
+     * типом или другие, чем в чанке, тег недогруженного чанка — остаются байт в байт.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "grid_save_tags", skyAccess = true)
+    public static void saveLeavesForeignTagsAlone(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        BlockPos lamp = h.absolutePos(CENTER);
+        level.setBlock(lamp, Blocks.SEA_LANTERN.defaultBlockState(), Block.UPDATE_ALL);
+        LevelChunk chunk = level.getChunkAt(lamp);
+        h.assertTrue(ChunkLights.apply(level, chunk, true) >= 1, "фонарь не погас");
+        try {
+            CompoundTag own = ChunkSerializer.write(level, chunk);
+            h.assertTrue(own.toString().contains("airstrike:unlit_sea_lantern"), "в теге нет двойника — проверять нечего");
+            ChunkSaves.onSave(new ChunkDataEvent.Save(chunk, level, own));
+            h.assertFalse(own.toString().contains("airstrike:unlit"), "двойник остался в теге: " + own.toString().indexOf("airstrike:unlit"));
+            h.assertTrue(own.toString().contains("minecraft:sea_lantern"), "фонаря нет в теге");
+            h.assertFalse(own.getBoolean(ChunkSerializer.IS_LIGHT_ON_TAG), "свет погашенных сохранён как верный");
+            h.assertTrue(level.getBlockState(lamp) == GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()), "сохранение зажгло фонарь в мире");
+
+            CompoundTag pattern = ChunkSerializer.write(level, chunk);
+            int sy = SectionPos.blockToSectionCoord(lamp.getY());
+            PalettedContainer<BlockState> stone = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.STONE.defaultBlockState(),
+                    PalettedContainer.Strategy.SECTION_STATES);
+            List<CompoundTag> foreign = List.of(
+                    new CompoundTag(),
+                    with(pattern, t -> t.put(ChunkSerializer.SECTIONS_TAG, new CompoundTag())),
+                    with(pattern, t -> sections(t).forEach(s -> s.putByte("Y", (byte) (s.getByte("Y") + 64)))),
+                    with(pattern, t -> sections(t).forEach(s -> s.putString("block_states", "foreign"))),
+                    with(pattern, t -> sections(t).stream().filter(s -> s.getByte("Y") == sy)
+                            .forEach(s -> s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, stone).getOrThrow()))));
+            for (CompoundTag t : foreign) {
+                CompoundTag before = t.copy();
+                ChunkSaves.onSave(new ChunkDataEvent.Save(chunk, level, t));
+                h.assertTrue(t.equals(before), "чужой тег изменён: " + before.getAllKeys());
+            }
+            ProtoChunk proto = new ProtoChunk(chunk.getPos(), UpgradeData.EMPTY, level, level.registryAccess().registryOrThrow(Registries.BIOME), null);
+            CompoundTag protoTag = pattern.copy();
+            ChunkSaves.onSave(new ChunkDataEvent.Save(proto, level, protoTag));
+            h.assertTrue(protoTag.equals(pattern), "тег недогруженного чанка изменён");
+        } finally {
+            ChunkLights.apply(level, chunk, false);
+        }
+        h.succeed();
+    }
+
+    private static final Codec<PalettedContainer<BlockState>> BLOCK_STATES = PalettedContainer.codecRW(
+            Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+
+    private static CompoundTag with(CompoundTag tag, Consumer<CompoundTag> edit) {
+        CompoundTag t = tag.copy();
+        edit.accept(t);
+        return t;
+    }
+
+    private static List<CompoundTag> sections(CompoundTag tag) {
+        ListTag list = tag.getList(ChunkSerializer.SECTIONS_TAG, Tag.TAG_COMPOUND);
+        return java.util.stream.IntStream.range(0, list.size()).mapToObj(list::getCompound).toList();
+    }
+
+    /** Угол раскладки ламп в чанке: над самым высоким блоком чанка, чтобы над лампами был воздух. */
+    private static BlockPos caseOrigin(ServerLevel level, ChunkPos p) {
+        int top = level.getMinBuildHeight();
+        for (int x = p.getMinBlockX(); x <= p.getMaxBlockX(); x++) {
+            for (int z = p.getMinBlockZ(); z <= p.getMaxBlockZ(); z++) top = Math.max(top, level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z));
+        }
+        return new BlockPos(p.getMinBlockX() + 3, top + 3, p.getMinBlockZ() + 3);
+    }
+
+    private static BlockPos find(Map<BlockPos, BlockState> placed, Block block) {
+        return placed.entrySet().stream().filter(e -> e.getValue().is(block)).findFirst().orElseThrow().getKey();
+    }
+
+    /** Все лампы — ровно двойники поставленных ({@code dark}) или ровно поставленные. */
+    private static void assertLamps(GameTestHelper h, ServerLevel level, Map<BlockPos, BlockState> placed, boolean dark) {
+        for (var e : placed.entrySet()) {
+            BlockState want = dark ? GridLights.unlit(e.getValue()) : e.getValue();
+            BlockState now = level.getBlockState(e.getKey());
+            h.assertTrue(now == want, "в " + e.getKey() + " ждали " + want + ", стоит " + now);
+        }
+    }
+
+    private static void assertBlockLight(GameTestHelper h, ServerLevel level, BlockPos p, int want) {
+        int got = level.getBrightness(LightLayer.BLOCK, p);
+        h.assertTrue(got == want, "свет блоков в " + p + ": " + got + ", ждали " + want);
+    }
+
+    /** Тег чанка с диска (или из очереди записи): есть и без единого двойника. */
+    private static CompoundTag assertNoTwinsOnDisk(GameTestHelper h, ServerLevel level, ChunkPos p) {
+        CompoundTag tag = level.getChunkSource().chunkMap.read(p).join().orElse(null);
+        h.assertTrue(tag != null, "чанк " + p + " не сохранён");
+        String text = tag.toString();
+        h.assertFalse(text.contains("airstrike:unlit"), "двойник на диске: …" + text.substring(Math.max(0, text.indexOf("airstrike:unlit") - 40),
+                Math.min(text.length(), text.indexOf("airstrike:unlit") + 60)) + "…");
+        return tag;
     }
 
     /**

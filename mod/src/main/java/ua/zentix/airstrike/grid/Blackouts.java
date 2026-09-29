@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -38,14 +39,20 @@ public final class Blackouts {
     private static final double NUKE_SPEED = 50;
     /** Возврат света по команде — за 10 с. */
     private static final int COMMAND_RESTORE_SPREAD = 200;
+    /** Самый слабый взрыв, выбивающий подстанцию: огненный шар гаста (1) — нет, крипер (3) и TNT (4) — да. */
+    private static final float MIN_BLAST = 2f;
 
     private Blackouts() {}
 
     // ---------------------------------------------------------------- входы
 
-    /** Взрыв рядом с узлом сети выводит его из строя (любой: удар мода, TNT, крипер — подстанции всё равно). */
+    /**
+     * Взрыв рядом с узлом сети выводит его из строя (удар мода, TNT, крипер — подстанции всё равно). Порыв ветра
+     * (заряд ветра, вихрь) и совсем слабые хлопки — не взрыв для неё.
+     */
     public static void onExplosion(ExplosionEvent.Detonate e) {
         if (!(e.getLevel() instanceof ServerLevel level) || !AirstrikeConfig.SERVER.gridEnabled.get()) return;
+        if (e.getExplosion().getBlockInteraction() == Explosion.BlockInteraction.TRIGGER_BLOCK || e.getExplosion().radius() < MIN_BLAST) return;
         Vec3 at = e.getExplosion().center();
         double reach = HIT + e.getExplosion().radius();
         List<Node> hit = new ArrayList<>();
@@ -79,16 +86,17 @@ public final class Blackouts {
     /** Ядерный удар обесточивает всё, до чего доходит (стёкла или ожоги), сразу по вспышке. */
     public static void nuke(ServerLevel level, Detonation d) {
         if (!AirstrikeConfig.SERVER.gridEnabled.get() || !AirstrikeConfig.SERVER.gridNuke.get()) return;
-        blackout(level, d.burst(), Math.min(d.radiusMax(), AirstrikeConfig.SERVER.gridMaxRadius.get()), NUKE_SPEED, -1);
+        blackout(level, d.burst(), d.radiusMax(), NUKE_SPEED, -1);
     }
 
     /**
      * Отключение района с центром {@code at}: каскад со скоростью {@code speed} блоков за тик, свет вернётся по
-     * настройке.
+     * настройке. Радиус — не больше {@code grid.max_radius}, откуда бы он ни пришёл (узел, команда, ядерный удар).
      *
      * @param node узел, чей выход из строя его вызвал; -1 — не узел
      */
     public static Outage blackout(ServerLevel level, Vec3 at, double radius, double speed, int node) {
+        radius = Math.min(radius, AirstrikeConfig.SERVER.gridMaxRadius.get());
         long now = level.getGameTime();
         Outage o = PowerGrid.get(level).addOutage(at.x, at.z, radius, now, speed, restoreAt(now), restoreSpread(), node);
         BlackoutWorld.get(level).onOutage(o);
@@ -100,26 +108,34 @@ public final class Blackouts {
 
     /**
      * Вернуть свет сейчас (за 10 с вразнобой) в отключениях, чей центр ближе {@code radius} к {@code at}; null — во всех.
+     * Отключение, в которое свет уже возвращается, — быстрее: оставшиеся кварталы тоже за 10 с. Чанки вне
+     * загруженного мира ничего не ждут: на диске у них настоящие лампы ({@link ChunkSaves}).
      *
-     * @param everywhere ещё и в погашенных чанках вне загруженного мира (перед удалением мода); свет — сразу везде:
-     *                   такой чанк переводится один раз, когда его загрузили, и в нём уже должно быть светло
-     * @return сколько отключений снято, и сколько чанков загрузится ради возврата света
+     * @return сколько отключений снято
      */
-    public static int[] restore(ServerLevel level, @Nullable Vec3 at, double radius, boolean everywhere) {
+    public static int restore(ServerLevel level, @Nullable Vec3 at, double radius) {
         PowerGrid grid = PowerGrid.get(level);
         long now = level.getGameTime();
         int n = 0;
         for (Outage o : List.copyOf(grid.outages())) {
             if (at != null && Math.hypot(o.x() - at.x, o.z() - at.z) > radius) continue;
-            if (o.restoreAt() <= now) continue;
-            Outage restoring = o.restoring(now, everywhere ? 0 : COMMAND_RESTORE_SPREAD);
+            Outage restoring;
+            if (o.restoreAt() > now) {
+                restoring = o.restoring(now, COMMAND_RESTORE_SPREAD);
+            } else {
+                // разброс только сжимается: кварталы, где свет уже есть, так и остаются светлыми
+                long spread = Math.min(o.restoreSpread(), now - o.restoreAt() + COMMAND_RESTORE_SPREAD);
+                if (spread >= o.restoreSpread()) continue;
+                restoring = o.restoring(o.restoreAt(), (int) spread);
+            }
             grid.replace(restoring);
+            // каскад возврата — заново по новым срокам
+            grid.swept(o.id(), true, Long.MIN_VALUE);
             BlackoutWorld.get(level).onRestore(restoring);
             n++;
         }
-        int load = everywhere ? BlackoutWorld.get(level).restoreEverywhere(level) : 0;
         Substations.sync(level, grid, now);
-        return new int[]{n, load};
+        return n;
     }
 
     // ---------------------------------------------------------------- настройки
@@ -152,7 +168,7 @@ public final class Blackouts {
         Collections.rotate(levels, -(server.getTickCount() % levels.size()));
         for (ServerLevel level : levels) {
             // миры без сети не тратят ни времени, ни памяти
-            if (level.hasData(ModAttachments.BLACKOUT_WORLD) || !PowerGrid.get(level).outages().isEmpty() || !PowerGrid.get(level).darkChunks().isEmpty()) {
+            if (level.hasData(ModAttachments.BLACKOUT_WORLD) || !PowerGrid.get(level).outages().isEmpty()) {
                 BlackoutWorld.get(level).tick(level, clock);
             }
         }
@@ -171,8 +187,16 @@ public final class Blackouts {
     public static void onChunkLoad(ChunkEvent.Load e) {
         // в чанке погашенные лампы или его задевает отключение — привести к сети; остальные миры и чанки не трогаем
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof LevelChunk chunk
-                && (chunk.hasData(ModAttachments.GRID_DARK) || PowerGrid.get(level).covered(chunk.getPos().x, chunk.getPos().z))) {
+                && (chunk.hasData(ModAttachments.GRID_DARK) || PowerGrid.get(level).covered(chunk.getPos().x, chunk.getPos().z)
+                || ChunkLights.anyUnlit(chunk.getSections()))) {
             BlackoutWorld.get(level).enqueue(chunk.getPos().toLong());
+        }
+    }
+
+    /** Двойник, оказавшийся в светлом квартале (поршень, аппарат), снова зажигается: чанк — на проверку. */
+    public static void onTwinPlaced(ServerLevel level, BlockPos pos) {
+        if (!PowerGrid.get(level).dark(pos.getX() >> 4, pos.getZ() >> 4, level.getGameTime())) {
+            BlackoutWorld.get(level).enqueue(ChunkPos.asLong(pos));
         }
     }
 

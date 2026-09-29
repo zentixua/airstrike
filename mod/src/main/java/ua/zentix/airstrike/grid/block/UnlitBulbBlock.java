@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -31,6 +32,17 @@ public class UnlitBulbBlock extends Block implements Unlit {
         builder.add(BlockStateProperties.LIT, BlockStateProperties.POWERED);
     }
 
+    /** Компаратор читает лампу, как медную: «горит» — 15, хоть света и нет (схема вокруг не меняется от блэкаута). */
+    @Override
+    protected boolean hasAnalogOutputSignal(BlockState state) {
+        return true;
+    }
+
+    @Override
+    protected int getAnalogOutputSignal(BlockState state, Level level, BlockPos pos) {
+        return state.getValue(BlockStateProperties.LIT) ? 15 : 0;
+    }
+
     @Override
     public Block lit() {
         return lit.get();
@@ -39,6 +51,12 @@ public class UnlitBulbBlock extends Block implements Unlit {
     @Override
     public MutableComponent getName() {
         return Unlit.name(lit);
+    }
+
+    @Override
+    protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+        super.onPlace(state, level, pos, oldState, movedByPiston);
+        Unlit.placed(state, level, pos, oldState);
     }
 
     @Override

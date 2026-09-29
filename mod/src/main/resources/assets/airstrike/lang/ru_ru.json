@@ -340,10 +340,10 @@
   "airstrike.config.grid_distant_lod.tooltip": "По копии чанка с диска, без загрузки чанка.",
   "airstrike.config.grid_time_budget": "Время на блэкаут за тик (мс)",
   "airstrike.config.grid_time_budget.tooltip": "Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута.",
-  "airstrike.help.12": "/airstrike grid status|blackout|restore|node … — энергосеть; перед удалением мода: /airstrike grid restore",
+  "airstrike.help.12": "/airstrike grid status|blackout|restore|node … — энергосеть: состояние, обесточить район, вернуть свет, узлы для карт",
   "airstrike.grid.no_node": "Узла сети №%s нет",
-  "airstrike.grid.status": "Отключений: %s, узлов сети: %s, погашенных чанков: %s (в очереди %s, ждут загрузки %s, читаются с диска %s)",
-  "airstrike.grid.outage": "№%s: центр %s %s, радиус %s — свет %s",
+  "airstrike.grid.status": "Отключений: %s, узлов сети: %s (чанков в очереди %s, читаются с диска %s)",
+  "airstrike.grid.outage": "№%s (%s): центр %s %s, радиус %s — свет %s",
   "airstrike.grid.restore.never": "вернут только командой",
   "airstrike.grid.restore.now": "возвращается",
   "airstrike.grid.restore.in": "вернут через %s мин",
@@ -356,6 +356,5 @@
   "airstrike.grid.node.marker": "точка на карте",
   "airstrike.grid.node.none": "Узлов сети нет",
   "airstrike.grid.blackout": "Блэкаут №%s: центр %s %s, радиус %s",
-  "airstrike.grid.restored": "Свет возвращается: отключений %s (чанков к загрузке %s)",
-  "airstrike.grid.restored.everywhere": "Свет возвращается везде: отключений %s, незагруженных тёмных чанков %s — они загрузятся по очереди"
+  "airstrike.grid.restored": "Свет возвращается: отключений %s"
 }

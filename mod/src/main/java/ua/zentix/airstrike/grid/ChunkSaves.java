@@ -1,0 +1,117 @@
+package ua.zentix.airstrike.grid;
+
+import com.mojang.serialization.Codec;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.world.level.chunk.status.ChunkType;
+import net.minecraft.world.level.chunk.storage.ChunkSerializer;
+import net.neoforged.neoforge.event.level.ChunkDataEvent;
+import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.registry.ModAttachments;
+
+/**
+ * На диске двойников не бывает: погашенная лампа — только состояние чанка в памяти. Сохраняется чанк с настоящими
+ * лампами (и пересветом при загрузке), а загруженный в тёмном квартале гаснет сразу, в палитре, ещё до того, как
+ * станет частью мира. Так мир на диске — всегда обычный мир: его можно открыть без мода, старой версией мода,
+ * из резервной копии, и после сбоя сервера ничего не теряется.
+ */
+public final class ChunkSaves {
+    /** Как у ванили ({@code ChunkSerializer}): тот же кодек блоков секции. */
+    private static final Codec<PalettedContainer<BlockState>> BLOCK_STATES = PalettedContainer.codecRW(
+            Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+    private static boolean failureLogged;
+
+    private ChunkSaves() {}
+
+    /**
+     * Тег сохраняемого чанка: секции с двойниками — заново из копии, где двойники снова лампы; свет — пересчитать
+     * при загрузке (сохранённый посчитан для погашенных). Тег, устроенный не как у ванили (другой конвейер, другие
+     * секции), не трогается: секция переписывается, только если блоки в теге — ровно блоки этой секции в чанке.
+     */
+    public static void onSave(ChunkDataEvent.Save e) {
+        if (!(e.getChunk() instanceof LevelChunk chunk) || !(e.getLevel() instanceof ServerLevel)) return;
+        if (!ChunkLights.anyUnlit(chunk.getSections())) return;
+        CompoundTag tag = e.getData();
+        if (!tag.contains(ChunkSerializer.SECTIONS_TAG, Tag.TAG_LIST)) return;
+        ListTag list = tag.getList(ChunkSerializer.SECTIONS_TAG, Tag.TAG_COMPOUND);
+        try {
+            boolean changed = false;
+            for (int i = 0; i < list.size(); i++) {
+                CompoundTag s = list.getCompound(i);
+                if (!s.contains("Y", Tag.TAG_ANY_NUMERIC) || !s.contains("block_states", Tag.TAG_COMPOUND)) continue;
+                int index = chunk.getSectionIndexFromSectionY(s.getByte("Y"));
+                if (index < 0 || index >= chunk.getSectionsCount()) continue;
+                LevelChunkSection section = chunk.getSection(index);
+                if (!ChunkLights.needs(section, false)) continue;
+                var saved = BLOCK_STATES.parse(NbtOps.INSTANCE, s.getCompound("block_states")).result();
+                if (saved.isEmpty() || !same(saved.get(), section.getStates())) continue;
+                PalettedContainer<BlockState> states = section.getStates().copy();
+                ChunkLights.apply(states, false);
+                s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
+                changed = true;
+            }
+            if (changed) tag.putBoolean(ChunkSerializer.IS_LIGHT_ON_TAG, false);
+        } catch (RuntimeException ex) {
+            if (!failureLogged) {
+                failureLogged = true;
+                Airstrike.LOG.error("Блэкаут: чанк {} сохранён с погашенными лампами — вернуть их в тег не вышло", chunk.getPos(), ex);
+            }
+        }
+    }
+
+    private static boolean same(PalettedContainer<BlockState> a, PalettedContainer<BlockState> b) {
+        for (int y = 0; y < 16; y++) {
+            for (int z = 0; z < 16; z++) {
+                for (int x = 0; x < 16; x++) {
+                    if (a.get(x, y, z) != b.get(x, y, z)) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Чанк с диска (поток сервера, до того как он станет частью мира): в тёмном квартале лампы гаснут прямо в палитре
+     * — без обновлений соседей, без Sable, без мигания. Их свет пришёл с диска вместе с чанком: его убирает
+     * {@link BlackoutWorld}, когда загружены и соседи. Двойник в светлом квартале (сохранение без этого перехвата,
+     * двойник, сдвинутый поршнем или аппаратом) снова лампа, и свет пересчитывается при загрузке.
+     */
+    public static void onLoad(ChunkDataEvent.Load e) {
+        if (e.getType() != ChunkType.LEVELCHUNK || !(e.getChunk() instanceof LevelChunk chunk) || !(e.getLevel() instanceof ServerLevel level)) return;
+        PowerGrid grid = PowerGrid.get(level);
+        LevelChunkSection[] sections = chunk.getSections();
+        boolean marked = chunk.hasData(ModAttachments.GRID_DARK);
+        if (!marked && grid.outages().isEmpty() && !ChunkLights.anyUnlit(sections)) return;
+        ChunkPos pos = chunk.getPos();
+        boolean dark = grid.dark(pos.x, pos.z, level.getGameTime());
+        LongArrayList stale = new LongArrayList();
+        int[] lit = {0};
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
+            if (section == null || !ChunkLights.needs(section, dark)) continue;
+            int x0 = pos.getMinBlockX(), y0 = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i)), z0 = pos.getMinBlockZ();
+            ChunkLights.scan(section, dark, (x, y, z, to) -> {
+                section.setBlockState(x, y, z, to, false);
+                if (dark) stale.add(BlockPos.asLong(x0 + x, y0 + y, z0 + z));
+                else lit[0]++;
+            });
+        }
+        if (lit[0] > 0) chunk.setLightCorrect(false);
+        BlackoutWorld.get(level).staleLight(pos, stale);
+        if (dark && ChunkLights.anyUnlit(sections)) chunk.setData(ModAttachments.GRID_DARK, true);
+        else if (marked) chunk.removeData(ModAttachments.GRID_DARK);
+    }
+}

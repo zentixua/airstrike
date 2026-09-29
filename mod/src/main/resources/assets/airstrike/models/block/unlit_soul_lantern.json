@@ -1,5 +1,6 @@
 {
   "parent": "minecraft:block/soul_lantern",
+  "render_type": "minecraft:cutout",
   "elements": [
     {
       "from": [

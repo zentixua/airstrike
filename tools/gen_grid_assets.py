@@ -8,7 +8,8 @@
 Двойник лампы (airstrike:unlit_*) берёт ванильное состояние блока-лампы:
 - у ламп с «выключенной» моделью (лампа редстоуна, медные лампы) горящие варианты смотрят на выключенную модель;
 - у остальных (светокамень, морской фонарь, грибосвет, жабосветы, фонари, стержень края) — копия ванильной модели
-  с tintindex на всех гранях: клиент притушивает её цветом (AirstrikeClient.blockColors);
+  с tintindex на всех гранях: клиент притушивает её цветом (AirstrikeClient.blockColors); фонарям и стержню края —
+  слой «вырезка» (render_type), который ваниль задаёт им в коде;
 - невидимый блок света — как есть.
 Нужен клиентский jar Minecraft 1.21.1 (по умолчанию — из кэша NeoForm Gradle). Только стандартная библиотека.
 """
@@ -27,6 +28,9 @@ LAMPS = ["glowstone", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_
     f"{w}{o}copper_bulb" for w in ("", "waxed_") for o in ("", "exposed_", "weathered_", "oxidized_")] + ["light"]
 TINTED = {"glowstone", "sea_lantern", "shroomlight", "ochre_froglight", "verdant_froglight", "pearlescent_froglight",
           "lantern", "soul_lantern", "end_rod"}
+# у ванили слой «вырезка» им задан в коде (ItemBlockRenderTypes), не в модели: двойнику — в модели, иначе прозрачные
+# пиксели ручки и краёв рисуются сплошными
+CUTOUT = {"lantern", "soul_lantern", "end_rod"}
 
 
 def off_model(model):
@@ -68,7 +72,8 @@ def main():
                     for el in tinted:
                         for face in el["faces"].values():
                             face["tintindex"] = 0
-                    write(f"models/block/unlit_{base}.json", {"parent": model, "elements": tinted})
+                    extra = {"render_type": "minecraft:cutout"} if lamp in CUTOUT else {}
+                    write(f"models/block/unlit_{base}.json", {"parent": model} | extra | {"elements": tinted})
                     v["model"] = f"airstrike:block/unlit_{base}"
                 elif lamp != "light":
                     v["model"] = off_model(model)

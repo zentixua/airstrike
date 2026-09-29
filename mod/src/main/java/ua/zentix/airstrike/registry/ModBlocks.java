@@ -74,12 +74,13 @@ public final class ModBlocks {
     private ModBlocks() {}
 
     /**
-     * Двойник — полная копия свойств лампы (прочность, звук, карта, добыча — её таблица), только без света.
+     * Двойник — полная копия свойств лампы (прочность, звук, карта), только без света; добыча — таблица лампы
+     * ({@code ofFullCopy} таблицу по имени блока не переносит: без {@code lootFrom} у двойника была бы своя, пустая).
      * Свойства берутся при регистрации: ванильные блоки к этому времени уже есть.
      */
     private static void unlit(String name, Supplier<Block> lit, BiFunction<BlockBehaviour.Properties, Supplier<Block>, Block> factory) {
         DeferredBlock<Block> unlit = REGISTER.register("unlit_" + name,
-                () -> factory.apply(BlockBehaviour.Properties.ofFullCopy(lit.get()).lightLevel(s -> 0), lit));
+                () -> factory.apply(BlockBehaviour.Properties.ofFullCopy(lit.get()).lightLevel(s -> 0).lootFrom(lit), lit));
         UNLIT_PAIRS.add(new UnlitPair(lit, unlit));
     }
 }

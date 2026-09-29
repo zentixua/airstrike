@@ -10,6 +10,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import ua.zentix.airstrike.command.AirstrikeCommand;
 import ua.zentix.airstrike.grid.Blackouts;
+import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.legacy.LegacyMigration;
 import ua.zentix.airstrike.net.AirstrikeNetwork;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -81,6 +82,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
+        NeoForge.EVENT_BUS.addListener(ChunkSaves::onSave);
+        NeoForge.EVENT_BUS.addListener(ChunkSaves::onLoad);
     }
 
     public static ResourceLocation id(String path) {

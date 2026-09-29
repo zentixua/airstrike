@@ -1,5 +1,6 @@
 {
   "parent": "minecraft:block/end_rod",
+  "render_type": "minecraft:cutout",
   "elements": [
     {
       "from": [

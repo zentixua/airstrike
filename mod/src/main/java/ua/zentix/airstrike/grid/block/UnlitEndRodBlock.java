@@ -34,6 +34,12 @@ public class UnlitEndRodBlock extends EndRodBlock implements Unlit {
     }
 
     @Override
+    protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+        super.onPlace(state, level, pos, oldState, movedByPiston);
+        Unlit.placed(state, level, pos, oldState);
+    }
+
+    @Override
     public ItemStack getCloneItemStack(BlockState state, HitResult target, LevelReader level, BlockPos pos, Player player) {
         return Unlit.clone(lit);
     }
