@@ -9,12 +9,11 @@ import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.radiation.MobFallout;
 import ua.zentix.airstrike.nuclear.model.CraterModel;
+import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.WeakHashMap;
 
 /**
  * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам; световой импульс
@@ -24,7 +23,8 @@ import java.util.WeakHashMap;
  * импульс по сущностям после перезапуска не повторяется (он длится доли секунды).
  */
 public final class NuclearWorld {
-    private static final Map<ServerLevel, NuclearWorld> WORLDS = new WeakHashMap<>();
+    /** Медленный ядерный тик пишется в лог не чаще, тиков. */
+    private static final int SLOW_LOG_PERIOD = 100;
 
     private final ScarQueue scars = new ScarQueue();
     private final List<PulseJob> pulses = new ArrayList<>();
@@ -35,16 +35,14 @@ public final class NuclearWorld {
     private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
+    /** Игровое время мира, когда медленный тик в последний раз писался в лог. */
+    private long lastSlowLog = Long.MIN_VALUE / 2;
 
-    private NuclearWorld() {}
+    /** Для {@link ModAttachments#NUCLEAR_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
+    public NuclearWorld() {}
 
     public static NuclearWorld get(ServerLevel level) {
-        return WORLDS.computeIfAbsent(level, l -> new NuclearWorld());
-    }
-
-    public static void forget(ServerLevel level) {
-        NuclearWorld w = WORLDS.remove(level);
-        if (w != null) w.craters.forEach(c -> c.release(level));
+        return level.getData(ModAttachments.NUCLEAR_WORLD);
     }
 
     public int queuedChunks() {
@@ -72,6 +70,13 @@ public final class NuclearWorld {
 
     public void useClock(WorkClock clock) {
         this.clock = clock;
+    }
+
+    /** Медленный тик — в лог не чаще раза в 5 с (tools/logscan.py): true — пора писать, отметка поставлена. */
+    public boolean slowLogDue(long now) {
+        if (now - lastSlowLog < SLOW_LOG_PERIOD) return false;
+        lastSlowLog = now;
+        return true;
     }
 
     // ---------------------------------------------------------------- события

@@ -8,7 +8,6 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
-import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
@@ -162,9 +161,7 @@ public final class NuclearStrikes {
         long t2 = System.nanoTime();
         RadiationTicker.tick(level);
         long t3 = System.nanoTime();
-        // медленный тик — в лог (tools/logscan.py), не чаще раза в 5 с
-        if (t3 - t0 > SLOW_TICK_NS && now - lastSlowLog >= 100) {
-            lastSlowLog = now;
+        if (t3 - t0 > SLOW_TICK_NS && world.slowLogDue(now)) {
             long[] w = world.lastNanos();
             Airstrike.LOG.warn("Ядерный тик {} мс: удары {} мс, фронт {} мс, свет {} мс, воронки {} мс, чанки {} мс, осадки у мобов {} мс, радиация {} мс",
                     (t3 - t0) / 1_000_000, (t1 - t0) / 1_000_000, w[0] / 1_000_000, w[1] / 1_000_000, w[2] / 1_000_000, w[3] / 1_000_000, w[4] / 1_000_000,
@@ -173,7 +170,6 @@ public final class NuclearStrikes {
     }
 
     private static final long SLOW_TICK_NS = 50_000_000L;
-    private static long lastSlowLog = Long.MIN_VALUE / 2;
 
     public static void onChunkLoad(ChunkEvent.Load e) {
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk) {
@@ -185,10 +181,6 @@ public final class NuclearStrikes {
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk) {
             NuclearWorld.get(level).onChunkUnload(chunk);
         }
-    }
-
-    public static void onLevelUnload(LevelEvent.Unload e) {
-        if (e.getLevel() instanceof ServerLevel level) NuclearWorld.forget(level);
     }
 
     /** Вход и смена измерения: действующие подрывы и летящие ракеты этого измерения. */

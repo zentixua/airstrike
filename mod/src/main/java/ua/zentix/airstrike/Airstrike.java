@@ -66,7 +66,6 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
 
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLevelTick);
-        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
