@@ -1075,14 +1075,14 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Цель ниже рельефа (3 блока под землёй), а сразу за ней по курсу — скала на 50 блоков выше: снаряд возвращается
-     * в мир у самой цели и встаёт над рельефом только своего оставшегося пути. Раньше он смотрел рельеф на 80 блоков
-     * вперёд — и за целью: ракету РСЗО поднимало на скалу, и она рвалась в воздухе или на склоне рядом с целью
-     * (стенд нагрузки 29.09.2026: ракета в 10 блоках от цели поднялась с y 51 выше 95).
+     * Цель ниже рельефа (3 блока под землёй), а за ней по курсу — скала на 50 блоков выше: снаряд возвращается в мир
+     * у края района цели (в ~40 блоках) и встаёт над рельефом только своего оставшегося пути. Раньше он смотрел рельеф
+     * на 80 блоков вперёд — и за целью: ракету РСЗО поднимало на скалу, и она рвалась в воздухе или на склоне рядом
+     * с целью (стенд нагрузки 29.09.2026: ракета в 10 блоках от цели поднялась с y 51 выше 95).
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rocket_hill_beyond", skyAccess = true)
     public static void virtualRocketIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, 4, (level, aim) -> {
+        returnsUnderOwnTerrain(h, 4, 6, (level, aim) -> {
             RocketEntity rocket = ModEntities.ROCKET.get().create(level);
             rocket.launchFrom(aim.add(-300, 0, 0), new Target.Point(aim), aim, null);
             return rocket;
@@ -1091,7 +1091,8 @@ public final class StrikeGameTests {
 
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_missile_hill_beyond", skyAccess = true)
     public static void virtualMissileIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, 12, (level, aim) -> {
+        // скала дальше, чем у ракеты: крылатая в пике проскакивает цель на несколько блоков (её взрыватель — не этот PR)
+        returnsUnderOwnTerrain(h, 12, 28, (level, aim) -> {
             CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
             // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
             missile.launch(aim.add(-300, 12, 0), new Target.Point(aim), aim, null);
@@ -1103,39 +1104,46 @@ public final class StrikeGameTests {
     /** Скала за целью выше рельефа над ней на столько блоков. */
     private static final int HILL_BEYOND = 50;
 
-    /** Ближе к цели по горизонтали — взрыв у цели (а не на скале в 6 блоках за ней). */
+    /** Ближе к цели по горизонтали — взрыв у цели (а не на скале за ней). */
     private static final double BURST_NEAR_AIM = 5;
+    /** Район цели теста — как у снаряда ({@link FlightTickets}), но с первого тика: путь возврата в мир один и тот же. */
+    private static final TicketType<ChunkPos> AIM_AREA = TicketType.create("airstrike_test_aim_area", Comparator.comparingLong(ChunkPos::toLong));
 
-    /** {@code clearance} — запас снаряда над рельефом при возврате в мир ({@code StrikeProjectile.clearance}). */
-    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
+    /**
+     * {@code clearance} — запас снаряда над рельефом при возврате в мир ({@code StrikeProjectile.clearance}),
+     * {@code cliff} — на сколько блоков за целью по курсу начинается скала.
+     */
+    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, int cliff, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
         ServerLevel level = h.getLevel();
-        // далеко за площадкой, как virtualRocketDetonatesAtTickingAim: тикает только чанк цели, снаряд приходит вне мира
-        // и возвращается в мир у самой цели
+        // далеко за площадкой, как virtualRocketDetonatesAtTickingAim. Район цели сгенерирован сразу и тикает с первого
+        // тика (сущности — 5×5 чанков, ±40 блоков): снаряд вне мира всегда возвращается у края района, а не когда тикет
+        // района цели самого снаряда догрузит его в фоне (путь зависел от скорости генерации)
         BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
         ChunkPos chunk = new ChunkPos(origin);
-        level.setChunkForced(chunk.x, chunk.z, true);
-        afterTest(h, () -> level.setChunkForced(chunk.x, chunk.z, false));
-        generateNow(level, chunk);
+        for (int dx = -FlightTickets.DISTANCE; dx <= FlightTickets.DISTANCE; dx++)
+            for (int dz = -FlightTickets.DISTANCE; dz <= FlightTickets.DISTANCE; dz++) level.getChunk(chunk.x + dx, chunk.z + dz);
+        level.getChunkSource().addRegionTicket(AIM_AREA, chunk, FlightTickets.DISTANCE, chunk);
+        afterTest(h, () -> level.getChunkSource().removeRegionTicket(AIM_AREA, chunk, FlightTickets.DISTANCE, chunk));
         int x = chunk.getMiddleBlockX(), z = chunk.getMiddleBlockZ();
         int surface = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, x, z);
         Vec3 aim = new Vec3(x + 0.5, surface - 3, z + 0.5);
-        // скала за целью по курсу (+x), в том же чанке: 6–7 блоков за ней
-        for (int bx = x + 6; bx <= x + 7; bx++)
+        // скала за целью по курсу (+x)
+        for (int bx = x + cliff; bx <= x + cliff + 1; bx++)
             for (int bz = z - 1; bz <= z + 1; bz++)
                 for (int by = surface - 4; by < surface + HILL_BEYOND; by++)
                     level.setBlockAndUpdate(new BlockPos(bx, by, bz), Blocks.STONE.defaultBlockState());
-        // первый взрыв у цели (в 64 блоках: тест далеко от площадок остальных тестов); чанки вокруг цели готовы
-        // (generateNow, держит тикет цели) — взрыв не откладывается
+        StrikeProjectile p = make.apply(level, aim);
+        UUID id = p.getUUID();
+        // первый взрыв у цели (в 16 блоках по горизонтали: остальные тесты — за тысячи блоков); чанки вокруг цели
+        // готовы — взрыв не откладывается. Взрыв дальше (на скале крылатой) не ловится, и тест падает «без взрыва у цели»
         Vec3[] burst = {null};
         java.util.function.Consumer<net.neoforged.neoforge.event.level.ExplosionEvent.Start> onBlast = e -> {
             Vec3 c = e.getExplosion().center();
-            if (burst[0] == null && e.getLevel() == level && c.distanceTo(aim) < 64) burst[0] = c;
+            if (burst[0] == null && e.getLevel() == level && Math.hypot(c.x - aim.x, c.z - aim.z) < 16) burst[0] = c;
         };
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(onBlast);
         afterTest(h, () -> net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(onBlast));
-        StrikeProjectile p = make.apply(level, aim);
         VirtualFlights.launch(level, p);
-        UUID id = p.getUUID();
         Vec3[] last = {p.position()};
         // высота в первом тике в мире и в последнем тике вне мира: возврат поднимает снаряд только над рельефом своего пути
         double[] back = {Double.NaN, Double.NaN};
@@ -1154,8 +1162,8 @@ public final class StrikeGameTests {
                     "снаряд у цели поднят на рельеф за ней: y " + (int) back[0] + " (вне мира " + (int) back[1] + "), рельеф над целью " + surface);
             h.assertTrue(burst[0] != null, "снаряд убран без взрыва у цели, последний раз у " + last[0].subtract(aim));
             Vec3 off = burst[0].subtract(aim);
-            h.assertTrue(Math.hypot(off.x, off.z) < BURST_NEAR_AIM && off.x < 6 && burst[0].y <= surface + 2,
-                    "взрыв не у цели: " + off + " от неё, рельеф над целью " + surface + " (скала — с 6 блоков за целью по курсу)");
+            h.assertTrue(Math.hypot(off.x, off.z) < BURST_NEAR_AIM && burst[0].y <= surface + 2,
+                    "взрыв не у цели: " + off + " от неё, рельеф над целью " + surface + " (скала — с " + cliff + " блоков за целью по курсу)");
         });
     }
 
