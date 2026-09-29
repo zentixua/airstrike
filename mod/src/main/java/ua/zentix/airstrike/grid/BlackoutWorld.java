@@ -53,6 +53,12 @@ import java.util.Optional;
 public final class BlackoutWorld {
     /** Ламп за единицу работы: у каждой — setBlock со светом, клиентами и Sable (≈10–30 мкс). */
     static final int LAMPS_PER_UNIT = 32;
+    /**
+     * Чанков без работы (без ламп, которые надо переводить, или уже не в памяти) за единицу работы: проверка — палитры
+     * секций, микросекунды. Отдельной единицей каждый такой чанк ждал бы оценки тяжёлого чанка с лампами ({@link
+     * WorkClock} берёт единицу, только если по недавней самой долгой она успеет), и очередь шла по чанку-два за тик.
+     */
+    static final int SETTLE_PER_UNIT = 256;
     /** Раз во сколько тиков обходить плоты аппаратов Sable ({@link #relightPlots}). */
     public static final int PLOT_SCAN = 100;
     /** Звук квартала — игрокам ближе этого (блоки по горизонтали). */
@@ -290,10 +296,22 @@ public final class BlackoutWorld {
         advanceSweeps(level, grid, now, clock);
         while (!ready.isEmpty() && clock.canStart()) {
             long c0 = clock.begin();
-            long c = ready.dequeueLong();
+            long c = ready.firstLong();
             try {
-                handle(level, grid, c, now);
+                // единица работы — пачка чанков без работы или один чанк с работой
+                int settled = 0;
+                while (settled < SETTLE_PER_UNIT && settle(level, grid, c, now)) {
+                    ready.dequeueLong();
+                    settled++;
+                    if (ready.isEmpty()) break;
+                    c = ready.firstLong();
+                }
+                if (settled == 0) {
+                    ready.dequeueLong();
+                    handle(level, grid, c, now);
+                }
             } catch (RuntimeException e) {
+                if (!ready.isEmpty() && ready.firstLong() == c) ready.dequeueLong();
                 queued.remove(c);
                 Airstrike.LOG.error("Блэкаут: перевод чанка {} упал с ошибкой; чанк пропущен", new ChunkPos(c), e);
             } finally {
@@ -363,6 +381,27 @@ public final class BlackoutWorld {
                         s.restore ? "возврата света" : "отключения");
             }
         }
+    }
+
+    /**
+     * Чанк без работы — не в памяти или без ламп, которые надо переводить, и без света с диска и сверки сигнала —
+     * закрыть сразу (то же, что {@link #handle} для него); иначе false.
+     */
+    private boolean settle(ServerLevel level, PowerGrid grid, long c, long now) {
+        LevelChunk chunk = inMemory(level, c);
+        if (chunk == null) {
+            queued.remove(c);
+            staleLight.remove(c);
+            resignal.remove(c);
+            return true;
+        }
+        if (staleLight.containsKey(c) || resignal.containsKey(c)) return false;
+        ChunkPos pos = new ChunkPos(c);
+        boolean dark = grid.dark(pos.x, pos.z, now);
+        if (ChunkLights.needs(chunk, dark)) return false;
+        queued.remove(c);
+        if (!dark && chunk.hasData(ModAttachments.GRID_DARK)) chunk.removeData(ModAttachments.GRID_DARK);
+        return true;
     }
 
     /**

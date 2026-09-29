@@ -443,6 +443,52 @@ public final class GridGameTests {
     }
 
     /**
+     * Чанки без ламп не тормозят очередь: пачкой за единицу работы, а не по одному (каждый ждал бы оценки тяжёлого
+     * чанка с лампами). 144 загруженных чанка района при бюджете 4 единицы за тик: по одному — 36 тиков одной очереди,
+     * пачками — несколько тиков на весь каскад.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_settle", skyAccess = true)
+    public static void emptyChunksSettleInBatches(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        List<ChunkPos> held = new ArrayList<>();
+        for (int dx = -6; dx < 6; dx++) {
+            for (int dz = -6; dz < 6; dz++) {
+                ChunkPos p = new ChunkPos(mid.x + dx, mid.z + dz);
+                chunks.addRegionTicket(HOLD, p, 1, p);
+                level.getChunk(p.x, p.z);
+                held.add(p);
+            }
+        }
+        BlockPos lamp = new BlockPos(18, 12, 18);
+        h.setBlock(lamp, Blocks.LANTERN);
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        Blackouts.useClock(level.getServer(), clock);
+        int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+        long start = level.getGameTime();
+        long[] took = {0};
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 150, 1000, -1);
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    BlackoutWorld world = BlackoutWorld.get(level);
+                    h.assertTrue(world.idle() && GridLights.isUnlit(h.getBlockState(lamp)), "каскад идёт");
+                    took[0] = level.getGameTime() - start;
+                })
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), new WorkClock());
+                    held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 1, p));
+                    // чанки в памяти, которые задевает отключение, — каждый проходит очередь
+                    long covered = held.stream().filter(p -> PowerGrid.get(level).covered(p.x, p.z)).count();
+                    h.assertTrue(covered >= 100, "отключение задело только " + covered + " чанков — проверять нечего");
+                    // по единице на чанк — covered / budget тиков на одну очередь
+                    h.assertTrue(took[0] * budget < covered, "каскад по " + covered + " чанкам шёл " + took[0] + " тиков при " + budget + " единицах за тик");
+                })
+                .thenSucceed();
+    }
+
+    /**
      * Лампа, поставленная в тёмном квартале, когда каскад уже прошёл, гаснет — по событию постановки (сама по себе
      * она не погасла бы: каскад по её чанку больше не придёт).
      */
