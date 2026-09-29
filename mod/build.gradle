@@ -66,6 +66,7 @@ neoForge {
             // мультиплеер (tools/mp_scenario.sh): у каждого клиента свой каталог и ник
             gameDirectory = project.file(scenarioDir)
             if (project.findProperty('scenarioUser')) programArguments.addAll '--username', project.findProperty('scenarioUser')
+            if (System.getenv('AIRSTRIKE_MP_PORT')) systemProperty 'airstrike.mp.port', System.getenv('AIRSTRIKE_MP_PORT')
             // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
@@ -102,7 +103,10 @@ neoForge {
             client()
             def name = System.getenv('AIRSTRIKE_STRESS_NAME') ?: 'Host'
             gameDirectory = project.file("run/stress/${name}")
-            programArguments.addAll '--username', name, '--quickPlayMultiplayer', 'localhost', '--width', '854', '--height', '480'
+            // сервер стенда слушает только петлю, порт — свободный, его выбирает tools/stress.sh
+            def server = "127.0.0.1:${System.getenv('AIRSTRIKE_STRESS_PORT') ?: '25565'}"
+            programArguments.addAll '--username', name, '--quickPlayMultiplayer', server, '--width', '854', '--height', '480'
+            systemProperty 'airstrike.stress.server', server
             systemProperty 'airstrike.stress.client', System.getenv('AIRSTRIKE_STRESS_ROLE') ?: 'friend'
             jvmArgument '-Xmx2g'
         }
