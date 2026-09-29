@@ -136,6 +136,15 @@ final class CineCamera {
      */
     static Path chase(Supplier<Entity> target, Vec3 start, Vec3 heading, double back, double up, double side, double lead,
                       float roll, double fov) {
+        return chase(target, () -> null, start, heading, back, up, side, lead, roll, fov);
+    }
+
+    /**
+     * То же, но пока сущности нет в мире клиента, камера идёт по {@code elsewhere} (где снаряд по данным сервера): за
+     * камерой идёт невидимка, вокруг него грузится мир, и снаряд, летящий вне мира, возвращается в мир рядом с камерой.
+     */
+    static Path chase(Supplier<Entity> target, Supplier<Vec3> elsewhere, Vec3 start, Vec3 heading, double back, double up, double side,
+                      double lead, float roll, double fov) {
         final Vec3[] last = {start, heading.normalize()};
         return t -> {
             Entity e = target.get();
@@ -143,6 +152,10 @@ final class CineCamera {
                 float pt = partial();
                 Vec3 p = e.getPosition(pt);
                 Vec3 v = p.subtract(e.xo, e.yo, e.zo);
+                if (v.lengthSqr() > 1e-4) last[1] = v.normalize();
+                last[0] = p;
+            } else if (elsewhere.get() instanceof Vec3 p) {
+                Vec3 v = p.subtract(last[0]);
                 if (v.lengthSqr() > 1e-4) last[1] = v.normalize();
                 last[0] = p;
             }

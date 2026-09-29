@@ -962,9 +962,29 @@ public final class Trailer {
         return left;
     }
 
+    /**
+     * Погоня за снарядом по его UUID: снаряд, ушедший из мира и вернувшийся (полёт вне мира), — уже другая сущность
+     * с тем же UUID; по ссылке камера оставалась бы у старой, невидимка за ней не шёл, и снаряд не возвращался.
+     */
     private Path chaseOf(@Nullable Entity e, double back, double up, double side, double lead, float roll, double fov) {
-        final Entity target = e;
-        return CineCamera.chase(() -> target != null && !target.isRemoved() ? target : null, back, up, side, lead, roll, fov);
+        final java.util.UUID id = e == null ? null : e.getUUID();
+        final Vec3 start = e == null ? Vec3.ZERO : e.position();
+        final Vec3 heading = e == null ? new Vec3(0, 0, 1) : e.position().subtract(e.xo, e.yo, e.zo);
+        return CineCamera.chase(() -> id == null ? null : byId(id), () -> id == null ? null : flightAt(id), start,
+                heading.lengthSqr() < 1e-6 ? new Vec3(0, 0, 1) : heading, back, up, side, lead, roll, fov);
+    }
+
+    /** Где снаряд по данным сервера (полёт вне мира клиента), или null. */
+    @Nullable
+    private static Vec3 flightAt(java.util.UUID id) {
+        var f = ua.zentix.airstrike.client.hud.ClientFlights.find(id);
+        return f == null ? null : f.position(CineCamera.partial());
+    }
+
+    @Nullable
+    private Entity byId(java.util.UUID id) {
+        for (Entity e : mc.level.entitiesForRendering()) if (id.equals(e.getUUID()) && !e.isRemoved()) return e;
+        return null;
     }
 
     /**
