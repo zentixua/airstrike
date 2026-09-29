@@ -14,6 +14,7 @@ import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.Vec3;
@@ -26,8 +27,11 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.VirtualFlights;
@@ -47,6 +51,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Consumer;
 
 /**
@@ -79,6 +85,9 @@ public final class StressDirector {
         /** Залп-проба растяжения, к которому относится снаряд РСЗО (null — не проба). */
         @Nullable
         Probe probe;
+        /** Проба пути вне мира до поверхности, к которой относится снаряд (null — не проба). */
+        @Nullable
+        GroundProbe ground;
         int seen;
         /** Сам объект: сущность в чанке, который не выдаётся (граница загрузки), в переборе не видна, но жива. */
         StrikeProjectile ref;
@@ -139,6 +148,47 @@ public final class StressDirector {
     private static final double DEEP = 0.5;
     private final List<Probe> probes = new ArrayList<>();
 
+    /**
+     * Проба пути вне мира до поверхности (#112): снаряды вне мира вдали от игроков, в районах, которые никто не грузит,
+     * — как в GameTest #112. Снаряды относятся к пробе по точке цели ближе {@link #PROBE_RADIUS}; в сводку — сколько
+     * дошли до поверхности вне мира и как далеко от цели по горизонтали, сколько не дождались загрузки, итоги.
+     */
+    private static final class GroundProbe {
+        final String name;
+        /** Управляемый снаряд (ракета) или прицельный (РСЗО): до поверхности он может дойти только у цели. */
+        final boolean steering;
+        /** Бомба на точку позади: путь до поверхности и должен проверяться. */
+        final boolean mustGround;
+        Vec3 center;
+        int launched;
+        final Set<UUID> ids = new HashSet<>();
+        final List<Double> groundOff = new ArrayList<>();
+        int gaveUp;
+        final Map<String, Integer> outcomes = new TreeMap<>();
+        /** Цель, которая поднимается посреди полёта (null — неподвижная точка). */
+        @Nullable
+        ArmorStand stand;
+        @Nullable
+        net.minecraft.world.level.ChunkPos forced;
+        boolean raised;
+
+        GroundProbe(String name, Vec3 center, boolean steering, boolean mustGround) {
+            this.name = name;
+            this.center = center;
+            this.steering = steering;
+            this.mustGround = mustGround;
+        }
+    }
+
+    private final List<GroundProbe> groundProbes = new ArrayList<>();
+    /** Строки мода из лога (поток логера): разбираются в тике стенда. */
+    private final ConcurrentLinkedQueue<String> modLines = new ConcurrentLinkedQueue<>();
+    private static final Pattern GROUNDED = Pattern.compile(
+            "Снаряд \\S+ ([0-9a-f-]{36}) вне мира дошёл до поверхности у BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}, цель BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}");
+    private static final Pattern GAVE_UP = Pattern.compile("Снаряд \\S+ ([0-9a-f-]{36}) не дождался загрузки");
+    /** Дальше от цели по горизонтали управляемый снаряд до поверхности не доходит — иначе путь кончился не там. */
+    private static final double GROUND_OFF_LIMIT = 32;
+
     private final List<Step> steps = new ArrayList<>();
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
@@ -182,7 +232,7 @@ public final class StressDirector {
         NeoForge.EVENT_BUS.addListener(this::onLogin);
         NeoForge.EVENT_BUS.addListener(this::onLogout);
         NeoForge.EVENT_BUS.addListener(this::onStopping);
-        LogWatch.install(problems, () -> warnings++, () -> errors++);
+        LogWatch.install(problems, () -> warnings++, () -> errors++, modLines::add);
         if ("resume".equals(MODE)) planResume();
         else plan();
     }
@@ -258,6 +308,13 @@ public final class StressDirector {
         as(3320, "Friend1", "airstrike salvo missile 30 150 Friend2");
         as(3340, "Friend2", "airstrike salvo rocket 30 150 Host");
         at(3400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
+        // путь вне мира до поверхности (#112) вдали от всех, в районах, которые никто не грузит, — после «Отбоя» (он убрал
+        // бы их в полёте): бомба на точку позади бомбардировщика (#108), РСЗО и ракеты по цели ниже рельефа (y 40)
+        // из-под рельефа над путём, ракеты по цели, которая посреди полёта вне мира поднимается на 40 блоков
+        at(3500, "бомбы на точку позади, вне мира", s -> groundBombs(s, "bunker-behind", -2200, 2200, 3));
+        at(3520, "РСЗО по цели ниже рельефа", s -> groundDeep(s, "deep-rocket", WeaponType.ROCKET, 10, 1100, -1300));
+        at(3540, "ракеты по цели ниже рельефа", s -> groundDeep(s, "deep-missile", WeaponType.MISSILE, 5, -1600, -300));
+        at(3560, "ракеты по цели, которая поднимется", s -> groundRising(s, "rising-aim", 1500, 1500));
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
         if (Boolean.getBoolean("airstrike.stress.restart")) {
             as(4600, "Host", "airstrike salvo drone 20 100 at 700 ~ 700");
@@ -403,6 +460,113 @@ public final class StressDirector {
         if (!fresh) problems.add("проба " + name + ": район уже готов — растяжение не проверено");
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
                 new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+    }
+
+    /** Бомбы вне мира на точку в 300 блоках позади и на 150 ниже (как GameTest virtualMissNeverFallsBelowGround). */
+    private void groundBombs(MinecraftServer s, String name, int x, int z, int count) {
+        ServerLevel level = s.overworld();
+        Vec3 behind = null;
+        for (int i = 0; i < count; i++) {
+            Vec3 from = new Vec3(x + 48 * i + 0.5, level.getSeaLevel() + 200, z + 0.5);
+            Vec3 aim = from.add(0, -150, -300);
+            if (behind == null) behind = aim;
+            BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+            if (bomb == null) continue;
+            bomb.drop(from, 0, aim, null, null);
+            VirtualFlights.launch(level, bomb);
+        }
+        if (behind != null) groundProbes.add(new GroundProbe(name, behind.add(48 * (count - 1) / 2.0, 0, 0), false, true));
+        log("проба %s: %d бомб вне мира у %d %d на точку позади", name, count, x, z);
+    }
+
+    /** Залп издалека (без игрока: пуск вне мира) по точке на y 40 — ниже рельефа, над путём рельеф. */
+    private void groundDeep(MinecraftServer s, String name, WeaponType weapon, int count, int x, int z) {
+        ServerLevel level = s.overworld();
+        Vec3 aim = new Vec3(x + 0.5, 40, z + 0.5);
+        groundProbes.add(new GroundProbe(name, aim, true, false));
+        log("проба %s: %s %d по %d 40 %d (рельеф над целью %d), район %s", name, weapon.name().toLowerCase(Locale.ROOT), count, x, z,
+                Target.Ground.at(level, x, z).pos().y > 0 ? (int) Target.Ground.at(level, x, z).pos().y : -1,
+                Terrain.ready(level, x >> 4, z >> 4) ? "уже готов" : "не готов");
+        ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + name, 0, weapon, count, 8,
+                new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.Point(aim), aim, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+    }
+
+    /**
+     * Ракеты издалека по стойке (цель-сущность) в своём принудительно загруженном чанке: стойка ставится, когда чанк
+     * готов (без синхронной загрузки), и поднимается на 40 блоков, когда ракета ещё вне мира, далеко от неё
+     * (как GameTest virtualMissileClimbsAfterRisingAim).
+     */
+    private void groundRising(MinecraftServer s, String name, int x, int z) {
+        ServerLevel level = s.overworld();
+        GroundProbe pr = new GroundProbe(name, new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), true, false);
+        pr.forced = new net.minecraft.world.level.ChunkPos(x >> 4, z >> 4);
+        level.setChunkForced(pr.forced.x, pr.forced.z, true);
+        groundProbes.add(pr);
+        log("проба %s: цель-стойка у %d %d, ждём загрузки её чанка", name, x, z);
+    }
+
+    /** Стойка пробы — когда её чанк готов; подъём — когда ракета вне мира в 300–1000 блоках от неё. */
+    private void tickGroundProbes(MinecraftServer s) {
+        ServerLevel level = s.overworld();
+        for (GroundProbe pr : groundProbes) {
+            if (pr.forced == null) continue;
+            BlockPos c = BlockPos.containing(pr.center);
+            if (pr.stand == null && Terrain.ready(level, c) && level.isPositionEntityTicking(c)) {
+                ArmorStand stand = EntityType.ARMOR_STAND.create(level);
+                if (stand == null) continue;
+                int y = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, c.getX(), c.getZ());
+                stand.setNoGravity(true);
+                stand.moveTo(pr.center.x, y, pr.center.z);
+                level.addFreshEntity(stand);
+                pr.stand = stand;
+                pr.center = stand.position();
+                log("проба %s: стойка у %d %d %d, пуск 3 ракет издалека", pr.name, c.getX(), y, c.getZ());
+                ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + pr.name, 0, WeaponType.MISSILE, 3, 0,
+                        new ua.zentix.airstrike.strike.ServerActions.Aim(Target.OfEntity.center(stand), stand.position(), null),
+                        ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                continue;
+            }
+            if (pr.stand == null || pr.raised) continue;
+            for (Watch w : watched.values()) {
+                if (w.ground != pr || !w.virtual) continue;
+                double d = Math.hypot(w.pos.x - pr.stand.getX(), w.pos.z - pr.stand.getZ());
+                if (d > 300 && d < 1000) {
+                    pr.raised = true;
+                    pr.stand.teleportTo(pr.stand.getX(), pr.stand.getY() + 40, pr.stand.getZ());
+                    pr.center = pr.stand.position();
+                    log("проба %s: цель поднята на 40 блоков, ракета вне мира в %.0f блоках", pr.name, d);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Строки мода: путь вне мира дошёл до поверхности, не дождался загрузки района. */
+    private void readModLines() {
+        for (String line; (line = modLines.poll()) != null; ) {
+            Matcher m = GROUNDED.matcher(line);
+            if (m.find()) {
+                Watch w = watched.get(UUID.fromString(m.group(1)));
+                if (w != null && w.ground != null) {
+                    double dx = Integer.parseInt(m.group(2)) - Integer.parseInt(m.group(5));
+                    double dz = Integer.parseInt(m.group(4)) - Integer.parseInt(m.group(7));
+                    w.ground.groundOff.add(Math.hypot(dx, dz));
+                }
+                continue;
+            }
+            m = GAVE_UP.matcher(line);
+            if (m.find()) {
+                Watch w = watched.get(UUID.fromString(m.group(1)));
+                if (w != null && w.ground != null) w.ground.gaveUp++;
+            }
+        }
+    }
+
+    @Nullable
+    private GroundProbe groundProbeFor(Vec3 aim) {
+        for (GroundProbe pr : groundProbes)
+            if (Math.hypot(aim.x - pr.center.x, aim.z - pr.center.z) < PROBE_RADIUS) return pr;
+        return null;
     }
 
     @Nullable
@@ -589,6 +753,8 @@ public final class StressDirector {
     /** Все снаряды по UUID: новые, живые (в мире или вне его), пропавшие — со взрывом рядом или без. */
     private void track(MinecraftServer s) {
         seeDetonations(s);
+        readModLines();
+        tickGroundProbes(s);
         for (Probe pr : probes) {
             BlockPos c = BlockPos.containing(pr.center);
             if (pr.readyAfter < 0 && Terrain.ready(pr.level, c) && pr.level.isPositionEntityTicking(c)) pr.readyAfter = tick - pr.fired;
@@ -606,7 +772,12 @@ public final class StressDirector {
                 w = new Watch(en.getValue());
                 watched.put(en.getKey(), w);
                 launchedByType.merge(w.type, 1, Integer::sum);
-                if (en.getValue() instanceof RocketEntity) {
+                w.ground = groundProbeFor(w.aim);
+                if (w.ground != null) {
+                    w.ground.launched++;
+                    w.ground.ids.add(en.getKey());
+                }
+                if (en.getValue() instanceof RocketEntity && w.ground == null) {
                     w.probe = probeFor(w.aim);
                     if (w.probe != null) {
                         w.probe.launched++;
@@ -669,6 +840,7 @@ public final class StressDirector {
             }
             outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
             if (w.probe != null) w.probe.outcomes.merge(outcome, 1, Integer::sum);
+            if (w.ground != null) w.ground.outcomes.merge(outcome, 1, Integer::sum);
         }
         blastsThisTick.clear();
     }
@@ -834,7 +1006,28 @@ public final class StressDirector {
             if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
             if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
         }
+        for (GroundProbe pr : groundProbes) groundSummary(s, pr);
         for (String p : problems) log("problem: %s", p);
+    }
+
+    /** Строка пробы пути вне мира до поверхности и её вердикт. */
+    private void groundSummary(MinecraftServer s, GroundProbe pr) {
+        if (pr.forced != null) s.overworld().setChunkForced(pr.forced.x, pr.forced.z, false);
+        List<Double> off = new ArrayList<>(pr.groundOff);
+        off.sort(null);
+        double max = off.isEmpty() ? 0 : off.get(off.size() - 1);
+        double median = off.isEmpty() ? 0 : off.get(off.size() / 2);
+        int vanished = pr.outcomes.getOrDefault("lost", 0);
+        List<String> fails = new ArrayList<>();
+        if (pr.launched == 0) fails.add("ни одного снаряда");
+        if (vanished > 0) fails.add("пропали без взрыва: " + vanished);
+        if (pr.steering && max > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "до поверхности в %.0f блоках от цели (> %.0f)", max, GROUND_OFF_LIMIT));
+        if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");
+        if (pr.forced != null && !pr.raised) fails.add("цель не поднялась — ракета вне мира не застала подъём");
+        log("проба-поверхность %s: пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
+                        + "не дождались загрузки %d, итоги %s — %s",
+                pr.name, pr.launched, off.size(), max, median, pr.gaveUp, pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+        for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
     private void onStopping(ServerStoppingEvent e) {
