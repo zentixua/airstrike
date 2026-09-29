@@ -59,6 +59,8 @@ public final class ClientScenario {
     /** Видео с борта: текущий вариант («dry», потом «wet»), тик пуска и снятые кадры. */
     private String onboard;
     private int onboardFired = -1, onboardFrames;
+    /** Больше всего частиц перед объективом в кадрах с прошлой строки лога (считается в кадре, с камерой этого кадра). */
+    private int lensMax;
     /** Сценарий моделей: частицы не нужны. */
     private boolean models;
 
@@ -75,6 +77,7 @@ public final class ClientScenario {
             return;
         }
         NeoForge.EVENT_BUS.addListener(this::onTick);
+        NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
@@ -671,8 +674,9 @@ public final class ClientScenario {
 
     /**
      * Видео с борта ракеты (V) с наводчиком на суше, потом — с наводчиком под водой (в стеклянном бассейне):
-     * картинка с борта не должна зависеть от того, где стоит игрок. Кадры onboard-dry_* и onboard-wet_*, в лог —
-     * среда камеры и игрока. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
+     * картинка с борта не должна зависеть от того, где стоит игрок; потом — утром, как снимался план трейлера (цель
+     * к востоку). Кадры onboard-dry_*, onboard-wet_*, onboard-dawn_*; в лог — среда камеры и игрока
+     * и сколько частиц перед объективом. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
      */
     private void planOnboard() {
         at(40, () -> {
@@ -695,7 +699,8 @@ public final class ClientScenario {
         Minecraft mc = Minecraft.getInstance();
         if (onboardFired < 0) {
             if (tick < 240 || tick % 20 != 0) return;
-            double x = mc.player.getX(), z = mc.player.getZ() + 90;
+            boolean dawn = "dawn".equals(onboard);
+            double x = mc.player.getX() + (dawn ? 90 : 0), z = mc.player.getZ() + (dawn ? 0 : 90);
             int y = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(x), (int) Math.floor(z));
             cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %d %.1f", x, y, z));
             cmd("tick rate 5");
@@ -708,9 +713,10 @@ public final class ClientScenario {
         }
         if (ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing() && tick % 2 == 0) {
             var camera = mc.gameRenderer.getMainCamera();
-            Airstrike.LOG.info("SCENARIO onboard {} frame={} camera={} fluid={} player={} underwater={} eyeLight={}", onboard, onboardFrames,
+            Airstrike.LOG.info("SCENARIO onboard {} frame={} camera={} fluid={} player={} underwater={} eyeLight={} lens={}", onboard, onboardFrames,
                     xyz(camera.getPosition()), camera.getFluidInCamera(), xyz(mc.player.position()), mc.player.isUnderWater(),
-                    mc.level.getMaxLocalRawBrightness(mc.getCameraEntity().blockPosition()));
+                    mc.level.getMaxLocalRawBrightness(mc.getCameraEntity().blockPosition()), lensMax);
+            lensMax = 0;
             Screenshot.grab(mc.gameDirectory, String.format("onboard-%s_%04d.png", onboard, tick), mc.getMainRenderTarget(), c -> {});
             onboardFrames++;
         }
@@ -723,6 +729,11 @@ public final class ClientScenario {
             onboard = "wet";
             onboardFired = -1;
             cmd("tp @s 40.5 146 0.5 0 20");
+        } else if ("wet".equals(onboard)) {
+            onboard = "dawn";
+            onboardFired = -1;
+            cmd("time set 1000");
+            cmd("tp @s 0.5 150 0.5 0 20");
         } else {
             onboard = null;
             Airstrike.LOG.info("SCENARIO done");
@@ -868,6 +879,35 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
+    }
+
+    private void onRenderLevel(net.neoforged.neoforge.client.event.RenderLevelStageEvent e) {
+        if (onboard != null && e.getStage() == net.neoforged.neoforge.client.event.RenderLevelStageEvent.Stage.AFTER_PARTICLES
+                && ua.zentix.airstrike.client.cam.ProjectileCamera.isViewing()) {
+            lensMax = Math.max(lensMax, particlesAtLens(e.getCamera()));
+        }
+    }
+
+    /** Частицы перед объективом: ближе 12 блоков и в конусе 40° вокруг взгляда — такие закрывают собой весь кадр. */
+    private static int particlesAtLens(net.minecraft.client.Camera camera) {
+        try {
+            var f = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("particles");
+            f.setAccessible(true);
+            var map = (java.util.Map<?, ?>) f.get(Minecraft.getInstance().particleEngine);
+            var eye = camera.getPosition();
+            var look = new net.minecraft.world.phys.Vec3(camera.getLookVector());
+            int n = 0;
+            for (var q : map.values()) {
+                for (var o : (java.util.Collection<?>) q) {
+                    var d = ((net.minecraft.client.particle.Particle) o).getBoundingBox().getCenter().subtract(eye);
+                    double len = d.length();
+                    if (len < 12 && d.dot(look) > len * 0.766) n++;
+                }
+            }
+            return n;
+        } catch (ReflectiveOperationException e) {
+            return -1;
+        }
     }
 
     /**
