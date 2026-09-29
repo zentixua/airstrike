@@ -17,6 +17,7 @@
 # «остановка:» (какой чанк грузится синхронно, уровни тикетов вокруг, тикеты мода рядом). Телепорты стенда ждут района
 # 5×5 в фоне (тикет загрузки уровня 31, как у игрока, без тика).
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
+# Логи прошлого прогона (и прерванного) следующий прогон переносит в mod/run/stress/logs/<коммит>-<время>/, а не стирает.
 # Gradle только собирает и готовит запуски (rigLaunch → mod/build/rig/stress-*.sh) и выходит до старта: у живого Gradle
 # UDP-сокет блокировок на 0.0.0.0, а в стенде в сеть не смотрит ничего — сервер и клиенты идут прямо из файлов MDG.
 set -euo pipefail
@@ -40,8 +41,20 @@ for c in "${CLIENTS[@]}"; do
     ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
 done
 RIG="$ROOT/mod/build/rig"
+# логи прошлого прогона — в сторону, под его меткой (коммит и время старта)
+if [ -f "$RUN/run-id" ]; then
+  keep="$RUN/logs/$(cat "$RUN/run-id")"
+  mkdir -p "$keep"
+  [ -d "$RUN/server/logs" ] && mv "$RUN/server/logs" "$keep/server"
+  for c in "${CLIENTS[@]}"; do
+    name=${c%% *}
+    [ -d "$RUN/$name/logs" ] && mv "$RUN/$name/logs" "$keep/$name"
+  done
+  echo "логи прошлого прогона: $keep"
+fi
 rm -rf "$RUN/server/world" "$RUN/server/logs"
 mkdir -p "$RUN/server"
+echo "$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- mod tools || echo +dirty)-$(date -u +%Y%m%dT%H%M%SZ)" > "$RUN/run-id"
 echo eula=true > "$RUN/server/eula.txt"
 cat > "$RUN/server/server.properties" <<PROPS
 server-ip=127.0.0.1
