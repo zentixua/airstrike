@@ -33,8 +33,8 @@ public final class Ballistics {
         return to.subtract(from).scale(1.0 / ticks).add(0, GRAVITY * (ticks - 1) / 2, 0);
     }
 
-    /** Точка траектории на тике {@code k}. */
-    public static Vec3 at(Vec3 start, Vec3 v0, int k) {
+    /** Точка траектории на тике {@code k} (и между тиками: время полёта вне мира растягивается, см. RocketEntity). */
+    public static Vec3 at(Vec3 start, Vec3 v0, double k) {
         return start.add(v0.scale(k)).add(0, -GRAVITY * k * (k - 1) / 2, 0);
     }
 }

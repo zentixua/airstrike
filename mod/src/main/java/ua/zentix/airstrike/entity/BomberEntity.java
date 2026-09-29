@@ -4,9 +4,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
@@ -14,6 +16,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
 
@@ -138,12 +141,22 @@ public class BomberEntity extends StrikeProjectile {
         setPhase(FlightPhase.EGRESS);
         BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
         if (bomb == null) return;
-        bomb.drop(position().add(0, -4, 0), flight.yaw(), aim, goal, ownerId());
+        bomb.drop(position().add(0, -4, 0), flight.yaw(), surfaceUnder(level, aim), goal, ownerId());
         bomb.setNuclear(nuclear);
         // по UUID бомбы из предупреждений снаряда находится её B-2
         Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
+    }
+
+    /**
+     * Куда падать: у пуска поверхность под целью бывает оценкой генератора (чанк не был готов) — к сбросу чанк
+     * у цели обычно готов, и высота берётся из него.
+     */
+    private static Vec3 surfaceUnder(ServerLevel level, Vec3 aim) {
+        int x = Mth.floor(aim.x), z = Mth.floor(aim.z);
+        if (!Terrain.ready(level, x >> 4, z >> 4)) return aim;
+        return new Vec3(aim.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 0.5, aim.z);
     }
 
     @Override

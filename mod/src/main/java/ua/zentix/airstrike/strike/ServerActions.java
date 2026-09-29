@@ -208,10 +208,9 @@ public final class ServerActions {
                 player.displayClientMessage(Component.translatable("airstrike.map.no_ceiling").withStyle(ChatFormatting.RED), true);
                 return null;
             }
-            double range = AirstrikeConfig.SERVER.mapRange.get();
-            double dx = h.point().x - player.getX(), dz = h.point().z - player.getZ();
-            if (dx * dx + dz * dz > range * range || !player.level().getWorldBorder().isWithinBounds(h.point().x, h.point().z)) {
-                player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", (int) range).withStyle(ChatFormatting.RED), true);
+            if (!groundInRange(player, h.point().x, h.point().z)) {
+                player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
+                        .withStyle(ChatFormatting.RED), true);
                 return null;
             }
         } else {
@@ -222,6 +221,14 @@ public final class ServerActions {
             }
         }
         return resolveHint(player.serverLevel(), player, h);
+    }
+
+    /** Место с карты годится: мир без потолка, не дальше {@code map_range} от игрока по горизонтали, в границах мира. */
+    public static boolean groundInRange(ServerPlayer player, double x, double z) {
+        if (player.level().dimensionType().hasCeiling()) return false;
+        double range = AirstrikeConfig.SERVER.mapRange.get();
+        double dx = x - player.getX(), dz = z - player.getZ();
+        return dx * dx + dz * dz <= range * range && player.level().getWorldBorder().isWithinBounds(x, z);
     }
 
     /**

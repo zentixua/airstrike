@@ -2,6 +2,7 @@ package ua.zentix.airstrike.net;
 
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.ServerActions;
 
 /**
@@ -9,7 +10,7 @@ import ua.zentix.airstrike.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class AirstrikeNetwork {
-    public static final String PROTOCOL = "5";
+    public static final String PROTOCOL = "6";
 
     private AirstrikeNetwork() {}
 
@@ -36,5 +37,6 @@ public final class AirstrikeNetwork {
         r.playToServer(C2S.SetLoadout.TYPE, C2S.SetLoadout.CODEC, ServerActions::setLoadout);
         r.playToServer(C2S.Clear.TYPE, C2S.Clear.CODEC, ServerActions::clear);
         r.playToServer(C2S.Retarget.TYPE, C2S.Retarget.CODEC, ServerActions::retarget);
+        r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
     }
 }

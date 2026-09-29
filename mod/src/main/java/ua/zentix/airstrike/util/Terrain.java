@@ -106,4 +106,15 @@ public final class Terrain {
         }
         return level.getHeight(type, x, z);
     }
+
+    /**
+     * Первый воздух над поверхностью, не загружая чанк: чанк готов — по карте высот {@code type}, иначе — рельеф,
+     * каким его строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум, без деревьев и построек).
+     * Не высота цели: цель бывает в воздухе (игрок в полёте, аппарат), а поверхность под ней — нет.
+     */
+    public static int surface(ServerLevel level, Heightmap.Types type, int x, int z) {
+        if (ready(level, x >> 4, z >> 4)) return height(level, type, x, z);
+        return level.getChunkSource().getGenerator().getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, level,
+                level.getChunkSource().randomState());
+    }
 }

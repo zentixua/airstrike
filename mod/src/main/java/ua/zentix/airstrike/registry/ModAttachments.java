@@ -8,6 +8,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
+import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
 import java.util.function.Supplier;
@@ -46,6 +47,10 @@ public final class ModAttachments {
     /** Игрок: ему показан непустой список снарядов в полёте — погасить HUD, когда всё долетит; не сохраняется. */
     public static final Supplier<AttachmentType<Boolean>> FLIGHTS_SHOWN = REGISTER.register("flights_shown",
             () -> AttachmentType.builder(() -> false).build());
+
+    /** Игрок: район, который грузится по клику на карте наведения ({@link PickHints}); не сохраняется. */
+    public static final Supplier<AttachmentType<PickHints.Slot>> PICK_HINT = REGISTER.register("pick_hint",
+            () -> AttachmentType.builder(PickHints.Slot::new).build());
 
     private ModAttachments() {}
 }
