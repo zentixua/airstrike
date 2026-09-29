@@ -103,14 +103,27 @@ final class ShotCheck {
         Vec3 d = p.subtract(eye);
         Vector3f f = camera.getLookVector(), up = camera.getUpVector(), left = camera.getLeftVector();
         double z = d.x * f.x() + d.y * f.y() + d.z * f.z();
-        if (z <= 0.5) return;
+        if (z <= 0.5) {
+            if (subjectFrames - inFrame <= 3) {
+                Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER проверка %s: цель за камерой — цель (%.1f %.1f %.1f), камера (%.1f %.1f %.1f)",
+                        shot, p.x, p.y, p.z, eye.x, eye.y, eye.z));
+            }
+            return;
+        }
         double tanV = Math.tan(Math.toRadians(fov / 2));
         double tanH = tanV * mc.getWindow().getWidth() / Math.max(1, mc.getWindow().getHeight());
         double x = (d.x * left.x() + d.y * left.y() + d.z * left.z()) / z;
         double y = (d.x * up.x() + d.y * up.y() + d.z * up.z()) / z;
         // в кадре хотя бы половина цели: у наводчика в углу кадра центр тела ниже края, а голова и плечо — в кадре
         double half = size / 4 / z;
-        if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95) return;
+        if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95) {
+            // первые промахи плана — в журнал с координатами: по одной строке «ПРОВАЛ» не понять, куда смотрит камера
+            if (subjectFrames - inFrame <= 3 || (subjectFrames - inFrame) % 120 == 0) {
+                Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER проверка %s: цель вне кадра — цель (%.1f %.1f %.1f), камера (%.1f %.1f %.1f), x %.2f y %.2f из %.2f × %.2f, fov %.0f",
+                        shot, p.x, p.y, p.z, eye.x, eye.y, eye.z, x, y, tanH, tanV, fov));
+            }
+            return;
+        }
         inFrame++;
         if (size / z / (2 * tanV) < subject.minScreen()) tooSmall++;
         if (subject.mustSee()) {

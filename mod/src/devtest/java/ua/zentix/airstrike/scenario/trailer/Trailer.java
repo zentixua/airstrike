@@ -511,7 +511,10 @@ public final class Trailer {
                 .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b ? b.flightPhase() != FlightPhase.EGRESS
                         : flightNear(WeaponType.BUNKER, bay.get()) instanceof Vec3 f && f.distanceTo(bay.get()) < 500, 3000)
                 .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
-        Supplier<Vec3> pit = () -> ground(SOUTH_TOWERS.add(50, 0, -70));
+        // место — один раз: после подрыва ground() там — дно воронки, и цель проверки кадров уходила под землю
+        Vec3[] pitAt = {null};
+        Supplier<Vec3> pit = () -> pitAt[0] != null ? pitAt[0] : (pitAt[0] = ground(SOUTH_TOWERS.add(50, 0, -70)));
+        Vec3[] bombAt = {null};
         run(() -> placeHidden(pit.get().add(toPost.scale(120)).add(0, 30, 0), pit.get()));
         shot("bomb_impact").onReady(() -> fire("bunker", pit.get())).hidden().length(320).shake(0.08)
                 .speed(0.75, slowNear(BunkerBusterEntity.class, pit, 60, 0.3))
@@ -527,9 +530,12 @@ public final class Trailer {
                 // до сброса и в падении камера ведёт B-2 и бомбу (bomberFocus): цель — то, за чем она следит
                 .subject(() -> {
                     BunkerBusterEntity b = nearest(BunkerBusterEntity.class, pit.get(), 600);
+                    if (b != null) bombAt[0] = b.position();
                     if (b != null && b.flightPhase() != FlightPhase.DRILL) return b;
-                    BomberEntity plane = b == null ? nearest(BomberEntity.class, pit.get(), 450) : null;
-                    return plane != null ? plane : pit.get().add(0, 6, 0);
+                    BomberEntity plane = b == null && bombAt[0] == null ? nearest(BomberEntity.class, pit.get(), 450) : null;
+                    // после подрыва — шар над тем местом, где бомба ушла в землю (B-2 кладёт её в стороне от намеченного)
+                    Vec3 blast = bombAt[0] != null ? new Vec3(bombAt[0].x, Math.max(bombAt[0].y, pit.get().y) + 6, bombAt[0].z) : pit.get().add(0, 6, 0);
+                    return plane != null ? plane : blast;
                 }, 12, 0.003);
     }
 
@@ -1271,20 +1277,59 @@ public final class Trailer {
     private Path bulletTimeCamera(Vec3 from, Supplier<Vec3> focus, double fov, double arcDeg, double radius, @Nullable Vec3 arcCenter) {
         Shot shot = (Shot) steps.peek();
         Path before = CineCamera.track(from, focus, fov);
+        final View[] arc = {null};
         return t -> {
             double f = shot.frozenAt;
             if (Double.isNaN(f) || t < f || shot.impact == null) return before.at(t);
             Vec3 c = shot.impact;
+            // взгляд — на огненный шар над местом, а не на точку подрыва: бетонобойная бомба рвётся под землёй
+            Vec3 look = arcCenter == null ? c : new Vec3(c.x, Math.max(c.y, arcCenter.y) + 6, c.z);
+            if (arc[0] == null) {
+                // дугу облёта выбираем в миг взрыва вокруг настоящего места: openView проверял её вокруг намеченного,
+                // а B-2 кладёт бомбу в десятках блоков от него — дуга кончалась над крышей, взрыв за домом (облако, kf4b/kf4c)
+                Vec3 start = before.at(f).pos();
+                arc[0] = arcNear(look, start, arcDeg, radius);
+            }
             double arcTicks = Math.max(1, shot.freezeFrames * shot.freezeCamSpeed * Recorder.TPS / Recorder.VIDEO_FPS);
             double u = CineCamera.smooth(Math.min(1, (t - f) / arcTicks));
-            // дуга — вокруг места, для которого openView её проверил (бомба уходит в землю в стороне от него, и дуга
-            // вокруг места взрыва входила в дом), взгляд — на сам взрыв
-            Vec3 center = arcCenter != null && arcCenter.distanceTo(c) < 60 ? arcCenter : c;
-            // взгляд — на огненный шар над местом, а не на точку подрыва: бетонобойная бомба рвётся под землёй,
-            // и камера смотрела в землю сквозь крышу (облако, kf4b: цель закрыта в 437 кадрах из 539)
-            Vec3 look = arcCenter == null ? c : new Vec3(c.x, Math.max(c.y, arcCenter.y) + 6, c.z);
-            return Pose.look(arcPoint(center, from, u, arcDeg, radius), look, 0, fov);
+            Vec3 center = new Vec3(look.x, c.y, look.z);
+            return Pose.look(arcPoint(center, arc[0].from(), u, arc[0].arc(), arc[0].radius()), look, 0, fov);
         };
+    }
+
+    /**
+     * Дуга облёта вокруг {@code eye} из {@code start}: из вариантов дуги и радиуса — та, с которой {@code eye} виден во всех
+     * точках и камере просторно; нет такой — та, где чистых точек больше всего, последний вариант — почти на месте.
+     */
+    private View arcNear(Vec3 eye, Vec3 start, double arcDeg, double radius) {
+        MinecraftServer server = mc.getSingleplayerServer();
+        double[] arcs = {arcDeg, -arcDeg, arcDeg * 0.5, -arcDeg * 0.5, arcDeg * 0.15, 0};
+        final int samples = 8;
+        return server.submit(() -> {
+            ServerLevel level = server.overworld();
+            Vec3 c = eye.subtract(0, 6, 0);
+            double here = start.subtract(c).horizontalDistance();
+            double[] radii = {radius, radius * 1.6, here};
+            View best = new View(start, 0, here);
+            int bestClear = -1;
+            for (double a : arcs) {
+                for (double r : radii) {
+                    int clear = 0;
+                    for (int k = 0; k <= samples; k++) {
+                        Vec3 p = arcPoint(c, start, k / (double) samples, a, r);
+                        if (sees(level, eye, p) && roomy(level, p, 2)) clear++;
+                    }
+                    if (clear > bestClear) {
+                        bestClear = clear;
+                        best = new View(start, a, r);
+                    }
+                    if (clear > samples) break;
+                }
+                if (bestClear > samples) break;
+            }
+            Airstrike.LOG.info("TRAILER облёт взрыва {}: {} ({}/{} чистых)", eye, best, bestClear, samples + 1);
+            return best;
+        }).join();
     }
 
     /**
