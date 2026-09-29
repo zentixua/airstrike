@@ -4,6 +4,7 @@
 #   tools/deploy.sh          сборка и юнит-тесты → jar в mods/ инстанса и в dist/
 #   tools/deploy.sh --test   ещё и GameTest (сервер без окна с Create, Sable и Aeronautics)
 #   tools/deploy.sh --dry    только сборка и проверки, игру не трогать
+#   tools/deploy.sh --jar F  без сборки: поставить готовый jar F (сборку CI или релиза — те же байты, что у друзей)
 #
 # Ничего не удаляется: старые jar мода, копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
 # (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в airstrike-backup/<время>/ рядом с mods/.
@@ -18,22 +19,30 @@ DIST="$(path DIST)"
 BACKUP="$(path BACKUP)/$(date +%Y-%m-%d_%H%M%S)"
 export JAVA_HOME="${JAVA_HOME:-$(path JAVA)}"
 
-TEST=0; DRY=0
-for a in "$@"; do
-  case "$a" in
+TEST=0; DRY=0; JAR=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --test) TEST=1 ;;
     --dry) DRY=1 ;;
-    *) echo "неизвестный аргумент: $a" >&2; exit 2 ;;
+    --jar) [ $# -ge 2 ] || { echo "--jar: нужен путь к jar" >&2; exit 2; }; JAR="$(realpath "$2")"; shift ;;
+    *) echo "неизвестный аргумент: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
-cd "$ROOT/mod"
-./gradlew build --console=plain -q
-if [ "$TEST" = 1 ]; then ./gradlew runGameTestServer --console=plain -q; fi
-JAR="$(ls -t build/libs/airstrike-*.jar | grep -v -- '-sources' | head -n1)"
 mkdir -p "$DIST"
-cp "$JAR" "$DIST/"
-echo "собран: $JAR → dist/"
+if [ -n "$JAR" ]; then
+  [[ "$(basename "$JAR")" == airstrike-*.jar && -f "$JAR" ]] || { echo "--jar: нужен файл airstrike-<версия>.jar" >&2; exit 2; }
+  [ "$(dirname "$JAR")" = "$(realpath "$DIST")" ] || cp "$JAR" "$DIST/"
+  echo "готовый: $JAR ($(sha256sum "$JAR" | cut -c1-64)) → dist/"
+else
+  cd "$ROOT/mod"
+  ./gradlew build --console=plain -q
+  if [ "$TEST" = 1 ]; then ./gradlew runGameTestServer --console=plain -q; fi
+  JAR="$(realpath "$(ls -t build/libs/airstrike-*.jar | grep -v -- '-sources' | head -n1)")"
+  cp "$JAR" "$DIST/"
+  echo "собран: $JAR → dist/"
+fi
 if [ "$DRY" = 1 ]; then echo "--dry: игра не тронута"; exit 0; fi
 
 [ -d "$MODS" ] || { echo "нет папки $MODS — проверь tools/paths.py или задай MC_DIR" >&2; exit 1; }

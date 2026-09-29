@@ -32,7 +32,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   tools/
     paths.py                             ← все пути к игре (единственное место)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
-    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
+    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
