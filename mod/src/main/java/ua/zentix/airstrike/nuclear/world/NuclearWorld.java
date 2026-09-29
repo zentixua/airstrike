@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.nuclear.world;
 
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
@@ -17,7 +18,8 @@ import java.util.UUID;
 
 /**
  * Ядерные процессы измерения во время игры: фронт ударной волны по сущностям и аппаратам; световой импульс
- * и проникающая радиация по сущностям, очередь повреждений чанков, воронки и осадки у мобов — под общим бюджетом времени.
+ * и проникающая радиация по сущностям, очередь повреждений чанков, воронки и осадки у мобов — под общим бюджетом времени
+ * (один на тик сервера, для всех измерений: {@link #clock(MinecraftServer)}).
  * В тике подрыва — ничего тяжёлого: и снимки (сущности и чанки в радиусе), и сама работа идут под бюджетом.
  * Сам не сохраняется: всё выводится из {@link NuclearEvents} (подрывы, ход воронок) и отметок на чанках;
  * импульс по сущностям после перезапуска не повторяется (он длится доли секунды).
@@ -31,7 +33,6 @@ public final class NuclearWorld {
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
     private final BlastFront blast = new BlastFront();
-    private WorkClock clock = new WorkClock();
     private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
@@ -63,13 +64,17 @@ public final class NuclearWorld {
         return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos};
     }
 
-    /** Часы бюджета очередей (проверки подменяют их считающими, {@link WorkClock#counting}). */
-    public WorkClock clock() {
-        return clock;
+    /**
+     * Часы бюджета ядерной работы — одни на сервер: бюджет {@code destruction_ms_per_tick} — на тик сервера, а не на
+     * измерение. Живут в верхнем мире (как общие данные сервера в ванили): он есть, пока жив сервер.
+     */
+    public static WorkClock clock(MinecraftServer server) {
+        return server.overworld().getData(ModAttachments.NUCLEAR_CLOCK);
     }
 
-    public void useClock(WorkClock clock) {
-        this.clock = clock;
+    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}). */
+    public static void useClock(MinecraftServer server, WorkClock clock) {
+        server.overworld().setData(ModAttachments.NUCLEAR_CLOCK, clock);
     }
 
     /** Медленный тик — в лог не чаще раза в 5 с (tools/logscan.py): true — пора писать, отметка поставлена. */
@@ -119,12 +124,11 @@ public final class NuclearWorld {
 
     // ---------------------------------------------------------------- тик
 
-    public void tick(ServerLevel level) {
+    /** @param clock бюджет тика сервера, общий для всех измерений (уже запущен) */
+    public void tick(ServerLevel level, WorkClock clock) {
         long now = level.getGameTime();
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
-        // бюджет — на всю ядерную работу тика
-        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
         // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
         long pulseStart = System.nanoTime();
         try {

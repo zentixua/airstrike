@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.nuclear;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -8,7 +9,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
-import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
@@ -19,10 +20,12 @@ import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.util.Local;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -136,8 +139,22 @@ public final class NuclearStrikes {
 
     // ---------------------------------------------------------------- события мира
 
-    public static void onLevelTick(LevelTickEvent.Post e) {
-        if (!(e.getLevel() instanceof ServerLevel level)) return;
+    /**
+     * Ядерная часть всех измерений — после тика миров, под одним бюджетом на тик сервера ({@code destruction_ms_per_tick}).
+     * Каждый тик первым идёт следующее измерение: первому достаётся весь бюджет (и одна единица работы — всегда),
+     * так что очередь одного измерения не держит работу другого вечно.
+     */
+    public static void onServerTick(ServerTickEvent.Post e) {
+        MinecraftServer server = e.getServer();
+        WorkClock clock = NuclearWorld.clock(server);
+        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
+        List<ServerLevel> levels = new ArrayList<>();
+        server.getAllLevels().forEach(levels::add);
+        Collections.rotate(levels, -(server.getTickCount() % levels.size()));
+        for (ServerLevel level : levels) tick(level, clock);
+    }
+
+    private static void tick(ServerLevel level, WorkClock clock) {
         long t0 = System.nanoTime();
         NuclearEvents events = NuclearEvents.get(level);
         long now = level.getGameTime();
@@ -157,7 +174,7 @@ public final class NuclearStrikes {
         if (now % 1200 == 0) events.prune(now);
         long t1 = System.nanoTime();
         NuclearWorld world = NuclearWorld.get(level);
-        world.tick(level);
+        world.tick(level, clock);
         long t2 = System.nanoTime();
         RadiationTicker.tick(level);
         long t3 = System.nanoTime();

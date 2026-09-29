@@ -259,7 +259,7 @@ public final class NuclearGameTests {
         h.setBlock(glass, Blocks.GLASS);
         NuclearWorld w = NuclearWorld.get(level);
         WorkClock clock = WorkClock.counting(1_000_000L);
-        w.useClock(clock);
+        NuclearWorld.useClock(level.getServer(), clock);
         Detonation d = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
         int budgetMs = AirstrikeConfig.SERVER.nukeTimeBudgetMs.get();
         h.succeedWhen(() -> {
@@ -270,7 +270,7 @@ public final class NuclearGameTests {
             h.assertTrue(scar >= d.id(), "чанк не помечен подрывом: " + scar + " < " + d.id());
             h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
             h.assertTrue(clock.ticksWorked() > 1, "вся работа уместилась в один тик — бюджет не проверен");
-            w.useClock(new WorkClock());
+            NuclearWorld.useClock(level.getServer(), new WorkClock());
             NuclearStrikes.clear(level);
         });
     }
@@ -291,7 +291,7 @@ public final class NuclearGameTests {
         }
         NuclearWorld w = NuclearWorld.get(level);
         WorkClock clock = WorkClock.counting(1_000_000L);
-        w.useClock(clock);
+        NuclearWorld.useClock(level.getServer(), clock);
         NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
         for (Cow cow : cows) h.assertTrue(cow.isAlive() && !cow.isOnFire() && cow.getHealth() == cow.getMaxHealth(), "подрыв тронул сущность в своём тике");
         h.assertTrue(w.pulseJobs() == 1, "импульс не поставлен в работу");
@@ -301,7 +301,7 @@ public final class NuclearGameTests {
             long alive = cows.stream().filter(Cow::isAlive).count();
             h.assertTrue(alive == 0, "живых коров в 300 м: " + alive);
             h.assertTrue(clock.maxUnitsPerTick() <= budgetMs, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
-            w.useClock(new WorkClock());
+            NuclearWorld.useClock(level.getServer(), new WorkClock());
             NuclearStrikes.clear(level);
         });
     }

@@ -7,6 +7,7 @@ import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
 import java.util.function.Supplier;
@@ -29,6 +30,10 @@ public final class ModAttachments {
     /** Мир: ядерные очереди — фронт, свет, воронки, чанки, осадки у мобов ({@link NuclearWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<NuclearWorld>> NUCLEAR_WORLD = REGISTER.register("nuclear_world",
             () -> AttachmentType.builder(NuclearWorld::new).build());
+
+    /** Верхний мир: часы бюджета ядерной работы — один на тик сервера ({@link NuclearWorld#clock}); не сохраняется. */
+    public static final Supplier<AttachmentType<WorkClock>> NUCLEAR_CLOCK = REGISTER.register("nuclear_clock",
+            () -> AttachmentType.builder(WorkClock::new).build());
 
     /** Игрок: игровое время последнего пуска или отбоя с пульта (защита от дребезга); не сохраняется. */
     public static final Supplier<AttachmentType<Long>> LAST_FIRE = REGISTER.register("last_fire",
