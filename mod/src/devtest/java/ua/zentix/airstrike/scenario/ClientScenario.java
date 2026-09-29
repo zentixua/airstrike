@@ -896,10 +896,16 @@ public final class ClientScenario {
     private int mapOpened = -1;
     private boolean mapDone;
 
+    /** Самое долгое {@code wait:N} сценария commands — час игры, тиков. */
+    private static final int COMMANDS_MAX_WAIT = 72_000;
+
     /**
      * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
-     * Кроме команд: {@code wait:N} — подождать N тиков, {@code shot:имя} — снимок экрана {@code имя_тик.png}.
+     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
+     * {@code имя_тик.png}. Шаги идут друг за другом: после команды — 40 тиков, после снимка — 20, и {@code wait:N}
+     * прибавляется к ним ({@code cmd;wait:1200;shot:x} снимает через 1240 тиков после команды). Неверный {@code wait:}
+     * пишется в лог и пропускается: исключение здесь остановило бы загрузку модов, и «SCENARIO done» не пришёл бы.
      */
     private void planCommands() {
         int t = 100;
@@ -907,7 +913,19 @@ public final class ClientScenario {
             String c = item.strip();
             if (c.isEmpty()) continue;
             if (c.startsWith("wait:")) {
-                t += Integer.parseInt(c.substring("wait:".length()).strip());
+                String n = c.substring("wait:".length()).strip();
+                int ticks;
+                try {
+                    ticks = Integer.parseInt(n);
+                } catch (NumberFormatException e) {
+                    ticks = -1;
+                }
+                if (ticks < 0 || ticks > COMMANDS_MAX_WAIT) {
+                    Airstrike.LOG.warn("SCENARIO commands: «{}» пропущено — нужно целое число тиков от 0 до {}", c,
+                        COMMANDS_MAX_WAIT);
+                    continue;
+                }
+                t += ticks;
             } else if (c.startsWith("shot:")) {
                 shot(t, c.substring("shot:".length()).strip());
                 t += 20;
