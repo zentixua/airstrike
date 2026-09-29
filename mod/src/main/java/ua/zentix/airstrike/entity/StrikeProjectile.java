@@ -428,6 +428,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             age++;
             if (tracker == null) {
                 // сбой загрузки или спавна без launch(): летать некуда
+                Airstrike.LOG.warn("Снаряд {} {} у {} без цели (сбой загрузки или спавн без пуска) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -463,6 +464,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         try {
             age++;
             if (tracker == null) {
+                Airstrike.LOG.warn("Снаряд {} {} вне мира у {} без цели (сбой загрузки) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -835,6 +837,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
         Vec3 next = pos.add(dir.scale(speed));
         if (next.y < level.getMinBuildHeight() - 64) {
+            Airstrike.LOG.warn("Снаряд {} {} ушёл ниже мира у {} и убран", getType().getDescriptionId(), getUUID(), blockPosition());
             discard();
             return false;
         }
@@ -1067,7 +1070,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         RemovalReason reason = getRemovalReason();
         if (level() instanceof ServerLevel level && level.getServer().isRunning() && isActive()
                 && (reason == null || reason == RemovalReason.UNLOADED_TO_CHUNK)) {
-            Airstrike.LOG.warn("Снаряд {} в полёте выгружен вместе с чанком у {} ({})", getType().getDescriptionId(), blockPosition(),
+            Airstrike.LOG.warn("Снаряд {} {} в полёте выгружен вместе с чанком у {} ({})", getType().getDescriptionId(), getUUID(), blockPosition(),
                     reason == null ? "чанк перестал отслеживаться" : "чанк выгружен");
         }
         super.onRemovedFromLevel();

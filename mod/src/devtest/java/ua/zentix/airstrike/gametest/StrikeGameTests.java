@@ -1082,7 +1082,7 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rocket_hill_beyond", skyAccess = true)
     public static void virtualRocketIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, (level, aim) -> {
+        returnsUnderOwnTerrain(h, 4, (level, aim) -> {
             RocketEntity rocket = ModEntities.ROCKET.get().create(level);
             rocket.launchFrom(aim.add(-300, 0, 0), new Target.Point(aim), aim, null);
             return rocket;
@@ -1091,7 +1091,7 @@ public final class StrikeGameTests {
 
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_missile_hill_beyond", skyAccess = true)
     public static void virtualMissileIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, (level, aim) -> {
+        returnsUnderOwnTerrain(h, 12, (level, aim) -> {
             CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
             // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
             missile.launch(aim.add(-300, 12, 0), new Target.Point(aim), aim, null);
@@ -1103,7 +1103,11 @@ public final class StrikeGameTests {
     /** Скала за целью выше рельефа над ней на столько блоков. */
     private static final int HILL_BEYOND = 50;
 
-    private static void returnsUnderOwnTerrain(GameTestHelper h, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
+    /** Ближе к цели по горизонтали — взрыв у цели (а не на скале в 6 блоках за ней). */
+    private static final double BURST_NEAR_AIM = 5;
+
+    /** {@code clearance} — запас снаряда над рельефом при возврате в мир ({@code StrikeProjectile.clearance}). */
+    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
         ServerLevel level = h.getLevel();
         // далеко за площадкой, как virtualRocketDetonatesAtTickingAim: тикает только чанк цели, снаряд приходит вне мира
         // и возвращается в мир у самой цели
@@ -1120,6 +1124,15 @@ public final class StrikeGameTests {
             for (int bz = z - 1; bz <= z + 1; bz++)
                 for (int by = surface - 4; by < surface + HILL_BEYOND; by++)
                     level.setBlockAndUpdate(new BlockPos(bx, by, bz), Blocks.STONE.defaultBlockState());
+        // первый взрыв у цели (в 64 блоках: тест далеко от площадок остальных тестов); чанки вокруг цели готовы
+        // (generateNow, держит тикет цели) — взрыв не откладывается
+        Vec3[] burst = {null};
+        java.util.function.Consumer<net.neoforged.neoforge.event.level.ExplosionEvent.Start> onBlast = e -> {
+            Vec3 c = e.getExplosion().center();
+            if (burst[0] == null && e.getLevel() == level && c.distanceTo(aim) < 64) burst[0] = c;
+        };
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(onBlast);
+        afterTest(h, () -> net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(onBlast));
         StrikeProjectile p = make.apply(level, aim);
         VirtualFlights.launch(level, p);
         UUID id = p.getUUID();
@@ -1136,10 +1149,13 @@ public final class StrikeGameTests {
         h.succeedWhen(() -> {
             h.assertFalse(flight(level, id) != null, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
             h.assertFalse(Double.isNaN(back[0]) || Double.isNaN(back[1]), "снаряд не прилетел вне мира и не вернулся в мир");
-            // не выше своего пути и рельефа над целью с запасом снаряда (ракета 4, крылатая 12) — не на скале за целью
-            h.assertTrue(back[0] <= Math.max(back[1], surface + 12) + 2,
+            // не выше своего пути и рельефа над целью с запасом снаряда — не на скале за целью
+            h.assertTrue(back[0] <= Math.max(back[1], surface + clearance) + 2,
                     "снаряд у цели поднят на рельеф за ней: y " + (int) back[0] + " (вне мира " + (int) back[1] + "), рельеф над целью " + surface);
-            h.assertTrue(Math.hypot(last[0].x - aim.x, last[0].z - aim.z) < 4, "снаряд взорвался не у цели: " + last[0].subtract(aim));
+            h.assertTrue(burst[0] != null, "снаряд убран без взрыва у цели, последний раз у " + last[0].subtract(aim));
+            Vec3 off = burst[0].subtract(aim);
+            h.assertTrue(Math.hypot(off.x, off.z) < BURST_NEAR_AIM && off.x < 6 && burst[0].y <= surface + 2,
+                    "взрыв не у цели: " + off + " от неё, рельеф над целью " + surface + " (скала — с 6 блоков за целью по курсу)");
         });
     }
 

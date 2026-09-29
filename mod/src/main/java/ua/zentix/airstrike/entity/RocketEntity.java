@@ -228,7 +228,10 @@ public class RocketEntity extends StrikeProjectile {
         return Double.MAX_VALUE;
     }
 
-    /** Путь кончается в точке падения, а не в точке прицеливания (разброс залпа). */
+    /**
+     * Путь кончается там, куда рассчитана баллистика ({@code impactAt}), а не в точке цели: у цели-сущности точка цели
+     * уходит с ней, а снаряд летит в рассчитанную.
+     */
     @Override
     @Nullable
     protected Vec3 pathEnd() {
