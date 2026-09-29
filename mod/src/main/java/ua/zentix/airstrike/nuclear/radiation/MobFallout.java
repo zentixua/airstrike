@@ -26,20 +26,27 @@ public final class MobFallout {
     @Nullable
     private List<? extends Mob> mobs;
     private int next;
-    /** Когда сделан прошлый снимок: доза нового обхода — за время между снимками. */
-    private long lastSnapshot = Long.MIN_VALUE / 2;
+    /** Прошлого снимка не было: после загрузки мира или простоя без осадков. */
+    private static final long NONE = Long.MIN_VALUE;
+    /** Когда сделан прошлый снимок: доза нового обхода — за всё время между снимками. */
+    private long lastSnapshot = NONE;
     private double hours;
 
     /** Сколько успеем за бюджет. */
     public void work(ServerLevel level, List<Detonation> detonations, WorkClock clock) {
         long now = level.getGameTime();
         if (mobs == null) {
-            if (now - lastSnapshot < PERIOD || !enabled(detonations) || !clock.canStart()) return;
+            if (!enabled(detonations)) {
+                lastSnapshot = NONE;
+                return;
+            }
+            if ((lastSnapshot != NONE && now - lastSnapshot < PERIOD) || !clock.canStart()) return;
             long t0 = clock.begin();
             // снимок, а не живая карта: моб может умереть от дозы, и лут добавится в карту сущностей
             mobs = level.getEntities(EntityTypeTest.forClass(Mob.class), RadiationTicker::affectsMob);
-            // после загрузки мира (или долгого простоя без осадков) — за один период, а не за всё время
-            hours = Math.min(now - lastSnapshot, 2L * PERIOD) / 1000.0;
+            // обход, растянутый бюджетом дольше периода (очередь занята разрушениями), не теряет часов: доза — за всё
+            // время с прошлого снимка; первый обход (после загрузки мира или простоя без осадков) — за один период
+            hours = (lastSnapshot == NONE ? PERIOD : now - lastSnapshot) / 1000.0;
             lastSnapshot = now;
             next = 0;
             clock.end(t0);

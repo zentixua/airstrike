@@ -30,7 +30,7 @@ import ua.zentix.airstrike.util.Terrain;
  */
 public final class ColumnScar {
     /** Без каскада обновлений соседей и без выпадения предметов; клиенты получают изменения пачками по секциям. */
-    static final int FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE | Block.UPDATE_SUPPRESS_DROPS;
+    private static final int FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE | Block.UPDATE_SUPPRESS_DROPS;
     /** Сколько блоков вниз от верха столбца ищем природный грунт. */
     private static final int MAX_DEPTH = 96;
 
@@ -86,9 +86,19 @@ public final class ColumnScar {
     }
 
     /**
-     * Заменить блок без выпадения. {@code UPDATE_SUPPRESS_DROPS} не спасает от содержимого контейнеров: сундук,
-     * бочка, печь высыпают его в {@code onRemove} — в деревне это тысячи предметов на земле, которые потом тикают.
-     * Как {@code /setblock} и {@code /fill}: сперва {@link Clearable#tryClear} очищает блок-сущность.
+     * Заменить блок без выпадения и без осиротевших данных блок-сущности. Все замены блоков выжигания и воронки
+     * идут здесь.
+     * <p>
+     * Сперва блок-сущность берётся через {@link ServerLevel#getBlockEntity}: у чанка, который ещё ни разу не тикал
+     * (свежая генерация у края прорисовки), она лежит отложенными данными — после генерации это заглушка «DUMMY»
+     * у каждой кровати, колокола, сундука деревни ({@code WorldGenRegion.setBlock}), после загрузки — сохранённые
+     * данные с {@code keepPacked}. {@code onRemove} старого блока снимает только живую блок-сущность, отложенные
+     * данные остаются при воздухе или воде, и при первом тике или сохранении чанка ваниль пишет «Tried to load
+     * a DUMMY block entity … found air». Запрос поднимает их в живую блок-сущность, и замена её снимает.
+     * <p>
+     * {@code UPDATE_SUPPRESS_DROPS} не спасает от содержимого контейнеров: сундук, бочка, печь высыпают его
+     * в {@code onRemove} — в деревне это тысячи предметов на земле, которые потом тикают. Как {@code /setblock}
+     * и {@code /fill}: {@link Clearable#tryClear} очищает блок-сущность до замены.
      */
     static void replace(ServerLevel level, BlockPos pos, BlockState old, BlockState with) {
         if (old.hasBlockEntity()) Clearable.tryClear(level.getBlockEntity(pos));
@@ -101,7 +111,7 @@ public final class ColumnScar {
     private static void strip(ServerLevel level, BlockPos pos, RandomSource random) {
         BlockState s = level.getBlockState(pos);
         if (s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.PODZOL) || s.is(Blocks.MYCELIUM) || s.is(Blocks.MOSS_BLOCK)) {
-            level.setBlock(pos, (random.nextInt(3) == 0 ? Blocks.DIRT : Blocks.COARSE_DIRT).defaultBlockState(), FLAGS);
+            replace(level, pos, s, (random.nextInt(3) == 0 ? Blocks.DIRT : Blocks.COARSE_DIRT).defaultBlockState());
         }
     }
 
@@ -115,17 +125,19 @@ public final class ColumnScar {
         double horizontal = Math.hypot(c.x - d.burst().x, c.z - d.burst().z);
         if (d.surface() && horizontal < d.fireballRadius() * 0.8 && c.y > d.groundY() - d.fireballRadius()) {
             // внутри огненного шара у земли: песок сплавляется, вода вскипает
-            if (s.is(BlockTags.SAND)) level.setBlock(top, ModBlocks.TRINITITE.get().defaultBlockState(), FLAGS);
-            for (int i = 0; i < 3 && level.getBlockState(above.above(i)).getFluidState().isSource(); i++) {
-                level.setBlock(above.above(i), Blocks.AIR.defaultBlockState(), FLAGS);
+            if (s.is(BlockTags.SAND)) replace(level, top, s, ModBlocks.TRINITITE.get().defaultBlockState());
+            for (int i = 0; i < 3; i++) {
+                BlockState water = level.getBlockState(above.above(i));
+                if (!water.getFluidState().isSource()) break;
+                replace(level, above.above(i), water, Blocks.AIR.defaultBlockState()); // и затопленный блок с блок-сущностью
             }
             return;
         }
         if (q >= 15) {
             if (s.is(Blocks.GRASS_BLOCK) || s.is(Blocks.PODZOL) || s.is(Blocks.MYCELIUM)) {
-                level.setBlock(top, (random.nextBoolean() ? Blocks.COARSE_DIRT : Blocks.DIRT).defaultBlockState(), FLAGS);
+                replace(level, top, s, (random.nextBoolean() ? Blocks.COARSE_DIRT : Blocks.DIRT).defaultBlockState());
             }
-            if (s.is(Blocks.SNOW_BLOCK)) level.setBlock(top, Blocks.WATER.defaultBlockState(), FLAGS);
+            if (s.is(Blocks.SNOW_BLOCK)) replace(level, top, s, Blocks.WATER.defaultBlockState());
         }
         if (!AirstrikeConfig.SERVER.nukeFires.get()) return;
         // волна гасит часть огня там, где давление ≥ 2 psi
@@ -159,8 +171,8 @@ public final class ColumnScar {
     private static void fellTree(ServerLevel level, Detonation d, BlockPos base, BlockState log) {
         int height = 0;
         BlockPos.MutableBlockPos m = base.mutable();
-        while (height < 24 && level.getBlockState(m).is(BlockTags.LOGS)) {
-            level.setBlock(m, Blocks.AIR.defaultBlockState(), FLAGS);
+        for (BlockState s = level.getBlockState(m); height < 24 && s.is(BlockTags.LOGS); s = level.getBlockState(m)) {
+            replace(level, m, s, Blocks.AIR.defaultBlockState());
             m.move(Direction.UP);
             height++;
         }
@@ -171,8 +183,9 @@ public final class ColumnScar {
             BlockPos p = base.relative(dir, i);
             if (!NuclearTickets.aroundLoaded(level, p)) break; // ствол не тянет за собой загрузку соседнего чанка
             BlockPos at = new BlockPos(p.getX(), Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), p.getZ());
-            if (!level.getBlockState(at).canBeReplaced()) break;
-            level.setBlock(at, lying, FLAGS);
+            BlockState was = level.getBlockState(at);
+            if (!was.canBeReplaced()) break;
+            replace(level, at, was, lying);
         }
     }
 }
