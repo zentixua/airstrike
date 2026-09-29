@@ -1,10 +1,12 @@
 package ua.zentix.airstrike.client.hud;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -166,6 +168,14 @@ public final class ClientFlights {
     public static void onLeave(EntityLeaveLevelEvent e) {
         // снаряд, вернувшийся в мир, — новая сущность с тем же UUID: убираем только ту, что ушла
         if (e.getLevel().isClientSide() && e.getEntity() instanceof StrikeProjectile p) VISIBLE.remove(p.getUUID(), p);
+    }
+
+    /**
+     * Мир клиента уходит (смена измерения): его сущности уходят вместе с ним, без {@link EntityLeaveLevelEvent}
+     * по каждой, — снаряды этого мира забыть, иначе они держали бы весь старый мир в памяти.
+     */
+    public static void onLevelUnload(LevelEvent.Unload e) {
+        if (e.getLevel() instanceof ClientLevel level) VISIBLE.values().removeIf(p -> p.level() == level);
     }
 
     public static void reset() {

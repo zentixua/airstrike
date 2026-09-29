@@ -19,6 +19,7 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.client.hud.ClientFlights;
@@ -424,6 +425,11 @@ public final class ProjectileCamera {
         newTarget = pick.point();
         newTargetTicks = 40;
         mc.getSoundManager().play(SimpleSoundInstance.forUI(ua.zentix.airstrike.registry.ModSounds.DESIGNATOR_LOCK.get(), 1.0f, 0.8f));
+    }
+
+    /** Мир клиента уходит (смена измерения): съёмочная камера в нём больше не нужна и не должна его держать. */
+    public static void onLevelUnload(LevelEvent.Unload e) {
+        if (rig != null && rig.level() == e.getLevel()) rig = null;
     }
 
     public static void reset() {
