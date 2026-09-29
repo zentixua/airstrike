@@ -256,8 +256,9 @@ public final class Trailer {
             // от ног самого наводчика: он стоит не ровно на отметке поста (в прошлом облёте голова была у края кадра)
             Vec3 feet = mc.player.position();
             Vec3 city = TOWER.add(0, 110, 0);
-            Vec3 from = feet.add(toPost.scale(2.8)).add(side.scale(-0.9)).add(0, 1.95, 0);
-            Vec3 to = feet.add(toPost.scale(1.7)).add(side.scale(-0.55)).add(0, 1.85, 0);
+            // в 2,8 блока голова закрывала пятую часть кадра: дальше и выше, плечо — в нижнем левом углу
+            Vec3 from = feet.add(toPost.scale(4.6)).add(side.scale(-1.7)).add(0, 2.35, 0);
+            Vec3 to = feet.add(toPost.scale(3.4)).add(side.scale(-1.25)).add(0, 2.15, 0);
             return CineCamera.spline(true, CineCamera.Key.at(0, from, city, 38), CineCamera.Key.at(120, to, city, 33));
         }).cue(20, () -> mc.options.keyUse.setDown(true));
         shot("scope").length(80).hud().player(t -> {
