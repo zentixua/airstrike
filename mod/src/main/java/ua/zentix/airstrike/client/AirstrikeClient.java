@@ -227,11 +227,12 @@ public final class AirstrikeClient {
         }
 
         @Override
-        public void cleared() {
+        public void cleared(S2C.Cleared p) {
             ClientSounds.reset();
             Alerts.reset();
             ProjectileCamera.reset();
-            NukeArming.cancel();
+            // двухшаговый пуск МБР отменяет только ядерный отбой: обычный её не касается
+            if (p.nuclear()) NukeArming.cancel();
         }
 
         @Override
