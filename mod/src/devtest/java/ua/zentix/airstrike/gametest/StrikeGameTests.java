@@ -17,6 +17,7 @@ import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.gametest.GameTestHolder;
@@ -695,6 +696,36 @@ public final class StrikeGameTests {
     }
 
     /**
+     * B-2, перенацеленный на точку за спиной ближе дальности сброса, не бросает бомбу назад: сброшенная так бомба
+     * падала круто вниз по курсу (не выравнивается и не рулит, когда цель позади) и уходила в землю в ~150 блоках
+     * от точки. Он уходит, заходит снова, и бомба попадает.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_behind", skyAccess = true)
+    public static void bomberRetargetedJustBehindHitsOnReattack(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 start = top(h, RUNWAY_TARGET);
+        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
+        // курс на +z; точка сброса — в 60 блоках позади, ближе RELEASE_DISTANCE
+        bomber.launch(start, start.add(0, 0, 3000), null, null);
+        Vec3 behind = start.add(0, 0, -60);
+        h.assertTrue(bomber.retarget(new Target.Point(behind), behind), "бомбардировщик не принял перенацеливание");
+        level.addFreshEntity(bomber);
+        Vec3[] entry = {null};
+        h.onEachTick(() -> {
+            if (entry[0] != null) return;
+            List<BunkerBusterEntity> bombs = level.getEntitiesOfClass(BunkerBusterEntity.class, new AABB(behind, behind).inflate(400, 400, 400));
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) if (p instanceof BunkerBusterEntity b) bombs = java.util.stream.Stream
+                    .concat(bombs.stream(), java.util.stream.Stream.of(b)).toList();
+            for (BunkerBusterEntity b : bombs) if (b.isDrilling()) entry[0] = b.entry();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(entry[0] != null, "бомба ещё не вошла в грунт");
+            double miss = entry[0].subtract(behind).horizontalDistance();
+            h.assertTrue(miss < 16, "бомба вошла в грунт в " + (int) miss + " блоках от точки сброса");
+        });
+    }
+
+    /**
      * Бомба, сброшенная под точку на своей высоте (цель в воздухе: игрок в полёте, а чанк под ним у пуска не был
      * готов), не выравнивается и не кружит, а падает на землю задолго до конца срока жизни. Раньше она тянулась
      * к точке, проходила под ней и уходила на круг радиусом ~240 блоков до конца срока (стенд VPS 29.09.2026).
@@ -779,6 +810,58 @@ public final class StrikeGameTests {
     @GameTest(template = "runway", timeoutTicks = 1500, batch = "rocket_slow_area", skyAccess = true)
     public static void rocketStretchesFlightWhileAimAreaLoads(GameTestHelper h) {
         rocketLaunchesAtOnceAndNeverFreezes(h, 250, 300);
+    }
+
+    /**
+     * Конец растяжения без скачка: район цели готов, снаряд вне мира разгоняется обратно плавно. Скорость — та, что уходит клиентам в пути звука ({@code velocity()}): скачок
+     * в ней — ступенька тона и громкости воя. Шаг в саму цель на последнем тике не считается.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "rocket_stretch_end", skyAccess = true)
+    public static void rocketStretchEndsWithoutSpeedStep(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 rail = Vec3.atCenterOf(h.absolutePos(RUNWAY_TARGET)).add(0, 3, 0);
+        ChunkPos aimChunk = new ChunkPos(BlockPos.containing(rail).offset(250, 0, 0));
+        Vec3 aim = new Vec3(aimChunk.getMiddleBlockX() + 0.5, level.getSeaLevel() + 60, aimChunk.getMiddleBlockZ() + 0.5);
+        RocketEntity rocket = ModEntities.ROCKET.get().create(level);
+        rocket.placeInTube(rail, -90, LauncherEntity.elevation(WeaponType.ROCKET), 5, 0, new Target.Point(aim), aim, null);
+        level.addFreshEntity(rocket);
+        UUID id = rocket.getUUID();
+        int withhold = 300;
+        int[] tick = {0};
+        List<String> track = new java.util.ArrayList<>();
+        List<Double> speeds = new java.util.ArrayList<>();
+        double[] minRate = {1};
+        h.onEachTick(() -> {
+            tick[0]++;
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+            if (p != null) FlightTickets.hold(level, aimChunk, FlightTickets.DISTANCE, id, tick[0] >= withhold);
+            // после выгорания: дальше скорость меняют только тяготение и темп растяжения
+            if (p == null || p.flightPhase() == FlightPhase.BOOST || p.flightPhase().onLauncher() || p.flightPhase() == FlightPhase.IGNITION) return;
+            double rate = ((RocketEntity) p).timeRate();
+            minRate[0] = Math.min(minRate[0], rate);
+            speeds.add(p.velocity().length());
+            track.add(String.format(java.util.Locale.ROOT, "тик %d (вне мира %s, темп %.2f, до цели %.0f)", tick[0], p.isVirtual(), rate, p.position().distanceTo(aim)));
+        });
+        h.succeedWhen(() -> {
+            boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
+                    || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
+            h.assertFalse(flying, "снаряд ещё летит");
+            h.assertTrue(minRate[0] < 0.5, "полёт не растягивался (темп не ниже " + minRate[0] + ")");
+            // последний тик — шаг в саму цель (доходит до неё, а не на длину шага), его не считаем
+            double worst = 0;
+            String where = "";
+            for (int i = 1; i < speeds.size() - 1; i++) {
+                double d = Math.abs(speeds.get(i) - speeds.get(i - 1));
+                if (d > worst) {
+                    worst = d;
+                    where = String.format(java.util.Locale.ROOT, "%.2f → %.2f, %s", speeds.get(i - 1), speeds.get(i), track.get(i));
+                }
+            }
+            Airstrike.LOG.info("Замер РСЗО: наибольший скачок скорости за тик {}", where);
+            // темп меняется не быстрее 0,05 за тик: при скорости до ~8 блоков/тик это до 0,4, плюс тяготение
+            h.assertTrue(worst <= 0.6, "скачок скорости снаряда " + where);
+        });
     }
 
     /** Дальний свежий район: полёт длиннее загрузки района — сход на тике приказа, без растяжения и остановок. */

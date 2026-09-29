@@ -118,7 +118,8 @@ public class BomberEntity extends StrikeProjectile {
     protected void serverTick(ServerLevel level) {
         Vec3 aim = tracker.point();
         Bearing b = bearingTo(aim);
-        if (!released && b.horizontal() <= RELEASE_DISTANCE) release(level, aim);
+        // точка сзади (перенацелили за спину): бомба падает по курсу и назад не рулит — не сбрасывать, а зайти снова
+        if (!released && b.horizontal() <= RELEASE_DISTANCE && ahead(b)) release(level, aim);
         // вне мира после сброса лететь незачем: уход никто не увидит
         if (age >= maxAge() || released && (phaseAge() >= EGRESS_TICKS || isVirtual())) {
             discard();
@@ -152,6 +153,14 @@ public class BomberEntity extends StrikeProjectile {
         Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
+    }
+
+    /**
+     * Точка сброса впереди или почти под брюхом — там, куда бомба может упасть: позади она уже «пройдена»
+     * ({@link BunkerBusterEntity}: падает круто вниз по курсу, не рулит).
+     */
+    private boolean ahead(Bearing b) {
+        return !BunkerBusterEntity.passed(b, flight.yaw());
     }
 
     /**
