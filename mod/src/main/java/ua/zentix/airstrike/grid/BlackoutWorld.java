@@ -10,7 +10,6 @@ import net.minecraft.Util;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -133,34 +132,6 @@ public final class BlackoutWorld {
 
     /** Сколько ещё ждать подтверждения после {@link #LOD_TIMEOUT} (наносекунды). */
     private static final long LOD_LATE = 120_000_000_000L;
-    private static final int PROBES = 16;
-    private static final int PROBE_LATER = 1200;
-    private static final int PROBE_GIVE_UP = 12000;
-    /** Классы пробы: как в сети, наоборот, другой блок, нет данных. */
-    private static final String[] PROBE_CLASSES = {"как в сети", "наоборот", "другой блок", "нет данных"};
-
-    private static final class Probe {
-        final BlockPos pos;
-        /** Какой LOD ждём: последняя отдача чанка (тёмный или со светом). */
-        boolean dark;
-        /** Строки DH о лампе и её двойнике начинаются с id блока и {@code _STATE_}. */
-        final String litId, unlitId;
-        /** Когда прочитана первая проба (тик мира; -1 — ещё нет), прочитана ли вторая. */
-        long first = -1;
-        boolean laterAsked, firstRead;
-
-        Probe(BlockPos pos, boolean dark, BlockState state) {
-            this.pos = pos;
-            this.dark = dark;
-            BlockState lit = GridLights.isLit(state) ? state : GridLights.lit(state);
-            BlockState unlit = GridLights.isUnlit(state) ? state : GridLights.unlit(state);
-            this.litId = BuiltInRegistries.BLOCK.getKey(lit.getBlock()) + "_STATE_";
-            this.unlitId = BuiltInRegistries.BLOCK.getKey(unlit.getBlock()) + "_STATE_";
-        }
-    }
-
-    private record ProbeResult(long chunk, int stage, @Nullable String block) {}
-
     private final List<Sweep> sweeps = new ArrayList<>();
     /** Чанки, которые пора перевести: из каскада, загрузки, поставленной лампы. */
     private final LongArrayFIFOQueue ready = new LongArrayFIFOQueue();
@@ -208,19 +179,6 @@ public final class BlackoutWorld {
     private long lodSince;
     private int lodSinceWork;
     private boolean readFailureLogged;
-    /**
-     * Проба хранилища LOD DH (одна строка в лог за загрузку мира): первые {@link #PROBES} чанков, отданных DH, — по одной лампе; что DH
-     * хранит на её месте сразу после подтверждения (или по сроку без него) и через {@link #PROBE_LATER} тиков
-     * (не переписал ли он LOD сам, например генератором по файлам регионов, минуя {@link ChunkSaves}).
-     */
-    private final Long2ObjectOpenHashMap<Probe> probes = new Long2ObjectOpenHashMap<>();
-    private final ConcurrentLinkedQueue<ProbeResult> probeResults = new ConcurrentLinkedQueue<>();
-    private int probesStarted;
-    private boolean probesDone;
-    /** Проба, которую DH так и не прочитал к этому тику мира, снимается ({@link #PROBE_GIVE_UP} после начала). */
-    private long probeDeadline;
-    private final int[][] probeTally = new int[2][4];
-    private final List<String> probeOdd = new ArrayList<>();
     /** Квартал → когда в нём последний раз играл звук (щелчок и гул на весь квартал — один раз). */
     private final Long2LongOpenHashMap sounded = new Long2LongOpenHashMap();
     @Nullable
@@ -366,7 +324,7 @@ public final class BlackoutWorld {
      * ({@link Blackouts#onServerTick}).
      */
     public boolean busy() {
-        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !probes.isEmpty() || !lodLate.isEmpty();
+        return !idle() || !staleLight.isEmpty() || !resignal.isEmpty() || !lodLate.isEmpty();
     }
 
     // ---------------------------------------------------------------- тик
@@ -388,9 +346,7 @@ public final class BlackoutWorld {
             } else {
                 lodRetried.remove(c);
             }
-            probeNow(level, c, 0, now);
         });
-        drainProbes();
         relightPlaced(level, clock);
         scheduleRestoreSweeps(grid, now);
         if (now % 20 == 0) {
@@ -406,7 +362,6 @@ public final class BlackoutWorld {
                 // не забыт: подтверждение ещё может прийти (ждём его в lodLate)
                 lodLate.put(e.getLongKey(), nanos);
                 lodUnconfirmed++;
-                probeNow(level, e.getLongKey(), 0, now);
                 return true;
             });
             long lateExpired = nanos - LOD_LATE;
@@ -417,19 +372,6 @@ public final class BlackoutWorld {
             });
             lodRetried.values().removeIf(t -> t <= lateExpired);
             resignal.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
-            if (!probes.isEmpty() && now >= probeDeadline) {
-                // DH не ответил (занят или закрылся): итог по тому, что есть
-                for (Probe pr : probes.values()) {
-                    if (!pr.firstRead) probeTally[0][3]++;
-                    probeTally[1][3]++;
-                }
-                probes.clear();
-                drainProbes();
-            }
-            for (var e : probes.long2ObjectEntrySet()) {
-                Probe pr = e.getValue();
-                if (pr.first >= 0 && !pr.laterAsked && now - pr.first >= PROBE_LATER) probeNow(level, e.getLongKey(), 1, now);
-            }
             // сосед вернулся к полной загрузке без события (опускался ниже у края видимости) — сверка сигнала сейчас
             for (long c : resignal.keySet()) {
                 ChunkPos p = new ChunkPos(c);
@@ -656,7 +598,6 @@ public final class BlackoutWorld {
             }
             lodSinceWork++;
             if (DistantHorizons.updateLod(level, chunk)) {
-                probe(level, c, chunk, PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime()));
                 lodPending.put(c, System.nanoTime());
                 lodLive++;
             } else {
@@ -684,7 +625,6 @@ public final class BlackoutWorld {
                 lodSkipped++;
             } else if (inMemory(level, r.chunk) == null && grid.dark(pos.x, pos.z, now) == r.dark) {
                 if (DistantHorizons.updateLod(level, r.copy)) {
-                    probe(level, r.chunk, r.copy, r.dark);
                     lodPending.put(r.chunk, System.nanoTime());
                     lodCopies++;
                 } else {
@@ -709,68 +649,6 @@ public final class BlackoutWorld {
         }
         lodSince = 0;
         lodSinceWork = 0;
-    }
-
-    /** Первая лампа чанка, отданного DH, — в пробу (пока их меньше {@link #PROBES}). */
-    private void probe(ServerLevel level, long c, LevelChunk chunk, boolean dark) {
-        Probe old = probes.get(c);
-        if (old != null) {
-            old.dark = dark;
-            return;
-        }
-        if (probesDone || probesStarted >= PROBES) return;
-        LevelChunkSection[] sections = chunk.getSections();
-        for (int i = 0; i < sections.length; i++) {
-            LevelChunkSection section = sections[i];
-            if (section == null || section.hasOnlyAir() || !section.maybeHas(st -> GridLights.isLit(st) || GridLights.isUnlit(st))) continue;
-            int y0 = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
-            for (int y = 0; y < 16; y++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int x = 0; x < 16; x++) {
-                        BlockState st = section.getBlockState(x, y, z);
-                        if (!GridLights.isLit(st) && !GridLights.isUnlit(st)) continue;
-                        probes.put(c, new Probe(new BlockPos(chunk.getPos().getMinBlockX() + x, y0 + y, chunk.getPos().getMinBlockZ() + z), dark, st));
-                        if (probesStarted++ == 0) probeDeadline = level.getGameTime() + PROBE_GIVE_UP;
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    /** Прочитать пробу чанка из хранилища DH (в фоне); {@code stage} 0 — сразу, 1 — позже. */
-    private void probeNow(ServerLevel level, long c, int stage, long now) {
-        Probe pr = probes.get(c);
-        if (pr == null || (stage == 0 ? pr.first >= 0 : pr.laterAsked)) return;
-        if (stage == 0) pr.first = now;
-        else pr.laterAsked = true;
-        DistantHorizons.lodSample(level, pr.pos).whenComplete((block, error) -> probeResults.add(new ProbeResult(c, stage, error == null ? block : null)));
-    }
-
-    private void drainProbes() {
-        ProbeResult r;
-        while ((r = probeResults.poll()) != null) {
-            Probe pr = probes.get(r.chunk);
-            if (pr == null) continue;
-            int cls;
-            if (r.block == null) cls = 3;
-            else if (r.block.startsWith(pr.unlitId)) cls = pr.dark ? 0 : 1;
-            else if (r.block.startsWith(pr.litId)) cls = pr.dark ? 1 : 0;
-            else cls = 2;
-            probeTally[r.stage][cls]++;
-            if (r.stage == 0) pr.firstRead = true;
-            if (cls != 0 && probeOdd.size() < 4) probeOdd.add((r.stage == 0 ? "сразу " : "позже ") + pr.pos.toShortString() + (pr.dark ? " (темно): " : " (свет): ") + r.block);
-            if (r.stage == 1) probes.remove(r.chunk);
-        }
-        if (probesDone || probesStarted == 0 || !probes.isEmpty()) return;
-        StringBuilder b = new StringBuilder();
-        for (int stage = 0; stage < 2; stage++) {
-            b.append(stage == 0 ? "сразу после сохранения: " : "; через 60 с: ");
-            for (int k = 0; k < 4; k++) b.append(k == 0 ? "" : ", ").append(PROBE_CLASSES[k]).append(' ').append(probeTally[stage][k]);
-        }
-        Airstrike.LOG.info("Блэкаут: проба LOD DH ({} чанков) — {}{}", probesStarted, b, probeOdd.isEmpty() ? "" : "; расхождения: " + String.join("; ", probeOdd));
-        // одна проба на загрузку мира
-        probesDone = true;
     }
 
     /**
