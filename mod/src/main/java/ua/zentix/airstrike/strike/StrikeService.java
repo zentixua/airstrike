@@ -69,7 +69,9 @@ public final class StrikeService {
         if (shooter != null && shooter.level() != level) shooter = null;
         if (weapon == WeaponType.NUKE) {
             // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
-            boolean ok = NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
+            boolean ok = target instanceof Target.Ground
+                    ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter)
+                    : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
             return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
         }
         Loadout.Nuke warhead = carrierNuke && Loadout.carriesNuke(weapon) ? nuke : null;

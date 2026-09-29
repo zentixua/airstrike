@@ -24,10 +24,16 @@ public final class C2S {
      * Что клиент видит под прицелом бинокля. Движущуюся цель клиент и сервер видят чуть по-разному,
      * поэтому клиент говорит, что именно выбрано, а сервер находит это у себя и проверяет.
      *
-     * @param kind   0 — точка, 1 — сущность (entityId), 2 — аппарат Sable (plotPos — точка в плоте)
+     * @param kind   0 — точка, 1 — сущность (entityId), 2 — аппарат Sable (plotPos — точка в плоте), 3 — место на земле
+     *               с карты (x и z; высота — оценка клиента, сервер берёт поверхность)
      */
     public record AimHint(int kind, Vec3 point, int entityId, Vec3 plotPos) {
-        public static final int POINT = 0, ENTITY = 1, AIRCRAFT = 2;
+        public static final int POINT = 0, ENTITY = 1, AIRCRAFT = 2, GROUND = 3;
+
+        /** Место на земле, выбранное на карте. */
+        public static AimHint ground(Vec3 point) {
+            return new AimHint(GROUND, point, 0, Vec3.ZERO);
+        }
         public static final StreamCodec<ByteBuf, AimHint> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, AimHint::kind, VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId, VEC3, AimHint::plotPos, AimHint::new);
     }

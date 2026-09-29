@@ -41,8 +41,13 @@ public final class NuclearStrikes {
      * пуск «издалека» — сразу таймер.
      */
     public static boolean launch(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable ServerPlayer owner) {
-        return owner == null ? launchFrom(level, target, yieldKt, airBurst, null, 0, null)
-                : launchFrom(level, target, yieldKt, airBurst, owner.position(), owner.getYRot(), owner.getUUID());
+        return launch(level, target, false, yieldKt, airBurst, owner);
+    }
+
+    /** @param surface цель — место на земле (с карты): подрыв на поверхности, высота {@code target} — только оценка */
+    public static boolean launch(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, @Nullable ServerPlayer owner) {
+        return owner == null ? launchFrom(level, target, surface, yieldKt, airBurst, null, 0, null)
+                : launchFrom(level, target, surface, yieldKt, airBurst, owner.position(), owner.getYRot(), owner.getUUID());
     }
 
     /**
@@ -51,10 +56,15 @@ public final class NuclearStrikes {
      */
     public static boolean launchFrom(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable Vec3 launcher, float yaw,
                                      @Nullable UUID owner) {
+        return launchFrom(level, target, false, yieldKt, airBurst, launcher, yaw, owner);
+    }
+
+    private static boolean launchFrom(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, @Nullable Vec3 launcher,
+                                      float yaw, @Nullable UUID owner) {
         if (!AirstrikeConfig.SERVER.nukeEnabled.get()) return false;
         yieldKt = Math.min(yieldKt, AirstrikeConfig.SERVER.nukeMaxYield.get());
         if (launcher == null) {
-            schedule(level, target, yieldKt, airBurst, target, owner);
+            schedule(level, target, surface, yieldKt, airBurst, target, owner);
             return true;
         }
         Vec3 back = Local.horizontal(yaw).scale(-30);
@@ -64,16 +74,16 @@ public final class NuclearStrikes {
         if (icbm == null) return false;
         icbm.prepare(pad, target, owner);
         if (!level.addFreshEntity(icbm)) return false;
-        schedule(level, target, yieldKt, airBurst, pad, owner);
+        schedule(level, target, surface, yieldKt, airBurst, pad, owner);
         return true;
     }
 
     /** Записать удар: момент подрыва = сейчас + время полёта; всем в измерении — тревога и отсчёт. */
-    private static void schedule(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, Vec3 launchPos, @Nullable UUID owner) {
+    private static void schedule(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, Vec3 launchPos, @Nullable UUID owner) {
         NuclearEvents events = NuclearEvents.get(level);
         long now = level.getGameTime();
         NuclearEvents.ScheduledStrike s = new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now,
-                now + AirstrikeConfig.SERVER.nukeFlightTime.get(), launchPos, Optional.ofNullable(owner));
+                now + AirstrikeConfig.SERVER.nukeFlightTime.get(), launchPos, Optional.ofNullable(owner), surface);
         events.schedule(s);
         Airstrike.LOG.info("МБР №{}: {} кт по {} {} {}, подрыв через {} с", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),
                 Mth.floor(target.z), (s.detonateTime() - now) / 20);
@@ -99,7 +109,7 @@ public final class NuclearStrikes {
         if (groundLoaded(level, target)) return NuclearWarhead.detonate(level, target, yieldKt, airBurst, owner);
         NuclearEvents events = NuclearEvents.get(level);
         long now = level.getGameTime();
-        events.schedule(new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now, now, target, Optional.ofNullable(owner)));
+        events.schedule(new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now, now, target, Optional.ofNullable(owner), false));
         return null;
     }
 
@@ -142,7 +152,8 @@ public final class NuclearStrikes {
         for (NuclearEvents.ScheduledStrike s : due) {
             events.unschedule(s);
             holdGround(level, s, false);
-            NuclearWarhead.detonate(level, s.target(), s.yieldKt(), s.airBurst(), s.owner().orElse(null));
+            Vec3 at = s.surface() ? surface(level, s.target()) : s.target();
+            NuclearWarhead.detonate(level, at, s.yieldKt(), s.airBurst(), s.owner().orElse(null));
         }
         if (now % 1200 == 0) events.prune(now);
         long t1 = System.nanoTime();
@@ -214,6 +225,13 @@ public final class NuclearStrikes {
 
     private static void sync(ServerLevel level) {
         for (ServerPlayer p : level.players()) sync(p);
+    }
+
+    /** Точка на поверхности в месте цели, выше она или ниже оценки (цель с карты); чанк не готов — оценка. */
+    private static Vec3 surface(ServerLevel level, Vec3 at) {
+        BlockPos p = BlockPos.containing(at);
+        if (!Terrain.ready(level, p)) return at;
+        return new Vec3(at.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), at.z);
     }
 
     /** Точка на земле под целью (для пуска по игроку или сущности — по их позиции). */

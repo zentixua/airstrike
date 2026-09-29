@@ -28,9 +28,13 @@ public final class NuclearEvents extends SavedData {
     /** Подрыв забывается через 7 игровых суток: осадки к тому времени спадают в сотни раз. */
     public static final long FORGET_AFTER = 7 * 24_000L;
 
-    /** Запланированный удар: цель, мощность, подрыв, когда и откуда стартовала ракета. */
+    /**
+     * Запланированный удар: цель, мощность, подрыв, когда и откуда стартовала ракета.
+     *
+     * @param surface цель — место на земле (с карты): подрыв на поверхности, какой бы ни была оценка высоты при пуске
+     */
     public record ScheduledStrike(int id, Vec3 target, double yieldKt, boolean airBurst, long launchTime, long detonateTime,
-                                  Vec3 launchPos, Optional<UUID> owner) {
+                                  Vec3 launchPos, Optional<UUID> owner, boolean surface) {
         public static final Codec<ScheduledStrike> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.INT.fieldOf("id").forGetter(ScheduledStrike::id),
                 Vec3.CODEC.fieldOf("target").forGetter(ScheduledStrike::target),
@@ -39,7 +43,8 @@ public final class NuclearEvents extends SavedData {
                 Codec.LONG.fieldOf("launch_time").forGetter(ScheduledStrike::launchTime),
                 Codec.LONG.fieldOf("detonate_time").forGetter(ScheduledStrike::detonateTime),
                 Vec3.CODEC.fieldOf("launch_pos").forGetter(ScheduledStrike::launchPos),
-                UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(ScheduledStrike::owner)
+                UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(ScheduledStrike::owner),
+                Codec.BOOL.optionalFieldOf("surface", false).forGetter(ScheduledStrike::surface)
         ).apply(i, ScheduledStrike::new));
     }
 

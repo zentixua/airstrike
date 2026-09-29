@@ -88,6 +88,7 @@ public final class ClientScenario {
         else if ("models".equals(mode)) planModels();
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
+        else if ("target-map".equals(mode)) planTargetMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
@@ -702,6 +703,49 @@ public final class ClientScenario {
         for (int t = 240; t <= 1400; t += 12) shot(t, "map");
         for (int t = 600; t <= 1400; t += 100) at(t, ClientScenario::dumpFlights);
         at(1410, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Карта наведения: открыть с пульта, отдалить колесом, выбрать место кликом в 60 и 40 пикселей от центра (северо-восток),
+     * огонь по Enter — всё через ввод экрана, как у игрока. В лог — выбранное место и цель снаряда по данным сервера
+     * (высота — поверхность); кадры target-map_* — карта с рельефом, с меткой цели, потом снаряд на ней.
+     */
+    private void planTargetMap() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0.5 120 0.5 0 30");
+        });
+        at(300, () -> {
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
+            Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        });
+        shot(340, "target-map");
+        at(360, () -> {
+            var screen = Minecraft.getInstance().screen;
+            screen.mouseScrolled(screen.width / 2.0, screen.height / 2.0, 0, -2);
+        });
+        shot(400, "target-map");
+        at(420, () -> {
+            var screen = Minecraft.getInstance().screen;
+            double x = screen.width / 2.0 + 60, y = screen.height / 2.0 - 40;
+            screen.mouseClicked(x, y, 0);
+            screen.mouseReleased(x, y, 0);
+            Airstrike.LOG.info("SCENARIO map-target selected {}", ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level));
+        });
+        shot(430, "target-map");
+        at(440, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
+        at(500, () -> {
+            for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
+                Airstrike.LOG.info("SCENARIO map-target flight {} target {}", f.weapon(), f.target());
+            }
+            Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        });
+        for (int t = 520; t <= 700; t += 30) shot(t, "target-map");
+        at(710, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

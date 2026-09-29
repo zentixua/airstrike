@@ -402,6 +402,41 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Место с карты: высота с клиента — только оценка (здесь на 40 блоков под землёй), шахед всё равно бьёт в поверхность
+     * этого места, как только знает её.
+     */
+    @GameTest(template = "runway", timeoutTicks = 400, batch = "map_target", skyAccess = true)
+    public static void mapTargetHitsSurface(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 50, 4)));
+        Vec3 guess = top(h, RUNWAY_TARGET).subtract(0, 40, 0);
+        Target.Ground ground = new Target.Ground(guess);
+        drone.launch(start, ground, ground.surface(level), null);
+        level.addFreshEntity(drone);
+        h.succeedWhen(() -> {
+            h.assertTrue(drone.isRemoved(), "шахед ещё летит: " + h.relativeVec(drone.position()));
+            assertCrater(h, RUNWAY_TARGET);
+        });
+    }
+
+    /** Место с карты берёт высоту земли в своей колонке: и в центре, и у снаряда залпа со сдвигом (на столбе). */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void groundTargetTakesSurface(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos pillar = RANGE_CENTER.offset(12, 0, 0);
+        for (int y = 1; y <= 6; y++) h.setBlock(pillar.above(y), Blocks.STONE);
+        Target.Ground center = new Target.Ground(Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 50, 0));
+        double surface = h.absolutePos(RANGE_CENTER).getY() + 0.5;
+        Vec3 c = center.resolve(level).orElseThrow();
+        h.assertTrue(Math.abs(c.y - surface) < 1e-6, "центр не на земле: " + h.relativeVec(c));
+        Vec3 shot = center.offset(new Vec3(12, 7, 0)).resolve(level).orElseThrow();
+        h.assertTrue(Math.abs(shot.y - (surface + 6)) < 1e-6 && Math.abs(shot.x - (c.x + 12)) < 1e-6,
+                "сдвиг залпа не на столбе: " + h.relativeVec(shot));
+        h.succeed();
+    }
+
+    /**
      * Полёт вне загруженных чанков: ракета стартует в 1.5 км от цели, где мира нет, летит «виртуально» и возвращается
      * в мир у цели (чанки цели загружает её же тикет), не трогая по пути незагруженное.
      */
@@ -595,6 +630,9 @@ public final class StrikeGameTests {
         Target t = new Target.OfSubLevel(new Vec3(1.5, 2.5, 3.5));
         Target tb = Target.CODEC.parse(NbtOps.INSTANCE, Target.CODEC.encodeStart(NbtOps.INSTANCE, t).getOrThrow()).getOrThrow();
         h.assertTrue(t.equals(tb), "цель не пережила сохранение: " + tb);
+        Target g = new Target.Ground(new Vec3(-1234.5, 70, 987.25));
+        Target gb = Target.CODEC.parse(NbtOps.INSTANCE, Target.CODEC.encodeStart(NbtOps.INSTANCE, g).getOrThrow()).getOrThrow();
+        h.assertTrue(g.equals(gb), "место с карты не пережило сохранение: " + gb);
 
         Loadout huge = new Loadout(WeaponType.DRONE, 10_000, -5, TargetMode.LOOK, "x".repeat(40), new Loadout.Nuke(0, true));
         h.assertTrue(huge.count() == Loadout.MAX_COUNT && huge.spread() == 0 && huge.player().length() == 16, "зажим значений");

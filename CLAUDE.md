@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
                                            ноутбук не засыпает, по выходу гасится всё её
@@ -108,7 +108,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины;
   `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО); `guidance/Orbit` — круг барража
   (векторное поле курсов с упреждением v/r: выход на круг по касательной).
-- `target/` — `Target` (точка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
+- `target/` — `Target` (точка, место на земле с карты `Ground` — высота из готового чанка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
   аппарата → сущность → блок), `TargetTracker`. `compat/SubLevels` — вся связь с Sable (через sable-companion,
   вшит jar-in-jar; сам Sable — compileOnly).
 - `warhead/` — `Warheads` (ванильный `explode` со своим DamageSource и беззвучным звуком, подземный взрыв бомбы
@@ -143,7 +143,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки),
   `cam/ProjectileCamera` (планы: пуск сбоку от пусковой, борт с телеметрией, попадание — помехи и облёт;
   камера вне снаряда — клиентский `Marker`, не добавленный в мир; ЛКМ — перенацелить; снаряда нет на клиенте —
-  `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
+  `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт),
+  `screen/MapScreen` (карта наведения: клик — место удара, `C2S.AimHint.GROUND`, дальность — `map_range`), `map/` (общая проекция
+  карт `MapProjection`; `TerrainTiles` — рельеф плитками 64×64 цветами ванильной карты: из Distant Horizons через его API
+  `DhApi.Delayed.terrainRepo` в фоновых потоках, если DH стоит (compileOnly, класс `DistantHorizonsTerrain` грузится только
+  с DH), иначе из чанков клиента в кадре), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
 - `legacy/LegacyMigration` — переезд со старого датапака: выключает `file/airstrike`/`file/shahed`, переносит

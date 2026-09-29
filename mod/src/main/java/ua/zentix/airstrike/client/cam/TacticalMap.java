@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.client.cam;
 
-import com.mojang.math.Axis;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -11,6 +10,8 @@ import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.HudDraw;
 import ua.zentix.airstrike.client.hud.StrikesHud;
+import ua.zentix.airstrike.client.map.MapProjection;
+import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.registry.ModEntities;
 
@@ -23,19 +24,18 @@ import java.util.Locale;
  * и не присылается вовсе.
  * Смотреть издалека в ванили можно только камерой наблюдателя, которая переносит к цели самого игрока, — поэтому
  * вместо картинки здесь то, что есть: телеметрия {@code FlightStatus} (где снаряд, куда, фаза, время до удара).
- * Как у наземной станции управления БПЛА без видеоканала: карта «север вверх», путь, курс, цель, оператор и граница,
- * за которой появится видео. Масштаб и центр плавно следуют за снарядом, целью и оператором.
+ * Как у наземной станции управления БПЛА без видеоканала: карта «север вверх» с рельефом ({@link TerrainTiles}), путь,
+ * курс, цель, оператор и граница, за которой появится видео. Масштаб и центр плавно следуют за снарядом, целью и оператором.
  */
 final class TacticalMap {
-    /** Сетка — не мельче этого, пикселей. */
-    private static final int GRID_MIN_PX = 40;
-    private static final double[] GRID_STEPS = {10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000};
     /** Доля перехода к новому масштабу и центру за тик. */
     private static final double FOLLOW = 0.15;
 
     private static final int BG = 0xF00A1410, GRID = 0x2860FF90, GRID_TEXT = 0x9060FF90, INK = 0xFFD8F0E0;
     private static final int TRAIL = 0xB060C8FF, ROUTE = 0x90FF6040, TARGET = 0xFFFF3030, CRAFT = 0xFFFFD040, OTHER = 0xA0A0B0A8;
     private static final int OPERATOR = 0xFFFFFFFF, VIDEO_RING = 0x8080FFA0;
+    /** Рельеф под картой приглушён: поверх него читаются путь, цель и телеметрия. */
+    private static final int TERRAIN_DIM = 0x900A1410;
 
     /** Вид карты: центр (x, z мира) и пикселей на блок — сейчас и тиком раньше (для плавности между тиками). */
     private static double cx, cz, scale, cxO, czO, scaleO;
@@ -96,9 +96,11 @@ final class TacticalMap {
         int w = g.guiWidth(), h = g.guiHeight();
         double viewX = Mth.lerp(pt, cxO, cx), viewZ = Mth.lerp(pt, czO, cz);
         double k = Math.exp(Mth.lerp(pt, Math.log(scaleO), Math.log(scale)));
-        Projection map = new Projection(w / 2.0, h / 2.0 + 10, viewX, viewZ, k);
+        MapProjection map = new MapProjection(w / 2.0, h / 2.0 + 10, viewX, viewZ, k);
 
         g.fill(0, 0, w, h, BG);
+        TerrainTiles.render(g, map, 0, 0, w, h);
+        g.fill(0, 0, w, h, TERRAIN_DIM);
         grid(g, font, map, w, h);
 
         Vec3 me = mc.player.getPosition(pt);
@@ -133,33 +135,15 @@ final class TacticalMap {
         if (who != null) label(g, font, who, t[0], t[1] + 9, TARGET);
 
         Vec3 v = f.velocity();
-        aircraft(g, c[0], c[1], (float) Math.toDegrees(Math.atan2(-v.x, v.z)), CRAFT);
+        HudDraw.heading(g, c[0], c[1], (float) Math.toDegrees(Math.atan2(-v.x, v.z)), CRAFT);
         label(g, font, Component.literal("№" + f.number + (f.nuclear() ? " ☢" : "")), c[0], c[1] - 16, CRAFT);
 
         telemetry(g, font, f, craft, v, pt);
         status(g, font, f, craft, me, range, w, h);
     }
 
-    /** Сетка с шагом не мельче {@link #GRID_MIN_PX} и подпись шага. */
-    private static void grid(GuiGraphics g, Font font, Projection map, int w, int h) {
-        double step = GRID_STEPS[GRID_STEPS.length - 1];
-        for (double s : GRID_STEPS) {
-            if (s * map.k >= GRID_MIN_PX) {
-                step = s;
-                break;
-            }
-        }
-        double left = map.worldX(0), right = map.worldX(w), top = map.worldZ(0), bottom = map.worldZ(h);
-        for (double x = Math.floor(left / step) * step; x <= right; x += step) {
-            int px = map.x(x);
-            g.fill(px, 0, px + 1, h, GRID);
-        }
-        for (double z = Math.floor(top / step) * step; z <= bottom; z += step) {
-            int py = map.y(z);
-            g.fill(0, py, w, py + 1, GRID);
-        }
-        Component legend = Component.translatable("airstrike.map.grid", String.format(Locale.ROOT, "%.0f", step));
-        g.drawString(font, legend, 8, h - 14, GRID_TEXT);
+    private static void grid(GuiGraphics g, Font font, MapProjection map, int w, int h) {
+        map.drawGrid(g, font, 0, 0, w, h, GRID, GRID_TEXT);
         g.drawString(font, "N ↑", w / 2 - font.width("N ↑") / 2, 26, GRID_TEXT);
     }
 
@@ -197,42 +181,7 @@ final class TacticalMap {
         g.drawString(font, line.copy().withStyle(ChatFormatting.GRAY), w / 2 - font.width(line) / 2, h - 48, INK);
     }
 
-    /** Значок снаряда: стрелка по курсу (0° — на север, по часовой). */
-    private static void aircraft(GuiGraphics g, int x, int y, float yaw, int color) {
-        g.pose().pushPose();
-        g.pose().translate(x, y, 0);
-        // курс Minecraft: 0° — на +Z (вниз по карте), по часовой — к −X; на экране поворот по часовой — положительный
-        g.pose().mulPose(Axis.ZP.rotationDegrees(yaw + 180));
-        g.fill(-1, -7, 1, 6, color);
-        g.fill(-6, -1, 6, 1, color);
-        g.fill(-3, 4, 3, 6, color);
-        g.pose().popPose();
-    }
-
     private static void label(GuiGraphics g, Font font, Component text, int x, int y, int color) {
         g.drawString(font, text, x - font.width(text) / 2, y, color);
-    }
-
-    /** Мир (x, z) → экран: север (−Z) вверх, восток (+X) вправо. */
-    private record Projection(double ox, double oy, double cx, double cz, double k) {
-        int x(double worldX) {
-            return (int) Math.round(ox + (worldX - cx) * k);
-        }
-
-        int y(double worldZ) {
-            return (int) Math.round(oy + (worldZ - cz) * k);
-        }
-
-        int[] at(Vec3 p) {
-            return new int[] {x(p.x), y(p.z)};
-        }
-
-        double worldX(int screenX) {
-            return cx + (screenX - ox) / k;
-        }
-
-        double worldZ(int screenY) {
-            return cz + (screenY - oy) / k;
-        }
     }
 }

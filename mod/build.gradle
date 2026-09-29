@@ -27,6 +27,11 @@ repositories {
         forRepository { maven { url = 'https://maven.ryanhcode.dev/releases' } }
         filter { includeGroupAndSubgroups 'dev.ryanhcode' }
     }
+    // Distant Horizons API (у DH своего maven нет; Modrinth отдаёт файлы проекта как maven)
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
     mavenCentral()
 }
 
@@ -38,6 +43,8 @@ def mcModsDir = file(project.findProperty('mcModsDir') ?: "${mcDir}/mods")
 def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 'create-aeronautics-bundled-1.21.1-*.jar']
 // сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
 def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
+// ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
+def dhModPatterns = System.getenv('AIRSTRIKE_DH') ? ['DistantHorizons-*.jar'] : []
 
 // каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
 def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
@@ -123,6 +130,8 @@ dependencies {
     compileOnly "dev.ryanhcode.sable:sable-common-${minecraft_version}:${sable_version}"
     // sable-companion (MIT): мягкая зависимость — без Sable работает встроенная заглушка
     compileOnly "dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}"
+    // Distant Horizons: только API для компиляции — рельеф вдали для карты наведения, если DH стоит (compat/DistantHorizons)
+    compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
     jarJar("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}") {
         version { strictly "[${sable_companion_version}]"; prefer sable_companion_version }
     }
@@ -141,7 +150,7 @@ test {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns : runtimeModPatterns).each { include it } }
+        from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns : runtimeModPatterns).each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
         onlyIf { mcModsDir.isDirectory() }
     }

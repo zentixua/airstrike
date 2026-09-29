@@ -239,15 +239,16 @@ public final class NuclearGameTests {
         h.succeed();
     }
 
-    /** Подрыв и запланированный удар переживают сохранение (кодеки), отбой отменяет удар. */
+    /** Подрыв и запланированный удар (по месту с карты — подрыв на поверхности) переживают сохранение, отбой отменяет удар. */
     @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_schedule", skyAccess = true)
     public static void scheduledStrikeSavesAndClears(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(CENTER));
-        h.assertTrue(NuclearStrikes.launch(level, target, 15, true, null), "удалённый пуск не прошёл");
+        h.assertTrue(NuclearStrikes.launch(level, target, true, 15, true, null), "удалённый пуск не прошёл");
         List<NuclearEvents.ScheduledStrike> scheduled = NuclearEvents.get(level).scheduled();
         h.assertTrue(scheduled.size() == 1, "запланировано ударов: " + scheduled.size());
         NuclearEvents.ScheduledStrike s = scheduled.getFirst();
+        h.assertTrue(s.surface(), "удар по месту с карты не помечен как удар по поверхности");
         var tag = NuclearEvents.ScheduledStrike.CODEC.encodeStart(NbtOps.INSTANCE, s).getOrThrow();
         h.assertTrue(NuclearEvents.ScheduledStrike.CODEC.parse(NbtOps.INSTANCE, tag).getOrThrow().equals(s), "удар не пережил сохранение");
         Detonation d = detonation(h, CENTER, 300, 15, 0.1f);

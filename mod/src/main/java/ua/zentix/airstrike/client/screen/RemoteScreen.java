@@ -21,6 +21,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
+import ua.zentix.airstrike.client.map.MapTarget;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
@@ -41,7 +42,7 @@ import java.util.function.IntConsumer;
 
 /**
  * Экран пульта (вместо меню в чате): оружие, количество, разброс и цель — куда смотрю, вокруг меня,
- * игрок из списка или аппарат рядом; у ядерной — мощность и подрыв, пуск через 3 с взведения.
+ * игрок из списка, аппарат рядом или место на карте ({@link MapScreen}); у ядерной — мощность и подрыв, пуск через 3 с взведения.
  * Настройки сохраняются в пульте; пуск проверяет сервер.
  */
 public class RemoteScreen extends Screen {
@@ -127,7 +128,8 @@ public class RemoteScreen extends Screen {
         y += 26;
 
         // режим цели
-        int mw = (W - 20) / 4;
+        int modes = TargetMode.values().length;
+        int mw = (W - 8 - 4 * (modes - 1)) / modes;
         for (TargetMode m : TargetMode.values()) {
             int x = x0 + 4 + m.ordinal() * (mw + 4);
             addRenderableWidget(Button.builder(label(m.displayName(), loadout.mode() == m), b -> {
@@ -136,6 +138,12 @@ public class RemoteScreen extends Screen {
             }).bounds(x, y, mw, 20).build());
         }
         y += 24;
+
+        // место на карте: открыть карту наведения
+        if (loadout.mode() == TargetMode.MAP) {
+            addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.open_map").withStyle(ChatFormatting.YELLOW), b -> openMap())
+                    .bounds(x0 + 4, y, W - 8, 20).build());
+        }
 
         // список: игроки или аппараты рядом
         choices.clear();
@@ -252,11 +260,43 @@ public class RemoteScreen extends Screen {
         }
     }
 
+    /** Настройки пульта, с которыми пойдёт пуск. */
+    Loadout loadout() {
+        return loadout;
+    }
+
+    private void openMap() {
+        Minecraft.getInstance().setScreen(new MapScreen(this));
+    }
+
+    /**
+     * Огонь с карты наведения: по выбранному там месту (режим цели пульта становится «На карте»). Карта открывается
+     * и клавишей, без показа пульта, поэтому здесь и в {@link #fire} — {@code Minecraft.getInstance()}, а не поле экрана.
+     */
+    void fireOnMap() {
+        if (loadout.mode() != TargetMode.MAP) {
+            loadout = loadout.withMode(TargetMode.MAP);
+            save();
+        }
+        fire();
+    }
+
     private void fire() {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
-        C2S.Fire packet = new C2S.Fire(loadout, nukePoint(), Optional.ofNullable(aircraft));
-        onClose();
+        Optional<C2S.AimHint> aim;
+        if (loadout.mode() == TargetMode.MAP) {
+            Optional<Vec3> place = MapTarget.get(Minecraft.getInstance().level);
+            if (place.isEmpty()) {
+                openMap();
+                return;
+            }
+            aim = place.map(C2S.AimHint::ground);
+        } else {
+            aim = nukePoint();
+        }
+        C2S.Fire packet = new C2S.Fire(loadout, aim, Optional.ofNullable(aircraft));
+        Minecraft.getInstance().setScreen(null);
         if (loadout.nuclear()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
         } else {
@@ -296,6 +336,9 @@ public class RemoteScreen extends Screen {
             case AROUND_ME -> Component.translatable("airstrike.remote.hint.around_me");
             case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : Component.translatable("airstrike.remote.hint.player");
             case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : Component.translatable("airstrike.remote.hint.aircraft");
+            case MAP -> MapTarget.get(minecraft.level)
+                    .<Component>map(p -> Component.translatable("airstrike.remote.hint.map", Mth.floor(p.x), Mth.floor(p.z)))
+                    .orElse(Component.translatable("airstrike.remote.hint.no_map"));
         };
         g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);
     }
