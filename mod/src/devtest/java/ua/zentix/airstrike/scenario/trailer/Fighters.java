@@ -42,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 final class Fighters {
     /** Истребитель в полёте: аппарат, путь ведущего, отставание по нему (тиков), место в строю справа (блоков). */
     record Sortie(Aircraft craft, FlightPath path, double lag, double side, long[] ticks) {
-        /** Время на пути ведущего, где сейчас этот самолёт. */
+        /** Время на пути ведущего, где сейчас этот самолёт (отставание меньше нуля — впереди ведущего). */
         double time(double partial) {
             return ticks[0] + partial - lag;
         }
@@ -86,7 +86,8 @@ final class Fighters {
                     (int) java.util.Arrays.stream(path.points()).mapToDouble(Vec3::y).min().orElse(0),
                     (int) java.util.Arrays.stream(path.points()).mapToDouble(Vec3::y).max().orElse(0));
             go = false;
-            for (double[] slot : new double[][]{{0, 0}, {2, 15}}) {
+            // ведомый — впереди справа: камера идёт слева-сзади ведущего, и ведомый, стоящий сзади, заслонял кадр у края
+            for (double[] slot : new double[][]{{0, 0}, {-1.6, 16}}) {
                 // собирается над своим местом в строю и с первым тиком сервера встаёт на него
                 Vec3 p = place(path, slot[1], -slot[0]);
                 Aircraft craft = Aircraft.build(level, BlockPos.containing(p.add(0, 12, 0)), path.yaw(0));
@@ -137,7 +138,7 @@ final class Fighters {
 
     /**
      * Камера в строю: слева-сзади ведущего, чуть выше, и отстаёт — пара уходит вперёд на форсаже; крен камеры —
-     * половина крена ведущего (горизонт валится, но город внизу читается).
+     * доля {@code fall} от половины крена ведущего (горизонт валится, но город внизу читается).
      *
      * @param k    доля плана 0…1
      * @param fall куда камера валится вместе с креном (знак проверен кадрами)
@@ -153,7 +154,7 @@ final class Fighters {
         Vec3 flat = new Vec3(fwd.x, 0, fwd.z).normalize();
         Vec3 right = new Vec3(-flat.z, 0, flat.x);
         double e = k * k * (3 - 2 * k);
-        double back = Mth.lerp(e, 17, 36), side = Mth.lerp(e, -13, -8), up = Mth.lerp(e, 2.5, 6);
+        double back = Mth.lerp(e, 15, 26), side = Mth.lerp(e, -12, -9), up = Mth.lerp(e, 3, 5);
         Vec3 from = at.add(flat.scale(-back)).add(right.scale(side)).add(0, up, 0);
         return CineCamera.Pose.look(from, at.add(flat.scale(40)).add(0, -3, 0), fall * 0.5f * lead.path().roll(t), 55);
     }

@@ -135,10 +135,10 @@ public final class Trailer {
 
     private record Seen(String type, Class<?> cls, Vec3 pos) {}
 
-    /** Истребители: 10 блоков за тик (200 м/с), план — 150 тиков (7,5 с); куда валится камера с креном. */
+    /** Истребители: 10 блоков за тик (200 м/с), план — 150 тиков (7,5 с); сколько крена берёт камера (знак проверен кадрами). */
     private static final double FIGHTER_SPEED = 10;
     private static final int FIGHTER_TICKS = 150;
-    private static final float FIGHTER_CAMERA_FALL = 1;
+    private static final float FIGHTER_CAMERA_FALL = 0.6f;
 
     /** Пара истребителей плана fighters. */
     private final Fighters fighters = new Fighters();
