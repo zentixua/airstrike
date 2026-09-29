@@ -64,6 +64,8 @@ public final class ClientScenario {
     private int lensMax;
     /** Сценарий моделей: частицы не нужны. */
     private boolean models;
+    /** Раз в сколько тиков звук в лог. */
+    private int soundEvery = 10;
 
     public ClientScenario(IEventBus modBus) {
         String scenario = System.getProperty("airstrike.scenario");
@@ -94,6 +96,7 @@ public final class ClientScenario {
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
         else if ("salvo-bench".equals(mode)) planSalvoBench();
+        else if ("flyby".equals(mode)) planFlyby();
         else plan();
     }
 
@@ -139,7 +142,7 @@ public final class ClientScenario {
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
         if (models) mc.particleEngine.setLevel(mc.level);
-        if (tick % 10 == 0) logSound();
+        if (tick % soundEvery == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
     }
@@ -579,6 +582,40 @@ public final class ClientScenario {
         c.droneFlightTime.set(5);
         c.missileFlightTime.set(5);
         c.bomberFlightTime.set(5);
+    }
+
+    /**
+     * Пролёт над головой: зритель стоит на земле на пути снарядов, пущенных издалека (без пусковой рядом), — залп РСЗО
+     * из-за спины (снаряды проходят над ним к цели в 200 блоках впереди), крылатая ракета и шахед (последний прямой
+     * участок маршрута — тоже из-за спины). Снаряды долго летят вне мира и дальше дальности сущностей: звук с первых
+     * слышимых сотен блоков идёт по пакетам сервера ({@code s} в строках звука), вблизи — по сущности ({@code e}).
+     * Звук — в строках лога раз в 5 тиков и в audio.wav.
+     */
+    private void planFlyby() {
+        soundEvery = 5;
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            cmd("tp @s 0 200 0 0 0");
+        });
+        at(200, () -> {
+            var c = ua.zentix.airstrike.AirstrikeConfig.SERVER;
+            c.launchNearPlayer.set(false);
+            c.droneFlightTime.set(12);
+            c.missileFlightTime.set(12);
+            aimAhead(200);
+            Minecraft mc = Minecraft.getInstance();
+            int y = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, 0, 0);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s 0.5 %d 0.5 facing %.1f %.1f %.1f", y, target.x, target.y, target.z));
+        });
+        at(240, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike salvo rocket 6 12 at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(700, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        at(1100, () -> cmd(String.format(java.util.Locale.ROOT, "airstrike drone at %.1f %.1f %.1f", target.x, target.y, target.z)));
+        for (int t = 250; t <= 1700; t += 50) at(t, ClientScenario::dumpFlights);
+        at(1750, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
     }
 
     /**

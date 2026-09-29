@@ -257,5 +257,10 @@ public final class AirstrikeClient {
         public void flights(S2C.Flights p) {
             ClientFlights.update(p);
         }
+
+        @Override
+        public void heard(S2C.Heard p) {
+            ClientSounds.heard(p);
+        }
     }
 }

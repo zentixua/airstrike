@@ -64,4 +64,21 @@ class AcousticsTest {
         assertEquals(0.12, Acoustics.gain(290, 20, 0.12, 300), 1e-9);
         assertEquals(0.0, Acoustics.gain(400, 60, 0.12, 300), 1e-9);
     }
+
+    @Test
+    void airflowIsLoudestOnTheApproach() {
+        // тот же снаряд в 100 блоках: идёт на слушателя — громко, уходит — треть того
+        double toward = Acoustics.airflow(100, 4, 4, 50, 4);
+        double away = Acoustics.airflow(100, 4, -4, 50, 4);
+        assertEquals(0.5, toward, 1e-9);
+        assertEquals(0.3, away / toward, 1e-9);
+    }
+
+    @Test
+    void airflowFadesWithSpeedAndDistance() {
+        // у вершины дуги вдвое медленнее — вчетверо тише; дальше среза и затухания — тишина
+        assertEquals(0.25, Acoustics.airflow(100, 2, 2, 50, 4) / Acoustics.airflow(100, 4, 4, 50, 4), 1e-9);
+        assertEquals(0, Acoustics.airflow(ua.zentix.airstrike.strike.Hearing.AIRFLOW + ua.zentix.airstrike.strike.Hearing.FADE, 4, 4, 50, 4), 1e-12);
+        assertEquals(0, Acoustics.airflow(10, 0, 0, 50, 4), 1e-12);
+    }
 }

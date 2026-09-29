@@ -202,6 +202,34 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Звук снаряда вне мира: снаряд РСЗО летит «виртуально» в 600 блоках от цели — слушатель в 150 блоках от него
+     * получает его путь (фаза, где он, сколько до цели), в 1000 блоках — нет: снаряд вне загруженного мира слышно
+     * так же, как в мире, и не дальше, чем его слышно.
+     */
+    @GameTest(template = "runway", timeoutTicks = 100, batch = "heard", skyAccess = true)
+    public static void virtualFlightIsHeardOnlyInRange(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        r.launchFrom(point.add(0, 0, -600), new Target.Point(point), point, null);
+        VirtualFlights.launch(level, r);
+        h.runAfterDelay(10, () -> {
+            var flights = ua.zentix.airstrike.strike.FlightSounds.flights(level);
+            h.assertTrue(flights.stream().anyMatch(f -> f.getUUID().equals(r.getUUID()) && f.isVirtual()), "снаряда нет среди летящих вне мира");
+            Vec3 at = r.position();
+            var near = ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(150, 0, 0), null);
+            h.assertTrue(near.size() == 1 && near.getFirst().id().equals(r.getUUID()), "в 150 блоках не слышно: " + near);
+            var f = near.getFirst();
+            h.assertTrue(f.pos().distanceTo(at) < 1.0e-6 && f.weapon() == WeaponType.ROCKET.id() && !f.bomber(), "не тот путь: " + f);
+            h.assertTrue(Math.abs(f.distanceToAim() - at.distanceTo(r.aimPoint())) < 0.01, "до цели: " + f.distanceToAim());
+            h.assertTrue(ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(1000, 0, 0), null).isEmpty(), "слышно за 1000 блоков");
+            // не долетать: в партии теста больше никого, а снаряд, упавший после конца теста, упал бы на чужую площадку
+            VirtualFlights.get(level).clear();
+            h.succeed();
+        });
+    }
+
+    /**
      * Крылатая ракета на атаке, у которой цель оказалась сбоку внутри круга разворота (на 12 блоках/тик и 3°/тик —
      * радиус ~240 блоков): уходит прямо, пока цель не выйдет из круга, и заходит снова. Раньше она кружила вокруг
      * цели, пока не выходил срок жизни (стенд нагрузки на ноутбуке: ракета убрана в 270 блоках от цели, на атаке).

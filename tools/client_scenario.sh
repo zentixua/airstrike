@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (N) до удара;
 #   rocket — залп РСЗО: камера у пакета на очереди, дуги над головой, разрывы по площади;
@@ -13,6 +13,7 @@
 #   models — модели снарядов крупным планом с трёх сторон (на пусковой, в полёте, B-2 с открытым бомболюком);
 #   occlusion — большие залпы за каменной стеной, потом камера водит взглядом; в лог — частицы по слоям движка;
 #   onboard — видео с борта ракеты (N) при наводчике на суше и под водой: кадры onboard-dry_*, onboard-wet_*;
+#   flyby — зритель на земле на пути снарядов издалека (залп РСЗО, ракета, шахед): звук подлёта и пролёта в лог и audio.wav;
 #   shaders — ещё Sodium, Iris и шейдерпак хоста из инстанса (как у Артёма); dh — ещё Distant Horizons из инстанса
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
