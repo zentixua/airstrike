@@ -17,6 +17,9 @@ mkdir -p "$RUN/logs"
 #   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
 # язык игры — AIRSTRIKE_LANG (по умолчанию en_us: ролик только на английском)
 # размытие движения — AIRSTRIKE_SUBFRAMES подкадров на кадр (начисто — 8, проба — 1)
+# проверка перед долгой съёмкой — тот же вид (шейдеры, DH, размер), без размытия и каждый 20-й кадр на диск:
+#   AIRSTRIKE_SUBFRAMES=1 AIRSTRIKE_KEEP=20 AIRSTRIKE_TRAILER_DIR=check … tools/trailer/record.sh shaders dh
+#   uv run tools/trailer/sheets.py mod/run/scenario/check   → листы «начало, середина, конец» по планам
 export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"
 rm -rf "${RUN:?}/$AIRSTRIKE_TRAILER_DIR"
 # карта съёмки (Greenfield, уже обновлённая до 1.21.1): AIRSTRIKE_WORLD_SRC — чистая копия, её не трогаем; каждый дубль
@@ -53,8 +56,9 @@ OPT
 export AIRSTRIKE_SCENARIO=trailer
 export AIRSTRIKE_SIZE="${AIRSTRIKE_SIZE:-1920x1080}"
 W="${AIRSTRIKE_SIZE%x*}"; H="${AIRSTRIKE_SIZE#*x}"
-# кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)
-NEED_GB=$(( W * H * 12 / 10 * 12000 / 1000000000 + 1 ))
+# кадры PNG: ~1.2 байта на пиксель, весь сценарий — до 30 000 кадров (замедленные планы кончаются по событию:
+# полный дубль 1 — ~20 000); 1440p — ~130 ГБ; проверочный прогон (AIRSTRIKE_KEEP) пишет лишь каждый N-й
+NEED_GB=$(( W * H * 12 / 10 * 30000 / ${AIRSTRIKE_KEEP:-1} / 1000000000 + 1 ))
 FREE_GB=$(( $(df -Pk "$RUN" | awk 'NR==2 {print $4}') / 1000000 ))
 if [ "$FREE_GB" -lt "$NEED_GB" ]; then
   echo "record.sh: для кадров ${W}x${H} нужно ~${NEED_GB} ГБ, свободно ${FREE_GB} ГБ в $RUN" >&2

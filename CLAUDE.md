@@ -55,6 +55,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            по времени мира (замедление ниже тоном, стоп-кадр — тишина) и звуки монтажа →
                                            dist/airstrike-trailer.mp4 (1440p), -lite.mp4, -teaser.mp4 (9:16, 30 с),
                                            -thumbnail.png, -credits.txt; тесты — uv run tools/trailer/test_edit.py
+    trailer/sheets.py <папка записи>     ← листы проверки: начало, середина и конец каждого плана; перед долгой съёмкой —
+                                           проверочный прогон в том же виде: AIRSTRIKE_SUBFRAMES=1 AIRSTRIKE_KEEP=20 record.sh
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: сборка, юнит-тесты, GameTest, jar в артефактах; релиз на GitHub

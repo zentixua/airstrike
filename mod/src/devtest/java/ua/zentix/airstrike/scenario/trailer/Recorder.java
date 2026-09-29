@@ -63,6 +63,8 @@ final class Recorder implements SoundEventListener {
      * интервала кадра («затвор 180°» — 0.5). Сумма копится здесь, на диск идёт готовый кадр.
      */
     private int subframes = 1, sub;
+    /** Каждый какой кадр писать на диск: 1 — все (съёмка), больше — проверочный прогон по ключевым кадрам. */
+    private static final int KEEP = Math.max(1, Integer.getInteger("airstrike.keep", 1));
     private double shutter = 0.5;
     private int[] accum;
     private int accumW, accumH;
@@ -205,7 +207,9 @@ final class Recorder implements SoundEventListener {
      */
     boolean frame(double t, Camera camera) {
         if (shot == null) return false;
-        NativeImage image = Screenshot.takeScreenshot(Minecraft.getInstance().getMainRenderTarget());
+        // проверочный прогон (AIRSTRIKE_KEEP=N): на диск — каждый N-й кадр, остальные даже не снимаются с экрана
+        boolean kept = nextFrame % KEEP == 0;
+        NativeImage image = kept || subframes > 1 ? Screenshot.takeScreenshot(Minecraft.getInstance().getMainRenderTarget()) : null;
         if (subframes > 1) {
             accumulate(image);
             if (++sub < subframes) return false;
@@ -218,7 +222,8 @@ final class Recorder implements SoundEventListener {
         write(String.format(Locale.ROOT, "{\"type\":\"frame\",\"shot\":\"%s\",\"k\":%d,\"t\":%.3f,\"ct\":%.3f,\"cam\":[%.2f,%.2f,%.2f,%.2f,%.2f]}",
                 shot, k, worldT, camT, cam.x, cam.y, cam.z, camera.getYRot(), camera.getXRot()));
         soundUpdates(worldT);
-        grab(image, root.resolve("frames").resolve(shot).resolve(String.format(Locale.ROOT, "%05d.png", k)));
+        if (kept) grab(image, root.resolve("frames").resolve(shot).resolve(String.format(Locale.ROOT, "%05d.png", k)));
+        else if (image != null) image.close();
         worldT += step();
         camT += camStep();
         if (frozenFrames > 0) frozenFrames--;

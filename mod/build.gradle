@@ -76,6 +76,8 @@ neoForge {
             // трейлер: подкадров на кадр видео (размытие движения, AIRSTRIKE_SUBFRAMES=8 — начисто) и мир съёмки —
             // папка в run/scenario/saves (AIRSTRIKE_WORLD, копия Greenfield); без него сценарий создаёт свой мир
             systemProperty 'airstrike.subframes', System.getenv('AIRSTRIKE_SUBFRAMES') ?: '1'
+            // проверочный прогон трейлера: на диск каждый N-й кадр (AIRSTRIKE_KEEP=20 — три кадра на секунду видео)
+            systemProperty 'airstrike.keep', System.getenv('AIRSTRIKE_KEEP') ?: '1'
             if (System.getenv('AIRSTRIKE_WORLD')) systemProperty 'airstrike.world', System.getenv('AIRSTRIKE_WORLD')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)

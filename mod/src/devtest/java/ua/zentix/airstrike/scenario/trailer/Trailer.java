@@ -237,17 +237,24 @@ public final class Trailer {
     }
 
     /** Наводчик на холмах: со спины на фоне города, бинокль, место удара на карте — пуск ракеты. */
+    /** Сколько тиков клиента карта уже получает рельеф Distant Horizons (план «map»). */
+    private final int[] mapTilesFor = {0};
+
     private void operator() {
         fromAfar(false);
-        run(() -> cmd("time set 0"));
+        // утро, а не восход: наводчик смотрит на восток, в город, и на восходе солнце било в объектив и в бинокль
+        run(() -> cmd("time set 1800"));
         run(this::placeActor);
         run(() -> cmd("give @s airstrike:strike_designator[airstrike:loadout={weapon:\"missile\",count:1,spread:0}]"));
         waitTicks(40);
+        // через плечо: голова и плечо наводчика слева внизу, город (рельеф DH за 4 км) — посередине; наезд
         shot("operator").length(120).farView().shake(0.1).camera(() -> {
-            Vec3 eye = post.add(0, 1.5, 0);
-            // из-за спины: город за головой наводчика, камера обходит его по дуге
-            double start = Math.toDegrees(Math.atan2(toPost.x, toPost.z)) - 35;
-            return CineCamera.orbit(() -> eye, 3.4, 0.15, start, 0.5, 50);
+            // от ног самого наводчика: он стоит не ровно на отметке поста (в прошлом облёте голова была у края кадра)
+            Vec3 feet = mc.player.position();
+            Vec3 city = TOWER.add(0, 110, 0);
+            Vec3 from = feet.add(toPost.scale(2.8)).add(side.scale(-0.9)).add(0, 1.95, 0);
+            Vec3 to = feet.add(toPost.scale(1.7)).add(side.scale(-0.55)).add(0, 1.85, 0);
+            return CineCamera.spline(true, CineCamera.Key.at(0, from, city, 38), CineCamera.Key.at(120, to, city, 33));
         }).cue(20, () -> mc.options.keyUse.setDown(true));
         shot("scope").length(80).hud().player(t -> {
             Vec3 eye = post.add(0, 1.62, 0);
@@ -256,12 +263,17 @@ public final class Trailer {
             return new Pose(Vec3.ZERO, yaw - 9 * (float) (1 - s), pitch - 2 * (float) (1 - s), 0, 70);
         }).cue(0, () -> mc.options.keyUse.setDown(true)).cueEnd(() -> mc.options.keyUse.setDown(false));
         // карта: открывается на главной башне, отъезжает на весь центр; Enter — пуск
-        shot("map").length(150).hud().player(t -> new Pose(Vec3.ZERO, yawTo(post, TOWER), 10, 0, 70))
-                .cue(0, () -> {
+        // карта открывается ещё при стоящем мире: плитки рельефа Distant Horizons читаются в его фоне (пока он грузит
+        // свои LOD — десятки секунд), запись — когда они пришли
+        shot("map").length(124).hud().player(t -> new Pose(Vec3.ZERO, yawTo(post, TOWER), 10, 0, 70))
+                .prepare(() -> {
                     ua.zentix.airstrike.client.screen.MapScreen.reset();
                     ua.zentix.airstrike.client.map.MapTarget.set(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(towerTop.x, towerTop.z));
                     mc.setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
                 })
+                // первая плитка DH — ещё не карта: после неё ещё 10 с на остальные (без DH ждать нечего)
+                .when(() -> !ua.zentix.airstrike.client.map.TerrainTiles.farTerrain()
+                        || !ua.zentix.airstrike.client.map.TerrainTiles.farPending() && ++mapTilesFor[0] > 200, 2400)
                 .cues(20, 70, 8, () -> {
                     var s = mc.screen;
                     if (s != null) s.mouseScrolled(s.width / 2.0, s.height / 2.0, 0, -1);
@@ -313,7 +325,8 @@ public final class Trailer {
                 && d.distanceTo(l) > 45, 0);
         // разгон и отделение ускорителя вплотную
         shot("boost").after(() -> newest(DroneEntity.class) != null, 200).noPrep().length(56).speed(0.4).hidden()
-                .camera(() -> chaseOf(newest(DroneEntity.class), 7.5, 1.6, 2.6, 6, 0, 58));
+                // снизу-сбоку, на фоне неба: у земли за шахедом — плоская равнина с полосами LOD, камера не ниже земли
+                .camera(() -> lifted(chaseOf(newest(DroneEntity.class), 7, -0.8, 3.2, 6, 0, 56), 0.8));
         // над городом низко, между башнями: невидимка идёт за камерой, шахед остаётся в мире
         shot("drone_city").after(() -> newest(DroneEntity.class) != null, 200).noPrep().length(150).hidden().shake(0.06)
                 .camera(() -> chaseOf(newest(DroneEntity.class), 9, 2.5, -4, 24, 8, 56))
@@ -324,7 +337,8 @@ public final class Trailer {
                 .bulletTime(DroneEntity.class, hit, 150, 0.3)
                 .camera(() -> {
                     Vec3 at = hit.get();
-                    Vec3 from = ground(at.add(side.scale(-70)).add(toPost.scale(-40))).add(0, 14, 0);
+                    // место с чистым видом на попадание и на всю дугу облёта (в центре камера упиралась в стены)
+                    Vec3 from = openView(at, 75, 16, side.scale(-70).add(toPost.scale(-40)), -80, 30);
                     return bulletTimeCamera(from, smoothFocus(() -> nearest(DroneEntity.class, at, 400), at.add(0, 3, 0), 0.3), 50, -80, 30);
                 })
                 .when(() -> nearest(DroneEntity.class, hit.get(), 260) != null, 3000)
@@ -392,9 +406,18 @@ public final class Trailer {
                     scramble(c.add(260, 42, -14), c.add(-360, 42, -14), 3.5);
                     scramble(c.add(282, 36, 6), c.add(-338, 36, 6), 3.5);
                 })
-                .camera(() -> {
+                // в строю: камера сбоку-сзади ведущего, по тому же пути (не по позе с сервера — она ступенчатая по тикам)
+                .camera(() -> t -> {
+                    Sortie lead = sorties.isEmpty() ? null : sorties.getFirst();
                     Vec3 c = roofCam.get();
-                    return CineCamera.track(c, smoothFocus(this::leadFighter, c.add(200, 40, 0), 0.25), 54);
+                    if (lead == null) return Pose.look(c.add(0, 30, 0), c.add(200, 40, 0), 0, 50);
+                    Vec3 dir = lead.to().subtract(lead.from());
+                    double len = dir.length();
+                    dir = dir.normalize();
+                    double n = lead.ticks()[0] + CineCamera.partial();
+                    Vec3 at = lead.from().lerp(lead.to(), Math.min(1, n * lead.speed() / len));
+                    Vec3 right = new Vec3(-dir.z, 0, dir.x);
+                    return Pose.look(at.add(right.scale(-15)).add(dir.scale(-19)).add(0, 3.5, 0), at.add(dir.scale(10)).add(0, -1, 0), -4, 50);
                 })
                 .when(() -> missileRange() < 1100, 6000)
                 .cueEnd(() -> {
@@ -448,6 +471,9 @@ public final class Trailer {
      */
     private void onboard() {
         run(() -> cmd("time set 6000"));
+        // пусковая у наводчика, в городе: ракета, пущенная издалека, возвращалась в мир клиента (зона видео — 256 блоков
+        // от наводчика) лишь у самой цели и на кадр не успевала; своя ракета с соседней улицы в мире с пуска
+        fromAfar(false);
         // видео с борта — только в 256 блоках от наводчика: в 290 ракета так и дошла до цели на карте
         run(() -> placeActor(ground(eastFacade.add(-150, 0, 70)), EAST_TOWER));
         waitTicks(60);
@@ -458,11 +484,10 @@ public final class Trailer {
                     mc.options.renderDistance().set(ONBOARD_RENDER_DISTANCE);
                     if (!ProjectileCamera.isActive()) ProjectileCamera.cycle();
                 })
-                // с запасом: подготовка (прогрузка 14 чанков вокруг) идёт при стоящем мире, а видео с борта — лишь
-                // последние ~250 блоков (≈22 тика); кончается план вскоре после попадания, а не по длине
-                .when(() -> onMap() && missileRange() < 1500, 4000)
-                .length(220).speed(0.2).hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
-                .endWhen(() -> sinceGone(CruiseMissileEntity.class) > 25, 0)
+                // весь полёт в обычной скорости, последние 300 блоков до стены — в 5 раз медленнее; конец — после попадания
+                .length(1400).speed(1, slowNear(CruiseMissileEntity.class, () -> eastFacade, 300, 0.2))
+                .hud().projectileCamera().readyChunks(ONBOARD_RENDER_DISTANCE - 2)
+                .endWhen(() -> ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty(), 25)
                 .cueEnd(() -> {
                     ProjectileCamera.exit();
                     mc.options.renderDistance().set(renderDistance);
@@ -491,7 +516,7 @@ public final class Trailer {
                 .camera(() -> {
                     Vec3 at = pit.get();
                     // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
-                    Vec3 from = ground(at.add(side.scale(-60)).add(toPost.scale(50))).add(0, 28, 0);
+                    Vec3 from = openView(at, 70, 28, side.scale(-60).add(toPost.scale(50)), 60, 34);
                     return bulletTimeCamera(from, smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.3), 55, 60, 34);
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
@@ -955,6 +980,57 @@ public final class Trailer {
             double a = Math.atan2(d.x, d.z) + Math.toRadians(arcDeg) * u;
             double r = Mth.lerp(u, d.horizontalDistance(), radius), h = Mth.lerp(u, d.y, radius * 0.3);
             return Pose.look(c.add(Math.sin(a) * r, h, Math.cos(a) * r), c, 0, fov);
+        };
+    }
+
+    /**
+     * Откуда смотреть на точку: из 24 направлений на расстоянии {@code dist} и высоте {@code up} над ней — то, откуда
+     * видна сама точка и вся дуга облёта ({@link #bulletTimeCamera}), ближе всего к желаемому {@code prefer}.
+     * Лучи — на сервере (чанки там грузятся сразу; в сценарии это можно).
+     */
+    private Vec3 openView(Vec3 at, double dist, double up, Vec3 prefer, double arcDeg, double radius) {
+        MinecraftServer server = mc.getSingleplayerServer();
+        Vec3 want = new Vec3(prefer.x, 0, prefer.z).normalize();
+        return server.submit(() -> {
+            ServerLevel level = server.overworld();
+            Vec3 eye = at.add(0, 2, 0);
+            Vec3 best = null;
+            double bestScore = Double.NEGATIVE_INFINITY;
+            for (int i = 0; i < 24; i++) {
+                double a = Math.toRadians(15 * i);
+                Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
+                Vec3 start = at.add(dir.scale(dist)).add(0, up, 0);
+                int clear = sees(level, eye, start) ? 4 : 0;
+                for (int k = 1; k <= 4; k++) {
+                    double u = k / 4.0, b = a + Math.toRadians(arcDeg) * u;
+                    double r = Mth.lerp(u, dist, radius), h = Mth.lerp(u, up, radius * 0.3);
+                    if (sees(level, eye, at.add(Math.sin(b) * r, h, Math.cos(b) * r))) clear++;
+                }
+                double score = clear * 10 + dir.dot(want);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = start;
+                }
+            }
+            Airstrike.LOG.info("TRAILER вид на {}: {} (чистота {}/8)", at, best, (int) (bestScore / 10 + 0.05));
+            return best;
+        }).join();
+    }
+
+    /** Между точками нет блоков (листва тоже заслоняет). */
+    private static boolean sees(ServerLevel level, Vec3 from, Vec3 to) {
+        var hit = level.clip(new net.minecraft.world.level.ClipContext(from, to, net.minecraft.world.level.ClipContext.Block.VISUAL,
+                net.minecraft.world.level.ClipContext.Fluid.NONE, net.minecraft.world.phys.shapes.CollisionContext.empty()));
+        return hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS || hit.getLocation().distanceTo(to) < 1;
+    }
+
+    /** Камера пути не ниже {@code clearance} над рельефом (карта высот клиента). */
+    private Path lifted(Path p, double clearance) {
+        return t -> {
+            Pose q = p.at(t);
+            if (q == null) return null;
+            double floor = ground(q.pos()).y + clearance;
+            return q.pos().y >= floor ? q : new Pose(new Vec3(q.pos().x, floor, q.pos().z), q.yaw(), q.pitch(), q.roll(), q.fov());
         };
     }
 
