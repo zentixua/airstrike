@@ -14,6 +14,8 @@
 # На 4 ядрах облака клиенты съедают процессор, генерация чанков стоит в очереди, и любая синхронная загрузка чанка
 # (телепорт, Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; тик дольше 0,5 с пишется со стеком.
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
+# Gradle только собирает и готовит запуски (rigLaunch → mod/build/rig/stress-*.sh) и выходит до старта: у живого Gradle
+# UDP-сокет блокировок на 0.0.0.0, а в стенде в сеть не смотрит ничего — сервер и клиенты идут прямо из файлов MDG.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN="$ROOT/mod/run/stress"
@@ -21,11 +23,19 @@ MODS_ARG=()
 [ -n "${MODS:-}" ] && MODS_ARG=("-PmcModsDir=$MODS")
 cd "$ROOT/mod"
 
-./gradlew --console=plain -q classes devtestClasses copyRuntimeMods_stress prepareStressServerRun prepareStressClientRun "${MODS_ARG[@]}"
-
 # сервер слушает только петлю и свободный порт: на VPS 0.0.0.0:25565 с online-mode=false нашёл сканер из интернета
 # (сторож LoopbackGuard роняет сервер, если сокет не на петле); клиенты берут порт из AIRSTRIKE_STRESS_PORT
 export AIRSTRIKE_STRESS_PORT="${AIRSTRIKE_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
+CLIENTS=("Host host" "Friend1 leaver" "Friend2 friend")
+
+# настройки запусков (имя и роль клиента, порт, режим режиссёра) Gradle читает из окружения при подготовке
+AIRSTRIKE_STRESS="${AIRSTRIKE_STRESS:-run}" ./gradlew --console=plain -q rigLaunch -PrigRun=runStressServer -PrigOut=stress-server "${MODS_ARG[@]}"
+for c in "${CLIENTS[@]}"; do
+  read -r name role <<< "$c"
+  AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role \
+    ./gradlew --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
+done
+RIG="$ROOT/mod/build/rig"
 rm -rf "$RUN/server/world" "$RUN/server/logs"
 mkdir -p "$RUN/server"
 echo eula=true > "$RUN/server/eula.txt"
@@ -54,7 +64,7 @@ pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
-AIRSTRIKE_STRESS="${AIRSTRIKE_STRESS:-run}" ./gradlew --console=plain runStressServer "${MODS_ARG[@]}" > "$RUN/server.out" 2>&1 &
+"$RIG/stress-server.sh" > "$RUN/server.out" 2>&1 &
 server=$!
 pids+=("$server")
 until grep -q 'Done (' "$RUN/server.out" 2>/dev/null; do
@@ -63,7 +73,7 @@ until grep -q 'Done (' "$RUN/server.out" 2>/dev/null; do
 done
 
 client() {
-  local name=$1 role=$2
+  local name=$1
   mkdir -p "$RUN/$name/logs"
   ln -sfn ../mods "$RUN/$name/mods"
   cat > "$RUN/$name/options.txt" <<OPT
@@ -81,21 +91,19 @@ skipMultiplayerWarning:true
 OPT
   if command -v kwin_wayland >/dev/null; then
     # рабочий стол KDE: свой вложенный KWin на клиента (без окна, без звука, своя шина и сокет), на видеокарте
-    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 \
-      "$ROOT/mod/gradlew -p $ROOT/mod --console=plain runStressClient ${MODS_ARG[*]}" > "$RUN/$name.out" 2>&1 &
+    "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1 &
   else
     # облако: xvfb-run и программная отрисовка; звуковой сервер клиенту закрыт, как в nested_kwin.sh
-    AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role LIBGL_ALWAYS_SOFTWARE=1 \
-      PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
-      xvfb-run -a -s "-screen 0 854x480x24" ./gradlew --console=plain runStressClient "${MODS_ARG[@]}" > "$RUN/$name.out" 2>&1 &
+    LIBGL_ALWAYS_SOFTWARE=1 PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \
+      xvfb-run -a -s "-screen 0 854x480x24" "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1 &
   fi
   pids+=("$!")
 }
-client Host host
+client Host
 sleep 20
-client Friend1 leaver
+client Friend1
 sleep 20
-client Friend2 friend
+client Friend2
 
 wait "$server" || true
 sleep 30
