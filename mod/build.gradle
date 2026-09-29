@@ -121,6 +121,9 @@ neoForge {
         }
     }
 }
+// -Xlog:gc пишет в logs/ каталога запуска, а JVM сама каталог не создаёт и не стартует без него (свежий клон, облако)
+tasks.matching { it.name == 'runClientScenario' }.configureEach { doFirst { project.file("${scenarioDir}/logs").mkdirs() } }
+tasks.matching { it.name == 'runStressServer' }.configureEach { doFirst { project.file('run/stress/server').mkdirs() } }
 neoForge.addModdingDependenciesTo(sourceSets.devtest)
 // юнит-тесты кода, который держит данные в классах Minecraft (Vec3, NBT), без запуска игры
 neoForge.addModdingDependenciesTo(sourceSets.test)
