@@ -126,6 +126,14 @@ final class Fighters {
         return sorties.isEmpty() ? null : sorties.getFirst();
     }
 
+    /** Где ведущий в этот кадр у клиента (для проверки кадров), или null. */
+    @Nullable
+    Object leadOnScreen() {
+        Sortie lead = lead();
+        Pose3dc pose = lead == null ? null : renderPose(lead.craft(), CineCamera.partial());
+        return pose == null ? null : new Vec3(pose.position().x(), pose.position().y(), pose.position().z());
+    }
+
     /** Поза аппарата, как его рисует клиент в этот кадр, или null (ещё не пришёл). */
     @Nullable
     static Pose3dc renderPose(Aircraft craft, float partial) {

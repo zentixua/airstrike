@@ -175,16 +175,17 @@ public final class Aircraft {
 
     /**
      * Силуэт двухдвигательного истребителя носом на +Z (около 16 × 15 блоков, как F-22 в метрах): широкий
-     * фюзеляж в два тона серого, горб и фонарь, треугольное крыло из плит (тонкое), ракеты на законцовках,
+     * фюзеляж в светлых серых тонах, горб и фонарь, треугольное крыло из плит (тонкое), ракеты на законцовках,
      * стабилизаторы за крылом, два киля, два сопла. {@code origin} — хвост фюзеляжа по оси.
      */
     static Map<BlockPos, BlockState> shape(BlockPos origin) {
         Map<BlockPos, BlockState> m = new LinkedHashMap<>();
-        BlockState hull = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
+        // светлые серые: под шейдерами хоста самолёт в небе темнеет, и серый бетон читался чёрным
+        BlockState hull = Blocks.POLISHED_DIORITE.defaultBlockState();
         BlockState panel = Blocks.SMOOTH_STONE_SLAB.defaultBlockState();
-        BlockState dark = Blocks.GRAY_CONCRETE.defaultBlockState();
+        BlockState dark = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
         BlockState nozzle = Blocks.POLISHED_BLACKSTONE.defaultBlockState();
-        BlockState intake = Blocks.BLACK_CONCRETE.defaultBlockState();
+        BlockState intake = Blocks.GRAY_CONCRETE.defaultBlockState();
         BlockState canopy = Blocks.TINTED_GLASS.defaultBlockState();
         BlockState missile = Blocks.WHITE_CONCRETE.defaultBlockState();
         // фюзеляж: ось с носом, бока с воздухозаборниками спереди, сопла сзади
