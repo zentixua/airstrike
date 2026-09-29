@@ -190,6 +190,9 @@ public final class StressDirector {
         as(1200, "Host", "airstrike nuke at 0 ~ -1000 15 air");
         as(2320, "Friend1", "airstrike salvo drone 30 150 Host");
         as(2340, "Host", "airstrike salvo rocket 30 150 Friend2");
+        // Friend1 выходит посреди удара и возвращается (клиент — через 300 своих тиков); выход — по команде режиссёра,
+        // а не по часам клиента: иначе он попадал на шаг, где Friend1 пускает сам (VPS 29.09.2026: залп ракет пропущен)
+        at(2400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
         at(2600, "сохранение мира посреди полёта", s -> run(s, "save-all"));
         // «Отбой» посреди волны 2, затем волна 3
         at(3200, "Отбой", s -> {
@@ -199,6 +202,7 @@ public final class StressDirector {
         as(3300, "Host", "airstrike salvo loiter 30 150 at 600 ~ 600");
         as(3320, "Friend1", "airstrike salvo missile 30 150 Friend2");
         as(3340, "Friend2", "airstrike salvo rocket 30 150 Host");
+        at(3400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
         if (Boolean.getBoolean("airstrike.stress.restart")) {
             as(4600, "Host", "airstrike salvo drone 20 100 at 700 ~ 700");
@@ -241,6 +245,16 @@ public final class StressDirector {
         return p;
     }
 
+    /** Строка, по которой клиент стенда выходит из игры сам, как игрок посреди удара ({@link StressClient}). */
+    static final String LEAVE = "airstrike-stress: leave";
+
+    private void leave(MinecraftServer s, String name) {
+        ServerPlayer p = need(s, name, "выход");
+        if (p == null) return;
+        p.sendSystemMessage(Component.literal(LEAVE));
+        log("%s выходит", name);
+    }
+
     private void tp(MinecraftServer s, String name, int x, int z) {
         ServerPlayer p = need(s, name, "телепорт");
         if (p == null) return;
@@ -250,43 +264,64 @@ public final class StressDirector {
         log("tp %s → %d %d", name, x, z);
     }
 
+    /**
+     * Аппарат Sable в 24 блоках от игрока, на земле: игрок летает на высоте 200, и аппарат, собранный в воздухе,
+     * падал к удару на десятки блоков. Ищется потом по своему UUID, а не по месту.
+     */
     private void buildCraft(MinecraftServer s, String near) {
         ServerPlayer p = need(s, near, "аппарат");
         if (p == null) return;
-        BlockPos c = p.blockPosition().offset(24, 30, 0);
+        ServerLevel level = p.serverLevel();
+        BlockPos at = p.blockPosition().offset(24, 0, 0);
         // fill и Sable грузили бы неготовые чанки прямо в тике (стенд сам вставал на десятки секунд): ждём готовых
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
-                if (!Terrain.ready(p.serverLevel(), (c.getX() >> 4) + dx, (c.getZ() >> 4) + dz)) {
+                if (!Terrain.ready(level, (at.getX() >> 4) + dx, (at.getZ() >> 4) + dz)) {
                     log("чанки под аппаратом ещё грузятся — через секунду");
                     at(tick + 20, "аппарат у " + near + " (повтор)", sv -> buildCraft(sv, near));
                     return;
                 }
             }
         }
+        BlockPos c = new BlockPos(at.getX(), level.getHeight(Heightmap.Types.MOTION_BLOCKING, at.getX(), at.getZ()) + 1, at.getZ());
         run(s, String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:oak_planks", c.getX() - 4, c.getY(), c.getZ() - 3, c.getX() + 4, c.getY() + 2, c.getZ() + 3));
         run(s, String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:glass", c.getX() - 2, c.getY() + 3, c.getZ() - 1, c.getX() + 2, c.getY() + 3, c.getZ() + 1));
         run(s, s.createCommandSourceStack(), String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", c.getX() - 4, c.getY(), c.getZ() - 3, c.getX() + 4, c.getY() + 3, c.getZ() + 3));
         craftCenter = Vec3.atCenterOf(c);
+        findCraft(s, 0);
+    }
+
+    /** UUID собранного аппарата: Sable может достроить его не в том же тике — ищем до секунды. */
+    private void findCraft(MinecraftServer s, int attempt) {
+        var subs = ua.zentix.airstrike.compat.SubLevels.near(s.overworld(), craftCenter, 8);
+        if (!subs.isEmpty()) {
+            craftId = subs.get(0).getUniqueId();
+            log("аппарат %s собран у %.0f %.0f %.0f", craftId, craftCenter.x, craftCenter.y, craftCenter.z);
+        } else if (attempt < 20) {
+            at(tick + 1, "поиск аппарата", sv -> findCraft(sv, attempt + 1));
+        } else {
+            problems.add(String.format(Locale.ROOT, "аппарат не собрался у %.0f %.0f %.0f", craftCenter.x, craftCenter.y, craftCenter.z));
+        }
     }
 
     private Vec3 craftCenter;
+    @Nullable
+    private UUID craftId;
 
     private void strikeCraft(MinecraftServer s, String shooter, int missiles, int drones) {
         ServerPlayer p = need(s, shooter, "удар по аппарату");
         if (p == null) return;
-        if (craftCenter == null) {
+        if (craftId == null) {
             problems.add("шаг пропущен: удар по аппарату, аппарат не построен");
             return;
         }
-        var subs = ua.zentix.airstrike.compat.SubLevels.near(s.overworld(), craftCenter, 32);
-        log("аппаратов у цели: %d", subs.size());
-        if (subs.isEmpty()) {
-            problems.add("шаг пропущен: удар по аппарату, у цели нет аппарата");
+        var sub = ua.zentix.airstrike.compat.SubLevels.byId(s.overworld(), craftCenter, craftId);
+        if (sub == null) {
+            problems.add("шаг пропущен: удар по аппарату, аппарата " + craftId + " больше нет");
             return;
         }
-        var sub = subs.get(0);
         Vec3 c = ua.zentix.airstrike.compat.SubLevels.center(sub);
+        log("аппарат %s у %.0f %.0f %.0f", craftId, c.x, c.y, c.z);
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
