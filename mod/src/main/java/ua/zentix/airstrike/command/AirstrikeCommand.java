@@ -13,7 +13,6 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -29,9 +28,7 @@ import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.strike.Loadout;
-import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
-import ua.zentix.airstrike.strike.StrikeService;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
@@ -74,7 +71,7 @@ public final class AirstrikeCommand {
             CommandSourceStack s = ctx.getSource();
             boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && ServerActions.mayUseNuke(p);
             int n = ServerActions.clearAll(s.getServer(), nuclear);
-            s.sendSuccess(() -> Component.translatable("airstrike.cleared", n), true);
+            s.sendSuccess(() -> ServerActions.clearedMessage(n, nuclear), true);
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))
@@ -146,14 +143,12 @@ public final class AirstrikeCommand {
 
     private static int nukeLook(CommandContext<CommandSourceStack> ctx, Loadout.Nuke nuke) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        Loadout l = ServerActions.clamp(new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", nuke));
-        ServerActions.Aim aim = ServerActions.fromMode(player, l, null);
-        return aim != null && ServerActions.strike(player, WeaponType.NUKE, 1, 0, aim, l.nuke()) ? 1 : 0;
+        ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", nuke), null);
+        return aim != null && ServerActions.strike(player, WeaponType.NUKE, 1, 0, aim, nuke) ? 1 : 0;
     }
 
     private static int nukeAt(CommandSourceStack s, Vec3 pos, Loadout.Nuke nuke) {
-        Loadout.Nuke n = ServerActions.clamp(new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", nuke)).nuke();
-        return fire(s, WeaponType.NUKE, 1, 0, new ServerActions.Aim(new Target.Point(pos), pos, null), n);
+        return fire(s, WeaponType.NUKE, 1, 0, new ServerActions.Aim(new Target.Point(pos), pos, null), nuke);
     }
 
     private static Vec3 lookPoint(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -208,12 +203,13 @@ public final class AirstrikeCommand {
                                 .executes(ctx -> entity(ctx, w, count(ctx), spread(ctx), EntityArgument.getEntity(ctx, "target"))))));
     }
 
+    /** Количество и разброс залпа зажимает пуск ({@link ServerActions#clamp}). */
     private static int count(CommandContext<CommandSourceStack> ctx) {
-        return Math.min(IntegerArgumentType.getInteger(ctx, "count"), AirstrikeConfig.SERVER.maxSalvo.get());
+        return IntegerArgumentType.getInteger(ctx, "count");
     }
 
     private static int spread(CommandContext<CommandSourceStack> ctx) {
-        return Math.min(IntegerArgumentType.getInteger(ctx, "spread"), AirstrikeConfig.SERVER.maxSpread.get());
+        return IntegerArgumentType.getInteger(ctx, "spread");
     }
 
     private static int look(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread) throws CommandSyntaxException {
@@ -246,17 +242,10 @@ public final class AirstrikeCommand {
     }
 
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim, Loadout.Nuke nuke) {
-        if (s.getEntity() instanceof ServerPlayer player) {
-            return ServerActions.strike(player, w, count, spread, aim, nuke) ? 1 : 0;
-        }
-        ServerLevel level = s.getLevel();
-        float yaw = s.getRotation().y;
-        StrikeService.log(s.getTextName(), w, count, spread, aim.point());
-        if (count <= 1 && spread <= 0) {
-            return StrikeService.launch(level, w, aim.target(), aim.point(), yaw, null, true, nuke, false).ok() ? 1 : 0;
-        }
-        SalvoData.start(level, w, count, spread, aim.target(), aim.point(), yaw, null, nuke);
-        return 1;
+        boolean ok = s.getEntity() instanceof ServerPlayer player
+                ? ServerActions.strike(player, w, count, spread, aim, nuke)
+                : ServerActions.dispatch(s.getLevel(), s.getTextName(), s.getRotation().y, w, count, spread, aim, nuke);
+        return ok ? 1 : 0;
     }
 
     private static int give(CommandContext<CommandSourceStack> ctx, Collection<ServerPlayer> players) {

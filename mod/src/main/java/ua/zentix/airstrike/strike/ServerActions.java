@@ -3,6 +3,7 @@ package ua.zentix.airstrike.strike;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,6 +35,7 @@ import ua.zentix.airstrike.target.TargetPicker;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /** Действия игроков с пульта (пакеты) и команд: пуск, настройки пульта, отбой. Всё проверяется здесь. */
 public final class ServerActions {
@@ -58,7 +60,7 @@ public final class ServerActions {
         }
         if (tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
 
-        Loadout l = clamp(p.loadout());
+        Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null) return;
         strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke());
@@ -91,8 +93,9 @@ public final class ServerActions {
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
-        int n = clearAll(player.server, mayUseNuke(player));
-        player.sendSystemMessage(Component.translatable("airstrike.cleared", n).withStyle(ChatFormatting.GRAY));
+        boolean nuclear = mayUseNuke(player);
+        int n = clearAll(player.server, nuclear);
+        player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
     }
 
     /** Действие того же рода было меньше {@link #FIRE_INTERVAL} тиков назад; иначе запомнить это. */
@@ -133,34 +136,60 @@ public final class ServerActions {
     }
 
     /**
-     * Пустить: один снаряд точно в цель или залп.
+     * Пустить от имени игрока (заход из-за его спины): один снаряд точно в цель или залп — после проверки прав.
      *
      * @return true, если пуск состоялся
      */
     public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        ServerLevel level = player.serverLevel();
-        float yaw = player.getYRot();
-        boolean nuclear = weapon == WeaponType.NUKE || nuke.onCarrier() && Loadout.carriesNuke(weapon);
-        if (nuclear && !mayUseNuke(player)) {
+        Loadout l = order(weapon, count, spread, nuke);
+        if (l.nuclear() && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
                     ? "airstrike.nuke.ops_only" : "airstrike.nuke.disabled").withStyle(ChatFormatting.RED), true);
             return false;
         }
+        int limit = AirstrikeConfig.SERVER.maxActivePerPlayer.get();
+        if (limit > 0 && !player.hasPermissions(2)) {
+            int active = StrikeWorld.active(player.server, player.getUUID());
+            if (active >= limit) {
+                player.displayClientMessage(Component.translatable("airstrike.too_many_active", active, limit).withStyle(ChatFormatting.RED), true);
+                return false;
+            }
+        }
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
-        StrikeService.log(player.getGameProfile().getName(), weapon, count, spread, aim.point());
-        if (count <= 1 && spread <= 0) {
-            StrikeService.Result r = StrikeService.launch(level, weapon, aim.target(), aim.point(), yaw, player.getUUID(), true, nuke, nuke.onCarrier());
-            if (!r.ok()) {
-                player.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
-                return false;
-            }
-            StrikeService.confirm(player, weapon, r.eta());
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim);
+    }
+
+    /**
+     * Пустить без игрока — от консоли или командного блока ({@code who} — для лога): заход по курсу {@code yaw}.
+     * Права проверяет сама команда.
+     *
+     * @return true, если пуск состоялся
+     */
+    public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim);
+    }
+
+    /** Приказ в пределах настроек сервера ({@link #clamp}). */
+    private static Loadout order(WeaponType weapon, int count, int spread, Loadout.Nuke nuke) {
+        return clamp(new Loadout(weapon, count, spread, TargetMode.LOOK, "", nuke));
+    }
+
+    /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
+    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
+        StrikeService.log(who, l.weapon(), l.count(), l.spread(), aim.point());
+        UUID ownerId = owner == null ? null : owner.getUUID();
+        if (l.count() > 1 || l.spread() > 0) {
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke());
             return true;
         }
-        SalvoData.start(level, weapon, Math.max(1, count), spread, aim.target(), aim.point(), yaw, player, nuke);
-        return true;
+        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke());
+        if (owner != null) {
+            if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
+            else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
+        }
+        return r.ok();
     }
 
     /**
@@ -289,26 +318,50 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: все снаряды и обломки во всех мирах убраны без взрыва, залпы отменены.
+     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета
+     * и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая ракета, остаётся до её пуска.
      *
      * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
      */
     public static int clearAll(MinecraftServer server, boolean nuclear) {
+        Predicate<StrikeProjectile> cancelled = p -> nuclear || !p.isNuclear();
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
+            n += VirtualFlights.get(level).clear(level, cancelled);
             List<Entity> kill = new ArrayList<>();
+            List<LauncherEntity> launchers = new ArrayList<>();
+            // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
+            List<StrikeProjectile> onRail = new ArrayList<>();
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+                if (p.flightPhase().onLauncher()) onRail.add(p);
+            }
             for (Entity e : level.getAllEntities()) {
-                if (e instanceof StrikeProjectile || e instanceof DebrisEntity || e instanceof LauncherEntity || e instanceof SpentBoosterEntity) kill.add(e);
+                if (e instanceof StrikeProjectile p) {
+                    if (cancelled.test(p)) kill.add(p);
+                    else if (p.flightPhase().onLauncher()) onRail.add(p);
+                } else if (e instanceof LauncherEntity l) {
+                    launchers.add(l);
+                } else if (e instanceof DebrisEntity || e instanceof SpentBoosterEntity) {
+                    kill.add(e);
+                }
+            }
+            for (LauncherEntity l : launchers) {
+                if (onRail.stream().noneMatch(l::serves)) kill.add(l);
             }
             for (Entity e : kill) {
                 if (e instanceof StrikeProjectile) n++;
                 e.discard();
             }
-            n += VirtualFlights.get(level).clear();
+            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
             StrikeWorld.clearSalvos(level);
             if (nuclear) n += NuclearStrikes.clear(level);
         }
-        PacketDistributor.sendToAllPlayers(new S2C.Cleared());
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear));
         return n;
+    }
+
+    /** Итог отбоя для того, кто его дал: отменены ли и ядерные удары. */
+    public static MutableComponent clearedMessage(int n, boolean nuclear) {
+        return Component.translatable(nuclear ? "airstrike.cleared" : "airstrike.cleared.conventional", n);
     }
 }
