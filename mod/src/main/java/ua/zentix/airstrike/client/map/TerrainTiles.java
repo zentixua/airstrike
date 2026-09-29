@@ -56,7 +56,7 @@ public final class TerrainTiles {
     /** Нет данных о высоте. */
     private static final int NO_HEIGHT = Integer.MIN_VALUE;
 
-    private record Key(int level, int tx, int tz) {
+    record Key(int level, int tx, int tz) {
         int span() {
             return SIZE << level;
         }
@@ -83,10 +83,15 @@ public final class TerrainTiles {
     }
 
     /** Готовая плитка из фона: пиксели ABGR (как у {@link NativeImage}) и высоты; сколько строилась. */
-    private record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty, long nanos) {}
+    record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty, long nanos) {
+        /** Плитка не построена: без пикселей, её спросят снова, как пустую. */
+        static Built failed(Key key, int generation) {
+            return new Built(key, generation, new int[0], new int[0], true, 0);
+        }
+    }
 
     /** Плитки одного источника рельефа. */
-    private static final class Layer {
+    static final class Layer {
         final String name;
         final TerrainSource source;
         /** Порядок доступа: первая — давно не показанная. */
@@ -94,8 +99,8 @@ public final class TerrainTiles {
         final Queue<Built> done = new ConcurrentLinkedQueue<>();
         int jobs;
         boolean stallLogged, firstLogged;
-        /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. */
-        boolean broken;
+        /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. Пишет фоновый поток. */
+        volatile boolean broken;
         /** Для лога: построено плиток, из них с рельефом, время постройки всех. */
         int built, withData;
         long buildNanos;
@@ -286,19 +291,7 @@ public final class TerrainTiles {
                     t.buildingSince = now;
                     layer.jobs++;
                     int gen = generation;
-                    executor().execute(() -> {
-                        try (reader) {
-                            layer.done.add(build(key, gen, reader));
-                        } catch (RuntimeException e) {
-                            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
-                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
-                        } catch (LinkageError e) {
-                            // другая версия API DH, чем при сборке: источник выключается до смены мира
-                            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
-                            layer.broken = true;
-                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
-                        }
-                    });
+                    executor().execute(() -> buildOffThread(layer, key, gen, reader));
                 } else {
                     if (System.nanoTime() > deadline) return;
                     if (inFrame == null) inFrame = src.open(current);
@@ -308,6 +301,25 @@ public final class TerrainTiles {
             }
         } finally {
             if (inFrame != null) inFrame.close();
+        }
+    }
+
+    /**
+     * Постройка плитки в фоновом потоке. Плитка возвращается в слой при любом исходе, и при {@link Error} (оно летит
+     * дальше): иначе задача слоя и отметка «строится» у плитки остались бы навсегда, а с ними — и слой.
+     */
+    static void buildOffThread(Layer layer, Key key, int gen, TerrainSource.Reader reader) {
+        Built result = Built.failed(key, gen);
+        try (reader) {
+            result = build(key, gen, reader);
+        } catch (RuntimeException e) {
+            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
+        } catch (LinkageError e) {
+            // другая версия API DH, чем при сборке: источник выключается до смены мира
+            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
+            layer.broken = true;
+        } finally {
+            layer.done.add(result);
         }
     }
 
