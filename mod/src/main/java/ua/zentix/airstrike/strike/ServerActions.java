@@ -163,13 +163,34 @@ public final class ServerActions {
         return true;
     }
 
-    /** Цель по подсказке бинокля: сервер находит у себя то же, что видит клиент, и проверяет дальность. */
+    /**
+     * Цель по подсказке бинокля или карты: сервер находит у себя то же, что видит клиент, и проверяет дальность —
+     * прицела (бинокль видит не дальше {@code aim_range}) или карты ({@code map_range} по горизонтали, в границах мира).
+     */
     @Nullable
     private static Aim fromHint(ServerPlayer player, C2S.AimHint h) {
-        double range = AirstrikeConfig.SERVER.aimRange.get() + 32;
-        if (!valid(h) || h.point().distanceToSqr(player.getEyePosition()) > range * range) {
+        if (!valid(h)) {
             notFound(player);
             return null;
+        }
+        if (h.kind() == C2S.AimHint.GROUND) {
+            // у мира с потолком (Незер) верх колонки — крыша из бедрока: места «на земле» по карте нет
+            if (player.level().dimensionType().hasCeiling()) {
+                player.displayClientMessage(Component.translatable("airstrike.map.no_ceiling").withStyle(ChatFormatting.RED), true);
+                return null;
+            }
+            double range = AirstrikeConfig.SERVER.mapRange.get();
+            double dx = h.point().x - player.getX(), dz = h.point().z - player.getZ();
+            if (dx * dx + dz * dz > range * range || !player.level().getWorldBorder().isWithinBounds(h.point().x, h.point().z)) {
+                player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", (int) range).withStyle(ChatFormatting.RED), true);
+                return null;
+            }
+        } else {
+            double range = AirstrikeConfig.SERVER.aimRange.get() + 32;
+            if (h.point().distanceToSqr(player.getEyePosition()) > range * range) {
+                notFound(player);
+                return null;
+            }
         }
         return resolveHint(player.serverLevel(), player, h);
     }
@@ -195,6 +216,11 @@ public final class ServerActions {
                     return new Aim(new Target.OfSubLevel(h.plotPos()), world, SubLevels.describe(sub));
                 }
             }
+            case C2S.AimHint.GROUND -> {
+                Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z);
+                return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
+                        Mth.floor(h.point().x), Mth.floor(h.point().z)));
+            }
             default -> {}
         }
         return new Aim(new Target.Point(h.point()), h.point(), null);
@@ -219,6 +245,11 @@ public final class ServerActions {
                     return null;
                 }
                 return atPlayer(victim);
+            }
+            case MAP -> {
+                // место на карте присылает клиент (подсказка GROUND); без неё цели нет
+                notFound(player);
+                return null;
             }
             case AIRCRAFT -> {
                 SubLevelAccess sub = aircraft == null ? null : SubLevels.byId(level, player.position(), aircraft);

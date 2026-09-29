@@ -42,3 +42,13 @@ type = "optional"
 versionRange = "[${sable_version},)"
 ordering = "AFTER"
 side = "BOTH"
+
+# Distant Horizons — не обязателен: с ним карта наведения берёт дальний рельеф из его API (собрано под API 7;
+# другая мажорная версия API — рельеф только из чанков, см. client/map/DistantHorizonsTerrain)
+[[dependencies.${mod_id}]]
+modId = "distanthorizons"
+type = "optional"
+reason = "Map strike: far terrain from Distant Horizons"
+versionRange = "${dh_version_range}"
+ordering = "NONE"
+side = "CLIENT"

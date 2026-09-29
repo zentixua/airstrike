@@ -30,6 +30,8 @@ import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
+import ua.zentix.airstrike.client.map.MapTarget;
+import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.nuclear.ClientNuclear;
 import ua.zentix.airstrike.client.nuclear.Geiger;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
@@ -42,6 +44,7 @@ import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.render.WeaponModels;
+import ua.zentix.airstrike.client.screen.MapScreen;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.client.sound.ClientSounds;
@@ -64,6 +67,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
+        TerrainTiles.init();
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::entityTick);
@@ -108,6 +112,7 @@ public final class AirstrikeClient {
     private static void keys(RegisterKeyMappingsEvent e) {
         e.register(Keys.FIRE);
         e.register(Keys.MENU);
+        e.register(Keys.MAP);
         e.register(Keys.CAMERA);
     }
 
@@ -134,6 +139,7 @@ public final class AirstrikeClient {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
         while (Keys.MENU.consumeClick()) mc.setScreen(new RemoteScreen());
+        while (Keys.MAP.consumeClick()) mc.setScreen(new MapScreen(new RemoteScreen()));
         while (Keys.FIRE.consumeClick()) Designator.fire();
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
         if (mc.isPaused()) return;
@@ -173,6 +179,9 @@ public final class AirstrikeClient {
         NukeArming.cancel();
         Designator.reset();
         ClientNuclear.reset();
+        MapTarget.reset();
+        MapScreen.reset();
+        TerrainTiles.reset();
     }
 
     private static final class Hooks implements ClientHooks {
