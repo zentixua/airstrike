@@ -23,10 +23,15 @@ cd "$ROOT/mod"
 
 ./gradlew --console=plain -q classes devtestClasses copyRuntimeMods_stress prepareStressServerRun prepareStressClientRun "${MODS_ARG[@]}"
 
+# сервер слушает только петлю и свободный порт: на VPS 0.0.0.0:25565 с online-mode=false нашёл сканер из интернета
+# (сторож LoopbackGuard роняет сервер, если сокет не на петле); клиенты берут порт из AIRSTRIKE_STRESS_PORT
+export AIRSTRIKE_STRESS_PORT="${AIRSTRIKE_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
 rm -rf "$RUN/server/world" "$RUN/server/logs"
 mkdir -p "$RUN/server"
 echo eula=true > "$RUN/server/eula.txt"
 cat > "$RUN/server/server.properties" <<PROPS
+server-ip=127.0.0.1
+server-port=$AIRSTRIKE_STRESS_PORT
 online-mode=false
 enforce-secure-profile=false
 view-distance=8

@@ -39,7 +39,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 @Mod(value = Airstrike.MOD_ID, dist = Dist.CLIENT)
 public final class StressClient {
     private static final String ROLE = System.getProperty("airstrike.stress.client");
-    private static final String SERVER = System.getProperty("airstrike.stress.server", "localhost");
+    private static final String SERVER = System.getProperty("airstrike.stress.server", "127.0.0.1");
 
     private final ConcurrentLinkedQueue<String> problems = new ConcurrentLinkedQueue<>();
     private int warnings, errors;
