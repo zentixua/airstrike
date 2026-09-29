@@ -82,6 +82,12 @@ neoForge {
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
             // профиль JFR по желанию: AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
             if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
+            // куча клиента по желанию (без — четверть памяти машины): съёмка трейлера с DH и шейдерами — AIRSTRIKE_XMX=12g
+            if (System.getenv('AIRSTRIKE_XMX')) {
+                jvmArgument "-Xmx${System.getenv('AIRSTRIKE_XMX')}"
+                jvmArgument '-XX:+UseZGC'
+                jvmArgument '-XX:+ZGenerational'
+            }
         }
         server {
             server()

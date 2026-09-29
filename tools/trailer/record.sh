@@ -3,7 +3,7 @@
 # кадры 60 fps по времени игры и журнал звуков в mod/run/scenario/trailer/; монтаж — tools/trailer/edit.py.
 #   tools/trailer/record.sh [shaders] [dh]
 #   shaders — Sodium, Iris и шейдерпак хоста из инстанса (только на ПК с инстансом и KWin)
-#   dh — ещё Distant Horizons из инстанса
+#   dh — ещё Distant Horizons из инстанса (база LOD — в мире: world/data/DistantHorizons.sqlite); куча — AIRSTRIKE_XMX
 # вид (шейдерпак с его настройками shaderpacks/<пак>.txt, конфиг DH) — из AIRSTRIKE_LOOK_DIR, .minecraft копии для съёмки
 # (по умолчанию — инстанс): у копии облака шейдерпака выше небоскрёбов и свои настройки DH
 # Размер кадра — AIRSTRIKE_SIZE (по умолчанию 1920x1080). Без инстанса (облако) Create/Sable/Aeronautics
