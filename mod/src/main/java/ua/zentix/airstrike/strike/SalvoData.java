@@ -149,7 +149,7 @@ public final class SalvoData extends SavedData {
             Target shot;
             Vec3 point;
             if (!(center instanceof Target.Point)) {
-                // движущаяся цель: своё смещение относительно неё
+                // движущаяся цель или место на земле: своё смещение относительно неё (у места — своя высота земли)
                 shot = center.offset(new Vec3(dx, 0, dz));
                 point = shot.resolve(level).orElse(lastCenter.add(dx, 0, dz));
             } else if (weapon == WeaponType.BUNKER || radius == 0) {

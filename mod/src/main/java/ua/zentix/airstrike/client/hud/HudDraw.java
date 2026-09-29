@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.hud;
 
+import com.mojang.math.Axis;
 import net.minecraft.client.gui.GuiGraphics;
 
 /** Простые фигуры HUD из закрашенных пикселей (у {@link GuiGraphics} есть только прямоугольники). */
@@ -41,5 +42,17 @@ public final class HudDraw {
         g.fill(x - r, y + r, x + r + 1, y + r + 1, color);
         g.fill(x - r, y - r, x - r + 1, y + r + 1, color);
         g.fill(x + r, y - r, x + r + 1, y + r + 1, color);
+    }
+
+    /** Значок летящего по карте «север вверх»: стрелка-самолётик по курсу Minecraft {@code yaw} (0° — на юг, +Z). */
+    public static void heading(GuiGraphics g, int x, int y, float yaw, int color) {
+        g.pose().pushPose();
+        g.pose().translate(x, y, 0);
+        // курс Minecraft: 0° — на +Z (вниз по карте), по часовой — к −X; на экране поворот по часовой — положительный
+        g.pose().mulPose(Axis.ZP.rotationDegrees(yaw + 180));
+        g.fill(-1, -7, 1, 6, color);
+        g.fill(-6, -1, 6, 1, color);
+        g.fill(-3, 4, 3, 6, color);
+        g.pose().popPose();
     }
 }

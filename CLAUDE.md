@@ -34,7 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
                                            ноутбук не засыпает, по выходу гасится всё её
@@ -110,7 +110,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины;
   `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО); `guidance/Orbit` — круг барража
   (векторное поле курсов с упреждением v/r: выход на круг по касательной).
-- `target/` — `Target` (точка, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
+- `target/` — `Target` (точка, место с карты `Ground` — высоту находит сервер: верх с кронами из готового чанка, иначе рельеф генератора `getBaseHeight`, сущность, аппарат Sable; кодек), `TargetPicker` (что под прицелом: аппарат → блок
   аппарата → сущность → блок), `TargetTracker`. `compat/SubLevels` — вся связь с Sable (через sable-companion,
   вшит jar-in-jar; сам Sable — compileOnly).
 - `warhead/` — `Warheads` (ванильный `explode` со своим DamageSource и беззвучным звуком, подземный взрыв бомбы
@@ -146,7 +146,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки),
   `cam/ProjectileCamera` (планы: пуск сбоку от пусковой, борт с телеметрией, попадание — помехи и облёт;
   камера вне снаряда — клиентский `Marker`, не добавленный в мир; ЛКМ — перенацелить; снаряда нет на клиенте —
-  `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт), `nuclear/` (вспышка
+  `cam/TacticalMap`, карта оператора по телеметрии `FlightStatus`), `aim/Designator` (бинокль), `screen/RemoteScreen` (пульт),
+  `screen/MapScreen` (карта наведения: клик — место удара, `C2S.AimHint.GROUND`, дальность — `map_range`), `map/` (общая проекция
+  карт `MapProjection`; `TerrainTiles` — рельеф плитками 64×64 цветами ванильной карты: из Distant Horizons через его API
+  `DhApi.Delayed.terrainRepo` в фоновых потоках, если DH стоит (compileOnly, класс `DistantHorizonsTerrain` грузится только
+  с DH), иначе из чанков клиента в кадре), `nuclear/` (вспышка
   и послеобраз, небо и туман, шар и гриб, чёрный дождь, звук по приходу фронта, оглушение EFX, счётчик Гейгера,
   отсчёты и тревога, двухшаговый пуск).
 - `legacy/LegacyMigration` — переезд со старого датапака: выключает `file/airstrike`/`file/shahed`, переносит
@@ -294,6 +298,14 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Шлейф снаряда кладётся по всему пути за тик (`Exhaust.segment`): на 11–25 блоках за тик иначе он рвётся на бусины.
   Следы, которых бывает много сразу (пакет РСЗО из 40), укладываются в группу шлейфов по построению: не больше
   `ROCKET_PUFFS_PER_TICK` клубов за тик, на быстром участке реже и шире (`ExhaustTest`); иначе у поздних ракет след не рождался.
+- Рельеф Distant Horizons для карты — только через его API (`DhApi.Delayed.terrainRepo`), а оно читает базу DH в его
+  пуле ввода-вывода, который ниже по приоритету, чем загрузка LOD: пока DH грузит LOD вокруг (после входа в мир, после
+  дальнего перемещения), чтение стоит в очереди (облако: 30+ с), потом плитка — десятки мс. Карта этого не ждёт: чанки
+  клиента — слоем поверх, DH читают только два фоновых потока, из потока игры — никогда (однажды это повесило клиент),
+  надпись на карте говорит, что DH занят. Сводка источников — `TerrainTiles.stats()` (сценарий `target-map` пишет её в лог).
+  Готовность API и загруженные миры DH — из его событий (`DhApiAfterDhInitEvent`, `DhApiLevelLoadEvent`/`…Unload`);
+  мод собран под API 7 (`DhApi.getApiMajorVersion() == 7`), с другой мажорной версией слой DH выключен, в `mods.toml` —
+  необязательная зависимость `distanthorizons` (`dh_version_range`).
 - Модели снарядов — OBJ (загрузчик `neoforge:obj`), дополнительные модели (`ModelEvent.RegisterAdditional`), текстуры
   в `textures/block/weapon` — значит, в атласе блоков; рисуются слоем сущностей (`entityCutoutNoCull` по атласу блоков),
   поэтому свет мира и шейдеры Iris работают как для сущностей. Светящиеся детали — материал `glow` (`Ka 1 1 1`, запечённый
