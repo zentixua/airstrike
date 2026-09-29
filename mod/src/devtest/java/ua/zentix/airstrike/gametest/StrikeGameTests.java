@@ -5,23 +5,30 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.gametest.framework.GameTestInfo;
+import net.minecraft.gametest.framework.GameTestListener;
+import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.Ticket;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SplitGuard;
 import ua.zentix.airstrike.entity.BomberEntity;
@@ -52,6 +59,8 @@ import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
@@ -167,7 +176,7 @@ public final class StrikeGameTests {
         Vec3 point = top(h, RUNWAY_TARGET);
         LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.ROCKET, null);
         level.addFreshEntity(launcher);
-        List<RocketEntity> rockets = new java.util.ArrayList<>();
+        List<RocketEntity> rockets = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
             int[] slot = launcher.reserve(level.getGameTime(), 10, ua.zentix.airstrike.strike.StrikeService.ROCKET_RELOAD);
             RocketEntity r = ModEntities.ROCKET.get().create(level);
@@ -756,6 +765,275 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Снаряд вне мира, который прошёл мимо цели, не уходит под землю: вне мира нет столкновений, и такой снаряд падал
+     * без взрыва до конца срока жизни или до низа мира (#108: бомба на точку позади B-2 — под миром на y=−3022).
+     * Теперь путь вне мира кончается на поверхности (карта высот готового чанка, у неготового — уровень моря): снаряд
+     * ждёт загрузки этого места, возвращается в мир на поверхности и взрывается обычным попаданием. Бомба на точку
+     * позади себя не рулит и падает круто вниз по курсу — должна войти в грунт там, где её путь встречает рельеф.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "virtual_ground", skyAccess = true)
+    public static void virtualMissNeverFallsBelowGround(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // место падения заранее не известно, оно грузится в фоне, пока бомба ждёт: время ожидания — игровое
+        gameSpeed(h);
+        // далеко за площадкой: вокруг ничего не загружено, бомба сразу летит вне мира
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+        Vec3 behind = from.add(0, -150, -300);
+        BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+        bomb.drop(from, 0, behind, null, null);
+        VirtualFlights.launch(level, bomb);
+        UUID id = bomb.getUUID();
+        Vec3[] entry = {null};
+        double[] lowest = {from.y};
+        int[] ground = {0};
+        h.onEachTick(() -> {
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e ? e : null);
+            if (p == null) return;
+            lowest[0] = Math.min(lowest[0], p.getY());
+            if (entry[0] == null && p instanceof BunkerBusterEntity b && b.isDrilling()) {
+                entry[0] = b.entry();
+                // рельеф рядом со скважиной: в самой скважине бомба уже выбрала грунт
+                ground[0] = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(entry[0].x) + 24, Mth.floor(entry[0].z));
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(lowest[0] > level.getMinBuildHeight(), "бомба ушла под мир: y=" + (int) lowest[0]);
+            h.assertTrue(entry[0] != null, "бомба не вошла в грунт, ниже всего y=" + (int) lowest[0]);
+            // вход на 1 блок выше точки попадания (дым из скважины)
+            h.assertTrue(Math.abs(entry[0].y - 1 - ground[0]) < 2, "бомба вошла в грунт не на поверхности: y=" + (int) entry[0].y + ", рельеф " + ground[0]);
+            // падает вперёд по курсу (+z), не рулит: вбок не уходит, вперёд — не дальше двух высот падения
+            h.assertTrue(entry[0].z > from.z && entry[0].z - from.z < 2 * (from.y - ground[0]) && Math.abs(entry[0].x - from.x) < 8,
+                    "бомба вошла в грунт не на своём пути: " + entry[0].subtract(from));
+        });
+    }
+
+    /**
+     * Бомба вне мира падает над неготовым чанком, где пол полёта — уровень моря, а чанк посреди падения становится
+     * готовым, и настоящая поверхность выше бомбы. Бомба не рулит вверх: ниже поверхности она уже в земле и попадает
+     * в поверхность над собой. Раньше пол «встал» выше неё, пересечения сверху вниз не было, и она падала под мир.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "virtual_risen_ground", skyAccess = true)
+    public static void virtualBombUnderRisenSurfaceHitsIt(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // место падения грузится в фоне, пока бомба ждёт: время ожидания — игровое
+        gameSpeed(h);
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, -4000);
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+        Vec3 behind = from.add(0, -150, -300);
+        int sea = level.getChunkSource().getGenerator().getSeaLevel();
+        // «рельеф», которого вне мира не видно: плита на 80 блоков выше моря генератора
+        int roof = sea + 80;
+        BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+        bomb.drop(from, 0, behind, null, null);
+        VirtualFlights.launch(level, bomb);
+        UUID id = bomb.getUUID();
+        Vec3[] entry = {null};
+        double[] lowest = {from.y};
+        boolean[] risen = {false};
+        double[] risenZ = {0};
+        List<ChunkPos> held = new ArrayList<>();
+        afterTest(h, () -> held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c)));
+        h.onEachTick(() -> {
+            StrikeProjectile p = flight(level, id);
+            if (p == null) return;
+            lowest[0] = Math.min(lowest[0], p.getY());
+            // бомба вне мира ниже будущей плиты, но выше моря — её чанки готовы, а плита уже над ней
+            if (!risen[0] && p.isVirtual() && p.getY() < roof - 20 && p.getY() > sea + 5) {
+                risen[0] = true;
+                risenZ[0] = p.getZ();
+                BlockPos at = p.blockPosition();
+                // плита короткая: за ней бомба уходит ниже низа мира лишь через ~35 блоков по курсу — туда плита не
+                // достаёт, и в неё попадает только бомба, которая упала в поверхность там, где плита встала над ней
+                for (int dx = -3; dx <= 3; dx++) {
+                    for (int dz = -8; dz <= 16; dz++) {
+                        BlockPos b = new BlockPos(at.getX() + dx, roof, at.getZ() + dz);
+                        ChunkPos c = new ChunkPos(b);
+                        if (!held.contains(c)) {
+                            // уровень 33: чанк готов (FULL), но не тикает — бомба над ним остаётся вне мира
+                            level.getChunkSource().addRegionTicket(READY_ONLY, c, 0, c);
+                            level.getChunk(c.x, c.z);
+                            held.add(c);
+                        }
+                        level.setBlock(b, Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    }
+                }
+            }
+            if (entry[0] == null && p instanceof BunkerBusterEntity b && b.isDrilling()) entry[0] = b.entry();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(risen[0], "плита не встала над бомбой");
+            h.assertTrue(lowest[0] > level.getMinBuildHeight(), "бомба ушла под мир: y=" + (int) lowest[0]);
+            h.assertTrue(entry[0] != null, "бомба не вошла в грунт, ниже всего y=" + (int) lowest[0]);
+            // вход на 1 блок выше точки попадания (дым из скважины); попадание — верх плиты
+            h.assertTrue(Math.abs(entry[0].y - 1 - (roof + 1)) < 2, "бомба вошла не в плиту над собой: y=" + (int) entry[0].y + ", плита " + roof);
+            h.assertTrue(Math.abs(entry[0].z - risenZ[0]) < 4, "бомба вошла в плиту не там, где плита встала над ней: " + (entry[0].z - risenZ[0]));
+        });
+    }
+
+    /**
+     * Цель ниже рельефа (пещера, карьер, овраг; в обычном мире — всё, что ниже уровня моря 63, у неготовых чанков это
+     * и есть поверхность вне мира): вне мира снаряд летит на высоте цели — пуск издалека над ней, РСЗО с её высоты — и
+     * под поверхностью, пока не ниже цели, летит дальше. Здесь над местом пуска — «рельеф» из готового, но не тикающего
+     * чанка на 60 блоков выше цели; раньше первый же шаг вне мира кончался на нём, и взрыв был в 1500 блоках от цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_deep_missile", skyAccess = true)
+    public static void virtualMissileUnderTerrainReachesDeepTarget(GameTestHelper h) {
+        Vec3 aim = top(h, RUNWAY_TARGET);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(h.getLevel());
+        // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
+        Vec3 start = aim.add(0, 12, -1500);
+        missile.launch(start, new Target.Point(aim), aim, null);
+        missile.setRoute(Route.direct());
+        reachesUnderTerrain(h, missile, start, aim);
+    }
+
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_deep_rocket", skyAccess = true)
+    public static void virtualRocketUnderTerrainReachesDeepTarget(GameTestHelper h) {
+        Vec3 aim = top(h, RUNWAY_TARGET);
+        RocketEntity rocket = ModEntities.ROCKET.get().create(h.getLevel());
+        // как пуск РСЗО издалека (StrikeService): с высоты цели, в 600 блоках
+        Vec3 start = aim.add(0, 0, -600);
+        rocket.launchFrom(start, new Target.Point(aim), aim, null);
+        reachesUnderTerrain(h, rocket, start, aim);
+    }
+
+    private static final TicketType<ChunkPos> READY_ONLY = TicketType.create("airstrike_test_ready", Comparator.comparingLong(ChunkPos::toLong));
+
+    /**
+     * Цель, за которой снаряд держит высоту, поднялась на 40 блоков (игрок вышел из оврага, телепорт): пол полёта вне
+     * мира ({@code BELOW_AIM} под целью) встал выше снаряда. Раньше снаряд на бреющем падал там, где его это застало, —
+     * в 1500 блоках от цели; теперь набирает высоту за целью и бьёт по ней.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rising_aim", skyAccess = true)
+    public static void virtualMissileClimbsAfterRisingAim(GameTestHelper h) {
+        // ракета спустилась под «рельеф» на свою высоту над целью (+12)
+        climbsAfterRisingAim(h, (y, floor, dy) -> y < floor - 11);
+    }
+
+    /**
+     * То же, но цель поднимается, пока ракета ещё снижается к её прежней высоте, — в тот тик, после которого шаг ракеты
+     * прошёл бы через новый пол: пол встал выше неё сам, это не пересечение сверху вниз.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rising_aim_descent", skyAccess = true)
+    public static void virtualMissileClimbsAfterAimRisesMidDescent(GameTestHelper h) {
+        climbsAfterRisingAim(h, (y, floor, dy) -> dy > 0 && y >= floor && y - dy < floor);
+    }
+
+    @FunctionalInterface
+    private interface RiseWhen {
+        /** Поднять цель сейчас: высота ракеты, пол после подъёма цели, снижение ракеты за прошлый тик. */
+        boolean test(double y, double floorAfter, double descent);
+    }
+
+    private static void climbsAfterRisingAim(GameTestHelper h, RiseWhen when) {
+        ServerLevel level = h.getLevel();
+        Vec3 low = top(h, RUNWAY_TARGET);
+        ArmorStand stand = EntityType.ARMOR_STAND.create(level);
+        stand.setNoGravity(true);
+        stand.moveTo(low.x, low.y, low.z);
+        level.addFreshEntity(stand);
+        Vec3 start = low.add(0, 12, -1500);
+        int roofLength = 1000;
+        roofOverStart(h, start, Mth.floor(low.y) + 60, roofLength);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(start, Target.OfEntity.center(stand), low, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        UUID id = missile.getUUID();
+        Vec3 high = low.add(0, 40, 0);
+        // пол полёта вне мира после подъёма: центр цели на 16 блоков ниже (рельеф над путём выше)
+        double floorAfter = high.y + stand.getBbHeight() / 2 - 16;
+        Vec3[] last = {start};
+        boolean[] raised = {false};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            double descent = last[0].y - f.getY();
+            last[0] = f.position();
+            if (!raised[0] && f.isVirtual() && f.getZ() < start.z + roofLength - 100 && when.test(f.getY(), floorAfter, descent)) {
+                raised[0] = true;
+                stand.teleportTo(high.x, high.y, high.z);
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(raised[0], "цель не поднялась");
+            h.assertFalse(flight(level, id) != null, "ракета ещё летит, до цели " + (int) last[0].distanceTo(high));
+            h.assertTrue(last[0].distanceTo(high) < 24, "ракета взорвалась не у цели: " + last[0].subtract(high));
+        });
+    }
+
+    /** Снаряд по UUID — вне мира или в мире (null — его уже нет). */
+    @Nullable
+    private static StrikeProjectile flight(ServerLevel level, UUID id) {
+        return VirtualFlights.get(level).flights().stream().filter(v -> v.getUUID().equals(id)).findFirst()
+                .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
+    }
+
+    /** Снаряд под «рельефом» на 60 блоков выше цели над местом пуска долетает до цели и взрывается у неё. */
+    private static void reachesUnderTerrain(GameTestHelper h, StrikeProjectile p, Vec3 start, Vec3 aim) {
+        ServerLevel level = h.getLevel();
+        roofOverStart(h, start, Mth.floor(aim.y) + 60, 64);
+        VirtualFlights.launch(level, p);
+        UUID id = p.getUUID();
+        Vec3[] last = {start};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f != null) last[0] = f.position();
+        });
+        h.succeedWhen(() -> {
+            h.assertFalse(flight(level, id) != null, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
+            h.assertTrue(last[0].distanceTo(aim) < 24, "снаряд взорвался не у цели: " + last[0].subtract(aim));
+            assertCrater(h, RUNWAY_TARGET, "у цели");
+        });
+    }
+
+    /**
+     * «Рельеф» на высоте {@code roof} над местом пуска и {@code length} блоками пути вперёд (+z): готовые чанки, где
+     * сущности не тикают, — снаряд над ними летит вне мира. Тикеты снимаются после теста при любом исходе.
+     */
+    private static void roofOverStart(GameTestHelper h, Vec3 start, int roof, int length) {
+        ServerLevel level = h.getLevel();
+        List<ChunkPos> held = new ArrayList<>();
+        for (int dz = 0; dz <= length; dz++) {
+            BlockPos b = BlockPos.containing(start.x, roof, start.z + dz);
+            ChunkPos c = new ChunkPos(b);
+            if (!held.contains(c)) {
+                // уровень 33: чанк готов (FULL), но не тикает
+                level.getChunkSource().addRegionTicket(READY_ONLY, c, 0, c);
+                level.getChunk(c.x, c.z);
+                held.add(c);
+            }
+            level.setBlock(b, Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+        }
+        afterTest(h, () -> held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c)));
+    }
+
+    /** Уборка после теста — и когда он прошёл, и когда упал (в {@code succeedWhen} она шла бы только после успеха). */
+    private static void afterTest(GameTestHelper h, Runnable cleanup) {
+        h.testInfo.addListener(new GameTestListener() {
+            @Override
+            public void testStructureLoaded(GameTestInfo info) {
+            }
+
+            @Override
+            public void testPassed(GameTestInfo info, GameTestRunner runner) {
+                cleanup.run();
+            }
+
+            @Override
+            public void testFailed(GameTestInfo info, GameTestRunner runner) {
+                cleanup.run();
+            }
+
+            @Override
+            public void testAddedForRerun(GameTestInfo old, GameTestInfo rerun, GameTestRunner runner) {
+            }
+        });
+    }
+
+    /**
      * Снаряд вне мира, долетевший до цели, чей район уже тикает, взрывается у цели, даже если за целью чанки не тикают.
      * В мир он возвращается, только когда тикает и место впереди по курсу (запас от прыжков на границе); у цели в чанке,
      * который тикает один (игрок в воздухе над краем загрузки), этого не бывало, и снаряд пролетал цель без взрыва и
@@ -768,6 +1046,7 @@ public final class StrikeGameTests {
         BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, 4000);
         ChunkPos chunk = new ChunkPos(origin);
         level.setChunkForced(chunk.x, chunk.z, true);
+        afterTest(h, () -> level.setChunkForced(chunk.x, chunk.z, false));
         // сущности в чанке цели тикают, только когда готовы соседи (5×5), а их фоновая генерация на CI (сервер тикает без
         // пауз) шла дольше срока теста — снаряд ждал района у цели («ещё летит, до цели 65»); соседи — готовые, но не тикающие
         generateNow(level, chunk);
@@ -792,7 +1071,6 @@ public final class StrikeGameTests {
                     || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
             h.assertFalse(flying, "снаряд ещё летит, до цели " + (int) last[0].distanceTo(aim));
             h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
-            level.setChunkForced(chunk.x, chunk.z, false);
         });
     }
 
@@ -834,8 +1112,8 @@ public final class StrikeGameTests {
         UUID id = rocket.getUUID();
         int withhold = 300;
         int[] tick = {0};
-        List<String> track = new java.util.ArrayList<>();
-        List<Double> speeds = new java.util.ArrayList<>();
+        List<String> track = new ArrayList<>();
+        List<Double> speeds = new ArrayList<>();
         double[] minRate = {1};
         Vec3[] last = {rail};
         h.onEachTick(() -> {
@@ -1124,7 +1402,7 @@ public final class StrikeGameTests {
         BlockPos c = h.absolutePos(RANGE_CENTER.above(8));
         // по углам и серединам куба 2r+1 — точки в разных секциях; снаружи — на блок за краем
         int r = 9;
-        List<BlockPos> inside = new java.util.ArrayList<>();
+        List<BlockPos> inside = new ArrayList<>();
         for (int dx : new int[]{-r, 0, r}) {
             for (int dy : new int[]{-3, 0, 5}) {
                 for (int dz : new int[]{-r, 0, r}) {
