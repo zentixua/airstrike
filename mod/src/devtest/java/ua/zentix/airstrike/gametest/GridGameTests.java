@@ -137,8 +137,9 @@ public final class GridGameTests {
         h.assertTrue(chunks.size() == 1, "лампы в " + chunks.size() + " чанках");
         // единица работы — не больше заданного числа ламп, остальное — следующей
         LevelChunk chunk = level.getChunk(chunks.get(0).x, chunks.get(0).z);
-        int dark = ChunkLights.apply(level, chunk, true, 5);
-        h.assertTrue(dark == 5, "за единицу погашено " + dark + " вместо 5");
+        ChunkLights.Pass first = ChunkLights.apply(level, chunk, true, 5);
+        int dark = first.changed();
+        h.assertTrue(dark == 5 && !first.done(), "за единицу погашено " + dark + " вместо 5 (чанк пройден: " + first.done() + ")");
         dark += ChunkLights.apply(level, chunk, true);
         h.assertTrue(dark == placed.size(), "погашено " + dark + " из " + placed.size());
         for (var e : placed.entrySet()) {
@@ -404,7 +405,7 @@ public final class GridGameTests {
                     h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
                     h.assertFalse(level.getChunkAt(h.absolutePos(lamps.get(0))).hasData(ModAttachments.GRID_DARK), "отметка тёмного чанка осталась");
                 })
-                .thenExecute(() -> Blackouts.useClock(level.getServer(), new WorkClock()))
+                .thenExecute(() -> Blackouts.useClock(level.getServer(), Blackouts.newClock()))
                 .thenSucceed();
     }
 
@@ -434,7 +435,7 @@ public final class GridGameTests {
                     for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
                 })
                 // подрыв и выбитая им подстанция — два отключения (других нет: quiet)
-                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, null, 0) >= 2, "возвращать меньше чем в двух отключениях"))
+                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, null, 0) == 2, "возвращено не два отключения"))
                 .thenWaitUntil(() -> {
                     for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
                     h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
@@ -443,9 +444,119 @@ public final class GridGameTests {
     }
 
     /**
+     * Город: 1024 загруженных чанка по 8 ламп. Единица работы очереди — до {@code LAMPS_PER_UNIT} ламп по стольким
+     * чанкам, сколько уместится (проход секций чанка с лампами стоит как {@code SCAN_COST} ламп), и чанк кончается
+     * тем же проходом, что перевёл его последнюю лампу: на считающих часах и гашение, и возврат света идут не меньше
+     * 1.2 чанка на единицу работы (при полной очереди — 2, но каскад идёт по кварталам, и последняя единица квартала
+     * бывает неполной; по чанку за единицу и ещё единица на холостой проход, как до правки, — полчанка). Потом тот же каскад на настоящих часах блэкаута — в лог чанки за тик и самый долгий тик, и время
+     * на лампу (не проверка: настенное время на CI плавает).
+     */
+    @GameTest(template = "range", timeoutTicks = 4800, batch = "grid_city", skyAccess = true)
+    public static void cityQueueRunsManyChunksPerTick(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        int y = h.absolutePos(CENTER).getY() + 1;
+        List<ChunkPos> held = new ArrayList<>();
+        List<BlockPos> lamps = new ArrayList<>();
+        for (int dx = -16; dx < 16; dx++) {
+            for (int dz = -16; dz < 16; dz++) {
+                ChunkPos p = new ChunkPos(mid.x + dx, mid.z + dz);
+                chunks.addRegionTicket(HOLD, p, 1, p);
+                held.add(p);
+            }
+        }
+        for (ChunkPos p : held) {
+            level.getChunk(p.x, p.z);
+            for (int i = 0; i < 8; i++) {
+                BlockPos at = new BlockPos(p.getMinBlockX() + 1 + i, y, p.getMinBlockZ() + 1 + i);
+                level.setBlock(at, Blocks.SEA_LANTERN.defaultBlockState(), Block.UPDATE_CLIENTS);
+                lamps.add(at);
+            }
+        }
+        // время на лампу: один setBlock и чанк целиком через ChunkLights.apply (с проходом секций) — по 128 чанков
+        long t0 = System.nanoTime();
+        for (int i = 0; i < 128 * 8; i++) level.setBlock(lamps.get(i), GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+        long set = System.nanoTime() - t0;
+        for (int i = 0; i < 128 * 8; i++) level.setBlock(lamps.get(i), Blocks.SEA_LANTERN.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+        t0 = System.nanoTime();
+        int n = 0;
+        for (int i = 128; i < 256; i++) n += ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), true);
+        long apply = System.nanoTime() - t0;
+        for (int i = 128; i < 256; i++) ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), false);
+        h.assertTrue(n == 128 * 8, "погашено " + n);
+        Airstrike.LOG.info("GRIDBENCH лампа: setBlock {} мкс, ChunkLights.apply {} мкс (с проходом секций, по {} ламп)",
+                String.format(Locale.ROOT, "%.1f", set / 1e3 / (128 * 8)), String.format(Locale.ROOT, "%.1f", apply / 1e3 / n), n);
+
+        Vec3 at = Vec3.atCenterOf(h.absolutePos(CENTER));
+        WorkClock counting = WorkClock.counting(1_000_000L);
+        WorkClock[] real = {null};
+        int[] ticks = new int[4], units = new int[2];
+        long[] maxTick = new long[2];
+        Blackouts.useClock(level.getServer(), counting);
+        Blackouts.blackout(level, at, 400, 1000, -1);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
+                .thenExecute(() -> {
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(level.getBlockState(p)), "лампа " + p + " горит");
+                    ticks[0] = counting.ticksWorked();
+                    units[0] = counting.units();
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт"))
+                .thenExecute(() -> {
+                    ticks[1] = counting.ticksWorked() - ticks[0];
+                    units[1] = counting.units() - units[0];
+                    assertAllLit(h, level, lamps, mid);
+                    // на настоящих часах блэкаута — как в игре
+                    real[0] = Blackouts.newClock();
+                    Blackouts.useClock(level.getServer(), real[0]);
+                    Blackouts.blackout(level, at, 400, 1000, -1);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
+                .thenExecute(() -> {
+                    ticks[2] = real[0].ticksWorked();
+                    maxTick[0] = real[0].maxTickNanos();
+                    real[0] = Blackouts.newClock();
+                    Blackouts.useClock(level.getServer(), real[0]);
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт"))
+                .thenExecute(() -> {
+                    ticks[3] = real[0].ticksWorked();
+                    maxTick[1] = real[0].maxTickNanos();
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 1, p));
+                    assertAllLit(h, level, lamps, mid);
+                    int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+                    // на единицу, а не на тик: каскад идёт по кварталам со сдвигом, и в части тиков очередь пустеет раньше срока
+                    double off = (double) held.size() / units[0], on = (double) held.size() / units[1];
+                    Airstrike.LOG.info("GRIDBENCH считающие часы (до {} единиц за тик): гашение {} чанков на единицу ({} единиц, {} тиков), возврат {} ({} единиц, {} тиков)",
+                            counting.maxUnitsPerTick(), String.format(Locale.ROOT, "%.2f", off), units[0], ticks[0], String.format(Locale.ROOT, "%.2f", on), units[1], ticks[1]);
+                    Airstrike.LOG.info("GRIDBENCH настоящие часы (бюджет {} мс): гашение {} чанков/тик ({} тиков, самый долгий {} мс), возврат {} чанков/тик ({} тиков, самый долгий {} мс)",
+                            budget, String.format(Locale.ROOT, "%.1f", (double) held.size() / ticks[2]), ticks[2], String.format(Locale.ROOT, "%.2f", maxTick[0] / 1e6),
+                            String.format(Locale.ROOT, "%.1f", (double) held.size() / ticks[3]), ticks[3], String.format(Locale.ROOT, "%.2f", maxTick[1] / 1e6));
+                    h.assertTrue(off >= 1.2 && on >= 1.2, "чанков на единицу работы: гашение " + off + ", возврат " + on + " (нужно не меньше 1.2)");
+                })
+                .thenSucceed();
+    }
+
+    /** Все лампы города снова прежние (первая не зажёгшаяся — в лог с её чанком). */
+    private static void assertAllLit(GameTestHelper h, ServerLevel level, List<BlockPos> lamps, ChunkPos mid) {
+        List<BlockPos> bad = lamps.stream().filter(p -> level.getBlockState(p) != Blocks.SEA_LANTERN.defaultBlockState()).toList();
+        if (bad.isEmpty()) return;
+        BlockPos b = bad.get(0);
+        ChunkPos c = new ChunkPos(b);
+        Airstrike.LOG.info("GRIDDEBUG не зажглось {}: первая {} {} чанк {} ({} {}), тёмный {}, задет {}", bad.size(), b, level.getBlockState(b), c,
+                c.x - mid.x, c.z - mid.z, PowerGrid.get(level).dark(c.x, c.z, level.getGameTime()), PowerGrid.get(level).covered(c.x, c.z));
+        h.fail(bad.size() + " ламп не зажглись прежними, первая " + b);
+    }
+
+    /**
      * Чанки без ламп не тормозят очередь: пачкой за единицу работы, а не по одному (каждый ждал бы оценки тяжёлого
-     * чанка с лампами). 144 загруженных чанка района при бюджете 4 единицы за тик: по одному — 36 тиков одной очереди,
-     * пачками — несколько тиков на весь каскад.
+     * чанка с лампами). 144 загруженных чанка района при бюджете 4 мс (считающие часы: 3 единицы по 1 мс за тик) по
+     * одному — 48 тиков одной очереди, пачками — несколько тиков на весь каскад.
      */
     @GameTest(template = "range", timeoutTicks = 600, batch = "grid_settle", skyAccess = true)
     public static void emptyChunksSettleInBatches(GameTestHelper h) {
@@ -465,25 +576,31 @@ public final class GridGameTests {
         BlockPos lamp = new BlockPos(18, 12, 18);
         h.setBlock(lamp, Blocks.LANTERN);
         WorkClock clock = WorkClock.counting(1_000_000L);
-        Blackouts.useClock(level.getServer(), clock);
         int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
-        long start = level.getGameTime();
+        long[] start = {0};
         long[] took = {0};
-        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 150, 1000, -1);
         h.startSequence()
+                // возврат света от прошлых проверок (quiet) должен пройти до замера
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь от прошлых проверок идёт"))
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), clock);
+                    start[0] = level.getGameTime();
+                    Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 150, 1000, -1);
+                })
                 .thenWaitUntil(() -> {
                     BlackoutWorld world = BlackoutWorld.get(level);
                     h.assertTrue(world.idle() && GridLights.isUnlit(h.getBlockState(lamp)), "каскад идёт");
-                    took[0] = level.getGameTime() - start;
+                    took[0] = level.getGameTime() - start[0];
                 })
                 .thenExecute(() -> {
-                    Blackouts.useClock(level.getServer(), new WorkClock());
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
                     held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 1, p));
                     // чанки в памяти, которые задевает отключение, — каждый проходит очередь
                     long covered = held.stream().filter(p -> PowerGrid.get(level).covered(p.x, p.z)).count();
                     h.assertTrue(covered >= 100, "отключение задело только " + covered + " чанков — проверять нечего");
-                    // по единице на чанк — covered / budget тиков на одну очередь
-                    h.assertTrue(took[0] * budget < covered, "каскад по " + covered + " чанкам шёл " + took[0] + " тиков при " + budget + " единицах за тик");
+                    // по единице на чанк — covered / units тиков на одну очередь
+                    int units = clock.maxUnitsPerTick();
+                    h.assertTrue(took[0] * units < covered, "каскад по " + covered + " чанкам шёл " + took[0] + " тиков при " + units + " единицах за тик (бюджет " + budget + " мс)");
                 })
                 .thenSucceed();
     }

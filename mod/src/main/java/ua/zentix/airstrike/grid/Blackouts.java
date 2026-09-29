@@ -204,7 +204,15 @@ public final class Blackouts {
         return server.overworld().getData(ModAttachments.GRID_CLOCK);
     }
 
-    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}). */
+    /**
+     * Часы бюджета блэкаута: единицы очереди дешёвые и ровные (≈0.3 мс), и оценка тает вдвое к каждому тику, чтобы
+     * один всплеск (пауза GC, чужой затык) не держал очередь на одной единице за тик ({@link WorkClock#decaying}).
+     */
+    public static WorkClock newClock() {
+        return WorkClock.decaying(0.5);
+    }
+
+    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}; вернуть — {@link #newClock}). */
     public static void useClock(MinecraftServer server, WorkClock clock) {
         server.overworld().setData(ModAttachments.GRID_CLOCK, clock);
     }

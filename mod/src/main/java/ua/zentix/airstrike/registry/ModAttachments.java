@@ -38,7 +38,7 @@ public final class ModAttachments {
 
     /** Верхний мир: часы бюджета блэкаута — один на тик сервера ({@link ua.zentix.airstrike.grid.Blackouts#clock}); не сохраняется. */
     public static final Supplier<AttachmentType<WorkClock>> GRID_CLOCK = REGISTER.register("grid_clock",
-            () -> AttachmentType.builder(WorkClock::new).build());
+            () -> AttachmentType.builder(ua.zentix.airstrike.grid.Blackouts::newClock).build());
 
     /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",

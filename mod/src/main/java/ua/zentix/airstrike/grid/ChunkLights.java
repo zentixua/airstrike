@@ -28,6 +28,13 @@ public final class ChunkLights {
 
     private ChunkLights() {}
 
+    /**
+     * Проход по чанку с лимитом: сколько ламп переведено и пройден ли чанк до конца. По палитре конец не виден (она
+     * помнит и переведённые состояния), поэтому проход останавливается на первой лампе сверх лимита, а не на последней
+     * в лимите: чанк ровно с {@code limit} лампами кончается этим же проходом, без второго холостого.
+     */
+    public record Pass(int changed, boolean done) {}
+
     @FunctionalInterface
     interface Change {
         void accept(int x, int y, int z, BlockState to);
@@ -65,16 +72,17 @@ public final class ChunkLights {
      * соседа: сигнал, пропавший или появившийся в темноте, лампа замечает, как только снова есть ток.
      */
     public static int apply(ServerLevel level, LevelChunk chunk, boolean dark) {
-        return apply(level, chunk, dark, Integer.MAX_VALUE);
+        return apply(level, chunk, dark, Integer.MAX_VALUE).changed();
     }
 
     /** То же, не больше {@code limit} ламп (единица работы под бюджетом): остальные — следующим вызовом. */
-    public static int apply(ServerLevel level, LevelChunk chunk, boolean dark, int limit) {
+    public static Pass apply(ServerLevel level, LevelChunk chunk, boolean dark, int limit) {
         LevelChunkSection[] sections = chunk.getSections();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         List<BlockPos> signalled = new ArrayList<>();
         int changed = 0;
+        boolean done = true;
         sections:
         for (int i = 0; i < sections.length; i++) {
             LevelChunkSection section = sections[i];
@@ -84,15 +92,20 @@ public final class ChunkLights {
                 for (int z = 0; z < 16; z++) {
                     for (int x = 0; x < 16; x++) {
                         BlockState to = GridLights.toward(section.getBlockState(x, y, z), dark);
-                        if (to == null || !level.setBlock(p.set(x0 + x, y0 + y, z0 + z), to, FLAGS)) continue;
+                        if (to == null) continue;
+                        if (changed >= limit) {
+                            done = false;
+                            break sections;
+                        }
+                        if (!level.setBlock(p.set(x0 + x, y0 + y, z0 + z), to, FLAGS)) continue;
                         if (!dark && signal(to)) signalled.add(p.immutable());
-                        if (++changed >= limit) break sections;
+                        changed++;
                     }
                 }
             }
         }
         for (BlockPos at : signalled) resignal(level, at);
-        return changed;
+        return new Pass(changed, done);
     }
 
     /**
@@ -104,11 +117,12 @@ public final class ChunkLights {
      * Лампы от сигнала, зажжённые здесь, сверить с сигналом нельзя (он читается у соседей, а запланированный тик
      * в чанке без тика пропадает): их места — в {@code signalled}, сверка — когда соседи загружены ({@link #resignal}).
      */
-    public static int applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit, LongArrayList signalled) {
+    public static Pass applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit, LongArrayList signalled) {
         LevelChunkSection[] sections = chunk.getSections();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         var light = level.getChunkSource().getLightEngine();
         int changed = 0;
+        boolean done = true;
         sections:
         for (int i = 0; i < sections.length; i++) {
             LevelChunkSection section = sections[i];
@@ -119,18 +133,22 @@ public final class ChunkLights {
                     for (int x = 0; x < 16; x++) {
                         BlockState to = GridLights.toward(section.getBlockState(x, y, z), dark);
                         if (to == null) continue;
+                        if (changed >= limit) {
+                            done = false;
+                            break sections;
+                        }
                         section.setBlockState(x, y, z, to);
                         BlockPos p = new BlockPos(x0 + x, y0 + y, z0 + z);
                         light.checkBlock(p);
                         level.getChunkSource().blockChanged(p);
                         if (!dark && signal(to)) signalled.add(p.asLong());
-                        if (++changed >= limit) break sections;
+                        changed++;
                     }
                 }
             }
         }
         if (changed > 0) chunk.setUnsaved(true);
-        return changed;
+        return new Pass(changed, done);
     }
 
     /** Один двойник — снова лампа (тиком двойника: поршень, аппарат). */

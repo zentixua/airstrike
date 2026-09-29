@@ -341,6 +341,7 @@
   "airstrike.help.12": "/airstrike grid status|blackout|restore|node … — энергосеть: состояние, обесточить район, вернуть свет, узлы для карт",
   "airstrike.grid.no_node": "Узла сети №%s нет",
   "airstrike.grid.status": "Отключений: %s, узлов сети: %s (чанков в очереди %s, ламп к зажиганию %s)",
+  "airstrike.grid.status_clock": "Очередь: единиц в прошлом тике %s (бюджет %s мс), оценка следующей %s мс, самая долгая за 5 с %s мс",
   "airstrike.grid.outage": "№%s (%s): центр %s %s, радиус %s — свет %s",
   "airstrike.grid.restore.never": "вернут только командой",
   "airstrike.grid.restore.now": "возвращается",

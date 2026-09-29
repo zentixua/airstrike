@@ -341,6 +341,7 @@
   "airstrike.help.12": "/airstrike grid status|blackout|restore|node …: power grid status, cut power to an area, restore power, map nodes",
   "airstrike.grid.no_node": "No grid node #%s",
   "airstrike.grid.status": "Outages: %s, grid nodes: %s (chunks queued %s, lamps to relight %s)",
+  "airstrike.grid.status_clock": "Queue: %s units last tick (budget %s ms), next unit estimate %s ms, longest unit in 5 s %s ms",
   "airstrike.grid.outage": "#%s (%s): centre %s %s, radius %s, power %s",
   "airstrike.grid.restore.never": "returns only by command",
   "airstrike.grid.restore.now": "returning",

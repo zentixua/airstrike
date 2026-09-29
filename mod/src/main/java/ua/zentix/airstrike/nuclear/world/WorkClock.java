@@ -10,6 +10,10 @@ import java.util.function.LongSupplier;
  * <p>
  * Время — из источника часов ({@link System#nanoTime} в игре). {@link #counting} — часы для проверок: время
  * идёт только работой, каждая единица стоит одинаково, поэтому решения очереди не зависят от скорости машины.
+ * <p>
+ * Оценка затухает по единицам, поэтому при одной единице за тик (тяжёлая единица, пауза GC, чужой затык посреди
+ * единицы) она спадает медленно: всплеск в 20 мс держал очередь блэкаута на одной единице за тик десятки тиков.
+ * Очередям из дешёвых и ровных единиц — {@link #decaying}: оценка ещё и тает с каждым тиком.
  */
 public final class WorkClock {
     /** Затухание оценки за одну единицу работы. */
@@ -18,6 +22,14 @@ public final class WorkClock {
     private final LongSupplier time;
     /** У считающих часов — цена одной единицы работы, нс; 0 — настоящие часы. */
     private final long unitCost;
+    /** Во сколько раз оценка тает к каждому новому тику (1 — не тает). */
+    private final double tickDecay;
+    /** Для статуса: единиц в прошлом тике и самая долгая единица за последние ~5 с (два окна по 100 тиков), нс. */
+    private int unitsLastTick;
+    private long largest, largestBefore;
+    private int ticks;
+    /** Для проверок: время работы в этом тике и наибольшее за тик, нс. */
+    private long usedThisTick, maxTickNanos;
     private long fakeNow;
 
     private long deadline;
@@ -25,27 +37,45 @@ public final class WorkClock {
     private double estimate;
     /** В этом тике уже что-то сделано (одну единицу делаем всегда, иначе после очень долгой очередь встала бы). */
     private boolean worked;
-    private int unitsThisTick, maxUnitsPerTick, ticksWorked;
+    private int unitsThisTick, maxUnitsPerTick, ticksWorked, units;
 
     public WorkClock() {
-        this(System::nanoTime, 0);
+        this(System::nanoTime, 0, 1);
     }
 
-    private WorkClock(LongSupplier time, long unitCost) {
+    private WorkClock(LongSupplier time, long unitCost, double tickDecay) {
         this.time = time == null ? () -> fakeNow : time;
         this.unitCost = unitCost;
+        this.tickDecay = tickDecay;
     }
 
     /** Часы для проверок: стоят, пока нет работы; каждая единица двигает их на {@code unitNanos}. */
     public static WorkClock counting(long unitNanos) {
-        return new WorkClock(null, unitNanos);
+        return new WorkClock(null, unitNanos, 1);
+    }
+
+    /** Настоящие часы, чья оценка к каждому тику тает в {@code tickDecay} раз (0.5 — вдвое). */
+    public static WorkClock decaying(double tickDecay) {
+        return decaying(System::nanoTime, tickDecay);
+    }
+
+    /** То же на своём источнике времени (проверки). */
+    public static WorkClock decaying(LongSupplier time, double tickDecay) {
+        return new WorkClock(time, 0, tickDecay);
     }
 
     /** Новый тик: срок — через {@code budgetNanos} от сейчас. Оценка переходит из тика в тик. */
     public void start(long budgetNanos) {
         deadline = time.getAsLong() + budgetNanos;
         worked = false;
+        unitsLastTick = unitsThisTick;
         unitsThisTick = 0;
+        usedThisTick = 0;
+        estimate *= tickDecay;
+        if (++ticks % 100 == 0) {
+            largestBefore = largest;
+            largest = 0;
+        }
     }
 
     /** Успеем ли ещё одну единицу работы до срока. */
@@ -70,14 +100,43 @@ public final class WorkClock {
     /** Единица работы заняла {@code nanos}. */
     public void record(long nanos) {
         estimate = Math.max(nanos, estimate * DECAY);
+        largest = Math.max(largest, nanos);
+        usedThisTick += nanos;
+        maxTickNanos = Math.max(maxTickNanos, usedThisTick);
         if (!worked) ticksWorked++;
         worked = true;
         maxUnitsPerTick = Math.max(maxUnitsPerTick, ++unitsThisTick);
+        units++;
+    }
+
+    /** Для статуса: единиц в прошлом тике. */
+    public int unitsLastTick() {
+        return unitsLastTick;
+    }
+
+    /** Для статуса: оценка следующей единицы, нс. */
+    public long estimateNanos() {
+        return (long) estimate;
+    }
+
+    /** Для статуса: самая долгая единица за последние ~5 с, нс. */
+    public long largestRecentNanos() {
+        return Math.max(largest, largestBefore);
+    }
+
+    /** Больше всего времени работы за один тик, нс (для проверок). */
+    public long maxTickNanos() {
+        return maxTickNanos;
     }
 
     /** Больше всего единиц за один тик (для проверок). */
     public int maxUnitsPerTick() {
         return maxUnitsPerTick;
+    }
+
+    /** Всего единиц работы (для проверок). */
+    public int units() {
+        return units;
     }
 
     /** В скольких тиках была работа (для проверок). */

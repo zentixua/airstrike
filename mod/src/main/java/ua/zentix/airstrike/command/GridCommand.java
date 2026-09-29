@@ -20,7 +20,10 @@ import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.Outage;
 import ua.zentix.airstrike.grid.PowerGrid;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
+
+import java.util.Locale;
 
 /**
  * /airstrike grid — сеть и блэкаут (операторы):
@@ -86,6 +89,11 @@ final class GridCommand {
         }
         int o = outages, n = nodes, q = queued, l = lamps;
         ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, l), false);
+        // почему очередь идёт с такой скоростью: единиц за тик при бюджете, оценка следующей и самая долгая
+        WorkClock clock = Blackouts.clock(ctx.getSource().getServer());
+        String estimate = String.format(Locale.ROOT, "%.2f", clock.estimateNanos() / 1e6), largest = String.format(Locale.ROOT, "%.2f", clock.largestRecentNanos() / 1e6);
+        int units = clock.unitsLastTick(), budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status_clock", units, budget, estimate, largest), false);
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             long now = level.getGameTime();
             String dimension = level.dimension().location().toString();
