@@ -76,6 +76,9 @@ public final class StressDirector {
         boolean virtual;
         /** Полёт РСЗО вне мира сейчас растянут (темп времени траектории меньше 1). */
         boolean stretched;
+        /** Залп-проба растяжения, к которому относится снаряд РСЗО (null — не проба). */
+        @Nullable
+        Probe probe;
         int seen;
         /** Сам объект: сущность в чанке, который не выдаётся (граница загрузки), в переборе не видна, но жива. */
         StrikeProjectile ref;
@@ -93,6 +96,37 @@ public final class StressDirector {
             ref = p;
         }
     }
+
+    /**
+     * Залп РСЗО по свежему, ни разу не сгенерированному району (растяжение полёта вне мира, #104): снаряды — по точке
+     * цели ближе {@link #PROBE_RADIUS}; счёт начал и концов растяжения и итогов — в сводку.
+     */
+    private static final class Probe {
+        final String name;
+        final Vec3 center;
+        final boolean expectStretch;
+        int launched, stretchOn, stretchOff;
+        /**
+         * Самый низкий темп полёта среди снарядов пробы и сколько снарядов опускались ниже {@link #DEEP}: растяжение
+         * из-за неготового района глубокое, а сервер, вставший на секунды (ванильная синхронная загрузка), даёт
+         * строки с темпом 0,99 в любом залпе.
+         */
+        double minRate = 1;
+        final Set<UUID> deep = new HashSet<>();
+        final Map<String, Integer> outcomes = new TreeMap<>();
+
+        Probe(String name, Vec3 center, boolean expectStretch) {
+            this.name = name;
+            this.center = center;
+            this.expectStretch = expectStretch;
+        }
+    }
+
+    /** Разброс залпа-пробы и радиус, по которому снаряд относится к пробе (по точке цели). */
+    private static final int PROBE_SPREAD = 20, PROBE_RADIUS = 60;
+    /** Темп ниже — растяжение из-за района цели, а не из-за отставания сервера. */
+    private static final double DEEP = 0.5;
+    private final List<Probe> probes = new ArrayList<>();
 
     private final List<Step> steps = new ArrayList<>();
     private final Map<UUID, Watch> watched = new HashMap<>();
@@ -174,6 +208,10 @@ public final class StressDirector {
         as(320, "Host", "airstrike salvo drone 30 150 at 800 ~ -200");
         as(340, "Friend1", "airstrike salvo loiter 30 150 Friend2");
         as(360, "Friend2", "airstrike salvo missile 20 80 Friend1");
+        // РСЗО по свежим районам вдали от игроков (растяжение полёта вне мира): 250 блоков — полёт короче загрузки
+        // района, растяжение ожидается; 1500 — полёт длиннее загрузки, растяжения быть не должно
+        at(380, "РСЗО по свежему району в 250 блоках", s -> probe(s, "Host", "fresh-250", -180, -175, true));
+        at(400, "РСЗО по свежему району в 1500 блоках", s -> probe(s, "Host", "fresh-1500", -1060, -1060, false));
         // аппарат Sable у второго друга: по нему ракеты, потом его дробит
         at(500, "аппарат у Friend2", s -> buildCraft(s, "Friend2"));
         at(560, "ракеты и шахеды по аппарату", s -> strikeCraft(s, "Host", 10, 30));
@@ -330,6 +368,33 @@ public final class StressDirector {
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.DRONE, drones, 10, aim,
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+    }
+
+    /**
+     * Залп РСЗО из 10 по точке на земле (x, z): высота — без загрузки чанка ({@link Target.Ground#at}), район свежий,
+     * если рядом никто не был. Снаряды относятся к пробе по точке цели.
+     */
+    private void probe(MinecraftServer s, String shooter, String name, int x, int z, boolean expectStretch) {
+        ServerPlayer p = need(s, shooter, "залп-проба " + name);
+        if (p == null) return;
+        ServerLevel level = p.serverLevel();
+        // «свежий» — чанк цели не готов (ещё не сгенерирован или не загружен): тогда снаряд ждёт район; держатель чанка
+        // в памяти есть и далеко за дальностью прорисовки, по нему не судить
+        boolean fresh = !Terrain.ready(level, x >> 4, z >> 4);
+        Target.Ground ground = Target.Ground.at(level, x, z);
+        Vec3 point = ground.pos();
+        probes.add(new Probe(name, point, expectStretch));
+        log("проба %s: РСЗО 10 по %d %d %d, %.0f блоков от %s, район %s", name, x, (int) point.y, z, Math.hypot(x - p.getX(), z - p.getZ()),
+                shooter, fresh ? "не готов" : "уже готов");
+        if (!fresh) problems.add("проба " + name + ": район уже готов — растяжение не проверено");
+        ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
+                new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+    }
+
+    @Nullable
+    private Probe probeFor(Vec3 aim) {
+        for (Probe pr : probes) if (Math.hypot(aim.x - pr.center.x, aim.z - pr.center.z) < PROBE_RADIUS) return pr;
+        return null;
     }
 
     private final List<UUID> villagers = new ArrayList<>();
@@ -523,6 +588,10 @@ public final class StressDirector {
                 w = new Watch(en.getValue());
                 watched.put(en.getKey(), w);
                 launchedByType.merge(w.type, 1, Integer::sum);
+                if (en.getValue() instanceof RocketEntity) {
+                    w.probe = probeFor(w.aim);
+                    if (w.probe != null) w.probe.launched++;
+                }
             } else {
                 w.update(en.getValue());
             }
@@ -531,11 +600,19 @@ public final class StressDirector {
             // и ракеты РСЗО (под миром) — VPS, 29.09.2026
             // растяжение полёта РСЗО вне мира (район цели не готов): начало и конец — отдельной строкой
             if (en.getValue() instanceof RocketEntity r) {
+                if (w.probe != null) {
+                    w.probe.minRate = Math.min(w.probe.minRate, r.timeRate());
+                    if (r.timeRate() < DEEP) w.probe.deep.add(en.getKey());
+                }
                 boolean stretched = r.timeRate() < 0.999;
                 if (stretched != w.stretched) {
                     log("растяжение %s %s: %s, темп %.2f, у %d %d %d, до цели %.0f", w.type, en.getKey(), stretched ? "началось" : "кончилось",
                             r.timeRate(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.pos.distanceTo(w.aim));
                     w.stretched = stretched;
+                    if (w.probe != null) {
+                        if (stretched) w.probe.stretchOn++;
+                        else w.probe.stretchOff++;
+                    }
                 }
             }
             if ((w.virtual || "bunker_buster".equals(w.type)) && tick % 10 == 0) {
@@ -570,6 +647,7 @@ public final class StressDirector {
                         w.ref.getRemovalReason(), w.ref.flightPhase().getSerializedName(), w.ref.age(), how);
             }
             outcomes.merge(w.type + ":" + outcome, 1, Integer::sum);
+            if (w.probe != null) w.probe.outcomes.merge(outcome, 1, Integer::sum);
         }
         blastsThisTick.clear();
     }
@@ -713,6 +791,13 @@ public final class StressDirector {
         log("summary %s: тиков %d, mspt p50 %.1f p99 %.1f худший %.0f на t=%d | запущено %s | итоги %s | ядерных подрывов %d | в полёте %d | тикеты %s | heap %d МБ | warn %d err %d",
                 why, tick, p50 / 1e6, p99 / 1e6, worstTick / 1e6, worstTickAt, launchedByType, outcomes, nukes, watched.size(), tickets(s.overworld()),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors);
+        for (Probe pr : probes) {
+            log("проба %s: пущено %d, растяжение началось %d, кончилось %d, глубоко (темп < %.1f) у %d, наименьший темп %.2f (ожидалось %s), итоги %s",
+                    pr.name, pr.launched, pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate,
+                    pr.expectStretch ? "растяжение" : "без растяжения", pr.outcomes);
+            if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
+            if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
+        }
         for (String p : problems) log("problem: %s", p);
     }
 
