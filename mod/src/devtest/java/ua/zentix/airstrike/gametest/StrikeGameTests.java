@@ -832,6 +832,7 @@ public final class StrikeGameTests {
         Vec3[] entry = {null};
         double[] lowest = {from.y};
         boolean[] risen = {false};
+        double[] risenZ = {0};
         List<ChunkPos> held = new ArrayList<>();
         afterTest(h, () -> held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c)));
         h.onEachTick(() -> {
@@ -841,9 +842,12 @@ public final class StrikeGameTests {
             // бомба вне мира ниже будущей плиты, но выше моря — её чанки готовы, а плита уже над ней
             if (!risen[0] && p.isVirtual() && p.getY() < roof - 20 && p.getY() > sea + 5) {
                 risen[0] = true;
+                risenZ[0] = p.getZ();
                 BlockPos at = p.blockPosition();
+                // плита короткая: за ней бомба уходит ниже низа мира лишь через ~35 блоков по курсу — туда плита не
+                // достаёт, и в неё попадает только бомба, которая упала в поверхность там, где плита встала над ней
                 for (int dx = -3; dx <= 3; dx++) {
-                    for (int dz = -8; dz <= 96; dz++) {
+                    for (int dz = -8; dz <= 16; dz++) {
                         BlockPos b = new BlockPos(at.getX() + dx, roof, at.getZ() + dz);
                         ChunkPos c = new ChunkPos(b);
                         if (!held.contains(c)) {
@@ -864,6 +868,7 @@ public final class StrikeGameTests {
             h.assertTrue(entry[0] != null, "бомба не вошла в грунт, ниже всего y=" + (int) lowest[0]);
             // вход на 1 блок выше точки попадания (дым из скважины); попадание — верх плиты
             h.assertTrue(Math.abs(entry[0].y - 1 - (roof + 1)) < 2, "бомба вошла не в плиту над собой: y=" + (int) entry[0].y + ", плита " + roof);
+            h.assertTrue(Math.abs(entry[0].z - risenZ[0]) < 4, "бомба вошла в плиту не там, где плита встала над ней: " + (entry[0].z - risenZ[0]));
         });
     }
 
@@ -903,6 +908,26 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rising_aim", skyAccess = true)
     public static void virtualMissileClimbsAfterRisingAim(GameTestHelper h) {
+        // ракета спустилась под «рельеф» на свою высоту над целью (+12)
+        climbsAfterRisingAim(h, (y, floor, dy) -> y < floor - 11);
+    }
+
+    /**
+     * То же, но цель поднимается, пока ракета ещё снижается к её прежней высоте, — в тот тик, после которого шаг ракеты
+     * прошёл бы через новый пол: пол встал выше неё сам, это не пересечение сверху вниз.
+     */
+    @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rising_aim_descent", skyAccess = true)
+    public static void virtualMissileClimbsAfterAimRisesMidDescent(GameTestHelper h) {
+        climbsAfterRisingAim(h, (y, floor, dy) -> dy > 0 && y >= floor && y - dy < floor);
+    }
+
+    @FunctionalInterface
+    private interface RiseWhen {
+        /** Поднять цель сейчас: высота ракеты, пол после подъёма цели, снижение ракеты за прошлый тик. */
+        boolean test(double y, double floorAfter, double descent);
+    }
+
+    private static void climbsAfterRisingAim(GameTestHelper h, RiseWhen when) {
         ServerLevel level = h.getLevel();
         Vec3 low = top(h, RUNWAY_TARGET);
         ArmorStand stand = EntityType.ARMOR_STAND.create(level);
@@ -918,14 +943,16 @@ public final class StrikeGameTests {
         VirtualFlights.launch(level, missile);
         UUID id = missile.getUUID();
         Vec3 high = low.add(0, 40, 0);
+        // пол полёта вне мира после подъёма: центр цели на 16 блоков ниже (рельеф над путём выше)
+        double floorAfter = high.y + stand.getBbHeight() / 2 - 16;
         Vec3[] last = {start};
         boolean[] raised = {false};
         h.onEachTick(() -> {
             StrikeProjectile f = flight(level, id);
             if (f == null) return;
+            double descent = last[0].y - f.getY();
             last[0] = f.position();
-            // ракета вне мира спустилась под «рельеф» на свою высоту над целью (+12) — цель уходит вверх
-            if (!raised[0] && f.isVirtual() && f.getY() < low.y + 14 && f.getZ() < start.z + roofLength - 100) {
+            if (!raised[0] && f.isVirtual() && f.getZ() < start.z + roofLength - 100 && when.test(f.getY(), floorAfter, descent)) {
                 raised[0] = true;
                 stand.teleportTo(high.x, high.y, high.z);
             }
