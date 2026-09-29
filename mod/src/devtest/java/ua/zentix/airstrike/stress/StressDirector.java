@@ -32,9 +32,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
-import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.SalvoData;
-import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
@@ -77,6 +75,8 @@ public final class StressDirector {
     private static final TicketType<UUID> TELEPORT = TicketType.create("airstrike_stress_teleport", Comparator.<UUID>naturalOrder());
     /** Сколько ждать района телепорта, пока это не стало проблемой в сводке, и сколько держать его после. */
     private static final int TELEPORT_WAIT = 1200, TELEPORT_HOLD = 100;
+    /** Радиус района телепорта в чанках (5×5). */
+    private static final int TELEPORT_AREA = 2;
 
     private record Step(int at, String what, Consumer<MinecraftServer> action) {}
 
@@ -331,20 +331,24 @@ public final class StressDirector {
     }
 
     /**
-     * Телепорт игрока, как у игры с загрузкой в фоне: сначала район 3×3 чанка грузится ({@link AreaLoader}, как районы
-     * целей), игрок переносится, когда он готов. Сразу в неготовый район {@code teleportTo} грузил чанки синхронно
-     * прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026 были самого стенда.
+     * Телепорт игрока, как у игры с загрузкой в фоне: сначала район 5×5 чанков грузится (у каждого чанка свой тикет
+     * уровня 33 — загружен полностью, но не тикает), игрок переносится, когда все готовы. Сразу в неготовый район
+     * {@code teleportTo} грузил чанки синхронно прямо в тике — 12 из 18 остановок сервера на 2–8 с на VPS 29.09.2026
+     * были самого стенда.
      */
     private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
         ServerPlayer p = need(s, name, "телепорт");
         if (p == null || level == null) return;
-        AreaLoader.Area area = new AreaLoader.Area(TELEPORT, new ChunkPos(x >> 4, z >> 4), 1, p.getUUID());
-        AreaLoader areas = StrikeWorld.get(level).areas();
-        areas.hold(level, area);
+        List<ChunkPos> area = new ArrayList<>();
+        for (int dx = -TELEPORT_AREA; dx <= TELEPORT_AREA; dx++) {
+            for (int dz = -TELEPORT_AREA; dz <= TELEPORT_AREA; dz++) area.add(new ChunkPos((x >> 4) + dx, (z >> 4) + dz));
+        }
+        UUID key = UUID.randomUUID();
+        for (ChunkPos c : area) level.getChunkSource().addRegionTicket(TELEPORT, c, 0, key);
         int since = tick;
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
-            if (!areas.taken(area)) {
+            if (!area.stream().allMatch(c -> Terrain.ready(level, c.x, c.z))) {
                 if (tick - since == TELEPORT_WAIT) problems.add(String.format(Locale.ROOT, "телепорт %s ждёт район %d %d дольше %d тиков", name, x, z, TELEPORT_WAIT));
                 return false;
             }
@@ -354,7 +358,9 @@ public final class StressDirector {
                 log("tp %s → %d %d, район ждали %d тиков", name, x, z, tick - since);
             }
             // дальше район держит тикет игрока; наш — ещё немного, пока тот не встанет
-            at(tick + TELEPORT_HOLD, "район телепорта " + name + " отпущен", sv -> areas.release(level, area));
+            at(tick + TELEPORT_HOLD, "район телепорта " + name + " отпущен", sv -> {
+                for (ChunkPos c : area) level.getChunkSource().removeRegionTicket(TELEPORT, c, 0, key);
+            });
             return true;
         });
     }
@@ -608,8 +614,7 @@ public final class StressDirector {
     /**
      * Строка для замера остановок: какой чанк грузится синхронно (неготовый чанк с тикетом {@code unknown} — его
      * ставит {@code ServerChunkCache.getChunk}), уровни тикетов 5×5 вокруг него (33 — полностью загружен, 32 — тикают
-     * блоки, 31 — сущности; «·» — чанка нет), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки,
-     * сколько районов догружает мод.
+     * блоки, 31 — сущности; «·» — чанка нет), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки.
      */
     private static String stallReport(ServerLevel level) {
         DistanceManager d = distanceManager(level);
@@ -651,8 +656,7 @@ public final class StressDirector {
         for (ChunkHolder h : chunkMap.getChunks()) {
             if (h.getTicketLevel() <= 33 && h.getLatestStatus() != net.minecraft.world.level.chunk.status.ChunkStatus.FULL) waiting++;
         }
-        return sb.append(" | ждут полной загрузки ").append(waiting).append(" чанков, районы мода догружаются ")
-                .append(StrikeWorld.get(level).areas().loading()).toString();
+        return sb.append(" | ждут полной загрузки ").append(waiting).append(" чанков").toString();
     }
 
     @Nullable

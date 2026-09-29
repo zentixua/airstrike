@@ -21,16 +21,16 @@ import java.util.UUID;
 
 /**
  * Подсказка карты наведения: место выбрано кликом, приказа ещё нет — район начинает грузиться уже сейчас (в фоне,
- * по чанкам, {@link AreaLoader}, как район цели у снаряда), и к пуску он чаще всего готов. У игрока один такой
- * район: следующий клик заменяет его; новый район — не чаще раза в секунду (клик чаще запоминается и берётся, когда
- * можно); район живёт {@link #LIFESPAN} тиков и отпускается сам, даже если игрок вышел.
+ * тикетом, как район цели у снаряда), и к пуску он чаще всего готов. У игрока один такой район: следующий клик
+ * заменяет его; новый район — не чаще раза в секунду (клик чаще запоминается и берётся, когда можно); тикет живёт
+ * {@link #LIFESPAN} тиков и снимается сам, даже если игрок вышел.
  */
 public final class PickHints {
-    /** Район подсказки отпускается сам через 30 с. */
+    /** Тикет подсказки гаснет сам через 30 с (ванильный срок жизни тикета). */
     public static final int LIFESPAN = 600;
     /** Новый район — не чаще раза в секунду с игрока. */
     public static final int MIN_INTERVAL = 20;
-    private static final TicketType<UUID> TYPE = TicketType.create("airstrike_pick", Comparator.<UUID>naturalOrder());
+    private static final TicketType<UUID> TYPE = TicketType.create("airstrike_pick", Comparator.<UUID>naturalOrder(), LIFESPAN);
 
     private PickHints() {}
 
@@ -82,7 +82,7 @@ public final class PickHints {
 
     private static void take(ServerLevel level, UUID who, Slot slot, ChunkPos pos) {
         release(level.getServer(), who, slot);
-        StrikeWorld.get(level).areas().hold(level, area(pos, who), level.getGameTime() + LIFESPAN);
+        level.getChunkSource().addRegionTicket(TYPE, pos, FlightTickets.DISTANCE, who);
         slot.dimension = level.dimension();
         slot.held = pos;
         slot.takenAt = level.getGameTime();
@@ -93,7 +93,7 @@ public final class PickHints {
     private static void release(MinecraftServer server, UUID who, Slot slot) {
         if (slot.held == null || slot.dimension == null) return;
         ServerLevel level = server.getLevel(slot.dimension);
-        if (level != null) StrikeWorld.get(level).areas().release(level, area(slot.held, who));
+        if (level != null) level.getChunkSource().removeRegionTicket(TYPE, slot.held, FlightTickets.DISTANCE, who);
         slot.held = null;
         slot.dimension = null;
     }
@@ -109,15 +109,6 @@ public final class PickHints {
     public static void onPlayerTick(PlayerTickEvent.Post e) {
         if (!(e.getEntity() instanceof ServerPlayer player) || !player.hasData(ModAttachments.PICK_HINT.get())) return;
         tick(player.serverLevel(), player.getUUID(), player.getData(ModAttachments.PICK_HINT.get()));
-    }
-
-    private static AreaLoader.Area area(ChunkPos pos, UUID who) {
-        return new AreaLoader.Area(TYPE, pos, FlightTickets.DISTANCE, who);
-    }
-
-    /** Сколько районов подсказки у игрока взято или догружается (проверки). */
-    public static int areas(ServerLevel level, UUID who) {
-        return StrikeWorld.get(level).areas().count(TYPE, who);
     }
 
     /** Тикет подсказки карты (тесты и стенд считают районы подсказок). */

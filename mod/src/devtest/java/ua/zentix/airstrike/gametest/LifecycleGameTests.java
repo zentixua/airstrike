@@ -1,11 +1,8 @@
 package ua.zentix.airstrike.gametest;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
-import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
@@ -26,9 +23,7 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
-import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.ChunkTickets;
-import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -97,7 +92,7 @@ public final class LifecycleGameTests {
     }
 
     /**
-     * Район цели (тикет региона или прогрев по чанкам) держит и барражирующий в мире; выгрузка с чанком отпускает и его.
+     * Район цели (региональный тикет) держит и барражирующий в мире; выгрузка с чанком отпускает и его.
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "tickets_area", skyAccess = true)
     public static void targetAreaReleasedWhenUnloadedWithChunk(GameTestHelper h) {
@@ -365,85 +360,9 @@ public final class LifecycleGameTests {
                 + " phase=" + p.flightPhase() + " ticking=" + level.isPositionEntityTicking(p.blockPosition()) + " age=" + p.age();
     }
 
-    /**
-     * Тикеты района цели этого снаряда (ключ — его UUID): тикет региона {@code FlightTickets} или, пока район
-     * догружается по чанкам, тикеты прогрева {@code AreaLoader}.
-     */
+    /** Тикеты района цели этого снаряда ({@code FlightTickets}, ключ — его UUID). */
     private static int flightTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_flight", id) + tickets(level, "airstrike_prefetch", id);
-    }
-
-    /**
-     * Районы целей в свежем мире грузятся в фоне, не забивая очередь генерации (VPS 29.09.2026: сервер стоял по 8–18 с
-     * на синхронной загрузке чанка из улья): в любой тик неготовых чанков под прогревом не больше
-     * {@link AreaLoader#IN_FLIGHT}, тикет региона появляется, только когда готов весь район, и ни один чанк района не
-     * тикает блоками, пока у него есть неготовый сосед (улей читает соседний блок — и грузил бы соседа синхронно).
-     */
-    @GameTest(template = "range", timeoutTicks = 40000, batch = "tickets_background", skyAccess = true)
-    public static void targetAreasLoadInBackground(GameTestHelper h) {
-        ServerLevel level = h.getLevel();
-        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
-        ChunkPos[] centre = {new ChunkPos(base.x + 40, base.z), new ChunkPos(base.x + 70, base.z + 30), new ChunkPos(base.x - 50, base.z - 40)};
-        int[] distance = {FlightTickets.DISTANCE, FlightTickets.DISTANCE, 6};
-        UUID[] id = {UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()};
-        for (int i = 0; i < 3; i++) FlightTickets.hold(level, centre[i], distance[i], id[i], true);
-        int[] tick = {0};
-        h.onEachTick(() -> {
-            tick[0]++;
-            LongSet inFlight = new LongOpenHashSet();
-            int taken = 0;
-            for (int i = 0; i < 3; i++) {
-                for (long c : ticketChunks(level, "airstrike_prefetch", id[i])) if (!Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c))) inFlight.add(c);
-                boolean region = !ticketChunks(level, "airstrike_flight", id[i]).isEmpty();
-                boolean ready = true;
-                for (int dx = -distance[i]; dx <= distance[i]; dx++) {
-                    for (int dz = -distance[i]; dz <= distance[i]; dz++) {
-                        int x = centre[i].x + dx, z = centre[i].z + dz;
-                        ready &= Terrain.ready(level, x, z);
-                        if (level.shouldTickBlocksAt(ChunkPos.asLong(x, z)) && !neighboursReady(level, x, z)) {
-                            throw new GameTestAssertException("чанк " + x + " " + z + " района " + i + " тикает блоками при неготовом соседе на тике " + tick[0]);
-                        }
-                    }
-                }
-                if (region && !ready) throw new GameTestAssertException("тикет региона района " + i + " стоит, а район не готов, тик " + tick[0]);
-                if (region) taken++;
-            }
-            if (inFlight.size() > AreaLoader.IN_FLIGHT) {
-                throw new GameTestAssertException("под прогревом неготовых чанков " + inFlight.size() + " > " + AreaLoader.IN_FLIGHT + " на тике " + tick[0]);
-            }
-            if (taken == 3) {
-                for (int i = 0; i < 3; i++) FlightTickets.hold(level, centre[i], distance[i], id[i], false);
-                for (int i = 0; i < 3; i++) {
-                    h.assertTrue(flightTickets(level, id[i]) == 0, "тикеты района " + i + " остались после отпуска");
-                }
-                Airstrike.LOG.info("Районы целей в фоне: три района готовы и взяты за {} тиков, прогрев до {} чанков разом", tick[0], AreaLoader.IN_FLIGHT);
-                h.succeed();
-            }
-        });
-    }
-
-    private static boolean neighboursReady(ServerLevel level, int x, int z) {
-        for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) if (!Terrain.ready(level, x + dx, z + dz)) return false;
-        return true;
-    }
-
-    /** Чанки с тикетом {@code type} и ключом {@code id}. */
-    private static LongSet ticketChunks(ServerLevel level, String type, UUID id) {
-        try {
-            Field f = DistanceManager.class.getDeclaredField("tickets");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var map = (Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) f.get(level.getChunkSource().chunkMap.getDistanceManager());
-            LongSet chunks = new LongOpenHashSet();
-            for (var en : map.long2ObjectEntrySet()) {
-                for (Ticket<?> t : en.getValue()) {
-                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) chunks.add(en.getLongKey());
-                }
-            }
-            return chunks;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
+        return tickets(level, "airstrike_flight", id);
     }
 
     /** Тикеты своего чанка и чанка впереди ({@code ChunkTickets}, ключ — UUID снаряда). */
