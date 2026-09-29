@@ -155,6 +155,8 @@ public final class StressDirector {
      */
     private static final class GroundProbe {
         final String name;
+        /** Как пущены снаряды пробы — в строку сводки, чтобы итог не прочли как путь боевого пуска. */
+        final String how;
         /** Управляемый снаряд (ракета) или прицельный (РСЗО): до поверхности он может дойти только у цели. */
         final boolean steering;
         /** Бомба на точку позади: путь до поверхности и должен проверяться. */
@@ -172,8 +174,9 @@ public final class StressDirector {
         net.minecraft.world.level.ChunkPos forced;
         boolean raised;
 
-        GroundProbe(String name, Vec3 center, boolean steering, boolean mustGround) {
+        GroundProbe(String name, String how, Vec3 center, boolean steering, boolean mustGround) {
             this.name = name;
+            this.how = how;
             this.center = center;
             this.steering = steering;
             this.mustGround = mustGround;
@@ -462,7 +465,7 @@ public final class StressDirector {
                 new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
     }
 
-    /** Бомбы вне мира на точку в 300 блоках позади и на 150 ниже (как GameTest virtualMissNeverFallsBelowGround). */
+    /** Бомбы сразу вне мира (без B-2: сброс {@code drop} в воздухе) на точку в 300 блоках позади и на 150 ниже (как GameTest virtualMissNeverFallsBelowGround). */
     private void groundBombs(MinecraftServer s, String name, int x, int z, int count) {
         ServerLevel level = s.overworld();
         Vec3 behind = null;
@@ -475,7 +478,8 @@ public final class StressDirector {
             bomb.drop(from, 0, aim, null, null);
             VirtualFlights.launch(level, bomb);
         }
-        if (behind != null) groundProbes.add(new GroundProbe(name, behind.add(48 * (count - 1) / 2.0, 0, 0), false, true));
+        if (behind != null) groundProbes.add(new GroundProbe(name, "бомба сразу вне мира, без B-2 и его захода; баллистика, не управляемая",
+                behind.add(48 * (count - 1) / 2.0, 0, 0), false, true));
         log("проба %s: %d бомб вне мира у %d %d на точку позади", name, count, x, z);
     }
 
@@ -483,7 +487,7 @@ public final class StressDirector {
     private void groundDeep(MinecraftServer s, String name, WeaponType weapon, int count, int x, int z) {
         ServerLevel level = s.overworld();
         Vec3 aim = new Vec3(x + 0.5, 40, z + 0.5);
-        groundProbes.add(new GroundProbe(name, aim, true, false));
+        groundProbes.add(new GroundProbe(name, "боевой пуск издалека (dispatch)", aim, true, false));
         log("проба %s: %s %d по %d 40 %d (рельеф над целью %d), район %s", name, weapon.name().toLowerCase(Locale.ROOT), count, x, z,
                 Target.Ground.at(level, x, z).pos().y > 0 ? (int) Target.Ground.at(level, x, z).pos().y : -1,
                 Terrain.ready(level, x >> 4, z >> 4) ? "уже готов" : "не готов");
@@ -498,7 +502,7 @@ public final class StressDirector {
      */
     private void groundRising(MinecraftServer s, String name, int x, int z) {
         ServerLevel level = s.overworld();
-        GroundProbe pr = new GroundProbe(name, new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), true, false);
+        GroundProbe pr = new GroundProbe(name, "боевой пуск издалека (dispatch) по стойке", new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), true, false);
         pr.forced = new net.minecraft.world.level.ChunkPos(x >> 4, z >> 4);
         level.setChunkForced(pr.forced.x, pr.forced.z, true);
         groundProbes.add(pr);
@@ -1024,9 +1028,9 @@ public final class StressDirector {
         if (pr.steering && max > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "до поверхности в %.0f блоках от цели (> %.0f)", max, GROUND_OFF_LIMIT));
         if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");
         if (pr.forced != null && !pr.raised) fails.add("цель не поднялась — ракета вне мира не застала подъём");
-        log("проба-поверхность %s: пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
+        log("проба-поверхность %s (%s): пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
                         + "не дождались загрузки %d, итоги %s — %s",
-                pr.name, pr.launched, off.size(), max, median, pr.gaveUp, pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
