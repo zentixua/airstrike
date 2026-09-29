@@ -766,10 +766,22 @@ public final class Trailer {
                     // невысоко, потом кадр уходит в небо за ней. Взгляд прямо на ракету (облако, kf4b) упирался в чёрное
                     // небо, а сама ракета при FOV 40 и в 140 блоках была мельче 2 % кадра
                     Vec3 base = pad.add(0, 15, 0);
-                    return CineCamera.track(from, smoothFocus(() -> {
+                    Path p = CineCamera.track(from, smoothFocus(() -> {
                         IcbmEntity m = newest(IcbmEntity.class);
-                        return m == null ? null : base.lerp(m.getPosition(CineCamera.partial()), 0.8);
+                        return m == null ? null : base.lerp(m.getPosition(CineCamera.partial()), 0.85);
                     }, base, 0.85), 30);
+                    // длинный объектив за ракетой: чем выше, тем уже кадр (в 300 блоках при 30° она мельче 2 % кадра)
+                    final double[] zoom = {30, Double.NaN};
+                    return t -> {
+                        IcbmEntity m = newest(IcbmEntity.class);
+                        double want = m == null ? 30 : Mth.clampedMap(m.getY() - pad.y, 40, 220, 30, 14);
+                        // сглажено по времени плана, а не по вызовам (подкадры зовут путь много раз за тик)
+                        double dt = Double.isNaN(zoom[1]) ? 0 : Math.max(0, t - zoom[1]);
+                        zoom[1] = t;
+                        zoom[0] += (want - zoom[0]) * (1 - Math.pow(0.9, dt));
+                        Pose q = p.at(t);
+                        return new Pose(q.pos(), q.yaw(), q.pitch(), q.roll(), zoom[0]);
+                    };
                 })
                 .subject(() -> newest(IcbmEntity.class), 3, 0.02);
         // сирена над пустой улицей, отсчёт на экране
