@@ -1,7 +1,6 @@
 package ua.zentix.airstrike.client.nuclear;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.sounds.SoundSource;
@@ -46,8 +45,8 @@ public final class NukeSounds {
         }
     }
 
-    static void tick(ClientLevel level, long now) {
-        NukeSky.tick(level);
+    /** Петля чёрного дождя — после {@link NukeSky#tick}, который решает, идёт ли он у камеры. */
+    static void tick() {
         if (NukeSky.inBlackRain() && (rainLoop == null || rainLoop.isStopped())) {
             rainLoop = new RainLoop();
             Minecraft.getInstance().getSoundManager().play(rainLoop);
@@ -57,7 +56,6 @@ public final class NukeSounds {
     static void reset() {
         if (rainLoop != null) rainLoop.end();
         rainLoop = null;
-        NukeSky.reset();
     }
 
     /** Звуки одного подрыва у этого слушателя. */
