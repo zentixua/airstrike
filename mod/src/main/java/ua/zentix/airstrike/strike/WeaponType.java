@@ -8,6 +8,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.ByIdMap;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.util.RandomSource;
+import ua.zentix.airstrike.Airstrike;
 
 import java.util.List;
 import java.util.Locale;
@@ -68,7 +69,7 @@ public enum WeaponType implements StringRepresentable {
     }
 
     public Component description() {
-        return Component.translatable("airstrike.weapon." + name + ".desc");
+        return Component.translatable("airstrike.weapon." + name + ".desc", Component.keybind(Airstrike.CAMERA_KEY));
     }
 
     public SirenKind siren() {

@@ -33,6 +33,11 @@ import ua.zentix.airstrike.strike.StrikeWorld;
 @Mod(Airstrike.MOD_ID)
 public final class Airstrike {
     public static final String MOD_ID = "airstrike";
+    /**
+     * Имя клавиши камеры снаряда: подсказки сервера ссылаются на неё через {@code Component.keybind}, и клиент
+     * показывает ту клавишу, что назначена у игрока, а не зашитую букву.
+     */
+    public static final String CAMERA_KEY = "key.airstrike.camera";
     public static final Logger LOG = LogUtils.getLogger();
 
     public Airstrike(IEventBus modBus, ModContainer container) {
