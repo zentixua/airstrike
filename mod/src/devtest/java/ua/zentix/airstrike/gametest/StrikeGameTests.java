@@ -5,6 +5,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -602,10 +603,12 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Взрыв у неготовых чанков не читает их в тике (сервер вставал на секунду с лишним): ждёт, пока тикет района
-     * догрузит их в фоне, и срабатывает, когда всё в его досягаемости готово.
+     * Взрыв у неготовых чанков не читает их в тике (сервер вставал на секунду с лишним): ждёт, пока район станет
+     * готовым, и срабатывает, когда всё в его досягаемости готово. Фоновая генерация за 4 км идёт сколько угодно
+     * против тиков сервера GameTest (он тикает без пауз), поэтому район здесь догружает сам тест — синхронно, после
+     * тика, в котором взрыв уже ждал: срок теста зависит только от тиков, не от скорости машины.
      */
-    @GameTest(template = "range", timeoutTicks = 2400, batch = "deferred_blast")
+    @GameTest(template = "range", timeoutTicks = 100, batch = "deferred_blast")
     public static void blastWaitsForUnreadyChunks(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(4096, 0, 0);
@@ -618,6 +621,14 @@ public final class StrikeGameTests {
             readyWhenRan[0] = Terrain.readyAround(l, far, reach);
         });
         h.assertFalse(ran[0], "взрыв сработал сразу, не дождавшись района");
+        h.runAfterDelay(2, () -> {
+            // взрыв уже тикал в очереди: если район к этому времени сам не догрузился, взрыва быть не должно
+            h.assertTrue(!ran[0] || readyWhenRan[0], "взрыв сработал до готовности района");
+            for (int cx = Mth.floor(far.x - reach) >> 4; cx <= Mth.floor(far.x + reach) >> 4; cx++) {
+                for (int cz = Mth.floor(far.z - reach) >> 4; cz <= Mth.floor(far.z + reach) >> 4; cz++) level.getChunk(cx, cz);
+            }
+            h.assertTrue(Terrain.readyAround(level, far, reach), "район не стал готовым после загрузки");
+        });
         h.succeedWhen(() -> {
             h.assertTrue(ran[0], "взрыв всё ещё ждёт района");
             h.assertTrue(readyWhenRan[0], "взрыв сработал до готовности района");
