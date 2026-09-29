@@ -606,20 +606,23 @@ public final class Trailer {
             AirstrikeConfig.SERVER.siren.set(false);
         });
         run(() -> placeHidden(overGround(TOWER.add(-300, 150, 120), 35), TOWER));
-        // разрушения в только что загруженных чанках идут сразу, под бюджетом: дать им время
-        waitTicks(600);
         // над крышами: башни у эпицентра в полторы сотни блоков, камера на постоянной высоте уходила в стены
         shot("ruins").hidden().length(220).shake(0.05).camera(() -> CineCamera.spline(true,
                 CineCamera.Key.at(0, overGround(TOWER.add(-300, 150, 120), 35), TOWER.add(0, 20, 0), 50),
                 CineCamera.Key.at(110, overGround(TOWER.add(-180, 110, 60), 35), TOWER.add(0, 10, 0), 48),
-                CineCamera.Key.at(220, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)));
+                CineCamera.Key.at(220, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)))
+                // пыль гриба и разрушения в только что загруженных чанках (они идут под бюджетом) должны улечься
+                .when(() -> sinceDetonation() > 3000, 6000);
         run(() -> placeInFallout(false));
         waitTicks(40);
         run(() -> placeInFallout(true));
         run(() -> cmd("item replace entity @s weapon.mainhand with airstrike:geiger_counter"));
-        // в творческом доза не копится (RadiationTicker): у счётчика в кадре должна расти и она
-        run(() -> cmd("gamemode adventure @s"));
-        shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), TOWER) + 150 - (float) t * 0.35f,
+        // в творческом доза не копится (RadiationTicker), а в приключении за ожидание набегали смертельные десятки Гр:
+        // приключение и чистая доза — только на время записи
+        shot("fallout").length(170).hud().cue(0, () -> {
+                    cmd("airstrike radiation clear");
+                    cmd("gamemode adventure @s");
+                }).player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), TOWER) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
                 .when(() -> sinceDetonation() > 3900, 8000);
     }
