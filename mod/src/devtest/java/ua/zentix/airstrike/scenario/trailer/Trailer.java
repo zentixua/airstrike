@@ -515,6 +515,9 @@ public final class Trailer {
                 .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
         // место найдено заранее (findLocations): ground() после подрыва — дно воронки, и цель проверки уходила под землю
         Supplier<Vec3> pit = () -> bombPlaza;
+        // B-2 прошлого плана (bomb_bay) после #126 может уйти на второй заход и сбросить бомбу позже, уже в этом плане:
+        // облёт замирал на её взрыве в 160 блоках от площадки (ноутбук, kfcheck4c) — до пуска убираем все полёты
+        run(() -> cmd("airstrike clear"));
         Vec3[] bombAt = {null};
         run(() -> placeHidden(pit.get().add(toPost.scale(120)).add(0, 30, 0), pit.get()));
         shot("bomb_impact").onReady(() -> fire("bunker", pit.get())).hidden().length(320).shake(0.08)
