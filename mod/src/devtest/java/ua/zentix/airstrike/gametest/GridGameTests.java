@@ -194,23 +194,26 @@ public final class GridGameTests {
     public static void restoredLampsFollowSignalChangedInTheDark(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
-        BlockPos lamp = new BlockPos(20, 13, 20), bulb = new BlockPos(24, 13, 20);
-        h.setBlock(lamp.above(), Blocks.REDSTONE_BLOCK);
-        h.setBlock(lamp, Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true));
-        h.setBlock(bulb, Blocks.COPPER_BULB);
-        LevelChunk chunk = level.getChunkAt(h.absolutePos(lamp));
-        h.assertTrue(chunk == level.getChunkAt(h.absolutePos(bulb)), "лампы в разных чанках");
+        // обе — в чанке середины площадки (он весь на ней)
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        BlockPos lamp = new BlockPos(mid.getMinBlockX() + 4, h.absolutePos(CENTER).getY() + 1, mid.getMinBlockZ() + 4), bulb = lamp.east(4);
+        level.setBlock(lamp.above(), Blocks.REDSTONE_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(lamp, Blocks.REDSTONE_LAMP.defaultBlockState().setValue(RedstoneLampBlock.LIT, true), Block.UPDATE_ALL);
+        level.setBlock(bulb, Blocks.COPPER_BULB.defaultBlockState(), Block.UPDATE_ALL);
+        h.assertTrue(level.getBlockState(bulb).is(Blocks.COPPER_BULB) && !level.getBlockState(bulb).getValue(CopperBulbBlock.LIT), "медная лампа не та");
+        LevelChunk chunk = level.getChunkAt(lamp);
         h.assertTrue(ChunkLights.apply(level, chunk, true) == 2, "лампы не погасли");
         // в темноте: у лампы из красного камня сигнал пропал, медной — появился
-        h.setBlock(lamp.above(), Blocks.AIR);
-        h.setBlock(bulb.above(), Blocks.REDSTONE_BLOCK);
-        h.assertTrue(GridLights.isUnlit(h.getBlockState(lamp)) && GridLights.isUnlit(h.getBlockState(bulb)), "двойники сменились от соседей");
+        level.setBlock(lamp.above(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(bulb.above(), Blocks.REDSTONE_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+        h.assertTrue(GridLights.isUnlit(level.getBlockState(lamp)) && GridLights.isUnlit(level.getBlockState(bulb)), "двойники сменились от соседей");
         h.assertTrue(ChunkLights.apply(level, chunk, false) == 2, "лампы не зажглись");
         h.startSequence()
                 .thenWaitUntil(() -> {
-                    h.assertBlockState(lamp, s -> s.is(Blocks.REDSTONE_LAMP) && !s.getValue(RedstoneLampBlock.LIT), () -> "лампа без сигнала горит");
-                    h.assertBlockState(bulb, s -> s.is(Blocks.COPPER_BULB) && s.getValue(CopperBulbBlock.LIT) && s.getValue(CopperBulbBlock.POWERED),
-                            () -> "медная лампа не заметила сигнал: " + h.getBlockState(bulb));
+                    BlockState l = level.getBlockState(lamp), b = level.getBlockState(bulb);
+                    h.assertTrue(l.is(Blocks.REDSTONE_LAMP) && !l.getValue(RedstoneLampBlock.LIT), "лампа без сигнала горит: " + l);
+                    h.assertTrue(b.is(Blocks.COPPER_BULB) && b.getValue(CopperBulbBlock.LIT) && b.getValue(CopperBulbBlock.POWERED),
+                            "медная лампа не заметила сигнал: " + b);
                 })
                 .thenSucceed();
     }
@@ -329,7 +332,7 @@ public final class GridGameTests {
         ChunkPos far = new ChunkPos(h.absolutePos(CENTER.east(480)));
         Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
         BlockPos[] glow = new BlockPos[1];
-        chunks.addRegionTicket(HOLD, far, 2, far);
+        hold(level, far);
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
                 .thenExecute(() -> {
@@ -345,7 +348,7 @@ public final class GridGameTests {
                 .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "каскад идёт"))
                 .thenExecute(() -> {
                     h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "каскад загрузил чанк");
-                    chunks.addRegionTicket(HOLD, far, 2, far);
+                    hold(level, far);
                 })
                 .thenWaitUntil(() -> {
                     h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
@@ -377,7 +380,7 @@ public final class GridGameTests {
         Map<BlockPos, Holder<Biome>> biomes = new LinkedHashMap<>();
         BlockPos[] glow = new BlockPos[1], chest = new BlockPos[1];
         ItemStack loot = new ItemStack(Items.DIAMOND, 7);
-        chunks.addRegionTicket(HOLD, far, 2, far);
+        hold(level, far);
         h.startSequence()
                 .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
                 .thenExecute(() -> {
@@ -404,7 +407,7 @@ public final class GridGameTests {
                     h.assertFalse(saved.getBoolean(ChunkSerializer.IS_LIGHT_ON_TAG), "свет погашенных сохранён как верный");
                     h.assertTrue(saved.toString().contains("minecraft:glowstone"), "светокамня нет в сохранении");
                     h.assertTrue(PowerGrid.get(level).dark(far.x, far.z, level.getGameTime()), "квартал уже светлый");
-                    chunks.addRegionTicket(HOLD, far, 2, far);
+                    hold(level, far);
                 })
                 .thenWaitUntil(() -> {
                     h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
@@ -428,7 +431,7 @@ public final class GridGameTests {
                 .thenWaitUntil(() -> h.assertFalse(PowerGrid.get(level).dark(far.x, far.z, level.getGameTime()), "квартал ещё тёмный"))
                 .thenExecute(() -> {
                     h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(far.toLong()) == null, "возврат света загрузил чанк");
-                    chunks.addRegionTicket(HOLD, far, 2, far);
+                    hold(level, far);
                 })
                 .thenWaitUntil(() -> {
                     h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
@@ -502,6 +505,17 @@ public final class GridGameTests {
     private static List<CompoundTag> sections(CompoundTag tag) {
         ListTag list = tag.getList(ChunkSerializer.SECTIONS_TAG, Tag.TAG_COMPOUND);
         return java.util.stream.IntStream.range(0, list.size()).mapToObj(list::getCompound).toList();
+    }
+
+    /**
+     * Держать чанк и его соседей и загрузить их сразу (с диска или генерацией): сервер GameTest на CI тикает
+     * в десятки раз быстрее игры, и срок теста проходит раньше фоновой загрузки.
+     */
+    private static void hold(ServerLevel level, ChunkPos p) {
+        level.getChunkSource().addRegionTicket(HOLD, p, 2, p);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) level.getChunk(p.x + dx, p.z + dz);
+        }
     }
 
     /** Угол раскладки ламп в чанке: над самым высоким блоком чанка, чтобы над лампами был воздух. */
