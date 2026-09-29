@@ -12,10 +12,18 @@ mkdir -p "$RUN/logs"
 # папка записи: AIRSTRIKE_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
 #   AIRSTRIKE_TRAILER_SHOTS=bomb_bay,targets AIRSTRIKE_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
 #   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
-# язык игры — AIRSTRIKE_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
-#   AIRSTRIKE_LANG=en_us AIRSTRIKE_TRAILER_SHOTS=remote,scope,targets AIRSTRIKE_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
+# язык игры — AIRSTRIKE_LANG (по умолчанию en_us: ролик только на английском)
+# размытие движения — AIRSTRIKE_SUBFRAMES подкадров на кадр (начисто — 8, проба — 1)
 export AIRSTRIKE_TRAILER_DIR="${AIRSTRIKE_TRAILER_DIR:-trailer}"
 rm -rf "${RUN:?}/$AIRSTRIKE_TRAILER_DIR"
+# карта съёмки (Greenfield, уже обновлённая до 1.21.1): AIRSTRIKE_WORLD_SRC — чистая копия, её не трогаем; каждый дубль
+# идёт на свежей копии в saves/ (удары и ядерка меняют мир)
+if [ -n "${AIRSTRIKE_WORLD_SRC:-}" ]; then
+  export AIRSTRIKE_WORLD="${AIRSTRIKE_WORLD:-trailer-world}"
+  mkdir -p "$RUN/saves"
+  rm -rf "${RUN:?}/saves/$AIRSTRIKE_WORLD"
+  cp -r "$AIRSTRIKE_WORLD_SRC" "$RUN/saves/$AIRSTRIKE_WORLD"
+fi
 # звук с устройства не нужен (игра идёт замедленно, дорожку собирает монтаж), но звуковой движок должен работать
 cat > "$RUN/alsoft.conf" <<CONF
 [general]
@@ -35,7 +43,7 @@ bobView:false
 soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
-lang:${AIRSTRIKE_LANG:-ru_ru}
+lang:${AIRSTRIKE_LANG:-en_us}
 OPT
 export AIRSTRIKE_SCENARIO=trailer
 export AIRSTRIKE_SIZE="${AIRSTRIKE_SIZE:-1920x1080}"
