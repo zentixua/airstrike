@@ -1,0 +1,6 @@
+{
+  "message_id": "airstrike.player_nuclear_blast",
+  "exhaustion": 0.1,
+  "scaling": "never",
+  "effects": "hurt"
+}

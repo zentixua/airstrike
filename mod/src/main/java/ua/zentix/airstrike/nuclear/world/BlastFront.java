@@ -16,6 +16,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.nuclear.Detonation;
@@ -33,6 +34,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.IntPredicate;
 
 /**
@@ -62,7 +64,8 @@ final class BlastFront {
      */
     private static final float MAX_AIRCRAFT_POWER = 16;
 
-    private record Hit(Detonation d, LivingEntity entity) {}
+    /** @param owner кто запустил (урон записывается на него), null — неизвестно */
+    private record Hit(Detonation d, LivingEntity entity, @Nullable UUID owner) {}
 
     /** Взрыв по аппарату: в ближайшей к эпицентру точке аппарата, когда его накрыл фронт. */
     private record AircraftHit(Detonation d, Vec3 at, float power) {}
@@ -73,6 +76,8 @@ final class BlastFront {
      * второй раз не бьётся.
      */
     private final Map<Integer, double[]> reached = new HashMap<>();
+    /** Кто запустил подрыв (по номеру), пока идёт его фронт. После перезапуска неизвестен: урон без виновника. */
+    private final Map<Integer, UUID> owners = new HashMap<>();
     /** Кого фронт накрыл, а удар ещё не нанесён: по тикам прихода, в тике — от ближних к дальним. */
     private final ArrayDeque<Hit> hits = new ArrayDeque<>();
     /** Аппараты, которые фронт накрыл, а взрыва по ним ещё не было: по тикам прихода. */
@@ -81,6 +86,11 @@ final class BlastFront {
     /** Удары, которые ждут бюджета. */
     int pending() {
         return hits.size() + aircraft.size();
+    }
+
+    /** Подрыв: запомнить, кто его запустил. */
+    void onDetonation(Detonation d, @Nullable UUID owner) {
+        if (owner != null) owners.put(d.id(), owner);
     }
 
     /** Где фронт этого тика: кого накрыл (сущности и аппараты) — в очередь, обратный ветер — сразу (он дёшев). */
@@ -94,6 +104,7 @@ final class BlastFront {
             }
         }
         reached.keySet().retainAll(active);
+        owners.keySet().retainAll(active);
     }
 
     private void advance(ServerLevel level, Detonation d, long since) {
@@ -111,7 +122,7 @@ final class BlastFront {
             else if (dist >= done[1] && dist < back) suck(d, living);
         }
         ring.sort(Comparator.comparingDouble(e -> e.distanceToSqr(d.burst())));
-        for (LivingEntity e : ring) hits.add(new Hit(d, e));
+        for (LivingEntity e : ring) hits.add(new Hit(d, e, owners.get(d.id())));
         sweepAircraft(level, d, done[0], r);
         done[0] = Math.max(done[0], r);
         done[1] = Math.max(done[1], back);
@@ -135,7 +146,7 @@ final class BlastFront {
             LivingEntity e = h.entity();
             if (!e.isAlive() || e.isSpectator() || e.isPassenger()) continue;
             long t0 = clock.begin();
-            hit(level, h.d(), e);
+            hit(level, h.d(), e, h.owner() == null ? null : level.getPlayerByUUID(h.owner()));
             clock.end(t0);
         }
     }
@@ -143,6 +154,7 @@ final class BlastFront {
     /** Отбой. */
     void clear() {
         reached.clear();
+        owners.clear();
         dropHits();
     }
 
@@ -161,7 +173,7 @@ final class BlastFront {
      * выживает), 5 psi — почти смертельно, 1–3 psi — ранения стеклом и броском. В укрытии (нет прямой видимости
      * и крыша над головой) урон ×0.3, бросок ×0.2. Творческий режим урона не получает, но волна швыряет и его.
      */
-    private static void hit(ServerLevel level, Detonation d, LivingEntity e) {
+    private static void hit(ServerLevel level, Detonation d, LivingEntity e, @Nullable Entity owner) {
         double kpa = d.overpressureKpa(e.position());
         double psi = BlastModel.psi(kpa);
         if (psi < 0.3) return;
@@ -169,7 +181,7 @@ final class BlastFront {
         boolean immune = e instanceof Player p && p.getAbilities().invulnerable;
         float dmg = psi >= LETHAL_PSI ? Float.MAX_VALUE : (float) (1.6 * Math.pow(psi, 1.35));
         if (cover) dmg *= 0.3f;
-        if (psi >= 0.7 && !immune) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, null), dmg);
+        if (psi >= 0.7 && !immune) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, owner), dmg);
         double q = BlastModel.dynamicPressureKpa(kpa);
         double v = Math.min(6.0, 0.8 * Math.sqrt(q)) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
         Vec3 away = new Vec3(e.getX() - d.burst().x, 0, e.getZ() - d.burst().z);

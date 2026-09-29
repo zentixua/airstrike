@@ -94,6 +94,7 @@ public final class NuclearWorld {
      */
     public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
         pulses.add(new PulseJob(level, d, owner));
+        blast.onDetonation(d, owner);
         scars.scanLoaded(d);
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
