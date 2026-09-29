@@ -325,9 +325,11 @@ public final class ServerActions {
      */
     public static int clearAll(MinecraftServer server, boolean nuclear) {
         Predicate<StrikeProjectile> cancelled = p -> nuclear || !p.isNuclear();
+        // отменённые снаряды: клиенты глушат их звук и камеру, а оставшиеся ядерные летят со своим
+        List<UUID> projectiles = new ArrayList<>();
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
-            n += VirtualFlights.get(level).clear(level, cancelled);
+            projectiles.addAll(VirtualFlights.get(level).clear(level, cancelled));
             List<Entity> kill = new ArrayList<>();
             List<LauncherEntity> launchers = new ArrayList<>();
             // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
@@ -349,15 +351,15 @@ public final class ServerActions {
                 if (onRail.stream().noneMatch(l::serves)) kill.add(l);
             }
             for (Entity e : kill) {
-                if (e instanceof StrikeProjectile) n++;
+                if (e instanceof StrikeProjectile) projectiles.add(e.getUUID());
                 e.discard();
             }
             // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
             StrikeWorld.clearSalvos(level);
             if (nuclear) n += NuclearStrikes.clear(level);
         }
-        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear));
-        return n;
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear, projectiles));
+        return n + projectiles.size();
     }
 
     /** Итог отбоя для того, кто его дал: отменены ли и ядерные удары. */
