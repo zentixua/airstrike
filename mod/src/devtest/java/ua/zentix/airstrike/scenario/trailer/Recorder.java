@@ -160,6 +160,20 @@ final class Recorder implements SoundEventListener {
         return subframes == 1 ? 0 : shutter * ((sub + 0.5) / subframes - 0.5);
     }
 
+    /**
+     * Первый кадр плана ещё не снят, а клиент уже ушёл вперёд: план начинается в тике клиента, и тики, которые игра
+     * успела насчитать на этот кадр отрисовки, идут следом (до трёх). Начало плана сдвигается на них — иначе первые
+     * кадры стояли бы до следующего тика (в замедлении — десятки кадров).
+     *
+     * @return сдвинуто
+     */
+    boolean catchUp(double ticks) {
+        if (nextFrame != 0 || sub != 0) return false;
+        worldT += ticks;
+        camT += ticks;
+        return true;
+    }
+
     /** Момент мира для текущего (под)кадра, тики от начала плана. */
     double worldTime() {
         return worldT + subOffset() * step();

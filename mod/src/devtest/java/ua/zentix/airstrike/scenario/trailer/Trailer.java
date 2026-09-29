@@ -1594,6 +1594,7 @@ public final class Trailer {
         mc.getToasts().clear();
         if (recording != null) {
             double partial = recording.time() - (recording.t - 1);
+            if (partial < -0.02 && rec.catchUp(-partial)) partial = 0;
             if (partial > 1.0001) {
                 FrameClock.advanceNext(partial - 1 + 0.01);
             } else {
