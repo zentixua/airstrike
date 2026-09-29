@@ -292,16 +292,20 @@ public final class GridGameTests {
         var server = level.getServer();
         quiet(level);
         BlockPos from = CENTER.offset(-2, 3, -2), to = from.offset(4, 0, 4);
-        BlockPos.betweenClosed(from, to).forEach(p -> h.setBlock(p, Blocks.OAK_PLANKS));
         BlockPos sea = from.offset(1, 1, 1), lantern = from.offset(3, 1, 3);
-        h.setBlock(sea, GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()));
-        h.setBlock(lantern, GridLights.unlit(Blocks.LANTERN.defaultBlockState()));
-        // квартал тёмный: сами двойники на земле не зажигаются
-        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 64, 1000, -1);
+        // квартал сперва тёмный: двойники, поставленные в нём, сами не зажигаются
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 1000, -1);
         BlockPos a = h.absolutePos(from), b = h.absolutePos(lantern);
         Vec3 craft = Vec3.atCenterOf(h.absolutePos(from.offset(2, 0, 2)));
         SubLevelAccess[] sub = new SubLevelAccess[1];
         h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(PowerGrid.get(level).dark(a.getX() >> 4, a.getZ() >> 4, level.getGameTime())
+                        && PowerGrid.get(level).dark(b.getX() >> 4, b.getZ() >> 4, level.getGameTime()), "квартал ещё светлый"))
+                .thenExecute(() -> {
+                    BlockPos.betweenClosed(from, to).forEach(p -> h.setBlock(p, Blocks.OAK_PLANKS));
+                    h.setBlock(sea, GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()));
+                    h.setBlock(lantern, GridLights.unlit(Blocks.LANTERN.defaultBlockState()));
+                })
                 .thenIdle(5)
                 .thenExecute(() -> {
                     h.assertTrue(GridLights.isUnlit(h.getBlockState(sea)), "двойник в тёмном квартале зажёгся: " + h.getBlockState(sea));
