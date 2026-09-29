@@ -44,7 +44,6 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
-import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -203,7 +202,9 @@ public final class StressDirector {
         @Nullable
         ArmorStand stand;
         @Nullable
-        net.minecraft.world.level.ChunkPos forced;
+        ChunkPos forced;
+        /** Тик постановки пробы: сколько грузился чанк стойки. */
+        int setupTick;
         boolean raised;
 
         GroundProbe(String name, String how, Vec3 center, boolean steering, boolean mustGround) {
@@ -631,8 +632,7 @@ public final class StressDirector {
     }
 
     /** Держит чанк стойки пробы: уровень 31 — сущности тикают (как принудительная загрузка), грузится в фоне. */
-    private static final net.minecraft.server.level.TicketType<net.minecraft.world.level.ChunkPos> PROBE_TICKET =
-            net.minecraft.server.level.TicketType.create("stress_probe_forced", Comparator.comparingLong(net.minecraft.world.level.ChunkPos::toLong));
+    private static final TicketType<ChunkPos> PROBE_TICKET = TicketType.create("airstrike_stress_probe", Comparator.comparingLong(ChunkPos::toLong));
 
     /** Высота стойки пробы rising-aim: ниже моря, как цель ниже рельефа у проб deep. */
     private static final int RISING_AIM_Y = 40;
@@ -646,7 +646,8 @@ public final class StressDirector {
     private void groundRising(MinecraftServer s, String name, int x, int z) {
         ServerLevel level = s.overworld();
         GroundProbe pr = new GroundProbe(name, "боевой пуск издалека (dispatch) по стойке", new Vec3(x + 0.5, level.getSeaLevel(), z + 0.5), true, false);
-        pr.forced = new net.minecraft.world.level.ChunkPos(x >> 4, z >> 4);
+        pr.forced = new ChunkPos(x >> 4, z >> 4);
+        pr.setupTick = tick;
         // тикет в фоне, как у района цели: setChunkForced грузит свежий чанк сразу (VPS 29.09.2026: тик 8 с)
         level.getChunkSource().addRegionTicket(PROBE_TICKET, pr.forced, 2, pr.forced);
         groundProbes.add(pr);
@@ -668,7 +669,7 @@ public final class StressDirector {
                 level.addFreshEntity(stand);
                 pr.stand = stand;
                 pr.center = stand.position();
-                log("проба %s: стойка у %d %d %d, пуск 3 ракет издалека", pr.name, c.getX(), y, c.getZ());
+                log("проба %s: стойка у %d %d %d (чанк грузился %d тиков), пуск 3 ракет издалека", pr.name, c.getX(), y, c.getZ(), tick - pr.setupTick);
                 ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + pr.name, 0, WeaponType.MISSILE, 3, 0,
                         new ua.zentix.airstrike.strike.ServerActions.Aim(Target.OfEntity.center(stand), stand.position(), null),
                         ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
@@ -1178,6 +1179,9 @@ public final class StressDirector {
         for (ServerLevel l : s.getAllLevels()) {
             active += SalvoData.get(l).size();
         }
+        // проба, чья стойка ещё ждёт своего чанка (генерация в фоне), ещё не пускала: иначе сводка отпустила бы тикет
+        // и проба провалилась бы как «ни одного снаряда»
+        for (GroundProbe pr : groundProbes) if (pr.forced != null && pr.stand == null) active++;
         if (active > 0) {
             quietSince = -1;
             if (finishingSince < 0) finishingSince = tick;
@@ -1283,12 +1287,13 @@ public final class StressDirector {
             if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
             if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
         }
-        for (GroundProbe pr : groundProbes) groundSummary(s, pr);
+        for (GroundProbe pr : groundProbes) groundSummary(pr, !"restart".equals(why));
         for (String p : problems) log("problem: %s", p);
     }
 
     /** Строка пробы пути вне мира до поверхности и её вердикт. */
-    private void groundSummary(MinecraftServer s, GroundProbe pr) {
+    /** @param whole прогон досмотрен до конца (не остановка посреди полёта): недосмотренный снаряд — провал */
+    private void groundSummary(GroundProbe pr, boolean whole) {
         List<Double> off = new ArrayList<>(pr.groundOff);
         off.sort(null);
         double max = off.isEmpty() ? 0 : off.get(off.size() - 1);
@@ -1301,7 +1306,11 @@ public final class StressDirector {
         if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");
         if (pr.forced != null && !pr.raised) fails.add("цель не поднялась — ракета вне мира не застала подъём");
         else if (pr.forced != null && !pr.underFloor) fails.add("после подъёма цели ракета вне мира ни разу не шла ниже пола — подъём пола не проверен");
-        if (pr.launched > 0 && pr.flewVirtual.isEmpty()) fails.add("ни одного снаряда вне мира — путь вне мира не проверен");
+        if (pr.flewVirtual.size() < pr.launched)
+            fails.add("вне мира застали " + pr.flewVirtual.size() + " из " + pr.launched + " — путь вне мира проверен не у всех");
+        int ended = pr.outcomes.values().stream().mapToInt(Integer::intValue).sum();
+        String unseen = ended < pr.launched ? String.format(Locale.ROOT, ", не досмотрено %d из %d", pr.launched - ended, pr.launched) : "";
+        if (whole && ended < pr.launched) fails.add("итог есть у " + ended + " из " + pr.launched);
         if (pr.dropBehind) {
             // сброс в воздухе на 200 над морем, цель — на 300 позади и на 150 ниже: бомба не рулит и падает по курсу (+z)
             // от точки сброса, круче чем вдвое дальше высоты сброса она не уходит, вбок — нет
@@ -1312,8 +1321,8 @@ public final class StressDirector {
             }
         }
         log("проба-поверхность %s (%s): пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
-                        + "не дождались загрузки %d, итоги %s — %s",
-                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+                        + "не дождались загрузки %d, вне мира застали %d, итоги %s%s — %s",
+                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(), pr.outcomes, unseen, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
