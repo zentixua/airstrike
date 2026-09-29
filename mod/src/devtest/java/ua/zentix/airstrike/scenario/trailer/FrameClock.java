@@ -27,6 +27,26 @@ final class FrameClock {
         }
     }
 
+    private static final Field PROGRESS_TASKS;
+
+    static {
+        try {
+            PROGRESS_TASKS = Minecraft.class.getDeclaredField("progressTasks");
+            PROGRESS_TASKS.setAccessible(true);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Minecraft.progressTasks", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void beforeTimer(Runnable r) {
+        try {
+            ((java.util.Queue<Runnable>) PROGRESS_TASKS.get(Minecraft.getInstance())).add(r);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static DeltaTracker.Timer timer() {
         return (DeltaTracker.Timer) Minecraft.getInstance().getTimer();
     }
@@ -56,13 +76,19 @@ final class FrameClock {
      */
     static void advanceNext(double ticks) {
         Minecraft mc = Minecraft.getInstance();
-        boolean normal = mc.level != null && mc.level.tickRateManager().runsNormally();
-        // таймер клиента на стоящем мире считает тик за 50 мс (Minecraft.getTickTargetMillis)
-        float mspt = normal ? Math.max(50f, Math.min(mc.level.tickRateManager().millisecondsPerTick(), requestedMspt)) : 50f;
-        try {
-            LAST_MS.setLong(timer(), Util.getMillis() - (long) Math.floor(ticks * mspt));
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException(e);
-        }
+        // «прошлое время» ставится задачей из очереди progressTasks: её круг клиента выполняет прямо перед тем, как таймер
+        // читает часы (обычные задачи — уже после). Поставленное сразу после кадра, оно копило всё, что было между ними (показ кадра, сборка мусора,
+        // пакеты, а из beforeFrame — отрисовка целого кадра): пауза в 450 мс — лишние 9 тиков, клиент уходил вперёд
+        // кадра, и полсекунды видео стояли (облако, план fighters)
+        beforeTimer(() -> {
+            boolean normal = mc.level != null && mc.level.tickRateManager().runsNormally();
+            // таймер клиента на стоящем мире считает тик за 50 мс (Minecraft.getTickTargetMillis)
+            float mspt = normal ? Math.max(50f, Math.min(mc.level.tickRateManager().millisecondsPerTick(), requestedMspt)) : 50f;
+            try {
+                LAST_MS.setLong(timer(), Util.getMillis() - (long) Math.floor(ticks * mspt));
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException(e);
+            }
+        });
     }
 }
