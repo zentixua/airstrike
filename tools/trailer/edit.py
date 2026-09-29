@@ -19,6 +19,7 @@
                (пересъёмка) заменяют прежние; план с текстом игры в кадре — дубль на en_us, если он есть
     --music  — eyes (Scott Buckley, «Eyes in the Void», по умолчанию) или nightfall (запасная)
     --sfx    — папка звуков монтажа с manifest.json (см. SfxLibrary); без неё звуки монтажа синтезируются
+    --no-blackout — без плана блэкаута (затишье после шквала на его месте)
     --only   — что собрать: trailer, teaser, thumb (можно через запятую; по умолчанию всё)
     результат (dist/): airstrike-trailer.mp4 (2560×1440, 60 fps, H.264 + AAC), …-lite.mp4 (1080p), …-teaser.mp4
     (1080×1920, 30 с), …-thumbnail.png (1280×720), …-credits.txt (строки для описания ролика)
@@ -580,7 +581,7 @@ class Timeline:
         return Cut(self.items, self.t, self.placements, self.mutes, marks=self.marks, **kw)
 
 
-def trailer_edit(music):
+def trailer_edit(music, blackout=True):
     """
     Трейлер ~1:40. Холодное начало (шахед у объектива, чёрный кадр со взрывом), часть A музыки — рассвет, наводчик,
     карта, «drop» на пуске ракеты и удары подряд по полутактам; тишина — музыка обрывается, только фон ночного
@@ -625,10 +626,14 @@ def trailer_edit(music):
     # подстанция: ракета, дуга, кварталы гаснут от неё вглубь; щелчки кварталов с общего плана не слышны — из ресурсов мода
     # удар по подстанции вживую, потом кварталы гаснут втрое быстрее: волна идёт от подстанции 5–17 с (ноутбук, kfcheck4b),
     # а на 1× за 6,4 с успевала погаснуть лишь стоянка под ней
-    tl.add(Clip("blackout", "mark:gone-1.2", 3.2, sfx=0.9,
-                game=(("mark:gone+1.6", "grid_power_down_1", 0.35),)))
-    tl.add(Clip("blackout", "mark:gone+2.0", 3.2, rate=3.0, sfx=0.3,
-                game=(("mark:gone+3.4", "grid_power_down_2", 0.25),)))
+    if blackout:
+        tl.add(Clip("blackout", "mark:gone-1.2", 3.2, sfx=0.9,
+                    game=(("mark:gone+1.6", "grid_power_down_1", 0.35),)))
+        tl.add(Clip("blackout", "mark:gone+2.0", 3.2, rate=3.0, sfx=0.3,
+                    game=(("mark:gone+3.4", "grid_power_down_2", 0.25),)))
+    else:
+        # без блэкаута (его нет в версии мода): затишье после шквала на то же место и ту же длину
+        tl.add(Clip("night_after", 0.5, 6.4, sfx=0.8))
     tl.play(music.b3, (music.b4, None))
     tl.run([
         Clip("siren", 0.4, 3.7),
@@ -1511,6 +1516,8 @@ def main():
     ap.add_argument("--music", choices=sorted(MUSICS), default="eyes")
     ap.add_argument("--sfx", default=SFX_DIR, help="папка звуков монтажа с manifest.json (нет — синтез)")
     ap.add_argument("--only", default="trailer,teaser,thumb", help="что собрать: trailer, teaser, thumb")
+    ap.add_argument("--no-blackout", action="store_true",
+                    help="без плана блэкаута: в тишине перед сиреной — затишье после шквала (night_after)")
     ap.add_argument("--preset", default="slow", help="предустановка x264 чистового (slow — лучше, medium — быстрее)")
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 6), help="процессов отрисовки")
     args = ap.parse_args()
@@ -1532,7 +1539,7 @@ def main():
     jobs = max(1, args.jobs)
     todo = []
     if "trailer" in only:
-        todo.append(("трейлер", trailer_edit, DRAFT if args.draft else SIZE, False, out))
+        todo.append(("трейлер", functools.partial(trailer_edit, blackout=not args.no_blackout), DRAFT if args.draft else SIZE, False, out))
     if "teaser" in only:
         todo.append(("тизер", teaser_edit, TEASER_DRAFT if args.draft else TEASER, True, base + "-teaser.mp4"))
     for label, build, size, vertical, path in todo:

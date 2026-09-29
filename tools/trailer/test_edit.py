@@ -158,6 +158,8 @@ def full_recording():
     S.append(shot_lines("grad_night", 300, speed=0.7, want=lambda k: 0.7, marks=[(120, "gone:airstrike:rocket")]))
     S.append(shot_lines("barrage", 480, marks=[(100 + 40 * i, "gone:airstrike:cruise_missile") for i in range(5)],
                         sounds=[(102 + 40 * i, "airstrike:blast.far", snd(f"blast_far_{i + 1}"), False, None) for i in range(5)]))
+    S.append(shot_lines("blackout", 1000, marks=[(140, "gone:airstrike:cruise_missile")]))
+    S.append(shot_lines("night_after", 480))
     S.append(shot_lines("siren", 300, hud=True, sounds=[(0, "airstrike:siren", snd("siren"), True, None)]))
     S.append(shot_lines("icbm", 600, sounds=[(60, "airstrike:nuke.launch", snd("nuke_launch"), False, None)]))
     S.append(shot_lines("flash", 300, hud=True, marks=[(40, "detonation")]))
@@ -276,10 +278,11 @@ def on_grid(t, t0, unit):
     return abs((t - t0) / unit - round((t - t0) / unit)) < 1e-6
 
 
+@pytest.mark.parametrize("blackout", [True, False])
 @pytest.mark.parametrize("key", sorted(edit.MUSICS))
-def test_trailer_layout_on_beats(key):
+def test_trailer_layout_on_beats(key, blackout):
     m = edit.MUSICS[key]
-    cut = edit.trailer_edit(m)
+    cut = edit.trailer_edit(m, blackout=blackout)
     beat = m.beat_len
     unit = m.snap * beat
     a_start = cut.music[0].trailer_t
@@ -298,7 +301,7 @@ def test_trailer_layout_on_beats(key):
     for a, b in zip(cut.items, cut.items[1:]):
         assert b.start == pytest.approx(a.start + a.dur)
     assert 85 < cut.total < 115, cut.total
-    long_ok = {"barrage", "blackout", "flash", "missile_tower", "fallout", "siren", "icbm"}
+    long_ok = {"barrage", "blackout", "night_after", "flash", "missile_tower", "fallout", "siren", "icbm"}
     for it in cut.items:
         if isinstance(it, edit.Clip) and it.shot not in long_ok:
             assert it.dur <= 3.1, (it.shot, it.dur)
@@ -306,6 +309,23 @@ def test_trailer_layout_on_beats(key):
     p3, p4 = cut.music[1], cut.music[2]
     assert p4.trailer_t == pytest.approx(p3.trailer_t + seg3)
     assert p3.xout > 0 and p4.xin > 0
+
+
+def test_no_blackout_variant_same_timing(tmp_path):
+    """Без блэкаута: на его месте затишье той же длины, всё остальное (вспышка, логотип, длина) — как было."""
+    write_recording(str(tmp_path), full_recording(), every=30)
+    shots = edit.load_recording(str(tmp_path))
+    m = edit.MUSICS["eyes"]
+    a = edit.resolve(edit.trailer_edit(m), shots)
+    b = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+    assert a.total == pytest.approx(b.total)
+    assert a.marks == pytest.approx(b.marks)
+    names = [c.shot for c in b.items if isinstance(c, edit.Clip)]
+    assert "blackout" not in names and "night_after" in names
+    gap = sum(c.dur for c in a.items if isinstance(c, edit.Clip) and c.shot == "blackout")
+    na = next(c for c in b.items if isinstance(c, edit.Clip) and c.shot == "night_after")
+    assert na.dur == pytest.approx(gap)
+    assert 0 <= na.src and na.src + na.dur * na.rate <= shots["night_after"].duration + 1e-6
 
 
 def test_teaser_is_30s_and_on_beats():
