@@ -9,6 +9,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.registry.ModAttachments;
@@ -192,7 +193,8 @@ public final class ScarQueue {
     }
 
     /**
-     * Обработать, что успеем за бюджет.
+     * Обработать, что успеем за бюджет. Чанк, упавший с ошибкой, снимается с очереди один (со своим тикетом), без
+     * отметки: при следующей загрузке он пройдёт заново.
      *
      * @param clock бюджет тика: за столбец берёмся, только если он успеет
      */
@@ -202,67 +204,88 @@ public final class ScarQueue {
         while (!scans.isEmpty() && clock.canStart()) {
             Scan scan = scans.peek();
             long c0 = clock.begin();
-            if (scan.chunks == null) {
-                scan.chunks = loadedInRange(level, scan.d);
-            } else {
-                // выгрузился после подрыва — пропускаем; загрузится снова — поставит onChunkLoad
-                LevelChunk chunk = inMemory(level, scan.chunks[scan.next++]);
-                if (chunk != null) offer(chunk, scan.d);
+            try {
+                if (scan.chunks == null) {
+                    scan.chunks = loadedInRange(level, scan.d);
+                } else {
+                    // выгрузился после подрыва — пропускаем; загрузится снова — поставит onChunkLoad
+                    LevelChunk chunk = inMemory(level, scan.chunks[scan.next++]);
+                    if (chunk != null) offer(chunk, scan.d);
+                }
+            } catch (RuntimeException e) {
+                // чанки, загруженные потом, поставит onChunkLoad
+                Airstrike.LOG.error("Постановка чанков подрыва №{} в очередь упала с ошибкой; снята", scan.d.id(), e);
+                scans.poll();
+                continue;
+            } finally {
+                clock.end(c0);
             }
-            clock.end(c0);
             if (scan.next >= scan.chunks.length) scans.poll();
         }
         while (!byDue.isEmpty() && clock.canStart()) {
             Job job = byDue.peek();
             if (job.due > now) return;
-            if (inMemory(level, job.chunk) == null) {
-                // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
-                byDue.poll();
+            try {
+                if (!work(level, job, now, clock, random)) return;
+            } catch (RuntimeException e) {
+                Airstrike.LOG.error("Повреждения чанка {} упали с ошибкой; чанк снят с очереди", new ChunkPos(job.chunk), e);
+                byDue.remove(job);
                 jobs.remove(job.chunk);
-                continue;
-            }
-            ChunkPos pos = new ChunkPos(job.chunk);
-            if (!NuclearTickets.neighbourhoodLoaded(level, pos)) {
-                // край загруженного мира (сам чанк или соседи ниже полной загрузки): разрушим, когда загрузятся;
-                // полностью загруженный край сам просит соседей
-                if (!job.held && job.mayHold && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) {
-                    NuclearTickets.holdForScar(level, pos, true);
-                    job.held = true;
-                }
-                byDue.poll();
-                job.due = now + NEIGHBOUR_RETRY;
-                byDue.add(job);
-                continue;
-            }
-            LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
-            Detonation d = job.events.get(job.event);
-            // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
-            ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
-            int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
-            while (job.column < 256 && clock.canStart()) {
-                long c0 = clock.begin();
-                ColumnScar.apply(level, d, x0 + (job.column & 15), z0 + (job.column >> 4), budget, random);
-                long took = clock.end(c0);
-                // один столбец дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
-                if (took > 50_000_000L && now - lastSlowColumn >= 100) {
-                    lastSlowColumn = now;
-                    ua.zentix.airstrike.Airstrike.LOG.warn("Медленный столбец {} {}: {} мс", x0 + (job.column & 15), z0 + (job.column >> 4), took / 1_000_000);
-                }
-                job.column++;
-            }
-            if (job.column < 256) return;
-            chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
-            chunk.setUnsaved(true);
-            job.column = 0;
-            job.event++;
-            byDue.poll();
-            if (job.event >= job.events.size()) {
                 release(level, job);
-                jobs.remove(job.chunk);
-            } else {
-                job.due = due(job.events.get(job.event), chunk.getPos());
-                byDue.add(job);
             }
         }
+    }
+
+    /** Первый в очереди чанк (его срок пришёл): столбцы, сколько успеем; false — бюджет тика вышел посреди чанка. */
+    private boolean work(ServerLevel level, Job job, long now, WorkClock clock, RandomSource random) {
+        if (inMemory(level, job.chunk) == null) {
+            // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
+            byDue.poll();
+            jobs.remove(job.chunk);
+            return true;
+        }
+        ChunkPos pos = new ChunkPos(job.chunk);
+        if (!NuclearTickets.neighbourhoodLoaded(level, pos)) {
+            // край загруженного мира (сам чанк или соседи ниже полной загрузки): разрушим, когда загрузятся;
+            // полностью загруженный край сам просит соседей
+            if (!job.held && job.mayHold && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) {
+                NuclearTickets.holdForScar(level, pos, true);
+                job.held = true;
+            }
+            byDue.poll();
+            job.due = now + NEIGHBOUR_RETRY;
+            byDue.add(job);
+            return true;
+        }
+        LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
+        Detonation d = job.events.get(job.event);
+        // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
+        ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
+        while (job.column < 256 && clock.canStart()) {
+            long c0 = clock.begin();
+            ColumnScar.apply(level, d, x0 + (job.column & 15), z0 + (job.column >> 4), budget, random);
+            long took = clock.end(c0);
+            // один столбец дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
+            if (took > 50_000_000L && now - lastSlowColumn >= 100) {
+                lastSlowColumn = now;
+                Airstrike.LOG.warn("Медленный столбец {} {}: {} мс", x0 + (job.column & 15), z0 + (job.column >> 4), took / 1_000_000);
+            }
+            job.column++;
+        }
+        if (job.column < 256) return false;
+        chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
+        chunk.setUnsaved(true);
+        job.column = 0;
+        job.event++;
+        byDue.poll();
+        if (job.event >= job.events.size()) {
+            release(level, job);
+            jobs.remove(job.chunk);
+        } else {
+            job.due = due(job.events.get(job.event), chunk.getPos());
+            byDue.add(job);
+        }
+        return true;
     }
 }

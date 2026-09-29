@@ -6,12 +6,18 @@ import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,6 +55,35 @@ class LangTest {
                 while (m.find()) {
                     assertTrue(m.group(2).equals("s") || m.group(2).equals("%"), lang + " " + e.getKey() + ": «" + m.group() + "»");
                 }
+            }
+        }
+    }
+
+    /**
+     * У каждого типа урона мода есть все три сообщения о смерти, которые может выбрать ваниль
+     * ({@code DamageSource.getLocalizedDeathMessage}): основное, «.player» (без сущностей, но с тем, кто последним
+     * бил жертву) и «.item» (виновник держит переименованный предмет). Без ключа в чате был бы сам ключ.
+     */
+    @Test
+    void everyDamageTypeHasAllDeathMessages() throws Exception {
+        URL dir = LangTest.class.getResource("/data/airstrike/damage_type");
+        assertNotNull(dir, "data/airstrike/damage_type");
+        List<String> ids = new ArrayList<>();
+        try (Stream<Path> files = Files.list(Path.of(dir.toURI()))) {
+            for (Path f : files.filter(f -> f.toString().endsWith(".json")).toList()) {
+                ids.add(JsonParser.parseString(Files.readString(f)).getAsJsonObject().get("message_id").getAsString());
+            }
+        }
+        assertFalse(ids.isEmpty(), "типов урона нет");
+        for (String lang : new String[]{"ru_ru", "en_us"}) {
+            JsonObject strings = load(lang);
+            for (String id : ids) {
+                for (String suffix : new String[]{"", ".player", ".item"}) {
+                    assertTrue(strings.has("death.attack." + id + suffix), lang + ": нет death.attack." + id + suffix);
+                }
+                // «.player» — только при убийце, «.item» — при виновнике с предметом: их аргументы должны быть в строке
+                assertTrue(args(strings.get("death.attack." + id + ".player").getAsString()).contains(2), lang + " " + id + ".player без убийцы");
+                assertTrue(args(strings.get("death.attack." + id + ".item").getAsString()).contains(3), lang + " " + id + ".item без предмета");
             }
         }
     }
