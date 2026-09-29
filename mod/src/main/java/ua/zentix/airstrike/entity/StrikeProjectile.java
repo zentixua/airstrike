@@ -449,7 +449,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             holdTargetArea(level);
             syncSpeed();
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} в {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
+            Airstrike.LOG.error("Снаряд {} {} в {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
@@ -475,7 +475,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             checkSiren(level);
             holdTargetArea(level);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} вне мира у {} упал с ошибкой и убран", getType().getDescriptionId(), blockPosition(), e);
+            Airstrike.LOG.error("Снаряд {} {} вне мира у {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
