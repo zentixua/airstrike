@@ -79,7 +79,7 @@ final class FlybySound {
     /** Снарядов в залпе РСЗО. */
     private static final int GRAD = 32;
 
-    private enum Stage { WAIT, LOAD, CASE_SETTLE, RUN, RINGOUT }
+    private enum Stage { WAIT, LOAD, CASE_SETTLE, RUN, RINGOUT, DONE }
 
     /** Слой мотора в этот тик: снаряд, какой слой, откуда путь, громкость, тон, расстояние до слышимой точки. */
     private record Sample(int t, UUID id, String weapon, String layer, boolean server, double vol, double pitch, double d) {}
@@ -155,6 +155,7 @@ final class FlybySound {
                 server("gamerule doWeatherCycle false");
                 server("gamerule doMobSpawning false");
                 AirstrikeConfig.SERVER.launchNearPlayer.set(false);
+                AirstrikeConfig.SERVER.maxSalvo.set(GRAD); // по умолчанию залп — до 30
                 server(String.format(Locale.ROOT, "tp %s 0.5 200 0.5", name()));
                 next(Stage.LOAD);
             }
@@ -192,6 +193,9 @@ final class FlybySound {
                 finish();
                 nextCase();
             }
+            case DONE -> {
+                // клиент закрывается не в тот же тик: итоги уже в логе
+            }
         }
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
     }
@@ -210,6 +214,7 @@ final class FlybySound {
         if (index >= cases.size()) {
             serverCase = "-";
             Airstrike.LOG.info("SCENARIO done");
+            next(Stage.DONE);
             Minecraft.getInstance().stop();
             return;
         }
@@ -475,9 +480,10 @@ final class FlybySound {
     private void checkDogleg() {
         List<Sample> w = layer("missile_whistle");
         // только до ближайшей точки: вслед затихает обтекание пролёта (на 350 блоках ~0,02), это не свист атаки
+        // обтекание слышно до AIRFLOW и гаснет ещё FADE блоков; свист атаки был бы слышен дальше (срез JET)
         int closest = w.stream().min((a, b) -> Double.compare(a.d, b.d)).map(Sample::t).orElse(Integer.MAX_VALUE);
-        double outside = w.stream().filter(s -> s.t <= closest && s.d > Hearing.AIRFLOW).mapToDouble(Sample::vol).max().orElse(0);
-        check("no_attack_whistle", outside < HEARD ? "PASS" : "FAIL", "свист дальше " + (int) Hearing.AIRFLOW + " блоков (только подлёт на цель): " + f3(outside));
+        double outside = w.stream().filter(s -> s.t <= closest && s.d > Hearing.AIRFLOW + Hearing.FADE).mapToDouble(Sample::vol).max().orElse(0);
+        check("no_attack_whistle", outside < HEARD ? "PASS" : "FAIL", "свист дальше " + (int) (Hearing.AIRFLOW + Hearing.FADE) + " блоков (только подлёт на цель): " + f3(outside));
         double engine = samples.stream().filter(s -> s.layer.startsWith("missile_") && !s.layer.equals("missile_whistle")).mapToDouble(Sample::vol).max().orElse(0);
         check("engine_heard", engine >= HEARD ? "PASS" : "WARN", "мотор на обходе: " + f3(engine));
     }
@@ -508,6 +514,11 @@ final class FlybySound {
         for (double[] a : byTick.values()) {
             if (prevP > 1e-6 && a[0] > 1e-6 && Math.min(prevD, a[1]) >= nearZone) {
                 double db = 10 * Math.log10(a[0] / prevP);
+                // расстояние стоит (путь ещё не начался, звук первой точки нарастает) — сравнивать не с чем
+                if (Math.abs(a[1] - prevD) < 0.5) {
+                    prevP = a[0];
+                    continue;
+                }
                 boolean closer = a[1] < prevD;
                 if (closer && db < -1 || !closer && db > 1) {
                     bad++;
