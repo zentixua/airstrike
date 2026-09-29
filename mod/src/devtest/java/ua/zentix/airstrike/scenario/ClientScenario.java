@@ -734,7 +734,10 @@ public final class ClientScenario {
             double x = screen.width / 2.0 + 60, y = screen.height / 2.0 - 40;
             screen.mouseClicked(x, y, 0);
             screen.mouseReleased(x, y, 0);
-            Airstrike.LOG.info("SCENARIO map-target selected {}", ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level));
+            var selected = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
+            Airstrike.LOG.info("SCENARIO map-target selected {} terrain height {} far {}", selected,
+                    ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(selected.x), (int) Math.floor(selected.z)),
+                    ua.zentix.airstrike.client.map.TerrainTiles.farTerrain());
         });
         shot(430, "target-map");
         at(440, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));

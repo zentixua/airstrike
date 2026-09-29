@@ -31,21 +31,25 @@ import java.util.concurrent.Executors;
  * чтобы на пиксель экрана приходилось не больше пикселя плитки. Цвета — ванильной карты ({@link MapColor}) с тенью
  * склонов с севера, как у карты в руке.
  * <p>
- * Рельеф берётся у Distant Horizons, если он стоит (километры вокруг), иначе — из чанков клиента. Плитки DH строятся
- * в своих фоновых потоках, из чанков клиента — в кадре, понемногу; готовые загружаются в текстуры в потоке игры.
- * Плитки живут, пока открыт мир, самые давние по показу вытесняются; видимая плитка перестраивается, когда устарела
- * (взрывы меняют рельеф, DH досчитывает даль).
+ * Два слоя: снизу — Distant Horizons, если он стоит (километры вокруг, строится в своих фоновых потоках), сверху —
+ * чанки клиента (строятся в кадре, понемногу). Клетка без данных прозрачна, поэтому вблизи видны точные и свежие
+ * чанки (воронки), дальше — рельеф DH. Чтение DH может ждать его очередей сколько угодно (данных ещё нет, генерация
+ * стоит): ждут только наши фоновые потоки, их не больше {@link #MAX_JOBS}, а слой чанков от них не зависит.
+ * Готовые плитки загружаются в текстуры в потоке игры. Плитки живут, пока открыт мир, самые давние по показу
+ * вытесняются; видимая плитка перестраивается, когда устарела (взрывы меняют рельеф, DH досчитывает даль).
  */
 public final class TerrainTiles {
     static final int SIZE = 64;
     /** Самая крупная плитка — 1024 блока (16 блоков на пиксель). */
     public static final int MAX_LEVEL = 4;
-    private static final int MAX_TILES = 768;
+    private static final int MAX_TILES = 512;
     /** Сколько плиток строится в фоне одновременно: DH читает свою базу, не забираем у игры больше. */
     private static final int MAX_JOBS = 2;
     private static final long REFRESH_NS = 30_000_000_000L;
     /** Плитку без данных (DH ещё не досчитал, чанк не пришёл) спрашиваем чаще. */
     private static final long EMPTY_REFRESH_NS = 5_000_000_000L;
+    /** Дольше этого чтение DH — в лог (один раз за мир): рельеф вдали не появится, пока DH не ответит. */
+    private static final long STALL_NS = 30_000_000_000L;
     /** Сколько кадр строит плитки из чанков клиента. */
     private static final long FRAME_BUDGET_NS = 3_000_000L;
     /** Нет данных о высоте. */
@@ -66,7 +70,8 @@ public final class TerrainTiles {
         @Nullable
         int[] heights;
         long builtAt;
-        boolean building;
+        /** Когда начата фоновая постройка; 0 — не строится. */
+        long buildingSince;
         boolean empty = true;
 
         Tile(Key key) {
@@ -77,20 +82,30 @@ public final class TerrainTiles {
     /** Готовая плитка из фона: пиксели ABGR (как у {@link NativeImage}) и высоты. */
     private record Built(Key key, int generation, int[] pixels, int[] heights, boolean empty) {}
 
-    /** Порядок доступа: первая — давно не показанная. */
-    private static final Map<Key, Tile> TILES = new LinkedHashMap<>(256, 0.75f, true);
-    private static final Queue<Built> DONE = new ConcurrentLinkedQueue<>();
+    /** Плитки одного источника рельефа. */
+    private static final class Layer {
+        final String name;
+        final TerrainSource source;
+        /** Порядок доступа: первая — давно не показанная. */
+        final Map<Key, Tile> tiles = new LinkedHashMap<>(256, 0.75f, true);
+        final Queue<Built> done = new ConcurrentLinkedQueue<>();
+        int jobs;
+        boolean stallLogged;
+
+        Layer(String name, TerrainSource source) {
+            this.name = name;
+            this.source = source;
+        }
+    }
+
     @Nullable
     private static ExecutorService executor;
     @Nullable
     private static ClientLevel level;
-    @Nullable
-    private static TerrainSource source;
-    /** Источник — Distant Horizons. */
-    private static boolean far;
+    /** Снизу вверх: DH (если стоит), потом чанки клиента. */
+    private static List<Layer> layers = List.of();
     /** Меняется при смене мира: плитки, начатые для старого, выбрасываются. */
     private static int generation;
-    private static int jobs;
 
     private TerrainTiles() {}
 
@@ -104,57 +119,74 @@ public final class TerrainTiles {
         ClientLevel current = Minecraft.getInstance().level;
         if (current == null) return;
         if (current != level) switchTo(current);
-        collect();
         int want = levelFor(map.k());
-        g.enableScissor(left, top, right, bottom);
-        // сначала крупные плитки, что уже есть, — подложка, пока строятся нужные (при приближении карта не пустеет)
-        for (int l = MAX_LEVEL; l > want; l--) draw(g, map, visible(map, l, left, top, right, bottom), false);
-        List<Key> keys = visible(map, want, left, top, right, bottom);
-        draw(g, map, keys, true);
-        g.disableScissor();
-        double cx = map.worldX((left + right) / 2.0), cz = map.worldZ((top + bottom) / 2.0);
         // мельче самых крупных плиток не строим: на такую карту ушли бы тысячи участков DH
-        if (map.k() * (2 << MAX_LEVEL) < 1) return;
-        keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
-        request(current, keys);
+        boolean build = map.k() * (2 << MAX_LEVEL) >= 1;
+        double cx = map.worldX((left + right) / 2.0), cz = map.worldZ((top + bottom) / 2.0);
+        g.enableScissor(left, top, right, bottom);
+        for (Layer layer : layers) {
+            collect(layer);
+            // сначала крупные плитки, что уже есть, — подложка, пока строятся нужные (при приближении карта не пустеет)
+            for (int l = MAX_LEVEL; l > want; l--) draw(g, map, layer, visible(map, l, left, top, right, bottom), false);
+            List<Key> keys = visible(map, want, left, top, right, bottom);
+            if (!layer.source.offThread()) keys.removeIf(k -> !nearPlayer(k));
+            draw(g, map, layer, keys, true);
+            if (!build) continue;
+            keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
+            request(current, layer, keys);
+        }
+        g.disableScissor();
     }
 
     /** Рельеф вдали есть (Distant Horizons), а не только в загруженных чанках. */
     public static boolean farTerrain() {
-        return far;
+        return layers.size() > 1;
     }
 
-    /** Высота земли в колонке по самой подробной готовой плитке. */
+    /** Высота земли в колонке: по самой подробной готовой плитке, чанки клиента первыми. */
     public static OptionalInt height(int x, int z) {
-        for (int l = 0; l <= MAX_LEVEL; l++) {
-            int span = SIZE << l;
-            Tile t = TILES.get(new Key(l, Math.floorDiv(x, span), Math.floorDiv(z, span)));
-            if (t == null || t.heights == null) continue;
-            int px = Math.floorMod(x, span) >> l, pz = Math.floorMod(z, span) >> l;
-            int h = t.heights[pz * SIZE + px];
-            if (h != NO_HEIGHT) return OptionalInt.of(h);
+        for (int i = layers.size() - 1; i >= 0; i--) {
+            Map<Key, Tile> tiles = layers.get(i).tiles;
+            for (int l = 0; l <= MAX_LEVEL; l++) {
+                int span = SIZE << l;
+                Tile t = tiles.get(new Key(l, Math.floorDiv(x, span), Math.floorDiv(z, span)));
+                if (t == null || t.heights == null) continue;
+                int px = Math.floorMod(x, span) >> l, pz = Math.floorMod(z, span) >> l;
+                int h = t.heights[pz * SIZE + px];
+                if (h != NO_HEIGHT) return OptionalInt.of(h);
+            }
         }
         return OptionalInt.empty();
     }
 
     /** Выход из мира: текстуры освобождены, фоновые плитки для него больше не нужны. */
     public static void reset() {
-        for (Tile t : TILES.values()) release(t);
-        TILES.clear();
-        DONE.clear();
+        for (Layer layer : layers) {
+            for (Tile t : layer.tiles.values()) release(t);
+        }
+        layers = List.of();
         level = null;
-        source = null;
-        far = false;
         generation++;
-        jobs = 0;
     }
 
     private static void switchTo(ClientLevel current) {
         reset();
         level = current;
+        Layer chunks = new Layer("chunks", new LoadedChunksTerrain());
         // класс DH-источника трогаем, только если DH стоит: без него ссылки на API не разрешатся
-        far = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported();
-        source = far ? new DistantHorizonsTerrain() : new LoadedChunksTerrain();
+        layers = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported()
+                ? List.of(new Layer("dh", new DistantHorizonsTerrain()), chunks)
+                : List.of(chunks);
+    }
+
+    /** Плитка задевает дальность прорисовки клиента: дальше чанков у него нет. */
+    private static boolean nearPlayer(Key key) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return false;
+        int r = (mc.options.getEffectiveRenderDistance() + 1) * 16, span = key.span();
+        double px = mc.player.getX(), pz = mc.player.getZ();
+        double x0 = key.tx * (double) span, z0 = key.tz * (double) span;
+        return x0 < px + r && x0 + span > px - r && z0 < pz + r && z0 + span > pz - r;
     }
 
     private static List<Key> visible(MapProjection map, int l, int left, int top, int right, int bottom) {
@@ -169,9 +201,9 @@ public final class TerrainTiles {
     }
 
     /** @param create завести плитку, если её нет (иначе рисуются только готовые) */
-    private static void draw(GuiGraphics g, MapProjection map, List<Key> keys, boolean create) {
+    private static void draw(GuiGraphics g, MapProjection map, Layer layer, List<Key> keys, boolean create) {
         for (Key key : keys) {
-            Tile t = create ? TILES.computeIfAbsent(key, Tile::new) : TILES.get(key);
+            Tile t = create ? layer.tiles.computeIfAbsent(key, Tile::new) : layer.tiles.get(key);
             if (t == null || t.id == null) continue;
             int span = key.span();
             float x = (float) (map.ox() + (key.tx * (double) span - map.cx()) * map.k());
@@ -183,39 +215,43 @@ public final class TerrainTiles {
             g.blit(t.id, 0, 0, 0, 0, SIZE, SIZE, SIZE, SIZE);
             g.pose().popPose();
         }
-        evict();
+        evict(layer);
     }
 
-    private static void request(ClientLevel current, List<Key> keys) {
-        TerrainSource src = source;
-        if (src == null) return;
+    private static void request(ClientLevel current, Layer layer, List<Key> keys) {
+        TerrainSource src = layer.source;
         long now = System.nanoTime();
         long deadline = now + FRAME_BUDGET_NS;
         TerrainSource.Reader inFrame = null;
         try {
             for (Key key : keys) {
-                Tile t = TILES.get(key);
-                if (t == null || t.building || t.builtAt != 0 && now - t.builtAt < (t.empty ? EMPTY_REFRESH_NS : REFRESH_NS)) continue;
+                Tile t = layer.tiles.get(key);
+                if (t == null) continue;
+                if (t.buildingSince != 0) {
+                    stalled(layer, t, now);
+                    continue;
+                }
+                if (t.builtAt != 0 && now - t.builtAt < (t.empty ? EMPTY_REFRESH_NS : REFRESH_NS)) continue;
                 if (src.offThread()) {
-                    if (jobs >= MAX_JOBS) return;
+                    if (layer.jobs >= MAX_JOBS) return;
                     TerrainSource.Reader reader = src.open(current);
                     if (reader == null) return;
-                    t.building = true;
-                    jobs++;
+                    t.buildingSince = now;
+                    layer.jobs++;
                     int gen = generation;
                     executor().execute(() -> {
                         try (reader) {
-                            DONE.add(build(key, gen, reader));
+                            layer.done.add(build(key, gen, reader));
                         } catch (RuntimeException e) {
-                            Airstrike.LOG.warn("Карта: плитка {} не построена", key, e);
-                            DONE.add(new Built(key, gen, new int[0], new int[0], true));
+                            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
+                            layer.done.add(new Built(key, gen, new int[0], new int[0], true));
                         }
                     });
                 } else {
                     if (System.nanoTime() > deadline) return;
                     if (inFrame == null) inFrame = src.open(current);
                     if (inFrame == null) return;
-                    apply(build(key, generation, inFrame));
+                    apply(layer, build(key, generation, inFrame));
                 }
             }
         } finally {
@@ -223,26 +259,33 @@ public final class TerrainTiles {
         }
     }
 
+    private static void stalled(Layer layer, Tile t, long now) {
+        if (layer.stallLogged || now - t.buildingSince < STALL_NS) return;
+        layer.stallLogged = true;
+        Airstrike.LOG.warn("Карта: источник {} не отдаёт плитку {} дольше {} с — рельеф вдали появится, когда он ответит",
+                layer.name, t.key, STALL_NS / 1_000_000_000L);
+    }
+
     /** Забрать плитки, построенные в фоне, и загрузить их в текстуры. */
-    private static void collect() {
-        for (Built b; (b = DONE.poll()) != null; ) {
+    private static void collect(Layer layer) {
+        for (Built b; (b = layer.done.poll()) != null; ) {
             if (b.generation != generation) continue;
-            jobs--;
-            apply(b);
+            layer.jobs--;
+            apply(layer, b);
         }
     }
 
-    private static void apply(Built b) {
-        Tile t = TILES.get(b.key);
+    private static void apply(Layer layer, Built b) {
+        Tile t = layer.tiles.get(b.key);
         if (t == null) return;
-        t.building = false;
+        t.buildingSince = 0;
         t.builtAt = System.nanoTime();
         if (b.pixels.length == 0) return;
         t.empty = b.empty;
         t.heights = b.heights;
         if (t.texture == null) {
             t.texture = new DynamicTexture(SIZE, SIZE, false);
-            t.id = Airstrike.id("map/" + b.key.level + "/" + b.key.tx + "/" + b.key.tz);
+            t.id = Airstrike.id("map/" + layer.name + "/" + b.key.level + "/" + b.key.tx + "/" + b.key.tz);
             Minecraft.getInstance().getTextureManager().register(t.id, t.texture);
         }
         NativeImage image = t.texture.getPixels();
@@ -253,11 +296,11 @@ public final class TerrainTiles {
         t.texture.upload();
     }
 
-    private static void evict() {
-        Iterator<Tile> it = TILES.values().iterator();
-        while (TILES.size() > MAX_TILES && it.hasNext()) {
+    private static void evict(Layer layer) {
+        Iterator<Tile> it = layer.tiles.values().iterator();
+        while (layer.tiles.size() > MAX_TILES && it.hasNext()) {
             Tile t = it.next();
-            if (t.building) continue;
+            if (t.buildingSince != 0) continue;
             release(t);
             it.remove();
         }

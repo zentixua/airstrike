@@ -30,8 +30,8 @@ public final class Keys {
     /** Камера снаряда: к ближайшему по времени, к следующему, к себе. */
     public static final KeyMapping CAMERA = new KeyMapping("key.airstrike.camera", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY);
     public static final KeyMapping MENU = new KeyMapping("key.airstrike.menu", KeyConflictContext.IN_GAME, InputConstants.UNKNOWN, CATEGORY);
-    /** Карта наведения (та же, что «На карте» в пульте); по умолчанию не назначена: M и прочие у карт сборки. */
-    public static final KeyMapping MAP = new KeyMapping("key.airstrike.map", KeyConflictContext.IN_GAME, InputConstants.UNKNOWN, CATEGORY);
+    /** Карта наведения (та же, что «На карте» в пульте); по умолчанию «,» (M у Xaero в сборке). */
+    public static final KeyMapping MAP = new KeyMapping("key.airstrike.map", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_COMMA, CATEGORY);
 
     private Keys() {}
 }
