@@ -73,6 +73,10 @@ neoForge {
             programArguments.addAll '--width', size[0], '--height', size[1]
             // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
             systemProperty 'airstrike.frame', size.join('x')
+            // трейлер: подкадров на кадр видео (размытие движения, AIRSTRIKE_SUBFRAMES=8 — начисто) и мир съёмки —
+            // папка в run/scenario/saves (AIRSTRIKE_WORLD, копия Greenfield); без него сценарий создаёт свой мир
+            systemProperty 'airstrike.subframes', System.getenv('AIRSTRIKE_SUBFRAMES') ?: '1'
+            if (System.getenv('AIRSTRIKE_WORLD')) systemProperty 'airstrike.world', System.getenv('AIRSTRIKE_WORLD')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"

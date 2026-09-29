@@ -878,6 +878,15 @@ public final class Trailer {
         final String name;
         private int length = 100;
         private double speed = 1;
+        /** Скорость по ходу плана (замедление на подлёте); null — постоянная {@link #speed}. */
+        @Nullable
+        private DoubleSupplier speedCurve;
+        /** Замереть, когда условие станет верным: кадров с неподвижным миром и скорость камеры в это время. */
+        @Nullable
+        private BooleanSupplier freezeWhen;
+        private int freezeFrames;
+        private double freezeCamSpeed;
+        private boolean freezeArmed;
         private Supplier<Path> camera;
         /** Вид глазами игрока: путь задаёт только взгляд. */
         private Path playerView;
@@ -906,6 +915,27 @@ public final class Trailer {
 
         Shot speed(double s) {
             speed = s;
+            return this;
+        }
+
+        /**
+         * Скорость, меняющаяся по ходу плана ({@code base} — для заголовка плана и подготовки): например, замедление,
+         * пока снаряд подлетает к цели, и разгон на ударной волне. Переход сглаживает {@link Recorder}.
+         */
+        Shot speed(double base, DoubleSupplier curve) {
+            speed = base;
+            speedCurve = curve;
+            return this;
+        }
+
+        /**
+         * Застывший мир: когда условие станет верным, мир замирает на ближайшем целом тике, и {@code frames} кадров
+         * видео камера идёт по своему пути (облёт застывшего взрыва) со скоростью {@code camSpeed}; потом мир идёт дальше.
+         */
+        Shot freeze(BooleanSupplier when, int frames, double camSpeed) {
+            freezeWhen = when;
+            freezeFrames = frames;
+            freezeCamSpeed = camSpeed;
             return this;
         }
 
@@ -1005,7 +1035,12 @@ public final class Trailer {
         /** Время плана с долей тика: кадр после тика n показывает мир между тиками n−1 и n. */
         double time() {
             if (phase < 4) return 0;
-            return recording == this ? rec.frames() * rec.step() : Math.max(0, t - 1 + CineCamera.partial());
+            return recording == this ? rec.worldTime() : Math.max(0, t - 1 + CineCamera.partial());
+        }
+
+        /** Время камеры: то же, что у мира, но у замершего мира камера идёт дальше. */
+        double camTime() {
+            return recording == this && phase >= 4 ? rec.camTime() : time();
         }
 
         @Override
@@ -1057,7 +1092,9 @@ public final class Trailer {
                         Airstrike.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
                     if (selected()) {
-                        rec.start(name, speed, hudOn);
+                        if (speedCurve != null) rec.start(name, speed, speedCurve, hudOn);
+                        else rec.start(name, speed, hudOn);
+                        freezeArmed = false;
                         recording = this;
                         frameClock = 0;
                         setTickRate(Math.max(1, (float) (8 * rec.step())));
@@ -1091,7 +1128,7 @@ public final class Trailer {
 
         /** Камера на кадр: кинокамера — по пути, вид игрока — поворот головы. */
         void applyCamera() {
-            double time = time();
+            double time = camTime();
             if (path != null) CineCamera.apply(time);
             if (playerView != null && mc.player != null) {
                 Pose p = playerView.at(time);
@@ -1115,6 +1152,8 @@ public final class Trailer {
             // папка записи: дубль отдельных планов (AIRSTRIKE_TRAILER_SHOTS) — в свою папку, монтаж берёт их поверх основной
             rec = new Recorder(mc.gameDirectory.toPath().resolve(System.getenv().getOrDefault("AIRSTRIKE_TRAILER_DIR", "trailer")));
             mc.getSoundManager().addListener(rec);
+            // размытие движения: AIRSTRIKE_SUBFRAMES подкадров на кадр видео, затвор 180° (съёмка начисто — 8, проба — 1)
+            rec.motionBlur(Integer.getInteger("airstrike.subframes", 1), 0.5);
             mc.options.hideGui = false;
         }
         if (detonationTime < 0 && !ClientNuclear.detonations().isEmpty()) {
@@ -1204,8 +1243,25 @@ public final class Trailer {
 
     private void afterFrame(RenderFrameEvent.Post e) {
         if (recording == null || !frameReady) return;
-        rec.frame(recording.time(), mc.gameRenderer.getMainCamera());
-        FrameClock.advanceNext(rec.step());
+        Shot s = recording;
+        double before = s.time();
+        boolean wasFrozen = rec.frozen();
+        if (!rec.frame(before, mc.gameRenderer.getMainCamera())) {
+            FrameClock.advanceNext(s.time() - before); // следующий подкадр того же кадра
+            return;
+        }
+        if (s.freezeWhen != null && !s.freezeArmed && s.freezeWhen.getAsBoolean()) {
+            s.freezeArmed = true;
+            rec.freeze(rec.worldTime() + 1e-6, s.freezeFrames, s.freezeCamSpeed);
+        }
+        if (rec.freezeNow()) {
+            setFrozen(true);
+            rec.mark("freeze");
+        } else if (wasFrozen && !rec.frozen()) {
+            setFrozen(false);
+            rec.mark("unfreeze");
+        }
+        FrameClock.advanceNext(s.time() - before);
         adaptTickRate();
     }
 
@@ -1229,7 +1285,8 @@ public final class Trailer {
         double fps = frameCount / ((now - frameClock) / 1e9);
         frameClock = now;
         frameCount = 0;
-        float want = (float) Mth.clamp(fps * rec.step(), 1, 20);
+        if (rec.frozen()) return; // мир стоит: темп сервера — после
+        float want = (float) Mth.clamp(fps * rec.step(), 1, 20); // fps — кадров видео (подкадры не в счёт)
         if (Math.abs(want - tickRate) / tickRate > 0.1) setTickRate(want);
     }
 
