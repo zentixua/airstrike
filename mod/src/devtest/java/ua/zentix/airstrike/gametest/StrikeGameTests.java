@@ -1082,7 +1082,7 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rocket_hill_beyond", skyAccess = true)
     public static void virtualRocketIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, 4, 6, (level, aim) -> {
+        returnsUnderOwnTerrain(h, 4, 6, 4000, (level, aim) -> {
             RocketEntity rocket = ModEntities.ROCKET.get().create(level);
             rocket.launchFrom(aim.add(-300, 0, 0), new Target.Point(aim), aim, null);
             return rocket;
@@ -1091,8 +1091,9 @@ public final class StrikeGameTests {
 
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_missile_hill_beyond", skyAccess = true)
     public static void virtualMissileIgnoresTerrainBeyondAim(GameTestHelper h) {
-        // скала дальше, чем у ракеты: крылатая в пике проскакивает цель на несколько блоков (её взрыватель — не этот PR)
-        returnsUnderOwnTerrain(h, 12, 28, (level, aim) -> {
+        // скала дальше, чем у ракеты: крылатая в пике проскакивает цель примерно на 10 блоков (её взрыватель — не этот PR);
+        // своё место в 512 блоках от ракетного теста: скала одного не встаёт на пути другого, если их партии рядом
+        returnsUnderOwnTerrain(h, 12, 28, 4512, (level, aim) -> {
             CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
             // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
             missile.launch(aim.add(-300, 12, 0), new Target.Point(aim), aim, null);
@@ -1111,14 +1112,15 @@ public final class StrikeGameTests {
 
     /**
      * {@code clearance} — запас снаряда над рельефом при возврате в мир ({@code StrikeProjectile.clearance}),
-     * {@code cliff} — на сколько блоков за целью по курсу начинается скала.
+     * {@code cliff} — на сколько блоков за целью по курсу начинается скала, {@code south} — сдвиг места теста по z
+     * от площадки (свой у каждого теста: скалы остаются в мире).
      */
-    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, int cliff, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
+    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, int cliff, int south, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
         ServerLevel level = h.getLevel();
         // далеко за площадкой, как virtualRocketDetonatesAtTickingAim. Район цели сгенерирован сразу и тикает с первого
         // тика (сущности — 5×5 чанков, ±40 блоков): снаряд вне мира всегда возвращается у края района, а не когда тикет
         // района цели самого снаряда догрузит его в фоне (путь зависел от скорости генерации)
-        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, south);
         ChunkPos chunk = new ChunkPos(origin);
         for (int dx = -FlightTickets.DISTANCE; dx <= FlightTickets.DISTANCE; dx++)
             for (int dz = -FlightTickets.DISTANCE; dz <= FlightTickets.DISTANCE; dz++) level.getChunk(chunk.x + dx, chunk.z + dz);
