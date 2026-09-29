@@ -116,6 +116,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private boolean virtual;
     /** Сколько тиков снаряд вне мира ждал у цели загрузки её района: в срок жизни не входит (см. {@link #expired}). */
     private int areaWait;
+    /** Вне мира дошёл до цели, чей район тикает: вернуться в мир здесь же, без запаса впереди (не сохраняется). */
+    private boolean arrived;
     /** Чанк, вокруг которого держится район цели (null — не держится). */
     @Nullable
     private ChunkPos heldArea;
@@ -449,9 +451,13 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Можно вернуться в мир: снаряд над тикающим и готовым чанком, и впереди по курсу тоже (без этого запаса он
-     * на границе прыгал бы туда-обратно каждый тик).
+     * на границе прыгал бы туда-обратно каждый тик). Дошедшему до цели запас не нужен: в мире он взорвётся.
      */
     public boolean canMaterialize(ServerLevel level) {
+        if (arrived) {
+            BlockPos here = BlockPos.containing(position());
+            return level.isPositionEntityTicking(here) && Terrain.ready(level, here);
+        }
         Vec3 ahead = position().add(flight.forward().multiply(1, 0, 1).scale(Math.max(16, speed * 3)));
         BlockPos here = BlockPos.containing(position());
         BlockPos next = BlockPos.containing(ahead);
@@ -754,6 +760,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /**
      * Вне мира: без столкновений. У цели — только если её район уже загружен (иначе снаряд ждёт на подлёте, пока
      * он догрузится: подрыв в незагруженном чанке остановил бы сервер).
+     * <p>
+     * Дойдя до цели, снаряд встаёт в неё и возвращается в мир, где и взрывается: вне мира столкновений нет, и снаряд,
+     * которому для возвращения не хватило тикающих чанков впереди по курсу (цель в чанке, который тикает один, —
+     * игрок в воздухе у края загрузки), пролетал цель и падал до конца срока жизни (стенд VPS 29.09.2026: ракеты РСЗО
+     * в 900 блоках под миром).
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
         if (expired()) {
@@ -772,6 +783,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 discard();
                 return false;
             }
+            return true;
+        }
+        if (onFinalLeg() && pos.distanceTo(aim) <= speed + reachPad) {
+            // район цели тикает (иначе ждали бы выше): вернуться в мир у цели — VirtualFlights сделает это в этом же тике
+            moveAlong(level, aim, dir);
+            arrived = true;
             return true;
         }
         moveAlong(level, pos.add(dir.scale(speed)), dir);

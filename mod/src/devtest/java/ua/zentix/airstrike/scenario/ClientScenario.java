@@ -101,6 +101,7 @@ public final class ClientScenario {
         else if ("onboard".equals(mode)) planOnboard();
         else if ("salvo-bench".equals(mode)) planSalvoBench();
         else if ("flyby".equals(mode)) planFlyby();
+        else if ("commands".equals(mode)) planCommands();
         else plan();
     }
 
@@ -901,6 +902,22 @@ public final class ClientScenario {
      * к востоку). Кадры onboard-dry_*, onboard-wet_*, onboard-dawn_*; в лог — среда камеры и игрока
      * и сколько частиц перед объективом. Мир идёт медленно (/tick rate 5): видео у цели — лишь пара десятков тиков.
      */
+    /**
+     * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
+     * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
+     */
+    private void planCommands() {
+        String[] commands = System.getProperty("airstrike.commands", "").split(";");
+        for (int i = 0; i < commands.length; i++) {
+            String c = commands[i].strip();
+            if (!c.isEmpty()) at(100 + i * 40, () -> cmd(c));
+        }
+        at(100 + commands.length * 40 + 100, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
     private void planOnboard() {
         at(40, () -> {
             cmd("time set 6000");

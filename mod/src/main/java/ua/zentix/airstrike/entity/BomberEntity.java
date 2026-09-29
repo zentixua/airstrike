@@ -140,8 +140,8 @@ public class BomberEntity extends StrikeProjectile {
         if (bomb == null) return;
         bomb.drop(position().add(0, -4, 0), flight.yaw(), aim, goal, ownerId());
         bomb.setNuclear(nuclear);
-        // в debug.log: по UUID бомбы из предупреждений снаряда находится её B-2
-        Airstrike.LOG.debug("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
+        // по UUID бомбы из предупреждений снаряда находится её B-2
+        Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
     }
