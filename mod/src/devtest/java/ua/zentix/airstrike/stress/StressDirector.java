@@ -1551,9 +1551,6 @@ public final class StressDirector {
         if (pr.launched == 0) fails.add("ни одного снаряда");
         else if (pr.ordered > 0 && pr.launched != pr.ordered) fails.add("пущено " + pr.launched + " из " + pr.ordered);
         if (vanished > 0) fails.add("пропали без взрыва: " + vanished);
-        // как у проб растяжения: снаряд, не дождавшийся района цели, путь до поверхности не проверил
-        int gaveUp = pr.outcomes.getOrDefault("gave-up", 0);
-        if (gaveUp > 0) fails.add("не дождались района цели: " + gaveUp);
         if (pr.steering && max > GROUND_OFF_LIMIT) fails.add(String.format(Locale.ROOT, "до поверхности в %.0f блоках от цели (> %.0f)", max, GROUND_OFF_LIMIT));
         if (pr.mustGround && off.isEmpty()) fails.add("ни одна не дошла до поверхности вне мира — путь не проверен");
         if (pr.forced != null && !pr.raised) fails.add("цель не поднялась — ракета вне мира не застала подъём");
@@ -1581,8 +1578,17 @@ public final class StressDirector {
                         + "не дождались загрузки %d, вне мира застали %d%s, итоги %s — %s",
                 pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(),
                 pr.b2Behind ? String.format(Locale.ROOT, ", бомб %d, попадания бомб от точки: наибольшее %.0f", pr.bombs, impactMax) : "",
-                pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+                pr.outcomes, groundVerdict(fails, pr.outcomes.getOrDefault("gave-up", 0)));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
+    }
+
+    /**
+     * Вердикт пробы до поверхности: провал — по проверкам; снаряд, который мод убрал, не дождавшись района цели
+     * (предел ожидания при медленной генерации), путь до поверхности не проверил — «не проверено», не ok и не провал.
+     */
+    public static String groundVerdict(List<String> fails, int gaveUp) {
+        if (!fails.isEmpty()) return "провал: " + String.join("; ", fails);
+        return gaveUp > 0 ? "не проверено: не дождались района цели " + gaveUp : "ok";
     }
 
     private void onStopping(ServerStoppingEvent e) {

@@ -707,6 +707,15 @@ public final class StrikeGameTests {
         });
     }
 
+    /** Вердикт пробы стенда до поверхности: отказ мода по сроку ожидания — «не проверено», провал проверки важнее. */
+    @GameTest(template = "range", batch = "stress_verdict")
+    public static void stressGroundVerdict(GameTestHelper h) {
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of(), 0).equals("ok"), "без отказов — ok");
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of(), 3).startsWith("не проверено"), "отказы — не проверено");
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of("x"), 3).startsWith("провал"), "провал важнее отказов");
+        h.succeed();
+    }
+
     @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker", skyAccess = true)
     public static void bunkerBusterDrillsAndDetonatesUnderground(GameTestHelper h) {
         ServerLevel level = h.getLevel();
