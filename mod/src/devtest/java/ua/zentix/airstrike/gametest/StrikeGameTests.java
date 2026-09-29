@@ -1,11 +1,17 @@
 package ua.zentix.airstrike.gametest;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.Ticket;
 import net.minecraft.util.Mth;
+import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -31,6 +37,7 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -42,6 +49,7 @@ import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.UUID;
 
@@ -781,6 +789,73 @@ public final class StrikeGameTests {
             if (withhold > 0) h.assertTrue(areaReadyAt[0] >= withhold, "район цели загрузился раньше, чем тест его отпустил");
             h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
         });
+    }
+
+    /**
+     * Подсказка карты под спамом: два игрока кликают по новому месту каждый тик 100 тиков. У каждого в любой тик не
+     * больше одного района подсказки, новый — не чаще раза в {@link PickHints#MIN_INTERVAL} тиков, последний клик
+     * берётся (отложенный), а через {@link PickHints#LIFESPAN} тиков тикет гаснет сам.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1000, batch = "pick_spam", skyAccess = true)
+    public static void mapPickSpamHoldsOneAreaPerPlayer(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET);
+        UUID[] who = {UUID.randomUUID(), UUID.randomUUID()};
+        PickHints.Slot[] slots = {new PickHints.Slot(), new PickHints.Slot()};
+        int[] tick = {0};
+        int[] taken = {0, 0};
+        ChunkPos[] lastHeld = {null, null};
+        ChunkPos[] lastClick = {null, null};
+        int spam = 100;
+        h.onEachTick(() -> {
+            tick[0]++;
+            for (int i = 0; i < 2; i++) {
+                if (tick[0] <= spam) {
+                    // каждый клик — другой свежий район (шаг 500 блоков), у второго игрока — в другую сторону
+                    double x = origin.getX() + (i == 0 ? 1 : -1) * 500.0 * tick[0], z = origin.getZ() + 3000 * i;
+                    PickHints.pick(level, who[i], slots[i], x, z);
+                    lastClick[i] = new ChunkPos(BlockPos.containing(x, 0, z));
+                }
+                PickHints.tick(level, who[i], slots[i]);
+                if (slots[i].held() != null && !slots[i].held().equals(lastHeld[i])) taken[i]++;
+                lastHeld[i] = slots[i].held();
+                int held = pickTickets(level, who[i]);
+                if (held > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + held + " на тике " + tick[0]);
+            }
+        });
+        h.runAtTickTime(spam + PickHints.MIN_INTERVAL + 1, () -> {
+            for (int i = 0; i < 2; i++) {
+                h.assertTrue(lastClick[i].equals(slots[i].held()), "последний клик не взят: держится " + slots[i].held() + ", клик " + lastClick[i]);
+                int limit = spam / PickHints.MIN_INTERVAL + 2;
+                h.assertTrue(taken[i] <= limit, "новых районов " + taken[i] + " за " + spam + " тиков, предел " + limit);
+                h.assertTrue(pickTickets(level, who[i]) == 1, "тикет последнего клика не стоит");
+            }
+        });
+        h.runAtTickTime(spam + PickHints.MIN_INTERVAL + PickHints.LIFESPAN + 20, () -> {
+            for (int i = 0; i < 2; i++) h.assertTrue(pickTickets(level, who[i]) == 0, "тикет подсказки не погас за " + PickHints.LIFESPAN + " тиков");
+            h.succeed();
+        });
+    }
+
+    /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
+    @SuppressWarnings("unchecked")
+    private static int pickTickets(ServerLevel level, UUID who) {
+        try {
+            Field dm = ChunkMap.class.getDeclaredField("distanceManager");
+            dm.setAccessible(true);
+            DistanceManager d = (DistanceManager) dm.get(level.getChunkSource().chunkMap);
+            Field tf = DistanceManager.class.getDeclaredField("tickets");
+            tf.setAccessible(true);
+            Field key = Ticket.class.getDeclaredField("key");
+            key.setAccessible(true);
+            int n = 0;
+            for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
+                for (Ticket<?> t : set) if (PickHints.isPickTicket(t.getType()) && who.equals(key.get(t))) n++;
+            }
+            return n;
+        } catch (ReflectiveOperationException ex) {
+            throw new GameTestAssertException("очередь тикетов не читается: " + ex);
+        }
     }
 
     @GameTest(template = "runway", timeoutTicks = 2400, batch = "salvo", skyAccess = true)
