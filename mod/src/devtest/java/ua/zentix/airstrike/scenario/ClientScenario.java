@@ -80,6 +80,10 @@ public final class ClientScenario {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
             return;
         }
+        if (scenario.startsWith("flyby-")) {
+            new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
