@@ -79,7 +79,7 @@ public class MapScreen extends Screen {
                 .bounds(width / 2 - 50, by, 100, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.map.back"), b -> onClose())
                 .bounds(width / 2 + 54, by, 100, 20).build());
-        fireButton.active = selected().isPresent();
+        fireButton.active = selected().isPresent() && !ceiling();
     }
 
     private Optional<MapTarget.Place> selected() {
@@ -95,7 +95,7 @@ public class MapScreen extends Screen {
     }
 
     private void fire() {
-        if (selected().isPresent()) remote.fireOnMap();
+        if (selected().isPresent() && !ceiling()) remote.fireOnMap();
     }
 
     private void centerOnPlayer() {
@@ -105,10 +105,16 @@ public class MapScreen extends Screen {
         viewZ = p.getZ();
     }
 
+    /** У мира с потолком (Незер) карта видит только крышу: место не выбирается, сервер такой удар не примет. */
+    private static boolean ceiling() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc.level != null && mc.level.dimensionType().hasCeiling();
+    }
+
     /** Выбрать место (x, z); высоту земли там найдёт сервер. */
     private void select(double screenX, double screenY) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return;
+        if (mc.level == null || ceiling()) return;
         MapProjection map = projection();
         MapTarget.set(mc.level, new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY)));
         fireButton.active = true;
@@ -274,7 +280,8 @@ public class MapScreen extends Screen {
                 ? Component.translatable("airstrike.map.selected", place(t.get().x(), t.get().z(), p.position()))
                 : Component.translatable("airstrike.map.hint");
         g.drawCenteredString(font, line, width / 2, height - BOTTOM + 5, t.isPresent() ? 0xFFFF6050 : DIM);
-        String note = !TerrainTiles.farTerrain() ? "airstrike.map.near_only" : TerrainTiles.farPending() ? "airstrike.map.far_pending" : null;
+        String note = ceiling() ? "airstrike.map.no_ceiling"
+                : !TerrainTiles.farTerrain() ? "airstrike.map.near_only" : TerrainTiles.farPending() ? "airstrike.map.far_pending" : null;
         if (note != null) g.drawString(font, Component.translatable(note).withStyle(ChatFormatting.ITALIC), 8, TOP + 6, DIM);
     }
 

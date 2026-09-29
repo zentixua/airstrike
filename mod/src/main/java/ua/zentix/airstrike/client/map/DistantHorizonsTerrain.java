@@ -5,12 +5,17 @@ import com.seibel.distanthorizons.api.interfaces.block.IDhApiBlockStateWrapper;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
-import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
+import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiAfterDhInitEvent;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiLevelLoadEvent;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiLevelUnloadEvent;
+import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import com.seibel.distanthorizons.api.objects.data.DhApiTerrainDataPoint;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.MapColor;
@@ -18,6 +23,8 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -26,20 +33,59 @@ import java.util.concurrent.atomic.AtomicLong;
  * занимать миллисекунды, поэтому — не в потоке игры; кэш данных DH ({@code createSoftCache}) — на плитку, иначе
  * каждая колонка заново читала бы и распаковывала свой участок 64×64.
  * <p>
+ * Когда API готово и какие миры DH загрузил, узнаём из событий API ({@code DhApiAfterDhInitEvent},
+ * {@code DhApiLevelLoadEvent}/{@code DhApiLevelUnloadEvent}), как велит javadoc {@code DhApi.Delayed}.
+ * <p>
  * Класс загружается, только если DH стоит (см. {@link TerrainTiles}): без DH его ссылки на API не разрешаются.
  */
 final class DistantHorizonsTerrain implements TerrainSource {
-    /** С этой версии API есть {@code createSoftCache}; чтение без кэша DH отклоняет. */
-    private static final int MIN_API_MAJOR = 5;
+    /**
+     * Мажорная версия API, против которой собран мод (7.2.0, DH 3.3.x). По javadoc {@code getApiMajorVersion} она
+     * меняется только с несовместимыми изменениями, поэтому другая — не наша: рельеф тогда только из чанков.
+     */
+    private static final int API_MAJOR = 7;
     private static final int MAX_WATER_DEPTH = 16;
 
     /** Для лога: колонки с верхом, без данных, отказы API и первый отказ; почему не открылся мир. */
     private final AtomicLong found = new AtomicLong(), empty = new AtomicLong(), failed = new AtomicLong();
     private volatile String firstFailure = "", notOpened = "";
 
-    /** DH стоит, но его API старше нужного — источника нет. */
+    /** {@code DhApi.Delayed} заполнен (после первой инициализации DH). */
+    private static volatile boolean initialized;
+    /** Миры, которые DH сейчас держит загруженными. */
+    private static final Set<IDhApiLevelWrapper> loaded = ConcurrentHashMap.newKeySet();
+
+    /** Версия API DH — та, против которой мод собран; иначе источника нет (и запись в лог). */
     static boolean supported() {
-        return DhApi.getApiMajorVersion() >= MIN_API_MAJOR;
+        int major = DhApi.getApiMajorVersion();
+        if (major == API_MAJOR) return true;
+        Airstrike.LOG.warn("Distant Horizons {}: API {}.{}, мод собран под {}.x — дальний рельеф на карте выключен",
+                DhApi.getModVersion(), major, DhApi.getApiMinorVersion(), API_MAJOR);
+        return false;
+    }
+
+    /** Один раз при запуске клиента: подписка на события API DH. */
+    static void subscribe() {
+        DhApiEventRegister.on(DhApiAfterDhInitEvent.class, new DhApiAfterDhInitEvent() {
+            @Override
+            public void afterDistantHorizonsInit(DhApiEventParam<Void> input) {
+                initialized = true;
+            }
+        });
+        DhApiEventRegister.on(DhApiLevelLoadEvent.class, new DhApiLevelLoadEvent() {
+            @Override
+            public void onLevelLoad(DhApiEventParam<EventParam> input) {
+                loaded.add(input.value.levelWrapper);
+            }
+        });
+        DhApiEventRegister.on(DhApiLevelUnloadEvent.class, new DhApiLevelUnloadEvent() {
+            @Override
+            public void onLevelUnload(DhApiEventParam<EventParam> input) {
+                loaded.remove(input.value.levelWrapper);
+            }
+        });
+        // DH мог инициализироваться раньше подписки: тогда событие уже прошло, а поля уже заполнены
+        if (DhApi.Delayed.terrainRepo != null) initialized = true;
     }
 
     @Override
@@ -50,12 +96,12 @@ final class DistantHorizonsTerrain implements TerrainSource {
     @Nullable
     @Override
     public Reader open(ClientLevel level) {
-        IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
-        IDhApiLevelWrapper dhLevel = dhLevel(level);
-        if (repo == null || dhLevel == null) {
-            notOpened = repo == null ? "нет terrainRepo" : "нет уровня DH для мира " + level.dimension().location();
+        IDhApiLevelWrapper dhLevel = initialized ? dhLevel(level) : null;
+        if (dhLevel == null) {
+            notOpened = !initialized ? "DH ещё не инициализирован" : "DH не загрузил мир " + level.dimension().location();
             return null;
         }
+        IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
         notOpened = "";
         IDhApiTerrainDataCache cache = repo.createSoftCache();
         return new Reader() {
@@ -87,21 +133,15 @@ final class DistantHorizonsTerrain implements TerrainSource {
     }
 
     /**
-     * Уровень DH для мира клиента. В одиночной игре данные DH — у мира сервера ({@code getSinglePlayerLevel}), по сети —
-     * у клиентского: его обёртка держит тот же {@code ClientLevel}.
+     * Уровень DH для мира клиента. В одиночной игре данные DH — у мира сервера (как {@code getSinglePlayerLevel}), по
+     * сети — у клиентского: его обёртка держит тот же {@code ClientLevel}.
      */
     @Nullable
     private static IDhApiLevelWrapper dhLevel(ClientLevel level) {
-        IDhApiWorldProxy world = DhApi.Delayed.worldProxy;
-        if (world == null || !world.worldLoaded()) return null;
-        try {
-            if (Minecraft.getInstance().hasSingleplayerServer()) return world.getSinglePlayerLevel();
-            for (IDhApiLevelWrapper w : world.getAllLoadedLevelWrappers()) {
-                if (w.getWrappedMcObject() == level) return w;
-            }
-        } catch (IllegalStateException e) {
-            // мир DH закрылся между проверкой и чтением
-            Airstrike.LOG.debug("Distant Horizons: мир недоступен: {}", e.getMessage());
+        boolean singlePlayer = Minecraft.getInstance().hasSingleplayerServer();
+        for (IDhApiLevelWrapper w : loaded) {
+            Object mc = w.getWrappedMcObject();
+            if (singlePlayer ? mc instanceof ServerLevel server && server.dimension() == level.dimension() : mc == level) return w;
         }
         return null;
     }

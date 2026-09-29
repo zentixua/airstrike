@@ -105,7 +105,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.max_spread").defineInRange("max_spread", 150, 0, Loadout.MAX_SPREAD);
             aimRange = b.comment("Дальность прицела пульта, блоков.")
                     .translation("airstrike.config.aim_range").defineInRange("aim_range", 400, 32, 1024);
-            mapRange = b.comment("Дальность удара по месту, выбранному на карте пульта, блоков (по горизонтали от игрока).")
+            mapRange = b.comment("Дальность удара по месту, выбранному на карте пульта, блоков (по горизонтали от игрока).",
+                            "Район цели сервер грузит, а где никто не был — генерирует: чем больше дальность, тем больше новой генерации.")
                     .translation("airstrike.config.map_range").defineInRange("map_range", 10_000, 256, 1_000_000);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);

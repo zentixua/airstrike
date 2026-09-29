@@ -71,6 +71,8 @@ public final class TerrainTiles {
         @Nullable
         int[] heights;
         long builtAt;
+        /** Кадр, в котором плитку последний раз рисовали: видимые сейчас не вытесняются. */
+        long drawnFrame;
         /** Когда начата фоновая постройка; 0 — не строится. */
         long buildingSince;
         boolean empty = true;
@@ -92,6 +94,8 @@ public final class TerrainTiles {
         final Queue<Built> done = new ConcurrentLinkedQueue<>();
         int jobs;
         boolean stallLogged, firstLogged;
+        /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. */
+        boolean broken;
         /** Для лога: построено плиток, из них с рельефом, время постройки всех. */
         int built, withData;
         long buildNanos;
@@ -110,6 +114,10 @@ public final class TerrainTiles {
     private static List<Layer> layers = List.of();
     /** Меняется при смене мира: плитки, начатые для старого, выбрасываются. */
     private static int generation;
+    /** DH стоит, и его API совместимо ({@link #init}). */
+    private static boolean distantHorizons;
+    /** Счётчик кадров карты (для вытеснения только невидимых плиток). */
+    private static long frame;
 
     private TerrainTiles() {}
 
@@ -123,8 +131,9 @@ public final class TerrainTiles {
         ClientLevel current = Minecraft.getInstance().level;
         if (current == null) return;
         if (current != level) switchTo(current);
+        frame++;
         int want = levelFor(map.k());
-        // мельче самых крупных плиток не строим: на такую карту ушли бы тысячи участков DH
+        // мельче самых крупных плиток не строим (и не заводим): на такую карту ушли бы тысячи участков DH
         boolean build = map.k() * (2 << MAX_LEVEL) >= 1;
         double cx = map.worldX((left + right) / 2.0), cz = map.worldZ((top + bottom) / 2.0);
         g.enableScissor(left, top, right, bottom);
@@ -134,8 +143,9 @@ public final class TerrainTiles {
             for (int l = MAX_LEVEL; l > want; l--) draw(g, map, layer, visible(map, l, left, top, right, bottom), false);
             List<Key> keys = visible(map, want, left, top, right, bottom);
             if (!layer.source.offThread()) keys.removeIf(k -> !nearPlayer(k));
-            draw(g, map, layer, keys, true);
-            if (!build) continue;
+            draw(g, map, layer, keys, build);
+            evict(layer);
+            if (!build || layer.broken) continue;
             keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
             request(current, layer, keys);
         }
@@ -199,14 +209,20 @@ public final class TerrainTiles {
         generation++;
     }
 
+    /**
+     * При запуске клиента: есть ли DH с нашей версией API, и подписка на его события. Класс DH-источника трогаем,
+     * только если DH стоит: без него ссылки на API не разрешатся.
+     */
+    public static void init() {
+        distantHorizons = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported();
+        if (distantHorizons) DistantHorizonsTerrain.subscribe();
+    }
+
     private static void switchTo(ClientLevel current) {
         reset();
         level = current;
         Layer chunks = new Layer("chunks", new LoadedChunksTerrain());
-        // класс DH-источника трогаем, только если DH стоит: без него ссылки на API не разрешатся
-        layers = ModList.get().isLoaded("distanthorizons") && DistantHorizonsTerrain.supported()
-                ? List.of(new Layer("dh", new DistantHorizonsTerrain()), chunks)
-                : List.of(chunks);
+        layers = distantHorizons ? List.of(new Layer("dh", new DistantHorizonsTerrain()), chunks) : List.of(chunks);
     }
 
     /** Плитка задевает дальность прорисовки клиента: дальше чанков у него нет. */
@@ -234,7 +250,9 @@ public final class TerrainTiles {
     private static void draw(GuiGraphics g, MapProjection map, Layer layer, List<Key> keys, boolean create) {
         for (Key key : keys) {
             Tile t = create ? layer.tiles.computeIfAbsent(key, Tile::new) : layer.tiles.get(key);
-            if (t == null || t.id == null) continue;
+            if (t == null) continue;
+            t.drawnFrame = frame;
+            if (t.id == null) continue;
             int span = key.span();
             float x = (float) (map.ox() + (key.tx * (double) span - map.cx()) * map.k());
             float y = (float) (map.oy() + (key.tz * (double) span - map.cz()) * map.k());
@@ -245,7 +263,6 @@ public final class TerrainTiles {
             g.blit(t.id, 0, 0, 0, 0, SIZE, SIZE, SIZE, SIZE);
             g.pose().popPose();
         }
-        evict(layer);
     }
 
     private static void request(ClientLevel current, Layer layer, List<Key> keys) {
@@ -274,6 +291,11 @@ public final class TerrainTiles {
                             layer.done.add(build(key, gen, reader));
                         } catch (RuntimeException e) {
                             Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
+                            layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
+                        } catch (LinkageError e) {
+                            // другая версия API DH, чем при сборке: источник выключается до смены мира
+                            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
+                            layer.broken = true;
                             layer.done.add(new Built(key, gen, new int[0], new int[0], true, 0));
                         }
                     });
@@ -333,11 +355,12 @@ public final class TerrainTiles {
         t.texture.upload();
     }
 
+    /** Сверх предела — самые давние по показу, кроме видимых в этом кадре и строящихся. */
     private static void evict(Layer layer) {
         Iterator<Tile> it = layer.tiles.values().iterator();
         while (layer.tiles.size() > MAX_TILES && it.hasNext()) {
             Tile t = it.next();
-            if (t.buildingSince != 0) continue;
+            if (t.buildingSince != 0 || t.drawnFrame == frame) continue;
             release(t);
             it.remove();
         }

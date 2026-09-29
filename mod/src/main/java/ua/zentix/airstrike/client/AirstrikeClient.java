@@ -67,6 +67,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
+        TerrainTiles.init();
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::entityTick);

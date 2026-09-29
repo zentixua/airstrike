@@ -174,6 +174,11 @@ public final class ServerActions {
             return null;
         }
         if (h.kind() == C2S.AimHint.GROUND) {
+            // у мира с потолком (Незер) верх колонки — крыша из бедрока: места «на земле» по карте нет
+            if (player.level().dimensionType().hasCeiling()) {
+                player.displayClientMessage(Component.translatable("airstrike.map.no_ceiling").withStyle(ChatFormatting.RED), true);
+                return null;
+            }
             double range = AirstrikeConfig.SERVER.mapRange.get();
             double dx = h.point().x - player.getX(), dz = h.point().z - player.getZ();
             if (dx * dx + dz * dz > range * range || !player.level().getWorldBorder().isWithinBounds(h.point().x, h.point().z)) {
