@@ -7,12 +7,14 @@
 #   tools/stress.sh                 # весь сценарий
 #   AIRSTRIKE_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
 #   AIRSTRIKE_JFR=1 tools/stress.sh   # + профиль JFR сервера (settings=profile) → mod/run/stress/server/stress.jfr
+#   AIRSTRIKE_STRESS_PROBES=false tools/stress.sh   # без залпов-проб РСЗО по свежим районам (замер A/B остановок сервера)
 #
 # Моды: MC_DIR (инстанс) или -PmcModsDir; в облаке — python3 tools/fetch_runtime_mods.py и MODS=run/ci-mods.
 # На рабочем столе KDE каждый клиент идёт в своём вложенном KWin (tools/nested_kwin.sh: без окна и без звука) на видеокарте;
 # в облаке (без KWin) — под xvfb-run программно (llvmpipe): медленно, но честно — те же пакеты, та же камера, тот же HUD.
 # На 4 ядрах облака клиенты съедают процессор, генерация чанков стоит в очереди, и любая синхронная загрузка чанка
-# (телепорт, Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; тик дольше 0,5 с пишется со стеком.
+# (Sable) держит тик десятки секунд — клиенты отваливаются по тайм-ауту; тик дольше 0,5 с пишется со стеком и строкой
+# «остановка:» (какой чанк грузится синхронно, уровни тикетов вокруг, тикеты мода рядом). Телепорты стенда ждут района в фоне.
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

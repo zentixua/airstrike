@@ -93,6 +93,7 @@ neoForge {
             systemProperty 'airstrike.stress', System.getenv('AIRSTRIKE_STRESS') ?: 'run'
             systemProperty 'airstrike.stress.players', System.getenv('AIRSTRIKE_STRESS_PLAYERS') ?: '3'
             systemProperty 'airstrike.stress.restart', System.getenv('AIRSTRIKE_STRESS_RESTART') ?: 'false'
+            systemProperty 'airstrike.stress.probes', System.getenv('AIRSTRIKE_STRESS_PROBES') ?: 'true'
             jvmArgument "-Xlog:gc:file=${project.file('run/stress/server/gc.log').absolutePath}:time,uptime"
             // профиль JFR сервера по желанию, как у сценария клиента: AIRSTRIKE_JFR=1 tools/stress.sh → run/stress/server/stress.jfr
             if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/stress/server/stress.jfr').absolutePath},settings=profile"

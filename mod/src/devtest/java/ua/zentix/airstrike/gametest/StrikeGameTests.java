@@ -10,6 +10,7 @@ import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.Ticket;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
@@ -932,8 +933,9 @@ public final class StrikeGameTests {
 
     /**
      * Подсказка карты под спамом: два игрока кликают по новому месту каждый тик 100 тиков. У каждого в любой тик не
-     * больше одного района подсказки, новый — не чаще раза в {@link PickHints#MIN_INTERVAL} тиков, последний клик
-     * берётся (отложенный), а через {@link PickHints#LIFESPAN} тиков тикет гаснет сам.
+     * больше одного района подсказки (и не больше одного тикета региона), новый — не чаще раза в
+     * {@link PickHints#MIN_INTERVAL} тиков, последний клик берётся (отложенный), а через {@link PickHints#LIFESPAN}
+     * тиков район отпускается сам — ни тикета региона, ни тикетов прогрева чанков.
      */
     @GameTest(template = "runway", timeoutTicks = 1000, batch = "pick_spam", skyAccess = true)
     public static void mapPickSpamHoldsOneAreaPerPlayer(GameTestHelper h) {
@@ -958,8 +960,8 @@ public final class StrikeGameTests {
                 PickHints.tick(level, who[i], slots[i]);
                 if (slots[i].held() != null && !slots[i].held().equals(lastHeld[i])) taken[i]++;
                 lastHeld[i] = slots[i].held();
-                int held = pickTickets(level, who[i]);
-                if (held > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + held + " на тике " + tick[0]);
+                int held = pickTickets(level, who[i]), areas = PickHints.areas(level, who[i]);
+                if (held > 1 || areas > 1) throw new GameTestAssertException("у игрока " + i + " районов подсказки: " + areas + ", тикетов " + held + " на тике " + tick[0]);
             }
         });
         h.runAtTickTime(spam + PickHints.MIN_INTERVAL + 1, () -> {
@@ -967,18 +969,30 @@ public final class StrikeGameTests {
                 h.assertTrue(lastClick[i].equals(slots[i].held()), "последний клик не взят: держится " + slots[i].held() + ", клик " + lastClick[i]);
                 int limit = spam / PickHints.MIN_INTERVAL + 2;
                 h.assertTrue(taken[i] <= limit, "новых районов " + taken[i] + " за " + spam + " тиков, предел " + limit);
-                h.assertTrue(pickTickets(level, who[i]) == 1, "тикет последнего клика не стоит");
+                h.assertTrue(PickHints.areas(level, who[i]) == 1, "район последнего клика не взят");
             }
         });
         h.runAtTickTime(spam + PickHints.MIN_INTERVAL + PickHints.LIFESPAN + 20, () -> {
-            for (int i = 0; i < 2; i++) h.assertTrue(pickTickets(level, who[i]) == 0, "тикет подсказки не погас за " + PickHints.LIFESPAN + " тиков");
+            for (int i = 0; i < 2; i++) {
+                h.assertTrue(PickHints.areas(level, who[i]) == 0 && pickTickets(level, who[i]) == 0 && prefetchTickets(level, who[i]) == 0,
+                        "район подсказки не отпущен за " + PickHints.LIFESPAN + " тиков");
+            }
             h.succeed();
         });
     }
 
     /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
-    @SuppressWarnings("unchecked")
     private static int pickTickets(ServerLevel level, UUID who) {
+        return tickets(level, who, PickHints::isPickTicket);
+    }
+
+    /** Тикеты прогрева чанков района ({@code AreaLoader}) с ключом {@code who}. */
+    private static int prefetchTickets(ServerLevel level, UUID who) {
+        return tickets(level, who, t -> t.toString().equals("airstrike_prefetch"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int tickets(ServerLevel level, UUID who, java.util.function.Predicate<TicketType<?>> type) {
         try {
             Field dm = ChunkMap.class.getDeclaredField("distanceManager");
             dm.setAccessible(true);
@@ -989,7 +1003,7 @@ public final class StrikeGameTests {
             key.setAccessible(true);
             int n = 0;
             for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
-                for (Ticket<?> t : set) if (PickHints.isPickTicket(t.getType()) && who.equals(key.get(t))) n++;
+                for (Ticket<?> t : set) if (type.test(t.getType()) && who.equals(key.get(t))) n++;
             }
             return n;
         } catch (ReflectiveOperationException ex) {
