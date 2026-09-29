@@ -485,7 +485,8 @@ public final class GridGameTests {
         for (int i = 128; i < 256; i++) n += ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), true);
         long apply = System.nanoTime() - t0;
         for (int i = 128; i < 256; i++) ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), false);
-        h.assertTrue(n == 128 * 8, "погашено " + n);
+        // и лампы соседних площадок, если они в этих чанках
+        h.assertTrue(n >= 128 * 8, "погашено " + n);
         Airstrike.LOG.info("GRIDBENCH лампа: setBlock {} мкс, ChunkLights.apply {} мкс (с проходом секций, по {} ламп)",
                 String.format(Locale.ROOT, "%.1f", set / 1e3 / (128 * 8)), String.format(Locale.ROOT, "%.1f", apply / 1e3 / n), n);
 
