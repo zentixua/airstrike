@@ -1177,7 +1177,7 @@ public final class StrikeGameTests {
      * (предел {@code AREA_WAIT_LIMIT} — 1200 тиков, минута игры), а сервер GameTest тикает без пауз — на CI около
      * 2000 тиков в секунду, и минута игры проходила за полсекунды, раньше генерации свежего района.
      */
-    private static void gameSpeed(GameTestHelper h) {
+    static void gameSpeed(GameTestHelper h) {
         long[] last = {System.nanoTime()};
         h.onEachTick(() -> {
             long wait = 50_000_000L - (System.nanoTime() - last[0]);

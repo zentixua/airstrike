@@ -35,7 +35,7 @@ public final class StrikeWorld {
         return level.getData(ModAttachments.STRIKE_WORLD);
     }
 
-    /** Районы, которые мод грузит заранее (районы целей, подсказки карты). */
+    /** Районы, которые мод грузит заранее: районы целей и взрывов, чанки снарядов, подсказки карты, ядерный удар. */
     public AreaLoader areas() {
         return areas;
     }

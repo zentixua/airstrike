@@ -10,8 +10,9 @@ import java.util.UUID;
 /**
  * Сущности вне тикающих чанков не тикают, а ракета проходит 0.7 чанка за тик. Снаряд держит свой чанк и чанк впереди
  * по курсу, пока летит. Это ванильный тикет региона через {@link AreaLoader} (как у {@link FlightTickets}: тикать
- * чанки начинают, только когда готовы соседи): он не сохраняется в мир и ничего не грузит синхронно, в отличие от {@code TicketController.forceChunk} NeoForge, который пишет каждое изменение
- * в {@code ForcedChunksSavedData} и сразу догружает чанк. Ключ — UUID снаряда: соседи по залпу не снимают тикет друг у друга.
+ * чанки начинают, только когда готовы соседи): он не сохраняется в мир и ничего не грузит синхронно, в отличие от
+ * {@code TicketController.forceChunk} NeoForge, который пишет каждое изменение в {@code ForcedChunksSavedData} и сразу
+ * догружает чанк. Ключ — UUID снаряда: соседи по залпу не снимают тикет друг у друга.
  */
 public final class ChunkTickets {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_projectile", Comparator.<UUID>naturalOrder());

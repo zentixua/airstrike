@@ -703,8 +703,7 @@ public final class StressDirector {
      * блоки, 31 — сущности; «·» — чанка нет), тикеты мода в 8 чанках, сколько чанков мир ждёт до полной загрузки.
      */
     private static String stallReport(ServerLevel level) {
-        DistanceManager d = distanceManager(level);
-        var map = d == null ? null : ticketMap(d);
+        var map = ticketMap(level.getChunkSource().chunkMap.getDistanceManager());
         if (map == null) return "тикеты недоступны";
         var chunkMap = level.getChunkSource().chunkMap;
         StringBuilder sb = new StringBuilder(level.dimension().location().toString());
@@ -745,17 +744,6 @@ public final class StressDirector {
             if (h.getTicketLevel() <= 33 && h.getLatestStatus() != net.minecraft.world.level.chunk.status.ChunkStatus.FULL) waiting++;
         }
         return sb.append(" | ждут полной загрузки ").append(waiting).append(" чанков").toString();
-    }
-
-    @Nullable
-    private static DistanceManager distanceManager(ServerLevel level) {
-        try {
-            Field dm = net.minecraft.server.level.ChunkMap.class.getDeclaredField("distanceManager");
-            dm.setAccessible(true);
-            return (DistanceManager) dm.get(level.getChunkSource().chunkMap);
-        } catch (ReflectiveOperationException ex) {
-            return null;
-        }
     }
 
     @Nullable
@@ -942,8 +930,7 @@ public final class StressDirector {
     private static String tickets(MinecraftServer s) {
         Map<String, Integer> byType = new TreeMap<>();
         for (ServerLevel level : s.getAllLevels()) {
-            DistanceManager d = distanceManager(level);
-            var map = d == null ? null : ticketMap(d);
+            var map = ticketMap(level.getChunkSource().chunkMap.getDistanceManager());
             if (map == null) return "?";
             String prefix = level.dimension() == Level.OVERWORLD ? "" : level.dimension().location().getPath() + "/";
             for (SortedArraySet<Ticket<?>> set : map.values()) {

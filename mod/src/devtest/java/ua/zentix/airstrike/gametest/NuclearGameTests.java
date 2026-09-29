@@ -635,12 +635,7 @@ public final class NuclearGameTests {
     @GameTest(template = "range", timeoutTicks = 2400, batch = "nuke_ground", skyAccess = true)
     public static void nukeGroundLoadsFromLaunch(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        long[] last = {System.nanoTime()};
-        h.onEachTick(() -> {
-            long wait = 50_000_000L - (System.nanoTime() - last[0]);
-            if (wait > 0) java.util.concurrent.locks.LockSupport.parkNanos(wait);
-            last[0] = System.nanoTime();
-        });
+        StrikeGameTests.gameSpeed(h);
         Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(CENTER).offset(1500, 0, -1500));
         ChunkPos ground = new ChunkPos(BlockPos.containing(target));
         h.assertFalse(ua.zentix.airstrike.util.Terrain.ready(level, ground.x, ground.z), "место подрыва не свежее");

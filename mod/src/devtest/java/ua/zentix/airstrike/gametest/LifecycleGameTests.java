@@ -382,9 +382,11 @@ public final class LifecycleGameTests {
      * сущности в центре тикают; отпущенный район не оставляет тикетов. Контроль — ванильный тикет региона на свежий
      * район, как было до {@code AreaLoader}: проверка должна поймать у него тикающие блоки рядом с неготовым чанком.
      */
-    @GameTest(template = "range", timeoutTicks = 40000, batch = "tickets_background", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 6000, batch = "tickets_background", skyAccess = true)
     public static void targetAreasTickOnlyNextToReadyChunks(GameTestHelper h) {
         ServerLevel level = h.getLevel();
+        // районы грузятся в фоне: срок — игровой (сервер GameTest тикает без пауз, на CI он прошёл бы раньше генерации)
+        StrikeGameTests.gameSpeed(h);
         ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
         ChunkPos[] centre = {new ChunkPos(base.x + 40, base.z), new ChunkPos(base.x + 70, base.z + 30), new ChunkPos(base.x - 50, base.z - 40)};
         int[] distance = {FlightTickets.DISTANCE, FlightTickets.DISTANCE, 6};
