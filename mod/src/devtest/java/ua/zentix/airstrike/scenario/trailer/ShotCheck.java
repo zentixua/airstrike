@@ -4,6 +4,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
@@ -76,7 +77,7 @@ final class ShotCheck {
             double clear = clearance(level, eye, 2);
             minClearance = Math.min(minClearance, clear);
             if (clear < 1.5) nearBlocks++;
-            Vector3f look = camera.getLookVector();
+            Vector3f look = forward(camera);
             Vec3 ahead = eye.add(look.x() * 4, look.y() * 4, look.z() * 4);
             if (level.clip(new ClipContext(eye, ahead, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, mc.player)).getType() != HitResult.Type.MISS) blocked++;
             BlockPos at = BlockPos.containing(eye);
@@ -101,7 +102,10 @@ final class ShotCheck {
         seenSubject = true;
         subjectFrames++;
         Vec3 d = p.subtract(eye);
-        Vector3f f = camera.getLookVector(), up = camera.getUpVector(), left = camera.getLeftVector();
+        Vector3f f = forward(camera);
+        float yaw = camera.getYRot() * Mth.DEG_TO_RAD;
+        Vector3f left = new Vector3f(Mth.cos(yaw), 0, Mth.sin(yaw));
+        Vector3f up = new Vector3f(f).cross(left);
         double z = d.x * f.x() + d.y * f.y() + d.z * f.z();
         if (z <= 0.5) {
             if (subjectFrames - inFrame <= 3) {
@@ -131,6 +135,16 @@ final class ShotCheck {
             Vec3 stop = eye.add(d.scale(Math.max(0, 1 - size / Math.max(size, d.length()))));
             if (level.clip(new ClipContext(eye, stop, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, mc.player)).getType() != HitResult.Type.MISS) hidden++;
         }
+    }
+
+    /**
+     * Куда смотрит камера — по её углам, а не по {@code Camera.getLookVector}: NeoForge после события углов камеры
+     * (ComputeCameraAngles) меняет только углы ({@code setAnglesInternal}), векторы остаются от прошлой постановки, и у
+     * МБР (камера быстро задирается) цель считалась вне кадра в 290 кадрах из 311, хотя была по центру (облако, kf4e).
+     */
+    private static Vector3f forward(Camera camera) {
+        float yaw = camera.getYRot() * Mth.DEG_TO_RAD, pitch = camera.getXRot() * Mth.DEG_TO_RAD;
+        return new Vector3f(-Mth.sin(yaw) * Mth.cos(pitch), -Mth.sin(pitch), Mth.cos(yaw) * Mth.cos(pitch));
     }
 
     /** Ближайший твёрдый блок в кубе ±{@code r} вокруг точки, блоков (больше r — нет). */
