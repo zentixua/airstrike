@@ -1,8 +1,6 @@
 package ua.zentix.airstrike.grid;
 
 import com.mojang.serialization.Codec;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -20,10 +18,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Сеть измерения (сохраняется в мире): узлы, отключения и чанки, где сейчас стоят погашенные лампы. Какой квартал
- * тёмен — функция отключений и времени ({@link #dark}); чанки приводятся к ней, когда они загружены
- * ({@link BlackoutWorld}). Список тёмных чанков — указатель для «вернуть свет везде» (и перед удалением мода):
- * истина — сами блоки в чанке.
+ * Сеть измерения (сохраняется в мире): узлы и отключения. Какой квартал тёмен — функция отключений и времени
+ * ({@link #dark}); чанки приводятся к ней, когда они загружены ({@link BlackoutWorld}, {@link ChunkSaves}).
  */
 public final class PowerGrid extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_grid";
@@ -32,7 +28,6 @@ public final class PowerGrid extends SavedData {
 
     private final Map<Integer, Node> nodes = new LinkedHashMap<>();
     private final List<Outage> outages = new ArrayList<>();
-    private final LongSet darkChunks = new LongOpenHashSet();
     /** Докуда (игровое время) каскад отключения уже пройден по чанкам вне загруженного мира: после перезапуска — дальше. */
     private final Map<Integer, Long> darkSwept = new LinkedHashMap<>();
     /** То же для возврата света. */
@@ -126,9 +121,12 @@ public final class PowerGrid extends SavedData {
         return false;
     }
 
-    /** Забыть отключения, в которые свет вернулся везде. */
+    /**
+     * Забыть отключения, в которые свет вернулся везде: срок вышел и каскад возврата прошёл весь район (иначе
+     * загруженные чанки, до которых он не дошёл, остались бы тёмными).
+     */
     public List<Outage> prune(long now) {
-        List<Outage> over = outages.stream().filter(o -> o.over(now)).toList();
+        List<Outage> over = outages.stream().filter(o -> o.over(now) && swept(o.id(), true) == Long.MAX_VALUE).toList();
         if (!over.isEmpty()) {
             outages.removeAll(over);
             over.forEach(o -> {
@@ -151,14 +149,6 @@ public final class PowerGrid extends SavedData {
 
     // ---------------------------------------------------------------- тёмные чанки
 
-    public LongSet darkChunks() {
-        return darkChunks;
-    }
-
-    public void markDark(long chunk, boolean dark) {
-        if (dark ? darkChunks.add(chunk) : darkChunks.remove(chunk)) setDirty();
-    }
-
     // ---------------------------------------------------------------- сохранение
 
     private static PowerGrid load(CompoundTag tag, HolderLookup.Provider registries) {
@@ -167,7 +157,6 @@ public final class PowerGrid extends SavedData {
         Node.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("nodes")).resultOrPartial(Airstrike.LOG::error)
                 .ifPresent(l -> l.forEach(n -> g.nodes.put(n.id(), n)));
         Outage.CODEC.listOf().parse(NbtOps.INSTANCE, tag.get("outages")).resultOrPartial(Airstrike.LOG::error).ifPresent(g.outages::addAll);
-        for (long c : tag.getLongArray("dark_chunks")) g.darkChunks.add(c);
         if (tag.contains("dark_swept")) PROGRESS_CODEC.parse(NbtOps.INSTANCE, tag.get("dark_swept")).resultOrPartial(Airstrike.LOG::error).ifPresent(g.darkSwept::putAll);
         if (tag.contains("light_swept")) PROGRESS_CODEC.parse(NbtOps.INSTANCE, tag.get("light_swept")).resultOrPartial(Airstrike.LOG::error).ifPresent(g.lightSwept::putAll);
         return g;
@@ -178,7 +167,6 @@ public final class PowerGrid extends SavedData {
         tag.putInt("next_id", nextId);
         Node.CODEC.listOf().encodeStart(NbtOps.INSTANCE, List.copyOf(nodes.values())).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("nodes", t));
         Outage.CODEC.listOf().encodeStart(NbtOps.INSTANCE, outages).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("outages", t));
-        tag.putLongArray("dark_chunks", darkChunks.toLongArray());
         PROGRESS_CODEC.encodeStart(NbtOps.INSTANCE, darkSwept).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("dark_swept", t));
         PROGRESS_CODEC.encodeStart(NbtOps.INSTANCE, lightSwept).resultOrPartial(Airstrike.LOG::error).ifPresent(t -> tag.put("light_swept", t));
         return tag;

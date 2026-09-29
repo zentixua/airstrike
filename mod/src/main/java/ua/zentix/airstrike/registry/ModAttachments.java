@@ -30,7 +30,7 @@ public final class ModAttachments {
      * отключение кончилось); нет отметки — нет и погашенных ламп.
      */
     public static final Supplier<AttachmentType<Boolean>> GRID_DARK = REGISTER.register("grid_dark",
-            () -> AttachmentType.builder(() -> false).serialize(Codec.BOOL).build());
+            () -> AttachmentType.builder(() -> false).build());
 
     /** Мир: блэкаут — каскады, очередь чанков, копии с диска для LOD ({@link BlackoutWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<BlackoutWorld>> BLACKOUT_WORLD = REGISTER.register("blackout_world",

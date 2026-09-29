@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
@@ -23,12 +24,12 @@ import ua.zentix.airstrike.grid.PowerGrid;
 /**
  * /airstrike grid — сеть и блэкаут (операторы):
  * <pre>
- *   /airstrike grid status                                отключения, узлы, погашенные чанки
+ *   /airstrike grid status                                отключения, узлы, очередь (все измерения)
  *   /airstrike grid node add [x y z] [радиус]             узел сети (подстанция на карте) — без блока
  *   /airstrike grid node remove &lt;номер&gt; | node list
  *   /airstrike grid node knockout &lt;номер&gt;              вывести узел из строя, как удар по нему
  *   /airstrike grid blackout [x y z] [радиус]             обесточить район (без узла)
- *   /airstrike grid restore                               вернуть свет везде, и в незагруженных чанках (перед удалением мода)
+ *   /airstrike grid restore                               вернуть свет везде (все измерения)
  *   /airstrike grid restore at x y z &lt;радиус&gt;            вернуть свет в районе
  * </pre>
  */
@@ -69,28 +70,36 @@ final class GridCommand {
         return AirstrikeConfig.SERVER.gridNodeRadius.get();
     }
 
+    /** Все измерения: ядерный удар в Незере гасит Незер, а оператор стоит в верхнем мире. */
     private static int status(CommandContext<CommandSourceStack> ctx) {
-        ServerLevel level = ctx.getSource().getLevel();
-        PowerGrid grid = PowerGrid.get(level);
-        long now = level.getGameTime();
-        int[] backlog = BlackoutWorld.get(level).backlog();
-        int nodes = 0;
-        for (Node ignored : grid.nodes()) nodes++;
-        int n = nodes;
-        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", grid.outages().size(), n, grid.darkChunks().size(),
-                backlog[0], backlog[1], backlog[2]), false);
-        for (Outage o : grid.outages()) {
-            long restore = o.restoreAt();
-            Component when = restore == Outage.NEVER ? Component.translatable("airstrike.grid.restore.never")
-                    : restore <= now ? Component.translatable("airstrike.grid.restore.now")
-                    : Component.translatable("airstrike.grid.restore.in", (restore - now + 1199) / 1200);
-            ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.outage", o.id(), Math.round(o.x()), Math.round(o.z()),
-                    Math.round(o.radius()), when), false);
+        int outages = 0, nodes = 0, queued = 0, reading = 0;
+        for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
+            PowerGrid grid = PowerGrid.get(level);
+            outages += grid.outages().size();
+            for (Node ignored : grid.nodes()) nodes++;
+            int[] backlog = BlackoutWorld.get(level).backlog();
+            queued += backlog[0];
+            reading += backlog[1];
         }
-        return grid.outages().size();
+        int o = outages, n = nodes, q = queued, r = reading;
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, r), false);
+        for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
+            long now = level.getGameTime();
+            String dimension = level.dimension().location().toString();
+            for (Outage outage : PowerGrid.get(level).outages()) {
+                long restore = outage.restoreAt();
+                Component when = restore == Outage.NEVER ? Component.translatable("airstrike.grid.restore.never")
+                        : restore <= now ? Component.translatable("airstrike.grid.restore.now")
+                        : Component.translatable("airstrike.grid.restore.in", (restore - now + 1199) / 1200);
+                ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.outage", outage.id(), dimension,
+                        Math.round(outage.x()), Math.round(outage.z()), Math.round(outage.radius()), when), false);
+            }
+        }
+        return o;
     }
 
-    private static int addNode(CommandContext<CommandSourceStack> ctx, BlockPos pos, int radius) {
+    private static int addNode(CommandContext<CommandSourceStack> ctx, BlockPos pos, int requested) {
+        int radius = Math.min(requested, AirstrikeConfig.SERVER.gridMaxRadius.get());
         Node n = PowerGrid.get(ctx.getSource().getLevel()).addNode(pos, radius, false);
         ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.node.added", n.id(), pos.getX(), pos.getY(), pos.getZ(), radius), true);
         return n.id();
@@ -130,13 +139,20 @@ final class GridCommand {
 
     private static int blackout(CommandContext<CommandSourceStack> ctx, Vec3 at, int radius) {
         Outage o = Blackouts.blackout(ctx.getSource().getLevel(), at, radius, AirstrikeConfig.SERVER.gridCascadeSpeed.get() / 20, -1);
-        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.blackout", o.id(), Math.round(at.x), Math.round(at.z), radius), true);
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.blackout", o.id(), Math.round(at.x), Math.round(at.z), Math.round(o.radius())), true);
         return o.id();
     }
 
-    private static int restore(CommandContext<CommandSourceStack> ctx, Vec3 at, int radius) {
-        int[] r = Blackouts.restore(ctx.getSource().getLevel(), at, radius, at == null);
-        ctx.getSource().sendSuccess(() -> Component.translatable(at == null ? "airstrike.grid.restored.everywhere" : "airstrike.grid.restored", r[0], r[1]), true);
-        return r[0];
+    /** Без места — во всех измерениях; с местом — в измерении того, кто вызвал. */
+    private static int restore(CommandContext<CommandSourceStack> ctx, @Nullable Vec3 at, int radius) {
+        int restored = 0;
+        if (at == null) {
+            for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) restored += Blackouts.restore(level, null, 0);
+        } else {
+            restored = Blackouts.restore(ctx.getSource().getLevel(), at, radius);
+        }
+        int n = restored;
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.restored", n), true);
+        return n;
     }
 }

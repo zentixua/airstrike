@@ -340,10 +340,10 @@
   "airstrike.config.grid_distant_lod.tooltip": "From a copy of the chunk on disk, without loading the chunk.",
   "airstrike.config.grid_time_budget": "Blackout time per tick (ms)",
   "airstrike.config.grid_time_budget.tooltip": "Milliseconds of each server tick spent on blackout lights.",
-  "airstrike.help.12": "/airstrike grid status|blackout|restore|node …: power grid; before removing the mod: /airstrike grid restore",
+  "airstrike.help.12": "/airstrike grid status|blackout|restore|node …: power grid status, cut power to an area, restore power, map nodes",
   "airstrike.grid.no_node": "No grid node #%s",
-  "airstrike.grid.status": "Outages: %s, grid nodes: %s, dark chunks: %s (queued %s, waiting to load %s, reading from disk %s)",
-  "airstrike.grid.outage": "#%s: centre %s %s, radius %s, power %s",
+  "airstrike.grid.status": "Outages: %s, grid nodes: %s (chunks queued %s, reading from disk %s)",
+  "airstrike.grid.outage": "#%s (%s): centre %s %s, radius %s, power %s",
   "airstrike.grid.restore.never": "returns only by command",
   "airstrike.grid.restore.now": "returning",
   "airstrike.grid.restore.in": "returns in %s min",
@@ -356,6 +356,5 @@
   "airstrike.grid.node.marker": "map marker",
   "airstrike.grid.node.none": "No grid nodes",
   "airstrike.grid.blackout": "Blackout #%s: centre %s %s, radius %s",
-  "airstrike.grid.restored": "Power returning: %s outages (%s chunks to load)",
-  "airstrike.grid.restored.everywhere": "Power returning everywhere: %s outages, %s unloaded dark chunks will load one by one"
+  "airstrike.grid.restored": "Power returning: %s outages"
 }
