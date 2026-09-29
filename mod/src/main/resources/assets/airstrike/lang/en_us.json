@@ -203,6 +203,7 @@
   "airstrike.config.nuke_crater": "Crater on ground bursts",
   "airstrike.config.nuke_fallout": "Radioactive fallout",
   "airstrike.config.nuke_radiation": "Radiation and radiation sickness",
+  "airstrike.config.nuke_mob_radiation": "Radiation sickness in mobs",
   "airstrike.config.nuke_black_rain": "Black rain",
   "airstrike.config.nuke_flight_time": "ICBM flight time, ticks",
   "airstrike.config.nuke_time_budget": "Destruction budget per tick, ms",

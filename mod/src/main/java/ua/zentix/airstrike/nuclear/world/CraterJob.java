@@ -145,7 +145,7 @@ public final class CraterJob {
             for (int y = top - 1; y >= floor; y--) {
                 BlockState s = level.getBlockState(m.setY(y));
                 if (y >= ground && !s.getFluidState().isEmpty()) continue; // сама вода над дном остаётся
-                if (!s.isAir() && s.getBlock().defaultDestroyTime() >= 0) level.setBlock(m, y < ground ? fill : Blocks.AIR.defaultBlockState(), ColumnScar.FLAGS);
+                if (!s.isAir() && s.getBlock().defaultDestroyTime() >= 0) ColumnScar.replace(level, m, s, y < ground ? fill : Blocks.AIR.defaultBlockState());
             }
             BlockState bottom = level.getBlockState(m.setY(floor - 1));
             if (depth > lift && random.nextFloat() < 0.3f && !bottom.isAir() && bottom.getFluidState().isEmpty() && bottom.getBlock().defaultDestroyTime() >= 0) {

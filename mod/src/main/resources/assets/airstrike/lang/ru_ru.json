@@ -203,6 +203,7 @@
   "airstrike.config.nuke_crater": "Воронка у наземного подрыва",
   "airstrike.config.nuke_fallout": "Радиоактивные осадки",
   "airstrike.config.nuke_radiation": "Радиация и лучевая болезнь",
+  "airstrike.config.nuke_mob_radiation": "Лучевая болезнь у мобов",
   "airstrike.config.nuke_black_rain": "Чёрный дождь",
   "airstrike.config.nuke_flight_time": "Полёт МБР, тиков",
   "airstrike.config.nuke_time_budget": "Бюджет разрушений за тик, мс",

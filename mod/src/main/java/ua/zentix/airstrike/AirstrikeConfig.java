@@ -59,6 +59,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.BooleanValue nukeCrater;
         public final ModConfigSpec.BooleanValue nukeFallout;
         public final ModConfigSpec.BooleanValue nukeRadiation;
+        public final ModConfigSpec.BooleanValue nukeMobRadiation;
         public final ModConfigSpec.BooleanValue nukeBlackRain;
         public final ModConfigSpec.IntValue nukeFlightTime;
         public final ModConfigSpec.IntValue nukeTimeBudgetMs;
@@ -140,6 +141,10 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_fallout").define("fallout", true);
             nukeRadiation = b.comment("Облучение и лучевая болезнь у игроков.")
                     .translation("airstrike.config.nuke_radiation").define("radiation", true);
+            nukeMobRadiation = b.comment("Облучение и лучевая болезнь у мобов (кроме нежити): доза при подрыве и в следе осадков,",
+                            "болезнь по тем же стадиям. Выключено — мобы гибнут от проникающей радиации сразу (от 1000 бэр) или теряют",
+                            "половину здоровья (от 400), а осадки их не трогают.")
+                    .translation("airstrike.config.nuke_mob_radiation").define("mob_radiation", true);
             nukeBlackRain = b.comment("Чёрный дождь в следе осадков (заражает, пока не смыть водой).")
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
             nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут).")
