@@ -11,6 +11,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
@@ -103,11 +104,11 @@ public final class NukeFlash {
 
     /** Тёмно-оранжевое пятно на месте шара, медленно гаснет; двигается вместе со взглядом, как настоящий послеобраз. */
     private static void afterimage(GuiGraphics g, Detonation d, float partial, int w, int h) {
-        float[] s = NukeView.project(d.burst());
+        float[] s = ScreenProjection.project(d.burst());
         if (s == null) return;
         double r = Math.max(d.fireballRadius(), 30);
         // пятно больше видимого шара: глаз «размазывает» засветку
-        float px = Mth.clamp((float) (r * NukeView.verticalScale() / s[2] * h * 2.2), 14, 400);
+        float px = Mth.clamp((float) (r * ScreenProjection.verticalScale() / s[2] * h * 2.2), 14, 400);
         float life = (afterLeft - partial) / afterTotal;
         float a = Mth.clamp(life * 1.3f, 0, 0.85f) * Math.min(1, strength * 1.5f);
         if (a <= 0.01f) return;

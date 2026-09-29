@@ -1,4 +1,4 @@
-package ua.zentix.airstrike.client.nuclear;
+package ua.zentix.airstrike.client.render;
 
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -6,16 +6,20 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
-/** Матрицы кадра (снимаются после неба): проекция точки мира на экран — для послеобраза вспышки. */
-public final class NukeView {
+/**
+ * Матрицы кадра (снимаются после неба): проекция точки мира на экран — метки HUD и камеры снаряда, послеобраз
+ * ядерной вспышки.
+ */
+public final class ScreenProjection {
     private static final Matrix4f VIEW_PROJ = new Matrix4f();
     private static Vec3 camera = Vec3.ZERO;
     private static float projScale = 1;
     private static boolean valid;
 
-    private NukeView() {}
+    private ScreenProjection() {}
 
-    static void capture(RenderLevelStageEvent e) {
+    public static void capture(RenderLevelStageEvent e) {
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_SKY) return;
         VIEW_PROJ.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix());
         projScale = e.getProjectionMatrix().m11();
         camera = e.getCamera().getPosition();

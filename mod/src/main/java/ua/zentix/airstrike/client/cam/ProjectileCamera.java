@@ -24,7 +24,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
-import ua.zentix.airstrike.client.nuclear.NukeView;
+import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
@@ -569,7 +569,7 @@ public final class ProjectileCamera {
     }
 
     private static void target(GuiGraphics g, Vec3 at, int w, int h, int color) {
-        float[] s = NukeView.project(at);
+        float[] s = ScreenProjection.project(at);
         if (s == null) return;
         int x = (int) (s[0] * w), y = (int) (s[1] * h);
         if (x < 0 || x > w || y < 0 || y > h) return;
