@@ -20,8 +20,13 @@ class EngineSoundTest {
 
     /** Крылатая ракета с {@code from} блоков прямо на слушателя; цель — {@code aim}. */
     private static SourceTrack missile(double from, Vec3 aim) {
+        return missile(from, aim, 100);
+    }
+
+    /** То же, {@code ticks} тиков полёта (дальше 11.5·ticks − from блоков она уходит за слушателя). */
+    private static SourceTrack missile(double from, Vec3 aim, int ticks) {
         SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
-        for (int k = 0; k <= 100; k++) {
+        for (int k = 0; k <= ticks; k++) {
             double x = from - 11.5 * k;
             t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 12, 0), new Vec3(-11.5, 0, 0), 90, 0,
                     FlightPhase.CRUISE.ordinal(), 200 + k, aim));
@@ -50,6 +55,42 @@ class EngineSoundTest {
         // тот же пролёт над слушателем, но цель в стороне (ракета идёт по обходу маршрута): свиста подлёта нет
         SourceTrack t = missile(1200, new Vec3(-300, 0, 800));
         assertEquals(0, heard(EngineSound.Layer.MISSILE_WHISTLE, t, 80).gain(), 1e-12);
+    }
+
+    @Test
+    void missileEngineDoesNotDipOnPassOrLayerHandoff() {
+        // ракета проходит в 12 блоках над головой и уходит дальше (цель далеко за слушателем): мощность мотора (все его
+        // слои: спереди, сзади, в пике, вдали — разные записи, складываются по мощности) на подлёте только растёт,
+        // вслед только падает — без провала над головой и на смене ближнего гула дальним
+        SourceTrack t = missile(600, new Vec3(-3000, 0, 0), 110);
+        EngineSound.Layer[] engine = {EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
+                EngineSound.Layer.MISSILE_FAR};
+        double prev = -1;
+        boolean prevApproaching = true;
+        int passed = 0;
+        for (double now = 5; now <= 110; now += 0.5) {
+            double te = Acoustics.emissionTime(t, now, EAR.x, EAR.y, EAR.z);
+            Emission e = Emission.at(t, te, EAR, false);
+            double power = 0;
+            for (EngineSound.Layer l : engine) power += Math.pow(l.tone(t, e).gain(), 2);
+            if (prev >= 0 && e.approaching() == prevApproaching) {
+                String at = "тик " + now + ", " + Math.round(e.distance()) + " блоков, " + (e.approaching() ? "подлёт" : "вслед");
+                if (e.approaching()) assertTrue(power >= prev - 1e-9, at + ": тише, чем тиком раньше: " + prev + " → " + power);
+                else assertTrue(power <= prev + 1e-9, at + ": громче, чем тиком раньше: " + prev + " → " + power);
+            }
+            if (!e.approaching()) passed++;
+            prev = power;
+            prevApproaching = e.approaching();
+        }
+        assertTrue(passed > 40, "ракета ушла за слушателя: отсчётов вслед " + passed);
+    }
+
+    @Test
+    void shareKeepsPowerOfTwoLayers() {
+        for (double w = 0; w <= 1; w += 0.05) {
+            double a = EngineSound.share(w), b = EngineSound.share(1 - w);
+            assertEquals(1, a * a + b * b, 1e-12);
+        }
     }
 
     @Test

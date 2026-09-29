@@ -68,7 +68,7 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
             switch (this) {
                 case DRONE_NEAR, DRONE_FAR -> {
                     double w = near(d, 60, 160);
-                    gain = Acoustics.gain(d, 60, 0.12, Hearing.ENGINE) * (this == DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
+                    gain = Acoustics.gain(d, 60, 0.12, Hearing.ENGINE) * share(this == DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
                     pitch *= spoolPitch(phase, age, true);
                     if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
                 }
@@ -77,7 +77,7 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     // а громче всего воздух (слой LOITER_DIVE)
                     double w = near(d, 35, 110);
                     boolean dive = phase == FlightPhase.TERMINAL.ordinal();
-                    gain = Acoustics.gain(d, 35, 0.12, Hearing.LOITER) * (this == LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
+                    gain = Acoustics.gain(d, 35, 0.12, Hearing.LOITER) * share(this == LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
                             * (dive ? 0.6 : 1);
                     pitch *= spoolPitch(phase, age, true) * (dive ? 1.15 : 1);
                 }
@@ -95,13 +95,13 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                         case MISSILE_DIVE -> dive ? front : 0;
                         default -> 1 - front;
                     };
-                    gain = Acoustics.gain(d, 90, 0.12, Hearing.ENGINE) * near(d, 60, 170) * w * spool(phase, age, false);
+                    gain = Acoustics.gain(d, 90, 0.12, Hearing.ENGINE) * share(near(d, 60, 170)) * share(w) * spool(phase, age, false);
                     pitch *= spoolPitch(phase, age, false);
                 }
                 case MISSILE_FAR -> {
                     // вдали не тише «пола» до среза ближнего гула, дальше ~1/d до километра с лишним
                     gain = Math.max(Acoustics.gain(d, 90, 0.12, Hearing.ENGINE), Acoustics.gain(d, 90, 0, Hearing.JET))
-                            * (1 - near(d, 60, 170)) * spool(phase, age, false);
+                            * share(1 - near(d, 60, 170)) * spool(phase, age, false);
                     pitch *= spoolPitch(phase, age, false);
                 }
                 case MISSILE_WHISTLE -> {
@@ -116,11 +116,11 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
                     double attackPitch = (0.6 + 1.4 * Math.min(1, wd / WHISTLE_DROP)) * Math.sqrt(dop);
                     pitch = gain > 0 ? (attack * attackPitch + flyby * 0.8 * Math.sqrt(dop)) / (attack + flyby) : attackPitch;
                 }
-                case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * near(d, 120, 260);
+                case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * share(near(d, 120, 260));
                 case BOMBER_FAR -> gain = Math.max(Acoustics.gain(d, 120, 0.12, Hearing.BOMBER), Acoustics.gain(d, 120, 0, Hearing.JET))
-                        * (1 - near(d, 120, 260));
-                case BOMB_NEAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * near(d, 45, 140);
-                case BOMB_FAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * (1 - near(d, 45, 140));
+                        * share(1 - near(d, 120, 260));
+                case BOMB_NEAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(near(d, 45, 140));
+                case BOMB_FAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(1 - near(d, 45, 140));
                 case BOMB_DRILL -> {
                     gain = track.drilling ? Math.max(0, 1 - d / 96) : 0;
                     pitch = 0.85;
@@ -313,5 +313,15 @@ final class EngineSound extends AbstractTickableSoundInstance implements SoundFi
     /** Вес ближнего слоя: 1 ближе a, 0 дальше b. */
     private static double near(double d, double a, double b) {
         return 1 - Acoustics.smoothstep(a, b, d);
+    }
+
+    /**
+     * Доля слоя в переходе между разными записями (ближняя и дальняя, спереди и сзади): доли {@code w} и {@code 1 − w}
+     * складываются по мощности (корень), а не по амплитуде. Записи разные и не коррелированы, поэтому при весах
+     * 0,5 и 0,5 сумма по амплитуде тише на 3 дБ: ракета проседала на пролёте прямо над головой и на смене ближнего
+     * гула дальним (60–170 блоков), становясь тише, хотя приближалась.
+     */
+    static double share(double w) {
+        return Math.sqrt(Math.max(0, w));
     }
 }
