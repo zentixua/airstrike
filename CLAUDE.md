@@ -32,7 +32,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   tools/
     paths.py                             ← все пути к игре (единственное место)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
-    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry)
+    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|nuke|fx|fx-night|models|occlusion|onboard] [shaders] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
@@ -82,7 +82,8 @@ git commit
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
 CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
-с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья).
+с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
+вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.
 Сценарий клиента пишет строки `SCENARIO …` в лог (звуки, fps, вспышка) — по ним и по кадрам проверяется картинка и звук.
 
 ## Архитектура (пакеты `ua.zentix.airstrike`)

@@ -1,6 +1,6 @@
 # Сборка, юнит-тесты и GameTest (сервер с Create, Sable, Aeronautics с Modrinth); jar — в артефактах запуска.
-# Ручной запуск на main с release=true: после всех проверок — релиз v<mod_version> на GitHub с этим jar
-# и заметками из docs/releases/<mod_version>.md.
+# Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
+# после всех проверок — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
 
 on:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Выпустить релиз v<mod_version> (только с main)
+        description: Выпустить релиз v<mod_version> (только с main или claude/release-*)
         type: boolean
         default: false
 
@@ -59,7 +59,7 @@ jobs:
           if-no-files-found: error
 
       - name: Релиз
-        if: github.event_name == 'workflow_dispatch' && inputs.release && github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && inputs.release && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/release-'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
