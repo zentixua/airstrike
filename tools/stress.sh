@@ -108,4 +108,4 @@ done
 
 wait "$server" || true
 sleep 30
-grep -h 'STRESS summary\|STRESS problem\|STRESS lost' "$RUN/server/logs/latest.log" || true
+grep -h 'STRESS summary\|STRESS problem\|STRESS lost\|STRESS проба' "$RUN/server/logs/latest.log" || true
