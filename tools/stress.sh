@@ -6,8 +6,11 @@
 #
 #   tools/stress.sh                 # весь сценарий
 #   AIRSTRIKE_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
+#                                                (пробы пути до поверхности в этом режиме не идут)
 #   AIRSTRIKE_JFR=1 tools/stress.sh   # + профиль JFR сервера (settings=profile) → mod/run/stress/server/stress.jfr
 #   AIRSTRIKE_STRESS_PROBES=false tools/stress.sh   # без залпов-проб РСЗО по свежим районам (замер A/B остановок сервера)
+#   AIRSTRIKE_RIG_JVM=artem tools/stress.sh   # сервер с JVM, как в игре у Артёма: 8 ГБ, поколенческий ZGC (только VPS:
+#                                             облаку на 15 ГБ не хватит памяти); сборщик — строка «сервер запущен»
 #
 # Моды: MC_DIR (инстанс) или -PmcModsDir; в облаке — python3 tools/fetch_runtime_mods.py и MODS=run/ci-mods.
 # На рабочем столе KDE каждый клиент идёт в своём вложенном KWin (tools/nested_kwin.sh: без окна и без звука) на видеокарте;
@@ -17,6 +20,7 @@
 # «остановка:» (какой чанк грузится синхронно, уровни тикетов вокруг, тикеты мода рядом). Телепорты стенда ждут района
 # в фоне: квадрат дистанции симуляции + 2 чанка (тикет загрузки без тика), иначе ваниль сама стоит у свежего места игрока.
 # Итог: mod/run/stress/server/logs/latest.log (строки STRESS) и mod/run/stress/<игрок>/logs/latest.log (STRESSC).
+# Логи прошлого прогона (и прерванного) следующий прогон переносит в mod/run/stress/logs/<коммит>-<время>/, а не стирает.
 # Gradle только собирает и готовит запуски (rigLaunch → mod/build/rig/stress-*.sh) и выходит до старта: у живого Gradle
 # UDP-сокет блокировок на 0.0.0.0, а в стенде в сеть не смотрит ничего — сервер и клиенты идут прямо из файлов MDG.
 set -euo pipefail
@@ -40,8 +44,26 @@ for c in "${CLIENTS[@]}"; do
     ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
 done
 RIG="$ROOT/mod/build/rig"
+# логи прошлого прогона — в сторону, под его меткой (коммит и время старта)
+if [ -f "$RUN/run-id" ]; then
+  keep="$RUN/logs/$(cat "$RUN/run-id")"
+  mkdir -p "$keep"
+  # всё, что пишет прогон: логи, вывод JVM (*.out), паузы GC, отчёты о падениях, профиль JFR
+  [ -d "$RUN/server/logs" ] && mv "$RUN/server/logs" "$keep/server"
+  for f in "$RUN"/*.out "$RUN"/server/gc.log* "$RUN/server/stress.jfr"; do
+    [ -e "$f" ] && mv "$f" "$keep/"
+  done
+  [ -d "$RUN/server/crash-reports" ] && mv "$RUN/server/crash-reports" "$keep/server-crash-reports"
+  for c in "${CLIENTS[@]}"; do
+    name=${c%% *}
+    [ -d "$RUN/$name/logs" ] && mv "$RUN/$name/logs" "$keep/$name"
+    [ -d "$RUN/$name/crash-reports" ] && mv "$RUN/$name/crash-reports" "$keep/$name-crash-reports"
+  done
+  echo "логи прошлого прогона: $keep"
+fi
 rm -rf "$RUN/server/world" "$RUN/server/logs"
 mkdir -p "$RUN/server"
+echo "$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- mod tools || echo +dirty)-$(date -u +%Y%m%dT%H%M%SZ)" > "$RUN/run-id"
 echo eula=true > "$RUN/server/eula.txt"
 cat > "$RUN/server/server.properties" <<PROPS
 server-ip=127.0.0.1

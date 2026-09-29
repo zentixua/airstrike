@@ -10,8 +10,8 @@
   tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike | --airstrike-jar F] --seconds 180   (вход, A/B, готовый jar)
   tools/prod_client.py commands --no-copy --dir mod/run/film/instance/minecraft --world greenfield-film \
       --prop "airstrike.commands=dh pregen status;chunky"   (готовая копия без перекопирования: проверить моды командами)
-      в airstrike.commands через «;»: команды без «/», wait:N — ещё N тиков (к паузе 40 после команды и 20 после
-      снимка), shot:имя — снимок screenshots/имя_тик.png; в конце «SCENARIO done» и выход
+      в airstrike.commands через «;»: команды без «/», wait:N — ещё N тиков, 0…72000 (к паузе 40 после команды и 20
+      после снимка; другое N — строка в лог и шаг пропущен), shot:имя — снимок screenshots/имя_тик.png; в конце «SCENARIO done» и выход
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
 Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
