@@ -232,11 +232,16 @@ public final class AirstrikeClient {
 
         @Override
         public void cleared(S2C.Cleared p) {
-            ClientSounds.reset();
             Alerts.reset();
-            ProjectileCamera.reset();
-            // двухшаговый пуск МБР отменяет только ядерный отбой: обычный её не касается
-            if (p.nuclear()) NukeArming.cancel();
+            if (p.nuclear()) {
+                ClientSounds.reset();
+                ProjectileCamera.reset();
+                NukeArming.cancel();
+            } else {
+                // обычный отбой: ядерные снаряды летят дальше — их звук, камера и двухшаговый пуск МБР остаются
+                ClientSounds.cancelled(p.projectiles());
+                ProjectileCamera.cancelled(p.projectiles());
+            }
         }
 
         @Override

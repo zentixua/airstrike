@@ -32,6 +32,7 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Local;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -435,12 +436,24 @@ public final class ProjectileCamera {
     }
 
     public static void reset() {
+        close();
+        SEEN.clear();
+    }
+
+    /**
+     * Обычный отбой: камера закрывается, только если её снаряд отменён. Увиденные снаряды помнятся: оставшийся
+     * ядерный не должен снова открыть автокамеру.
+     */
+    public static void cancelled(Collection<UUID> projectiles) {
+        if (following != null && projectiles.contains(following)) close();
+    }
+
+    private static void close() {
         if (active) exit();
         active = false;
         following = null;
         mapped = null;
         rig = null;
-        SEEN.clear();
     }
 
     // ---------------------------------------------------------------- картинка

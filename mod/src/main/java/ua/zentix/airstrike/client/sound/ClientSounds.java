@@ -17,6 +17,7 @@ import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -270,6 +271,14 @@ public final class ClientSounds {
     public static void reset() {
         TRACKS.values().forEach(Tracked::kill);
         TRACKS.clear();
+    }
+
+    /** Обычный отбой: заглушить отменённые снаряды; оставшиеся (ядерные) звучат дальше. */
+    public static void cancelled(Collection<UUID> projectiles) {
+        for (UUID id : projectiles) {
+            Tracked t = TRACKS.remove(id);
+            if (t != null) t.kill();
+        }
     }
 
     // ---------------------------------------------------------------- разовые звуки
