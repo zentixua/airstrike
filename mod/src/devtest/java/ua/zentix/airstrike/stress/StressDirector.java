@@ -370,11 +370,14 @@ public final class StressDirector {
         at(3400, "Friend1 выходит посреди удара", s -> leave(s, "Friend1"));
         // путь вне мира до поверхности (#112) вдали от всех, в районах, которые никто не грузит, — после «Отбоя» (он убрал
         // бы их в полёте): бомба на точку позади, сброшенная сразу вне мира (без B-2), РСЗО и ракеты по цели ниже рельефа (y 40)
-        // из-под рельефа над путём, ракеты по цели, которая посреди полёта вне мира поднимается на 40 блоков
-        at(3500, "бомбы на точку позади, вне мира", s -> groundBombs(s, "bunker-behind", -2200, 2200, 3));
-        at(3520, "РСЗО по цели ниже рельефа", s -> groundDeep(s, "deep-rocket", WeaponType.ROCKET, 10, 1100, -1300));
-        at(3540, "ракеты по цели ниже рельефа", s -> groundDeep(s, "deep-missile", WeaponType.MISSILE, 5, -1600, -300));
-        at(3560, "ракеты по цели, которая поднимется", s -> groundRising(s, "rising-aim", 1500, 1500));
+        // из-под рельефа над путём, ракеты по цели, которая посреди полёта вне мира поднимается на 40 блоков. Не при
+        // перезапуске: остановка посреди полёта (t=5200) застала бы пробы недосмотренными
+        if (!RESTART) {
+            at(3500, "бомбы на точку позади, вне мира", s -> groundBombs(s, "bunker-behind", -2200, 2200, 3));
+            at(3520, "РСЗО по цели ниже рельефа", s -> groundDeep(s, "deep-rocket", WeaponType.ROCKET, 10, 1100, -1300));
+            at(3540, "ракеты по цели ниже рельефа", s -> groundDeep(s, "deep-missile", WeaponType.MISSILE, 5, -1600, -300));
+            at(3560, "ракеты по цели, которая поднимется", s -> groundRising(s, "rising-aim", 1500, 1500));
+        }
         // волна 4 — для перезапуска: остановка сервера посреди полёта, продолжение — режим resume
         if (RESTART) {
             as(4600, "Host", "airstrike salvo drone 20 100 at 700 ~ 700");
@@ -1205,6 +1208,8 @@ public final class StressDirector {
             if (waited > 3600 && overdue || waited > 12000) {
                 log("не долетели за отведённое время: %d", active);
                 for (var en : watched.entrySet()) describe("  остался", en.getKey(), en.getValue());
+                for (GroundProbe pr : groundProbes)
+                    if (pr.forced != null && pr.stand == null) log("  проба %s: чанк стойки так и не загрузился за %d тиков", pr.name, tick - pr.setupTick);
                 summary(s, "timeout");
                 stopWhenSettled(s);
             }
@@ -1292,13 +1297,12 @@ public final class StressDirector {
             if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
             if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
         }
-        for (GroundProbe pr : groundProbes) groundSummary(pr, !"restart".equals(why));
+        for (GroundProbe pr : groundProbes) groundSummary(pr);
         for (String p : problems) log("problem: %s", p);
     }
 
-    /** Строка пробы пути вне мира до поверхности и её вердикт. */
-    /** @param whole прогон досмотрен до конца (не остановка посреди полёта): недосмотренный снаряд — провал */
-    private void groundSummary(GroundProbe pr, boolean whole) {
+    /** Строка пробы пути вне мира до поверхности и её вердикт (пробы идут только в прогоне до конца, без перезапуска). */
+    private void groundSummary(GroundProbe pr) {
         List<Double> off = new ArrayList<>(pr.groundOff);
         off.sort(null);
         double max = off.isEmpty() ? 0 : off.get(off.size() - 1);
@@ -1314,8 +1318,7 @@ public final class StressDirector {
         if (pr.flewVirtual.size() < pr.launched)
             fails.add("вне мира застали " + pr.flewVirtual.size() + " из " + pr.launched + " — путь вне мира проверен не у всех");
         int ended = pr.outcomes.values().stream().mapToInt(Integer::intValue).sum();
-        String unseen = ended < pr.launched ? String.format(Locale.ROOT, ", не досмотрено %d из %d", pr.launched - ended, pr.launched) : "";
-        if (whole && ended < pr.launched) fails.add("итог есть у " + ended + " из " + pr.launched);
+        if (ended < pr.launched) fails.add("итог есть у " + ended + " из " + pr.launched);
         if (pr.dropBehind) {
             // сброс в воздухе на 200 над морем, цель — на 300 позади и на 150 ниже: бомба не рулит и падает по курсу (+z)
             // от точки сброса, круче чем вдвое дальше высоты сброса она не уходит, вбок — нет
@@ -1326,8 +1329,8 @@ public final class StressDirector {
             }
         }
         log("проба-поверхность %s (%s): пущено %d, дошли до поверхности вне мира %d (от цели по горизонтали: наибольшее %.0f, медиана %.0f), "
-                        + "не дождались загрузки %d, вне мира застали %d, итоги %s%s — %s",
-                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(), pr.outcomes, unseen, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
+                        + "не дождались загрузки %d, вне мира застали %d, итоги %s — %s",
+                pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(), pr.outcomes, fails.isEmpty() ? "ok" : "провал: " + String.join("; ", fails));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
