@@ -12,6 +12,7 @@ import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.levelgen.presets.WorldPresets;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -722,18 +723,44 @@ public final class ClientScenario {
             // новый пульт в руке — настройки по умолчанию: одна ракета без разброса, промах меряется от точки
             cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
         });
-        at(300, () -> {
-            ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
-            Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        // карту открывают, поиграв: DH к этому времени загрузил свои LOD вокруг. Пока он их грузит, чтение рельефа
+        // через его API стоит в очереди за ними (пул ввода-вывода DH ниже по приоритету, чем загрузка LOD)
+        for (int t = 300; t <= 300 + MAP_DH_WAIT; t += 20) {
+            at(t, () -> {
+                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) mapBegin(tick);
+            });
+        }
+        // попадание — первый взрыв на сервере (встроенном): где он и насколько далеко от выбранной точки
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Detonate e) -> {
+            Vec3 at = e.getExplosion().center(), aim = mapTarget;
+            if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
+            double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
+            BlockPos hit = BlockPos.containing(at), target = BlockPos.containing(aim);
+            Airstrike.LOG.info("SCENARIO map-target impact {} miss {} — {}; земля под взрывом {} (с листвой {}), у цели {} (с листвой {})", at,
+                    Math.round(miss), miss <= MAP_MAX_MISS ? "OK" : "FAIL",
+                    e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, hit.getX(), hit.getZ()),
+                    e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, hit.getX(), hit.getZ()),
+                    e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, target.getX(), target.getZ()),
+                    e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, target.getX(), target.getZ()));
+            mapImpactTick = tick;
         });
-        shot(340, "target-map");
-        // отдалить карту: точка далеко за дальностью прорисовки (≈600 блоков) — рельеф там есть только у DH
-        at(360, () -> {
+    }
+
+    /** Карта наведения с тика {@code o}: отдалить, выбрать точку в ~700 блоках, огонь, ждать попадания. */
+    private void mapBegin(int o) {
+        mapOpened = o;
+        Airstrike.LOG.info("SCENARIO map-target open at tick {}", o);
+        if (net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) logDhThreads();
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
+        Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        shot(o + 40, "target-map");
+        // отдалить карту: точка далеко за дальностью прорисовки — рельеф там есть только у DH
+        at(o + 60, () -> {
             var screen = Minecraft.getInstance().screen;
             screen.mouseScrolled(screen.width / 2.0, screen.height / 2.0, 0, -8);
         });
-        shot(400, "target-map");
-        at(420, () -> {
+        shot(o + 100, "target-map");
+        at(o + 120, () -> {
             var screen = Minecraft.getInstance().screen;
             double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
             screen.mouseClicked(x, y, 0);
@@ -746,49 +773,85 @@ public final class ClientScenario {
                     ua.zentix.airstrike.client.map.TerrainTiles.farTerrain());
             Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
         });
-        shot(430, "target-map");
-        at(440, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
-        at(500, () -> {
+        shot(o + 130, "target-map");
+        at(o + 140, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
+        at(o + 200, () -> {
             for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
                 Airstrike.LOG.info("SCENARIO map-target flight {} target {}", f.weapon(), f.target());
             }
             Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
         });
-        for (int t = 520; t <= 1000; t += 80) shot(t, "target-map");
-        for (int t = 600; t <= MAP_TARGET_END; t += 200) {
-            at(t, () -> Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats()));
+        for (int t = o + 220; t <= o + 700; t += 80) shot(t, "target-map");
+        for (int t = o + 300; t <= o + MAP_FLIGHT_WAIT; t += 200) {
+            at(t, () -> {
+                Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
+                if (net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) logDhThreads();
+            });
         }
-        // попадание — первый взрыв на сервере (встроенном): где он и насколько далеко от выбранной точки
-        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Detonate e) -> {
-            Vec3 at = e.getExplosion().center(), aim = mapTarget;
-            if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
-            double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
-            Airstrike.LOG.info("SCENARIO map-target impact {} miss {} — {}", at, Math.round(miss), miss <= MAP_MAX_MISS ? "OK" : "FAIL");
-            mapImpactTick = tick;
-        });
         // конец — через 3 с после попадания (кадры карты после удара) или по сроку
-        for (int t = 520; t <= MAP_TARGET_END; t += 20) {
+        for (int t = o + 220; t <= o + MAP_FLIGHT_WAIT; t += 20) {
             at(t, () -> {
                 if (mapDone) return;
                 if (mapImpactTick < 0 || tick < mapImpactTick + 60) {
-                    if (tick < MAP_TARGET_END) return;
+                    if (tick < o + MAP_FLIGHT_WAIT) return;
                     Airstrike.LOG.warn("SCENARIO map-target no impact by tick {} — FAIL", tick);
                 }
                 mapDone = true;
+                Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
                 Airstrike.LOG.info("SCENARIO done");
                 Minecraft.getInstance().stop();
             });
         }
     }
 
-    /** Сценарий target-map ждёт попадания до этого тика: пуск на 440-м, ракета на 700 блоков — около 60 тиков, дрон — 350. */
-    private static final int MAP_TARGET_END = 2400;
+    /** DH не стоит или уже загрузил свои LOD вокруг: очередь загрузки пуста. */
+    private static boolean dhIdle() {
+        if (!net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) return true;
+        try {
+            Object ex = Class.forName("com.seibel.distanthorizons.core.util.threading.ThreadPoolUtil").getMethod("getRenderLoadingExecutor").invoke(null);
+            return ex == null || (int) ex.getClass().getMethod("getQueueSize").invoke(ex) == 0;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    /**
+     * Очереди потоков Distant Horizons (его внутренние классы, только для разбора в сценарии): чтение рельефа через API
+     * идёт в пул ввода-вывода DH ({@code ThreadPoolUtil.getFileHandlerExecutor}).
+     */
+    private static void logDhThreads() {
+        try {
+            Class<?> util = Class.forName("com.seibel.distanthorizons.core.util.threading.ThreadPoolUtil");
+            StringBuilder b = new StringBuilder();
+            for (String getter : new String[] {"getFileHandlerExecutor", "getRenderLoadingExecutor", "getChunkToLodBuilderExecutor",
+                    "getUpdatePropagatorExecutor", "getWorldGenExecutor"}) {
+                Object ex = util.getMethod(getter).invoke(null);
+                if (ex == null) continue;
+                Class<?> c = ex.getClass();
+                b.append(String.format(java.util.Locale.ROOT, "%s: очередь %s, идёт %s, сделано %s; ", getter.substring(3),
+                        c.getMethod("getQueueSize").invoke(ex), c.getMethod("getRunningTaskCount").invoke(ex), c.getMethod("getCompletedTaskCount").invoke(ex)));
+            }
+            java.lang.reflect.Field picker = util.getDeclaredField("taskPicker");
+            picker.setAccessible(true);
+            Object tp = picker.get(null);
+            java.lang.reflect.Field occupied = tp.getClass().getDeclaredField("occupiedThreadsRef");
+            occupied.setAccessible(true);
+            b.append("занято потоков ").append(occupied.get(tp));
+            Airstrike.LOG.info("SCENARIO map-target dh threads {}", b);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Airstrike.LOG.info("SCENARIO map-target dh threads не прочитаны: {}", e.toString());
+        }
+    }
+
+    /** Сценарий target-map ждёт, пока DH загрузит свои LOD, не дольше этого (тиков), и попадания — не дольше второго. */
+    private static final int MAP_DH_WAIT = 6000, MAP_FLIGHT_WAIT = 2100;
     /** Одна ракета без разброса: взрыв не дальше этого от выбранной точки (по горизонтали), блоков. */
     private static final double MAP_MAX_MISS = 2;
     /** Точка, выбранная на карте (сценарий target-map); её читает и поток сервера. */
     @org.jetbrains.annotations.Nullable
     private volatile Vec3 mapTarget;
     private volatile int mapImpactTick = -1;
+    private int mapOpened = -1;
     private boolean mapDone;
 
     /**

@@ -64,13 +64,15 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
         ).apply(i, Ground::new));
 
         /**
-         * Место на карте (x, z): высоту знает только сервер. Чанк готов — верх земли, иначе — рельеф, каким его
-         * строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки чанка, без построек).
+         * Место на карте (x, z): высоту знает только сервер. Чанк готов — верх, как его рисует карта (кроны деревьев,
+         * крыши: снаряд, шедший к земле под кронами, взрывался в них, не долетев), иначе — рельеф, каким его строит
+         * генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки чанка, без деревьев и построек);
+         * когда чанк у цели загрузится, {@link #surface} уточнит.
          */
         public static Ground at(ServerLevel level, double x, double z) {
             int bx = Mth.floor(x), bz = Mth.floor(z);
             int y = Terrain.ready(level, new BlockPos(bx, 0, bz))
-                    ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, bx, bz)
+                    ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, bx, bz)
                     : level.getChunkSource().getGenerator().getBaseHeight(bx, bz, Heightmap.Types.WORLD_SURFACE_WG, level,
                     level.getChunkSource().randomState());
             return new Ground(new Vec3(x, y - 0.5, z));
@@ -81,11 +83,11 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
             return Optional.of(surface(level));
         }
 
-        /** Середина верхнего блока земли (без листвы); чанк не готов — оценка из {@link #at}. */
+        /** Середина верхнего блока (с листвой, как на карте); чанк не готов — оценка из {@link #at}. */
         public Vec3 surface(ServerLevel level) {
             BlockPos column = BlockPos.containing(pos.x, 0, pos.z);
             if (!Terrain.ready(level, column)) return pos;
-            return new Vec3(pos.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()) - 0.5, pos.z);
+            return new Vec3(pos.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, column.getX(), column.getZ()) - 0.5, pos.z);
         }
 
         @Override
