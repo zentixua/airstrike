@@ -1102,7 +1102,10 @@ public final class StrikeGameTests {
         afterTest(h, () -> held.forEach(c -> level.getChunkSource().removeRegionTicket(READY_ONLY, c, 0, c)));
     }
 
-    /** Уборка после теста — и когда он прошёл, и когда упал (в {@code succeedWhen} она шла бы только после успеха). */
+    /**
+     * Уборка после теста — и когда он прошёл, и когда упал или вышел по сроку (в {@code succeedWhen} она шла бы только
+     * после успеха). Видна пакету: ею пользуются и другие классы тестов.
+     */
     static void afterTest(GameTestHelper h, Runnable cleanup) {
         h.testInfo.addListener(new GameTestListener() {
             @Override

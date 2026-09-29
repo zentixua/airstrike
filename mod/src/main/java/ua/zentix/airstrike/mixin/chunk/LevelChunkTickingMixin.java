@@ -7,6 +7,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -14,8 +15,9 @@ import ua.zentix.airstrike.util.BlockTicking;
 
 /**
  * Блок-сущности тикают, только когда готовы соседи чанка — см. {@link BlockTicking}. {@code LevelChunk.isTicking}
- * зовёт только {@code BoundTickingBlockEntity.tick}. Что миксин встал, проверяет GameTest
- * {@code blockEntitiesWaitForNeighbours}.
+ * зовёт только {@code BoundTickingBlockEntity.tick}: раз на каждую блок-сущность за тик, поэтому ответ держится на тик
+ * у самого чанка. Что миксин встал, проверяют GameTest {@code blockEntitiesWaitForNeighbours} и
+ * {@link BlockTicking#onServerTick} в игре.
  */
 @Mixin(LevelChunk.class)
 public abstract class LevelChunkTickingMixin {
@@ -23,10 +25,20 @@ public abstract class LevelChunkTickingMixin {
     @Final
     Level level;
 
+    @Unique
+    private long airstrike$readyTick = Long.MIN_VALUE;
+    @Unique
+    private boolean airstrike$ready;
+
     @Inject(method = "isTicking", at = @At("RETURN"), cancellable = true)
     private void airstrike$neighboursReady(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        if (cir.getReturnValueZ() && level instanceof ServerLevel server && !BlockTicking.neighboursReady(server, ((LevelChunk) (Object) this).getPos())) {
-            cir.setReturnValue(false);
+        BlockTicking.checked();
+        if (!cir.getReturnValueZ() || !(level instanceof ServerLevel server)) return;
+        long now = server.getGameTime();
+        if (airstrike$readyTick != now) {
+            airstrike$readyTick = now;
+            airstrike$ready = BlockTicking.neighboursReady(server, ((LevelChunk) (Object) this).getPos());
         }
+        if (!airstrike$ready) cir.setReturnValue(false);
     }
 }

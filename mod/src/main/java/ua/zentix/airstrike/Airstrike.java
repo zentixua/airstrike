@@ -27,6 +27,7 @@ import ua.zentix.airstrike.strike.FlightSounds;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.util.BlockTicking;
 
 /**
  * Airstrike: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы, МБР с ядерной БЧ.
@@ -63,6 +64,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
+        NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);

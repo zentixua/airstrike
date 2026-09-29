@@ -245,9 +245,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   чанк за край заранее готового квадрата, а соседний чанк ещё генерировался. Оба случая закрывает миксин
   `mixin/chunk/LevelChunkTickingMixin`: `LevelChunk.isTicking` (его зовёт только тик блок-сущности) ещё и требует
   готового будущего `ChunkHolder.getTickingChunk` — того же условия «все 8 соседей FULL», по которому ваниль пускает
-  случайные тики и тики блоков (`util/BlockTicking`). Чанки плота Sable не задерживаются: их держатель
-  `PlotChunkHolder` отдаёт чанк сам. GameTest `blockEntitiesWaitForNeighbours` (без миксина падает на первом тике
-  с неготовым соседом) и `craftBlockEntitiesTick` (печь на собранном аппарате горит). `@Shadow` в миксине — только
+  случайные тики и тики блоков (`util/BlockTicking`). Чанки плота Sable не задерживаются: Sable кладёт их держатель
+  `PlotChunkHolder` в ту же `ChunkMap` (`ServerLevelPlot.addChunkHolder`), а он отдаёт чанк сам. GameTest
+  `blockEntitiesWaitForNeighbours` (без миксина падает на первом тике с неготовым соседом) и `craftBlockEntitiesTick`
+  (печь на собранном аппарате горит, держатель — `PlotChunkHolder`). В игре раз в минуту после запуска, пока не ясно,
+  `BlockTicking.onServerTick` пишет одну строку: условие спрашивают — или тик блок-сущностей идёт мимо него (миксин не
+  встал, другой мод заменил тик). `@Shadow` в миксине — только
   на член, объявленный в самом целевом классе (refMap нет, в игре имена Mojang): `getPos` объявлен в `ChunkAccess`,
   и миксин на `LevelChunk` с ним не вставал.
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).

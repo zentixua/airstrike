@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.item.ItemStack;
@@ -50,9 +51,11 @@ public final class BlockTickingGameTests {
      */
     @GameTest(template = "range", timeoutTicks = 2400, batch = "block_ticking", skyAccess = true)
     public static void blockEntitiesWaitForNeighbours(GameTestHelper h) {
-        h.assertTrue(java.util.Arrays.stream(LevelChunk.class.getDeclaredMethods()).anyMatch(m -> m.getName().contains("neighboursReady")),
-                "миксин LevelChunkTickingMixin не встал");
         ServerLevel level = h.getLevel();
+        // миксин встал: вызов LevelChunk.isTicking проходит через условие
+        long checks = BlockTicking.checks();
+        isTicking(level.getChunkAt(h.absolutePos(RANGE_CENTER)));
+        h.assertTrue(BlockTicking.checks() > checks, "миксин LevelChunkTickingMixin не встал");
         // чанк грузится в фоне: срок — игровой
         StrikeGameTests.gameSpeed(h);
         ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
@@ -148,9 +151,13 @@ public final class BlockTickingGameTests {
                     AbstractFurnaceBlockEntity onCraft = (AbstractFurnaceBlockEntity) level.getBlockEntity(moved[0]);
                     int lit = onCraft == null ? -1 : litTime(onCraft);
                     ChunkPos plot = new ChunkPos(moved[0]);
-                    Airstrike.LOG.info("Печь аппарата в {} (держатель в ChunkMap: {}): горение {} → {} за 40 тиков", moved[0],
-                            level.getChunkSource().chunkMap.getVisibleChunkIfPresent(plot.toLong()) != null, litAtFind[0], lit);
+                    ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(plot.toLong());
+                    Airstrike.LOG.info("Печь аппарата в {} (держатель чанка в ChunkMap: {}): горение {} → {} за 40 тиков", moved[0],
+                            holder == null ? null : holder.getClass().getName(), litAtFind[0], lit);
                     h.assertTrue(onCraft != null && lit < litAtFind[0], "печь на аппарате не тикает: горение " + litAtFind[0] + " → " + lit);
+                    // путь, которым чанк плота проходит условие: держатель Sable в ChunkMap, «тикающий» всегда
+                    h.assertTrue(holder != null && holder.getClass().getSimpleName().equals("PlotChunkHolder") && holder.getTickingChunk() != null,
+                            "держатель чанка плота: " + (holder == null ? null : holder.getClass().getName()));
                     h.succeed();
                 }
             }
