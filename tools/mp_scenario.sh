@@ -20,6 +20,8 @@ cat > "$SERVER/server.properties" <<PROPS
 server-ip=127.0.0.1
 server-port=$PORT
 online-mode=false
+enable-rcon=false
+enable-query=false
 spawn-protection=0
 level-seed=20260927
 difficulty=peaceful
@@ -28,6 +30,8 @@ view-distance=8
 simulation-distance=8
 motd=airstrike-mp
 PROPS
+# NeoForge объявляет выделенный сервер в LAN (UDP-сокет на 0.0.0.0, рассылка MOTD и порта) — у проверок выключено
+python3 "$ROOT/tools/rig_config.py" "$SERVER"
 # ops.json: Alpha — оператор (офлайн-UUID, как его считает сервер без авторизации)
 python3 - "$SERVER/ops.json" <<'PY'
 import hashlib, json, sys, uuid
