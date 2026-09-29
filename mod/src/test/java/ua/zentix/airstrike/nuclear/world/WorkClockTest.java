@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkClockTest {
@@ -116,5 +117,11 @@ class WorkClockTest {
         clock.start(BUDGET);
         assertEquals(units, clock.unitsLastTick());
         assertEquals(UNIT, clock.largestRecentNanos());
+    }
+
+    @Test
+    void tickDecayOutOfRangeIsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(0));
+        assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(1.5));
     }
 }

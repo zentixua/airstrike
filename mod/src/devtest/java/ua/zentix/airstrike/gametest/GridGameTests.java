@@ -6,8 +6,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.SectionPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -37,15 +37,18 @@ import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.UpgradeData;
 import net.minecraft.world.level.chunk.status.ChunkType;
 import net.minecraft.world.level.chunk.storage.ChunkSerializer;
+import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.BlockSnapshot;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ChunkDataEvent;
@@ -140,7 +143,11 @@ public final class GridGameTests {
         ChunkLights.Pass first = ChunkLights.apply(level, chunk, true, 5);
         int dark = first.changed();
         h.assertTrue(dark == 5 && !first.done(), "за единицу погашено " + dark + " вместо 5 (чанк пройден: " + first.done() + ")");
-        dark += ChunkLights.apply(level, chunk, true);
+        // ровно столько ламп, сколько осталось, с места остановки — чанк пройден этим же проходом
+        ChunkLights.Pass rest = ChunkLights.apply(level, chunk, true, placed.size() - 5, first.next());
+        dark += rest.changed();
+        h.assertTrue(rest.done(), "чанк ровно с лимитом ламп не пройден до конца");
+        h.assertTrue(ChunkLights.apply(level, chunk, true, 1).changed() == 0, "после прохода до конца остались лампы");
         h.assertTrue(dark == placed.size(), "погашено " + dark + " из " + placed.size());
         for (var e : placed.entrySet()) {
             BlockState now = level.getBlockState(e.getKey());
@@ -497,10 +504,19 @@ public final class GridGameTests {
         long[] maxTick = new long[2];
         Blackouts.useClock(level.getServer(), counting);
         Blackouts.blackout(level, at, 400, 1000, -1);
+        // счётчики работы для /airstrike grid status: за какое-нибудь окно гашения — единицы, лампы, пройденные чанки
+        long[] seen = new long[BlackoutWorld.Work.values().length];
         h.startSequence()
-                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
+                .thenWaitUntil(() -> {
+                    long[] last = BlackoutWorld.get(level).work()[0];
+                    for (int i = 0; i < seen.length; i++) seen[i] = Math.max(seen[i], last[i]);
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                })
                 .thenExecute(() -> {
                     for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(level.getBlockState(p)), "лампа " + p + " горит");
+                    for (BlackoutWorld.Work w : List.of(BlackoutWorld.Work.UNIT, BlackoutWorld.Work.LAMPS, BlackoutWorld.Work.PASS_DONE)) {
+                        h.assertTrue(seen[w.ordinal()] > 0, "счётчик " + w + " пуст за все окна гашения");
+                    }
                     ticks[0] = counting.ticksWorked();
                     units[0] = counting.units();
                     Blackouts.restore(level, null, 0, 0);
@@ -552,6 +568,138 @@ public final class GridGameTests {
         Airstrike.LOG.info("GRIDDEBUG не зажглось {}: первая {} {} чанк {} ({} {}), тёмный {}, задет {}", bad.size(), b, level.getBlockState(b), c,
                 c.x - mid.x, c.z - mid.z, PowerGrid.get(level).dark(c.x, c.z, level.getGameTime()), PowerGrid.get(level).covered(c.x, c.z));
         h.fail(bad.size() + " ламп не зажглись прежними, первая " + b);
+    }
+
+    /**
+     * Башня из 2000 ламп в одном чанке — десятки единиц работы: очередь переводит её проходами и доводит до конца
+     * (неверный конец чанка оставил бы лампы гореть). Потом чанк выгружается посреди гашения (по единице за тик) и
+     * загружается снова: в тёмном квартале — ни одной горящей лампы; свет возвращается весь.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_tower", skyAccess = true)
+    public static void lampTowerConvertsAcrossPassesAndUnload(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.west(480)));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockState lantern = Blocks.SEA_LANTERN.defaultBlockState();
+        WorkClock fast = WorkClock.counting(1_000_000L);
+        // 3 мс единица при бюджете 4 мс — одна единица (32 лампы) за тик: гашение башни идёт десятки тиков
+        WorkClock slow = WorkClock.counting(3_000_000L);
+        int[] unitsAtUnload = {0};
+        hold(level, far);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
+                .thenExecute(() -> {
+                    BlockPos origin = caseOrigin(level, far);
+                    for (int y = 0; y < 20; y++) {
+                        for (int x = 0; x < 10; x++) {
+                            for (int z = 0; z < 10; z++) placed.put(origin.offset(x, y, z), lantern);
+                        }
+                    }
+                    placed.keySet().forEach(p -> level.setBlock(p, lantern, Block.UPDATE_CLIENTS));
+                    Blackouts.useClock(level.getServer(), fast);
+                    Blackouts.blackout(level, Vec3.atCenterOf(origin), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                    assertLamps(h, level, placed, true);
+                })
+                .thenExecute(() -> {
+                    h.assertTrue(fast.units() >= placed.size() / 32, "башня погасла за " + fast.units() + " единиц — проходов не было");
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), slow);
+                    Blackouts.blackout(level, Vec3.atCenterOf(placed.keySet().iterator().next()), 200, 1000, -1);
+                })
+                // первые лампы погасли — чанк уходит из памяти посреди перевода
+                .thenWaitUntil(() -> h.assertTrue(placed.keySet().stream().anyMatch(p -> GridLights.isUnlit(level.getBlockState(p))), "гашение не началось"))
+                .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenWaitUntil(() -> unloaded(h, level, far))
+                .thenExecute(() -> {
+                    unitsAtUnload[0] = slow.units();
+                    h.assertTrue(unitsAtUnload[0] < placed.size() / 32, "башня погасла до выгрузки (" + unitsAtUnload[0] + " единиц) — выгрузки посреди прохода не было");
+                    hold(level, far);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                    assertLamps(h, level, placed, true);
+                })
+                .thenExecute(() -> Blackouts.restore(level, null, 0, 0))
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    chunks.removeRegionTicket(HOLD, far, 2, far);
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Чтение чанка с диска не для мира (LOD, карты: другие моды зовут {@code ChunkSerializer.read}, в том числе в своих
+     * потоках) не трогает очередь блэкаута: копия уже загруженного чанка в потоке сервера и чтение в чужом потоке не
+     * ставят свет с диска чанку мира (иначе очередь снова и снова проходила бы его лампы) и не пишут в её карты.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_foreign_read", skyAccess = true)
+    public static void foreignChunkReadsLeaveQueueAlone(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.south(480)));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockState lantern = Blocks.SEA_LANTERN.defaultBlockState();
+        RegionStorageInfo info = new RegionStorageInfo("gametest", level.dimension(), "chunk");
+        hold(level, far);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
+                .thenExecute(() -> {
+                    BlockPos origin = caseOrigin(level, far);
+                    for (int i = 0; i < 40; i++) placed.put(origin.offset(i % 10, i / 10, 0), lantern);
+                    placed.keySet().forEach(p -> level.setBlock(p, lantern, Block.UPDATE_ALL));
+                    Blackouts.blackout(level, Vec3.atCenterOf(origin), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    assertLamps(h, level, placed, true);
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "очередь занята");
+                })
+                .thenExecute(() -> {
+                    LevelChunk chunk = level.getChunk(far.x, far.z);
+                    // как на диске: лампы вместо двойников
+                    CompoundTag tag = ChunkSerializer.write(level, chunk);
+                    NeoForge.EVENT_BUS.post(new ChunkDataEvent.Save(chunk, level, tag));
+                    h.assertFalse(tag.toString().contains(Airstrike.MOD_ID + ":unlit"), "в теге двойники");
+                    long copies = ChunkSaves.foreignReads(ChunkSaves.COPY), offThread = ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD);
+                    // копия в потоке сервера
+                    LevelChunk copy = ((ImposterProtoChunk) ChunkSerializer.read(level, level.getPoiManager(), info, far, tag)).getWrapped();
+                    h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.COPY) == copies + 1, "копия чанка мира не узнана");
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "копия чанка мира поставила его лампы в очередь");
+                    // то же событие в чужом потоке (как у LOD)
+                    Thread reader = new Thread(() -> NeoForge.EVENT_BUS.post(new ChunkDataEvent.Load(copy, tag, ChunkType.LEVELCHUNK)), "gametest-foreign-reader");
+                    reader.start();
+                    try {
+                        reader.join(10_000);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                    h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD) == offThread + 1, "чтение в чужом потоке не узнано");
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "чтение в чужом потоке поставило лампы в очередь");
+                    assertLamps(h, level, placed, true);
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenSucceed();
     }
 
     /**

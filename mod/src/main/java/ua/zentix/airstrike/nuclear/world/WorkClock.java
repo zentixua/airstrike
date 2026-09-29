@@ -24,7 +24,7 @@ public final class WorkClock {
     private final long unitCost;
     /** Во сколько раз оценка тает к каждому новому тику (1 — не тает). */
     private final double tickDecay;
-    /** Для статуса: единиц в прошлом тике и самая долгая единица за последние ~5 с (два окна по 100 тиков), нс. */
+    /** Для статуса: единиц в прошлом тике и самая долгая единица за последние 5–10 с (два окна по 100 тиков), нс. */
     private int unitsLastTick;
     private long largest, largestBefore;
     private int ticks;
@@ -61,6 +61,7 @@ public final class WorkClock {
 
     /** То же на своём источнике времени (проверки). */
     public static WorkClock decaying(LongSupplier time, double tickDecay) {
+        if (!(tickDecay > 0 && tickDecay <= 1)) throw new IllegalArgumentException("tickDecay " + tickDecay + " вне (0, 1]");
         return new WorkClock(time, 0, tickDecay);
     }
 
@@ -119,7 +120,7 @@ public final class WorkClock {
         return (long) estimate;
     }
 
-    /** Для статуса: самая долгая единица за последние ~5 с, нс. */
+    /** Для статуса: самая долгая единица за последние 5–10 с (прошлое окно в 100 тиков и текущее), нс. */
     public long largestRecentNanos() {
         return Math.max(largest, largestBefore);
     }

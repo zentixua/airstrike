@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.grid;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
@@ -31,6 +32,7 @@ import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -133,12 +135,82 @@ public final class BlackoutWorld {
     private final Long2ObjectOpenHashMap<LongArrayList> resignal = new Long2ObjectOpenHashMap<>();
     /** Двойники не от блэкаута, которые пора зажечь ({@link #relightLater}): каждое место — один раз. */
     private final LongLinkedOpenHashSet relight = new LongLinkedOpenHashSet();
+    /**
+     * Чанк, пройденный не до конца: откуда продолжать ({@link ChunkLights.Pass#next} × 2 + «гасить»). Место только
+     * движется вперёд, поэтому чанк кончается за конечное число проходов, что бы ни делали с его блоками другие моды.
+     * Другое направление (свет вернули посреди гашения), новый повод (лампу поставили раньше места) или выгрузка — с начала.
+     */
+    private final Long2IntOpenHashMap resume = new Long2IntOpenHashMap();
     /** Квартал → когда в нём последний раз играл звук (щелчок и гул на весь квартал — один раз). */
     private final Long2LongOpenHashMap sounded = new Long2LongOpenHashMap();
     private boolean restored;
 
+    /**
+     * Куда уходит бюджет (для /airstrike grid status): по каждому виду работы — сколько раз и сколько времени, за окно
+     * в {@link #STATS_WINDOW} тиков. Очередь, которая тратит единицы и не движется, видна здесь по видам.
+     */
+    public enum Work {
+        /** Единица очереди чанков (из них — всё ниже, кроме зажигания и каскада). */
+        UNIT,
+        /** Чанк не в памяти — выброшен. */
+        GONE,
+        /** Переводить нечего (палитры) — закрыт без прохода. */
+        IDLE,
+        /** Свет с диска: по местам ламп, чанк снова первым. */
+        STALE,
+        /** Сверка ламп от сигнала, чанк снова первым. */
+        RESIGNAL,
+        /** Проход через мир, пройден до конца. */
+        PASS_DONE,
+        /** Проход через мир, лампы сверх лимита — чанк снова первым. */
+        PASS_MORE,
+        /** Проход в палитре (край загруженного мира). */
+        EDGE,
+        /** Переведено ламп (времени нет — оно в проходах). */
+        LAMPS,
+        /** Лампа после setBlock — не то, что ставили (блок вернул или заменил другой мод). */
+        REVERTED,
+        /** Единица зажигания двойников не от блэкаута. */
+        RELIGHT,
+        /** Двойник ждёт соседей своего чанка (снова в конец очереди зажигания). */
+        RELIGHT_WAIT,
+        /** Строка каскада (кварталы и сроки чанков района). */
+        BUILD
+    }
+
+    /** Окно счётчиков работы, тиков. */
+    public static final int STATS_WINDOW = 100;
+    private final long[] count = new long[Work.values().length], nanos = new long[Work.values().length];
+    private long[] lastCount = new long[Work.values().length], lastNanos = new long[Work.values().length];
+    private long statsWindow;
+    /** Чанк, который очередь брала больше всего раз подряд (за окно и за прошлое окно): застрявшая голова очереди. */
+    private long headChunk, repeatChunk, lastRepeatChunk;
+    private int headRepeat, repeatMax, lastRepeatMax;
+
+    private void note(Work w, long n, long t) {
+        count[w.ordinal()] += n;
+        nanos[w.ordinal()] += t;
+    }
+
+    /** Счётчики прошлого окна: {сколько, нс} по {@link Work}. */
+    public long[][] work() {
+        return new long[][]{lastCount.clone(), lastNanos.clone()};
+    }
+
+    /** Прошлое окно: чанк, взятый больше всего раз подряд, и сколько раз ({@code null}, если никакой — дважды). */
+    @Nullable
+    public ChunkPos repeatedChunk() {
+        return lastRepeatMax > 1 ? new ChunkPos(lastRepeatChunk) : null;
+    }
+
+    public int repeatedTimes() {
+        return lastRepeatMax;
+    }
+
     /** Для {@link ModAttachments#BLACKOUT_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
-    public BlackoutWorld() {}
+    public BlackoutWorld() {
+        resume.defaultReturnValue(-1);
+    }
 
     public static BlackoutWorld get(ServerLevel level) {
         return level.getData(ModAttachments.BLACKOUT_WORLD);
@@ -159,6 +231,8 @@ public final class BlackoutWorld {
 
     /** Привести чанк к сети при первой возможности (загружен, поставили лампу). */
     void enqueue(long chunk) {
+        // новый повод — чанк проходится с начала (поставленная лампа могла встать раньше места продолжения)
+        resume.remove(chunk);
         if (queued.add(chunk)) ready.enqueue(chunk);
     }
 
@@ -184,14 +258,17 @@ public final class BlackoutWorld {
                     // чанк готов (иначе getBlockState грузит его сразу); в мире — ещё и соседи (Sable читает соседей),
                     // в плоте соседние чанки держит сам аппарат
                     if (!Terrain.ready(level, pos) || !plot && !NuclearTickets.aroundLoaded(level, pos)) {
-                        if (inMemory(level, ChunkPos.asLong(pos)) != null) later.add(pos.asLong());
+                        if (inMemory(level, ChunkPos.asLong(pos)) != null) {
+                            later.add(pos.asLong());
+                            note(Work.RELIGHT_WAIT, 1, 0);
+                        }
                         continue;
                     }
                     BlockState state = level.getBlockState(pos);
                     if (GridLights.isUnlit(state) && powered(level, pos)) ChunkLights.relight(level, pos, state);
                 }
             } finally {
-                clock.end(c0);
+                note(Work.RELIGHT, 1, clock.end(c0));
             }
         }
         // ждущие соседей — в следующий тик, после остальных
@@ -244,6 +321,7 @@ public final class BlackoutWorld {
     void forget(long chunk) {
         staleLight.remove(chunk);
         resignal.remove(chunk);
+        resume.remove(chunk);
     }
 
     /** Загружен чанк: соседние чанки, чьи лампы ждали соседей для сверки с сигналом, — в очередь. */
@@ -281,6 +359,18 @@ public final class BlackoutWorld {
     /** @param clock бюджет тика сервера для блэкаута, общий для всех измерений (уже запущен) */
     public void tick(ServerLevel level, WorkClock clock) {
         long now = level.getGameTime();
+        if (now / STATS_WINDOW != statsWindow) {
+            // мир не тикал целое окно — прошлое окно пустое
+            boolean adjacent = now / STATS_WINDOW == statsWindow + 1;
+            lastCount = adjacent ? count.clone() : new long[count.length];
+            lastNanos = adjacent ? nanos.clone() : new long[nanos.length];
+            Arrays.fill(count, 0);
+            Arrays.fill(nanos, 0);
+            lastRepeatChunk = repeatChunk;
+            lastRepeatMax = adjacent ? repeatMax : 0;
+            repeatMax = 0;
+            statsWindow = now / STATS_WINDOW;
+        }
         PowerGrid grid = PowerGrid.get(level);
         if (!restored) restore(level, grid, now);
         relightPlaced(level, clock);
@@ -313,7 +403,7 @@ public final class BlackoutWorld {
                 queued.remove(c);
                 Airstrike.LOG.error("Блэкаут: перевод чанка {} упал с ошибкой; чанк пропущен", new ChunkPos(c), e);
             } finally {
-                clock.end(c0);
+                note(Work.UNIT, 1, clock.end(c0));
             }
         }
     }
@@ -358,7 +448,7 @@ public final class BlackoutWorld {
             while (!s.built() && clock.canStart()) {
                 long c0 = clock.begin();
                 s.buildRow();
-                clock.end(c0);
+                note(Work.BUILD, 1, clock.end(c0));
             }
             if (!s.built()) continue;
             while (s.cursor <= now && s.cursor <= s.last) {
@@ -387,14 +477,23 @@ public final class BlackoutWorld {
      * при загрузке). Возвращает, сколько сделано (ламп и мест).
      */
     private int handle(ServerLevel level, PowerGrid grid, long c, long now, int limit) {
+        headRepeat = c == headChunk ? headRepeat + 1 : 1;
+        headChunk = c;
+        if (headRepeat > repeatMax) {
+            repeatMax = headRepeat;
+            repeatChunk = c;
+        }
         LevelChunk chunk = inMemory(level, c);
         ChunkPos pos = new ChunkPos(c);
         if (chunk == null) {
             queued.remove(c);
             staleLight.remove(c);
             resignal.remove(c);
+            resume.remove(c);
+            note(Work.GONE, 1, 0);
             return 0;
         }
+        long t0 = System.nanoTime();
         // край загруженного мира: чанк в памяти, соседи — нет (и не будут, пока игрок не подойдёт); ждать их нельзя —
         // блоки меняются в палитре, без соседей (ChunkLights.applyInPlace)
         boolean edge = level.getChunkSource().getChunkNow(pos.x, pos.z) == null || !NuclearTickets.neighbourhoodLoaded(level, pos);
@@ -406,6 +505,7 @@ public final class BlackoutWorld {
             for (; n < limit && !stale.isEmpty(); n++) light.checkBlock(BlockPos.of(stale.removeLong(stale.size() - 1)));
             if (stale.isEmpty()) staleLight.remove(c);
             ready.enqueueFirst(c);
+            note(Work.STALE, 1, System.nanoTime() - t0);
             return n;
         }
         LongArrayList signalled = resignal.get(c);
@@ -415,6 +515,7 @@ public final class BlackoutWorld {
             for (; n < limit && !signalled.isEmpty(); n++) ChunkLights.resignal(level, BlockPos.of(signalled.removeLong(signalled.size() - 1)));
             if (signalled.isEmpty()) resignal.remove(c);
             ready.enqueueFirst(c);
+            note(Work.RESIGNAL, 1, System.nanoTime() - t0);
             return n;
         }
         boolean dark = grid.dark(pos.x, pos.z, now);
@@ -422,20 +523,26 @@ public final class BlackoutWorld {
         boolean needed = ChunkLights.needs(chunk, dark);
         // отметка — до перевода: упади он посередине, погашенные уже отмечены
         if (dark && needed) chunk.setData(ModAttachments.GRID_DARK, true);
-        ChunkLights.Pass pass = new ChunkLights.Pass(0, true);
+        int r = resume.remove(c);
+        int from = r >= 0 && (r & 1) == (dark ? 1 : 0) ? r >> 1 : 0;
+        ChunkLights.Pass pass = ChunkLights.Pass.NONE;
         if (needed && edge) {
             LongArrayList lamps = new LongArrayList();
-            pass = ChunkLights.applyInPlace(level, chunk, dark, limit, lamps);
+            pass = ChunkLights.applyInPlace(level, chunk, dark, limit, from, lamps);
             if (!lamps.isEmpty()) resignal.computeIfAbsent(c, k -> new LongArrayList()).addAll(lamps);
         } else if (needed) {
-            pass = ChunkLights.apply(level, chunk, dark, limit);
+            pass = ChunkLights.apply(level, chunk, dark, limit, from);
         }
         int changed = pass.changed();
+        note(Work.LAMPS, changed, 0);
+        note(Work.REVERTED, pass.reverted(), 0);
+        note(!needed ? Work.IDLE : edge ? Work.EDGE : pass.done() ? Work.PASS_DONE : Work.PASS_MORE, 1, System.nanoTime() - t0);
         if (changed > 0) districtSound(level, pos, dark, now);
         // проход секций по блокам (4096 блоков — как несколько ламп) — тоже работа, даже если ламп в них уже нет
         int work = changed + (needed ? SCAN_COST : 0);
         if (!pass.done()) {
-            // башня морских фонарей — не одна единица: остальное — следующими
+            // башня морских фонарей — не одна единица: остальное — следующими, с места остановки
+            resume.put(c, pass.next() << 1 | (dark ? 1 : 0));
             ready.enqueueFirst(c);
             return work;
         }
@@ -466,7 +573,7 @@ public final class BlackoutWorld {
      * в памяти (как в {@code ScarQueue}).
      */
     @Nullable
-    private static LevelChunk inMemory(ServerLevel level, long pos) {
+    static LevelChunk inMemory(ServerLevel level, long pos) {
         ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(pos);
         return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
