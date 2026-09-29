@@ -70,18 +70,19 @@ public final class Acoustics {
     }
 
     /**
-     * Шум обтекания у слушателя: по расстоянию (без «пола»: вдали его нет, срез — {@link Hearing#AIRFLOW}), по ракурсу
+     * Шум обтекания у слушателя: по расстоянию (без «пола»: вдали его нет, дальше {@code cutoff} гаснет), по ракурсу
      * (на подлёте громче всего, вслед — 0.3: шум уносит вперёд) и по скорости (на медленном участке тише, как квадрат
      * скорости; с {@code fast} блоков/тик — полная громкость).
      *
      * @param speed  скорость источника, блоков/тик
      * @param radial её проекция на направление от источника к слушателю (больше нуля — идёт на слушателя)
+     * @param cutoff докуда слышно ({@link Hearing})
      */
-    public static double airflow(double d, double speed, double radial, double ref, double fast) {
+    public static double airflow(double d, double speed, double radial, double ref, double fast, double cutoff) {
         if (speed < 1.0e-6) return 0;
         double front = (1 + radial / speed) / 2;
         double s = Math.min(1, speed / fast);
-        return gain(d, ref, 0, Hearing.AIRFLOW) * (0.3 + 0.7 * front * front) * s * s;
+        return gain(d, ref, 0, cutoff) * (0.3 + 0.7 * front * front) * s * s;
     }
 
     /** Плавная ступенька 0→1 между a и b. */
