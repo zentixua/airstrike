@@ -3,22 +3,42 @@ package ua.zentix.airstrike.client.sound;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.strike.WeaponType;
+
+import java.util.UUID;
 
 /**
  * История полёта снаряда на клиенте (по тикам): из неё звук берёт «запаздывающее» положение и скорость.
- * Живёт дольше сущности: после взрыва дальние слушатели ещё какое-то время слышат мотор.
+ * Пишется по сущности, пока она есть у клиента, а без неё — по пакетам сервера ({@link S2C.Heard}, раз в
+ * {@link S2C.Heard#PERIOD} тика; промежуточные тики — по прямой между ними). Живёт дольше сущности: после взрыва
+ * дальние слушатели ещё какое-то время слышат мотор.
  */
 final class SourceTrack implements Acoustics.Path {
-    private static final int CAPACITY = 64;
+    /** Тиков истории: звук с самого дальнего слышимого снаряда (ступень МБР, 1580 блоков) идёт до уха ~92 тика. */
+    private static final int CAPACITY = 128;
+    /** Разрыв в данных длиннее — это уже другой полёт в поле слуха: история начинается заново. */
+    private static final int MAX_GAP = 8;
 
-    final int entityId;
+    final UUID id;
     final WeaponType weapon;
+    /** B-2 (у его бомбы то же оружие, звук другой). */
+    final boolean bomber;
     private final double[] xs = new double[CAPACITY], ys = new double[CAPACITY], zs = new double[CAPACITY];
     private final int[] phases = new int[CAPACITY], phaseAges = new int[CAPACITY];
     private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
     private long first = -1, last = -1;
+    /** Точка пути перед последней (от неё строится прямая до последней). */
+    private long previous = -1;
     private long death = Long.MAX_VALUE;
+    /**
+     * На сколько тиков после последней записи звук ещё можно тянуть с неё: по сущности запись каждый тик, так что 1;
+     * по пакетам — до следующего пакета (и тик на неровную доставку). Дальше данных нет (взорвался или ушёл из слуха) —
+     * слой молчит.
+     */
+    private int slack = 1;
+    /** Последняя запись — по сущности. */
+    private boolean fromEntity;
     /** Открыт ли путь звука к уху (1) или за холмом/домом (0), сглажено; считается раз в тик на все слои. */
     private float open = 1;
     private long openTick = -1;
@@ -26,24 +46,75 @@ final class SourceTrack implements Acoustics.Path {
     boolean drilling;
     double distanceToAim = Double.MAX_VALUE;
 
-    SourceTrack(StrikeProjectile p) {
-        this.entityId = p.getId();
-        this.weapon = p.weapon();
+    SourceTrack(UUID id, WeaponType weapon, boolean bomber) {
+        this.id = id;
+        this.weapon = weapon;
+        this.bomber = bomber;
     }
 
+    /** Запись по сущности у клиента. */
     void record(long tick, StrikeProjectile p) {
+        append(tick, p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge());
+        fromEntity = true;
+        slack = 1;
+        drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
+        distanceToAim = p.position().distanceTo(p.aimPoint());
+    }
+
+    /**
+     * Запись по пакету сервера. Два пакета в один тик (сеть прислала пачкой) — верен последний; на тик, записанный
+     * по сущности, пакет не нужен.
+     */
+    void record(long tick, S2C.HeardFlight f) {
+        if (tick < last || tick == last && fromEntity) return;
+        append(tick, f.pos().x, f.pos().y, f.pos().z, f.yaw(), f.pitch(), f.phase(), f.phaseAge());
+        fromEntity = false;
+        slack = S2C.Heard.PERIOD + 2;
+        drilling = f.drilling();
+        distanceToAim = f.distanceToAim();
+    }
+
+    /**
+     * Новая точка пути; пропущенные тики до неё — по прямой, долгий разрыв — история заново. Точка того же тика
+     * поправляет последнюю: прямая строится заново от предыдущей.
+     */
+    private void append(long tick, double x, double y, double z, float yaw, float pitch, int phase, int phaseAge) {
+        if (tick < last) return;
+        if (tick > last) previous = last;
+        long from = previous;
+        if (from >= 0 && tick - from > MAX_GAP) first = tick;
+        else if (from >= 0 && tick - from > 1) {
+            int i0 = (int) (from % CAPACITY);
+            double x0 = xs[i0], y0 = ys[i0], z0 = zs[i0];
+            for (long t = from + 1; t < tick; t++) {
+                double k = (double) (t - from) / (tick - from);
+                put(t, x0 + (x - x0) * k, y0 + (y - y0) * k, z0 + (z - z0) * k, yaw, pitch, phase, phaseAge - (int) (tick - t));
+            }
+        }
+        put(tick, x, y, z, yaw, pitch, phase, phaseAge);
+    }
+
+    private void put(long tick, double x, double y, double z, float yaw, float pitch, int phase, int phaseAge) {
         if (first < 0) first = tick;
         last = tick;
         int i = (int) (tick % CAPACITY);
-        xs[i] = p.getX();
-        ys[i] = p.getY();
-        zs[i] = p.getZ();
-        yaws[i] = p.getYRot();
-        pitches[i] = p.getXRot();
-        phases[i] = p.flightPhase().ordinal();
-        phaseAges[i] = p.phaseAge();
-        drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
-        distanceToAim = p.position().distanceTo(p.aimPoint());
+        xs[i] = x;
+        ys[i] = y;
+        zs[i] = z;
+        yaws[i] = yaw;
+        pitches[i] = pitch;
+        phases[i] = phase;
+        phaseAges[i] = Math.max(0, phaseAge);
+    }
+
+    /** Звук из момента t ещё есть чем вести (данные дошли не позже, чем на {@link #slack} тиков раньше). */
+    boolean covers(double t) {
+        return t <= last + slack;
+    }
+
+    /** Путь сейчас идёт по пакетам сервера (сущности у клиента нет). */
+    boolean fromServer() {
+        return !fromEntity;
     }
 
     void die(long tick) {
@@ -79,12 +150,18 @@ final class SourceTrack implements Acoustics.Path {
         out[2] = zs[ia] + (zs[ib] - zs[ia]) * f;
     }
 
-    /** Скорость в момент t, блоков/тик. */
+    /**
+     * Скорость в момент t, блоков/тик: по окну в 3 тика (положения сущности у клиента и пакеты сервера приходят
+     * неровно — по одному тику Доплер и шум обтекания дрожали), у края истории — по той её части, что есть.
+     */
     Vec3 velocity(double t) {
+        double ta = Math.max(start(), t - 1.5), tb = Math.min(last, t + 1.5);
+        if (tb - ta < 1.0e-6) return Vec3.ZERO;
         double[] a = new double[3], b = new double[3];
-        at(t - 0.5, a);
-        at(t + 0.5, b);
-        return new Vec3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        at(ta, a);
+        at(tb, b);
+        double k = 1 / (tb - ta);
+        return new Vec3((b[0] - a[0]) * k, (b[1] - a[1]) * k, (b[2] - a[2]) * k);
     }
 
     int phase(double t) {
