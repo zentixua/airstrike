@@ -202,7 +202,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   туман на дальности прорисовки съедает дальнее; ядерная картинка рисуется в `AFTER_LEVEL` — проверено
   `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса).
 - Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
-  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`.
+  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`; для сервера стенда — `AIRSTRIKE_JFR=1 tools/stress.sh`
+  → `mod/run/stress/server/stress.jfr`.
 - Сервер GameTest тикает без пауз (`GameTestServer.waitUntilNextTick` только выполняет задачи): срок в тиках проходит
   быстрее фоновой генерации. Чанки площадки грузятся сразу, соседние за её краем — в фоне; что должно успеть к сроку,
   держать в чанках, чьи соседи тоже на площадке (x и z от 16 до 47 у площадки 64×64).
@@ -258,7 +259,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   («Could not determine clean minecraft artifact path»). Для проверок с полной сборкой — `tools/prod_client.py`
   (библиотеки и ForgeWrapper из каталога Prism, копия инстанса в `mod/run/prod`; инстанс Артёма не трогается).
 - Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
-- Клиент без окна работает и в облаке, без KWin и шейдеров: создать `mod/run/scenario/logs` (туда пишет gc.log), затем
+- Клиент без окна работает и в облаке, без KWin и шейдеров (каталог `run/scenario/logs` для gc.log Gradle создаёт сам):
   `AIRSTRIKE_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario
   -PmcModsDir=run/ci-mods` (моды — `tools/fetch_runtime_mods.py`; 3–6 fps). На llvmpipe секции чанков строятся
   медленно: сразу после резкой смены точки обзора сущности в кадре могут не появиться на несколько кадров.

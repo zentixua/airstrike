@@ -9,7 +9,9 @@ import ua.zentix.airstrike.strike.WeaponType;
 import java.util.UUID;
 
 /**
- * История полёта снаряда на клиенте (по тикам): из неё звук берёт «запаздывающее» положение и скорость.
+ * История полёта снаряда на клиенте (по тикам): из неё звук берёт «запаздывающее» положение и скорость. Скорость —
+ * та, что сообщил сервер ({@link StrikeProjectile#velocity()}), а не разность положений по тикам клиента: пакеты
+ * одного тика сервера доходят то в один тик клиента, то в соседний, и такая разность то падала до нуля, то удваивалась.
  * Пишется по сущности, пока она есть у клиента, а без неё — по пакетам сервера ({@link S2C.Heard}, раз в
  * {@link S2C.Heard#PERIOD} тика; промежуточные тики — по прямой между ними). Живёт дольше сущности: после взрыва
  * дальние слушатели ещё какое-то время слышат мотор.
@@ -25,6 +27,7 @@ final class SourceTrack implements Acoustics.Path {
     /** B-2 (у его бомбы то же оружие, звук другой). */
     final boolean bomber;
     private final double[] xs = new double[CAPACITY], ys = new double[CAPACITY], zs = new double[CAPACITY];
+    private final double[] vxs = new double[CAPACITY], vys = new double[CAPACITY], vzs = new double[CAPACITY];
     private final int[] phases = new int[CAPACITY], phaseAges = new int[CAPACITY];
     private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
     private long first = -1, last = -1;
@@ -54,7 +57,7 @@ final class SourceTrack implements Acoustics.Path {
 
     /** Запись по сущности у клиента. */
     void record(long tick, StrikeProjectile p) {
-        append(tick, p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge());
+        append(tick, p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge());
         fromEntity = true;
         slack = 1;
         drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
@@ -67,7 +70,7 @@ final class SourceTrack implements Acoustics.Path {
      */
     void record(long tick, S2C.HeardFlight f) {
         if (tick < last || tick == last && fromEntity) return;
-        append(tick, f.pos().x, f.pos().y, f.pos().z, f.yaw(), f.pitch(), f.phase(), f.phaseAge());
+        append(tick, f.pos(), f.velocity(), f.yaw(), f.pitch(), f.phase(), f.phaseAge());
         fromEntity = false;
         slack = S2C.Heard.PERIOD + 2;
         drilling = f.drilling();
@@ -78,29 +81,32 @@ final class SourceTrack implements Acoustics.Path {
      * Новая точка пути; пропущенные тики до неё — по прямой, долгий разрыв — история заново. Точка того же тика
      * поправляет последнюю: прямая строится заново от предыдущей.
      */
-    private void append(long tick, double x, double y, double z, float yaw, float pitch, int phase, int phaseAge) {
+    private void append(long tick, Vec3 pos, Vec3 vel, float yaw, float pitch, int phase, int phaseAge) {
         if (tick < last) return;
         if (tick > last) previous = last;
         long from = previous;
         if (from >= 0 && tick - from > MAX_GAP) first = tick;
         else if (from >= 0 && tick - from > 1) {
             int i0 = (int) (from % CAPACITY);
-            double x0 = xs[i0], y0 = ys[i0], z0 = zs[i0];
+            Vec3 p0 = new Vec3(xs[i0], ys[i0], zs[i0]), v0 = new Vec3(vxs[i0], vys[i0], vzs[i0]);
             for (long t = from + 1; t < tick; t++) {
                 double k = (double) (t - from) / (tick - from);
-                put(t, x0 + (x - x0) * k, y0 + (y - y0) * k, z0 + (z - z0) * k, yaw, pitch, phase, phaseAge - (int) (tick - t));
+                put(t, p0.lerp(pos, k), v0.lerp(vel, k), yaw, pitch, phase, phaseAge - (int) (tick - t));
             }
         }
-        put(tick, x, y, z, yaw, pitch, phase, phaseAge);
+        put(tick, pos, vel, yaw, pitch, phase, phaseAge);
     }
 
-    private void put(long tick, double x, double y, double z, float yaw, float pitch, int phase, int phaseAge) {
+    private void put(long tick, Vec3 pos, Vec3 vel, float yaw, float pitch, int phase, int phaseAge) {
         if (first < 0) first = tick;
         last = tick;
         int i = (int) (tick % CAPACITY);
-        xs[i] = x;
-        ys[i] = y;
-        zs[i] = z;
+        xs[i] = pos.x;
+        ys[i] = pos.y;
+        zs[i] = pos.z;
+        vxs[i] = vel.x;
+        vys[i] = vel.y;
+        vzs[i] = vel.z;
         yaws[i] = yaw;
         pitches[i] = pitch;
         phases[i] = phase;
@@ -150,18 +156,14 @@ final class SourceTrack implements Acoustics.Path {
         out[2] = zs[ia] + (zs[ib] - zs[ia]) * f;
     }
 
-    /**
-     * Скорость в момент t, блоков/тик: по окну в 3 тика (положения сущности у клиента и пакеты сервера приходят
-     * неровно — по одному тику Доплер и шум обтекания дрожали), у края истории — по той её части, что есть.
-     */
+    /** Скорость в момент t, блоков/тик (между тиками — по прямой). */
     Vec3 velocity(double t) {
-        double ta = Math.max(start(), t - 1.5), tb = Math.min(last, t + 1.5);
-        if (tb - ta < 1.0e-6) return Vec3.ZERO;
-        double[] a = new double[3], b = new double[3];
-        at(ta, a);
-        at(tb, b);
-        double k = 1 / (tb - ta);
-        return new Vec3((b[0] - a[0]) * k, (b[1] - a[1]) * k, (b[2] - a[2]) * k);
+        double s = Math.max(start(), Math.min(last, t));
+        long a = (long) Math.floor(s);
+        long b = Math.min(last, a + 1);
+        double f = s - a;
+        int ia = (int) (a % CAPACITY), ib = (int) (b % CAPACITY);
+        return new Vec3(vxs[ia] + (vxs[ib] - vxs[ia]) * f, vys[ia] + (vys[ib] - vys[ia]) * f, vzs[ia] + (vzs[ib] - vzs[ia]) * f);
     }
 
     int phase(double t) {
