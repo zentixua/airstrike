@@ -204,7 +204,11 @@ public final class TerrainTiles {
         return b.toString();
     }
 
-    /** Выход из мира: текстуры освобождены, фоновые плитки для него больше не нужны. */
+    /**
+     * Выход из мира или смена измерения: текстуры освобождены, фоновые плитки для него больше не нужны. Потоки —
+     * новые: чтение DH для старого мира может ждать сколько угодно, и новый мир стоял бы за ним в очереди. Старые
+     * потоки прерываются и кончаются сами (демоны), их плитки — старого поколения, выбрасываются.
+     */
     public static void reset() {
         for (Layer layer : layers) {
             for (Tile t : layer.tiles.values()) release(t);
@@ -212,6 +216,10 @@ public final class TerrainTiles {
         layers = List.of();
         level = null;
         generation++;
+        if (executor != null) {
+            executor.shutdownNow();
+            executor = null;
+        }
     }
 
     /**
