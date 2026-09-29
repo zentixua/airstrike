@@ -17,6 +17,7 @@ import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
@@ -582,13 +583,18 @@ public final class StrikeGameTests {
 
     /**
      * Движущаяся цель вне загруженного мира: ракета берёт район цели, пока та в начале полосы, а цель уходит на 160
-     * блоков — район должен уйти за ней, иначе ракета ждёт у цели загрузки и пропадает по сроку жизни.
+     * блоков — район должен уйти за ней, иначе ракета ждёт у цели загрузки и пропадает по сроку жизни. Ракета идёт
+     * на бреющем ниже стены из барьеров вокруг площадки и у стены уходит из мира: вне мира путь кончается на
+     * поверхности, и стена встала бы на пути — в ней прорезан проход.
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_moving", skyAccess = true)
     public static void missileFollowsMovingTargetArea(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 end = top(h, RUNWAY_TARGET);
         Vec3 start = end.add(0, 0, -160);
+        for (BlockPos p : BlockPos.betweenClosed(new BlockPos(RUNWAY_TARGET.getX() - 6, 0, -1), new BlockPos(RUNWAY_TARGET.getX() + 6, 80, -1))) {
+            if (h.getBlockState(p).is(Blocks.BARRIER)) h.setBlock(p, Blocks.AIR);
+        }
         ArmorStand stand = EntityType.ARMOR_STAND.create(level);
         stand.setNoGravity(true);
         stand.moveTo(start.x, start.y, start.z);
@@ -751,6 +757,49 @@ public final class StrikeGameTests {
             Vec3 entry = bomb.entry();
             h.assertTrue(Math.abs(entry.x - aim.x) < 16 && entry.z > aim.z - 85 && entry.z < aim.z + 120,
                     "бомба упала далеко от цели: " + entry);
+        });
+    }
+
+    /**
+     * Снаряд вне мира, который прошёл мимо цели, не уходит под землю: вне мира нет столкновений, и такой снаряд падал
+     * без взрыва до конца срока жизни или до низа мира (#108: бомба на точку позади B-2 — под миром на y=−3022).
+     * Теперь путь вне мира кончается на поверхности (карта высот готового чанка, у неготового — уровень моря): снаряд
+     * ждёт загрузки этого места, возвращается в мир на поверхности и взрывается обычным попаданием. Бомба на точку
+     * позади себя не рулит и падает круто вниз по курсу — должна войти в грунт там, где её путь встречает рельеф.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "virtual_ground", skyAccess = true)
+    public static void virtualMissNeverFallsBelowGround(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // далеко за площадкой: вокруг ничего не загружено, бомба сразу летит вне мира
+        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
+        Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
+        Vec3 behind = from.add(0, -150, -300);
+        BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
+        bomb.drop(from, 0, behind, null, null);
+        VirtualFlights.launch(level, bomb);
+        UUID id = bomb.getUUID();
+        Vec3[] entry = {null};
+        double[] lowest = {from.y};
+        int[] ground = {0};
+        h.onEachTick(() -> {
+            StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
+                    .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e ? e : null);
+            if (p == null) return;
+            lowest[0] = Math.min(lowest[0], p.getY());
+            if (entry[0] == null && p instanceof BunkerBusterEntity b && b.isDrilling()) {
+                entry[0] = b.entry();
+                // рельеф рядом со скважиной: в самой скважине бомба уже выбрала грунт
+                ground[0] = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(entry[0].x) + 24, Mth.floor(entry[0].z));
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(lowest[0] > level.getMinBuildHeight(), "бомба ушла под мир: y=" + (int) lowest[0]);
+            h.assertTrue(entry[0] != null, "бомба не вошла в грунт, ниже всего y=" + (int) lowest[0]);
+            // вход на 1 блок выше точки попадания (дым из скважины)
+            h.assertTrue(Math.abs(entry[0].y - 1 - ground[0]) < 2, "бомба вошла в грунт не на поверхности: y=" + (int) entry[0].y + ", рельеф " + ground[0]);
+            // падает вперёд по курсу (+z), не рулит: вбок не уходит, вперёд — не дальше двух высот падения
+            h.assertTrue(entry[0].z > from.z && entry[0].z - from.z < 2 * (from.y - ground[0]) && Math.abs(entry[0].x - from.x) < 8,
+                    "бомба вошла в грунт не на своём пути: " + entry[0].subtract(from));
         });
     }
 
