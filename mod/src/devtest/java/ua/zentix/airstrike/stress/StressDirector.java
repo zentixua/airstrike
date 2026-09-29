@@ -473,10 +473,11 @@ public final class StressDirector {
                 w.update(en.getValue());
             }
             w.seen = tick;
-            // бетонобойные бомбы — путь целиком: одна пропала вне мира в 375 блоках от цели (VPS, 29.09.2026)
-            if ("bunker_buster".equals(w.type) && tick % 10 == 0) {
-                log("путь bunker_buster %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
-                        en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
+            // путь бетонобойных бомб целиком и всех снарядов вне мира: вне мира пропадали бомба (в 375 блоках от цели)
+            // и ракеты РСЗО (под миром) — VPS, 29.09.2026
+            if ((w.virtual || "bunker_buster".equals(w.type)) && tick % 10 == 0) {
+                log("путь %s %s: %d %d %d, вне мира %b, фаза %s, возраст %d, до цели %.0f по горизонтали, %.0f по высоте",
+                        w.type, en.getKey(), (int) w.pos.x, (int) w.pos.y, (int) w.pos.z, w.virtual, w.ref.flightPhase().getSerializedName(), w.ref.age(),
                         Math.hypot(w.aim.x - w.pos.x, w.aim.z - w.pos.z), w.pos.y - w.aim.y);
             }
         }
