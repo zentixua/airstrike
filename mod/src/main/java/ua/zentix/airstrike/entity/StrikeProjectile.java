@@ -757,7 +757,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
         if (expired()) {
-            Airstrike.LOG.warn("Снаряд {} не долетел до {} за срок жизни и убран", getType().getDescriptionId(), BlockPos.containing(aim));
+            Airstrike.LOG.warn("Снаряд {} {} не долетел до {} за срок жизни и убран у {}", getType().getDescriptionId(), getUUID(),
+                    BlockPos.containing(aim), blockPosition());
             discard();
             return false;
         }
@@ -767,7 +768,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (near && !(Terrain.ready(level, at) && level.isPositionEntityTicking(at))) {
             // ждём загрузки района (тикет взят на подлёте)
             if (++areaWait > AREA_WAIT_LIMIT) {
-                Airstrike.LOG.warn("Снаряд {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), at);
+                Airstrike.LOG.warn("Снаряд {} {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), getUUID(), at);
                 discard();
                 return false;
             }
