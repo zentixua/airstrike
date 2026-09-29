@@ -90,11 +90,55 @@ public final class ChunkLights {
                 }
             }
         }
-        for (BlockPos at : signalled) {
-            BlockState s = level.getBlockState(at);
-            s.handleNeighborChanged(level, at, s.getBlock(), at, false);
-        }
+        for (BlockPos at : signalled) resignal(level, at);
         return changed;
+    }
+
+    /**
+     * Чанк, у которого соседи не загружены (край загруженного мира: чанк в памяти, но не тикает): блоки меняются
+     * прямо в палитре — без обновлений соседей и без Sable, которые прочли бы соседний чанк и загрузили его сразу.
+     * Свет — {@code checkBlock} по месту (снижение и рост расходятся и туда, где соседи есть), клиентам — изменение
+     * блока (тем, кому чанк выдан). Не больше {@code limit} ламп.
+     */
+    public static int applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit) {
+        LevelChunkSection[] sections = chunk.getSections();
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
+        var light = level.getChunkSource().getLightEngine();
+        int changed = 0;
+        sections:
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
+            if (!needs(section, dark)) continue;
+            int y0 = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        BlockState to = GridLights.toward(section.getBlockState(x, y, z), dark);
+                        if (to == null) continue;
+                        section.setBlockState(x, y, z, to);
+                        BlockPos p = new BlockPos(x0 + x, y0 + y, z0 + z);
+                        light.checkBlock(p);
+                        level.getChunkSource().blockChanged(p);
+                        if (++changed >= limit) break sections;
+                    }
+                }
+            }
+        }
+        if (changed > 0) chunk.setUnsaved(true);
+        return changed;
+    }
+
+    /** Один двойник — снова лампа (тиком двойника: поршень, аппарат). */
+    public static void relight(ServerLevel level, BlockPos pos, BlockState twin) {
+        BlockState lit = GridLights.lit(twin);
+        if (lit == null || !level.setBlock(pos, lit, FLAGS)) return;
+        if (lit.getBlock() instanceof RedstoneLampBlock || lit.getBlock() instanceof CopperBulbBlock) resignal(level, pos);
+    }
+
+    /** Лампа от сигнала сверяется с сигналом, как от обновления соседа. */
+    private static void resignal(ServerLevel level, BlockPos pos) {
+        BlockState s = level.getBlockState(pos);
+        s.handleNeighborChanged(level, pos, s.getBlock(), pos, false);
     }
 
     /** В секциях есть погашенные лампы (по палитрам). */

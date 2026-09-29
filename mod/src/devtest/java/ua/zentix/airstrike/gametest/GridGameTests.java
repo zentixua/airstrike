@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.gametest;
 
 import com.mojang.serialization.Codec;
+import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
@@ -44,11 +45,13 @@ import net.minecraft.world.level.chunk.status.ChunkType;
 import net.minecraft.world.level.chunk.storage.ChunkSerializer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkLights;
@@ -58,6 +61,7 @@ import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.PowerGrid;
 import ua.zentix.airstrike.grid.SubstationBlock;
 import ua.zentix.airstrike.grid.block.Unlit;
+import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModBlocks;
@@ -66,6 +70,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -273,6 +278,57 @@ public final class GridGameTests {
     }
 
     /**
+     * Аппарат Sable, собранный в тёмном квартале, уносит погашенные лампы в свой плот — не чанк мира: очередь
+     * блэкаута его не видит, и сохраняет его Sable своим кодеком, мимо {@code ChunkDataEvent.Save}. У аппарата своё
+     * питание: двойники в плоте снова лампы (обход плотов раз в 5 с).
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "grid_sable", skyAccess = true)
+    public static void twinsCarriedIntoSableShipRelight(GameTestHelper h) {
+        if (!ModList.get().isLoaded("sable")) {
+            h.succeed();
+            return;
+        }
+        ServerLevel level = h.getLevel();
+        var server = level.getServer();
+        quiet(level);
+        BlockPos from = CENTER.offset(-2, 3, -2), to = from.offset(4, 0, 4);
+        BlockPos.betweenClosed(from, to).forEach(p -> h.setBlock(p, Blocks.OAK_PLANKS));
+        BlockPos sea = from.offset(1, 1, 1), lantern = from.offset(3, 1, 3);
+        h.setBlock(sea, GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()));
+        h.setBlock(lantern, GridLights.unlit(Blocks.LANTERN.defaultBlockState()));
+        // квартал тёмный: сами двойники на земле не зажигаются
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 64, 1000, -1);
+        BlockPos a = h.absolutePos(from), b = h.absolutePos(lantern);
+        Vec3 craft = Vec3.atCenterOf(h.absolutePos(from.offset(2, 0, 2)));
+        SubLevelAccess[] sub = new SubLevelAccess[1];
+        h.startSequence()
+                .thenIdle(5)
+                .thenExecute(() -> {
+                    h.assertTrue(GridLights.isUnlit(h.getBlockState(sea)), "двойник в тёмном квартале зажёгся: " + h.getBlockState(sea));
+                    server.getCommands().performPrefixedCommand(server.createCommandSourceStack().withLevel(level).withSuppressedOutput(),
+                            String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d", Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()),
+                                    Math.min(a.getZ(), b.getZ()), Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())));
+                })
+                .thenWaitUntil(() -> {
+                    List<SubLevelAccess> near = SubLevels.near(level, craft, 8);
+                    h.assertFalse(near.isEmpty(), "аппарат не собран");
+                    sub[0] = near.getFirst();
+                })
+                .thenWaitUntil(() -> {
+                    BlockPos c = BlockPos.containing(SubLevels.toPlot(sub[0], SubLevels.center(sub[0])));
+                    int lit = 0, dark = 0;
+                    for (BlockPos p : BlockPos.betweenClosed(c.offset(-6, -6, -6), c.offset(6, 6, 6))) {
+                        BlockState st = level.getBlockState(p);
+                        if (st.is(Blocks.SEA_LANTERN) || st.is(Blocks.LANTERN)) lit++;
+                        if (GridLights.isUnlit(st)) dark++;
+                    }
+                    h.assertTrue(lit == 2 && dark == 0, "в плоте аппарата горит " + lit + ", погашено " + dark);
+                })
+                .thenExecute(() -> Blackouts.restore(level, null, 0))
+                .thenSucceed();
+    }
+
+    /**
      * Подстанция — узел сети; взрыв рядом (без разрушений) её выбивает: она «сгорает», лампы площадки гаснут, ни один
      * тик не выходит за бюджет (считающие часы: единица работы = 1 мс). Свет по команде возвращается, подстанция снова
      * работает, лампы — прежние.
@@ -361,6 +417,41 @@ public final class GridGameTests {
                     assertBlockLight(h, level, glow[0].above(), 14);
                 })
                 .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenSucceed();
+    }
+
+    /**
+     * Чанк на краю загруженного мира — в памяти, но соседи не загружены (и не загрузятся, пока игрок не подойдёт):
+     * его лампы гаснут и зажигаются без ожидания соседей, очередь блэкаута пустеет.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_edge", skyAccess = true)
+    public static void edgeChunkSwitchesWithoutNeighbours(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.south(480)));
+        // билет уровня 33: сам чанк полностью загружен, соседи — нет
+        chunks.addRegionTicket(HOLD, far, 0, far);
+        level.getChunk(far.x, far.z);
+        BlockPos[] lamp = new BlockPos[1];
+        h.startSequence()
+                .thenExecute(() -> {
+                    h.assertFalse(NuclearTickets.neighbourhoodLoaded(level, far), "соседи чанка загружены — проверять нечего");
+                    int x = far.getMiddleBlockX(), z = far.getMiddleBlockZ();
+                    lamp[0] = new BlockPos(x, level.getChunk(far.x, far.z).getHeight(Heightmap.Types.WORLD_SURFACE, x, z) + 3, z);
+                    // без обновлений соседей: они прочли бы соседний чанк
+                    level.setBlock(lamp[0], Blocks.GLOWSTONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    Blackouts.blackout(level, Vec3.atCenterOf(lamp[0]), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(lamp[0])), "светокамень на краю мира горит"))
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь блэкаута не пустеет: " + java.util.Arrays.toString(BlackoutWorld.get(level).backlog())))
+                .thenExecute(() -> Blackouts.restore(level, Vec3.atCenterOf(lamp[0]), 8))
+                .thenWaitUntil(() -> h.assertTrue(level.getBlockState(lamp[0]).is(Blocks.GLOWSTONE), "свет на краю мира не вернулся"))
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь блэкаута не пустеет после возврата"))
+                .thenExecute(() -> {
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк выгрузился");
+                    chunks.removeRegionTicket(HOLD, far, 0, far);
+                })
                 .thenSucceed();
     }
 

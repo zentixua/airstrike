@@ -80,6 +80,7 @@ public final class Airstrike {
 
         NeoForge.EVENT_BUS.addListener(Blackouts::onServerTick);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
         NeoForge.EVENT_BUS.addListener(ChunkSaves::onSave);

@@ -94,6 +94,23 @@ public final class SubLevels {
         return out;
     }
 
+    /** Все аппараты мира. */
+    public static List<SubLevelAccess> all(Level level) {
+        return near(level, Vec3.ZERO, 3.0e7);
+    }
+
+    /** Аппарат, в плоте которого лежит чанк, или null. */
+    @Nullable
+    public static SubLevelAccess containing(Level level, net.minecraft.world.level.ChunkPos chunk) {
+        if (broken) return null;
+        try {
+            return companion().getContaining(level, chunk);
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return null;
+        }
+    }
+
     @Nullable
     public static SubLevelAccess byId(Level level, Vec3 near, UUID id) {
         for (SubLevelAccess s : near(level, near, 2048)) {

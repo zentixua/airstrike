@@ -32,7 +32,8 @@ public final class ChunkSaves {
     /** Как у ванили ({@code ChunkSerializer}): тот же кодек блоков секции. */
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATES = PalettedContainer.codecRW(
             Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
-    private static boolean failureLogged;
+    private static final String BLOCK_TICKS = "block_ticks", TWIN_PREFIX = Airstrike.MOD_ID + ":unlit_";
+    private static boolean failureLogged, foreignLogged;
 
     private ChunkSaves() {}
 
@@ -57,13 +58,25 @@ public final class ChunkSaves {
                 LevelChunkSection section = chunk.getSection(index);
                 if (!ChunkLights.needs(section, false)) continue;
                 var saved = BLOCK_STATES.parse(NbtOps.INSTANCE, s.getCompound("block_states")).result();
-                if (saved.isEmpty() || !same(saved.get(), section.getStates())) continue;
+                if (saved.isEmpty() || !same(saved.get(), section.getStates())) {
+                    // тег писал не ванильный конвейер для этого чанка — не наш; двойники этой секции уйдут на диск как есть
+                    if (!foreignLogged) {
+                        foreignLogged = true;
+                        Airstrike.LOG.warn("Блэкаут: секция {} чанка {} в сохранении не та, что в памяти (другой мод меняет тег) — погашенные лампы в ней сохранены как есть",
+                                s.getByte("Y"), chunk.getPos());
+                    }
+                    continue;
+                }
                 PalettedContainer<BlockState> states = section.getStates().copy();
                 ChunkLights.apply(states, false);
                 s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
                 changed = true;
             }
-            if (changed) tag.putBoolean(ChunkSerializer.IS_LIGHT_ON_TAG, false);
+            if (changed) {
+                tag.putBoolean(ChunkSerializer.IS_LIGHT_ON_TAG, false);
+                // запланированные тики двойников (редстоун рядом, соседи) — уже тики лампы: на диске им не место
+                if (tag.contains(BLOCK_TICKS, Tag.TAG_LIST)) tag.getList(BLOCK_TICKS, Tag.TAG_COMPOUND).removeIf(t -> t instanceof CompoundTag c && c.getString("i").startsWith(TWIN_PREFIX));
+            }
         } catch (RuntimeException ex) {
             if (!failureLogged) {
                 failureLogged = true;

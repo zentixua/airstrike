@@ -7,6 +7,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
@@ -15,6 +16,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
@@ -167,7 +169,10 @@ public final class Blackouts {
         List<ServerLevel> levels = new ArrayList<>();
         server.getAllLevels().forEach(levels::add);
         Collections.rotate(levels, -(server.getTickCount() % levels.size()));
+        boolean plots = server.getTickCount() % BlackoutWorld.PLOT_SCAN == 0 && ModList.get().isLoaded("sable");
         for (ServerLevel level : levels) {
+            // двойники в плотах аппаратов Sable — и после перезапуска, когда отключений уже нет
+            if (plots && !SubLevels.all(level).isEmpty()) BlackoutWorld.get(level).relightPlots(level);
             // миры без сети не тратят ни времени, ни памяти
             if (level.hasData(ModAttachments.BLACKOUT_WORLD) || !PowerGrid.get(level).outages().isEmpty()) {
                 BlackoutWorld.get(level).tick(level, clock);
@@ -194,10 +199,9 @@ public final class Blackouts {
         }
     }
 
-    /** Двойник, оказавшийся в светлом квартале (поршень, аппарат), снова зажигается: чанк — на проверку. */
-    public static void onTwinPlaced(ServerLevel level, BlockPos pos) {
-        if (!PowerGrid.get(level).dark(pos.getX() >> 4, pos.getZ() >> 4, level.getGameTime())) {
-            BlackoutWorld.get(level).enqueue(ChunkPos.asLong(pos));
+    public static void onChunkUnload(ChunkEvent.Unload e) {
+        if (e.getLevel() instanceof ServerLevel level && level.hasData(ModAttachments.BLACKOUT_WORLD)) {
+            BlackoutWorld.get(level).forget(e.getChunk().getPos().toLong());
         }
     }
 
