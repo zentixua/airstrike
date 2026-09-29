@@ -10,7 +10,6 @@ import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhAp
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import com.seibel.distanthorizons.api.objects.data.DhApiTerrainDataPoint;
-import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -26,6 +25,8 @@ import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.LongConsumer;
 
 /**
@@ -50,6 +51,16 @@ final class DistantHorizonsLod {
     private static final Map<Object, Set<Long>> DARK = Collections.synchronizedMap(new WeakHashMap<>());
     /** Мир → чанки из {@link #DARK}, чей LOD DH после этого переписал сам. */
     private static final Map<Object, Queue<Long>> REWRITTEN = Collections.synchronizedMap(new WeakHashMap<>());
+
+    /**
+     * Пробы читают базу DH по одной в своём потоке: чтение API ждёт пул ввода-вывода DH без срока, и в общем пуле
+     * фоновых задач Minecraft (генерация, свет, копии с диска) оно держало бы его рабочие потоки.
+     */
+    private static final ExecutorService SAMPLER = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "Airstrike DH LOD probe");
+        t.setDaemon(true);
+        return t;
+    });
 
     private DistantHorizonsLod() {}
 
@@ -127,7 +138,7 @@ final class DistantHorizonsLod {
 
     /**
      * Что лежит в хранилище LOD DH на месте блока (самая мелкая детализация): id блока и свет, или null — данных нет.
-     * Читает базу DH — только в фоновом потоке.
+     * Читает базу DH в своём потоке, по одной.
      */
     static CompletableFuture<String> sample(ServerLevel level, BlockPos pos) {
         IDhApiWorldProxy world = DhApi.Delayed.worldProxy;
@@ -143,7 +154,7 @@ final class DistantHorizonsLod {
             } catch (Exception e) {
                 return null;
             }
-        }, Util.backgroundExecutor());
+        }, SAMPLER);
     }
 
     private static synchronized void subscribe() {

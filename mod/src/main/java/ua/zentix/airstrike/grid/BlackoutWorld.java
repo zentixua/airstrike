@@ -37,7 +37,6 @@ import ua.zentix.airstrike.util.Terrain;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -138,12 +137,14 @@ public final class BlackoutWorld {
     private static final long LOD_LATE = 120_000_000_000L;
     private static final int PROBES = 16;
     private static final int PROBE_LATER = 1200;
+    private static final int PROBE_GIVE_UP = 12000;
     /** Классы пробы: как в сети, наоборот, другой блок, нет данных. */
     private static final String[] PROBE_CLASSES = {"как в сети", "наоборот", "другой блок", "нет данных"};
 
     private static final class Probe {
         final BlockPos pos;
-        final boolean dark;
+        /** Какой LOD ждём: последняя отдача чанка (тёмный или со светом). */
+        boolean dark;
         /** Строки DH о лампе и её двойнике начинаются с id блока и {@code _STATE_}. */
         final String litId, unlitId;
         /** Когда прочитана первая проба (тик мира; -1 — ещё нет), прочитана ли вторая. */
@@ -212,13 +213,16 @@ public final class BlackoutWorld {
     private int lodSinceWork;
     private boolean readFailureLogged;
     /**
-     * Проба хранилища LOD DH (строка в лог): первые {@link #PROBES} чанков, отданных DH, — по одной лампе; что DH
+     * Проба хранилища LOD DH (одна строка в лог за загрузку мира): первые {@link #PROBES} чанков, отданных DH, — по одной лампе; что DH
      * хранит на её месте сразу после подтверждения (или по сроку без него) и через {@link #PROBE_LATER} тиков
      * (не переписал ли он LOD сам, например генератором по файлам регионов, минуя {@link ChunkSaves}).
      */
     private final Long2ObjectOpenHashMap<Probe> probes = new Long2ObjectOpenHashMap<>();
     private final ConcurrentLinkedQueue<ProbeResult> probeResults = new ConcurrentLinkedQueue<>();
     private int probesStarted;
+    private boolean probesDone;
+    /** Проба, которую DH так и не прочитал к этому тику мира, снимается ({@link #PROBE_GIVE_UP} после начала). */
+    private long probeDeadline;
     private final int[][] probeTally = new int[2][4];
     private final List<String> probeOdd = new ArrayList<>();
     /** Квартал → когда в нём последний раз играл звук (щелчок и гул на весь квартал — один раз). */
@@ -421,6 +425,12 @@ public final class BlackoutWorld {
                 return true;
             });
             resignal.keySet().removeIf(c -> chunkMap.getVisibleChunkIfPresent(c) == null);
+            if (!probes.isEmpty() && now >= probeDeadline) {
+                // DH не ответил (занят или закрылся): итог по тому, что есть
+                probeTally[1][3] += probes.size();
+                probes.clear();
+                drainProbes();
+            }
             for (var e : probes.long2ObjectEntrySet()) {
                 Probe pr = e.getValue();
                 if (pr.first >= 0 && !pr.laterAsked && now - pr.first >= PROBE_LATER) probeNow(level, e.getLongKey(), 1, now);
@@ -669,7 +679,7 @@ public final class BlackoutWorld {
             }
             lodSinceWork++;
             if (DistantHorizons.updateLod(level, chunk)) {
-                probe(c, chunk, PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime()));
+                probe(level, c, chunk, PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime()));
                 lodPending.put(c, System.nanoTime());
                 lodLive++;
             } else {
@@ -697,7 +707,7 @@ public final class BlackoutWorld {
                 lodSkipped++;
             } else if (inMemory(level, r.chunk) == null && grid.dark(pos.x, pos.z, now) == r.dark) {
                 if (DistantHorizons.updateLod(level, r.copy)) {
-                    probe(r.chunk, r.copy, r.dark);
+                    probe(level, r.chunk, r.copy, r.dark);
                     lodPending.put(r.chunk, System.nanoTime());
                     lodCopies++;
                 } else {
@@ -725,8 +735,13 @@ public final class BlackoutWorld {
     }
 
     /** Первая лампа чанка, отданного DH, — в пробу (пока их меньше {@link #PROBES}). */
-    private void probe(long c, LevelChunk chunk, boolean dark) {
-        if (probesStarted >= PROBES || probes.containsKey(c)) return;
+    private void probe(ServerLevel level, long c, LevelChunk chunk, boolean dark) {
+        Probe old = probes.get(c);
+        if (old != null) {
+            old.dark = dark;
+            return;
+        }
+        if (probesDone || probesStarted >= PROBES) return;
         LevelChunkSection[] sections = chunk.getSections();
         for (int i = 0; i < sections.length; i++) {
             LevelChunkSection section = sections[i];
@@ -738,7 +753,7 @@ public final class BlackoutWorld {
                         BlockState st = section.getBlockState(x, y, z);
                         if (!GridLights.isLit(st) && !GridLights.isUnlit(st)) continue;
                         probes.put(c, new Probe(new BlockPos(chunk.getPos().getMinBlockX() + x, y0 + y, chunk.getPos().getMinBlockZ() + z), dark, st));
-                        probesStarted++;
+                        if (probesStarted++ == 0) probeDeadline = level.getGameTime() + PROBE_GIVE_UP;
                         return;
                     }
                 }
@@ -769,16 +784,15 @@ public final class BlackoutWorld {
             if (cls != 0 && probeOdd.size() < 4) probeOdd.add((r.stage == 0 ? "сразу " : "позже ") + pr.pos.toShortString() + (pr.dark ? " (темно): " : " (свет): ") + r.block);
             if (r.stage == 1) probes.remove(r.chunk);
         }
-        if (probesStarted == 0 || !probes.isEmpty()) return;
+        if (probesDone || probesStarted == 0 || !probes.isEmpty()) return;
         StringBuilder b = new StringBuilder();
         for (int stage = 0; stage < 2; stage++) {
             b.append(stage == 0 ? "сразу после сохранения: " : "; через 60 с: ");
             for (int k = 0; k < 4; k++) b.append(k == 0 ? "" : ", ").append(PROBE_CLASSES[k]).append(' ').append(probeTally[stage][k]);
         }
         Airstrike.LOG.info("Блэкаут: проба LOD DH ({} чанков) — {}{}", probesStarted, b, probeOdd.isEmpty() ? "" : "; расхождения: " + String.join("; ", probeOdd));
-        probesStarted = 0;
-        for (int[] t : probeTally) Arrays.fill(t, 0);
-        probeOdd.clear();
+        // одна проба на загрузку мира
+        probesDone = true;
     }
 
     /**
