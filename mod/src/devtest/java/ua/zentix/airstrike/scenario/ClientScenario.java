@@ -67,6 +67,7 @@ public final class ClientScenario {
     public ClientScenario(IEventBus modBus) {
         String scenario = System.getProperty("airstrike.scenario");
         if (scenario == null) return;
+        FrameTimes.startIfRequested();
         if (scenario.startsWith("mp-")) {
             new MultiplayerScenario("mp-a".equals(scenario)); // свой сервер, без мира сценария (tools/mp_scenario.sh)
             return;
@@ -90,6 +91,7 @@ public final class ClientScenario {
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
+        else if ("salvo-bench".equals(mode)) planSalvoBench();
         else plan();
     }
 
@@ -312,6 +314,39 @@ public final class ClientScenario {
             });
         }
         at(2400, () -> {
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Нагрузка больших залпов на копии мира игрока (tools/prod_client.py salvo-bench --world … --prop
+     * airstrike.frametimes=true): РСЗО 30 штук с разбросом 150 по точке в 500 блоках впереди, потом 30 шахедов туда же.
+     * Команды — от имени игрока с правами сервера (в мире игрока читы могут быть выключены). Раз в секунду в лог —
+     * среднее время тика сервера (mspt); время кадров — в logs/frametimes.txt.
+     */
+    private void planSalvoBench() {
+        String[] salvo = {"rocket", "drone"};
+        for (int i = 0; i < salvo.length; i++) {
+            String weapon = salvo[i];
+            at(600 + i * 2400, () -> {
+                var mc = Minecraft.getInstance();
+                var p = mc.player;
+                String c = String.format(java.util.Locale.ROOT, "execute as %s at @s run airstrike salvo %s 30 150 at %.1f ~ %.1f",
+                        p.getGameProfile().getName(), weapon, p.getX(), p.getZ() + 500);
+                var server = mc.getSingleplayerServer();
+                server.execute(() -> server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), c));
+                Airstrike.LOG.info("SCENARIO salvo-bench fire {}", weapon);
+            });
+        }
+        for (int t = 20; t <= 6000; t += 20) {
+            at(t, () -> {
+                var server = Minecraft.getInstance().getSingleplayerServer();
+                Airstrike.LOG.info("SCENARIO salvo-bench mspt={} fps={}", String.format(java.util.Locale.ROOT, "%.1f", server.getAverageTickTimeNanos() / 1e6),
+                        Minecraft.getInstance().getFps());
+            });
+        }
+        at(6000, () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

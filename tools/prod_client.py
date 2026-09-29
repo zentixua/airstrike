@@ -6,7 +6,8 @@
 как его запускает Prism: те же библиотеки из каталога Prism и ForgeWrapper для NeoForge (meta/*.json). Клиент идёт во
 вложенном KWin (tools/nested_kwin.sh). Инстанс, его миры и настройки не меняются.
 
-  tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod]
+  tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod] [--prop airstrike.frametimes=true]
+  tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike] --seconds 180   (замер входа, A/B)
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
 Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
@@ -77,7 +78,7 @@ def copy_instance(dest, world):
         shutil.copytree(os.path.join(mc, "saves", world), os.path.join(dest, "saves", world))
 
 
-def launch_args(dest, scenario, world, username):
+def launch_args(dest, props, username, game_extra):
     prism = paths.PRISM
     libs = os.path.join(prism, "libraries")
     meta = lambda uid, v: json.load(open(os.path.join(prism, "meta", uid, f"{v}.json")))
@@ -114,36 +115,57 @@ def launch_args(dest, scenario, world, username):
 
     jvm = ["-Xms512m", "-Xmx8196m", "-Duser.language=en",
            f"-Dforgewrapper.librariesDir={libs}", f"-Dforgewrapper.installer={installer}", f"-Dforgewrapper.minecraft={client_jar}",
-           f"-Dairstrike.scenario={scenario}", f"-Xlog:gc:file={os.path.join(dest, 'logs', 'gc.log')}:time,uptime"]
-    if world:
-        jvm.append(f"-Dairstrike.world={world}")
+           f"-Xlog:gc:file={os.path.join(dest, 'logs', 'gc.log')}:time,uptime"]
+    jvm += [f"-D{k}={v}" for k, v in props.items()]
     jvm += mcm.get("+jvmArgs", [])
-    return jvm + ["-cp", os.pathsep.join(cp), neo["mainClass"]] + game
+    return jvm + ["-cp", os.pathsep.join(cp), neo["mainClass"]] + game + game_extra
 
 
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("scenario")
-    ap.add_argument("--world")
+    ap.add_argument("scenario", nargs="?", help="сценарий (airstrike.scenario); без него клиент просто идёт в меню или в --quickplay")
+    ap.add_argument("--world", help="скопировать этот мир игрока; со сценарием — открыть его")
+    ap.add_argument("--quickplay", action="store_true", help="сразу войти в --world средствами игры (quickPlaySingleplayer)")
+    ap.add_argument("--without-airstrike", action="store_true", help="сборка хоста без Airstrike (сравнение A/B)")
+    ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
+    ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд")
     ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
     ap.add_argument("--user", default="Dev")
     a = ap.parse_args()
+    if a.without_airstrike and a.scenario:
+        ap.error("сценарии идут из тестовой сборки Airstrike: без неё сценария нет")
+    if a.quickplay and not a.world:
+        ap.error("--quickplay нужен --world")
     dest = os.path.abspath(a.dir)
 
-    subprocess.run([os.path.join(paths.MOD, "gradlew"), "-p", paths.MOD, "scenarioJar", "-q", "--console=plain"], check=True)
     copy_instance(dest, a.world)
-    jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "airstrike-*-scenario.jar")), key=os.path.getmtime)
-    shutil.copy2(jar, os.path.join(dest, "mods"))
+    if not a.without_airstrike:
+        subprocess.run([os.path.join(paths.MOD, "gradlew"), "-p", paths.MOD, "scenarioJar", "-q", "--console=plain"], check=True)
+        jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "airstrike-*-scenario.jar")), key=os.path.getmtime)
+        shutil.copy2(jar, os.path.join(dest, "mods"))
     os.makedirs(os.path.join(dest, "logs"), exist_ok=True)
+
+    props = dict(p.split("=", 1) for p in a.prop)
+    if a.scenario:
+        props["airstrike.scenario"] = a.scenario
+        if a.world and not a.quickplay:
+            props["airstrike.world"] = a.world
+    game_extra = ["--quickPlaySingleplayer", a.world] if a.quickplay else []
 
     java = os.path.join(os.environ.get("JAVA_HOME") or paths.JAVA, "bin", "java")
     argfile = os.path.join(dest, "launch.args")
     with open(argfile, "w") as f:
-        for arg in launch_args(dest, a.scenario, a.world, a.user):
+        for arg in launch_args(dest, props, a.user, game_extra):
             f.write('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"\n')
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
-    sys.exit(subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd]).returncode)
+    kwin = subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd])
+    try:
+        sys.exit(kwin.wait(timeout=a.seconds))
+    except subprocess.TimeoutExpired:
+        # вложенный KWin закрывает свою сессию, а с ней и клиент
+        kwin.terminate()
+        sys.exit(kwin.wait())
 
 
 if __name__ == "__main__":
