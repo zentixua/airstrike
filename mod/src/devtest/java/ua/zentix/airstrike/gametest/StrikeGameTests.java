@@ -767,6 +767,39 @@ public final class StrikeGameTests {
         bomberEntersNear(h, start, start.add(0, 0, 3000), ahead, ahead);
     }
 
+    /*
+     * B-2 возвращается в мир над городом или холмом: у возврата его поднимало на 120 блоков над самым высоким, что
+     * впереди на 80 блоков, — над домом в 70 блоков это на 20 выше эшелона, и с оставшихся ~230 блоков он не успевал
+     * снизиться и уходил на второй заход (трейлер, план bomb_bay у башен, 29.09.2026). Первый заход — бомба в грунте
+     * с первого захода, без второго.
+     */
+    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_tall_entry", skyAccess = true)
+    public static void bomberEnteringWorldOverTallBuildingHitsOnFirstPass(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 start = top(h, RUNWAY_TARGET);
+        int x = Mth.floor(start.x), z0 = Mth.floor(start.z);
+        // полоса тикающих чанков на курсе от 320 до 120 блоков до цели: B-2 возвращается в мир у её дальнего края
+        List<ChunkPos> forced = new ArrayList<>();
+        for (int dz = -320; dz <= -120; dz += 16) forced.add(new ChunkPos(x >> 4, (z0 + dz) >> 4));
+        // полоса и по два столбца чанков с каждой стороны — готовы сразу (генерация в фоне не успела бы к сроку теста:
+        // на медленной машине B-2 возвращался бы в мир у края площадки, и тест не ловил бы подъём у полосы)
+        for (ChunkPos c : forced) for (int dx = -2; dx <= 2; dx++) level.getChunk(c.x + dx, c.z);
+        for (ChunkPos c : forced) level.setChunkForced(c.x, c.z, true);
+        // дом в 70 блоков над грунтом у цели — впереди точки возврата в пределах 80 блоков
+        int groundY = Mth.floor(start.y);
+        for (int dx = -3; dx <= 3; dx++) for (int dz = -3; dz <= 3; dz++) for (int y = 0; y < 70; y++) {
+            level.setBlock(new BlockPos(x + dx, groundY + y, z0 - 290 + dz), Blocks.STONE.defaultBlockState(), 2);
+        }
+        bomberEntersNear(h, start.add(0, 0, -2000), start, null, start, true);
+        // полоса нужна только для возврата в мир, дальше — район цели
+        h.onEachTick(() -> {
+            if (!forced.isEmpty() && level.getEntitiesOfClass(BunkerBusterEntity.class, new AABB(start, start).inflate(400)).stream().anyMatch(BunkerBusterEntity::isDrilling)) {
+                for (ChunkPos c : forced) level.setChunkForced(c.x, c.z, false);
+                forced.clear();
+            }
+        });
+    }
+
     /** Без перенацеливания: над целью башня в 40 блоков, которой не было в оценке поверхности у пуска (крыша, чанк не готов). */
     @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_tower", skyAccess = true)
     public static void bomberHitsTowerTopMissingFromFirstEstimate(GameTestHelper h) {
@@ -789,6 +822,11 @@ public final class StrikeGameTests {
      * (не в стену барьеров площадки) — сброшена не раньше и не позже, не пропала.
      */
     private static void bomberEntersNear(GameTestHelper h, Vec3 from, Vec3 aim, @Nullable Vec3 retarget, Vec3 expect) {
+        bomberEntersNear(h, from, aim, retarget, expect, false);
+    }
+
+    /** {@code onePass} — и без второго захода: B-2, прошедший черту сброса без сброса, провалит тест. */
+    private static void bomberEntersNear(GameTestHelper h, Vec3 from, Vec3 aim, @Nullable Vec3 retarget, Vec3 expect, boolean onePass) {
         ServerLevel level = h.getLevel();
         BomberEntity bomber = ModEntities.BOMBER.get().create(level);
         // свой владелец — считать только свою бомбу
@@ -807,7 +845,14 @@ public final class StrikeGameTests {
         h.onEachTick(() -> {
             StrikeProjectile now = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
                     .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
-            if (now instanceof BomberEntity b) last[0] = b;
+            if (now instanceof BomberEntity b) {
+                last[0] = b;
+                double d = b.position().subtract(expect).horizontalDistance();
+                if (onePass && !b.hasReleased() && d < BomberEntity.RELEASE_DISTANCE - BomberEntity.CRUISE_SPEED) {
+                    h.fail("B-2 прошёл черту сброса без сброса (второй заход): в " + (int) d + " блоках от точки, на высоте "
+                            + (int) (b.getY() - expect.y) + ", вне мира " + b.isVirtual());
+                }
+            }
             List<BunkerBusterEntity> seen = new ArrayList<>(level.getEntitiesOfClass(BunkerBusterEntity.class, new AABB(expect, expect).inflate(400, 400, 400)));
             for (StrikeProjectile p : VirtualFlights.get(level).flights()) if (p instanceof BunkerBusterEntity b) seen.add(b);
             for (BunkerBusterEntity b : seen) {
