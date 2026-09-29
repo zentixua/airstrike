@@ -202,9 +202,11 @@ public final class Warheads {
 
     /**
      * Ударная волна выбивает стёкла (и листву — только у ракеты). Сканируем лишь секции чанков, где такие блоки
-     * вообще есть, поэтому даже куб 53×31×53 обходится дёшево.
+     * вообще есть, поэтому даже куб 53×31×53 обходится дёшево. Незагруженные чанки пропускаются.
+     *
+     * @return сколько блоков выбито
      */
-    static int shatter(ServerLevel level, Vec3 center, int radius, int below, int above, TagKey<Block> tag) {
+    public static int shatter(ServerLevel level, Vec3 center, int radius, int below, int above, TagKey<Block> tag) {
         BlockPos c = BlockPos.containing(center);
         BlockPos min = c.offset(-radius, -below, -radius), max = c.offset(radius, above, radius);
         int broken = 0;
@@ -224,8 +226,9 @@ public final class Warheads {
                     for (int x = x0; x <= x1; x++) {
                         for (int y = y0; y <= y1; y++) {
                             for (int z = z0; z <= z1; z++) {
-                                m.set(x, y, z);
-                                if (level.getBlockState(m).is(tag)) {
+                                // из уже взятой секции: setBlock меняет её же, так что следующие чтения верны
+                                if (section.getBlockState(x & 15, y & 15, z & 15).is(tag)) {
+                                    m.set(x, y, z);
                                     level.setBlock(m, Blocks.AIR.defaultBlockState(), 3);
                                     broken++;
                                 }

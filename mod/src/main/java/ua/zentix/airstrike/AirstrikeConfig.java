@@ -39,6 +39,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.BooleanValue siren;
         public final ModConfigSpec.IntValue maxSalvo;
         public final ModConfigSpec.IntValue maxSpread;
+        public final ModConfigSpec.IntValue maxActivePerPlayer;
         public final ModConfigSpec.IntValue aimRange;
         public final ModConfigSpec.IntValue mapRange;
         public final ModConfigSpec.BooleanValue designatorForEveryone;
@@ -103,6 +104,9 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.max_salvo").defineInRange("max_salvo", 30, 1, Loadout.MAX_COUNT);
             maxSpread = b.comment("Наибольший разброс залпа, блоков.")
                     .translation("airstrike.config.max_spread").defineInRange("max_spread", 150, 0, Loadout.MAX_SPREAD);
+            maxActivePerPlayer = b.comment("Сколько снарядов у одного игрока может быть в работе сразу (в полёте и ещё не выпущенных в залпах),",
+                            "чтобы новый приказ приняли; операторов не касается. 0 — без предела.")
+                    .translation("airstrike.config.max_active_per_player").defineInRange("max_active_per_player", 0, 0, 100_000);
             aimRange = b.comment("Дальность прицела пульта, блоков.")
                     .translation("airstrike.config.aim_range").defineInRange("aim_range", 400, 32, 1024);
             mapRange = b.comment("Дальность удара по месту, выбранному на карте пульта, блоков (по горизонтали от игрока).",
