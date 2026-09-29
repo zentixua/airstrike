@@ -34,7 +34,7 @@ public class RocketEntity extends StrikeProjectile {
     /** Ближе этого времени полёта не стреляет: круче задираем трубы (миномётная траектория). */
     private static final int MIN_FLIGHT = 50;
     /** Вне мира, пока район цели не готов, замедляются последние столько тиков траектории (5 с, дольше загрузки района). */
-    static final double STRETCH_TICKS = 100;
+    public static final double STRETCH_TICKS = 100;
     /** Темп полёта вне мира меняется не быстрее этого за тик. */
     private static final double RATE_SLEW = 0.05;
     /**

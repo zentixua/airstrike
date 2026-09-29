@@ -54,6 +54,7 @@ import ua.zentix.airstrike.warhead.Warheads;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Проверки без окна ({@code ./gradlew runGameTestServer}): каждое оружие долетает и взрывается, шахед сходит
@@ -831,13 +832,16 @@ public final class StrikeGameTests {
         List<String> track = new java.util.ArrayList<>();
         List<Double> speeds = new java.util.ArrayList<>();
         double[] minRate = {1};
+        Vec3[] last = {rail};
         h.onEachTick(() -> {
             tick[0]++;
             StrikeProjectile p = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
                     .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
             if (p != null) FlightTickets.hold(level, aimChunk, FlightTickets.DISTANCE, id, tick[0] >= withhold);
+            if (tick[0] == withhold) generateNow(level, aimChunk);
             // после выгорания: дальше скорость меняют только тяготение и темп растяжения
             if (p == null || p.flightPhase() == FlightPhase.BOOST || p.flightPhase().onLauncher() || p.flightPhase() == FlightPhase.IGNITION) return;
+            last[0] = p.position();
             double rate = ((RocketEntity) p).timeRate();
             minRate[0] = Math.min(minRate[0], rate);
             speeds.add(p.velocity().length());
@@ -847,6 +851,8 @@ public final class StrikeGameTests {
             boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
                     || VirtualFlights.get(level).flights().stream().anyMatch(f -> f.getUUID().equals(id));
             h.assertFalse(flying, "снаряд ещё летит");
+            // взрыв у цели, а не конец ожидания района (AREA_WAIT_LIMIT): иначе конца растяжения и не было
+            h.assertTrue(last[0].distanceTo(aim) < 16, "снаряд пропал не у цели: " + last[0].subtract(aim));
             h.assertTrue(minRate[0] < 0.5, "полёт не растягивался (темп не ниже " + minRate[0] + ")");
             // последний тик — шаг в саму цель (доходит до неё, а не на длину шага), его не считаем
             double worst = 0;
@@ -867,7 +873,34 @@ public final class StrikeGameTests {
     /** Дальний свежий район: полёт длиннее загрузки района — сход на тике приказа, без растяжения и остановок. */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "rocket_fresh_far", skyAccess = true)
     public static void rocketToFreshFarAreaLaunchesAtOnce(GameTestHelper h) {
+        // «полёт длиннее загрузки района» — в игровом времени: без паузы 1200 тиков срока проходили быстрее генерации
+        gameSpeed(h);
         rocketLaunchesAtOnceAndNeverFreezes(h, 1750, 0);
+    }
+
+    /**
+     * Район цели, отпущенный тестом, готов сразу: чанки 5×5 вокруг — синхронно, тикет уже стоит. Растяжение меряется
+     * тиками, а сервер GameTest тикает без пауз (на CI ~2000 тиков в секунду): фоновая генерация после срока шла
+     * тысячи тиков, и снаряд успевал встать у черты (main, 29.09.2026: «стоял в воздухе 522 тиков»). Так момент
+     * готовности — тик срока, на любой скорости раннера.
+     */
+    private static void generateNow(ServerLevel level, ChunkPos centre) {
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++) level.getChunk(centre.x + dx, centre.z + dz);
+    }
+
+    /**
+     * Темп игры (20 тиков в секунду) на время теста, который ждёт фоновой загрузки района: мод меряет ожидание тиками
+     * (предел {@code AREA_WAIT_LIMIT} — 1200 тиков, минута игры), а сервер GameTest тикает без пауз — на CI около
+     * 2000 тиков в секунду, и минута игры проходила за полсекунды, раньше генерации свежего района.
+     */
+    private static void gameSpeed(GameTestHelper h) {
+        long[] last = {System.nanoTime()};
+        h.onEachTick(() -> {
+            long wait = 50_000_000L - (System.nanoTime() - last[0]);
+            if (wait > 0) LockSupport.parkNanos(wait);
+            last[0] = System.nanoTime();
+        });
     }
 
     /** @param withhold сколько тиков район цели не грузится (тест снимает тикет снаряда, потом ставит его сам) */
@@ -898,6 +931,7 @@ public final class StrikeGameTests {
                     .orElseGet(() -> level.getEntity(id) instanceof StrikeProjectile e && !e.isRemoved() ? e : null);
             // район «грузится долго»: тикет снаряда снимается, пока не выйдет срок, потом ставится снова (снимет его снаряд)
             if (withhold > 0 && p != null) FlightTickets.hold(level, aimChunk, FlightTickets.DISTANCE, id, tick[0] >= withhold);
+            if (withhold > 0 && tick[0] == withhold) generateNow(level, aimChunk);
             if (p == null) return;
             lastSeen[0] = tick[0];
             boolean moved = p.position().distanceToSqr(last[0]) > 1.0e-6;
