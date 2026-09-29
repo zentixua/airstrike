@@ -868,7 +868,7 @@ public final class StrikeGameTests {
         // место падения заранее не известно, оно грузится в фоне, пока бомба ждёт: время ожидания — игровое
         gameSpeed(h);
         // далеко за площадкой: вокруг ничего не загружено, бомба сразу летит вне мира
-        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, 4000);
+        BlockPos origin = FarSite.MISS_BELOW_GROUND.at(h);
         Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
         Vec3 behind = from.add(0, -150, -300);
         BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
@@ -910,7 +910,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         // место падения грузится в фоне, пока бомба ждёт: время ожидания — игровое
         gameSpeed(h);
-        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, -4000);
+        BlockPos origin = FarSite.BOMB_RISEN_SURFACE.at(h);
         Vec3 from = new Vec3(origin.getX() + 0.5, level.getSeaLevel() + 200, origin.getZ() + 0.5);
         Vec3 behind = from.add(0, -150, -300);
         int sea = level.getChunkSource().getGenerator().getSeaLevel();
@@ -1134,7 +1134,7 @@ public final class StrikeGameTests {
     public static void virtualRocketDetonatesAtTickingAim(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         // далеко за площадкой: тикает только чанк цели (принудительно), соседи — нет
-        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(4000, 0, 4000);
+        BlockPos origin = FarSite.ROCKET_TICKING_AIM.at(h);
         ChunkPos chunk = new ChunkPos(origin);
         level.setChunkForced(chunk.x, chunk.z, true);
         afterTest(h, () -> level.setChunkForced(chunk.x, chunk.z, false));
@@ -1173,7 +1173,7 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_rocket_hill_beyond", skyAccess = true)
     public static void virtualRocketIgnoresTerrainBeyondAim(GameTestHelper h) {
-        returnsUnderOwnTerrain(h, 4, 6, 4000, (level, aim) -> {
+        returnsUnderOwnTerrain(h, 4, 6, FarSite.ROCKET_HILL_BEYOND, (level, aim) -> {
             RocketEntity rocket = ModEntities.ROCKET.get().create(level);
             rocket.launchFrom(aim.add(-300, 0, 0), new Target.Point(aim), aim, null);
             return rocket;
@@ -1182,9 +1182,8 @@ public final class StrikeGameTests {
 
     @GameTest(template = "runway", timeoutTicks = 900, batch = "virtual_missile_hill_beyond", skyAccess = true)
     public static void virtualMissileIgnoresTerrainBeyondAim(GameTestHelper h) {
-        // скала дальше, чем у ракеты: крылатая в пике проскакивает цель примерно на 10 блоков (её взрыватель — не этот PR);
-        // своё место в 512 блоках от ракетного теста: скала одного не встаёт на пути другого, если их партии рядом
-        returnsUnderOwnTerrain(h, 12, 28, 4512, (level, aim) -> {
+        // скала дальше, чем у ракеты: крылатая в пике проскакивает цель примерно на 10 блоков
+        returnsUnderOwnTerrain(h, 12, 28, FarSite.MISSILE_HILL_BEYOND, (level, aim) -> {
             CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
             // как пуск издалека (StrikeService.fromAfar): над целью на 12 блоков
             missile.launch(aim.add(-300, 12, 0), new Target.Point(aim), aim, null);
@@ -1203,15 +1202,14 @@ public final class StrikeGameTests {
 
     /**
      * {@code clearance} — запас снаряда над рельефом при возврате в мир ({@code StrikeProjectile.clearance}),
-     * {@code cliff} — на сколько блоков за целью по курсу начинается скала, {@code south} — сдвиг места теста по z
-     * от площадки (свой у каждого теста: скалы остаются в мире).
+     * {@code cliff} — на сколько блоков за целью по курсу начинается скала, {@code site} — своё место теста.
      */
-    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, int cliff, int south, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
+    private static void returnsUnderOwnTerrain(GameTestHelper h, int clearance, int cliff, FarSite site, java.util.function.BiFunction<ServerLevel, Vec3, StrikeProjectile> make) {
         ServerLevel level = h.getLevel();
         // далеко за площадкой, как virtualRocketDetonatesAtTickingAim. Район цели сгенерирован сразу и тикает с первого
         // тика (сущности — 5×5 чанков, ±40 блоков): снаряд вне мира всегда возвращается у края района, а не когда тикет
         // района цели самого снаряда догрузит его в фоне (путь зависел от скорости генерации)
-        BlockPos origin = h.absolutePos(RUNWAY_TARGET).offset(-4000, 0, south);
+        BlockPos origin = site.at(h);
         ChunkPos chunk = new ChunkPos(origin);
         for (int dx = -FlightTickets.DISTANCE; dx <= FlightTickets.DISTANCE; dx++)
             for (int dz = -FlightTickets.DISTANCE; dz <= FlightTickets.DISTANCE; dz++) level.getChunk(chunk.x + dx, chunk.z + dz);
@@ -1353,6 +1351,30 @@ public final class StrikeGameTests {
      * тысячи тиков, и снаряд успевал встать у черты (main, 29.09.2026: «стоял в воздухе 522 тиков»). Так момент
      * готовности — тик срока, на любой скорости раннера.
      */
+    /**
+     * Места тестов далеко за площадкой (вокруг ничего не загружено, снаряд летит вне мира) — у каждого теста своё,
+     * в тысяче блоков и больше от остальных: что тест оставил в мире (скала, воронка), не встаёт на путь другого, если
+     * их площадки рядом. Новый тест вдали — новое место здесь.
+     */
+    private enum FarSite {
+        MISS_BELOW_GROUND(-4000, 4000),
+        BOMB_RISEN_SURFACE(4000, -4000),
+        ROCKET_TICKING_AIM(4000, 4000),
+        ROCKET_HILL_BEYOND(-4000, -4000),
+        MISSILE_HILL_BEYOND(-4000, 5200);
+
+        private final int dx, dz;
+
+        FarSite(int dx, int dz) {
+            this.dx = dx;
+            this.dz = dz;
+        }
+
+        BlockPos at(GameTestHelper h) {
+            return h.absolutePos(RUNWAY_TARGET).offset(dx, 0, dz);
+        }
+    }
+
     private static void generateNow(ServerLevel level, ChunkPos centre) {
         for (int dx = -2; dx <= 2; dx++)
             for (int dz = -2; dz <= 2; dz++) level.getChunk(centre.x + dx, centre.z + dz);
