@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.fx;
 
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -68,17 +69,26 @@ public final class BlastEffects {
         /** @param band пояс фронта: 1 — ближе 17 блоков, 2 — 17..34 … */
         abstract void arrive(ClientLevel level, int band);
 
-        /** Вспышка на экране: свет мгновенный, сила — по расстоянию и прямой видимости. */
-        void flash(ClientLevel level, double range, float decay) {
-            Player player = Minecraft.getInstance().player;
+        /**
+         * Вспышка на экране: свет мгновенный, сила — {@link FlashFalloff} по расстоянию, взгляду и прямой видимости
+         * от камеры (с борта снаряда и в камере наблюдения — оттуда, куда смотрит игрок, а не от его тела).
+         *
+         * @param near ближе этого — полная сила, блоки
+         */
+        void flash(ClientLevel level, double near, double range, float decay) {
+            Minecraft mc = Minecraft.getInstance();
+            Player player = mc.player;
             if (player == null) return;
-            Vec3 eye = player.getEyePosition();
-            double d = eye.distanceTo(pos);
-            if (d > range) return;
+            Camera camera = mc.gameRenderer.getMainCamera();
+            Vec3 eye = camera.getPosition();
+            Vec3 to = pos.add(0, 1.5, 0).subtract(eye);
+            double d = to.length();
+            if (d >= range) return;
             boolean visible = level.clip(new ClipContext(eye, pos.add(0, 1.5, 0), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player))
                     .getType() == HitResult.Type.MISS;
-            float s = (float) (1 - d / range) * (visible ? 0.85f : 0.3f);
-            Flash.trigger(s, decay, 0xFFF1C8);
+            double cos = d < 1e-6 ? 1 : new Vec3(camera.getLookVector()).dot(to) / d;
+            float s = FlashFalloff.strength(d, near, range, cos, visible);
+            if (s > 0) Flash.trigger(s, decay, 0xFFF1C8);
         }
 
         /** Фонтан грунта из воронки и пылевое облако цвета местности (fx/spray). */
@@ -112,7 +122,7 @@ public final class BlastEffects {
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                flash(level, 240, 0.72f);
+                flash(level, 3 * R, 240, 0.72f);
                 Explosions.burst(level, pos, R, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2, 1, 2, 0, 30);
                 return true;
@@ -148,7 +158,7 @@ public final class BlastEffects {
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                flash(level, 400, 0.8f);
+                flash(level, 3 * R, 400, 0.8f);
                 Explosions.burst(level, pos, R, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 2, 4, 0, 80);
                 return true;
@@ -201,7 +211,7 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 // под землёй вспышку видно только в самой полости и рядом
-                flash(level, 70, 0.8f);
+                flash(level, 8, 70, 0.8f);
                 return true;
             }
             if (t <= 6) {
