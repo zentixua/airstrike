@@ -11,6 +11,7 @@ package ua.zentix.airstrike.client.fx;
  *       точечного источника, поэтому на экране вуаль спадает как near/d, а не как 1/d².</li>
  *   <li>Взрыв вне поля зрения не слепит: остаётся отсвет на окружении ({@link #AMBIENT}); за преградой — только он
  *       и слабее ({@link #OCCLUDED}).</li>
+ *   <li>Ближе {@code near} взрыв заполняет поле зрения, и угол к нему перестаёт значить.</li>
  *   <li>К {@code range} сила плавно доходит до нуля, без скачка на краю.</li>
  * </ul>
  * Ядерная вспышка — отдельная ({@code client/nuclear/NukeFlash}): она и должна ослеплять.
@@ -39,6 +40,8 @@ public final class FlashFalloff {
         double edge = 1 - r * r * r * r;
         double facing = Math.max(0, cosView);
         double view = visible ? AMBIENT + (1 - AMBIENT) * facing * facing : OCCLUDED;
+        // вплотную взрыв заливает светом всё поле зрения, куда ни смотри: к нулю угол перестаёт значить
+        if (visible && d < near) view += (1 - view) * (1 - d / near);
         return (float) (PEAK * distance * edge * view);
     }
 }

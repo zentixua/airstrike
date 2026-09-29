@@ -108,6 +108,8 @@ public final class BlastEffects {
     static final class Drone extends Timeline {
         /** Радиус огненного шара, блоки (≈ 50 кг ВВ). */
         static final float R = 5f;
+        /** Вспышка: ближе — полная сила, дальше второго — её нет, блоки. */
+        static final double FLASH_NEAR = 3 * R, FLASH_RANGE = 240;
         /** Сколько тиков тянется столб дыма. */
         static final int COLUMN_TICKS = 50;
 
@@ -122,7 +124,7 @@ public final class BlastEffects {
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                flash(level, 3 * R, 240, 0.72f);
+                flash(level, FLASH_NEAR, FLASH_RANGE, 0.72f);
                 Explosions.burst(level, pos, R, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2, 1, 2, 0, 30);
                 return true;
@@ -148,6 +150,8 @@ public final class BlastEffects {
     static final class Missile extends Timeline {
         /** Радиус огненного шара, блоки (≈ 450 кг ВВ). */
         static final float R = 8.5f;
+        /** Вспышка: ближе — полная сила, дальше второго — её нет, блоки. */
+        static final double FLASH_NEAR = 3 * R, FLASH_RANGE = 400;
         /** Сколько тиков тянется столб дыма. */
         static final int COLUMN_TICKS = 80;
 
@@ -158,7 +162,7 @@ public final class BlastEffects {
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                flash(level, 3 * R, 400, 0.8f);
+                flash(level, FLASH_NEAR, FLASH_RANGE, 0.8f);
                 Explosions.burst(level, pos, R, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 2, 4, 0, 80);
                 return true;
