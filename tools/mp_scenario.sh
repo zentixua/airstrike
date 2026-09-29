@@ -28,6 +28,8 @@ view-distance=8
 simulation-distance=8
 motd=airstrike-mp
 PROPS
+# NeoForge объявляет выделенный сервер в LAN (UDP-сокет на 0.0.0.0, рассылка MOTD и порта) — у проверок выключено
+python3 "$ROOT/tools/rig_config.py" "$SERVER"
 # ops.json: Alpha — оператор (офлайн-UUID, как его считает сервер без авторизации)
 python3 - "$SERVER/ops.json" <<'PY'
 import hashlib, json, sys, uuid

@@ -45,6 +45,8 @@ max-tick-time=-1
 sync-chunk-writes=false
 PROPS
 ln -sfn ../mods "$RUN/server/mods"
+# NeoForge объявляет выделенный сервер в LAN (UDP-сокет на 0.0.0.0, рассылка MOTD и порта) — у проверок выключено
+python3 "$ROOT/tools/rig_config.py" "$RUN/server"
 
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
