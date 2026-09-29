@@ -160,9 +160,16 @@ def main():
     with open(argfile, "w") as f:
         for arg in launch_args(dest, props, a.user, game_extra):
             f.write('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"\n')
+    # звук — как у client_scenario.sh: драйвер OpenAL Soft «wave» пишет всё, что слышит клиент, в <dest>/audio.wav
+    # (звуковой сервер хоста клиенту закрыт nested_kwin.sh, так что только в файл)
+    alsoft = os.path.join(dest, "alsoft.conf")
+    with open(alsoft, "w") as f:
+        f.write("[general]\ndrivers = wave\nfrequency = 22050\nchannels = stereo\nsample-type = int16\n"
+                f"[wave]\nfile = {os.path.join(dest, 'audio.wav')}\n")
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
-    kwin = subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd])
+    kwin = subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd],
+                            env={**os.environ, "ALSOFT_CONF": alsoft})
     try:
         sys.exit(kwin.wait(timeout=a.seconds))
     except subprocess.TimeoutExpired:
