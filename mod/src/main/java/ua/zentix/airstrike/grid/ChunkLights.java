@@ -130,16 +130,19 @@ public final class ChunkLights {
     }
 
     /**
-     * Чанк, у которого соседи не загружены (край загруженного мира: чанк в памяти, но не тикает): блоки меняются
-     * прямо в палитре — без обновлений соседей и без Sable, которые прочли бы соседний чанк и загрузили его сразу.
-     * Свет — {@code checkBlock} по месту (снижение и рост расходятся и туда, где соседи есть), клиентам — изменение
-     * блока (тем, кому чанк выдан). Не больше {@code limit} ламп.
+     * Блоки меняются прямо в палитре секции: для мира лампа и двойник — один блок, кроме света
+     * ({@link GridLights#inPlace}), и {@code setBlock} с обновлениями соседей, картами высот и Sable (≈10 мкс на лампу
+     * со сборкой хоста) не нужен; а на краю загруженного мира (чанк в памяти, соседи не загружены) он и вреден — Sable
+     * и соседи прочли бы соседний чанк и загрузили его сразу. Свет — {@code checkBlock} по месту (снижение и рост
+     * расходятся и в соседние чанки), клиентам — изменение блока (тем, кому чанк выдан). Не больше {@code limit} ламп.
      * <p>
-     * Лампы от сигнала, зажжённые здесь, сверить с сигналом нельзя (он читается у соседей, а запланированный тик
-     * в чанке без тика пропадает): их места — в {@code signalled}, сверка — когда соседи загружены ({@link #resignal}).
-     * Начинает с места {@code from} ({@link Pass#next} прошлого прохода).
+     * Лампы от сигнала, зажжённые здесь, сверяются с сигналом отдельно ({@link #resignal}): их места — в
+     * {@code signalled}. Начинает с места {@code from} ({@link Pass#next} прошлого прохода). Пару, которую в палитре
+     * менять нельзя (у ламп сети таких нет — GameTest), при загруженных соседях ({@code neighbours}) переводит мир,
+     * без них — пропускает до загрузки соседей.
      */
-    public static Pass applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit, int from, LongArrayList signalled) {
+    public static Pass applyInPlace(ServerLevel level, LevelChunk chunk, boolean dark, int limit, int from,
+                                    boolean neighbours, LongArrayList signalled) {
         LevelChunkSection[] sections = chunk.getSections();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         var light = level.getChunkSource().getLightEngine();
@@ -159,10 +162,14 @@ public final class ChunkLights {
                     next = i << 12 | b;
                     break sections;
                 }
-                section.setBlockState(x, y, z, to);
                 BlockPos p = new BlockPos(x0 + x, y0 + y, z0 + z);
-                light.checkBlock(p);
-                level.getChunkSource().blockChanged(p);
+                if (GridLights.inPlace(to)) {
+                    section.setBlockState(x, y, z, to);
+                    light.checkBlock(p);
+                    level.getChunkSource().blockChanged(p);
+                } else if (!neighbours || !level.setBlock(p, to, FLAGS)) {
+                    continue;
+                }
                 if (!dark && signal(to)) signalled.add(p.asLong());
                 changed++;
             }

@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
@@ -44,28 +45,38 @@ import java.util.Optional;
  *   <li>Каскад ({@link Sweep}): чанки района отключения по времени, когда до их квартала доходит отключение (или
  *   возврат света). Загруженный чанк переводится сразу (лампы — в двойников или обратно); чанк вне загруженного
  *   мира не грузится — он переведётся, когда его загрузят ({@link #onChunkLoad}).</li>
- *   <li>Чанк, у которого загружены и соседи, переводится через мир (свет, клиенты, Sable). Чанк на краю загруженного
- *   мира (соседей нет, а на выделенном сервере они могут не прийти вовсе) — прямо в палитре
- *   ({@link ChunkLights#applyInPlace}): Sable на каждое изменение блока читает соседей и грузил бы их синхронно
- *   ({@link NuclearTickets#neighbourhoodLoaded}). Что требует соседей (сверка ламп от сигнала), ждёт их загрузки.</li>
- *   <li>Единица работы — не чанк, а до {@link #LAMPS_PER_UNIT} ламп (мест света, сверок) по стольким чанкам очереди,
- *   сколько их уместится (не больше {@link #CHUNKS_PER_UNIT}): чанк без ламп — проверка палитр, микросекунды; проход
- *   секций чанка с лампами стоит как {@link #SCAN_COST} ламп. Чанк кончается тем же проходом, что перевёл его
- *   последнюю лампу ({@link ChunkLights.Pass}): второй, холостой проход стоил бы ещё одной единицы на чанк.</li>
+ *   <li>Лампы меняются прямо в палитре секции ({@link ChunkLights#applyInPlace}): для мира лампа и двойник — один
+ *   и тот же блок, кроме света ({@link GridLights#inPlace}: ни блок-сущности, ни другой формы), и соседям, картам
+ *   высот, столкновениям знать не о чем; свет — {@code checkBlock} по месту, клиентам — изменение блока. Через
+ *   {@code setBlock} с Create и Sable лампа стоила ≈10 мкс, а в городе бывает 2.5 млн невидимых блоков света (до 7400 на
+ *   чанк): очередь шла минутами. Лампы от сигнала сверяются с сигналом сразу, если соседи чанка загружены; на краю
+ *   загруженного мира (соседей нет, а на выделенном сервере они могут не прийти вовсе) — когда загрузятся. Через мир
+ *   ({@link ChunkLights#apply}) — только плоты аппаратов Sable: там блоки аппарата читает его физика.</li>
+ *   <li>Единица работы — не чанк, а {@link #UNIT_WORK} работы по стольким чанкам очереди, сколько уместится (не больше
+ *   {@link #CHUNKS_PER_UNIT}): лампа в палитре — 1, через мир — {@link #WORLD_LAMP}, проход секций чанка с лампами —
+ *   {@link #SCAN_COST}; чанк без ламп — проверка палитр, микросекунды. Проход продолжается с места остановки
+ *   ({@link ChunkLights.Pass#next}) и кончается на последней лампе чанка: ни повторных проходов с начала, ни
+ *   холостого второго.</li>
  *   <li>Чанков блэкаут не грузит никогда: на диске погашенных ламп нет ({@link ChunkSaves}), и чанк, загруженный
  *   в тёмном квартале, гаснет сам при загрузке.</li>
  * </ul>
  */
 public final class BlackoutWorld {
-    /** Ламп за единицу работы: у каждой — setBlock со светом, клиентами и Sable (32 лампы — ≈0.3 мс с Create и Sable). */
-    static final int LAMPS_PER_UNIT = 32;
+    /** Работы в единице (≈0.3 мс): её мера — лампа, переведённая в палитре. */
+    public static final int UNIT_WORK = 256;
+    /** Лампа через мир ({@code setBlock} со светом, клиентами и Sable; с Create и Sable ≈10 мкс) — как столько ламп в палитре. */
+    static final int WORLD_LAMP = 8;
+    /** Ламп через мир за единицу (зажигание двойников не от блэкаута, сверка сигнала). */
+    static final int LAMPS_PER_UNIT = UNIT_WORK / WORLD_LAMP;
     /** Чанков за единицу работы: у чанка без ламп — проверка палитр секций, микросекунды. */
     static final int CHUNKS_PER_UNIT = 256;
+    /** Чанки ближе этого к игроку (в чанках, по большей из осей) идут в очередь раньше остальных. */
+    static final int NEAR_CHUNKS = 8;
     /**
-     * Проход секций чанка по блокам — как столько ламп: палитра помнит и переведённые состояния, и чанк, где ламп уже
-     * нет, может потребовать прохода (≈0.2 мс на чанк города).
+     * Проход секций чанка по блокам — как столько ламп в палитре: палитра помнит и переведённые состояния, и чанк,
+     * где ламп уже нет, может потребовать прохода (≈0.2 мс на чанк города).
      */
-    private static final int SCAN_COST = 16;
+    private static final int SCAN_COST = 128;
     /** Раз во сколько тиков обходить плоты аппаратов Sable ({@link #relightPlots}). */
     public static final int PLOT_SCAN = 100;
     /** Звук квартала — игрокам ближе этого (блоки по горизонтали). */
@@ -119,9 +130,17 @@ public final class BlackoutWorld {
     }
 
     private final List<Sweep> sweeps = new ArrayList<>();
-    /** Чанки, которые пора перевести: из каскада, загрузки, поставленной лампы. */
-    private final LongArrayFIFOQueue ready = new LongArrayFIFOQueue();
-    /** Чанки в {@link #ready}: каждый — один раз, сколько бы поводов ни пришло. */
+    /**
+     * Чанки, которые пора перевести: из каскада, загрузки, поставленной лампы. Сначала — чанки у игроков
+     * ({@link #NEAR_CHUNKS}), потом остальные: в городе с миллионами ламп очередь идёт минутами, и свет рядом с
+     * игроком не ждёт дальних кварталов.
+     */
+    private final LongArrayFIFOQueue near = new LongArrayFIFOQueue(), ready = new LongArrayFIFOQueue();
+    /** Очередь, из которой взят чанк в работе: недоделанный возвращается в её начало. */
+    private LongArrayFIFOQueue taken = ready;
+    /** Чанки игроков этого измерения на начало тика. */
+    private final LongArrayList players = new LongArrayList();
+    /** Чанки в очереди: каждый — один раз, сколько бы поводов ни пришло. */
     private final LongOpenHashSet queued = new LongOpenHashSet();
     /**
      * Лампы, погашенные при загрузке чанка ({@link ChunkSaves}), чей свет пришёл с диска: убрать его первой же
@@ -187,9 +206,18 @@ public final class BlackoutWorld {
     private long headChunk, repeatChunk, lastRepeatChunk;
     private int headRepeat, repeatMax, lastRepeatMax;
 
+    /** Счётчики с создания мира (для проверок: окно в 100 тиков их не делит). */
+    private final long[] total = new long[Work.values().length];
+
     private void note(Work w, long n, long t) {
         count[w.ordinal()] += n;
         nanos[w.ordinal()] += t;
+        total[w.ordinal()] += n;
+    }
+
+    /** Сколько работы каждого вида с загрузки мира (по {@link Work}). */
+    public long[] totals() {
+        return total.clone();
     }
 
     /** Счётчики прошлого окна: {сколько, нс} по {@link Work}. */
@@ -233,7 +261,31 @@ public final class BlackoutWorld {
     void enqueue(long chunk) {
         // новый повод — чанк проходится с начала (поставленная лампа могла встать раньше места продолжения)
         resume.remove(chunk);
-        if (queued.add(chunk)) ready.enqueue(chunk);
+        if (queued.add(chunk)) (nearPlayer(chunk) ? near : ready).enqueue(chunk);
+    }
+
+    /** Чанк не дальше {@link #NEAR_CHUNKS} от игрока (по чанкам игроков на начало тика). */
+    private boolean nearPlayer(long chunk) {
+        return playerDistance(chunk) <= NEAR_CHUNKS;
+    }
+
+    /** Расстояние до ближайшего игрока в чанках (по большей из осей); без игроков — {@code Integer.MAX_VALUE}. */
+    private int playerDistance(long chunk) {
+        int x = ChunkPos.getX(chunk), z = ChunkPos.getZ(chunk), best = Integer.MAX_VALUE;
+        for (int i = 0; i < players.size(); i++) {
+            long p = players.getLong(i);
+            best = Math.min(best, Math.max(Math.abs(ChunkPos.getX(p) - x), Math.abs(ChunkPos.getZ(p) - z)));
+        }
+        return best;
+    }
+
+    private boolean queueEmpty() {
+        return near.isEmpty() && ready.isEmpty();
+    }
+
+    private long take() {
+        taken = near.isEmpty() ? ready : near;
+        return taken.dequeueLong();
     }
 
     /** Двойник не от блэкаута (поршень, аппарат) — зажечь в конце тика, если ток есть. */
@@ -343,7 +395,7 @@ public final class BlackoutWorld {
 
     /** Сколько чанков ждёт перевода и двойников — зажигания (для /airstrike grid status). */
     public int[] backlog() {
-        return new int[]{ready.size(), relight.size()};
+        return new int[]{near.size() + ready.size(), relight.size()};
     }
 
     /**
@@ -371,6 +423,8 @@ public final class BlackoutWorld {
             repeatMax = 0;
             statsWindow = now / STATS_WINDOW;
         }
+        players.clear();
+        for (var p : level.players()) players.add(p.chunkPosition().toLong());
         PowerGrid grid = PowerGrid.get(level);
         if (!restored) restore(level, grid, now);
         relightPlaced(level, clock);
@@ -389,17 +443,17 @@ public final class BlackoutWorld {
             }
         }
         advanceSweeps(level, grid, now, clock);
-        while (!ready.isEmpty() && clock.canStart()) {
+        while (!queueEmpty() && clock.canStart()) {
             long c0 = clock.begin();
             long c = 0;
             try {
                 int work = 0;
-                for (int chunks = 0; chunks < CHUNKS_PER_UNIT && work < LAMPS_PER_UNIT && !ready.isEmpty(); chunks++) {
-                    c = ready.dequeueLong();
-                    work += handle(level, grid, c, now, LAMPS_PER_UNIT - work);
+                for (int chunks = 0; chunks < CHUNKS_PER_UNIT && work < UNIT_WORK && !queueEmpty(); chunks++) {
+                    c = take();
+                    work += handle(level, grid, c, now, UNIT_WORK - work);
                 }
             } catch (RuntimeException e) {
-                if (!ready.isEmpty() && ready.firstLong() == c) ready.dequeueLong();
+                if (!taken.isEmpty() && taken.firstLong() == c) taken.dequeueLong();
                 queued.remove(c);
                 Airstrike.LOG.error("Блэкаут: перевод чанка {} упал с ошибкой; чанк пропущен", new ChunkPos(c), e);
             } finally {
@@ -454,6 +508,12 @@ public final class BlackoutWorld {
             while (s.cursor <= now && s.cursor <= s.last) {
                 LongArrayList chunks = s.byDue.remove(s.cursor);
                 if (chunks != null) {
+                    // квартал — от игрока наружу: у игрока лампы гаснут и загораются первыми
+                    if (!players.isEmpty()) {
+                        long[] order = chunks.toLongArray();
+                        LongArrays.quickSort(order, (a, b) -> Integer.compare(playerDistance(a), playerDistance(b)));
+                        chunks = LongArrayList.wrap(order);
+                    }
                     for (int i = 0; i < chunks.size(); i++) {
                         long c = chunks.getLong(i);
                         if (inMemory(level, c) != null) enqueue(c);
@@ -504,7 +564,7 @@ public final class BlackoutWorld {
             int n = 0;
             for (; n < limit && !stale.isEmpty(); n++) light.checkBlock(BlockPos.of(stale.removeLong(stale.size() - 1)));
             if (stale.isEmpty()) staleLight.remove(c);
-            ready.enqueueFirst(c);
+            taken.enqueueFirst(c);
             note(Work.STALE, 1, System.nanoTime() - t0);
             return n;
         }
@@ -512,11 +572,12 @@ public final class BlackoutWorld {
         if (signalled != null && !edge) {
             // сигнал читается у соседей — теперь они загружены
             int n = 0;
-            for (; n < limit && !signalled.isEmpty(); n++) ChunkLights.resignal(level, BlockPos.of(signalled.removeLong(signalled.size() - 1)));
+            int most = Math.max(1, limit / WORLD_LAMP);
+            for (; n < most && !signalled.isEmpty(); n++) ChunkLights.resignal(level, BlockPos.of(signalled.removeLong(signalled.size() - 1)));
             if (signalled.isEmpty()) resignal.remove(c);
-            ready.enqueueFirst(c);
+            taken.enqueueFirst(c);
             note(Work.RESIGNAL, 1, System.nanoTime() - t0);
-            return n;
+            return n * WORLD_LAMP;
         }
         boolean dark = grid.dark(pos.x, pos.z, now);
         // переводить нечего (в большинстве чанков ламп нет) — только отметки
@@ -526,24 +587,33 @@ public final class BlackoutWorld {
         int r = resume.remove(c);
         int from = r >= 0 && (r & 1) == (dark ? 1 : 0) ? r >> 1 : 0;
         ChunkLights.Pass pass = ChunkLights.Pass.NONE;
-        if (needed && edge) {
-            LongArrayList lamps = new LongArrayList();
-            pass = ChunkLights.applyInPlace(level, chunk, dark, limit, from, lamps);
-            if (!lamps.isEmpty()) resignal.computeIfAbsent(c, k -> new LongArrayList()).addAll(lamps);
+        // плот аппарата Sable — через мир: блоки аппарата читает его физика
+        boolean world = needed && !edge && SubLevels.containing(level, pos) != null;
+        int cost = world ? WORLD_LAMP : 1, resignalled = 0;
+        if (world) {
+            pass = ChunkLights.apply(level, chunk, dark, Math.max(1, limit / cost), from);
         } else if (needed) {
-            pass = ChunkLights.apply(level, chunk, dark, limit, from);
+            LongArrayList lamps = new LongArrayList();
+            pass = ChunkLights.applyInPlace(level, chunk, dark, limit, from, !edge, lamps);
+            if (edge) {
+                // сигнал читается у соседей — сверка, когда они загрузятся
+                if (!lamps.isEmpty()) resignal.computeIfAbsent(c, k -> new LongArrayList()).addAll(lamps);
+            } else {
+                for (int i = 0; i < lamps.size(); i++) ChunkLights.resignal(level, BlockPos.of(lamps.getLong(i)));
+                resignalled = lamps.size();
+            }
         }
         int changed = pass.changed();
         note(Work.LAMPS, changed, 0);
         note(Work.REVERTED, pass.reverted(), 0);
         note(!needed ? Work.IDLE : edge ? Work.EDGE : pass.done() ? Work.PASS_DONE : Work.PASS_MORE, 1, System.nanoTime() - t0);
         if (changed > 0) districtSound(level, pos, dark, now);
-        // проход секций по блокам (4096 блоков — как несколько ламп) — тоже работа, даже если ламп в них уже нет
-        int work = changed + (needed ? SCAN_COST : 0);
+        // проход секций по блокам (4096 блоков — как много ламп) — тоже работа, даже если ламп в них уже нет
+        int work = changed * cost + resignalled * WORLD_LAMP + (needed ? SCAN_COST : 0);
         if (!pass.done()) {
             // башня морских фонарей — не одна единица: остальное — следующими, с места остановки
             resume.put(c, pass.next() << 1 | (dark ? 1 : 0));
-            ready.enqueueFirst(c);
+            taken.enqueueFirst(c);
             return work;
         }
         queued.remove(c);
@@ -580,6 +650,6 @@ public final class BlackoutWorld {
 
     /** Для проверок: пройдены ли все каскады. */
     public boolean idle() {
-        return sweeps.isEmpty() && relight.isEmpty() && ready.isEmpty();
+        return sweeps.isEmpty() && relight.isEmpty() && queueEmpty();
     }
 }
