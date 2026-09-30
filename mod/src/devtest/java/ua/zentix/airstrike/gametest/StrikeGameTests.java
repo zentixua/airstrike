@@ -42,6 +42,7 @@ import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.AreaLoader;
@@ -61,9 +62,11 @@ import ua.zentix.airstrike.warhead.Warheads;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
@@ -716,6 +719,85 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
+    /**
+     * Бомба в мире падает туда, куда её падение проигрывает B-2 перед сбросом ({@link BombDrop#miss}): и в точку
+     * (с эшелона за 85 блоков), и мимо — с 214 блоков с той же черты (стенд 29.09.2026), с 200 ближе черты и на краю
+     * окна, где нос касается земли раньше, чем бомба подходит к точке (со 100 за 64,5 и со 170 за 67 — ревью 30.09.2026).
+     */
+    @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker_predict", skyAccess = true)
+    public static void bunkerBusterFallsWhereBombDropPredicts(GameTestHelper h) {
+        double[][] drops = {{170, 85}, {214, 85}, {200, 73}, {100, 64.5}, {170, 67}};
+        Vec3[] releases = new Vec3[drops.length];
+        Vec3[] aims = new Vec3[drops.length];
+        double[] predicted = new double[drops.length];
+        // точки не ближе 24 блоков друг к другу: бомба, вошедшая в грунт первой, взрывается под землёй через ~10 тиков,
+        // и воронка у соседней точки (в 6 блоках) засчитала бы соседке попадание; промах уходит вперёд по курсу (+z)
+        // и остаётся на площадке
+        int[][] at = {{4, 100}, {28, 100}, {16, 150}, {4, 200}, {28, 200}};
+        for (int i = 0; i < drops.length; i++) {
+            aims[i] = dropPoint(h, new BlockPos(at[i][0], 3, at[i][1]));
+            releases[i] = aims[i].add(0, drops[i][0], -drops[i][1]);
+            predicted[i] = BombDrop.miss(releases[i], 0, aims[i]);
+        }
+        h.assertTrue(predicted[0] == 0 && Arrays.stream(predicted, 1, drops.length).allMatch(m -> m > 10), "проигрыш: " + Arrays.toString(predicted));
+        bombsEnter(h, releases, aims, predicted);
+    }
+
+    /**
+     * Там, где B-2 сбрасывает бомбу ({@link BombDrop#releaseNow}) с разной высоты над точкой и с разного места на
+     * подходе, бомба в мире приходит в точку: ниже ~140 блоков — с края окна, выше — с черты для своей высоты.
+     */
+    @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker_release_points", skyAccess = true)
+    public static void bomberReleasePointsHitInWorld(GameTestHelper h) {
+        double[] heights = {60, 100, 140, 170, 214, 300};
+        Vec3[] releases = new Vec3[heights.length];
+        Vec3[] aims = new Vec3[heights.length];
+        for (int i = 0; i < heights.length; i++) {
+            // соседние дорожки — вразбежку по полосе (см. выше: воронка соседки)
+            aims[i] = dropPoint(h, new BlockPos(3 + 5 * i, 3, 170 + 50 * (i % 2)));
+            Vec3 step = new Vec3(0, 0, BomberEntity.CRUISE_SPEED);
+            // подход по прямой с курсом +z; сдвиг начала — чтобы попасть в разные места окна
+            for (Vec3 pos = aims[i].add(0, heights[i], -600 - 2 * i); pos.z < aims[i].z; pos = pos.add(step)) {
+                if (BombDrop.releaseNow(pos, step, 0, aims[i], BomberEntity.RELEASE_DISTANCE / BomberEntity.ALTITUDE)) {
+                    releases[i] = pos;
+                    break;
+                }
+            }
+            h.assertTrue(releases[i] != null, "с " + (int) heights[i] + " не сбросил");
+        }
+        bombsEnter(h, releases, aims, new double[heights.length]);
+    }
+
+    /** Куда B-2 целит бомбу над блоком: середина верхнего блока ({@code BomberEntity.surfaceUnder}). */
+    private static Vec3 dropPoint(GameTestHelper h, BlockPos block) {
+        return top(h, block).add(0, -BombDrop.GROUND_ABOVE_AIM, 0);
+    }
+
+    /** Бомбы, сброшенные из {@code releases} по точкам {@code aims}, входят в грунт в {@code expected} блоках от них (±2). */
+    private static void bombsEnter(GameTestHelper h, Vec3[] releases, Vec3[] aims, double[] expected) {
+        ServerLevel level = h.getLevel();
+        BunkerBusterEntity[] bombs = new BunkerBusterEntity[releases.length];
+        for (int i = 0; i < releases.length; i++) {
+            bombs[i] = ModEntities.BUNKER_BUSTER.get().create(level);
+            bombs[i].drop(releases[i].add(0, -BombDrop.DROP_BELOW, 0), 0, aims[i], null, null);
+            level.addFreshEntity(bombs[i]);
+        }
+        Vec3[] entries = new Vec3[releases.length];
+        h.onEachTick(() -> {
+            for (int i = 0; i < releases.length; i++) if (entries[i] == null && bombs[i].isDrilling()) entries[i] = bombs[i].entry();
+        });
+        h.succeedWhen(() -> {
+            for (int i = 0; i < releases.length; i++) {
+                String from = "бомба с " + Math.round(releases[i].y - aims[i].y) + " за "
+                        + String.format(Locale.ROOT, "%.1f", releases[i].subtract(aims[i]).horizontalDistance());
+                h.assertTrue(entries[i] != null, from + " ещё не вошла в грунт");
+                double miss = entries[i].subtract(aims[i]).horizontalDistance();
+                h.assertTrue(Math.abs(miss - expected[i]) < 2, from + " вошла в грунт в " + String.format(Locale.ROOT, "%.1f", miss)
+                        + " блоках от точки, ждали " + String.format(Locale.ROOT, "%.1f", expected[i]));
+            }
+        });
+    }
+
     @GameTest(template = "runway", timeoutTicks = 300, batch = "bunker", skyAccess = true)
     public static void bunkerBusterDrillsAndDetonatesUnderground(GameTestHelper h) {
         ServerLevel level = h.getLevel();
@@ -742,12 +824,10 @@ public final class StrikeGameTests {
         Vec3 start = top(h, RUNWAY_TARGET);
         // курс на +z, далеко вперёд; сразу перенацеливание на 150 блоков вбок и 60 вперёд — внутрь круга разворота
         Vec3 aside = start.add(150, 0, 60);
-        // точка за краем площадки: её район (и соседи — тикать район пускают только над готовыми) — сразу, иначе
-        // бомба ждала бы фоновой генерации, а сервер GameTest тикает без пауз, и на CI срок теста проходил раньше
-        // (бомба сброшена, но не вошла в грунт за 2000 тиков — push-прогон #119, 29.09.2026)
-        ChunkPos at = new ChunkPos(BlockPos.containing(aside));
-        int r = FlightTickets.DISTANCE + 1;
-        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) level.getChunk(at.x + dx, at.z + dz);
+        // точка за краем площадки: её район — сразу, иначе бомба ждала бы фоновой генерации, а сервер GameTest тикает
+        // без пауз, и на CI срок теста проходил раньше (бомба сброшена, но не вошла в грунт за 2000 тиков — push-прогон
+        // #119, 29.09.2026)
+        generateNow(level, new ChunkPos(BlockPos.containing(aside)), FlightTickets.DISTANCE);
         // бомба входит в грунт под точкой — ждать её там, а не на высоте площадки
         Vec3 ground = new Vec3(aside.x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(aside.x), Mth.floor(aside.z)), aside.z);
         bomberEntersNear(h, start, start.add(0, 0, 3000), aside, ground);
@@ -801,22 +881,25 @@ public final class StrikeGameTests {
     }
 
     /*
-     * Сброс — только на тике, когда B-2 пересекает дальность сброса: вышедший на эшелон уже внутри неё сбрасывал бомбу
-     * оттуда, и она перелетала точку на 130–155 блоков (ревью #126: эшелон на 43 блока ниже, пуск в 670–710 блоках);
-     * перенацеленный на точку в 40 блоках впереди сбрасывал сразу и промахивался на 111. Теперь он заходит снова.
+     * B-2 выше эшелона на подходе (эшелон на 43 блока ниже, чем у пуска; пуск в 650 и 690 блоках — ревью #126): раньше
+     * сбрасывал только на эшелоне у черты 85 блоков — не успев снизиться к ней, уходил на второй заход, а вышедший
+     * на эшелон уже внутри черты сбрасывал оттуда, и бомба перелетала точку на 130–155 блоков. Теперь он сбрасывает
+     * с той высоты, где он есть, оттуда, откуда бомба придёт в точку, — с первого захода.
      */
 
-    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_level_650", skyAccess = true)
-    public static void bomberNotOnLevelAtReleaseDistanceReattacks(GameTestHelper h) {
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_level_650", skyAccess = true)
+    public static void bomberAboveLevelAtReleaseDistanceHitsOnFirstPass(GameTestHelper h) {
         Vec3 start = top(h, RUNWAY_TARGET);
-        bomberEntersNear(h, start.add(0, 0, -650), start.add(0, 43, 0), null, start);
+        bomberEntersNear(h, start.add(0, 0, -650), start.add(0, 43, 0), null, start, true);
     }
 
-    @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_level_690", skyAccess = true)
-    public static void bomberReachingLevelInsideReleaseDistanceReattacks(GameTestHelper h) {
+    @GameTest(template = "runway", timeoutTicks = 1500, batch = "bomber_level_690", skyAccess = true)
+    public static void bomberReachingLevelInsideReleaseDistanceHitsOnFirstPass(GameTestHelper h) {
         Vec3 start = top(h, RUNWAY_TARGET);
-        bomberEntersNear(h, start.add(0, 0, -690), start.add(0, 43, 0), null, start);
+        bomberEntersNear(h, start.add(0, 0, -690), start.add(0, 43, 0), null, start, true);
     }
+
+    /* Перенацеленный на точку в 40 блоках впереди сбрасывал сразу и промахивался на 111: оттуда бомба не попадёт — заход снова. */
 
     @GameTest(template = "runway", timeoutTicks = 2500, batch = "bomber_ahead_40", skyAccess = true)
     public static void bomberRetargetedJustAheadReattacks(GameTestHelper h) {
@@ -876,7 +959,7 @@ public final class StrikeGameTests {
 
     /**
      * B-2 с пуска {@code from} на поверхность {@code aim} (эшелон — над ней), сразу перенацеленный на {@code retarget}
-     * (null — нет); бомба, одна, должна войти в грунт в 16 блоках от {@code expect} по горизонтали и на его высоте
+     * (null — нет); бомба, одна, должна войти в грунт в 4 блоках от {@code expect} по горизонтали и на его высоте
      * (не в стену барьеров площадки) — сброшена не раньше и не позже, не пропала.
      */
     private static void bomberEntersNear(GameTestHelper h, Vec3 from, Vec3 aim, @Nullable Vec3 retarget, Vec3 expect) {
@@ -929,7 +1012,7 @@ public final class StrikeGameTests {
                     + (int) (bomb[0].getY() - expect.y) + ", вне мира " + bomb[0].isVirtual() + ", убрана " + bomb[0].isRemoved()));
             h.assertTrue(bombs.size() == 1, "бомб " + bombs.size());
             double miss = entry[0].subtract(expect).horizontalDistance();
-            h.assertTrue(miss < 16 && Math.abs(entry[0].y - expect.y) < 4, "бомба вошла в грунт в " + (int) miss
+            h.assertTrue(miss < 4 && Math.abs(entry[0].y - expect.y) < 4, "бомба вошла в грунт в " + (int) miss
                     + " блоках от точки, на высоте " + (int) (entry[0].y - expect.y));
         });
     }
@@ -1322,8 +1405,7 @@ public final class StrikeGameTests {
         // района цели самого снаряда догрузит его в фоне (путь зависел от скорости генерации)
         BlockPos origin = site.at(h);
         ChunkPos chunk = new ChunkPos(origin);
-        for (int dx = -FlightTickets.DISTANCE; dx <= FlightTickets.DISTANCE; dx++)
-            for (int dz = -FlightTickets.DISTANCE; dz <= FlightTickets.DISTANCE; dz++) level.getChunk(chunk.x + dx, chunk.z + dz);
+        generateNow(level, chunk, FlightTickets.DISTANCE);
         level.getChunkSource().addRegionTicket(AIM_AREA, chunk, FlightTickets.DISTANCE, chunk);
         afterTest(h, () -> level.getChunkSource().removeRegionTicket(AIM_AREA, chunk, FlightTickets.DISTANCE, chunk));
         int x = chunk.getMiddleBlockX(), z = chunk.getMiddleBlockZ();
@@ -1488,8 +1570,13 @@ public final class StrikeGameTests {
      * готовности — тик срока, на любой скорости раннера.
      */
     private static void generateNow(ServerLevel level, ChunkPos centre) {
-        for (int dx = -2; dx <= 2; dx++)
-            for (int dz = -2; dz <= 2; dz++) level.getChunk(centre.x + dx, centre.z + dz);
+        generateNow(level, centre, 2);
+    }
+
+    /** Чанки в {@code radius} чанков вокруг {@code centre} — синхронно. */
+    private static void generateNow(ServerLevel level, ChunkPos centre, int radius) {
+        for (int dx = -radius; dx <= radius; dx++)
+            for (int dz = -radius; dz <= radius; dz++) level.getChunk(centre.x + dx, centre.z + dz);
     }
 
     /**

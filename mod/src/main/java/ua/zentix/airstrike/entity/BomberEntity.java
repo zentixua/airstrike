@@ -12,6 +12,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -24,8 +25,10 @@ import java.util.UUID;
  * B-2 на эшелоне +170 над местом, куда упадёт бомба (цель перенацелили выше или ниже, у цели крыша или башня —
  * эшелон меняется полого, не круче 6°): заходит издалека (большая часть пути — вне загруженного мира), идёт по прямой
  * 12 блоков/тик (240 м/с), сбрасывает бетонобойную бомбу на эшелоне за ~85 блоков до цели по горизонтали (бомба сама
- * доворачивает и входит почти отвесно; не на эшелоне у этой черты или уже за ней — заходит снова) и уходит с разворотом
- * и набором высоты.
+ * доворачивает и входит почти отвесно) и уходит с разворотом и набором высоты. Не на эшелоне (вернулся в мир над
+ * холмом, точку перенацелили выше или ниже) — сбрасывает с той высоты, где он есть, дальше или ближе: B-2 проигрывает
+ * падение бомбы ({@link BombDrop#releaseNow}); промах отовсюду (точка слишком близко впереди, сзади, выше него) —
+ * заходит снова.
  */
 public class BomberEntity extends StrikeProjectile {
     public static final double ALTITUDE = 170;
@@ -37,8 +40,6 @@ public class BomberEntity extends StrikeProjectile {
     private static final double LEVEL_CHANGE_PITCH = 6;
     /** Тангаж на блок ошибки эшелона, °: у эшелона — плавный выход в горизонт. */
     private static final double PITCH_PER_BLOCK = 0.15;
-    /** Сброс — только на эшелоне: с другой высоты бомба с {@link #RELEASE_DISTANCE} перелетает или не долетает. */
-    private static final double RELEASE_ALTITUDE_TOLERANCE = 8;
     /** После сброса улетает и исчезает через столько тиков (или раньше — на краю загруженного мира). */
     private static final int EGRESS_TICKS = 400;
 
@@ -102,7 +103,8 @@ public class BomberEntity extends StrikeProjectile {
     /**
      * Запас над рельефом у возврата в мир — только чтобы не возникнуть в доме или склоне впереди: B-2 и так идёт
      * на эшелоне +170 над местом падения бомбы. С запасом 120 его поднимало над каждым домом или холмом выше 50 блоков
-     * на курсе выше эшелона, и с возврата у цели он не успевал снизиться — уходил на второй заход (трейлер, 29.09.2026).
+     * на курсе выше эшелона, и с возврата у цели он не успевал снизиться — уходил на второй заход (трейлер, 29.09.2026;
+     * теперь он сбросил бы и оттуда, но выше эшелона — дальше от точки).
      */
     @Override
     protected double clearance() {
@@ -117,8 +119,17 @@ public class BomberEntity extends StrikeProjectile {
     @Override
     public int etaTicks() {
         if (tracker == null) return 0;
-        Bearing b = bearingTo(tracker.point());
-        return (int) Math.ceil(Math.max(0, b.horizontal() - RELEASE_DISTANCE) / CRUISE_SPEED) + 20;
+        Vec3 aim = tracker.point();
+        Bearing b = bearingTo(aim);
+        return (int) Math.ceil(Math.max(0, b.horizontal() - releaseLine(getY() - aim.y)) / CRUISE_SPEED) + 20;
+    }
+
+    /**
+     * Дальность сброса с высоты {@code height} над точкой: угол на точку тот же, что на эшелоне ({@link #RELEASE_DISTANCE}
+     * с {@link #ALTITUDE}). Сброс бывает и раньше — на краю окна, откуда бомба ещё попадает ({@link BombDrop#releaseNow}).
+     */
+    public static double releaseLine(double height) {
+        return height * RELEASE_DISTANCE / ALTITUDE;
     }
 
     /**
@@ -143,12 +154,14 @@ public class BomberEntity extends StrikeProjectile {
         // перелетала её на 42 блока (стенд, 29.09.2026)
         double echelon = 0;
         if (!released) {
-            echelon = surfaceUnder(level, aim).y + ALTITUDE;
-            boolean onLevel = Math.abs(getY() - echelon) <= RELEASE_ALTITUDE_TOLERANCE;
-            // сброс — только на черте дальности сброса: за ней бомба перелетает точку (вышел на эшелон внутри черты —
-            // перелёт 130–155 блоков, перенацелили на точку в 40 блоках впереди — 111); не на эшелоне у черты, уже
-            // за ней или точка сзади (бомба падает по курсу и назад не рулит) — зайти снова, меняя высоту на заходе
-            if (onLevel && atReleaseLine(b) && ahead(b)) release(level, aim);
+            Vec3 drop = surfaceUnder(level, aim);
+            echelon = drop.y + ALTITUDE;
+            // сброс — когда бомба, сброшенная сейчас, придёт в точку, и лучше уже не будет (BombDrop.releaseNow): с одной
+            // и той же черты бомба с 214 блоков перелетала точку на 42 блока, с 170 внутри черты — на 130–155, на точку
+            // в 40 блоках впереди — на 111; сзади (бомба падает по курсу и назад не рулит) — не сбрасывать вовсе
+            if (ahead(drop) && BombDrop.releaseNow(position(), flight.forward().scale(speed), flight.yaw(), drop, RELEASE_DISTANCE / ALTITUDE)) {
+                release(level, drop);
+            }
         }
         if (age >= maxAge() && !released) {
             Airstrike.LOG.warn("B-2 {} не сбросил бомбу за срок жизни и убран у {} (точка {}, вне мира {})", getUUID(),
@@ -179,33 +192,27 @@ public class BomberEntity extends StrikeProjectile {
         moveAlong(level, next, dir);
     }
 
-    private void release(ServerLevel level, Vec3 aim) {
+    /** @param drop точка на поверхности, куда падает бомба */
+    private void release(ServerLevel level, Vec3 drop) {
         released = true;
         setPhase(FlightPhase.EGRESS);
         BunkerBusterEntity bomb = ModEntities.BUNKER_BUSTER.get().create(level);
         if (bomb == null) return;
-        bomb.drop(position().add(0, -4, 0), flight.yaw(), surfaceUnder(level, aim), goal, ownerId());
+        bomb.drop(position().add(0, -BombDrop.DROP_BELOW, 0), flight.yaw(), drop, goal, ownerId());
         bomb.setNuclear(nuclear);
         // по UUID бомбы из предупреждений снаряда находится её B-2
-        Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} (вне мира {})", getUUID(), bomb.getUUID(), blockPosition(), isVirtual());
+        Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} в {} блоках от точки, на {} над ней (вне мира {})", getUUID(), bomb.getUUID(),
+                blockPosition(), Math.round(position().subtract(drop).horizontalDistance()), Math.round(getY() - drop.y), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);
     }
 
     /**
-     * Черта дальности сброса пересечена на этом тике: по горизонтали до точки не дальше {@link #RELEASE_DISTANCE} и
-     * не ближе на шаг полёта — за тик B-2 приближается к ней не больше чем на шаг, так что черту он не перескакивает.
-     */
-    private static boolean atReleaseLine(Bearing b) {
-        return b.horizontal() <= RELEASE_DISTANCE && b.horizontal() > RELEASE_DISTANCE - CRUISE_SPEED;
-    }
-
-    /**
      * Точка сброса впереди или почти под брюхом — там, куда бомба может упасть: позади она уже «пройдена»
-     * ({@link BunkerBusterEntity}: падает круто вниз по курсу, не рулит).
+     * ({@link BombDrop#passed}: падает круто вниз по курсу, не рулит).
      */
-    private boolean ahead(Bearing b) {
-        return !BunkerBusterEntity.passed(b, flight.yaw());
+    private boolean ahead(Vec3 drop) {
+        return !BombDrop.passed(position(), drop, flight.yaw());
     }
 
     /**
