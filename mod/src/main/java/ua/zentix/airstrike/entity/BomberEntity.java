@@ -220,9 +220,8 @@ public class BomberEntity extends StrikeProjectile {
      * у цели обычно готов, и высота берётся из него.
      */
     private static Vec3 surfaceUnder(ServerLevel level, Vec3 aim) {
-        int x = Mth.floor(aim.x), z = Mth.floor(aim.z);
-        if (!Terrain.ready(level, x >> 4, z >> 4)) return aim;
-        return new Vec3(aim.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 0.5, aim.z);
+        Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(aim.x), Mth.floor(aim.z), Terrain.Allowed.CHUNK);
+        return ground.known() ? new Vec3(aim.x, ground.y() - 0.5, aim.z) : aim;
     }
 
     @Override

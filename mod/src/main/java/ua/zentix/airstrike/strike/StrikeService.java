@@ -279,10 +279,11 @@ public final class StrikeService {
         double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
         int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
         // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней;
-        // у неготового чанка место с карты знает её лучше генератора; к сбросу B-2 уточняет её по готовому чанку
-        double sy = target instanceof Target.Ground && !Terrain.ready(level, sx >> 4, sz >> 4)
-                ? point.y + 0.5
-                : Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
+        // у неготового чанка место с карты уже несёт свою оценку (карта клиента лучше генератора); к сбросу B-2
+        // уточняет её по готовому чанку
+        Terrain.Surface under = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz,
+                target instanceof Target.Ground ? Terrain.Allowed.CHUNK : Terrain.Allowed.ORDER);
+        double sy = under.known() ? under.y() : point.y + 0.5;
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
         // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
         BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;

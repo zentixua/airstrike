@@ -173,8 +173,8 @@ public final class SalvoData extends SavedData {
             } else {
                 int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
                 // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
-                double y = Terrain.ready(level, new BlockPos(x, 0, z))
-                        ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 0.5 : lastCenter.y;
+                Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
+                double y = ground.known() ? ground.y() - 0.5 : lastCenter.y;
                 point = new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
                 shot = new Target.Point(point);
             }
