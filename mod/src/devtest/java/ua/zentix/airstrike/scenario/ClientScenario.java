@@ -467,6 +467,11 @@ public final class ClientScenario {
             for (var e : mc.level.entitiesForRendering()) {
                 if (e instanceof StrikeProjectile p && p.isActive()) watched = p;
             }
+            // с этого тика снаряд виден зрителю: до «impact» — сколько тиков его подлёт на экране
+            if (watched != null) {
+                Airstrike.LOG.info("SCENARIO {} in view at tick {}, {} blocks from viewer, {} from target", current, tick,
+                        Math.round(watched.distanceTo(mc.player)), Math.round(watched.position().distanceTo(target)));
+            }
             return;
         }
         if (!watched.isRemoved()) {

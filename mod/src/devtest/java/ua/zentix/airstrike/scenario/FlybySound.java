@@ -14,6 +14,7 @@ import net.neoforged.neoforge.client.event.sound.PlaySoundEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -277,6 +278,13 @@ final class FlybySound {
     }
 
     private static final double DOGLEG_START = 2000;
+    /** Ракета случаев approach, pass и far пущена издалека за столько блоков до цели. */
+    private static final double MISSILE_FROM = 1840;
+
+    /** Время полёта ракеты (настройка, секунд), при котором она стартует за {@link #MISSILE_FROM} блоков до цели. */
+    private static int missileSeconds() {
+        return (int) Math.ceil(MISSILE_FROM / (CruiseMissileEntity.CRUISE_SPEED * 20));
+    }
 
     private static Route doglegRoute(Vec3 start, Vec3 target, Vec3 dir) {
         return Route.plan(start, target, dir, 2400, 500, 1);
@@ -298,7 +306,7 @@ final class FlybySound {
             var c = AirstrikeConfig.SERVER;
             switch (name) {
                 case "approach", "pass" -> {
-                    c.missileFlightTime.set(8);
+                    c.missileFlightTime.set(missileSeconds());
                     run(server, rotated + "missile " + at);
                 }
                 case "dogleg" -> {
@@ -324,7 +332,7 @@ final class FlybySound {
                 }
                 case "grad" -> run(server, rotated + "salvo rocket " + GRAD + " 150 " + at);
                 case "far" -> {
-                    c.missileFlightTime.set(8);
+                    c.missileFlightTime.set(missileSeconds());
                     c.droneFlightTime.set(30);
                     run(server, rotated + "drone " + at);
                     run(server, rotated + "missile " + at);
@@ -470,9 +478,10 @@ final class FlybySound {
         }
         Integer impact = impactOf("missile");
         int warning = impact == null ? -1 : impact - first.t;
-        // дозвуковая ракета опережает свой свист на d·(1/v − 1/c): с 1500 блоков — ~43 тика
+        // звук обгоняет ракету на d·(1/v − 1/c): с 1500 блоков — ~290 тиков
+        int expected = (int) (first.d * (1 / CruiseMissileEntity.CRUISE_SPEED - 1 / ua.zentix.airstrike.client.sound.Acoustics.SPEED));
         check("whistle_from", first.d >= 1000 ? "PASS" : "FAIL", "свист слышно с " + f0(first.d) + " блоков (слышимая точка), громкость " + f3(first.vol));
-        check("whistle_warning", warning >= 35 ? "PASS" : "FAIL", "свист за " + warning + " тиков до удара (ожидание ~43)");
+        check("whistle_warning", warning >= expected * 0.8 ? "PASS" : "FAIL", "свист за " + warning + " тиков до удара (ожидание ~" + expected + ")");
         double far = maxVol(w, 800, 1300), near = maxVol(w, 60, 400);
         check("whistle_rises", near > far ? "PASS" : "FAIL", "свист вдали (800–1300) " + f3(far) + ", вблизи (60–400) " + f3(near));
     }
