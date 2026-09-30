@@ -8,9 +8,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.guidance.Bearing;
 import ua.zentix.airstrike.guidance.Dive;
 import ua.zentix.airstrike.guidance.Orbit;
-import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -34,7 +34,7 @@ public class LoiterEntity extends StrikeProjectile {
     /** Перенацеленный ближе этого (по горизонтали) пикирует сразу, без круга. */
     private static final double STRIKE_NOW = 140;
     /** Сколько тиков в среднем уходит на пикирование с круга (для времени до удара). */
-    private static final int DIVE_TICKS = 25;
+    public static final int DIVE_TICKS = 25;
     /** Пике мимо: дальше ближайшего подхода к цели на столько блоков — снова на круг и новый заход. */
     private static final double MISSED_BY = 20;
 
@@ -79,7 +79,7 @@ public class LoiterEntity extends StrikeProjectile {
         super.launch(pos, target, targetPoint, owner);
         pickOrbit();
         cruiseAlt = Math.max(pos.y, targetPoint.y + AIR.cruiseHeight());
-        altFilter = pos.y;
+        altitude.reset(pos.y);
         speed = AIR.cruiseSpeed();
         setPhase(FlightPhase.CRUISE);
     }
@@ -91,11 +91,13 @@ public class LoiterEntity extends StrikeProjectile {
         cruiseAlt = Math.max(rail.y + 30, targetPoint.y + AIR.cruiseHeight());
     }
 
-    /** Срок жизни — ещё и на круг. */
+    /**
+     * Запас хода — ещё и на круг над целью (на маршевой скорости) и на пике с него (на скорости пике: в тиках плана
+     * {@link #DIVE_TICKS} оно быстрее круга, и на маршевой запаса на пике не хватало бы).
+     */
     @Override
-    public void setRoute(@Nullable Route route) {
-        super.setRoute(route);
-        lifetime += loiterTicks + DIVE_TICKS;
+    protected double extraRange() {
+        return loiterTicks * AIR.cruiseSpeed() + DIVE_TICKS * AIR.diveSpeed();
     }
 
     /** Катапульта: хлопок и облако пара; ускорителя нет — сбрасывать нечего. */
@@ -131,6 +133,25 @@ public class LoiterEntity extends StrikeProjectile {
                 double dx = aim.x - getX(), dz = aim.z - getZ();
                 double toOrbit = Math.max(0, Math.sqrt(dx * dx + dz * dz) - orbitRadius);
                 yield (int) Math.ceil(toOrbit / AIR.cruiseSpeed()) + launchTicksLeft() + (strikeNow ? DIVE_TICKS : loiterTicks + DIVE_TICKS);
+            }
+        };
+    }
+
+    /**
+     * Путь по плану до удара, как у времени до удара ({@link #etaTicks}): до круга, остаток круга на маршевой и пике на
+     * скорости пике. Цель, потерянная на круге, не обрывает барраж: «Ланцет» докружит и зайдёт на её последнюю точку.
+     */
+    @Override
+    protected double plannedPathLeft() {
+        double dive = DIVE_TICKS * AIR.diveSpeed();
+        return switch (flightPhase()) {
+            case TERMINAL -> super.plannedPathLeft();
+            case LOITER -> (strikeNow ? 0 : Math.max(0, loiterTicks - phaseAge()) * AIR.cruiseSpeed()) + dive;
+            default -> {
+                Vec3 aim = tracker.point();
+                double dx = aim.x - getX(), dz = aim.z - getZ();
+                double toOrbit = Math.max(0, Math.sqrt(dx * dx + dz * dz) - orbitRadius);
+                yield toOrbit + (strikeNow ? 0 : loiterTicks * AIR.cruiseSpeed()) + dive;
             }
         };
     }

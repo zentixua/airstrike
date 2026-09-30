@@ -171,7 +171,7 @@ public final class LifecycleGameTests {
     }
 
     /**
-     * Снаряд вне мира, у которого вышел срок жизни, убирается — и не берёт район цели заново в том же тике
+     * Снаряд вне мира, у которого кончился запас хода, убирается — и не берёт район цели заново в том же тике
      * (стенд нагрузки: 38 региональных тикетов остались после ракет, не дождавшихся района цели).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "virtual_expiry", skyAccess = true)
@@ -182,10 +182,10 @@ public final class LifecycleGameTests {
         CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
         m.launch(start, new Target.Point(target), target, null);
         m.setRoute(Route.direct());
-        // срок жизни — два тика: сохранить и прочитать обратно с другим lifetime
+        // запас хода — на два тика: сохранить и прочитать обратно с другим запасом
         net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
         m.saveWithoutId(tag);
-        tag.putInt("lifetime", m.age() + 2);
+        tag.getCompound("mission").putDouble("range", 2 * m.cruiseSpeed());
         m.load(tag);
         VirtualFlights.launch(level, m);
         UUID id = m.getUUID();
@@ -230,13 +230,13 @@ public final class LifecycleGameTests {
     }
 
     /**
-     * Цель ушла далеко (игрок улетел за тысячи блоков, перенацеливание): срок жизни растёт на пролёт этого сдвига.
+     * Цель ушла далеко (игрок улетел за тысячи блоков, перенацеливание): запас хода растёт на пролёт этого сдвига.
      * Раньше он оставался по плану до старой точки, и снаряд пропадал в пути без подрыва (стенд нагрузки:
      * 5 «Ланцетов» и ракета за игроком, улетевшим на 3000 блоков и вышедшим там из игры). Запас на погоню
-     * конечен: снаряд, который его уже выбрал, убирается по сроку и район цели не держит.
+     * конечен: снаряд, который его уже выбрал, убирается по запасу хода и район цели не держит.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "moved_target", skyAccess = true)
-    public static void lifetimeFollowsMovedTarget(GameTestHelper h) {
+    public static void rangeFollowsMovedTarget(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         // старт над дальним углом площадки: до цели ~70 блоков, за время теста шахед до неё не долетит
         Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(56, 11, 56))).add(0, 60, 0);
@@ -245,7 +245,7 @@ public final class LifecycleGameTests {
         level.addFreshEntity(stand);
         StrikeProjectile followed = virtualWithTwoTicks(level, start, new Target.OfEntity(stand.getUUID(), Vec3.ZERO), near);
         StrikeProjectile retargeted = virtualWithTwoTicks(level, start, new Target.Point(near), near);
-        // без запаса подорвётся в воздухе по сроку — в другом углу, чтобы взрыв не задел остальных
+        // без запаса подорвётся в воздухе по запасу хода — в другом углу, чтобы взрыв не задел остальных
         Vec3 aside = Vec3.atCenterOf(h.absolutePos(new BlockPos(8, 11, 56))).add(0, 60, 0);
         StrikeProjectile exhausted = virtualWithTwoTicks(level, aside, new Target.Point(near), near);
         net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
@@ -259,9 +259,9 @@ public final class LifecycleGameTests {
         h.assertTrue(retargeted.retarget(new Target.Point(far), far), "шахед не принял новую цель");
         h.assertTrue(exhausted.retarget(new Target.Point(far), far), "шахед без запаса не принял новую цель");
         h.runAfterDelay(6, () -> {
-            h.assertFalse(followed.isRemoved(), "шахед за ушедшей целью убрал старый срок жизни: " + state(level, followed));
-            h.assertFalse(retargeted.isRemoved(), "перенацеленный шахед убрал старый срок жизни: " + state(level, retargeted));
-            h.assertTrue(exhausted.isRemoved(), "шахед без запаса на погоню не убран по сроку: " + state(level, exhausted));
+            h.assertFalse(followed.isRemoved(), "шахед за ушедшей целью убрал старый запас хода: " + state(level, followed));
+            h.assertFalse(retargeted.isRemoved(), "перенацеленный шахед убрал старый запас хода: " + state(level, retargeted));
+            h.assertTrue(exhausted.isRemoved(), "шахед без запаса на погоню не убран по запасу хода: " + state(level, exhausted));
             h.assertTrue(flightTickets(level, exhausted.getUUID()) == 0, "район цели остался за шахедом без запаса");
             for (StrikeProjectile m : List.of(followed, retargeted)) {
                 VirtualFlights.get(level).flights().remove(m);
@@ -272,14 +272,14 @@ public final class LifecycleGameTests {
         });
     }
 
-    /** Шахед в полёте вне мира, которому по плану осталось два тика жизни. */
+    /** Шахед в полёте вне мира, у которого запас хода — на два тика. */
     private static StrikeProjectile virtualWithTwoTicks(ServerLevel level, Vec3 start, Target target, Vec3 point) {
         StrikeProjectile m = ModEntities.DRONE.get().create(level);
         m.launch(start, target, point, null);
         m.setRoute(Route.direct());
         net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
         m.saveWithoutId(tag);
-        tag.putInt("lifetime", m.age() + 2);
+        tag.getCompound("mission").putDouble("range", 2 * m.cruiseSpeed());
         m.load(tag);
         VirtualFlights.launch(level, m);
         return m;
@@ -371,7 +371,7 @@ public final class LifecycleGameTests {
      * не готов целиком, тикет загрузки {@code AreaLoader}.
      */
     private static int flightTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_flight", id) + tickets(level, "airstrike_area_load", id);
+        return TicketProbe.count(level, "airstrike_flight", id) + TicketProbe.count(level, "airstrike_area_load", id);
     }
 
     /** Тикет района «как раньше» — ванильный тикет региона сразу на весь район (контроль проверки). */
@@ -417,7 +417,7 @@ public final class LifecycleGameTests {
                         if (!Terrain.ready(level, centre[i].x + dx, centre[i].z + dz)) throw new GameTestAssertException(where + "тикет региона радиуса " + r + " на неготовый чанк " + dx + " " + dz);
                     }
                 }
-                int load = tickets(level, "airstrike_area_load", id[i]);
+                int load = TicketProbe.count(level, "airstrike_area_load", id[i]);
                 if (load != (r == distance[i] ? 0 : 1)) throw new GameTestAssertException(where + "тикетов загрузки " + load + " при радиусе " + r);
                 if (ticking[i] < 0 && level.isPositionEntityTicking(centre[i].getMiddleBlockPosition(64))) ticking[i] = tick[0];
             }
@@ -457,14 +457,14 @@ public final class LifecycleGameTests {
         h.assertFalse(Terrain.ready(level, centre.x, centre.z), "район не свежий");
         areas.hold(level, a);
         areas.hold(level, b);
-        h.assertTrue(tickets(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
+        h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
         areas.release(level, a);
-        h.assertTrue(tickets(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
+        h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
         h.onEachTick(() -> {
             if (!regionRadii(level, "airstrike_test_shared_b", key).equals(List.of(2))) return;
             h.assertTrue(regionRadii(level, "airstrike_test_shared_a", key).isEmpty(), "отпущенный район снова взят");
             areas.release(level, b);
-            h.assertTrue(tickets(level, "airstrike_area_load", key) + tickets(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
+            h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) + TicketProbe.count(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
             h.succeed();
         });
     }
@@ -495,7 +495,7 @@ public final class LifecycleGameTests {
             List<Integer> radii = new java.util.ArrayList<>();
             for (SortedArraySet<Ticket<?>> set : map.values()) {
                 for (Ticket<?> t : set) {
-                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) radii.add(33 - t.getTicketLevel());
+                    if (t.getType().toString().equals(type) && id.equals(TicketProbe.key(t))) radii.add(33 - t.getTicketLevel());
                 }
             }
             return radii;
@@ -506,32 +506,6 @@ public final class LifecycleGameTests {
 
     /** Тикеты своего чанка и чанка впереди ({@code ChunkTickets}, ключ — UUID снаряда). */
     private static int chunkTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_projectile", id);
-    }
-
-    private static int tickets(ServerLevel level, String type, UUID id) {
-        try {
-            Field f = DistanceManager.class.getDeclaredField("tickets");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var map = (Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) f.get(level.getChunkSource().chunkMap.getDistanceManager());
-            int n = 0;
-            for (SortedArraySet<Ticket<?>> set : map.values()) {
-                for (Ticket<?> t : set) {
-                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** Ключ тикета; у тикета загрузки {@code AreaLoader} значение — сам район, ключ — его. */
-    private static Object ticketKey(Ticket<?> t) throws ReflectiveOperationException {
-        Field key = Ticket.class.getDeclaredField("key");
-        key.setAccessible(true);
-        Object k = key.get(t);
-        return k instanceof AreaLoader.Area a ? a.key() : k;
+        return TicketProbe.count(level, "airstrike_projectile", id);
     }
 }

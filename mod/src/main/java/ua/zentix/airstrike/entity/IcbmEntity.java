@@ -19,7 +19,7 @@ import java.util.UUID;
  * Дальше полёт — таймер запланированного удара; сама ракета ничего не взрывает.
  */
 public class IcbmEntity extends StrikeProjectile {
-    /** Паспорт МБР: предельная скорость разгона, длина, срок жизни. */
+    /** Паспорт МБР: предельная скорость разгона, длина, запас хода. */
     private static final WeaponSpec.Airframe AIR = WeaponSpec.NUKE.airframe();
 
     public IcbmEntity(EntityType<? extends IcbmEntity> type, Level level) {
@@ -69,8 +69,8 @@ public class IcbmEntity extends StrikeProjectile {
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));
-        // за пределами неба, по сроку или на краю тикающих чанков МБР больше не нужна: дальше летит «удар» (NuclearStrikes)
-        if (next.y > level.getMaxBuildHeight() + 256 || age >= maxAge()) {
+        // за пределами неба, по запасу хода или на краю тикающих чанков МБР больше не нужна: дальше летит «удар» (NuclearStrikes)
+        if (next.y > level.getMaxBuildHeight() + 256 || exhausted()) {
             discard();
             return;
         }

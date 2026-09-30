@@ -137,6 +137,26 @@ neoForge {
             gameDirectory = project.file('run/gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
+        // Сценарии полёта (gametest/scenario): все зёрна (-PscenarioSeeds, по умолчанию 16) без остальных GameTest —
+        // шаблон сценариев в своём пространстве имён airstrike_sweep. -PscenarioOnly=<регулярное выражение> — только
+        // подходящие сценарии; -PscenarioRealChunks — настоящая загрузка чанков в темпе игры, без эталона
+        scenarioSweep {
+            type = 'gameTestServer'
+            gameDirectory = project.file('run/scenario-sweep')
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'airstrike_sweep'
+            systemProperty 'airstrike.scenario.sweep', 'true'
+            systemProperty 'airstrike.scenario.seeds', (project.findProperty('scenarioSeeds') ?: '16').toString()
+            systemProperty 'airstrike.scenario.only', (project.findProperty('scenarioOnly') ?: '').toString()
+            systemProperty 'airstrike.scenario.realChunks', project.hasProperty('scenarioRealChunks').toString()
+        }
+        // Записать эталон траекторий заново (зерно 0): src/devtest/resources/scenario-baseline.json
+        scenarioRecord {
+            type = 'gameTestServer'
+            gameDirectory = project.file('run/scenario-record')
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'airstrike_sweep'
+            systemProperty 'airstrike.scenario.sweep', 'true'
+            systemProperty 'airstrike.scenario.record', project.file('src/devtest/resources/scenario-baseline.json').absolutePath
+        }
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             logLevel = org.slf4j.event.Level.INFO
@@ -250,13 +270,13 @@ tasks.register('rigLaunch') {
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
         def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns
-                : runDir == 'gametest' ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
+                : runDir in ['gametest', 'scenario-sweep', 'scenario-record'] ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
         from(mcModsDir) { patterns.each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
         onlyIf { mcModsDir.isDirectory() }
     }
 }
-['client', 'server', 'gametest', 'scenario'].each { copyRuntimeMods(it) }
+['client', 'server', 'gametest', 'scenario', 'scenario-sweep', 'scenario-record'].each { copyRuntimeMods(it) }
 tasks.register('copyRuntimeMods_stress', Sync) {
     from(mcModsDir) { runtimeModPatterns.each { include it } }
     into "run/stress/mods"
@@ -267,6 +287,13 @@ tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRuntime
 tasks.matching { it.name == 'runServer' }.configureEach { dependsOn 'copyRuntimeMods_server' }
 tasks.matching { it.name == 'runClientScenario' }.configureEach { dependsOn 'copyRuntimeMods_scenario' }
 tasks.matching { it.name == 'runGameTestServer' }.configureEach { dependsOn 'copyRuntimeMods_gametest' }
+tasks.matching { it.name == 'runScenarioSweep' }.configureEach { dependsOn 'copyRuntimeMods_scenario-sweep' }
+tasks.matching { it.name == 'runScenarioRecord' }.configureEach { dependsOn 'copyRuntimeMods_scenario-record' }
+// Мир GameTest — каждый раз новый, как в CI: площадки сценариев полёта стоят на одних и тех же координатах, и рельеф,
+// аппараты и чанки прошлого прогона меняли бы полёт против эталона
+tasks.matching { it.name in ['runGameTestServer', 'runScenarioSweep', 'runScenarioRecord'] }.configureEach { task ->
+    doFirst { project.delete(new File(task.gameDirectory.get().asFile, 'world')) }
+}
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
     var replaceProperties = [
