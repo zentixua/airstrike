@@ -2,7 +2,9 @@ package ua.zentix.airstrike.warhead;
 
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.Util;
+import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.network.protocol.game.ClientboundExplodePacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -158,20 +160,36 @@ final class StagedExplosion implements UnitQueue.Job {
         Explosion.BlockInteraction destroy = !blocks ? Explosion.BlockInteraction.KEEP
                 : level.getGameRules().getBoolean(GameRules.RULE_TNT_EXPLOSION_DROP_DECAY)
                 ? Explosion.BlockInteraction.DESTROY_WITH_DECAY : Explosion.BlockInteraction.DESTROY;
-        Explosion e = new Explosion(level, null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
-                at.x, at.y, at.z, power, fire, destroy, ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
-        explosion = e;
-        if (EventHooks.onExplosionStart(level, e)) return false;
         ExplosionTimer.begin(stages);
         try {
-            e.explode();
+            return start(level, destroy);
         } finally {
             ExplosionTimer.end();
         }
-        List<BlockPos> world = new ArrayList<>(), plot = new ArrayList<>();
-        // без разрушений блоков и без огня порциям нечего делать
+    }
+
+    private boolean start(ServerLevel level, Explosion.BlockInteraction destroy) {
+        Explosion e = new Explosion(level, null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
+                at.x, at.y, at.z, power, fire, destroy, ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
+        explosion = e;
+        boolean cancelled = EventHooks.onExplosionStart(level, e);
+        ExplosionTimer.markOwn(ExplosionTimer.Stage.START);
+        if (cancelled) return false;
+        e.explode();
+        // Выбранное лучами: у силы 20 — десятки тысяч позиций, в основном воздух. Состояние читается один раз; воздух
+        // без огня отбрасывается до всего остального; плот аппарата — вопрос к Sable раз на чанк, не на позицию.
+        List<BlockPos> plot = new ArrayList<>();
+        List<Target> world = new ArrayList<>();
         if (e.interactsWithBlocks() || fire) {
-            for (BlockPos p : e.getToBlow()) (SubLevels.inPlotGrid(level, new ChunkPos(p)) ? plot : world).add(p);
+            Long2BooleanOpenHashMap plotChunk = new Long2BooleanOpenHashMap();
+            for (BlockPos p : e.getToBlow()) {
+                BlockState s = level.getBlockState(p);
+                if (!fire && s.isAir()) continue;
+                long chunk = ChunkPos.asLong(SectionPos.blockToSectionCoord(p.getX()), SectionPos.blockToSectionCoord(p.getZ()));
+                boolean inPlot = plotChunk.computeIfAbsent(chunk, c -> SubLevels.inPlotGrid(level, new ChunkPos(c)));
+                if (inPlot) plot.add(p);
+                else world.add(new Target(p.distToCenterSqr(at), p, s.getBlock()));
+            }
         }
         e.clearToBlow();
         for (ServerPlayer p : level.players()) {
@@ -182,20 +200,23 @@ final class StagedExplosion implements UnitQueue.Job {
         }
         // аппараты — сейчас: их плот живёт своей жизнью
         blow(level, plot);
-        // в списке лучей и воздух (по нему ставится огонь): без огня воздуху порция ничего не сделает — не носить его
-        List<Block> seen = new ArrayList<>(world.size());
+        ExplosionTimer.markOwn(ExplosionTimer.Stage.SPLIT);
+        // от центра наружу; расстояние посчитано один раз
+        world.sort(Comparator.comparingDouble(Target::distSqr));
         List<BlockPos> kept = new ArrayList<>(world.size());
-        world.sort(Comparator.comparingDouble(p -> p.distToCenterSqr(at)));
-        for (BlockPos p : world) {
-            BlockState s = level.getBlockState(p);
-            if (!fire && s.isAir()) continue;
-            kept.add(p);
-            seen.add(s.getBlock());
+        List<Block> seen = new ArrayList<>(world.size());
+        for (Target t : world) {
+            kept.add(t.pos());
+            seen.add(t.block());
         }
         toBlow = kept;
         blocksAtRays = seen;
+        ExplosionTimer.markOwn(ExplosionTimer.Stage.SNAPSHOT);
         return !toBlow.isEmpty();
     }
+
+    /** Позиция мира, выбранная лучами: расстояние до центра (ключ порядка) и блок в момент лучей. */
+    private record Target(double distSqr, BlockPos pos, Block block) {}
 
     /** Шаги {@code Explosion.finalizeExplosion} на части списка: снятие блоков (выпадение — в общий список), огонь. */
     private void blow(ServerLevel level, List<BlockPos> part) {

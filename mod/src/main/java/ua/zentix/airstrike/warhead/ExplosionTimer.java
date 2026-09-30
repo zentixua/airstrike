@@ -9,6 +9,8 @@ package ua.zentix.airstrike.warhead;
 public final class ExplosionTimer {
     /** Шаг {@code Explosion.explode}. */
     public enum Stage {
+        /** До лучей: {@code new Explosion} и {@code ExplosionEvent.Start} (обработчики модов). */
+        START("Start"),
         /** {@code gameEvent(EXPLODE)}: слушатели вибраций (скалк, моды). */
         GAME_EVENT("событие"),
         /** Лучи по блокам (с блоками аппаратов, которые добавляет миксин Sable). */
@@ -18,7 +20,11 @@ public final class ExplosionTimer {
         /** {@code ExplosionEvent.Detonate}: обработчики модов (и наши: блэкаут, запись для проверок). */
         DETONATE("Detonate"),
         /** Урон и отбрасывание: {@code getSeenPercent} (лучи к сущности), {@code hurt} — смерть, лут, обработчики. */
-        DAMAGE("урон");
+        DAMAGE("урон"),
+        /** После {@code explode()}: раздел выбранных лучами позиций на плоты аппаратов и мир, пакеты, блоки аппаратов. */
+        SPLIT("раздел"),
+        /** Снимок блоков мира для порций и сортировка от центра. */
+        SNAPSHOT("снимок");
 
         public final String label;
 
@@ -31,6 +37,7 @@ public final class ExplosionTimer {
     private static long[] current;
     private static long last;
     private static int next;
+    private static int marks;
     private static int lastMarks;
     /** Вложенность {@code Explosion.explode}: обработчик {@code Detonate} может взорвать своё — его шаги не наши. */
     private static int depth;
@@ -41,6 +48,7 @@ public final class ExplosionTimer {
     static void begin(long[] into) {
         current = into;
         next = 0;
+        marks = 0;
         depth = 0;
         last = System.nanoTime();
     }
@@ -48,10 +56,10 @@ public final class ExplosionTimer {
     /** Наш взрыв кончился: отметки больше не пишутся. */
     static void end() {
         current = null;
-        lastMarks = next;
+        lastMarks = marks;
     }
 
-    /** Сколько шагов отметил миксин в последнем нашем взрыве: встал — все ({@link #stages()}), не встал — 0. */
+    /** Сколько шагов отмечено в последнем нашем взрыве: миксин встал — все ({@link #stages()}), не встал — только свои (2–3). */
     public static int lastMarks() {
         return lastMarks;
     }
@@ -67,14 +75,24 @@ public final class ExplosionTimer {
         depth--;
     }
 
+    /** Свой шаг взрыва (вне {@code explode()}): кончился {@code stage}. */
+    static void markOwn(Stage stage) {
+        if (depth == 0) put(stage.ordinal());
+    }
+
     /** Миксин: кончился шаг {@code stage} (отметки идут по порядку; пропущенный шаг получает 0). */
     public static void mark(int stage) {
+        if (depth == 1) put(stage);
+    }
+
+    private static void put(int stage) {
         long[] into = current;
-        if (into == null || depth != 1 || stage < next) return;
+        if (into == null || stage < next) return;
         long now = System.nanoTime();
         into[stage] += now - last;
         last = now;
         next = stage + 1;
+        marks++;
     }
 
     public static int stages() {

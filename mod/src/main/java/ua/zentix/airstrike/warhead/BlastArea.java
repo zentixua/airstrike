@@ -113,7 +113,10 @@ final class BlastArea {
         if (holders <= 0 || --holders > 0) return;
         StrikeWorld.get(level).areas().release(level, area());
         CraterFalls.get(level).close(level, key);
-        if (units > 0) Airstrike.LOG.info(summary(level.dimension().location().toString()));
+        if (units > 0) {
+            Airstrike.LOG.info(summary(level.dimension().location().toString()));
+            StrikeWorld.get(level).impactCost().strikeDone();
+        }
     }
 
     /** Итоговая строка удара (для {@code tools/logscan.py}). */
