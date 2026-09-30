@@ -543,6 +543,9 @@ public final class NuclearGameTests {
     /**
      * Небоскрёб 11×11×120 в эпицентре: стены с окнами, перекрытия через 4 блока, сплошное ядро 3×3 из кальцита
      * (лестницы и шахты лифтов) — рушится весь, ядро тоже: не больше 5 % блоков выше завала, ничего не висит.
+     * Взрыв — над домом в стороне от ядра, всегда в одном месте: ровно над тонким ядром (в 1–2 блоках) бока нагружены
+     * поровну, и оно стоит обрубком до высоты, где давление сбоку ломает его (как купол Гэмбаку), — раньше место
+     * взрыва зависело от площадки (до 15 блоков от дома), и тест падал на CI.
      */
     @GameTest(template = "range", timeoutTicks = 80, batch = "nuke_skyscraper", skyAccess = true)
     public static void skyscraperAtGroundZeroFalls(GameTestHelper h) {
@@ -560,7 +563,7 @@ public final class NuclearGameTests {
                 }
             }
         }
-        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        Detonation d = detonation(h, c.offset(6, 0, 4), Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
         scarAll(h, d, new ColumnScar.Budget(false));
         int standing = 0;
         for (int dx = -half; dx <= half; dx++) {
