@@ -3,6 +3,7 @@ package ua.zentix.airstrike.nuclear.world;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -156,15 +157,22 @@ public final class ScarQueue {
         Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
                 ph[0] / 1_000_000, ph[1] / 1_000_000, ph[2] / 1_000_000, ph[3] / 1_000_000, ph[4] / 1_000_000);
         if (RuinPlan.slowestWorldNanos > 0) {
-            Airstrike.LOG.info("Руины: дольше всего через мир — чанк {}: {} мест, {} мс (блок-сущности, POI, LOD Distant Horizons)",
-                    new ChunkPos(RuinPlan.slowestWorldChunk), RuinPlan.slowestWorldCells,
-                    String.format(java.util.Locale.ROOT, "%.1f", RuinPlan.slowestWorldNanos / 1e6));
+            Airstrike.LOG.info("Руины: дольше всего через мир — чанк {}: {} мест, {} мс (блок-сущности, POI, LOD Distant Horizons); "
+                            + "самый долгий блок {} — {} мс, LOD Distant Horizons {} мс",
+                    new ChunkPos(RuinPlan.slowestWorldChunk), RuinPlan.slowestWorldCells, ms(RuinPlan.slowestWorldNanos),
+                    RuinPlan.slowestWorldBlock == null ? "—" : BuiltInRegistries.BLOCK.getKey(RuinPlan.slowestWorldBlock.getBlock()),
+                    ms(RuinPlan.slowestWorldBlockNanos), ms(RuinPlan.slowestWorldDhNanos));
             RuinPlan.slowestWorldNanos = 0;
+            RuinPlan.slowestWorldBlock = null;
         }
         // стволы, отложенные до руин чанка, который так и не встал в очередь (выгрузился с готовым планом)
         if (left != null) {
             for (long c : left.keySet()) if (!jobs.containsKey(c)) logs.remove(c);
         }
+    }
+
+    private static String ms(long nanos) {
+        return String.format(java.util.Locale.ROOT, "%.1f", nanos / 1e6);
     }
 
     /** Чанк ждёт в очереди повреждений. */
