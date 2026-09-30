@@ -84,7 +84,7 @@ public final class Trailer {
     private static final Vec3 SILO = new Vec3(-8200.5, 70, -600.5);
     /** Улица в ~900 блоках от эпицентра: сюда ударная волна приходит первой. */
     private static final Vec3 STREET = new Vec3(-760.5, 69, -440.5);
-    private static final int NUKE_KT = 40;
+    private static final int NUKE_KT = 15;
 
     private final Minecraft mc = Minecraft.getInstance();
     private final ArrayDeque<Step> steps = new ArrayDeque<>();
@@ -586,7 +586,8 @@ public final class Trailer {
                     Vec3 at = pit.get();
                     // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
                     View v = openView(at, new double[]{70, 95, 120, 150}, new double[]{28, 40, 55, 75}, side.scale(-60).add(toPost.scale(50)), 60, 40);
-                    return bulletTimeCamera(v.from(), smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.3), 55, v.arc(), v.radius(), at);
+                    // взгляд за бомбой мягче: с 0.3 он падал за ней и возвращался к шару до 180°/с (облако, rv1)
+                    return bulletTimeCamera(v.from(), smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.15), 55, v.arc(), v.radius(), at);
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
                 .endWhen(() -> sinceGone(BunkerBusterEntity.class) > 100, 0)
@@ -818,7 +819,7 @@ public final class Trailer {
         fromAfar(false);
         standAt(() -> silo, () -> TOWER);
         waitTicks(80);
-        shot("icbm").onReady(() -> cmd(String.format(Locale.ROOT, "airstrike nuke at %.1f %.1f %.1f %d ground", TOWER.x, TOWER.y, TOWER.z, NUKE_KT)))
+        shot("icbm").onReady(() -> cmd(String.format(Locale.ROOT, "airstrike nuke at %.1f %.1f %.1f %d air", TOWER.x, TOWER.y, TOWER.z, NUKE_KT)))
                 .length(260).shake(0.1).camera(() -> {
                     Vec3 dir = TOWER.subtract(silo).multiply(1, 0, 1).normalize();
                     Vec3 sideV = new Vec3(-dir.z, 0, dir.x);
@@ -881,7 +882,8 @@ public final class Trailer {
         // гриб издалека, ускоренно: из-за порта, над заливом
         run(() -> placeHidden(new Vec3(TOWER.x - 900, 200, TOWER.z + 5200)));
         shot("mushroom").length(1600).speed(4).hidden()
-                .camera(() -> CineCamera.track(new Vec3(TOWER.x - 900, 200, TOWER.z + 5200), () -> TOWER.add(0, 2600, 0), 75))
+                // 15 кт, воздушный подрыв: верх гриба 1,7 км через 10 с, 3,2 км через 30 с (40 кт были вдвое выше)
+                .camera(() -> CineCamera.track(new Vec3(TOWER.x - 900, 200, TOWER.z + 5200), () -> TOWER.add(0, 1600, 0), 60))
                 .when(() -> sinceDetonation() > 420, 4000);
     }
 

@@ -548,30 +548,38 @@ def test_camera_jerk_and_cut_points(tmp_path):
     assert len([p for p in points if p[1].startswith("склейка")]) == len(cut.items)
     assert any(p[1] == "стоп-кадр: missile_tower" for p in points)
 
-@pytest.mark.skipif(not os.environ.get("AIRSTRIKE_E2E"), reason="AIRSTRIKE_E2E=1 — черновик с папкой отрезков (минуты)")
-def test_segment_cache(tmp_path):
+def test_segment_cache(tmp_path, capsys):
     """С папкой отрезков: второй монтаж без изменений ничего не отрисовывает, пересъёмка одного плана — только
-    его отрезки; длина ролика та же."""
+    его отрезок; склеенный ролик — нужной длины и со всеми кадрами."""
     import av
     rec = tmp_path / "rec"
-    write_recording(str(rec), full_recording(), size=(160, 90), every=6)
-    run = lambda: subprocess.run([sys.executable, edit.__file__, "--draft", "--only", "trailer", "--rec", str(rec),  # noqa: E731
-                                  "--out", str(tmp_path / "t.mp4"), "--jobs", "4", "--no-blackout",
-                                  "--cache", str(tmp_path / "cache")], check=True, capture_output=True, text=True).stdout
-    first = run()
-    assert "из папки 0," in first
-    n = len(os.listdir(tmp_path / "cache"))
-    assert "отрисовать 0 " in run()
-    frame = next((rec / "frames" / "rocket_impact").iterdir())
-    os.utime(frame, ns=(frame.stat().st_atime_ns, frame.stat().st_mtime_ns + 10**9))
-    third = run()
-    assert "отрисовать 1 " in third, third
-    assert len(os.listdir(tmp_path / "cache")) == n + 1
+    write_recording(str(rec), full_recording(), size=(32, 18), every=30)
     m = edit.MUSICS["eyes"]
-    dur = edit.resolve(edit.trailer_edit(m, blackout=False), edit.load_recording(str(rec))).total
+    size = (32, 18)
+
+    def run():
+        shots = edit.load_recording(str(rec))
+        cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+        audio = str(tmp_path / "a.wav")
+        sf.write(audio, np.zeros((int(cut.total * edit.SR), 2), np.float32), edit.SR)
+        edit.encode(cut, shots, size, False, audio, str(tmp_path / "t.mp4"), 2, "veryfast", 30, True,
+                    str(tmp_path / "cache"))
+        return cut, capsys.readouterr().out
+
+    cut, out = run()
+    assert "из папки 0," in out
+    n = len(os.listdir(tmp_path / "cache"))
+    assert "отрисовать 0 " in run()[1]
+    for frame in (rec / "frames" / "rocket_impact").iterdir():   # пересъёмка плана
+        st = frame.stat()
+        os.utime(frame, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+    out = run()[1]
+    assert "отрисовать 1 " in out, out
+    assert len(os.listdir(tmp_path / "cache")) == n + 1
     with av.open(str(tmp_path / "t.mp4")) as f:
-        assert float(f.duration / av.time_base) == pytest.approx(dur, abs=0.1)
-        assert f.streams.video[0].frames in (0, int(round(dur * FPS)))
+        assert float(f.duration / av.time_base) == pytest.approx(cut.total, abs=0.1)
+        # -shortest по звуку (как и без папки) может срезать последний кадр
+        assert abs(sum(1 for _ in f.decode(video=0)) - int(round(cut.total * FPS))) <= 1
 
 # ---------------------------------------------------------------- полный черновик
 

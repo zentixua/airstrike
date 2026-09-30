@@ -755,10 +755,12 @@ def camera_jerks(cut, shots, limit=JERK_DEG_S):
         k0 = int(c.src * FPS)
         k1 = min(s.count - 1, int((c.src + c.dur * c.rate) * FPS))
         worst = None
-        for k in range(k0 + 1, k1 + 1):
-            a, b = s.cam(k - 1), s.cam(k)
+        # поворот за 0,1 с плана: дрожь камеры с рук и толчки взрывов туда-обратно в среднем гасятся, рывок — нет
+        win = 6
+        for k in range(k0 + win, k1 + 1):
+            a, b = s.cam(k - win), s.cam(k)
             dyaw = (b[3] - a[3] + 180) % 360 - 180
-            w = math.hypot(dyaw, b[4] - a[4]) * FPS * c.rate
+            w = math.hypot(dyaw, b[4] - a[4]) * FPS / win * c.rate
             if w > limit and (worst is None or w > worst[2]):
                 worst = (c.trailer_time(k / FPS), c.shot, w)
         if worst:
@@ -1543,12 +1545,14 @@ def encode(cut, shots, size, vertical, audio, out, jobs, preset, crf, draft, cac
           f" ({sum(b - a for a, b, _ in todo) / FPS:.1f} с)")
     frames = [i for a, b, _ in todo for i in range(a, b)]
     it = render_frames(frames, jobs, (cut, shots, size, vertical))
+    # процессы отрисовки — до первого ffmpeg: форк после него унаследовал бы вход кодера, и тот не дождался бы конца
+    first = [next(it)] if frames else []
     for a, b, path in todo:
         tmp = path + ".part.mp4"
         enc = subprocess.Popen([ffmpeg(), "-loglevel", "error", "-y", *_video_args(size, preset, crf, draft), "-an", tmp],
                                stdin=subprocess.PIPE)
         for _ in range(a, b):
-            enc.stdin.write(next(it))
+            enc.stdin.write(first.pop() if first else next(it))
         enc.stdin.close()
         if enc.wait() != 0:
             raise SystemExit("ffmpeg: кодирование отрезка не удалось")
@@ -1572,7 +1576,8 @@ def segments(cut, shots, size, vertical, n, enc, cache):
     затемнение, код edit.py."""
     code = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
     bar = 0 if vertical else int(round((size[1] - size[0] / SCOPE) / 2))
-    starts = sorted({min(n, int(round(it.start * FPS))) for it in cut.items} | {0})
+    # первый кадр отрезка монтажа (item_at по моменту кадра), чтобы кадр одного отрезка не попадал в соседний файл
+    starts = sorted({min(n, math.ceil(it.start * FPS - 1e-6)) for it in cut.items} | {0})
     out = []
     for a, b in zip(starts, starts[1:] + [n]):
         if b <= a:
