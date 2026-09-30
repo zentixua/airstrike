@@ -924,7 +924,7 @@ public final class Trailer {
                 .when(() -> sinceDetonation() > 3000, 6000);
         // не для ролика — проверка руин ядерки по кадрам (облако): круг над зоной, в кадре берега, вода и рельеф у
         // эпицентра — рвы, стены воды, сухие ямы, зазубрины по границам чанков
-        shot("ruins_orbit").hidden().length(480).camera(() -> {
+        shot("ruins_orbit").checkOnly().hidden().length(480).camera(() -> {
             Vec3 c = ground(TOWER);
             return t -> {
                 double a = t / 480.0 * Math.PI * 2;
@@ -1927,6 +1927,12 @@ public final class Trailer {
             return this;
         }
 
+        /** Служебный план проверки: снимается, только если назван в AIRSTRIKE_TRAILER_SHOTS. */
+        Shot checkOnly() {
+            checkOnly = true;
+            return this;
+        }
+
         Shot farView() {
             return readyChunks(10);
         }
@@ -2038,9 +2044,12 @@ public final class Trailer {
         }
 
         /** AIRSTRIKE_TRAILER_SHOTS=a,b — снимать только эти планы (остальные проигрываются без записи, для отладки). */
+        private boolean checkOnly;
+
         boolean selected() {
             String only = System.getenv("AIRSTRIKE_TRAILER_SHOTS");
-            return only == null || only.isBlank() || java.util.Arrays.asList(only.split(",")).contains(name);
+            if (only == null || only.isBlank()) return !checkOnly;
+            return java.util.Arrays.asList(only.split(",")).contains(name);
         }
 
         boolean player() {
