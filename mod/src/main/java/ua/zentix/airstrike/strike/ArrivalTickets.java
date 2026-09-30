@@ -69,7 +69,8 @@ import java.util.UUID;
  * <p>
  * Не закрывает поиск портала ({@code PortalForcer}) и телепорт внутри измерения — они грузят чанки до того, как мод о них
  * узнаёт; при возрождении — место, которое другой мод подменил в {@code PlayerRespawnPositionEvent}, место возрождения на
- * аппарате и точку появления мира, когда кровати уже нет.
+ * аппарате и точку появления мира, когда кровати уже нет. Игрок, который вышел с экрана смерти и вошёл снова, получает
+ * только тикет входа на чанк, где умер (там его объект), а тикета места возрождения — нет: смерти при входе не бывает.
  */
 public final class ArrivalTickets {
     /** Уровень тикета 33 − 7 = 26: ниже центра района «Ланцета» (27). */
@@ -146,7 +147,7 @@ public final class ArrivalTickets {
      * верхнего мира, как у {@code PlayerList.respawn}. Прежний тикет снимается; нового нет у наблюдателя без генерации, для
      * точки в сетке плотов Sable и для точки появления мира, которую держит {@code START}.
      */
-    public static void awaitRespawn(ServerPlayer p) {
+    private static void awaitRespawn(ServerPlayer p) {
         Slot slot = p.getData(ModAttachments.ARRIVAL.get());
         release(p.server, p.getUUID(), slot);
         if (!generates(p)) return;
