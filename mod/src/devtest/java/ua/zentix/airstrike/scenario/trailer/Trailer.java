@@ -371,7 +371,9 @@ public final class Trailer {
         impactDrone[0] = shot("impact_drone").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(DroneEntity.class, hit, 70, 0.3))
                 // шахед рвётся и о башню в десятках блоков до крыши (облако, дубль 2: 72 блока) — облёт вокруг места взрыва
-                .bulletTime(DroneEntity.class, hit, 120, 150, 0.3)
+                // шахед исчезает в тот же тик, что и взрыв, а огненный шар и дым клиент рождает в следующие тики: мир
+                // замирает через 4 тика (дубль 2c: в стоп-кадре у стены отеля были только искры)
+                .bulletTime(DroneEntity.class, hit, 120, 4, 150, 0.3)
                 .camera(() -> {
                     Vec3 at = hit.get();
                     // место с чистым видом на попадание и на всю дугу облёта (в центре камера упиралась в стены)
@@ -1852,17 +1854,20 @@ public final class Trailer {
          * камера идёт со скоростью {@code camSpeed} ({@link #bulletTimeCamera} облетает место взрыва).
          */
         Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, int frames, double camSpeed) {
-            return bulletTime(type, at, 40, frames, camSpeed);
+            return bulletTime(type, at, 40, 0, frames, camSpeed);
         }
 
         /**
-         * То же; {@code reach} — как далеко от точки может взорваться снаряд (шахед задевает башню у крыши). Без взрыва
+         * То же; {@code reach} — как далеко от точки может взорваться снаряд (шахед задевает башню у крыши),
+         * {@code delayTicks} — через сколько тиков мира после взрыва замереть. Без взрыва
          * проверка кадров — провал: в дубле 2 шахед рванул за кадром, а план с тихой крышей прошёл проверку.
          */
-        Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, double reach, int frames, double camSpeed) {
+        Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, double reach, double delayTicks, int frames, double camSpeed) {
             final Vec3[] last = {null};
+            final double[] goneAt = {Double.NaN};
             if (mustHappen == null) requires("застывший взрыв", () -> impact != null);
             return freeze(() -> {
+                if (!Double.isNaN(goneAt[0])) return rec.worldTime() >= goneAt[0] + delayTicks;
                 Entity e = nearest(type, at.get(), 900);
                 if (e != null) {
                     last[0] = e.getPosition(CineCamera.partial());
@@ -1874,7 +1879,8 @@ public final class Trailer {
                     return false;
                 }
                 impact = last[0];
-                return true;
+                goneAt[0] = rec.worldTime();
+                return delayTicks <= 0;
             }, frames, camSpeed);
         }
 
