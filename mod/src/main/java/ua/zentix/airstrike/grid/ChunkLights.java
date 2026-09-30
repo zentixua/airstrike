@@ -60,12 +60,13 @@ public final class ChunkLights {
      * отвечает «может быть» всегда ({@code GlobalPalette.maybeHas}), а малая помнит и ушедшие состояния, — тогда
      * точный подсчёт по блокам, как у ванили ({@code LevelChunkSection.recalcBlockCounts}). Без него каждая загрузка
      * и сохранение городского чанка проходили все блоки таких секций в потоке сервера и ставили чанк в очередь
-     * блэкаута, хотя ни ламп сети, ни отключений в нём нет.
+     * блэкаута, хотя ни ламп сети, ни отключений в нём нет. Подсчёт может назвать и состояние с нулём блоков (Lithium
+     * считает по записям палитры) — такое не в счёт.
      */
     public static boolean contains(PalettedContainer<BlockState> states, Predicate<BlockState> filter) {
         if (!states.maybeHas(filter)) return false;
         boolean[] found = {false};
-        states.count((state, n) -> found[0] |= filter.test(state));
+        states.count((state, n) -> found[0] |= n > 0 && filter.test(state));
         return found[0];
     }
 

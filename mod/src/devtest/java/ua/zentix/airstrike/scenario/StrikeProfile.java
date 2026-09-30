@@ -56,6 +56,9 @@ final class StrikeProfile {
         MinecraftServer server = mc.getSingleplayerServer();
         if (mc.player == null || server == null) return;
         tick++;
+        // неуязвим: удар по месту игрока — тоже шаг замера
+        if (tick == 20) server.execute(() -> server.getCommands().performPrefixedCommand(server.createCommandSourceStack(),
+                "gamemode creative " + player(server).getGameProfile().getName()));
         for (int i = 0; i < steps.size(); i++) {
             String[] a = steps.get(i);
             int at = FIRST + i * gap;
