@@ -70,6 +70,15 @@ public final class WorkScheduler {
         return lowerLanesPending ? (long) (total * IMPACT_SHARE_WHEN_SHARED) : total;
     }
 
+    /**
+     * Бюджет ядерки: что осталось после попаданий, не больше её предела, и за вычетом предела блэкаута, пока у него
+     * есть работа ({@code gridReserve}): иначе во время волны ядерка брала весь срок, а каскад блэкаута ядерки шёл по
+     * единице за тик вместо своих мс.
+     */
+    static long nuclearBudget(long total, long usedAbove, long cap, long gridReserve) {
+        return remaining(total, usedAbove + gridReserve, cap);
+    }
+
     /** Бюджет полосы ниже: что осталось от общего после полос выше, не больше её предела и не меньше нуля. */
     static long remaining(long total, long usedAbove, long cap) {
         return Math.min(cap, Math.max(0, total - usedAbove));
@@ -95,11 +104,13 @@ public final class WorkScheduler {
         }
 
         WorkClock nuclear = NuclearWorld.clock(server);
-        nuclear.start(remaining(total, impact.usedThisTickNanos(), AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L));
+        long gridCap = AirstrikeConfig.SERVER.gridTimeBudgetMs.get() * 1_000_000L;
+        nuclear.start(nuclearBudget(total, impact.usedThisTickNanos(), AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L,
+                Blackouts.pending(server) ? gridCap : 0));
         NuclearStrikes.work(levels, nuclear);
 
         WorkClock grid = Blackouts.clock(server);
-        grid.start(remaining(total, impact.usedThisTickNanos() + nuclear.usedThisTickNanos(), AirstrikeConfig.SERVER.gridTimeBudgetMs.get() * 1_000_000L));
+        grid.start(remaining(total, impact.usedThisTickNanos() + nuclear.usedThisTickNanos(), gridCap));
         Blackouts.work(server, levels, grid);
     }
 }

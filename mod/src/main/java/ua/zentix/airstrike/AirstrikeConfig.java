@@ -172,8 +172,9 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
             nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут).")
                     .translation("airstrike.config.nuke_flight_time").defineInRange("flight_time", 1800, 200, 72_000);
-            nukeTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на разрушения (1–45). По умолчанию 30:",
-                            "разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна.")
+            nukeTimeBudgetMs = b.comment("Предел разрушений ядерки внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–45).",
+                            "По умолчанию 30: разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна;",
+                            "пока у блэкаута есть работа, ему оставляется его grid.ms_per_tick.")
                     .translation("airstrike.config.nuke_time_budget").defineInRange("destruction_ms_per_tick", 30, 1, 45);
             nukePrepMsPerTick = b.comment("Сколько миллисекунд тика, пока летит МБР, сервер тратит на руины заранее (0–20).",
                             "Руины ближней зоны строятся во время полёта и ставятся вместе с фронтом волны.")
@@ -206,14 +207,15 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.grid_restore_spread").defineInRange("restore_spread_seconds", 90, 0, 3600);
             gridNuke = b.comment("Ядерный удар обесточивает всё в радиусе своего действия.")
                     .translation("airstrike.config.grid_nuke").define("nuke_blackout", true);
-            gridTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута (1–20).")
+            gridTimeBudgetMs = b.comment("Предел ламп блэкаута внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–20).")
                     .translation("airstrike.config.grid_time_budget").defineInRange("ms_per_tick", 4, 1, 20);
             b.pop();
 
             b.translation("airstrike.config.performance").push("performance");
             workBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на тяжёлую работу мода, всё вместе (5–45):",
-                            "разрушения от попаданий, затем лампы блэкаута (не больше своего ms_per_tick). Больше — разрушения залпа",
-                            "появляются быстрее ценой TPS; меньше — ровнее тик, воронки залпа достраиваются дольше.")
+                            "разрушения от попаданий, затем ядерка (не больше destruction_ms_per_tick), затем лампы блэкаута (не больше",
+                            "своего ms_per_tick). Больше — разрушения залпа и руины ядерки появляются быстрее ценой TPS;",
+                            "меньше — ровнее тик, воронки залпа и руины достраиваются дольше.")
                     .translation("airstrike.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
         }
