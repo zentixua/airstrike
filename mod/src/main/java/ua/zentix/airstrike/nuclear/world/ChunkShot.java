@@ -166,9 +166,14 @@ final class ChunkShot {
                 applied != null, chunk.getMinBuildHeight(), states, heights, sky);
     }
 
-    /** Снимок чанка с диска (поток сервера: его состояния — в таблицу), см. {@link DiskShots}. */
-    static ChunkShot fromDisk(DiskShots.Read read) {
-        return new ChunkShot(read.pos().x, read.pos().z, 0, -1, -1, null, false, read.minY(), read.states(), read.heights(), null);
+    /**
+     * Снимок чанка с диска (поток сервера: его состояния — в таблицу), см. {@link DiskShots}; {@code applied} — руины
+     * чанка уже стоят (чанк был в памяти после подрыва и ушёл ниже полной загрузки): исходный мир мест его плана — из
+     * плана, как у снимка из памяти.
+     */
+    static ChunkShot fromDisk(DiskShots.Read read, @Nullable RuinContext.Applied applied) {
+        return new ChunkShot(read.pos().x, read.pos().z, 0, -1, -1, applied == null ? null : applied.plan(), applied != null,
+                read.minY(), read.states(), read.heights(), null);
     }
 
     /** Снимок по тому же чанку, счётчику изменений и руинам, что и сейчас. */

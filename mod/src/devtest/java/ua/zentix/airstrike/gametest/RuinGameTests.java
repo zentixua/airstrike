@@ -107,9 +107,10 @@ public final class RuinGameTests {
     }
 
     /**
-     * Чанк на краю загруженного мира держит тикет с соседями, чтобы его руины встали; чанки, которые загрузил этот
-     * тикет, сами тикетов не берут — иначе загрузка расползалась бы от края на весь радиус. Каждый держащий тикет
-     * чанк был в памяти полным ещё до подрыва.
+     * Чанк на краю загруженного мира: его руины встают без загрузки соседей (окно фонового плана — с диска, соседа нет
+     * на диске — сплошной массив). Если план всё же держит соседей тикетом радиуса 1 ({@code RuinPlan.needsNeighbours}),
+     * чанки, которые загрузил этот тикет, сами тикетов не берут — иначе загрузка расползалась бы от края на весь радиус.
+     * Каждый держащий тикет чанк был в памяти полным ещё до подрыва.
      */
     @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_hold_spread", skyAccess = true)
     public static void edgeHoldDoesNotSpread(GameTestHelper h) {
@@ -157,9 +158,12 @@ public final class RuinGameTests {
                 // и после руин E: загруженные его тикетом чанки дальше ничего не тянут
                 .thenIdle(100)
                 .thenExecute(() -> {
+                    var chunk = chunks.getChunkNow(e.x, e.z);
+                    boolean scarred = chunk != null && chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) > 0;
                     done.run();
                     if (spread[0] != null) throw new GameTestAssertException("тикет взял чанк, загруженный чужим тикетом: " + spread[0]);
-                    h.assertTrue(most[0] > 0, "край ни разу не держал тикет: тест ничего не проверил");
+                    h.assertTrue(scarred, "у E нет отметки руин");
+                    h.assertTrue(most[0] <= 9, "край держал больше своего квадрата 3×3: " + most[0]);
                 })
                 .thenSucceed();
     }

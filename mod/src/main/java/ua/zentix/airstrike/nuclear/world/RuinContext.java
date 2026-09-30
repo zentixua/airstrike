@@ -88,7 +88,7 @@ final class RuinContext {
         ChunkShot now = shots.get(key);
         // высоты для тени — только вместе со снимком: у оставленного живого снимка они сняты из памяти
         if (now == null || now.fromDisk() || level.getChunkSource().getChunkNow(read.pos().x, read.pos().z) == null) {
-            putShot(key, ChunkShot.fromDisk(read));
+            putShot(key, ChunkShot.fromDisk(read, applied.get(key)));
             putHeights(key, read.motion());
         }
     }
@@ -98,6 +98,51 @@ final class RuinContext {
         if (level.getChunkSource().getChunkNow(ChunkPos.getX(chunk), ChunkPos.getZ(chunk)) != null) return true;
         ChunkShot s = shots.get(chunk);
         return s != null && s.fromDisk() && s.fresh();
+    }
+
+    /** Соседи окна, которые читаются с диска ({@link #requestWindow}), и прочитанные, но ещё не взятые потоком сервера. */
+    private final LongOpenHashSet reading = new LongOpenHashSet();
+    private final java.util.concurrent.ConcurrentLinkedQueue<DiskShots.Read> reads = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    /** Соседи окна, которых нет на диске целыми (не сгенерированы до конца): в окне — сплошной массив, как край мира. */
+    private final LongOpenHashSet absent = new LongOpenHashSet();
+    /** Для строки подрыва: соседей окна прочитано с диска и сколько из них нет на диске целыми. */
+    int windowReads, windowAbsent;
+
+    /**
+     * Окно фонового плана чанка в памяти (поток сервера): соседи квадрата {@link RuinPlanner#REACH}, которых нет в памяти
+     * целиком, — с диска ({@link DiskShots}), мимо загрузки в мир: край видимости игрока не ждёт, пока соседей
+     * загрузит тикет (проверка 30.09.2026: чанки у края ждали соседей по 200 тиков и уходили игроку целыми). Соседа нет
+     * на диске целым (не сгенерирован, генерируется, данные не разобрать) — в окне его нет ({@code null} в
+     * {@link #grid}): сплошной массив, как край мира, и это решение окончательное для контекста — не ждать, пока его
+     * сгенерируют. Причина — в строке подрыва («окна с диска»).
+     *
+     * @return сколько соседей ещё читается (0 — окно полно, план можно отдавать)
+     */
+    int requestWindow(ServerLevel level, ChunkPos pos) {
+        for (DiskShots.Read r; (r = reads.poll()) != null; ) {
+            long key = r.pos().toLong();
+            reading.remove(key);
+            windowReads++;
+            if (r.skip() != null) {
+                if (absent.add(key)) windowAbsent++;
+            } else {
+                putDisk(level, r);
+            }
+        }
+        int missing = 0;
+        DiskShots.Format format = null;
+        for (int dz = -RuinPlanner.REACH; dz <= RuinPlanner.REACH; dz++) {
+            for (int dx = -RuinPlanner.REACH; dx <= RuinPlanner.REACH; dx++) {
+                long key = ChunkPos.asLong(pos.x + dx, pos.z + dz);
+                if (absent.contains(key) || shotAvailable(level, key)) continue;
+                missing++;
+                if (reading.add(key)) {
+                    if (format == null) format = DiskShots.Format.of(level);
+                    DiskShots.read(format, new ChunkPos(key)).thenAccept(reads::add);
+                }
+            }
+        }
+        return missing;
     }
 
     /**

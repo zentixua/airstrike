@@ -121,6 +121,24 @@ public final class RuinPlanner {
         return await(level, ctx, chunk);
     }
 
+    /**
+     * Для проверок: фоновый план чанка в памяти, как его строит очередь руин ({@link ScarQueue}): окно — снимки соседей
+     * в памяти, остальные — с диска ({@link RuinContext#requestWindow}); соседа нет на диске целым — в окне сплошной
+     * массив. {@code window}: [0] соседей прочитано с диска, [1] из них нет на диске целыми.
+     */
+    public static RuinPlan planWithWindow(ServerLevel level, Detonation d, LevelChunk chunk, int[] window) {
+        RuinContext ctx = new RuinContext(d);
+        long until = System.nanoTime() + 60_000_000_000L;
+        while (ctx.requestWindow(level, chunk.getPos()) > 0) {
+            if (System.nanoTime() > until) throw new IllegalStateException("соседи окна не прочитались с диска за минуту");
+            java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+        }
+        window[0] = ctx.windowReads;
+        window[1] = ctx.windowAbsent;
+        if (!ctx.submit(level, chunk)) throw new IllegalStateException("фоновые потоки руин заняты");
+        return await(level, ctx, chunk);
+    }
+
     private static RuinPlan await(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
         long until = System.nanoTime() + 60_000_000_000L;
         while (!ctx.done(chunk.getPos().toLong())) {

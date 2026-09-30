@@ -64,10 +64,12 @@ public final class NuclearPrep {
     private static final int TILE_RADIUS = 2;
     private static final int TILE = TILE_RADIUS * 2 + 1;
     /**
-     * Радиус тикета квадрата: руинам чанка нужны загруженными целиком и чанки в радиусе {@link RuinPlanner#REACH}
-     * (окно чанка и окна его соседей), поэтому держится квадрат 9×9.
+     * Радиус тикета квадрата — сам квадрат 5×5: окна чанков у его края очередь руин ({@link ScarQueue}) читает с диска
+     * ({@link RuinContext#requestWindow}), готовый план соседей не ждёт (кроме {@link RuinPlan#needsNeighbours} — те держат
+     * радиус 1 сами). Раньше держался квадрат 9×9 (с полями {@link RuinPlanner#REACH}): 81 чанк на 25 руин, и зона за
+     * волной грузилась втрое дольше (проверка 30.09.2026: ~23 чанка в секунду, отставание у игроков до 6514 тиков).
      */
-    private static final int LOAD_RADIUS = TILE_RADIUS + RuinPlanner.REACH;
+    private static final int LOAD_RADIUS = TILE_RADIUS;
     /**
      * Квадрат загрузки с кольцами: тикет поднимает и чанки вокруг ниже полной загрузки — на 1 до деталей, на 2 до пещер
      * (CARVERS), и несгенерированный чанк там генерировался бы во время удара, поэтому готовыми на диске должны быть

@@ -29,6 +29,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.DhChunks;
+import ua.zentix.airstrike.compat.SableTerrain;
 import ua.zentix.airstrike.grid.GridLights;
 import ua.zentix.airstrike.util.Terrain;
 
@@ -235,6 +236,30 @@ public final class RuinPlan {
         if (heightsDiffer) out.append(" карты высот различаются (").append(heights.length).append(" | ").append(o.heights.length).append(')');
         return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer ? null : n + " мест" + out;
     }
+
+    /**
+     * Подмене нужны загруженные соседи в радиусе 1 (иначе ей хватает самого чанка): она читает соседний чанк, только
+     * когда меняет через мир блок-сущность или место POI ({@code SLOW}) у края чанка — {@code onRemove} сундука,
+     * компаратора, сети Create смотрит соседние блоки ({@link #EDGE} от края), — или когда у чанка аппараты Sable
+     * ({@code SableTerrain}: на каждое место он читает 6 соседей). Остальное пишется в свои секции; тики жидкости
+     * в незагруженных соседях не ставятся ({@link #write}).
+     */
+    public boolean needsNeighbours(ServerLevel level, LevelChunk chunk) {
+        for (int c : cells) {
+            if ((c & SLOW) == 0) continue;
+            int x = c & 15, z = (c >> 4) & 15;
+            if (x < EDGE || x > 15 - EDGE || z < EDGE || z > 15 - EDGE) return true;
+        }
+        return SableTerrain.watched(level, chunk);
+    }
+
+    /** Подмене нужны соседи радиуса 1 ({@link #needsNeighbours}), а они не загружены: очередь руин ждёт их. */
+    public boolean waitsNeighbours(ServerLevel level, LevelChunk chunk) {
+        return !NuclearTickets.neighbourhoodLoaded(level, chunk.getPos(), 1) && needsNeighbours(level, chunk);
+    }
+
+    /** Сколько блоков от края чанка {@code onRemove} блок-сущности может читать соседей (компаратор — через блок). */
+    static final int EDGE = 2;
 
     /** Сколько тиков жидкости ставит план. */
     public int fluidTickCount() {
@@ -475,6 +500,8 @@ public final class RuinPlan {
         // FLUID_TICKS за секунду: подмена не будит соседей, без тика вода стояла бы стеной
         for (int k = 0; k < fluidTicks.length; k++) {
             m.set(fluidTicks[k]);
+            // сосед не загружен (готовому плану соседи не нужны): его вода получит тик от своих же обновлений
+            if (!Terrain.ready(level, m)) continue;
             BlockState st = level.getBlockState(m);
             if (st.getFluidState().isEmpty()) continue;
             level.scheduleTick(m.immutable(), st.getFluidState().getType(), fluidDelay(k, m.getX(), m.getY(), m.getZ()));

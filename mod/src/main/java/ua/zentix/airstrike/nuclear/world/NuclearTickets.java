@@ -61,11 +61,11 @@ public final class NuclearTickets {
     }
 
     /**
-     * Чанк на краю загруженного мира и чанки вокруг него (руинам нужны соседи в радиусе {@link RuinPlanner#REACH}) —
+     * Чанк на краю загруженного мира и чанки вокруг него в радиусе {@code radius} (сколько соседей нужно его руинам) —
      * пока очередь разрушений его не пройдёт ({@link ScarQueue}).
      */
-    static void holdForScar(ServerLevel level, ChunkPos pos, boolean hold) {
-        hold(level, SCAR, pos, hold, RuinPlanner.REACH);
+    static void holdForScar(ServerLevel level, ChunkPos pos, boolean hold, int radius) {
+        hold(level, SCAR, pos, hold, radius);
     }
 
     private static void hold(ServerLevel level, TicketType<UUID> type, ChunkPos pos, boolean hold) {

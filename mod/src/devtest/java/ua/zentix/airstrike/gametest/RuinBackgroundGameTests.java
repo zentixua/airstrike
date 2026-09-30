@@ -299,12 +299,305 @@ public final class RuinBackgroundGameTests {
         }
     }
 
-    /** Цикл выгрузки чанков при остановке сервера получил предел времени ({@code StopServerChunksMixin}). */
-    @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_send_gate", skyAccess = true)
-    public static void stopPumpBounded(GameTestHelper h) {
+    /**
+     * Выход из мира доходит до конца, когда генерация держит держатель, уже поставленный на выгрузку (ноутбук 30.09.2026
+     * после ядерки: круги выгрузки без конца). В Незере на свежем месте: чанк A загружен и снят (он в очереди выгрузки),
+     * тикет на B рядом — генерация B берёт A обратно. Дальше — круги остановки, как у {@code stopServer}: срок тика через
+     * 1 мс, снятие тикетов, круг {@link ua.zentix.airstrike.util.StopPump#round} (тот же, что у миксина), задачи сервера
+     * (ваниль выполняет задачи чанков, только пока срок не прошёл). Карта Незера должна опустеть: {@code hasWork()} ложно
+     * (и тикетов нет — это часть {@code hasWork}). Без задач чанков в круге (прежний миксин) не пустеет: задача выгрузки A
+     * кладёт себя обратно весь предел круга, задачи чанков не идут, генерация B не кончается. Настенное время — только
+     * предел против зависания (60 с), не мера скорости.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "stop_pump", skyAccess = true)
+    public static void stopRoundsFinishWhileGenerationHoldsUnloadingChunk(GameTestHelper h) {
+        net.minecraft.server.MinecraftServer server = h.getLevel().getServer();
         var methods = java.util.Arrays.stream(net.minecraft.server.MinecraftServer.class.getDeclaredMethods()).map(java.lang.reflect.Method::getName).toList();
-        h.assertTrue(methods.stream().anyMatch(m -> m.contains("boundStopPump")), "StopServerChunksMixin не встал: выход из мира может зависнуть в выгрузке чанков");
+        h.assertTrue(methods.stream().anyMatch(m -> m.contains("stopRound")), "StopServerChunksMixin не встал: выход из мира может зависнуть в выгрузке чанков");
+        ServerLevel nether = server.getLevel(net.minecraft.world.level.Level.NETHER);
+        h.assertTrue(nether != null, "нет Незера");
+        var cache = nether.getChunkSource();
+        var map = cache.chunkMap;
+        ChunkPos a = new ChunkPos(20_000 + h.getLevel().random.nextInt(4000), 20_000 + h.getLevel().random.nextInt(4000));
+        boolean noSave = nether.noSave;
+        long nextTick;
+        try {
+            java.lang.reflect.Field next = net.minecraft.server.MinecraftServer.class.getDeclaredField("nextTickTimeNanos");
+            next.setAccessible(true);
+            nextTick = next.getLong(server);
+            java.lang.reflect.Field pendingF = net.minecraft.server.level.ChunkMap.class.getDeclaredField("pendingUnloads");
+            java.lang.reflect.Field updatingF = net.minecraft.server.level.ChunkMap.class.getDeclaredField("updatingChunkMap");
+            java.lang.reflect.Field unloadF = net.minecraft.server.level.ChunkMap.class.getDeclaredField("unloadQueue");
+            pendingF.setAccessible(true);
+            updatingF.setAccessible(true);
+            unloadF.setAccessible(true);
+            var pending = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<?>) pendingF.get(map);
+            var updating = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<?>) updatingF.get(map);
+            var unloadQueue = (java.util.Queue<?>) unloadF.get(map);
+            nether.noSave = false;
+            try {
+                // A — полный чанк; его тикет UNKNOWN истекает, и A уходит в очередь выгрузки — когда его отпустит
+                // генерация соседей (processUnloads пропускает держатель с generationRefCount > 0): задачи чанков и
+                // потоки генерации, до 10 с
+                nether.getChunk(a.x, a.z);
+                long setup = System.nanoTime() + 10_000_000_000L;
+                while (!pending.containsKey(a.toLong()) && System.nanoTime() < setup) {
+                    cache.tick(() -> false, false);
+                    while (cache.pollTask()) {
+                        // задачи чанков потока сервера: шаги генерации соседей
+                    }
+                    java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+                }
+                h.assertTrue(pending.containsKey(a.toLong()) && !unloadQueue.isEmpty(), "A не встал в очередь выгрузки");
+                // тикет на B рядом: A возвращается в работу, генерация B его держит
+                ChunkPos b = new ChunkPos(a.x + 2, a.z);
+                net.minecraft.server.level.TicketType<ChunkPos> type = net.minecraft.server.level.TicketType.create("airstrike_test_stop",
+                        java.util.Comparator.comparingLong(ChunkPos::toLong));
+                cache.addRegionTicket(type, b, 0, b);
+                cache.tick(() -> false, false);
+                Object holder = updating.get(a.toLong());
+                h.assertTrue(holder instanceof net.minecraft.server.level.GenerationChunkHolder g && g.getGenerationRefCount() > 0,
+                        "генерация B не держит A — случай не воспроизведён");
+                // круги остановки
+                long deadline = System.nanoTime() + 60_000_000_000L;
+                int rounds = 0;
+                while (map.hasWork()) {
+                    if (System.nanoTime() > deadline) {
+                        throw new net.minecraft.gametest.framework.GameTestAssertException("выход не кончился за " + rounds + " кругов: держатель A — генерация "
+                                + (updating.get(a.toLong()) instanceof net.minecraft.server.level.GenerationChunkHolder g ? g.getGenerationRefCount() : -1)
+                                + ", очередь выгрузки " + unloadQueue.size() + ", тикеты " + (map.getDistanceManager().hasTickets() ? "есть" : "нет"));
+                    }
+                    next.setLong(server, net.minecraft.Util.getNanos() + 1_000_000L);
+                    cache.removeTicketsOnClosing();
+                    ua.zentix.airstrike.util.StopPump.round(cache, () -> true, s -> cache.tick(s, false));
+                    while (server.pollTask()) {
+                        // задачи сервера, как waitUntilNextTick: задачи чанков — только пока срок не прошёл
+                    }
+                    rounds++;
+                }
+                h.assertFalse(map.getDistanceManager().hasTickets(), "после выхода остались тикеты");
+            } finally {
+                nether.noSave = noSave;
+                next.setLong(server, nextTick);
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
         h.succeed();
+    }
+
+    /**
+     * Чанк на краю загруженного мира (тикет радиуса 0, соседи не загружены) с постройкой во весь чанк: его фоновый план
+     * строится, как у очереди руин, — окно с диска, соседей нет на диске (не сохранены) — сплошной массив, и ничего не
+     * ждёт ({@link #windowWithoutNeighboursOnDisk}). Готовый план без мест через мир у края ставится без соседей: и соседи
+     * при этом не грузятся, и блоки чанка — секция в секцию те же, что при загруженных соседях (тот же план второй раз
+     * после возврата блоков). Второй случай: чанку у аппарата Sable подмена по-прежнему ждёт соседей радиуса 1
+     * ({@code RuinPlan.needsNeighbours}: Sable на каждое место читает 6 соседей), дальнему чанку — нет.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "nuke_edge_apply", skyAccess = true)
+    public static void readyPlanSameWithoutNeighbours(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var chunks = level.getChunkSource();
+        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
+        ChunkPos x = new ChunkPos(pad.x + 40, pad.z);
+        boolean fires = ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeFires.get();
+        RuinPlan[] plan = new RuinPlan[1];
+        int[][] before = new int[1][], afterAlone = new int[1][];
+        Runnable done = () -> {
+            chunks.removeRegionTicket(NuclearGameTests.HOLD, x, 0, x);
+            chunks.removeRegionTicket(NuclearGameTests.HOLD, x, 1, x);
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeFires.set(fires);
+            NuclearStrikes.clear(level);
+        };
+        // и после провала по сроку: тикеты, пожары в настройке, очереди
+        StrikeGameTests.afterTest(h, done);
+        // X — сразу (сервер GameTest тикает быстрее фоновой генерации), тикет держит его полным, соседей — нет
+        chunks.addRegionTicket(NuclearGameTests.HOLD, x, 0, x);
+        level.getChunk(x.x, x.z);
+        h.startSequence()
+                .thenExecute(() -> {
+                    LevelChunk chunk = chunks.getChunkNow(x.x, x.z);
+                    h.assertTrue(chunk != null, "X не загружен");
+                    BlockPos base = new BlockPos(x.getMinBlockX(), 200, x.getMinBlockZ());
+                    // этажи во весь чанк на столбах, стены у края (места плана в блоке от границы чанка; на самой
+                    // границе setBlock не годится: Sable читает соседей места и загрузил бы соседний чанк)
+                    for (int ly = 0; ly < 16; ly++) {
+                        for (int lx = 1; lx < 15; lx++) {
+                            for (int lz = 1; lz < 15; lz++) {
+                                boolean edge = lx == 1 || lx == 14 || lz == 1 || lz == 14, pillar = (lx == 4 || lx == 11) && (lz == 4 || lz == 11);
+                                Block b = ly % 4 == 3 ? Blocks.STONE : pillar ? Blocks.STONE_BRICKS : edge ? (ly % 4 == 1 ? Blocks.GLASS : Blocks.BRICKS) : null;
+                                if (b != null) level.setBlock(base.offset(lx, ly, lz), b.defaultBlockState(), 2 | 16);
+                            }
+                        }
+                    }
+                    ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeFires.set(false);
+                    Detonation d = NuclearGameTests.atPsi(h, NuclearGameTests.CENTER, true, h.relativePos(base.offset(8, 8, 8)), 6);
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            if ((dx != 0 || dz != 0) && chunks.getChunkNow(x.x + dx, x.z + dz) != null) {
+                                throw new net.minecraft.gametest.framework.GameTestAssertException("сосед X загружен до подмены — случай не воспроизведён");
+                            }
+                        }
+                    }
+                    int[] window = new int[2];
+                    plan[0] = RuinPlanner.planWithWindow(level, d, chunk, window);
+                    h.assertTrue(plan[0].changedBlocks() > 0, "постройка не разрушена: сравнивать нечего");
+                    h.assertFalse(plan[0].needsNeighbours(level, chunk), "плану X нужны соседи — случай не тот");
+                    h.assertFalse(plan[0].waitsNeighbours(level, chunk), "очередь ждала бы соседей X");
+                    before[0] = blocks(chunk);
+                    h.assertTrue(plan[0].apply(level, chunk, new ua.zentix.airstrike.nuclear.world.ColumnScar.Budget(false)), "план X устарел");
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            if ((dx != 0 || dz != 0) && chunks.getChunkNow(x.x + dx, x.z + dz) != null) {
+                                throw new net.minecraft.gametest.framework.GameTestAssertException("подмена загрузила соседа " + (x.x + dx) + ", " + (x.z + dz));
+                            }
+                        }
+                    }
+                    afterAlone[0] = blocks(chunk);
+                    // вернуть блоки, как до руин, и загрузить соседей
+                    restore(level, chunk, before[0]);
+                    h.assertTrue(java.util.Arrays.equals(blocks(chunk), before[0]), "блоки X не вернулись");
+                    // соседи — сразу, тикет держит их полными
+                    chunks.addRegionTicket(NuclearGameTests.HOLD, x, 1, x);
+                    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) level.getChunk(x.x + dx, x.z + dz);
+                })
+                .thenWaitUntil(() -> h.assertTrue(ua.zentix.airstrike.nuclear.world.NuclearTickets.neighbourhoodLoaded(level, x, 1), "соседи X не полные"))
+                .thenExecute(() -> {
+                    LevelChunk chunk = chunks.getChunkNow(x.x, x.z);
+                    h.assertTrue(plan[0].apply(level, chunk, new ua.zentix.airstrike.nuclear.world.ColumnScar.Budget(false)), "план X устарел во второй раз");
+                    String diff = firstDifference(chunk, afterAlone[0], blocks(chunk));
+                    h.assertTrue(diff == null, "руины X без соседей и с соседями разные: " + diff);
+                    Airstrike.LOG.info("Руины у края: {} мест, без соседей и с соседями — одно и то же", plan[0].changedBlocks());
+                })
+                .thenExecute(() -> assembleCraft(h))
+                .thenWaitUntil(() -> h.assertFalse(!sable() || ua.zentix.airstrike.compat.SubLevels.near(level, craftCentre(h), 8).isEmpty(), "аппарат собирается"))
+                .thenExecute(() -> craftChunkWaits(h, x, plan[0]))
+                .thenSucceed();
+    }
+
+    private static boolean sable() {
+        return net.neoforged.fml.ModList.get().isLoaded("sable");
+    }
+
+    private static final BlockPos CRAFT_FROM = NuclearGameTests.CENTER.offset(6, 5, -2), CRAFT_TO = CRAFT_FROM.offset(3, 1, 3);
+
+    private static Vec3 craftCentre(GameTestHelper h) {
+        return Vec3.atCenterOf(h.absolutePos(CRAFT_FROM.offset(1, 0, 1)));
+    }
+
+    /** Аппарат из досок над площадкой (как у {@code aircraftBlast}). Без Sable — ничего. */
+    private static void assembleCraft(GameTestHelper h) {
+        if (!sable()) return;
+        ServerLevel level = h.getLevel();
+        BlockPos.betweenClosed(CRAFT_FROM, CRAFT_TO).forEach(p -> h.setBlock(p, Blocks.OAK_PLANKS));
+        BlockPos a = h.absolutePos(CRAFT_FROM), b = h.absolutePos(CRAFT_TO);
+        var server = level.getServer();
+        server.getCommands().performPrefixedCommand(server.createCommandSourceStack().withLevel(level).withSuppressedOutput(),
+                String.format(java.util.Locale.ROOT, "sable assemble area %d %d %d %d %d %d", Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()),
+                        Math.min(a.getZ(), b.getZ()), Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())));
+    }
+
+    /**
+     * Чанку у аппарата подмене нужны соседи, дальнему (X) — нет: тот же план (его места не через мир), разница — только
+     * аппарат. Без Sable — нечего проверять.
+     */
+    private static void craftChunkWaits(GameTestHelper h, ChunkPos far, RuinPlan plan) {
+        if (!sable()) return;
+        ServerLevel level = h.getLevel();
+        LevelChunk under = level.getChunkAt(BlockPos.containing(craftCentre(h)));
+        h.assertTrue(plan.needsNeighbours(level, under), "чанку у аппарата подмена не ждёт соседей: Sable прочитал бы их синхронно");
+        LevelChunk x = level.getChunk(far.x, far.z);
+        h.assertFalse(plan.needsNeighbours(level, x), "дальнему чанку без аппаратов подмена ждёт соседей");
+    }
+
+    /** Все места чанка (номера состояний), снизу вверх по секциям. */
+    private static int[] blocks(LevelChunk chunk) {
+        var sections = chunk.getSections();
+        int[] out = new int[sections.length * 4096];
+        for (int i = 0; i < sections.length; i++) {
+            for (int k = 0; k < 4096; k++) out[i * 4096 + k] = Block.getId(sections[i].getBlockState(k & 15, k >> 8, (k >> 4) & 15));
+        }
+        return out;
+    }
+
+    /** Вернуть чанку блоки снимка (через мир, без обновлений соседей). */
+    private static void restore(ServerLevel level, LevelChunk chunk, int[] was) {
+        int[] now = blocks(chunk);
+        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+        for (int k = 0; k < was.length; k++) {
+            if (now[k] == was[k]) continue;
+            int i = k >> 12, c = k & 4095;
+            m.set(chunk.getPos().getMinBlockX() + (c & 15), chunk.getMinBuildHeight() + (i << 4) + (c >> 8), chunk.getPos().getMinBlockZ() + ((c >> 4) & 15));
+            level.setBlock(m, Block.stateById(was[k]), 2 | 16);
+        }
+    }
+
+    @org.jetbrains.annotations.Nullable
+    private static String firstDifference(LevelChunk chunk, int[] a, int[] b) {
+        int n = 0;
+        String first = null;
+        for (int k = 0; k < a.length; k++) {
+            if (a[k] == b[k]) continue;
+            if (n++ == 0) {
+                int i = k >> 12, c = k & 4095;
+                first = "секция " + i + " место " + (c & 15) + "," + (c >> 8) + "," + ((c >> 4) & 15) + ": " + Block.stateById(a[k]) + " против " + Block.stateById(b[k]);
+            }
+        }
+        return n == 0 ? null : n + " мест, первое — " + first;
+    }
+
+    /**
+     * Сосед окна, которого нет на диске (не сгенерирован до конца или не сохранён): окно фонового плана не ждёт его
+     * загрузки — {@code RuinContext.requestWindow} читает соседей с диска, а не найденного считает сплошным массивом,
+     * как край мира. План такой же, как в потоке сервера с теми же соседями вне памяти (там их снимков тоже нет).
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_window_absent", skyAccess = true)
+    public static void windowWithoutNeighboursOnDisk(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var chunks = level.getChunkSource();
+        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
+        ChunkPos y = new ChunkPos(pad.x - 40, pad.z + 7);
+        StrikeGameTests.afterTest(h, () -> {
+            chunks.removeRegionTicket(NuclearGameTests.HOLD, y, 0, y);
+            NuclearStrikes.clear(level);
+        });
+        // Y — сразу (сервер GameTest тикает быстрее фоновой генерации), тикет держит его полным, соседей — нет
+        chunks.addRegionTicket(NuclearGameTests.HOLD, y, 0, y);
+        level.getChunk(y.x, y.z);
+        h.startSequence()
+                .thenExecute(() -> {
+                    LevelChunk chunk = chunks.getChunkNow(y.x, y.z);
+                    h.assertTrue(chunk != null, "Y не загружен");
+                    BlockPos base = new BlockPos(y.getMinBlockX(), 200, y.getMinBlockZ());
+                    // не на границе чанка: Sable на setBlock читает соседей места и загрузил бы соседний чанк
+                    for (int ly = 0; ly < 8; ly++) {
+                        for (int lx = 1; lx < 15; lx++) {
+                            for (int lz = 1; lz < 15; lz++) {
+                                boolean edge = lx == 1 || lx == 14 || lz == 1 || lz == 14;
+                                if (edge || ly == 7) level.setBlock(base.offset(lx, ly, lz), (ly % 3 == 1 ? Blocks.GLASS : Blocks.BRICKS).defaultBlockState(), 2 | 16);
+                            }
+                        }
+                    }
+                    Detonation d = NuclearGameTests.atPsi(h, NuclearGameTests.CENTER, true, h.relativePos(base.offset(8, 4, 8)), 6);
+                    int[] window = new int[2];
+                    RuinPlan disk = RuinPlanner.planWithWindow(level, d, chunk, window);
+                    int inMemory = 0;
+                    for (int dx = -RuinPlanner.REACH; dx <= RuinPlanner.REACH; dx++) {
+                        for (int dz = -RuinPlanner.REACH; dz <= RuinPlanner.REACH; dz++) {
+                            if ((dx != 0 || dz != 0) && chunks.getChunkNow(y.x + dx, y.z + dz) != null) inMemory++;
+                        }
+                    }
+                    int side = 2 * RuinPlanner.REACH + 1;
+                    h.assertTrue(window[0] == side * side - 1 - inMemory, "соседей окна прочитано с диска " + window[0] + ", а не в памяти "
+                            + (side * side - 1 - inMemory));
+                    h.assertTrue(window[1] > 0, "все соседи окна нашлись на диске — случай не воспроизведён");
+                    RuinPlan server = RuinPlanner.planFresh(level, d, chunk, false);
+                    h.assertTrue(disk.changedBlocks() > 0, "постройка не разрушена: сравнивать нечего");
+                    String diff = disk.differs(server);
+                    h.assertTrue(diff == null, "план с окном с диска не такой, как в потоке сервера:" + diff);
+                    Airstrike.LOG.info("Окно без соседей на диске: прочитано {}, нет на диске {}, план — {} мест", window[0], window[1], disk.changedBlocks());
+                })
+                .thenSucceed();
     }
 
     /** Миксин на отправку чанков игроку встал. */

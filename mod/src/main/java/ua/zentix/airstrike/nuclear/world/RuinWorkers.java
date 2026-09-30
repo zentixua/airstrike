@@ -4,6 +4,7 @@ import net.minecraft.server.MinecraftServer;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.work.WorkScheduler;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
@@ -22,9 +23,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * Сколько потоков: {@code ruin_threads}, 0 — сами: все ядра, кроме занятых игрой, — {@code ядра − 1 (поток сервера)
  * − 1 (своей игре: поток отрисовки клиента, если сервер встроенный) − 1 (ваниль: ввод-вывод чанков, генерация, сборщик
  * мусора)}, не меньше одного. Потолка нет: чем больше ядер, тем быстрее встают дальние кольца. Приоритет потоков Java
- * на Linux не действует, поэтому место игре оставляет только это число и подстройка под тик: раз в секунду средний тик
- * сервера за последнюю секунду — выше {@link #BUSY_TICK_MS} мс, и потоков в работе становится на четверть меньше (не
- * меньше одного), ниже {@link #FREE_TICK_MS} — на один больше (не больше числа потоков). Выбранное число и каждое
+ * на Linux не действует, поэтому место игре оставляет только это число и подстройка под тик: раз в секунду чужое время
+ * тика за последнюю секунду (тик без полос мода) — выше предела ({@link #MARGIN_MS}), и потоков в работе становится на
+ * четверть меньше (не меньше одного), ниже — на один больше (не больше числа потоков). Выбранное число и каждое
  * снижение и возврат — в лог.
  * <p>
  * Задач в пуле (в работе и в очереди) не больше {@link #capacity}: очередь — чтобы потоки не простаивали между тиками
@@ -38,8 +39,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * результаты никто не берёт. Потоки — демоны: выход из игры их не ждёт.
  */
 public final class RuinWorkers {
-    /** Средний тик выше — потоков в работе меньше; ниже {@link #FREE_TICK_MS} — больше. */
-    static final double BUSY_TICK_MS = 40, FREE_TICK_MS = 30;
+    /**
+     * Чужое время тика (тик сервера без полос мода, {@link WorkScheduler#ownNanos}) выше {@code 50 − work_ms_per_tick +}
+     * {@link #MARGIN_MS} — потоков в работе меньше: сервер не держит 20 тиков в секунду, даже если полосы мода берут
+     * ровно свой бюджет; ниже {@code 50 − work_ms_per_tick −} {@link #MARGIN_MS} — больше. Свои полосы в счёт не
+     * идут: они в своём бюджете по замыслу, а весь тик (прогон 30.09.2026: 41–49 мс, из них до 30 — ядерка) снижал
+     * потоки до одного, пока полосе ядерки было что делать, и планы вставали на месте.
+     */
+    static final double MARGIN_MS = 5;
+    private static final double TICK_MS = 50;
     /** Раз в сколько тиков подстраиваться. */
     private static final int ADAPT_EVERY = 20;
     /** Задач в пуле на поток в работе: очередь на тик вперёд. */
@@ -141,9 +149,10 @@ public final class RuinWorkers {
     }
 
     /**
-     * Подстройка под тик (поток сервера, каждый тик; работает раз в {@link #ADAPT_EVERY}): средний тик сервера за
-     * последнюю секунду выше {@link #BUSY_TICK_MS} — потоков в работе на четверть меньше, ниже {@link #FREE_TICK_MS} —
-     * на один больше. Пока пул не нужен — ничего.
+     * Подстройка под тик (поток сервера, каждый тик; работает раз в {@link #ADAPT_EVERY}): среднее чужое время тика
+     * за последнюю секунду (тик сервера без полос мода) выше {@code 50 − work_ms_per_tick +} {@link #MARGIN_MS} —
+     * потоков в работе на четверть меньше, ниже {@code 50 − work_ms_per_tick −} {@link #MARGIN_MS} — на один больше.
+     * Пока пул не нужен — ничего.
      */
     public static void adapt(MinecraftServer server) {
         ThreadPoolExecutor p = pool;
@@ -155,13 +164,14 @@ public final class RuinWorkers {
         long[] times = server.getTickTimesNanos();
         long sum = 0;
         int n = Math.min(ADAPT_EVERY, times.length);
-        for (int i = 1; i <= n; i++) sum += times[Math.floorMod(tick - i, times.length)];
+        for (int i = 1; i <= n; i++) sum += Math.max(0, times[Math.floorMod(tick - i, times.length)] - WorkScheduler.ownNanos(tick - i));
         double ms = sum / (double) n / 1e6;
+        double room = TICK_MS - AirstrikeConfig.SERVER.workBudgetMs.get();
         int now = active;
-        if (ms > BUSY_TICK_MS && active > 1) {
+        if (ms > room + MARGIN_MS && active > 1) {
             active = Math.max(1, active - Math.max(1, active / 4));
             lowered++;
-        } else if (ms < FREE_TICK_MS && active < size) {
+        } else if (ms < room - MARGIN_MS && active < size) {
             active++;
             raised++;
         }
@@ -173,7 +183,7 @@ public final class RuinWorkers {
             p.setMaximumPoolSize(active);
             p.setCorePoolSize(active);
         }
-        Airstrike.LOG.info("Руины: фоновых потоков в работе {} из {} (тик сервера {} мс)", active, size, String.format(java.util.Locale.ROOT, "%.1f", ms));
+        Airstrike.LOG.info("Руины: фоновых потоков в работе {} из {} (тик сервера без полос мода {} мс)", active, size, String.format(java.util.Locale.ROOT, "%.1f", ms));
     }
 
     /** Фоновый план брошен: не готов за срок ({@link RuinContext#TASK_AGE_LIMIT}). */
