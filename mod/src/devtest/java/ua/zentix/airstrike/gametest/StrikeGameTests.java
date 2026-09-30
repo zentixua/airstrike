@@ -417,6 +417,42 @@ public final class StrikeGameTests {
     }
 
     /**
+     * РСЗО на 5 км, сохранённая в начале дуги по-старому (2.3.x: срок жизни — тики траектории + 200, ключа
+     * {@code mission} нет): на дальней дуге снаряд быстрее маршевой (здесь ≈ 11 блоков/тик), и остаток срока × маршевая
+     * кончался на полпути. После загрузки запас — остаток дуги от сохранённого времени и перелёт; расход — пройденный
+     * путь, так что его хватает до точки падения. Без переноса по дуге запас меньше дуги (проверено ниже).
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void legacyRocketKeepsArc(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        r.launchFrom(point.add(0, 0, -5000), new Target.Point(point), point, null);
+        CompoundTag tag = r.saveWithoutId(new CompoundTag());
+        int flightTicks = tag.getInt("flight_ticks");
+        double t = 10.5;
+        tag.putDouble("t", t);
+        tag.remove("mission");
+        tag.putInt("age", 10);
+        tag.putInt("lifetime", flightTicks + 200);
+        RocketEntity saved = ModEntities.ROCKET.get().create(level);
+        saved.load(tag);
+
+        Vec3 start = ua.zentix.airstrike.util.Nbt.getVec(tag, "start"), v0 = ua.zentix.airstrike.util.Nbt.getVec(tag, "v0");
+        double arc = ua.zentix.airstrike.guidance.Ballistics.at(start, v0, 11).distanceTo(ua.zentix.airstrike.guidance.Ballistics.at(start, v0, t));
+        for (int k = 11; k < flightTicks; k++) {
+            arc += ua.zentix.airstrike.guidance.Ballistics.at(start, v0, k + 1).distanceTo(ua.zentix.airstrike.guidance.Ballistics.at(start, v0, k));
+        }
+        double cruise = WeaponSpec.ROCKET.airframe().cruiseSpeed();
+        double old = (flightTicks + 200 - 10) * cruise;
+        h.assertTrue(old < arc, "на 5 км старый перенос (" + Math.round(old) + ") уже покрывал дугу " + Math.round(arc) + " — тест ничего не ловит");
+        double expected = arc + 200 * cruise;
+        h.assertTrue(Math.abs(saved.rangeLeft() - expected) < 1e-6 * expected,
+                "РСЗО 2.3.x: запас " + Math.round(saved.rangeLeft()) + " вместо дуги " + Math.round(arc) + " + перелёт");
+        h.succeed();
+    }
+
+    /**
      * Крылатая ракета с пусковой по маршруту с обходом (пуск, разгон, набор, маршрут вне мира, горка, пикирование):
      * скорость не проседает на переходах разгон → набор → маршрут (ускоритель разгоняет ниже маршевой, дальше турбина),
      * а время до удара, названное на пусковой (HUD, сирена, «удар через ~N с»), сходится с настоящим в пределах 10 %.
@@ -814,7 +850,8 @@ public final class StrikeGameTests {
      * Запас хода «Ланцета» на самый долгий круг (барраж из настроек +20 %): план — путь до цели × 1.5, круг на маршевой
      * и пике на своей скорости ({@code LoiterEntity.extraRange}) — покрывает весь полёт, резерв сверх плана
      * ({@link Mission#RESERVE_TICKS}) остаётся нетронутым к подрыву. Пике быстрее круга (4 блока/тик против 1.6):
-     * в тиках плана на маршевой его не хватало бы.
+     * в тиках плана на маршевой его не хватало бы — это проверяется по самому пике, без слабины пути до круга: пике
+     * расходует больше {@code DIVE_TICKS} × маршевая и не больше {@code DIVE_TICKS} × скорость пике, заложенных в план.
      */
     @GameTest(template = "runway", timeoutTicks = 1600, batch = "loiter_range", skyAccess = true)
     public static void loiterFullCircleWithinRange(GameTestHelper h) {
@@ -832,6 +869,7 @@ public final class StrikeGameTests {
         double reserve = Mission.RESERVE_TICKS * WeaponSpec.LOITER.airframe().cruiseSpeed();
         int[] loiter = {0};
         double[] left = {Double.NaN};
+        double[] beforeDive = {Double.NaN};
         Vec3[] lastPos = {null};
         String[] last = {""};
         h.onEachTick(() -> {
@@ -839,14 +877,23 @@ public final class StrikeGameTests {
             if (l == null) return;
             lastPos[0] = l.position();
             left[0] = l.rangeLeft();
+            if (l.flightPhase() != FlightPhase.TERMINAL) beforeDive[0] = l.rangeLeft();
             last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " запас " + Math.round(l.rangeLeft());
-            if (l.flightPhase() == FlightPhase.LOITER) loiter[0]++;
+            // по часам фазы самого снаряда, а не по тикам теста: пока он уходит из мира или возвращается, тест его
+            // не находит (на CI так пропало 6 тиков круга)
+            if (l.flightPhase() == FlightPhase.LOITER) loiter[0] = Math.max(loiter[0], l.phaseAge() + 1);
         });
         h.succeedWhen(() -> {
             h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
             h.assertTrue(loiter[0] >= longest, "кружил " + loiter[0] + " тиков, а должен " + longest);
             h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
             h.assertTrue(left[0] >= reserve, "план не покрыл полёт: к подрыву осталось " + Math.round(left[0]) + " блоков из резерва " + Math.round(reserve));
+            WeaponSpec.Airframe air = WeaponSpec.LOITER.airframe();
+            double dive = beforeDive[0] - left[0];
+            h.assertTrue(dive > LoiterEntity.DIVE_TICKS * air.cruiseSpeed(),
+                    "пике " + Math.round(dive) + " блоков укладывается в тики на маршевой — тест не отличает план пике от плана круга");
+            h.assertTrue(dive <= LoiterEntity.DIVE_TICKS * air.diveSpeed(),
+                    "пике " + Math.round(dive) + " блоков больше заложенных " + Math.round(LoiterEntity.DIVE_TICKS * air.diveSpeed()));
         });
     }
 

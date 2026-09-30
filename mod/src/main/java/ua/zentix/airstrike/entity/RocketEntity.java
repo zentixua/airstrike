@@ -260,11 +260,20 @@ public class RocketEntity extends StrikeProjectile {
         restart(from, to, Ballistics.ticksFor(from, to, elevation, MIN_FLIGHT));
     }
 
-    /** Длина дуги текущей траектории от её начала до точки падения, блоков: столько снаряд пролетит по тикам. */
-    private double arcLength() {
-        double arc = 0;
-        for (int k = 0; k < flightTicks; k++) arc += at(k + 1).subtract(at(k)).length();
+    /**
+     * Длина дуги текущей траектории от времени {@code from} до точки падения, блоков: столько снаряд пролетит по тикам
+     * (дробное начало — полёт вне мира растягивается).
+     */
+    private double arcFrom(double from) {
+        int first = (int) Math.ceil(from);
+        double arc = first < flightTicks ? at(first).subtract(at(from)).length() : 0;
+        for (int k = first; k < flightTicks; k++) arc += at(k + 1).subtract(at(k)).length();
         return arc;
+    }
+
+    /** Запас хода на остаток траектории от {@link #t}: дуга до точки падения и перелёт {@link #OVERSHOOT_TICKS}. */
+    private Mission missionLeft() {
+        return Mission.of(arcFrom(t) + OVERSHOOT_TICKS * cruiseSpeed());
     }
 
     /** Сколько тиков осталось лететь по текущей траектории — для пересчёта с текущего места (не меньше 8). */
@@ -277,7 +286,7 @@ public class RocketEntity extends StrikeProjectile {
         t = 0;
         flightTicks = Math.max(1, ticks);
         v0 = Ballistics.launchVelocity(from, to, flightTicks);
-        setMission(Mission.of(arcLength() + OVERSHOOT_TICKS * cruiseSpeed()));
+        setMission(missionLeft());
         holdAt = holdPoint(to);
     }
 
@@ -293,6 +302,9 @@ public class RocketEntity extends StrikeProjectile {
             flightTicks = tag.getInt("flight_ticks");
             t = tag.contains("t") ? tag.getDouble("t") : tag.getInt("n");
             if (impactAt != null) holdAt = holdPoint(impactAt);
+            // 2.3.x (срок жизни, ключа mission нет): на дальней дуге снаряд быстрее маршевой, и остаток срока × маршевая
+            // кончался на полпути (5 км: ≈ 3600 блоков хода на ≈ 5700 блоков дуги) — запас по самой дуге
+            if (!tag.contains("mission")) setMission(missionLeft());
         }
     }
 

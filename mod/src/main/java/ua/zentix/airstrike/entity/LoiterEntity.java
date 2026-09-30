@@ -34,7 +34,7 @@ public class LoiterEntity extends StrikeProjectile {
     /** Перенацеленный ближе этого (по горизонтали) пикирует сразу, без круга. */
     private static final double STRIKE_NOW = 140;
     /** Сколько тиков в среднем уходит на пикирование с круга (для времени до удара). */
-    private static final int DIVE_TICKS = 25;
+    public static final int DIVE_TICKS = 25;
     /** Пике мимо: дальше ближайшего подхода к цели на столько блоков — снова на круг и новый заход. */
     private static final double MISSED_BY = 20;
 
