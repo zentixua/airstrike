@@ -18,7 +18,7 @@ public final class BombDrop {
     public static final double REACH_PAD = 5.3;
     /** Длина носа: за тик бомба ищет преграду от середины носа до его конца после шага (как все снаряды). */
     public static final double NOSE = 3.1;
-    /** Край окна сброса — не дальше высоты над точкой и этого (с 20 до 490 блоков над точкой он не дальше высоты + 20). */
+    /** Край окна сброса по курсу — не дальше высоты над точкой и этого (с 20 до 490 блоков над точкой он не дальше высоты + 20). */
     public static final double EDGE_REACH = 30;
     /** Земля выше точки на столько: B-2 целит в середину верхнего блока, бомба бьётся о его верх. */
     public static final double GROUND_ABOVE_AIM = 0.5;
@@ -57,7 +57,7 @@ public final class BombDrop {
      * отсюда, придёт в точку ({@link #miss}), и дальше ждать нечего: B-2 дошёл до дальности сброса для своей высоты над
      * точкой ({@code lineRatio} × высота — угол на точку тот же, что на эшелоне) или со следующего тика бомба уже
      * промахнётся — край окна (выше эшелона бомбе нужно больше места, чтобы опустить нос; ниже ~140 край дальше черты).
-     * Край ищется не дальше {@link #EDGE_REACH} сверх высоты: дальше попадания рваные (бомба сотни блоков идёт полого,
+     * Край ищется по курсу не дальше {@link #EDGE_REACH} сверх высоты: дальше попадания рваные (бомба сотни блоков идёт полого,
      * и окно в пару тиков между промахами — не край; с 170 блоков такой «край» был в 860 блоках). Падение проигрывается
      * теми же шагами, что у самой бомбы, — на ровной земле она придёт туда же. С любой высоты; промах отовсюду (точка
      * слишком близко впереди, сзади, выше B-2) — заход снова.
@@ -65,7 +65,9 @@ public final class BombDrop {
     public static boolean releaseNow(Vec3 pos, Vec3 step, float yaw, Vec3 aim, double lineRatio) {
         double dx = aim.x - pos.x, dz = aim.z - pos.z;
         double horizontal = Math.sqrt(dx * dx + dz * dz), height = pos.y - aim.y, line = height * lineRatio;
-        if (horizontal > Math.max(line, height + EDGE_REACH) || miss(pos, yaw, aim) > 0) return false;
+        // край — по курсу: точка сбоку отодвигает его на свой отступ (иначе ниже 100 блоков сбоку край не находился)
+        double yawRad = Math.toRadians(yaw), along = -Math.sin(yawRad) * dx + Math.cos(yawRad) * dz;
+        if (horizontal > line && along > height + EDGE_REACH || miss(pos, yaw, aim) > 0) return false;
         return horizontal <= line || miss(pos.add(step), yaw, aim) > 0;
     }
 

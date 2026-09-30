@@ -14,7 +14,7 @@ class BombDropTest {
      * Где B-2 сбросит бомбу, идя по прямой на высоте {@code h} над точкой (на {@code side} в стороне от курса) из
      * {@code from} блоков до неё; -1 — нигде.
      */
-    static double releaseAt(double h, double from, double side) {
+    private static double releaseAt(double h, double from, double side) {
         Vec3 aim = Vec3.ZERO;
         for (double z = -from; z < 400; z += SPEED) {
             Vec3 pos = new Vec3(side, h, z);
@@ -34,19 +34,23 @@ class BombDropTest {
 
     /**
      * С любой высоты от 20 до 490 блоков над точкой (вернулся в мир над горой, точку перенацелили выше или ниже) B-2
-     * сбрасывает с первого захода (с 100 блоков — и сбоку от курса) и не дальше края окна: выше эшелона на черте для своей
-     * высоты, ниже ~140 — на краю, а он не дальше высоты + 20 (дальше — рваные попадания, см. {@link BombDrop#EDGE_REACH}).
-     * Что бомба оттуда приходит в точку в мире, проверяет GameTest {@code bomberReleasePointsHitInWorld}.
+     * сбрасывает с первого захода и не дальше края окна: выше эшелона на черте для своей высоты, ниже ~140 — на краю,
+     * а он по курсу не дальше высоты + 20 (дальше — рваные попадания, см. {@link BombDrop#EDGE_REACH}). Точка сбоку
+     * от курса — тоже, если над ней хватает высоты: бомба доворачивает к ней, пока падает, и низко (ниже ~50 блоков
+     * сверх отступа) не успевает — тогда заход снова. Что бомба оттуда приходит в точку в мире, проверяет GameTest
+     * {@code bomberReleasePointsHitInWorld}.
      */
     @Test
     void releasesFromAnyHeight() {
         for (int h = 20; h <= 490; h += 10) {
-            // низко над точкой бомба к точке сбоку не доворачивает (заход снова): ниже 100 блоков — только по курсу
-            for (double side : h < 100 ? new double[]{0} : new double[]{0, 20, -35}) {
+            for (double side : new double[]{0, 20, -35, 60}) {
+                if (side != 0 && h < 50 + Math.abs(side)) continue;
                 for (int phase = 0; phase < SPEED; phase++) {
                     double at = releaseAt(h, 1200 + phase, side);
-                    assertTrue(at > 0, "с " + h + " не сбросил (сбоку " + side + ", сдвиг " + phase + ")");
-                    assertTrue(at <= Math.max(h * RATIO, h + 20), "с " + h + " сбросил в " + at + " (сбоку " + side + ", сдвиг " + phase + ")");
+                    String where = "с " + h + " (сбоку " + side + ", сдвиг " + phase + ")";
+                    assertTrue(at > 0, where + " не сбросил");
+                    double along = Math.sqrt(at * at - side * side);
+                    assertTrue(at <= h * RATIO || along <= h + 20, where + " сбросил в " + at);
                 }
             }
         }

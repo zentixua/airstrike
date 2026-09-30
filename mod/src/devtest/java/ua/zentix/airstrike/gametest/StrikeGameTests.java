@@ -730,9 +730,12 @@ public final class StrikeGameTests {
         Vec3[] releases = new Vec3[drops.length];
         Vec3[] aims = new Vec3[drops.length];
         double[] predicted = new double[drops.length];
+        // точки не ближе 24 блоков друг к другу: бомба, вошедшая в грунт первой, взрывается под землёй через ~10 тиков,
+        // и воронка у соседней точки (в 6 блоках) засчитала бы соседке попадание; промах уходит вперёд по курсу (+z)
+        // и остаётся на площадке
+        int[][] at = {{4, 100}, {28, 100}, {16, 150}, {4, 200}, {28, 200}};
         for (int i = 0; i < drops.length; i++) {
-            // по полосе на своей дорожке: промах уходит вперёд по курсу (+z) и остаётся на площадке
-            aims[i] = dropPoint(h, new BlockPos(4 + 6 * i, 3, 100));
+            aims[i] = dropPoint(h, new BlockPos(at[i][0], 3, at[i][1]));
             releases[i] = aims[i].add(0, drops[i][0], -drops[i][1]);
             predicted[i] = BombDrop.miss(releases[i], 0, aims[i]);
         }
@@ -750,7 +753,8 @@ public final class StrikeGameTests {
         Vec3[] releases = new Vec3[heights.length];
         Vec3[] aims = new Vec3[heights.length];
         for (int i = 0; i < heights.length; i++) {
-            aims[i] = dropPoint(h, new BlockPos(3 + 5 * i, 3, 200));
+            // соседние дорожки — вразбежку по полосе (см. выше: воронка соседки)
+            aims[i] = dropPoint(h, new BlockPos(3 + 5 * i, 3, 170 + 50 * (i % 2)));
             Vec3 step = new Vec3(0, 0, BomberEntity.CRUISE_SPEED);
             // подход по прямой с курсом +z; сдвиг начала — чтобы попасть в разные места окна
             for (Vec3 pos = aims[i].add(0, heights[i], -600 - 2 * i); pos.z < aims[i].z; pos = pos.add(step)) {
