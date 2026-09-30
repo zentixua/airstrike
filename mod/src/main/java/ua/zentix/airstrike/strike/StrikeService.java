@@ -194,7 +194,7 @@ public final class StrikeService {
 
     /**
      * РСЗО: снаряд в трубе пакета у стреляющего (пакет доворачивается на цель, если молчит), иначе с позиции
-     * за вынос пусковой из паспорта ({@link WeaponSpec.Route#standoff}). Неуправляемый: своё рассеивание ~1% дальности, за целью не следит.
+     * за вынос пусковой из паспорта ({@link WeaponSpec.Route#standoff}). Неуправляемый: своё рассеивание (паспорт, {@link WeaponSpec.Route#dispersion}), за целью не следит.
      */
     @Nullable
     private static StrikeProjectile launchRocket(ServerLevel level, Target target, Vec3 point, float yaw,
@@ -243,9 +243,9 @@ public final class StrikeService {
         return e;
     }
 
-    /** Рассеивание неуправляемого снаряда: ~1% дальности по нормали (у «Града» на 20 км — сотни метров). */
+    /** Рассеивание неуправляемого снаряда по нормали: СКО — доля дальности из паспорта (1 %: у «Града» на 20 км — сотни метров). */
     private static Vec3 scatter(ServerLevel level, Vec3 from, Vec3 point) {
-        double sigma = Math.max(1, Math.sqrt(from.distanceToSqr(point.x, from.y, point.z)) * 0.01);
+        double sigma = WeaponType.ROCKET.spec().route().sigma(Math.sqrt(from.distanceToSqr(point.x, from.y, point.z)));
         return point.add(level.random.nextGaussian() * sigma, 0, level.random.nextGaussian() * sigma);
     }
 

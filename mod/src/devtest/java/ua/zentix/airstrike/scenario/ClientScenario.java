@@ -64,6 +64,18 @@ public final class ClientScenario {
      * к востоку от цели и смотрит на север, откуда заходит снаряд, кадры подлёта — каждые 8 тиков до самого взрыва.
      */
     private final boolean approach = Boolean.getBoolean("airstrike.fx.approach");
+    /**
+     * Удар по заданной точке ({@link #fxTargets}): пуск от консоли встроенного сервера и взрыв своего снаряда. Снаряд у
+     * клиента ищется по UUID и заново после ухода в полёт вне мира; следующая цель — только после взрыва (или срока).
+     */
+    private volatile StrikeWatch strike;
+    /** Тик клиента, когда ушла команда удара ({@link #strike}), и снаряд уже был у клиента. */
+    private int strikeTick = -1;
+    private boolean reached;
+    /** Удара нет за столько тиков после команды — «no impact», следующая цель. */
+    private static final int FX_IMPACT_LIMIT = 2400;
+    /** Зритель подлёта: столько блоков над самым высоким столбом в {@link #FX_VIEW_RADIUS} от цели, и сколько ждать готовых чанков. */
+    private static final int FX_VIEW_ABOVE = 35, FX_VIEW_RADIUS = 64, FX_VIEW_WAIT = 600;
     /** Видео с борта: текущий вариант («dry», потом «wet»), тик пуска и снятые кадры. */
     private String onboard;
     private int onboardFired = -1, onboardFrames;
@@ -410,6 +422,7 @@ public final class ClientScenario {
             Minecraft.getInstance().options.hideGui = true;
             quickFlights();
         });
+        NeoForge.EVENT_BUS.addListener(this::onServerBlast);
         at(100, this::nextFx);
     }
 
@@ -437,26 +450,15 @@ public final class ClientScenario {
             mc.player.getAbilities().flying = true;
             String label = current;
             current = "wait";
-            at(tick + 200, () -> {
-                int y = Double.isNaN(p[1]) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(p[0]), (int) Math.floor(p[2])) : (int) p[1];
-                target = new Vec3(Math.floor(p[0]) + 0.5, y, Math.floor(p[2]) + 0.5);
-                String strike = String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", weapon, target.x, target.y, target.z);
-                if (approach) {
-                    // на земле в 40 блоках к востоку; в кадре и цель, и последние ~200 блоков захода с севера
-                    int gx = (int) Math.floor(target.x) + 40, gz = (int) Math.floor(target.z);
-                    eye = new Vec3(gx + 0.5, Math.max(target.y, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, gx, gz)) + 3, gz + 0.5);
-                    cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z,
-                            target.x, target.y + 15, target.z - 40));
-                    // курс захода — курс «взгляда» команды: yaw 0 — на юг, то есть снаряд приходит с севера
-                    strike = "execute rotated 0 0 run " + strike;
-                } else {
-                    eye = target.add(0, 25, -60);
-                    view();
-                }
-                Airstrike.LOG.info("SCENARIO fx target {} at {}", label, target);
-                current = label;
-                cmd(strike);
-            });
+            // чанки вокруг цели у клиента — через 200 тиков после переноса или позже: пробовать, пока не готовы
+            int from = tick;
+            boolean[] aimed = {false};
+            for (int t = 200; t <= 200 + FX_VIEW_WAIT; t += 20) {
+                boolean last = t == 200 + FX_VIEW_WAIT;
+                at(from + t, () -> {
+                    if (!aimed[0]) aimed[0] = fxAim(p, weapon, label, last);
+                });
+            }
             return;
         }
         mc.player.getAbilities().flying = true;
@@ -481,8 +483,118 @@ public final class ClientScenario {
         cmd(String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", current, target.x, target.y, target.z));
     }
 
+    /**
+     * Точка удара, зритель и пуск для пункта {@code fx.targets}. {@code false} — чанки вокруг цели у клиента ещё не
+     * готовы (повторить позже; {@code force} — последний раз: без готовых чанков пункт пропускается).
+     */
+    private boolean fxAim(double[] p, String weapon, String label, boolean force) {
+        Minecraft mc = Minecraft.getInstance();
+        int cx = (int) Math.floor(p[0]), cz = (int) Math.floor(p[2]);
+        // высота без готового чанка — низ мира: зритель встал бы в постройку
+        int top = Integer.MIN_VALUE;
+        for (int x = cx - FX_VIEW_RADIUS; x <= cx + FX_VIEW_RADIUS; x += 4) {
+            for (int z = cz - FX_VIEW_RADIUS; z <= cz + FX_VIEW_RADIUS; z += 4) {
+                if (!mc.level.hasChunk(x >> 4, z >> 4)) {
+                    if (force) {
+                        Airstrike.LOG.warn("SCENARIO {} skipped: chunks around target not loaded by client — FAIL", label);
+                        current = "wait";
+                        at(tick + 1, this::nextFx);
+                        return true;
+                    }
+                    return false;
+                }
+                top = Math.max(top, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z));
+            }
+        }
+        int y = Double.isNaN(p[1]) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, cx, cz) : (int) p[1];
+        target = new Vec3(cx + 0.5, y, cz + 0.5);
+        String command = String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", weapon, target.x, target.y, target.z);
+        if (approach) {
+            // над крышами и кронами в 40 блоках к востоку: в кадре и цель, и последние сотни блоков захода с севера
+            eye = new Vec3(cx + 40.5, Math.max(top, y) + FX_VIEW_ABOVE, cz + 0.5);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z,
+                    target.x, target.y + 15, target.z - 40));
+            // курс захода: yaw 0 — на юг, снаряд приходит с севера
+            command = "execute rotated 0 0 run " + command;
+        } else {
+            eye = target.add(0, 25, -60);
+            view();
+        }
+        BlockPos eyeBlock = BlockPos.containing(eye);
+        Airstrike.LOG.info("SCENARIO fx target {} at {}, viewer {} ({} at eye)", label, target, eye, mc.level.getBlockState(eyeBlock));
+        current = label;
+        strike = new StrikeWatch();
+        strikeTick = tick;
+        reached = false;
+        // от консоли: стреляющего нет, заход — прямая с севера (fromAfar), пусковая у зрителя не ставится
+        String run = command;
+        StrikeWatch w = strike;
+        var server = mc.getSingleplayerServer();
+        server.execute(() -> {
+            var level = server.overworld();
+            var before = StrikeWatch.projectiles(level);
+            server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), run);
+            if (!w.launched(before, StrikeWatch.projectiles(level))) Airstrike.LOG.warn("SCENARIO {}: пуск не найден — снарядов нового нет или несколько", label);
+        });
+        return true;
+    }
+
+    /** Взрыв на встроенном сервере: удар снаряда {@link #strike}, если он его. */
+    private void onServerBlast(net.neoforged.neoforge.event.level.ExplosionEvent.Start e) {
+        StrikeWatch w = strike;
+        if (w == null || e.getLevel().isClientSide()) return;
+        Vec3 at = e.getExplosion().center();
+        if (w.onBlast(ua.zentix.airstrike.stress.StressDirector.blastBy(e.getExplosion()), at, tick)) {
+            Airstrike.LOG.info("SCENARIO {} blast at {} ({} blocks from target)", current, at, Math.round(at.distanceTo(target)));
+        }
+    }
+
+    /** Удар по заданной точке: снаряд по UUID, кадры подлёта, взрыв — по взрыву своего снаряда на сервере. */
+    private void fxTargetEvents() {
+        StrikeWatch w = strike;
+        if (w == null || current.equals("wait")) return;
+        Minecraft mc = Minecraft.getInstance();
+        String name = current;
+        if (w.impactTick() >= 0) {
+            strike = null;
+            current = "wait";
+            int at = w.impactTick();
+            Airstrike.LOG.info("SCENARIO {} impact at tick {}", name, at);
+            for (int dt : new int[]{1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 240, 320}) shot(Math.max(tick + 1, at + dt), name);
+            at(Math.max(tick + 1, at + 340), this::nextFx);
+            return;
+        }
+        if (tick - strikeTick > FX_IMPACT_LIMIT) {
+            strike = null;
+            current = "wait";
+            Airstrike.LOG.warn("SCENARIO {} no impact by tick {} — FAIL", name, tick);
+            at(tick + 1, this::nextFx);
+            return;
+        }
+        // сущность у клиента пропадает при потере отслеживания и при уходе в полёт вне мира — искать заново по UUID
+        if (watched != null && (watched.isRemoved() || !watched.getUUID().equals(w.projectile()))) watched = null;
+        if (watched == null && w.projectile() != null) {
+            for (var e : mc.level.entitiesForRendering()) {
+                if (e instanceof StrikeProjectile p && p.getUUID().equals(w.projectile())) watched = p;
+            }
+            if (watched != null && !reached) {
+                reached = true;
+                Airstrike.LOG.info("SCENARIO {} reached client at tick {}, {} blocks from viewer, {} from target", name, tick,
+                        Math.round(watched.distanceTo(mc.player)), Math.round(watched.position().distanceTo(target)));
+            }
+        }
+        if (watched != null && tick % 8 == 0 && (approach || flightShots < 6 && watched.distanceTo(mc.player) < 150)) {
+            flightShots++;
+            shot(tick + 1, name + "_flight");
+        }
+    }
+
     /** Ждём снаряд, снимаем подлёт, затем взрыв — от тика, когда снаряд пропал. */
     private void fxEvents() {
+        if (fxTargets != null) {
+            fxTargetEvents();
+            return;
+        }
         if (current == null || current.equals("icbm") || current.equals("wait")) return;
         Minecraft mc = Minecraft.getInstance();
         if (watched == null) {
@@ -876,8 +988,13 @@ public final class ClientScenario {
             if (aim == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
             double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
             BlockPos hit = BlockPos.containing(at), target = BlockPos.containing(aim);
-            Airstrike.LOG.info("SCENARIO map-target impact {} miss {} — {}; земля под взрывом {} (с листвой {}), у цели {} (с листвой {})", at,
-                    Math.round(miss), miss <= MAP_MAX_MISS ? "OK" : "FAIL",
+            // неуправляемому (РСЗО) — его рассеивание из паспорта: три СКО по дальности от стреляющего (пакет у него)
+            WeaponType weapon = WeaponType.parse(System.getProperty("airstrike.mapWeapon", "missile"));
+            var shooter = e.getLevel().players().isEmpty() ? null : e.getLevel().players().getFirst();
+            double range = shooter == null ? 0 : Math.hypot(shooter.getX() - aim.x, shooter.getZ() - aim.z);
+            double allowed = MAP_MAX_MISS + 3 * (weapon == null ? 0 : weapon.spec().route().sigma(range));
+            Airstrike.LOG.info("SCENARIO map-target impact {} miss {} (допуск {}) — {}; земля под взрывом {} (с листвой {}), у цели {} (с листвой {})", at,
+                    Math.round(miss), Math.round(allowed), miss <= allowed ? "OK" : "FAIL",
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, hit.getX(), hit.getZ()),
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, hit.getX(), hit.getZ()),
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, target.getX(), target.getZ()),
@@ -1045,7 +1162,7 @@ public final class ClientScenario {
 
     /** Сценарий target-map ждёт, пока DH загрузит свои LOD, не дольше этого (тиков), и попадания — не дольше второго. */
     private static final int MAP_DH_WAIT = 6000, MAP_FLIGHT_WAIT = 2100;
-    /** Одна ракета без разброса: взрыв не дальше этого от выбранной точки (по горизонтали), блоков. */
+    /** Одна ракета без разброса: взрыв не дальше этого от выбранной точки (по горизонтали), блоков; неуправляемому — ещё три СКО его рассеивания. */
     private static final double MAP_MAX_MISS = 2;
     /** Точка, выбранная на карте (сценарий target-map); её читает и поток сервера. */
     @org.jetbrains.annotations.Nullable
@@ -1058,7 +1175,7 @@ public final class ClientScenario {
     private static final int COMMANDS_MAX_WAIT = 72_000;
 
     /**
-     * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
+     * Команды из свойства {@code airstrike.commands} (через «;», кроме «;» в скобках и кавычках — {@link ScenarioCommands}) в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
      * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
      * {@code имя_тик.png}, {@code hud:off}/{@code hud:on} — скрыть и вернуть интерфейс (как F1: чат с ответами команд
@@ -1070,9 +1187,7 @@ public final class ClientScenario {
      */
     private void planCommands() {
         int t = 100;
-        for (String item : System.getProperty("airstrike.commands", "").split(";")) {
-            String c = item.strip();
-            if (c.isEmpty()) continue;
+        for (String c : ScenarioCommands.split(System.getProperty("airstrike.commands", ""))) {
             if (c.startsWith("wait:")) {
                 String n = c.substring("wait:".length()).strip();
                 int ticks;

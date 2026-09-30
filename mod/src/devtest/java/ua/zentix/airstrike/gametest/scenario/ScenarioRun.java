@@ -134,7 +134,6 @@ final class ScenarioRun {
     private Outcome outcome;
     private final Consumer<ExplosionEvent.Start> onBlast = this::onBlast;
     private final Consumer<ExplosionEvent.Detonate> onDetonate = this::onDetonate;
-    /** Блоки мира (не воздух), которые выбрали взрывы снаряда сценария ({@code Detonate}): работа попаданий сносит их. */
     /**
      * Что выбрали взрывы снаряда (блоки мира рядом): место → блок в момент {@code Detonate}. Снесённое уходит отсюда по
      * обновлению соседей ({@code NeighborNotifyEvent} с воздухом или огнём на месте): воронку потом засыпают обломки
