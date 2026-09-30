@@ -334,6 +334,7 @@ public final class ScarQueue {
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Повреждения чанка {} упали с ошибкой; чанк снят с очереди", new ChunkPos(job.chunk), e);
                 jobs.remove(job.chunk);
+                logs.remove(job.chunk);
                 release(level, job);
             }
         }
