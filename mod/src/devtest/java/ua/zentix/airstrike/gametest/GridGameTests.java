@@ -40,6 +40,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.UpgradeData;
@@ -1206,6 +1207,40 @@ public final class GridGameTests {
             h.assertTrue(protoTag.equals(pattern), "тег недогруженного чанка изменён");
         } finally {
             ChunkLights.apply(level, chunk, false);
+        }
+        h.succeed();
+    }
+
+    /**
+     * Секция целиком из одного двойника (палитра из одного значения): сохранение пишет лампы и не трогает секцию мира.
+     * {@code PalettedContainer.copy()} такой секции делит с ней палитру, и замена в копии расширяла живую секцию, а сама
+     * запись падала — чанк уходил на диск с двойниками.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "grid_save_tags", skyAccess = true)
+    public static void saveLeavesSingleValueSectionAlone(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(CENTER));
+        // пустая секция над площадкой — на время теста вся из погашенных фонарей
+        int index = chunk.getSectionIndex(h.absolutePos(CENTER).getY()) + 4;
+        LevelChunkSection air = chunk.getSections()[index];
+        h.assertTrue(air.hasOnlyAir(), "секция над площадкой не пустая");
+        BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
+        PalettedContainer<BlockState> live = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, twin, PalettedContainer.Strategy.SECTION_STATES);
+        chunk.getSections()[index] = new LevelChunkSection(live, air.getBiomes());
+        try {
+            Tag before = BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow();
+            int size = live.getSerializedSize();
+            CompoundTag tag = ChunkSerializer.write(level, chunk);
+            ChunkSaves.onSave(new ChunkDataEvent.Save(chunk, level, tag));
+            h.assertFalse(tag.toString().contains("airstrike:unlit"), "двойники сохранены на диск");
+            h.assertTrue(tag.toString().contains("minecraft:sea_lantern"), "фонарей нет в теге");
+            h.assertTrue(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow().equals(before), "сохранение изменило секцию мира");
+            h.assertTrue(live.get(7, 7, 7) == twin, "сохранение зажгло фонарь в мире");
+            // палитра секции мира не выросла (блоки те же, но хранилище уже другое)
+            h.assertTrue(live.getSerializedSize() == size, "сохранение расширило палитру секции мира");
+        } finally {
+            chunk.getSections()[index] = air;
         }
         h.succeed();
     }

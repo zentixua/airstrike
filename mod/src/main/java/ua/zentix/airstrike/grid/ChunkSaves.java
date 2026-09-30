@@ -70,7 +70,9 @@ public final class ChunkSaves {
                     }
                     continue;
                 }
-                PalettedContainer<BlockState> states = section.getStates().copy();
+                // своя копия — из тега, не copy(): у секции из одного блока copy() отдаёт ту же палитру, а та при
+                // первой замене расширяет живую секцию мира (обработчик роста палитры — у неё) и роняет запись
+                PalettedContainer<BlockState> states = BLOCK_STATES.parse(NbtOps.INSTANCE, s.getCompound("block_states")).getOrThrow();
                 // палитра помнит и ушедшие состояния: двойник в ней ещё не значит двойник в секции
                 if (ChunkLights.apply(states, false) == 0) continue;
                 s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
