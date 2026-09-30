@@ -33,12 +33,14 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.Radiation.TYPE, S2C.Radiation.CODEC, (p, ctx) -> ClientHooks.get().radiation(p));
         r.playToClient(S2C.Flights.TYPE, S2C.Flights.CODEC, (p, ctx) -> ClientHooks.get().flights(p));
         r.playToClient(S2C.Heard.TYPE, S2C.Heard.CODEC, (p, ctx) -> ClientHooks.get().heard(p));
+        r.playToClient(S2C.MapPlayers.TYPE, S2C.MapPlayers.CODEC, (p, ctx) -> ClientHooks.get().mapPlayers(p));
         r.playToClient(S2C.OpenRemote.TYPE, S2C.OpenRemote.CODEC, (p, ctx) -> ClientHooks.get().openRemote());
 
         r.playToServer(C2S.Fire.TYPE, C2S.Fire.CODEC, ServerActions::fire);
         r.playToServer(C2S.SetLoadout.TYPE, C2S.SetLoadout.CODEC, ServerActions::setLoadout);
         r.playToServer(C2S.Clear.TYPE, C2S.Clear.CODEC, ServerActions::clear);
         r.playToServer(C2S.Retarget.TYPE, C2S.Retarget.CODEC, ServerActions::retarget);
+        r.playToServer(C2S.MapPlayers.TYPE, C2S.MapPlayers.CODEC, ServerActions::mapPlayers);
         r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
     }
 }

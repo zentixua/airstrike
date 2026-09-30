@@ -104,6 +104,17 @@ public final class C2S {
         }
     }
 
+    /** Карта наведения открыта: где сейчас игроки (ответ — {@link S2C.MapPlayers}); клиент спрашивает раз в полсекунды. */
+    public record MapPlayers() implements CustomPacketPayload {
+        public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players_query"));
+        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = StreamCodec.unit(new MapPlayers());
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Отбой: убрать все летящие снаряды и залпы без взрыва. */
     public record Clear() implements CustomPacketPayload {
         public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));

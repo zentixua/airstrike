@@ -958,9 +958,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             // стоит на поверхности: вернуться в мир, как только место загрузится (ожидание — с тем же пределом),
             // на настоящую поверхность из карты высот загруженного чанка
             if (!aimAreaReady(level, grounded)) return waitForAimArea(grounded);
-            if (!level.dimensionType().hasCeiling()) {
-                grounded = new Vec3(grounded.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(grounded.x), Mth.floor(grounded.z)), grounded.z);
-            }
+            grounded = new Vec3(grounded.x, groundBound(level, grounded.x, grounded.z), grounded.z);
             moveAlong(level, grounded, dir);
             arrived = true;
             return true;
@@ -1026,11 +1024,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return new Vec3(at.x, groundBound(level, at.x, at.z), at.z);
     }
 
-    /** Поверхность для полёта вне мира: карта высот готового чанка, иначе уровень моря (см. {@link #groundCrossing}). */
+    /**
+     * Поверхность для полёта вне мира: карта высот готового чанка, иначе уровень моря; потолок Незера — не земля
+     * ({@link Terrain.Allowed#FLIGHT}, см. {@link #groundCrossing}).
+     */
     private static int groundBound(ServerLevel level, double x, double z) {
-        int bx = Mth.floor(x), bz = Mth.floor(z);
-        return !level.dimensionType().hasCeiling() && Terrain.ready(level, bx >> 4, bz >> 4)
-                ? Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, bx, bz) : level.getChunkSource().getGenerator().getSeaLevel();
+        return Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z), Terrain.Allowed.FLIGHT).y();
     }
 
     /**
@@ -1107,7 +1106,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * мира): чтение незагруженного чанка из тика грузит его сразу и останавливает сервер.
      */
     public static double surfaceY(Level level, double x, double z) {
-        return Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(x), (int) Math.floor(z));
+        return Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z), Terrain.Allowed.CHUNK).y();
     }
 
     /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали. */

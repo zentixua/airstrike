@@ -25,6 +25,7 @@ import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
@@ -78,6 +79,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -959,6 +961,48 @@ public final class StrikeGameTests {
             h.assertTrue(y == generator, "верх вне мира (" + outside + ") принят: y " + y + ", генератор " + generator);
         }
         h.assertFalse(Terrain.ready(level, column), "оценка загрузила чанк");
+        h.succeed();
+    }
+
+    /**
+     * Один ответ на «где земля» ({@link Terrain#estimate}) в настоящем мире: у готового чанка — его карта высот;
+     * у неготового приказ берёт карту клиента, без неё — генератор (не ниже моря), полёт вне мира — уровень моря
+     * генератора, код в мире — ничего (низ мира). Ни один ответ чанк не грузит. В Незере карта высот — потолок: в мире
+     * ответ «потолок», для полёта вне мира — море.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void terrainSourcesAnswerWithoutLoading(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos here = h.absolutePos(RANGE_CENTER); // верхний блок земли площадки
+        Heightmap.Types type = Heightmap.Types.MOTION_BLOCKING;
+        for (Terrain.Allowed a : new Terrain.Allowed[]{Terrain.Allowed.CHUNK, Terrain.Allowed.FLIGHT, Terrain.Allowed.ORDER}) {
+            Terrain.Surface s = Terrain.estimate(level, type, here.getX(), here.getZ(), a);
+            h.assertTrue(s.equals(new Terrain.Surface(here.getY() + 1, Terrain.Source.CHUNK)), "готовый чанк: " + s);
+        }
+        int x = here.getX() + 4096, z = here.getZ();
+        h.assertFalse(Terrain.ready(level, x >> 4, z >> 4), "район вдали уже загружен");
+        int sea = level.getChunkSource().getGenerator().getSeaLevel();
+        Terrain.Surface generator = Terrain.estimate(level, type, x, z, Terrain.Allowed.ORDER);
+        h.assertTrue(generator.source() == Terrain.Source.GENERATOR && generator.y() >= sea, "приказ без карты: " + generator);
+        Terrain.Surface map = Terrain.estimate(level, type, x, z, Terrain.Allowed.ORDER.withMap(Optional.of(sea + 50)));
+        h.assertTrue(map.equals(new Terrain.Surface(sea + 50, Terrain.Source.CLIENT_MAP)), "приказ с картой: " + map);
+        Terrain.Surface flight = Terrain.estimate(level, type, x, z, Terrain.Allowed.FLIGHT);
+        h.assertTrue(flight.equals(new Terrain.Surface(sea, Terrain.Source.SEA)), "полёт вне мира: " + flight);
+        Terrain.Surface tick = Terrain.estimate(level, type, x, z, Terrain.Allowed.CHUNK);
+        h.assertTrue(tick.equals(new Terrain.Surface(level.getMinBuildHeight(), Terrain.Source.UNKNOWN)), "в мире: " + tick);
+        h.assertFalse(Terrain.ready(level, x >> 4, z >> 4), "оценка загрузила чанк");
+
+        ServerLevel nether = level.getServer().getLevel(Level.NETHER);
+        h.assertTrue(nether != null, "нет Незера");
+        int nx = here.getX(), nz = here.getZ();
+        nether.getChunk(nx >> 4, nz >> 4);
+        h.assertTrue(Terrain.ready(nether, nx >> 4, nz >> 4), "чанк Незера не готов");
+        int roof = Terrain.height(nether, type, nx, nz);
+        Terrain.Surface ceiling = Terrain.estimate(nether, type, nx, nz, Terrain.Allowed.CHUNK);
+        h.assertTrue(ceiling.equals(new Terrain.Surface(roof, Terrain.Source.CEILING)), "Незер в мире: " + ceiling);
+        Terrain.Surface netherFlight = Terrain.estimate(nether, type, nx, nz, Terrain.Allowed.FLIGHT);
+        h.assertTrue(netherFlight.equals(new Terrain.Surface(nether.getChunkSource().getGenerator().getSeaLevel(), Terrain.Source.SEA)),
+                "Незер вне мира: " + netherFlight);
         h.succeed();
     }
 

@@ -270,19 +270,25 @@ public class RemoteScreen extends Screen {
         Minecraft.getInstance().setScreen(new MapScreen(this));
     }
 
-    /**
-     * Огонь с карты наведения: по выбранному там месту (режим цели пульта становится «На карте»). Карта открывается
-     * и клавишей, без показа пульта, поэтому здесь и в {@link #fire} — {@code Minecraft.getInstance()}, а не поле экрана.
-     */
-    void fireOnMap() {
-        if (loadout.mode() != TargetMode.MAP) {
-            loadout = loadout.withMode(TargetMode.MAP);
-            save();
-        }
-        fire();
+    /** На карте выбрано место: цель пульта — «На карте» (само место помнит {@link MapTarget}). */
+    void aimAtPlace() {
+        if (loadout.mode() == TargetMode.MAP) return;
+        loadout = loadout.withMode(TargetMode.MAP);
+        save();
     }
 
-    private void fire() {
+    /** На карте выбран игрок: цель пульта — он, снаряды пойдут за ним. */
+    void aimAtPlayer(String name) {
+        loadout = loadout.withMode(TargetMode.PLAYER).withPlayer(name);
+        save();
+    }
+
+    /**
+     * Огонь по цели пульта; с карты наведения — по выбранному там месту или игроку ({@link #aimAtPlace},
+     * {@link #aimAtPlayer}). Карта открывается и клавишей, без показа пульта, поэтому здесь —
+     * {@code Minecraft.getInstance()}, а не поле экрана.
+     */
+    void fire() {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
         Optional<C2S.AimHint> aim;
