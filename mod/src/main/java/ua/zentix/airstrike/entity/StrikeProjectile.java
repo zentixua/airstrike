@@ -79,7 +79,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final EntityDataAccessor<Integer> DATA_HIDDEN = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.INT);
 
     /** Взрыватель взводится на таком удалении от пусковой (или с выходом на маршевый участок). */
-    private static final double ARM_DISTANCE = 96;
+    public static final double ARM_DISTANCE = 96;
     /**
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
      * по 9×9 чанков от залпа с разбросом) или цель недостижима.
@@ -464,7 +464,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 Vec3 at = grounded;
                 grounded = null;
                 if (armed()) impact(level, at, null);
-                else crash(level, at);
+                else crashUnarmed(level, at);
                 return;
             }
             if (holdsChunks() && forcedChunks.isEmpty()) updateChunkTickets(level, position(), flight.forward());
@@ -738,6 +738,18 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 l -> l.explode(this, point.x, point.y, point.z, 1.5f, false, Level.ExplosionInteraction.NONE));
     }
 
+    /**
+     * Столкновение до взведения ({@link #crash}): в лог — строкой на залп ({@link FlightLog}), каждый снаряд — строкой
+     * DEBUG. Иначе такой конец полёта не виден: взрыв ванильный и без строки удара, а залп из 30 шахедов, который весь
+     * разбился о постройку у пусковой, в логе выглядел как пропавший.
+     */
+    protected final void crashUnarmed(ServerLevel level, Vec3 point) {
+        Airstrike.LOG.debug("Снаряд {} {} разбился до взведения у {} (фаза {})", getType().getDescriptionId(), getUUID(),
+                BlockPos.containing(point), flightPhase());
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.CRASHED, BlockPos.containing(point), targetLost(), 0);
+        crash(level, point);
+    }
+
     /** Слежение за целью; возвращает текущую точку прицеливания. */
     protected Vec3 updateTarget(ServerLevel level) {
         extendLifetime(tracker.tick(level));
@@ -908,13 +920,13 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // нос не заглядывает в неготовый чанк (clip грузил бы его); туда снаряд и не шагнёт — уйдёт в полёт вне мира
         Vec3 noseTo = Terrain.readyUntil(level, noseFrom, pos.add(dir.scale(speed + noseLength())));
 
+        // и на разгоне: снаряд, прошедший сквозь дом на ускорителе, выходил из разгона внутри постройки и разбивался о неё
+        // в первом же тике набора — тихо и далеко от места, где встретил её
         Vec3 blockPoint = null;
-        if (!flightPhase().launching()) {
-            BlockHitResult block = level.clip(new ClipContext(noseFrom, noseTo, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, this));
-            if (block.getType() != HitResult.Type.MISS) {
-                // попадание в аппарат Sable приходит в координатах плота
-                blockPoint = SubLevels.toWorld(level, block.getLocation());
-            }
+        BlockHitResult block = level.clip(new ClipContext(noseFrom, noseTo, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, this));
+        if (block.getType() != HitResult.Type.MISS) {
+            // попадание в аппарат Sable приходит в координатах плота
+            blockPoint = SubLevels.toWorld(level, block.getLocation());
         }
         Vec3 sweepEnd = blockPoint != null ? blockPoint : noseTo;
 
@@ -928,7 +940,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
         if (blockPoint != null) {
             if (armed()) impact(level, blockPoint, null);
-            else crash(level, blockPoint);
+            else crashUnarmed(level, blockPoint);
             return false;
         }
 
@@ -1178,8 +1190,28 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     @Override
     public void remove(RemovalReason reason) {
+        if (reason.shouldDestroy() && !isRemoved() && !level().isClientSide()) noteForeignRemoval(reason);
         super.remove(reason);
         releaseTickets();
+    }
+
+    /**
+     * Снаряд убрал не мод (команда {@code /kill}, чистильщик сущностей другого мода): одна строка WARN с тем, кто убрал.
+     * Свои концы полёта (взрыв, отбой, полёт вне мира) идут из кода мода и видны в стеке; чужое удаление иначе
+     * выглядело бы как пропавший залп — без удара, ошибки и срока жизни.
+     */
+    private void noteForeignRemoval(RemovalReason reason) {
+        List<StackWalker.StackFrame> frames = StackWalker.getInstance().walk(s -> s.skip(2).limit(48).toList());
+        String own = StrikeProjectile.class.getPackageName().substring(0, StrikeProjectile.class.getPackageName().lastIndexOf('.'));
+        for (StackWalker.StackFrame f : frames) if (f.getClassName().startsWith(own)) return;
+        StringBuilder by = new StringBuilder();
+        for (int i = 0; i < Math.min(6, frames.size()); i++) {
+            StackWalker.StackFrame f = frames.get(i);
+            if (i > 0) by.append(" ← ");
+            by.append(f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1)).append('.').append(f.getMethodName());
+        }
+        Airstrike.LOG.warn("Снаряд {} {} у {} (фаза {}) убран не модом ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
+                flightPhase(), reason, by);
     }
 
     private void releaseTickets() {
@@ -1223,8 +1255,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Сбили: подрыв там, где настигло (на старте, пока взрыватель не взведён, — просто разбился). */
     protected void shotDown(ServerLevel level, DamageSource source) {
-        if (armed()) impact(level, position(), null);
-        else crash(level, position());
+        if (armed()) {
+            impact(level, position(), null);
+            return;
+        }
+        Airstrike.LOG.debug("Снаряд {} {} сбит до взведения у {} (фаза {}, урон {})", getType().getDescriptionId(), getUUID(),
+                blockPosition(), flightPhase(), source.getMsgId());
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.SHOT_DOWN, blockPosition(), targetLost(), 0,
+                source.getMsgId());
+        crash(level, position());
     }
 
     // ---------------------------------------------------------------- синхронизация и интерполяция

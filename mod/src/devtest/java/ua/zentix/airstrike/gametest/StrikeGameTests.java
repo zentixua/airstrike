@@ -62,6 +62,8 @@ import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
+import ua.zentix.airstrike.strike.FlightLog;
+import ua.zentix.airstrike.strike.LaunchSite;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.VirtualFlights;
@@ -369,6 +371,65 @@ public final class StrikeGameTests {
             h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), "шахед ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
         });
+    }
+
+    /**
+     * Шахед с пусковой, перед которой стена выше его набора высоты: разбивается о неё на разгоне, до взведения (без подрыва
+     * боевой части), а не проходит сквозь неё на ускорителе — и это видно в логе строкой {@link FlightLog.Event#CRASHED}. Без неё залп, целиком разбившийся о дом у пусковой,
+     * выглядел как пропавший: ни удара, ни ошибки, ни срока жизни (ноутбук, залп шахедов в городе 30.09.2026).
+     */
+    @GameTest(template = "runway", timeoutTicks = 300, batch = "launcher_wall", skyAccess = true)
+    public static void droneCrashIntoWallIsLogged(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        for (int x = 4; x <= 28; x++) for (int y = 4; y <= 40; y++) h.setBlock(new BlockPos(x, y, 40), Blocks.STONE);
+        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.DRONE, null);
+        level.addFreshEntity(launcher);
+        Vec3 point = top(h, RUNWAY_TARGET);
+        int ready = LauncherEntity.DEPLOY_TICKS + 10;
+        Vec3 rail = launcher.railPoint(0);
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        drone.placeOnLauncher(rail, 0, launcher.elevation(), ready, LauncherEntity.DEPLOY_TICKS, new Target.Point(point), point, null);
+        drone.setRoute(Route.plan(rail, point, new Vec3(0, 0, 1), 0, 120, 1));
+        level.addFreshEntity(drone);
+        FlightLog log = StrikeWorld.get(level).flightLog();
+        int before = log.total(FlightLog.Event.CRASHED);
+        String[] last = {""};
+        h.onEachTick(() -> {
+            if (level.getEntity(drone.getUUID()) instanceof DroneEntity d) last[0] = d.flightPhase() + " " + h.relativeVec(d.position()) + " v=" + d.speed();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), "шахед ещё летит: " + last[0]);
+            h.assertTrue(log.total(FlightLog.Event.CRASHED) == before + 1, "разбившийся о стену шахед не попал в лог; последний раз: " + last[0]
+                    + ", ударов " + StrikeWorld.get(level).impacts().size());
+            h.assertTrue(StrikeWorld.get(level).impacts().isEmpty(), "разбился, а боевая часть сработала");
+        });
+    }
+
+    /**
+     * Сектор пуска: из двух курсов (обход маршрута с одной и с другой стороны) пусковая берёт тот, что не упирается
+     * в дом до взведения взрывателя; оба заняты — поворачивается, пока сектор не освободится (нигде — снаряд заходит
+     * издалека). Раньше пакет смотрел на первую
+     * точку маршрута со случайной стороны, и в городе каждый второй залп разбивался о дом у пусковой.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_sector", skyAccess = true)
+    public static void launchSectorAvoidsHouse(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
+        float[] sides = {0, 180};
+        LaunchSite.Pick free = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides);
+        h.assertTrue(free != null && free.preferred() == 0, "без домов — первый курс: " + free);
+        // дом в 30 блоках по первому курсу (+Z), выше набора шахеда до взведения
+        for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 150), Blocks.STONE);
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.DRONE), "дом по курсу не виден");
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.MISSILE), "дом по курсу ракеты не виден");
+        LaunchSite.Pick other = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides);
+        h.assertTrue(other != null && other.preferred() == 1 && other.yaw() == 180, "курс не сменился на свободный: " + other);
+        // и по второму (−Z): пакет поворачивается от первого курса, пока сектор не освободится
+        for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 90), Blocks.STONE);
+        LaunchSite.Pick turned = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides);
+        h.assertTrue(turned != null && turned.preferred() == -1 && Math.abs(turned.yaw()) >= 30 && Math.abs(turned.yaw()) < 180
+                && LaunchSite.clearAhead(level, site, turned.yaw(), WeaponType.DRONE), "курс в дом выбран: " + turned);
+        h.succeed();
     }
 
     /**

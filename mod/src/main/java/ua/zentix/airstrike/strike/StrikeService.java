@@ -128,14 +128,23 @@ public final class StrikeService {
     @Nullable
     private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
                                                  double length, double entry, double side, ServerPlayer shooter) {
-        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon);
+        // пусковая, чей сектор пуска упирается в постройку, не годится: снаряд разбился бы о неё до взведения
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon, true);
         if (launcher == null) {
-            Vec3 site = LaunchSite.find(level, shooter);
-            if (site == null) return null;
-            // пакет смотрит на первую точку маршрута
-            Route plan = Route.plan(site, point, dir, length, entry, side);
-            Vec3 first = plan.current() == null ? point : plan.current();
-            launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, first)[0], weapon, shooter);
+            // пакет смотрит на первую точку маршрута — обход с одной или с другой стороны, какой свободен; иначе
+            // поворачивается, пока не найдёт свободный сектор, а снаряд доворачивает на маршрут после разгона
+            double[] sides = {side, -side};
+            LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, site -> {
+                float[] yaws = new float[sides.length];
+                for (int i = 0; i < sides.length; i++) {
+                    Route plan = Route.plan(site, point, dir, length, entry, sides[i]);
+                    yaws[i] = FlightController.anglesTo(site, plan.current() == null ? point : plan.current())[0];
+                }
+                return yaws;
+            });
+            if (pick == null) return null;
+            if (pick.preferred() >= 0) side = sides[pick.preferred()];
+            launcher = LaunchSite.deploy(level, pick.site(), pick.yaw(), weapon, shooter);
         }
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
