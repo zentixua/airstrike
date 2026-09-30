@@ -15,6 +15,8 @@ public final class CameraShake {
     /** Толчки грунта (подземный взрыв, бурение): медленнее и мягче. */
     private static int quake;
     private static long ticks;
+    /** Доля тика последнего кадра, пока мир шёл: в /tick freeze счётчики стоят, и тряска стоит на ней. */
+    private static float partial;
     /** Ядерная волна: сколько тиков ещё, сколько всего и размах, °. */
     private static int nuke, nukeTotal;
     private static double nukeAmp;
@@ -57,7 +59,11 @@ public final class CameraShake {
     public static void apply(ViewportEvent.ComputeCameraAngles e) {
         double k = AirstrikeConfig.CLIENT.cameraShake.get();
         if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 || Minecraft.getInstance().isPaused()) return;
-        double t = ticks + e.getPartialTick();
+        // мир остановлен (/tick freeze): счётчики тиков стоят, а доля тика у игры бежит по кругу — без этого
+        // тряска в стоп-кадре дёргалась с частотой 20 Гц, возвращаясь каждый тик
+        var level = Minecraft.getInstance().level;
+        if (level == null || level.tickRateManager().runsNormally()) partial = (float) e.getPartialTick();
+        double t = ticks + partial;
         // амплитуды датапака: курс/тангаж, °
         double yaw = 0, pitch = 0;
         if (shake > 0) {
@@ -75,7 +81,7 @@ public final class CameraShake {
         double roll = 0;
         if (nuke > 0) {
             // первые полсекунды — удар (вдвое сильнее и резче), дальше затухание по экспоненте
-            double age = nukeTotal - nuke + e.getPartialTick();
+            double age = nukeTotal - nuke + partial;
             double env = Math.exp(-age / (nukeTotal * 0.35)) * (age < 10 ? 2 - age / 10 : 1);
             double a = nukeAmp * env;
             yaw += a * wobble(t, 11.3, 0.4);
