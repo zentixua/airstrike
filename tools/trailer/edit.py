@@ -656,11 +656,12 @@ def trailer_edit(music, blackout=True):
     flash = tl.t
     tl.marks["flash"] = flash
     # вспышка: кинокаше раскрывается, 3 с полной тишины (музыка идёт дальше без звука — логотип останется на доле)
+    # план вспышки снят вдвое медленнее: 2,8 с ролика — первые 1,4 с после подрыва, дальше тот же план без склейки
+    # (время не прыгает) ускоряется: кольцо волны идёт через город на камеру и накрывает её
     tl.run([Clip("flash", "mark:detonation-0.05", 2.8, sfx=0.0)])
     tl.mute(flash, tl.t)
     tl.run([
-        Clip("wave_street", "tick:24-0.8", 1.9, impact="tick:24"),
-        Clip("wave_port", "tick:24-0.8", 1.9, impact="tick:24"),
+        Clip("flash", "mark:detonation+2.75", 3.7, rate=2.0),
         Clip("wave_hill", "tick:60-1.0", 2.8, impact="tick:60", frame_y=0.35),
     ], until="title")
     tl.marks["title"] = tl.t
@@ -688,7 +689,7 @@ def teaser_edit(music):
     tl.marks["flash"] = flash
     tl.run([Clip("flash", "mark:detonation-0.05", 2.8, sfx=0.0)])
     tl.mute(flash, tl.t)
-    tl.run([Clip("wave_street", "tick:24-0.8", 2.8, impact="tick:24"),
+    tl.run([Clip("flash", "mark:detonation+2.75", 2.8, rate=2.0),
             Clip("wave_hill", "tick:60-1.2", 2.8, impact="tick:60")], until="title")
     tl.marks["title"] = tl.t
     end = music.teaser + music.snap * round(30.0 / tl.unit)      # 30 с, ровно на сетке
@@ -1075,16 +1076,17 @@ def _fade(cut, t):
 
 
 def render_frames(n, jobs, init):
-    """Кадры по порядку. В работе и в очереди — не больше 2×jobs кадров: Pool.imap не ждёт потребителя и копит
-    готовые кадры (11 МБ на 1440p), пока кодер медленнее отрисовки."""
+    """Кадры по порядку (n — число или список номеров кадров). В работе и в очереди — не больше 2×jobs кадров:
+    Pool.imap не ждёт потребителя и копит готовые кадры (11 МБ на 1440p), пока кодер медленнее отрисовки."""
+    frames = range(n) if isinstance(n, int) else n
     if jobs <= 1:
         _init_worker(*init)
-        for i in range(n):
+        for i in frames:
             yield render_frame(i)
         return
     with multiprocessing.Pool(jobs, _init_worker, init) as pool:
         pending = collections.deque()
-        for i in range(n):
+        for i in frames:
             pending.append(pool.apply_async(render_frame, (i,)))
             if len(pending) >= 2 * jobs:
                 yield pending.popleft().get()
@@ -1506,25 +1508,89 @@ def mix(cut, shots, music, lib):
 
 # ---------------------------------------------------------------- сборка
 
-def encode(cut, shots, size, vertical, audio, out, jobs, preset, crf, draft):
+def _video_args(size, preset, crf, draft):
     w, h = size
-    vf = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
-    cmd = [ffmpeg(), "-loglevel", "error", "-y",
-           "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-", "-i", audio,
-           "-vf", vf, "-c:v", "libx264", "-preset", "veryfast" if draft else preset, "-crf", str(crf),
-           *([] if draft else ["-tune", "grain"]),
-           "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-           "-movflags", "+faststart", "-c:a", "aac", "-b:a", "320k", "-shortest", out]
-    enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    return ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-",
+            "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+            "-c:v", "libx264", "-preset", "veryfast" if draft else preset, "-crf", str(crf),
+            *([] if draft else ["-tune", "grain"]),
+            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
+
+
+def encode(cut, shots, size, vertical, audio, out, jobs, preset, crf, draft, cache=None):
+    """Видео и звук в out. С cache (папка) видео собирается из отрезков, закодированных по отдельности: отрезок,
+    у которого не изменилось ничего, что попадает в его кадры (кадры плана, параметры, код монтажа), берётся
+    из папки, отрисовываются только новые — пересъёмка одной части не перекодирует весь ролик."""
     n = int(round(cut.total * FPS))
-    for i, buf in enumerate(render_frames(n, jobs, (cut, shots, size, vertical))):
-        enc.stdin.write(buf)
-        if i % 600 == 0:
-            print(f"  {i / FPS:.0f} с из {cut.total:.0f}")
-    enc.stdin.close()
-    if enc.wait() != 0:
-        raise SystemExit("ffmpeg: кодирование не удалось")
+    if cache is None:
+        cmd = [ffmpeg(), "-loglevel", "error", "-y", *_video_args(size, preset, crf, draft)[:10], "-i", audio,
+               *_video_args(size, preset, crf, draft)[10:],
+               "-movflags", "+faststart", "-c:a", "aac", "-b:a", "320k", "-shortest", out]
+        enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        for i, buf in enumerate(render_frames(n, jobs, (cut, shots, size, vertical))):
+            enc.stdin.write(buf)
+            if i % 600 == 0:
+                print(f"  {i / FPS:.0f} с из {cut.total:.0f}")
+        enc.stdin.close()
+        if enc.wait() != 0:
+            raise SystemExit("ffmpeg: кодирование не удалось")
+        print("готово:", out)
+        return
+    os.makedirs(cache, exist_ok=True)
+    segs = segments(cut, shots, size, vertical, n, (preset, crf, draft), cache)
+    todo = [sg for sg in segs if not os.path.exists(sg[2])]
+    print(f"  отрезков {len(segs)}, из папки {len(segs) - len(todo)}, отрисовать {len(todo)}"
+          f" ({sum(b - a for a, b, _ in todo) / FPS:.1f} с)")
+    frames = [i for a, b, _ in todo for i in range(a, b)]
+    it = render_frames(frames, jobs, (cut, shots, size, vertical))
+    for a, b, path in todo:
+        tmp = path + ".part.mp4"
+        enc = subprocess.Popen([ffmpeg(), "-loglevel", "error", "-y", *_video_args(size, preset, crf, draft), "-an", tmp],
+                               stdin=subprocess.PIPE)
+        for _ in range(a, b):
+            enc.stdin.write(next(it))
+        enc.stdin.close()
+        if enc.wait() != 0:
+            raise SystemExit("ffmpeg: кодирование отрезка не удалось")
+        os.replace(tmp, path)
+        print(f"  отрезок {a / FPS:.1f}–{b / FPS:.1f} с готов")
+    listing = out + ".segments.txt"
+    with open(listing, "w", encoding="utf-8") as f:
+        f.writelines(f"file '{os.path.abspath(p)}'\n" for _, _, p in segs)
+    r = subprocess.run([ffmpeg(), "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing, "-i", audio,
+                        "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-shortest",
+                        "-movflags", "+faststart", out])
+    os.remove(listing)
+    if r.returncode != 0:
+        raise SystemExit("ffmpeg: склейка отрезков не удалась")
     print("готово:", out)
+
+
+def segments(cut, shots, size, vertical, n, enc, cache):
+    """Отрезки кодирования [(первый кадр, конец, файл в папке)] — по отрезкам монтажа; имя файла — хеш всего, из
+    чего получаются его кадры: номера кадров (зерно), кадры планов (путь, размер, время), отрезок, кинокаше,
+    затемнение, код edit.py."""
+    code = hashlib.sha256(open(__file__, "rb").read()).hexdigest()
+    bar = 0 if vertical else int(round((size[1] - size[0] / SCOPE) / 2))
+    starts = sorted({min(n, int(round(it.start * FPS))) for it in cut.items} | {0})
+    out = []
+    for a, b in zip(starts, starts[1:] + [n]):
+        if b <= a:
+            continue
+        h = hashlib.sha256(repr((code, size, vertical, enc, a, b, cut.total, cut.bars_until)).encode())
+        for i in range(a, b):
+            t = i / FPS
+            it = cut.item_at(t)
+            if isinstance(it, Clip):
+                s = shots[it.shot]
+                k = int(round((it.src + (t - it.start) * it.rate) * FPS))
+                p = s.frame(max(0, min(k, s.count - 1)))
+                st = os.stat(p)
+                h.update(repr((p, st.st_size, st.st_mtime_ns, it.frame_y, it.zoom, it.start, it.dur)).encode())
+            else:
+                h.update(repr((it, bars_at(cut, t, bar))).encode())
+        out.append((a, b, os.path.join(cache, h.hexdigest()[:24] + ".mp4")))
+    return out
 
 
 def thumbnail(shots, out, size=THUMB):
@@ -1580,6 +1646,8 @@ def main():
     ap.add_argument("--no-blackout", action="store_true",
                     help="без плана блэкаута: в тишине перед сиреной — затишье после шквала (night_after)")
     ap.add_argument("--preset", default="slow", help="предустановка x264 чистового (slow — лучше, medium — быстрее)")
+    ap.add_argument("--cache", help="папка отрезков видео: отрезки без изменений берутся оттуда (пересъёмка одной "
+                    "части перекодирует только её отрезки)")
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 6), help="процессов отрисовки")
     args = ap.parse_args()
     only = set(args.only.split(","))
@@ -1612,7 +1680,7 @@ def main():
             json.dump(cut_points(cut, shots), f, ensure_ascii=False, indent=0)
         audio = base + ("-teaser" if vertical else "") + "-audio.wav"
         sf.write(audio, mix(cut, shots, music, lib), SR, subtype="PCM_24")
-        encode(cut, shots, size, vertical, audio, path, jobs, args.preset, 23 if args.draft else 16, args.draft)
+        encode(cut, shots, size, vertical, audio, path, jobs, args.preset, 23 if args.draft else 16, args.draft, args.cache)
         os.remove(audio)
         if not vertical and not args.draft:
             lite = base + "-lite.mp4"

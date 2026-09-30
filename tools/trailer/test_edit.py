@@ -162,11 +162,7 @@ def full_recording():
     S.append(shot_lines("night_after", 480))
     S.append(shot_lines("siren", 300, hud=True, sounds=[(0, "airstrike:siren", snd("siren"), True, None)]))
     S.append(shot_lines("icbm", 600, sounds=[(60, "airstrike:nuke.launch", snd("nuke_launch"), False, None)]))
-    S.append(shot_lines("flash", 300, hud=True, marks=[(40, "detonation")]))
-    S.append(shot_lines("wave_street", 220, speed=0.5, want=lambda k: 0.5,
-                        sounds=[(48, "airstrike:nuke.roar", snd("nuke_roar"), False, None)]))
-    S.append(shot_lines("wave_port", 220, speed=0.5, want=lambda k: 0.5,
-                        sounds=[(48, "airstrike:nuke.roar", snd("nuke_roar"), False, None)]))
+    S.append(shot_lines("flash", 900, speed=0.5, want=lambda k: 0.5, marks=[(40, "detonation")]))
     S.append(shot_lines("wave_hill", 300, hud=True, sounds=[(60, "airstrike:nuke.crack", snd("nuke_crack"), False, None)]))
     S.append(shot_lines("mushroom", 400, speed=4, want=lambda k: 4.0))
     S.append(shot_lines("fallout", 340, hud=True, sounds=[(20 * i, "airstrike:geiger.click", snd(f"geiger_click_{i % 4 + 1}"), False, None)
@@ -527,6 +523,56 @@ def test_credits_text():
     assert "planetminecraft.com" in txt and "SOUND-CREDITS.md" in txt
 
 
+def test_camera_jerk_and_cut_points(tmp_path):
+    """Рывок камеры внутри отрезка — в предупреждения; плавный поворот — нет. Список склеек для листов проверки
+    — все склейки ролика и стоп-кадры внутри отрезков."""
+    rec = full_recording()
+    m = edit.MUSICS["eyes"]
+    write_recording(str(tmp_path / "a"), rec, every=30)
+    shots = edit.load_recording(str(tmp_path / "a"))
+    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+    assert edit.camera_jerks(cut, shots) == []
+    clip = next(c for c in cut.items if isinstance(c, edit.Clip) and c.shot == "rocket_impact")
+    k = int(clip.src * edit.FPS) + 30
+    for line in (x for lines in rec for x in lines):
+        if line["shot"] == "rocket_impact" and line["type"] == "frame":
+            # плавный поворот 30°/с до кадра k, в кадре k — скачок на 20°
+            line["cam"][3] = line["k"] * 0.5 + (20.0 if line["k"] >= k else 0.0)
+    write_recording(str(tmp_path / "b"), rec, every=30)
+    shots = edit.load_recording(str(tmp_path / "b"))
+    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+    jerks = edit.camera_jerks(cut, shots)
+    assert [j[1] for j in jerks] == ["rocket_impact"]
+    assert jerks[0][0] == pytest.approx(clip.trailer_time(k / edit.FPS), abs=0.05)
+    points = edit.cut_points(cut, shots)
+    assert len([p for p in points if p[1].startswith("склейка")]) == len(cut.items)
+    assert any(p[1] == "стоп-кадр: missile_tower" for p in points)
+
+@pytest.mark.skipif(not os.environ.get("AIRSTRIKE_E2E"), reason="AIRSTRIKE_E2E=1 — черновик с папкой отрезков (минуты)")
+def test_segment_cache(tmp_path):
+    """С папкой отрезков: второй монтаж без изменений ничего не отрисовывает, пересъёмка одного плана — только
+    его отрезки; длина ролика та же."""
+    import av
+    rec = tmp_path / "rec"
+    write_recording(str(rec), full_recording(), size=(160, 90), every=6)
+    run = lambda: subprocess.run([sys.executable, edit.__file__, "--draft", "--only", "trailer", "--rec", str(rec),  # noqa: E731
+                                  "--out", str(tmp_path / "t.mp4"), "--jobs", "4", "--no-blackout",
+                                  "--cache", str(tmp_path / "cache")], check=True, capture_output=True, text=True).stdout
+    first = run()
+    assert "из папки 0," in first
+    n = len(os.listdir(tmp_path / "cache"))
+    assert "отрисовать 0 " in run()
+    frame = next((rec / "frames" / "rocket_impact").iterdir())
+    os.utime(frame, ns=(frame.stat().st_atime_ns, frame.stat().st_mtime_ns + 10**9))
+    third = run()
+    assert "отрисовать 1 " in third, third
+    assert len(os.listdir(tmp_path / "cache")) == n + 1
+    m = edit.MUSICS["eyes"]
+    dur = edit.resolve(edit.trailer_edit(m, blackout=False), edit.load_recording(str(rec))).total
+    with av.open(str(tmp_path / "t.mp4")) as f:
+        assert float(f.duration / av.time_base) == pytest.approx(dur, abs=0.1)
+        assert f.streams.video[0].frames in (0, int(round(dur * FPS)))
+
 # ---------------------------------------------------------------- полный черновик
 
 @pytest.mark.skipif(not os.environ.get("AIRSTRIKE_E2E"), reason="AIRSTRIKE_E2E=1 — полный черновик (минуты)")
@@ -558,28 +604,3 @@ if __name__ == "__main__":
         sys.exit(0)
     sys.exit(pytest.main([__file__, "-q", *sys.argv[1:]]))
 
-
-def test_camera_jerk_and_cut_points(tmp_path):
-    """Рывок камеры внутри отрезка — в предупреждения; плавный поворот — нет. Список склеек для листов проверки
-    — все склейки ролика и стоп-кадры внутри отрезков."""
-    rec = full_recording()
-    m = edit.MUSICS["eyes"]
-    write_recording(str(tmp_path / "a"), rec, every=30)
-    shots = edit.load_recording(str(tmp_path / "a"))
-    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
-    assert edit.camera_jerks(cut, shots) == []
-    clip = next(c for c in cut.items if isinstance(c, edit.Clip) and c.shot == "rocket_impact")
-    k = int(clip.src * edit.FPS) + 30
-    for line in (x for lines in rec for x in lines):
-        if line["shot"] == "rocket_impact" and line["type"] == "frame":
-            # плавный поворот 30°/с до кадра k, в кадре k — скачок на 20°
-            line["cam"][3] = line["k"] * 0.5 + (20.0 if line["k"] >= k else 0.0)
-    write_recording(str(tmp_path / "b"), rec, every=30)
-    shots = edit.load_recording(str(tmp_path / "b"))
-    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
-    jerks = edit.camera_jerks(cut, shots)
-    assert [j[1] for j in jerks] == ["rocket_impact"]
-    assert jerks[0][0] == pytest.approx(clip.trailer_time(k / edit.FPS), abs=0.05)
-    points = edit.cut_points(cut, shots)
-    assert len([p for p in points if p[1].startswith("склейка")]) == len(cut.items)
-    assert any(p[1] == "стоп-кадр: missile_tower" for p in points)

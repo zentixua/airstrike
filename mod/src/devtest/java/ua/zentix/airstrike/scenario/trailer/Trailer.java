@@ -199,7 +199,8 @@ public final class Trailer {
             c.droneFlightTime.set(12);
             c.missileFlightTime.set(8);
             c.bomberFlightTime.set(20);
-            c.nukeFlightTime.set(600);
+            // новая ядерка: зона разрушений до 1,1 км грузится за полёт МБР, нужно ≥ 60–90 с (тред ядерки, 30.09)
+            c.nukeFlightTime.set(1800);
             c.loiterTime.set(8);
             c.siren.set(false);
         });
@@ -851,15 +852,19 @@ public final class Trailer {
             return CineCamera.spline(true, CineCamera.Key.at(0, from, TOWER.add(0, 120, 0), 42),
                     CineCamera.Key.at(180, from.add(TOWER.subtract(from).normalize().scale(12)), TOWER.add(0, 200, 0), 36));
         }).when(() -> warningTicks() <= 420, 3000);
-        // вспышка с холма из-за плеча наводчика: ночь становится днём
-        standAt(() -> post, () -> TOWER);
-        shot("flash").hud().length(200).shake(0.06).camera(() -> {
-            Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(1.2)).add(0, 1.9, 0), 1.7);
-            return CineCamera.track(back, () -> TOWER.add(0, 400, 0), 60);
-        }).when(() -> warningTicks() <= 60, 3000).endWhen(() -> sinceDetonation() > 30, 0);
-        // волна приходит: улица (~900), порт (~1450), холм (~4000 блоков)
-        wave("wave_street", () -> ground(STREET).add(0, 26, 0), 0.5);
-        wave("wave_port", () -> ground(PORT.add(-40, 0, 30)).add(0, 20, 0), 0.5);
+        // вспышка и кольцо ударной волны через весь город одним планом: над городом в 1,6 км от эпицентра, вдвое
+        // медленнее; стена пыли и огня идёт от центра на камеру (фронт здесь через ~3,2 с) и накрывает её. Ближние
+        // 380 блоков (прорисовка съёмки) — загруженные чанки, крыши и стёкла там рушатся на фронте (2–5 psi); центр —
+        // LOD Distant Horizons, его закрывает стена. Прежде —
+        // вспышка из-за плеча наводчика в 4 км и улица с портом (их фронт приходил раньше, чем кончалась вспышка);
+        // Артём 30.09: нужна ослепительная вспышка и огромное кольцо, а не гриб над целым городом
+        Supplier<Vec3> wide = () -> ground(TOWER.add(toPost.scale(1600))).add(0, 150, 0);
+        run(() -> placeHidden(wide.get(), TOWER));
+        shot("flash").hidden().length(900).speed(0.5).shake(0.04)
+                .camera(() -> CineCamera.track(wide.get(), () -> TOWER.add(0, 120, 0), 66))
+                .subjectAnyway(() -> TOWER.add(0, 60, 0), 300, 0.05)
+                .when(() -> warningTicks() <= 60, 3000)
+                .endWhen(() -> sinceDetonation() > arrivalAt(wide.get()) + 40, 0);
         standAt(() -> post, () -> TOWER);
         shot("wave_hill").hud().length(140).shake(0.06).camera(() -> {
             Vec3 back = overGround(post.add(toPost.scale(2.6)).add(side.scale(-1.3)).add(0, 1.8, 0), 1.7);
@@ -870,17 +875,6 @@ public final class Trailer {
         shot("mushroom").length(1600).speed(4).hidden()
                 .camera(() -> CineCamera.track(new Vec3(TOWER.x - 900, 200, TOWER.z + 5200), () -> TOWER.add(0, 2600, 0), 75))
                 .when(() -> sinceDetonation() > 420, 4000);
-    }
-
-    /** План прихода фронта в точку: запись с запасом до прихода, замедленно, с толчком камеры в миг прихода. */
-    private void wave(String name, Supplier<Vec3> eye, double speed) {
-        run(() -> placeHidden(eye.get(), TOWER));
-        final double lead = 24;
-        Shot s = shot(name).hidden().length(110).speed(speed).shake(0.05);
-        s.camera(() -> {
-            s.shakeKick(lead, 3.5, 14);
-            return CineCamera.track(eye.get(), () -> TOWER.add(0, 120, 0), 62);
-        }).when(() -> sinceDetonation() >= arrivalAt(eye.get()) - lead, 6000);
     }
 
     /** Серое утро: руины центра, чёрный дождь в следе осадков, счётчик Гейгера в руке. */
@@ -1069,10 +1063,12 @@ public final class Trailer {
             double a = Math.toRadians(22.5 * d);
             Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
             int prev = top;
+            StringBuilder profile = new StringBuilder();
             for (int k = 1; k <= 120; k++) {
                 int x = Mth.floor(towerTop.x + dir.x * k), z = Mth.floor(towerTop.z + dir.z * k);
                 level.getChunk(x >> 4, z >> 4);
                 int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+                if (h != prev) profile.append(' ').append(k).append(':').append(h);
                 // уступ: столбец ниже соседнего (ближе к оси), но ещё на башне, а не у её подножия
                 if (h < prev - 2 && h <= top - 15 && h >= top - 100 && h >= TOWER.y + 40) {
                     Vec3 p = new Vec3(x + 0.5, h - 0.5, z + 0.5);
@@ -1085,9 +1081,9 @@ public final class Trailer {
                     }
                     break;
                 }
-                if (h < TOWER.y + 40) break;
                 prev = h;
             }
+            Airstrike.LOG.info("TRAILER профиль башни на {}°:{}", (int) (22.5 * d), profile);
         }
         if (best == null) {
             Airstrike.LOG.warn("TRAILER уступа у башни вдали от аппаратов нет ({}): бьём в крышу", craft);
