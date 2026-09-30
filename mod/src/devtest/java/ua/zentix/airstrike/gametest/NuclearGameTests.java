@@ -1040,6 +1040,12 @@ public final class NuclearGameTests {
     @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
     public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
         ServerLevel level = h.getLevel();
+        // диагностика зоны за волной без -Dairstrike.nukeDiag=true молчит: ни строки «ДИАГ», ни потока снимков стека
+        h.assertFalse(ua.zentix.airstrike.nuclear.world.NukeDiag.ON, "диагностика включена в GameTest");
+        java.util.List<String> diag = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        Runnable unwatch = watchLog(line -> {
+            if (line.startsWith("ДИАГ")) diag.add(line);
+        });
         BlockPos glass = CENTER.west(16);
         h.setBlock(glass, Blocks.GLASS);
         double scale = AirstrikeConfig.SERVER.nukeEffectsScale.get();
@@ -1069,7 +1075,10 @@ public final class NuclearGameTests {
                 else if (glassGone[0] > due + 2) failure = "руины отстали от фронта: стекло выбито через " + (glassGone[0] - due) + " тиков после прихода волны";
                 else if (w.plannedChunks() > 0 || w.prepTiles() > 0) return; // ждём, пока подготовка отпустит тикеты
                 else {
+                    unwatch.run();
                     h.assertTrue(clock.maxUnitsPerTick() <= AirstrikeConfig.SERVER.nukeTimeBudgetMs.get(), "за тик " + clock.maxUnitsPerTick() + " единиц");
+                    h.assertTrue(diag.isEmpty(), "строки диагностики без свойства: " + diag);
+                    h.assertTrue(Thread.getAllStackTraces().keySet().stream().noneMatch(t -> t.getName().equals("airstrike-nuke-diag")), "поток диагностики без свойства");
                     AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
                     NuclearWorld.useClock(level.getServer(), new WorkClock());
                     NuclearStrikes.clear(level);
@@ -1078,6 +1087,7 @@ public final class NuclearGameTests {
                 }
             }
             if (failure != null || level.getGameTime() > now + 850) {
+                unwatch.run();
                 AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
                 NuclearWorld.useClock(level.getServer(), new WorkClock());
                 NuclearStrikes.clear(level);
@@ -1086,6 +1096,24 @@ public final class NuclearGameTests {
                         + ", квадратов " + w.prepTiles() + ", подрыв " + (d != null) + ", стекло " + glassGone[0]);
             }
         });
+    }
+
+    /** Строки лога мода, пока не вызван возвращённый снимающий обработчик. */
+    static Runnable watchLog(java.util.function.Consumer<String> lines) {
+        org.apache.logging.log4j.core.LoggerContext ctx = (org.apache.logging.log4j.core.LoggerContext) org.apache.logging.log4j.LogManager.getContext(false);
+        org.apache.logging.log4j.core.appender.AbstractAppender app = new org.apache.logging.log4j.core.appender.AbstractAppender(
+                "airstrike-gametest-" + System.nanoTime(), null, null, true, org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+            @Override
+            public void append(org.apache.logging.log4j.core.LogEvent event) {
+                lines.accept(event.getMessage().getFormattedMessage());
+            }
+        };
+        app.start();
+        ctx.getRootLogger().addAppender(app);
+        return () -> {
+            ctx.getRootLogger().removeAppender(app);
+            app.stop();
+        };
     }
 
     /** Забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает; свежий — поджигает. */

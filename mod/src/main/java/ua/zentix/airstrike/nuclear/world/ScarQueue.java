@@ -286,6 +286,18 @@ public final class ScarQueue {
         return jobs.containsKey(chunk);
     }
 
+    /** Для {@link NukeDiag}: что сейчас с работой чанка в очереди (null — работы нет). */
+    @Nullable
+    String diagState(long chunk, long now) {
+        Job j = jobs.get(chunk);
+        if (j == null) return null;
+        if (background.contains(j)) return "план в фоне";
+        if (parked.containsKey(chunk)) return "план ждёт соседей, свой тикет r" + j.held;
+        if (j.waitsNeighbours) return "ждёт соседей, свой тикет r" + j.held + (j.mayHold ? "" : " (под чужим тикетом)");
+        if (j.ready) return "в очереди готовых";
+        return j.due > now ? "срок через " + (j.due - now) : "срок пришёл";
+    }
+
     /** Не поставленные ещё готовые руины подрыва: есть ли план у чанка. */
     public boolean pendingPlan(int detonation, long chunk) {
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(detonation);
@@ -714,17 +726,20 @@ public final class ScarQueue {
         boolean ready = hasPlan(d.id(), job.chunk), background = background(ctx, job.chunk);
         if (chunk == null) {
             // сам ниже полной загрузки (край видимости): разрушим, когда поднимется
+            NukeDiag.waited(NukeDiag.Wait.BELOW_FULL);
             waitNeighbours(level, job, now, 0);
             return;
         }
         if (!ready && !background && !NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH)) {
             // план в потоке сервера читает мир окна: соседи грузятся тикетом
+            NukeDiag.waited(NukeDiag.Wait.SERVER_PLAN);
             waitNeighbours(level, job, now, RuinPlanner.REACH);
             return;
         }
         job.waitsNeighbours = false;
         boolean submit = !ready && background && !ctx.running(job.chunk);
         if (!ready && background && ctx.running(job.chunk) && !ctx.done(job.chunk)) {
+            NukeDiag.waited(NukeDiag.Wait.BACKGROUND);
             this.background.add(job);
             return;
         }
@@ -736,6 +751,7 @@ public final class ScarQueue {
         }
         if (submit && (reading > 0 || !RuinWorkers.admit())) {
             // снимки соседей ещё читаются с диска или задач у подрыва много — через тик
+            NukeDiag.waited(reading > 0 ? NukeDiag.Wait.WINDOW : NukeDiag.Wait.ADMIT);
             job.due = now + 1;
             byDue.add(job);
             return;
@@ -749,6 +765,7 @@ public final class ScarQueue {
                 // плана нет: снимки — этой единицей, план — в фоне; работа ждёт его в background
                 if (ctx.submit(level, chunk)) this.background.add(job);
                 else {
+                    NukeDiag.waited(NukeDiag.Wait.SUBMIT);
                     job.due = now + 1;
                     byDue.add(job);
                 }
@@ -757,11 +774,13 @@ public final class ScarQueue {
             int r = ruin(level, d, chunk, budget, Math.max(0, now - job.wave), seen);
             if (r == AGAIN) {
                 // посчитан разлом соседа или план устарел: следующей единицей, первым в той же очереди
+                NukeDiag.waited(NukeDiag.Wait.AGAIN);
                 job.ready = true;
                 (seen ? readySeen : readyUnseen).addFirst(job);
                 return;
             }
             if (r == WAIT) {
+                NukeDiag.waited(waitRadius > 1 ? NukeDiag.Wait.PLAN_R2 : NukeDiag.Wait.PLAN_R1);
                 waitNeighbours(level, job, now, waitRadius);
                 return;
             }

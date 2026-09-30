@@ -80,7 +80,8 @@ final class DiskShots {
      * разбор — {@link RuinWorkers}. Чанка нет на диске — {@code skip}.
      */
     static CompletableFuture<Read> read(Format f, ChunkPos pos) {
-        return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parse(f, pos, t)).orElseGet(() -> Read.skipped(pos, "нет на диске")),
+        long diag = NukeDiag.readStart();
+        return f.storage.read(pos).whenComplete((t, e) -> NukeDiag.readDone(diag)).thenApplyAsync(tag -> tag.map(t -> parse(f, pos, t)).orElseGet(() -> Read.skipped(pos, "нет на диске")),
                 RuinWorkers.executor()).exceptionally(e -> Read.skipped(pos, "ошибка чтения: " + e));
     }
 

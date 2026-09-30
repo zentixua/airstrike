@@ -97,6 +97,11 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
 
         NeoForge.EVENT_BUS.addListener(WorkScheduler::onServerTick);
+        if (ua.zentix.airstrike.nuclear.world.NukeDiag.ON) {
+            // диагностика прогонов (-Dairstrike.nukeDiag=true): стеки долгих тиков; без свойства — ни слушателей, ни потока
+            NeoForge.EVENT_BUS.addListener(ua.zentix.airstrike.nuclear.world.NukeDiag::onTickPre);
+            NeoForge.EVENT_BUS.addListener(ua.zentix.airstrike.nuclear.world.NukeDiag::onTickPost);
+        }
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);

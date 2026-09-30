@@ -83,11 +83,12 @@ timeout -k 60 20m ./gradlew scenarioJar -q --console=plain; echo "код $?"; ls
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 echo "начало: $(date -u +%T) UTC" && timeout -k 60 45m tools/laptop_job.sh nuke-gate4 -- python3 tools/prod_client.py commands --no-copy --dir "/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" --world greenfield-gate --seconds 2400 \
-  --prop "airstrike.commands=hud:off;gamemode spectator;tp @s -863.5 130 -496.4 -90 -10;wait:600;airstrike nuke at 136.5 69 -495.5 15 air;wait:nuke;wait:10;shot:flash;wait:40;shot:fireball;wait:30;shot:wave;tp @s -3803 120 -499 -90 -5;wait:260;shot:far_dh;tp @s -3803 120 -499 -90 -30;wait:1020;shot:glow70;tp @s -863.5 130 -496.4 -90 -10;wait:4380;time set 6000;shot:close_ruins;tp @s 456.5 220 -495.5 90 -30;wait:160;shot:ruins_e;tp @s 136.5 220 -175.5 180 -30;wait:160;shot:ruins_s;tp @s -183.5 220 -495.5 -90 -30;wait:160;shot:ruins_w;tp @s 136.5 220 -815.5 0 -30;wait:160;shot:ruins_n;wait:200"; code=$?; echo "код $code, конец: $(date -u +%T) UTC"; \
+  --prop "airstrike.commands=hud:off;gamemode spectator;tp @s -863.5 130 -496.4 -90 -10;wait:600;airstrike nuke at 136.5 69 -495.5 15 air;wait:nuke;wait:10;shot:flash;wait:40;shot:fireball;wait:30;shot:wave;tp @s -3803 120 -499 -90 -5;wait:260;shot:far_dh;tp @s -3803 120 -499 -90 -30;wait:1020;shot:glow70;tp @s -863.5 130 -496.4 -90 -10;wait:4380;time set 6000;tp @s -863.5 130 -496.4 -90 10;shot:close_ruins;tp @s 456.5 220 -495.5 90 30;wait:160;shot:ruins_e;tp @s 136.5 220 -175.5 180 30;wait:160;shot:ruins_s;tp @s -183.5 220 -495.5 -90 30;wait:160;shot:ruins_w;tp @s 136.5 220 -815.5 0 30;wait:160;shot:ruins_n;wait:200"; code=$?; echo "код $code, конец: $(date -u +%T) UTC"; \
 case "$code" in 124|137) systemctl --user stop 'airstrike-job-nuke-gate4-*';; esac; true
 ```
-Перед `close_ruins` — `time set 6000` (полдень: кадры руин — днём, при любом времени мира); команда ждёт свои 40 тиков,
-пауза перед ней на 20 меньше — кадр на 1 с позже, чем в gate3. Время кадров — от прихода к клиенту пакета подрыва (`wait:nuke`: прошлый прогон считал от пуска, и вспышка вышла
+Перед `close_ruins` — `time set 6000` (полдень: кадры руин — днём, при любом времени мира) и поворот ближней камеры на
+10° вниз; каждая команда ждёт свои 40 тиков. В Minecraft положительный наклон — вниз: камеры руин +30 (в прогоне gate4
+на 7990578 −30 смотрели в небо, близкая −10 — чуть вверх). Время кадров — от прихода к клиенту пакета подрыва (`wait:nuke`: прошлый прогон считал от пуска, и вспышка вышла
 на 0,5 с раньше подрыва; строка `SCENARIO commands: подрыв пришёл` в логе). После команды шаг ждёт 40 тиков, после
 снимка — 20, `wait:N` прибавляется. flash +0,5 с (ближняя камера, 1 км), fireball +3,5 с, wave +6 с (стена пыли идёт
 к камере), far_dh +22 с (4 км, город в LOD DH), glow70 +76 с (4 км, взгляд вверх), close_ruins **+5 мин** (снова 1 км:
@@ -133,7 +134,8 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" &
 python3 tools/logscan.py "$FILM/logs/latest.log" --all > mod/run/gate-logscan.txt; wc -lc mod/run/gate-logscan.txt; \
 grep -E 'Руины удара №|Подрыв №|Руины подрыва №|зона за волной|дальние кольца|Руины: |фоновый план чанка|POI data mismatch|Ядерный тик|Can.t keep up|дальше руины заранее не строятся|Distant Horizons|LevelChunkEditsMixin|Блэкаут|SCENARIO|Работа мода за 30 с|Stopping server|All dimensions are saved' "$FILM/logs/latest.log" | grep -v 'POI data mismatch' | cut -c1-400 > mod/run/gate-lines.txt; \
 echo "POI data mismatch: $(grep -c 'POI data mismatch' "$FILM/logs/latest.log")" >> mod/run/gate-lines.txt; wc -lc mod/run/gate-lines.txt; \
-L="$FILM/logs/latest.log" && { echo "выход: SCENARIO done $(grep -m1 'SCENARIO done' "$L" | cut -c1-12), Stopping server $(grep -m1 'Stopping server' "$L" | cut -c1-12), All dimensions are saved $(grep -m1 'All dimensions are saved' "$L" | cut -c1-12), последняя строка $(tail -1 "$L" | cut -c1-12)"; } >> mod/run/gate-lines.txt; tail -1 mod/run/gate-lines.txt; \
+L="$FILM/logs/latest.log" && hms() { grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}' | head -1; } && \
+{ echo "выход: SCENARIO done $(grep -m1 'SCENARIO done' "$L" | hms), Stopping server $(grep -m1 'Stopping server' "$L" | hms), All dimensions are saved $(grep -m1 'All dimensions are saved' "$L" | hms), последняя строка $(tail -1 "$L" | hms)"; } >> mod/run/gate-lines.txt; tail -1 mod/run/gate-lines.txt; \
 grep -E 'Pause (Young|Old|Full)|Garbage Collection|Major Collection|Minor Collection|->' "$FILM/logs/gc.log" | tail -400 > mod/run/gate-gc.txt; wc -lc mod/run/gate-gc.txt; \
 grep Pause "$FILM/logs/gc.log" | awk '{ms=$NF; sub(/ms$/,"",ms); if (ms+0>500) print}' > mod/run/gate-gc-pauses.txt; echo "пауз GC > 500 мс: $(wc -l < mod/run/gate-gc-pauses.txt)"
 ```
