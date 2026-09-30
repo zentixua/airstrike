@@ -195,7 +195,12 @@ public final class RuinPlan {
 
     /** Добавить старое состояние места к хешу секции (порядок мест — как в плане). */
     static long mix(long h, BlockState old) {
-        return (h ^ System.identityHashCode(normal(old))) * 0x9E3779B97F4A7C15L + 1;
+        return mixNormal(h, normal(old));
+    }
+
+    /** То же по уже приведённому состоянию ({@link Blast.Props#normal}: фоновый план не зовёт {@code GridLights}). */
+    static long mixNormal(long h, BlockState normal) {
+        return (h ^ System.identityHashCode(normal)) * 0x9E3779B97F4A7C15L + 1;
     }
 
     /** Для проверок: чем план отличается от другого (те же места, новые и старые состояния, пожары); null — ничем. */

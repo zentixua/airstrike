@@ -89,8 +89,9 @@ public final class RuinBackgroundGameTests {
     @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_background_calls", skyAccess = true)
     public static void backgroundSolversCallNoWorld(GameTestHelper h) {
         String pkg = "ua/zentix/airstrike/nuclear/world/";
-        // корни: класс, метод (описание не важно — все перегрузки)
-        String[][] roots = {{"Collapse", "solve"}, {"Blast", "solve"}, {"RuinPlanner", "finish"}, {"DiskShots", "parse"}};
+        // корни: класс, метод, описание (null — все перегрузки); DiskShots.parse(ServerLevel, …) — для проверок, в потоке сервера
+        String[][] roots = {{"Collapse", "solve", null}, {"Blast", "solve", null}, {"RuinPlanner", "finish", null},
+                {"DiskShots", "parse", "(L" + pkg + "DiskShots$Format;Lnet/minecraft/world/level/ChunkPos;Lnet/minecraft/nbt/CompoundTag;)L" + pkg + "DiskShots$Read;"}};
         Set<String> forbiddenOwners = Set.of("net/minecraft/world/level/Level", "net/minecraft/server/level/ServerLevel",
                 "net/minecraft/world/level/chunk/LevelChunk", "net/minecraft/world/level/chunk/ChunkAccess",
                 "net/minecraft/world/level/chunk/LevelChunkSection", "net/minecraft/world/level/BlockGetter",
@@ -104,7 +105,7 @@ public final class RuinBackgroundGameTests {
         List<String> bad = new ArrayList<>();
         java.util.ArrayDeque<String[]> todo = new java.util.ArrayDeque<>();
         Set<String> seen = new java.util.HashSet<>();
-        for (String[] r : roots) todo.add(new String[]{pkg + r[0], r[1], null, r[0] + "." + r[1]});
+        for (String[] r : roots) todo.add(new String[]{pkg + r[0], r[1], r[2], r[0] + "." + r[1]});
         java.util.Map<String, java.util.Map<String, Integer>> fieldAccess = new java.util.HashMap<>();
         int walked = 0;
         while (!todo.isEmpty()) {
@@ -175,7 +176,7 @@ public final class RuinBackgroundGameTests {
             if (!found[0] && superName[0] != null && superName[0].startsWith("ua/zentix/airstrike/")) todo.add(new String[]{superName[0], name, desc, path});
         }
         h.assertTrue(walked > 20, "обход графа вызовов нашёл только " + walked + " методов: корни не найдены?");
-        h.assertTrue(bad.isEmpty(), "фоновые задачи руин зовут мир или свойства мимо таблицы: " + String.join("; ", bad.subList(0, Math.min(bad.size(), 20))));
+        h.assertTrue(bad.isEmpty(), "фоновые задачи руин зовут мир или свойства мимо таблицы: " + bad.size() + ": " + String.join("; ", new java.util.LinkedHashSet<>(bad).stream().limit(40).toList()));
         Airstrike.LOG.info("Фоновые задачи руин: обойдено {} методов, мира не зовут", walked);
         h.succeed();
     }

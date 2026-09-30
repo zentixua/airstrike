@@ -95,9 +95,16 @@ public final class NuclearGameTests {
         return raw(h, at, hob, yieldKt, scale);
     }
 
+    /**
+     * Номера подрывов проверок — свои у каждого: руины подрыва ({@code RuinContext}) живут по номеру, а площадки GameTest
+     * между партиями те же места; со случайным номером совпавший подрыв брал карты высот тени света от прошлой проверки
+     * на этом месте (CI 30.09: «ни одного пожара»).
+     */
+    static final java.util.concurrent.atomic.AtomicInteger IDS = new java.util.concurrent.atomic.AtomicInteger(1_000_000);
+
     private static Detonation raw(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
         BlockPos g = h.absolutePos(at);
-        return new Detonation(1_000_000 + h.getLevel().random.nextInt(1000), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
+        return new Detonation(IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
                 yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false);
     }
 
@@ -1264,7 +1271,7 @@ public final class NuclearGameTests {
         Cow inside = h.spawn(EntityType.COW, CENTER.east(10));
         Cow ahead = h.spawn(EntityType.COW, CENTER.east(26));
         BlockPos g = h.absolutePos(CENTER);
-        Detonation d = new Detonation(1_000_000 + level.random.nextInt(1000), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
+        Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 0.1, true,
                 level.getGameTime() - 2, 0, 0, 20_000, 7, 0.05f, false);
         h.assertTrue(d.frontRadius(1) > 10 && d.frontRadius(2) > 26 && d.frontRadius(1) < 26, "фронт не там, где ждёт проверка");
         NuclearEvents.get(level).add(d);
@@ -1450,7 +1457,7 @@ public final class NuclearGameTests {
         h.assertTrue(sick.hasEffect(ModEffects.RADIATION_SICKNESS), "у коровы с 60 Гр нет лучевой болезни");
         // наземный подрыв с осадками двумя игровыми часами раньше; корова у эпицентра — в самом следе
         BlockPos g = h.absolutePos(CENTER);
-        Detonation d = new Detonation(1_000_000 + level.random.nextInt(1000), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
+        Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
                 level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);
@@ -1478,7 +1485,7 @@ public final class NuclearGameTests {
         Cow grazing = h.spawn(EntityType.COW, CENTER.west(3));
         for (int i = 0; i < 2 * MobFallout.PERIOD + 100; i++) h.spawn(EntityType.SHEEP, CENTER.offset(-20 + i % 41, 0, 5 + i / 41));
         BlockPos g = h.absolutePos(CENTER);
-        Detonation d = new Detonation(1_000_000 + level.random.nextInt(1000), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
+        Detonation d = new Detonation(IDS.incrementAndGet(), Vec3.atBottomCenterOf(g), g.getY(), 15, true,
                 level.getGameTime() - 2000, 0, 5, 20_000, 7, 0.1f, true);
         MobFallout fallout = new MobFallout();
         WorkClock clock = WorkClock.counting(1_000_000L);

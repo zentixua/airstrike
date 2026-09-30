@@ -417,8 +417,8 @@ public final class RuinPlanner {
                     return states.size() - 1;
                 });
                 if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + pos + ": больше " + RuinPlan.MAX_STATES + " состояний");
-                hashes[i] = RuinPlan.mix(hashes[i], was);
                 Blast.Props pw = view.get(was), pn = view.get(now);
+                hashes[i] = RuinPlan.mixNormal(hashes[i], pw.normal());
                 boolean covered = y < newTop[column];
                 boolean light = y == topChanged[column] || pw.emission() > 0 || pn.emission() > 0
                         || covered && (pw.lightBlock() != pn.lightBlock() || pw.is(Blast.Props.SHAPE_LIGHT) || pn.is(Blast.Props.SHAPE_LIGHT));

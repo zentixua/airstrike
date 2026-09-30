@@ -76,7 +76,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
      */
     record Props(BlockResponse response, boolean air, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves,
                  boolean log, boolean fixed, boolean rubble, boolean wood, int flags, int lightBlock, int emission, VoxelShape occludeUp,
-                 VoxelShape occludeDown) {
+                 VoxelShape occludeDown, BlockState normal) {
         /** Непрозрачно для карты высот {@code RuinPlan.HEIGHTMAP_TYPES[i]}: бит {@code 1 << i}. */
         static final int OPAQUE = 1;
         static final int STURDY_UP = 1 << 4, FLAMMABLE = 1 << 5, REPLACEABLE = 1 << 6, SLOW = 1 << 7, SOURCE = 1 << 8,
@@ -198,7 +198,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
         return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),
                 flags, st.getLightBlock(at, BlockPos.ZERO), st.getLightEmission(at, BlockPos.ZERO),
-                LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.UP), LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.DOWN));
+                LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.UP), LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.DOWN),
+                RuinPlan.normal(st));
     }
 
     /** Отражённое давление при падении по нормали (воздух, γ = 1.4), psi. */
