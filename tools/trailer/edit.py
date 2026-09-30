@@ -632,8 +632,8 @@ def trailer_edit(music, blackout=True):
         tl.add(Clip("blackout", "mark:gone+2.0", 3.2, rate=3.0, sfx=0.3,
                     game=(("mark:gone+3.4", "grid_power_down_2", 0.25),)))
     else:
-        # без блэкаута (его нет в версии мода): затишье после шквала на то же место и ту же длину
-        tl.add(Clip("night_after", 0.5, 6.4, sfx=0.8))
+        # без блэкаута (его нет в версии мода): затишье с последнего попадания шквала на то же место и ту же длину
+        tl.add(Clip("night_after", 1.0, 6.4, sfx=0.8))
     tl.play(music.b3, (music.b4, None))
     tl.run([
         Clip("siren", 0.4, 3.7),

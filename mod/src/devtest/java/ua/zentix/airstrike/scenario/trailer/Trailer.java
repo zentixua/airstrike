@@ -577,11 +577,13 @@ public final class Trailer {
                 .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 190, 110, 250, 0.12, 50))
                 .when(() -> nearest(CruiseMissileEntity.class, DOWNTOWN, 300) != null || nearest(DroneEntity.class, DOWNTOWN, 260) != null, 6000)
                 .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2);
-        // затишье после шквала: центр в дыму и догорании, облёт шквала продолжается медленнее и шире;
+        // затишье после шквала: с последнего попадания (снарядов нет ни в мире, ни вне его) центр в дыму и догорании,
+        // облёт шквала продолжается медленнее и шире;
         // замена блэкаута в тишине перед сиреной, если блэкаут не войдёт в версию мода (edit.py --no-blackout)
         shot("night_after").length(420).hidden().farView().shake(0.03)
                 .camera(() -> CineCamera.orbit(() -> DOWNTOWN.add(0, 30, 0), 210, 120, 290, 0.06, 46))
-                .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2);
+                .subjectAnyway(() -> DOWNTOWN.add(0, 30, 0), 150, 0.2)
+                .when(() -> flightsLeft() == 0, 6000);
         blackout();
     }
 
@@ -1261,6 +1263,18 @@ public final class Trailer {
         int client = 0;
         for (Entity e : mc.level.entitiesForRendering()) if (e instanceof StrikeProjectile) client++;
         return b.append("у клиента ").append(client).toString();
+    }
+
+    /** Сколько снарядов летит на сервере — в мире и вне его (клиент видит лишь те, что рядом). */
+    private int flightsLeft() {
+        MinecraftServer server = mc.getSingleplayerServer();
+        if (server == null) return 0;
+        Vec3 me = mc.gameRenderer.getMainCamera().getPosition();
+        return server.submit(() -> {
+            ServerLevel level = server.overworld();
+            return level.getEntitiesOfClass(StrikeProjectile.class, new net.minecraft.world.phys.AABB(me, me).inflate(30000)).size()
+                    + ua.zentix.airstrike.strike.VirtualFlights.get(level).flights().size();
+        }).join();
     }
 
     @Nullable
