@@ -51,12 +51,12 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
 
     /** Эта настройка пульта несёт ядерную БЧ: МБР или ракета/B-2 с ядерной БЧ. */
     public boolean nuclear() {
-        return weapon == WeaponType.NUKE || nuke.onCarrier() && carriesNuke(weapon);
+        return weapon.spec().warhead().always() || nuke.onCarrier() && carriesNuke(weapon);
     }
 
-    /** Кто может нести ядерную БЧ, кроме МБР. */
+    /** Кто может нести ядерную БЧ, кроме МБР (паспорт). */
     public static boolean carriesNuke(WeaponType w) {
-        return w == WeaponType.MISSILE || w == WeaponType.BUNKER;
+        return w.spec().warhead().optional();
     }
 
     public static final Codec<Loadout> CODEC = RecordCodecBuilder.create(i -> i.group(
@@ -85,8 +85,9 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
     }
 
     public Loadout withWeapon(WeaponType w) {
-        // РСЗО одиночным не стреляет: по умолчанию — очередь из 12 по площади 15 блоков
-        if (w == WeaponType.ROCKET && weapon != WeaponType.ROCKET && count == 1) return new Loadout(w, 12, Math.max(spread, 15), mode, player, nuke);
+        // оружие, которое одиночным не стреляет (РСЗО): по умолчанию — очередь из паспорта
+        WeaponSpec.Salvo salvo = w.spec().salvo();
+        if (salvo.count() > 1 && weapon != w && count == 1) return new Loadout(w, salvo.count(), Math.max(spread, salvo.spread()), mode, player, nuke);
         return new Loadout(w, count, spread, mode, player, nuke);
     }
 

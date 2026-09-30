@@ -33,7 +33,6 @@ import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
-import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
@@ -108,7 +107,7 @@ public final class Designator {
         }
         Loadout l = loadout().withMode(TargetMode.LOOK);
         C2S.Fire packet = new C2S.Fire(l, Optional.of(hint), Optional.empty());
-        if (l.weapon() == WeaponType.NUKE) {
+        if (l.weapon().spec().warhead().always()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
         } else {
             PacketDistributor.sendToServer(packet);

@@ -48,6 +48,7 @@ import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Timeline;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.work.UnitQueue;
@@ -138,7 +139,8 @@ public final class Warheads {
      * попаданий ({@link StagedExplosion}) под общим бюджетом тика, только по готовым чанкам.
      *
      * @param area  район таймлайна, который накрывает и этот взрыв, или null — взрыв возьмёт свой
-     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара)
+     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара); блоки снимаются, когда взрывы того же
+     *              района и тика выбрали лучами и побили сущности ({@link BlastArea#peersPicking})
      */
     static StagedExplosion explode(ServerLevel level, @Nullable BlastArea area, List<StagedExplosion> after, Vec3 at, float power,
                                    boolean fire, @Nullable Entity direct, @Nullable Entity owner, @Nullable ExplosionDamageCalculator calculator) {
@@ -146,8 +148,22 @@ public final class Warheads {
         boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
         BlastArea held = area != null ? area.retain() : BlastArea.hold(level, at, reach(power));
         StagedExplosion job = new StagedExplosion(held, after, at, power, burns, blocks, direct, owner, calculator);
+        held.queued(job, level.getGameTime());
         StrikeWorld.get(level).impacts().add(level, job);
         return job;
+    }
+
+    /**
+     * Проверки: взрыв без разрушений (выборку лучей видно в {@code ExplosionEvent.Detonate}) с сидом {@code seed}
+     * у {@code level.random} перед лучами — ванильным {@code explode()} или своим циклом по {@code raysPerUnit} лучей.
+     */
+    public static void testRays(ServerLevel level, Vec3 at, float power, @Nullable ExplosionDamageCalculator calculator, long seed,
+                                boolean vanilla, int raysPerUnit) {
+        StagedExplosion job = new StagedExplosion(BlastArea.hold(level, at, reach(power)), List.of(), at, power, false, false, null, null, calculator);
+        job.seed = seed;
+        job.forceVanilla = vanilla;
+        job.raysPerUnit = raysPerUnit;
+        StrikeWorld.get(level).impacts().add(level, job);
     }
 
     /** Кончились ли все взрывы {@code after}. */
@@ -240,14 +256,9 @@ public final class Warheads {
         }
     }
 
+    /** Сила взрыва боевой части оружия (паспорт: настройка мира). */
     static float power(WeaponType w) {
-        return switch (w) {
-            case DRONE -> AirstrikeConfig.SERVER.dronePower.get();
-            case MISSILE -> AirstrikeConfig.SERVER.missilePower.get();
-            case ROCKET -> AirstrikeConfig.SERVER.rocketPower.get();
-            case LOITER -> AirstrikeConfig.SERVER.loiterPower.get();
-            case BUNKER, NUKE -> AirstrikeConfig.SERVER.bunkerPower.get();
-        };
+        return w.spec().blastPower();
     }
 
     interface DamageByDistance {
@@ -537,10 +548,10 @@ public final class Warheads {
             this.direct = direct;
             this.owner = ownerId == null ? null : level.getPlayerByUUID(ownerId);
             this.mat = GroundMaterial.sample(level, BlockPos.containing(pos));
-            int kind = switch (weapon) {
+            int kind = switch (weapon.spec().blast()) {
                 case MISSILE -> S2C.Blast.MISSILE;
                 case ROCKET -> S2C.Blast.ROCKET;
-                default -> S2C.Blast.DRONE;
+                case DRONE, NONE -> S2C.Blast.DRONE;
             };
             // высоту поверхности клиент берёт только у бомбы (BunkerBlast, BlastEffects): здесь — точка удара, без чтения
             // высоты, которое у неготового чанка грузило бы его или ждало загрузки
@@ -553,7 +564,7 @@ public final class Warheads {
         @Override
         public boolean tick(ServerLevel level) {
             t++;
-            boolean missile = weapon == WeaponType.MISSILE;
+            boolean missile = weapon.spec().blast() == WeaponSpec.Blast.MISSILE;
             if (t == 1) {
                 // огненный шар — второй, зажигательный подрыв; у ракеты ещё кольцо горящих обломков
                 explode(level, area, main, pos, missile ? 3 : 2, true, direct, owner, null);

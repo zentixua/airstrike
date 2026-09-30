@@ -7,6 +7,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
@@ -18,7 +19,8 @@ import java.util.UUID;
  * Дальше полёт — таймер запланированного удара; сама ракета ничего не взрывает.
  */
 public class IcbmEntity extends StrikeProjectile {
-    private static final double MAX_SPEED = 25;
+    /** Паспорт МБР: предельная скорость разгона, длина, срок жизни. */
+    private static final WeaponSpec.Airframe AIR = WeaponSpec.NUKE.airframe();
 
     public IcbmEntity(EntityType<? extends IcbmEntity> type, Level level) {
         super(type, level);
@@ -27,21 +29,6 @@ public class IcbmEntity extends StrikeProjectile {
     @Override
     public WeaponType weapon() {
         return WeaponType.NUKE;
-    }
-
-    @Override
-    protected double noseLength() {
-        return 9;
-    }
-
-    @Override
-    public double cruiseSpeed() {
-        return MAX_SPEED;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 600;
     }
 
     @Override
@@ -74,7 +61,7 @@ public class IcbmEntity extends StrikeProjectile {
     @Override
     protected void serverTick(ServerLevel level) {
         // разгон: сначала медленно отрывается от стола, потом всё быстрее
-        speed = Math.min(MAX_SPEED, speed + (age < 40 ? 0.08 : 0.35));
+        speed = Math.min(AIR.cruiseSpeed(), speed + (age < 40 ? 0.08 : 0.35));
         if (age >= 40) setPhase(FlightPhase.BOOST);
         if (age > 60) {
             // доворот на курс цели: к пологим 45° над горизонтом

@@ -14,12 +14,12 @@ import net.neoforged.neoforge.client.event.sound.PlaySoundEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.Hearing;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Local;
 
@@ -283,7 +283,7 @@ final class FlybySound {
 
     /** Время полёта ракеты (настройка, секунд), при котором она стартует за {@link #MISSILE_FROM} блоков до цели. */
     private static int missileSeconds() {
-        return (int) Math.ceil(MISSILE_FROM / (CruiseMissileEntity.CRUISE_SPEED * 20));
+        return (int) Math.ceil(MISSILE_FROM / (WeaponSpec.MISSILE.airframe().cruiseSpeed() * 20));
     }
 
     private static Route doglegRoute(Vec3 start, Vec3 target, Vec3 dir) {
@@ -479,7 +479,7 @@ final class FlybySound {
         Integer impact = impactOf("missile");
         int warning = impact == null ? -1 : impact - first.t;
         // звук обгоняет ракету на d·(1/v − 1/c): с 1500 блоков — ~290 тиков
-        int expected = (int) (first.d * (1 / CruiseMissileEntity.CRUISE_SPEED - 1 / ua.zentix.airstrike.client.sound.Acoustics.SPEED));
+        int expected = (int) (first.d * (1 / WeaponSpec.MISSILE.airframe().cruiseSpeed() - 1 / ua.zentix.airstrike.client.sound.Acoustics.SPEED));
         check("whistle_from", first.d >= 1000 ? "PASS" : "FAIL", "свист слышно с " + f0(first.d) + " блоков (слышимая точка), громкость " + f3(first.vol));
         check("whistle_warning", warning >= expected * 0.8 ? "PASS" : "FAIL", "свист за " + warning + " тиков до удара (ожидание ~" + expected + ")");
         double far = maxVol(w, 800, 1300), near = maxVol(w, 60, 400);

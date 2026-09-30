@@ -31,6 +31,7 @@ import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.TargetPicker;
 
@@ -100,8 +101,9 @@ public class RemoteScreen extends Screen {
         Loadout.Nuke n = loadout.nuke();
         if (loadout.nuclear()) {
             // МБР: мощность и подрыв; ракета и B-2 с ядерной БЧ: переключатель БЧ, мощность, у ракеты — подрыв
-            boolean carrier = loadout.weapon() != WeaponType.NUKE;
-            boolean burst = loadout.weapon() != WeaponType.BUNKER;
+            WeaponSpec.Warhead warhead = loadout.weapon().spec().warhead();
+            boolean carrier = !warhead.always();
+            boolean burst = warhead.chooseBurst();
             int cols = (carrier ? 1 : 0) + 1 + (burst ? 1 : 0);
             int cw = (W - 8 - 4 * (cols - 1)) / cols;
             int x = x0 + 4;
@@ -318,7 +320,7 @@ public class RemoteScreen extends Screen {
      */
     private Optional<C2S.AimHint> nukePoint() {
         LocalPlayer p = Minecraft.getInstance().player;
-        if (loadout.weapon() != WeaponType.NUKE || p == null || Minecraft.getInstance().level == null) return Optional.empty();
+        if (!loadout.weapon().spec().warhead().always() || p == null || Minecraft.getInstance().level == null) return Optional.empty();
         return switch (loadout.mode()) {
             case LOOK -> {
                 var pick = TargetPicker.pick(Minecraft.getInstance().level, p, p.getEyePosition(), p.getLookAngle(), Designator.RANGE);
