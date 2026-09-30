@@ -367,6 +367,12 @@ public final class Trailer {
                 .camera(() -> chaseOf(newest(DroneEntity.class), 9, 2.5, -4, 24, 8, 56))
                 .when(() -> newest(DroneEntity.class) instanceof DroneEntity d && d.position().distanceTo(droneRoof) < 700, 6000);
         Supplier<Vec3> hit = () -> droneRoof;
+        // попадание снимается по своему, одному шахеду с поста: из залпа до крыши первым доходил то ведомый камерой,
+        // то шахед вне мира (дубль 2d: два рванули до начала плана, ведомый пропал в 850 блоках — стоп-кадра не было)
+        run(() -> cmd("airstrike clear"));
+        standAt(() -> post, () -> TOWER);
+        waitTicks(40);
+        run(() -> fire("drone", droneRoof));
         final Shot[] impactDrone = {null};
         impactDrone[0] = shot("impact_drone").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(DroneEntity.class, hit, 70, 0.3))
@@ -380,7 +386,7 @@ public final class Trailer {
                     View v = openView(at, new double[]{75, 95, 120, 150}, new double[]{18, 30, 45, 60, 80}, side.scale(-70).add(toPost.scale(-40)), -80, 40);
                     return bulletTimeCamera(v.from(), smoothFocus(() -> nearest(DroneEntity.class, at, 400), at.add(0, 3, 0), 0.3), 50, v.arc(), v.radius(), at);
                 })
-                .when(() -> nearest(DroneEntity.class, hit.get(), 260) != null, 3000)
+                .when(() -> nearest(DroneEntity.class, hit.get(), 260) != null, 6000)
                 .endWhen(() -> nearest(DroneEntity.class, hit.get(), 600) == null, 80)
                 // до попадания камера ведёт шахед по небу: цель — он, после взрыва — место удара
                 .subject(() -> {
