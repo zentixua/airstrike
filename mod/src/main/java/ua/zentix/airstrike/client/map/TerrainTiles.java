@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.function.BooleanSupplier;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -215,8 +216,11 @@ public final class TerrainTiles {
     private static ClientLevel level;
     /** Снизу вверх: DH (если стоит), потом чанки клиента. */
     private static List<Layer> layers = List.of();
-    /** Меняется при смене мира: плитки, начатые для старого, выбрасываются. */
-    private static int generation;
+    /**
+     * Меняется при смене мира: плитки, начатые для старого, выбрасываются, а фоновая постройка останавливается между
+     * колонками (поток её читает — {@code volatile}).
+     */
+    private static volatile int generation;
     /** DH стоит, и его API совместимо ({@link #init}). */
     private static boolean distantHorizons;
     /** Счётчик кадров карты (для вытеснения только невидимых плиток). */
@@ -369,7 +373,9 @@ public final class TerrainTiles {
     /**
      * Выход из мира или смена измерения: текстуры освобождены, фоновые плитки для него больше не нужны. Потоки —
      * новые: чтение DH для старого мира может ждать сколько угодно, и новый мир стоял бы за ним в очереди. Старые
-     * потоки прерываются и кончаются сами (демоны), их плитки — старого поколения, выбрасываются.
+     * потоки не прерываются: прерывание посреди чтения DH он пишет в лог ошибкой ({@code InterruptedException} в
+     * {@code getTerrainDataColumnArray}, выход из игры 30.09.2026). Их постройка видит новое поколение и
+     * останавливается перед следующей колонкой, задачи из очереди кончаются сразу; потоки — демоны.
      */
     public static void reset() {
         for (Layer layer : layers) {
@@ -383,7 +389,7 @@ public final class TerrainTiles {
         // очередь событий DH держала бы обёртки мира, из которого вышли
         if (distantHorizons) DistantHorizonsTerrain.clearChanges();
         if (executor != null) {
-            executor.shutdownNow();
+            executor.shutdown();
             executor = null;
         }
     }
@@ -549,12 +555,12 @@ public final class TerrainTiles {
                     layer.jobs++;
                     int gen = generation;
                     Key key = t.key;
-                    executor().execute(() -> buildOffThread(layer, key, gen, reader));
+                    executor().execute(() -> buildOffThread(layer, key, gen, reader, () -> gen != generation));
                 } else {
                     if (inFrame == null) inFrame = src.open(current);
                     if (inFrame == null) return;
                     t.stale = false;
-                    apply(layer, build(t.key, generation, inFrame), true);
+                    apply(layer, build(t.key, generation, inFrame, () -> false), true);
                 }
             }
         } finally {
@@ -605,11 +611,13 @@ public final class TerrainTiles {
     /**
      * Постройка плитки в фоновом потоке. Плитка возвращается в слой при любом исходе, и при {@link Error} (оно летит
      * дальше): иначе задача слоя и отметка «строится» у плитки остались бы навсегда, а с ними — и слой.
+     *
+     * @param cancelled плитка больше не нужна (сменился мир): постройка кончается перед следующей колонкой
      */
-    static void buildOffThread(Layer layer, Key key, int gen, TerrainSource.Reader reader) {
+    static void buildOffThread(Layer layer, Key key, int gen, TerrainSource.Reader reader, BooleanSupplier cancelled) {
         Built result = Built.failed(key, gen);
         try (reader) {
-            result = build(key, gen, reader);
+            result = build(key, gen, reader, cancelled);
         } catch (RuntimeException e) {
             Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
         } catch (LinkageError e) {
@@ -731,14 +739,15 @@ public final class TerrainTiles {
         return executor;
     }
 
-    /** Плитка из источника: колонка в середине каждой клетки. */
-    private static Built build(Key key, int gen, TerrainSource.Reader reader) {
+    /** Плитка из источника: колонка в середине каждой клетки; отменённая — без колонок. */
+    private static Built build(Key key, int gen, TerrainSource.Reader reader, BooleanSupplier cancelled) {
         long start = System.nanoTime();
         int step = 1 << key.level, span = key.span(), off = step / 2;
         int x0 = key.tx * span + off, z0 = key.tz * span + off;
         Columns c = new Columns();
         for (int z = 0; z < SIZE; z++) {
             for (int x = 0; x < SIZE; x++) {
+                if (cancelled.getAsBoolean()) return Built.failed(key, gen);
                 TerrainSource.Column col = reader.column(x0 + x * step, z0 + z * step);
                 if (col != null) c.set(z * SIZE + x, col);
             }
