@@ -469,10 +469,8 @@ public final class ProjectileCamera {
 
         if (shot == Shot.IMPACT) {
             if (impactTick < IMPACT_STATIC) {
-                // удар: сигнал срывается — помехи на чёрном, мир за ними не виден (камера уже не на снаряде)
-                g.fill(0, 0, w, h, 0xFF000000);
-                staticNoise(g, w, h, 1.0f);
-                big(g, font, Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), cx, cy - 6, 2f);
+                // удар: сигнал срывается
+                signalLost(g, font, w, h);
             } else {
                 letterbox(g, w, h);
                 caption(g, font, Component.translatable("airstrike.camera.impact").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), w, h);
@@ -496,10 +494,7 @@ public final class ProjectileCamera {
             return;
         }
         if (f == null) {
-            g.fill(0, 0, w, h, 0xFF000000);
-            staticNoise(g, w, h, 1.0f);
-            Component lost = Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
-            big(g, font, lost, cx, cy - 6, 2f);
+            signalLost(g, font, w, h);
             return;
         }
         if (!(mc.getCameraEntity() instanceof StrikeProjectile p)) {
@@ -597,6 +592,13 @@ public final class ProjectileCamera {
         g.pose().scale(scale, scale, 1);
         g.drawString(font, text, -font.width(text) / 2, 0, 0xFFFFFFFF);
         g.pose().popPose();
+    }
+
+    /** Связь потеряна: помехи на чёрном — камера уже не на снаряде, и мир за полупрозрачными помехами не виден. */
+    private static void signalLost(GuiGraphics g, Font font, int w, int h) {
+        g.fill(0, 0, w, h, 0xFF000000);
+        staticNoise(g, w, h, 1.0f);
+        big(g, font, Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), w / 2, h / 2 - 6, 2f);
     }
 
     /** Помехи: случайные серые штрихи, {@code amount} — доля экрана. */

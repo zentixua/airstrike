@@ -92,8 +92,13 @@ final class TacticalMap {
 
     static void render(GuiGraphics g, Font font, ClientFlights.Tracked f, float pt) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || !placed) return;
+        if (mc.player == null) return;
         int w = g.guiWidth(), h = g.guiHeight();
+        if (!placed) {
+            // первый тик после смены снаряда (залп): карта ещё не поставлена — фон карты, а не мир у наводчика
+            g.fill(0, 0, w, h, BG);
+            return;
+        }
         double viewX = Mth.lerp(pt, cxO, cx), viewZ = Mth.lerp(pt, czO, cz);
         double k = Math.exp(Mth.lerp(pt, Math.log(scaleO), Math.log(scale)));
         MapProjection map = new MapProjection(w / 2.0, h / 2.0 + 10, viewX, viewZ, k);
