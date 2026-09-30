@@ -47,6 +47,7 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
+import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -78,11 +79,15 @@ public final class Warheads {
     // ---------------------------------------------------------------- вход
 
     public static void detonate(ServerLevel level, WeaponType weapon, Vec3 pos, @Nullable Entity projectile, @Nullable UUID owner) {
-        StrikeWorld.get(level).add(new SurfaceBlast(level, weapon, pos, projectile, owner));
+        long t0 = System.nanoTime();
+        StrikeWorld world = StrikeWorld.get(level);
+        world.add(new SurfaceBlast(level, weapon, pos, projectile, owner));
+        world.impactCost().step(System.nanoTime() - t0);
     }
 
     /** Бетонобойная бомба вошла в грунт: небольшой кратер, кинетический удар, звуковой удар и тупой удар о землю. */
     public static void bunkerEntry(ServerLevel level, Vec3 point, @Nullable Entity bomb, @Nullable UUID owner) {
+        long t0 = System.nanoTime();
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
         GroundMaterial mat = GroundMaterial.sample(level, BlockPos.containing(point.add(0, 1, 0)));
         explode(level, point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
@@ -92,11 +97,15 @@ public final class Warheads {
         for (ServerPlayer p : level.players()) {
             if (p.distanceToSqr(point) <= 60 * 60) PacketDistributor.sendToPlayer(p, new S2C.Quake(20, false));
         }
+        StrikeWorld.get(level).impactCost().step(System.nanoTime() - t0);
     }
 
     /** Подрыв бетонобойной бомбы под землёй. */
     public static void bunker(ServerLevel level, Vec3 pos, Vec3 entry, @Nullable Entity bomb, @Nullable UUID owner) {
-        StrikeWorld.get(level).add(new BunkerBlast(level, pos, entry, bomb, owner));
+        long t0 = System.nanoTime();
+        StrikeWorld world = StrikeWorld.get(level);
+        world.add(new BunkerBlast(level, pos, entry, bomb, owner));
+        world.impactCost().step(System.nanoTime() - t0);
     }
 
     // ---------------------------------------------------------------- общие средства
@@ -131,10 +140,14 @@ public final class Warheads {
                         @Nullable ExplosionDamageCalculator calculator) {
         boolean blocks = AirstrikeConfig.SERVER.blockDamage.get();
         boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
-        whenReady(level, at, reach(power), l -> l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
-                at.x, at.y, at.z, power, burns,
-                blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT));
+        whenReady(level, at, reach(power), l -> {
+            long t0 = System.nanoTime();
+            l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
+                    at.x, at.y, at.z, power, burns,
+                    blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
+                    ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
+            StrikeWorld.get(l).impactCost().add(ImpactCost.Kind.EXPLOSIONS, System.nanoTime() - t0, 1);
+        });
     }
 
     /**
@@ -404,10 +417,10 @@ public final class Warheads {
                         double a = i * Math.PI / 4;
                         igniteGround(level, pos.x + Math.cos(a) * 7, pos.z + Math.sin(a) * 7);
                     }
-                    DebrisSpawner.missile(level, pos, mat);
-                } else {
-                    DebrisSpawner.drone(level, pos, mat);
                 }
+                long t0 = System.nanoTime();
+                int debris = missile ? DebrisSpawner.missile(level, pos, mat) : DebrisSpawner.drone(level, pos, mat);
+                StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.DEBRIS, System.nanoTime() - t0, debris);
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
             if (missile) {
@@ -447,7 +460,10 @@ public final class Warheads {
         }
 
         private void shatterGlass(ServerLevel level, boolean missile) {
+            long t0 = System.nanoTime();
             int glass = missile ? shatter(level, pos, 26, 8, 22, ModTags.SHATTERS) : shatter(level, pos, 16, 6, 12, ModTags.SHATTERS);
+            int leaves = missile ? shatter(level, pos, 11, 3, 16, BlockTags.LEAVES) : 0;
+            StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, System.nanoTime() - t0, glass + leaves);
             if (glass > 0) {
                 float vol = missile ? 6 : 4;
                 level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 0.7f : 0.8f);
@@ -456,7 +472,7 @@ public final class Warheads {
                 forced(level, new BlockParticleOption(ParticleTypes.BLOCK, Blocks.GLASS.defaultBlockState()), pos.add(0, missile ? 4 : 3, 0),
                         missile ? 500 : 250, missile ? 16 : 10, missile ? 6 : 5, missile ? 16 : 10, 0, 256);
             }
-            if (missile && shatter(level, pos, 11, 3, 16, BlockTags.LEAVES) > 0) {
+            if (leaves > 0) {
                 level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f);
             }
         }
@@ -540,7 +556,9 @@ public final class Warheads {
                     explode(level, pos.add(4, -2, -3), 4, false, direct, owner, null);
                     explode(level, pos.add(-4, 1, 3), 4, false, direct, owner, null);
                     PacketDistributor.sendToPlayersNear(level, null, entry.x, entry.y, entry.z, 200, new S2C.Vent(entry, ventMat.ordinal()));
-                    DebrisSpawner.vent(level, entry, ventMat);
+                    long t0 = System.nanoTime();
+                    int debris = DebrisSpawner.vent(level, entry, ventMat);
+                    StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.DEBRIS, System.nanoTime() - t0, debris);
                 }
                 case 22 -> {
                     if (AirstrikeConfig.SERVER.collapse.get() && depth >= 4 && depth <= 48) collapse(level);

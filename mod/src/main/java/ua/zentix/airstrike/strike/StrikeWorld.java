@@ -27,6 +27,7 @@ public final class StrikeWorld {
     private final List<Timeline> timelines = new ArrayList<>();
     private final List<Timeline> pending = new ArrayList<>();
     private final AreaLoader areas = new AreaLoader();
+    private final ImpactCost impactCost = new ImpactCost();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public StrikeWorld() {}
@@ -38,6 +39,11 @@ public final class StrikeWorld {
     /** Районы, которые мод грузит заранее: районы целей и взрывов, чанки снарядов, подсказки карты, ядерный удар. */
     public AreaLoader areas() {
         return areas;
+    }
+
+    /** Сколько потока сервера заняли попадания в этом тике (строка в лог о медленном). */
+    public ImpactCost impactCost() {
+        return impactCost;
     }
 
     /** Добавить таймлайн; первый тик — в конце текущего тика мира. */
@@ -73,6 +79,7 @@ public final class StrikeWorld {
     private void tick(ServerLevel level) {
         timelines.addAll(pending);
         pending.clear();
+        long t0 = System.nanoTime();
         timelines.removeIf(t -> {
             boolean done;
             try {
@@ -84,6 +91,8 @@ public final class StrikeWorld {
             if (done) t.end(level);
             return done;
         });
+        impactCost.step(System.nanoTime() - t0);
+        impactCost.endTick(level);
     }
 
     /** Все снаряды мира: в мире и вне его ({@link VirtualFlights}). */

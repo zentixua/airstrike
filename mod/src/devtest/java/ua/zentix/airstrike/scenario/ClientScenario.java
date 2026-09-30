@@ -82,6 +82,10 @@ public final class ClientScenario {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
             return;
         }
+        if ("strike-profile".equals(scenario)) {
+            new StrikeProfile(); // шаги и замер тиков сервера — свои (StrikeProfile); мир — копия игрока (onScreen)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;
