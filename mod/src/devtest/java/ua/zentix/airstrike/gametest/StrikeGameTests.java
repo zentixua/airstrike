@@ -400,13 +400,17 @@ public final class StrikeGameTests {
      * Крылатая ракета с пусковой по маршруту с обходом (пуск, разгон, набор, маршрут вне мира, горка, пикирование):
      * скорость не проседает на переходах разгон → набор → маршрут (ускоритель разгоняет ниже маршевой, дальше турбина),
      * а время до удара, названное на пусковой (HUD, сирена, «удар через ~N с»), сходится с настоящим в пределах 10 %.
-     * В темпе игры: путь уходит за площадку, район цели грузится в фоне.
+     * В темпе игры: путь уходит за площадку, район цели грузится в фоне. Цель — на помосте в 48 блоках над полосой:
+     * маршрут идёт над площадками соседних тестов, и ракета, которая держит высоту цели + 12, проходит над их стенами
+     * из барьеров (у «range» — 40 блоков; на бреющем она врезалась в стену соседа в 110 блоках сбоку).
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_launcher", skyAccess = true)
     public static void missileFromLauncherKeepsSpeedAndEta(GameTestHelper h) {
         gameSpeed(h);
         ServerLevel level = h.getLevel();
-        Vec3 point = top(h, RUNWAY_TARGET);
+        BlockPos deck = new BlockPos(RUNWAY_TARGET.getX(), 47, RUNWAY_TARGET.getZ());
+        for (BlockPos b : BlockPos.betweenClosed(deck.offset(-4, -3, -4), deck.offset(4, 0, 4))) h.setBlock(b, Blocks.STONE);
+        Vec3 point = Vec3.atBottomCenterOf(h.absolutePos(deck.above()));
         // 600 блоков пути: точка обхода в ~220 блоках сбоку от полосы, вход в 150 блоках до цели; пакет, как в игре
         // (StrikeService.fromLauncher), смотрит на первую точку маршрута
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
@@ -428,9 +432,16 @@ public final class StrikeGameTests {
         boolean[] cruised = {false};
         String[] drop = {null};
         String[] last = {""};
+        StrikeProjectile[] seen = {null};
         h.onEachTick(() -> {
             StrikeProjectile p = findProjectile(level, id);
-            if (p == null) return;
+            if (p == null) {
+                // как ушла: взрыв (DISCARDED), выгрузка с чанком, из мира или вне его — для сообщения о провале
+                if (seen[0] != null) last[0] += ", пропала: " + seen[0].getRemovalReason() + (seen[0].isVirtual() ? " вне мира" : " в мире");
+                seen[0] = null;
+                return;
+            }
+            seen[0] = p;
             ticks[0]++;
             FlightPhase ph = p.flightPhase();
             last[0] = ph + " " + h.relativeVec(p.position()) + " v=" + p.speed();
@@ -443,7 +454,7 @@ public final class StrikeGameTests {
         });
         h.succeedWhen(() -> {
             h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит: " + last[0]);
-            assertCrater(h, RUNWAY_TARGET, last[0]);
+            assertCrater(h, deck, last[0]);
             h.assertTrue(cruised[0], "ракета не выходила на маршрут");
             h.assertTrue(drop[0] == null, drop[0]);
             h.assertTrue(Math.abs(ticks[0] - eta) <= eta / 10, "время до удара на пусковой " + eta + " тиков, на деле " + ticks[0]);
