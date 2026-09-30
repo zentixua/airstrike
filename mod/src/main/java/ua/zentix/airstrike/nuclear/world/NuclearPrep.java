@@ -95,6 +95,8 @@ public final class NuclearPrep {
         boolean missing;
         /** Сколько чанков квадрата уже с планом. */
         int planned;
+        /** Памяти мало, а планов в квадрате нет: отпустить (по {@link #RELEASE_PER_TICK} квадратов за тик). */
+        boolean drop;
         /** Чанки зоны в этом квадрате, ждущие его загрузки (план — как только готов). */
         final LongArrayList waiting = new LongArrayList();
 
@@ -235,6 +237,8 @@ public final class NuclearPrep {
         if (!p.heapStop) {
             scan(level, p);
             load(level, p);
+        } else {
+            releaseDropped(level, p);
         }
         plan(level, p, shared);
         if (!p.announced && p.nextPlan >= p.order.length && p.waiting == 0) {
@@ -398,7 +402,7 @@ public final class NuclearPrep {
      */
     private boolean heapTight() {
         long collections = 0;
-        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) collections += Math.max(0, gc.getCollectionCount());
+        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) if (collects(gc)) collections += Math.max(0, gc.getCollectionCount());
         if (collections != lastCollections) {
             lastCollections = collections;
             heapStrikes = liveHeap() > Runtime.getRuntime().maxMemory() * HEAP_LIMIT ? heapStrikes + 1 : 0;
@@ -407,8 +411,20 @@ public final class NuclearPrep {
     }
 
     /**
+     * Сборка, после которой пулы кучи знают живой объём: молодая, смешанная, полная, цикл ZGC или Shenandoah. Не паузы
+     * внутри цикла: у G1 в JDK 21 «G1 Concurrent GC» считает Remark и Cleanup (объём после них не новый — одна сборка
+     * давала бы два «подряд»), у ZGC и Shenandoah «… Pauses» повторяют их «… Cycles».
+     */
+    private static boolean collects(GarbageCollectorMXBean gc) {
+        String name = gc.getName();
+        return !name.contains("Concurrent") && !name.endsWith("Pauses");
+    }
+
+    /**
      * Памяти мало: готовые планы остаются (их квадраты держатся до руин), остальные чанки — на месте при волне
-     * (медленнее, но без нехватки памяти); квадраты без планов отпускаются, новые не грузятся.
+     * (медленнее, но без нехватки памяти); квадраты без планов отпускаются — не все в этом тике, а по
+     * {@link #RELEASE_PER_TICK} за тик ({@link #releaseDropped}): выгрузка пишет чанки на диск в тике сервера; новые
+     * не грузятся.
      */
     private static void stopForHeap(ServerLevel level, Prep p) {
         Runtime rt = Runtime.getRuntime();
@@ -422,9 +438,22 @@ public final class NuclearPrep {
             if (t.state == TileState.SCAN || t.state == TileState.WAIT) {
                 t.state = TileState.SKIP;
             } else if ((t.state == TileState.LOADING || t.state == TileState.READY) && t.planned == 0) {
-                StrikeWorld.get(level).areas().release(level, t.area(p.strike));
-                t.state = TileState.SKIP;
+                t.drop = true;
             }
+        }
+    }
+
+    /** Квадраты без планов после {@link #stopForHeap} — не больше {@link #RELEASE_PER_TICK} за тик. */
+    private static void releaseDropped(ServerLevel level, Prep p) {
+        int released = 0;
+        for (Tile t : p.tiles) {
+            if (released >= RELEASE_PER_TICK) return;
+            if (!t.drop) continue;
+            t.drop = false;
+            if (t.state != TileState.LOADING && t.state != TileState.READY) continue;
+            StrikeWorld.get(level).areas().release(level, t.area(p.strike));
+            t.state = TileState.SKIP;
+            released++;
         }
     }
 

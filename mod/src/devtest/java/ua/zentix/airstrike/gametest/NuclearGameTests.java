@@ -86,7 +86,7 @@ public final class NuclearGameTests {
         scarAll(h, d, new ColumnScar.Budget(true));
     }
 
-    private static void scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
+    private static List<RuinPlan> scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
         ServerLevel level = h.getLevel();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         List<RuinPlan> plans = new java.util.ArrayList<>();
@@ -111,6 +111,17 @@ public final class NuclearGameTests {
         for (RuinPlan plan : plans) {
             for (int k = 0; k < plan.outsideCount(); k++) RuinPlan.placeLog(level, plan.outsidePos(k), plan.outsideState(k));
         }
+        return plans;
+    }
+
+    /** Чанки площадки в порядке {@link #scarAll}. */
+    private static List<LevelChunk> chunks(GameTestHelper h) {
+        BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
+        List<LevelChunk> out = new java.util.ArrayList<>();
+        for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
+            for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) out.add(h.getLevel().getChunk(cx, cz));
+        }
+        return out;
     }
 
     /** Карты высот и нижние источники неба чанка подряд по столбцам; recompute — сперва пересчитать чанк целиком. */
@@ -183,6 +194,83 @@ public final class NuclearGameTests {
                     "карта высот не по руинам: " + level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) + " вместо " + (abs.getY() + 1));
         }
         h.succeed();
+    }
+
+    /**
+     * Башня 150 блоков в эпицентре 15 кт на оптимальной высоте (1 блок = 3.3 м): стены из терракоты с окнами, перекрытия
+     * через 5 блоков, сплошной столб из кальцита 2×2 и угол из диорита. Терракота, кальцит и диорит — блоки грунта, но
+     * выше природной земли это постройка: от башни остаются завал и в худшем случае тонкий остов от земли, ничего не
+     * висит в воздухе. Руины, построенные заранее (во время полёта), и построенные на месте — одни и те же.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_tower", skyAccess = true)
+    public static void towerAtGroundZeroFalls(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        // руины заранее: планы по нетронутому городу, потом подмена
+        int built = tower(h);
+        List<RuinPlan> ahead = new java.util.ArrayList<>();
+        List<LevelChunk> chunks = chunks(h);
+        for (LevelChunk chunk : chunks) ahead.add(RuinPlanner.plan(level, d, chunk));
+        for (int i = 0; i < chunks.size(); i++) h.assertTrue(ahead.get(i).apply(level, chunks.get(i), new ColumnScar.Budget(false)), "план заранее устарел");
+        int standingAhead = towerFell(h, d, built, "заранее");
+        // та же башня заново — руины на месте, по чанку в момент волны
+        for (BlockPos p : BlockPos.betweenClosed(CENTER.offset(-TOWER_HALF, 0, -TOWER_HALF), CENTER.offset(TOWER_HALF, TOWER_HEIGHT, TOWER_HALF))) {
+            level.setBlock(h.absolutePos(p), Blocks.AIR.defaultBlockState(), 2);
+        }
+        h.assertTrue(tower(h) == built, "башня не встала заново");
+        scarAll(h, d, new ColumnScar.Budget(false));
+        int standingFresh = towerFell(h, d, built, "на месте");
+        h.assertTrue(standingAhead == standingFresh, "руины заранее и на месте разные: выше завала " + standingAhead + " и " + standingFresh + " блоков");
+        h.succeed();
+    }
+
+    private static final int TOWER_HEIGHT = 150, TOWER_HALF = 4;
+
+    /** Башня {@link #towerAtGroundZeroFalls}; сколько блоков поставлено. */
+    private static int tower(GameTestHelper h) {
+        int built = 0;
+        for (int y = 0; y < TOWER_HEIGHT; y++) {
+            for (int dx = -TOWER_HALF; dx <= TOWER_HALF; dx++) {
+                for (int dz = -TOWER_HALF; dz <= TOWER_HALF; dz++) {
+                    boolean wall = Math.abs(dx) == TOWER_HALF || Math.abs(dz) == TOWER_HALF;
+                    BlockState st = null;
+                    if (dx == TOWER_HALF && dz == TOWER_HALF) st = Blocks.DIORITE.defaultBlockState();
+                    else if (wall) st = (y % 5 == 2 || y % 5 == 3) && Math.abs(dx + dz) % 2 == 1 ? Blocks.GLASS.defaultBlockState() : Blocks.BROWN_TERRACOTTA.defaultBlockState();
+                    else if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) st = Blocks.CALCITE.defaultBlockState();
+                    else if (y % 5 == 4) st = Blocks.WHITE_TERRACOTTA.defaultBlockState();
+                    if (st != null && h.getLevel().setBlock(h.absolutePos(CENTER.offset(dx, y, dz)), st, 2)) built++;
+                }
+            }
+        }
+        h.assertTrue(built > TOWER_HEIGHT * 32, "башня не поместилась в мир: " + built + " блоков");
+        return built;
+    }
+
+    /** От башни — завал и не больше 5 % блоков выше него, ничего не висит над пустотой; сколько блоков выше завала. */
+    private static int towerFell(GameTestHelper h, Detonation d, int built, String path) {
+        int standing = 0, rubble = 0;
+        for (int dx = -TOWER_HALF; dx <= TOWER_HALF; dx++) {
+            for (int dz = -TOWER_HALF; dz <= TOWER_HALF; dz++) {
+                BlockPos col = CENTER.offset(dx, 0, dz);
+                BlockState first = h.getBlockState(col);
+                if (first.is(Blocks.GRAVEL) || first.is(Blocks.COBBLESTONE) || first.is(Blocks.ANDESITE) || first.is(Blocks.TUFF)) rubble++;
+                int air = 0;
+                for (int y = 0; y < TOWER_HEIGHT; y++) {
+                    BlockState st = h.getBlockState(col.above(y));
+                    if (st.isAir()) {
+                        air++;
+                        continue;
+                    }
+                    if (y >= 4) standing++;
+                    if (air >= 3) h.fail(path + ": висит в воздухе " + st + " в " + col.above(y).toShortString() + " над пустотой в " + air + " блоков");
+                    air = 0;
+                }
+            }
+        }
+        h.assertTrue(standing * 20 <= built, path + ": башня стоит — выше завала " + standing + " блоков из " + built
+                + " (давление у земли " + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(CENTER)))) + " psi)");
+        h.assertTrue(rubble * 2 >= (2 * TOWER_HALF + 1) * (2 * TOWER_HALF + 1), path + ": завала мало — " + rubble + " столбцов");
+        return standing;
     }
 
     /**

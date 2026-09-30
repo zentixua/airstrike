@@ -26,12 +26,12 @@ import net.minecraft.world.level.lighting.SkyLightEngine;
 import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.DhChunks;
 import ua.zentix.airstrike.grid.GridLights;
 import ua.zentix.airstrike.util.Terrain;
 
-import java.util.EnumSet;
 import java.util.List;
 
 /**
@@ -65,7 +65,6 @@ public final class RuinPlan {
             Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE};
     /** Вид в {@link #heights}: нижний источник неба столбца. */
     static final int SKY = HEIGHTMAP_TYPES.length;
-    private static final EnumSet<Heightmap.Types> HEIGHTMAPS = EnumSet.of(HEIGHTMAP_TYPES[0], HEIGHTMAP_TYPES[1], HEIGHTMAP_TYPES[2], HEIGHTMAP_TYPES[3]);
 
     /** Упаковка места: 12 бит — место в секции (y, z, x), 8 бит — номер секции, 10 бит — состояние в палитре, флаги. */
     static final int SECTION_SHIFT = 12, STATE_SHIFT = 20, STATE_MASK = 0x3FF;
@@ -91,6 +90,10 @@ public final class RuinPlan {
     /** Для строки в лог: самая долгая часть «через мир» — время (нс), чанк, сколько мест через мир (с прошлой строки). */
     static long slowestWorldNanos, slowestWorldChunk;
     static int slowestWorldCells;
+    /** В этом чанке: самый долгий блок через мир (его замена), и вызов LOD Distant Horizons, нс. */
+    @Nullable
+    static BlockState slowestWorldBlock;
+    static long slowestWorldBlockNanos, slowestWorldDhNanos;
 
     /**
      * Карты высот и источники неба изменённых столбцов, посчитанные по плану: тройки (столбец {@code << 3} | вид —
@@ -135,9 +138,26 @@ public final class RuinPlan {
         long airstrike$edits();
     }
 
-    /** Счётчик изменений блоков чанка; −1 — миксин не встал. */
+    /** Работает ли счётчик ({@link #edits}): 0 — ещё не проверяли, 1 — да, −1 — нет. На всю JVM: миксины — тоже. */
+    private static int editsWork;
+
+    /**
+     * Счётчик изменений блоков чанка; −1 — счётчика нет (миксин не встал), и подмена тогда считает столбцы плана
+     * заново всегда. Первый вызов проверяет счётчик на деле: запись в чанк того же состояния, что там уже стоит
+     * ({@code setBlockState} выходит сразу, ничего не меняя), должна его сдвинуть. Только в потоке сервера.
+     */
     static long edits(LevelChunk chunk) {
-        return chunk instanceof Edits e ? e.airstrike$edits() : -1;
+        if (!(chunk instanceof Edits e)) return -1;
+        if (editsWork == 0) {
+            BlockPos p = new BlockPos(chunk.getPos().getMinBlockX() + 8, chunk.getMinBuildHeight(), chunk.getPos().getMinBlockZ() + 8);
+            long before = e.airstrike$edits();
+            chunk.setBlockState(p, chunk.getBlockState(p), false);
+            editsWork = e.airstrike$edits() != before ? 1 : -1;
+            if (editsWork < 0) {
+                Airstrike.LOG.warn("Руины ядерки: счётчик изменений чанка (LevelChunkEditsMixin) не встал — карты высот столбцов руин считаются заново при каждой подмене");
+            }
+        }
+        return editsWork > 0 ? e.airstrike$edits() : -1;
     }
 
     /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
@@ -241,15 +261,10 @@ public final class RuinPlan {
         }
         PHASES[1] += System.nanoTime() - t;
         t = System.nanoTime();
-        // карты высот и источники неба — из плана; чанк меняли после плана вне мест плана (блок внутри дома) — столбцы
-        // плана заново по чанку; значение «до» в столбце не то — весь чанк заново
+        // карты высот и источники неба — из плана; чанк меняли после плана вне мест плана (блок внутри дома) или
+        // значение «до» в столбце не то — все столбцы плана заново по чанку
         boolean untouched = edits >= 0 && chunkId == System.identityHashCode(chunk) && edits(chunk) == edits;
-        if (!untouched) {
-            rescanColumns(chunk);
-        } else if (!setHeights(chunk)) {
-            Heightmap.primeHeightmaps(chunk, HEIGHTMAPS);
-            chunk.initializeLightSources();
-        }
+        if (!untouched || !setHeights(chunk)) rescanColumns(chunk);
         if (lit > 0) {
             // огонь не воздух, но не держит движение и не закрывает небо: из карт высот он меняет только поверхность мира
             Heightmap surface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE);
@@ -284,18 +299,31 @@ public final class RuinPlan {
         PHASES[3] += System.nanoTime() - t;
         t = System.nanoTime();
         chunk.setUnsaved(true);
+        // самый долгий блок чанка — в строку лога: onRemove бывает дорогим (сеть валов Create обходится целиком,
+        // конвейер снимает всю цепочку)
+        BlockState slowBlock = null;
+        long slowBlockNanos = 0;
         for (int c : cells) {
             if ((c & SLOW) == 0) continue;
             at(m, c, x0, z0, minY);
-            ColumnScar.replace(level, m, chunk.getBlockState(m), states[(c >>> STATE_SHIFT) & STATE_MASK]);
+            BlockState old = chunk.getBlockState(m);
+            long b = System.nanoTime();
+            ColumnScar.replace(level, m, old, states[(c >>> STATE_SHIFT) & STATE_MASK]);
+            b = System.nanoTime() - b;
+            if (b > slowBlockNanos) {
+                slowBlockNanos = b;
+                slowBlock = old;
+            }
         }
         // видит, но чанк не тикает (край прорисовки): чанк целиком ванильной отправкой
         if (watched && !sections) {
             for (ServerPlayer p : players) p.connection.chunkSender.markChunkPendingToSend(chunk);
         }
         // LOD Distant Horizons: руины вместе с волной, а не при следующем сохранении чанка
+        long dh = System.nanoTime();
         DhChunks.changed(level, chunk);
         long took = System.nanoTime() - t;
+        dh = System.nanoTime() - dh;
         PHASES[4] += took;
         if (took > slowestWorldNanos) {
             slowestWorldNanos = took;
@@ -303,6 +331,9 @@ public final class RuinPlan {
             int n = 0;
             for (int c : cells) if ((c & SLOW) != 0) n++;
             slowestWorldCells = n;
+            slowestWorldBlock = slowBlock;
+            slowestWorldBlockNanos = slowBlockNanos;
+            slowestWorldDhNanos = dh;
         }
         return true;
     }
@@ -335,59 +366,74 @@ public final class RuinPlan {
 
     /**
      * Карты высот и источники неба столбцов из плана. Значение до руин в чанке уже не то (столбец меняли после плана) —
-     * false: вызывающий пересчитает чанк целиком.
+     * false, ничего не изменено: вызывающий пересчитает столбцы плана по чанку.
      */
     private boolean setHeights(LevelChunk chunk) {
         ChunkSkyLightSources sky = chunk.getSkyLightSources();
         for (int k = 0; k < heights.length; k += 3) {
-            int key = heights[k], column = key >> 3, type = key & 7, lx = column & 15, lz = column >> 4;
-            if (type == SKY) {
-                if (sky.get(column) != heights[k + 1]) return false;
-                sky.set(column, heights[k + 2]);
-            } else {
-                Heightmap map = chunk.getOrCreateHeightmapUnprimed(HEIGHTMAP_TYPES[type]);
-                if (map.getFirstAvailable(lx, lz) != heights[k + 1]) return false;
-                map.setHeight(lx, lz, heights[k + 2]);
-            }
+            int key = heights[k], column = key >> 3, type = key & 7;
+            int was = type == SKY ? sky.get(column) : chunk.getOrCreateHeightmapUnprimed(HEIGHTMAP_TYPES[type]).getFirstAvailable(column & 15, column >> 4);
+            if (was != heights[k + 1]) return false;
+        }
+        for (int k = 0; k < heights.length; k += 3) {
+            int key = heights[k], column = key >> 3, type = key & 7;
+            if (type == SKY) sky.set(column, heights[k + 2]);
+            else chunk.getOrCreateHeightmapUnprimed(HEIGHTMAP_TYPES[type]).setHeight(column & 15, column >> 4, heights[k + 2]);
         }
         return true;
     }
 
     /**
-     * Карты высот и нижние источники неба столбцов плана — поиском сверху по чанку (после записи мест плана), как
-     * {@code Heightmap.primeHeightmaps} и {@code ChunkSkyLightSources.fillFrom}, но только в этих столбцах: чанк меняли
-     * после плана, и значения из плана могли устареть. Столбцы без мест плана подмена не трогает — их вёл сам мир.
+     * Карты высот и нижние источники неба всех столбцов с местами плана — по чанку после записи мест плана, как
+     * {@code Heightmap.primeHeightmaps} и {@code ChunkSkyLightSources.fillFrom}, но одним проходом по столбцу для всех
+     * карт и неба и только от верхнего места плана вниз: выше него подмена ничего не меняла, и значение, которое там
+     * держит мир, верно. Чанк меняли после плана (крышу над выпотрошенным домом сломали — высота встала на этаж,
+     * который план сносит), и значения из плана могли устареть. Столбцы без мест плана подмена не трогает — их вёл
+     * сам мир; блок-сущности и POI ставятся через мир после этого.
      */
     private void rescanColumns(LevelChunk chunk) {
+        int minY = chunk.getMinBuildHeight();
+        int[] top = new int[256];
+        java.util.Arrays.fill(top, Integer.MIN_VALUE);
+        for (int c : cells) {
+            if ((c & SLOW) != 0) continue;
+            int y = minY + (section(c) << 4) + ((c >> 8) & 15);
+            if (y > top[c & 0xFF]) top[c & 0xFF] = y;
+        }
         ChunkSkyLightSources sky = chunk.getSkyLightSources();
-        int minY = chunk.getMinBuildHeight(), highest = chunk.getHighestFilledSectionIndex();
-        int top = highest < 0 ? minY : SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(highest) + 1);
+        Heightmap[] maps = new Heightmap[HEIGHTMAP_TYPES.length];
+        for (int i = 0; i < maps.length; i++) maps[i] = chunk.getOrCreateHeightmapUnprimed(HEIGHTMAP_TYPES[i]);
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         BlockPos.MutableBlockPos upper = new BlockPos.MutableBlockPos(), lower = new BlockPos.MutableBlockPos();
-        int last = -1;
-        for (int k = 0; k < heights.length; k += 3) {
-            int column = heights[k] >> 3;
-            if (column == last) continue;
-            last = column;
+        for (int column = 0; column < 256; column++) {
+            int t = top[column];
+            if (t == Integer.MIN_VALUE) continue;
             int lx = column & 15, lz = column >> 4, x = x0 + lx, z = z0 + lz;
-            for (Heightmap.Types type : HEIGHTMAP_TYPES) {
-                int y = top - 1;
-                while (y >= minY && !type.isOpaque().test(chunk.getBlockState(upper.set(x, y, z)))) y--;
-                chunk.getOrCreateHeightmapUnprimed(type).setHeight(lx, lz, y + 1);
-            }
-            int source = minY - 1;
-            BlockState above = Blocks.AIR.defaultBlockState();
-            for (int y = top - 1; y >= minY - 1; y--) {
+            // что искать: значение не выше верхнего места плана (выше — блок над планом, он не менялся)
+            int open = 0;
+            for (int i = 0; i < maps.length; i++) if (maps[i].getFirstAvailable(lx, lz) <= t + 1) open |= 1 << i;
+            boolean skyOpen = sky.get(column) <= t + 1;
+            BlockState above = chunk.getBlockState(upper.set(x, t + 1, z));
+            for (int y = t; y >= minY - 1 && (open != 0 || skyOpen); y--) {
                 BlockState below = chunk.getBlockState(lower.set(x, y, z));
-                upper.set(x, y + 1, z);
-                if (below.getLightBlock(chunk, lower) != 0 || Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(chunk, upper, above, Direction.DOWN),
-                        LightEngine.getOcclusionShape(chunk, lower, below, Direction.UP))) {
-                    source = y + 1;
-                    break;
+                for (int i = 0; open != 0 && i < maps.length; i++) {
+                    if ((open & 1 << i) != 0 && y >= minY && HEIGHTMAP_TYPES[i].isOpaque().test(below)) {
+                        maps[i].setHeight(lx, lz, y + 1);
+                        open &= ~(1 << i);
+                    }
+                }
+                if (skyOpen) {
+                    upper.set(x, y + 1, z);
+                    if (below.getLightBlock(chunk, lower) != 0 || Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(chunk, upper, above, Direction.DOWN),
+                            LightEngine.getOcclusionShape(chunk, lower, below, Direction.UP))) {
+                        sky.set(column, y + 1);
+                        skyOpen = false;
+                    }
                 }
                 above = below;
             }
-            sky.set(column, source);
+            for (int i = 0; i < maps.length; i++) if ((open & 1 << i) != 0) maps[i].setHeight(lx, lz, minY);
+            if (skyOpen) sky.set(column, minY - 1);
         }
     }
 
