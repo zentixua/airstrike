@@ -76,6 +76,9 @@ public final class RigGameTests {
         List<String> want = List.of("gamemode spectator", cow, "wait:200", "say \"a;b\"", "tp @s 0 100 0");
         h.assertTrue(got.equals(want), "разбор: " + got);
         h.assertTrue(ScenarioCommands.split(" ; ").isEmpty(), "пустые пункты не отброшены");
+        String quoted = "summon armor_stand 0 64 0 {CustomName:'a;b',Tags:['x;y']}";
+        List<String> mixed = ScenarioCommands.split("say it's here; " + quoted + "; time set day");
+        h.assertTrue(mixed.equals(List.of("say it's here", quoted, "time set day")), "апостроф и строки SNBT: " + mixed);
         h.succeed();
     }
 

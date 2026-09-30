@@ -68,7 +68,7 @@ public final class ClientScenario {
      * Удар по заданной точке ({@link #fxTargets}): пуск от консоли встроенного сервера и взрыв своего снаряда. Снаряд у
      * клиента ищется по UUID и заново после ухода в полёт вне мира; следующая цель — только после взрыва (или срока).
      */
-    private StrikeWatch strike;
+    private volatile StrikeWatch strike;
     /** Тик клиента, когда ушла команда удара ({@link #strike}), и снаряд уже был у клиента. */
     private int strikeTick = -1;
     private boolean reached;

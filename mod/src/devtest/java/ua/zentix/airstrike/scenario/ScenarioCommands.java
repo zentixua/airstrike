@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * Список команд сценария {@code commands} ({@code airstrike.commands}): пункты через «;». Точка с запятой внутри
  * скобок и кавычек — часть команды, а не разделитель: в NBT она разделяет тип и элементы массива
- * ({@code UUID:[I;1,2,3,4]}), в строке — просто знак.
+ * ({@code UUID:[I;1,2,3,4]}), в строке — просто знак. Двойная кавычка открывает строку везде, одинарная — только
+ * там, где SNBT ждёт значение или ключ (после {@code { [ , :}): апостроф в тексте ({@code say it's}) — просто знак.
  */
 public final class ScenarioCommands {
     private ScenarioCommands() {}
@@ -25,7 +26,7 @@ public final class ScenarioCommands {
                     continue;
                 }
                 if (c == quote) quote = 0;
-            } else if (c == '"' || c == '\'') {
+            } else if (c == '"' || c == '\'' && opensValue(item)) {
                 quote = c;
             } else if (c == '[' || c == '{' || c == '(') {
                 depth++;
@@ -39,6 +40,15 @@ public final class ScenarioCommands {
         }
         add(out, item);
         return out;
+    }
+
+    /** Последний непробельный знак пункта — начало значения или ключа SNBT. */
+    private static boolean opensValue(StringBuilder item) {
+        for (int i = item.length() - 1; i >= 0; i--) {
+            char c = item.charAt(i);
+            if (!Character.isWhitespace(c)) return c == '{' || c == '[' || c == ',' || c == ':';
+        }
+        return false;
     }
 
     private static void add(List<String> out, StringBuilder item) {

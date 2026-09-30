@@ -88,11 +88,11 @@ timeout -k 60 20m ../tools/laptop_job.sh final-build -- ./gradlew scenarioJar -q
 шага по порядку, затем `latest.log`; `full.log` уже есть — стоп, сообщить координатору, ничего не перезаписывать):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && S=A && D="mod/run/final/$S" && P=mod/run/prod && \
-test ! -e "$D/logs/full.log" && mkdir -p "$D/logs" "$D/screenshots" && \
+{ test ! -e "$D/logs/full.log" || { echo "стоп: full.log уже есть"; exit 1; }; } && mkdir -p "$D/logs" "$D/screenshots" && \
 G=$(find "$P/logs" -maxdepth 1 -name '*.log.gz' -newer mod/run/final/.step-start | sort -V) && \
 { for g in $G; do zcat "$g"; done; cat "$P/logs/latest.log"; } > "$D/logs/full.log" && \
-for f in $G "$P/logs/latest.log" "$P/logs/gc.log"; do [ -e "$f" ] && cp -p "$f" "$D/logs/"; done; \
-find "$P/screenshots" -maxdepth 1 -name '*.png' -newer mod/run/final/.step-start -exec cp -p {} "$D/screenshots/" \; 2>/dev/null; \
+for f in $G "$P/logs/latest.log" "$P/logs/gc.log"; do [ -e "$f" ] && cp -pn "$f" "$D/logs/"; done; \
+find "$P/screenshots" -maxdepth 1 -name '*.png' -newer mod/run/final/.step-start -exec cp -pn {} "$D/screenshots/" \; 2>/dev/null; \
 echo "архивов: $(echo $G | wc -w), кадров: $(ls "$D/screenshots" | wc -l)"; ls -l "$D/logs"; grep -a -c 'SCENARIO done' "$D/logs/full.log"
 ```
 Должно быть `SCENARIO done` ≥ 1 (у прогона, убитого тайм-аутом, — 0: так и прислать).
