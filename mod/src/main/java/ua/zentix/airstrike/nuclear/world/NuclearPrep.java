@@ -26,6 +26,10 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.MemoryType;
+import java.lang.management.MemoryUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -35,7 +39,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Руины заранее — пока летит МБР (полторы минуты): тяжёлая зона (у земли от 5 psi) грузится с диска и для каждого её
- * чанка строится план руин ({@link RuinPlanner}). Когда волна доходит до чанка, остаётся только подменить секции
+ * чанка строится план руин ({@link RuinPlanner}). Когда волна доходит до чанка, остаётся только записать план в секции
  * ({@link RuinPlan#apply}) — разрушения идут вместе с фронтом, а не догоняют его.
  * <p>
  * Грузится только то, что уже есть на диске полностью сгенерированным (поле {@code Status} чанка читается
@@ -73,6 +77,9 @@ public final class NuclearPrep {
     /** Насколько место подрыва может отличаться от места плана, блоки. */
     private static final double SAME_PLACE = 8;
 
+    /** Доля кучи (живой объём после сборки), выше которой руины заранее больше не строятся. */
+    private static final double HEAP_LIMIT = 0.75;
+
     private enum TileState { SCAN, SKIP, WAIT, LOADING, READY }
 
     private static final class Tile {
@@ -81,6 +88,8 @@ public final class NuclearPrep {
         /** Чанков квадрата и кольца вокруг него, чей ответ с диска ещё не пришёл или не запрошен. */
         int unknown = RING * RING;
         boolean missing;
+        /** Чанки зоны в этом квадрате, ждущие его загрузки (план — как только готов). */
+        final LongArrayList waiting = new LongArrayList();
 
         Tile(ChunkPos centre) {
             this.centre = centre;
@@ -103,8 +112,8 @@ public final class NuclearPrep {
         final Long2ObjectOpenHashMap<Tile> tileOf = new Long2ObjectOpenHashMap<>();
         /** Квадраты, которым нужен ответ по чанку (свой или кольцо соседа). */
         final Long2ObjectOpenHashMap<List<Tile>> askedBy = new Long2ObjectOpenHashMap<>();
-        /** Чанки зоны, ждущие загрузки своего квадрата (план — как только готов). */
-        final LongArrayList waiting = new LongArrayList();
+        /** Сколько чанков зоны ждут загрузки своего квадрата ({@link Tile#waiting}). */
+        int waiting;
         /** Очередь чанков на чтение с диска и ответы (приходят из потока ввода-вывода). */
         final LongArrayList toScan = new LongArrayList();
         int nextScan, scanning;
@@ -164,7 +173,8 @@ public final class NuclearPrep {
             try {
                 if (p.draining) {
                     p.plans.clear();
-                    p.waiting.clear();
+                    for (Tile t : p.tiles) t.waiting.clear();
+                    p.waiting = 0;
                     if (releaseSome(level, p, RELEASE_PER_TICK) == 0) it.remove();
                     continue;
                 }
@@ -188,6 +198,16 @@ public final class NuclearPrep {
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Подготовка руин удара №{} упала с ошибкой; снята", p.strike, e);
                 failed.add(p.strike);
+                if (p.draining) {
+                    // упала уже отпуская квадраты: отпустить все разом и больше не трогать (иначе ошибка — каждый тик)
+                    it.remove();
+                    try {
+                        release(level, p);
+                    } catch (RuntimeException again) {
+                        Airstrike.LOG.error("Подготовка руин удара №{}: квадраты не отпущены", p.strike, again);
+                    }
+                    continue;
+                }
                 if (p.detonation >= 0) scars.dropPrepared(p.detonation);
                 p.draining = true;
             }
@@ -205,7 +225,7 @@ public final class NuclearPrep {
         scan(level, p);
         load(level, p);
         plan(level, p, shared);
-        if (!p.announced && p.nextPlan >= p.order.length && p.waiting.isEmpty()) {
+        if (!p.announced && p.nextPlan >= p.order.length && p.waiting == 0) {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее
             long bytes = 0;
@@ -335,27 +355,60 @@ public final class NuclearPrep {
 
     /** Руины чанков по порядку: готовый чанк — план; ждём только чанки квадратов, которые грузятся. */
     private void plan(ServerLevel level, Prep p, WorkClock shared) {
-        // сперва — чанки, ждавшие своего квадрата: план, как только квадрат готов (дальний готовый не ждёт ближнего)
-        for (int i = 0; i < p.waiting.size() && clock.canStart() && shared.canStart(); ) {
-            long c = p.waiting.getLong(i);
-            Tile t = p.tileOf.get(c);
-            if (t != null && t.state != TileState.READY && t.state != TileState.SKIP) {
-                i++;
-                continue;
+        if (p.nextPlan < p.order.length || p.waiting > 0) {
+            long live = liveHeap(), max = Runtime.getRuntime().maxMemory();
+            if (live > max * HEAP_LIMIT) {
+                // памяти мало: готовые планы остаются, остальные чанки — на месте при волне (медленнее, но без нехватки памяти)
+                Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся ({} чанков из {} готовы)",
+                        p.strike, live >> 20, max >> 20, p.plans.size(), p.order.length);
+                p.nextPlan = p.order.length;
+                for (Tile t : p.tiles) t.waiting.clear();
+                p.waiting = 0;
+                return;
             }
-            LevelChunk chunk = readyChunk(level, c);
-            if (chunk != null) planChunk(level, p, shared, c, chunk);
-            // квадрат пропущен (не сгенерирован) или отпущен — чанк пройдёт при загрузке, как раньше
-            p.waiting.set(i, p.waiting.getLong(p.waiting.size() - 1));
-            p.waiting.removeLong(p.waiting.size() - 1);
+        }
+        // сперва — чанки, ждавшие своего квадрата: план, как только квадрат готов (дальний готовый не ждёт ближнего);
+        // перебор по квадратам, а не по тысячам ждущих чанков каждый тик. Квадрат пропущен (не сгенерирован) или
+        // отпущен — чанк пройдёт при загрузке, как раньше
+        for (Tile t : p.tiles) {
+            if (t.waiting.isEmpty() || t.state != TileState.READY && t.state != TileState.SKIP) continue;
+            while (!t.waiting.isEmpty() && clock.canStart() && shared.canStart()) {
+                long c = t.waiting.removeLong(t.waiting.size() - 1);
+                p.waiting--;
+                LevelChunk chunk = readyChunk(level, c);
+                if (chunk != null) planChunk(level, p, shared, c, chunk);
+            }
+            if (!t.waiting.isEmpty()) return;
         }
         while (p.nextPlan < p.order.length && clock.canStart() && shared.canStart()) {
             long c = p.order[p.nextPlan++];
             Tile t = p.tileOf.get(c);
             LevelChunk chunk = readyChunk(level, c);
             if (chunk != null) planChunk(level, p, shared, c, chunk);
-            else if (t != null && t.state != TileState.SKIP) p.waiting.add(c);
+            else if (t != null && t.state != TileState.SKIP) {
+                t.waiting.add(c);
+                p.waiting++;
+            }
         }
+    }
+
+    /**
+     * Живой объём кучи: занято после последней сборки (у ZGC и G1 — по пулам кучи); пулы без этих данных — занято
+     * сейчас (с мусором, то есть с запасом).
+     */
+    private static long liveHeap() {
+        long sum = 0;
+        boolean any = false;
+        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+            if (pool.getType() != MemoryType.HEAP) continue;
+            MemoryUsage after = pool.getCollectionUsage();
+            if (after == null) continue;
+            sum += after.getUsed();
+            any = true;
+        }
+        if (any) return sum;
+        Runtime rt = Runtime.getRuntime();
+        return rt.totalMemory() - rt.freeMemory();
     }
 
     @Nullable

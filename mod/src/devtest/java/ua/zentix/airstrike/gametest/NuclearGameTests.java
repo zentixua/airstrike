@@ -93,8 +93,17 @@ public final class NuclearGameTests {
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
             for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
                 LevelChunk chunk = level.getChunk(cx, cz);
+                int[] before = heights(chunk, true);
                 RuinPlan plan = RuinPlanner.plan(level, d, chunk);
                 h.assertTrue(plan.apply(level, chunk, budget), "свежий план устарел");
+                // карты высот и источники неба из плана — те же, что при пересчёте чанка целиком
+                int[] after = heights(chunk, false), full = heights(chunk, true);
+                for (int k = 0; k < full.length; k++) {
+                    if (after[k] != full[k]) {
+                        h.fail("чанк " + chunk.getPos() + ": " + (k / 256 < RuinPlan.HEIGHTMAP_TYPES.length ? RuinPlan.HEIGHTMAP_TYPES[k / 256] : "небо")
+                                + " в столбце " + (k % 256) + " после подмены " + after[k] + ", пересчёт " + full[k] + " (до руин " + before[k] + ")");
+                    }
+                }
                 plans.add(plan);
             }
         }
@@ -102,6 +111,21 @@ public final class NuclearGameTests {
         for (RuinPlan plan : plans) {
             for (int k = 0; k < plan.outsideCount(); k++) RuinPlan.placeLog(level, plan.outsidePos(k), plan.outsideState(k));
         }
+    }
+
+    /** Карты высот и нижние источники неба чанка подряд по столбцам; recompute — сперва пересчитать чанк целиком. */
+    private static int[] heights(LevelChunk chunk, boolean recompute) {
+        if (recompute) {
+            net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.copyOf(List.of(RuinPlan.HEIGHTMAP_TYPES)));
+            chunk.initializeLightSources();
+        }
+        int types = RuinPlan.HEIGHTMAP_TYPES.length;
+        int[] out = new int[256 * (types + 1)];
+        for (int column = 0; column < 256; column++) {
+            for (int t = 0; t < types; t++) out[t * 256 + column] = chunk.getOrCreateHeightmapUnprimed(RuinPlan.HEIGHTMAP_TYPES[t]).getFirstAvailable(column & 15, column >> 4);
+            out[types * 256 + column] = chunk.getSkyLightSources().getLowestSourceY(column & 15, column >> 4);
+        }
+        return out;
     }
 
     /**

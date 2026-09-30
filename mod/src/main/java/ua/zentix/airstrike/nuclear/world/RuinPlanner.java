@@ -19,8 +19,11 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
@@ -353,6 +356,8 @@ public final class RuinPlanner {
                 while (y >= minY && get(lx, y, lz).isAir()) y--;
                 newTop[column] = y;
             }
+            int[] heights = heights(topChanged);
+            LongArrayList lightAt = new LongArrayList();
             Object2IntOpenHashMap<BlockState> palette = new Object2IntOpenHashMap<>();
             List<BlockState> states = new ArrayList<>();
             long[] hashes = new long[original.length];
@@ -373,6 +378,7 @@ public final class RuinPlanner {
                 boolean light = y == topChanged[column] || was.getLightEmission(chunk, m) > 0 || now.getLightEmission(chunk, m) > 0
                         || covered && (was.getLightBlock(chunk, m) != now.getLightBlock(chunk, m) || was.useShapeForLightOcclusion() || now.useShapeForLightOcclusion());
                 boolean slow = was.hasBlockEntity() || PoiTypes.forState(was).isPresent();
+                if (light && !slow) lightAt.add(m.asLong());
                 cells[kept++] = c | idx << RuinPlan.STATE_SHIFT | (light ? RuinPlan.LIGHT : 0) | (slow ? RuinPlan.SLOW : 0);
             }
             int[] fireOut = new int[fireCells.size()];
@@ -386,8 +392,61 @@ public final class RuinPlanner {
                 fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
             }
             if (kept == 0 && fireOut.length == 0 && outside.isEmpty()) return RuinPlan.EMPTY;
-            return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), fireOut,
+            return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), fireOut, heights,
+                    lightAt.toLongArray(),
                     outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState);
+        }
+
+        /**
+         * Карты высот и нижние источники неба изменённых столбцов после руин (для {@link RuinPlan}): тем же правилом, что
+         * у {@code Heightmap.update} и {@code ChunkSkyLightSources}, но по копиям секций и один раз на столбец. Выше
+         * верхнего изменённого блока столбец тот же, поэтому поиск идёт от него вниз.
+         */
+        private int[] heights(int[] topChanged) {
+            IntArrayList out = new IntArrayList();
+            ChunkSkyLightSources sky = chunk.getSkyLightSources();
+            BlockPos.MutableBlockPos above = new BlockPos.MutableBlockPos(), below = new BlockPos.MutableBlockPos();
+            int skyMin = minY - 1;
+            for (int column = 0; column < 256; column++) {
+                int top = topChanged[column];
+                if (top == Integer.MIN_VALUE) continue;
+                int lx = column & 15, lz = column >> 4, x = (chunkX << 4) + lx, z = (chunkZ << 4) + lz;
+                for (int t = 0; t < RuinPlan.HEIGHTMAP_TYPES.length; t++) {
+                    Heightmap.Types type = RuinPlan.HEIGHTMAP_TYPES[t];
+                    int old = chunk.getOrCreateHeightmapUnprimed(type).getFirstAvailable(lx, lz);
+                    int y = Math.max(old, top + 1) - 1;
+                    while (y >= minY && !type.isOpaque().test(get(lx, y, lz))) y--;
+                    if (y + 1 != old) triple(out, column << 3 | t, old, y + 1);
+                }
+                // нижний источник неба: верх первой сверху закрытой грани; выше top + 1 грани не менялись
+                int old = sky.get(column);
+                if (old > top + 1) continue;
+                int source = skyMin;
+                BlockState upper = get(lx, top + 1, lz);
+                for (int y = top; y >= skyMin; y--) {
+                    BlockState lower = get(lx, y, lz);
+                    if (edgeOccluded(above.set(x, y + 1, z), upper, below.set(x, y, z), lower)) {
+                        source = y + 1;
+                        break;
+                    }
+                    upper = lower;
+                }
+                if (source != old) triple(out, column << 3 | RuinPlan.SKY, old, source);
+            }
+            return out.toIntArray();
+        }
+
+        private static void triple(IntArrayList out, int key, int old, int now) {
+            out.add(key);
+            out.add(old);
+            out.add(now);
+        }
+
+        /** Как {@code ChunkSkyLightSources.isEdgeOccluded}: свет неба не проходит вниз через грань между блоками. */
+        private boolean edgeOccluded(BlockPos upperPos, BlockState upper, BlockPos lowerPos, BlockState lower) {
+            if (lower.getLightBlock(this, lowerPos) != 0) return true;
+            return Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(this, upperPos, upper, Direction.DOWN),
+                    LightEngine.getOcclusionShape(this, lowerPos, lower, Direction.UP));
         }
 
         private int y(int c) {

@@ -25,8 +25,8 @@ import java.util.PriorityQueue;
 /**
  * Очередь чанков на повреждения (DESIGN-nuke §3.1). Чанк ставится в очередь, когда он загружен и в радиусе
  * подрыва, чей номер новее отметки {@code chunk_scar} на чанке. Обрабатывается не раньше, чем до него дошла волна
- * (загруженные позже — сразу), целиком одной единицей работы под общим бюджетом времени: руины ставятся подменой
- * секций ({@link RuinPlan}) — по плану, построенному ещё во время полёта МБР ({@link NuclearPrep}), или по плану
+ * (загруженные позже — сразу), целиком одной единицей работы под общим бюджетом времени: руины ставятся записью
+ * плана в секции ({@link RuinPlan}) — по плану, построенному ещё во время полёта МБР ({@link NuclearPrep}), или по плану
  * на месте. После руин ставится отметка; выгрузился до них — отметки нет, при следующей загрузке пройдёт заново.
  * <p>
  * Чанк в очереди, пока он в памяти, а не пока он полностью загружен: у края видимости чанк то и дело опускается
@@ -50,6 +50,8 @@ public final class ScarQueue {
         final List<Detonation> events = new ArrayList<>();
         int event;
         long due;
+        /** Когда до чанка дошла волна текущего подрыва (срок без повторов «ждём соседей») — от него отставание. */
+        long wave;
         /** Может держать тикет с соседями: загружен не нашим тикетом. */
         final boolean mayHold;
         /** Держит тикет с соседями. */
@@ -153,6 +155,10 @@ public final class ScarQueue {
         long[] ph = RuinPlan.PHASES;
         Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
                 ph[0] / 1_000_000, ph[1] / 1_000_000, ph[2] / 1_000_000, ph[3] / 1_000_000, ph[4] / 1_000_000);
+        // стволы, отложенные до руин чанка, который так и не встал в очередь (выгрузился с готовым планом)
+        if (left != null) {
+            for (long c : left.keySet()) if (!jobs.containsKey(c)) logs.remove(c);
+        }
     }
 
     /** Чанк ждёт в очереди повреждений. */
@@ -217,7 +223,7 @@ public final class ScarQueue {
         }
         // в очереди готовых — срок уже пришёл; новый подрыв он возьмёт следующим
         if (job.ready) return;
-        job.due = due(job.events.get(job.event), chunk.getPos());
+        job.due = job.wave = due(job.events.get(job.event), chunk.getPos());
         byDue.add(job);
     }
 
@@ -374,7 +380,9 @@ public final class ScarQueue {
             long at = plan.outsidePos(k);
             long chunk = ChunkPos.asLong(BlockPos.getX(at) >> 4, BlockPos.getZ(at) >> 4);
             Job job = jobs.get(chunk);
-            if (job != null && job.events.stream().anyMatch(e -> e.id() == d.id()) && job.events.indexOf(d) >= job.event) {
+            // сосед ещё впереди: в очереди с этим подрывом или с готовым планом, который очередь ещё не взяла
+            if (job != null ? job.events.stream().anyMatch(e -> e.id() == d.id()) && job.events.indexOf(d) >= job.event
+                    : pendingPlan(d.id(), chunk)) {
                 logs.computeIfAbsent(chunk, c -> new ArrayList<>()).add(new Log(at, plan.outsideState(k)));
             } else {
                 RuinPlan.placeLog(level, at, plan.outsideState(k));
@@ -408,7 +416,7 @@ public final class ScarQueue {
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
         long c0 = clock.begin();
         try {
-            ruin(level, d, chunk, budget, Math.max(0, now - job.due), !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty());
+            ruin(level, d, chunk, budget, Math.max(0, now - job.wave), !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty());
         } finally {
             long took = clock.end(c0);
             // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
@@ -426,7 +434,7 @@ public final class ScarQueue {
             release(level, job);
             jobs.remove(job.chunk);
         } else {
-            job.due = due(job.events.get(job.event), chunk.getPos());
+            job.due = job.wave = due(job.events.get(job.event), chunk.getPos());
             byDue.add(job);
         }
     }
