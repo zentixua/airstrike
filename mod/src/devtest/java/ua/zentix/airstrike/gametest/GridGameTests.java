@@ -1264,6 +1264,38 @@ public final class GridGameTests {
         h.succeed();
     }
 
+    /**
+     * «Есть ли двойник в секции» — точно при любой палитре. Глобальная палитра (больше 256 состояний в секции, обычное
+     * дело в детальном городе) на {@code maybeHas} всегда отвечает «да», и без подсчёта каждая загрузка и сохранение
+     * такого чанка проходили все блоки секции и ставили его в очередь блэкаута; малая палитра помнит ушедшие состояния.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "grid_palette", skyAccess = true)
+    public static void lampSearchIsExactForEveryPalette(GameTestHelper h) {
+        BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
+        PalettedContainer<BlockState> global = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
+                PalettedContainer.Strategy.SECTION_STATES);
+        int placed = 0;
+        for (BlockState s : Block.BLOCK_STATE_REGISTRY) {
+            if (placed == 4096) break;
+            if (GridLights.isLit(s) || GridLights.isUnlit(s)) continue;
+            global.set(placed & 15, placed >> 8, placed >> 4 & 15, s);
+            placed++;
+        }
+        h.assertTrue(placed > 256, "в секции меньше 257 состояний: палитра не глобальная");
+        h.assertTrue(global.maybeHas(GridLights::isUnlit), "палитра отвечает «нет» сама — проверять нечего");
+        h.assertFalse(ChunkLights.contains(global, GridLights::isUnlit), "в глобальной палитре без двойников найден двойник");
+        global.set(7, 7, 7, twin);
+        h.assertTrue(ChunkLights.contains(global, GridLights::isUnlit), "двойник в глобальной палитре не найден");
+
+        PalettedContainer<BlockState> stale = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
+                PalettedContainer.Strategy.SECTION_STATES);
+        stale.set(1, 2, 3, twin);
+        stale.set(1, 2, 3, Blocks.STONE.defaultBlockState());
+        h.assertTrue(stale.maybeHas(GridLights::isUnlit), "малая палитра забыла ушедший двойник — проверять нечего");
+        h.assertFalse(ChunkLights.contains(stale, GridLights::isUnlit), "ушедший из секции двойник найден по палитре");
+        h.succeed();
+    }
+
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATES = PalettedContainer.codecRW(
             Block.BLOCK_STATE_REGISTRY, BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
 
