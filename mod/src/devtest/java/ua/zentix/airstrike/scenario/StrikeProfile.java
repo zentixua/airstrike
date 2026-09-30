@@ -20,20 +20,20 @@ import java.util.Locale;
  * каждый — {@code tp x y z} (перенос игрока, как телепорт в игре) или {@code оружие сколько разброс x y z} (удар от
  * имени игрока, как с пульта: за 5 с до него — подсказка карты по той же точке, как клик по карте). Первый шаг —
  * через 30 с после входа, следующие — через {@code airstrike.profile.gap} тиков (по умолчанию 2400). В лог: каждый
- * тик сервера дольше 50 мс ({@code SCENARIO strike-profile tick}; «tick» — сам тик, «period» — от начала прошлого
- * тика: туда входят и задачи потока сервера между тиками — разбор чанков с диска, перевод в FULL) и раз в секунду
- * средний тик, самый долгий и сколько настенного времени заняли 20 тиков ({@code SCENARIO strike-profile second}) —
- * со временем от последнего шага.
+ * тик сервера дольше 50 мс ({@code SCENARIO strike-profile tick}), промежуток между началами тиков дольше 100 мс
+ * ({@code … period}: туда входят и задачи потока сервера между тиками — разбор чанков с диска, перевод в FULL — и
+ * ожидание до следующего тика, поэтому порог выше) и раз в секунду средний тик, самый долгий и сколько настенного
+ * времени заняли 20 тиков ({@code … second}) — с тиками сервера и настенными мс от последнего шага.
  */
 final class StrikeProfile {
-    private static final long SLOW_NANOS = 50_000_000L;
+    private static final long SLOW_NANOS = 50_000_000L, SLOW_PERIOD_NANOS = 100_000_000L;
     private static final int FIRST = 600, PICK_LEAD = 100;
 
     private final List<String[]> steps = new ArrayList<>();
     private final int gap = Integer.getInteger("airstrike.profile.gap", 2400);
     private int tick;
     /** Серверный тик последнего шага и его имя (для строк лога). */
-    private volatile long stepServerTick = -1;
+    private volatile long stepServerTick = -1, stepNanos;
     private volatile String stepName = "-";
     // поток сервера
     private long tickStart, secondStart, secondNanos, secondMax;
@@ -87,6 +87,7 @@ final class StrikeProfile {
                 ? String.format(Locale.ROOT, "tp %s %s %s %s", name, a[1], a[2], a[3])
                 : String.format(Locale.ROOT, "execute as %s at @s run airstrike salvo %s %s %s at %s %s %s", name, a[0], a[1], a[2], a[3], a[4], a[5]);
         stepServerTick = server.getTickCount();
+        stepNanos = System.nanoTime();
         stepName = String.join(" ", a);
         Airstrike.LOG.info("SCENARIO strike-profile step «{}» at {} {} {}: chunks={}", stepName, Math.round(p.getX()), Math.round(p.getY()), Math.round(p.getZ()),
                 p.serverLevel().getChunkSource().getLoadedChunksCount());
@@ -95,27 +96,28 @@ final class StrikeProfile {
 
     private void onServerTickPre(ServerTickEvent.Pre e) {
         long now = System.nanoTime();
-        if (tickStart != 0 && now - tickStart > SLOW_NANOS) {
-            Airstrike.LOG.info("SCENARIO strike-profile period {} ms after «{}» {} s", (now - tickStart) / 1_000_000, stepName, since(e.getServer()));
+        if (tickStart != 0 && now - tickStart > SLOW_PERIOD_NANOS) {
+            Airstrike.LOG.info("SCENARIO strike-profile period {} ms after «{}» {}", (now - tickStart) / 1_000_000, stepName, since(e.getServer(), now));
         }
         if (secondTicks == 0) secondStart = now;
         tickStart = now;
     }
 
-    private String since(MinecraftServer server) {
-        return stepServerTick < 0 ? "-" : String.format(Locale.ROOT, "%+.2f", (server.getTickCount() - stepServerTick) / 20.0);
+    /** От шага: тиков сервера и настенных миллисекунд (сервер позади — тиков меньше, чем мс / 50). */
+    private String since(MinecraftServer server, long now) {
+        return stepServerTick < 0 ? "-" : String.format(Locale.ROOT, "+%d ticks +%d ms", server.getTickCount() - stepServerTick, (now - stepNanos) / 1_000_000);
     }
 
     private void onServerTickPost(ServerTickEvent.Post e) {
         long end = System.nanoTime(), took = end - tickStart;
         if (took > SLOW_NANOS) {
-            Airstrike.LOG.info("SCENARIO strike-profile tick {} ms after «{}» {} s", took / 1_000_000, stepName, since(e.getServer()));
+            Airstrike.LOG.info("SCENARIO strike-profile tick {} ms after «{}» {}", took / 1_000_000, stepName, since(e.getServer(), end));
         }
         secondNanos += took;
         secondMax = Math.max(secondMax, took);
         if (++secondTicks == 20) {
-            Airstrike.LOG.info("SCENARIO strike-profile second mspt={} max={} wall={} after «{}» {} s", String.format(Locale.ROOT, "%.1f", secondNanos / 20 / 1e6),
-                    secondMax / 1_000_000, (end - secondStart) / 1_000_000, stepName, since(e.getServer()));
+            Airstrike.LOG.info("SCENARIO strike-profile second mspt={} max={} wall={} after «{}» {}", String.format(Locale.ROOT, "%.1f", secondNanos / 20 / 1e6),
+                    secondMax / 1_000_000, (end - secondStart) / 1_000_000, stepName, since(e.getServer(), end));
             secondNanos = 0;
             secondMax = 0;
             secondTicks = 0;
