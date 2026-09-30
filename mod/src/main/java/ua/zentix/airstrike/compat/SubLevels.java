@@ -111,6 +111,17 @@ public final class SubLevels {
         return near(level, Vec3.ZERO, 3.0e7);
     }
 
+    /** Чанк в сетке плотов Sable — и тогда, когда аппарат там не загружен (в отличие от {@link #containing}). */
+    public static boolean inPlotGrid(Level level, net.minecraft.world.level.ChunkPos chunk) {
+        if (broken) return false;
+        try {
+            return companion().isInPlotGrid(level, chunk);
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return false;
+        }
+    }
+
     /** Аппарат, в плоте которого лежит чанк, или null. */
     @Nullable
     public static SubLevelAccess containing(Level level, net.minecraft.world.level.ChunkPos chunk) {
