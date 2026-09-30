@@ -258,6 +258,9 @@ public final class Trailer {
                 // на пол-оборота и видит удар; в 3 блоках он пролетал за спину, и камера отворачивалась (Артём 30.09),
                 // в 22 — поворот до 200°/с (облако, rv1)
                 .camera(() -> pastLens(nearest(DroneEntity.class, northFacade, 130), 40, 32, 4, 46))
+                // шахед — в полосе кинокаше (ShotCheck): в kfcheck5 он был точкой под верхней рамкой, а проверка без
+                // цели проходила при 0/0
+                .subject(() -> nearest(DroneEntity.class, northFacade, 400), 3, 0.0)
                 .endWhen(() -> nearest(DroneEntity.class, northFacade, 400) == null, 6);
     }
 
@@ -470,10 +473,18 @@ public final class Trailer {
             View v = openView(t, new double[]{80, 100, 130}, new double[]{40, 55, 75}, side.add(toPost.scale(0.6)), 0, 1);
             Vec3 a = v.from();
             Vec3 b = a.lerp(t.add(0, a.y - t.y, 0), 0.12);
-            return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(toPost.scale(25)).add(0, 14, 0), 52),
-                    CineCamera.Key.at(260, b, t.add(0, 4, 0), 50));
-        }).when(() -> nearest(RocketEntity.class, STADIUM, 450) != null, 6000)
-                .subject(() -> ground(STADIUM).add(0, 4, 0), 60, 0.2)
+            // взгляд выше поля, в сторону пуска: ракеты падают круто сверху, и при взгляде на поле (kfcheck5) они были
+            // тонкими штрихами в верхних 3 % кадра, под рамкой кинокаше
+            return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(toPost.scale(20)).add(0, 28, 0), 54),
+                    CineCamera.Key.at(260, b, t.add(0, 10, 0), 52));
+        // план — с подлёта первой ракеты пакета: при 450 блоках первые успевали упасть до начала записи, и в первом
+        // кадре уже была воронка (kfcheck5)
+        }).when(() -> nearest(RocketEntity.class, STADIUM, 1100) != null, 6000)
+                // цель — ближайшая ракета над полем, пока летят; кадр — в полосе кинокаше
+                .subject(() -> {
+                    RocketEntity r = nearest(RocketEntity.class, STADIUM, 260);
+                    return r != null ? r : ground(STADIUM).add(0, 4, 0);
+                }, 4, 0.0)
                 .endWhen(() -> nearest(RocketEntity.class, STADIUM, 1200) == null, 80);
     }
 
@@ -584,7 +595,9 @@ public final class Trailer {
                     // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
                     View v = openView(at, new double[]{70, 95, 120, 150}, new double[]{28, 40, 55, 75}, side.scale(-60).add(toPost.scale(50)), 60, 40);
                     // взгляд за бомбой мягче: с 0.3 он падал за ней и возвращался к шару до 180°/с (облако, rv1)
-                    return bulletTimeCamera(v.from(), smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.15), 55, v.arc(), v.radius(), at);
+                    // центр облёта ниже земли: бомба рвётся под землёй, и при взгляде на 6 блоков над площадкой огненный
+                    // шар из воронки был у нижнего края кадра, под рамкой кинокаше (kfcheck5)
+                    return bulletTimeCamera(v.from(), smoothFocus(() -> bomberFocus(at), at.add(0, 8, 0), 0.15), 55, v.arc(), v.radius(), at.add(0, -10, 0));
                 })
                 .when(() -> bomberFocus(pit.get()) != null, 3000)
                 .endWhen(() -> sinceGone(BunkerBusterEntity.class) > 100, 0)

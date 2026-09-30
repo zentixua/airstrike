@@ -120,7 +120,8 @@ final class ShotCheck {
         double y = (d.x * up.x() + d.y * up.y() + d.z * up.z()) / z;
         // в кадре хотя бы половина цели: у наводчика в углу кадра центр тела ниже края, а голова и плечо — в кадре
         double half = size / 4 / z;
-        if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95) {
+        // по высоте — только полоса кинокаше 2.39:1 (монтаж режет верх и низ 16:9 до вспышки)
+        if (Math.abs(x) - half > tanH * 0.95 || Math.abs(y) - half > tanV * 0.95 * MATTE) {
             // первые промахи плана — в журнал с координатами: по одной строке «ПРОВАЛ» не понять, куда смотрит камера
             if (subjectFrames - inFrame <= 3 || (subjectFrames - inFrame) % 120 == 0) {
                 Airstrike.LOG.info(String.format(Locale.ROOT, "TRAILER проверка %s: кадр %d, цель вне кадра — цель (%.1f %.1f %.1f), камера (%.1f %.1f %.1f) поворот %.1f наклон %.1f, x %.2f y %.2f из %.2f × %.2f, fov %.0f",
@@ -161,6 +162,9 @@ final class ShotCheck {
         }
         return best;
     }
+
+    /** Доля высоты кадра 16:9, которая остаётся в кинокаше 2.39:1. */
+    private static final double MATTE = 16.0 / 9.0 / 2.39;
 
     /** Итог плана в лог; @return план прошёл. */
     boolean report() {
