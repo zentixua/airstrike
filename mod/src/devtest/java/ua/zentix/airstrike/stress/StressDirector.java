@@ -40,11 +40,13 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.WeaponType;
+import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -101,7 +103,7 @@ public final class StressDirector {
      * Уровень тикета {@code 33 − радиус}: квадрат грузится полностью и в очереди генерации идёт впереди районов целей
      * (уровни 29–33); с уровнем 33 телепорт ждал 2353 тика, и сценарий шёл без игроков на своих местах.
      */
-    private static int teleportArea(MinecraftServer s) {
+    public static int teleportArea(MinecraftServer s) {
         return s.getPlayerList().getSimulationDistance() + 2;
     }
 
@@ -111,6 +113,8 @@ public final class StressDirector {
     private static final class Watch {
         final String type;
         final UUID owner;
+        /** С ядерной БЧ (ракета, бомба): рвётся подрывом в {@code NuclearEvents}, а не ванильным взрывом. */
+        final boolean nuclear;
         Vec3 pos;
         Vec3 aim;
         boolean virtual;
@@ -129,6 +133,7 @@ public final class StressDirector {
         Watch(StrikeProjectile p) {
             type = p.getType().getDescriptionId().replace("entity.airstrike.", "");
             owner = p.ownerId();
+            nuclear = p.isNuclear();
             update(p);
         }
 
@@ -261,6 +266,10 @@ public final class StressDirector {
     private final Map<String, LastTeleport> lastTeleports = new HashMap<>();
     /** Тикеты районов телепорта, которые ещё стоят: стенд кончается, только когда их нет. */
     private int teleportTickets;
+    /** Как отпустить каждый стоящий тикет района телепорта (ключ — его ключ): сводка отпускает оставшиеся. */
+    private final Map<UUID, Runnable> teleportReleases = new HashMap<>();
+    /** Сводка напечатана: новые телепорты не начинаются, ожидания сняты. */
+    private boolean closed;
     private final Map<UUID, Watch> watched = new HashMap<>();
     private final Set<UUID> cleared = new HashSet<>();
     private final Set<UUID> overdueSeen = new HashSet<>();
@@ -301,6 +310,8 @@ public final class StressDirector {
     public StressDirector(IEventBus modBus) {
         if (MODE == null) return;
         checkCollector();
+        // поле источника урона взрыва ищется сейчас: не нашлось — стенд не стартует, а не падает на первом взрыве
+        ExplosionSource.init();
         NeoForge.EVENT_BUS.addListener(this::onStarted);
         NeoForge.EVENT_BUS.addListener(this::onTickPre);
         NeoForge.EVENT_BUS.addListener(this::onTickPost);
@@ -329,8 +340,8 @@ public final class StressDirector {
         });
     }
 
-    /** Ожидания этого тика; новые, добавленные из них, проверяются со следующего. */
-    private void runWaits() {
+    /** Ожидания этого тика; новые, добавленные из них, проверяются со следующего. Открыт для проверок. */
+    public void runWaits() {
         for (BooleanSupplier w : List.copyOf(waits)) if (w.getAsBoolean()) waits.remove(w);
     }
 
@@ -340,14 +351,19 @@ public final class StressDirector {
     }
 
     /**
-     * Сборщик, который заказал {@code build.gradle} ({@code AIRSTRIKE_RIG_JVM=artem} → {@code airstrike.stress.gc=ZGC}), — тот,
-     * с которым JVM и работает: иначе прогон молча мерил бы другую JVM (VPS 29.09.2026: прогон с G1 тулчейна вместо ZGC).
+     * Сборщик и куча, которые заказал {@code build.gradle} ({@code AIRSTRIKE_RIG_JVM=artem} → {@code airstrike.stress.gc=ZGC Minor},
+     * {@code airstrike.stress.heap=8192}), — те, с которыми JVM и работает: иначе прогон молча мерил бы другую JVM (VPS
+     * 29.09.2026: прогон с G1 тулчейна вместо ZGC). Сборщик — по началу имени MXBean: «ZGC Minor» есть только
+     * у поколенческого ZGC (у прежнего — «ZGC Cycles»).
      */
     private static void checkCollector() {
         String want = System.getProperty("airstrike.stress.gc");
-        if (want == null || want.isBlank()) return;
-        if (ManagementFactory.getGarbageCollectorMXBeans().stream().noneMatch(b -> b.getName().startsWith(want)))
+        if (want != null && !want.isBlank() && ManagementFactory.getGarbageCollectorMXBeans().stream().noneMatch(b -> b.getName().startsWith(want)))
             throw new IllegalStateException("стенд: заказан сборщик " + want + ", а JVM работает с " + collectors());
+        Integer heapMb = Integer.getInteger("airstrike.stress.heap");
+        long maxMb = Runtime.getRuntime().maxMemory() >> 20;
+        if (heapMb != null && maxMb < heapMb)
+            throw new IllegalStateException("стенд: заказана куча " + heapMb + " МБ, а JVM работает с " + maxMb + " МБ");
     }
 
     /** Выключатель стенда из переменной окружения (через {@code build.gradle}): true/1/yes или false/0/no. */
@@ -497,6 +513,7 @@ public final class StressDirector {
      * послали раньше.
      */
     private void tp(MinecraftServer s, String name, @Nullable ServerLevel level, int x, int y, int z) {
+        if (closed) return;
         ServerPlayer p = need(s, name, "телепорт");
         if (p == null) return;
         if (level == null) {
@@ -533,7 +550,9 @@ public final class StressDirector {
         else at(start, "отложенный телепорт " + name, sv -> run.run());
     }
 
-    private void begin(MinecraftServer s, String name, ServerLevel level, int x, int y, int z, int requestedAt) {
+    /** Начать телепорт: район грузится, игрок переносится, когда он готов. Открыт для проверок. */
+    public void begin(MinecraftServer s, String name, ServerLevel level, int x, int y, int z, int requestedAt) {
+        if (closed) return;
         ChunkPos centre = new ChunkPos(x >> 4, z >> 4);
         DistanceManager tickets = level.getChunkSource().chunkMap.getDistanceManager();
         UUID key = UUID.randomUUID();
@@ -541,44 +560,73 @@ public final class StressDirector {
         tickets.addTicket(TELEPORT, centre, ticketLevel, key);
         teleportTickets++;
         Runnable release = () -> {
+            if (teleportReleases.remove(key) == null) return;
             tickets.removeTicket(TELEPORT, centre, ticketLevel, key);
             teleportTickets--;
         };
+        teleportReleases.put(key, release);
         // тики сервера, а не сценария: пока игроки встают на места, часы сценария стоят
         int since = s.getTickCount();
+        // с какого тика сервера игрока нет в игре (-1 — он в игре)
+        int[] offlineSince = {-1};
         pendingTeleports.add(name);
         log("tp %s → %s %d %d: грузим район", name, level.dimension().location(), x, z);
         waits.add(() -> {
-            if (!areaReady(level, centre, area)) {
-                // не предел: телепорт ждёт дальше (и держит тикет), но в сводке это проблема
-                if (s.getTickCount() - since == TELEPORT_WAIT) {
-                    log("tp %s → %d %d: район не готов за %d тиков, ждём дальше", name, x, z, TELEPORT_WAIT);
-                    problems.add(String.format(Locale.ROOT, "телепорт %s ждёт район %d %d дольше %d тиков", name, x, z, TELEPORT_WAIT));
+            boolean ready = areaReady(level, centre, area);
+            // не предел: телепорт ждёт дальше (и держит тикет), но в сводке это проблема
+            if (!ready && s.getTickCount() - since == TELEPORT_WAIT) {
+                log("tp %s → %d %d: район не готов за %d тиков, ждём дальше", name, x, z, TELEPORT_WAIT);
+                problems.add(String.format(Locale.ROOT, "телепорт %s ждёт район %d %d дольше %d тиков", name, x, z, TELEPORT_WAIT));
+            }
+            // игрока нет — вышел: выход идёт по часам сценария, а телепорт мог сдвинуться за прежним и выпасть на время,
+            // пока он вне игры (VPS 29.09.2026, 68eda03: возврат Friend1 отложен на 505 тиков и пришёлся на его выход —
+            // «шаг пропущен»). Телепорт ждёт его входа, район держит; вход игрока стенда — сам, через 300 тиков клиента
+            ServerPlayer now = s.getPlayerList().getPlayerByName(name);
+            if (now == null) {
+                if (offlineSince[0] < 0) {
+                    offlineSince[0] = s.getTickCount();
+                    log("tp %s → %d %d: игрока нет в игре, ждём его входа", name, x, z);
+                } else if (s.getTickCount() - offlineSince[0] == TELEPORT_WAIT) {
+                    problems.add(String.format(Locale.ROOT, "телепорт %s ждёт входа игрока дольше %d тиков", name, TELEPORT_WAIT));
                 }
                 return false;
             }
+            offlineSince[0] = -1;
+            if (!ready) return false;
             pendingTeleports.remove(name);
-            ServerPlayer now = need(s, name, "телепорт");
-            if (now != null) {
-                now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
-                LastTeleport last = lastTeleports.get(name);
-                log("tp %s → %d %d, район ждали %d тиков%s", name, x, z, s.getTickCount() - since, last == null ? ""
-                    : String.format(Locale.ROOT, "; на прежнем месте %d тиков, по сценарию %d", tick - last.landedAt(), requestedAt - last.requestedAt()));
-            }
+            now.teleportTo(level, x + 0.5, y, z + 0.5, now.getYRot(), 0);
+            LastTeleport last = lastTeleports.get(name);
+            log("tp %s → %d %d, район ждали %d тиков%s", name, x, z, s.getTickCount() - since, last == null ? ""
+                : String.format(Locale.ROOT, "; на прежнем месте %d тиков, по сценарию %d", tick - last.landedAt(), requestedAt - last.requestedAt()));
             lastTeleports.put(name, new LastTeleport(requestedAt, tick));
             nextTeleport(name);
-            // дальше район держит тикет игрока: наш отпускается, когда тикеты игрока стоят на всём квадрате района
-            // (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают по нескольку за тик,
-            // DistanceManager.ticketThrottler: отпущенный по одному центру квадрат терял полную загрузку по краям),
-            // — или через TELEPORT_HOLD, если игрока нет или он уже в другом мире или чанке (вышел, ушёл дальше).
-            // Отпустить раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно
+            // дальше место держат тикеты самого игрока: наш отпускается, когда они стоят на квадрате вокруг чанка, где игрок
+            // сейчас (ChunkMap.move — после подтверждения телепорта клиентом, и тикеты игрока встают по нескольку за тик,
+            // DistanceManager.ticketThrottler: отпущенный по одному центру квадрат терял полную загрузку по краям), — или
+            // через TELEPORT_HOLD, если игрок ушёл из района (в другом мире, улетел дальше). Вышедшего район ждёт до входа,
+            // и отсчёт идёт с входа: отпущенный за ним район выгружался, и тик вошедшего грузил свой чанк синхронно за
+            // очередью генерации залпа (облако 30.09.2026: Friend1 вышел через 1 с после переноса — остановка 26 с). Тикеты
+            // игрока — по дальности обзора сервера (ChunkMap.setServerViewDistance → updatePlayerTickets). Отпустить
+            // раньше — игрок в неготовом районе: isInWall в его тике грузит чанк синхронно. Покрытие — вокруг игрока,
+            // а не центра: друзья стенда летают и за тики уходят из центрального чанка (fix-e, облако 29.09.2026: у них
+            // все районы отпущены через TELEPORT_HOLD «без тикета игрока», у стоящего Host — через 6 тиков)
             int placed = s.getTickCount();
+            // с какого тика сервера считать срок: перенос или вход игрока, вышедшего после него
+            int[] from = {placed};
+            boolean[] away = {false};
             waits.add(() -> {
                 ServerPlayer there = s.getPlayerList().getPlayerByName(name);
-                boolean here = there != null && there.serverLevel() == level && there.chunkPosition().equals(centre);
-                boolean arrived = here && playerTicketsCover(level, centre, Math.min(area, s.getPlayerList().getViewDistance()));
-                // игрок в центральном чанке ждёт своего тикета (до TELEPORT_WAIT), ушедший — не дольше TELEPORT_HOLD
-                if (!arrived && s.getTickCount() - placed < (here ? TELEPORT_WAIT : TELEPORT_HOLD)) return false;
+                if (there == null) {
+                    if (!away[0]) log("район телепорта %s держится, пока игрок не войдёт", name);
+                    away[0] = true;
+                    from[0] = s.getTickCount();
+                    return false;
+                }
+                away[0] = false;
+                boolean inArea = there.serverLevel() == level && there.chunkPosition().getChessboardDistance(centre) <= area;
+                boolean arrived = inArea && playerTicketsCover(level, there.chunkPosition(), Math.min(area, s.getPlayerList().getViewDistance()));
+                // игрок в районе ждёт своих тикетов (до TELEPORT_WAIT), ушедший — не дольше TELEPORT_HOLD
+                if (!arrived && s.getTickCount() - from[0] < (inArea ? TELEPORT_WAIT : TELEPORT_HOLD)) return false;
                 release.run();
                 log("район телепорта %s отпущен через %d тиков%s", name, s.getTickCount() - placed, arrived ? "" : ", тикета игрока на нём нет");
                 return true;
@@ -588,7 +636,32 @@ public final class StressDirector {
     }
 
     /**
-     * На каждом чанке квадрата {@code radius} вокруг центра стоит тикет игрока ({@code TicketType.PLAYER}, в дальности
+     * Сводка: стоящие тикеты районов телепорта отпустить, ожидания и отложенные телепорты снять — тикет в строке сводки
+     * был бы утечкой, а ожидание добавило бы проблему после неё (игрок, который так и не вошёл: упал клиент, отключён
+     * по таймауту). Новые телепорты после этого не начинаются. Сколько тикетов отпущено. Открыт для проверок.
+     */
+    public int closeTeleports() {
+        closed = true;
+        int left = teleportReleases.size();
+        for (Runnable release : List.copyOf(teleportReleases.values())) release.run();
+        waits.clear();
+        deferredTeleports.clear();
+        pendingTeleports.clear();
+        return left;
+    }
+
+    /** Стоящих тикетов районов телепорта (проверки). */
+    public int teleportTicketCount() {
+        return teleportTickets;
+    }
+
+    /** Проблемы прогона (проверки). */
+    public List<String> problemList() {
+        return List.copyOf(problems);
+    }
+
+    /**
+     * На каждом чанке квадрата {@code radius} вокруг {@code centre} стоит тикет игрока ({@code TicketType.PLAYER}, в дальности
      * обзора): район держит сам игрок.
      */
     private static boolean playerTicketsCover(ServerLevel level, ChunkPos centre, int radius) {
@@ -851,7 +924,7 @@ public final class StressDirector {
             }
             m = GAVE_UP.matcher(line);
             if (m.find()) {
-                gaveUp.add(UUID.fromString(m.group(1)));
+                gaveUpIds.add(UUID.fromString(m.group(1)));
                 Watch w = watched.get(UUID.fromString(m.group(1)));
                 if (w != null && w.ground != null) w.ground.gaveUp++;
             }
@@ -961,16 +1034,18 @@ public final class StressDirector {
     }
 
     /** Снаряд убран, итог — по его взрыву, который может прийти позже ({@link #BLAST_WAIT}). */
-    private record Gone(UUID id, Watch w, Vec3 end, @Nullable String how, int at) {}
+    private record Gone(UUID id, Watch w, Vec3 end, @Nullable String how, int at, Level level, long gameTime) {}
 
     /**
      * Сколько тиков убранный снаряд ждёт своего взрыва: у неготового района ванильный взрыв откладывается до его
-     * загрузки ({@code Warheads.whenReady}); снаряд, вернувшийся в мир и сбитый в том же тике, взрывается позже.
+     * загрузки ({@code Warheads.whenReady}) — до {@link Warheads#DEFERRED_GIVE_UP_TICKS}, потом отменяется; снаряд,
+     * вернувшийся в мир и сбитый в том же тике, взрывается позже. Чей взрыв — по источнику урона ({@link #blastBy}),
+     * соседний его не заберёт, поэтому ждать можно весь срок: чанк района на стенде грузился и 1441 тик (a65d778).
      */
-    private static final int BLAST_WAIT = 200;
+    private static final int BLAST_WAIT = Warheads.DEFERRED_GIVE_UP_TICKS + 20;
     private final List<Gone> awaitingBlast = new ArrayList<>();
     /** Снаряды, которые мод убрал, не дождавшись загрузки района цели ({@link #GAVE_UP}). */
-    private final Set<UUID> gaveUp = new HashSet<>();
+    private final Set<UUID> gaveUpIds = new HashSet<>();
 
     /**
      * Чей взрыв: снаряд — прямой источник урона взрыва (боевая часть {@code Warheads.explode}, в том числе отложенная до
@@ -988,9 +1063,12 @@ public final class StressDirector {
         return source != null && source.getDirectEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
     }
 
-    /** {@code Explosion.damageSource} — только когда стенд или тест спрашивает, чей взрыв. */
+    /** {@code Explosion.damageSource}: ищется при запуске стенда ({@link #init}) или при первом вопросе теста, чей взрыв. */
     private static final class ExplosionSource {
         static final Field FIELD;
+
+        /** Класс загружен — поле найдено (иначе ошибка инициализации здесь, при запуске). */
+        static void init() {}
 
         static {
             try {
@@ -1247,7 +1325,41 @@ public final class StressDirector {
 
     private void seeDetonations(MinecraftServer s) {
         for (ServerLevel l : s.getAllLevels())
-            for (var d : NuclearEvents.get(l).detonations()) detonationsSeen.add(l.dimension().location() + "#" + d.id());
+            for (var d : NuclearEvents.get(l).detonations())
+                if (detonationsSeen.add(l.dimension().location() + "#" + d.id())) unclaimedDetonations.add(new Seen(l, d));
+    }
+
+    /** Подрыв, замеченный стендом, в своём мире. */
+    private record Seen(ServerLevel level, Detonation d) {}
+
+    /** Подрывы, которые ещё не засчитаны ни одному снаряду (у МБР — ни одному: её удар ведёт таймер). */
+    private final List<Seen> unclaimedDetonations = new ArrayList<>();
+    /** Дальше этого по горизонтали от места уборки подрыв не его: точка удара — не дальше шага и дальности подрыва. */
+    private static final double NUKE_MATCH = 32;
+
+    /**
+     * Ядерный подрыв снаряда: ракета и бомба с ядерной БЧ ({@code Loadout.Nuke.onCarrier}) рвутся через
+     * {@code NuclearWarhead.detonate} — подрыв в {@code NuclearEvents} в тике уборки у точки удара, ванильного
+     * {@link Explosion} нет, и без этого такой снаряд засчитывался бы потерянным.
+     */
+    @Nullable
+    private Detonation nuclearBy(Gone g) {
+        // обычный снаряд, убранный рядом с подрывом, его не заберёт; из подходящих — ближайший к месту уборки
+        if (!g.w().nuclear) return null;
+        Seen best = null;
+        double bestDist = NUKE_MATCH;
+        for (Seen seen : unclaimedDetonations) {
+            Detonation d = seen.d();
+            if (seen.level() != g.level() || d.gameTime() < g.gameTime() - 1) continue;
+            double dist = Math.hypot(d.burst().x - g.end().x, d.burst().z - g.end().z);
+            if (dist <= bestDist) {
+                best = seen;
+                bestDist = dist;
+            }
+        }
+        if (best == null) return null;
+        unclaimedDetonations.remove(best);
+        return best.d();
     }
 
     /** Все снаряды по UUID: новые, живые (в мире или вне его), пропавшие — со взрывом рядом или без. */
@@ -1327,7 +1439,7 @@ public final class StressDirector {
             // где кончился — по самому объекту: вернувшись в мир, снаряд встаёт над рельефом (materialize, тот же объект)
             // и может взорваться в том же тике, не попав в перебор стенда; последнее замеченное место — ещё вне мира,
             // под рельефом (облако 29.09.2026: ракета РСЗО поднята с y 51 до ~95 и взорвалась — засчитана «lost»)
-            Gone g = new Gone(en.getKey(), w, w.ref.position(), leftHow.remove(en.getKey()), tick);
+            Gone g = new Gone(en.getKey(), w, w.ref.position(), leftHow.remove(en.getKey()), tick, w.ref.level(), w.ref.level().getGameTime());
             if (cleared.contains(en.getKey())) ended(w, "cleared");
             else if ("bomber".equals(w.type)) ended(w, "bomber-gone");
             // МБР — только разгон: над небом она убирается сама, удар дальше ведёт NuclearStrikes по таймеру
@@ -1335,10 +1447,11 @@ public final class StressDirector {
             else awaitingBlast.add(g);
         }
         // убранный снаряд ждёт своего взрыва BLAST_WAIT тиков: взрыв у неготового района откладывается до его загрузки
+        Detonation nuke;
         for (var it = awaitingBlast.iterator(); it.hasNext(); ) {
             Gone g = it.next();
             Vec3 blast = blastsThisTick.get(g.id);
-            if (gaveUp.contains(g.id)) {
+            if (gaveUpIds.contains(g.id)) {
                 // мод сам убрал его, не дождавшись района цели (WARN с UUID): не пропажа, а отказ по сроку ожидания
                 it.remove();
                 ended(g.w, "gave-up");
@@ -1349,6 +1462,11 @@ public final class StressDirector {
                     log("взрыв %s %s у %d %d %d на t=%d (через %d тиков после уборки), до места уборки %.0f, до замеченного последним %.0f",
                             g.w.type, g.id, (int) blast.x, (int) blast.y, (int) blast.z, tick, tick - g.at, blast.distanceTo(g.end), blast.distanceTo(g.w.pos));
                 impact(g);
+            } else if ((nuke = nuclearBy(g)) != null) {
+                it.remove();
+                log("ядерный подрыв №%d %s %s у %d %d %d, до места уборки %.0f", nuke.id(), g.w.type, g.id,
+                        (int) nuke.burst().x, (int) nuke.burst().y, (int) nuke.burst().z, nuke.burst().distanceTo(g.end));
+                ended(g.w, "nuclear");
             } else if (tick - g.at >= BLAST_WAIT) {
                 it.remove();
                 lost(g, "");
@@ -1417,15 +1535,15 @@ public final class StressDirector {
     private void finishWhenQuiet(MinecraftServer s) {
         // и телепорты: отложенный возврат и тикет района после сводки — ложный TELEPORT в «тикеты» и проблема мимо сводки;
         // и убранные снаряды, ждущие своего взрыва (BLAST_WAIT)
-        int active = watched.size() + awaitingBlast.size() + teleportTickets;
-        for (ArrayDeque<TpRequest> queue : deferredTeleports.values()) active += queue.size();
+        int flying = watched.size() + awaitingBlast.size(), teleports = teleportTickets;
+        for (ArrayDeque<TpRequest> queue : deferredTeleports.values()) teleports += queue.size();
         for (ServerLevel l : s.getAllLevels()) {
-            active += SalvoData.get(l).size();
+            flying += SalvoData.get(l).size();
         }
         // проба, чья стойка ещё ждёт своего чанка (генерация в фоне), ещё не пускала: иначе сводка отпустила бы тикет
         // и проба провалилась бы как «ни одного снаряда»
-        for (GroundProbe pr : groundProbes) if (pr.forced != null && pr.stand == null) active++;
-        if (active > 0) {
+        for (GroundProbe pr : groundProbes) if (pr.forced != null && pr.stand == null) flying++;
+        if (flying + teleports > 0) {
             quietSince = -1;
             if (finishingSince < 0) finishingSince = tick;
             // снаряд может честно лететь дольше окна (поздний пуск из залпа, ожидание района цели, погоня за целью),
@@ -1441,7 +1559,9 @@ public final class StressDirector {
             }
             int waited = tick - finishingSince;
             if (waited > 3600 && overdue || waited > 12000) {
-                log("не долетели за отведённое время: %d", active);
+                log("не закончились за отведённое время: снаряды, залпы и пробы %d, телепорты %d (тикетов районов %d, в очереди %d)",
+                        flying, teleports, teleportTickets, teleports - teleportTickets);
+                if (teleports > 0) problems.add("телепорты не закончились к концу прогона: " + teleports);
                 for (var en : watched.entrySet()) describe("  остался", en.getKey(), en.getValue());
                 for (GroundProbe pr : groundProbes)
                     if (pr.forced != null && pr.stand == null) log("  проба %s: чанк стойки так и не загрузился за %d тиков", pr.name, tick - pr.setupTick);
@@ -1499,10 +1619,16 @@ public final class StressDirector {
             if (pr.forced == null) continue;
             s.overworld().getChunkSource().removeRegionTicket(PROBE_TICKET, pr.forced, 2, pr.forced);
         }
+        int teleportsLeft = closeTeleports();
+        if (teleportsLeft > 0) log("сводка отпускает тикеты районов телепорта: %d", teleportsLeft);
         // сводка раньше конца ожидания (timeout, перезапуск): не дождавшиеся своего взрыва — потеряны
-        for (Gone g : awaitingBlast) lost(g, ", сводка раньше конца ожидания");
-        awaitingBlast.clear();
+        // подрыв мог прийти в этом же тике: ядерный снаряд засчитывается ему, а не потерей
         seeDetonations(s);
+        for (Gone g : awaitingBlast) {
+            if (nuclearBy(g) != null) ended(g.w(), "nuclear");
+            else lost(g, ", сводка раньше конца ожидания");
+        }
+        awaitingBlast.clear();
         int nukes = detonationsSeen.size();
         // МБР пускали, а подрыва нет: удар потерян (или отменён раньше срока — тогда расписание стенда неверно)
         if (nukes == 0 && launchedByType.containsKey("icbm")) problems.add("МБР пущена, а ядерного подрыва нет");
@@ -1519,22 +1645,25 @@ public final class StressDirector {
             // полёт ждал очереди генерации
             int ready = pr.readyAfter < 0 ? Integer.MAX_VALUE : pr.readyAfter;
             String expect;
+            List<String> fails = new ArrayList<>();
             if (ready >= pr.arrival) {
                 expect = "глубокое растяжение: район готов позже прибытия";
-                if (pr.deep.isEmpty()) problems.add("проба " + pr.name + ": район готов позже прибытия, а глубокого растяжения нет");
+                if (pr.deep.isEmpty()) fails.add("район готов позже прибытия, а глубокого растяжения нет");
             } else if (ready <= pr.arrival - RocketEntity.STRETCH_TICKS - PROBE_SLACK) {
                 expect = "без глубокого растяжения: район готов задолго до прибытия";
-                if (!pr.deep.isEmpty()) problems.add("проба " + pr.name + ": район готов задолго до прибытия, а глубокое растяжение у " + pr.deep.size());
+                if (!pr.deep.isEmpty()) fails.add("район готов задолго до прибытия, а глубокое растяжение у " + pr.deep.size());
             } else {
                 expect = "любое: район готов незадолго до прибытия";
             }
+            if (pr.launched == 0) fails.add("ни одного снаряда");
+            if (pr.outcomes.getOrDefault("lost", 0) > 0) fails.add("потеряно " + pr.outcomes.get("lost"));
+            // отказ мода по сроку ожидания района — как у проб до поверхности: не провал, а «не проверено»
             log("проба %s (%s): пущено %d, прибытие без растяжения через %d тиков после пуска, район готов через %d, растяжение началось %d, "
-                            + "кончилось %d, глубоко (темп < %.1f) у %d, наименьший темп %.2f — ожидалось %s; итоги %s",
+                            + "кончилось %d, глубоко (темп < %.1f) у %d, наименьший темп %.2f — ожидалось %s; итоги %s — %s",
                     pr.name, pr.shortFlight ? "полёт короче загрузки района" : "полёт длиннее загрузки района", pr.launched, pr.arrival, pr.readyAfter,
-                    pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate, expect, pr.outcomes);
-            if (pr.launched == 0) problems.add("проба " + pr.name + ": ни одного снаряда");
-            if (pr.outcomes.getOrDefault("lost", 0) > 0) problems.add("проба " + pr.name + ": потеряно " + pr.outcomes.get("lost"));
-            if (pr.outcomes.getOrDefault("gave-up", 0) > 0) problems.add("проба " + pr.name + ": не дождались района цели " + pr.outcomes.get("gave-up"));
+                    pr.stretchOn, pr.stretchOff, DEEP, pr.deep.size(), pr.minRate, expect, pr.outcomes,
+                    probeVerdict(fails, pr.outcomes.getOrDefault("gave-up", 0)));
+            for (String f : fails) problems.add("проба " + pr.name + ": " + f);
         }
         for (GroundProbe pr : groundProbes) groundSummary(pr);
         for (String p : problems) log("problem: %s", p);
@@ -1578,17 +1707,17 @@ public final class StressDirector {
                         + "не дождались загрузки %d, вне мира застали %d%s, итоги %s — %s",
                 pr.name, pr.how, pr.launched, off.size(), max, median, pr.gaveUp, pr.flewVirtual.size(),
                 pr.b2Behind ? String.format(Locale.ROOT, ", бомб %d, попадания бомб от точки: наибольшее %.0f", pr.bombs, impactMax) : "",
-                pr.outcomes, groundVerdict(fails, pr.outcomes.getOrDefault("gave-up", 0)));
+                pr.outcomes, probeVerdict(fails, pr.outcomes.getOrDefault("gave-up", 0)));
         for (String f : fails) problems.add("проба-поверхность " + pr.name + ": " + f);
     }
 
     /**
-     * Вердикт пробы до поверхности: провал — по проверкам; снаряд, который мод убрал, не дождавшись района цели
-     * (предел ожидания при медленной генерации), путь до поверхности не проверил — «не проверено», не ok и не провал.
+     * Вердикт пробы (растяжения и до поверхности): провал — по проверкам; снаряд, который мод убрал, не дождавшись района
+     * цели (предел ожидания при медленной генерации), то, ради чего проба, не проверил — «не проверено», не ok и не провал.
      */
-    public static String groundVerdict(List<String> fails, int gaveUp) {
+    public static String probeVerdict(List<String> fails, int gaveUps) {
         if (!fails.isEmpty()) return "провал: " + String.join("; ", fails);
-        return gaveUp > 0 ? "не проверено: не дождались района цели " + gaveUp : "ok";
+        return gaveUps > 0 ? "не проверено: не дождались района цели " + gaveUps : "ok";
     }
 
     private void onStopping(ServerStoppingEvent e) {

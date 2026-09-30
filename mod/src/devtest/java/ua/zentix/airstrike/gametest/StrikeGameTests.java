@@ -710,12 +710,12 @@ public final class StrikeGameTests {
         });
     }
 
-    /** Вердикт пробы стенда до поверхности: отказ мода по сроку ожидания — «не проверено», провал проверки важнее. */
+    /** Вердикт проб стенда (растяжения и до поверхности): отказ мода по сроку ожидания — «не проверено», провал проверки важнее. */
     @GameTest(template = "range", batch = "stress_verdict")
-    public static void stressGroundVerdict(GameTestHelper h) {
-        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of(), 0).equals("ok"), "без отказов — ok");
-        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of(), 3).startsWith("не проверено"), "отказы — не проверено");
-        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.groundVerdict(List.of("x"), 3).startsWith("провал"), "провал важнее отказов");
+    public static void stressProbeVerdict(GameTestHelper h) {
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.probeVerdict(List.of(), 0).equals("ok"), "без отказов — ok");
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.probeVerdict(List.of(), 3).startsWith("не проверено"), "отказы — не проверено");
+        h.assertTrue(ua.zentix.airstrike.stress.StressDirector.probeVerdict(List.of("x"), 3).startsWith("провал"), "провал важнее отказов");
         h.succeed();
     }
 
@@ -795,6 +795,43 @@ public final class StrikeGameTests {
                 h.assertTrue(Math.abs(miss - expected[i]) < 2, from + " вошла в грунт в " + String.format(Locale.ROOT, "%.1f", miss)
                         + " блоках от точки, ждали " + String.format(Locale.ROOT, "%.1f", expected[i]));
             }
+        });
+    }
+
+    /**
+     * Телепорт стенда, чей игрок не в игре (вышел по сценарию, пока телепорт ждал района), ждёт его входа и держит район,
+     * а не пропускает шаг; сводка отпускает тикет района, который так и не дождался игрока (упал клиент), и новых
+     * телепортов после неё нет.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "stress_teleport")
+    public static void stressTeleportWaitsForOfflinePlayer(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var director = new ua.zentix.airstrike.stress.StressDirector(null);
+        BlockPos at = h.absolutePos(new BlockPos(32, 2, 32));
+        director.begin(level.getServer(), "Nobody", level, at.getX(), at.getY(), at.getZ(), 0);
+        h.assertTrue(director.teleportTicketCount() == 1, "тикет района не поставлен");
+        // район готов сразу (его держит тикет телепорта): иначе телепорт ждал бы района, а не игрока
+        int area = ua.zentix.airstrike.stress.StressDirector.teleportArea(level.getServer());
+        ChunkPos centre = new ChunkPos(at);
+        for (int dx = -area; dx <= area; dx++)
+            for (int dz = -area; dz <= area; dz++) level.getChunk(centre.x + dx, centre.z + dz);
+        for (int dx = -area; dx <= area; dx++)
+            for (int dz = -area; dz <= area; dz++)
+                h.assertTrue(ua.zentix.airstrike.util.Terrain.ready(level, centre.x + dx, centre.z + dz), "чанк района не готов");
+        h.onEachTick(director::runWaits);
+        h.runAfterDelay(40, () -> {
+            int released;
+            try {
+                h.assertTrue(director.teleportTicketCount() == 1, "район отпущен без игрока");
+                h.assertTrue(director.problemList().stream().noneMatch(p -> p.contains("шаг пропущен")), "шаг пропущен: " + director.problemList());
+            } finally {
+                released = director.closeTeleports();
+            }
+            h.assertTrue(released == 1, "сводка отпустила тикетов района " + released);
+            h.assertTrue(director.teleportTicketCount() == 0, "тикет района остался после сводки");
+            director.begin(level.getServer(), "Nobody", level, at.getX(), at.getY(), at.getZ(), 40);
+            h.assertTrue(director.teleportTicketCount() == 0, "телепорт начался после сводки");
+            h.succeed();
         });
     }
 

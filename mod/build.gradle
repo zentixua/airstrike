@@ -102,11 +102,14 @@ neoForge {
             // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента.
             // AIRSTRIKE_RIG_JVM=artem — сервер с JVM, как в игре у Артёма (8 ГБ, поколенческий ZGC), только где хватает
             // памяти (VPS): 8 ГБ сервера и три клиента по 2 ГБ облако на 15 ГБ не вынесет. Режиссёр пишет сборщик в лог
-            // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим (airstrike.stress.gc)
+            // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим сборщиком (airstrike.stress.gc —
+            // начало имени MXBean: у поколенческого ZGC «ZGC Minor/Major …», у прежнего — «ZGC Cycles») или с кучей
+            // меньше заказанной (airstrike.stress.heap, МБ)
             def rigJvm = System.getenv('AIRSTRIKE_RIG_JVM') ?: 'default'
             if (rigJvm == 'artem') {
                 ['-Xmx8g', '-XX:+UseZGC', '-XX:+ZGenerational'].each { jvmArgument it }
-                systemProperty 'airstrike.stress.gc', 'ZGC'
+                systemProperty 'airstrike.stress.gc', 'ZGC Minor'
+                systemProperty 'airstrike.stress.heap', '8192'
             } else if (rigJvm == 'default') {
                 jvmArgument '-Xmx4g'
             } else {
