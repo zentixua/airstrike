@@ -108,9 +108,4 @@ final class RuinContext {
         });
         return seen ? d.fluence(p) : 0;
     }
-
-    /** Для проверок: сколько разломов в кэше. */
-    int cachedBlasts() {
-        return blasts.size();
-    }
 }
