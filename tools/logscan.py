@@ -56,8 +56,9 @@ sections = [
     ("Загрузка мода", r"Loading mod airstrike|Found mod file airstrike|airstrike.*(mod file|version)"),
     ("Удары и ядерные подрывы", r"Airstrike/\]: (Удар|Ядерный подрыв|МБР)"),
     # «Can't keep up» — накопленное отставание с прошлой такой строки (не чаще 15 с игры), а не одна пауза;
-    # рядом по времени — удары и медленные тики мода; строки чата (игрок написал «Teleported…») — не в счёт
-    ("Отставание сервера", r"^(?!.*\[CHAT\]).*(Can't keep up|Airstrike/\]: (Удар:|Попадания \(|Ядерный тик)|Teleported)"),
+    # рядом по времени — удары и медленные тики мода; строки чата (игрок написал «Teleported…»:
+    # «[CHAT] <…>» у клиента, «]: <…>» у сервера) — не в счёт
+    ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Airstrike/\]: (Удар:|Попадания \(|Ядерный тик)|Teleported)"),
     ("Переезд со старого датапака", r"Airstrike/\]: (Выключаю старые датапаки|Настройки датапака|Удалены objectives)"),
     ("Неизвестные звуки", r"Unable to play unknown soundEvent|Missing sound for event: (airstrike|snassets):"),
     ("Аппараты Sable (добавлены/удалены)", r"shtreimel\.lifecycle.*sub-level (added|removed)"),
