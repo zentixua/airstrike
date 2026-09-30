@@ -57,6 +57,7 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
+import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
@@ -185,6 +186,29 @@ public final class StrikeGameTests {
             h.assertTrue(tick[0] - lostAt[0] <= bound[0], "с потери цели до удара " + (tick[0] - lostAt[0]) + " тиков");
             h.assertTrue(last[0].distanceTo(died[0]) < 10, "шахед взорвался не у точки смерти цели: " + last[0].subtract(died[0]));
         });
+    }
+
+    /**
+     * Цель умерла и возродилась между двумя тиками снаряда ({@code doImmediateRespawn}): новая сущность с тем же UUID —
+     * уже не та цель, слежение её не подхватывает, даже если мёртвой снаряд её так и не увидел.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void respawnedTargetIsLost(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Cow cow = h.spawn(EntityType.COW, RANGE_CENTER.above());
+        TargetTracker tracker = new TargetTracker(Target.OfEntity.center(cow), cow.getBoundingBox().getCenter());
+        tracker.tick(level);
+        h.assertFalse(tracker.isLost(), "живая цель потеряна");
+        cow.discard();
+        Cow again = EntityType.COW.create(level);
+        again.setUUID(cow.getUUID());
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER.offset(10, 1, 0)));
+        again.moveTo(at.x, at.y, at.z);
+        level.addFreshEntity(again);
+        h.assertTrue(level.getEntity(cow.getUUID()) == again, "новая сущность не нашлась по UUID");
+        tracker.tick(level);
+        h.assertTrue(tracker.isLost(), "слежение подхватило новую сущность с тем же UUID");
+        h.succeed();
     }
 
     /**

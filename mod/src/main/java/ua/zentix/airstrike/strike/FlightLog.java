@@ -4,14 +4,17 @@ import net.minecraft.core.BlockPos;
 import org.slf4j.event.Level;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
  * Конец полёта не по плану — в лог одной строкой за тик на группу: залп из 30 шахедов по погибшему игроку теряет цель
  * в одном тике, и строка на каждый снаряд давала десятки строк (logscan держит 40 последних в разделе). Группа — вид
- * снаряда, событие и точка; каждый снаряд с UUID — строкой DEBUG там, где событие случилось. Пишется в конце тика мира
- * ({@link StrikeWorld}).
+ * снаряда и событие; у снарядов залпа с разбросом свои точки, поэтому строка даёт их середину и разброс. Каждый снаряд
+ * с UUID — строкой DEBUG там, где событие случилось. Пишется в конце тика мира ({@link StrikeWorld}).
  */
 public final class FlightLog {
     /** Что случилось с полётом. */
@@ -34,12 +37,35 @@ public final class FlightLog {
         }
     }
 
-    private record Key(String weapon, Event event, BlockPos point, boolean targetLost) {}
+    /** Строка лога: уровень и текст. */
+    record Line(Level level, String text) {}
 
-    /** Сколько снарядов в группе и самый долгий оставшийся срок, секунд. */
+    private record Key(String weapon, Event event, boolean targetLost) {}
+
+    /** Сколько снарядов в группе, самый долгий оставшийся срок (секунд) и рамка их точек. */
     private static final class Group {
         int count;
         int seconds;
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+
+        void add(BlockPos p, int s) {
+            count++;
+            seconds = Math.max(seconds, s);
+            minX = Math.min(minX, p.getX());
+            minY = Math.min(minY, p.getY());
+            minZ = Math.min(minZ, p.getZ());
+            maxX = Math.max(maxX, p.getX());
+            maxY = Math.max(maxY, p.getY());
+            maxZ = Math.max(maxZ, p.getZ());
+        }
+
+        /** Середина рамки и её полуразмер по горизонтали — «x y z (±r)», у одной точки без разброса. */
+        String where() {
+            int r = (Math.max(maxX - minX, maxZ - minZ) + 1) / 2;
+            String at = Math.floorDiv(minX + maxX, 2) + " " + Math.floorDiv(minY + maxY, 2) + " " + Math.floorDiv(minZ + maxZ, 2);
+            return r == 0 ? at : at + " (±" + r + ")";
+        }
     }
 
     private final Map<Key, Group> groups = new LinkedHashMap<>();
@@ -53,23 +79,27 @@ public final class FlightLog {
      * @param seconds    сколько ему осталось лететь, секунд (для потери цели; иначе 0)
      */
     public void note(String weapon, Event event, BlockPos point, boolean targetLost, int seconds) {
-        Group g = groups.computeIfAbsent(new Key(weapon, event, point.immutable(), targetLost), k -> new Group());
-        g.count++;
-        g.seconds = Math.max(g.seconds, seconds);
+        groups.computeIfAbsent(new Key(weapon, event, targetLost), k -> new Group()).add(point, seconds);
     }
 
-    /** Строки за тик: по одной на группу. */
-    void flush() {
-        if (groups.isEmpty()) return;
+    /** Строки за тик, по одной на группу; отмеченное забывается. */
+    List<Line> drain() {
+        List<Line> lines = new ArrayList<>(groups.size());
         groups.forEach((k, g) -> {
-            BlockPos p = k.point;
-            switch (k.event) {
-                case LOST_GONE, LOST_OUT_OF_REACH -> Airstrike.LOG.atLevel(k.event.level).log("Снаряды: {} × {} {} {} {} {}, срок ≤ {} с",
-                        g.count, k.weapon, k.event.text, p.getX(), p.getY(), p.getZ(), g.seconds);
-                case EXPIRED, EXPIRED_VIRTUAL -> Airstrike.LOG.atLevel(k.event.level).log("Снаряды: {} × {} {} {} {} {}{}",
-                        g.count, k.weapon, k.event.text, p.getX(), p.getY(), p.getZ(), k.targetLost ? " (потеряна)" : "");
-            }
+            String tail = switch (k.event) {
+                case LOST_GONE, LOST_OUT_OF_REACH -> ", срок ≤ " + g.seconds + " с";
+                case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (потеряна)" : "";
+            };
+            lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",
+                    g.count, k.weapon, k.event.text, g.where(), tail)));
         });
         groups.clear();
+        return lines;
+    }
+
+    /** В лог — в конце тика мира. */
+    void flush() {
+        if (groups.isEmpty()) return;
+        for (Line line : drain()) Airstrike.LOG.atLevel(line.level()).log(line.text());
     }
 }
