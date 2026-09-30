@@ -44,6 +44,7 @@ import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.guidance.Route;
+import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.FlightTickets;
@@ -67,7 +68,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
@@ -526,27 +527,38 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Место с карты в неготовом чанке: оценка высоты — верх по карте клиента, а не рельеф генератора (у города
-     * из сохранения тот под крышами: Greenfield 30.09.2026, 63 вместо 107); верх вне высот мира не в счёт. У готового
-     * чанка — его поверхность, что бы ни показывала карта.
+     * Место с карты в неготовом чанке — подсказкой пульта, как её шлёт клиент: оценка высоты — верх по карте клиента,
+     * а не рельеф генератора (у города из сохранения тот под крышами: Greenfield 30.09.2026, 63 вместо 107); верх, чей
+     * блок вне высот мира, не в счёт. У готового чанка — его поверхность, что бы ни показывала карта.
      */
     @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
-    public static void groundAtPrefersMapHeightOverGenerator(GameTestHelper h) {
+    public static void groundAimPrefersMapHeightOverGenerator(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 here = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
-        Vec3 near = Target.Ground.at(level, here.x, here.z, Optional.of(h.absolutePos(RANGE_CENTER).getY() + 40)).pos();
-        h.assertTrue(Math.abs(near.y - (h.absolutePos(RANGE_CENTER).getY() + 0.5)) < 1e-6, "у готового чанка не его верх: " + h.relativeVec(near));
+        int ground = h.absolutePos(RANGE_CENTER).getY();
+        Vec3 near = mapAim(level, here, OptionalInt.of(ground + 40));
+        h.assertTrue(Math.abs(near.y - (ground + 0.5)) < 1e-6, "у готового чанка не его верх: " + h.relativeVec(near));
         Vec3 far = here.add(4096, 0, 0);
         BlockPos column = BlockPos.containing(far);
         h.assertFalse(Terrain.ready(level, column), "район вдали уже загружен");
         int map = level.getMaxBuildHeight() - 7;
-        Vec3 estimate = Target.Ground.at(level, far.x, far.z, Optional.of(map)).pos();
-        h.assertTrue(estimate.y == map - 0.5, "оценка не по карте: y " + estimate.y);
-        double generator = Target.Ground.at(level, far.x, far.z).pos().y;
-        double outside = Target.Ground.at(level, far.x, far.z, Optional.of(level.getMaxBuildHeight() + 1)).pos().y;
-        h.assertTrue(outside == generator, "верх вне мира принят: y " + outside + ", генератор " + generator);
+        h.assertTrue(mapAim(level, far, OptionalInt.of(map)).y == map - 0.5, "оценка не по карте");
+        // верх на самом верху мира — блок под ним ещё в мире; верх на дне мира — блока под ним нет
+        int top = level.getMaxBuildHeight();
+        h.assertTrue(mapAim(level, far, OptionalInt.of(top)).y == top - 0.5, "верх у потолка мира не принят");
+        double generator = mapAim(level, far, OptionalInt.empty()).y;
+        h.assertTrue(generator == Target.Ground.at(level, far.x, far.z).pos().y, "без карты не генератор: y " + generator);
+        for (int outside : new int[]{level.getMinBuildHeight(), top + 1}) {
+            double y = mapAim(level, far, OptionalInt.of(outside)).y;
+            h.assertTrue(y == generator, "верх вне мира (" + outside + ") принят: y " + y + ", генератор " + generator);
+        }
         h.assertFalse(Terrain.ready(level, column), "оценка загрузила чанк");
         h.succeed();
+    }
+
+    /** Точка цели по подсказке пульта «место с карты», как её разбирает сервер. */
+    private static Vec3 mapAim(ServerLevel level, Vec3 at, OptionalInt mapSurface) {
+        return ServerActions.groundAim(level, C2S.AimHint.ground(at.x, at.z, mapSurface)).point();
     }
 
     /**

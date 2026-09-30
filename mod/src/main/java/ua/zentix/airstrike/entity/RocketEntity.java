@@ -212,6 +212,8 @@ public class RocketEntity extends StrikeProjectile {
         Vec3 surface = new Target.Ground(impactAt).surface(level);
         if (surface.equals(impactAt)) return;
         impactAt = surface;
+        // метка цели, сирена и камера — по точке цели: она тоже встаёт на поверхность
+        updateTarget(level);
         if (start != null) restart(position(), impactAt, ticksLeft());
     }
 

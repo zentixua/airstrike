@@ -282,7 +282,8 @@ public final class StrikeService {
                 ? point.y + 0.5
                 : Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
-        BlockPos goal = surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
+        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
+        BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
         double length = BomberEntity.CRUISE_SPEED * AirstrikeConfig.SERVER.bomberFlightTime.get() * 20 + BomberEntity.RELEASE_DISTANCE;
