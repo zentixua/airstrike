@@ -220,6 +220,71 @@ public final class NuclearGameTests {
     }
 
     /**
+     * Места POI в руинах (кровать, компостер, картографический стол, колокол, лекторий): и записанные в данные POI мира,
+     * и вставленные мимо них (как постройки карт, собранные WorldEdit), — ни одной ошибки PoiSection «never
+     * registered», данные POI после руин сходятся с блоками.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_ruins_poi", skyAccess = true)
+    public static void poiInRuinsStayConsistent(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos row = CENTER.east(8);
+        net.minecraft.world.level.block.state.BlockState[] poi = {Blocks.COMPOSTER.defaultBlockState(), Blocks.CARTOGRAPHY_TABLE.defaultBlockState(),
+                Blocks.BELL.defaultBlockState(), Blocks.LECTERN.defaultBlockState(), Blocks.SMITHING_TABLE.defaultBlockState()};
+        List<BlockPos> placed = new java.util.ArrayList<>();
+        for (int i = 0; i < poi.length; i++) {
+            // через мир (в данных POI) — на высоте 1; мимо данных POI — на высоте 3, на опоре из досок
+            BlockPos registered = row.south(i * 2).above(1), bare = row.south(i * 2).east(2).above(3);
+            h.setBlock(registered.below(), Blocks.OAK_PLANKS);
+            h.setBlock(registered, poi[i]);
+            for (int y = 1; y <= 2; y++) h.setBlock(bare.below(y), Blocks.OAK_PLANKS);
+            BlockPos abs = h.absolutePos(bare);
+            LevelChunk c = level.getChunkAt(abs);
+            c.getSection(c.getSectionIndex(abs.getY())).setBlockState(abs.getX() & 15, abs.getY() & 15, abs.getZ() & 15, poi[i], false);
+            placed.add(registered);
+            placed.add(bare);
+        }
+        h.setBlock(row.west(2).above(1), Blocks.RED_BED.defaultBlockState().setValue(net.minecraft.world.level.block.BedBlock.PART,
+                net.minecraft.world.level.block.state.properties.BedPart.HEAD));
+        placed.add(row.west(2).above(1));
+        h.runAfterDelay(2, () -> {
+            // добавления POI через мир идут задачей сервера — к этому тику они в данных
+            for (BlockPos p : placed) {
+                BlockPos abs = h.absolutePos(p);
+                boolean inData = level.getPoiManager().getType(abs).isPresent();
+                h.assertTrue(p.getY() - CENTER.getY() == 3 ? !inData : inData, "подготовка: POI в " + p.toShortString() + " в данных " + inData);
+            }
+            int[] errors = {0};
+            var logger = (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getLogger(
+                    net.minecraft.world.entity.ai.village.poi.PoiSection.class.getName());
+            var counter = new org.apache.logging.log4j.core.appender.AbstractAppender("airstrike-poi-errors", null, null, true,
+                    org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+                @Override
+                public void append(org.apache.logging.log4j.core.LogEvent e) {
+                    if (e.getLevel().isMoreSpecificThan(org.apache.logging.log4j.Level.ERROR)) errors[0]++;
+                }
+            };
+            counter.start();
+            logger.addAppender(counter);
+            scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+            h.runAfterDelay(3, () -> {
+                logger.removeAppender(counter);
+                counter.stop();
+                h.assertTrue(errors[0] == 0, "ошибки PoiSection: " + errors[0]);
+                int ruined = 0;
+                for (BlockPos p : placed) {
+                    BlockPos abs = h.absolutePos(p);
+                    var state = level.getBlockState(abs);
+                    boolean should = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(state).isPresent();
+                    h.assertTrue(level.getPoiManager().getType(abs).isPresent() == should, "POI в " + p.toShortString() + " не сходится с " + state);
+                    if (!should) ruined++;
+                }
+                h.assertTrue(ruined >= 3, "волна почти не тронула места POI: снято " + ruined);
+                h.succeed();
+            });
+        });
+    }
+
+    /**
      * Сундук с добычей и кровать в руинах: меняются через мир после подмены — ни предметов на земле, ни блок-сущности
      * при воздухе; удар из старого сохранения мощнее предела подрывается с пределом.
      */

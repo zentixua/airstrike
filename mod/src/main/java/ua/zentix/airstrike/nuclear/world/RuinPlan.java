@@ -88,6 +88,9 @@ public final class RuinPlan {
      * движку света), карты высот и источники неба, свет и пакеты игрокам, блок-сущности через мир.
      */
     static final long[] PHASES = new long[5];
+    /** Для строки в лог: самая долгая часть «через мир» — время (нс), чанк, сколько мест через мир (с прошлой строки). */
+    static long slowestWorldNanos, slowestWorldChunk;
+    static int slowestWorldCells;
 
     /**
      * Карты высот и источники неба изменённых столбцов, посчитанные по плану: тройки (столбец {@code << 3} | вид —
@@ -292,7 +295,15 @@ public final class RuinPlan {
         }
         // LOD Distant Horizons: руины вместе с волной, а не при следующем сохранении чанка
         DhChunks.changed(level, chunk);
-        PHASES[4] += System.nanoTime() - t;
+        long took = System.nanoTime() - t;
+        PHASES[4] += took;
+        if (took > slowestWorldNanos) {
+            slowestWorldNanos = took;
+            slowestWorldChunk = pos.toLong();
+            int n = 0;
+            for (int c : cells) if ((c & SLOW) != 0) n++;
+            slowestWorldCells = n;
+        }
         return true;
     }
 

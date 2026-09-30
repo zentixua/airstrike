@@ -50,8 +50,6 @@ import java.util.List;
  * ({@link ThermalShadow}: только готовые чанки).
  */
 public final class RuinPlanner {
-    /** Сколько блоков вниз от верха столбца ищем природный грунт. */
-    private static final int MAX_DEPTH = 96;
     /** С какого давления волна сдирает дёрн. */
     static final double STRIP_PSI = 8;
     /** С какого давления у земли постройка оставляет завал. */
@@ -91,7 +89,7 @@ public final class RuinPlanner {
             for (int lx = 0; lx < 16; lx++) {
                 int x = x0 + lx, z = z0 + lz;
                 int top = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz);
-                int bottom = Math.max(minY, top - MAX_DEPTH);
+                int bottom = minY;
                 int ground = Integer.MIN_VALUE;
                 for (int y = top; y >= bottom; y--) {
                     BlockState st = s.get(lx, y, lz);
@@ -102,7 +100,7 @@ public final class RuinPlanner {
                 }
                 int base = ground != Integer.MIN_VALUE ? ground : bottom;
                 double groundPsi = d.psi(new Vec3(x + 0.5, base + 1, z + 0.5));
-                int removed = 0, wood = 0, structure = 0;
+                int removed = 0, wood = 0, structure = 0, built = 0, broke = 0;
                 if (blockDamage) {
                     for (int y = top; y > base; y--) {
                         BlockState st = s.get(lx, y, lz);
@@ -128,7 +126,9 @@ public final class RuinPlanner {
                                 continue;
                             }
                         }
+                        if (r.kind() == BlockResponse.Kind.BREAK) built++;
                         if (!r.breaksAt(psi, Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z))))) continue;
+                        if (r.kind() == BlockResponse.Kind.BREAK) broke++;
                         s.set(lx, y, lz, AIR);
                         // завал — из стен и перекрытий: трава, листва, стекло и шерсть его не дают
                         if (r.kind() == BlockResponse.Kind.BREAK && st.getBlock().defaultDestroyTime() >= 1) {
@@ -139,6 +139,19 @@ public final class RuinPlanner {
                     }
                 }
                 if (ground == Integer.MIN_VALUE) continue;
+                // от 5 psi у земли постройка, у которой волна снесла половину стен и перекрытий столбца, рушится целиком:
+                // уцелевшие этажи без опор не висят в воздухе, всё идёт в завал
+                if (blockDamage && groundPsi >= RUBBLE_PSI && built > 0 && broke * 2 >= built) {
+                    for (int y = top; y > ground; y--) {
+                        BlockState st = s.get(lx, y, lz);
+                        if (st.isAir() || BlockResponse.of(st).kind() != BlockResponse.Kind.BREAK) continue;
+                        s.set(lx, y, lz, AIR);
+                        if (st.getBlock().defaultDestroyTime() >= 1) {
+                            removed++;
+                            if (st.is(BlockTags.MINEABLE_WITH_AXE)) wood++;
+                        }
+                    }
+                }
                 Vec3 at = new Vec3(x + 0.5, ground + 0.5, z + 0.5);
                 boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
                         && at.y > d.groundY() - d.fireballRadius();
