@@ -82,6 +82,10 @@ public final class ClientScenario {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
             return;
         }
+        if ("strike-profile".equals(scenario)) {
+            new StrikeProfile(); // шаги и замер тиков сервера — свои (StrikeProfile); мир — копия игрока (onScreen)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;
@@ -815,15 +819,26 @@ public final class ClientScenario {
      * Карта наведения: открыть с пульта, отдалить колесом, выбрать место кликом в 60 и 40 пикселей от центра (северо-восток),
      * огонь по Enter — всё через ввод экрана, как у игрока. В лог — выбранное место и цель снаряда по данным сервера
      * (высота — поверхность); кадры target-map_* — карта с рельефом, с меткой цели, потом снаряд на ней.
+     * Свойства: {@code airstrike.mapWeapon} — оружие пульта (по умолчанию ракета), {@code airstrike.mapAt=x,z} — место
+     * на карте задано точкой, а не кликом (проверка удара по известной дальней крыше), {@code airstrike.mapFrom=x,y,z} —
+     * откуда бить (и в копии мира игрока).
      */
     private void planTargetMap() {
         at(40, () -> {
             cmd("time set 6000");
             cmd("weather clear");
             // в копии мира игрока (prod_client.py --world) — там, где он стоит
-            if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            String from = System.getProperty("airstrike.mapFrom");
+            if (from != null) {
+                // высота земли там заранее не известна: сверху, в творческом — без урона от падения
+                cmd("gamemode creative");
+                cmd("tp @s " + from.replace(',', ' ') + " 0 30");
+            }
+            else if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
             // новый пульт в руке — настройки по умолчанию: одна ракета без разброса, промах меряется от точки
-            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
+            String weapon = System.getProperty("airstrike.mapWeapon");
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator"
+                    + (weapon == null ? "" : "[airstrike:loadout={weapon:\"" + java.util.Objects.requireNonNull(WeaponType.parse(weapon), "airstrike.mapWeapon: " + weapon).getSerializedName() + "\"}]"));
         });
         // карту открывают, поиграв: DH к этому времени загрузил свои LOD вокруг. Пока он их грузит, чтение рельефа
         // через его API стоит в очереди за ними (пул ввода-вывода DH ниже по приоритету, чем загрузка LOD)
@@ -917,9 +932,16 @@ public final class ClientScenario {
         shot(o + 100, "target-map");
         at(o + 120, () -> {
             var screen = Minecraft.getInstance().screen;
-            double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
-            screen.mouseClicked(x, y, 0);
-            screen.mouseReleased(x, y, 0);
+            String at = System.getProperty("airstrike.mapAt");
+            if (at != null) {
+                String[] xz = at.split(",");
+                ua.zentix.airstrike.client.map.MapTarget.set(Minecraft.getInstance().level, new ua.zentix.airstrike.client.map.MapTarget.Place(
+                        Double.parseDouble(xz[0].strip()) + 0.5, Double.parseDouble(xz[1].strip()) + 0.5));
+            } else {
+                double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
+                screen.mouseClicked(x, y, 0);
+                screen.mouseReleased(x, y, 0);
+            }
             var place = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
             mapTarget = new Vec3(place.x(), 0, place.z());
             Airstrike.LOG.info("SCENARIO map-target selected X {} Z {} distance {} terrain height {} far {}", Math.round(place.x()), Math.round(place.z()),

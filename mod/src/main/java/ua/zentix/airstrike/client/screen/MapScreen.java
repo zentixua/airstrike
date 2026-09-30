@@ -168,7 +168,10 @@ public class MapScreen extends Screen {
         return mc.level != null && mc.level.dimensionType().hasCeiling();
     }
 
-    /** Клик по карте: игрок под курсором — он цель; иначе место (x, z), высоту земли там найдёт сервер. */
+    /**
+     * Клик по карте: игрок под курсором — он цель; иначе место (x, z), высоту земли там найдёт сервер (верх по карте —
+     * его оценка до загрузки места).
+     */
     private void select(double screenX, double screenY) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
