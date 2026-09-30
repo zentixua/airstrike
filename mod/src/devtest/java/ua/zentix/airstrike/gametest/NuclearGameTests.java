@@ -446,6 +446,9 @@ public final class NuclearGameTests {
     @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_stripes", skyAccess = true)
     public static void chunkDroppedBelowFullLoadStillScarred(GameTestHelper h) {
         ServerLevel level = h.getLevel();
+        // в темпе игры: C и D поднимаются обратно фоновой загрузкой, а сервер GameTest тикает без пауз — срок в тиках
+        // кончался раньше, чем C снова становился полным («стекло в C цело» через секунду после подрыва, CI и VPS 30.09.2026)
+        StrikeGameTests.gameSpeed(h);
         var chunks = level.getChunkSource();
         ChunkPos c = new ChunkPos(h.absolutePos(CENTER.east(80))), dPos = new ChunkPos(h.absolutePos(CENTER.west(80)));
         ChunkPos e = new ChunkPos(h.absolutePos(CENTER.north(80)));
