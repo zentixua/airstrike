@@ -536,7 +536,7 @@ public final class Warheads {
             int kind = switch (weapon.spec().blast()) {
                 case MISSILE -> S2C.Blast.MISSILE;
                 case ROCKET -> S2C.Blast.ROCKET;
-                case DRONE, UNDERGROUND -> S2C.Blast.DRONE;
+                case DRONE, NONE -> S2C.Blast.DRONE;
             };
             // высоту поверхности клиент берёт только у бомбы (BunkerBlast, BlastEffects): здесь — точка удара, без чтения
             // высоты, которое у неготового чанка грузило бы его или ждало загрузки

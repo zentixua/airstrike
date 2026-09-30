@@ -88,8 +88,8 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
         MISSILE,
         /** Взрыв реактивного снаряда РСЗО. */
         ROCKET,
-        /** Подземный взрыв бомбы — свой путь ({@code BunkerBlast}), наземного нет. */
-        UNDERGROUND
+        /** Наземного взрыва боевой части нет: у бомбы — подземный ({@code BunkerBlast}), у МБР — ядерный подрыв. */
+        NONE
     }
 
     /**
@@ -231,7 +231,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      */
     public static final WeaponSpec BUNKER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(60, 80), new Warhead(false, true, false),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.BOMBER,
-            new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0), null, Blast.UNDERGROUND, true, 0.5f,
+            new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0), null, Blast.NONE, true, 0.5f,
             new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 8.5, 0, 120, 0, null, 0, Attack.NONE,
                     ph -> Hearing.JET),
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, BombDrop.NOSE, 0, 300,
@@ -241,7 +241,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     /** МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. */
     public static final WeaponSpec NUKE = new WeaponSpec(WeaponType.SirenKind.NUCLEAR, 0, Salvo.gaps(200, 300), new Warhead(true, false, true),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.ICBM,
-            new Route(null, 0, 0), null, Blast.UNDERGROUND, false, 0.5f,
+            new Route(null, 0, 0), null, Blast.NONE, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 9, 0, 600, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0),
             null);
