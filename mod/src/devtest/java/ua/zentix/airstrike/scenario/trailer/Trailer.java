@@ -115,7 +115,9 @@ public final class Trailer {
     private Vec3 northFacade = NORTH_TOWER;
     /** Середина крыши главной башни (цель с карты). */
     private Vec3 towerTop = TOWER;
-    /** Стена главной башни со стороны поста ниже верха, вдали от самолётов-построек карты у её верха ({@link #wallAwayFromCraft}). */
+    /** Последние взрывы на сервере (ванильный explode боевых частей), новые — в конце. */
+    private final java.util.concurrent.ConcurrentLinkedDeque<Vec3> blasts = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    /** Уступ главной башни, куда бьёт ракета с карты: ниже крыши, вдали от самолётов-построек карты ({@link #wallAwayFromCraft}). */
     private Vec3 towerWall = TOWER;
     /** Крыша средней высоты у намеченного места удара шахедов (см. {@link #roofNear}). */
     private Vec3 droneRoof = DOWNTOWN.add(90, 0, 60);
@@ -201,6 +203,14 @@ public final class Trailer {
             c.loiterTime.set(8);
             c.siren.set(false);
         });
+        // где на самом деле рвутся снаряды (сервер): неконтактный взрыватель подрывает за ~19 блоков до цели или о первый
+        // блок на луче носа, а клиент последний раз видит снаряд ещё дальше — облёт шёл вокруг пустого неба (Артём 30.09)
+        run(() -> net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.level.ExplosionEvent.Start e) -> {
+                    if (e.getLevel().isClientSide()) return;
+                    blasts.addLast(e.getExplosion().center());
+                    while (blasts.size() > 64) blasts.pollFirst();
+                }));
         onServer(this::findLocations);
         waitTicks(5);
 
@@ -332,6 +342,13 @@ public final class Trailer {
         final Shot[] missileTower = {null};
         missileTower[0] = shot("missile_tower").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(CruiseMissileEntity.class, roof, 220, 0.2))
+                // проверка: взрыв на уступе (не в воздухе на подлёте) и не у самолётов-построек карты
+                .requires("взрыв на уступе башни вдали от самолётов", () -> {
+                    Vec3 blast = missileTower[0].impact;
+                    if (blast == null || blast.distanceTo(towerWall) > 10) return false;
+                    MinecraftServer server = mc.getSingleplayerServer();
+                    return server.submit(() -> craftNear(server.overworld(), blast, 40).isEmpty()).join();
+                })
                 .bulletTime(CruiseMissileEntity.class, roof, 170, 0.35)
                 .camera(() -> {
                     Vec3 top = roof.get();
@@ -442,8 +459,10 @@ public final class Trailer {
         // (Артём 30.09: с 160 блоков попадания читались долю секунды, подлёта не было)
         shot("rocket_impact").hidden().length(260).speed(0.6).shake(0.08).camera(() -> {
             Vec3 t = ground(STADIUM);
-            Vec3 a = t.add(side.scale(80)).add(toPost.scale(40)).add(0, 48, 0);
-            Vec3 b = t.add(side.scale(70)).add(toPost.scale(30)).add(0, 44, 0);
+            // точка с чистым видом на поле: в облаке (rv1) камера в 48 блоках над землёй сбоку стояла в трибунах
+            View v = openView(t, new double[]{80, 100, 130}, new double[]{40, 55, 75}, side.add(toPost.scale(0.6)), 0, 1);
+            Vec3 a = v.from();
+            Vec3 b = a.lerp(t.add(0, a.y - t.y, 0), 0.12);
             return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(toPost.scale(25)).add(0, 14, 0), 52),
                     CineCamera.Key.at(260, b, t.add(0, 4, 0), 50));
         }).when(() -> nearest(RocketEntity.class, STADIUM, 450) != null, 6000)
@@ -1030,31 +1049,81 @@ public final class Trailer {
     }
 
     /**
-     * Стена главной башни со стороны поста, дальше всего от аппаратов у башни (самолёты-постройки карты Greenfield —
-     * аппараты Sable в небе у её верха): ракета, пройдя рядом, рвалась у них неконтактным взрывателем.
+     * Куда бить ракетой у главной башни: уступ башни (верх столбца ниже крыши) — туда, куда мод и попадёт: цель
+     * с карты — верх столбца (Target.Ground), а не точка на стене, и ракета с целью «стена на высоте y» рвалась на
+     * уступе выше (облако, rv1 — на 25 блоков). Из уступов по 16 направлениям — со стороны поста, на 15–100 блоков
+     * ниже крыши и дальше всего от аппаратов у башни (самолёты-постройки карты Greenfield — аппараты Sable в небе
+     * у её верха): ракета, пройдя рядом, рвалась у них неконтактным взрывателем (ноутбук, 30.09).
      */
     private Vec3 wallAwayFromCraft(ServerLevel level) {
-        List<Vec3> craft = new ArrayList<>();
-        for (var s : ua.zentix.airstrike.compat.SubLevels.near(level, towerTop, 300)) craft.add(ua.zentix.airstrike.compat.SubLevels.center(s));
+        List<Vec3> craft = craftNear(level, towerTop, 300);
         int top = Mth.floor(towerTop.y);
         Vec3 best = null;
-        double bestGap = -1;
-        for (int y : new int[]{top - 40, top - 60, top - 80, top - 100}) {
-            if (y < TOWER.y + 30) break;
-            Vec3 w = facade(level, TOWER, y, toPost);
-            // зазор до аппаратов — от точки удара и от последних 250 блоков подлёта (с поста)
-            double gap = Double.MAX_VALUE;
-            for (Vec3 c : craft) {
-                for (int k = 0; k <= 10; k++) gap = Math.min(gap, c.distanceTo(w.add(toPost.scale(25 * k))));
+        double bestScore = Double.NEGATIVE_INFINITY, bestGap = 0;
+        for (int d = 0; d < 16; d++) {
+            double a = Math.toRadians(22.5 * d);
+            Vec3 dir = new Vec3(Math.sin(a), 0, Math.cos(a));
+            int prev = top;
+            for (int k = 1; k <= 120; k++) {
+                int x = Mth.floor(towerTop.x + dir.x * k), z = Mth.floor(towerTop.z + dir.z * k);
+                level.getChunk(x >> 4, z >> 4);
+                int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+                // уступ: столбец ниже соседнего (ближе к оси), но ещё на башне, а не у её подножия
+                if (h < prev - 2 && h <= top - 15 && h >= top - 100 && h >= TOWER.y + 40) {
+                    Vec3 p = new Vec3(x + 0.5, h - 0.5, z + 0.5);
+                    double gap = craft.isEmpty() ? 999 : craft.stream().mapToDouble(c -> approachGap(c, p)).min().orElse(999);
+                    double score = Math.min(gap, 80) + dir.dot(toPost) * 60 - (top - h) * 0.1;
+                    if (gap >= 60 && score > bestScore) {
+                        best = p;
+                        bestScore = score;
+                        bestGap = gap;
+                    }
+                    break;
+                }
+                if (h < TOWER.y + 40) break;
+                prev = h;
             }
-            if (gap > bestGap + 1e-6) {
-                best = w;
-                bestGap = gap;
-            }
-            if (gap >= 60) break;
         }
-        Airstrike.LOG.info("TRAILER стена башни {}: аппаратов рядом {} ({}), зазор {}", best, craft.size(), craft, bestGap);
+        if (best == null) {
+            Airstrike.LOG.warn("TRAILER уступа у башни вдали от аппаратов нет ({}): бьём в крышу", craft);
+            return towerTop;
+        }
+        Airstrike.LOG.info("TRAILER уступ башни {}: аппаратов рядом {} ({}), зазор {}", best, craft.size(), craft, bestGap);
         return best;
+    }
+
+    /**
+     * Место взрыва снаряда, которого клиент последний раз видел в {@code seen}: ближайший к нему из недавних взрывов
+     * сервера (в пределах {@code reach}), нет такого — сама {@code seen}.
+     */
+    private Vec3 blastNear(Vec3 seen, double reach) {
+        Vec3 best = seen;
+        double bestD = reach;
+        int n = 0;
+        for (var it = blasts.descendingIterator(); it.hasNext() && n < 16; n++) {
+            Vec3 b = it.next();
+            double d = b.distanceTo(seen);
+            if (d < bestD) {
+                best = b;
+                bestD = d;
+            }
+        }
+        if (best != seen) Airstrike.LOG.info("TRAILER взрыв {} (снаряд видели в {}, {} блоков)", best, seen, String.format(Locale.ROOT, "%.1f", bestD));
+        return best;
+    }
+
+    /** Центры аппаратов Sable в радиусе. */
+    private static List<Vec3> craftNear(ServerLevel level, Vec3 at, double r) {
+        List<Vec3> out = new ArrayList<>();
+        for (var s : ua.zentix.airstrike.compat.SubLevels.near(level, at, r)) out.add(ua.zentix.airstrike.compat.SubLevels.center(s));
+        return out;
+    }
+
+    /** Зазор от аппарата {@code c} до точки удара и последних 250 блоков подлёта к ней (со стороны поста). */
+    private double approachGap(Vec3 c, Vec3 p) {
+        double gap = Double.MAX_VALUE;
+        for (int k = 0; k <= 10; k++) gap = Math.min(gap, c.distanceTo(p.add(toPost.scale(25 * k)).add(0, 2 * k, 0)));
+        return gap;
     }
 
     /**
@@ -1946,7 +2015,7 @@ public final class Trailer {
                     last[0] = null;
                     return false;
                 }
-                impact = last[0];
+                impact = blastNear(last[0], reach);
                 goneAt[0] = rec.worldTime();
                 return delayTicks <= 0;
             }, frames, camSpeed);
