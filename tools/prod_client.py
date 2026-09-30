@@ -22,8 +22,10 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 import uuid
 import hashlib
 
@@ -186,13 +188,34 @@ def main():
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
     kwin = subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd],
-                            env={**os.environ, "ALSOFT_CONF": alsoft})
+                            env={**os.environ, "ALSOFT_CONF": alsoft}, start_new_session=True)
     try:
         sys.exit(kwin.wait(timeout=a.seconds))
     except subprocess.TimeoutExpired:
-        # вложенный KWin закрывает свою сессию, а с ней и клиент
-        kwin.terminate()
-        sys.exit(kwin.wait())
+        # клиент — внук nested_kwin.sh (dbus-run-session → kwin → sh → java): TERM одной обёртке оставлял его жить
+        # дальше, и он шёл одновременно со следующей проверкой. Гасим всю сессию: TERM, через 20 с — KILL
+        stop_session(kwin)
+        sys.exit(kwin.returncode)
+
+
+def stop_session(proc):
+    """TERM всей сессии процесса (своя группа от start_new_session), через 20 с — KILL оставшимся."""
+    for sig, wait in ((signal.SIGTERM, 20), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            break
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(proc.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.5)
+        else:
+            continue
+        break
+    proc.wait()
 
 
 if __name__ == "__main__":
