@@ -60,7 +60,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
 
     @Override
     protected double noseLength() {
-        return 3.1;
+        return BombDrop.NOSE;
     }
 
     @Override

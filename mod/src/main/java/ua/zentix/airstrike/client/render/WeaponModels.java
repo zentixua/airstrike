@@ -162,7 +162,7 @@ public final class WeaponModels {
         FlightPhase ph = e.flightPhase();
         if (ph == FlightPhase.EGRESS) return 1 - Mth.clamp((e.phaseAge() + partial - 20) / 20f, 0, 1);
         Vec3 aim = e.aimPoint();
-        double d = Math.hypot(aim.x - e.getX(), aim.z - e.getZ()) - BomberEntity.RELEASE_DISTANCE;
+        double d = Math.hypot(aim.x - e.getX(), aim.z - e.getZ()) - BomberEntity.releaseLine(e.getY() - aim.y);
         return (float) Mth.clamp(1 - d / DOORS_OPEN_AHEAD, 0, 1);
     }
 

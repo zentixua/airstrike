@@ -40,11 +40,6 @@ public class BomberEntity extends StrikeProjectile {
     private static final double LEVEL_CHANGE_PITCH = 6;
     /** Тангаж на блок ошибки эшелона, °: у эшелона — плавный выход в горизонт. */
     private static final double PITCH_PER_BLOCK = 0.15;
-    /**
-     * Падение бомбы проигрывается не дальше высоты над точкой плюс столько: дальше B-2 не сбрасывает (с эшелона —
-     * за 85 блоков, с 400 блоков — за 200).
-     */
-    private static final double RELEASE_SEARCH = 100;
     /** После сброса улетает и исчезает через столько тиков (или раньше — на краю загруженного мира). */
     private static final int EGRESS_TICKS = 400;
 
@@ -124,8 +119,17 @@ public class BomberEntity extends StrikeProjectile {
     @Override
     public int etaTicks() {
         if (tracker == null) return 0;
-        Bearing b = bearingTo(tracker.point());
-        return (int) Math.ceil(Math.max(0, b.horizontal() - RELEASE_DISTANCE) / CRUISE_SPEED) + 20;
+        Vec3 aim = tracker.point();
+        Bearing b = bearingTo(aim);
+        return (int) Math.ceil(Math.max(0, b.horizontal() - releaseLine(getY() - aim.y)) / CRUISE_SPEED) + 20;
+    }
+
+    /**
+     * Дальность сброса с высоты {@code height} над точкой: угол на точку тот же, что на эшелоне ({@link #RELEASE_DISTANCE}
+     * с {@link #ALTITUDE}). Сброс бывает и раньше — на краю окна, откуда бомба ещё попадает ({@link BombDrop#releaseNow}).
+     */
+    public static double releaseLine(double height) {
+        return height * RELEASE_DISTANCE / ALTITUDE;
     }
 
     /**
@@ -155,8 +159,7 @@ public class BomberEntity extends StrikeProjectile {
             // сброс — когда бомба, сброшенная сейчас, придёт в точку, и лучше уже не будет (BombDrop.releaseNow): с одной
             // и той же черты бомба с 214 блоков перелетала точку на 42 блока, с 170 внутри черты — на 130–155, на точку
             // в 40 блоках впереди — на 111; сзади (бомба падает по курсу и назад не рулит) — не сбрасывать вовсе
-            if (ahead(drop) && b.horizontal() <= getY() - drop.y + RELEASE_SEARCH
-                    && BombDrop.releaseNow(position(), flight.forward().scale(speed), flight.yaw(), drop, RELEASE_DISTANCE / ALTITUDE)) {
+            if (ahead(drop) && BombDrop.releaseNow(position(), flight.forward().scale(speed), flight.yaw(), drop, RELEASE_DISTANCE / ALTITUDE)) {
                 release(level, drop);
             }
         }

@@ -16,6 +16,12 @@ public final class BombDrop {
     public static final double DROP_BELOW = 4;
     /** Запас дальности подрыва сверх шага: бомба ближе шага и этого запаса к точке — попала в неё. */
     public static final double REACH_PAD = 5.3;
+    /** Длина носа: за тик бомба ищет преграду от середины носа до его конца после шага (как все снаряды). */
+    public static final double NOSE = 3.1;
+    /** Край окна сброса — не дальше высоты над точкой и этого (с 20 до 490 блоков над точкой он не дальше высоты + 20). */
+    public static final double EDGE_REACH = 30;
+    /** Земля выше точки на столько: B-2 целит в середину верхнего блока, бомба бьётся о его верх. */
+    public static final double GROUND_ABOVE_AIM = 0.5;
     /** Нос вниз не меньше, чем при сбросе: с 170 блоков бомба на земле самое позднее через ~80 тиков. */
     public static final float MIN_DIVE = 10;
     /** Падение, когда цели под носом нет. */
@@ -50,34 +56,42 @@ public final class BombDrop {
      * Сбросить бомбу сейчас: B-2 в {@code pos} с курсом {@code yaw}, за тик он проходит {@code step}. Бомба, сброшенная
      * отсюда, придёт в точку ({@link #miss}), и дальше ждать нечего: B-2 дошёл до дальности сброса для своей высоты над
      * точкой ({@code lineRatio} × высота — угол на точку тот же, что на эшелоне) или со следующего тика бомба уже
-     * промахнётся (выше эшелона бомбе нужно больше места, чтобы опустить нос). Падение проигрывается теми же шагами, что
-     * у самой бомбы, — на ровной земле она придёт туда же. С любой высоты, на любой дальности; промах отовсюду (точка
+     * промахнётся — край окна (выше эшелона бомбе нужно больше места, чтобы опустить нос; ниже ~140 край дальше черты).
+     * Край ищется не дальше {@link #EDGE_REACH} сверх высоты: дальше попадания рваные (бомба сотни блоков идёт полого,
+     * и окно в пару тиков между промахами — не край; с 170 блоков такой «край» был в 860 блоках). Падение проигрывается
+     * теми же шагами, что у самой бомбы, — на ровной земле она придёт туда же. С любой высоты; промах отовсюду (точка
      * слишком близко впереди, сзади, выше B-2) — заход снова.
      */
     public static boolean releaseNow(Vec3 pos, Vec3 step, float yaw, Vec3 aim, double lineRatio) {
-        if (miss(pos, yaw, aim) > 0) return false;
         double dx = aim.x - pos.x, dz = aim.z - pos.z;
-        return Math.sqrt(dx * dx + dz * dz) <= (pos.y - aim.y) * lineRatio || miss(pos.add(step), yaw, aim) > 0;
+        double horizontal = Math.sqrt(dx * dx + dz * dz), height = pos.y - aim.y, line = height * lineRatio;
+        if (horizontal > Math.max(line, height + EDGE_REACH) || miss(pos, yaw, aim) > 0) return false;
+        return horizontal <= line || miss(pos.add(step), yaw, aim) > 0;
     }
 
     /**
      * Промах бомбы, сброшенной сейчас из {@code release} (там, где B-2) с курсом {@code yaw}, по точке {@code aim} на
-     * ровной земле на её высоте: 0 — придёт в точку (ближе шага и {@link #REACH_PAD}), иначе — сколько блоков
-     * по горизонтали от точки она войдёт в землю.
+     * ровной земле ({@link #GROUND_ABOVE_AIM} над точкой): 0 — придёт в точку (ближе шага и {@link #REACH_PAD}), иначе —
+     * сколько блоков по горизонтали от точки она войдёт в землю. Земля — как у бомбы в мире
+     * ({@code StrikeProjectile.advance}): сначала попадание в точку, потом преграда на отрезке носа от его середины до
+     * конца после шага — нос касается земли на тик раньше, чем бомба подходит к точке на шаг и запас, и на краю окна
+     * сброса это промах на 13–18 блоков (ревью, 30.09.2026).
      */
     public static double miss(Vec3 release, float yaw, Vec3 aim) {
+        double ground = aim.y + GROUND_ABOVE_AIM;
         FlightController flight = new FlightController(yaw, (float) DROP_PITCH);
         Vec3 pos = release.add(0, -DROP_BELOW, 0);
         double speed = DROP_SPEED;
         for (int t = 0; t < MAX_TICKS; t++) {
             speed = steer(flight, pos, speed, aim);
             if (pos.distanceTo(aim) <= speed + REACH_PAD) return 0;
-            Vec3 next = pos.add(flight.forward().scale(speed));
-            if (next.y <= aim.y) {
-                Vec3 at = pos.lerp(next, (pos.y - aim.y) / (pos.y - next.y));
+            Vec3 dir = flight.forward();
+            Vec3 noseFrom = pos.add(dir.scale(NOSE * 0.5)), noseTo = pos.add(dir.scale(speed + NOSE));
+            if (noseTo.y <= ground) {
+                Vec3 at = noseFrom.y <= ground ? noseFrom : noseFrom.lerp(noseTo, (noseFrom.y - ground) / (noseFrom.y - noseTo.y));
                 return Math.sqrt((at.x - aim.x) * (at.x - aim.x) + (at.z - aim.z) * (at.z - aim.z));
             }
-            pos = next;
+            pos = pos.add(dir.scale(speed));
         }
         return Double.POSITIVE_INFINITY;
     }
