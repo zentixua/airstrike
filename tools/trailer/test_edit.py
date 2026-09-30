@@ -128,7 +128,7 @@ def full_recording():
                                 (236, "airstrike:blast.near", snd("blast_near_1"), False, None)]))
     for name in ("dawn_city", "dawn_tower", "operator"):
         S.append(shot_lines(name, 300))
-    S.append(shot_lines("ruins", 660))            # 220 тиков, как в сценарии
+    S.append(shot_lines("ruins", 1020))           # 340 тиков, как в сценарии
     S.append(shot_lines("scope", 240, hud=True))
     S.append(shot_lines("map", 420, hud=True))
     S.append(shot_lines("launch_missile", 360, sounds=[(120, "airstrike:launch.booster", snd("launch_booster_1"), False, None)]))

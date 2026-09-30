@@ -897,10 +897,13 @@ public final class Trailer {
         });
         run(() -> placeHidden(overGround(TOWER.add(-300, 150, 120), 35), TOWER));
         // над крышами: башни у эпицентра в полторы сотни блоков, камера на постоянной высоте уходила в стены
-        shot("ruins").hidden().length(220).shake(0.05).camera(() -> CineCamera.spline(true,
+        // первые 6 с камера стоит: клиент догружает чанки после переноса, в кадре ещё пыль гриба (облако rv5: до ~5 с
+        // вместо города — небо). Монтаж берёт план с 6,5 с — с начала движения, 6,5 с (последний план ролика)
+        shot("ruins").hidden().length(340).shake(0.05).camera(() -> CineCamera.spline(true,
                 CineCamera.Key.at(0, overGround(TOWER.add(-300, 150, 120), 35), TOWER.add(0, 20, 0), 50),
-                CineCamera.Key.at(110, overGround(TOWER.add(-180, 110, 60), 35), TOWER.add(0, 10, 0), 48),
-                CineCamera.Key.at(220, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)))
+                CineCamera.Key.at(120, overGround(TOWER.add(-300, 150, 120), 35), TOWER.add(0, 20, 0), 50),
+                CineCamera.Key.at(230, overGround(TOWER.add(-180, 110, 60), 35), TOWER.add(0, 10, 0), 48),
+                CineCamera.Key.at(340, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)))
                 // пыль гриба и разрушения в только что загруженных чанках (они идут под бюджетом) должны улечься
                 .when(() -> sinceDetonation() > 3000, 6000);
     }

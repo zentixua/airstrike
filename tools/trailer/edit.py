@@ -669,8 +669,8 @@ def trailer_edit(music, blackout=True):
         Card(("AIRSTRIKE",), 2.8, "title", fade=0.04),
         Clip("mushroom", 2.0, 2.8),
         # руины — последний план: подрыв воздушный, осадков и чёрного дождя у него нет (Detonation.hasFallout), и план
-        # fallout был обычным дождём со счётчиком на фоне. Первые ~4 с плана — пыль гриба (сплошной бурый кадр)
-        Clip("ruins", 4.5, 6.5),
+        # fallout был обычным дождём со счётчиком на фоне. Первые 6 с плана камера стоит (пыль гриба, догрузка чанков)
+        Clip("ruins", 6.5, 6.5),
         Card(("AIRSTRIKE", PLATFORM, REPO, music.credit, MAP_CREDIT,
               "Sound effects: Freesound contributors (CC0 / CC BY 4.0)"), 5.5, "end", fade=0.5),
     ])
