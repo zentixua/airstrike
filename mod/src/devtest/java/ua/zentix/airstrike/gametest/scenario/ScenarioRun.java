@@ -161,11 +161,12 @@ final class ScenarioRun {
 
     void start() {
         SyncLoadWatch.ensureRegistered();
-        InstantChunks.acquire();
+        if (ScenarioMode.REAL_CHUNKS) ScenarioMode.paceServer();
+        else InstantChunks.acquire();
         NeoForge.EVENT_BUS.addListener(onBlast);
         StrikeGameTests.afterTest(h, this::cleanup);
         h.onEachTick(this::tick);
-        h.succeedWhen(() -> h.assertTrue(checked, "полёт ещё идёт: " + status()));
+        h.succeedWhen(() -> h.assertTrue(checked, "полёт ещё идёт: " + status() + " — " + ScenarioMode.reproduce(s)));
     }
 
     // ---------------------------------------------------------------- ход
@@ -539,11 +540,14 @@ final class ScenarioRun {
         tr.turn += Math.abs(Mth.wrapDegrees(heading - prev));
     }
 
-    /** Предельная угловая скорость по курсу, °/тик (0 — не проверять: баллистика и МБР не кружат). */
+    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
+    /**
+     * Предельная угловая скорость по курсу, °/тик (0 — не проверять: баллистика и МБР не кружат). Наибольшая у снаряда:
+     * на наборе высоты шахед и ракета поворачивают медленнее, их круг шире, и подсчёт берёт меньшую окрестность цели.
+     */
     private static double turnRate(StrikeProjectile e) {
         return switch (e.weapon()) {
             case DRONE, LOITER -> 3;
-            // на наборе высоты ракета поворачивает медленнее: круг шире
             case MISSILE -> 2;
             case BUNKER -> e instanceof BomberEntity ? 1 : 0;
             default -> 0;
@@ -564,13 +568,31 @@ final class ScenarioRun {
         double turn = tracks.values().stream().mapToDouble(tr -> tr.turn).max().orElse(0);
         Airstrike.LOG.info("SCENARIO flight {}: {} на тике {} (план {}), у {}, поворот у цели до {}°, промах {}", s.id(), outcome.end, outcome.tick,
                 eta0, rel(outcome.at), Math.round(turn), stationaryAim == null ? "—" : String.format(Locale.ROOT, "%.1f", outcome.at.distanceTo(stationaryAim)));
-        checkTurns();
-        checkDuration();
-        checkHit();
-        checkReleased();
-        List<SyncLoadWatch.Violation> reads = SyncLoadWatch.since(launchGameTime);
-        h.assertTrue(reads.isEmpty(), "синхронная загрузка чанков по вине мода: " + reads);
-        if (s.baselined()) checkBaseline();
+        try {
+            known(Scenario.Property.TURN, this::checkTurns);
+            checkDuration();
+            known(Scenario.Property.HIT, this::checkHit);
+            checkReleased();
+            List<SyncLoadWatch.Violation> reads = SyncLoadWatch.since(launchGameTime);
+            h.assertTrue(reads.isEmpty(), "синхронная загрузка чанков по вине мода: " + reads);
+            // с настоящей загрузкой полёт зависит от скорости генерации на машине: эталон не про него
+            if (s.baselined() && !ScenarioMode.REAL_CHUNKS) checkBaseline();
+        } catch (GameTestAssertException e) {
+            throw new GameTestAssertException(e.getMessage() + " — " + ScenarioMode.reproduce(s));
+        }
+    }
+
+    /** Свойство, которое известный изъян мода нарушает ({@link Scenario#knownIssues}): нарушение — в лог, тест дальше. */
+    private void known(Scenario.Property property, Runnable check) {
+        if (!s.knownIssues().contains(property)) {
+            check.run();
+            return;
+        }
+        try {
+            check.run();
+        } catch (GameTestAssertException e) {
+            Airstrike.LOG.warn("SCENARIO flight {}: известный изъян ({}): {}", s.id(), property, e.getMessage());
+        }
     }
 
     /** Срок: план × 1,5 плюс погоня за целью (как продлевает срок жизни сам снаряд) и круг барража. */
@@ -583,6 +605,7 @@ final class ScenarioRun {
                 outcome.end, outcome.tick, bound, eta0, chase));
     }
 
+    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
     private double cruiseSpeed() {
         return switch (s.launch().weapon) {
             case DRONE -> DroneEntity.CRUISE_SPEED;
@@ -617,6 +640,7 @@ final class ScenarioRun {
                 miss, reach, rel(outcome.at)));
     }
 
+    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
     /** Запас дальности взрывателя сверх шага, как в {@code advance}. */
     private static double pad(WeaponType weapon) {
         return switch (weapon) {
@@ -666,7 +690,7 @@ final class ScenarioRun {
 
     private void cleanup() {
         NeoForge.EVENT_BUS.unregister(onBlast);
-        InstantChunks.release();
+        if (!ScenarioMode.REAL_CHUNKS) InstantChunks.release();
         VirtualFlights.get(level).clear(level, e -> owner.equals(e.ownerId()));
         for (StrikeProjectile e : live()) e.discard();
         if (targetEntity != null) targetEntity.discard();

@@ -17,7 +17,8 @@ import java.util.List;
  * сценарии зерна 0 сверяются с эталоном траекторий ({@code trajectoriesMatchBaseline}, {@link Baseline}).
  * <p>
  * В обычном прогоне GameTest (CI) — зерно 0 всех сочетаний. Больше зёрен — {@code ./gradlew runScenarioSweep}
- * ({@code -PscenarioSeeds=N}, до {@link Scenario#MAX_SEEDS}): отдельное пространство имён шаблона, идут одни сценарии.
+ * ({@code -PscenarioSeeds=N}, до {@link Scenario#MAX_SEEDS}): отдельное пространство имён шаблона, идут одни сценарии;
+ * там же выбор сценариев и настоящая загрузка чанков ({@link ScenarioMode}).
  */
 @GameTestHolder(Airstrike.MOD_ID)
 public final class FlightScenarioTests {
@@ -37,10 +38,11 @@ public final class FlightScenarioTests {
         List<Scenario> all = Scenario.all(SEEDS, ModList.get().isLoaded("sable"));
         String template = (SWEEP ? "airstrike_sweep" : Airstrike.MOD_ID) + ":pad";
         List<TestFunction> out = new ArrayList<>();
+        all.removeIf(s -> !ScenarioMode.selected(s));
         for (int i = 0; i < all.size(); i++) {
             Scenario s = all.get(i);
             out.add(new TestFunction("flight_scenarios_" + i / BATCH, "flightscenario." + s.id(), template, Rotation.NONE, TIMEOUT, 0,
-                    !s.knownIssue(), false, 1, 1, true, h -> new ScenarioRun(h, s).start()));
+                    true, false, 1, 1, true, h -> new ScenarioRun(h, s).start()));
         }
         return out;
     }

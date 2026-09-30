@@ -133,13 +133,16 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
         // Сценарии полёта (gametest/scenario): все зёрна (-PscenarioSeeds, по умолчанию 16) без остальных GameTest —
-        // шаблон сценариев в своём пространстве имён airstrike_sweep
+        // шаблон сценариев в своём пространстве имён airstrike_sweep. -PscenarioOnly=<регулярное выражение> — только
+        // подходящие сценарии; -PscenarioRealChunks — настоящая загрузка чанков в темпе игры, без эталона
         scenarioSweep {
             type = 'gameTestServer'
             gameDirectory = project.file('run/scenario-sweep')
             systemProperty 'neoforge.enabledGameTestNamespaces', 'airstrike_sweep'
             systemProperty 'airstrike.scenario.sweep', 'true'
             systemProperty 'airstrike.scenario.seeds', (project.findProperty('scenarioSeeds') ?: '16').toString()
+            systemProperty 'airstrike.scenario.only', (project.findProperty('scenarioOnly') ?: '').toString()
+            systemProperty 'airstrike.scenario.realChunks', project.hasProperty('scenarioRealChunks').toString()
         }
         // Записать эталон траекторий заново (зерно 0): src/devtest/resources/scenario-baseline.json
         scenarioRecord {

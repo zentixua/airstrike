@@ -67,7 +67,7 @@ final class ScenarioSite {
         zones.add(new Zone(new ChunkPos(BlockPos.containing(at)), distance));
     }
 
-    /** Район, взятый посреди полёта: тикет сразу, чанки догружает {@link InstantChunks} в конце тика. */
+    /** Район, взятый посреди полёта: тикет сразу (чанки — {@link InstantChunks} в конце тика или фоновая генерация). */
     void zoneNow(Vec3 at, int distance) {
         Zone z = new Zone(new ChunkPos(BlockPos.containing(at)), distance);
         zones.add(z);

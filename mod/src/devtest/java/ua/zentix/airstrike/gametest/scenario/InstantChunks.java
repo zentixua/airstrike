@@ -10,8 +10,6 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.util.Terrain;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,20 +25,15 @@ import java.util.List;
  * Место в тике одно ({@link ServerTickEvent.Post} — после уровней и тестов GameTest): порядок тестов в партии на него
  * не влияет. Чтение неготовых чанков мода при этом видно по-прежнему ({@link SyncLoadWatch}): чанк, которого тикеты
  * не просили, сам не появится.
+ * <p>
+ * Слепые пятна: загрузка здесь идеальная. {@link SyncLoadWatch} ловит только чтение чанков, которых не просил ни один
+ * тикет; чанк, который тикет просил, но фоновая генерация ещё не дала, к чтению уже готов — синхронное ожидание
+ * такого чанка здесь не видно. Ожидание района мода (снаряд ждёт загрузки цели, {@code AREA_WAIT_LIMIT}), уход из мира
+ * на краю тикающих чанков из-за медленной генерации и возврат в мир тоже не проходят. Это проверяет прогон
+ * с настоящей загрузкой ({@code -PscenarioRealChunks}, {@link ScenarioMode}): свойства те же, без эталона.
  */
 final class InstantChunks {
     private static final int FULL = ChunkLevel.byStatus(FullChunkStatus.FULL);
-    /** {@code ServerChunkCache.runDistanceManagerUpdates}: тикеты, взятые в этом тике, — в уровни чанков сейчас. */
-    private static final Method UPDATES;
-
-    static {
-        try {
-            UPDATES = ServerChunkCache.class.getDeclaredMethod("runDistanceManagerUpdates");
-            UPDATES.setAccessible(true);
-        } catch (NoSuchMethodException e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
 
     private static int users;
     private static boolean registered;
@@ -68,11 +61,8 @@ final class InstantChunks {
     /** Догрузить всё, что тикеты требуют полностью. */
     static void settle(ServerLevel level) {
         ServerChunkCache cache = level.getChunkSource();
-        try {
-            UPDATES.invoke(cache);
-        } catch (IllegalAccessException | InvocationTargetException ex) {
-            throw new IllegalStateException(ex);
-        }
+        // тикеты, взятые в этом тике, — в уровни чанков сейчас (открыт AT)
+        cache.runDistanceManagerUpdates();
         List<ChunkPos> pending = new ArrayList<>();
         for (ChunkHolder holder : cache.chunkMap.getChunks()) {
             if (holder.getTicketLevel() <= FULL && !Terrain.ready(level, holder.getPos().x, holder.getPos().z)) pending.add(holder.getPos());

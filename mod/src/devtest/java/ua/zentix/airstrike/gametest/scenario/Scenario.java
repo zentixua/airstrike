@@ -6,6 +6,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.SplittableRandom;
 
 /**
@@ -97,17 +98,25 @@ public record Scenario(Launch launch, TargetKind target, Disturbance disturbance
      * а она решает, где аппарат окажется к подлёту.
      */
     boolean baselined() {
-        return seed == 0 && target != TargetKind.CRAFT && !knownIssue();
+        return seed == 0 && target != TargetKind.CRAFT && knownIssues().isEmpty();
+    }
+
+    /** Свойство полёта, которое известный изъян мода может нарушать ({@link #knownIssues}). */
+    enum Property {
+        /** Нет кружения у неподвижной цели. */
+        TURN,
+        /** Неподвижная цель поражена. */
+        HIT
     }
 
     /**
-     * Известный изъян мода, который чинит открытый PR: такой сценарий — необязательный тест (падение видно в логе, но
-     * прогон не красный) и не в эталоне. Шахед в пике не уходит на второй заход, когда цель оказалась в круге разворота,
-     * и бьёт в землю в ~60 блоках от неё — чинит #148 («Дроны после потери цели»); после его слияния — убрать отсюда
-     * и записать эталон заново.
+     * Известные изъяны мода, которые чинит открытый PR: нарушенное свойство сценария пишется в лог, а не валит тест.
+     * Прощается только оно — срок полёта, тикеты, синхронная загрузка остаются обязательными; такой сценарий не в эталоне
+     * (его полёт изменится с исправлением). Сюда — со ссылкой на PR, который чинит; после его слияния — убрать и записать
+     * эталон заново. Сейчас таких нет (шахед в пике без второго захода — #148 — влит).
      */
-    boolean knownIssue() {
-        return launch.weapon == WeaponType.DRONE && disturbance == Disturbance.BESIDE;
+    Set<Property> knownIssues() {
+        return Set.of();
     }
 
     /**
