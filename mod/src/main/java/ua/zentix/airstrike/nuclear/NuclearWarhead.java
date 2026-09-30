@@ -54,6 +54,8 @@ public final class NuclearWarhead {
     /** @param scale масштаб радиусов (1 — как в жизни); обычно из настройки effects_scale, GameTest задаёт свой */
     public static Detonation detonate(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner, float scale) {
         long started = System.nanoTime();
+        // предел мощности — и для ударов из старых сохранений и команд других модов
+        yieldKt = Math.min(yieldKt, ua.zentix.airstrike.strike.Loadout.Nuke.MAX_YIELD);
         NuclearEvents events = NuclearEvents.get(level);
         Detonation g = geometry(level, target, yieldKt, airBurst, scale);
         Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),

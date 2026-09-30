@@ -55,6 +55,13 @@ public final class NuclearPrep {
     /** Квадраты загрузки: радиус тикета (5×5 чанков). */
     private static final int TILE_RADIUS = 2;
     private static final int TILE = TILE_RADIUS * 2 + 1;
+    /**
+     * Квадрат с кольцом: тикет загрузки поднимает и кольцо вокруг квадрата (ниже полной загрузки) — несгенерированный
+     * чанк в кольце генерировался бы во время удара, поэтому готовыми на диске должны быть и они.
+     */
+    private static final int RING = TILE + 2;
+    /** Сколько квадратов отпускать за тик: каждый — 25 выгрузок чанков с записью на диск в этом тике сервера. */
+    private static final int RELEASE_PER_TICK = 2;
     /** Квадратов в загрузке одновременно (не все сразу: игрокам тоже надо грузить мир). */
     private static final int LOADING_TILES = 6;
     /** Чтений заголовков чанков с диска одновременно. */
@@ -63,8 +70,6 @@ public final class NuclearPrep {
     private static final int MIN_LEAD = 100;
     /** После подрыва тикеты держатся не дольше, тиков. */
     private static final int HOLD_AFTER = 1200;
-    /** Как часто после подрыва отпускать квадраты, чьи руины уже стоят, тиков. */
-    private static final int RELEASE_PERIOD = 10;
     /** Насколько место подрыва может отличаться от места плана, блоки. */
     private static final double SAME_PLACE = 8;
 
@@ -73,8 +78,8 @@ public final class NuclearPrep {
     private static final class Tile {
         final ChunkPos centre;
         TileState state = TileState.SCAN;
-        /** Чанков квадрата, чей ответ с диска ещё не пришёл или не запрошен. */
-        int unknown = TILE * TILE;
+        /** Чанков квадрата и кольца вокруг него, чей ответ с диска ещё не пришёл или не запрошен. */
+        int unknown = RING * RING;
         boolean missing;
 
         Tile(ChunkPos centre) {
@@ -96,6 +101,10 @@ public final class NuclearPrep {
         int nextPlan;
         final List<Tile> tiles = new ArrayList<>();
         final Long2ObjectOpenHashMap<Tile> tileOf = new Long2ObjectOpenHashMap<>();
+        /** Квадраты, которым нужен ответ по чанку (свой или кольцо соседа). */
+        final Long2ObjectOpenHashMap<List<Tile>> askedBy = new Long2ObjectOpenHashMap<>();
+        /** Чанки зоны, ждущие загрузки своего квадрата (план — как только готов). */
+        final LongArrayList waiting = new LongArrayList();
         /** Очередь чанков на чтение с диска и ответы (приходят из потока ввода-вывода). */
         final LongArrayList toScan = new LongArrayList();
         int nextScan, scanning;
@@ -104,6 +113,8 @@ public final class NuclearPrep {
         final LongArrayList planned = new LongArrayList();
         /** Отдан подрыву с этим номером (тикеты ещё держатся); -1 — ещё летит. */
         int detonation = -1;
+        /** Руины больше не нужны: квадраты отпускаются по нескольку за тик. */
+        boolean draining;
         long handedOff;
         boolean announced;
 
@@ -114,6 +125,8 @@ public final class NuclearPrep {
     }
 
     private final List<Prep> preps = new ArrayList<>();
+    /** Удары, чья подготовка упала с ошибкой: заново не начинается (иначе — ошибка в лог каждый тик). */
+    private final java.util.Set<Integer> failed = new java.util.HashSet<>();
     private final WorkClock clock = WorkClock.decaying(0.5);
 
     /** Сколько руин готово заранее по всем ударам (проверки, статус). */
@@ -139,20 +152,28 @@ public final class NuclearPrep {
         // новые удары: подготовка с пуска
         for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
             if (ms <= 0 || !AirstrikeConfig.SERVER.nukeBlockDamage.get()) break;
-            if (s.detonateTime() - now < MIN_LEAD || preps.stream().anyMatch(p -> p.strike == s.id())) continue;
+            if (s.detonateTime() - now < MIN_LEAD || failed.contains(s.id()) || preps.stream().anyMatch(p -> p.strike == s.id())) continue;
+            // один район — одна подготовка: второй удар по тем же местам руины заранее не строит (память под зону — одна)
+            if (preps.stream().anyMatch(p -> p.geometry != null && p.detonation < 0
+                    && Math.hypot(p.geometry.burst().x - s.target().x, p.geometry.burst().z - s.target().z) < 2 * heavyRadius(p.geometry) + 64)) continue;
             preps.add(new Prep(s.id(), s.detonateTime()));
         }
         clock.start(Math.max(1, ms) * 1_000_000L);
         for (Iterator<Prep> it = preps.iterator(); it.hasNext(); ) {
             Prep p = it.next();
             try {
+                if (p.draining) {
+                    p.plans.clear();
+                    p.waiting.clear();
+                    if (releaseSome(level, p, RELEASE_PER_TICK) == 0) it.remove();
+                    continue;
+                }
                 if (p.detonation >= 0) {
-                    // отдан подрыву: держим, пока очередь не поставит все готовые руины
+                    // отдан подрыву: держим, пока очередь не поставит все готовые руины; квадраты — по мере руин
                     if (!scars.hasPrepared(p.detonation) || now - p.handedOff > HOLD_AFTER) {
-                        release(level, p);
                         scars.dropPrepared(p.detonation);
-                        it.remove();
-                    } else if (now % RELEASE_PERIOD == 0) {
+                        p.draining = true;
+                    } else {
                         releaseDone(level, p, scars);
                     }
                     continue;
@@ -160,15 +181,15 @@ public final class NuclearPrep {
                 NuclearEvents.ScheduledStrike s = events.scheduled().stream().filter(x -> x.id() == p.strike).findFirst().orElse(null);
                 if (s == null) {
                     // отбой или подрыв не там, где план
-                    release(level, p);
-                    it.remove();
+                    p.draining = true;
                     continue;
                 }
                 work(level, s, p, shared);
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Подготовка руин удара №{} упала с ошибкой; снята", p.strike, e);
-                release(level, p);
-                it.remove();
+                failed.add(p.strike);
+                if (p.detonation >= 0) scars.dropPrepared(p.detonation);
+                p.draining = true;
             }
         }
     }
@@ -184,13 +205,15 @@ public final class NuclearPrep {
         scan(level, p);
         load(level, p);
         plan(level, p, shared);
-        if (!p.announced && p.nextPlan >= p.order.length) {
+        if (!p.announced && p.nextPlan >= p.order.length && p.waiting.isEmpty()) {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее
             long bytes = 0;
             for (RuinPlan plan : p.plans.values()) bytes += plan.bytes();
-            Airstrike.LOG.info("Руины удара №{} готовы: {} чанков из {} (до подрыва {} с), планы {} МБ, квадратов {}", p.strike, p.plans.size(),
-                    p.order.length, Math.max(0, p.detonateTime - level.getGameTime()) / 20, bytes >> 20, heldTiles(p));
+            Runtime rt = Runtime.getRuntime();
+            Airstrike.LOG.info("Руины удара №{} готовы: {} чанков из {} (до подрыва {} с), планы {} МБ, квадратов {}, куча {} из {} МБ", p.strike,
+                    p.plans.size(), p.order.length, Math.max(0, p.detonateTime - level.getGameTime()) / 20, bytes >> 20, heldTiles(p),
+                    (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20);
         }
     }
 
@@ -217,9 +240,13 @@ public final class NuclearPrep {
                 if (horizontal(c, d) <= radius) in.add(c.toLong());
             }
         }
+        // по расстоянию: ключи — один раз (сортировка с расстоянием в сравнении — десятки мс на 15 тыс. чанков)
         long[] order = in.toLongArray();
-        p.order = java.util.Arrays.stream(order).boxed().sorted(Comparator.comparingDouble(c -> horizontal(new ChunkPos(c), d)))
-                .mapToLong(Long::longValue).toArray();
+        long[] keyed = new long[order.length];
+        for (int i = 0; i < order.length; i++) keyed[i] = (long) (horizontal(new ChunkPos(order[i]), d) * 16) << 20 | i;
+        java.util.Arrays.sort(keyed);
+        p.order = new long[order.length];
+        for (int i = 0; i < order.length; i++) p.order[i] = order[(int) (keyed[i] & 0xFFFFF)];
         LongOpenHashSet seen = new LongOpenHashSet();
         for (long c : p.order) {
             ChunkPos pos = new ChunkPos(c);
@@ -227,11 +254,16 @@ public final class NuclearPrep {
             if (!seen.add(centre.toLong())) continue;
             Tile t = new Tile(centre);
             p.tiles.add(t);
-            for (int dx = -TILE_RADIUS; dx <= TILE_RADIUS; dx++) {
-                for (int dz = -TILE_RADIUS; dz <= TILE_RADIUS; dz++) {
+            for (int dx = -TILE_RADIUS - 1; dx <= TILE_RADIUS + 1; dx++) {
+                for (int dz = -TILE_RADIUS - 1; dz <= TILE_RADIUS + 1; dz++) {
                     long k = ChunkPos.asLong(centre.x + dx, centre.z + dz);
-                    p.tileOf.put(k, t);
-                    p.toScan.add(k);
+                    if (Math.abs(dx) <= TILE_RADIUS && Math.abs(dz) <= TILE_RADIUS) p.tileOf.put(k, t);
+                    List<Tile> asked = p.askedBy.get(k);
+                    if (asked == null) {
+                        p.askedBy.put(k, asked = new ArrayList<>(1));
+                        p.toScan.add(k);
+                    }
+                    asked.add(t);
                 }
             }
         }
@@ -267,10 +299,12 @@ public final class NuclearPrep {
     }
 
     private static void answer(Prep p, long chunk, boolean full) {
-        Tile t = p.tileOf.get(chunk);
-        if (t == null) return;
-        if (!full) t.missing = true;
-        if (--t.unknown == 0 && t.state == TileState.SCAN) t.state = t.missing ? TileState.SKIP : TileState.WAIT;
+        List<Tile> asked = p.askedBy.get(chunk);
+        if (asked == null) return;
+        for (Tile t : asked) {
+            if (!full) t.missing = true;
+            if (--t.unknown == 0 && t.state == TileState.SCAN) t.state = t.missing ? TileState.SKIP : TileState.WAIT;
+        }
     }
 
     /** Квадраты — ближние первыми, не больше нескольких в загрузке. */
@@ -301,26 +335,41 @@ public final class NuclearPrep {
 
     /** Руины чанков по порядку: готовый чанк — план; ждём только чанки квадратов, которые грузятся. */
     private void plan(ServerLevel level, Prep p, WorkClock shared) {
-        while (p.nextPlan < p.order.length && clock.canStart() && shared.canStart()) {
-            long c = p.order[p.nextPlan];
+        // сперва — чанки, ждавшие своего квадрата: план, как только квадрат готов (дальний готовый не ждёт ближнего)
+        for (int i = 0; i < p.waiting.size() && clock.canStart() && shared.canStart(); ) {
+            long c = p.waiting.getLong(i);
             Tile t = p.tileOf.get(c);
-            LevelChunk chunk = Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c)) ? level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) : null;
-            if (chunk == null) {
-                // не будет готов (не сгенерирован) — пропускаем; грузится — ждём
-                if (t == null || t.state == TileState.SKIP) {
-                    p.nextPlan++;
-                    continue;
-                }
-                return;
+            if (t != null && t.state != TileState.READY && t.state != TileState.SKIP) {
+                i++;
+                continue;
             }
-            long c0 = shared.begin();
-            try {
-                p.plans.put(c, RuinPlanner.plan(level, p.geometry, chunk));
-                p.planned.add(c);
-            } finally {
-                clock.record(shared.end(c0));
-            }
-            p.nextPlan++;
+            LevelChunk chunk = readyChunk(level, c);
+            if (chunk != null) planChunk(level, p, shared, c, chunk);
+            // квадрат пропущен (не сгенерирован) или отпущен — чанк пройдёт при загрузке, как раньше
+            p.waiting.set(i, p.waiting.getLong(p.waiting.size() - 1));
+            p.waiting.removeLong(p.waiting.size() - 1);
+        }
+        while (p.nextPlan < p.order.length && clock.canStart() && shared.canStart()) {
+            long c = p.order[p.nextPlan++];
+            Tile t = p.tileOf.get(c);
+            LevelChunk chunk = readyChunk(level, c);
+            if (chunk != null) planChunk(level, p, shared, c, chunk);
+            else if (t != null && t.state != TileState.SKIP) p.waiting.add(c);
+        }
+    }
+
+    @Nullable
+    private static LevelChunk readyChunk(ServerLevel level, long c) {
+        return Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c)) ? level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) : null;
+    }
+
+    private void planChunk(ServerLevel level, Prep p, WorkClock shared, long c, LevelChunk chunk) {
+        long c0 = shared.begin();
+        try {
+            p.plans.put(c, RuinPlanner.plan(level, p.geometry, chunk));
+            p.planned.add(c);
+        } finally {
+            clock.record(shared.end(c0));
         }
     }
 
@@ -336,7 +385,7 @@ public final class NuclearPrep {
     public Handoff handOff(Detonation d, long now) {
         for (Prep p : preps) {
             Detonation g = p.geometry;
-            if (p.detonation >= 0 || g == null || g.yieldKt() != d.yieldKt() || g.surface() != d.surface() || g.scale() != d.scale()
+            if (p.detonation >= 0 || p.draining || g == null || g.yieldKt() != d.yieldKt() || g.surface() != d.surface() || g.scale() != d.scale()
                     || g.burst().distanceTo(d.burst()) > SAME_PLACE) continue;
             p.detonation = d.id();
             p.handedOff = now;
@@ -356,10 +405,13 @@ public final class NuclearPrep {
 
     /**
      * После подрыва: квадрат, где руины всех чанков (и чанков вокруг него — им для подмены нужны соседи) уже стоят,
-     * больше не держится — память под тысячи чанков тяжёлой зоны освобождается по ходу волны, а не через минуту.
+     * больше не держится — не больше нескольких квадратов за тик: выгрузка чанка пишет его на диск в тике сервера.
+     * Выгруженный чанк сохраняется с руинами.
      */
     private static void releaseDone(ServerLevel level, Prep p, ScarQueue scars) {
+        int released = 0;
         for (Tile t : p.tiles) {
+            if (released >= RELEASE_PER_TICK) return;
             if (t.state != TileState.READY && t.state != TileState.LOADING) continue;
             boolean done = true;
             for (int dx = -TILE_RADIUS - 1; done && dx <= TILE_RADIUS + 1; dx++) {
@@ -371,7 +423,23 @@ public final class NuclearPrep {
             if (!done) continue;
             StrikeWorld.get(level).areas().release(level, t.area(p.strike));
             t.state = TileState.SKIP;
+            released++;
         }
+    }
+
+    /** Отпустить до {@code limit} квадратов; сколько ещё держится. */
+    private static int releaseSome(ServerLevel level, Prep p, int limit) {
+        int held = 0;
+        for (Tile t : p.tiles) {
+            if (t.state != TileState.READY && t.state != TileState.LOADING) continue;
+            if (limit-- > 0) {
+                StrikeWorld.get(level).areas().release(level, t.area(p.strike));
+                t.state = TileState.SKIP;
+            } else {
+                held++;
+            }
+        }
+        return held;
     }
 
     private static void release(ServerLevel level, Prep p) {

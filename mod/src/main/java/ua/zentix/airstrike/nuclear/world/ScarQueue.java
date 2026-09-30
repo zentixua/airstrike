@@ -2,6 +2,7 @@ package ua.zentix.airstrike.nuclear.world;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -53,6 +54,8 @@ public final class ScarQueue {
         final boolean mayHold;
         /** Держит тикет с соседями. */
         boolean held;
+        /** Срок пришёл: в очереди готовых ({@link #readySeen}/{@link #readyUnseen}), а не в {@link #byDue}. */
+        boolean ready;
 
         Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
@@ -77,12 +80,27 @@ public final class ScarQueue {
 
     /** Сколько чанков ставить в очередь за одну единицу работы (постановка — микросекунды). */
     private static final int OFFERS_PER_UNIT = 64;
+    /**
+     * За сколько тиков до прихода фронта чанк уже можно разрушать: фронт идёт по зоне быстро (сотни чанков за тик),
+     * и тик раньше под стеной пыли не видно, а работа растягивается на лишний тик.
+     */
+    private static final int EARLY = 1;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 40;
 
     private final Long2ObjectOpenHashMap<Job> jobs = new Long2ObjectOpenHashMap<>();
     private long lastSlowChunk = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
+    /**
+     * Чанки, чей срок пришёл: сперва те, что видит игрок (их руины — ровно с фронтом, изменения уходят ему в том же
+     * тике), потом остальные (их никто не видит — отставание на несколько тиков не заметно; они всё равно доходят
+     * до руин, на диск и в LOD Distant Horizons).
+     */
+    private record Log(long at, net.minecraft.world.level.block.state.BlockState state) {}
+
+    private final ArrayDeque<Job> readySeen = new ArrayDeque<>(), readyUnseen = new ArrayDeque<>();
+    /** Стволы, упавшие в чанк, чьи руины ещё впереди: кладутся после его руин (иначе они старили бы его план). */
+    private final Long2ObjectOpenHashMap<List<Log>> logs = new Long2ObjectOpenHashMap<>();
     private final Map<Integer, ColumnScar.Budget> budgets = new HashMap<>();
     private final ArrayDeque<Scan> scans = new ArrayDeque<>();
     /** Руины, построенные во время полёта МБР ({@link NuclearPrep}): номер подрыва → чанк → план. */
@@ -90,8 +108,9 @@ public final class ScarQueue {
     /** Для проверок и статуса: чанков с руинами по готовому плану и построенных в момент прихода волны. */
     private int appliedPrepared, appliedFresh, stalePlans;
     /**
-     * По подрыву: руин по готовому плану, устаревших планов, наибольшее отставание готовых от прихода волны (тики),
-     * время подмен по готовому плану всего и самой долгой (нс).
+     * По подрыву: [0] руин по готовому плану, [1] устаревших планов, [2] наибольшее отставание от прихода волны
+     * у чанков, которые видит игрок (тики), [3] время подмен по готовому плану всего и [4] самой долгой (нс),
+     * [5] наибольшее отставание у остальных, [6] руин по плану на месте.
      */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
 
@@ -126,11 +145,11 @@ public final class ScarQueue {
     public void dropPrepared(int detonation) {
         Long2ObjectOpenHashMap<RuinPlan> left = prepared.remove(detonation);
         long[] st = preparedStats.remove(detonation);
-        if (st == null) st = new long[5];
-        Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, не дождались {}; отставание от волны до {} тиков; "
-                        + "подмена чанка в среднем {} мкс, самая долгая {} мс",
-                detonation, st[0], st[1], left == null ? 0 : left.size(), st[2], st[0] == 0 ? 0 : st[3] / st[0] / 1000,
-                String.format(java.util.Locale.ROOT, "%.1f", st[4] / 1e6));
+        if (st == null) st = new long[7];
+        Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, на месте {}, не дождались {}; отставание от волны до {} тиков "
+                        + "(у игроков до {}, у остальных до {}); подмена чанка в среднем {} мкс, самая долгая {} мс",
+                detonation, st[0], st[1], st[6], left == null ? 0 : left.size(), Math.max(st[2], st[5]), st[2], st[5],
+                st[0] == 0 ? 0 : st[3] / st[0] / 1000, String.format(java.util.Locale.ROOT, "%.1f", st[4] / 1e6));
     }
 
     /** Чанк ждёт в очереди повреждений. */
@@ -153,12 +172,13 @@ public final class ScarQueue {
      * Координаты чанков в памяти в радиусе подрыва. Чанк, который ещё ни разу не был полностью загружен, поставит
      * {@code onChunkLoad}, когда загрузится.
      */
-    private static long[] loadedInRange(ServerLevel level, Detonation d) {
+    private static long[] loadedInRange(ServerLevel level, Detonation d, long[] except) {
         double radius = d.radiusMax();
+        it.unimi.dsi.fastutil.longs.LongOpenHashSet skip = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(except);
         LongArrayList in = new LongArrayList();
         for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
             ChunkPos p = holder.getPos();
-            if (nearest(p, d) <= radius) in.add(p.toLong());
+            if (nearest(p, d) <= radius && !skip.contains(p.toLong())) in.add(p.toLong());
         }
         return in.toLongArray();
     }
@@ -185,13 +205,15 @@ public final class ScarQueue {
         if (job == null) {
             job = new Job(key, !nearHeld(chunk.getPos()));
             jobs.put(key, job);
-        } else {
+        } else if (!job.ready) {
             byDue.remove(job);
         }
         if (job.events.stream().noneMatch(e -> e.id() == d.id())) {
             job.events.add(d);
             job.events.sort(Comparator.comparingInt(Detonation::id));
         }
+        // в очереди готовых — срок уже пришёл; новый подрыв он возьмёт следующим
+        if (job.ready) return;
         job.due = due(job.events.get(job.event), chunk.getPos());
         byDue.add(job);
     }
@@ -216,12 +238,16 @@ public final class ScarQueue {
     /** Выгружен: работа снимается (чанк с тикетом не выгружается — тикет снят раньше, в {@link #clear}). */
     public void drop(ChunkPos pos) {
         Job job = jobs.remove(pos.toLong());
-        if (job != null) byDue.remove(job);
+        // из очереди готовых снимется сам: работа берётся, только если она ещё в jobs
+        if (job != null && !job.ready) byDue.remove(job);
+        logs.remove(pos.toLong());
     }
 
     /** Счётчики пожаров только для подрывов, которые ещё помнятся. */
     public void retainBudgets(java.util.Set<Integer> detonations) {
         budgets.keySet().retainAll(detonations);
+        // сводка — только у подрывов с готовыми руинами (её пишет dropPrepared), у остальных забывается
+        preparedStats.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
     }
 
     public void clear(ServerLevel level) {
@@ -231,6 +257,9 @@ public final class ScarQueue {
         preparedStats.clear();
         jobs.clear();
         byDue.clear();
+        readySeen.clear();
+        readyUnseen.clear();
+        logs.clear();
         budgets.clear();
     }
 
@@ -264,13 +293,12 @@ public final class ScarQueue {
             long c0 = clock.begin();
             try {
                 if (scan.chunks == null) {
-                    long[] loaded = loadedInRange(level, scan.d);
+                    long[] loaded = loadedInRange(level, scan.d, scan.first);
                     scan.chunks = new long[scan.first.length + loaded.length];
                     System.arraycopy(scan.first, 0, scan.chunks, 0, scan.first.length);
                     System.arraycopy(loaded, 0, scan.chunks, scan.first.length, loaded.length);
                 } else {
                     // выгрузился после подрыва — пропускаем; загрузится снова — поставит onChunkLoad
-                    // (готовые чанки идут дважды — первыми и в снимке: повторная постановка ничего не меняет)
                     int end = Math.min(scan.chunks.length, scan.next + OFFERS_PER_UNIT);
                     while (scan.next < end) {
                         LevelChunk chunk = inMemory(level, scan.chunks[scan.next++]);
@@ -287,14 +315,21 @@ public final class ScarQueue {
             }
             if (scan.next >= scan.chunks.length) scans.poll();
         }
-        while (!byDue.isEmpty() && clock.canStart()) {
-            Job job = byDue.peek();
-            if (job.due > now) return;
+        var chunkMap = level.getChunkSource().chunkMap;
+        while (!byDue.isEmpty() && byDue.peek().due <= now + EARLY) {
+            Job job = byDue.poll();
+            job.ready = true;
+            (chunkMap.getPlayers(new ChunkPos(job.chunk), false).isEmpty() ? readyUnseen : readySeen).add(job);
+        }
+        while (clock.canStart()) {
+            Job job = !readySeen.isEmpty() ? readySeen.poll() : readyUnseen.poll();
+            if (job == null) return;
+            job.ready = false;
+            if (jobs.get(job.chunk) != job) continue; // выгружен или снят
             try {
                 work(level, job, now, clock);
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Повреждения чанка {} упали с ошибкой; чанк снят с очереди", new ChunkPos(job.chunk), e);
-                byDue.remove(job);
                 jobs.remove(job.chunk);
                 release(level, job);
             }
@@ -302,12 +337,13 @@ public final class ScarQueue {
     }
 
     /** Руины в чанке: по готовому плану, если он ещё верен, иначе — план по чанку как есть. */
-    private void ruin(ServerLevel level, Detonation d, LevelChunk chunk, ColumnScar.Budget budget, long lag) {
+    private void ruin(ServerLevel level, Detonation d, LevelChunk chunk, ColumnScar.Budget budget, long lag, boolean seen) {
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
         RuinPlan plan = plans != null ? plans.remove(chunk.getPos().toLong()) : null;
+        long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[7]);
+        if (seen) st[2] = Math.max(st[2], lag);
+        else st[5] = Math.max(st[5], lag);
         if (plan != null) {
-            long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[5]);
-            st[2] = Math.max(st[2], lag);
             long t0 = System.nanoTime();
             if (plan.apply(level, chunk, budget)) {
                 long took = System.nanoTime() - t0;
@@ -315,21 +351,39 @@ public final class ScarQueue {
                 st[0]++;
                 st[3] += took;
                 st[4] = Math.max(st[4], took);
+                deferLogs(level, d, plan);
                 return;
             }
             stalePlans++;
             st[1]++;
         }
-        RuinPlanner.plan(level, d, chunk).apply(level, chunk, budget);
+        plan = RuinPlanner.plan(level, d, chunk);
+        plan.apply(level, chunk, budget);
         appliedFresh++;
+        st[6]++;
+        deferLogs(level, d, plan);
+    }
+
+    /** Стволы, упавшие в соседние чанки: сразу — если руины соседа уже стоят или его нет в очереди, иначе — после них. */
+    private void deferLogs(ServerLevel level, Detonation d, RuinPlan plan) {
+        for (int k = 0; k < plan.outsideCount(); k++) {
+            long at = plan.outsidePos(k);
+            long chunk = ChunkPos.asLong(BlockPos.getX(at) >> 4, BlockPos.getZ(at) >> 4);
+            Job job = jobs.get(chunk);
+            if (job != null && job.events.stream().anyMatch(e -> e.id() == d.id()) && job.events.indexOf(d) >= job.event) {
+                logs.computeIfAbsent(chunk, c -> new ArrayList<>()).add(new Log(at, plan.outsideState(k)));
+            } else {
+                RuinPlan.placeLog(level, at, plan.outsideState(k));
+            }
+        }
     }
 
     /** Первый в очереди чанк (его срок пришёл): руины одной единицей работы. */
     private void work(ServerLevel level, Job job, long now, WorkClock clock) {
         if (inMemory(level, job.chunk) == null) {
             // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
-            byDue.poll();
             jobs.remove(job.chunk);
+            logs.remove(job.chunk);
             return;
         }
         ChunkPos pos = new ChunkPos(job.chunk);
@@ -340,7 +394,6 @@ public final class ScarQueue {
                 NuclearTickets.holdForScar(level, pos, true);
                 job.held = true;
             }
-            byDue.poll();
             job.due = now + NEIGHBOUR_RETRY;
             byDue.add(job);
             return;
@@ -351,7 +404,7 @@ public final class ScarQueue {
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
         long c0 = clock.begin();
         try {
-            ruin(level, d, chunk, budget, now - job.due);
+            ruin(level, d, chunk, budget, Math.max(0, now - job.due), !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty());
         } finally {
             long took = clock.end(c0);
             // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
@@ -362,8 +415,9 @@ public final class ScarQueue {
         }
         chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
         chunk.setUnsaved(true);
+        List<Log> fallen = logs.remove(job.chunk);
+        if (fallen != null) fallen.forEach(l -> RuinPlan.placeLog(level, l.at(), l.state()));
         job.event++;
-        byDue.poll();
         if (job.event >= job.events.size()) {
             release(level, job);
             jobs.remove(job.chunk);

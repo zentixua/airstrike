@@ -89,11 +89,18 @@ public final class NuclearGameTests {
     private static void scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
         ServerLevel level = h.getLevel();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
+        List<RuinPlan> plans = new java.util.ArrayList<>();
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
             for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
                 LevelChunk chunk = level.getChunk(cx, cz);
-                h.assertTrue(RuinPlanner.plan(level, d, chunk).apply(level, chunk, budget), "свежий план устарел");
+                RuinPlan plan = RuinPlanner.plan(level, d, chunk);
+                h.assertTrue(plan.apply(level, chunk, budget), "свежий план устарел");
+                plans.add(plan);
             }
+        }
+        // стволы, упавшие в соседний чанк, — после руин всех чанков (как в очереди)
+        for (RuinPlan plan : plans) {
+            for (int k = 0; k < plan.outsideCount(); k++) RuinPlan.placeLog(level, plan.outsidePos(k), plan.outsideState(k));
         }
     }
 
@@ -151,6 +158,33 @@ public final class NuclearGameTests {
             h.assertTrue(level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) == abs.getY() + 1,
                     "карта высот не по руинам: " + level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) + " вместо " + (abs.getY() + 1));
         }
+        h.succeed();
+    }
+
+    /**
+     * Сундук с добычей и кровать в руинах: меняются через мир после подмены — ни предметов на земле, ни блок-сущности
+     * при воздухе; удар из старого сохранения мощнее предела подрывается с пределом.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins_be", skyAccess = true)
+    public static void containersInRuinsLeaveNothing(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos chest = CENTER.east(8), bed = CENTER.east(8).north(2);
+        h.setBlock(chest, Blocks.CHEST);
+        if (h.getBlockEntity(chest) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity c) {
+            c.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 64));
+        }
+        h.setBlock(bed, Blocks.RED_BED);
+        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        h.assertBlockNotPresent(Blocks.CHEST, chest);
+        h.assertTrue(level.getBlockEntity(h.absolutePos(chest)) == null || h.getBlockState(chest).hasBlockEntity(),
+                "блок-сущность сундука осталась при " + h.getBlockState(chest));
+        var items = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(h.absolutePos(CENTER)).inflate(40));
+        h.assertTrue(items.isEmpty(), "на земле предметы: " + items.size());
+        // старое сохранение: удар в 1 Мт
+        var tag = NuclearEvents.ScheduledStrike.CODEC.encodeStart(net.minecraft.nbt.NbtOps.INSTANCE,
+                new NuclearEvents.ScheduledStrike(1, Vec3.ZERO, 1000, true, 0, 1, Vec3.ZERO, java.util.Optional.empty(), false)).getOrThrow();
+        double kt = NuclearEvents.ScheduledStrike.CODEC.parse(net.minecraft.nbt.NbtOps.INSTANCE, tag).getOrThrow().yieldKt();
+        h.assertTrue(kt == ua.zentix.airstrike.strike.Loadout.Nuke.MAX_YIELD, "мощность из сохранения не ограничена: " + kt);
         h.succeed();
     }
 
