@@ -24,7 +24,7 @@ import java.util.function.ToDoubleFunction;
  * пределы поворота, высоты), а как лететь, решают они.
  *
  * @param siren      какая тревога у цели
- * @param sirenLead  за сколько тиков до удара цель «видит» снаряд и включается тревога (у МБР — свой отсчёт, не этот)
+ * @param sirenSeconds за сколько секунд до удара цель «видит» снаряд и включается тревога (у МБР — свой отсчёт, не этот)
  * @param salvo      залп: паузы между пусками и что ставит пульт, когда выбирают это оружие
  * @param warhead    ядерная боевая часть: всегда, по выбору или никогда
  * @param power      сила взрыва боевой части — настройка мира
@@ -37,7 +37,7 @@ import java.util.function.ToDoubleFunction;
  * @param airframe   сущность, которой летит оружие (у B-2 — сам бомбардировщик)
  * @param payload    вторая сущность полёта: бомба, которую сбрасывает носитель; null — её нет
  */
-public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo, Warhead warhead,
+public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo salvo, Warhead warhead,
                          Supplier<ModConfigSpec.IntValue> power, Launch launch, Route route, @Nullable LauncherRack rack,
                          Blast blast, boolean penetrates, float confirmPitch, Airframe airframe, @Nullable Airframe payload) {
 
@@ -137,12 +137,52 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * @param launchProfile старт с пусковой; null — с пусковой не стартует (или у него свой старт, как у РСЗО)
      * @param visibleLeg    последние столько блоков до цели снаряд летит в мире, когда у цели есть игрок
      *                      ({@link FlightTickets#approach}); 0 — только район цели
+     * @param attack        геометрия атаки управляемого снаряда
      * @param audible       докуда слышно снаряд в этой фазе, блоков, без затухания {@link Hearing#FADE} (0 — не слышно)
      */
     public record Airframe(Supplier<EntityType<? extends StrikeProjectile>> entity, double cruiseSpeed, double diveSpeed,
                            double turnRate, double climbTurnRate, double cruiseHeight, double clearance, double noseLength,
                            float health, int lifetime, double reachPad, @Nullable LaunchProfile launchProfile, double visibleLeg,
-                           ToDoubleFunction<FlightPhase> audible) {}
+                           Attack attack, ToDoubleFunction<FlightPhase> audible) {
+        /** Радиус разворота на скорости {@code speed} с пределом поворота на маршруте ({@link #turnRadius(double, double)}). */
+        public double turnRadius(double speed) {
+            return WeaponSpec.turnRadius(speed, turnRate);
+        }
+    }
+
+    /**
+     * Геометрия атаки управляемого снаряда. Эти числа не выводятся из скорости и поворота одной формулой: они
+     * подобраны по картинке и сценариям полёта и держат запас на то, чего формула не видит (набор угловой скорости,
+     * разгон в пике, рельеф). Их связь с выводимыми числами (радиус разворота, геометрия горки) проверяет
+     * {@code WeaponSpecTest}: поменяв скорость или поворот, тест скажет, какое из них пересмотреть.
+     *
+     * @param reattackMin   ближе этого (по горизонтали) атака из-за круга разворота не отменяется: малый промах
+     *                      добирает неконтактный взрыватель, а пролетев, снаряд зайдёт снова. Меньше радиуса разворота
+     * @param terminalRange горка перед пикированием начинается в стольких блоках от цели (0 — горки нет): не ближе
+     *                      геометрии горки (подъём с бреющего полёта до вершины и пике с неё под углом входа) с запасом
+     *                      на переход по тангажу
+     * @param popUpMinRange горка только при заходе хотя бы с такого расстояния: ближе ракете не хватит места набрать
+     *                      высоту; больше {@code terminalRange} на путь, за который ракета выходит на курс атаки
+     */
+    public record Attack(double reattackMin, double terminalRange, double popUpMinRange) {
+        static final Attack NONE = new Attack(0, 0, 0);
+    }
+
+    /** Запас радиуса разворота, внутри которого точку не достать ({@code StrikeProjectile.insideTurn}): угловая скорость набирается не сразу. */
+    public static final double TURN_MARGIN = 1.2;
+
+    /**
+     * Радиус разворота: скорость v блоков/тик при угловой скорости ω °/тик — r = v / ω (ω в радианах). Шахед на 2.1
+     * и 3°/тик — ~40 блоков, ракета на 4 и 3°/тик — ~76, B-2 на 12 и 1°/тик — ~690.
+     */
+    public static double turnRadius(double speed, double rateDeg) {
+        return speed / Math.toRadians(rateDeg);
+    }
+
+    /** За сколько тиков до удара включается тревога у цели. */
+    public int sirenLead() {
+        return sirenSeconds * 20;
+    }
 
     /** Стартовый участок: на пусковой или горит ускоритель. */
     private static boolean launching(FlightPhase ph) {
@@ -163,11 +203,11 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * Дрон-камикадзе в духе Shahed-136: ≈150 км/ч, крейсер над рельефом, пикирование на цель с разгоном до 3 блоков/тик.
      * Стартовый ускоритель горит ~2 с и сбрасывается.
      */
-    public static final WeaponSpec DRONE = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 500, Salvo.gaps(20, 40), Warhead.CONVENTIONAL,
+    public static final WeaponSpec DRONE = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 25, Salvo.gaps(20, 40), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.dronePower, Launch.GUIDED,
             new Route(() -> AirstrikeConfig.SERVER.droneFlightTime, 300, 0), LauncherRack.DRONE, Blast.DRONE, false, 0.6f,
             new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 1.83, 12, 900, 4.3,
-                    new LaunchProfile(8, 38, 0.075, 8, -9), 0,
+                    new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE),
             null);
 
@@ -177,11 +217,11 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * маршевой: дальше разгоняет турбина, без рывка вниз. Последние 256 блоков — в мире: больше дальности прорисовки
      * 12 чанков, чтобы подлёт с её края был виден и при меньшей дистанции симуляции.
      */
-    public static final WeaponSpec MISSILE = new WeaponSpec(WeaponType.SirenKind.MISSILE, 300, Salvo.gaps(15, 30), new Warhead(false, true, true),
+    public static final WeaponSpec MISSILE = new WeaponSpec(WeaponType.SirenKind.MISSILE, 15, Salvo.gaps(15, 30), new Warhead(false, true, true),
             () -> AirstrikeConfig.SERVER.missilePower, Launch.GUIDED,
             new Route(() -> AirstrikeConfig.SERVER.missileFlightTime, 500, 0), LauncherRack.MISSILE, Blast.MISSILE, false, 0.5f,
             new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 2.96, 8, 700, 6.5,
-                    new LaunchProfile(6, 40, 0.09, 8, -14), 256,
+                    new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE),
             null);
 
@@ -189,20 +229,20 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * B-2 на эшелоне +170 над местом падения бомбы, 12 блоков/тик, разворот 1°/тик (радиус ~690 блоков), сброс за ~85
      * блоков до цели; бетонобойная бомба пробивает грунт и взрывается под землёй.
      */
-    public static final WeaponSpec BUNKER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 400, Salvo.gaps(60, 80), new Warhead(false, true, false),
+    public static final WeaponSpec BUNKER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(60, 80), new Warhead(false, true, false),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.BOMBER,
             new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0), null, Blast.UNDERGROUND, true, 0.5f,
-            new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 8.5, 0, 120, 0, null, 0,
+            new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 8.5, 0, 120, 0, null, 0, Attack.NONE,
                     ph -> Hearing.JET),
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, BombDrop.NOSE, 0, 300,
-                    BombDrop.REACH_PAD, null, 0,
+                    BombDrop.REACH_PAD, null, 0, Attack.NONE,
                     ph -> Hearing.ENGINE));
 
     /** МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. */
     public static final WeaponSpec NUKE = new WeaponSpec(WeaponType.SirenKind.NUCLEAR, 0, Salvo.gaps(200, 300), new Warhead(true, false, true),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.ICBM,
             new Route(null, 0, 0), null, Blast.UNDERGROUND, false, 0.5f,
-            new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 9, 0, 600, 0, null, 0,
+            new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 9, 0, 600, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0),
             null);
 
@@ -211,10 +251,10 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * по полсекунды; одиночным не стреляет — пульт ставит очередь из 12 по площади 15 блоков; без стреляющего рядом
      * пакет стоит в 600 блоках от цели.
      */
-    public static final WeaponSpec ROCKET = new WeaponSpec(WeaponType.SirenKind.MISSILE, 160, new Salvo(8, 12, 12, 15), Warhead.CONVENTIONAL,
+    public static final WeaponSpec ROCKET = new WeaponSpec(WeaponType.SirenKind.MISSILE, 8, new Salvo(8, 12, 12, 15), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.rocketPower, Launch.ROCKET,
             new Route(null, 0, 600), LauncherRack.ROCKET, Blast.ROCKET, false, 0.5f,
-            new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 1.45, 2, 2400, 1.5, null, 0,
+            new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 1.45, 2, 2400, 1.5, null, 0, Attack.NONE,
                     ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR),
             null);
 
@@ -222,11 +262,11 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenLead, Salvo salvo,
      * Барражирующий боеприпас в духе «Ланцета»: ≈115 км/ч, с катапульты (толчок за полсекунды, без огня) к цели,
      * круг на 45 блоков выше неё, пикирование с разгоном до 4 блоков/тик; без стреляющего рядом — издалека, с 500 блоков.
      */
-    public static final WeaponSpec LOITER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 400, Salvo.gaps(40, 60), Warhead.CONVENTIONAL,
+    public static final WeaponSpec LOITER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(40, 60), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.loiterPower, Launch.LOITER,
             new Route(null, 0, 500), LauncherRack.LOITER, Blast.DRONE, false, 0.5f,
             new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 1.3, 4, 2400, 3.0,
-                    new LaunchProfile(4, 10, 0.16, 4, -8), 0,
+                    new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
                     ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE),
             null);
 }

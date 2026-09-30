@@ -36,12 +36,6 @@ public class CruiseMissileEntity extends StrikeProjectile {
     private static final WeaponSpec.Airframe AIR = WeaponSpec.MISSILE.airframe();
     /** Маршевая скорость в 2.3.0 и раньше: ракеты, сохранённые в полёте без ключа {@code cruise_speed}, летели так. */
     private static final double LEGACY_CRUISE_SPEED = 11.5;
-    /** Горка перед пикированием начинается в стольких блоках от цели. */
-    public static final double TERMINAL_RANGE = 160;
-    /** Горка только при заходе хотя бы с такого расстояния: ближе ракете не хватит места набрать высоту. */
-    private static final double POP_UP_MIN_RANGE = 185;
-    /** Ближе этого (по горизонтали) атаку из-за круга разворота не отменяем. */
-    private static final double REATTACK_MIN = 64;
 
     /** Горка перед пикированием — только при длинном заходе. */
     private boolean popUp = true;
@@ -64,14 +58,14 @@ public class CruiseMissileEntity extends StrikeProjectile {
         speed = AIR.cruiseSpeed();
         altFilter = y;
         double dx = targetPoint.x - start.x, dz = targetPoint.z - start.z;
-        popUp = dx * dx + dz * dz >= POP_UP_MIN_RANGE * POP_UP_MIN_RANGE;
+        popUp = dx * dx + dz * dz >= AIR.attack().popUpMinRange() * AIR.attack().popUpMinRange();
         setPhase(FlightPhase.CRUISE);
     }
 
     @Override
     protected void onRetarget() {
         Bearing b = bearingTo(tracker.point());
-        popUp = b.horizontal() >= POP_UP_MIN_RANGE;
+        popUp = b.horizontal() >= AIR.attack().popUpMinRange();
         if (flightPhase() == FlightPhase.TERMINAL || flightPhase() == FlightPhase.POP_UP) setPhase(FlightPhase.CRUISE);
     }
 
@@ -102,9 +96,9 @@ public class CruiseMissileEntity extends StrikeProjectile {
         // цель внутри круга разворота (сместилась вбок на атаке, перенацеливание, игрок телепортировался): атака
         // отменяется, ракета уходит прямо, пока цель не выйдет из круга, и заходит снова — как ракета на промахе
         // у самой цели не отменяем: небольшой промах добирает неконтактный взрыватель, а пролетев, ракета зайдёт снова
-        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? AIR.climbTurnRate() : AIR.turnRate());
+        boolean outOfTurn = n.horizontal() > AIR.attack().reattackMin() && insideTurn(nav, ph == FlightPhase.CLIMB ? AIR.climbTurnRate() : AIR.turnRate());
         if (outOfTurn && (flightPhase() == FlightPhase.TERMINAL || flightPhase() == FlightPhase.POP_UP)) setPhase(FlightPhase.CRUISE);
-        if (flightPhase() == FlightPhase.CRUISE && onFinalLeg() && b.horizontal() <= TERMINAL_RANGE && !outOfTurn) {
+        if (flightPhase() == FlightPhase.CRUISE && onFinalLeg() && b.horizontal() <= AIR.attack().terminalRange() && !outOfTurn) {
             setPhase(popUp ? FlightPhase.POP_UP : FlightPhase.TERMINAL);
         }
         if (flightPhase() == FlightPhase.POP_UP && (b.pitch() >= 24 || getY() >= aim.y + 32)) setPhase(FlightPhase.TERMINAL);

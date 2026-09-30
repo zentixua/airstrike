@@ -80,8 +80,6 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Взрыватель взводится на таком удалении от пусковой (или с выходом на маршевый участок). */
     private static final double ARM_DISTANCE = 96;
-    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
-    private static final double TURN_MARGIN = 1.2;
     /**
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
      * по 9×9 чанков от залпа с разбросом) или цель недостижима.
@@ -835,7 +833,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Точка внутри круга разворота: с предельной угловой скоростью {@code maxRateDeg} °/тик снаряд до неё не довернёт
      * и кружил бы вокруг неё, пока не выйдет срок жизни (крылатая ракета на 4 блоках/тик и 3°/тик разворачивается
      * по кругу радиусом ~80 блоков: цель, сместившаяся вбок на атаке, оставалась внутри). Такой снаряд сначала уходит
-     * прямо, пока точка не выйдет из круга, и заходит снова. С запасом на разгон угловой скорости — {@link #TURN_MARGIN}.
+     * прямо, пока точка не выйдет из круга, и заходит снова. С запасом на разгон угловой скорости — {@link WeaponSpec#TURN_MARGIN}.
      */
     protected final boolean insideTurn(Vec3 point, double maxRateDeg) {
         Vec3 f = flight.forward();
@@ -843,7 +841,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (fl < 1e-6 || speed <= 0) return false;
         double fx = f.x / fl, fz = f.z / fl;
         double dx = point.x - getX(), dz = point.z - getZ();
-        double r = speed * fl / Math.toRadians(maxRateDeg) * TURN_MARGIN;
+        double r = WeaponSpec.turnRadius(speed * fl, maxRateDeg) * WeaponSpec.TURN_MARGIN;
         // центр разворота — сбоку, в сторону точки
         double nx = -fz, nz = fx;
         if (nx * dx + nz * dz < 0) {

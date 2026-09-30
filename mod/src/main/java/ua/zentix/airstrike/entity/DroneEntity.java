@@ -21,8 +21,6 @@ import java.util.UUID;
 public class DroneEntity extends StrikeProjectile {
     /** Паспорт: скорости, пределы поворота на маршруте и наборе, высота крейсера над стартом и целью, старт. */
     private static final WeaponSpec.Airframe AIR = WeaponSpec.DRONE.airframe();
-    /** Ближе этого (по горизонтали) пике из-за круга разворота не отменяем: малый промах добирает взрыватель. */
-    private static final double REATTACK_MIN = 16;
 
     /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
@@ -76,7 +74,7 @@ public class DroneEntity extends StrikeProjectile {
         // цель внутри круга разворота (промах в пике, цель ушла вбок, точка в воздухе, где цель пропала): до неё не
         // довернуть, и шахед кружил бы вокруг неё до конца срока жизни. Пике отменяется: шахед уходит прямо, набирая
         // высоту, пока цель не выйдет из круга, и заходит снова — как крылатая ракета
-        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? AIR.climbTurnRate() : AIR.turnRate());
+        boolean outOfTurn = n.horizontal() > AIR.attack().reattackMin() && insideTurn(nav, ph == FlightPhase.CLIMB ? AIR.climbTurnRate() : AIR.turnRate());
         if (outOfTurn && flightPhase() == FlightPhase.TERMINAL) setPhase(FlightPhase.CRUISE);
         // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
         if ((flightPhase() == FlightPhase.CRUISE || flightPhase() == FlightPhase.CLIMB) && onFinalLeg() && b.pitch() >= 18 && !outOfTurn) {
