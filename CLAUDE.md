@@ -31,7 +31,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
   tools/
     paths.py                             ← все пути к игре (единственное место)
-    fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
+    fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
@@ -83,8 +83,10 @@ git commit
 `# /// script` (PEP 723) — запуск `uv run tools/<скрипт>.py`, в системный Python ничего не ставить.
 Моды для запусков (`run/*/mods`) копируются из инстанса задачами `copyRuntimeMods_*`; путь — `MC_DIR` или по умолчанию.
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
-(Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
-CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
+(Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026); `-PwithLithium` — GameTest ещё и
+с Lithium, как у хоста (он заменяет вызовы в тике блок-сущностей; в jar и `mods.toml` его нет).
+CI (GitHub Actions, репозиторий публичный) гоняет то же (GameTest дважды: без Lithium и с ним) на каждый push
+в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
 с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
 вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.
@@ -142,7 +144,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `net/` — `S2C`/`C2S` пакеты; `ClientHooks` — интерфейс, который реализует клиент (сервер не грузит клиентские классы).
 - `command/AirstrikeCommand` — `/airstrike` (то же, что пульт, плюс ядерка, радиация, выдача); `item/` — пульт
   (`DesignatorItem`: бинокль, экран) и счётчик Гейгера; `util/` — `Local` (локальные координаты «^ ^ ^»),
-  `Particles` (разброс частиц как у команды `particle`), `Terrain` (готовность чанка и высота без ожидания загрузки), `Nbt` (векторы в NBT); `mixin/sable/` — единственный миксин (см. подводные камни).
+  `Particles` (разброс частиц как у команды `particle`), `Terrain` (готовность чанка и высота без ожидания загрузки), `Nbt` (векторы в NBT), `BlockTicking` (блок-сущности тикают при готовых соседях); миксины (см. подводные камни):
+  `mixin/sable/` и `mixin/chunk/` (`BoundTickingBlockEntityMixin`, `LevelChunkTickingMixin`).
 - Состояние сервера, которое не сохраняется, — несохраняемые attachments NeoForge (мира: `StrikeWorld`, `NuclearWorld`; игрока:
   пауза между пусками, «HUD полётов показан»), а не статические карты: статика переживает смену мира в одиночной игре.
 - `client/` (`@Mod(dist = CLIENT)`) — `render/` (`WeaponModels` — модели снарядов из OBJ и их анимации
@@ -226,8 +229,8 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   (`NuclearTickets`, грузит в фоне).
 - Sable 2.0.5 роняет мир («Sub-level assembly attempted inside plot of already removed sub-level»), когда аппарат
   после взрыва распадается на много кусков: кусок без массы удаляется, его плот сразу отдаётся следующему, и дробление
-  в этом плоте находит удалённый аппарат. Единственный миксин мода (`mixin/sable/SubLevelSplitGuardMixin`,
-  `airstrike.mixins.json`, `required: false`) оборачивает `SubLevelHeatMapManager.split` и глотает только это
+  в этом плоте находит удалённый аппарат. Миксин `mixin/sable/SubLevelSplitGuardMixin` (`airstrike.mixins.json`,
+  `required: false`: не вставший миксин — только предупреждение в логе, поэтому каждый проверяет свой GameTest) оборачивает `SubLevelHeatMapManager.split` и глотает только это
   исключение (`compat/SplitGuard`); GameTest `sableSplitGuardApplied` проверяет, что он встал.
 - Sable на каждое изменение блока читает соседние блоки (физика аппаратов): менять блоки только там, где готовы и
   соседние чанки (`NuclearTickets.neighbourhoodLoaded`), иначе он синхронно грузит соседа.
@@ -269,8 +272,21 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   блоками без готовых соседей, если его накрывает чужой счёт тика; от симуляции игрока это бывает, только когда
   дальность обзора сервера (по ней стоят тикеты игрока) меньше дистанции симуляции. Остановка 13 с на стенде (облако,
   fix-d: хранилище испытаний у района цели; обзор сервера 8, симуляция 6), вероятно, ванильная: игрок сместился на
-  чанк за край заранее готового квадрата, а соседний чанк ещё генерировался. Закрыть оба случая можно, например,
-  миксином в тик блок-сущностей по готовности соседей.
+  чанк за край заранее готового квадрата, а соседний чанк ещё генерировался. Оба случая закрывает миксин
+  `mixin/chunk/BoundTickingBlockEntityMixin`: в начале `LevelChunk$BoundTickingBlockEntity.tick` блок-сущность
+  тикает, только если у её чанка готово будущее `ChunkHolder.getTickingChunk` — то же условие «все 8 соседей FULL»,
+  по которому ваниль пускает случайные тики и тики блоков (`util/BlockTicking`; ответ на тик — у чанка,
+  `LevelChunkTickingMixin`). Не в `LevelChunk.isTicking`: Lithium (у хоста 0.15.4) заменяет этот вызов в тике своим
+  `@Redirect` (`world.block_entity_ticking.world_border`), и условие там не спрашивалось ни разу (сборка хоста 30.09.2026).
+  У «спящих» блок-сущностей Lithium тикер-заглушка, `getPos()` — null: код, перебирающий `Level.blockEntityTickers`,
+  проверяет место на null. Чанки плота Sable не задерживаются: Sable кладёт их держатель
+  `PlotChunkHolder` в ту же `ChunkMap` (`ServerLevelPlot.addChunkHolder`), а он отдаёт чанк сам. GameTest
+  `blockEntitiesWaitForNeighbours` (печь в чанке с неготовым соседом не горит; без миксина и с Lithium на старом миксине
+  падает), `checkSkipsTickersWithoutPos` и `craftBlockEntitiesTick` (печь на собранном аппарате горит, держатель —
+  `PlotChunkHolder`). В игре раз в минуту после запуска, пока не ясно, `BlockTicking.onServerTick` пишет одну строку:
+  условие спрашивают — или тик блок-сущностей идёт мимо него (миксин не встал, другой мод заменил тик). `@Shadow`
+  в миксине — только на член, объявленный в самом целевом классе (refMap нет, в игре имена Mojang): `getPos` объявлен
+  в `ChunkAccess`, и миксин на `LevelChunk` с ним не вставал; внешний чанк вложенного класса — `this$0` (как у Lithium).
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
 - `ChunkEvent.Load` приходит один раз за жизнь чанка в памяти: у края видимости чанк опускается ниже полной загрузки
   (`getChunkNow` — null) и поднимается обратно без выгрузки и без нового события. Очередь, которая держит чанки,
