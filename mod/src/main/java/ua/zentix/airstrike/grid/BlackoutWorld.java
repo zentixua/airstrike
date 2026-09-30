@@ -75,7 +75,7 @@ public final class BlackoutWorld {
      * Единица дольше этого (настенное время) — в лог с разбивкой ({@link #logSlowUnit}): в 2.5 раза больше бюджета тика
      * по умолчанию (4 мс) — такая единица одна съедает тик блэкаута; самая долгая в /airstrike grid status не говорит, из чего она.
      */
-    static final long SLOW_UNIT_NANOS = 10_000_000L;
+    private static final long SLOW_UNIT_NANOS = 10_000_000L;
     /** Игровое время последней записи о долгой единице. */
     private long slowLogged = Long.MIN_VALUE / 2;
     /** Чанки ближе этого к игроку (в чанках, по большей из осей) идут в очередь раньше остальных. */
@@ -311,7 +311,7 @@ public final class BlackoutWorld {
      * Чанки общей очереди, к которым подошёл игрок, — в очередь у игроков (в её конец, место прохода сохраняется):
      * иначе чанк, попавший в очередь до прихода игрока, ждёт весь дальний город.
      */
-    private void promoteNear() {
+    void promoteNear() {
         if (players.isEmpty() || ready.isEmpty()) return;
         for (int i = ready.size(); i > 0; i--) {
             long c = ready.dequeueLong();
@@ -563,7 +563,8 @@ public final class BlackoutWorld {
     /**
      * Долгая единица — в лог с разбивкой по видам работы: что в ней было и сколько времени каждого вида. У единицы
      * очереди остаток («вне видов») — время, которое не легло ни в один вид: пауза GC, вытеснение потока (у встроенного
-     * сервера рядом клиент), звук квартала; большой остаток при малых видах — не работа блэкаута.
+     * сервера рядом клиент), звук квартала. Остаток больше половины единицы — не работа блэкаута: строка INFO, не WARN
+     * (одна пауза GC уже дольше порога). Зажигание и строка каскада на виды не делятся — у них только время и объём.
      */
     private void logSlowUnit(ServerLevel level, String unit, long took, String what, long[] counted, long[] timed) {
         StringBuilder kinds = new StringBuilder();
@@ -576,8 +577,14 @@ public final class BlackoutWorld {
             kinds.append(' ').append(w.name().toLowerCase(Locale.ROOT)).append('=').append(n);
             if (t > 0) kinds.append('/').append(ms(t)).append("мс");
         }
-        if (inKinds > 0) kinds.append("; вне видов ").append(ms(Math.max(0, took - inKinds))).append("мс");
-        Airstrike.LOG.warn("Блэкаут ({}): единица работы ({}) {} мс, {}:{}", level.dimension().location(), unit, ms(took), what, kinds);
+        // по видам раскладывается только время единицы очереди (у зажигания и каскада видов нет)
+        boolean split = unit.equals("очередь");
+        long outside = Math.max(0, took - inKinds);
+        if (split) kinds.append("; вне видов ").append(ms(outside)).append("мс");
+        String line = "Блэкаут ({}): единица работы ({}) {} мс, {}" + (kinds.isEmpty() ? "{}" : ":{}");
+        Object[] args = {level.dimension().location(), unit, ms(took), what, kinds};
+        if (split && outside * 2 > took) Airstrike.LOG.info(line, args);
+        else Airstrike.LOG.warn(line, args);
     }
 
     private static String ms(long nanos) {
