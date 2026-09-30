@@ -82,6 +82,10 @@ public final class ClientScenario {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
             return;
         }
+        if ("strike-profile".equals(scenario)) {
+            new StrikeProfile(); // шаги и замер тиков сервера — свои (StrikeProfile); мир — копия игрока (onScreen)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;
@@ -98,6 +102,7 @@ public final class ClientScenario {
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
         else if ("target-map".equals(mode)) planTargetMap();
+        else if ("salvo-map".equals(mode)) planSalvoMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
@@ -814,15 +819,26 @@ public final class ClientScenario {
      * Карта наведения: открыть с пульта, отдалить колесом, выбрать место кликом в 60 и 40 пикселей от центра (северо-восток),
      * огонь по Enter — всё через ввод экрана, как у игрока. В лог — выбранное место и цель снаряда по данным сервера
      * (высота — поверхность); кадры target-map_* — карта с рельефом, с меткой цели, потом снаряд на ней.
+     * Свойства: {@code airstrike.mapWeapon} — оружие пульта (по умолчанию ракета), {@code airstrike.mapAt=x,z} — место
+     * на карте задано точкой, а не кликом (проверка удара по известной дальней крыше), {@code airstrike.mapFrom=x,y,z} —
+     * откуда бить (и в копии мира игрока).
      */
     private void planTargetMap() {
         at(40, () -> {
             cmd("time set 6000");
             cmd("weather clear");
             // в копии мира игрока (prod_client.py --world) — там, где он стоит
-            if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            String from = System.getProperty("airstrike.mapFrom");
+            if (from != null) {
+                // высота земли там заранее не известна: сверху, в творческом — без урона от падения
+                cmd("gamemode creative");
+                cmd("tp @s " + from.replace(',', ' ') + " 0 30");
+            }
+            else if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
             // новый пульт в руке — настройки по умолчанию: одна ракета без разброса, промах меряется от точки
-            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
+            String weapon = System.getProperty("airstrike.mapWeapon");
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator"
+                    + (weapon == null ? "" : "[airstrike:loadout={weapon:\"" + java.util.Objects.requireNonNull(WeaponType.parse(weapon), "airstrike.mapWeapon: " + weapon).getSerializedName() + "\"}]"));
         });
         // карту открывают, поиграв: DH к этому времени загрузил свои LOD вокруг. Пока он их грузит, чтение рельефа
         // через его API стоит в очереди за ними (пул ввода-вывода DH ниже по приоритету, чем загрузка LOD)
@@ -847,6 +863,59 @@ public final class ClientScenario {
         });
     }
 
+    /**
+     * Залп на карте наведения — кадры salvo-map_* (штриховые пути снарядов к целям, район разброса) и время, за которое
+     * карта открылась, в логе («Карта наведения: рельеф вида готов за …»): в пульте шесть шахедов с разбросом 40,
+     * место кликом в ~130 блоках, огонь по Enter, карта снова открыта на весь полёт. В копии мира игрока
+     * (prod_client.py --world) — там, где он стоит; карту открывают, когда DH загрузил свои LOD (как в target-map).
+     */
+    private void planSalvoMap() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
+        });
+        at(60, () -> {
+            // настройки пульта — как с его экрана: в предмет у клиента и на сервер
+            var salvo = new ua.zentix.airstrike.strike.Loadout(WeaponType.DRONE, 6, 40, ua.zentix.airstrike.strike.TargetMode.MAP, "",
+                    ua.zentix.airstrike.strike.Loadout.DEFAULT.nuke());
+            Minecraft.getInstance().player.getMainHandItem().set(ua.zentix.airstrike.registry.ModDataComponents.LOADOUT.get(), salvo);
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                    new ua.zentix.airstrike.net.C2S.SetLoadout(net.minecraft.world.InteractionHand.MAIN_HAND, salvo));
+        });
+        for (int t = 300; t <= 300 + MAP_DH_WAIT; t += 20) {
+            at(t, () -> {
+                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) salvoMapBegin(tick);
+            });
+        }
+    }
+
+    private void salvoMapBegin(int o) {
+        mapOpened = o;
+        Airstrike.LOG.info("SCENARIO salvo-map open at tick {}", o);
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
+        Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        shot(o + 10, "salvo-map");
+        shot(o + 40, "salvo-map");
+        at(o + 60, () -> {
+            var screen = Minecraft.getInstance().screen;
+            double x = screen.width / 2.0 + 120, y = screen.height / 2.0 - 50;
+            screen.mouseClicked(x, y, 0);
+            screen.mouseReleased(x, y, 0);
+        });
+        shot(o + 70, "salvo-map");
+        at(o + 80, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
+        at(o + 100, () -> Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen())));
+        for (int t = o + 120; t <= o + 520; t += 40) shot(t, "salvo-map");
+        at(o + 540, () -> {
+            logFlights();
+            Airstrike.LOG.info("SCENARIO salvo-map terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
     /** Карта наведения с тика {@code o}: отдалить, выбрать точку в ~700 блоках, огонь, ждать попадания. */
     private void mapBegin(int o) {
         mapOpened = o;
@@ -863,9 +932,16 @@ public final class ClientScenario {
         shot(o + 100, "target-map");
         at(o + 120, () -> {
             var screen = Minecraft.getInstance().screen;
-            double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
-            screen.mouseClicked(x, y, 0);
-            screen.mouseReleased(x, y, 0);
+            String at = System.getProperty("airstrike.mapAt");
+            if (at != null) {
+                String[] xz = at.split(",");
+                ua.zentix.airstrike.client.map.MapTarget.set(Minecraft.getInstance().level, new ua.zentix.airstrike.client.map.MapTarget.Place(
+                        Double.parseDouble(xz[0].strip()) + 0.5, Double.parseDouble(xz[1].strip()) + 0.5));
+            } else {
+                double x = screen.width / 2.0 + 100, y = screen.height / 2.0 - 70;
+                screen.mouseClicked(x, y, 0);
+                screen.mouseReleased(x, y, 0);
+            }
             var place = ua.zentix.airstrike.client.map.MapTarget.get(Minecraft.getInstance().level).orElseThrow();
             mapTarget = new Vec3(place.x(), 0, place.z());
             Airstrike.LOG.info("SCENARIO map-target selected X {} Z {} distance {} terrain height {} far {}", Math.round(place.x()), Math.round(place.z()),

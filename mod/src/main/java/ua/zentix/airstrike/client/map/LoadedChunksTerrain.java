@@ -23,6 +23,12 @@ final class LoadedChunksTerrain implements TerrainSource {
         return false;
     }
 
+    /** Чанки клиента меняются на глазах (взрывы): видимая плитка перечитывается раз в 30 с. */
+    @Override
+    public long refreshNanos() {
+        return 30_000_000_000L;
+    }
+
     @Override
     public Reader open(ClientLevel level) {
         return new Reader() {

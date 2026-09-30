@@ -8,6 +8,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.util.StringUtil;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +34,7 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -88,6 +90,36 @@ public final class ServerActions {
         ItemStack stack = player.getItemInHand(p.hand());
         if (!(stack.getItem() instanceof DesignatorItem)) return;
         stack.set(ModDataComponents.LOADOUT.get(), clamp(p.loadout()));
+    }
+
+    /**
+     * Игроки для карты наведения — тем, кому можно пульт (пульт и так целится в любого игрока по имени): все
+     * в измерении спросившего, кроме него самого и наблюдателей.
+     */
+    public static void mapPlayers(C2S.MapPlayers p, IPayloadContext ctx) {
+        if (!(ctx.player() instanceof ServerPlayer player)) return;
+        List<S2C.MapPlayer> marks = mapPlayers(player, player.server.getPlayerList().getPlayers());
+        if (marks != null) PacketDistributor.sendToPlayer(player, new S2C.MapPlayers(marks));
+    }
+
+    /**
+     * Игроки на карте пульта у {@code viewer} из {@code players}: в его измерении, не дальше {@code map_range}
+     * (дальше удар по ним и так не примут), кроме него самого, наблюдателей и невидимых. Null — не отвечать: нет прав
+     * на пульт или запрос чаще раза в {@link #FIRE_INTERVAL} тиков. Выключено в настройках мира — пустой список.
+     */
+    @Nullable
+    public static List<S2C.MapPlayer> mapPlayers(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
+        if (!mayUse(viewer) || tooSoon(viewer, ModAttachments.LAST_MAP_PLAYERS.get())) return null;
+        if (!AirstrikeConfig.SERVER.mapPlayers.get()) return List.of();
+        List<S2C.MapPlayer> marks = new ArrayList<>();
+        for (ServerPlayer other : players) {
+            if (other == viewer || other.level() != viewer.level() || other.isSpectator() || other.isInvisible()) continue;
+            if (!withinMapRange(viewer, other.getX(), other.getZ())) continue;
+            // имя длиннее предела кодек не пишет (исключение при отправке): у модов бывают длинные
+            String name = StringUtil.truncateStringIfNecessary(other.getGameProfile().getName(), S2C.MapPlayer.MAX_NAME, false);
+            marks.add(new S2C.MapPlayer(other.getUUID(), name, other.getX(), other.getZ()));
+        }
+        return marks;
     }
 
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
@@ -178,7 +210,7 @@ public final class ServerActions {
 
     /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
     private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
-        StrikeService.log(who, l.weapon(), l.count(), l.spread(), aim.point());
+        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point());
         UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
             SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke());
@@ -226,9 +258,14 @@ public final class ServerActions {
     /** Место с карты годится: мир без потолка, не дальше {@code map_range} от игрока по горизонтали, в границах мира. */
     public static boolean groundInRange(ServerPlayer player, double x, double z) {
         if (player.level().dimensionType().hasCeiling()) return false;
+        return withinMapRange(player, x, z) && player.level().getWorldBorder().isWithinBounds(x, z);
+    }
+
+    /** Не дальше {@code map_range} от игрока по горизонтали: докуда бьёт пульт не по прицелу (карта, игрок). */
+    public static boolean withinMapRange(ServerPlayer player, double x, double z) {
         double range = AirstrikeConfig.SERVER.mapRange.get();
         double dx = x - player.getX(), dz = z - player.getZ();
-        return dx * dx + dz * dz <= range * range && player.level().getWorldBorder().isWithinBounds(x, z);
+        return dx * dx + dz * dz <= range * range;
     }
 
     /**
@@ -253,13 +290,18 @@ public final class ServerActions {
                 }
             }
             case C2S.AimHint.GROUND -> {
-                Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z);
-                return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
-                        Mth.floor(h.point().x), Mth.floor(h.point().z)));
+                return groundAim(level, h);
             }
             default -> {}
         }
         return new Aim(new Target.Point(h.point()), h.point(), null);
+    }
+
+    /** Место с карты: x и z из подсказки, высота — {@link Target.Ground#at} (верх по карте клиента — оценка). */
+    public static Aim groundAim(ServerLevel level, C2S.AimHint h) {
+        Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z, h.mapSurface());
+        return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
+                Mth.floor(h.point().x), Mth.floor(h.point().z)));
     }
 
     /** Цель по режиму экрана пульта. */
@@ -278,6 +320,12 @@ public final class ServerActions {
                 }
                 if (victim.level() != level) {
                     player.displayClientMessage(Component.translatable("airstrike.player_other_world", victim.getDisplayName()).withStyle(ChatFormatting.RED), false);
+                    return null;
+                }
+                // как у места с карты: район цели сервер грузит и генерирует, дальность мира её ограничивает
+                if (!withinMapRange(player, victim.getX(), victim.getZ())) {
+                    player.displayClientMessage(Component.translatable("airstrike.player_out_of_range", victim.getDisplayName(),
+                            AirstrikeConfig.SERVER.mapRange.get()).withStyle(ChatFormatting.RED), false);
                     return null;
                 }
                 return atPlayer(victim);
