@@ -70,7 +70,10 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<PickHints.Slot>> PICK_HINT = REGISTER.register("pick_hint",
             () -> AttachmentType.builder(PickHints.Slot::new).build());
 
-    /** Игрок: тикет, с которым место входа грузится раньше районов мода ({@link ArrivalTickets}); не сохраняется. */
+    /**
+     * Игрок: тикет, с которым место входа или возрождения грузится раньше районов мода ({@link ArrivalTickets}); не
+     * сохраняется, к новому объекту игрока переходит в {@link ArrivalTickets#onClone}.
+     */
     public static final Supplier<AttachmentType<ArrivalTickets.Slot>> ARRIVAL = REGISTER.register("arrival",
             () -> AttachmentType.builder(ArrivalTickets.Slot::new).build());
 
