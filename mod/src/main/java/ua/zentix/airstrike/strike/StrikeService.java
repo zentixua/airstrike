@@ -10,7 +10,6 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -316,8 +315,10 @@ public final class StrikeService {
             case Target.Point p -> "точка";
             case Target.Ground g -> "место с карты";
             case Target.OfEntity e -> {
+                // игрок — где бы он ни был (удар по игроку в другом измерении)
+                ServerPlayer player = level.getServer().getPlayerList().getPlayer(e.uuid());
+                if (player != null) yield "игрок " + player.getGameProfile().getName();
                 Entity ent = level.getEntity(e.uuid());
-                if (ent instanceof Player player) yield "игрок " + player.getGameProfile().getName();
                 yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
             }
             case Target.OfSubLevel s -> "аппарат";

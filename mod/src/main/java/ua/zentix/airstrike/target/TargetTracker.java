@@ -3,10 +3,13 @@ package ua.zentix.airstrike.target;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.util.Nbt;
 
+import java.lang.ref.WeakReference;
 import java.util.Optional;
 
 /**
@@ -35,6 +38,13 @@ public final class TargetTracker {
     private boolean lost;
     /** Потеряна, потому что ушла дальше запаса на погоню, а не пропала (для строки в лог; не сохраняется). */
     private boolean outOfReach;
+    /**
+     * Сущность-цель, за которой шли в прошлый тик (не сохраняется: после загрузки — первая найденная). Другая сущность
+     * с тем же UUID — это уже не она: игрок, умерший и возрождённый между двумя тиками снаряда ({@code doImmediateRespawn}),
+     * — новый {@code ServerPlayer}, и смерти снаряд иначе не заметил бы.
+     */
+    @Nullable
+    private WeakReference<Entity> followed;
 
     public TargetTracker(Target target, Vec3 initialPoint) {
         this.target = target;
@@ -48,7 +58,18 @@ public final class TargetTracker {
      */
     public double tick(ServerLevel level) {
         if (lost) return 0;
-        Optional<Vec3> now = target.resolve(level);
+        Optional<Vec3> now;
+        if (target instanceof Target.OfEntity e) {
+            Entity entity = level.getEntity(e.uuid());
+            if (followed != null && followed.get() != entity) {
+                loseTarget();
+                return 0;
+            }
+            if (followed == null && entity != null) followed = new WeakReference<>(entity);
+            now = e.resolve(level, entity);
+        } else {
+            now = target.resolve(level);
+        }
         if (now.isEmpty()) {
             loseTarget();
             return 0;
@@ -85,6 +106,7 @@ public final class TargetTracker {
         velocity = Vec3.ZERO;
         lost = false;
         outOfReach = false;
+        followed = null;
         return moved;
     }
 

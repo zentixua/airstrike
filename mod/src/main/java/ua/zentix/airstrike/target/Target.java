@@ -11,6 +11,7 @@ import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.util.Terrain;
 
@@ -126,7 +127,11 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
 
         @Override
         public Optional<Vec3> resolve(ServerLevel level) {
-            Entity e = level.getEntity(uuid);
+            return resolve(level, level.getEntity(uuid));
+        }
+
+        /** Точка цели у уже найденной сущности с её UUID ({@code null} — её нет в этом мире). */
+        public Optional<Vec3> resolve(ServerLevel level, @Nullable Entity e) {
             if (e == null || !e.isAlive()) return Optional.empty();
             Vec3 at = e.position().add(offset);
             if (spread.equals(Vec3.ZERO)) return Optional.of(at);

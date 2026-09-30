@@ -174,7 +174,7 @@ public final class StrikeGameTests {
                 // срок — полёт до точки с запасом ×1.5 и 10 с (здесь с допуском на тики между потерей и проверкой);
                 // без ограничения — ещё полторы тысячи тиков погони
                 bound[0] = 2 * f.etaTicks() + 200;
-                int left = lifetimeLeft(f);
+                int left = f.lifetimeLeft();
                 h.assertTrue(left <= bound[0], "после потери цели срок жизни " + left + " тиков, а полёт до точки — " + f.etaTicks());
             }
         });
@@ -187,20 +187,6 @@ public final class StrikeGameTests {
         });
     }
 
-    /** Сколько тиков снаряду осталось до самоликвидации (срок жизни без ожидания района цели). */
-    private static int lifetimeLeft(StrikeProjectile p) {
-        try {
-            Field lifetime = StrikeProjectile.class.getDeclaredField("lifetime");
-            Field areaWait = StrikeProjectile.class.getDeclaredField("areaWait");
-            lifetime.setAccessible(true);
-            areaWait.setAccessible(true);
-            int max = lifetime.getInt(p);
-            return max - (p.age() - areaWait.getInt(p));
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     /**
      * Цель сбоку, внутри круга разворота (промах в пике, точка в воздухе, где пропала цель): шахед не кружит вокруг неё
      * до конца срока жизни, а уходит прямо, набирает высоту и заходит снова. Всё — выше барьерной стены площадки
@@ -208,6 +194,19 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack", skyAccess = true)
     public static void droneReattacksInsteadOfCircling(GameTestHelper h) {
+        droneReattacks(h, false);
+    }
+
+    /**
+     * То же, но цель — сущность, которая погибает в тот же тик, когда шахед её взял: её последняя точка внутри круга
+     * разворота, и повторный заход должен уложиться в срок после потери цели (полёт до точки ×1.5 и 10 с).
+     */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack_lost", skyAccess = true)
+    public static void droneReattacksLostTargetInTime(GameTestHelper h) {
+        droneReattacks(h, true);
+    }
+
+    private static void droneReattacks(GameTestHelper h, boolean targetDies) {
         ServerLevel level = h.getLevel();
         gameSpeed(h);
         Vec3 point = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 85, 120)));
@@ -217,22 +216,43 @@ public final class StrikeGameTests {
         // старт за краем площадки: чанк там может не тикать — в мир шахед вернётся сам
         VirtualFlights.launch(level, drone);
         UUID id = drone.getUUID();
-        boolean[] retargeted = {false};
+        // цель, которая погибнет: висит в точке, центром тела в ней
+        Cow cow = targetDies ? EntityType.COW.create(level) : null;
+        if (cow != null) {
+            cow.setNoAi(true);
+            cow.setNoGravity(true);
+            cow.moveTo(point.x, point.y - cow.getBbHeight() / 2, point.z);
+            level.addFreshEntity(cow);
+        }
+        int[] tick = {0};
+        int[] retargetedAt = {-1};
+        int[] lostAt = {-1};
+        int[] bound = {0};
         Vec3[] last = {start};
         h.onEachTick(() -> {
+            tick[0]++;
             StrikeProjectile f = flight(level, id);
             if (f == null) return;
             last[0] = f.position();
             // цель — в 24 блоках сбоку, чуть впереди и на 25 блоков ниже: круто под крылом
-            if (!retargeted[0] && f.getZ() >= point.z - 4) {
-                retargeted[0] = true;
-                h.assertTrue(f.retarget(new Target.Point(point), point), "шахед не принял цель");
+            if (retargetedAt[0] < 0 && f.getZ() >= point.z - 4) {
+                retargetedAt[0] = tick[0];
+                Target target = cow != null ? Target.OfEntity.center(cow) : new Target.Point(point);
+                h.assertTrue(f.retarget(target, point), "шахед не принял цель");
+                if (cow != null) cow.kill();
+            }
+            if (targetDies && lostAt[0] < 0 && f.targetLost()) {
+                lostAt[0] = tick[0];
+                bound[0] = f.lifetimeLeft();
+                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели срок " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
             }
         });
         h.succeedWhen(() -> {
-            h.assertTrue(retargeted[0], "шахед не дошёл до места перенацеливания: " + h.relativeVec(last[0]));
+            h.assertTrue(retargetedAt[0] >= 0, "шахед не дошёл до места перенацеливания: " + h.relativeVec(last[0]));
+            if (targetDies) h.assertTrue(lostAt[0] >= 0, "шахед не потерял цель");
             h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]) + ", до цели " + (int) last[0].distanceTo(point));
             h.assertTrue(last[0].distanceTo(point) < 10, "шахед взорвался не у цели: " + last[0].subtract(point));
+            if (targetDies) h.assertTrue(tick[0] - lostAt[0] < bound[0], "повторный заход не уложился в срок: " + (tick[0] - lostAt[0]) + " из " + bound[0]);
         });
     }
 
