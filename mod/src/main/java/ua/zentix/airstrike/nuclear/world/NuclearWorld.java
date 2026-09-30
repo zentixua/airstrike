@@ -65,13 +65,15 @@ public final class NuclearWorld {
 
     /** Давно не брали и нет работы, кроме ждущих соседей, — забыть (память разломов и старых блоков руин). */
     private void sweepRuins(long now) {
-        if (now % RUINS_SWEEP != 0 || ruins.isEmpty()) return;
+        if (now % RUINS_SWEEP != 0) return;
         ruins.int2ObjectEntrySet().removeIf(e -> now - e.getValue().used > RUINS_IDLE && !scars.pending(e.getIntKey()));
-        // руин больше нет: буферы обхода (окно высокого города — десятки МБ) не держатся
-        if (ruins.isEmpty()) {
-            Collapse.releaseBuffers();
-            Blast.releaseBuffers();
-        }
+        // ни руин, ни подготовки: буферы обхода (окно высокого города — десятки МБ) не держатся
+        if (ruins.isEmpty() && prep.idle()) releaseBuffers();
+    }
+
+    private static void releaseBuffers() {
+        Collapse.releaseBuffers();
+        Blast.releaseBuffers();
     }
 
     public int queuedChunks() {
@@ -178,6 +180,7 @@ public final class NuclearWorld {
         craters.clear();
         blast.clear();
         mobFallout.clear();
+        releaseBuffers();
     }
 
     // ---------------------------------------------------------------- тик

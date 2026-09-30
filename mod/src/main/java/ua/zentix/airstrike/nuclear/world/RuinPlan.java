@@ -257,12 +257,12 @@ public final class RuinPlan {
         return FLUID_DELAY + 20 * (k / FLUID_TICKS) + (int) (RuinPlanner.hash(x, y, z, 37) * 20);
     }
 
-    /** Сколько блоков меняет план (без пожаров). */
     /** Сколько пожаров ставит план (проверки). */
     public int fireCount() {
         return fires.length;
     }
 
+    /** Сколько блоков меняет план (без пожаров). */
     public int changedBlocks() {
         return cells.length;
     }

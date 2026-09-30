@@ -375,7 +375,8 @@ public final class RuinGameTests {
 
     /**
      * Песчаный навес над обрывом из песчаника (природный: опоры под ним не было и до удара) при ~3 psi стоит — волна
-     * его не сломала и опоры не отняла.
+     * его не сломала и опоры не отняла. Рядом с навесом волна выбивает стекло: обрушение считается, и навес проходит
+     * его проверку, а не пропускается.
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_sand", skyAccess = true)
     public static void sandOverhangStays(GameTestHelper h) {
@@ -383,11 +384,45 @@ public final class RuinGameTests {
         for (BlockPos p : BlockPos.betweenClosed(cliff, cliff.offset(4, 3, 4))) h.setBlock(p, Blocks.SANDSTONE);
         BlockPos overhang = cliff.offset(-2, 4, 0);
         for (BlockPos p : BlockPos.betweenClosed(overhang, overhang.offset(6, 0, 4))) h.setBlock(p, Blocks.SAND);
+        BlockPos glass = overhang.offset(7, 0, 2);
+        h.setBlock(glass, Blocks.GLASS);
         Detonation d = atPsi(h, CENTER.west(10), true, overhang, 3);
         scarAll(h, d, new ColumnScar.Budget(false));
+        h.assertFalse(h.getBlockState(glass).is(Blocks.GLASS), "стекло у навеса цело: обрушение не считалось (" + psi(d, h, overhang) + ")");
         for (BlockPos p : BlockPos.betweenClosed(overhang, overhang.offset(6, 0, 4))) {
             if (!h.getBlockState(p).is(Blocks.SAND)) h.fail("песчаный навес упал в " + p.toShortString() + ": " + h.getBlockState(p) + " (" + psi(d, h, overhang) + ")");
         }
+        h.succeed();
+    }
+
+    /**
+     * Вода за стеклом перепада не снимает: стенка аквариума из стекла, за ней вода, лицом к взрыву — воздух, при ~2 psi
+     * лопается (давление на лицо, за хрупким стеклом ничего твёрдого). Стекло, со всех сторон окружённое водой, —
+     * цело: давлению не к чему приложиться.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_aquarium", skyAccess = true)
+    public static void glassBackedByWaterBreaks(GameTestHelper h) {
+        BlockPos front = new BlockPos(44, 12, 28); // стекло на x = 44, вода — 45…47, задняя стенка — 48
+        for (int dz = -1; dz <= 5; dz++) {
+            for (int y = 0; y < 3; y++) {
+                for (int dx = 0; dx <= 4; dx++) {
+                    boolean side = dz == -1 || dz == 5;
+                    Block b = side || dx == 4 ? Blocks.STONE_BRICKS : dx == 0 ? Blocks.GLASS : Blocks.WATER;
+                    h.setBlock(front.offset(dx, y, dz), b);
+                }
+            }
+        }
+        BlockPos sunk = front.offset(2, 0, 2); // на дне: и когда вода стечёт, стоит на грунте
+        h.setBlock(sunk, Blocks.GLASS);
+        Detonation d = atPsi(h, CENTER.west(10), true, front.offset(0, 1, 2), 2);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        String at = " (" + psi(d, h, front.offset(0, 1, 2)) + ")";
+        for (int dz = 0; dz < 5; dz++) {
+            for (int y = 0; y < 3; y++) {
+                if (h.getBlockState(front.offset(0, y, dz)).is(Blocks.GLASS)) h.fail("стекло аквариума с водой за ним цело в " + front.offset(0, y, dz).toShortString() + at);
+            }
+        }
+        h.assertTrue(h.getBlockState(sunk).is(Blocks.GLASS), "стекло в толще воды разбито" + at);
         h.succeed();
     }
 

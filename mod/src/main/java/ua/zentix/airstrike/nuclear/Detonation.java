@@ -79,6 +79,11 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
 
     /** Порог дальней зоны: 0.5 psi (стёкла). */
     public static final double FAR_KPA = BlastModel.kpa(0.5);
+    /**
+     * Край руин: стекло (порог 0.8 psi, разброс от 0.85) лопается от отражённого давления на грани к взрыву — от 0.68 psi
+     * отражённого, то есть от ~0.34 psi падающего (у слабой волны отражённое — вдвое больше).
+     */
+    public static final double RUIN_EDGE_KPA = BlastModel.kpa(0.34);
 
     // ---------------------------------------------------------------- масштаб
 
@@ -129,6 +134,14 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     /** Докуда что-то вообще меняется (блоки): стёкла или ожоги 1-й степени — что дальше. */
     public double radiusMax() {
         return Caches.radiusMax(this);
+    }
+
+    /**
+     * Докуда идут руины (блоки): до {@link #RUIN_EDGE_KPA}, где отражённое давление ещё бьёт стекло, и не ближе
+     * {@link #radiusMax}. Не дальше 1.5 {@link #radiusMax} (0.34 psi против 0.5) — докуда посчитан приход фронта.
+     */
+    public double ruinRadius() {
+        return Caches.ruinRadius(this);
     }
 
     // ---------------------------------------------------------------- свет и шар
@@ -193,6 +206,12 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         private static final java.util.Map<Detonation, ArrivalTable> ARRIVAL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
         private static final java.util.Map<Detonation, FrontProfile> FRONT = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
         private static final java.util.Map<Detonation, Double> RADIUS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+        private static final java.util.Map<Detonation, Double> RUINS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+        static double ruinRadius(Detonation d) {
+            return RUINS.computeIfAbsent(d, x -> Math.min(x.radiusMax() * 1.5,
+                    Math.max(x.radiusMax(), x.blocks(BlastModel.rangeForOverpressure(RUIN_EDGE_KPA, x.yieldKt)))));
+        }
 
         static ArrivalTable arrival(Detonation d) {
             return ARRIVAL.computeIfAbsent(d, x -> ArrivalTable.of(x.yieldKt, Math.max(1000, x.metres(x.radiusMax()) * 1.5)));

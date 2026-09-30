@@ -257,10 +257,11 @@ final class Collapse {
         return p.bearing() && !p.fixed() && p.response().kind() != BlockResponse.Kind.GROUND;
     }
 
+    /** Касается сломанного или падающего несущего (цветок, факел, листва рядом каскада не начинают). */
     private boolean touches(int wx, int y, int wz, long[] bits) {
         for (Direction dir : Direction.values()) {
             int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
-            if (inside(nx, ny, nz) && bit(bits, idx(nx, ny, nz))) return true;
+            if (inside(nx, ny, nz) && bit(bits, idx(nx, ny, nz)) && props(nx, ny, nz).bearing()) return true;
         }
         return false;
     }

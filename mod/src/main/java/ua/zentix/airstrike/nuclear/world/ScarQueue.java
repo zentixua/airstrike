@@ -229,7 +229,7 @@ public final class ScarQueue {
      * {@code onChunkLoad}, когда загрузится.
      */
     private static long[] loadedInRange(ServerLevel level, Detonation d, long[] except) {
-        double radius = d.radiusMax();
+        double radius = d.ruinRadius();
         it.unimi.dsi.fastutil.longs.LongOpenHashSet skip = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(except);
         LongArrayList in = new LongArrayList();
         for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
@@ -334,7 +334,7 @@ public final class ScarQueue {
     }
 
     private static boolean inRange(ChunkPos p, Detonation d) {
-        return nearest(p, d) <= d.radiusMax();
+        return nearest(p, d) <= d.ruinRadius();
     }
 
     /** Наклонная дальность от точки подрыва до ближайшего места чанка на уровне земли. */

@@ -163,6 +163,11 @@ public final class NuclearPrep {
         return preps.stream().mapToInt(p -> p.plans.size()).sum();
     }
 
+    /** Подготовки нет ни одной: буферы решателя руин ей не нужны. */
+    public boolean idle() {
+        return preps.isEmpty();
+    }
+
     /** Сколько квадратов держится тикетами (проверки). */
     public int heldTiles() {
         return (int) preps.stream().flatMap(p -> p.tiles.stream()).filter(t -> t.state == TileState.LOADING || t.state == TileState.READY).count();

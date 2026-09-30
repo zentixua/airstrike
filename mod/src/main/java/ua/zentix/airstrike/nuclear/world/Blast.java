@@ -61,6 +61,11 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
     static final double[] K = {0, 1, 2, 3.5};
     /** Гибкость, с которой элемент опрокидывается, и наибольшая его толщина. */
     private static final int SLENDER = 4, MAX_TOPPLE = 6;
+    /**
+     * Наибольшая толщина опрокидывания у грунта: природные столбы и мезы толще 4 стоят (ядро высотки из кальцита
+     * или терракоты 4×4 — ещё падает, как и до ревью).
+     */
+    private static final int GROUND_TOPPLE = 4;
     private static final int SIDE = RuinWindow.SIDE, LO = 16, HI = 32;
 
     // ---------------------------------------------------------------- свойства состояний
@@ -336,26 +341,28 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         }
 
         /**
-         * Волна входит в проломы {@code breaks}: весь воздух окна, связанный с ними, получает давление падающей волны
-         * (становится воздухом с небом), и блоки у проломов и у этого воздуха в столбцах чанка ± {@code margin} решаются
-         * заново — в {@code out}.
+         * Волна входит в проломы {@code breaks}: весь воздух, связанный с ними, в столбцах чанка ± {@link #ROUND_ONE}
+         * получает давление падающей волны (становится воздухом с небом), и блоки у проломов и у этого воздуха в столбцах
+         * чанка ± {@code margin} решаются заново — в {@code out}. Дальше {@link #ROUND_ONE} заливка не идёт: решения там
+         * не нужны ни этому чанку, ни обрушению (его пути опоры короче), а высотка в окне 48×48 — десятки мс на единицу.
          */
         void aroundBreaks(IntArrayList breaks, int margin, IntArrayList out) {
             IntArrayList reach = new IntArrayList(breaks);
-            IntOpenHashSet seen = new IntOpenHashSet();
             for (int q = 0; q < reach.size(); q++) {
                 int c = reach.getInt(q), wx = c % SIDE, wz = (c / SIDE) % SIDE, y = c / (SIDE * SIDE) + yb;
                 int dc = bit(gone, c) ? 0 : sky[c];
                 for (Direction dir : Direction.values()) {
                     int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                    if (nx < LO - ROUND_ONE || nx >= HI + ROUND_ONE || nz < LO - ROUND_ONE || nz >= HI + ROUND_ONE) continue;
                     if (!inside(nx, ny, nz) || ny > w.top(nx, nz)) continue;
                     int n = idx(nx, ny, nz);
-                    if (bit(gone, n) || sky[n] != 0 || !w.get(nx, ny, nz).isAir() || !seen.add(n)) continue;
+                    // место с небом уже пройдено (у воздуха — отметка глубины, проставленная при первом заходе)
+                    if (bit(gone, n) || sky[n] != 0 || !w.get(nx, ny, nz).isAir()) continue;
                     sky[n] = (byte) Math.min(Byte.MAX_VALUE, dc + 1);
                     reach.add(n);
                 }
             }
-            seen.clear();
+            IntOpenHashSet seen = new IntOpenHashSet();
             for (int q = 0; q < reach.size(); q++) {
                 int c = reach.getInt(q), wx = c % SIDE, wz = (c / SIDE) % SIDE, y = c / (SIDE * SIDE) + yb;
                 for (Direction dir : Direction.values()) {
@@ -454,9 +461,11 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             double cos = alongX ? Math.abs(ex) : Math.abs(ez);
             int fx = alongX ? wx - step : wx, fz = alongX ? wz : wz - step;
             if (!open(fx, y, fz)) return; // лицом не к небу
+            // грунт (скалы, столбы, мезы) опрокидывается не толще GROUND_TOPPLE — как до ревью; постройке — до MAX_TOPPLE
+            int most = p.response().kind() == BlockResponse.Kind.GROUND ? GROUND_TOPPLE : MAX_TOPPLE;
             int run = 0;
-            while (run <= MAX_TOPPLE && full(alongX ? wx + step * run : wx, y, alongX ? wz : wz + step * run)) run++;
-            if (run == 0 || run > MAX_TOPPLE) return;
+            while (run <= most && full(alongX ? wx + step * run : wx, y, alongX ? wz : wz + step * run)) run++;
+            if (run == 0 || run > most) return;
             int bx = alongX ? wx + step * run : wx, bz = alongX ? wz : wz + step * run;
             if (!open(bx, y, bz)) return; // сзади не небо: массив, склон
             // плечо — только та высота, где элемент стоит один, с воздухом сзади: простенок держит перекрытие над этажом
@@ -466,9 +475,9 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             // держат поперечные стены и перекрытия
             if (!first) {
                 int a = 0, b = 0;
-                while (a < MAX_TOPPLE && full(alongX ? wx : wx + a + 1, y, alongX ? wz + a + 1 : wz)) a++;
-                while (b < MAX_TOPPLE && full(alongX ? wx : wx - b - 1, y, alongX ? wz - b - 1 : wz)) b++;
-                if (a + b + 1 > MAX_TOPPLE) return;
+                while (a < most && full(alongX ? wx : wx + a + 1, y, alongX ? wz + a + 1 : wz)) a++;
+                while (b < most && full(alongX ? wx : wx - b - 1, y, alongX ? wz - b - 1 : wz)) b++;
+                if (a + b + 1 > most) return;
             }
             if (!p.response().breaksAt(pr * cos * height / run / K[3], seed)) return;
             for (int i = 0; i < run; i++) {
@@ -492,15 +501,27 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             return k;
         }
 
-        /** Полный куб для толщины: жидкость — тоже (вода не даёт перепада), выбитое в раунде 1 — нет. */
+        /** Полный куб ряда опрокидывания: жидкость — тоже (за водой не небо), выбитое в раунде 1 — нет. */
         boolean full(int wx, int y, int wz) {
             if (isGone(wx, y, wz)) return false;
             Props p = props(w.get(wx, y, wz));
             return p.full() || p.fluid();
         }
 
+        /** Твёрдый полный куб для толщины: жидкость — нет, выбитое в раунде 1 — нет. */
+        boolean solid(int wx, int y, int wz) {
+            return !isGone(wx, y, wz) && props(w.get(wx, y, wz)).full();
+        }
+
+        /** Жидкость (не выбитая): за ней перепада нет. */
+        boolean wet(int wx, int y, int wz) {
+            return inside(wx, y, wz) && !isGone(wx, y, wz) && props(w.get(wx, y, wz)).fluid();
+        }
+
         /**
-         * Толщина элемента через место: наименьшая по осям длина ряда полных кубов с открытыми концами (4 — массив).
+         * Толщина элемента через место: наименьшая по осям длина ряда твёрдых полных кубов (4 — массив). Ось, у которой
+         * оба конца ряда — вода, не в счёт: воду с обеих сторон волна не продавит (стекло в пруду цело), а стекло
+         * аквариума с водой только сзади — тонкое: лицо к воздуху получает давление, и хрупкое лопается.
          * Упаковано: биты 0–2 — толщина, 3–4 — ось, 5–6 и 7–8 — сколько кубов ряда в плюс и в минус по оси.
          */
         long thickness(int wx, int y, int wz, Props self) {
@@ -509,10 +530,11 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             for (int axis = 0; axis < 3 && best > 1; axis++) {
                 int dx = axis == 0 ? 1 : 0, dy = axis == 1 ? 1 : 0, dz = axis == 2 ? 1 : 0;
                 int a = 0, b = 0;
-                while (a < 3 && full(wx + dx * (a + 1), y + dy * (a + 1), wz + dz * (a + 1))) a++;
+                while (a < 3 && solid(wx + dx * (a + 1), y + dy * (a + 1), wz + dz * (a + 1))) a++;
                 if (a >= 3) continue;
-                while (b < 3 && full(wx - dx * (b + 1), y - dy * (b + 1), wz - dz * (b + 1))) b++;
+                while (b < 3 && solid(wx - dx * (b + 1), y - dy * (b + 1), wz - dz * (b + 1))) b++;
                 if (b >= 3 || a + b + 1 >= best) continue;
+                if (wet(wx + dx * (a + 1), y + dy * (a + 1), wz + dz * (a + 1)) && wet(wx - dx * (b + 1), y - dy * (b + 1), wz - dz * (b + 1))) continue;
                 best = a + b + 1;
                 bestAxis = axis;
                 bestA = a;
