@@ -75,13 +75,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Взрыватель взводится на таком удалении от пусковой (или с выходом на маршевый участок). */
     private static final double ARM_DISTANCE = 96;
+    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
+    private static final double TURN_MARGIN = 1.2;
     /**
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
      * по 9×9 чанков от залпа с разбросом) или цель недостижима.
      */
-    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
-    private static final double TURN_MARGIN = 1.2;
     private static final int AREA_WAIT_LIMIT = 1200;
+    /** Запас срока жизни, тиков, сверх полёта до последней точки потерянной цели (см. {@link #onTargetLost}). */
+    private static final int LOST_GRACE = 200;
     /** Вне мира снаряд под поверхностью ещё летит к цели, пока он не ниже её на столько блоков (см. groundCrossing). */
     private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
@@ -679,9 +681,26 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Слежение за целью; возвращает текущую точку прицеливания. */
     protected Vec3 updateTarget(ServerLevel level) {
+        boolean wasLost = tracker.isLost();
         extendLifetime(tracker.tick(level));
+        if (!wasLost && tracker.isLost()) onTargetLost();
         syncAim();
         return tracker.point();
+    }
+
+    /**
+     * Цель потеряна: снаряд идёт в её последнюю точку, и срок жизни — только на полёт туда (время до удара с тем же
+     * запасом, что у плана полёта, и {@link #LOST_GRACE}). Срок, набранный погоней за целью, пока она уходила, ему
+     * больше не нужен: с ним шахеды, чья цель умерла, кружили над точкой её смерти минутами (игра 30.09.2026).
+     * Не дошёл за этот срок — самоликвидация ({@link #advance}).
+     */
+    private void onTargetLost() {
+        int left = (int) Math.ceil(etaTicks() * 1.5) + LOST_GRACE;
+        lifetime = Math.min(maxAge(), age - areaWait + left);
+        Airstrike.LOG.info("Снаряд {} {} у {} потерял цель ({}), идёт в последнюю точку {}, срок ещё {} с",
+                getType().getDescriptionId(), getUUID(), blockPosition(),
+                tracker.outOfReach() ? "ушла дальше запаса погони" : "пропала", BlockPos.containing(tracker.point()),
+                Math.max(0, maxAge() - (age - areaWait)) / 20);
     }
 
     /**
@@ -803,6 +822,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return false;
         }
         if (expired()) {
+            // самоликвидация: так и не дошёл до цели
+            Airstrike.LOG.info("Снаряд {} {} не долетел до {} за срок жизни и взорван у {}{}", getType().getDescriptionId(), getUUID(),
+                    BlockPos.containing(aim), blockPosition(), targetLost() ? " (цель потеряна)" : "");
             impact(level, pos.add(dir.scale(noseLength())), null);
             return false;
         }
@@ -868,8 +890,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return true;
         }
         if (expired()) {
-            Airstrike.LOG.warn("Снаряд {} {} не долетел до {} за срок жизни и убран у {}", getType().getDescriptionId(), getUUID(),
-                    BlockPos.containing(aim), blockPosition());
+            Airstrike.LOG.warn("Снаряд {} {} не долетел до {} за срок жизни и убран у {}{}", getType().getDescriptionId(), getUUID(),
+                    BlockPos.containing(aim), blockPosition(), targetLost() ? " (цель потеряна)" : "");
             discard();
             return false;
         }
