@@ -922,6 +922,16 @@ public final class Trailer {
                 CineCamera.Key.at(340, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)))
                 // пыль гриба и разрушения в только что загруженных чанках (они идут под бюджетом) должны улечься
                 .when(() -> sinceDetonation() > 3000, 6000);
+        // не для ролика — проверка руин ядерки по кадрам (облако): круг над зоной, в кадре берега, вода и рельеф у
+        // эпицентра — рвы, стены воды, сухие ямы, зазубрины по границам чанков
+        shot("ruins_orbit").hidden().length(480).camera(() -> {
+            Vec3 c = ground(TOWER);
+            return t -> {
+                double a = t / 480.0 * Math.PI * 2;
+                Vec3 from = c.add(Math.cos(a) * 320, 150, Math.sin(a) * 320);
+                return Pose.look(from, c.add(Math.cos(a) * 60, 0, Math.sin(a) * 60), 0, 60);
+            };
+        });
     }
 
     // ================================================================ места
