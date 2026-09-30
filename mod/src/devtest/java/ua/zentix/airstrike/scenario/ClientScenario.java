@@ -59,6 +59,11 @@ public final class ClientScenario {
     private StrikeProjectile watched;
     private String current;
     private int flightShots;
+    /**
+     * Подлёт с земли ({@code airstrike.fx.approach=true}, только с {@code airstrike.fx.targets}): зритель стоит в 40 блоках
+     * к востоку от цели и смотрит на север, откуда заходит снаряд, кадры подлёта — каждые 8 тиков до самого взрыва.
+     */
+    private final boolean approach = Boolean.getBoolean("airstrike.fx.approach");
     /** Видео с борта: текущий вариант («dry», потом «wet»), тик пуска и снятые кадры. */
     private String onboard;
     private int onboardFired = -1, onboardFrames;
@@ -373,7 +378,8 @@ public final class ClientScenario {
      * Эффекты по заданным точкам мира игрока ({@code tools/prod_client.py fx --world … --prop airstrike.fx.targets=…}):
      * пункты через «;», каждый {@code оружие@x,z} (удар в верх колонки — крышу постройки) или {@code оружие@x,y,z}.
      * Зритель висит в 60 блоках к северу и в 25 над точкой, удар — через 200 тиков после переноса (прогрузка чанков),
-     * кадры — от настоящего взрыва, как у {@code fx}; имена кадров — {@code оружие-номер_тик.png}.
+     * кадры — от настоящего взрыва, как у {@code fx}; имена кадров — {@code оружие-номер_тик.png}. С {@link #approach} —
+     * зритель на земле сбоку от цели, снаряд заходит с севера.
      */
     private void planFxAt(String spec, boolean night) {
         fx = new java.util.ArrayDeque<>();
@@ -429,11 +435,22 @@ public final class ClientScenario {
             at(tick + 200, () -> {
                 int y = Double.isNaN(p[1]) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(p[0]), (int) Math.floor(p[2])) : (int) p[1];
                 target = new Vec3(Math.floor(p[0]) + 0.5, y, Math.floor(p[2]) + 0.5);
-                eye = target.add(0, 25, -60);
-                view();
+                String strike = String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", weapon, target.x, target.y, target.z);
+                if (approach) {
+                    // на земле в 40 блоках к востоку; в кадре и цель, и последние ~200 блоков захода с севера
+                    int gx = (int) Math.floor(target.x) + 40, gz = (int) Math.floor(target.z);
+                    eye = new Vec3(gx + 0.5, Math.max(target.y, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, gx, gz)) + 3, gz + 0.5);
+                    cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z,
+                            target.x, target.y + 15, target.z - 40));
+                    // курс захода — курс «взгляда» команды: yaw 0 — на юг, то есть снаряд приходит с севера
+                    strike = "execute rotated 0 0 run " + strike;
+                } else {
+                    eye = target.add(0, 25, -60);
+                    view();
+                }
                 Airstrike.LOG.info("SCENARIO fx target {} at {}", label, target);
                 current = label;
-                cmd(String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", weapon, target.x, target.y, target.z));
+                cmd(strike);
             });
             return;
         }
@@ -467,15 +484,16 @@ public final class ClientScenario {
             for (var e : mc.level.entitiesForRendering()) {
                 if (e instanceof StrikeProjectile p && p.isActive()) watched = p;
             }
-            // с этого тика снаряд виден зрителю: до «impact» — сколько тиков его подлёт на экране
+            // с этого тика снаряд есть у клиента (на экране он или нет — смотреть кадры): до «impact» — сколько тиков
+            // его можно увидеть
             if (watched != null) {
-                Airstrike.LOG.info("SCENARIO {} in view at tick {}, {} blocks from viewer, {} from target", current, tick,
+                Airstrike.LOG.info("SCENARIO {} reached client at tick {}, {} blocks from viewer, {} from target", current, tick,
                         Math.round(watched.distanceTo(mc.player)), Math.round(watched.position().distanceTo(target)));
             }
             return;
         }
         if (!watched.isRemoved()) {
-            if (tick % 8 == 0 && flightShots < 6 && watched.distanceTo(mc.player) < 150) {
+            if (tick % 8 == 0 && (approach || flightShots < 6 && watched.distanceTo(mc.player) < 150)) {
                 flightShots++;
                 shot(tick + 1, current + "_flight");
             }

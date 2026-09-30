@@ -264,6 +264,7 @@ public final class StrikeGameTests {
     /**
      * Ракета издалека вне мира возвращается в мир на краю полосы подлёта ({@link CruiseMissileEntity#VISIBLE_LEG}),
      * а не у района цели (±40 блоков): её подлёт видно игроку у цели и при дистанции симуляции меньше прорисовки.
+     * Заход — поперёк полосы: чанки самой площадки держит GameTest, и ракета вдоль неё вошла бы в мир и без полосы подлёта.
      * В темпе игры: полоса грузится в фоне. Удар — и все районы отпущены.
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_approach", skyAccess = true)
@@ -272,7 +273,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
-        missile.launch(point.add(0, 80, -1200), new Target.Point(point), point, null);
+        missile.launch(point.add(1200, 80, 0), new Target.Point(point), point, null);
         missile.setRoute(Route.direct());
         VirtualFlights.launch(level, missile);
         UUID id = missile.getUUID();
