@@ -347,7 +347,6 @@ public final class Warheads {
 
     // ================================================================ шахед и ракета
 
-    /** Таймлайн наземного взрыва (fx/tick и mfx/tick датапака). */
     /** Вторичный подрыв: тик после удара, сдвиг от точки удара, сила. */
     public record Secondary(int tick, double dx, double dy, double dz, float power) {}
 
@@ -360,6 +359,7 @@ public final class Warheads {
             new Secondary(5, -8, 0, -7, 4), new Secondary(5, 3, 1, 9, 4),
             new Secondary(9, 10, 0, 2, 3));
 
+    /** Таймлайн наземного взрыва (fx/tick и mfx/tick датапака). */
     static final class SurfaceBlast implements Timeline {
         private final WeaponType weapon;
         private final Vec3 pos;
