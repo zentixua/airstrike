@@ -13,6 +13,7 @@
   item/strike_designator, item/geiger_counter — пиксель-арт 16×16 (сетка символов + палитра);
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
+  block/substation_* — трансформаторная подстанция 16×16 (бак, фасад с табличкой, радиатор, изолятор, плита) и обгоревшие;
   nuke/puffs — атлас 4×2 клубов гриба по 64×64 (почти серые: цвет даёт рендерер), nuke/plasma — бесшовная плазма шара 128×128,
   nuke/rain — лист капель чёрного дождя 64×256 (бесшовный по вертикали), nuke/flare — круглое свечение 64×64 (голова следа боеголовки, вспышка).
 Нужны Pillow и numpy.
@@ -238,6 +239,117 @@ def trinitite(N=16):
     return rgba(rgb, np.ones((N, N)))
 
 
+# ---------------------------------------------------------------- подстанция (свой генератор: прежние текстуры не меняются)
+
+srng = np.random.default_rng(11)
+STEEL = np.array((104, 116, 106)) / 255     # крашеная сталь бака (серо-зелёная, как у трансформаторов)
+CONCRETE = np.array((150, 148, 142)) / 255
+
+
+def speckle(base, N=16, amount=0.06):
+    """Ровная краска с мелкой неровностью, бесшовно."""
+    n = pnoise(N, 1.0) - 0.5
+    return np.clip(base[None, None, :] * (1 + amount * 2 * n[..., None]) + amount * 0.3 * (srng.random((N, N, 1)) - 0.5), 0, 1)
+
+
+def substation_side(N=16):
+    """Стенка бака: краска, рёбра жёсткости через 5 пикселей, светлая кромка сверху, тёмная снизу."""
+    rgb = speckle(STEEL)
+    for x in (2, 7, 12):
+        rgb[:, x] *= 1.18
+        rgb[:, x + 1] *= 0.8
+    rgb[0] *= 1.25
+    rgb[-1] *= 0.7
+    return rgb
+
+
+def substation_front(N=16):
+    """Фасад: дверца с петлями и ручкой, жёлтый треугольник «Осторожно, электрическое напряжение» с молнией."""
+    rgb = speckle(STEEL)
+    rgb[0] *= 1.25
+    rgb[-1] *= 0.7
+    rgb[2:15, 2] *= 0.75
+    rgb[2:15, 13] *= 0.75
+    rgb[2, 2:14] *= 0.75
+    rgb[14, 2:14] *= 0.75
+    rgb[4, 3] = rgb[11, 3] = (0.3, 0.32, 0.3)             # петли
+    rgb[8:10, 12] = (0.2, 0.2, 0.2)                        # ручка
+    sign = ["....KK....",
+            "....KK....",
+            "...KYYK...",
+            "...KYYK...",
+            "..KYYKYK..",
+            "..KYKKYK..",
+            ".KYYYKYYK.",
+            ".KYYKYYYK.",
+            "KKKKKKKKKK"]
+    colors = {"K": (0.08, 0.08, 0.08), "Y": (0.96, 0.8, 0.12)}
+    for y, row in enumerate(sign):
+        for x, c in enumerate(row):
+            if c in colors:
+                rgb[3 + y, 3 + x] = colors[c]
+    return rgb
+
+
+def substation_top(N=16):
+    """Крышка: краска, заклёпки по краю."""
+    rgb = speckle(STEEL * 1.08)
+    for k in range(1, 16, 4):
+        for y, x in ((1, k), (14, k), (k, 1), (k, 14)):
+            rgb[y, x] = STEEL * 0.6
+    return rgb
+
+
+def substation_fins(N=16):
+    """Радиатор: частые вертикальные рёбра со светом и тенью."""
+    rgb = speckle(STEEL, amount=0.04)
+    for x in range(N):
+        rgb[:, x] *= (1.2, 1.0, 0.72)[x % 3]
+    return rgb
+
+
+def substation_insulator(N=16):
+    """Изолятор ввода: коричневый глазурованный фарфор юбками — светлый край, тень под ним; сверху контакт."""
+    rgb = np.zeros((N, N, 3))
+    glaze = np.array((0.46, 0.2, 0.1))
+    for y in range(N):
+        rgb[y, :] = glaze * (1.35, 1.1, 0.8, 0.6)[y % 4]
+    rgb[:, :] *= 1 + 0.05 * (srng.random((N, N, 1)) - 0.5)
+    rgb[0:2] = (0.55, 0.55, 0.52)
+    rgb[:, 0] *= 0.8
+    rgb[:, -1] *= 0.8
+    return np.clip(rgb, 0, 1)
+
+
+def substation_base(N=16):
+    """Бетонная плита с порами."""
+    rgb = speckle(CONCRETE, amount=0.08)
+    for _ in range(8):
+        x, y = srng.integers(0, N, 2)
+        rgb[y, x] *= 0.75
+    return rgb
+
+
+def burnt(rgb, N=16):
+    """Выгоревшая: копоть пятнами (чёрное к низу и к центру взрыва), вздутая краска, ржавые подтёки."""
+    soot = pnoise(N, 1.4)
+    k = np.clip(0.25 + 0.55 * soot, 0, 1)[..., None]
+    out = rgb * k
+    rust = srng.random((N, N)) < 0.08
+    out[rust] = (0.32, 0.14, 0.06)
+    return np.clip(out, 0, 1)
+
+
+def substation():
+    for name, f in (("side", substation_side), ("front", substation_front), ("top", substation_top),
+                    ("fins", substation_fins), ("insulator", substation_insulator)):
+        rgb = f()
+        save(rgba(rgb, np.ones(rgb.shape[:2])), f"block/substation_{name}")
+        save(rgba(burnt(rgb), np.ones(rgb.shape[:2])), f"block/substation_{name}_burnt")
+    rgb = substation_base()
+    save(rgba(rgb, np.ones(rgb.shape[:2])), "block/substation_base")
+
+
 if __name__ == "__main__":
     paint(DESIGNATOR, "item/strike_designator")
     paint(GEIGER, "item/geiger_counter")
@@ -251,4 +363,5 @@ if __name__ == "__main__":
     save(plasma(), "nuke/plasma")
     save(rain_sheet(), "nuke/rain")
     save(flare(), "nuke/flare")
+    substation()
     print("ok")

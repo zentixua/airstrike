@@ -5,6 +5,8 @@ import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.grid.BlackoutWorld;
+import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
@@ -23,6 +25,21 @@ public final class ModAttachments {
     /** Чанк: номер последнего ядерного подрыва, чьи повреждения к нему уже применены. */
     public static final Supplier<AttachmentType<Integer>> CHUNK_SCAR = REGISTER.register("chunk_scar",
             () -> AttachmentType.builder(() -> 0).serialize(Codec.INT).build());
+
+    /**
+     * Чанк: в нём стоят погашенные блэкаутом лампы (отметка, по которой загрузка чанка возвращает в него свет, когда
+     * отключение кончилось); нет отметки — нет и погашенных ламп.
+     */
+    public static final Supplier<AttachmentType<Boolean>> GRID_DARK = REGISTER.register("grid_dark",
+            () -> AttachmentType.builder(() -> false).build());
+
+    /** Мир: блэкаут — каскады и очередь чанков ({@link BlackoutWorld}); не сохраняется. */
+    public static final Supplier<AttachmentType<BlackoutWorld>> BLACKOUT_WORLD = REGISTER.register("blackout_world",
+            () -> AttachmentType.builder(BlackoutWorld::new).build());
+
+    /** Верхний мир: часы бюджета блэкаута — один на тик сервера ({@link Blackouts#clock}); не сохраняется. */
+    public static final Supplier<AttachmentType<WorkClock>> GRID_CLOCK = REGISTER.register("grid_clock",
+            () -> AttachmentType.builder(Blackouts::newClock).build());
 
     /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",

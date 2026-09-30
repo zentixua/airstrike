@@ -1,0 +1,30 @@
+{
+  "variants": {
+    "facing=down": {
+      "model": "airstrike:block/unlit_end_rod",
+      "x": 180
+    },
+    "facing=east": {
+      "model": "airstrike:block/unlit_end_rod",
+      "x": 90,
+      "y": 90
+    },
+    "facing=north": {
+      "model": "airstrike:block/unlit_end_rod",
+      "x": 90
+    },
+    "facing=south": {
+      "model": "airstrike:block/unlit_end_rod",
+      "x": 90,
+      "y": 180
+    },
+    "facing=up": {
+      "model": "airstrike:block/unlit_end_rod"
+    },
+    "facing=west": {
+      "model": "airstrike:block/unlit_end_rod",
+      "x": 90,
+      "y": 270
+    }
+  }
+}

@@ -81,6 +81,18 @@ public final class SubLevels {
         }
     }
 
+    /** Во сколько раз аппарат в мире меньше, чем в плоте (наименьшая ось масштаба; 1 — если не узнать). */
+    public static double minScale(SubLevelAccess sub) {
+        try {
+            var s = sub.logicalPose().scale();
+            double m = Math.min(s.x(), Math.min(s.y(), s.z()));
+            return m > 1e-3 ? m : 1;
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return 1;
+        }
+    }
+
     /** Аппараты в радиусе (по габаритам). */
     public static List<SubLevelAccess> near(Level level, Vec3 at, double radius) {
         List<SubLevelAccess> out = new ArrayList<>();
@@ -92,6 +104,23 @@ public final class SubLevels {
             fail(e);
         }
         return out;
+    }
+
+    /** Все аппараты мира. */
+    public static List<SubLevelAccess> all(Level level) {
+        return near(level, Vec3.ZERO, 3.0e7);
+    }
+
+    /** Аппарат, в плоте которого лежит чанк, или null. */
+    @Nullable
+    public static SubLevelAccess containing(Level level, net.minecraft.world.level.ChunkPos chunk) {
+        if (broken) return null;
+        try {
+            return companion().getContaining(level, chunk);
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return null;
+        }
     }
 
     @Nullable

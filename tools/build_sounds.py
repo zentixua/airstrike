@@ -115,6 +115,16 @@ SOURCES = {
     583065: ("Profispiesser", "FX SaSc Glass Tiles Shatter Crash.wav", CC0, "583/583065_6667441"),
     860133: ("KVV_Audio", "RAIN_Heavy Rain Outdoor 01_KVV_FREE", BY4, "860/860133_12846320"),
     674113: ("Sanderboah", "Geiger counter (dry)", CC0, "674/674113_13017680"),
+    # сеть: выход подстанции из строя, дуга, гул трансформатора, район гаснет и загорается
+    438494: ("craigsmith", "G32-10-Massive Electrical Discharges.wav", CC0, "438/438494_2524442"),
+    434359: ("csengeri", "Close lightning strike 2018 07 07", CC0, "434/434359_197070"),
+    367456: ("jensfelger", "Jacob's ladder.wav", CC0, "367/367456_6750383"),
+    210878: ("Sclolex", "highvoltagearc.wav", CC0, "210/210878_985466"),
+    547900: ("nicotep", "EDF_Electrical_substation", CC0, "547/547900_7529214"),
+    451933: ("kyles", "switch big breaker metal click on, off", CC0, "451/451933_612689"),
+    573936: ("TRP", "Fridge hum whirl stops loud clunk bang", CC0, "573/573936_97550"),
+    139970: ("jessepash", "Switch.Big.Power.wav", CC0, "139/139970_968325"),
+    262509: ("OBXJohn", "Gym Lights Powering Up", CC0, "262/262509_3719168"),
 }
 USED = set()
 
@@ -622,6 +632,67 @@ def misc():
     write("silent", np.zeros(int(0.05 * SR)), "silent")
 
 
+# ================================================================ сеть и блэкаут
+
+def spin_down(x, seconds, low=0.35):
+    """Гул, который глохнет: обороты (тон) падают до low и громкость — в ноль за seconds, как у остановленного
+    трансформатора и моторов квартала."""
+    n = int(seconds * SR)
+    rate = low + (1 - low) * (1 - np.linspace(0, 1, n)) ** 1.6
+    pos = np.cumsum(rate)
+    out = np.interp(pos, np.arange(len(x)), x)
+    return out * (1 - np.linspace(0, 1, n)) ** 1.3
+
+
+def grid():
+    """Сеть. Выход подстанции из строя: хлопок пробоя (близкий удар молнии + синтезированный низ), затем дуга
+    трещит и гаснет. Искры выбитой подстанции — настоящая дуга 20 кВ. Гул работающей — трансформатор
+    на подстанции EDF (100 Гц с нечётными гармониками). Квартал гаснет — щелчок автомата и гул, который глохнет;
+    загорается — рубильник и гул ламп."""
+    crack = F(cut(src(434359), 2.02, 6.0), lo=35)
+    arc_sources = [cut(src(438494), 0.33, 4.6), cut(src(438494), 14.42, 18.7), cut(src(367456), 1.0, 5.3)]
+    crackle = F(cut(src(210878), 0.2, 2.6), lo=250)
+    sigs = []
+    for i, arc in enumerate(arc_sources):
+        n = int(4.6 * SR)
+        t = np.arange(n) / SR
+        a = pad(F(arc, lo=90, hi=12000), n) * np.where(t < 0.9, 1, np.exp(-(t - 0.9) / 1.1))
+        tail = np.zeros(n)
+        k = int((1.6 + 0.3 * i) * SR)
+        tail[k:k + len(crackle)] = crackle[:n - k] * np.exp(-np.arange(min(len(crackle), n - k)) / SR / 0.9)
+        bang = mix((pad(align(crack, -20, 0.005), n), 1.0), (pad(sub_thump(2.0, 42 + 4 * i, 9, 0.55), n), 0.8))
+        x = mix((bang, 1.0), (a, 0.7), (tail, 0.25))
+        sigs.append(norm(fade(syn.reverb(punch(x, 5), t60=1.6, mix=0.25), 0.001, 0.6), -11, 0.95))
+    variants("grid.fail", "subtitles.airstrike.grid.fail", "grid_fail", sigs)
+
+    arc = F(src(210878), lo=300, hi=14000)
+    sparks = []
+    for a, b in ((0.5, 1.1), (2.0, 2.5), (3.2, 3.9), (4.4, 4.9)):
+        sparks.append(norm(fade(punch(cut(arc, a, b), 3), 0.003, 0.12), -17, 0.9))
+    variants("grid.spark", "subtitles.airstrike.grid.spark", "grid_spark", sparks)
+
+    hum = F(gate_hiss(src(547900)), lo=70, hi=3000)
+    hums = [norm(fade(cut(hum, a, a + 4.2), 0.8, 0.8), -21, 0.7) for a in (10.0, 41.0)]
+    variants("grid.hum", "subtitles.airstrike.grid.hum", "grid_hum", hums)
+
+    clunk = F(cut(src(451933), 0.0, 0.9), lo=60)
+    fridge = F(cut(src(573936), 6.55, 8.2), lo=40)
+    downs = []
+    for i, (a, stop) in enumerate(((20.0, 1.6), (60.0, 2.2))):
+        body = spin_down(cut(hum, a, a + 4.0), stop)
+        n = int((stop + 0.9) * SR)
+        c = np.zeros(n)
+        k = int(0.08 * SR)
+        c[k:k + len(clunk)] = clunk[:n - k]
+        x = mix((pad(body, n), 1.0), (c, 0.9), (pad(fridge if i else np.zeros(1), n), 0.5))
+        downs.append(norm(fade(syn.reverb(x, t60=1.0, mix=0.2), 0.002, 0.3), -13, 0.9))
+    variants("grid.power_down", "subtitles.airstrike.grid.power_down", "grid_power_down", downs)
+
+    ups = [norm(trim_tail(gate_hiss(F(cut(src(139970), 1.1, 5.2), lo=50)), -50, 0.4), -13, 0.9),
+           norm(trim_tail(gate_hiss(F(cut(src(262509), 6.9, 10.8), lo=50)), -50, 0.4), -13, 0.9)]
+    variants("grid.power_up", "subtitles.airstrike.grid.power_up", "grid_power_up", ups)
+
+
 # ---------------------------------------------------------------- sounds.json и авторы
 
 ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine", "booster.separate", "missile.engine",
@@ -631,7 +702,8 @@ ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine",
          "designator.lock", "silent", "nuke.alarm", "nuke.launch", "nuke.crack", "nuke.boom_far", "nuke.roar",
          "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click", "rocket.launch",
          "rocket.incoming", "rocket.blast", "loiter.engine",
-         "loiter.engine.far", "loiter.dive", "loiter.launch"]
+         "loiter.engine.far", "loiter.dive", "loiter.launch", "grid.fail", "grid.spark", "grid.hum", "grid.power_down",
+         "grid.power_up"]
 
 
 def write_json():
@@ -675,7 +747,7 @@ if __name__ == "__main__":
         if f.endswith(".ogg"):
             os.remove(os.path.join(OUT, f))
     # новые разделы — в конец: генератор случайных чисел общий, так прежние звуки не меняются
-    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter):
+    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter, grid):
         print(part.__name__)
         part()
     write_json()

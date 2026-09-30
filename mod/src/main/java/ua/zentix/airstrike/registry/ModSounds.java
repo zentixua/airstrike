@@ -64,6 +64,13 @@ public final class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> NUKE_RAIN = register("nuke.rain");
     public static final DeferredHolder<SoundEvent, SoundEvent> GEIGER_CLICK = register("geiger.click");
 
+    // блэкаут: выход подстанции (хлопок, дуга, затихающий гул), квартал гаснет и загорается, гул и искры подстанции
+    public static final DeferredHolder<SoundEvent, SoundEvent> GRID_FAIL = register("grid.fail");
+    public static final DeferredHolder<SoundEvent, SoundEvent> GRID_POWER_DOWN = register("grid.power_down");
+    public static final DeferredHolder<SoundEvent, SoundEvent> GRID_POWER_UP = register("grid.power_up");
+    public static final DeferredHolder<SoundEvent, SoundEvent> GRID_HUM = register("grid.hum");
+    public static final DeferredHolder<SoundEvent, SoundEvent> GRID_SPARK = register("grid.spark");
+
     private ModSounds() {}
 
     private static DeferredHolder<SoundEvent, SoundEvent> register(String name) {

@@ -1,0 +1,34 @@
+{
+  "variants": {
+    "facing=north,powered=true": {
+      "model": "airstrike:block/substation"
+    },
+    "facing=north,powered=false": {
+      "model": "airstrike:block/substation_burnt"
+    },
+    "facing=east,powered=true": {
+      "model": "airstrike:block/substation",
+      "y": 90
+    },
+    "facing=east,powered=false": {
+      "model": "airstrike:block/substation_burnt",
+      "y": 90
+    },
+    "facing=south,powered=true": {
+      "model": "airstrike:block/substation",
+      "y": 180
+    },
+    "facing=south,powered=false": {
+      "model": "airstrike:block/substation_burnt",
+      "y": 180
+    },
+    "facing=west,powered=true": {
+      "model": "airstrike:block/substation",
+      "y": 270
+    },
+    "facing=west,powered=false": {
+      "model": "airstrike:block/substation_burnt",
+      "y": 270
+    }
+  }
+}

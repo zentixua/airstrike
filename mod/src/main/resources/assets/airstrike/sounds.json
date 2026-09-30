@@ -498,5 +498,69 @@
         "name": "airstrike:loiter_launch_3"
       }
     ]
+  },
+  "grid.fail": {
+    "subtitle": "subtitles.airstrike.grid.fail",
+    "sounds": [
+      {
+        "name": "airstrike:grid_fail_1"
+      },
+      {
+        "name": "airstrike:grid_fail_2"
+      },
+      {
+        "name": "airstrike:grid_fail_3"
+      }
+    ]
+  },
+  "grid.spark": {
+    "subtitle": "subtitles.airstrike.grid.spark",
+    "sounds": [
+      {
+        "name": "airstrike:grid_spark_1"
+      },
+      {
+        "name": "airstrike:grid_spark_2"
+      },
+      {
+        "name": "airstrike:grid_spark_3"
+      },
+      {
+        "name": "airstrike:grid_spark_4"
+      }
+    ]
+  },
+  "grid.hum": {
+    "subtitle": "subtitles.airstrike.grid.hum",
+    "sounds": [
+      {
+        "name": "airstrike:grid_hum_1"
+      },
+      {
+        "name": "airstrike:grid_hum_2"
+      }
+    ]
+  },
+  "grid.power_down": {
+    "subtitle": "subtitles.airstrike.grid.power_down",
+    "sounds": [
+      {
+        "name": "airstrike:grid_power_down_1"
+      },
+      {
+        "name": "airstrike:grid_power_down_2"
+      }
+    ]
+  },
+  "grid.power_up": {
+    "subtitle": "subtitles.airstrike.grid.power_up",
+    "sounds": [
+      {
+        "name": "airstrike:grid_power_up_1"
+      },
+      {
+        "name": "airstrike:grid_power_up_2"
+      }
+    ]
   }
 }

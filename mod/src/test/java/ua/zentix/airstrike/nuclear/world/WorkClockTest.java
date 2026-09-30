@@ -4,9 +4,15 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkClockTest {
+    private static final long MS = 1_000_000L;
+    private static final long BUDGET = 4 * MS, UNIT = 300_000L;
+
+    private final long[] now = {0};
+
     /** Единица, которая не успеет до срока, не начинается. */
     @Test
     void doesNotStartWorkThatWouldOverrun() {
@@ -57,5 +63,65 @@ class WorkClockTest {
         }
         assertEquals(ticks, c.ticksWorked());
         assertEquals(29, c.maxUnitsPerTick());
+    }
+
+    /** Тик очереди из ровных единиц по 0.3 мс; первая единица тика — {@code first} нс. Возвращает число единиц. */
+    private int tick(WorkClock clock, long first) {
+        clock.start(BUDGET);
+        int units = 0;
+        while (clock.canStart()) {
+            long began = clock.begin();
+            now[0] += units == 0 ? first : UNIT;
+            clock.end(began);
+            units++;
+        }
+        now[0] += 50 * MS;
+        return units;
+    }
+
+    @Test
+    void cheapUnitsFillTheBudget() {
+        WorkClock clock = WorkClock.decaying(() -> now[0], 0.5);
+        tick(clock, UNIT);
+        int units = tick(clock, UNIT);
+        // 0.3 мс единица, 4 мс бюджет: 13 единиц, последняя начинается до срока с запасом на оценку
+        assertEquals(13, units);
+        assertTrue(clock.maxTickNanos() <= BUDGET, "тик " + clock.maxTickNanos() + " нс");
+    }
+
+    /** Всплеск в 20 мс (пауза GC посреди единицы): тающая к тику оценка отпускает очередь за несколько тиков. */
+    @Test
+    void spikeReleasesWithinFewTicks() {
+        WorkClock decaying = WorkClock.decaying(() -> now[0], 0.5);
+        tick(decaying, 20 * MS);
+        int ticks = 0;
+        while (tick(decaying, UNIT) < 13) ticks++;
+        assertTrue(ticks <= 4, "после всплеска " + ticks + " тиков неполной очереди");
+        assertEquals(20 * MS, decaying.largestRecentNanos());
+    }
+
+    /** Оценка, тающая только по единицам, после того же всплеска держит очередь на одной единице за тик десятки тиков. */
+    @Test
+    void perUnitDecayAloneStaysSlow() {
+        WorkClock plain = WorkClock.decaying(() -> now[0], 1);
+        tick(plain, 20 * MS);
+        int single = 0;
+        while (tick(plain, UNIT) == 1) single++;
+        assertTrue(single > 20, "одна единица за тик только " + single + " тиков");
+    }
+
+    @Test
+    void statusReportsLastTick() {
+        WorkClock clock = WorkClock.decaying(() -> now[0], 0.5);
+        int units = tick(clock, UNIT);
+        clock.start(BUDGET);
+        assertEquals(units, clock.unitsLastTick());
+        assertEquals(UNIT, clock.largestRecentNanos());
+    }
+
+    @Test
+    void tickDecayOutOfRangeIsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(0));
+        assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(1.5));
     }
 }

@@ -21,6 +21,8 @@
     "minecraft:redstone_wall_torch",
     "minecraft:lantern",
     "minecraft:soul_lantern",
+    "airstrike:unlit_lantern",
+    "airstrike:unlit_soul_lantern",
     "minecraft:vine",
     "minecraft:glow_lichen",
     "minecraft:sugar_cane",
