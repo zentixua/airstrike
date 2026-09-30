@@ -586,10 +586,12 @@ public final class GridGameTests {
      * Чанк, залитый светом: 32 768 блоков света и фонаря (как невидимые блоки света карт-городов, до 7400 на чанк) —
      * десятки единиц работы. Очередь переводит его проходами с места остановки и доводит до конца (неверный конец чанка
      * оставил бы лампы гореть). Потом чанк выгружается посреди гашения (по единице за тик) и загружается снова: в тёмном
-     * квартале — ни одной горящей лампы; свет возвращается весь.
+     * квартале — ни одной горящей лампы; свет возвращается весь. В темпе игры: выгрузка ждёт записи чанка в фоне, а
+     * сервер GameTest без пауз проходил бы башню раньше.
      */
     @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_tower", skyAccess = true)
     public static void lampTowerConvertsAcrossPassesAndUnload(GameTestHelper h) {
+        StrikeGameTests.gameSpeed(h);
         ServerLevel level = h.getLevel();
         quiet(level);
         var chunks = level.getChunkSource();
@@ -702,9 +704,9 @@ public final class GridGameTests {
                     units[1] = (int) (BlackoutWorld.get(level).totals()[BlackoutWorld.Work.UNIT.ordinal()] - before[BlackoutWorld.Work.UNIT.ordinal()]) - units[0];
                     Blackouts.useClock(level.getServer(), Blackouts.newClock());
                     held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 2, p));
-                    // единицы перевода (без разбора каскада на ряды): по единице на UNIT_WORK ламп, на чанк — не больше
-                    // двух лишних (конец прохода, соседние пустые чанки в той же единице) и запас на пустые чанки района
-                    int most = placed.size() / BlackoutWorld.UNIT_WORK + 2 * held.size() + 4;
+                    // единицы перевода (без разбора каскада на ряды): по единице на UNIT_WORK ламп и запас на концы
+                    // проходов и пустые чанки района (через setBlock по 32 лампы — 900 единиц)
+                    int most = placed.size() * 115 / 100 / BlackoutWorld.UNIT_WORK + 2 * held.size();
                     long[] t = BlackoutWorld.get(level).totals();
                     StringBuilder kinds = new StringBuilder();
                     for (BlackoutWorld.Work w : BlackoutWorld.Work.values()) kinds.append(' ').append(w).append('=').append(t[w.ordinal()] - before[w.ordinal()]);

@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -70,6 +71,10 @@ public final class BlackoutWorld {
     static final int LAMPS_PER_UNIT = UNIT_WORK / WORLD_LAMP;
     /** Чанков за единицу работы: у чанка без ламп — проверка палитр секций, микросекунды. */
     static final int CHUNKS_PER_UNIT = 256;
+    /** Единица дольше этого (настенное время) — в лог с разбивкой ({@link #logSlowUnit}). */
+    private static final long SLOW_UNIT_NANOS = 50_000_000L;
+    /** Игровое время последней записи о долгой единице. */
+    private long slowLogged = Long.MIN_VALUE / 2;
     /** Чанки ближе этого к игроку (в чанках, по большей из осей) идут в очередь раньше остальных. */
     static final int NEAR_CHUNKS = 8;
     /**
@@ -444,12 +449,15 @@ public final class BlackoutWorld {
         }
         advanceSweeps(level, grid, now, clock);
         while (!queueEmpty() && clock.canStart()) {
-            long c0 = clock.begin();
-            long c = 0;
+            long c0 = clock.begin(), t0 = System.nanoTime();
+            long[] counted = count.clone(), timed = nanos.clone();
+            long c = 0, first = 0;
+            int chunks = 0;
             try {
                 int work = 0;
-                for (int chunks = 0; chunks < CHUNKS_PER_UNIT && work < UNIT_WORK && !queueEmpty(); chunks++) {
+                for (; chunks < CHUNKS_PER_UNIT && work < UNIT_WORK && !queueEmpty(); chunks++) {
                     c = take();
+                    if (chunks == 0) first = c;
                     work += handle(level, grid, c, now, UNIT_WORK - work);
                 }
             } catch (RuntimeException e) {
@@ -458,8 +466,26 @@ public final class BlackoutWorld {
                 Airstrike.LOG.error("Блэкаут: перевод чанка {} упал с ошибкой; чанк пропущен", new ChunkPos(c), e);
             } finally {
                 note(Work.UNIT, 1, clock.end(c0));
+                long took = System.nanoTime() - t0;
+                if (took > SLOW_UNIT_NANOS && now >= slowLogged + 200) {
+                    slowLogged = now;
+                    logSlowUnit(level, took, chunks, first, counted, timed);
+                }
             }
         }
+    }
+
+    /** Долгая единица — в лог с разбивкой по видам работы (не чаще раза в 10 с): что в ней было. */
+    private void logSlowUnit(ServerLevel level, long took, int chunks, long first, long[] counted, long[] timed) {
+        StringBuilder kinds = new StringBuilder();
+        for (Work w : Work.values()) {
+            long n = count[w.ordinal()] - counted[w.ordinal()], t = nanos[w.ordinal()] - timed[w.ordinal()];
+            if (w == Work.UNIT || n == 0 && t == 0) continue;
+            kinds.append(' ').append(w.name().toLowerCase(Locale.ROOT)).append('=').append(n);
+            if (t > 0) kinds.append('/').append(String.format(Locale.ROOT, "%.1f", t / 1e6)).append("мс");
+        }
+        Airstrike.LOG.warn("Блэкаут ({}): единица работы {} мс, чанков {}, первый {}:{}", level.dimension().location(),
+                String.format(Locale.ROOT, "%.1f", took / 1e6), chunks, new ChunkPos(first), kinds);
     }
 
     /**
