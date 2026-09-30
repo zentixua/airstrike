@@ -5,6 +5,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -117,12 +118,16 @@ public final class Terrain {
 
     /**
      * Первый воздух над поверхностью, не загружая чанк: чанк готов — по карте высот {@code type}, иначе — рельеф,
-     * каким его строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум, без деревьев и построек).
+     * каким его строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум, без деревьев и построек), не ниже
+     * его уровня моря (над водой поверхность — сама вода). У мира, построенного не этим генератором, оценка бывает
+     * далека от поверхности: мир 1.17, поднятый до 1.21, — новый рельеф на месте старого, генератор давал и дно мира
+     * (Newisle 30.09.2026: удар «по 83 -64 -370»); уровень моря держит её хотя бы у суши. Точная высота — когда чанк готов.
      * Не высота цели: цель бывает в воздухе (игрок в полёте, аппарат), а поверхность под ней — нет.
      */
     public static int surface(ServerLevel level, Heightmap.Types type, int x, int z) {
         if (ready(level, x >> 4, z >> 4)) return height(level, type, x, z);
-        return level.getChunkSource().getGenerator().getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, level,
-                level.getChunkSource().randomState());
+        ChunkGenerator generator = level.getChunkSource().getGenerator();
+        return Math.max(generator.getSeaLevel(),
+                generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, level, level.getChunkSource().randomState()));
     }
 }

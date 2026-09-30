@@ -84,6 +84,16 @@ public final class TargetTracker {
         return moved;
     }
 
+    /**
+     * Точка цели уточнилась, цель та же (место с карты, чья высота стала известна): дальше это неподвижная точка
+     * {@code point}. Не перенацеливание — запас на погоню не тратится.
+     */
+    public void settle(Vec3 point) {
+        this.target = new Target.Point(point);
+        this.point = point;
+        velocity = Vec3.ZERO;
+    }
+
     private void loseTarget() {
         lost = true;
         velocity = Vec3.ZERO;

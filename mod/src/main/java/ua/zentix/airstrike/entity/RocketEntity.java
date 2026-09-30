@@ -49,8 +49,6 @@ public class RocketEntity extends StrikeProjectile {
     /** Точка падения — куда навели при пуске. */
     @Nullable
     private Vec3 impactAt;
-    /** Точка падения места с карты уже встала на поверхность из готового чанка ({@link #settleImpact}). */
-    private boolean impactSettled;
     /** Начало текущей траектории, скорость в нём и сколько тиков лететь от него. */
     @Nullable
     private Vec3 start;
@@ -203,18 +201,17 @@ public class RocketEntity extends StrikeProjectile {
      * Место с карты ({@link Target.Ground}): высота точки падения у пуска — оценка, пока чанк там не готов (оценка
      * генератора у города из сохранения — улица под крышей). Район точки падения грузится с постановки в трубу; как
      * только её чанк готов, точка встаёт на его поверхность (разброс остаётся свой) — один раз, как высота цели у расчёта
-     * огня: дальше, как у всей РСЗО, цель не отслеживается. Снаряд уже летит — траектория пересчитывается от текущего
-     * места на оставшееся время.
+     * огня: цель становится этой точкой и дальше, как у всей РСЗО, не отслеживается. Снаряд уже летит — траектория
+     * пересчитывается от текущего места на оставшееся время.
      */
     private void settleImpact(ServerLevel level) {
-        if (impactSettled || !(tracker.target() instanceof Target.Ground) || !Terrain.ready(level, BlockPos.containing(impactAt))) return;
-        impactSettled = true;
+        if (!(tracker.target() instanceof Target.Ground) || !Terrain.ready(level, BlockPos.containing(impactAt))) return;
         Vec3 surface = new Target.Ground(impactAt).surface(level);
-        if (surface.equals(impactAt)) return;
+        boolean moved = !surface.equals(impactAt);
         impactAt = surface;
-        // метка цели, сирена и камера — по точке цели: она тоже встаёт на поверхность
-        updateTarget(level);
-        if (start != null) restart(position(), impactAt, ticksLeft());
+        // цель — сама точка падения с разбросом, как у пуска: у неё метка, сирена, камера и район цели
+        settleAim(impactAt);
+        if (moved && start != null) restart(position(), impactAt, ticksLeft());
     }
 
     /** Темп времени траектории: 1 — как у мира, меньше — полёт вне мира растянут (для стенда). */
@@ -304,7 +301,6 @@ public class RocketEntity extends StrikeProjectile {
         elevation = tag.contains("elevation") ? tag.getFloat("elevation") : LauncherEntity.elevation(WeaponType.ROCKET);
         Vec3 impact = Nbt.getVec(tag, "impact");
         if (impact != null) impactAt = impact;
-        impactSettled = tag.getBoolean("impact_settled");
         if (tag.contains("start_x")) {
             start = Nbt.getVec(tag, "start");
             v0 = Nbt.getVec(tag, "v0");
@@ -319,7 +315,6 @@ public class RocketEntity extends StrikeProjectile {
         super.addAdditionalSaveData(tag);
         tag.putFloat("elevation", elevation);
         if (impactAt != null) Nbt.putVec(tag, "impact", impactAt);
-        tag.putBoolean("impact_settled", impactSettled);
         if (start != null) {
             Nbt.putVec(tag, "start", start);
             Nbt.putVec(tag, "v0", v0);
