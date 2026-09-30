@@ -75,12 +75,30 @@ public final class RuinPlan {
     /** Сколько разных состояний вмещает палитра плана. */
     static final int MAX_STATES = STATE_MASK + 1;
 
+    /** Тиков жидкости за секунду на чанк (остальные — в следующие секунды). */
+    private static final int FLUID_TICKS = 64;
     private static final int[] NONE = new int[0];
     private static final long[] NO_LONGS = new long[0];
     private static final BlockState[] NO_STATES = new BlockState[0];
 
     /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
-    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NONE, NONE, NO_LONGS, 0, -1, null, null);
+    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, 0, -1, null, null, null, NO_LONGS);
+
+    /** Нечего менять, но руины чанка «стоят»: соседи читают его исходным (он и есть исходный), счётчики — на подмене. */
+    static RuinPlan nothing(LevelChunk chunk, @Nullable RuinContext ctx) {
+        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, System.identityHashCode(chunk), edits(chunk),
+                null, null, ctx, NO_LONGS);
+    }
+
+    /**
+     * Идёт подмена руин (поток сервера): изменения чанков в это время — сами руины и их последствия, счётчик изменений
+     * ({@link Edits}) их не считает — иначе план соседа устаревал бы от руин этого чанка.
+     */
+    private static boolean applying;
+
+    public static boolean applying() {
+        return applying;
+    }
 
     /**
      * Для строки в лог: время подмен по частям, нс — проверка плана, места и пожары в секциях (и пустота секций
@@ -110,14 +128,24 @@ public final class RuinPlan {
     /** По номеру секции: хеш старых состояний в её местах (секции без мест — 0, не проверяются). */
     private final long[] oldHashes;
     private final BlockState[] states;
+    /** Старые состояния мест плана (по порядку {@link #cells}): соседи читают по ним исходный чанк, пока его руины стоят. */
+    private final BlockState[] olds;
+    /** Руины подрыва по всем чанкам (подмена отмечается там: её старые блоки — исходный мир соседей); null — вне подрыва. */
+    @Nullable
+    private final RuinContext ctx;
+    /** Жидкость у изменённых мест: место ({@link BlockPos#asLong}) — ей тик, чтобы она затекла в пролом или стекла. */
+    private final long[] fluidTicks;
     /** Пожары: место (как в {@link #cells}) и состояние огня из палитры. */
     private final int[] fires;
     /** Брёвна поваленных деревьев в соседних чанках: место (высота — по поверхности при подмене) и состояние. */
     private final LongArrayList outside;
     private final List<BlockState> outsideState;
 
-    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, int[] fires, int[] heights, long[] lightAt, int chunkId, long edits,
-            LongArrayList outside, List<BlockState> outsideState) {
+    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, BlockState[] olds, int[] fires, int[] heights, long[] lightAt, int chunkId, long edits,
+            LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks) {
+        this.olds = olds;
+        this.ctx = ctx;
+        this.fluidTicks = fluidTicks;
         this.chunkId = chunkId;
         this.edits = edits;
         this.heights = heights;
@@ -171,6 +199,26 @@ public final class RuinPlan {
         return (h ^ System.identityHashCode(normal(old))) * 0x9E3779B97F4A7C15L + 1;
     }
 
+    /** Для проверок: чем план отличается от другого (те же места, новые и старые состояния, пожары); null — ничем. */
+    @Nullable
+    public String differs(RuinPlan o) {
+        int mask = (1 << STATE_SHIFT) - 1;
+        java.util.TreeMap<Integer, String> a = new java.util.TreeMap<>(), b = new java.util.TreeMap<>();
+        for (int k = 0; k < cells.length; k++) a.put(cells[k] & mask, olds[k] + "→" + states[(cells[k] >>> STATE_SHIFT) & STATE_MASK]);
+        for (int k = 0; k < o.cells.length; k++) b.put(o.cells[k] & mask, o.olds[k] + "→" + o.states[(o.cells[k] >>> STATE_SHIFT) & STATE_MASK]);
+        int n = 0;
+        StringBuilder out = new StringBuilder();
+        java.util.TreeSet<Integer> keys = new java.util.TreeSet<>(a.keySet());
+        keys.addAll(b.keySet());
+        for (int c : keys) {
+            if (java.util.Objects.equals(a.get(c), b.get(c))) continue;
+            if (n++ < 4) out.append(" [x ").append(c & 15).append(" y ").append((section(c) << 4) + ((c >> 8) & 15)).append(" z ").append((c >> 4) & 15)
+                    .append(": ").append(a.get(c)).append(" | ").append(b.get(c)).append(']');
+        }
+        if (fires.length != o.fires.length) out.append(" пожаров ").append(fires.length).append(" | ").append(o.fires.length);
+        return n == 0 && fires.length == o.fires.length ? null : n + " мест" + out;
+    }
+
     /** Сколько блоков меняет план (без пожаров). */
     public int changedBlocks() {
         return cells.length;
@@ -179,7 +227,7 @@ public final class RuinPlan {
     /** Примерный размер плана в памяти, байты (для строки в лог). */
     public long bytes() {
         if (this == EMPTY) return 0;
-        return 64 + 4L * cells.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length + 4L * heights.length
+        return 64 + 12L * cells.length + 8L * fluidTicks.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length + 4L * heights.length
                 + 8L * lightAt.length + (outside == null ? 0 : 16L * outside.size());
     }
 
@@ -206,6 +254,43 @@ public final class RuinPlan {
     }
 
     /**
+     * Старое состояние места чанка до этих руин (y — мира) или null, если место не из плана. Для соседей, которые
+     * строят свои планы по исходному миру, пока руины этого чанка уже стоят.
+     */
+    @Nullable
+    BlockState oldState(int lx, int y, int lz, int minY) {
+        int i = (y - minY) >> 4;
+        if (i < 0 || i >= oldHashes.length || oldHashes[i] == 0) return null;
+        int key = i << SECTION_SHIFT | (y & 15) << 8 | lz << 4 | lx;
+        int lo = 0, hi = cells.length - 1;
+        while (lo <= hi) {
+            int m = (lo + hi) >>> 1, k = cells[m] & (1 << STATE_SHIFT) - 1;
+            if (k < key) lo = m + 1;
+            else if (k > key) hi = m - 1;
+            else return olds[m];
+        }
+        return null;
+    }
+
+    /** Верх столбцов по старым блокам мест плана: [0..255] — не-воздух, [256..511] — опора без листвы (или жидкость); MIN — нет. */
+    int[] oldTops(int minY) {
+        int[] t = oldTops;
+        if (t != null) return t;
+        t = new int[512];
+        java.util.Arrays.fill(t, Integer.MIN_VALUE);
+        for (int k = 0; k < cells.length; k++) {
+            int c = cells[k], column = c & 0xFF, y = minY + (section(c) << 4) + ((c >> 8) & 15);
+            BlockState o = olds[k];
+            if (!o.isAir()) t[column] = Math.max(t[column], y);
+            if (Heightmap.Types.MOTION_BLOCKING_NO_LEAVES.isOpaque().test(o)) t[256 + column] = Math.max(t[256 + column], y);
+        }
+        return oldTops = t;
+    }
+
+    @Nullable
+    private int[] oldTops;
+
+    /**
      * Поставить руины в чанк (он и соседи загружены целиком — проверяет вызывающий). Устаревший план не ставится.
      *
      * @return false — план устарел, ничего не изменено
@@ -214,6 +299,20 @@ public final class RuinPlan {
         if (this == EMPTY) return true;
         long t = System.nanoTime();
         if (!current(chunk)) return false;
+        long before = edits(chunk);
+        short[] motion = new short[256];
+        for (int column = 0; column < 256; column++) motion[column] = (short) (chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, column & 15, column >> 4) + 1);
+        applying = true;
+        try {
+            if (cells.length > 0 || fires.length > 0 || outside != null || fluidTicks.length > 0) write(level, chunk, budget, t);
+        } finally {
+            applying = false;
+        }
+        if (ctx != null) ctx.applied(chunk, this, before, motion);
+        return true;
+    }
+
+    private boolean write(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget, long t) {
         PHASES[0] += System.nanoTime() - t;
         t = System.nanoTime();
         ChunkPos pos = chunk.getPos();
@@ -296,6 +395,15 @@ public final class RuinPlan {
                     30 + (int) (RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 31) * 10));
         }
         checkLight(light, pos, checks);
+        // жидкость у пролома (и у соседей): тик, как дал бы ей setBlock соседа, — вразнобой по хешу места и не больше
+        // FLUID_TICKS за секунду: подмена не будит соседей, без тика вода стояла бы стеной
+        for (int k = 0; k < fluidTicks.length; k++) {
+            m.set(fluidTicks[k]);
+            BlockState st = level.getBlockState(m);
+            if (st.getFluidState().isEmpty()) continue;
+            level.scheduleTick(m.immutable(), st.getFluidState().getType(),
+                    5 + (int) (RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 37) * 35) + 20 * (k / FLUID_TICKS));
+        }
         PHASES[3] += System.nanoTime() - t;
         t = System.nanoTime();
         chunk.setUnsaved(true);
@@ -456,6 +564,15 @@ public final class RuinPlan {
 
     /** Бревно поваленного ствола — на поверхность соседнего чанка (после его руин), если там не стоит постройка. */
     public static void placeLog(ServerLevel level, long at, BlockState log) {
+        applying = true;
+        try {
+            placeLogNow(level, at, log);
+        } finally {
+            applying = false;
+        }
+    }
+
+    private static void placeLogNow(ServerLevel level, long at, BlockState log) {
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos().set(at);
         if (!Terrain.ready(level, m) || !NuclearTickets.aroundLoaded(level, m)) return;
         m.setY(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, m.getX(), m.getZ()));

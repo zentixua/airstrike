@@ -29,6 +29,10 @@ public final class NuclearWorld {
     private static final int SLOW_LOG_PERIOD = 100;
 
     private final ScarQueue scars = new ScarQueue();
+    /** Руины подрывов по номеру ({@link RuinContext}): пока у подрыва есть работа в очереди. */
+    private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<RuinContext> ruins = new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+    /** Раз в сколько тиков забывать руины подрывов без работы, и сколько тиков руины без работы держатся. */
+    private static final int RUINS_SWEEP = 100, RUINS_IDLE = 600;
     private final NuclearPrep prep = new NuclearPrep();
     private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
@@ -45,6 +49,20 @@ public final class NuclearWorld {
 
     public static NuclearWorld get(ServerLevel level) {
         return level.getData(ModAttachments.NUCLEAR_WORLD);
+    }
+
+    /** Руины подрыва по всем чанкам: общие у подготовки заранее (после подрыва), очереди и проверок. */
+    RuinContext ruins(Detonation d, long now) {
+        RuinContext ctx = ruins.get(d.id());
+        if (ctx == null) ruins.put(d.id(), ctx = new RuinContext(d));
+        ctx.used = now;
+        return ctx;
+    }
+
+    /** Без работы в очереди и давно не брали — забыть (память разломов и старых блоков руин). */
+    private void sweepRuins(long now) {
+        if (now % RUINS_SWEEP != 0 || ruins.isEmpty()) return;
+        ruins.int2ObjectEntrySet().removeIf(e -> now - e.getValue().used > RUINS_IDLE && !scars.pending(e.getIntKey()));
     }
 
     public int queuedChunks() {
@@ -112,7 +130,12 @@ public final class NuclearWorld {
         pulses.add(new PulseJob(level, d, owner));
         blast.onDetonation(d, owner);
         NuclearPrep.Handoff ready = prep.handOff(d, level.getGameTime());
-        if (ready != null) scars.scanLoaded(d, ready.plans(), ready.order());
+        if (ready != null) {
+            // руины заранее и на месте — одни: разломы и стоящие руины подготовки переходят подрыву
+            ready.ruins().used = level.getGameTime();
+            ruins.put(d.id(), ready.ruins());
+            scars.scanLoaded(d, ready.plans(), ready.order());
+        }
         else scars.scanLoaded(d);
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
@@ -135,6 +158,7 @@ public final class NuclearWorld {
     public void clear(ServerLevel level) {
         scars.clear(level);
         prep.clear(level);
+        ruins.clear();
         pulses.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
@@ -149,6 +173,7 @@ public final class NuclearWorld {
         long now = level.getGameTime();
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
+        sweepRuins(now);
         // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
         long pulseStart = System.nanoTime();
         while (!pulses.isEmpty()) {

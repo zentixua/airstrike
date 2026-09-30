@@ -21,7 +21,8 @@ public abstract class LevelChunkEditsMixin implements RuinPlan.Edits {
 
     @ModifyVariable(method = "setBlockState", at = @At("HEAD"), argsOnly = true)
     private BlockPos airstrike$countEdit(BlockPos pos) {
-        airstrike$edits++;
+        // сами руины (их подмена и её последствия) план соседа не старят
+        if (!RuinPlan.applying()) airstrike$edits++;
         return pos;
     }
 

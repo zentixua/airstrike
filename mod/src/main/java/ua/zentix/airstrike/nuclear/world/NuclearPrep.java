@@ -57,14 +57,19 @@ public final class NuclearPrep {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_nuclear_prep", Comparator.<UUID>naturalOrder());
     /** Давление у земли, до которого руины строятся заранее. */
     static final double PSI = 5;
-    /** Квадраты загрузки: радиус тикета (5×5 чанков). */
+    /** Квадраты: 5×5 чанков, чьи руины строятся вместе. */
     private static final int TILE_RADIUS = 2;
     private static final int TILE = TILE_RADIUS * 2 + 1;
     /**
-     * Квадрат с кольцом: тикет загрузки поднимает и кольцо вокруг квадрата (ниже полной загрузки) — несгенерированный
-     * чанк в кольце генерировался бы во время удара, поэтому готовыми на диске должны быть и они.
+     * Радиус тикета квадрата: руинам чанка нужны загруженными целиком и чанки в радиусе {@link RuinPlanner#REACH}
+     * (окно чанка и окна его соседей), поэтому держится квадрат 9×9.
      */
-    private static final int RING = TILE + 2;
+    private static final int LOAD_RADIUS = TILE_RADIUS + RuinPlanner.REACH;
+    /**
+     * Квадрат загрузки с кольцом: тикет поднимает и кольцо вокруг (ниже полной загрузки) — несгенерированный чанк
+     * в кольце генерировался бы во время удара, поэтому готовыми на диске должны быть и они.
+     */
+    private static final int RING = 2 * LOAD_RADIUS + 3;
     /** Сколько квадратов отпускать за тик: каждый — 25 выгрузок чанков с записью на диск в этом тике сервера. */
     private static final int RELEASE_PER_TICK = 2;
     /** Квадратов в загрузке одновременно (не все сразу: игрокам тоже надо грузить мир). */
@@ -105,7 +110,7 @@ public final class NuclearPrep {
         }
 
         AreaLoader.Area area(int strike) {
-            return new AreaLoader.Area(TYPE, centre, TILE_RADIUS, new UUID(strike, centre.toLong()), false);
+            return new AreaLoader.Area(TYPE, centre, LOAD_RADIUS, new UUID(strike, centre.toLong()), false);
         }
     }
 
@@ -130,6 +135,9 @@ public final class NuclearPrep {
         int nextScan, scanning;
         final ConcurrentLinkedQueue<long[]> scanned = new ConcurrentLinkedQueue<>();
         final Long2ObjectOpenHashMap<RuinPlan> plans = new Long2ObjectOpenHashMap<>();
+        /** Руины по всем чанкам (разломы соседей): переходят подрыву вместе с планами. */
+        @Nullable
+        RuinContext ruins;
         final LongArrayList planned = new LongArrayList();
         /** Отдан подрыву с этим номером (тикеты ещё держатся); -1 — ещё летит. */
         int detonation = -1;
@@ -232,6 +240,7 @@ public final class NuclearPrep {
             p.geometry = NuclearWarhead.geometry(level, s.surface() ? NuclearWarhead.surfaceAt(level, s.target()) : s.target(), s.yieldKt(), s.airBurst(),
                     AirstrikeConfig.SERVER.nukeEffectsScale.get().floatValue());
             layout(p);
+            p.ruins = new RuinContext(p.geometry);
         }
         if (!p.heapStop && (p.nextPlan < p.order.length || p.waiting > 0) && heapTight()) stopForHeap(level, p);
         if (!p.heapStop) {
@@ -290,8 +299,8 @@ public final class NuclearPrep {
             if (!seen.add(centre.toLong())) continue;
             Tile t = new Tile(centre);
             p.tiles.add(t);
-            for (int dx = -TILE_RADIUS - 1; dx <= TILE_RADIUS + 1; dx++) {
-                for (int dz = -TILE_RADIUS - 1; dz <= TILE_RADIUS + 1; dz++) {
+            for (int dx = -LOAD_RADIUS - 1; dx <= LOAD_RADIUS + 1; dx++) {
+                for (int dz = -LOAD_RADIUS - 1; dz <= LOAD_RADIUS + 1; dz++) {
                     long k = ChunkPos.asLong(centre.x + dx, centre.z + dz);
                     if (Math.abs(dx) <= TILE_RADIUS && Math.abs(dz) <= TILE_RADIUS) p.tileOf.put(k, t);
                     List<Tile> asked = p.askedBy.get(k);
@@ -363,8 +372,8 @@ public final class NuclearPrep {
     }
 
     private static boolean ready(ServerLevel level, Tile t) {
-        for (int dx = -TILE_RADIUS; dx <= TILE_RADIUS; dx++) {
-            for (int dz = -TILE_RADIUS; dz <= TILE_RADIUS; dz++) if (!Terrain.ready(level, t.centre.x + dx, t.centre.z + dz)) return false;
+        for (int dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++) {
+            for (int dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz++) if (!Terrain.ready(level, t.centre.x + dx, t.centre.z + dz)) return false;
         }
         return true;
     }
@@ -476,15 +485,17 @@ public final class NuclearPrep {
         return rt.totalMemory() - rt.freeMemory();
     }
 
+    /** Чанк, если он и чанки в радиусе {@link RuinPlanner#REACH} готовы (руины читают их). */
     @Nullable
     private static LevelChunk readyChunk(ServerLevel level, long c) {
-        return Terrain.ready(level, ChunkPos.getX(c), ChunkPos.getZ(c)) ? level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) : null;
+        ChunkPos pos = new ChunkPos(c);
+        return NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH) ? level.getChunkSource().getChunkNow(pos.x, pos.z) : null;
     }
 
     private void planChunk(ServerLevel level, Prep p, WorkClock shared, long c, LevelChunk chunk) {
         long c0 = shared.begin();
         try {
-            p.plans.put(c, RuinPlanner.plan(level, p.geometry, chunk));
+            p.plans.put(c, RuinPlanner.plan(level, p.ruins, chunk));
             p.planned.add(c);
             Tile t = p.tileOf.get(c);
             if (t != null) t.planned++;
@@ -502,7 +513,7 @@ public final class NuclearPrep {
      * @return готовые руины и порядок их чанков; null — не готовили
      */
     @Nullable
-    public Handoff handOff(Detonation d, long now) {
+    Handoff handOff(Detonation d, long now) {
         for (Prep p : preps) {
             Detonation g = p.geometry;
             if (p.detonation >= 0 || p.draining || g == null || g.yieldKt() != d.yieldKt() || g.surface() != d.surface() || g.scale() != d.scale()
@@ -510,12 +521,12 @@ public final class NuclearPrep {
             p.detonation = d.id();
             p.handedOff = now;
             Airstrike.LOG.info("Подрыв №{}: руины заранее — {} чанков из {}", d.id(), p.plans.size(), p.order.length);
-            return new Handoff(p.plans, p.planned.toLongArray());
+            return new Handoff(p.plans, p.planned.toLongArray(), p.ruins);
         }
         return null;
     }
 
-    public record Handoff(Long2ObjectOpenHashMap<RuinPlan> plans, long[] order) {}
+    record Handoff(Long2ObjectOpenHashMap<RuinPlan> plans, long[] order, RuinContext ruins) {}
 
     private static int heldTiles(Prep p) {
         int n = 0;
@@ -534,8 +545,8 @@ public final class NuclearPrep {
             if (released >= RELEASE_PER_TICK) return;
             if (t.state != TileState.READY && t.state != TileState.LOADING) continue;
             boolean done = true;
-            for (int dx = -TILE_RADIUS - 1; done && dx <= TILE_RADIUS + 1; dx++) {
-                for (int dz = -TILE_RADIUS - 1; done && dz <= TILE_RADIUS + 1; dz++) {
+            for (int dx = -LOAD_RADIUS - 1; done && dx <= LOAD_RADIUS + 1; dx++) {
+                for (int dz = -LOAD_RADIUS - 1; done && dz <= LOAD_RADIUS + 1; dz++) {
                     long c = ChunkPos.asLong(t.centre.x + dx, t.centre.z + dz);
                     done = !scars.pendingPlan(p.detonation, c) && !scars.queued(c);
                 }

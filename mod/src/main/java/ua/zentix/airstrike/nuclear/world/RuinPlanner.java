@@ -34,41 +34,30 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Руины одного чанка от одного подрыва — заранее, без изменений в мире ({@link RuinPlan}): что с каждым столбцом
- * сделала волна и свет, разницей к секциям чанка; пожары — там, где огонь удержится на руинах. Правила столбца (DESIGN-nuke §3.2–3.4):
+ * Руины одного чанка от одного подрыва — заранее, без изменений в мире ({@link RuinPlan}): что с каждым местом
+ * сделали волна и свет, разницей к секциям чанка; пожары — там, где огонь удержится на руинах (DESIGN-nuke §3.2–3.4).
+ * Разрушение — два физических процесса, без правил «постройка или рельеф»:
  * <ul>
- * <li>надземное (всё выше природного грунта: постройки, деревья, растения) ломается по давлению; выше над землёй
- * давление больше (обтекание и отражение: +4 % на блок), крыша и верхний этаж (два верхних блока) — в полтора раза;</li>
- * <li>где рухнула постройка (у земли от 5 psi), остаются руины — завал из щебня высотой до 4 блоков по тому, сколько
- * рухнуло; в огненном шаре у земли — ничего;</li>
- * <li>ствол на грунте валится от эпицентра целиком (в пределах чанка);</li>
- * <li>грунт волна не трогает (подвалы и бункеры уцелеют), от 8 psi сдирает дёрн; верхний блок меняется от света,
- * если видит огненный шар: выжженная трава, растаявший снег, тринитит и вскипевшая вода в шаре.</li>
+ * <li>перепад давления ломает тонкое ({@link Blast}): стены, перекрытия, окна, колонны, высокие узкие массивы;
+ * гора, скала, берег, земля толще — стоят;</li>
+ * <li>падает то, что потеряло опору ({@link Collapse}): этажи без стен, крыша на выбитых стёклах, листва без ствола,
+ * вода без дна, навесное без того, на чём висело.</li>
  * </ul>
- * Всё случайное — из хеша координат: план одного места всегда один и тот же, и план, построенный во время полёта МБР,
- * совпадает с построенным в момент подрыва. Читает только сам чанк (он загружен целиком) и карту высот для тени света
- * ({@link ThermalShadow}: только готовые чанки).
+ * Потом — по земле после руин (верхний опорный блок): завал из щебня, где рухнула постройка (от 5 psi, в огненном
+ * шаре — ничего), стволы, поваленные от эпицентра, содранный от 8 psi дёрн, свет: выжженная трава, растаявший снег,
+ * тринитит и вскипевшая вода в шаре.
+ * <p>
+ * Всё считается по исходным блокам окна чанка (он и 8 соседей; у соседей, чьи руины уже стоят, — их старые блоки),
+ * случайное — из хеша координат: план места один и тот же заранее (во время полёта МБР) и в момент подрыва, в каком
+ * бы порядке ни шли чанки. Чанк и соседи в радиусе 2 загружены целиком (разломы соседей читают своих соседей).
  */
 public final class RuinPlanner {
     /** С какого давления волна сдирает дёрн. */
     static final double STRIP_PSI = 8;
     /** С какого давления у земли постройка оставляет завал. */
     static final double RUBBLE_PSI = 5;
-    /** Рост давления с высотой над землёй, на блок. */
-    private static final double PER_BLOCK_UP = 0.04;
-    /** Крыша и верхний этаж: давление × 1.5 для двух верхних блоков постройки. */
-    private static final double ROOF = 1.5;
-    private static final int ROOF_BLOCKS = 2;
-    /** Земля постройки — сплошной грунт хотя бы такой толщины ({@link #ground}). */
-    private static final int TERRAIN_RUN = 8;
-    /** Колонна без признаков постройки стоит на земле столбца постройки не дальше, блоки, если выше его земли больше чем на. */
-    private static final int NEAR = 2, STEP = 4;
-    /** Выбитых мест в столбце (без двух уцелевших блоков подряд между ними), над которыми ничто не держится. */
-    private static final int GAP = 3;
-    /** Порог блока, который держит то, что над ним (доски, кладка; не стекло и не трава). */
-    private static final float LOAD_BEARING_PSI = 4;
-    /** С какого давления у земли и выбитые стёкла — пролёт без опоры (тяжёлые разрушения; дальше рамы фасада держат). */
-    private static final double GLASS_GAP_PSI = 2;
+    /** Сколько чанков вокруг должны быть загружены целиком для плана. */
+    public static final int REACH = 2;
 
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
     private static final BlockState[] STONE_RUBBLE = {Blocks.GRAVEL.defaultBlockState(), Blocks.COBBLESTONE.defaultBlockState(),
@@ -84,214 +73,48 @@ public final class RuinPlanner {
         return (h >>> 8) / (double) (1 << 24);
     }
 
-    /** План руин чанка (чанк загружен целиком, поток сервера). */
+    /** План руин чанка (он и соседи в радиусе {@link #REACH} загружены целиком, поток сервера). */
     public static RuinPlan plan(ServerLevel level, Detonation d, LevelChunk chunk) {
+        return plan(level, NuclearWorld.get(level).ruins(d, level.getGameTime()), chunk);
+    }
+
+    static RuinPlan plan(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
+        Detonation d = ctx.d;
         Sections s = new Sections(chunk);
         boolean blockDamage = AirstrikeConfig.SERVER.nukeBlockDamage.get();
-        boolean treeFall = AirstrikeConfig.SERVER.nukeTreeFall.get();
         boolean fires = AirstrikeConfig.SERVER.nukeFires.get();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
-        int minY = chunk.getMinBuildHeight();
-        List<long[]> trees = new ArrayList<>(); // {base, height, direction}
-        List<BlockState> treeLogs = new ArrayList<>();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        Ground g = ground(s, chunk);
-        int[] grounds = g.y();
-        boolean[] broken = new boolean[s.maxY() - minY];
-        for (int lz = 0; lz < 16; lz++) {
-            for (int lx = 0; lx < 16; lx++) {
-                int x = x0 + lx, z = z0 + lz;
-                int top = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz);
-                int ground = grounds[lz << 4 | lx];
-                int base = ground != Integer.MIN_VALUE ? ground : minY;
-                double groundPsi = d.psi(new Vec3(x + 0.5, base + 1, z + 0.5));
-                int removed = 0, wood = 0, structure = 0, built = 0, broke = 0;
-                if (blockDamage) {
-                    for (int y = top; y > base; y--) {
-                        BlockState st = s.get(lx, y, lz);
-                        if (st.isAir()) continue;
-                        BlockResponse r = response(s, g, lx, y, lz, st);
-                        if (r.kind() == BlockResponse.Kind.NONE) continue;
-                        double psi = groundPsi * (1 + PER_BLOCK_UP * (y - base)) * (structure < ROOF_BLOCKS && r.kind() == BlockResponse.Kind.BREAK ? ROOF : 1);
-                        structure++;
-                        if (r.kind() == BlockResponse.Kind.LOG && treeFall && psi >= r.thresholdPsi()) {
-                            // комель: ствол на грунте валится целиком (брёвна кладутся вторым проходом, когда все столбцы уже прошли)
-                            int b = y;
-                            while (b - 1 > base && s.get(lx, b - 1, lz).is(BlockTags.LOGS)) b--;
-                            if (b - 1 == ground) {
-                                int height = 0;
-                                for (int yy = b; height < 24 && yy < chunk.getMaxBuildHeight() && s.get(lx, yy, lz).is(BlockTags.LOGS); yy++, height++) {
-                                    s.set(lx, yy, lz, AIR);
-                                }
-                                double dx = x - d.burst().x, dz = z - d.burst().z;
-                                Direction dir = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? Direction.EAST : Direction.WEST) : (dz > 0 ? Direction.SOUTH : Direction.NORTH);
-                                trees.add(new long[]{BlockPos.asLong(x, b, z), height, dir.get3DDataValue()});
-                                treeLogs.add(st);
-                                y = b; // ниже комля — грунт
-                                continue;
-                            }
-                        }
-                        if (r.kind() == BlockResponse.Kind.BREAK) built++;
-                        if (!r.breaksAt(psi, Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z))))) continue;
-                        if (r.kind() == BlockResponse.Kind.BREAK) broke++;
-                        s.set(lx, y, lz, AIR);
-                        // пролёт без опоры — из стен и перекрытий; от GLASS_GAP_PSI у земли — и из выбитых стёкол: иначе от
-                        // стеклянного фасада оставались перемычки над пустотой, цепочками точек в небе (облако 30.09.2026)
-                        if (r.thresholdPsi() >= LOAD_BEARING_PSI || groundPsi >= GLASS_GAP_PSI && r.kind() == BlockResponse.Kind.BREAK) broken[y - minY] = true;
-                        // завал — из стен и перекрытий: трава, листва, стекло и шерсть его не дают
-                        if (r.kind() == BlockResponse.Kind.BREAK && st.getBlock().defaultDestroyTime() >= 1) {
-                            removed++;
-                            if (st.is(BlockTags.MINEABLE_WITH_AXE)) wood++;
-                        }
-                        if (fires && r.kind() == BlockResponse.Kind.LEAVES && psi < 3 && ColumnScar.lit(level, d, m.set(x, y, z)) >= 10) s.fire(x, y, z, 1.0);
-                    }
-                }
-                if (blockDamage && broke > 0) {
-                    // от 5 psi у земли постройка, у которой волна снесла половину стен и перекрытий столбца, рушится
-                    // целиком; и при любом давлении то, что стоит над пролётом из GAP выбитых стен и перекрытий, — без опоры: уцелевшие
-                    // этажи в воздухе не висят, всё идёт в завал
-                    boolean collapse = ground != Integer.MIN_VALUE && groundPsi >= RUBBLE_PSI && broke * 2 >= built;
-                    // выбитые места копятся, пока над ними не встанут два уцелевших блока подряд: одиночные перемычки
-                    // между выбитыми окнами (Т, окно, окно, Т, окно, окно…) опорой не считаются
-                    // (и сами эти перемычки — с первого выбитого места)
-                    int gap = 0, solid = 0, gapStart = 0;
-                    for (int y = base + 1; y <= top; y++) {
-                        BlockState st = s.get(lx, y, lz);
-                        if (!collapse) {
-                            if (broken[y - minY]) {
-                                solid = 0;
-                                if (gap++ == 0) gapStart = y;
-                                if (gap >= GAP) {
-                                    collapse = true;
-                                    y = gapStart - 1;
-                                }
-                            } else if (st.isAir()) {
-                                solid = 0;
-                            } else if (++solid >= 2) {
-                                gap = 0;
-                            }
-                            continue;
-                        }
-                        if (st.isAir()) continue;
-                        BlockResponse.Kind kind = response(s, g, lx, y, lz, st).kind();
-                        // на рухнувшей постройке и сад на крыше не висит
-                        if (kind != BlockResponse.Kind.BREAK && kind != BlockResponse.Kind.LEAVES && kind != BlockResponse.Kind.LOG) continue;
-                        s.set(lx, y, lz, AIR);
-                        if (kind == BlockResponse.Kind.BREAK && st.getBlock().defaultDestroyTime() >= 1) {
-                            removed++;
-                            if (st.is(BlockTags.MINEABLE_WITH_AXE)) wood++;
-                        }
-                    }
-                }
-                java.util.Arrays.fill(broken, Math.max(0, base + 1 - minY), Math.min(broken.length, top + 1 - minY), false);
-                if (ground == Integer.MIN_VALUE) continue;
-                Vec3 at = new Vec3(x + 0.5, ground + 0.5, z + 0.5);
-                boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
-                        && at.y > d.groundY() - d.fireballRadius();
-                if (blockDamage && !inFireball && groundPsi >= RUBBLE_PSI && removed >= 3) rubble(s, lx, ground, lz, x, z, removed, wood);
-                // скоростной напор сдирает дёрн и траву: от 8 psi — голая земля, даже в тени
-                if (blockDamage && groundPsi >= STRIP_PSI) strip(s, lx, ground, lz, x, z);
-                scorch(level, d, s, lx, ground, lz, x, z, inFireball, groundPsi, fires);
+        Collapse c = Collapse.solve(level, ctx, chunk.getPos());
+        for (var e : c.changes.long2ObjectEntrySet()) {
+            long at = e.getLongKey();
+            s.set(BlockPos.getX(at) & 15, BlockPos.getY(at), BlockPos.getZ(at) & 15, e.getValue());
+        }
+        // листва, сорванная волной, на свету загорается там, где волна слабая и огонь не сбит
+        if (fires) {
+            for (int k = 0; k < c.leaves.size(); k++) {
+                m.set(c.leaves.getLong(k));
+                if (d.psi(Vec3.atCenterOf(m)) < 3 && ctx.lit(level, m) >= 10) s.fire(m.getX(), m.getY(), m.getZ(), 1.0);
             }
         }
-        for (int i = 0; i < trees.size(); i++) lay(s, trees.get(i), treeLogs.get(i));
-        return s.finish();
-    }
-
-    /**
-     * Земля столбцов чанка: где кончается надземное. Блок грунта (тег {@code nuke_ground}) — ещё не земля: из терракоты,
-     * кальцита, диорита, песчаника строят, и башня из них иначе была бы «грунтом», который волна не трогает (облако
-     * 30.09.2026: башни в эпицентре стояли целыми, без одних окон). Но из тех же блоков и сам рельеф (меза, скалы,
-     * берега), и его волна не трогает никогда — поэтому грунт над землёй ломается только в столбце постройки:
-     * <ul>
-     * <li>верхний блок грунта — не природная поверхность (дёрн, земля, песок, гравий, снег: {@link #naturalSurface});</li>
-     * <li>под ним до земли есть признаки постройки: сделанный блок (стекло, доски, кладка, ступени, плиты, стены,
-     * заборы, двери — {@link #made}) или хотя бы два тонких (до двух блоков) перекрытия из грунта над пустотой;</li>
-     * <li>земля постройки — верх сплошного грунта не короче {@link #TERRAIN_RUN} блоков (или до низа мира); жидкость
-     * в столбце — не постройка (дно под водой — земля, берег не срезается).</li>
-     * </ul>
-     * Колонна фасада из того же камня сплошная до фундамента, признаков в ней нет: столбец без признаков стоит на земле
-     * столбца постройки рядом (до {@link #NEAR} блоков, в пределах чанка), если тот не ниже его больше чем на два блока.
-     * Остальное — как раньше: земля — первый блок грунта сверху, и рельеф (скала, пещера, дно) не меняется.
-     */
-    static Ground ground(Sections s, LevelChunk chunk) {
-        int minY = chunk.getMinBuildHeight();
-        int[] first = new int[256], terrain = new int[256], surface = new int[256];
-        boolean[] building = new boolean[256], candidate = new boolean[256];
         for (int column = 0; column < 256; column++) {
-            int lx = column & 15, lz = column >> 4;
-            int top = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz);
-            surface[column] = top;
-            int f = Integer.MIN_VALUE, t = Integer.MIN_VALUE, run = 0, runTop = 0, slabs = 0;
-            boolean fluid = false, made = false;
-            for (int y = top; y >= minY; y--) {
-                BlockState st = s.get(lx, y, lz);
-                if (!st.getFluidState().isEmpty()) {
-                    fluid = true;
-                    if (f == Integer.MIN_VALUE) continue; // дно под водой — первый грунт ниже, как раньше
-                    break;
-                }
-                if (!st.isAir() && s.response(st).kind() == BlockResponse.Kind.GROUND) {
-                    if (f == Integer.MIN_VALUE) f = y;
-                    if (run++ == 0) runTop = y;
-                    if (run >= TERRAIN_RUN || y == minY) {
-                        t = runTop;
-                        break;
-                    }
-                    continue;
-                }
-                if (run > 0 && run <= 2 && st.isAir()) slabs++;
-                run = 0;
-                if (!st.isAir() && s.made(st)) made = true;
-            }
-            first[column] = f;
-            terrain[column] = t;
-            boolean above = !fluid && f != Integer.MIN_VALUE && t != Integer.MIN_VALUE && f > t && !naturalSurface(s.get(lx, f, lz));
-            building[column] = above && (made || slabs >= 2);
-            // без признаков, но грунт выше земли и не природная поверхность — может быть колонной фасада
-            candidate[column] = !fluid && f != Integer.MIN_VALUE && !building[column] && !naturalSurface(s.get(lx, f, lz));
+            int ground = c.ground[column];
+            if (ground == Integer.MIN_VALUE) continue;
+            int lx = column & 15, lz = column >> 4, x = x0 + lx, z = z0 + lz;
+            double groundPsi = d.psi(new Vec3(x + 0.5, ground + 1, z + 0.5));
+            Vec3 at = new Vec3(x + 0.5, ground + 0.5, z + 0.5);
+            boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
+                    && at.y > d.groundY() - d.fireballRadius();
+            if (blockDamage && !inFireball && groundPsi >= RUBBLE_PSI && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
+            // скоростной напор сдирает дёрн и траву: от 8 psi — голая земля, даже в тени
+            if (blockDamage && groundPsi >= STRIP_PSI) strip(s, lx, ground, lz, x, z);
+            scorch(level, ctx, s, lx, ground, lz, x, z, inFireball, groundPsi, fires);
         }
-        int[] out = new int[256];
-        boolean[] built = building.clone();
-        for (int column = 0; column < 256; column++) {
-            out[column] = building[column] ? terrain[column] : first[column];
-            if (!candidate[column]) continue;
-            int lx = column & 15, lz = column >> 4, low = Integer.MAX_VALUE;
-            for (int dz = Math.max(0, lz - NEAR); dz <= Math.min(15, lz + NEAR); dz++) {
-                for (int dx = Math.max(0, lx - NEAR); dx <= Math.min(15, lx + NEAR); dx++) {
-                    int n = dz << 4 | dx;
-                    if (building[n] && surface[n] >= surface[column] - 2 && terrain[n] < first[column] - STEP) low = Math.min(low, terrain[n]);
-                }
-            }
-            if (low != Integer.MAX_VALUE) {
-                out[column] = low;
-                built[column] = true;
-            }
-        }
-        return new Ground(out, built);
-    }
-
-    /** Как волна видит блок над землёй столбца: в постройке грунт — кладка, если не держит воду. */
-    private static BlockResponse response(Sections s, Ground g, int lx, int y, int lz, BlockState st) {
-        BlockResponse r = s.response(st);
-        if (r.kind() != BlockResponse.Kind.GROUND || !g.building()[lz << 4 | lx] || touchesFluid(s, lx, y, lz)) return r;
-        return BlockResponse.BUILT;
-    }
-
-    /** Земля столбцов ({@code Integer.MIN_VALUE} — грунта нет) и столбцы построек, где грунт над землёй — кладка. */
-    record Ground(int[] y, boolean[] building) {}
-
-    /** Природная поверхность: столбец с ней наверху — рельеф, а не постройка. */
-    static boolean naturalSurface(BlockState st) {
-        return st.is(BlockTags.DIRT) || st.is(BlockTags.SAND) || st.is(Blocks.GRAVEL) || st.is(Blocks.SNOW_BLOCK) || st.is(Blocks.POWDER_SNOW)
-                || st.is(Blocks.CLAY) || st.is(Blocks.FARMLAND) || st.is(Blocks.DIRT_PATH) || st.is(Blocks.SOUL_SAND) || st.is(Blocks.SOUL_SOIL);
-    }
-
-    /** Грунт постройки у жидкости не ломается: вода не встаёт стеной и не оставляет сухой ямы (снаружи чанка — не видно). */
-    private static boolean touchesFluid(Sections s, int lx, int y, int lz) {
-        return !s.get(lx, y + 1, lz).getFluidState().isEmpty() || !s.get(lx, y - 1, lz).getFluidState().isEmpty()
-                || lx > 0 && !s.get(lx - 1, y, lz).getFluidState().isEmpty() || lx < 15 && !s.get(lx + 1, y, lz).getFluidState().isEmpty()
-                || lz > 0 && !s.get(lx, y, lz - 1).getFluidState().isEmpty() || lz < 15 && !s.get(lx, y, lz + 1).getFluidState().isEmpty();
+        Blast own = c.blast();
+        if (own != null) for (int i = 0; i < own.trees().size(); i++) lay(s, own.trees().get(i), own.treeLogs().get(i));
+        RuinPlan plan = s.finish(ctx, c.fluidTicks.toLongArray());
+        ctx.planned(chunk.getPos());
+        return plan;
     }
 
     /** Завал на месте рухнувшей постройки: высота — по тому, сколько рухнуло, материал — по тому, из чего. */
@@ -313,10 +136,10 @@ public final class RuinPlanner {
     }
 
     /** Световой импульс на верхнем блоке грунта: пожары, выгоревшая трава, растаявший снег, тринитит у шара. */
-    private static void scorch(ServerLevel level, Detonation d, Sections s, int lx, int ground, int lz, int x, int z, boolean inFireball,
+    private static void scorch(ServerLevel level, RuinContext ctx, Sections s, int lx, int ground, int lz, int x, int z, boolean inFireball,
                                double groundPsi, boolean fires) {
         BlockPos top = new BlockPos(x, ground, z);
-        double q = ColumnScar.lit(level, d, top);
+        double q = ctx.lit(level, top);
         if (q < ThermalModel.IGNITE) return;
         BlockState st = s.get(lx, ground, lz);
         if (inFireball) {
@@ -380,27 +203,6 @@ public final class RuinPlanner {
         final List<BlockState> outsideState = new ArrayList<>();
         /** Изменённые места: номер секции << 12 | место в секции (с повторами). */
         final IntArrayList changed = new IntArrayList();
-
-        /** Ответы блоков на плане (без общего кэша с замком на каждое чтение) и «сделан ли блок». */
-        private final it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap<BlockState, BlockResponse> responses = new it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap<>();
-        private final it.unimi.dsi.fastutil.objects.Reference2BooleanOpenHashMap<BlockState> made = new it.unimi.dsi.fastutil.objects.Reference2BooleanOpenHashMap<>();
-
-        BlockResponse response(BlockState st) {
-            BlockResponse r = responses.get(st);
-            if (r == null) responses.put(st, r = BlockResponse.of(st));
-            return r;
-        }
-
-        /** Сделанный блок — признак постройки: стекло, доски, кладка, ступени, плиты, стены, заборы, двери, люки. */
-        boolean made(BlockState st) {
-            if (made.containsKey(st)) return made.getBoolean(st);
-            boolean m = st.is(net.neoforged.neoforge.common.Tags.Blocks.GLASS_BLOCKS) || st.is(net.neoforged.neoforge.common.Tags.Blocks.GLASS_PANES)
-                    || st.is(ua.zentix.airstrike.registry.ModTags.NUKE_LIGHT) || st.is(ua.zentix.airstrike.registry.ModTags.NUKE_MASONRY)
-                    || st.is(BlockTags.SLABS) || st.is(BlockTags.STAIRS) || st.is(BlockTags.WALLS) || st.is(BlockTags.FENCES)
-                    || st.is(BlockTags.DOORS) || st.is(BlockTags.TRAPDOORS);
-            made.put(st, m);
-            return m;
-        }
 
         Sections(LevelChunk chunk) {
             this.chunk = chunk;
@@ -483,7 +285,7 @@ public final class RuinPlanner {
             return null;
         }
 
-        RuinPlan finish() {
+        RuinPlan finish(RuinContext ctx, long[] fluidTicks) {
             // места без повторов, по секциям
             int[] cells = changed.toIntArray();
             java.util.Arrays.sort(cells);
@@ -503,7 +305,7 @@ public final class RuinPlanner {
                 fireCells.add(i << RuinPlan.SECTION_SHIFT | (m.getY() & 15) << 8 | (m.getZ() & 15) << 4 | m.getX() & 15);
                 fireStates.add(fire);
             }
-            if (n == 0 && fireCells.isEmpty() && outside.isEmpty()) return RuinPlan.EMPTY;
+            if (n == 0 && fireCells.isEmpty() && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(chunk, ctx);
             // верх каждого столбца после руин: ниже него убранный или новый блок меняет свет не только как источник неба
             int[] topChanged = new int[256];
             java.util.Arrays.fill(topChanged, Integer.MIN_VALUE);
@@ -523,6 +325,7 @@ public final class RuinPlanner {
             LongArrayList lightAt = new LongArrayList();
             Object2IntOpenHashMap<BlockState> palette = new Object2IntOpenHashMap<>();
             List<BlockState> states = new ArrayList<>();
+            BlockState[] olds = new BlockState[n];
             long[] hashes = new long[original.length];
             int kept = 0;
             for (int k = 0; k < n; k++) {
@@ -542,6 +345,7 @@ public final class RuinPlanner {
                         || covered && (was.getLightBlock(chunk, m) != now.getLightBlock(chunk, m) || was.useShapeForLightOcclusion() || now.useShapeForLightOcclusion());
                 boolean slow = was.hasBlockEntity() || PoiTypes.forState(was).isPresent();
                 if (light && !slow) lightAt.add(m.asLong());
+                olds[kept] = was;
                 cells[kept++] = c | idx << RuinPlan.STATE_SHIFT | (light ? RuinPlan.LIGHT : 0) | (slow ? RuinPlan.SLOW : 0);
             }
             int[] fireOut = new int[fireCells.size()];
@@ -554,10 +358,10 @@ public final class RuinPlanner {
                 if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + chunk.getPos() + ": больше " + RuinPlan.MAX_STATES + " состояний");
                 fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
             }
-            if (kept == 0 && fireOut.length == 0 && outside.isEmpty()) return RuinPlan.EMPTY;
-            return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), fireOut, heights,
+            if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(chunk, ctx);
+            return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), java.util.Arrays.copyOf(olds, kept), fireOut, heights,
                     lightAt.toLongArray(), System.identityHashCode(chunk), RuinPlan.edits(chunk),
-                    outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState);
+                    outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState, ctx, fluidTicks);
         }
 
         /**

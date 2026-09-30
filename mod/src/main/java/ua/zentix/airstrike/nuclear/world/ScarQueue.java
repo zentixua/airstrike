@@ -190,6 +190,16 @@ public final class ScarQueue {
         return String.format(java.util.Locale.ROOT, "%.1f", nanos / 1e6);
     }
 
+    /** У подрыва ещё есть работа: готовые руины, снимок загруженных чанков или чанки в очереди. */
+    public boolean pending(int detonation) {
+        if (prepared.containsKey(detonation)) return true;
+        for (Scan s : scans) if (s.d.id() == detonation) return true;
+        for (Job j : jobs.values()) {
+            for (int e = j.event; e < j.events.size(); e++) if (j.events.get(e).id() == detonation) return true;
+        }
+        return false;
+    }
+
     /** Чанк ждёт в очереди повреждений. */
     public boolean queued(long chunk) {
         return jobs.containsKey(chunk);
@@ -437,7 +447,7 @@ public final class ScarQueue {
             return;
         }
         ChunkPos pos = new ChunkPos(job.chunk);
-        if (!NuclearTickets.neighbourhoodLoaded(level, pos)) {
+        if (!NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH)) {
             // край загруженного мира (сам чанк или соседи ниже полной загрузки): разрушим, когда загрузятся;
             // полностью загруженный край сам просит соседей
             if (!job.held && job.mayHold && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) {

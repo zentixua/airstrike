@@ -37,8 +37,13 @@ public final class NuclearTickets {
 
     /** Чанк и все восемь соседей загружены целиком. */
     public static boolean neighbourhoodLoaded(ServerLevel level, ChunkPos pos) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
+        return neighbourhoodLoaded(level, pos, 1);
+    }
+
+    /** Чанк и все чанки в радиусе {@code r} вокруг загружены целиком. */
+    public static boolean neighbourhoodLoaded(ServerLevel level, ChunkPos pos, int r) {
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
                 if (!Terrain.ready(level, pos.x + dx, pos.z + dz)) return false;
             }
         }
@@ -55,14 +60,21 @@ public final class NuclearTickets {
         hold(level, TYPE, pos, hold);
     }
 
-    /** Чанк на краю загруженного мира и его соседи — пока очередь разрушений его не пройдёт ({@link ScarQueue}). */
+    /**
+     * Чанк на краю загруженного мира и чанки вокруг него (руинам нужны соседи в радиусе {@link RuinPlanner#REACH}) —
+     * пока очередь разрушений его не пройдёт ({@link ScarQueue}).
+     */
     static void holdForScar(ServerLevel level, ChunkPos pos, boolean hold) {
-        hold(level, SCAR, pos, hold);
+        hold(level, SCAR, pos, hold, RuinPlanner.REACH);
     }
 
     private static void hold(ServerLevel level, TicketType<UUID> type, ChunkPos pos, boolean hold) {
+        hold(level, type, pos, hold, RADIUS);
+    }
+
+    private static void hold(ServerLevel level, TicketType<UUID> type, ChunkPos pos, boolean hold, int radius) {
         // один район на чанк и тип, как один ванильный тикет (тип, уровень, значение): повторный hold ничего не добавляет
-        AreaLoader.Area area = new AreaLoader.Area(type, pos, RADIUS, new UUID(0L, pos.toLong()));
+        AreaLoader.Area area = new AreaLoader.Area(type, pos, radius, new UUID(0L, pos.toLong()));
         if (hold) StrikeWorld.get(level).areas().hold(level, area);
         else StrikeWorld.get(level).areas().release(level, area);
     }
