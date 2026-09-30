@@ -22,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.map.MapTarget;
+import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
@@ -291,7 +292,8 @@ public class RemoteScreen extends Screen {
                 openMap();
                 return;
             }
-            aim = place.map(p -> C2S.AimHint.ground(p.x(), p.z()));
+            // верх земли там по карте — оценка сервера, пока чанк места у него не готов
+            aim = place.map(p -> C2S.AimHint.ground(p.x(), p.z(), TerrainTiles.height(Mth.floor(p.x()), Mth.floor(p.z()))));
         } else {
             aim = nukePoint();
         }

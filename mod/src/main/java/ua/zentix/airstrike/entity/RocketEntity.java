@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.entity;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
@@ -11,6 +12,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Nbt;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
 
@@ -21,7 +23,8 @@ import java.util.UUID;
  * {@link #BURN_TICKS} (факел и плотный дым), дальше полёт по инерции; на нисходящей ветви — фаза атаки.
  * <p>
  * В точку падения снаряд приходит ровно на тике {@code N}. Если его сдвинули (возврат из полёта вне мира поднимает над рельефом), траектория
- * пересчитывается от текущего места на оставшееся время. Цель не отслеживается: куда навели при пуске, туда и упадёт.
+ * пересчитывается от текущего места на оставшееся время. Цель не отслеживается: куда навели при пуске, туда и упадёт
+ * (у места с карты высота уточняется один раз — {@link #settleImpact}).
  * <p>
  * Район точки падения грузится с постановки в трубу, снаряд сходит сразу. Если он вне мира подходит к цели, а район
  * ещё не готов, конец траектории растягивается во времени ({@link #stretch}), а не замирает в воздухе у цели.
@@ -46,6 +49,8 @@ public class RocketEntity extends StrikeProjectile {
     /** Точка падения — куда навели при пуске. */
     @Nullable
     private Vec3 impactAt;
+    /** Точка падения места с карты уже встала на поверхность из готового чанка ({@link #settleImpact}). */
+    private boolean impactSettled;
     /** Начало текущей траектории, скорость в нём и сколько тиков лететь от него. */
     @Nullable
     private Vec3 start;
@@ -150,6 +155,7 @@ public class RocketEntity extends StrikeProjectile {
     @Override
     protected void serverTick(ServerLevel level) {
         if (impactAt == null) impactAt = tracker.point();
+        settleImpact(level);
         FlightPhase ph = flightPhase();
         if (ph == FlightPhase.READY) {
             speed = 0;
@@ -173,8 +179,7 @@ public class RocketEntity extends StrikeProjectile {
 
         // сдвинули с траектории (вернулся в мир выше рельефа) — пересчитать от текущего места на оставшееся время
         if (position().distanceToSqr(at(t)) > 0.25) {
-            int left = Math.max(8, (int) Math.ceil(flightTicks - t));
-            restart(position(), impactAt, left);
+            restart(position(), impactAt, ticksLeft());
         }
 
         if (ph == FlightPhase.BOOST && phaseAge() >= BURN_TICKS) setPhase(FlightPhase.CRUISE);
@@ -192,6 +197,22 @@ public class RocketEntity extends StrikeProjectile {
         if (!advance(level, impactAt, 1.5)) return;
         // вне мира у самой цели снаряд ждёт загрузки района — тогда он не сдвинулся и время траектории стоит
         if (position().distanceToSqr(before) > 1.0e-6) t += step;
+    }
+
+    /**
+     * Место с карты ({@link Target.Ground}): высота точки падения у пуска — оценка, пока чанк там не готов (оценка
+     * генератора у города из сохранения — улица под крышей). Район точки падения грузится с постановки в трубу; как
+     * только её чанк готов, точка встаёт на его поверхность (разброс остаётся свой) — один раз, как высота цели у расчёта
+     * огня: дальше, как у всей РСЗО, цель не отслеживается. Снаряд уже летит — траектория пересчитывается от текущего
+     * места на оставшееся время.
+     */
+    private void settleImpact(ServerLevel level) {
+        if (impactSettled || !(tracker.target() instanceof Target.Ground) || !Terrain.ready(level, BlockPos.containing(impactAt))) return;
+        impactSettled = true;
+        Vec3 surface = new Target.Ground(impactAt).surface(level);
+        if (surface.equals(impactAt)) return;
+        impactAt = surface;
+        if (start != null) restart(position(), impactAt, ticksLeft());
     }
 
     /** Темп времени траектории: 1 — как у мира, меньше — полёт вне мира растянут (для стенда). */
@@ -261,6 +282,11 @@ public class RocketEntity extends StrikeProjectile {
         restart(from, to, Ballistics.ticksFor(from, to, elevation, MIN_FLIGHT));
     }
 
+    /** Сколько тиков осталось лететь по текущей траектории — для пересчёта с текущего места (не меньше 8). */
+    private int ticksLeft() {
+        return Math.max(8, (int) Math.ceil(flightTicks - t));
+    }
+
     private void restart(Vec3 from, Vec3 to, int ticks) {
         start = from;
         t = 0;
@@ -276,6 +302,7 @@ public class RocketEntity extends StrikeProjectile {
         elevation = tag.contains("elevation") ? tag.getFloat("elevation") : LauncherEntity.elevation(WeaponType.ROCKET);
         Vec3 impact = Nbt.getVec(tag, "impact");
         if (impact != null) impactAt = impact;
+        impactSettled = tag.getBoolean("impact_settled");
         if (tag.contains("start_x")) {
             start = Nbt.getVec(tag, "start");
             v0 = Nbt.getVec(tag, "v0");
@@ -290,6 +317,7 @@ public class RocketEntity extends StrikeProjectile {
         super.addAdditionalSaveData(tag);
         tag.putFloat("elevation", elevation);
         if (impactAt != null) Nbt.putVec(tag, "impact", impactAt);
+        tag.putBoolean("impact_settled", impactSettled);
         if (start != null) {
             Nbt.putVec(tag, "start", start);
             Nbt.putVec(tag, "v0", v0);

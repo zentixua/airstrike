@@ -56,23 +56,33 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
 
     /**
      * Место на земле по координатам x и z (точка с карты): высота — поверхность в этом месте, как только её чанк готов
-     * (район цели грузится заранее), а до того — оценка {@code pos.y} с клиента. Цель не движется и не теряется.
+     * (район цели грузится заранее), а до того — оценка {@code pos.y}. Цель не движется и не теряется.
      */
     record Ground(Vec3 pos) implements Target {
         static final MapCodec<Ground> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                 Vec3.CODEC.fieldOf("pos").forGetter(Ground::pos)
         ).apply(i, Ground::new));
 
+        /** Место без карты клиента (команда, сервер): оценка до загрузки чанка — рельеф генератора. */
+        public static Ground at(ServerLevel level, double x, double z) {
+            return at(level, x, z, Optional.empty());
+        }
+
         /**
          * Место на карте (x, z): высоту знает только сервер. Чанк готов — верх, как его рисует карта (кроны деревьев,
-         * крыши: снаряд, шедший к земле под кронами, взрывался в них, не долетев), иначе — рельеф, каким его строит
-         * генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки чанка, без деревьев и построек);
-         * когда чанк у цели загрузится, {@link #surface} уточнит.
+         * крыши: снаряд, шедший к земле под кронами, взрывался в них, не долетев). Иначе оценка — верх по карте
+         * клиента {@code mapSurface} (Distant Horizons или чанки клиента: карта, на которой выбрано место), а если карта
+         * там пуста — рельеф, каким его строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки
+         * чанка, без деревьев и построек; у мира, построенного не генератором, — город с карты мира, — он с поверхностью
+         * не совпадает: Greenfield, 30.09.2026 — 63 под крышей на 107). Когда чанк у цели загрузится, {@link #surface}
+         * уточнит.
+         *
+         * @param mapSurface первый воздух над землёй по карте клиента; вне высот мира не в счёт
          */
-        public static Ground at(ServerLevel level, double x, double z) {
-            int bx = Mth.floor(x), bz = Mth.floor(z);
-            int y = Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING, bx, bz);
-            return new Ground(new Vec3(x, y - 0.5, z));
+        public static Ground at(ServerLevel level, double x, double z, Optional<Integer> mapSurface) {
+            int estimate = mapSurface.filter(h -> !level.isOutsideBuildHeight(h - 1))
+                    .orElseGet(() -> Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z)));
+            return new Ground(new Ground(new Vec3(x, estimate - 0.5, z)).surface(level));
         }
 
         @Override

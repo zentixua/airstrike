@@ -67,6 +67,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
@@ -522,6 +523,52 @@ public final class StrikeGameTests {
         h.assertTrue(estimate.x == far.x && estimate.z == far.z, "место сдвинулось");
         h.assertFalse(Terrain.ready(level, column), "оценка загрузила чанк");
         h.succeed();
+    }
+
+    /**
+     * Место с карты в неготовом чанке: оценка высоты — верх по карте клиента, а не рельеф генератора (у города
+     * из сохранения тот под крышами: Greenfield 30.09.2026, 63 вместо 107); верх вне высот мира не в счёт. У готового
+     * чанка — его поверхность, что бы ни показывала карта.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void groundAtPrefersMapHeightOverGenerator(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 here = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
+        Vec3 near = Target.Ground.at(level, here.x, here.z, Optional.of(h.absolutePos(RANGE_CENTER).getY() + 40)).pos();
+        h.assertTrue(Math.abs(near.y - (h.absolutePos(RANGE_CENTER).getY() + 0.5)) < 1e-6, "у готового чанка не его верх: " + h.relativeVec(near));
+        Vec3 far = here.add(4096, 0, 0);
+        BlockPos column = BlockPos.containing(far);
+        h.assertFalse(Terrain.ready(level, column), "район вдали уже загружен");
+        int map = level.getMaxBuildHeight() - 7;
+        Vec3 estimate = Target.Ground.at(level, far.x, far.z, Optional.of(map)).pos();
+        h.assertTrue(estimate.y == map - 0.5, "оценка не по карте: y " + estimate.y);
+        double generator = Target.Ground.at(level, far.x, far.z).pos().y;
+        double outside = Target.Ground.at(level, far.x, far.z, Optional.of(level.getMaxBuildHeight() + 1)).pos().y;
+        h.assertTrue(outside == generator, "верх вне мира принят: y " + outside + ", генератор " + generator);
+        h.assertFalse(Terrain.ready(level, column), "оценка загрузила чанк");
+        h.succeed();
+    }
+
+    /**
+     * РСЗО по месту с карты, чья высота у пуска — оценка на 30 блоков выше земли: как только чанк точки падения
+     * готов, она встаёт на поверхность, и снаряд бьёт в землю, а не рвётся в воздухе над ней.
+     */
+    @GameTest(template = "runway", timeoutTicks = 800, batch = "rocket_map_target", skyAccess = true)
+    public static void rocketMapTargetSettlesOnSurface(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 guess = top(h, RUNWAY_TARGET).add(0, 30, 0);
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        r.launchFrom(guess.add(0, -30, -600), new Target.Ground(guess), guess, null);
+        VirtualFlights.launch(level, r);
+        UUID id = r.getUUID();
+        String[] last = {""};
+        h.onEachTick(() -> {
+            if (level.getEntity(id) instanceof RocketEntity e) last[0] = "в мире " + e.flightPhase() + " " + h.relativeVec(e.position());
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(VirtualFlights.get(level).flights().isEmpty() && level.getEntity(id) == null, "снаряд ещё летит: " + last[0]);
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
     }
 
     /**

@@ -253,7 +253,7 @@ public final class ServerActions {
                 }
             }
             case C2S.AimHint.GROUND -> {
-                Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z);
+                Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z, h.mapSurface());
                 return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
                         Mth.floor(h.point().x), Mth.floor(h.point().z)));
             }
