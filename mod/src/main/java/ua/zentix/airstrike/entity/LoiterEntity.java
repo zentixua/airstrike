@@ -8,9 +8,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.guidance.Bearing;
 import ua.zentix.airstrike.guidance.Dive;
 import ua.zentix.airstrike.guidance.Orbit;
-import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -79,7 +79,7 @@ public class LoiterEntity extends StrikeProjectile {
         super.launch(pos, target, targetPoint, owner);
         pickOrbit();
         cruiseAlt = Math.max(pos.y, targetPoint.y + AIR.cruiseHeight());
-        altFilter = pos.y;
+        altitude.reset(pos.y);
         speed = AIR.cruiseSpeed();
         setPhase(FlightPhase.CRUISE);
     }
@@ -91,11 +91,13 @@ public class LoiterEntity extends StrikeProjectile {
         cruiseAlt = Math.max(rail.y + 30, targetPoint.y + AIR.cruiseHeight());
     }
 
-    /** Срок жизни — ещё и на круг. */
+    /**
+     * Запас хода — ещё и на круг над целью (на маршевой скорости) и на пике с него (на скорости пике: в тиках плана
+     * {@link #DIVE_TICKS} оно быстрее круга, и на маршевой запаса на пике не хватало бы).
+     */
     @Override
-    public void setRoute(@Nullable Route route) {
-        super.setRoute(route);
-        lifetime += loiterTicks + DIVE_TICKS;
+    protected double extraRange() {
+        return loiterTicks * AIR.cruiseSpeed() + DIVE_TICKS * AIR.diveSpeed();
     }
 
     /** Катапульта: хлопок и облако пара; ускорителя нет — сбрасывать нечего. */

@@ -140,9 +140,9 @@ public final class StrikeGameTests {
 
     /**
      * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
-     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (погоня набирает срок жизни на 2000
-     * блоков), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
-     * UUID в начале полосы. Шахед за ней не идёт: срок после потери — только на полёт до точки смерти, и бьёт он туда.
+     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (запас хода растёт на 2000 блоков
+     * погони ×1,5), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
+     * UUID в начале полосы. Шахед за ней не идёт: запас хода после потери — только на полёт до точки смерти, и бьёт он туда.
      */
     @GameTest(template = "runway", timeoutTicks = 600, batch = "drone_lost", skyAccess = true)
     public static void droneStrikesWhereTargetDied(GameTestHelper h) {
@@ -188,11 +188,11 @@ public final class StrikeGameTests {
             last[0] = f.position();
             if (lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = t;
-                // срок — полёт до точки с запасом ×1.5 и 10 с (здесь с допуском на тики между потерей и проверкой);
-                // без ограничения — ещё полторы тысячи тиков погони
+                // запас хода — полёт до точки с запасом ×1.5 и 10 с на маршевой (здесь с допуском на тики между потерей и
+                // проверкой); без ограничения — ещё полторы тысячи тиков погони
                 bound[0] = 2 * f.etaTicks() + 200;
-                int left = f.lifetimeLeft();
-                h.assertTrue(left <= bound[0], "после потери цели срок жизни " + left + " тиков, а полёт до точки — " + f.etaTicks());
+                int left = (int) (f.rangeLeft() / f.cruiseSpeed());
+                h.assertTrue(left <= bound[0], "после потери цели запас хода на " + left + " тиков, а полёт до точки — " + f.etaTicks());
             }
         });
         h.succeedWhen(() -> {
@@ -283,8 +283,8 @@ public final class StrikeGameTests {
             }
             if (targetDies && lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = tick[0];
-                bound[0] = f.lifetimeLeft();
-                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели срок " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
+                bound[0] = (int) (f.rangeLeft() / f.cruiseSpeed());
+                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели запас хода на " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
             }
         });
         h.succeedWhen(() -> {
@@ -372,29 +372,46 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Ракета, сохранённая в полёте версией 2.3.0 (без ключа {@code cruise_speed}, 11.5 блока/тик, на горке): после загрузки
-     * летит с новой маршевой, а остаток срока жизни растянут на неё. Сохранённая новой версией — без изменений.
+     * Снаряд, сохранённый в полёте со сроком жизни (2.3.0 и раньше, ключа {@code mission} нет): остаток срока (ожидание
+     * района цели в нём не считалось) и дробные тики погони становятся запасом хода на маршевой скорости сохранения, флаг
+     * «урезан после потери цели» переносится. Ракета 2.3.0 (без ключа {@code cruise_speed}, 11.5 блока/тик, на горке)
+     * летит с новой маршевой, а её запас — 11.5 блока на тик остатка: путь от скорости не зависит. Сохранённая новой
+     * версией — без изменений.
      */
     @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
-    public static void legacyMissileSlowsDownOnLoad(GameTestHelper h) {
+    public static void legacyFlightKeepsRange(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 aim = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
         CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
         m.launch(aim.add(0, 40, -300), new Target.Point(aim), aim, null);
+        m.setRoute(Route.direct());
         CompoundTag tag = m.saveWithoutId(new CompoundTag());
-        tag.putInt("age", 100);
-        tag.putInt("lifetime", 400);
         tag.putString("flight_phase", FlightPhase.POP_UP.getSerializedName());
+        tag.getCompound("mission").putDouble("range", 1234.5);
         CruiseMissileEntity fresh = ModEntities.CRUISE_MISSILE.get().create(level);
         fresh.load(tag);
-        h.assertTrue(fresh.lifetimeLeft() == 300, "сохранённая новой версией: срок " + fresh.lifetimeLeft() + " вместо 300");
+        h.assertTrue(fresh.rangeLeft() == 1234.5, "сохранённая новой версией: запас " + fresh.rangeLeft() + " вместо 1234.5");
+
+        // 2.3.x: срок 400 при возрасте 100, из них 20 тиков ждала район цели, полтика погони в запасе
+        tag.remove("mission");
+        tag.putInt("age", 100);
+        tag.putInt("area_wait", 20);
+        tag.putInt("lifetime", 400);
+        tag.putDouble("lifetime_credit", 0.5);
+        tag.putBoolean("lost_capped", true);
+        double cruise = WeaponSpec.MISSILE.airframe().cruiseSpeed();
+        CruiseMissileEntity saved = ModEntities.CRUISE_MISSILE.get().create(level);
+        saved.load(tag);
+        h.assertTrue(Math.abs(saved.rangeLeft() - 320.5 * cruise) < 1e-9, "срок 2.3.x: запас " + saved.rangeLeft() + " вместо " + 320.5 * cruise);
+        // урезанный после потери цели запас не урежется снова, а погоня его больше не растит: флаг перенесён
+        h.assertTrue(saved.saveWithoutId(new CompoundTag()).getCompound("mission").getBoolean("lost_capped"), "флаг «урезан» не перенесён");
+
         tag.remove("cruise_speed");
         tag.putDouble("speed", 11.5);
         CruiseMissileEntity old = ModEntities.CRUISE_MISSILE.get().create(level);
         old.load(tag);
-        h.assertTrue(old.speed() <= WeaponSpec.MISSILE.airframe().cruiseSpeed(), "старая ракета летит " + old.speed() + " блока/тик");
-        int stretched = (int) Math.ceil(300 * 11.5 / WeaponSpec.MISSILE.airframe().cruiseSpeed());
-        h.assertTrue(old.lifetimeLeft() == stretched, "старая ракета: срок " + old.lifetimeLeft() + " вместо " + stretched);
+        h.assertTrue(old.speed() <= cruise, "старая ракета летит " + old.speed() + " блока/тик");
+        h.assertTrue(Math.abs(old.rangeLeft() - 320.5 * 11.5) < 1e-9, "ракета 2.3.0: запас " + old.rangeLeft() + " вместо " + 320.5 * 11.5);
         h.succeed();
     }
 
@@ -706,7 +723,7 @@ public final class StrikeGameTests {
         tag.getCompound("flight").putFloat("yaw", -90);
         tag.getCompound("flight").putFloat("pitch", 0);
         tag.putString("flight_phase", FlightPhase.TERMINAL.getSerializedName());
-        tag.putInt("lifetime", m.age() + 300);
+        tag.getCompound("mission").putDouble("range", 300 * m.cruiseSpeed());
         m.load(tag);
         VirtualFlights.launch(level, m);
         java.util.UUID id = m.getUUID();
@@ -1677,7 +1694,7 @@ public final class StrikeGameTests {
         // свой владелец — считать только свою бомбу
         UUID owner = UUID.randomUUID();
         bomber.launch(from, aim, null, owner);
-        // срок жизни по плану полёта, как у боевого пуска (StrikeService.launchBomber)
+        // запас хода по плану полёта, как у боевого пуска (StrikeService.launchBomber)
         bomber.setRoute(null);
         if (retarget != null) h.assertTrue(bomber.retarget(new Target.Point(retarget), retarget), "бомбардировщик не принял перенацеливание");
         // как боевой пуск: начало полёта — вне мира, в загруженном месте он вернётся в мир в ближайшем тике (пуск

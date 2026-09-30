@@ -42,7 +42,7 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
      */
     public record ClientAirframe(List<EngineSound.Layer> layers, List<At> engines, @Nullable At boosterNozzle, float boosterSmoke,
                                  @Nullable At boosterPlume, @Nullable At enginePlume) {
-        /** Сопло маршевого двигателя. */
+        /** Сопло маршевого двигателя — только у оружия с соплами ({@link #engines} не пуст; у «Ланцета» их нет). */
         public At engine() {
             return engines.getFirst();
         }
