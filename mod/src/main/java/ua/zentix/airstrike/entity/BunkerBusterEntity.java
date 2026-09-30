@@ -23,6 +23,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.registry.ModDamageTypes;
@@ -48,16 +49,6 @@ public class BunkerBusterEntity extends StrikeProjectile {
     private int traveled;
     private int fuse = -1;
 
-    /** Нос вниз не меньше, чем при сбросе: с 170 блоков бомба на земле самое позднее через ~80 тиков. */
-    static final float MIN_DIVE = 10;
-    /** Падение, когда цели под носом нет. */
-    static final float FALL_PITCH = 60;
-
-    /** Точка позади по курсу {@code yaw} (дальше 8 блоков по горизонтали): бомба к ней уже не повернёт. */
-    static boolean passed(Bearing b, float yaw) {
-        return b.horizontal() > 8 && Math.abs(Mth.wrapDegrees(b.yaw() - yaw)) >= 90;
-    }
-
     public BunkerBusterEntity(EntityType<? extends BunkerBusterEntity> type, Level level) {
         super(type, level);
     }
@@ -74,7 +65,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
 
     @Override
     public double cruiseSpeed() {
-        return 12.5;
+        return BombDrop.MAX_SPEED;
     }
 
     @Override
@@ -102,13 +93,13 @@ public class BunkerBusterEntity extends StrikeProjectile {
         return flightPhase() == FlightPhase.DRILL;
     }
 
-    /** Сброс с бомбардировщика: нос на 10° вниз, 6 блоков/тик. */
+    /** Сброс с бомбардировщика: нос на 10° вниз, 6 блоков/тик ({@link BombDrop}). */
     public void drop(Vec3 pos, float yaw, Vec3 surface, @Nullable BlockPos goal, @Nullable UUID owner) {
         super.launch(pos, new Target.Point(surface), surface, owner);
-        flight.set(yaw, 10);
-        moveTo(pos.x, pos.y, pos.z, yaw, 10);
+        flight.set(yaw, (float) BombDrop.DROP_PITCH);
+        moveTo(pos.x, pos.y, pos.z, yaw, (float) BombDrop.DROP_PITCH);
         this.goal = goal;
-        this.speed = 6.0;
+        this.speed = BombDrop.DROP_SPEED;
         setPhase(FlightPhase.TERMINAL);
     }
 
@@ -119,15 +110,8 @@ public class BunkerBusterEntity extends StrikeProjectile {
             return;
         }
         Vec3 aim = tracker.point();
-        Bearing b = bearingTo(aim);
-        // свободно падающая бомба не выравнивается и не набирает высоту: точка не ниже MIN_DIVE под носом
-        // (цель на высоте бомбы или выше, уже пролетели) — просто падать круто вниз, на рули не надеясь
-        boolean below = b.pitch() >= MIN_DIVE && !passed(b, flight.yaw());
-        flight.arcPitch(below ? b.pitch() : FALL_PITCH, speed, b.distance(), 7, 0.8);
-        if (flight.pitch() < MIN_DIVE) flight.set(flight.yaw(), MIN_DIVE);
-        speed = Math.min(cruiseSpeed(), speed + 0.3);
-        if (below && b.horizontal() > 8) flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
-        advance(level, aim, 5.3);
+        speed = BombDrop.steer(flight, position(), speed, aim);
+        advance(level, aim, BombDrop.REACH_PAD);
     }
 
     // ---------------------------------------------------------------- вход в грунт
