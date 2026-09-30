@@ -9,7 +9,8 @@ import java.util.Optional;
 
 /**
  * Место, выбранное на карте наведения: помнится, пока игрок в том же измерении и не вышел из мира. Только x и z:
- * высоту земли там находит сервер ({@code Target.Ground.at}) — у клиента её вдали нет.
+ * высоту земли там находит сервер ({@code Target.Ground.at}); верх по карте ({@link TerrainTiles#height}) уходит
+ * с приказом только оценкой.
  */
 public final class MapTarget {
     public record Place(double x, double z) {}

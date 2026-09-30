@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (N) до удара;
 #   rocket — залп РСЗО: камера у пакета на очереди, дуги над головой, разрывы по площади;
 #   map — камера снаряда дальше прорисовки: видео рядом, дальше карта по телеметрии, попадание на карте;
 #   target-map — карта наведения пульта: масштаб, выбор места кликом, огонь по Enter, снаряд на карте;
+#   salvo-map — залп шахедов с разбросом на карте наведения: кадры путей и района, время открытия карты в логе;
 #   loiter — рой барражирующих: катапульта, камера на круге (оператор смотрит на цель), со стороны — круги и пике;
 #   nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
 #   fx, fx-night — эффекты крупным планом (взрывы шахеда, ракеты, бомбы и старт МБР; днём и ночью);

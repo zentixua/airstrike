@@ -1215,7 +1215,8 @@ public final class GridGameTests {
      * Секция, где двойнику нужна новая запись в палитре, а места в ней нет: сохранение пишет лампы и не трогает секцию
      * мира. Копия {@code PalettedContainer.copy()} любой палитры, кроме глобальной, держит обработчик роста живой секции
      * (палитра из одного значения — и вовсе та же), и замена в копии расширяла секцию мира, а запись падала — чанк
-     * уходил на диск с двойниками. Две секции: вся из двойника (одно значение) и полная линейная палитра (16 состояний).
+     * уходил на диск с двойниками. Секции: вся из двойника (одно значение), полная линейная палитра (16 состояний)
+     * и глобальная (больше 256 состояний) с двойником и без него — поиск ламп по ней считает блоки ({@link ChunkLights#contains}).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "grid_save_tags", skyAccess = true)
     public static void saveLeavesFullPaletteSectionsAlone(GameTestHelper h) {
@@ -1229,13 +1230,16 @@ public final class GridGameTests {
         PalettedContainer<BlockState> linear = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(), PalettedContainer.Strategy.SECTION_STATES);
         for (int i = 0; i < others.size(); i++) linear.set(i, 0, 0, others.get(i).defaultBlockState());
         linear.set(15, 15, 15, twin);
+        PalettedContainer<BlockState> global = globalWithoutLamps(), globalTwin = globalWithoutLamps();
+        globalTwin.set(15, 15, 15, twin);
+        h.assertTrue(global.maybeHas(GridLights::isUnlit), "палитра без двойников отвечает «нет» сама: она не глобальная");
         LevelChunk chunk = level.getChunkAt(h.absolutePos(CENTER));
         // пустая секция над площадкой — на время проверки одна из этих
         int index = chunk.getSectionIndex(h.absolutePos(CENTER).getY()) + 4;
         LevelChunkSection air = chunk.getSections()[index];
         h.assertTrue(air.hasOnlyAir(), "секция над площадкой не пустая");
         int sectionY = chunk.getSectionYFromSectionIndex(index);
-        for (PalettedContainer<BlockState> live : List.of(single, linear)) {
+        for (PalettedContainer<BlockState> live : List.of(single, linear, global, globalTwin)) {
             chunk.getSections()[index] = new LevelChunkSection(live, air.getBiomes());
             try {
                 Tag before = BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow();
@@ -1254,7 +1258,8 @@ public final class GridGameTests {
                     }
                 }
                 h.assertTrue(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow().equals(before), "сохранение изменило секцию мира");
-                h.assertTrue(live.get(15, 15, 15) == twin, "сохранение зажгло фонарь в мире");
+                // в глобальной палитре без двойников в этом месте — другой блок (его сверил цикл выше)
+                h.assertTrue(live == global || live.get(15, 15, 15) == twin, "сохранение зажгло фонарь в мире");
                 // палитра секции мира не выросла (блоки те же, но хранилище уже другое)
                 h.assertTrue(live.getSerializedSize() == size, "сохранение расширило палитру секции мира");
             } finally {
@@ -1262,6 +1267,59 @@ public final class GridGameTests {
             }
         }
         h.succeed();
+    }
+
+    /**
+     * «Есть ли двойник в секции» — точно при любой палитре. Глобальная палитра (больше 256 состояний в секции, обычное
+     * дело в детальном городе) на {@code maybeHas} всегда отвечает «да», и без подсчёта каждая загрузка и сохранение
+     * такого чанка проходили все блоки секции и ставили его в очередь блэкаута; малые палитры (линейная до 16 состояний,
+     * хеш-таблица до 256) помнят ушедшие состояния.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "grid_palette", skyAccess = true)
+    public static void lampSearchIsExactForEveryPalette(GameTestHelper h) {
+        BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
+        PalettedContainer<BlockState> global = globalWithoutLamps();
+        h.assertTrue(global.maybeHas(GridLights::isUnlit), "палитра отвечает «нет» сама — проверять нечего");
+        h.assertFalse(ChunkLights.contains(global, GridLights::isUnlit), "в глобальной палитре без двойников найден двойник");
+        global.set(7, 7, 7, twin);
+        h.assertTrue(ChunkLights.contains(global, GridLights::isUnlit), "двойник в глобальной палитре не найден");
+
+        PalettedContainer<BlockState> stale = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
+                PalettedContainer.Strategy.SECTION_STATES);
+        stale.set(1, 2, 3, twin);
+        stale.set(1, 2, 3, Blocks.STONE.defaultBlockState());
+        h.assertTrue(stale.maybeHas(GridLights::isUnlit), "малая палитра забыла ушедший двойник — проверять нечего");
+        h.assertFalse(ChunkLights.contains(stale, GridLights::isUnlit), "ушедший из секции двойник найден по палитре");
+
+        // 100 разных состояний — палитра-хеш-таблица, тоже помнит ушедший двойник
+        PalettedContainer<BlockState> hashed = withoutLamps(100);
+        hashed.set(15, 15, 15, twin);
+        hashed.set(15, 15, 15, Blocks.STONE.defaultBlockState());
+        h.assertTrue(hashed.maybeHas(GridLights::isUnlit), "палитра-хеш-таблица забыла ушедший двойник — проверять нечего");
+        h.assertFalse(ChunkLights.contains(hashed, GridLights::isUnlit), "ушедший двойник найден по палитре-хеш-таблице");
+        hashed.set(15, 15, 15, twin);
+        h.assertTrue(ChunkLights.contains(hashed, GridLights::isUnlit), "двойник в палитре-хеш-таблице не найден");
+        h.succeed();
+    }
+
+    /** Секция из 4096 разных состояний без ламп и двойников: глобальная палитра. */
+    private static PalettedContainer<BlockState> globalWithoutLamps() {
+        return withoutLamps(4096);
+    }
+
+    /** Секция из {@code distinct} разных состояний без ламп и двойников (остальное — воздух). */
+    private static PalettedContainer<BlockState> withoutLamps(int distinct) {
+        PalettedContainer<BlockState> c = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
+                PalettedContainer.Strategy.SECTION_STATES);
+        int placed = 0;
+        for (BlockState s : Block.BLOCK_STATE_REGISTRY) {
+            if (placed == distinct) break;
+            if (s.isAir() || GridLights.isLit(s) || GridLights.isUnlit(s)) continue;
+            c.set(placed & 15, placed >> 8, placed >> 4 & 15, s);
+            placed++;
+        }
+        if (placed < distinct) throw new IllegalStateException("в реестре меньше " + distinct + " состояний");
+        return c;
     }
 
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATES = PalettedContainer.codecRW(

@@ -70,5 +70,7 @@ def write(name, data):
 write("pad", structure(8, 6, 8, ["minecraft:stone"]))
 # полигон: 8 слоёв камня, 2 грунта и дёрн — для воронок, бурения и прицела
 write("range", structure(64, 40, 64, ["minecraft:stone"] * 8 + ["minecraft:dirt"] * 2 + ["minecraft:grass_block"]))
-# взлётная полоса 32×256: снаряды заходят на цель с настоящей дистанции (ракета — с горкой)
-write("runway", structure(32, 64, 256, ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"]))
+# взлётная полоса 32×256: снаряды заходят на цель с настоящей дистанции (ракета — с горкой). Высота 8: GameTest
+# ставит вокруг площадки стену из барьеров высотой с шаблон, а крылатая ракета возвращается в мир за стеной, на краю
+# полосы подлёта (256 блоков до цели), и идёт в 12 блоках над плоским миром теста — стена ниже неё
+write("runway", structure(32, 8, 256, ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"]))

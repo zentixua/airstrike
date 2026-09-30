@@ -7,6 +7,7 @@ import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
 import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiAfterDhInitEvent;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiChunkModifiedEvent;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiLevelLoadEvent;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiLevelUnloadEvent;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
@@ -16,13 +17,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.MapColor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,7 +40,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * каждая колонка заново читала бы и распаковывала свой участок 64×64.
  * <p>
  * Когда API готово и какие миры DH загрузил, узнаём из событий API ({@code DhApiAfterDhInitEvent},
- * {@code DhApiLevelLoadEvent}/{@code DhApiLevelUnloadEvent}), как велит javadoc {@code DhApi.Delayed}.
+ * {@code DhApiLevelLoadEvent}/{@code DhApiLevelUnloadEvent}), как велит javadoc {@code DhApi.Delayed}; какие чанки DH
+ * обновил в своих данных — из {@code DhApiChunkModifiedEvent} (по javadoc — когда изменение уже в данных, которые
+ * читает {@code IDhApiTerrainDataRepo}): готовая плитка перечитывается по нему, а не по часам.
  * <p>
  * Класс загружается, только если DH стоит (см. {@link TerrainTiles}): без DH его ссылки на API не разрешаются.
  */
@@ -46,6 +53,11 @@ final class DistantHorizonsTerrain implements TerrainSource {
      */
     private static final int API_MAJOR = 7;
     private static final int MAX_WATER_DEPTH = 16;
+    /**
+     * Полная плитка без события об изменении перечитывается раз в 5 минут: DH шлёт событие, только пока включена его
+     * проверка хэшей чанков ({@code disableUnchangedChunkCheck} выключен, как по умолчанию; {@code AbstractDhLevel}).
+     */
+    private static final long REFRESH_NS = 300_000_000_000L;
 
     /** Для лога: колонки с верхом, без данных, отказы API и первый отказ; почему не открылся мир. */
     private final AtomicLong found = new AtomicLong(), empty = new AtomicLong(), failed = new AtomicLong();
@@ -57,6 +69,11 @@ final class DistantHorizonsTerrain implements TerrainSource {
     private static volatile boolean initialized;
     /** Миры, которые DH сейчас держит загруженными. */
     private static final Set<IDhApiLevelWrapper> loaded = ConcurrentHashMap.newKeySet();
+    /**
+     * Чанки ({@link ChunkPos#asLong}), которые DH обновил, по мирам: событие приходит из его потоков, разбирает поток
+     * игры каждый тик ({@link #changes}); один чанк DH сохраняет много раз подряд — в наборе он один.
+     */
+    private static final Map<IDhApiLevelWrapper, Set<Long>> changed = new HashMap<>();
 
     /** Версия API DH — та, против которой мод собран; иначе источника нет (и запись в лог). */
     static boolean supported() {
@@ -85,6 +102,18 @@ final class DistantHorizonsTerrain implements TerrainSource {
             @Override
             public void onLevelUnload(DhApiEventParam<EventParam> input) {
                 loaded.remove(input.value.levelWrapper);
+                synchronized (changed) {
+                    changed.remove(input.value.levelWrapper);
+                }
+            }
+        });
+        DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
+            @Override
+            public void onChunkModified(DhApiEventParam<EventParam> input) {
+                long chunk = ChunkPos.asLong(input.value.chunkX, input.value.chunkZ);
+                synchronized (changed) {
+                    changed.computeIfAbsent(input.value.levelWrapper, l -> new HashSet<>()).add(chunk);
+                }
             }
         });
         // DH мог инициализироваться раньше подписки: тогда событие уже прошло, а поля уже заполнены
@@ -94,6 +123,33 @@ final class DistantHorizonsTerrain implements TerrainSource {
     @Override
     public boolean offThread() {
         return true;
+    }
+
+    @Override
+    public long refreshNanos() {
+        return REFRESH_NS;
+    }
+
+    /** Все накопленные изменения разбираются; чужих миров (другое измерение, прошлый мир) — отбрасываются. */
+    @Override
+    public void changes(ClientLevel level, ChunkSink sink) {
+        IDhApiLevelWrapper mine = initialized ? dhLevel(level) : null;
+        Set<Long> chunks;
+        synchronized (changed) {
+            if (changed.isEmpty()) return;
+            chunks = mine == null ? null : changed.get(mine);
+            changed.clear();
+        }
+        if (chunks != null) {
+            for (long c : chunks) sink.changed(ChunkPos.getX(c), ChunkPos.getZ(c));
+        }
+    }
+
+    /** Выход из мира: накопленное — уже ничьё, и не держать обёртки его миров. */
+    static void clearChanges() {
+        synchronized (changed) {
+            changed.clear();
+        }
     }
 
     @Nullable

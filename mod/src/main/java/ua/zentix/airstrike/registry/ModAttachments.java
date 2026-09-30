@@ -13,6 +13,7 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.warhead.CraterFalls;
 
 import java.util.function.Supplier;
 
@@ -46,6 +47,10 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",
             () -> AttachmentType.builder(StrikeWorld::new).build());
 
+    /** Мир: осыпание в воронках обычных взрывов ({@link CraterFalls}); не сохраняется. */
+    public static final Supplier<AttachmentType<CraterFalls>> CRATER_FALLS = REGISTER.register("crater_falls",
+            () -> AttachmentType.builder(CraterFalls::new).build());
+
     /** Мир: ядерные очереди — фронт, свет, воронки, чанки, осадки у мобов ({@link NuclearWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<NuclearWorld>> NUCLEAR_WORLD = REGISTER.register("nuclear_world",
             () -> AttachmentType.builder(NuclearWorld::new).build());
@@ -60,6 +65,10 @@ public final class ModAttachments {
 
     /** Игрок: игровое время последнего перенацеливания из камеры снаряда; не сохраняется. */
     public static final Supplier<AttachmentType<Long>> LAST_RETARGET = REGISTER.register("last_retarget",
+            () -> AttachmentType.builder(() -> 0L).build());
+
+    /** Игрок: игровое время последнего запроса игроков для карты наведения; не сохраняется. */
+    public static final Supplier<AttachmentType<Long>> LAST_MAP_PLAYERS = REGISTER.register("last_map_players",
             () -> AttachmentType.builder(() -> 0L).build());
 
     /** Игрок: ему показан непустой список снарядов в полёте — погасить HUD, когда всё долетит; не сохраняется. */

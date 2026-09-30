@@ -39,6 +39,8 @@ public interface ClientHooks {
 
     default void heard(S2C.Heard p) {}
 
+    default void mapPlayers(S2C.MapPlayers p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {

@@ -2,12 +2,14 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -79,7 +81,7 @@ public final class StrikeService {
             case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
             case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter);
-            default -> launchBomber(level, point, approachYaw, owner);
+            default -> launchBomber(level, target, point, approachYaw, owner);
         };
         if (p == null) return Result.FAILED;
         p.setNuclear(warhead);
@@ -273,13 +275,18 @@ public final class StrikeService {
      * Бомба бьёт по точке на поверхности над целью (с разбросом ±2.5 блока) и за движущейся целью не следит;
      * если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
      */
-    private static StrikeProjectile launchBomber(ServerLevel level, Vec3 point, float yaw, @Nullable UUID owner) {
+    private static StrikeProjectile launchBomber(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
         double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
         int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
-        // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней
-        double sy = Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
+        // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней;
+        // у неготового чанка место с карты уже несёт свою оценку (карта клиента лучше генератора); к сбросу B-2
+        // уточняет её по готовому чанку
+        Terrain.Surface under = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz,
+                target instanceof Target.Ground ? Terrain.Allowed.CHUNK : Terrain.Allowed.ORDER);
+        double sy = under.known() ? under.y() : point.y + 0.5;
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
-        BlockPos goal = surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
+        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
+        BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
         double length = BomberEntity.CRUISE_SPEED * AirstrikeConfig.SERVER.bomberFlightTime.get() * 20 + BomberEntity.RELEASE_DISTANCE;
@@ -301,10 +308,26 @@ public final class StrikeService {
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, ALERT_RADIUS, new S2C.Siren(at, kind));
     }
 
-    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда. */
-    public static void log(String who, WeaponType weapon, int count, int spread, Vec3 point) {
-        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} — {}", weapon.getSerializedName(), count, spread,
-                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), who);
+    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда и за чем снаряды следят. */
+    public static void log(ServerLevel level, String who, WeaponType weapon, int count, int spread, Target target, Vec3 point) {
+        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} ({}) — {}", weapon.getSerializedName(), count, spread,
+                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), who);
+    }
+
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */
+    private static String describe(ServerLevel level, Target target) {
+        return switch (target) {
+            case Target.Point p -> "точка";
+            case Target.Ground g -> "место с карты";
+            case Target.OfEntity e -> {
+                // игрок — где бы он ни был (удар по игроку в другом измерении)
+                ServerPlayer player = level.getServer().getPlayerList().getPlayer(e.uuid());
+                if (player != null) yield "игрок " + player.getGameProfile().getName();
+                Entity ent = level.getEntity(e.uuid());
+                yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
+            }
+            case Target.OfSubLevel s -> "аппарат";
+        };
     }
 
     /** Строка над хотбаром и щелчок пульта у того, кто пустил: что пущено и через сколько удар. */

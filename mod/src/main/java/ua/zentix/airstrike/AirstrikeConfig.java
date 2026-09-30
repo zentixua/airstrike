@@ -43,6 +43,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue aimRange;
         public final ModConfigSpec.IntValue mapRange;
         public final ModConfigSpec.BooleanValue designatorForEveryone;
+        public final ModConfigSpec.BooleanValue mapPlayers;
         public final ModConfigSpec.BooleanValue launchNearPlayer;
         public final ModConfigSpec.IntValue droneFlightTime;
         public final ModConfigSpec.IntValue missileFlightTime;
@@ -125,6 +126,8 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.map_range").defineInRange("map_range", 10_000, 256, 1_000_000);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
+            mapPlayers = b.comment("Карта пульта показывает других игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей).")
+                    .translation("airstrike.config.map_players").define("map_players", true);
             launchNearPlayer = b.comment("Шахеды и ракеты стартуют с мобильной пусковой рядом с тем, кто пустил (иначе заходят издалека).")
                     .translation("airstrike.config.launch_near_player").define("launch_near_player", true);
             droneFlightTime = b.comment("Полёт шахеда от пуска до цели, секунд: маршрут в обход и заход из-за спины (не меньше прямого пути).")
@@ -217,6 +220,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.EnumValue<CloudQuality> nukeCloudQuality;
         public final ModConfigSpec.BooleanValue nukeTinnitus;
         public final ModConfigSpec.BooleanValue soundMuffling;
+        public final ModConfigSpec.BooleanValue mapPrefetch;
 
         public enum CloudQuality {
             LOW(750), MEDIUM(1500), HIGH(2500);
@@ -245,6 +249,9 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_tinnitus").define("nuke_tinnitus", true);
             soundMuffling = b.comment("Звук ударов глуше вдали (воздух съедает верха) и за холмом или стеной. С Sound Physics Remastered это делает он.")
                     .translation("airstrike.config.sound_muffling").define("sound_muffling", true);
+            mapPrefetch = b.comment("Рельеф карты пульта вокруг игрока строится заранее (из Distant Horizons), пока пульт в инвентаре",
+                            "или карту в этом мире уже открывали: карта открывается сразу.")
+                    .translation("airstrike.config.map_prefetch").define("map_prefetch", true);
         }
     }
 }
