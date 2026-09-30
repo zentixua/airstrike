@@ -85,9 +85,8 @@ public final class RuinPlan {
     static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, 0, -1, null, null, null, NO_LONGS);
 
     /** Нечего менять, но руины чанка «стоят»: соседи читают его исходным (он и есть исходный), счётчики — на подмене. */
-    static RuinPlan nothing(LevelChunk chunk, @Nullable RuinContext ctx) {
-        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, System.identityHashCode(chunk), edits(chunk),
-                null, null, ctx, NO_LONGS);
+    static RuinPlan nothing(int chunkId, long edits, @Nullable RuinContext ctx) {
+        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, chunkId, edits, null, null, ctx, NO_LONGS);
     }
 
     /**
@@ -226,7 +225,10 @@ public final class RuinPlan {
             out.append(" пожаров ").append(fa.size()).append(" | ").append(fb.size()).append(", только слева ").append(onlyA.size())
                     .append(", только справа ").append(onlyB.size());
         }
-        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() ? null : n + " мест" + out;
+        // карты высот и нижние источники неба изменённых столбцов (у снимка с диска источники неба посчитаны по блокам)
+        boolean heightsDiffer = !java.util.Arrays.equals(heights, o.heights);
+        if (heightsDiffer) out.append(" карты высот различаются (").append(heights.length).append(" | ").append(o.heights.length).append(')');
+        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer ? null : n + " мест" + out;
     }
 
     /** Сколько тиков жидкости ставит план. */

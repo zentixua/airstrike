@@ -235,7 +235,7 @@
   "airstrike.config.nuke_prep_budget": "Ruins pre-build budget per tick, ms",
   "airstrike.config.nuke_prep_budget.tooltip": "Milliseconds of each tick spent on pre-building ruins while the ICBM flies, so blocks fall with the blast front",
   "airstrike.config.nuke_ruin_threads": "Ruin planner threads",
-  "airstrike.config.nuke_ruin_threads.tooltip": "Background threads that build ruin plans from chunk snapshots; 0 picks by core count (up to two, leaving two cores to the server)",
+  "airstrike.config.nuke_ruin_threads.tooltip": "Background threads that build ruin plans from chunk snapshots and read far chunks from disk; 0 uses all cores but three (server, rendering, world I/O), and the mod lowers or raises how many work by server tick time",
   "airstrike.config.nuke_max_fires": "Maximum fires per detonation",
   "airstrike.config.nuke_warning_radius": "Alarm radius, blocks",
   "airstrike.config.nuke_cloud_quality": "Mushroom cloud detail",

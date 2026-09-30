@@ -235,7 +235,7 @@
   "airstrike.config.nuke_prep_budget": "Бюджет руин заранее за тик, мс",
   "airstrike.config.nuke_prep_budget.tooltip": "Сколько миллисекунд каждого тика, пока летит МБР, уходит на руины заранее — чтобы блоки рушились вместе с фронтом волны",
   "airstrike.config.nuke_ruin_threads": "Потоки планов руин",
-  "airstrike.config.nuke_ruin_threads.tooltip": "Фоновые потоки, которые строят планы руин по снимкам чанков; 0 — по числу ядер (не больше двух, два ядра — серверу)",
+  "airstrike.config.nuke_ruin_threads.tooltip": "Фоновые потоки, которые строят планы руин по снимкам чанков и читают дальние чанки с диска; 0 — все ядра, кроме трёх (сервер, отрисовка, ввод-вывод мира), а сколько из них работает, мод подстраивает под тик сервера",
   "airstrike.config.nuke_max_fires": "Наибольшее число пожаров на подрыв",
   "airstrike.config.nuke_warning_radius": "Радиус тревоги, блоков",
   "airstrike.config.nuke_cloud_quality": "Подробность ядерного гриба",

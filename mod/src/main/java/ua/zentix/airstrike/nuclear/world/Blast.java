@@ -9,11 +9,14 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import ua.zentix.airstrike.nuclear.Detonation;
 
 import java.util.ArrayList;
@@ -72,7 +75,23 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
      * стекло), {@code wood} — завал из дерева (рубится топором).
      */
     record Props(BlockResponse response, boolean air, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves,
-                 boolean log, boolean fixed, boolean rubble, boolean wood) {
+                 boolean log, boolean fixed, boolean rubble, boolean wood, int flags, int lightBlock, int emission, VoxelShape occludeUp,
+                 VoxelShape occludeDown) {
+        /** Непрозрачно для карты высот {@code RuinPlan.HEIGHTMAP_TYPES[i]}: бит {@code 1 << i}. */
+        static final int OPAQUE = 1;
+        static final int STURDY_UP = 1 << 4, FLAMMABLE = 1 << 5, REPLACEABLE = 1 << 6, SLOW = 1 << 7, SOURCE = 1 << 8,
+                SHAPE_LIGHT = 1 << 9, GRASS = 1 << 10, MOSS = 1 << 11, SAND = 1 << 12, DIRT = 1 << 13, SNOW = 1 << 14,
+                SOUL_BASE = 1 << 15, FIRE = 1 << 16, NO_FLUID = 1 << 17;
+
+        boolean is(int flag) {
+            return (flags & flag) != 0;
+        }
+
+        /** Непрозрачно для карты высот {@code RuinPlan.HEIGHTMAP_TYPES[type]}. */
+        boolean opaque(int type) {
+            return (flags & OPAQUE << type) != 0;
+        }
+
         float threshold() {
             return response.thresholdPsi();
         }
@@ -159,7 +178,27 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         // неразрушимое (коренная порода, барьер, свет, рамка портала, обсидиан): не падает, не отрывается и держит
         float destroy = st.getBlock().defaultDestroyTime();
         boolean fixed = !st.isAir() && !liquid && (destroy < 0 || destroy >= 50);
-        return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE));
+        // для достройки плана ({@code RuinPlanner.finish}) в фоне: свет, огонь, карты высот, земля — здесь, в потоке сервера
+        int flags = 0;
+        for (int t = 0; t < RuinPlan.HEIGHTMAP_TYPES.length; t++) if (RuinPlan.HEIGHTMAP_TYPES[t].isOpaque().test(st)) flags |= Props.OPAQUE << t;
+        EmptyBlockGetter at = EmptyBlockGetter.INSTANCE;
+        if (st.isFaceSturdy(at, BlockPos.ZERO, Direction.UP)) flags |= Props.STURDY_UP;
+        if (st.isFlammable(at, BlockPos.ZERO, Direction.UP)) flags |= Props.FLAMMABLE;
+        if (st.canBeReplaced()) flags |= Props.REPLACEABLE;
+        if (st.hasBlockEntity() || net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(st).isPresent()) flags |= Props.SLOW;
+        if (st.getFluidState().isSource()) flags |= Props.SOURCE;
+        if (st.getFluidState().isEmpty()) flags |= Props.NO_FLUID;
+        if (st.useShapeForLightOcclusion()) flags |= Props.SHAPE_LIGHT;
+        if (st.is(Blocks.GRASS_BLOCK) || st.is(Blocks.PODZOL) || st.is(Blocks.MYCELIUM)) flags |= Props.GRASS;
+        if (st.is(Blocks.MOSS_BLOCK)) flags |= Props.MOSS;
+        if (st.is(BlockTags.SAND)) flags |= Props.SAND;
+        if (st.is(BlockTags.DIRT)) flags |= Props.DIRT;
+        if (st.is(Blocks.SNOW_BLOCK)) flags |= Props.SNOW;
+        if (st.is(BlockTags.SOUL_FIRE_BASE_BLOCKS)) flags |= Props.SOUL_BASE;
+        if (st.is(Blocks.FIRE)) flags |= Props.FIRE;
+        return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE),
+                flags, st.getLightBlock(at, BlockPos.ZERO), st.getLightEmission(at, BlockPos.ZERO),
+                LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.UP), LightEngine.getOcclusionShape(at, BlockPos.ZERO, st, Direction.DOWN));
     }
 
     /** Отражённое давление при падении по нормали (воздух, γ = 1.4), psi. */

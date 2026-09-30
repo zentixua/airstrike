@@ -27,7 +27,7 @@ final class RuinWindow {
     private final Blast.Props airProps, massProps;
     private final ChunkShot[] shots;
     /** Свойства мест по секциям чанков окна: {@code k * sections + секция} (из снимков, по мере чтения). */
-    private final Blast.Props[][] props;
+    private final ChunkShot.Sec[] props;
     private final int sections;
     /** Исходный верх столбца (верхний не-воздух) и верх опоры (как {@code MOTION_BLOCKING_NO_LEAVES} − 1); MIN — пусто. */
     private final int[] top = new int[SIDE * SIDE], solid = new int[SIDE * SIDE];
@@ -46,7 +46,7 @@ final class RuinWindow {
         this.airProps = view.get(AIR);
         this.massProps = view.get(MASS);
         this.sections = (maxY - minY) >> 4;
-        this.props = new Blast.Props[9 * sections][];
+        this.props = new ChunkShot.Sec[9 * sections];
         for (int k = 0; k < 9; k++) {
             ChunkShot c = shots[k];
             int bx = (k % 3) << 4, bz = (k / 3) << 4;
@@ -92,9 +92,9 @@ final class RuinWindow {
         ChunkShot s = shots[k];
         if (s == null) return massProps;
         int sec = (y - minY) >> 4, slot = k * sections + sec;
-        Blast.Props[] p = props[slot];
+        ChunkShot.Sec p = props[slot];
         if (p == null) p = props[slot] = s.props(sec, view);
-        return p[(y & 15) << 8 | (wz & 15) << 4 | wx & 15];
+        return p.get((y & 15) << 8 | (wz & 15) << 4 | wx & 15);
     }
 
     /** Исходный блок места — воздух. */

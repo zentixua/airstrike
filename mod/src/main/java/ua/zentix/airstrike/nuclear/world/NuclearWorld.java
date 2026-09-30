@@ -149,7 +149,7 @@ public final class NuclearWorld {
     public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
         pulses.add(new PulseJob(level, d, owner));
         blast.onDetonation(d, owner);
-        NuclearPrep.Handoff ready = prep.handOff(d, level.getGameTime());
+        NuclearPrep.Handoff ready = prep.handOff(level, d, level.getGameTime());
         if (ready != null) {
             // руины заранее и на месте — одни: разломы и стоящие руины подготовки переходят подрыву
             ready.ruins().used = level.getGameTime();
@@ -214,6 +214,9 @@ public final class NuclearWorld {
         NuclearEvents events = NuclearEvents.get(level);
         if (!restored) restore(events);
         sweepRuins(now);
+        // фоновые планы: зависшие — в поток сервера; потоков в работе — по тику сервера
+        for (RuinContext ctx : ruins.values()) ctx.expire(now);
+        RuinWorkers.adapt(level.getServer());
         // свет — раньше волны: он быстрее, и кого волна убьёт, тот уже получил свой импульс
         long pulseStart = System.nanoTime();
         while (!pulses.isEmpty()) {

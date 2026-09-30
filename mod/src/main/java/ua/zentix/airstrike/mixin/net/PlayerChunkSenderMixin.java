@@ -28,6 +28,8 @@ public abstract class PlayerChunkSenderMixin implements ChunkSendGate.Gated {
 
     @Inject(method = "sendNextChunks", at = @At("HEAD"))
     private void airstrike$withhold(ServerPlayer player, CallbackInfo ci) {
+        // прошлый вызов не дошёл до конца (исключение между HEAD и RETURN): убранные тогда чанки — назад в очередь
+        if (airstrike$held != null) pendingChunks.addAll(airstrike$held);
         airstrike$held = ChunkSendGate.withhold(player.serverLevel(), pendingChunks);
     }
 

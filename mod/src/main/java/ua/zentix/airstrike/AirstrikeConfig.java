@@ -174,10 +174,10 @@ public final class AirstrikeConfig {
             nukePrepMsPerTick = b.comment("Сколько миллисекунд тика, пока летит МБР, сервер тратит на руины заранее (0–20).",
                             "Руины ближней зоны строятся во время полёта и ставятся вместе с фронтом волны.")
                     .translation("airstrike.config.nuke_prep_budget").defineInRange("prep_ms_per_tick", 8, 0, 20);
-            nukeRuinThreads = b.comment("Сколько фоновых потоков строят планы руин (разломы и обрушение по снимкам чанков), 0 — сами:",
-                            "по числу ядер, не больше двух и оставляя два ядра серверу и системе. Поток сервера только снимает чанки и",
-                            "ставит готовые руины.")
-                    .translation("airstrike.config.nuke_ruin_threads").defineInRange("ruin_threads", 0, 0, 4);
+            nukeRuinThreads = b.comment("Сколько фоновых потоков строят планы руин (разломы, обрушение и достройка по снимкам чанков, разбор чанков",
+                            "с диска), 0 — сами: все ядра, кроме трёх (поток сервера, отрисовка своей игры, ввод-вывод и генерация", "мира; на выделенном сервере — кроме двух), не меньше одного. Сколько из них работает, мод подстраивает",
+                            "под тик сервера. Поток сервера только снимает чанки и ставит готовые руины.")
+                    .translation("airstrike.config.nuke_ruin_threads").defineInRange("ruin_threads", 0, 0, 256);
             nukeMaxFires = b.comment("Наибольшее число пожаров от одного подрыва.")
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")

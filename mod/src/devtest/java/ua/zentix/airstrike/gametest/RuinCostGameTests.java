@@ -73,14 +73,17 @@ public final class RuinCostGameTests {
         }
         long blastNanos = 0, planNanos = 0, worst = 0;
         int blasts = 0, plans = 0, cells = 0;
-        long bytes = 0;
+        long bytes = 0, collapseNanos = 0, finishNanos = 0;
         for (ChunkPos c : inner) {
             LevelChunk chunk = level.getChunk(c.x, c.z);
             long t0 = System.nanoTime();
             while (!RuinPlanner.blastsReady(level, d, chunk)) blasts++;
             long t1 = System.nanoTime();
+            long[] parts = RuinPlanner.timedParts(level, d, chunk);
+            collapseNanos += parts[0];
+            finishNanos += parts[1];
             RuinPlan plan = RuinPlanner.plan(level, d, chunk);
-            long t2 = System.nanoTime();
+            long t2 = t1 + parts[0] + parts[1];
             blastNanos += t1 - t0;
             planNanos += t2 - t1;
             worst = Math.max(worst, t2 - t0);
@@ -91,6 +94,8 @@ public final class RuinCostGameTests {
         Airstrike.LOG.info("Цена руин ({} psi): {} планов, {} мест; разломы {} шт. за {} мс, планы (опора, земля, свет) {} мс, "
                         + "в среднем {} мс на чанк, самый долгий {} мс, план в среднем {} КБ", psi, plans, cells, blasts, ms(blastNanos), ms(planNanos),
                 ms(plans == 0 ? 0 : (blastNanos + planNanos) / plans), ms(worst), plans == 0 ? 0 : bytes / plans / 1024);
+        Airstrike.LOG.info("Цена руин ({} psi): обрушение в среднем {} мс, достройка в потоке сервера {} мс на чанк", psi,
+                ms(plans == 0 ? 0 : collapseNanos / plans), ms(plans == 0 ? 0 : finishNanos / plans));
         h.assertTrue(plans > 0 && cells > 0, "город не разрушен: " + plans + " планов, " + cells + " мест");
         h.succeed();
     }

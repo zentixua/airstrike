@@ -121,10 +121,14 @@ public final class ScarQueue {
      * [5] наибольшее отставание у остальных, [6] руин по плану на месте, [7] время плана и подмены на месте всего
      * и [8] самых долгих (нс, в потоке сервера), [9] чанков в памяти при подрыве, [10] из них с загруженными соседями
      * ({@link RuinPlanner#REACH}), [11] из них по готовому плану, [12] чанков, ушедших игроку до своих руин,
-     * [13] чанков, загруженных после подрыва, [14] и [15] их отставание от волны всего и наибольшее (тики).
+     * [13] чанков, загруженных после подрыва, [14] и [15] их отставание от волны всего и наибольшее (тики),
+     * [16] загруженных после подрыва с готовым планом (с диска), [17] и [18] их отставание всего и наибольшее, [19] чанков
+     * в памяти при подрыве, которые видел игрок, без загруженных соседей (плана заранее нет — окно не снять).
      */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
-    private static final int STATS = 16;
+    private static final int STATS = 20;
+    /** Чанки, ушедшие игроку до своих руин (по номеру подрыва): в сводку — каждый один раз. */
+    private final Map<Integer, it.unimi.dsi.fastutil.longs.LongOpenHashSet> sentEarly = new HashMap<>();
     /** Чанки, чьи руины встали (по номеру подрыва): ход зоны за волной ({@link NuclearPrep}). */
     private final Map<Integer, it.unimi.dsi.fastutil.longs.LongOpenHashSet> ruinedBy = new HashMap<>();
     /** Чанки в памяти при подрыве (по номеру подрыва): для доли руин по готовому плану. */
@@ -177,11 +181,14 @@ public final class ScarQueue {
             Airstrike.LOG.info("Руины подрыва №{}: план и подмена на месте — в среднем {} мс, самые долгие {} мс", detonation, ms(st[7] / st[6]), ms(st[8]));
         }
         // критерии проверки: доля руин по готовому плану у чанков в памяти при подрыве; чанки, ушедшие игроку целыми
-        Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, {} % от с соседями)",
-                detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[11], st[10]));
-        Airstrike.LOG.info("Руины подрыва №{}: ушло игроку до руин: {}", detonation, st[12]);
-        Airstrike.LOG.info("Руины подрыва №{}: загружены после подрыва {} чанков, руины после волны в среднем через {} тиков, самое большее через {}",
-                detonation, st[13], st[13] == 0 ? 0 : st[14] / st[13], st[15]);
+        Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, {} % от с соседями); "
+                        + "на экране игрока без соседей {}",
+                detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[11], st[10]), st[19]);
+        Airstrike.LOG.info("Руины подрыва №{}: ушло игроку до руин: {} (разных чанков)", detonation, st[12]);
+        Airstrike.LOG.info("Руины подрыва №{}: загружены после подрыва {} чанков по плану на месте — руины после волны в среднем через {} тиков, самое большее через {}; "
+                        + "{} по готовому плану — в среднем через {}, самое большее через {}",
+                detonation, st[13], st[13] == 0 ? 0 : st[14] / st[13], st[15], st[16], st[16] == 0 ? 0 : st[17] / st[16], st[18]);
+        sentEarly.remove(detonation);
         atDetonation.remove(detonation);
         ruinedBy.remove(detonation);
         if (left != null && !left.isEmpty()) {
@@ -325,7 +332,8 @@ public final class ScarQueue {
     public void sent(long chunk, long now) {
         Job job = jobs.get(chunk);
         if (job == null || job.event >= job.events.size() || job.wave > now) return;
-        preparedStats.computeIfAbsent(job.events.get(job.event).id(), k -> new long[STATS])[12]++;
+        int id = job.events.get(job.event).id();
+        if (sentEarly.computeIfAbsent(id, k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet()).add(chunk)) preparedStats.computeIfAbsent(id, k -> new long[STATS])[12]++;
     }
 
     /** Чанки, держащие тикет с соседями (проверки). */
@@ -373,6 +381,7 @@ public final class ScarQueue {
         preparedStats.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
         atDetonation.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
         ruinedBy.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
+        sentEarly.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
     }
 
     public void clear(ServerLevel level) {
@@ -383,6 +392,7 @@ public final class ScarQueue {
         preparedStats.clear();
         atDetonation.clear();
         ruinedBy.clear();
+        sentEarly.clear();
         background.clear();
         jobs.clear();
         byDue.clear();
@@ -444,6 +454,7 @@ public final class ScarQueue {
                         if (!inRange(chunk.getPos(), scan.d) || !memory.add(c)) continue;
                         st[9]++;
                         if (NuclearTickets.neighbourhoodLoaded(level, chunk.getPos(), RuinPlanner.REACH)) st[10]++;
+                        else if (!level.getChunkSource().chunkMap.getPlayers(chunk.getPos(), false).isEmpty()) st[19]++;
                     }
                 }
             } catch (RuntimeException e) {
@@ -463,7 +474,9 @@ public final class ScarQueue {
                 it.remove();
                 continue;
             }
-            if (!NuclearWorld.get(level).ruins(job.events.get(job.event), now).done(job.chunk)) continue;
+            // план в работе — ждём; готов или задачи уже нет (план забрала подготовка руин или задачу бросили) — в очередь
+            RuinContext ctx = NuclearWorld.get(level).ruins(job.events.get(job.event), now);
+            if (ctx.running(job.chunk) && !ctx.done(job.chunk)) continue;
             it.remove();
             job.ready = true;
             (level.getChunkSource().chunkMap.getPlayers(new ChunkPos(job.chunk), false).isEmpty() ? readyUnseen : readySeen).addFirst(job);
@@ -510,7 +523,14 @@ public final class ScarQueue {
                 st[3] += took;
                 st[4] = Math.max(st[4], took);
                 var memory = atDetonation.get(d.id());
-                if (memory != null && memory.contains(key)) st[11]++;
+                if (memory != null && memory.contains(key)) {
+                    st[11]++;
+                } else {
+                    // загружен после подрыва, план — готовый (с диска, фаза 2)
+                    st[16]++;
+                    st[17] += lag;
+                    st[18] = Math.max(st[18], lag);
+                }
                 deferLogs(level, d, plan);
                 return true;
             }
@@ -563,7 +583,7 @@ public final class ScarQueue {
             background.add(job);
             return true;
         }
-        if (ctx.tasks() < RuinWorkers.capacity()) return false;
+        if (RuinWorkers.admit()) return false;
         job.due = now + 1;
         byDue.add(job);
         return true;
