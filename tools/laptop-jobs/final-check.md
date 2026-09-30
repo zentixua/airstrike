@@ -48,9 +48,10 @@ systemctl --user list-units 'airstrike-job-*' --state=active --no-legend
 SHA=<SHA>; [ ${#SHA} = 40 ] || echo "стоп: SHA не вписан"
 test -e "/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && echo "стоп: папка final-SHA7 уже есть"
 MC="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
-ls "$MC/saves"        # есть «Greenfield v0.5.4» и «Newisle World»
-du -sh "$MC/saves/Greenfield v0.5.4" "$MC/saves/Newisle World" "$MC/mods"; df -h /mnt/data/projects/airstrike/mod/run
-grep -hE '^\s*(bomber_flight_time|flight_time|destruction_ms_per_tick)\s*=' "$MC/saves/Greenfield v0.5.4/serverconfig/airstrike-server.toml" || echo "строк нет — значения по умолчанию"
+ls "$MC/saves"        # есть папки «Greenfield v0.5.4» и «Newisle v1.3.1»
+du -sh "$MC/saves/Greenfield v0.5.4" "$MC/saves/Newisle v1.3.1" "$MC/mods"; df -h /mnt/data/projects/airstrike/mod/run
+C="$MC/saves/Greenfield v0.5.4/serverconfig/airstrike-server.toml"; [ -e "$C" ] || C="$MC/config/airstrike-server.toml"; echo "конфиг: $C"
+grep -hE '^\s*(bomber_flight_time|flight_time|destruction_ms_per_tick)\s*=' "$C" || echo "строк нет — значения по умолчанию"
 ```
 Свободно — не меньше Greenfield + mods + 5 ГБ (копия одна, её перезаписывает каждый шаг). Прислать координатору
 последнюю строку: `bomber_flight_time` (F, по умолчанию 40) и `flight_time` (N, тиков, по умолчанию 1800). F > 120
@@ -293,7 +294,7 @@ timeout -k 60 25m tools/laptop_job.sh final-far2 -- python3 tools/prod_client.py
 ```
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
-timeout -k 60 25m tools/laptop_job.sh final-far3 -- python3 tools/prod_client.py target-map --world "Newisle World" --seconds 1200 \
+timeout -k 60 25m tools/laptop_job.sh final-far3 -- python3 tools/prod_client.py target-map --world "Newisle v1.3.1" --seconds 1200 \
   --prop airstrike.mapAt=83,-370 --prop airstrike.mapFrom=83,150,230 --prop airstrike.mapWeapon=missile; echo "код $?"
 ```
 Выжимка после каждого (`N` — 1, 2 или 3):
