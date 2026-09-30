@@ -557,7 +557,11 @@ public final class Trailer {
                 // B-2 у клиента появляется поздно (дальность слежения — прорисовка), а телеметрия владельцу идёт всегда
                 .when(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b ? b.flightPhase() != FlightPhase.EGRESS
                         : flightNear(WeaponType.BUNKER, bay.get()) instanceof Vec3 f && f.distanceTo(bay.get()) < 500, 3000)
-                .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 16);
+                // B-2 так и не пришёл клиенту (облако, rv1: 4693 кадра рельефа) — конец плана и провал проверки, а не
+                // минуты записи без него
+                .requires("B-2 в мире клиента", () -> nearest(BomberEntity.class, bay.get(), 900) != null)
+                .endWhen(() -> nearest(BomberEntity.class, bay.get(), 900) instanceof BomberEntity b ? b.flightPhase() == FlightPhase.EGRESS
+                        : shotTime() > 160, 16);
         // место найдено заранее (findLocations): ground() после подрыва — дно воронки, и цель проверки уходила под землю
         Supplier<Vec3> pit = () -> bombPlaza;
         // B-2 прошлого плана (bomb_bay) после #126 может уйти на второй заход и сбросить бомбу позже, уже в этом плане:
