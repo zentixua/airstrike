@@ -29,6 +29,18 @@ interface TerrainSource {
     @Nullable
     Reader open(ClientLevel level);
 
+    /** Через сколько перестраивать плитку, у которой рельеф есть везде (новое источник может и сообщить: {@link #changes}). */
+    long refreshNanos();
+
+    /** Чанк, рельеф которого источник обновил. */
+    @FunctionalInterface
+    interface ChunkSink {
+        void changed(int chunkX, int chunkZ);
+    }
+
+    /** Раз в тик, в потоке игры: чанки мира {@code level}, которые источник обновил с прошлого раза. */
+    default void changes(ClientLevel level, ChunkSink sink) {}
+
     /** Для лога: что источник отдал с начала мира (колонки, отказы и почему). */
     default String describe() {
         return "";

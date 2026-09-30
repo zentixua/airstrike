@@ -71,9 +71,9 @@ public final class TargetPicker {
 
         // в небо или дальше дальности прицела — поверхность под концом луча, если чанк загружен
         BlockPos col = BlockPos.containing(end);
-        if (!Terrain.ready(level, col)) return null;
-        int y = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ());
-        Vec3 surface = new Vec3(col.getX() + 0.5, y, col.getZ() + 0.5);
+        Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, col.getX(), col.getZ(), Terrain.Allowed.CHUNK);
+        if (!ground.known()) return null;
+        Vec3 surface = new Vec3(col.getX() + 0.5, ground.y(), col.getZ() + 0.5);
         return new Pick(new Target.Point(surface), surface, Kind.SURFACE, Component.translatable("airstrike.target.surface"), null);
     }
 

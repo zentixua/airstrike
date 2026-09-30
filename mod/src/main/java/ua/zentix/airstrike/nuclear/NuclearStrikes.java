@@ -271,8 +271,7 @@ public final class NuclearStrikes {
 
     /** Точка на земле под целью (для пуска по игроку или сущности — по их позиции). */
     public static Vec3 ground(ServerLevel level, Vec3 at) {
-        BlockPos p = BlockPos.containing(at);
-        if (!Terrain.ready(level, p)) return at;
-        return new Vec3(at.x, Math.min(at.y, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ())), at.z);
+        Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(at.x), Mth.floor(at.z), Terrain.Allowed.CHUNK);
+        return ground.known() ? new Vec3(at.x, Math.min(at.y, ground.y()), at.z) : at;
     }
 }
