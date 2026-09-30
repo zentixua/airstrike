@@ -155,6 +155,12 @@ public final class ScarQueue {
         long[] ph = RuinPlan.PHASES;
         Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
                 ph[0] / 1_000_000, ph[1] / 1_000_000, ph[2] / 1_000_000, ph[3] / 1_000_000, ph[4] / 1_000_000);
+        if (RuinPlan.slowestWorldNanos > 0) {
+            Airstrike.LOG.info("Руины: дольше всего через мир — чанк {}: {} мест, {} мс (блок-сущности, POI, LOD Distant Horizons)",
+                    new ChunkPos(RuinPlan.slowestWorldChunk), RuinPlan.slowestWorldCells,
+                    String.format(java.util.Locale.ROOT, "%.1f", RuinPlan.slowestWorldNanos / 1e6));
+            RuinPlan.slowestWorldNanos = 0;
+        }
         // стволы, отложенные до руин чанка, который так и не встал в очередь (выгрузился с готовым планом)
         if (left != null) {
             for (long c : left.keySet()) if (!jobs.containsKey(c)) logs.remove(c);

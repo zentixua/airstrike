@@ -26,6 +26,7 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryType;
@@ -80,6 +81,10 @@ public final class NuclearPrep {
     /** Доля кучи (живой объём после сборки), выше которой руины заранее больше не строятся. */
     private static final double HEAP_LIMIT = 0.75;
 
+    /** Для {@link #heapTight}: число сборок при прошлой проверке и сколько проверок подряд после сборки куча выше предела. */
+    private long lastCollections = -1;
+    private int heapStrikes;
+
     private enum TileState { SCAN, SKIP, WAIT, LOADING, READY }
 
     private static final class Tile {
@@ -88,6 +93,8 @@ public final class NuclearPrep {
         /** Чанков квадрата и кольца вокруг него, чей ответ с диска ещё не пришёл или не запрошен. */
         int unknown = RING * RING;
         boolean missing;
+        /** Сколько чанков квадрата уже с планом. */
+        int planned;
         /** Чанки зоны в этом квадрате, ждущие его загрузки (план — как только готов). */
         final LongArrayList waiting = new LongArrayList();
 
@@ -112,6 +119,8 @@ public final class NuclearPrep {
         final Long2ObjectOpenHashMap<Tile> tileOf = new Long2ObjectOpenHashMap<>();
         /** Квадраты, которым нужен ответ по чанку (свой или кольцо соседа). */
         final Long2ObjectOpenHashMap<List<Tile>> askedBy = new Long2ObjectOpenHashMap<>();
+        /** Памяти мало: руины заранее больше не строятся, новые квадраты не грузятся. */
+        boolean heapStop;
         /** Сколько чанков зоны ждут загрузки своего квадрата ({@link Tile#waiting}). */
         int waiting;
         /** Очередь чанков на чтение с диска и ответы (приходят из потока ввода-вывода). */
@@ -222,8 +231,11 @@ public final class NuclearPrep {
                     AirstrikeConfig.SERVER.nukeEffectsScale.get().floatValue());
             layout(p);
         }
-        scan(level, p);
-        load(level, p);
+        if (!p.heapStop && (p.nextPlan < p.order.length || p.waiting > 0) && heapTight()) stopForHeap(level, p);
+        if (!p.heapStop) {
+            scan(level, p);
+            load(level, p);
+        }
         plan(level, p, shared);
         if (!p.announced && p.nextPlan >= p.order.length && p.waiting == 0) {
             p.announced = true;
@@ -355,18 +367,6 @@ public final class NuclearPrep {
 
     /** Руины чанков по порядку: готовый чанк — план; ждём только чанки квадратов, которые грузятся. */
     private void plan(ServerLevel level, Prep p, WorkClock shared) {
-        if (p.nextPlan < p.order.length || p.waiting > 0) {
-            long live = liveHeap(), max = Runtime.getRuntime().maxMemory();
-            if (live > max * HEAP_LIMIT) {
-                // памяти мало: готовые планы остаются, остальные чанки — на месте при волне (медленнее, но без нехватки памяти)
-                Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся ({} чанков из {} готовы)",
-                        p.strike, live >> 20, max >> 20, p.plans.size(), p.order.length);
-                p.nextPlan = p.order.length;
-                for (Tile t : p.tiles) t.waiting.clear();
-                p.waiting = 0;
-                return;
-            }
-        }
         // сперва — чанки, ждавшие своего квадрата: план, как только квадрат готов (дальний готовый не ждёт ближнего);
         // перебор по квадратам, а не по тысячам ждущих чанков каждый тик. Квадрат пропущен (не сгенерирован) или
         // отпущен — чанк пройдёт при загрузке, как раньше
@@ -388,6 +388,42 @@ public final class NuclearPrep {
             else if (t != null && t.state != TileState.SKIP) {
                 t.waiting.add(c);
                 p.waiting++;
+            }
+        }
+    }
+
+    /**
+     * Живой объём кучи выше {@link #HEAP_LIMIT} после двух сборок подряд: объём «после сборки» у старого поколения
+     * бывает с несобранным мусором, одна сборка — ещё не нехватка.
+     */
+    private boolean heapTight() {
+        long collections = 0;
+        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) collections += Math.max(0, gc.getCollectionCount());
+        if (collections != lastCollections) {
+            lastCollections = collections;
+            heapStrikes = liveHeap() > Runtime.getRuntime().maxMemory() * HEAP_LIMIT ? heapStrikes + 1 : 0;
+        }
+        return heapStrikes >= 2;
+    }
+
+    /**
+     * Памяти мало: готовые планы остаются (их квадраты держатся до руин), остальные чанки — на месте при волне
+     * (медленнее, но без нехватки памяти); квадраты без планов отпускаются, новые не грузятся.
+     */
+    private static void stopForHeap(ServerLevel level, Prep p) {
+        Runtime rt = Runtime.getRuntime();
+        Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся ({} чанков из {} готовы)",
+                p.strike, liveHeap() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.order.length);
+        p.heapStop = true;
+        p.nextPlan = p.order.length;
+        p.waiting = 0;
+        for (Tile t : p.tiles) {
+            t.waiting.clear();
+            if (t.state == TileState.SCAN || t.state == TileState.WAIT) {
+                t.state = TileState.SKIP;
+            } else if ((t.state == TileState.LOADING || t.state == TileState.READY) && t.planned == 0) {
+                StrikeWorld.get(level).areas().release(level, t.area(p.strike));
+                t.state = TileState.SKIP;
             }
         }
     }
@@ -421,6 +457,8 @@ public final class NuclearPrep {
         try {
             p.plans.put(c, RuinPlanner.plan(level, p.geometry, chunk));
             p.planned.add(c);
+            Tile t = p.tileOf.get(c);
+            if (t != null) t.planned++;
         } finally {
             clock.record(shared.end(c0));
         }

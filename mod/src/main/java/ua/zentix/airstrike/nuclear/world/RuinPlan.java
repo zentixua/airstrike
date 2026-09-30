@@ -3,6 +3,7 @@ package ua.zentix.airstrike.nuclear.world;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
@@ -19,8 +20,10 @@ import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.lighting.BlockLightEngine;
 import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+import net.minecraft.world.level.lighting.LightEngine;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.level.lighting.SkyLightEngine;
+import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 
 import ua.zentix.airstrike.AirstrikeConfig;
@@ -78,13 +81,16 @@ public final class RuinPlan {
     private static final BlockState[] NO_STATES = new BlockState[0];
 
     /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
-    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NONE, NONE, NO_LONGS, null, null);
+    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NONE, NONE, NO_LONGS, 0, -1, null, null);
 
     /**
      * Для строки в лог: время подмен по частям, нс — проверка плана, места и пожары в секциях (и пустота секций
      * движку света), карты высот и источники неба, свет и пакеты игрокам, блок-сущности через мир.
      */
     static final long[] PHASES = new long[5];
+    /** Для строки в лог: самая долгая часть «через мир» — время (нс), чанк, сколько мест через мир (с прошлой строки). */
+    static long slowestWorldNanos, slowestWorldChunk;
+    static int slowestWorldCells;
 
     /**
      * Карты высот и источники неба изменённых столбцов, посчитанные по плану: тройки (столбец {@code << 3} | вид —
@@ -93,6 +99,9 @@ public final class RuinPlan {
     private final int[] heights;
     /** Места с проверкой света (кроме мест «через мир»: их свет проверяет мир), как {@link BlockPos#asLong}. */
     private final long[] lightAt;
+    /** Чанк плана ({@code identityHashCode}) и его счётчик изменений блоков ({@link Edits}) при построении плана; −1 — счётчика нет. */
+    private final int chunkId;
+    private final long edits;
     /** Места плана по секциям (по возрастанию номера секции). */
     private final int[] cells;
     /** По номеру секции: хеш старых состояний в её местах (секции без мест — 0, не проверяются). */
@@ -104,8 +113,10 @@ public final class RuinPlan {
     private final LongArrayList outside;
     private final List<BlockState> outsideState;
 
-    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, int[] fires, int[] heights, long[] lightAt, LongArrayList outside,
-            List<BlockState> outsideState) {
+    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, int[] fires, int[] heights, long[] lightAt, int chunkId, long edits,
+            LongArrayList outside, List<BlockState> outsideState) {
+        this.chunkId = chunkId;
+        this.edits = edits;
         this.heights = heights;
         this.lightAt = lightAt;
         this.cells = cells;
@@ -114,6 +125,19 @@ public final class RuinPlan {
         this.fires = fires;
         this.outside = outside;
         this.outsideState = outsideState;
+    }
+
+    /**
+     * Счётчик изменений блоков чанка через {@code LevelChunk.setBlockState} (миксин {@code LevelChunkEditsMixin}): чанк
+     * меняли после плана и вне мест плана (блок внутри дома) — карты высот из плана могли устареть.
+     */
+    public interface Edits {
+        long airstrike$edits();
+    }
+
+    /** Счётчик изменений блоков чанка; −1 — миксин не встал. */
+    static long edits(LevelChunk chunk) {
+        return chunk instanceof Edits e ? e.airstrike$edits() : -1;
     }
 
     /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
@@ -179,14 +203,15 @@ public final class RuinPlan {
         // чанк), но без его работы на каждый блок; блок-сущности и POI — через мир после подмены (их onRemove:
         // содержимое, половинки сундука, конвейеры Create)
         LevelChunkSection[] now = chunk.getSections();
-        long touched = 0, wasEmpty = 0;
+        // изменённые секции и какие из них были пустыми (по биту на секцию: секций бывает и больше 64)
+        long[] touched = new long[(now.length + 63) >> 6], wasEmpty = new long[touched.length];
         for (int c : cells) {
             if ((c & SLOW) != 0) continue;
             int i = section(c);
             LevelChunkSection s = now[i];
-            if ((touched & 1L << i) == 0) {
-                touched |= 1L << i;
-                if (s.hasOnlyAir()) wasEmpty |= 1L << i;
+            if (!bit(touched, i)) {
+                set(touched, i);
+                if (s.hasOnlyAir()) set(wasEmpty, i);
             }
             s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
         }
@@ -200,9 +225,9 @@ public final class RuinPlan {
             int i = section(c);
             LevelChunkSection s = now[i];
             if (!s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15).isAir()) continue;
-            if ((touched & 1L << i) == 0) {
-                touched |= 1L << i;
-                if (s.hasOnlyAir()) wasEmpty |= 1L << i;
+            if (!bit(touched, i)) {
+                set(touched, i);
+                if (s.hasOnlyAir()) set(wasEmpty, i);
             }
             s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
             burning[lit++] = c;
@@ -210,14 +235,18 @@ public final class RuinPlan {
         }
         LevelLightEngine light = level.getChunkSource().getLightEngine();
         for (int i = 0; i < now.length; i++) {
-            if ((touched & 1L << i) == 0) continue;
+            if (!bit(touched, i)) continue;
             boolean empty = now[i].hasOnlyAir();
-            if (((wasEmpty & 1L << i) != 0) != empty) light.updateSectionStatus(SectionPos.of(pos, chunk.getSectionYFromSectionIndex(i)), empty);
+            if (bit(wasEmpty, i) != empty) light.updateSectionStatus(SectionPos.of(pos, chunk.getSectionYFromSectionIndex(i)), empty);
         }
         PHASES[1] += System.nanoTime() - t;
         t = System.nanoTime();
-        // карты высот и источники неба — из плана; столбец меняли после плана (стройка поверх) — весь чанк заново
-        if (!setHeights(chunk)) {
+        // карты высот и источники неба — из плана; чанк меняли после плана вне мест плана (блок внутри дома) — столбцы
+        // плана заново по чанку; значение «до» в столбце не то — весь чанк заново
+        boolean untouched = edits >= 0 && chunkId == System.identityHashCode(chunk) && edits(chunk) == edits;
+        if (!untouched) {
+            rescanColumns(chunk);
+        } else if (!setHeights(chunk)) {
             Heightmap.primeHeightmaps(chunk, HEIGHTMAPS);
             chunk.initializeLightSources();
         }
@@ -266,7 +295,15 @@ public final class RuinPlan {
         }
         // LOD Distant Horizons: руины вместе с волной, а не при следующем сохранении чанка
         DhChunks.changed(level, chunk);
-        PHASES[4] += System.nanoTime() - t;
+        long took = System.nanoTime() - t;
+        PHASES[4] += took;
+        if (took > slowestWorldNanos) {
+            slowestWorldNanos = took;
+            slowestWorldChunk = pos.toLong();
+            int n = 0;
+            for (int c : cells) if ((c & SLOW) != 0) n++;
+            slowestWorldCells = n;
+        }
         return true;
     }
 
@@ -316,6 +353,44 @@ public final class RuinPlan {
         return true;
     }
 
+    /**
+     * Карты высот и нижние источники неба столбцов плана — поиском сверху по чанку (после записи мест плана), как
+     * {@code Heightmap.primeHeightmaps} и {@code ChunkSkyLightSources.fillFrom}, но только в этих столбцах: чанк меняли
+     * после плана, и значения из плана могли устареть. Столбцы без мест плана подмена не трогает — их вёл сам мир.
+     */
+    private void rescanColumns(LevelChunk chunk) {
+        ChunkSkyLightSources sky = chunk.getSkyLightSources();
+        int minY = chunk.getMinBuildHeight(), highest = chunk.getHighestFilledSectionIndex();
+        int top = highest < 0 ? minY : SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(highest) + 1);
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
+        BlockPos.MutableBlockPos upper = new BlockPos.MutableBlockPos(), lower = new BlockPos.MutableBlockPos();
+        int last = -1;
+        for (int k = 0; k < heights.length; k += 3) {
+            int column = heights[k] >> 3;
+            if (column == last) continue;
+            last = column;
+            int lx = column & 15, lz = column >> 4, x = x0 + lx, z = z0 + lz;
+            for (Heightmap.Types type : HEIGHTMAP_TYPES) {
+                int y = top - 1;
+                while (y >= minY && !type.isOpaque().test(chunk.getBlockState(upper.set(x, y, z)))) y--;
+                chunk.getOrCreateHeightmapUnprimed(type).setHeight(lx, lz, y + 1);
+            }
+            int source = minY - 1;
+            BlockState above = Blocks.AIR.defaultBlockState();
+            for (int y = top - 1; y >= minY - 1; y--) {
+                BlockState below = chunk.getBlockState(lower.set(x, y, z));
+                upper.set(x, y + 1, z);
+                if (below.getLightBlock(chunk, lower) != 0 || Shapes.faceShapeOccludes(LightEngine.getOcclusionShape(chunk, upper, above, Direction.DOWN),
+                        LightEngine.getOcclusionShape(chunk, lower, below, Direction.UP))) {
+                    source = y + 1;
+                    break;
+                }
+                above = below;
+            }
+            sky.set(column, source);
+        }
+    }
+
     private static boolean vanilla(@Nullable Object engine, Class<?> type) {
         return engine == null || engine.getClass() == type;
     }
@@ -358,6 +433,14 @@ public final class RuinPlan {
                 PalettedContainer.Strategy.SECTION_STATES);
         states.read(buf);
         return new LevelChunkSection(states, section.getBiomes());
+    }
+
+    private static boolean bit(long[] bits, int i) {
+        return (bits[i >> 6] & 1L << (i & 63)) != 0;
+    }
+
+    private static void set(long[] bits, int i) {
+        bits[i >> 6] |= 1L << (i & 63);
     }
 
     private static BlockPos.MutableBlockPos at(BlockPos.MutableBlockPos m, int c, int x0, int z0, int minY) {

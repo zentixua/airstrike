@@ -10,6 +10,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import ua.zentix.airstrike.command.AirstrikeCommand;
+import ua.zentix.airstrike.compat.DhChunks;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.legacy.LegacyMigration;
@@ -68,6 +69,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);
+        NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
