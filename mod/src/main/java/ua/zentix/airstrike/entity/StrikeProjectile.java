@@ -612,7 +612,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         yRotO = getYRot();
         xRotO = getXRot();
         // свои тикеты — до входа в мир: чанк мог тикать лишь по чужому тикету (соседний снаряд), и если тот его
-        // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни срока жизни
+        // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни расхода хода
         if (holdsChunks()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
     }
 
@@ -918,7 +918,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * <p>
      * Дойдя до цели, снаряд встаёт в неё и возвращается в мир, где и взрывается: вне мира столкновений нет, и снаряд,
      * которому для возвращения не хватило тикающих чанков впереди по курсу (цель в чанке, который тикает один, —
-     * игрок в воздухе у края загрузки), пролетал цель и падал до конца срока жизни (стенд VPS 29.09.2026: ракеты РСЗО
+     * игрок в воздухе у края загрузки), пролетал цель и падал до конца запаса хода (стенд VPS 29.09.2026: ракеты РСЗО
      * в 900 блоках под миром).
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
@@ -951,8 +951,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         Vec3 next = pos.add(dir.scale(speed));
         Vec3 ground = groundCrossing(level, aim, pos, next);
         if (ground != null) {
-            // мимо цели (или цель под землёй): вне мира столкновений нет, и снаряд падал бы без взрыва до конца срока
-            // жизни или до низа мира (бомба на точку позади B-2 — до y=−3022); путь кончается на поверхности
+            // мимо цели (или цель под землёй): вне мира столкновений нет, и снаряд падал бы без взрыва до конца запаса
+            // хода или до низа мира (бомба на точку позади B-2 — до y=−3022); путь кончается на поверхности
             Airstrike.LOG.info("Снаряд {} {} вне мира дошёл до поверхности у {}, цель {}", getType().getDescriptionId(), getUUID(),
                     BlockPos.containing(ground), BlockPos.containing(aim));
             grounded = ground;
