@@ -139,8 +139,6 @@ public final class Trailer {
     /** Снаряды в кадре на прошлом тике: тип и где были (пропал — взрыв: отметка для монтажа и толчок камеры). */
     private java.util.Map<Integer, Seen> seen = java.util.Map.of();
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
-    /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
-    private Vec3 falloutSpot = Vec3.ZERO;
 
     private record Seen(String type, Class<?> cls, Vec3 pos) {}
 
@@ -887,7 +885,10 @@ public final class Trailer {
                 .when(() -> sinceDetonation() > 420, 4000);
     }
 
-    /** Серое утро: руины центра, чёрный дождь в следе осадков, счётчик Гейгера в руке. */
+    /**
+     * Серое утро: руины центра — последний план. Подрыв воздушный: осадков и чёрного дождя у него нет, план со
+     * счётчиком Гейгера в следе осадков снимал обычный дождь (облако, rv4) и убран.
+     */
     private void morning() {
         run(() -> {
             cmd("time set 1000");
@@ -902,18 +903,6 @@ public final class Trailer {
                 CineCamera.Key.at(220, overGround(TOWER.add(-110, 85, -40), 35), TOWER, 46)))
                 // пыль гриба и разрушения в только что загруженных чанках (они идут под бюджетом) должны улечься
                 .when(() -> sinceDetonation() > 3000, 6000);
-        run(() -> placeInFallout(false));
-        waitTicks(40);
-        run(() -> placeInFallout(true));
-        run(() -> cmd("item replace entity @s weapon.mainhand with airstrike:geiger_counter"));
-        // в творческом доза не копится (RadiationTicker), а в приключении за ожидание набегали смертельные десятки Гр:
-        // приключение и чистая доза — только на время записи
-        shot("fallout").length(170).hud().cue(0, () -> {
-                    cmd("airstrike radiation clear");
-                    cmd("gamemode adventure @s");
-                }).player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), TOWER) + 150 - (float) t * 0.35f,
-                        -18 + (float) Math.sin(t / 40) * 4, 0, 70))
-                .when(() -> sinceDetonation() > 3900, 8000);
     }
 
     // ================================================================ места
@@ -1315,50 +1304,6 @@ public final class Trailer {
             p.setGameMode(GameType.SPECTATOR);
             p.teleportTo(level, at.x, at.y, at.z, yawTo(at, facing), 0);
         });
-    }
-
-    /**
-     * В след осадков, куда они придут к ~2.5 мин после подрыва (как в ядерном сценарии): сначала невидимкой
-     * (прогрузить), потом на землю, на площадку из камня (вдруг там вода). При слабом ветре эта точка бывает в
-     * воронке или в овраге — тогда дальше по ветру, до открытого места.
-     */
-    private void placeInFallout(boolean land) {
-        var list = ClientNuclear.detonations();
-        if (list.isEmpty()) return;
-        MinecraftServer server = mc.getSingleplayerServer();
-        if (!land) {
-            var d = list.getLast().d;
-            double m = Math.min(3000, d.windSpeed() * 150) * d.scale();
-            double dx = Math.cos(d.windDir()), dz = Math.sin(d.windDir());
-            falloutSpot = server.submit(() -> openGround(server.overworld(), d.burst().x, d.burst().z, dx, dz, m)).join();
-            placeHidden(new Vec3(falloutSpot.x, 200, falloutSpot.z));
-            return;
-        }
-        BlockPos c = BlockPos.containing(falloutSpot);
-        // поляна: чёрный дождь виден на фоне неба, а не в листве
-        int y = server.submit(() -> {
-            clearAround(server.overworld(), c, 18, true);
-            return server.overworld().getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX(), c.getZ());
-        }).join();
-        Vec3 g = new Vec3(falloutSpot.x, y, falloutSpot.z);
-        BlockPos b = BlockPos.containing(g);
-        cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", b.getX() - 1, b.getY(), b.getZ() - 1, b.getX() + 1, b.getY(), b.getZ() + 1));
-        placeActor(g.add(0, 1, 0), TOWER);
-    }
-
-    /** Первая точка по ветру от {@code from} блоков, где земля не ниже окрестностей в 20 блоках (не яма). */
-    private static Vec3 openGround(ServerLevel level, double x0, double z0, double dx, double dz, double from) {
-        for (int i = 0; i < 40; i++) {
-            double r = from + i * 24;
-            int x = Mth.floor(x0 + dx * r), z = Mth.floor(z0 + dz * r);
-            int h = height(level, x, z), around = Integer.MIN_VALUE;
-            for (int k = 0; k < 8; k++) {
-                double a = k * Math.PI / 4;
-                around = Math.max(around, height(level, x + (int) (Math.cos(a) * 20), z + (int) (Math.sin(a) * 20)));
-            }
-            if (h >= around - 3) return new Vec3(x + 0.5, h, z + 0.5);
-        }
-        return new Vec3(x0 + dx * from, 0, z0 + dz * from);
     }
 
     // ================================================================ кто в кадре

@@ -668,8 +668,9 @@ def trailer_edit(music, blackout=True):
     tl.run([
         Card(("AIRSTRIKE",), 2.8, "title", fade=0.04),
         Clip("mushroom", 2.0, 2.8),
-        Clip("ruins", 7.0, 2.8),                 # начало плана — в пыли гриба (сплошной бурый кадр)
-        Clip("fallout", 1.5, 3.7, frame_y=0.35),
+        # руины — последний план: подрыв воздушный, осадков и чёрного дождя у него нет (Detonation.hasFallout), и план
+        # fallout был обычным дождём со счётчиком на фоне. Первые ~4 с плана — пыль гриба (сплошной бурый кадр)
+        Clip("ruins", 4.5, 6.5),
         Card(("AIRSTRIKE", PLATFORM, REPO, music.credit, MAP_CREDIT,
               "Sound effects: Freesound contributors (CC0 / CC BY 4.0)"), 5.5, "end", fade=0.5),
     ])

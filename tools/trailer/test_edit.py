@@ -126,8 +126,9 @@ def full_recording():
     S.append(shot_lines("cold_open", 300, slow(0.3, 120, 170), marks=[(230, "gone:airstrike:drone")],
                         sounds=[(0, "airstrike:drone.engine", snd("drone_engine"), True, 232),
                                 (236, "airstrike:blast.near", snd("blast_near_1"), False, None)]))
-    for name in ("dawn_city", "dawn_tower", "operator", "ruins"):
+    for name in ("dawn_city", "dawn_tower", "operator"):
         S.append(shot_lines(name, 300))
+    S.append(shot_lines("ruins", 660))            # 220 тиков, как в сценарии
     S.append(shot_lines("scope", 240, hud=True))
     S.append(shot_lines("map", 420, hud=True))
     S.append(shot_lines("launch_missile", 360, sounds=[(120, "airstrike:launch.booster", snd("launch_booster_1"), False, None)]))
@@ -297,7 +298,7 @@ def test_trailer_layout_on_beats(key, blackout):
     for a, b in zip(cut.items, cut.items[1:]):
         assert b.start == pytest.approx(a.start + a.dur)
     assert 85 < cut.total < 115, cut.total
-    long_ok = {"barrage", "blackout", "night_after", "flash", "missile_tower", "fallout", "siren", "icbm"}
+    long_ok = {"barrage", "blackout", "night_after", "flash", "missile_tower", "ruins", "siren", "icbm"}
     for it in cut.items:
         if isinstance(it, edit.Clip) and it.shot not in long_ok:
             assert it.dur <= 3.1, (it.shot, it.dur)
