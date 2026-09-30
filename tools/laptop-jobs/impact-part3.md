@@ -205,7 +205,7 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/impact-<SHA7>" && cd "${W:?}
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/impact-<SHA7>" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 tools/laptop_job.sh impact-craft-<SHA7> -- python3 tools/prod_client.py commands --no-copy --dir "$W/mod/run/prod" --world "Greenfield v0.5.4" --seconds 1500 \
-  --prop 'airstrike.commands=gamemode creative @s;tp @s -668 87 -151;wait:400;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves run fill ~ ~ ~ ~2 ~4 ~2 minecraft:oak_planks;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves run sable assemble area ~ ~ ~ ~2 ~4 ~2;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves run airstrike salvo missile 1 0 at ~4 ~ ~;wait:4800'
+  --prop 'airstrike.commands=gamemode creative @s;tp @s -668 87 -151;wait:400;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves run fill ~ ~ ~ ~2 ~4 ~2 minecraft:oak_planks;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves positioned ~ ~-5 ~ run sable assemble area ~ ~ ~ ~2 ~4 ~2;execute positioned -668 0 -351 positioned over motion_blocking_no_leaves run airstrike salvo missile 1 0 at ~4 ~ ~;wait:4800'
 ```
 Конец — `SCENARIO done` в `$W/mod/run/prod/logs/latest.log`. Если в чате (`[CHAT]` в логе) «Unknown or incomplete
 command» или отказ в правах (в копии мира нет команд) — прогон Б не повторять, так и записать в результат.

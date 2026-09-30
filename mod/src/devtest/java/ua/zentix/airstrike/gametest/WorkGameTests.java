@@ -376,6 +376,12 @@ public final class WorkGameTests {
             if (x == 0 && z == 0 && y <= 1) continue;
             level.setBlock(c.offset(x, y, z), mix[pick.nextInt(mix.length)], 2);
         }
+        // вода не течёт: иначе между взрывами (и между единицами по 128 лучей) мир менялся, и прогоны сравнивали разное
+        net.minecraft.world.level.levelgen.structure.BoundingBox box = net.minecraft.world.level.levelgen.structure.BoundingBox.fromCorners(
+                c.offset(-10, -1, -10), c.offset(10, 10, 10));
+        level.getFluidTicks().clearArea(box);
+        List<BlockState> before = new ArrayList<>();
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-10, -1, -10), c.offset(10, 10, 10))) before.add(level.getBlockState(p));
         Set<BlockPos> weakened = new HashSet<>();
         for (BlockPos p : BlockPos.betweenClosed(c.offset(-3, 0, -3), c.offset(3, 3, 3))) if (pick.nextBoolean()) weakened.add(p.immutable());
         net.minecraft.world.level.ExplosionDamageCalculator bunker = new net.minecraft.world.level.ExplosionDamageCalculator() {
@@ -410,6 +416,10 @@ public final class WorkGameTests {
         });
         h.succeedWhen(() -> {
             h.assertTrue(seen.size() == runs.size() && StrikeWorld.get(level).impacts().isEmpty(), "взрывов " + seen.size());
+            int i0 = 0;
+            for (BlockPos p : BlockPos.betweenClosed(c.offset(-10, -1, -10), c.offset(10, 10, 10))) {
+                if (level.getBlockState(p) != before.get(i0++)) throw new GameTestAssertException("площадка изменилась у " + p.immutable() + ": прогоны сравнивали разный мир");
+            }
             marks[runs.size() - 1] = ExplosionTimer.lastMarks();
             h.assertTrue(seen.get(0).size() > 100, "лучи выбрали мало: " + seen.get(0).size());
             for (int i = 1; i < runs.size(); i++) {
