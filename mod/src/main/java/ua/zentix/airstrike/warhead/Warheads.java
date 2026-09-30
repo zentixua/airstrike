@@ -52,8 +52,8 @@ import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
 
-import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -348,6 +348,18 @@ public final class Warheads {
     // ================================================================ шахед и ракета
 
     /** Таймлайн наземного взрыва (fx/tick и mfx/tick датапака). */
+    /** Вторичный подрыв: тик после удара, сдвиг от точки удара, сила. */
+    public record Secondary(int tick, double dx, double dy, double dz, float power) {}
+
+    /**
+     * Вторичные подрывы крылатой ракеты (топливо, обломки корпуса): по ним и разрушения на сервере, и картинка у клиента
+     * ({@code BlastEffects.Missile}) — своих частиц у взрывов нет ({@link ModParticles#NONE}).
+     */
+    public static final List<Secondary> MISSILE_SECONDARIES = List.of(
+            new Secondary(3, 8, 0, -5, 5), new Secondary(3, -6, 1, 7, 5),
+            new Secondary(5, -8, 0, -7, 4), new Secondary(5, 3, 1, 9, 4),
+            new Secondary(9, 10, 0, 2, 3));
+
     static final class SurfaceBlast implements Timeline {
         private final WeaponType weapon;
         private final Vec3 pos;
@@ -399,17 +411,8 @@ public final class Warheads {
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
             if (missile) {
-                switch (t) {
-                    case 3 -> {
-                        explode(level, pos.add(8, 0, -5), 5, false, direct, owner, null);
-                        explode(level, pos.add(-6, 1, 7), 5, false, direct, owner, null);
-                    }
-                    case 5 -> {
-                        explode(level, pos.add(-8, 0, -7), 4, false, direct, owner, null);
-                        explode(level, pos.add(3, 1, 9), 4, false, direct, owner, null);
-                    }
-                    case 9 -> explode(level, pos.add(10, 0, 2), 3, false, direct, owner, null);
-                    default -> {}
+                for (Secondary s : MISSILE_SECONDARIES) {
+                    if (s.tick() == t) explode(level, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
                 }
                 push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> true, (p, band) -> {
                     if (band == 1) {
@@ -558,20 +561,15 @@ public final class Warheads {
         }
 
         /**
-         * Верх над зарядом без его же скважины: карта высот в колонке заряда — это дно пробитого бомбой хода (ход до
-         * блока вбок), поэтому берётся нижняя медиана колонок кольца в 2 блоках вокруг — крыша постройки, грунт; листва
-         * не в счёт (кроны — не укрытие). Только сервер: карта {@code …_NO_LEAVES} есть лишь на нём.
+         * Верх над зарядом без его же скважины ({@link BunkerCover}); листва не в счёт (кроны — не укрытие). Только сервер:
+         * карта {@code …_NO_LEAVES} есть лишь на нём.
          */
         private static int surfaceAbove(ServerLevel level, BlockPos c) {
-            int[] h = new int[8];
-            int i = 0;
-            for (int dx = -2; dx <= 2; dx += 2) {
-                for (int dz = -2; dz <= 2; dz += 2) {
-                    if (dx != 0 || dz != 0) h[i++] = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c.getX() + dx, c.getZ() + dz);
-                }
+            int[] h = new int[BunkerCover.RING.length];
+            for (int i = 0; i < h.length; i++) {
+                h[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c.getX() + BunkerCover.RING[i][0], c.getZ() + BunkerCover.RING[i][1]);
             }
-            Arrays.sort(h);
-            return h[3];
+            return BunkerCover.surface(h);
         }
 
         /** Огонь на дне полости (огненные шары датапака). */
