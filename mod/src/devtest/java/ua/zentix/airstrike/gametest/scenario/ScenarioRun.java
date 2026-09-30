@@ -11,11 +11,13 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.BaseFireBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
@@ -41,9 +43,11 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.stress.StressDirector;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
+import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -81,8 +85,6 @@ final class ScenarioRun {
     private static final int SETTLE_TICKS = 5;
     /** Сколько после конца полёта ждать, пока работа попаданий снесёт всё, что выбрали взрывы снаряда, тиков. */
     private static final int IMPACT_LIMIT = 600;
-    /** Сила взрыва входа бомбы в грунт (в паспорте её нет — копия из {@code Warheads.bunkerEntry}): заряд бомбы сильнее. */
-    private static final float BUNKER_ENTRY_POWER = 4;
     /** Амплитуда хода моба по рельсу, блоков. */
     private static final double RAIL_HALF = 20;
     /**
@@ -133,10 +135,18 @@ final class ScenarioRun {
     private final Consumer<ExplosionEvent.Start> onBlast = this::onBlast;
     private final Consumer<ExplosionEvent.Detonate> onDetonate = this::onDetonate;
     /** Блоки мира (не воздух), которые выбрали взрывы снаряда сценария ({@code Detonate}): работа попаданий сносит их. */
-    private final List<BlockPos> blasted = new ArrayList<>();
+    /**
+     * Что выбрали взрывы снаряда (блоки мира рядом): место → блок в момент {@code Detonate}. Снесённое уходит отсюда по
+     * обновлению соседей ({@code NeighborNotifyEvent} с воздухом или огнём на месте): воронку потом засыпают обломки
+     * и осыпание, и конечное состояние места ничего не говорит о том, снёс ли его взрыв.
+     */
+    private final Map<BlockPos, Block> blasted = new HashMap<>();
+    /** Сколько блоков выбрали взрывы (для строки итога). */
+    private int blastedTotal;
+    private final Consumer<BlockEvent.NeighborNotifyEvent> onBlockUpdate = this::onBlockUpdate;
     /**
      * Взорвался ли снаряд сценария ({@code ExplosionEvent.Start} с его UUID). У бомбы B-2 — только сам заряд: взрыв входа
-     * в грунт ({@code Warheads.bunkerEntry}, сила {@link #BUNKER_ENTRY_POWER}) подрывом не считается.
+     * в грунт ({@code Warheads.bunkerEntry}, сила {@link Warheads#BUNKER_ENTRY_POWER}) подрывом не считается.
      */
     private boolean detonated;
     /** Тик сервера при пуске и в конце полёта (граница бюджета, очередь попаданий). */
@@ -187,6 +197,7 @@ final class ScenarioRun {
         else InstantChunks.acquire();
         NeoForge.EVENT_BUS.addListener(onBlast);
         NeoForge.EVENT_BUS.addListener(onDetonate);
+        NeoForge.EVENT_BUS.addListener(onBlockUpdate);
         WorkBudgetWatch.acquire(level.getServer());
         StrikeGameTests.afterTest(h, this::cleanup);
         h.onEachTick(this::tick);
@@ -579,14 +590,29 @@ final class ScenarioRun {
         double reach = e.getExplosion().radius() * 2 + 2;
         for (BlockPos q : e.getAffectedBlocks()) {
             // блоки аппарата Sable живут в плоте, далеко от места взрыва: их судьба — дело Sable
-            if (!level.getBlockState(q).isAir() && Vec3.atCenterOf(q).distanceTo(c) <= reach) blasted.add(q.immutable());
+            BlockState state = level.getBlockState(q);
+            if (!state.isAir() && Vec3.atCenterOf(q).distanceTo(c) <= reach && blasted.putIfAbsent(q.immutable(), state.getBlock()) == null) blastedTotal++;
         }
     }
 
-    /** Работа попаданий дошла: всё выбранное взрывами снесено, и очередь попаданий с конца полёта пустела. */
+    /** Выбранное взрывом место снесено (воздух или огонь): вычеркнуть. */
+    private void onBlockUpdate(BlockEvent.NeighborNotifyEvent e) {
+        if (e.getLevel() == level && !blasted.isEmpty() && gone(e.getState())) blasted.remove(e.getPos());
+    }
+
+    /**
+     * Выбранное и не снесённое место, на котором стоит тот же блок, что в момент выбора. Сменившийся блок (обломки
+     * или осыпание легли раньше, чем до места дошла порция взрыва) {@code StagedExplosion} не трогает — это не промах.
+     */
+    private boolean untouched(Map.Entry<BlockPos, Block> q) {
+        return level.getBlockState(q.getKey()).is(q.getValue());
+    }
+
+    /** Работа попаданий дошла: всё выбранное взрывами снесено или сменилось, и очередь попаданий с конца полёта пустела. */
     private boolean impactsDone() {
         // B-2: итог — вход бомбы, подрыв идёт позже; ждать его (или срока, тогда checkHit упадёт)
-        return (detonated || s.launch().weapon != WeaponType.BUNKER) && WorkBudgetWatch.emptiedSince(endServerTick) && blasted.stream().allMatch(q -> gone(level.getBlockState(q)));
+        return (detonated || s.launch().weapon != WeaponType.BUNKER) && WorkBudgetWatch.emptiedSince(endServerTick)
+                && blasted.entrySet().stream().noneMatch(this::untouched);
     }
 
     private static boolean gone(BlockState state) {
@@ -598,7 +624,7 @@ final class ScenarioRun {
         if (e.getLevel() != level || launchTick < 0) return;
         UUID by = StressDirector.blastBy(e.getExplosion());
         Track tr = by == null ? null : tracks.get(by);
-        if (tr != null && !(tr.bomb && e.getExplosion().radius() <= BUNKER_ENTRY_POWER)) {
+        if (tr != null && !(tr.bomb && e.getExplosion().radius() <= Warheads.BUNKER_ENTRY_POWER)) {
             detonated = true;
         }
         if (outcome != null && !outcome.end.equals("gone")) return;
@@ -612,7 +638,7 @@ final class ScenarioRun {
         double turn = tracks.values().stream().mapToDouble(tr -> tr.turn).max().orElse(0);
         Airstrike.LOG.info("SCENARIO flight {}: {} на тике {} (план {}), у {}, поворот у цели до {}°, промах {}, взрывы выбрали {} блоков", s.id(),
                 outcome.end, outcome.tick, eta0, rel(outcome.at), Math.round(turn),
-                stationaryAim == null ? "—" : String.format(Locale.ROOT, "%.1f", outcome.at.distanceTo(stationaryAim)), blasted.size());
+                stationaryAim == null ? "—" : String.format(Locale.ROOT, "%.1f", outcome.at.distanceTo(stationaryAim)), blastedTotal);
         try {
             known(Scenario.Property.TURN, this::checkTurns);
             checkDuration();
@@ -701,9 +727,9 @@ final class ScenarioRun {
         List<WorkBudgetWatch.Violation> over = WorkBudgetWatch.since(launchServerTick);
         h.assertTrue(over.isEmpty(), "бюджет работы за тик превышен: " + over);
         h.assertTrue(WorkBudgetWatch.emptiedSince(endServerTick), "очередь попаданий не опустела за " + IMPACT_LIMIT + " тиков после полёта");
-        List<String> left = blasted.stream().filter(q -> !gone(level.getBlockState(q))).limit(5)
-                .map(q -> q.toShortString() + " " + level.getBlockState(q)).toList();
-        h.assertTrue(left.isEmpty(), "взрывы выбрали, но не снесли (" + blasted.size() + " выбрано): " + left);
+        List<String> left = blasted.entrySet().stream().filter(this::untouched).limit(5)
+                .map(q -> q.getKey().toShortString() + " " + level.getBlockState(q.getKey())).toList();
+        h.assertTrue(left.isEmpty(), "взрывы выбрали, но не снесли (" + blastedTotal + " выбрано): " + left);
     }
 
     private void checkBaseline() {
@@ -737,6 +763,7 @@ final class ScenarioRun {
     private void cleanup() {
         NeoForge.EVENT_BUS.unregister(onBlast);
         NeoForge.EVENT_BUS.unregister(onDetonate);
+        NeoForge.EVENT_BUS.unregister(onBlockUpdate);
         WorkBudgetWatch.release(level.getServer());
         if (!ScenarioMode.REAL_CHUNKS) InstantChunks.release();
         VirtualFlights.get(level).clear(level, e -> owner.equals(e.ownerId()));
