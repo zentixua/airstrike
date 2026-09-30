@@ -223,8 +223,9 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 if (depth <= BREACH_DEPTH) {
+                    // газы и огонь вырываются над зарядом: шар, дым и вал пыли — на поверхности, а не в толще грунта
                     flash(level, 3 * R, 400, 0.8f);
-                    Explosions.burst(level, pos, R, mat, random);
+                    Explosions.burst(level, surface, R, mat, random);
                 } else {
                     // под землёй вспышку видно только в самой полости и рядом
                     flash(level, 8, 70, 0.8f);

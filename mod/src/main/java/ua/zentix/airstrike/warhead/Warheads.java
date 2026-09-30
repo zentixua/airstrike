@@ -471,6 +471,7 @@ public final class Warheads {
         private final Entity owner;
         private final GroundMaterial mat;
         private final GroundMaterial ventMat;
+        /** Верх колонки заряда (по нему — обрушение свода, как было). */
         private final int surfaceY;
         /** Глубина взрыва под поверхностью, блоков. */
         private final int depth;
@@ -489,11 +490,13 @@ public final class Warheads {
             BlockPos c = BlockPos.containing(pos);
             this.mat = GroundMaterial.sample(level, c);
             this.ventMat = GroundMaterial.sample(level, BlockPos.containing(entry));
-            this.surfaceY = surfaceAbove(level, c);
+            this.surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX(), c.getZ());
             this.depth = Mth.floor(surfaceY - pos.y);
+            // клиенту — верх над зарядом без скважины: по нему прорыв наружу, вспучивание грунта и курящийся провал
+            int cover = surfaceAbove(level, c);
 
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
-                    new S2C.Blast(S2C.Blast.BUNKER, pos, mat.ordinal(), surfaceY, level.random.nextLong()));
+                    new S2C.Blast(S2C.Blast.BUNKER, pos, mat.ordinal(), cover, level.random.nextLong()));
 
             // каверна: порода вокруг заряда в неровных комьях «ослаблена» — взрыв выгрызает полость рваной формы
             for (int i = 0; i < 12; i++) {
@@ -556,14 +559,15 @@ public final class Warheads {
 
         /**
          * Верх над зарядом без его же скважины: карта высот в колонке заряда — это дно пробитого бомбой хода (ход до
-         * блока вбок), поэтому берётся нижняя медиана колонок кольца в 2 блоках вокруг — крыша постройки, грунт.
+         * блока вбок), поэтому берётся нижняя медиана колонок кольца в 2 блоках вокруг — крыша постройки, грунт; листва
+         * не в счёт (кроны — не укрытие). Только сервер: карта {@code …_NO_LEAVES} есть лишь на нём.
          */
         private static int surfaceAbove(ServerLevel level, BlockPos c) {
             int[] h = new int[8];
             int i = 0;
             for (int dx = -2; dx <= 2; dx += 2) {
                 for (int dz = -2; dz <= 2; dz += 2) {
-                    if (dx != 0 || dz != 0) h[i++] = level.getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX() + dx, c.getZ() + dz);
+                    if (dx != 0 || dz != 0) h[i++] = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c.getX() + dx, c.getZ() + dz);
                 }
             }
             Arrays.sort(h);
