@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.warhead;
 
 import com.mojang.datafixers.util.Pair;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
@@ -31,13 +32,16 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.EventHooks;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SubLevels;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.work.UnitQueue;
+import ua.zentix.airstrike.work.WorkScheduler;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -46,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Ванильный взрыв по единицам работы ({@link UnitQueue}): те же шаги, что у {@code ServerLevel.explode}, только
@@ -66,7 +71,7 @@ import java.util.Set;
  *     заранее посчитанному расстоянию.</li>
  *     <li>Урон и отбрасывание по {@link #ENTITIES_PER_UNIT} сущностей (копия ванильного цикла; живость, расстояние
  *     и видимость — на момент единицы); игроку пакет взрыва с его отбрасыванием уходит в той же единице.</li>
- *     <li>Блоки мира от центра наружу порциями по {@link #PORTION} шагами {@code Explosion.finalizeExplosion}
+ *     <li>Блоки мира от центра наружу порциями по времени ({@link #PORTION_NANOS}) шагами {@code Explosion.finalizeExplosion}
  *     ({@code onExplosionHit}, затем огонь). Выпадение копится за весь взрыв и выпадает в конце. Блок, который сменился
  *     с момента лучей (натекла вода, поставил игрок), не трогается; сменившиеся свойства того же блока (забор потерял
  *     соседа) — не смена. Блоки аппаратов снимаются сразу при разборе: через тики плот мог уйти другому аппарату.</li>
@@ -78,8 +83,12 @@ import java.util.Set;
  * в чанках, которые к её сроку не готовы, пропускает.
  */
 final class StagedExplosion implements UnitQueue.Job {
-    /** Блоков за единицу. */
-    static final int PORTION = 16;
+    /** Порция блоков мира — по времени: блоки идут, пока единица короче этого. */
+    static final long PORTION_NANOS = 5_000_000L;
+    /** Блок дольше этого — строка в лог. */
+    static final long SLOW_BLOCK_NANOS = 10_000_000L;
+    /** Пачка блоков от центра наружу, внутри которой порядок перемешан. */
+    static final int BATCH = 16;
     /** Лучей за единицу (всего 1352). */
     static final int RAYS_PER_UNIT = 128;
     /** Сущностей за единицу урона: смерть моба — лут и обработчики всех модов сборки. */
@@ -127,6 +136,15 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Проверки: сид {@code level.random} перед лучами (выборка обоих путей из одних множителей). */
     @Nullable
     Long seed;
+    /** Проверки: часы порций блоков; null — часы полосы попаданий ({@link WorkClock#sampler}: у считающих — 1 шаг на блок). */
+    @Nullable
+    LongSupplier clock;
+    /** Проверки: срок порции блоков. */
+    long portionNanos = PORTION_NANOS;
+    /** Для проверок: порций блоков и самая большая из них. */
+    int portions, largestPortion;
+    /** Ванильный путь: миксин передачи урона не встал — урон сделал сам {@code explode()}. */
+    private static boolean warnedHandoff;
 
     private final BlastArea area;
     /** Взрывы, которые должны кончиться раньше (вторичные подрывы удара ждут главный). */
@@ -160,6 +178,13 @@ final class StagedExplosion implements UnitQueue.Job {
     private List<BlockPos> toBlow = List.of();
     private List<Block> blocksAtRays = List.of();
     private int next;
+    /** Начатая пачка: индексы в {@link #toBlow}, перемешаны, берутся с конца. */
+    private final IntArrayList batch = new IntArrayList();
+    /** Позиции мира после раздела, до снимка ({@link #split}). */
+    private List<BlockPos> picked = List.of();
+    private boolean partitioned;
+    /** Урон сделал ванильный {@code explode()} (миксин передачи не встал). */
+    private boolean vanillaDamage;
     /** Выпадение за весь взрыв (как {@code Explosion.addOrAppendStack}). */
     private final List<Pair<ItemStack, BlockPos>> drops = new ArrayList<>();
     private boolean done;
@@ -311,21 +336,40 @@ final class StagedExplosion implements UnitQueue.Job {
         return true;
     }
 
-    /** Аппарат рядом: ванильный {@code explode()} целиком (миксин Sable в нём, урон тоже там), потом разбор. */
+    /**
+     * Аппарат рядом: ванильный {@code explode()} (лучи с миксином Sable, сбор сущностей, {@code Detonate}), блоки
+     * аппаратов — в этой же единице; урон — порциями по списку после {@code Detonate} ({@link ExplosionHandoff}),
+     * снимок блоков мира — следующей единицей.
+     */
     private boolean vanilla(ServerLevel level, Explosion e) {
         counts.vanilla++;
         long[] marks = new long[stages.length];
+        List<Entity> handed;
         ExplosionTimer.begin(marks);
+        ExplosionHandoff.begin(e);
         try {
             e.explode();
         } finally {
+            handed = ExplosionHandoff.end();
             ExplosionTimer.end();
         }
         for (int i = 0; i < marks.length; i++) stages[i] += marks[i];
-        for (ServerPlayer p : level.players()) {
-            if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+        if (handed != null) {
+            entities = handed;
+        } else {
+            // миксин не встал: урон сделал сам explode() — как до разбиения
+            vanillaDamage = true;
+            if (!warnedHandoff) {
+                warnedHandoff = true;
+                Airstrike.LOG.warn("ExplosionHandoffMixin не встал: урон взрывов у аппаратов идёт ванильным циклом в одной единице");
+            }
+            for (ServerPlayer p : level.players()) {
+                if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+            }
         }
-        return split(level);
+        partition(level);
+        phase = Phase.SPLIT;
+        return true;
     }
 
     /** Лучи {@code [nextRay, nextRay + raysPerUnit)} — копия ванильного цикла {@code Explosion.explode}. */
@@ -388,31 +432,48 @@ final class StagedExplosion implements UnitQueue.Job {
     }
 
     /**
-     * Разбор выбранного: воздух без огня отбрасывается первым (у силы 20 выбранных — десятки тысяч, в основном воздух),
-     * плот аппарата — вопрос к Sable раз на чанк, мир — от центра наружу по заранее посчитанному расстоянию. Блоки
-     * аппаратов снимаются сразу. Блок для сверки порции ({@link #portion}) — тот, что стоит на месте в момент разбора
-     * (после всех лучей), а не в момент луча.
+     * Раздел выбранного: плот аппарата — вопрос к Sable раз на чанк, его блоки (кроме воздуха без огня) снимаются
+     * сразу; позиции мира ждут снимка ({@link #split}).
      */
-    private boolean split(ServerLevel level) {
+    private void partition(ServerLevel level) {
         long t = System.nanoTime();
         Explosion e = explosion;
         List<BlockPos> plot = new ArrayList<>();
-        List<Target> world = new ArrayList<>();
+        List<BlockPos> world = new ArrayList<>();
         // без разрушений блоков и без огня порциям нечего делать
         if (e.interactsWithBlocks() || fire) {
             Long2BooleanOpenHashMap plotChunk = new Long2BooleanOpenHashMap();
             for (BlockPos p : e.getToBlow()) {
-                BlockState s = level.getBlockState(p);
-                if (!fire && s.isAir()) continue;
                 long chunk = ChunkPos.asLong(SectionPos.blockToSectionCoord(p.getX()), SectionPos.blockToSectionCoord(p.getZ()));
                 boolean inPlot = plotChunk.computeIfAbsent(chunk, c -> SubLevels.inPlotGrid(level, new ChunkPos(c)));
-                if (inPlot) plot.add(p);
-                else world.add(new Target(p.distToCenterSqr(at), p, s.getBlock()));
+                if (!inPlot) world.add(p);
+                else if (fire || !level.getBlockState(p).isAir()) plot.add(p);
             }
         }
         e.clearToBlow();
+        picked = world;
+        partitioned = true;
+        time(ExplosionTimer.Stage.SPLIT, t);
         // аппараты — сейчас: их плот живёт своей жизнью
+        t = System.nanoTime();
         blow(level, plot);
+        time(ExplosionTimer.Stage.CRAFTS, t);
+    }
+
+    /**
+     * Разбор выбранного (после раздела): воздух без огня отбрасывается (у силы 20 выбранных — десятки тысяч, в основном
+     * воздух), мир — от центра наружу по заранее посчитанному расстоянию. Блок для сверки порции ({@link #portion}) —
+     * тот, что стоит на месте в момент разбора (после всех лучей), а не в момент луча.
+     */
+    private boolean split(ServerLevel level) {
+        if (!partitioned) partition(level);
+        long t = System.nanoTime();
+        List<Target> world = new ArrayList<>(picked.size());
+        for (BlockPos p : picked) {
+            BlockState s = level.getBlockState(p);
+            if (fire || !s.isAir()) world.add(new Target(p.distToCenterSqr(at), p, s.getBlock()));
+        }
+        picked = List.of();
         time(ExplosionTimer.Stage.SPLIT, t);
         t = System.nanoTime();
         world.sort(Comparator.comparingDouble(Target::distSqr));
@@ -425,8 +486,8 @@ final class StagedExplosion implements UnitQueue.Job {
         toBlow = kept;
         blocksAtRays = seen;
         time(ExplosionTimer.Stage.SNAPSHOT, t);
-        // ванильный путь урон уже сделал
-        phase = counts.vanilla > 0 ? Phase.BLOCKS : Phase.DAMAGE;
+        // урон уже сделал ванильный explode() (миксин передачи не встал)
+        phase = vanillaDamage ? Phase.BLOCKS : Phase.DAMAGE;
         return phase == Phase.DAMAGE || !toBlow.isEmpty();
     }
 
@@ -485,18 +546,41 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Сколько блоков сняла последняя порция (блок, сменившийся с лучей, не в счёт) — для «снято блоков». */
     private int blown;
 
-    /** Порция блоков мира. */
+    /**
+     * Порция блоков мира по времени: блоки идут, пока порция короче {@link #portionNanos}, хоть один — всегда. Порядок —
+     * от центра наружу пачками по {@link #BATCH}, внутри пачки перемешан (как весь список у ванили); начатая пачка
+     * доходит в следующей порции. Огонь — по снятому этой порцией. Блок дольше {@link #SLOW_BLOCK_NANOS} — в лог
+     * ({@link BlastArea#slowBlock}).
+     */
     private boolean portion(ServerLevel level) {
-        int end = Math.min(toBlow.size(), next + PORTION);
-        List<BlockPos> portion = new ArrayList<>(end - next);
-        for (int i = next; i < end; i++) {
+        Explosion e = explosion;
+        List<BlockPos> hit = new ArrayList<>();
+        LongSupplier clock = this.clock != null ? this.clock : WorkScheduler.impactClock(level.getServer()).sampler();
+        long t0 = clock.getAsLong(), last = t0;
+        while (!batch.isEmpty() || next < toBlow.size()) {
+            if (batch.isEmpty()) {
+                int end = Math.min(toBlow.size(), next + BATCH);
+                for (int i = next; i < end; i++) batch.add(i);
+                next = end;
+                Util.shuffle(batch, level.random);
+            }
+            int i = batch.removeInt(batch.size() - 1);
             BlockPos p = toBlow.get(i);
-            if (Terrain.ready(level, p) && level.getBlockState(p).is(blocksAtRays.get(i))) portion.add(p);
+            if (!Terrain.ready(level, p)) continue;
+            BlockState s = level.getBlockState(p);
+            if (!s.is(blocksAtRays.get(i))) continue;
+            if (e.interactsWithBlocks()) s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
+            hit.add(p);
+            long now = clock.getAsLong();
+            if (now - last > SLOW_BLOCK_NANOS) area.slowBlock(level, s, p, now - last);
+            last = now;
+            if (now - t0 >= portionNanos) break;
         }
-        next = end;
-        blown = portion.size();
-        blow(level, portion);
-        return next < toBlow.size();
+        blown = hit.size();
+        portions++;
+        largestPortion = Math.max(largestPortion, blown);
+        if (fire) burn(level, hit);
+        return !batch.isEmpty() || next < toBlow.size();
     }
 
     /** Позиция мира, выбранная лучами: расстояние до центра (ключ порядка) и блок в момент лучей. */
@@ -510,11 +594,14 @@ final class StagedExplosion implements UnitQueue.Job {
             Util.shuffle(part, level.random);
             for (BlockPos p : part) level.getBlockState(p).onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
         }
-        if (fire) {
-            for (BlockPos p : part) {
-                if (level.random.nextInt(3) == 0 && level.getBlockState(p).isAir() && level.getBlockState(p.below()).isSolidRender(level, p.below())) {
-                    level.setBlockAndUpdate(p, BaseFireBlock.getState(level, p));
-                }
+        if (fire) burn(level, part);
+    }
+
+    /** Огонь {@code Explosion.finalizeExplosion}: треть снятого, где воздух над твёрдым. */
+    private void burn(ServerLevel level, List<BlockPos> part) {
+        for (BlockPos p : part) {
+            if (level.random.nextInt(3) == 0 && level.getBlockState(p).isAir() && level.getBlockState(p.below()).isSolidRender(level, p.below())) {
+                level.setBlockAndUpdate(p, BaseFireBlock.getState(level, p));
             }
         }
     }
@@ -546,6 +633,10 @@ final class StagedExplosion implements UnitQueue.Job {
         done = true;
         area.recordCounts(counts);
         area.release(level);
+    }
+
+    int slowBlocks() {
+        return area.slowBlocks();
     }
 
     @Override

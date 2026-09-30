@@ -61,6 +61,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
@@ -164,6 +165,48 @@ public final class Warheads {
         job.forceVanilla = vanilla;
         job.raysPerUnit = raysPerUnit;
         StrikeWorld.get(level).impacts().add(level, job);
+    }
+
+    /**
+     * Проверки: взрыв (с разрушениями — {@code blocks}), ванильным {@code explode()} ({@code vanilla}, как у аппарата)
+     * или своим циклом, порции блоков — на часах {@code clock} со сроком {@code portionNanos}.
+     */
+    public static Probe testBlast(ServerLevel level, Vec3 at, float power, boolean blocks, boolean vanilla, LongSupplier clock,
+                                  long portionNanos) {
+        StagedExplosion job = new StagedExplosion(BlastArea.hold(level, at, reach(power)), List.of(), at, power, false, blocks, null, null, null);
+        job.forceVanilla = vanilla;
+        job.clock = clock;
+        job.portionNanos = portionNanos;
+        StrikeWorld.get(level).impacts().add(level, job);
+        return new Probe(job);
+    }
+
+    /** Проверки: что сделал взрыв {@link #testBlast}. */
+    public static final class Probe {
+        private final StagedExplosion job;
+
+        private Probe(StagedExplosion job) {
+            this.job = job;
+        }
+
+        public boolean done() {
+            return job.done();
+        }
+
+        /** Порций блоков мира. */
+        public int portions() {
+            return job.portions;
+        }
+
+        /** Самая большая порция, блоков. */
+        public int largestPortion() {
+            return job.largestPortion;
+        }
+
+        /** Блоков дольше {@code SLOW_BLOCK_NANOS} за взрыв. */
+        public int slowBlocks() {
+            return job.slowBlocks();
+        }
     }
 
     /** Кончились ли все взрывы {@code after}. */

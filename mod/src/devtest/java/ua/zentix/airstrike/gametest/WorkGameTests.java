@@ -32,6 +32,7 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.ExplosionHandoff;
 import ua.zentix.airstrike.warhead.ExplosionTimer;
 import ua.zentix.airstrike.warhead.Warheads;
 import ua.zentix.airstrike.work.WorkScheduler;
@@ -520,6 +521,7 @@ public final class WorkGameTests {
             h.assertTrue(fired[0] && StrikeWorld.get(level).impacts().isEmpty(), "взрыв не кончился");
             h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.MIXIN_MARKS,
                     "аппарат в охвате лучей, а путь свой: отметок " + ExplosionTimer.lastMarks());
+            h.assertTrue(ExplosionHandoff.lastHanded(), "ExplosionHandoffMixin не забрал урон у explode()");
         });
     }
 
@@ -563,6 +565,131 @@ public final class WorkGameTests {
             h.assertTrue(mains == 3 && StrikeWorld.get(level).impacts().isEmpty(), "подрывов " + mains);
             h.assertTrue(last[0] > first[0], "все подрывы в одном тике — порядок не проверен");
             h.assertTrue(early.isEmpty(), early.toString());
+        });
+    }
+
+    /**
+     * Порции блоков — по времени: на считающих часах (1 мс на блок, срок 5 мс) в порции ровно 5 блоков; блок дольше
+     * 10 мс (11 мс на блок) — порция из одного блока и строка «блок снимался» (в лог — первые пять за удар). Всё, что
+     * выбрали лучи, снесено.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "work_portion_time", skyAccess = true)
+    public static void blockPortionsByTime(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos[] centres = {CENTER.offset(-14, -6, 0), CENTER.offset(14, -6, 0)};
+        for (BlockPos c : centres) {
+            for (BlockPos p : BlockPos.betweenClosed(c.offset(-5, -5, -5), c.offset(5, 5, 5))) {
+                level.setBlock(h.absolutePos(p), Blocks.DIRT.defaultBlockState(), 2);
+            }
+        }
+        List<Blast> blasts = recordBlasts(h, 48);
+        long[] fast = {0}, slow = {0};
+        Warheads.Probe quick = Warheads.testBlast(level, Vec3.atCenterOf(h.absolutePos(centres[0])), 6, true, false,
+                () -> fast[0] += MS, 5 * MS);
+        Warheads.Probe heavy = Warheads.testBlast(level, Vec3.atCenterOf(h.absolutePos(centres[1])), 6, true, false,
+                () -> slow[0] += 11 * MS, 5 * MS);
+        h.succeedWhen(() -> {
+            h.assertTrue(quick.done() && heavy.done() && blasts.size() == 2, "взрывов " + blasts.size());
+            int blocks = 0;
+            for (Blast b : blasts) {
+                for (BlockPos p : b.blocks()) h.assertTrue(gone(level.getBlockState(p)), "выбран лучами и не снесён: " + p);
+                blocks += b.blocks().size();
+            }
+            h.assertTrue(blocks > 60, "лучи выбрали мало: " + blocks);
+            h.assertTrue(quick.largestPortion() == 5, "порция по 1 мс на блок: " + quick.largestPortion() + " блоков");
+            h.assertTrue(quick.slowBlocks() == 0, "долгих блоков при 1 мс: " + quick.slowBlocks());
+            h.assertTrue(heavy.largestPortion() == 1, "порция по 11 мс на блок: " + heavy.largestPortion() + " блоков");
+            h.assertTrue(heavy.slowBlocks() > BLAST_SLOW_LOGGED, "долгих блоков " + heavy.slowBlocks());
+        });
+    }
+
+    /** Строк «блок снимался» за удар (как {@code BlastArea.SLOW_BLOCKS_LOGGED}). */
+    private static final int BLAST_SLOW_LOGGED = 5;
+
+    /**
+     * Ванильный путь (как у аппарата): урон — порциями мода по списку сущностей после {@code ExplosionEvent.Detonate}.
+     * Корова, которую обработчик убрал из списка, цела; соседняя — ранена. Миксин передачи урона встал.
+     */
+    @GameTest(template = "range", timeoutTicks = 300, batch = "work_handoff", skyAccess = true)
+    public static void vanillaPathDamagesDetonateList(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
+        net.minecraft.world.entity.animal.Cow spared = h.spawn(net.minecraft.world.entity.EntityType.COW, CENTER.offset(-3, 1, 0));
+        net.minecraft.world.entity.animal.Cow hit = h.spawn(net.minecraft.world.entity.EntityType.COW, CENTER.offset(3, 1, 0));
+        boolean[] listed = {false};
+        Consumer<ExplosionEvent.Detonate> on = e -> {
+            if (e.getLevel() != level || e.getExplosion().center().distanceTo(at) > 0.01) return;
+            listed[0] = e.getAffectedEntities().remove(spared);
+        };
+        NeoForge.EVENT_BUS.addListener(on);
+        StrikeGameTests.afterTest(h, () -> NeoForge.EVENT_BUS.unregister(on));
+        Warheads.Probe blast = Warheads.testBlast(level, at, 4, false, true, System::nanoTime, 5 * MS);
+        h.succeedWhen(() -> {
+            h.assertTrue(blast.done(), "взрыв не кончился");
+            h.assertTrue(listed[0], "корова не попала в список Detonate — проверять нечего");
+            h.assertTrue(ExplosionHandoff.lastHanded(), "ExplosionHandoffMixin не забрал урон у explode()");
+            h.assertTrue(spared.isAlive() && spared.getHealth() == spared.getMaxHealth(), "убранная из списка ранена: " + spared.getHealth());
+            h.assertTrue(!hit.isAlive() || hit.getHealth() < hit.getMaxHealth(), "корова в списке не ранена");
+        });
+    }
+
+    /**
+     * Взрыв у аппарата Sable: блок аппарата, который обработчик {@code ExplosionEvent.Detonate} убрал из выбранного,
+     * остаётся; остальные выбранные блоки аппарата сняты в тике взрыва.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "work_handoff_craft", skyAccess = true)
+    public static void craftBlockLeftByDetonateStays(GameTestHelper h) {
+        if (!ModList.get().isLoaded("sable")) {
+            h.succeed();
+            return;
+        }
+        ServerLevel level = h.getLevel();
+        BlockPos base = CENTER.offset(3, 0, -2);
+        for (int x = 0; x < 3; x++) for (int y = 0; y < 3; y++) for (int z = 0; z < 5; z++) h.setBlock(base.offset(x, y, z), Blocks.OAK_PLANKS);
+        BlockPos a = h.absolutePos(base), b = h.absolutePos(base.offset(2, 2, 4));
+        level.getServer().getCommands().performPrefixedCommand(level.getServer().createCommandSourceStack().withLevel(level).withPermission(4)
+                .withSuppressedOutput(), String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d",
+                a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ()));
+        Vec3 c = Vec3.atBottomCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
+        BlockPos[] kept = {null};
+        List<BlockPos> plot = new ArrayList<>();
+        long[] at = {-1};
+        Consumer<ExplosionEvent.Detonate> onBlast = e -> {
+            if (e.getLevel() != level || e.getExplosion().center().distanceTo(c) > 0.01) return;
+            at[0] = level.getGameTime();
+            for (BlockPos p : e.getAffectedBlocks()) {
+                if (!SubLevels.inPlotGrid(level, new ChunkPos(p)) || level.getBlockState(p).isAir()) continue;
+                if (kept[0] == null) kept[0] = p.immutable();
+                else plot.add(p.immutable());
+            }
+            if (kept[0] != null) e.getAffectedBlocks().remove(kept[0]);
+        };
+        List<String> wrong = new ArrayList<>();
+        boolean[] checked = {false};
+        Consumer<ServerTickEvent.Post> afterScheduler = e -> {
+            if (at[0] < 0 || checked[0]) return;
+            checked[0] = true;
+            if (kept[0] != null && level.getBlockState(kept[0]).isAir()) wrong.add("убранный из выбранного снят: " + kept[0]);
+            for (BlockPos p : plot) if (!level.getBlockState(p).isAir()) wrong.add("не снят " + p + " " + level.getBlockState(p));
+        };
+        NeoForge.EVENT_BUS.addListener(onBlast);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, afterScheduler);
+        StrikeGameTests.afterTest(h, () -> {
+            NeoForge.EVENT_BUS.unregister(onBlast);
+            NeoForge.EVENT_BUS.unregister(afterScheduler);
+        });
+        int[] waited = {0};
+        Warheads.Probe[] blast = {null};
+        h.onEachTick(() -> {
+            if (blast[0] != null || waited[0]++ != 5) return;
+            h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
+            blast[0] = Warheads.testBlast(level, c, 4, true, false, System::nanoTime, 5 * MS);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(checked[0] && blast[0].done(), "взрыва нет");
+            h.assertTrue(kept[0] != null && !plot.isEmpty(), "лучи выбрали мало блоков аппарата: " + (kept[0] == null ? 0 : 1 + plot.size()));
+            h.assertTrue(ExplosionHandoff.lastHanded(), "у аппарата не ванильный путь или миксин передачи не встал");
+            h.assertTrue(wrong.isEmpty(), wrong.toString());
         });
     }
 

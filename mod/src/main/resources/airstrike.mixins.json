@@ -6,6 +6,7 @@
   "mixins": [
     "chunk.BoundTickingBlockEntityMixin",
     "chunk.LevelChunkTickingMixin",
+    "explosion.ExplosionHandoffMixin",
     "explosion.ExplosionTimingMixin",
     "sable.SubLevelSplitGuardMixin"
   ],
