@@ -738,10 +738,19 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 2000, batch = "bomber_reattack", skyAccess = true)
     public static void bomberReattacksAimInsideItsTurn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
         Vec3 start = top(h, RUNWAY_TARGET);
         // курс на +z, далеко вперёд; сразу перенацеливание на 150 блоков вбок и 60 вперёд — внутрь круга разворота
         Vec3 aside = start.add(150, 0, 60);
-        bomberEntersNear(h, start, start.add(0, 0, 3000), aside, aside);
+        // точка за краем площадки: её район (и соседи — тикать район пускают только над готовыми) — сразу, иначе
+        // бомба ждала бы фоновой генерации, а сервер GameTest тикает без пауз, и на CI срок теста проходил раньше
+        // (бомба сброшена, но не вошла в грунт за 2000 тиков — push-прогон #119, 29.09.2026)
+        ChunkPos at = new ChunkPos(BlockPos.containing(aside));
+        int r = FlightTickets.DISTANCE + 1;
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) level.getChunk(at.x + dx, at.z + dz);
+        // бомба входит в грунт под точкой — ждать её там, а не на высоте площадки
+        Vec3 ground = new Vec3(aside.x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(aside.x), Mth.floor(aside.z)), aside.z);
+        bomberEntersNear(h, start, start.add(0, 0, 3000), aside, ground);
     }
 
     /**
@@ -890,6 +899,7 @@ public final class StrikeGameTests {
         UUID id = bomber.getUUID();
         BomberEntity[] last = {bomber};
         Vec3[] entry = {null};
+        BunkerBusterEntity[] bomb = {null};
         Set<UUID> bombs = new HashSet<>();
         h.onEachTick(() -> {
             StrikeProjectile now = VirtualFlights.get(level).flights().stream().filter(f -> f.getUUID().equals(id)).findFirst()
@@ -907,13 +917,16 @@ public final class StrikeGameTests {
             for (BunkerBusterEntity b : seen) {
                 if (!owner.equals(b.ownerId())) continue;
                 bombs.add(b.getUUID());
+                bomb[0] = b;
                 if (entry[0] == null && b.isDrilling()) entry[0] = b.entry();
             }
         });
         h.succeedWhen(() -> {
             h.assertTrue(entry[0] != null, "бомба ещё не вошла в грунт (бомб " + bombs.size() + "); B-2 в "
                     + (int) last[0].position().subtract(expect).horizontalDistance() + " блоках от точки, на высоте " + (int) (last[0].getY() - expect.y)
-                    + ", вне мира " + last[0].isVirtual() + ", сброс " + last[0].hasReleased() + ", убран " + last[0].isRemoved());
+                    + ", вне мира " + last[0].isVirtual() + ", сброс " + last[0].hasReleased() + ", убран " + last[0].isRemoved()
+                    + (bomb[0] == null ? "" : "; бомба в " + (int) bomb[0].position().subtract(expect).horizontalDistance() + " блоках от точки, на высоте "
+                    + (int) (bomb[0].getY() - expect.y) + ", вне мира " + bomb[0].isVirtual() + ", убрана " + bomb[0].isRemoved()));
             h.assertTrue(bombs.size() == 1, "бомб " + bombs.size());
             double miss = entry[0].subtract(expect).horizontalDistance();
             h.assertTrue(miss < 16 && Math.abs(entry[0].y - expect.y) < 4, "бомба вошла в грунт в " + (int) miss
