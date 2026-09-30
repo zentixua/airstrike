@@ -31,7 +31,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
   tools/
     paths.py                             ← все пути к игре (единственное место)
-    fetch_runtime_mods.py                ← Create/Sable/Aeronautics с Modrinth (sha512) — для CI и облака без инстанса
+    fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
@@ -82,8 +82,10 @@ git commit
 `# /// script` (PEP 723) — запуск `uv run tools/<скрипт>.py`, в системный Python ничего не ставить.
 Моды для запусков (`run/*/mods`) копируются из инстанса задачами `copyRuntimeMods_*`; путь — `MC_DIR` или по умолчанию.
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
-(Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026).
-CI (GitHub Actions, репозиторий публичный) гоняет то же на каждый push в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
+(Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026); `-PwithLithium` — GameTest ещё и
+с Lithium, как у хоста (он заменяет вызовы в тике блок-сущностей; в jar и `mods.toml` его нет).
+CI (GitHub Actions, репозиторий публичный) гоняет то же (GameTest дважды: без Lithium и с ним) на каждый push
+в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
 с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
 вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.
