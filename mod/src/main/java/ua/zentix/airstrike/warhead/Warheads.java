@@ -150,6 +150,19 @@ public final class Warheads {
         return job;
     }
 
+    /**
+     * Проверки: взрыв без разрушений (выборку лучей видно в {@code ExplosionEvent.Detonate}) с сидом {@code seed}
+     * у {@code level.random} перед лучами — ванильным {@code explode()} или своим циклом по {@code raysPerUnit} лучей.
+     */
+    public static void testRays(ServerLevel level, Vec3 at, float power, @Nullable ExplosionDamageCalculator calculator, long seed,
+                                boolean vanilla, int raysPerUnit) {
+        StagedExplosion job = new StagedExplosion(BlastArea.hold(level, at, reach(power)), List.of(), at, power, false, false, null, null, calculator);
+        job.seed = seed;
+        job.forceVanilla = vanilla;
+        job.raysPerUnit = raysPerUnit;
+        StrikeWorld.get(level).impacts().add(level, job);
+    }
+
     /** Кончились ли все взрывы {@code after}. */
     static boolean pending(List<StagedExplosion> after) {
         for (StagedExplosion e : after) if (!e.done()) return true;

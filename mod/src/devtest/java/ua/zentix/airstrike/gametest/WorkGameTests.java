@@ -182,15 +182,14 @@ public final class WorkGameTests {
         // очередь мира общая: работы ударов прошлых партий могут ещё доделываться — ждём, пока опустеет
         whenQueueEmpty(h, 150, () -> {
             ServerLevel level = h.getLevel();
+            // считающие часы: единица = 1 мс, срок 30 — подрыв (начало, 11 единиц лучей, Detonate) влезает в тик
+            useCounting(h, WorkClock.counting(MS));
             List<Blast> blasts = recordBlasts(h, 16);
             long t = level.getGameTime();
             Warheads.detonate(level, WeaponType.DRONE, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), null, null);
             h.runAfterDelay(1, () -> {
                 h.assertFalse(blasts.isEmpty(), "подрыва нет и тиком позже");
                 h.assertTrue(blasts.getFirst().gameTime() == t, "подрыв на тике " + blasts.getFirst().gameTime() + ", удар — на " + t);
-                // замер шагов Explosion.explode (строка «Попадания» и итог удара): миксин встал на все отметки
-                h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.stages(),
-                        "ExplosionTimingMixin отметил " + ExplosionTimer.lastMarks() + " шагов из " + ExplosionTimer.stages());
                 h.succeed();
             });
         });
@@ -236,15 +235,24 @@ public final class WorkGameTests {
         };
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, check);
         StrikeGameTests.afterTest(h, () -> NeoForge.EVENT_BUS.unregister(check));
+        List<Vec3> starts = new ArrayList<>();
+        List<Long> startTicks = new ArrayList<>();
+        Consumer<ExplosionEvent.Start> onStart = e -> {
+            if (e.getLevel() != level || e.getExplosion().center().distanceTo(c) > 48) return;
+            starts.add(e.getExplosion().center());
+            startTicks.add(level.getGameTime());
+        };
+        NeoForge.EVENT_BUS.addListener(onStart);
+        StrikeGameTests.afterTest(h, () -> NeoForge.EVENT_BUS.unregister(onStart));
         long t = level.getGameTime();
         Warheads.detonate(level, WeaponType.DRONE, first, null, null);
         Warheads.detonate(level, WeaponType.DRONE, second, null, null);
         h.succeedWhen(() -> {
             h.assertTrue(StrikeWorld.get(level).impacts().isEmpty() && blasts.size() == 12, "взрывов " + blasts.size());
             h.assertTrue(blasts.get(0).at().distanceTo(first) < 0.01 && Mth.equal(blasts.get(0).radius(), power), "первым — не подрыв первого");
-            h.assertTrue(blasts.get(1).at().distanceTo(second) < 0.01 && Mth.equal(blasts.get(1).radius(), power), "вторым — не подрыв второго");
-            h.assertTrue(blasts.get(0).gameTime() == t && blasts.get(1).gameTime() == t, "подрывы не в тике удара: " + blasts.get(0).gameTime()
-                    + ", " + blasts.get(1).gameTime() + " (удар " + t + ")");
+            h.assertTrue(starts.size() >= 2 && starts.get(0).distanceTo(first) < 0.01 && starts.get(1).distanceTo(second) < 0.01,
+                    "первые единицы — не подрывы шахедов: " + starts);
+            h.assertTrue(startTicks.get(0) == t && startTicks.get(1) == t, "подрывы начались не в тике удара: " + startTicks + " (удар " + t + ")");
             h.assertTrue(followers[0] == 5, "огненный шар и вторичные первого: " + followers[0]);
             h.assertTrue(early.isEmpty(), early.toString());
             h.assertTrue(clock.ticksWorked() > 1, "всё в одном тике — порядок не проверен");
@@ -351,6 +359,75 @@ public final class WorkGameTests {
     }
 
     /**
+     * Лучи своим циклом выбирают то же, что ванильный {@code explode()}: один сид, площадка из камня, воды, обсидиана,
+     * стекла и руды, ванильный калькулятор и калькулятор бомбы (ослабленные блоки), все лучи одной единицей
+     * и по 128. Взрыв без разрушений — площадка одна на все прогоны. Ванильный путь заодно проверяет, что миксин
+     * замера встал ({@code ExplosionTimingMixin}).
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "work_rays", skyAccess = true)
+    public static void raysMatchVanilla(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(CENTER);
+        BlockState[] mix = {Blocks.STONE.defaultBlockState(), Blocks.WATER.defaultBlockState(), Blocks.OBSIDIAN.defaultBlockState(),
+                Blocks.GLASS.defaultBlockState(), Blocks.IRON_ORE.defaultBlockState(), Blocks.AIR.defaultBlockState(), Blocks.OAK_PLANKS.defaultBlockState()};
+        java.util.Random pick = new java.util.Random(7);
+        for (int x = -9; x <= 9; x++) for (int y = 0; y <= 9; y++) for (int z = -9; z <= 9; z++) {
+            if (x == 0 && z == 0 && y <= 1) continue;
+            level.setBlock(c.offset(x, y, z), mix[pick.nextInt(mix.length)], 2);
+        }
+        Set<BlockPos> weakened = new HashSet<>();
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-3, 0, -3), c.offset(3, 3, 3))) if (pick.nextBoolean()) weakened.add(p.immutable());
+        net.minecraft.world.level.ExplosionDamageCalculator bunker = new net.minecraft.world.level.ExplosionDamageCalculator() {
+            @Override
+            public java.util.Optional<Float> getBlockExplosionResistance(net.minecraft.world.level.Explosion explosion,
+                    net.minecraft.world.level.BlockGetter reader, BlockPos p, BlockState state, net.minecraft.world.level.material.FluidState fluid) {
+                return weakened.contains(p) ? java.util.Optional.of(0f) : super.getBlockExplosionResistance(explosion, reader, p, state, fluid);
+            }
+        };
+        Vec3 at = Vec3.atCenterOf(c.above());
+        record Run(boolean vanilla, int rays, boolean weak) {}
+        List<Run> runs = List.of(new Run(true, 1352, false), new Run(false, 1352, false), new Run(false, 128, false),
+                new Run(true, 1352, true), new Run(false, 128, true));
+        List<Set<BlockPos>> seen = new ArrayList<>();
+        int[] marks = new int[runs.size()];
+        Consumer<ExplosionEvent.Detonate> on = e -> {
+            if (e.getLevel() != level || e.getExplosion().center().distanceTo(at) > 0.01) return;
+            Set<BlockPos> set = new HashSet<>();
+            for (BlockPos p : e.getAffectedBlocks()) set.add(p.immutable());
+            seen.add(set);
+        };
+        NeoForge.EVENT_BUS.addListener(on);
+        StrikeGameTests.afterTest(h, () -> NeoForge.EVENT_BUS.unregister(on));
+        // по одному взрыву: следующий — когда прошлый выбрал
+        int[] started = {0};
+        h.onEachTick(() -> {
+            if (started[0] > seen.size() || started[0] >= runs.size() || !StrikeWorld.get(level).impacts().isEmpty()) return;
+            if (started[0] > 0) marks[started[0] - 1] = ExplosionTimer.lastMarks();
+            ExplosionTimer.forget();
+            Run r = runs.get(started[0]++);
+            Warheads.testRays(level, at, 6, r.weak() ? bunker : null, 12345L, r.vanilla(), r.rays());
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(seen.size() == runs.size() && StrikeWorld.get(level).impacts().isEmpty(), "взрывов " + seen.size());
+            marks[runs.size() - 1] = ExplosionTimer.lastMarks();
+            h.assertTrue(seen.get(0).size() > 100, "лучи выбрали мало: " + seen.get(0).size());
+            for (int i = 1; i < runs.size(); i++) {
+                Set<BlockPos> want = runs.get(i).weak() ? seen.get(3) : seen.get(0);
+                if (!seen.get(i).equals(want)) {
+                    Set<BlockPos> extra = new HashSet<>(seen.get(i));
+                    extra.removeAll(want);
+                    Set<BlockPos> missing = new HashSet<>(want);
+                    missing.removeAll(seen.get(i));
+                    throw new GameTestAssertException(runs.get(i) + ": лишние " + extra.size() + ", нет " + missing.size() + " из " + want.size());
+                }
+            }
+            h.assertFalse(seen.get(3).equals(seen.get(0)), "калькулятор бомбы ничего не изменил — проверка пустая");
+            h.assertTrue(marks[0] == ExplosionTimer.MIXIN_MARKS, "ExplosionTimingMixin отметил " + marks[0] + " из " + ExplosionTimer.MIXIN_MARKS);
+            h.assertTrue(marks[1] == 0 && marks[2] == 0, "свой цикл ушёл в ванильный explode()");
+        });
+    }
+
+    /**
      * Взрыв у собранного аппарата Sable: блоки аппарата (в сетке плотов), которые выбрали лучи, сняты в тике взрыва —
      * через тики аппарат мог уже расколоться, а его плот уйти другому.
      */
@@ -396,6 +473,7 @@ public final class WorkGameTests {
             if (at[0] >= 0 || waited[0]++ != 5) return;
             h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
             WorkScheduler.useImpactClock(level.getServer(), WorkClock.counting(MS));
+            ExplosionTimer.forget();
             Warheads.detonate(level, WeaponType.MISSILE, c, null, null);
         });
         StrikeGameTests.afterTest(h, () -> WorkScheduler.useImpactClock(level.getServer(), WorkScheduler.newImpactClock()));
@@ -403,6 +481,8 @@ public final class WorkGameTests {
             h.assertTrue(checked[0], "взрыва нет");
             h.assertFalse(plot.isEmpty(), "лучи не выбрали ни одного блока аппарата");
             h.assertTrue(left.isEmpty(), "блоки аппарата не сняты в тике взрыва: " + left);
+            // аппарат рядом — ванильный explode() со всеми миксинами Sable (и нашими отметками замера)
+            h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.MIXIN_MARKS, "у аппарата не ванильный путь: отметок " + ExplosionTimer.lastMarks());
         });
     }
 

@@ -17,16 +17,18 @@ import java.util.Locale;
 public final class ImpactCost {
     /** Вид работы попадания. */
     public enum Kind {
-        /** Ванильные взрывы, первая единица: лучи, урон и отбрасывание сущностей, события взрыва. */
-        RAYS("взрывы: лучи и урон"),
-        /** Ванильные взрывы, остальные единицы: снятие блоков порциями, выпадение, огонь. */
+        /** Ванильные взрывы: начало ({@code ExplosionEvent.Start}, запрос аппаратов) и лучи. */
+        RAYS("взрывы: лучи"),
+        /** Ванильные взрывы: разбор выбранного лучами, снятие блоков порциями, выпадение, огонь. */
         BLOCKS("взрывы: блоки"),
         /** Выбитые ударной волной стёкла и листва. */
         GLASS("стёкла"),
         /** Обломки-сущности. */
         DEBRIS("обломки"),
         /** Прочее: огонь по кольцу, щебень и обрушение свода бомбы. */
-        GROUND("огонь и грунт");
+        GROUND("огонь и грунт"),
+        /** Ванильные взрывы: сбор сущностей, {@code ExplosionEvent.Detonate}, урон и отбрасывание. */
+        HITS("взрывы: Detonate и урон");
 
         private final String label;
 
@@ -48,7 +50,7 @@ public final class ImpactCost {
 
     private final long[] nanos = new long[Kind.values().length];
     private final int[] counts = new int[Kind.values().length];
-    /** Из чего сложились лучи взрывов ({@link Kind#RAYS}): шаги {@code Explosion.explode} по {@link ExplosionTimer}. */
+    /** Шаги взрывов за тик ({@link ExplosionTimer.Stage}). */
     private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
     private long total;
     private long lastLog = Long.MIN_VALUE / 2;
@@ -82,7 +84,7 @@ public final class ImpactCost {
         seriesStrikes++;
     }
 
-    /** Шаги лучей одного взрыва, нс ({@link ExplosionTimer}). */
+    /** Шаги взрыва за единицу, нс ({@link ExplosionTimer.Stage}). */
     public void addRayStages(long[] stages) {
         for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
     }
@@ -124,15 +126,13 @@ public final class ImpactCost {
                 for (Kind k : Kind.values()) {
                     if (parts.length() > 0) parts.append(", ");
                     parts.append(k.label).append(' ').append(nanos[k.ordinal()] / 1_000_000).append(" мс (").append(counts[k.ordinal()]).append(')');
-                    if (k == Kind.RAYS && counts[k.ordinal()] > 0) {
-                        parts.append(" [");
-                        for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
-                            if (st.ordinal() > 0) parts.append(", ");
-                            parts.append(st.label).append(' ').append(rayStages[st.ordinal()] / 1_000_000);
-                        }
-                        parts.append(" мс]");
-                    }
                 }
+                parts.append("; шаги взрывов [");
+                for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
+                    if (st.ordinal() > 0) parts.append(", ");
+                    parts.append(st.label).append(' ').append(rayStages[st.ordinal()] / 1_000_000);
+                }
+                parts.append(" мс]");
                 Airstrike.LOG.warn("Попадания ({}): {} мс за тик — {}; в очереди {}; таких тиков после прошлой строки: {}",
                         level.dimension().location(), total / 1_000_000, parts, queue.size(), slowSinceLog);
                 lastLog = now;

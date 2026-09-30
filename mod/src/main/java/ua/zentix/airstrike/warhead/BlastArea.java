@@ -50,6 +50,7 @@ final class BlastArea {
     private ImpactCost.Kind maxKind = ImpactCost.Kind.RAYS;
     private final int[] done = new int[ImpactCost.Kind.values().length];
     private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
+    private final StagedExplosion.RayCounts rayCounts = new StagedExplosion.RayCounts();
 
     private BlastArea(Vec3 centre, double reach) {
         this.centre = centre;
@@ -98,10 +99,15 @@ final class BlastArea {
         lastUnitAt = level.getGameTime();
     }
 
-    /** Шаги лучей одного взрыва ({@link ExplosionTimer}, нс). */
-    void recordRays(ServerLevel level, long[] stages) {
+    /** Шаги взрыва за единицу ({@link ExplosionTimer.Stage}, нс). */
+    void recordStages(ServerLevel level, long[] stages) {
         StrikeWorld.get(level).impactCost().addRayStages(stages);
         for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
+    }
+
+    /** Счётчики лучей взрыва — в итог удара. */
+    void recordCounts(StagedExplosion.RayCounts counts) {
+        rayCounts.add(counts);
     }
 
     boolean ready(ServerLevel level) {
@@ -128,10 +134,12 @@ final class BlastArea {
         }
         return String.format(Locale.ROOT,
                 "Итог удара (%s) у %d %d %d: %d единиц, взрывов %d, снято блоков %d, стёкол %d, обломков %d, за %d тиков, всего %s мс, "
-                        + "самая долгая единица %s мс (%s); лучи: %s мс",
+                        + "самая долгая единица %s мс (%s); шаги взрывов: %s мс; лучи: шагов %d, в воздухе %d, из кэша %d, "
+                        + "запросов аппаратов %d, ванильных взрывов %d",
                 dimension, Mth.floor(centre.x), Mth.floor(centre.y), Mth.floor(centre.z), units,
                 done[ImpactCost.Kind.RAYS.ordinal()], done[ImpactCost.Kind.BLOCKS.ordinal()], done[ImpactCost.Kind.GLASS.ordinal()],
-                done[ImpactCost.Kind.DEBRIS.ordinal()], lastUnitAt - heldAt + 1, ms(nanos), ms(maxUnit), maxKind.label(), rays);
+                done[ImpactCost.Kind.DEBRIS.ordinal()], lastUnitAt - heldAt + 1, ms(nanos), ms(maxUnit), maxKind.label(), rays,
+                rayCounts.steps, rayCounts.airSteps, rayCounts.cached, rayCounts.craftQueries, rayCounts.vanilla);
     }
 
     private static String ms(long nanos) {

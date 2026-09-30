@@ -34,6 +34,8 @@ public final class ExplosionTimer {
     }
 
     private static final Stage[] STAGES = Stage.values();
+    /** Отметок миксина на один {@code explode()}: событие, лучи, сбор сущностей, Detonate, урон. */
+    public static final int MIXIN_MARKS = 5;
     private static long[] current;
     private static long last;
     private static int next;
@@ -59,9 +61,14 @@ public final class ExplosionTimer {
         lastMarks = marks;
     }
 
-    /** Сколько шагов отмечено в последнем нашем взрыве: миксин встал — все ({@link #stages()}), не встал — только свои (2–3). */
+    /** Сколько шагов отметил миксин в последнем ванильном взрыве: встал — {@link #MIXIN_MARKS}, не встал — 0. */
     public static int lastMarks() {
         return lastMarks;
+    }
+
+    /** Проверки: забыть отметки прошлого взрыва. */
+    public static void forget() {
+        lastMarks = 0;
     }
 
     /** Миксин: начало {@code Explosion.explode}. */
@@ -73,11 +80,6 @@ public final class ExplosionTimer {
     public static void exit() {
         mark(Stage.DAMAGE.ordinal());
         depth--;
-    }
-
-    /** Свой шаг взрыва (вне {@code explode()}): кончился {@code stage}. */
-    static void markOwn(Stage stage) {
-        if (depth == 0) put(stage.ordinal());
     }
 
     /** Миксин: кончился шаг {@code stage} (отметки идут по порядку; пропущенный шаг получает 0). */
