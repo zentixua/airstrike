@@ -152,8 +152,9 @@ def full_recording():
                         sounds=[(152, "airstrike:rocket.blast", snd("rocket_blast_1"), False, None)]))
     S.append(shot_lines("missile_camera", 400, speed=0.2, want=lambda k: 0.2, hud=True,
                         marks=[(60, "video"), (200, "close"), (330, "gone:airstrike:cruise_missile"), (380, "exit")]))
-    S.append(shot_lines("bomb_bay", 400, speed=0.25, want=lambda k: 0.25, marks=[(200, "release")]))
+    S.append(shot_lines("bomb_bay", 400, speed=0.25, want=lambda k: 0.25, marks=[(120, "bomber"), (200, "release")]))
     S.append(shot_lines("bomb_impact", 600, lambda k: 0.3 if k >= 100 else 0.75, speed=0.75, freeze_at=50, freeze_frames=150,
+                        marks=[(40, "gone:airstrike:bunker_buster")],
                         sounds=[(300, "airstrike:bomb.impact", snd("bomb_impact"), False, None)]))
     S.append(shot_lines("swarm_night", 360, marks=[(150, "gone:airstrike:drone"), (200, "gone:airstrike:drone")]))
     S.append(shot_lines("grad_night", 300, speed=0.7, want=lambda k: 0.7, marks=[(120, "gone:airstrike:rocket")]))
@@ -377,6 +378,9 @@ def test_resolve_with_real_anchors(tmp_path):
         if isinstance(c, edit.Clip):
             s = shots[c.shot]
             assert 0 <= c.src and c.src + c.dur * c.rate <= s.duration + 1e-6, c
+    # план сброса — не раньше появления B-2 (до него пустое небо)
+    bay = next(c for c in cut.items if isinstance(c, edit.Clip) and c.shot == "bomb_bay")
+    assert bay.src >= edit.anchor(shots["bomb_bay"], "mark:bomber+0.2") - 1e-6
 
 
 # ---------------------------------------------------------------- звук

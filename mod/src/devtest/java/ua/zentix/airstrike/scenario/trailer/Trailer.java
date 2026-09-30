@@ -139,6 +139,7 @@ public final class Trailer {
     /** Снаряды в кадре на прошлом тике: тип и где были (пропал — взрыв: отметка для монтажа и толчок камеры). */
     private java.util.Map<Integer, Seen> seen = java.util.Map.of();
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
+    private final java.util.Set<Integer> bombers = new java.util.HashSet<>();
 
     private record Seen(String type, Class<?> cls, Vec3 pos) {}
 
@@ -589,7 +590,9 @@ public final class Trailer {
         run(() -> placeHidden(pit.get().add(toPost.scale(120)).add(0, 30, 0), pit.get()));
         shot("bomb_impact").onReady(() -> fire("bunker", pit.get())).hidden().length(320).shake(0.08)
                 .speed(0.75, slowNear(BunkerBusterEntity.class, pit, 60, 0.3))
-                .bulletTime(BunkerBusterEntity.class, pit, 150, 0.3)
+                // замереть позже обычного: в первые тики взрыва вспышки и ударное кольцо (живут до 12 тиков) застывали
+                // белыми кругами с тёмной серединой, как сбой картинки (kfcheck5); через 14 тиков в кадре огонь и обломки
+                .bulletTime(BunkerBusterEntity.class, pit, 40, 14, 150, 0.3)
                 .camera(() -> {
                     Vec3 at = pit.get();
                     // выше крон: с 16 блоков над землёй взрыв закрывала листва соседних деревьев
@@ -2215,6 +2218,8 @@ public final class Trailer {
         java.util.Map<Integer, Seen> now = new java.util.HashMap<>();
         for (Entity e : mc.level.entitiesForRendering()) {
             if (e instanceof BomberEntity b) {
+                // B-2 появился у клиента: монтаж начинает план сброса не раньше (до него в кадре пустое небо)
+                if (bombers.add(b.getId()) && mark) rec.mark("bomber");
                 if (b.flightPhase() == FlightPhase.EGRESS && released.add(b.getId()) && mark) rec.mark("release");
             } else if (e instanceof StrikeProjectile p && p.isActive()) {
                 now.put(e.getId(), new Seen(e.getType().toShortString(), e.getClass(), e.position()));

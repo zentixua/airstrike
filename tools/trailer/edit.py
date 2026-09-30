@@ -419,6 +419,7 @@ class Clip:
     impact: str = None      # якорь удара в плане: низкий удар монтажа
     frame_y: float = 0.5    # какая полоса плана видна в кинокаше: 0 — верхняя (строки интерфейса), 0.5 — середина
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
+    after: str = None       # якорь: отрезок начинается не раньше него (B-2 ещё не в кадре — пустое небо)
     game: tuple = ()        # звуки мода не по месту: ((якорь, файл в assets/airstrike/sounds, громкость), …) — то, что
                             # игра играет только вблизи (щелчок и глохнущий гул квартала), для общего плана издалека
     start: float = 0.0      # заполняется: начало в трейлере, с
@@ -625,8 +626,10 @@ def trailer_edit(music, blackout=True):
         # с борта до удара и полсекунды помех после: дальше камера мода уже у наводчика (Артём 30.09)
         Clip("missile_camera", "mark:gone+0.5", 2.8, align="end", frame_y=0.0, whoosh=True),
         # «release» — B-2 отвернул на выход (EGRESS): дальше крен 45° и камера погони дёргается за ним (Артём 30.09)
-        Clip("bomb_bay", "mark:release-0.1", 1.9, align="end"),
-        Clip("bomb_impact", "mark:freeze-0.8", 2.8, impact="mark:freeze"),
+        Clip("bomb_bay", "mark:release-0.1", 1.9, align="end", after="mark:bomber+0.2"),
+        # заморозка — через 14 тиков после взрыва (вспышки и белое кольцо уже погасли, в кадре огонь и обломки),
+        # поэтому отрезок начинается раньше неё: падение бомбы остаётся в кадре
+        Clip("bomb_impact", "mark:freeze-1.4", 2.8, impact="mark:gone"),
         Clip("swarm_night", "mark:gone-1.2", 1.9),
         Clip("grad_night", "mark:gone-0.8", 2.8, impact="mark:gone"),
         Clip("barrage", "mark:gone#3-0.6", 2.8, impact="mark:gone#3"),
@@ -732,6 +735,12 @@ def resolve(cut, shots):
         if exits and exits[0] > c.src and c.src + span > exits[0] - 0.1:
             c.src = exits[0] - 0.1 - span
         c.src = max(0.0, c.src)
+        if c.after is not None:
+            lo = anchor(s, c.after)
+            if lo is None:
+                print(f"  ! {c.shot}: нет «{c.after}»")
+            elif c.src < lo:
+                c.src = lo
         left = s.duration - c.src
         if span > left:
             if left >= span * 0.5:     # не хватает кадров — медленнее, но до конца плана
