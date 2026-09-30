@@ -868,7 +868,9 @@ public final class Trailer {
         Supplier<Vec3> wide = () -> ground(TOWER.add(toPost.scale(1600))).add(0, 150, 0);
         run(() -> placeHidden(wide.get(), TOWER));
         shot("flash").hidden().length(900).speed(0.5).shake(0.04)
-                .camera(() -> CineCamera.track(wide.get(), () -> TOWER.add(0, 120, 0), 66))
+                // взгляд выше горизонта: шар воздушного подрыва — на ~590 блоков над землёй, при взгляде на 120 он уходил
+                // под верхнюю рамку кинокаше (облако, rv4); кольцо у земли остаётся в нижней половине кадра
+                .camera(() -> CineCamera.track(wide.get(), () -> TOWER.add(0, 330, 0), 66))
                 .subjectAnyway(() -> TOWER.add(0, 60, 0), 300, 0.05)
                 .when(() -> warningTicks() <= 60, 3000)
                 .endWhen(() -> sinceDetonation() > arrivalAt(wide.get()) + 40, 0);
