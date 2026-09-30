@@ -17,7 +17,8 @@ import java.util.UUID;
  * начинают, только когда готовы соседи) держит их загруженными целиком, а неготовые грузит в фоне. Нужен потому, что
  * снаряд, взорвавшись, отпускает свои тикеты и тикет района цели: соседние чанки сразу опускаются ниже «готового»,
  * и вторичный подрыв через несколько тиков читал бы их синхронно, ожидая загрузку прямо в тике. Тикет не сохраняется
- * в мире; ключ — свой у каждого района, соседние взрывы залпа не снимают его друг у друга.
+ * в мире; ключ — свой у каждого района, соседние взрывы залпа не снимают его друг у друга. Тот же район — и район
+ * осыпания воронки ({@link CraterFalls}).
  */
 final class BlastArea {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_blast", Comparator.<UUID>naturalOrder());
@@ -44,6 +45,7 @@ final class BlastArea {
     static BlastArea hold(ServerLevel level, Vec3 centre, double reach) {
         BlastArea area = new BlastArea(centre, reach);
         StrikeWorld.get(level).areas().hold(level, area.area());
+        CraterFalls.get(level).open(level, area.key, centre, reach);
         return area;
     }
 
@@ -53,6 +55,7 @@ final class BlastArea {
 
     void release(ServerLevel level) {
         StrikeWorld.get(level).areas().release(level, area());
+        CraterFalls.get(level).close(level, key);
     }
 
     private AreaLoader.Area area() {

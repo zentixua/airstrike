@@ -59,6 +59,7 @@ sections = [
     # рядом по времени — удары и медленные тики мода; строки чата (игрок написал «Teleported…»:
     # «[CHAT] <…>» у клиента, «]: <…>» у сервера) — не в счёт
     ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Airstrike/\]: (Удар:|Попадания \(|Ядерный тик)|Teleported)"),
+    ("Снаряды: потеря цели и самоликвидация", r"Airstrike/\]: Снаряды: "),
     ("Переезд со старого датапака", r"Airstrike/\]: (Выключаю старые датапаки|Настройки датапака|Удалены objectives)"),
     ("Неизвестные звуки", r"Unable to play unknown soundEvent|Missing sound for event: (airstrike|snassets):"),
     ("Аппараты Sable (добавлены/удалены)", r"shtreimel\.lifecycle.*sub-level (added|removed)"),

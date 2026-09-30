@@ -2,12 +2,14 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -301,10 +303,26 @@ public final class StrikeService {
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, ALERT_RADIUS, new S2C.Siren(at, kind));
     }
 
-    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда. */
-    public static void log(String who, WeaponType weapon, int count, int spread, Vec3 point) {
-        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} — {}", weapon.getSerializedName(), count, spread,
-                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), who);
+    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда и за чем снаряды следят. */
+    public static void log(ServerLevel level, String who, WeaponType weapon, int count, int spread, Target target, Vec3 point) {
+        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} ({}) — {}", weapon.getSerializedName(), count, spread,
+                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), who);
+    }
+
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */
+    private static String describe(ServerLevel level, Target target) {
+        return switch (target) {
+            case Target.Point p -> "точка";
+            case Target.Ground g -> "место с карты";
+            case Target.OfEntity e -> {
+                // игрок — где бы он ни был (удар по игроку в другом измерении)
+                ServerPlayer player = level.getServer().getPlayerList().getPlayer(e.uuid());
+                if (player != null) yield "игрок " + player.getGameProfile().getName();
+                Entity ent = level.getEntity(e.uuid());
+                yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
+            }
+            case Target.OfSubLevel s -> "аппарат";
+        };
     }
 
     /** Строка над хотбаром и щелчок пульта у того, кто пустил: что пущено и через сколько удар. */
