@@ -124,4 +124,18 @@ class WorkClockTest {
         assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(0));
         assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(1.5));
     }
+
+    /** Часы внутри единицы: у считающих — свой счётчик по цене единицы, время очереди он не двигает; у настоящих — их время. */
+    @Test
+    void samplerCountsWithoutMovingQueueTime() {
+        WorkClock counting = WorkClock.counting(UNIT);
+        java.util.function.LongSupplier sample = counting.sampler();
+        counting.start(BUDGET);
+        long began = counting.begin();
+        long a = sample.getAsLong(), b = sample.getAsLong();
+        assertEquals(UNIT, b - a);
+        assertEquals(UNIT, counting.end(began, 0));
+        now[0] = 42;
+        assertEquals(42, WorkClock.decaying(() -> now[0], 1).sampler().getAsLong());
+    }
 }

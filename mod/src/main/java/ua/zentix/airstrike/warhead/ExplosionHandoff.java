@@ -2,6 +2,7 @@ package ua.zentix.airstrike.warhead;
 
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Explosion;
+import net.neoforged.neoforge.event.level.ExplosionEvent;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -18,6 +19,9 @@ import java.util.List;
 public final class ExplosionHandoff {
     @Nullable
     private static Explosion expected;
+    /** Список сущностей, который ведомый взрыв отдал в {@code Detonate} (тот, по которому идёт цикл урона). */
+    @Nullable
+    private static List<Entity> detonated;
     @Nullable
     private static List<Entity> taken;
     /** Последний ванильный взрыв мода отдал урон моду. */
@@ -28,7 +32,13 @@ public final class ExplosionHandoff {
     /** Мод начинает ванильный {@code explode()} взрыва {@code e}. */
     static void begin(Explosion e) {
         expected = e;
+        detonated = null;
         taken = null;
+    }
+
+    /** {@code ExplosionEvent.Detonate}: запомнить список ведомого взрыва — миксин заберёт только его. */
+    public static void onDetonate(ExplosionEvent.Detonate e) {
+        if (e.getExplosion() == expected) detonated = e.getAffectedEntities();
     }
 
     /** {@code explode()} кончился: список сущностей после {@code Detonate} или null — урон уже сделала ваниль. */
@@ -37,13 +47,17 @@ public final class ExplosionHandoff {
         List<Entity> t = taken;
         lastHanded = t != null;
         expected = null;
+        detonated = null;
         taken = null;
         return t;
     }
 
-    /** Миксин: цикл урона {@code explode()} взрыва {@code e} с его списком; {@code true} — список забран, цикл пропустить. */
+    /**
+     * Миксин: перебор списка в {@code explode()} взрыва {@code e}; {@code true} — это цикл урона ведомого взрыва (тот же
+     * объект списка, что ушёл в {@code Detonate}: чужой перебор другого списка не заберётся), список забран, цикл пропустить.
+     */
     public static boolean take(Explosion e, List<Entity> entities) {
-        if (e != expected || taken != null) return false;
+        if (e != expected || entities != detonated || taken != null) return false;
         taken = new ArrayList<>(entities);
         return true;
     }

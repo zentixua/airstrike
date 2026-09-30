@@ -33,6 +33,7 @@ import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.BlockTicking;
 import ua.zentix.airstrike.warhead.CraterFalls;
+import ua.zentix.airstrike.warhead.ExplosionHandoff;
 import ua.zentix.airstrike.work.WorkScheduler;
 
 /**
@@ -97,6 +98,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
+        NeoForge.EVENT_BUS.addListener(ExplosionHandoff::onDetonate);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
         // первым: чужие слушатели сохранения видят тег уже без двойников
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, ChunkSaves::onSave);
