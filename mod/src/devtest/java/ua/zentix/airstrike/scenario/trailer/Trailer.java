@@ -367,9 +367,11 @@ public final class Trailer {
                 .camera(() -> chaseOf(newest(DroneEntity.class), 9, 2.5, -4, 24, 8, 56))
                 .when(() -> newest(DroneEntity.class) instanceof DroneEntity d && d.position().distanceTo(droneRoof) < 700, 6000);
         Supplier<Vec3> hit = () -> droneRoof;
-        shot("impact_drone").hidden().length(200).shake(0.08)
+        final Shot[] impactDrone = {null};
+        impactDrone[0] = shot("impact_drone").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(DroneEntity.class, hit, 70, 0.3))
-                .bulletTime(DroneEntity.class, hit, 150, 0.3)
+                // шахед рвётся и о башню в десятках блоков до крыши (облако, дубль 2: 72 блока) — облёт вокруг места взрыва
+                .bulletTime(DroneEntity.class, hit, 120, 150, 0.3)
                 .camera(() -> {
                     Vec3 at = hit.get();
                     // место с чистым видом на попадание и на всю дугу облёта (в центре камера упиралась в стены)
@@ -381,7 +383,8 @@ public final class Trailer {
                 // до попадания камера ведёт шахед по небу: цель — он, после взрыва — место удара
                 .subject(() -> {
                     Entity d = nearest(DroneEntity.class, hit.get(), 400);
-                    return d != null ? d : hit.get().add(0, 3, 0);
+                    Vec3 blast = impactDrone[0].impact;
+                    return d != null ? d : (blast != null ? blast : hit.get()).add(0, 3, 0);
                 }, 10, 0.003);
 
         // «Ланцет»: катапульта у поста, круг над стадионом, пике
@@ -1849,7 +1852,16 @@ public final class Trailer {
          * камера идёт со скоростью {@code camSpeed} ({@link #bulletTimeCamera} облетает место взрыва).
          */
         Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, int frames, double camSpeed) {
+            return bulletTime(type, at, 40, frames, camSpeed);
+        }
+
+        /**
+         * То же; {@code reach} — как далеко от точки может взорваться снаряд (шахед задевает башню у крыши). Без взрыва
+         * проверка кадров — провал: в дубле 2 шахед рванул за кадром, а план с тихой крышей прошёл проверку.
+         */
+        Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, double reach, int frames, double camSpeed) {
             final Vec3[] last = {null};
+            if (mustHappen == null) requires("застывший взрыв", () -> impact != null);
             return freeze(() -> {
                 Entity e = nearest(type, at.get(), 900);
                 if (e != null) {
@@ -1857,7 +1869,7 @@ public final class Trailer {
                     return false;
                 }
                 // пропал далеко от цели — ушёл из дальности сущностей (полёт вне мира), а не взорвался
-                if (last[0] == null || last[0].distanceTo(at.get()) > 40) {
+                if (last[0] == null || last[0].distanceTo(at.get()) > reach) {
                     last[0] = null;
                     return false;
                 }

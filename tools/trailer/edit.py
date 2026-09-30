@@ -637,9 +637,11 @@ def trailer_edit(music, blackout=True):
     tl.play(music.b3, (music.b4, None))
     tl.run([
         Clip("siren", 0.4, 3.7),
-        Clip("icbm", "sound:nuke.launch-0.6", 3.7),
+        Clip("icbm", 0.0, 3.7, game=((0.1, "nuke_launch", 0.6),)),
+        # план пишется с пуска; звук пуска игра даёт только в первые 2 с после пакета — на ноутбуке (дубль 2) его
+        # в журнале не было, тогда он из ресурсов мода
     ], until=music.b3[1])
-    tl.run([Clip("icbm", "sound:nuke.launch+5.2", 2.8, zoom=(1.0, 1.06))], until=music.flash - 3 * music.snap)
+    tl.run([Clip("icbm", 5.8, 2.8, zoom=(1.0, 1.06))], until=music.flash - 3 * music.snap)
     tl.run([Card(("03",), 1, "count", fade=0.0), Card(("02",), 1, "count", fade=0.0), Card(("01",), 1, "count", fade=0.0)],
            until="flash")
     flash = tl.t
@@ -742,6 +744,8 @@ def sfx_layer(cut, shots, music):
             if v is not None and c.start <= c.trailer_time(v) < end:
                 hits.append(Hit(c.trailer_time(v), "sub", 2.4, 0.8))
         for at, name, gain in c.game:
+            if any(e["file"].endswith("/" + name + ".ogg") for e in s.sounds):
+                continue                                    # игра его и так записала — не дублировать
             v = anchor(s, at)
             if v is not None and c.start <= c.trailer_time(v) < end:
                 hits.append(Hit(c.trailer_time(v), "game:" + name, 3.0, gain))

@@ -328,6 +328,22 @@ def test_no_blackout_variant_same_timing(tmp_path):
     assert 0 <= na.src and na.src + na.dur * na.rate <= shots["night_after"].duration + 1e-6
 
 
+def test_game_sound_only_when_not_recorded(tmp_path):
+    """Звук из ресурсов мода (пуск МБР) — только если игра его не записала сама."""
+    m = edit.MUSICS["eyes"]
+    rec = full_recording()
+    write_recording(str(tmp_path / "a"), rec, every=30)
+    with_launch = edit.sfx_layer(edit.resolve(edit.trailer_edit(m), edit.load_recording(str(tmp_path / "a"))),
+                                 edit.load_recording(str(tmp_path / "a")), m)
+    assert not any(h.kind == "game:nuke_launch" for h in with_launch.hits)
+    rec = [lines for lines in rec if lines[0]["shot"] != "icbm"]
+    rec.append(shot_lines("icbm", 600))
+    write_recording(str(tmp_path / "b"), rec, every=30)
+    shots = edit.load_recording(str(tmp_path / "b"))
+    cut = edit.sfx_layer(edit.resolve(edit.trailer_edit(m), shots), shots, m)
+    assert sum(h.kind == "game:nuke_launch" for h in cut.hits) == 1
+
+
 def test_teaser_is_30s_and_on_beats():
     m = edit.MUSICS["eyes"]
     cut = edit.teaser_edit(m)
