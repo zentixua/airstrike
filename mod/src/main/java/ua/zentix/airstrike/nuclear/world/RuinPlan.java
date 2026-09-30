@@ -72,6 +72,12 @@ public final class RuinPlan {
     /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
     static final RuinPlan EMPTY = new RuinPlan(NONE, NO_HASHES, NO_STATES, NONE, null, null);
 
+    /**
+     * Для строки в лог: время подмен по частям, нс — проверка плана, копии секций с местами и пожарами (и замена
+     * в чанке), карты высот и источники неба, свет и пакеты игрокам, блок-сущности через мир.
+     */
+    static final long[] PHASES = new long[5];
+
     /** Сколько мест с проверкой света. */
     private final int lightChecks;
     /** Места плана по секциям (по возрастанию номера секции). */
@@ -149,7 +155,10 @@ public final class RuinPlan {
      */
     public boolean apply(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget) {
         if (this == EMPTY) return true;
+        long t = System.nanoTime();
         if (!current(chunk)) return false;
+        PHASES[0] += System.nanoTime() - t;
+        t = System.nanoTime();
         ChunkPos pos = chunk.getPos();
         int x0 = pos.getMinBlockX(), z0 = pos.getMinBlockZ(), minY = chunk.getMinBuildHeight();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
@@ -184,8 +193,12 @@ public final class RuinPlan {
             boolean empty = fresh[i].hasOnlyAir();
             if (wasEmpty != empty) light.updateSectionStatus(SectionPos.of(pos, chunk.getSectionYFromSectionIndex(i)), empty);
         }
+        PHASES[1] += System.nanoTime() - t;
+        t = System.nanoTime();
         Heightmap.primeHeightmaps(chunk, HEIGHTMAPS);
         chunk.initializeLightSources();
+        PHASES[2] += System.nanoTime() - t;
+        t = System.nanoTime();
         // кто видит чанк, получает изменения в этом же тике — пакетами секций (как setBlock), а не очередью чанков
         ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(pos.toLong());
         boolean watched = holder != null && !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty();
@@ -206,6 +219,8 @@ public final class RuinPlan {
                     30 + (int) (RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 31) * 10));
         }
         checkLight(light, pos, checks);
+        PHASES[3] += System.nanoTime() - t;
+        t = System.nanoTime();
         chunk.setUnsaved(true);
         for (int c : cells) {
             if ((c & SLOW) == 0) continue;
@@ -216,6 +231,7 @@ public final class RuinPlan {
         if (watched && !sections) {
             for (ServerPlayer p : level.getChunkSource().chunkMap.getPlayers(pos, false)) p.connection.chunkSender.markChunkPendingToSend(chunk);
         }
+        PHASES[4] += System.nanoTime() - t;
         return true;
     }
 
