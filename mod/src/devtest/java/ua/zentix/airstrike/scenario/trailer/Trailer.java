@@ -252,11 +252,12 @@ public final class Trailer {
         waitTicks(100);
         run(() -> fire("drone", northFacade));
         shot("cold_open").after(() -> nearest(DroneEntity.class, northFacade, 130) != null, 3000).noPrep().length(70).hidden()
-                .speed(1, slowNear(DroneEntity.class, () -> CineCamera.pose() == null ? northFacade : CineCamera.pose().pos(), 32, 0.3))
+                .speed(1, slowNear(DroneEntity.class, () -> CineCamera.pose() == null ? northFacade : CineCamera.pose().pos(), 40, 0.3))
                 .shake(0.12)
-                // в 22 блоках сбоку от пути: шахед проходит мимо и уходит в стену, камера доворачивает за ним меньше чем
-                // на пол-оборота и видит удар; в 3 блоках он пролетал за спину, и камера отворачивалась (Артём 30.09)
-                .camera(() -> pastLens(nearest(DroneEntity.class, northFacade, 130), 30, 22, 4, 50))
+                // в 32 блоках сбоку от пути: шахед проходит мимо и уходит в стену, камера доворачивает за ним меньше чем
+                // на пол-оборота и видит удар; в 3 блоках он пролетал за спину, и камера отворачивалась (Артём 30.09),
+                // в 22 — поворот до 200°/с (облако, rv1)
+                .camera(() -> pastLens(nearest(DroneEntity.class, northFacade, 130), 40, 32, 4, 46))
                 .endWhen(() -> nearest(DroneEntity.class, northFacade, 400) == null, 6);
     }
 
