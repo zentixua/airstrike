@@ -10,6 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TerrainTest {
     @Test
+    void generatorEstimateNotBelowSea() {
+        // мир, поднятый со старой версии: генератор давал дно мира (Newisle 30.09.2026, «по 83 -64 -370»)
+        assertEquals(63, Terrain.estimate(63, -64));
+        assertEquals(107, Terrain.estimate(63, 107));
+        assertEquals(-60, Terrain.estimate(-63, -60));
+    }
+
+    @Test
     void allReadyReachesTheEnd() {
         assertEquals(1, Terrain.readyFraction(1, 1, 900, -300, (x, z) -> true));
     }

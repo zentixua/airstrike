@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.entity;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
@@ -11,6 +12,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Nbt;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.UUID;
 
@@ -21,7 +23,8 @@ import java.util.UUID;
  * {@link #BURN_TICKS} (факел и плотный дым), дальше полёт по инерции; на нисходящей ветви — фаза атаки.
  * <p>
  * В точку падения снаряд приходит ровно на тике {@code N}. Если его сдвинули (возврат из полёта вне мира поднимает над рельефом), траектория
- * пересчитывается от текущего места на оставшееся время. Цель не отслеживается: куда навели при пуске, туда и упадёт.
+ * пересчитывается от текущего места на оставшееся время. Цель не отслеживается: куда навели при пуске, туда и упадёт
+ * (у места с карты высота уточняется один раз — {@link #settleImpact}).
  * <p>
  * Район точки падения грузится с постановки в трубу, снаряд сходит сразу. Если он вне мира подходит к цели, а район
  * ещё не готов, конец траектории растягивается во времени ({@link #stretch}), а не замирает в воздухе у цели.
@@ -150,6 +153,7 @@ public class RocketEntity extends StrikeProjectile {
     @Override
     protected void serverTick(ServerLevel level) {
         if (impactAt == null) impactAt = tracker.point();
+        settleImpact(level);
         FlightPhase ph = flightPhase();
         if (ph == FlightPhase.READY) {
             speed = 0;
@@ -173,8 +177,7 @@ public class RocketEntity extends StrikeProjectile {
 
         // сдвинули с траектории (вернулся в мир выше рельефа) — пересчитать от текущего места на оставшееся время
         if (position().distanceToSqr(at(t)) > 0.25) {
-            int left = Math.max(8, (int) Math.ceil(flightTicks - t));
-            restart(position(), impactAt, left);
+            restart(position(), impactAt, ticksLeft());
         }
 
         if (ph == FlightPhase.BOOST && phaseAge() >= BURN_TICKS) setPhase(FlightPhase.CRUISE);
@@ -192,6 +195,23 @@ public class RocketEntity extends StrikeProjectile {
         if (!advance(level, impactAt, 1.5)) return;
         // вне мира у самой цели снаряд ждёт загрузки района — тогда он не сдвинулся и время траектории стоит
         if (position().distanceToSqr(before) > 1.0e-6) t += step;
+    }
+
+    /**
+     * Место с карты ({@link Target.Ground}): высота точки падения у пуска — оценка, пока чанк там не готов (оценка
+     * генератора у города из сохранения — улица под крышей). Район точки падения грузится с постановки в трубу; как
+     * только её чанк готов, точка встаёт на его поверхность (разброс остаётся свой) — один раз, как высота цели у расчёта
+     * огня: цель становится этой точкой и дальше, как у всей РСЗО, не отслеживается. Снаряд уже летит — траектория
+     * пересчитывается от текущего места на оставшееся время.
+     */
+    private void settleImpact(ServerLevel level) {
+        if (!(tracker.target() instanceof Target.Ground) || !Terrain.ready(level, BlockPos.containing(impactAt))) return;
+        Vec3 surface = new Target.Ground(impactAt).surface(level);
+        boolean moved = !surface.equals(impactAt);
+        impactAt = surface;
+        // цель — сама точка падения с разбросом, как у пуска: у неё метка, сирена, камера и район цели
+        settleAim(impactAt);
+        if (moved && start != null) restart(position(), impactAt, ticksLeft());
     }
 
     /** Темп времени траектории: 1 — как у мира, меньше — полёт вне мира растянут (для стенда). */
@@ -259,6 +279,11 @@ public class RocketEntity extends StrikeProjectile {
     /** Траектория из {@code from} в {@code to} с углом возвышения пакета; положе не выходит — круче, до 80°. */
     private void solve(Vec3 from, Vec3 to) {
         restart(from, to, Ballistics.ticksFor(from, to, elevation, MIN_FLIGHT));
+    }
+
+    /** Сколько тиков осталось лететь по текущей траектории — для пересчёта с текущего места (не меньше 8). */
+    private int ticksLeft() {
+        return Math.max(8, (int) Math.ceil(flightTicks - t));
     }
 
     private void restart(Vec3 from, Vec3 to, int ticks) {
