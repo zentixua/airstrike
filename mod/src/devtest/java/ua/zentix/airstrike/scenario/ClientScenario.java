@@ -53,6 +53,8 @@ public final class ClientScenario {
     private int detTick = -1;
     /** Сценарий эффектов: очередь ударов, текущий снаряд, тик его взрыва. */
     private java.util.ArrayDeque<String> fx;
+    /** Эффекты по заданным точкам ({@code airstrike.fx.targets}): точка удара на каждый пункт {@link #fx}. */
+    private java.util.ArrayDeque<double[]> fxTargets;
     private Vec3 eye = Vec3.ZERO;
     private StrikeProjectile watched;
     private String current;
@@ -277,6 +279,11 @@ public final class ClientScenario {
      * по счётчику. В конце — старт МБР в 80 блоках: факел, шлейф, облако у стола. {@code fx-night} — то же ночью.
      */
     private void planFx(boolean night) {
+        String spec = System.getProperty("airstrike.fx.targets");
+        if (spec != null) {
+            planFxAt(spec, night);
+            return;
+        }
         fx = new java.util.ArrayDeque<>(List.of("drone", "missile", "bunker", "icbm"));
         at(40, () -> {
             cmd(night ? "time set 18000" : "time set 6000");
@@ -362,6 +369,39 @@ public final class ClientScenario {
         });
     }
 
+    /**
+     * Эффекты по заданным точкам мира игрока ({@code tools/prod_client.py fx --world … --prop airstrike.fx.targets=…}):
+     * пункты через «;», каждый {@code оружие@x,z} (удар в верх колонки — крышу постройки) или {@code оружие@x,y,z}.
+     * Зритель висит в 60 блоках к северу и в 25 над точкой, удар — через 200 тиков после переноса (прогрузка чанков),
+     * кадры — от настоящего взрыва, как у {@code fx}; имена кадров — {@code оружие-номер_тик.png}.
+     */
+    private void planFxAt(String spec, boolean night) {
+        fx = new java.util.ArrayDeque<>();
+        fxTargets = new java.util.ArrayDeque<>();
+        int n = 0;
+        for (String item : spec.split(";")) {
+            String[] a = item.strip().split("@");
+            String[] c = a.length == 2 ? a[1].split(",") : new String[0];
+            if (c.length != 2 && c.length != 3) {
+                Airstrike.LOG.warn("SCENARIO fx.targets: «{}» пропущено — нужно оружие@x,z или оружие@x,y,z", item);
+                continue;
+            }
+            double[] p = new double[3];
+            p[0] = Double.parseDouble(c[0]);
+            p[1] = c.length == 3 ? Double.parseDouble(c[1]) : Double.NaN;
+            p[2] = Double.parseDouble(c[c.length - 1]);
+            fx.add(a[0].strip() + "-" + ++n);
+            fxTargets.add(p);
+        }
+        at(40, () -> {
+            cmd(night ? "time set 18000" : "time set 6000");
+            cmd("weather clear");
+            Minecraft.getInstance().options.hideGui = true;
+            quickFlights();
+        });
+        at(100, this::nextFx);
+    }
+
     private void view() {
         cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z, target.x, target.y + 8, target.z));
     }
@@ -378,6 +418,25 @@ public final class ClientScenario {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        if (fxTargets != null) {
+            double[] p = fxTargets.poll();
+            String weapon = current.substring(0, current.lastIndexOf('-'));
+            eye = new Vec3(p[0] + 0.5, (Double.isNaN(p[1]) ? mc.player.getY() : p[1]) + 25, p[2] - 60);
+            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f", eye.x, Math.max(eye.y, 150), eye.z));
+            mc.player.getAbilities().flying = true;
+            String label = current;
+            current = "wait";
+            at(tick + 200, () -> {
+                int y = Double.isNaN(p[1]) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, (int) Math.floor(p[0]), (int) Math.floor(p[2])) : (int) p[1];
+                target = new Vec3(Math.floor(p[0]) + 0.5, y, Math.floor(p[2]) + 0.5);
+                eye = target.add(0, 25, -60);
+                view();
+                Airstrike.LOG.info("SCENARIO fx target {} at {}", label, target);
+                current = label;
+                cmd(String.format(java.util.Locale.ROOT, "airstrike %s at %.1f %.1f %.1f", weapon, target.x, target.y, target.z));
+            });
+            return;
+        }
         mc.player.getAbilities().flying = true;
         view();
         if (current.equals("icbm")) {

@@ -7,8 +7,11 @@ import ua.zentix.airstrike.entity.LauncherEntity;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExplosionsTest {
-    /** Клубов дыма в трёх вторичных подрывах воронки крылатой ракеты ({@link Explosions#cookoff}). */
-    private static final int COOKOFF_SMOKE = 3 * 8;
+    /**
+     * Клубов дыма во вторичных подрывах крылатой ракеты ({@link Explosions#cookoff}): три догорания в воронке и подрывы
+     * сервера ({@link ua.zentix.airstrike.warhead.Warheads#MISSILE_SECONDARIES}).
+     */
+    private static final int COOKOFF_SMOKE = (3 + ua.zentix.airstrike.warhead.Warheads.MISSILE_SECONDARIES.size()) * 8;
 
     /**
      * Долгий дым попаданий (шар, остывающий в дым, и ножка столба живут дольше самого залпа) полного пакета РСЗО
