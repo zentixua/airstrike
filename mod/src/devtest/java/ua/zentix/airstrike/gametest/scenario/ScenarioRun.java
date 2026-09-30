@@ -23,8 +23,6 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
-import ua.zentix.airstrike.entity.CruiseMissileEntity;
-import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
@@ -38,6 +36,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.stress.StressDirector;
 import ua.zentix.airstrike.target.Target;
@@ -82,8 +81,7 @@ final class ScenarioRun {
     private static final int SETTLE_TICKS = 5;
     /** Сколько после конца полёта ждать, пока работа попаданий снесёт всё, что выбрали взрывы снаряда, тиков. */
     private static final int IMPACT_LIMIT = 600;
-    // TODO(корень 2): брать из WeaponSpec; сейчас — копия силы взрыва входа из Warheads.bunkerEntry
-    /** Сила взрыва входа бомбы в грунт: заряд бомбы сильнее. */
+    /** Сила взрыва входа бомбы в грунт (в паспорте её нет — копия из {@code Warheads.bunkerEntry}): заряд бомбы сильнее. */
     private static final float BUNKER_ENTRY_POWER = 4;
     /** Амплитуда хода моба по рельсу, блоков. */
     private static final double RAIL_HALF = 20;
@@ -151,7 +149,8 @@ final class ScenarioRun {
     private static final class Track {
         final int order;
         final WeaponType weapon;
-        final double turnRate;
+        /** Паспорт аппарата: пределы поворота. */
+        final WeaponSpec.Airframe airframe;
         /** Бетонобойная бомба B-2 (а не сам B-2). */
         final boolean bomb;
         Vec3 last;
@@ -166,7 +165,7 @@ final class ScenarioRun {
             this.order = order;
             this.weapon = p.weapon();
             this.bomb = p instanceof BunkerBusterEntity;
-            this.turnRate = turnRate(p);
+            this.airframe = p.airframe();
             this.last = p.position();
         }
     }
@@ -319,19 +318,18 @@ final class ScenarioRun {
     }
 
     private StrikeProjectile guided() {
-        return s.launch().weapon == WeaponType.DRONE ? create(ModEntities.DRONE.get()) : create(ModEntities.CRUISE_MISSILE.get());
+        return create(s.launch().weapon.spec().airframe().entity().get());
     }
 
     private double pathLength() {
-        double cruise = s.launch().weapon == WeaponType.DRONE ? DroneEntity.CRUISE_SPEED : CruiseMissileEntity.CRUISE_SPEED;
-        return cruise * p.flightTime() * 20;
+        return s.launch().weapon.spec().airframe().cruiseSpeed() * p.flightTime() * 20;
     }
 
     /** Как {@code StrikeService.fromAfar}: начало на прямой захода, на длину полёта от цели, вне мира. */
     private StrikeProjectile fromAfar(Vec3 point) {
         StrikeProjectile e = guided();
         double length = Math.max(pathLength(), p.entry());
-        Vec3 start = point.subtract(p.approach().scale(length)).add(0, s.launch().weapon == WeaponType.DRONE ? DroneEntity.CRUISE_HEIGHT : 12, 0);
+        Vec3 start = point.subtract(p.approach().scale(length)).add(0, s.launch().weapon.spec().airframe().cruiseHeight(), 0);
         e.launch(start, target, point, owner);
         e.setRoute(Route.plan(start, point, p.approach(), length, p.entry(), p.side()));
         VirtualFlights.launch(level, e);
@@ -352,7 +350,7 @@ final class ScenarioRun {
 
     private StrikeProjectile loiterFromAfar(Vec3 point) {
         LoiterEntity e = create(ModEntities.LOITER.get());
-        Vec3 from = point.subtract(p.approach().scale(p.standoff())).add(0, LoiterEntity.LOITER_HEIGHT, 0);
+        Vec3 from = point.subtract(p.approach().scale(p.standoff())).add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), 0);
         e.launch(from, target, point, owner);
         e.setRoute(null);
         VirtualFlights.launch(level, e);
@@ -397,7 +395,7 @@ final class ScenarioRun {
         BomberEntity e = create(ModEntities.BOMBER.get());
         Vec3 surface = new Vec3(point.x, point.y - 0.5, point.z);
         aim = surface;
-        double length = BomberEntity.CRUISE_SPEED * p.flightTime() * 20 + BomberEntity.RELEASE_DISTANCE;
+        double length = WeaponSpec.BUNKER.airframe().cruiseSpeed() * p.flightTime() * 20 + WeaponSpec.BUNKER.route().finalLeg();
         e.launch(surface.subtract(p.approach().scale(length)), surface, null, owner);
         e.setRoute(null);
         VirtualFlights.launch(level, e);
@@ -554,7 +552,7 @@ final class ScenarioRun {
      * на месте: погоня за целью, которая сама ходит по кругу, — тоже круги, но не кружение у точки (его ловит срок).
      */
     private void accumulateTurn(Track tr, StrikeProjectile e, Vec3 step) {
-        if (tr.turnRate <= 0) return;
+        if (tr.airframe.turnRate() <= 0) return;
         Vec3 aim = e.aimPoint();
         boolean aimMoved = tr.aim == null || aim.distanceToSqr(tr.aim) > 0.01;
         tr.aim = aim;
@@ -564,23 +562,11 @@ final class ScenarioRun {
         double prev = tr.heading;
         tr.heading = heading;
         if (Double.isNaN(prev) || aimMoved || e.flightPhase() == FlightPhase.LOITER) return;
-        double radius = horizontal / Math.toRadians(tr.turnRate) * 2;
+        // на наборе высоты поворот медленнее — круг шире (как у самого снаряда, StrikeProjectile.insideTurn)
+        double rate = e.flightPhase() == FlightPhase.CLIMB ? tr.airframe.climbTurnRate() : tr.airframe.turnRate();
+        double radius = horizontal / Math.toRadians(rate) * 2;
         if (e.position().subtract(aim).horizontalDistance() > radius) return;
         tr.turn += Math.abs(Mth.wrapDegrees(heading - prev));
-    }
-
-    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
-    /**
-     * Предельная угловая скорость по курсу, °/тик (0 — не проверять: баллистика и МБР не кружат). Наибольшая у снаряда:
-     * на наборе высоты шахед и ракета поворачивают медленнее, их круг шире, и подсчёт берёт меньшую окрестность цели.
-     */
-    private static double turnRate(StrikeProjectile e) {
-        return switch (e.weapon()) {
-            case DRONE, LOITER -> 3;
-            case MISSILE -> 2;
-            case BUNKER -> e instanceof BomberEntity ? 1 : 0;
-            default -> 0;
-        };
     }
 
     /** Что выбрал взрыв снаряда сценария (любой: подрыв, огненный шар, вторичные) — блоки мира рядом, не аппарата. */
@@ -665,15 +651,9 @@ final class ScenarioRun {
                 outcome.end, outcome.tick, bound, eta0, chase));
     }
 
-    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
+    /** Маршевая скорость оружия сценария (паспорт). */
     private double cruiseSpeed() {
-        return switch (s.launch().weapon) {
-            case DRONE -> DroneEntity.CRUISE_SPEED;
-            case MISSILE -> CruiseMissileEntity.CRUISE_SPEED;
-            case LOITER -> LoiterEntity.CRUISE_SPEED;
-            case BUNKER -> BomberEntity.CRUISE_SPEED;
-            default -> 10;
-        };
+        return s.launch().weapon.spec().airframe().cruiseSpeed();
     }
 
     private void checkTurns() {
@@ -696,21 +676,11 @@ final class ScenarioRun {
         }
         h.assertTrue(outcome.end.equals("blast"), "неподвижная цель не поражена: " + outcome.end + " у " + rel(outcome.at));
         double step = tracks.values().stream().mapToDouble(tr -> tr.lastStep).max().orElse(0);
-        double reach = step + pad(s.launch().weapon) + 1;
+        // запас взрывателя сверх шага, как в advance (паспорт)
+        double reach = step + s.launch().weapon.spec().airframe().reachPad() + 1;
         double miss = outcome.at.distanceTo(stationaryAim);
         h.assertTrue(miss <= reach, String.format(Locale.ROOT, "взрыв в %.1f блоках от неподвижной цели (дальность %.1f) у %s",
                 miss, reach, rel(outcome.at)));
-    }
-
-    // TODO(корень 2): брать из WeaponSpec, когда параметры оружия станут данными; сейчас — копия констант сущностей
-    /** Запас дальности взрывателя сверх шага, как в {@code advance}. */
-    private static double pad(WeaponType weapon) {
-        return switch (weapon) {
-            case DRONE -> 4.3;
-            case MISSILE -> 6.5;
-            case LOITER -> 3.0;
-            default -> 1.5;
-        };
     }
 
     private void checkReleased() {
