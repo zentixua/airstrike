@@ -5,16 +5,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Clearable;
 import net.minecraft.world.RandomizableContainer;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
 
 /**
- * Общее для разрушений ядерного удара: замена блока через мир (блок-сущности, воронка), пожары под счётчиком подрыва,
+ * Общее для разрушений ядерного удара: замена блока через мир (блок-сущности, воронка), счётчик пожаров подрыва,
  * световой импульс с тенью. Что волна делает со столбцом — {@link RuinPlanner}, подмена чанка — {@link RuinPlan}.
  */
 public final class ColumnScar {
@@ -61,18 +59,6 @@ public final class ColumnScar {
             Clearable.tryClear(be);
         }
         level.setBlock(pos, with, FLAGS);
-    }
-
-    /** Поджечь место, если подрыв поджигает и пожаров ещё не больше заданного. */
-    static void ignite(ServerLevel level, BlockPos pos, Budget budget) {
-        if (!budget.ignites || !AirstrikeConfig.SERVER.nukeFires.get() || budget.fires >= AirstrikeConfig.SERVER.nukeMaxFires.get()) return;
-        // огонь проверяет и будит соседей: на краю загруженного мира это загрузило бы соседний чанк
-        if (!NuclearTickets.aroundLoaded(level, pos)) return;
-        BlockState fire = BaseFireBlock.getState(level, pos);
-        if (level.getBlockState(pos).isAir() && fire.canSurvive(level, pos)) {
-            level.setBlock(pos, fire, Block.UPDATE_ALL);
-            budget.fires++;
-        }
     }
 
     /** Световой импульс в точке с учётом тени от рельефа и построек, кал/см². */

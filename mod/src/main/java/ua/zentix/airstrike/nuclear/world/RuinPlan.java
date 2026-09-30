@@ -1,23 +1,24 @@
 package ua.zentix.airstrike.nuclear.world;
 
-import io.netty.buffer.Unpooled;
-import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
+import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.grid.GridLights;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.EnumSet;
@@ -28,125 +29,104 @@ import java.util.List;
  * волна: не блок за блоком ({@code setBlock} с картами высот, светом, соседями и Sable — ≈10 мкс на блок, в городе
  * тысячи блоков на чанк), а целыми секциями 16³ — новая секция встаёт в массив секций чанка вместо старой.
  * <p>
+ * План — только разница: изменённые места (по 4 байта: место в секции, секция, новое состояние из палитры плана,
+ * «проверить свет», «через мир») и пожары. Своих копий секций план не держит: копия текущей секции делается в момент
+ * подмены, и в неё пишутся только места плана. Всё остальное в секции остаётся как есть к приходу волны — лампы,
+ * которые погасил блэкаут (он меняет их прямо в палитре), блоки, поставленные после плана.
+ * <p>
+ * План устаревает, если места плана после него меняли (игрок, взрыв, другой мод): у каждой изменённой секции — хеш
+ * старых состояний в местах плана (лампа и её погашенный двойник — одно и то же). Не совпал — план строится заново
+ * по чанку как есть.
+ * <p>
  * Подмена повторяет то, что делает {@code LevelChunk.setBlockState} для каждого блока, один раз на чанк: карты
  * высот заново, источники неба заново, пустота секций — движку света, проверка света в верхней изменённой точке
  * столбца (источники неба в столбце движок ставит по чанку сам), у новых и убранных блоков под уцелевшим верхом и
- * у убранных источников света. Клиенты получают чанк целиком ванильной отправкой чанков. Блоки с блок-сущностью и места POI меняются через мир
- * ({@link ColumnScar#replace}: содержимое не высыпается, отложенные данные снимаются), до подмены секций.
- * <p>
- * План устаревает, если секцию после него меняли (игрок, взрыв, другой мод): у каждой новой секции — отпечаток
- * старой; не совпал — план строится заново по чанку как есть.
+ * у убранных и новых источников света. Клиенты получают чанк целиком ванильной отправкой чанков. Блоки
+ * с блок-сущностью и места POI меняются через мир ({@link ColumnScar#replace}: содержимое не высыпается, отложенные
+ * данные снимаются), до подмены секций. Пожары ставятся в секции вместе с руинами (без {@code setBlock}: огонь
+ * у стен и деревьев не будит соседей), им только назначается тик огня.
  */
 public final class RuinPlan {
     private static final EnumSet<Heightmap.Types> HEIGHTMAPS = EnumSet.of(Heightmap.Types.MOTION_BLOCKING, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
             Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE);
 
-    private final ChunkPos pos;
-    /** Новые секции (null — секция не меняется). */
-    private final LevelChunkSection[] sections;
-    /** Отпечатки старых секций, на которых построен план. */
-    private final long[] fingerprints;
-    private final Long2ObjectLinkedOpenHashMap<BlockState> slow;
-    private final LongArrayList fires;
-    private final DoubleArrayList fireChance;
-    /** Где проверить свет после подмены. */
-    private final LongArrayList lightChecks;
-    private final int changedBlocks;
+    /** Упаковка места: 12 бит — место в секции (y, z, x), 8 бит — номер секции, 10 бит — состояние в палитре, флаги. */
+    static final int SECTION_SHIFT = 12, STATE_SHIFT = 20, STATE_MASK = 0x3FF;
+    /** Флаг места: после подмены проверить свет. */
+    static final int LIGHT = 1 << 30;
+    /** Флаг места: блок-сущность или POI — меняется через мир. */
+    static final int SLOW = 1 << 31;
+    /** Сколько разных состояний вмещает палитра плана. */
+    static final int MAX_STATES = STATE_MASK + 1;
+
+    private static final int[] NONE = new int[0];
+    private static final long[] NO_HASHES = new long[0];
+    private static final BlockState[] NO_STATES = new BlockState[0];
+
+    /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
+    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_HASHES, NO_STATES, NONE, null, null);
+
+    /** Места плана по секциям (по возрастанию номера секции). */
+    private final int[] cells;
+    /** По номеру секции: хеш старых состояний в её местах (секции без мест — 0, не проверяются). */
+    private final long[] oldHashes;
+    private final BlockState[] states;
+    /** Пожары: место (как в {@link #cells}) и состояние огня из палитры. */
+    private final int[] fires;
+    /** Брёвна поваленных деревьев в соседних чанках: место (высота — по поверхности при подмене) и состояние. */
     private final LongArrayList outside;
     private final List<BlockState> outsideState;
 
-    private RuinPlan(ChunkPos pos, LevelChunkSection[] sections, long[] fingerprints, Long2ObjectLinkedOpenHashMap<BlockState> slow,
-                     LongArrayList fires, DoubleArrayList fireChance, LongArrayList lightChecks, int changedBlocks,
-                     LongArrayList outside, List<BlockState> outsideState) {
+    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, int[] fires, LongArrayList outside, List<BlockState> outsideState) {
+        this.cells = cells;
+        this.oldHashes = oldHashes;
+        this.states = states;
+        this.fires = fires;
         this.outside = outside;
         this.outsideState = outsideState;
-        this.pos = pos;
-        this.sections = sections;
-        this.fingerprints = fingerprints;
-        this.slow = slow;
-        this.fires = fires;
-        this.fireChance = fireChance;
-        this.lightChecks = lightChecks;
-        this.changedBlocks = changedBlocks;
     }
 
-    static RuinPlan of(ServerLevel level, LevelChunk chunk, LevelChunkSection[] original, LevelChunkSection[] copies,
-                       Long2ObjectLinkedOpenHashMap<BlockState> slow, LongArrayList fires, DoubleArrayList fireChance, LongArrayList changed,
-                       LongArrayList outside, List<BlockState> outsideState) {
-        long[] fingerprints = new long[copies.length];
-        for (int i = 0; i < copies.length; i++) if (copies[i] != null) fingerprints[i] = fingerprint(original[i]);
-        // верх каждого столбца после руин: ниже него убранный или новый блок меняет свет не только как источник неба
-        int minY = chunk.getMinBuildHeight();
-        Int2IntOpenHashMap newTop = new Int2IntOpenHashMap();
-        Int2IntOpenHashMap topChanged = new Int2IntOpenHashMap();
-        topChanged.defaultReturnValue(Integer.MIN_VALUE);
-        for (int k = 0; k < changed.size(); k++) {
-            long p = changed.getLong(k);
-            int column = (BlockPos.getX(p) & 15) | (BlockPos.getZ(p) & 15) << 4;
-            topChanged.put(column, Math.max(topChanged.get(column), BlockPos.getY(p)));
-        }
-        for (Int2IntOpenHashMap.Entry e : topChanged.int2IntEntrySet()) {
-            int lx = e.getIntKey() & 15, lz = e.getIntKey() >> 4;
-            int y = Math.max(e.getIntValue(), chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz));
-            while (y >= minY && state(original, copies, minY, lx, y, lz).isAir()) y--;
-            newTop.put(e.getIntKey(), y);
-        }
-        LongArrayList lightChecks = new LongArrayList();
-        it.unimi.dsi.fastutil.longs.LongOpenHashSet seen = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
-        for (int k = 0; k < changed.size(); k++) {
-            long p = changed.getLong(k);
-            if (!seen.add(p)) continue;
-            int lx = BlockPos.getX(p) & 15, y = BlockPos.getY(p), lz = BlockPos.getZ(p) & 15;
-            int column = lx | lz << 4;
-            BlockState was = state(original, null, minY, lx, y, lz), now = state(original, copies, minY, lx, y, lz);
-            if (was == now) continue;
-            boolean top = y == topChanged.get(column);
-            BlockPos bp = BlockPos.of(p);
-            boolean covered = y < newTop.get(column);
-            if (top || was.getLightEmission(chunk, bp) > 0 || now.getLightEmission(chunk, bp) > 0
-                    || covered && (was.getLightBlock(chunk, bp) != now.getLightBlock(chunk, bp) || was.useShapeForLightOcclusion() || now.useShapeForLightOcclusion())) {
-                lightChecks.add(p);
-            }
-        }
-        return new RuinPlan(chunk.getPos(), copies, fingerprints, slow, fires, fireChance, lightChecks, seen.size(), outside, outsideState);
+    /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
+    static BlockState normal(BlockState s) {
+        BlockState lit = GridLights.lit(s);
+        return lit != null ? lit : s;
     }
 
-    private static BlockState state(LevelChunkSection[] original, LevelChunkSection[] copies, int minY, int lx, int y, int lz) {
-        int i = (y - minY) >> 4;
-        if (i < 0 || i >= original.length) return net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-        LevelChunkSection s = copies != null && copies[i] != null ? copies[i] : original[i];
-        return s.getBlockState(lx, y & 15, lz);
+    /** Добавить старое состояние места к хешу секции (порядок мест — как в плане). */
+    static long mix(long h, BlockState old) {
+        return (h ^ System.identityHashCode(normal(old))) * 0x9E3779B97F4A7C15L + 1;
     }
 
-    /** Отпечаток секции: хеш её сетевой записи (палитра и данные). */
-    static long fingerprint(LevelChunkSection section) {
-        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer(section.getSerializedSize()));
-        try {
-            section.getStates().write(buf);
-            long h = 1125899906842597L;
-            int n = buf.writerIndex();
-            for (int i = 0; i + 8 <= n; i += 8) h = h * 0x9E3779B97F4A7C15L + buf.getLong(i);
-            for (int i = n & ~7; i < n; i++) h = h * 31 + buf.getByte(i);
-            return h ^ n;
-        } finally {
-            buf.release();
-        }
-    }
-
-    public ChunkPos pos() {
-        return pos;
-    }
-
-    /** Сколько блоков меняет план. */
+    /** Сколько блоков меняет план (без пожаров). */
     public int changedBlocks() {
-        return changedBlocks;
+        return cells.length;
     }
 
-    /** Секции чанка всё те же, что при построении плана. */
+    /** Примерный размер плана в памяти, байты (для строки в лог). */
+    public long bytes() {
+        if (this == EMPTY) return 0;
+        return 64 + 4L * cells.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length
+                + (outside == null ? 0 : 16L * outside.size());
+    }
+
+    private static int section(int cell) {
+        return (cell >>> SECTION_SHIFT) & 0xFF;
+    }
+
+    /** Места плана в секциях чанка всё те же, что при построении плана. */
     boolean current(LevelChunk chunk) {
         LevelChunkSection[] now = chunk.getSections();
-        for (int i = 0; i < sections.length; i++) {
-            if (sections[i] != null && fingerprint(now[i]) != fingerprints[i]) return false;
+        int k = 0;
+        while (k < cells.length) {
+            int i = section(cells[k]);
+            if (i >= now.length) return false;
+            LevelChunkSection s = now[i];
+            long h = 0;
+            for (; k < cells.length && section(cells[k]) == i; k++) {
+                int c = cells[k];
+                h = mix(h, s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15));
+            }
+            if (h != oldHashes[i]) return false;
         }
         return true;
     }
@@ -157,44 +137,101 @@ public final class RuinPlan {
      * @return false — план устарел, ничего не изменено
      */
     public boolean apply(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget) {
+        if (this == EMPTY) return true;
         if (!current(chunk)) return false;
-        if (changedBlocks == 0 && fires.isEmpty() && outside.isEmpty()) return true;
-        // блок-сущности и POI — через мир, до подмены: подмена поставит то же состояние ещё раз
+        ChunkPos pos = chunk.getPos();
+        int x0 = pos.getMinBlockX(), z0 = pos.getMinBlockZ(), minY = chunk.getMinBuildHeight();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (Long2ObjectMap.Entry<BlockState> e : slow.long2ObjectEntrySet()) {
-            m.set(e.getLongKey());
-            ColumnScar.replace(level, m, chunk.getBlockState(m), e.getValue());
+        // блок-сущности и POI — через мир, до подмены: копии секций ниже возьмут уже новое состояние
+        for (int c : cells) {
+            if ((c & SLOW) == 0) continue;
+            at(m, c, x0, z0, minY);
+            ColumnScar.replace(level, m, chunk.getBlockState(m), states[(c >>> STATE_SHIFT) & STATE_MASK]);
         }
+        // новые секции: копия текущей (секцию нельзя править на месте — её читает поток света) и места плана в ней
         LevelChunkSection[] now = chunk.getSections();
+        LevelChunkSection[] fresh = new LevelChunkSection[now.length];
+        for (int c : cells) {
+            if ((c & SLOW) != 0) continue;
+            LevelChunkSection s = copy(now, fresh, section(c));
+            s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
+        }
+        // пожары — там, где по плану воздух, пока не кончился счётчик пожаров подрыва
+        int lit = 0;
+        boolean ignites = budget.ignites && AirstrikeConfig.SERVER.nukeFires.get();
+        int maxFires = AirstrikeConfig.SERVER.nukeMaxFires.get();
+        int[] burning = fires.length == 0 || !ignites ? NONE : new int[fires.length];
+        for (int k = 0; k < burning.length && budget.fires < maxFires; k++) {
+            int c = fires[k];
+            int i = section(c);
+            LevelChunkSection s = fresh[i] != null ? fresh[i] : now[i];
+            if (!s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15).isAir()) continue;
+            copy(now, fresh, i).setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
+            burning[lit++] = c;
+            budget.fires++;
+        }
         LevelLightEngine light = level.getChunkSource().getLightEngine();
-        for (int i = 0; i < sections.length; i++) {
-            if (sections[i] == null) continue;
+        for (int i = 0; i < fresh.length; i++) {
+            if (fresh[i] == null) continue;
             boolean wasEmpty = now[i].hasOnlyAir();
-            // план мог сделать секцию «пустой» по счётчикам — пересчёт у новой секции уже сделан в конструкторе
-            now[i] = sections[i];
-            boolean empty = sections[i].hasOnlyAir();
+            now[i] = fresh[i];
+            boolean empty = fresh[i].hasOnlyAir();
             if (wasEmpty != empty) light.updateSectionStatus(SectionPos.of(pos, chunk.getSectionYFromSectionIndex(i)), empty);
         }
         Heightmap.primeHeightmaps(chunk, HEIGHTMAPS);
         chunk.initializeLightSources();
-        for (int k = 0; k < lightChecks.size(); k++) light.checkBlock(m.set(lightChecks.getLong(k)));
+        for (int c : cells) {
+            if ((c & LIGHT) != 0) light.checkBlock(at(m, c, x0, z0, minY));
+        }
+        for (int k = 0; k < lit; k++) {
+            at(m, burning[k], x0, z0, minY);
+            light.checkBlock(m);
+            // тик огня, как у поставленного огня (FireBlock.onPlace): 30–39 тиков
+            level.scheduleTick(m.immutable(), states[(burning[k] >>> STATE_SHIFT) & STATE_MASK].getBlock(),
+                    30 + (int) (RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 31) * 10));
+        }
         chunk.setUnsaved(true);
         // стволы, упавшие в соседний чанк: бревно на его поверхность, если там не стоит постройка
-        for (int k = 0; k < outside.size(); k++) {
-            m.set(outside.getLong(k));
-            if (!Terrain.ready(level, m) || !NuclearTickets.aroundLoaded(level, m)) continue;
-            m.setY(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, m.getX(), m.getZ()));
-            BlockState was = level.getBlockState(m);
-            if (was.canBeReplaced()) ColumnScar.replace(level, m, was, outsideState.get(k));
-        }
-        for (int k = 0; k < fires.size(); k++) {
-            m.set(fires.getLong(k));
-            double roll = RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 29);
-            if (roll < fireChance.getDouble(k)) ColumnScar.ignite(level, m, budget);
+        if (outside != null) {
+            for (int k = 0; k < outside.size(); k++) {
+                m.set(outside.getLong(k));
+                if (!Terrain.ready(level, m) || !NuclearTickets.aroundLoaded(level, m)) continue;
+                m.setY(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, m.getX(), m.getZ()));
+                BlockState was = level.getBlockState(m);
+                if (was.canBeReplaced()) ColumnScar.replace(level, m, was, outsideState.get(k));
+            }
         }
         // клиентам — чанк целиком, ванильной отправкой чанков: ближние первыми и в темпе, который просит клиент (друзья
         // по e4mc), со светом на момент отправки
         for (ServerPlayer p : level.getChunkSource().chunkMap.getPlayers(pos, false)) p.connection.chunkSender.markChunkPendingToSend(chunk);
         return true;
+    }
+
+    private static LevelChunkSection copy(LevelChunkSection[] now, LevelChunkSection[] fresh, int i) {
+        LevelChunkSection s = fresh[i];
+        if (s == null) s = fresh[i] = copyOf(now[i]);
+        return s;
+    }
+
+    private static final ThreadLocal<FriendlyByteBuf> COPY_BUFFER = ThreadLocal.withInitial(() -> new FriendlyByteBuf(Unpooled.buffer(16384)));
+
+    /**
+     * Независимая копия секции. Не {@code PalettedContainer.copy()}: у её палитры остаётся обработчик роста палитры
+     * старого контейнера (а одноцветная палитра — вовсе тот же объект), и новое состояние в копии перестраивает данные
+     * старой секции мира, а в копию пишет чужой номер («The value 1 is not in the specified inclusive range of 0 to 0»).
+     * Запись и чтение через буфер собирают палитру заново, со своим обработчиком.
+     */
+    static LevelChunkSection copyOf(LevelChunkSection section) {
+        FriendlyByteBuf buf = COPY_BUFFER.get();
+        buf.clear();
+        section.getStates().write(buf);
+        PalettedContainer<BlockState> states = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
+                PalettedContainer.Strategy.SECTION_STATES);
+        states.read(buf);
+        return new LevelChunkSection(states, section.getBiomes());
+    }
+
+    private static BlockPos.MutableBlockPos at(BlockPos.MutableBlockPos m, int c, int x0, int z0, int minY) {
+        return m.set(x0 + (c & 15), minY + (section(c) << 4) + ((c >> 8) & 15), z0 + ((c >> 4) & 15));
     }
 }

@@ -36,6 +36,8 @@ import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.nuclear.model.PromptRadiationModel;
 import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.nuclear.world.ColumnScar;
+import ua.zentix.airstrike.grid.GridLights;
+import net.minecraft.world.level.block.state.BlockState;
 import ua.zentix.airstrike.nuclear.world.RuinPlan;
 import ua.zentix.airstrike.nuclear.world.RuinPlanner;
 import ua.zentix.airstrike.nuclear.world.CraterJob;
@@ -152,7 +154,7 @@ public final class NuclearGameTests {
         h.succeed();
     }
 
-    /** План, после которого чанк меняли, не ставится: руины строятся заново по чанку как есть. */
+    /** План, в местах которого после него что-то меняли, не ставится: руины строятся заново по чанку как есть. */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_stale_plan", skyAccess = true)
     public static void stalePlanIsRebuilt(GameTestHelper h) {
         ServerLevel level = h.getLevel();
@@ -161,15 +163,39 @@ public final class NuclearGameTests {
         Detonation d = detonation(h, CENTER, 0, 15, 0.025f);
         LevelChunk chunk = level.getChunkAt(h.absolutePos(glass));
         RuinPlan plan = RuinPlanner.plan(level, d, chunk);
-        // игрок поставил стекло рядом уже после плана — в той же секции
-        BlockPos added = glass.above();
-        h.setBlock(added, Blocks.GLASS);
+        // игрок заменил стекло уже после плана
+        h.setBlock(glass, Blocks.WHITE_STAINED_GLASS);
         ColumnScar.Budget budget = new ColumnScar.Budget(false);
         h.assertFalse(plan.apply(level, chunk, budget), "устаревший план поставлен");
-        h.assertBlockPresent(Blocks.GLASS, glass);
+        h.assertBlockPresent(Blocks.WHITE_STAINED_GLASS, glass);
         h.assertTrue(RuinPlanner.plan(level, d, chunk).apply(level, chunk, budget), "новый план не поставлен");
+        h.assertBlockNotPresent(Blocks.WHITE_STAINED_GLASS, glass);
+        h.succeed();
+    }
+
+    /**
+     * Блэкаут гасит лампы прямо в палитре секции — план от этого не устаревает, а погашенная лампа после руин не
+     * зажигается снова (план пишет в секцию только свои места).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_stale_plan", skyAccess = true)
+    public static void blackoutKeepsPlanAndLampsDark(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos glass = CENTER.west(8), lamp = glass.north(), lantern = glass.south();
+        h.setBlock(glass, Blocks.GLASS);
+        h.setBlock(lamp, Blocks.REDSTONE_LAMP);
+        h.setBlock(lantern, Blocks.LANTERN);
+        Detonation d = detonation(h, CENTER, 0, 15, 0.025f);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(glass));
+        RuinPlan plan = RuinPlanner.plan(level, d, chunk);
+        for (BlockPos p : List.of(lamp, lantern)) {
+            BlockState dark = GridLights.unlit(h.getBlockState(p));
+            h.assertTrue(dark != null, "не лампа сети: " + h.getBlockState(p));
+            h.setBlock(p, dark);
+        }
+        h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел от блэкаута");
         h.assertBlockNotPresent(Blocks.GLASS, glass);
-        h.assertBlockNotPresent(Blocks.GLASS, added);
+        h.assertBlockNotPresent(Blocks.REDSTONE_LAMP, lamp);
+        h.assertBlockNotPresent(Blocks.LANTERN, lantern);
         h.succeed();
     }
 

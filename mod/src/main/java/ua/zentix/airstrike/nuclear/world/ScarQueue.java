@@ -89,7 +89,10 @@ public final class ScarQueue {
     private final Map<Integer, Long2ObjectOpenHashMap<RuinPlan>> prepared = new HashMap<>();
     /** Для проверок и статуса: чанков с руинами по готовому плану и построенных в момент прихода волны. */
     private int appliedPrepared, appliedFresh, stalePlans;
-    /** По подрыву: руин по готовому плану, устаревших планов, наибольшее отставание готовых от прихода волны, тиков. */
+    /**
+     * По подрыву: руин по готовому плану, устаревших планов, наибольшее отставание готовых от прихода волны (тики),
+     * время подмен по готовому плану всего и самой долгой (нс).
+     */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
 
     public int size() {
@@ -123,9 +126,22 @@ public final class ScarQueue {
     public void dropPrepared(int detonation) {
         Long2ObjectOpenHashMap<RuinPlan> left = prepared.remove(detonation);
         long[] st = preparedStats.remove(detonation);
-        if (st == null) st = new long[3];
-        Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, не дождались {}; отставание от волны до {} тиков",
-                detonation, st[0], st[1], left == null ? 0 : left.size(), st[2]);
+        if (st == null) st = new long[5];
+        Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, не дождались {}; отставание от волны до {} тиков; "
+                        + "подмена чанка в среднем {} мкс, самая долгая {} мс",
+                detonation, st[0], st[1], left == null ? 0 : left.size(), st[2], st[0] == 0 ? 0 : st[3] / st[0] / 1000,
+                String.format(java.util.Locale.ROOT, "%.1f", st[4] / 1e6));
+    }
+
+    /** Чанк ждёт в очереди повреждений. */
+    public boolean queued(long chunk) {
+        return jobs.containsKey(chunk);
+    }
+
+    /** Не поставленные ещё готовые руины подрыва: есть ли план у чанка. */
+    public boolean pendingPlan(int detonation, long chunk) {
+        Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(detonation);
+        return plans != null && plans.containsKey(chunk);
     }
 
     /** По готовому плану, построенных на месте, устаревших планов (проверки, статус). */
@@ -290,11 +306,15 @@ public final class ScarQueue {
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
         RuinPlan plan = plans != null ? plans.remove(chunk.getPos().toLong()) : null;
         if (plan != null) {
-            long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[3]);
+            long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[5]);
             st[2] = Math.max(st[2], lag);
+            long t0 = System.nanoTime();
             if (plan.apply(level, chunk, budget)) {
+                long took = System.nanoTime() - t0;
                 appliedPrepared++;
                 st[0]++;
+                st[3] += took;
+                st[4] = Math.max(st[4], took);
                 return;
             }
             stalePlans++;

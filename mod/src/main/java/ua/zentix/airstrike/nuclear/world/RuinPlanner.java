@@ -1,21 +1,27 @@
 package ua.zentix.airstrike.nuclear.world;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.village.poi.PoiTypes;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
@@ -25,8 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Руины одного чанка от одного подрыва — заранее, без изменений в мире ({@link RuinPlan}): новые секции чанка копиями
- * старых, что с каждым столбцом сделала волна и свет. Правила столбца (DESIGN-nuke §3.2–3.4):
+ * Руины одного чанка от одного подрыва — заранее, без изменений в мире ({@link RuinPlan}): что с каждым столбцом
+ * сделала волна и свет, разницей к секциям чанка; пожары — там, где огонь удержится на руинах. Правила столбца (DESIGN-nuke §3.2–3.4):
  * <ul>
  * <li>надземное (всё выше природного грунта: постройки, деревья, растения) ломается по давлению; выше над землёй
  * давление больше (обтекание и отражение: +4 % на блок), крыша и верхний этаж (два верхних блока) — в полтора раза;</li>
@@ -140,7 +146,7 @@ public final class RuinPlanner {
             }
         }
         for (int i = 0; i < trees.size(); i++) lay(s, trees.get(i), treeLogs.get(i));
-        return s.finish(level, chunk);
+        return s.finish();
     }
 
     /** Завал на месте рухнувшей постройки: высота — по тому, сколько рухнуло, материал — по тому, из чего. */
@@ -214,23 +220,21 @@ public final class RuinPlanner {
 
     /**
      * Секции чанка для плана: чтение — из копии, если секция уже менялась, иначе из самого чанка; запись — в копию.
-     * Блоки с блок-сущностью и места POI запоминаются: их меняет медленный путь ({@link ColumnScar#replace}).
+     * Копии живут только пока строится план: в план идёт одна разница ({@link RuinPlan}).
      */
-    static final class Sections {
+    static final class Sections implements BlockGetter {
         final LevelChunk chunk;
         final LevelChunkSection[] original;
         final LevelChunkSection[] copies;
         final int minY, chunkX, chunkZ;
-        /** Места, которые меняются через мир (блок-сущность, POI): упакованная позиция → итоговое состояние. */
-        final Long2ObjectLinkedOpenHashMap<BlockState> slow = new Long2ObjectLinkedOpenHashMap<>();
-        /** Пожары: позиция и вероятность. */
+        /** Кандидаты в пожары: позиция и вероятность. */
         final LongArrayList fires = new LongArrayList();
         final it.unimi.dsi.fastutil.doubles.DoubleArrayList fireChance = new it.unimi.dsi.fastutil.doubles.DoubleArrayList();
         /** Брёвна поваленных деревьев в соседних чанках: место (высота — по поверхности при подмене) и состояние. */
         final LongArrayList outside = new LongArrayList();
         final List<BlockState> outsideState = new ArrayList<>();
-        /** Изменённые места по столбцам: упакованные позиции (для света). */
-        final LongArrayList changed = new LongArrayList();
+        /** Изменённые места: номер секции << 12 | место в секции (с повторами). */
+        final IntArrayList changed = new IntArrayList();
 
         Sections(LevelChunk chunk) {
             this.chunk = chunk;
@@ -257,13 +261,10 @@ public final class RuinPlanner {
             if (i < 0 || i >= original.length) return;
             LevelChunkSection copy = copies[i];
             if (copy == null) {
-                copy = copies[i] = new LevelChunkSection(original[i].getStates().copy(), original[i].getBiomes());
+                copy = copies[i] = RuinPlan.copyOf(original[i]);
             }
-            BlockState old = original[i].getBlockState(lx, y & 15, lz);
             copy.setBlockState(lx, y & 15, lz, state, false);
-            long pos = BlockPos.asLong((chunkX << 4) + lx, y, (chunkZ << 4) + lz);
-            changed.add(pos);
-            if (old.hasBlockEntity() || PoiTypes.forState(old).isPresent()) slow.put(pos, state);
+            changed.add(i << RuinPlan.SECTION_SHIFT | (y & 15) << 8 | lz << 4 | lx);
         }
 
         void fire(int x, int y, int z, double chance) {
@@ -272,8 +273,125 @@ public final class RuinPlanner {
             fireChance.add(chance);
         }
 
-        RuinPlan finish(ServerLevel level, LevelChunk chunk) {
-            return RuinPlan.of(level, chunk, original, copies, slow, fires, fireChance, changed, outside, outsideState);
+        // ---- чтение плана как мира (огонь выбирает вид и опору по соседям): вне чанка — воздух
+
+        @Override
+        public BlockState getBlockState(BlockPos pos) {
+            if (pos.getX() >> 4 != chunkX || pos.getZ() >> 4 != chunkZ) return AIR;
+            return get(pos.getX() & 15, pos.getY(), pos.getZ() & 15);
+        }
+
+        @Override
+        public FluidState getFluidState(BlockPos pos) {
+            return getBlockState(pos).getFluidState();
+        }
+
+        @Nullable
+        @Override
+        public BlockEntity getBlockEntity(BlockPos pos) {
+            return null;
+        }
+
+        @Override
+        public int getHeight() {
+            return chunk.getHeight();
+        }
+
+        @Override
+        public int getMinBuildHeight() {
+            return minY;
+        }
+
+        /** Огонь в месте плана, если он там удержится (как {@code FireBlock.canSurvive}); null — не удержится. */
+        @Nullable
+        private BlockState fireAt(BlockPos pos) {
+            if (!getBlockState(pos).isAir()) return null;
+            BlockState fire = BaseFireBlock.getState(this, pos);
+            BlockPos below = pos.below();
+            if (getBlockState(below).isFaceSturdy(this, below, Direction.UP)) return fire;
+            if (!fire.is(Blocks.FIRE)) return null;
+            for (Direction dir : Direction.values()) {
+                BlockPos n = pos.relative(dir);
+                if (getBlockState(n).isFlammable(this, n, dir.getOpposite())) return fire;
+            }
+            return null;
+        }
+
+        RuinPlan finish() {
+            // места без повторов, по секциям
+            int[] cells = changed.toIntArray();
+            java.util.Arrays.sort(cells);
+            int n = 0;
+            for (int k = 0; k < cells.length; k++) if (k == 0 || cells[k] != cells[k - 1]) cells[n++] = cells[k];
+            // пожары: бросок — хешем места (план и подрыв совпадают), место — где огонь удержится на руинах
+            IntArrayList fireCells = new IntArrayList();
+            List<BlockState> fireStates = new ArrayList<>();
+            BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+            for (int k = 0; k < fires.size(); k++) {
+                m.set(fires.getLong(k));
+                if (hash(m.getX(), m.getY(), m.getZ(), 29) >= fireChance.getDouble(k)) continue;
+                int i = (m.getY() - minY) >> 4;
+                if (i < 0 || i >= original.length) continue;
+                BlockState fire = fireAt(m);
+                if (fire == null) continue;
+                fireCells.add(i << RuinPlan.SECTION_SHIFT | (m.getY() & 15) << 8 | (m.getZ() & 15) << 4 | m.getX() & 15);
+                fireStates.add(fire);
+            }
+            if (n == 0 && fireCells.isEmpty() && outside.isEmpty()) return RuinPlan.EMPTY;
+            // верх каждого столбца после руин: ниже него убранный или новый блок меняет свет не только как источник неба
+            int[] topChanged = new int[256];
+            java.util.Arrays.fill(topChanged, Integer.MIN_VALUE);
+            for (int k = 0; k < n; k++) {
+                int c = cells[k], column = c & 0xFF;
+                topChanged[column] = Math.max(topChanged[column], y(c));
+            }
+            int[] newTop = new int[256];
+            for (int column = 0; column < 256; column++) {
+                if (topChanged[column] == Integer.MIN_VALUE) continue;
+                int lx = column & 15, lz = column >> 4;
+                int y = Math.max(topChanged[column], chunk.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz));
+                while (y >= minY && get(lx, y, lz).isAir()) y--;
+                newTop[column] = y;
+            }
+            Object2IntOpenHashMap<BlockState> palette = new Object2IntOpenHashMap<>();
+            List<BlockState> states = new ArrayList<>();
+            long[] hashes = new long[original.length];
+            int kept = 0;
+            for (int k = 0; k < n; k++) {
+                int c = cells[k];
+                int i = c >>> RuinPlan.SECTION_SHIFT, lx = c & 15, lz = (c >> 4) & 15, y = y(c), column = c & 0xFF;
+                BlockState was = original[i].getBlockState(lx, y & 15, lz), now = copies[i].getBlockState(lx, y & 15, lz);
+                if (was == now) continue;
+                int idx = palette.computeIfAbsent(now, s -> {
+                    states.add((BlockState) s);
+                    return states.size() - 1;
+                });
+                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + chunk.getPos() + ": больше " + RuinPlan.MAX_STATES + " состояний");
+                hashes[i] = RuinPlan.mix(hashes[i], was);
+                m.set((chunkX << 4) + lx, y, (chunkZ << 4) + lz);
+                boolean covered = y < newTop[column];
+                boolean light = y == topChanged[column] || was.getLightEmission(chunk, m) > 0 || now.getLightEmission(chunk, m) > 0
+                        || covered && (was.getLightBlock(chunk, m) != now.getLightBlock(chunk, m) || was.useShapeForLightOcclusion() || now.useShapeForLightOcclusion());
+                boolean slow = was.hasBlockEntity() || PoiTypes.forState(was).isPresent();
+                cells[kept++] = c | idx << RuinPlan.STATE_SHIFT | (light ? RuinPlan.LIGHT : 0) | (slow ? RuinPlan.SLOW : 0);
+            }
+            int[] fireOut = new int[fireCells.size()];
+            for (int k = 0; k < fireOut.length; k++) {
+                BlockState fire = fireStates.get(k);
+                int idx = palette.computeIfAbsent(fire, s -> {
+                    states.add((BlockState) s);
+                    return states.size() - 1;
+                });
+                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + chunk.getPos() + ": больше " + RuinPlan.MAX_STATES + " состояний");
+                fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
+            }
+            if (kept == 0 && fireOut.length == 0 && outside.isEmpty()) return RuinPlan.EMPTY;
+            return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), fireOut,
+                    outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState);
+        }
+
+        private int y(int c) {
+            return minY + ((c >>> RuinPlan.SECTION_SHIFT) << 4) + ((c >> 8) & 15);
         }
     }
 }

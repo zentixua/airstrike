@@ -63,6 +63,8 @@ public final class NuclearPrep {
     private static final int MIN_LEAD = 100;
     /** После подрыва тикеты держатся не дольше, тиков. */
     private static final int HOLD_AFTER = 1200;
+    /** Как часто после подрыва отпускать квадраты, чьи руины уже стоят, тиков. */
+    private static final int RELEASE_PERIOD = 10;
     /** Насколько место подрыва может отличаться от места плана, блоки. */
     private static final double SAME_PLACE = 8;
 
@@ -150,6 +152,8 @@ public final class NuclearPrep {
                         release(level, p);
                         scars.dropPrepared(p.detonation);
                         it.remove();
+                    } else if (now % RELEASE_PERIOD == 0) {
+                        releaseDone(level, p, scars);
                     }
                     continue;
                 }
@@ -183,8 +187,10 @@ public final class NuclearPrep {
         if (!p.announced && p.nextPlan >= p.order.length) {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее
-            Airstrike.LOG.info("Руины удара №{} готовы: {} чанков из {} (до подрыва {} с)", p.strike, p.plans.size(), p.order.length,
-                    Math.max(0, p.detonateTime - level.getGameTime()) / 20);
+            long bytes = 0;
+            for (RuinPlan plan : p.plans.values()) bytes += plan.bytes();
+            Airstrike.LOG.info("Руины удара №{} готовы: {} чанков из {} (до подрыва {} с), планы {} МБ, квадратов {}", p.strike, p.plans.size(),
+                    p.order.length, Math.max(0, p.detonateTime - level.getGameTime()) / 20, bytes >> 20, heldTiles(p));
         }
     }
 
@@ -341,6 +347,32 @@ public final class NuclearPrep {
     }
 
     public record Handoff(Long2ObjectOpenHashMap<RuinPlan> plans, long[] order) {}
+
+    private static int heldTiles(Prep p) {
+        int n = 0;
+        for (Tile t : p.tiles) if (t.state == TileState.LOADING || t.state == TileState.READY) n++;
+        return n;
+    }
+
+    /**
+     * После подрыва: квадрат, где руины всех чанков (и чанков вокруг него — им для подмены нужны соседи) уже стоят,
+     * больше не держится — память под тысячи чанков тяжёлой зоны освобождается по ходу волны, а не через минуту.
+     */
+    private static void releaseDone(ServerLevel level, Prep p, ScarQueue scars) {
+        for (Tile t : p.tiles) {
+            if (t.state != TileState.READY && t.state != TileState.LOADING) continue;
+            boolean done = true;
+            for (int dx = -TILE_RADIUS - 1; done && dx <= TILE_RADIUS + 1; dx++) {
+                for (int dz = -TILE_RADIUS - 1; done && dz <= TILE_RADIUS + 1; dz++) {
+                    long c = ChunkPos.asLong(t.centre.x + dx, t.centre.z + dz);
+                    done = !scars.pendingPlan(p.detonation, c) && !scars.queued(c);
+                }
+            }
+            if (!done) continue;
+            StrikeWorld.get(level).areas().release(level, t.area(p.strike));
+            t.state = TileState.SKIP;
+        }
+    }
 
     private static void release(ServerLevel level, Prep p) {
         for (Tile t : p.tiles) {
