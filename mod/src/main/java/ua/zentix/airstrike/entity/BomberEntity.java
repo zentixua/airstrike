@@ -15,6 +15,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Terrain;
@@ -31,11 +32,12 @@ import java.util.UUID;
  * заходит снова.
  */
 public class BomberEntity extends StrikeProjectile {
-    public static final double ALTITUDE = 170;
-    public static final double RELEASE_DISTANCE = 85;
-    public static final double CRUISE_SPEED = 12;
-    /** Разворот, °/тик: радиус ~690 блоков. */
-    private static final double TURN_RATE = 1.0;
+    /** Паспорт B-2: скорость, разворот (радиус ~690 блоков), эшелон над точкой сброса. */
+    private static final WeaponSpec.Airframe AIR = WeaponSpec.BUNKER.airframe();
+    /** Эшелон над точкой, куда упадёт бомба. */
+    private static final double ALTITUDE = AIR.cruiseHeight();
+    /** Дальность сброса на эшелоне, по горизонтали до точки. */
+    private static final double RELEASE_DISTANCE = WeaponSpec.BUNKER.route().finalLeg();
     /** Смена эшелона: тангаж не круче этого, ° (набор и снижение B-2 — пологие). */
     private static final double LEVEL_CHANGE_PITCH = 6;
     /** Тангаж на блок ошибки эшелона, °: у эшелона — плавный выход в горизонт. */
@@ -57,21 +59,6 @@ public class BomberEntity extends StrikeProjectile {
     @Override
     public WeaponType weapon() {
         return WeaponType.BUNKER;
-    }
-
-    @Override
-    protected double noseLength() {
-        return 8.5;
-    }
-
-    @Override
-    public double cruiseSpeed() {
-        return CRUISE_SPEED;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 120;
     }
 
     /**
@@ -106,10 +93,6 @@ public class BomberEntity extends StrikeProjectile {
      * на курсе выше эшелона, и с возврата у цели он не успевал снизиться — уходил на второй заход (трейлер, 29.09.2026;
      * теперь он сбросил бы и оттуда, но выше эшелона — дальше от точки).
      */
-    @Override
-    protected double clearance() {
-        return 30;
-    }
 
     public boolean hasReleased() {
         return released;
@@ -121,7 +104,7 @@ public class BomberEntity extends StrikeProjectile {
         if (tracker == null) return 0;
         Vec3 aim = tracker.point();
         Bearing b = bearingTo(aim);
-        return (int) Math.ceil(Math.max(0, b.horizontal() - releaseLine(getY() - aim.y)) / CRUISE_SPEED) + 20;
+        return (int) Math.ceil(Math.max(0, b.horizontal() - releaseLine(getY() - aim.y)) / AIR.cruiseSpeed()) + 20;
     }
 
     /**
@@ -140,7 +123,7 @@ public class BomberEntity extends StrikeProjectile {
         Vec3 start = new Vec3(pos.x, surface.y + ALTITUDE, pos.z);
         super.launch(start, new Target.Point(surface), surface, owner);
         this.goal = goal;
-        this.speed = CRUISE_SPEED;
+        this.speed = AIR.cruiseSpeed();
         this.breakSide = random.nextBoolean() ? 1 : -1;
         setPhase(FlightPhase.CRUISE);
     }
@@ -183,8 +166,8 @@ public class BomberEntity extends StrikeProjectile {
         if (!released && b.horizontal() > RELEASE_DISTANCE + 40) {
             // точка сброса внутри круга разворота (перенацелили сбоку, проскочил её): на пределе поворота он
             // кружил бы вокруг неё без конца — прямо, пока она не выйдет из круга, и новый заход
-            if (insideTurn(aim, TURN_RATE)) flight.settleYaw(0.1);
-            else flight.steerYaw(b.yaw(), 0.1, TURN_RATE, 0.1);
+            if (insideTurn(aim, AIR.turnRate())) flight.settleYaw(0.1);
+            else flight.steerYaw(b.yaw(), 0.1, AIR.turnRate(), 0.1);
         }
         Vec3 dir = flight.forward();
         Vec3 next = position().add(dir.scale(speed));

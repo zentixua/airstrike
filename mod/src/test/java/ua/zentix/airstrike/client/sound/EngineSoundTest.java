@@ -2,11 +2,11 @@ package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
-import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.strike.Hearing;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.UUID;
@@ -19,7 +19,7 @@ class EngineSoundTest {
     private static final UUID ID = UUID.randomUUID();
     private static final Vec3 EAR = Vec3.ZERO;
     /** Маршевая скорость ракеты, блоков/тик. */
-    private static final double V = CruiseMissileEntity.CRUISE_SPEED;
+    private static final double V = WeaponSpec.MISSILE.airframe().cruiseSpeed();
 
     /** Крылатая ракета с {@code from} блоков прямо на слушателя; цель — {@code aim}. */
     private static SourceTrack missile(double from, Vec3 aim) {

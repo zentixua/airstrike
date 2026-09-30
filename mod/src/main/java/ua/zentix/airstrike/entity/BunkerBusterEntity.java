@@ -28,6 +28,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModTags;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.warhead.Warheads;
@@ -58,19 +59,10 @@ public class BunkerBusterEntity extends StrikeProjectile {
         return WeaponType.BUNKER;
     }
 
+    /** Бомба — вторая сущность полёта оружия: её паспорт — {@link WeaponSpec#payload}. */
     @Override
-    protected double noseLength() {
-        return BombDrop.NOSE;
-    }
-
-    @Override
-    public double cruiseSpeed() {
-        return BombDrop.MAX_SPEED;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 300;
+    public WeaponSpec.Airframe airframe() {
+        return WeaponSpec.BUNKER.payload();
     }
 
     @Override
@@ -111,7 +103,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         }
         Vec3 aim = tracker.point();
         speed = BombDrop.steer(flight, position(), speed, aim);
-        advance(level, aim, BombDrop.REACH_PAD);
+        advance(level, aim, airframe().reachPad());
     }
 
     // ---------------------------------------------------------------- вход в грунт

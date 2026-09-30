@@ -12,6 +12,7 @@ import ua.zentix.airstrike.guidance.Dive;
 import ua.zentix.airstrike.guidance.Orbit;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.strike.FlightTickets;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
@@ -20,26 +21,22 @@ import java.util.UUID;
 /**
  * Барражирующий боеприпас в духе «Ланцета»: маленький электрический дрон с двумя крестами крыльев. Старт
  * с катапульты (пневматический толчок, без ускорителя), крылья раскрываются в воздухе, дальше — прямо к цели,
- * над ней — круги на {@link #LOITER_HEIGHT} блоков выше цели ({@link FlightPhase#LOITER}) в ожидании. Круг
+ * над ней — круги на высоте крейсера из паспорта выше цели ({@link FlightPhase#LOITER}) в ожидании. Круг
  * следует за движущейся целью. Время барража — {@code loiter_time} из настроек (у каждого в залпе своё ±20%),
  * потом крутое пикирование с разгоном до 4 блоков/тик. Из камеры снаряда (ЛКМ) оператор выбирает цель сам —
  * пикирование сразу, если цель рядом; иначе боеприпас летит к ней и кружит уже там.
  */
 public class LoiterEntity extends StrikeProjectile {
-    /** ≈115 км/ч. */
-    public static final double CRUISE_SPEED = 1.6;
-    public static final double DIVE_SPEED = 4.0;
-    /** Высота круга над целью и его радиус. */
-    public static final double LOITER_HEIGHT = 45, LOITER_RADIUS = 40;
+    /** Паспорт: скорости (≈115 км/ч, в пике 4 блока/тик), пределы поворота, высота круга над целью, катапульта. */
+    private static final WeaponSpec.Airframe AIR = WeaponSpec.LOITER.airframe();
+    /** Радиус круга над целью. */
+    public static final double LOITER_RADIUS = 40;
     /** Перенацеленный ближе этого (по горизонтали) пикирует сразу, без круга. */
     private static final double STRIKE_NOW = 140;
     /** Сколько тиков в среднем уходит на пикирование с круга (для времени до удара). */
     private static final int DIVE_TICKS = 25;
     /** Пике мимо: дальше ближайшего подхода к цели на столько блоков — снова на круг и новый заход. */
     private static final double MISSED_BY = 20;
-
-    /** Катапульта: толчок за полсекунды, без огня; дальше тянет винт. */
-    private static final LaunchProfile LAUNCH = new LaunchProfile(4, 10, 0.16, 4, -8);
 
     private double cruiseAlt;
     /** Сколько кружить над целью, тиков (задаётся при пуске). */
@@ -61,42 +58,11 @@ public class LoiterEntity extends StrikeProjectile {
         return WeaponType.LOITER;
     }
 
-    @Override
-    protected double noseLength() {
-        return 1.3;
-    }
-
-    @Override
-    public double cruiseSpeed() {
-        return CRUISE_SPEED;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 2400;
-    }
-
-    @Override
-    protected float maxHealth() {
-        return 4;
-    }
-
     /** Путь кончается у цели только в пике: на подлёте и на круге барража он идёт мимо неё. */
     @Override
     @Nullable
     protected Vec3 pathEnd() {
         return flightPhase() == FlightPhase.TERMINAL ? super.pathEnd() : null;
-    }
-
-    @Override
-    protected double clearance() {
-        return 25;
-    }
-
-    @Override
-    @Nullable
-    protected LaunchProfile launchProfile() {
-        return LAUNCH;
     }
 
     /** Барраж и круг: у каждого боеприпаса свой (залп расходится по высоте и направлению, пикирует по очереди). */
@@ -112,9 +78,9 @@ public class LoiterEntity extends StrikeProjectile {
     public void launch(Vec3 pos, Target target, Vec3 targetPoint, @Nullable UUID owner) {
         super.launch(pos, target, targetPoint, owner);
         pickOrbit();
-        cruiseAlt = Math.max(pos.y, targetPoint.y + LOITER_HEIGHT);
+        cruiseAlt = Math.max(pos.y, targetPoint.y + AIR.cruiseHeight());
         altFilter = pos.y;
-        speed = CRUISE_SPEED;
+        speed = AIR.cruiseSpeed();
         setPhase(FlightPhase.CRUISE);
     }
 
@@ -122,7 +88,7 @@ public class LoiterEntity extends StrikeProjectile {
     public void placeOnLauncher(Vec3 rail, float yaw, float elevation, int readyTicks, int hiddenTicks, Target target, Vec3 targetPoint,
                                 @Nullable UUID owner) {
         super.placeOnLauncher(rail, yaw, elevation, readyTicks, hiddenTicks, target, targetPoint, owner);
-        cruiseAlt = Math.max(rail.y + 30, targetPoint.y + LOITER_HEIGHT);
+        cruiseAlt = Math.max(rail.y + 30, targetPoint.y + AIR.cruiseHeight());
     }
 
     /** Срок жизни — ещё и на круг. */
@@ -159,12 +125,12 @@ public class LoiterEntity extends StrikeProjectile {
         if (tracker == null) return 0;
         Vec3 aim = tracker.point();
         return switch (flightPhase()) {
-            case TERMINAL -> (int) Math.ceil(position().distanceTo(aim) / Math.max(speed, CRUISE_SPEED));
+            case TERMINAL -> (int) Math.ceil(position().distanceTo(aim) / Math.max(speed, AIR.cruiseSpeed()));
             case LOITER -> strikeNow ? DIVE_TICKS : Math.max(0, loiterTicks - phaseAge()) + DIVE_TICKS;
             default -> {
                 double dx = aim.x - getX(), dz = aim.z - getZ();
                 double toOrbit = Math.max(0, Math.sqrt(dx * dx + dz * dz) - orbitRadius);
-                yield (int) Math.ceil(toOrbit / CRUISE_SPEED) + launchTicksLeft() + (strikeNow ? DIVE_TICKS : loiterTicks + DIVE_TICKS);
+                yield (int) Math.ceil(toOrbit / AIR.cruiseSpeed()) + launchTicksLeft() + (strikeNow ? DIVE_TICKS : loiterTicks + DIVE_TICKS);
             }
         };
     }
@@ -175,7 +141,7 @@ public class LoiterEntity extends StrikeProjectile {
         Bearing b = bearingTo(tracker.point());
         strikeNow = b.horizontal() < STRIKE_NOW;
         if (!strikeNow && flightPhase() == FlightPhase.LOITER) setPhase(FlightPhase.CRUISE);
-        cruiseAlt = Math.max(cruiseAlt, tracker.point().y + LOITER_HEIGHT);
+        cruiseAlt = Math.max(cruiseAlt, tracker.point().y + AIR.cruiseHeight());
     }
 
     @Override
@@ -190,15 +156,15 @@ public class LoiterEntity extends StrikeProjectile {
 
         if (ph == FlightPhase.CLIMB) {
             // крылья раскрылись, винт тянет: набор высоты к кругу
-            speed += (CRUISE_SPEED - speed) * 0.08;
+            speed += (AIR.cruiseSpeed() - speed) * 0.08;
             holdAltitude(Math.max(cruiseAlt, floor), 0.12, 1.4, 0.15);
-            flight.steerYaw(b.yaw(), 0.08, 2.0, 0.15);
+            flight.steerYaw(b.yaw(), 0.08, AIR.climbTurnRate(), 0.15);
             if (phaseAge() > 40) setPhase(FlightPhase.CRUISE);
         } else if (ph == FlightPhase.CRUISE) {
-            speed += (CRUISE_SPEED - speed) * 0.05;
+            speed += (AIR.cruiseSpeed() - speed) * 0.05;
             holdAltitude(Math.max(cruiseAlt, floor), 0.12, 1.2, 0.15);
             if (strikeNow) {
-                flight.steerYaw(b.yaw(), 0.15, 3.0, 0.3);
+                flight.steerYaw(b.yaw(), 0.15, AIR.turnRate(), 0.3);
                 if (b.pitch() >= 30 || b.horizontal() <= orbitRadius + 15) setPhase(FlightPhase.TERMINAL);
             } else {
                 // к кругу — по тому же полю курсов, что и на круге: выход на него по касательной, без перелёта
@@ -206,8 +172,8 @@ public class LoiterEntity extends StrikeProjectile {
                 if (orbit().captured(position(), aim, tracker.velocity(), speed, flight.yaw())) setPhase(FlightPhase.LOITER);
             }
         } else if (ph == FlightPhase.LOITER) {
-            speed += (CRUISE_SPEED - speed) * 0.05;
-            holdAltitude(Math.max(aim.y + LOITER_HEIGHT, floor), 0.12, 1.2, 0.15);
+            speed += (AIR.cruiseSpeed() - speed) * 0.05;
+            holdAltitude(Math.max(aim.y + AIR.cruiseHeight(), floor), 0.12, 1.2, 0.15);
             orbit().steer(flight, position(), aim, tracker.velocity(), speed);
             // заход в пике — когда цель под крылом (под углом 40° и круче) и время вышло
             boolean due = strikeNow || phaseAge() >= loiterTicks;
@@ -221,11 +187,11 @@ public class LoiterEntity extends StrikeProjectile {
                 setPhase(FlightPhase.LOITER);
             } else {
                 Dive.steer(flight, position(), speed, aim, tracker.velocity());
-                speed = Math.min(DIVE_SPEED, speed + 0.1);
+                speed = Math.min(AIR.diveSpeed(), speed + 0.1);
             }
         }
 
-        advance(level, aim, 3.0);
+        advance(level, aim, AIR.reachPad());
     }
 
     @Override

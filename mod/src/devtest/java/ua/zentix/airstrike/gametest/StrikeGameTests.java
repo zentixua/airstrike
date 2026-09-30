@@ -47,6 +47,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LauncherRack;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
@@ -64,6 +65,7 @@ import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -390,8 +392,8 @@ public final class StrikeGameTests {
         tag.putDouble("speed", 11.5);
         CruiseMissileEntity old = ModEntities.CRUISE_MISSILE.get().create(level);
         old.load(tag);
-        h.assertTrue(old.speed() <= CruiseMissileEntity.CRUISE_SPEED, "старая ракета летит " + old.speed() + " блока/тик");
-        int stretched = (int) Math.ceil(300 * 11.5 / CruiseMissileEntity.CRUISE_SPEED);
+        h.assertTrue(old.speed() <= WeaponSpec.MISSILE.airframe().cruiseSpeed(), "старая ракета летит " + old.speed() + " блока/тик");
+        int stretched = (int) Math.ceil(300 * 11.5 / WeaponSpec.MISSILE.airframe().cruiseSpeed());
         h.assertTrue(old.lifetimeLeft() == stretched, "старая ракета: срок " + old.lifetimeLeft() + " вместо " + stretched);
         h.succeed();
     }
@@ -484,7 +486,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
         Vec3 start = point.add(1200, 80, 0);
-        for (ChunkPos c : FlightTickets.approach(List.of(point, start), CruiseMissileEntity.VISIBLE_LEG)) {
+        for (ChunkPos c : FlightTickets.approach(List.of(point, start), WeaponSpec.MISSILE.airframe().visibleLeg())) {
             int r = FlightTickets.APPROACH_DISTANCE;
             for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) level.getChunk(c.x + dx, c.z + dz);
         }
@@ -535,7 +537,7 @@ public final class StrikeGameTests {
             VirtualFlights.launch(level, m);
             made.add(m);
         }
-        int n = FlightTickets.approach(List.of(point, point.add(1000, 0, 0)), CruiseMissileEntity.VISIBLE_LEG).size();
+        int n = FlightTickets.approach(List.of(point, point.add(1000, 0, 0)), WeaponSpec.MISSILE.airframe().visibleLeg()).size();
         FakePlayer[] player = {null};
         int[] tick = {0};
         String[] fail = {null};
@@ -556,7 +558,7 @@ public final class StrikeGameTests {
                 for (int k = 1; k < 64; k++) {
                     double a = Math.toRadians(k * 5.625);
                     List<ChunkPos> c = FlightTickets.approach(List.of(point, point.add(1000 * Math.sin(a), 0, -1000 * Math.cos(a))),
-                            CruiseMissileEntity.VISIBLE_LEG);
+                            WeaponSpec.MISSILE.airframe().visibleLeg());
                     if (!FlightTickets.holdApproach(level, c, other)) break;
                     taken++;
                 }
@@ -565,7 +567,7 @@ public final class StrikeGameTests {
                 for (int k = 1; k <= taken; k++) {
                     double a = Math.toRadians(k * 5.625);
                     FlightTickets.releaseApproach(level, FlightTickets.approach(List.of(point, point.add(1000 * Math.sin(a), 0, -1000 * Math.cos(a))),
-                            CruiseMissileEntity.VISIBLE_LEG), other);
+                            WeaponSpec.MISSILE.airframe().visibleLeg()), other);
                 }
                 if (FlightTickets.approachAreas(level) != n) fail[0] = "после отпуска чужих полос районов " + FlightTickets.approachAreas(level) + ", нужно " + n;
                 level.players().remove(player[0]);
@@ -604,7 +606,7 @@ public final class StrikeGameTests {
         level.addFreshEntity(launcher);
         List<RocketEntity> rockets = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            int[] slot = launcher.reserve(level.getGameTime(), 10, ua.zentix.airstrike.strike.StrikeService.ROCKET_RELOAD);
+            int[] slot = launcher.reserve(level.getGameTime(), 10, LauncherRack.ROCKET.busyTicks());
             RocketEntity r = ModEntities.ROCKET.get().create(level);
             r.placeInTube(launcher.railPoint(slot[0]), launcher.getYRot(), launcher.elevation(), slot[1], LauncherEntity.DEPLOY_TICKS,
                     new Target.Point(point), point, null);
@@ -755,7 +757,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 point = airTarget(h);
         LoiterEntity e = ModEntities.LOITER.get().create(level);
-        e.launch(point.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.Point(point), point, null);
+        e.launch(point.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), -150), new Target.Point(point), point, null);
         e.setRoute(null);
         level.addFreshEntity(e);
         java.util.UUID id = e.getUUID();
@@ -797,7 +799,7 @@ public final class StrikeGameTests {
         Vec3 point = airTarget(h);
         Vec3 other = point.add(8, 0, -12);
         LoiterEntity e = ModEntities.LOITER.get().create(level);
-        e.launch(point.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.Point(point), point, null);
+        e.launch(point.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), -150), new Target.Point(point), point, null);
         e.setRoute(null);
         level.addFreshEntity(e);
         java.util.UUID id = e.getUUID();
@@ -838,7 +840,7 @@ public final class StrikeGameTests {
         stand.setNoGravity(true);
         level.addFreshEntity(stand);
         LoiterEntity e = ModEntities.LOITER.get().create(level);
-        e.launch(center.add(0, LoiterEntity.LOITER_HEIGHT, -150), new Target.OfEntity(stand.getUUID(), Vec3.ZERO), stand.position(), null);
+        e.launch(center.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), -150), new Target.OfEntity(stand.getUUID(), Vec3.ZERO), stand.position(), null);
         e.setRoute(null);
         level.addFreshEntity(e);
         java.util.UUID id = e.getUUID();
@@ -1286,10 +1288,10 @@ public final class StrikeGameTests {
         for (int i = 0; i < heights.length; i++) {
             // соседние дорожки — вразбежку по полосе (см. выше: воронка соседки)
             aims[i] = dropPoint(h, new BlockPos(3 + 5 * i, 3, 170 + 50 * (i % 2)));
-            Vec3 step = new Vec3(0, 0, BomberEntity.CRUISE_SPEED);
+            Vec3 step = new Vec3(0, 0, WeaponSpec.BUNKER.airframe().cruiseSpeed());
             // подход по прямой с курсом +z; сдвиг начала — чтобы попасть в разные места окна
             for (Vec3 pos = aims[i].add(0, heights[i], -600 - 2 * i); pos.z < aims[i].z; pos = pos.add(step)) {
-                if (BombDrop.releaseNow(pos, step, 0, aims[i], BomberEntity.RELEASE_DISTANCE / BomberEntity.ALTITUDE)) {
+                if (BombDrop.releaseNow(pos, step, 0, aims[i], WeaponSpec.BUNKER.route().finalLeg() / WeaponSpec.BUNKER.airframe().cruiseHeight())) {
                     releases[i] = pos;
                     break;
                 }
@@ -1692,7 +1694,7 @@ public final class StrikeGameTests {
             if (now instanceof BomberEntity b) {
                 last[0] = b;
                 double d = b.position().subtract(expect).horizontalDistance();
-                if (onePass && !b.hasReleased() && d < BomberEntity.RELEASE_DISTANCE - BomberEntity.CRUISE_SPEED) {
+                if (onePass && !b.hasReleased() && d < WeaponSpec.BUNKER.route().finalLeg() - WeaponSpec.BUNKER.airframe().cruiseSpeed()) {
                     h.fail("B-2 прошёл черту сброса без сброса (второй заход): в " + (int) d + " блоках от точки, на высоте "
                             + (int) (b.getY() - expect.y) + ", вне мира " + b.isVirtual());
                 }

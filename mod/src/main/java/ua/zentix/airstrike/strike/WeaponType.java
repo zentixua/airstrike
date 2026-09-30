@@ -14,23 +14,23 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.IntFunction;
 
-/** Виды оружия. Параметры полёта — в самих сущностях, здесь то, что нужно пуску и интерфейсу. */
+/** Виды оружия: номер, имя и паспорт ({@link WeaponSpec}) — всё, чем оружие отличается от другого. */
 public enum WeaponType implements StringRepresentable {
     /** Дрон-камикадзе в духе Shahed-136: ≈150 км/ч, крейсер над рельефом, пикирование на цель. */
-    DRONE(0, "drone", 20, 40, SirenKind.AIR_RAID),
+    DRONE(0, "drone", WeaponSpec.DRONE),
     /** Крылатая ракета: бреющий полёт, горка, пикирование; 80 м/с — медленнее настоящей, чтобы подлёт было видно. */
-    MISSILE(1, "missile", 15, 30, SirenKind.MISSILE),
+    MISSILE(1, "missile", WeaponSpec.MISSILE),
     /** B-2 и бетонобойная бомба: пробивает грунт и взрывается под землёй. */
-    BUNKER(2, "bunker", 60, 80, SirenKind.AIR_RAID),
+    BUNKER(2, "bunker", WeaponSpec.BUNKER),
     /** Межконтинентальная баллистическая ракета с ядерной боеголовкой (см. пакет nuclear). */
-    NUKE(3, "nuke", 200, 300, SirenKind.NUCLEAR),
+    NUKE(3, "nuke", WeaponSpec.NUKE),
     /**
      * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
      * по полсекунды. Номер в {@link #id} — порядок в перечислении (индексы {@code values()} совпадают с id).
      */
-    ROCKET(4, "rocket", 8, 12, SirenKind.MISSILE),
+    ROCKET(4, "rocket", WeaponSpec.ROCKET),
     /** Барражирующий боеприпас в духе «Ланцета»: кружит над целью, пикирует по команде или по истечении барража. */
-    LOITER(5, "loiter", 40, 60, SirenKind.AIR_RAID);
+    LOITER(5, "loiter", WeaponSpec.LOITER);
 
     public static final Codec<WeaponType> CODEC = StringRepresentable.fromEnum(WeaponType::values);
     private static final IntFunction<WeaponType> BY_ID = ByIdMap.continuous(WeaponType::id, values(), ByIdMap.OutOfBoundsStrategy.CLAMP);
@@ -43,16 +43,17 @@ public enum WeaponType implements StringRepresentable {
 
     private final int id;
     private final String name;
-    private final int salvoGapMin;
-    private final int salvoGapMax;
-    private final SirenKind siren;
+    private final WeaponSpec spec;
 
-    WeaponType(int id, String name, int salvoGapMin, int salvoGapMax, SirenKind siren) {
+    WeaponType(int id, String name, WeaponSpec spec) {
         this.id = id;
         this.name = name;
-        this.salvoGapMin = salvoGapMin;
-        this.salvoGapMax = salvoGapMax;
-        this.siren = siren;
+        this.spec = spec;
+    }
+
+    /** Паспорт оружия. */
+    public WeaponSpec spec() {
+        return spec;
     }
 
     public int id() {
@@ -73,12 +74,12 @@ public enum WeaponType implements StringRepresentable {
     }
 
     public SirenKind siren() {
-        return siren;
+        return spec.siren();
     }
 
     /** Пауза между пусками в залпе, тиков. */
     public int salvoGap(RandomSource random) {
-        return salvoGapMin + random.nextInt(salvoGapMax - salvoGapMin + 1);
+        return spec.salvoGap(random);
     }
 
     /** Порядок в пульте и при прокрутке в бинокле: от лёгкого к ядерному. */

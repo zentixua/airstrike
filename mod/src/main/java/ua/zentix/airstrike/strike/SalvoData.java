@@ -163,7 +163,7 @@ public final class SalvoData extends SavedData {
                 // движущаяся цель или место на земле: своё смещение относительно неё (у места — своя высота земли)
                 shot = center.offset(new Vec3(dx, 0, dz));
                 point = shot.resolve(level).orElse(lastCenter.add(dx, 0, dz));
-            } else if (weapon == WeaponType.BUNKER || radius == 0) {
+            } else if (weapon.spec().penetrates() || radius == 0) {
                 // бомба — на глубине центра (найдёт пещеру под игроком)
                 point = lastCenter.add(dx, 1, dz);
                 shot = new Target.Point(point);
