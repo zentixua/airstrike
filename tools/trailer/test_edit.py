@@ -17,6 +17,7 @@
     uv run tools/trailer/test_edit.py                       # юнит-тесты
     AIRSTRIKE_E2E=1 uv run tools/trailer/test_edit.py       # и полный черновик по синтетической записи (минуты)
     uv run tools/trailer/test_edit.py make ПАПКА             # только записать синтетическую запись
+    uv run tools/trailer/test_edit.py slates ПАПКА           # запись-заглушка с подписями планов (превью монтажа)
 """
 import json
 import math
@@ -97,8 +98,14 @@ def shot_lines(name, n, want=lambda k: 1.0, speed=1.0, hud=False, freeze_at=None
     return lines
 
 
-def write_recording(root, shots, size=(64, 36), every=4):
-    """Папка записи: timeline.jsonl и кадры (каждый every-й — монтаж берёт ближайший снятый до нужного)."""
+def write_recording(root, shots, size=(64, 36), every=4, label=False):
+    """Папка записи: timeline.jsonl и кадры (каждый every-й — монтаж берёт ближайший снятый до нужного). label —
+    на кадре имя плана, номер кадра, время мира и отметки: превью монтажа по таймингу без съёмки."""
+    from PIL import ImageDraw, ImageFont
+    big = small = None
+    if label:
+        big = ImageFont.load_default(size=size[1] // 7)
+        small = ImageFont.load_default(size=size[1] // 14)
     os.makedirs(root, exist_ok=True)
     with open(os.path.join(root, "timeline.jsonl"), "w", encoding="utf-8") as f:
         for i, lines in enumerate(shots):
@@ -110,6 +117,17 @@ def write_recording(root, shots, size=(64, 36), every=4):
                 hue = (i * 37 + k) % 255
                 img = Image.new("RGB", size, (hue, 90 + (k * 3) % 120, 255 - hue))
                 img.paste((250, 250, 250), (k % size[0], 10, k % size[0] + 6, 26))   # движущийся брусок
+                if label:
+                    fr = next(ln for ln in lines if ln["type"] == "frame" and ln["k"] == k)
+                    past = [ln["what"] for ln in lines if ln["type"] == "mark" and ln["t"] <= fr["t"]]
+                    d_ = ImageDraw.Draw(img)
+                    d_.text((size[0] // 2, size[1] // 2), name, font=big, anchor="mm", fill=(255, 255, 255),
+                            stroke_width=2, stroke_fill=(0, 0, 0))
+                    d_.text((size[0] // 2, size[1] * 2 // 3), f"frame {k}/{n}  tick {fr['t']:.1f}", font=small,
+                            anchor="mm", fill=(255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0))
+                    if past:
+                        d_.text((size[0] // 2, size[1] * 3 // 4), past[-1], font=small, anchor="mm",
+                                fill=(255, 230, 120), stroke_width=1, stroke_fill=(0, 0, 0))
                 img.save(os.path.join(d, f"{k:05d}.png"), compress_level=1)
             for ln in lines:
                 f.write(json.dumps(ln) + "\n")
@@ -167,8 +185,7 @@ def full_recording():
     S.append(shot_lines("flash", 900, speed=0.5, want=lambda k: 0.5, marks=[(40, "detonation")]))
     S.append(shot_lines("wave_hill", 300, hud=True, sounds=[(60, "airstrike:nuke.crack", snd("nuke_crack"), False, None)]))
     S.append(shot_lines("mushroom", 400, speed=4, want=lambda k: 4.0))
-    S.append(shot_lines("fallout", 340, hud=True, sounds=[(20 * i, "airstrike:geiger.click", snd(f"geiger_click_{i % 4 + 1}"), False, None)
-                                                            for i in range(16)]))
+    S.append(shot_lines("fighters", 400, slow(0.3, 150, 260)))
     return S
 
 
@@ -614,6 +631,11 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "make":
         write_recording(sys.argv[2], full_recording(), size=(160, 90), every=6)
         print("синтетическая запись:", sys.argv[2])
+        sys.exit(0)
+    if len(sys.argv) > 2 and sys.argv[1] == "slates":
+        # превью монтажа по таймингу: edit.py --draft --rec ПАПКА — склейки, надписи, музыка и звуки монтажа
+        write_recording(sys.argv[2], full_recording(), size=(480, 270), every=3, label=True)
+        print("запись-заглушка с подписями:", sys.argv[2])
         sys.exit(0)
     sys.exit(pytest.main([__file__, "-q", *sys.argv[1:]]))
 
