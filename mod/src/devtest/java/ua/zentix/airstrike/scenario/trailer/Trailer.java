@@ -329,7 +329,8 @@ public final class Trailer {
         // рядом с ними, а облёт шёл вокруг точки в небе (Артём 30.09). На подлёте замедление, взрыв замирает, камера
         // облетает его с городом внизу
         Supplier<Vec3> roof = () -> towerWall;
-        shot("missile_tower").hidden().length(200).shake(0.08)
+        final Shot[] missileTower = {null};
+        missileTower[0] = shot("missile_tower").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(CruiseMissileEntity.class, roof, 220, 0.2))
                 .bulletTime(CruiseMissileEntity.class, roof, 170, 0.35)
                 .camera(() -> {
@@ -339,10 +340,12 @@ public final class Trailer {
                 })
                 .when(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) != null, 3000)
                 .endWhen(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) == null, 60)
-                // камера ведёт ракету по небу, крыша в кадре — только под конец: цель — ракета, после взрыва — крыша
+                // камера ведёт ракету по небу: цель — ракета, после взрыва — сам взрыв (ракета рвётся у стены
+                // и выше намеченной точки: облако, rv1 — на 25 блоков), до появления ракеты — стена
                 .subjectAnyway(() -> {
                     Entity m = nearest(CruiseMissileEntity.class, roof.get(), 900);
-                    return m != null ? m : roof.get();
+                    Vec3 blast = missileTower[0].impact;
+                    return m != null ? m : blast != null ? blast.add(0, 6, 0) : roof.get();
                 }, 20, 0.003);
     }
 
