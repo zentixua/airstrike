@@ -26,6 +26,7 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
+import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.FlightSounds;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
@@ -70,6 +71,10 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogin);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onChangeDimension);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogout);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
 
