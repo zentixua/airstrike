@@ -26,8 +26,14 @@ public final class FlightScenarioTests {
     private static final int SEEDS = Math.min(Scenario.MAX_SEEDS, Integer.getInteger("airstrike.scenario.seeds", 1));
     /** Прогон одних сценариев ({@code runScenarioSweep}): шаблон в пространстве имён, которое включено только там. */
     private static final boolean SWEEP = Boolean.getBoolean("airstrike.scenario.sweep");
-    /** Сценариев в партии: идут одновременно, каждый на своей площадке. */
-    private static final int BATCH = 40;
+    /**
+     * Сценариев в партии: идут одновременно, каждый на своей площадке. Память партии — чанки площадок: вокруг каждого
+     * района полной загрузки ваниль держит кольцо недогенерированных чанков (зависимости генерации),
+     * и сценарий держит ~2000 чанков, из них ~80 % — это кольцо. 40 сценариев — до 83 тыс. чанков и 2,3 ГБ
+     * живой кучи (у CI куча 4 ГБ — ¼ памяти раннера, GameTest падал OutOfMemoryError), 20 — до 48 тыс. и 1,4 ГБ;
+     * по времени 20 не дольше (меньше сборки мусора). Утечки между партиями нет: после партии куча — как до неё.
+     */
+    private static final int BATCH = 20;
     /** Предел теста, тиков: самый долгий полёт (шахед 50 с × 1,5 с погоней, B-2 с уходом) с запасом. */
     private static final int TIMEOUT = 8000;
 
