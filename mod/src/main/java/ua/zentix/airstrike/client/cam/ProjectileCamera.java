@@ -469,7 +469,8 @@ public final class ProjectileCamera {
 
         if (shot == Shot.IMPACT) {
             if (impactTick < IMPACT_STATIC) {
-                // удар: сигнал срывается
+                // удар: сигнал срывается — помехи на чёрном, мир за ними не виден (камера уже не на снаряде)
+                g.fill(0, 0, w, h, 0xFF000000);
                 staticNoise(g, w, h, 1.0f);
                 big(g, font, Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), cx, cy - 6, 2f);
             } else {
@@ -495,6 +496,7 @@ public final class ProjectileCamera {
             return;
         }
         if (f == null) {
+            g.fill(0, 0, w, h, 0xFF000000);
             staticNoise(g, w, h, 1.0f);
             Component lost = Component.translatable("airstrike.camera.lost").withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
             big(g, font, lost, cx, cy - 6, 2f);
