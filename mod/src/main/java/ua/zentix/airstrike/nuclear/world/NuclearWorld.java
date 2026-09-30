@@ -192,6 +192,28 @@ public final class NuclearWorld {
         return scars.mayWithhold();
     }
 
+    /**
+     * Остановка сервера (выход из одиночной игры): вся работа руин — подготовка (чтения с диска, квадраты зоны за
+     * волной), очереди, фоновые планы — бросается, фоновые потоки останавливаются и ждутся ({@link RuinWorkers#shutdown}):
+     * после выхода ничего из руин не должно ни считать, ни держать память. Ничего из этого не сохраняется и так.
+     * Тикеты зоны и подготовки отпускаются здесь же, до ванильного цикла выгрузки (он и сам снимает все тикеты, кроме
+     * {@code UNKNOWN}, но только в своих кругах, а чтения с диска и задачи руин так не останавливаются). Сам цикл
+     * выгрузки без предела времени — {@code mixin/server/StopServerChunksMixin}.
+     *
+     * @return фоновые потоки остановились за срок
+     */
+    public static boolean onServerStopping(net.minecraft.server.MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (!level.hasData(ModAttachments.NUCLEAR_WORLD)) continue;
+            try {
+                get(level).clear(level);
+            } catch (RuntimeException e) {
+                Airstrike.LOG.error("Руины: остановка в {} упала с ошибкой", level.dimension().location(), e);
+            }
+        }
+        return RuinWorkers.shutdown();
+    }
+
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
         prep.clear(level, scars);

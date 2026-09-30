@@ -8,7 +8,8 @@
     "chunk.LevelChunkEditsMixin",
     "chunk.LevelChunkTickingMixin",
     "net.PlayerChunkSenderMixin",
-    "sable.SubLevelSplitGuardMixin"
+    "sable.SubLevelSplitGuardMixin",
+    "server.StopServerChunksMixin"
   ],
   "injectors": {
     "defaultRequire": 0

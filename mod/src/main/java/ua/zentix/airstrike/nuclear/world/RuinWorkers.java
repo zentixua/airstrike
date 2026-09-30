@@ -71,9 +71,9 @@ public final class RuinWorkers {
         return Math.max(1, Runtime.getRuntime().availableProcessors() - reserve(integrated));
     }
 
+    /** Игра с клиентом (одиночная, мир по LAN): его отрисовке — своё ядро. Сервер GameTest и выделенный — без клиента. */
     private static boolean integrated() {
-        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
-        return server != null && !server.isDedicatedServer();
+        return net.neoforged.fml.loading.FMLEnvironment.dist.isClient();
     }
 
     private static ThreadPoolExecutor pool() {
@@ -198,13 +198,41 @@ public final class RuinWorkers {
         return wall <= 0 ? 0 : Math.min(1, BUSY.get() / (double) wall / size);
     }
 
-    /** Остановка сервера: задачи бросаются, пул закрывается. */
-    public static void shutdown() {
+    /** Сколько ждать, пока начатые задачи заметят остановку (задача проверяет её между частями плана — десятки мс). */
+    private static final long JOIN_MS = 3000;
+
+    /**
+     * Остановка сервера (и проверки): задачи в очереди бросаются, начатые прерываются ({@code shutdownNow}: задача
+     * проверяет прерывание между частями плана — {@link #checkStop}), поток сервера ждёт их не дольше {@link #JOIN_MS};
+     * не успели — строка в лог (потоки — демоны: выход из игры их всё равно не ждёт).
+     *
+     * @return потоков не осталось (или пула не было)
+     */
+    public static boolean shutdown() {
         ThreadPoolExecutor p = pool;
         pool = null;
         lastAdapt = -ADAPT_EVERY;
-        if (p == null) return;
-        p.shutdownNow();
-        Airstrike.LOG.debug("Фоновые планы руин остановлены");
+        if (p == null) return true;
+        int dropped = p.shutdownNow().size();
+        boolean done;
+        try {
+            done = p.awaitTermination(JOIN_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            done = false;
+        }
+        if (done) Airstrike.LOG.info("Руины: фоновые потоки остановлены (брошено задач в очереди {})", dropped);
+        else Airstrike.LOG.warn("Руины: фоновые потоки не остановились за {} мс — в работе {}", JOIN_MS, p.getActiveCount());
+        return done;
+    }
+
+    /** Пул закрыт и ни одного потока в нём не осталось (проверки). */
+    public static boolean stopped() {
+        return pool == null;
+    }
+
+    /** Остановка или брошенная задача (прерывание): план дальше не строится. */
+    static void checkStop() {
+        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("руины: остановка");
     }
 }

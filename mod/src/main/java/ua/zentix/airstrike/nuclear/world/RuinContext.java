@@ -321,7 +321,12 @@ final class RuinContext {
         if (!RuinWorkers.admit() || tasks.size() >= 2 * RuinWorkers.capacity()) return false;
         Grid g = grid(level, pos, true);
         if (g.at(0, 0) == null) throw new IllegalStateException("нет снимка чанка " + pos);
-        tasks.put(key, new Task(RuinWorkers.submit(() -> RuinPlanner.finish(g, Collapse.solve(g))), chunkId, level.getGameTime()));
+        tasks.put(key, new Task(RuinWorkers.submit(() -> {
+            RuinWorkers.checkStop();
+            Collapse c = Collapse.solve(g);
+            RuinWorkers.checkStop();
+            return RuinPlanner.finish(g, c);
+        }), chunkId, level.getGameTime()));
         return true;
     }
 

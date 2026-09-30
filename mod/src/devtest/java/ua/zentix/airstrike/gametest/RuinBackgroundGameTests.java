@@ -233,6 +233,80 @@ public final class RuinBackgroundGameTests {
         h.succeed();
     }
 
+    /**
+     * Остановка сервера посреди зоны за волной (выход из мира после ядерки): вся работа руин бросается — тикеты
+     * подготовки, зоны и держащие чанки отпущены, очереди пусты, фоновые потоки остановились за свой срок
+     * ({@code RuinWorkers.shutdown}: ждёт не дольше 3 с). Настенное время не меряется: срок — у самого пула.
+     */
+    @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_stop", skyAccess = true)
+    public static void stopMidZoneLeavesNoWork(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        double scale = ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.get();
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(0.02);
+        NuclearWorld w = NuclearWorld.get(level);
+        ua.zentix.airstrike.nuclear.NuclearEvents events = ua.zentix.airstrike.nuclear.NuclearEvents.get(level);
+        long now = level.getGameTime();
+        Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(NuclearGameTests.CENTER));
+        events.schedule(new ua.zentix.airstrike.nuclear.NuclearEvents.ScheduledStrike(events.nextId(), target, 15, true, now, now + 300, target,
+                java.util.Optional.empty(), false));
+        h.onEachTick(() -> {
+            boolean detonated = events.detonations().stream().anyMatch(x -> x.burst().distanceTo(target) < 20);
+            boolean midZone = detonated && (w.prepTiles() > 0 || w.plannedChunks() > 0 || w.queuedChunks() > 0);
+            if (!midZone) {
+                if (level.getGameTime() > now + 850) {
+                    ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+                    NuclearStrikes.clear(level);
+                    throw new net.minecraft.gametest.framework.GameTestAssertException("зона за волной так и не началась: подрыв " + detonated);
+                }
+                return;
+            }
+            boolean stopped = NuclearWorld.onServerStopping(level.getServer());
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+            int held = ruinTickets(level);
+            long threads = Thread.getAllStackTraces().keySet().stream().filter(t -> t.isAlive() && t.getName().startsWith("Airstrike ruins")).count();
+            String left = "квадратов " + w.prepTiles() + ", в подготовке " + w.plannedChunks() + ", в очереди " + w.queuedChunks()
+                    + ", тикетов руин " + held + ", потоков руин " + threads;
+            NuclearStrikes.clear(level);
+            h.assertTrue(stopped, "фоновые потоки не остановились за срок; " + left);
+            h.assertTrue(ua.zentix.airstrike.nuclear.world.RuinWorkers.stopped() && threads == 0, "остались потоки руин; " + left);
+            h.assertTrue(w.prepTiles() == 0 && w.plannedChunks() == 0 && w.queuedChunks() == 0 && held == 0, "после остановки осталась работа: " + left);
+            h.succeed();
+        });
+    }
+
+    /** Тикеты ядерки на карте расстояний мира: свои и загрузки районов, чей район — ядерный (подготовка, зона). */
+    private static int ruinTickets(ServerLevel level) {
+        try {
+            java.lang.reflect.Field f = net.minecraft.server.level.DistanceManager.class.getDeclaredField("tickets");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var map = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<net.minecraft.util.SortedArraySet<net.minecraft.server.level.Ticket<?>>>)
+                    f.get(level.getChunkSource().chunkMap.getDistanceManager());
+            java.lang.reflect.Field key = net.minecraft.server.level.Ticket.class.getDeclaredField("key");
+            key.setAccessible(true);
+            int n = 0;
+            for (var set : map.values()) {
+                for (net.minecraft.server.level.Ticket<?> t : set) {
+                    String type = t.getType().toString();
+                    if (type.startsWith("airstrike_nuclear")) n++;
+                    else if (type.equals("airstrike_area_load") && key.get(t) instanceof ua.zentix.airstrike.strike.AreaLoader.Area a
+                            && a.type().toString().startsWith("airstrike_nuclear")) n++;
+                }
+            }
+            return n;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Цикл выгрузки чанков при остановке сервера получил предел времени ({@code StopServerChunksMixin}). */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_send_gate", skyAccess = true)
+    public static void stopPumpBounded(GameTestHelper h) {
+        var methods = java.util.Arrays.stream(net.minecraft.server.MinecraftServer.class.getDeclaredMethods()).map(java.lang.reflect.Method::getName).toList();
+        h.assertTrue(methods.stream().anyMatch(m -> m.contains("boundStopPump")), "StopServerChunksMixin не встал: выход из мира может зависнуть в выгрузке чанков");
+        h.succeed();
+    }
+
     /** Миксин на отправку чанков игроку встал. */
     @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_send_gate", skyAccess = true)
     public static void chunkSendGateApplied(GameTestHelper h) {

@@ -135,6 +135,10 @@ public final class NuclearPrep {
         final LongArrayList todo = new LongArrayList();
         int nextTodo;
         final LongOpenHashSet considered = new LongOpenHashSet();
+        /** Все чанки, бывшие в памяти в радиусе руин за полёт (знаменатель строк «готовы» и «руины заранее»). */
+        final LongOpenHashSet everInMemory = new LongOpenHashSet();
+        /** Планов по чанкам в памяти (ближняя подготовка). */
+        int nearPlans;
         /** Чанки, чей план строят фоновые потоки. */
         final LongArrayList submitted = new LongArrayList();
         long nextRefresh;
@@ -315,9 +319,9 @@ public final class NuclearPrep {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее (чанки, загруженные потом, ещё подхватываются)
             Runtime rt = Runtime.getRuntime();
-            Airstrike.LOG.info("Руины удара №{} готовы: {} чанков из {} в памяти и {} с диска из {} тяжёлой зоны, не с диска {} (до подрыва {} с), планы {} МБ, "
+            Airstrike.LOG.info("Руины удара №{} готовы: планов по чанкам в памяти {} (чанков в памяти за полёт {}), с диска {} (тяжёлая зона {} чанков), не с диска {} (до подрыва {} с), планы {} МБ, "
                             + "снимки {} МБ, фоновые потоки {} заняты на {} %, куча {} из {} МБ",
-                    p.strike, p.plans.size() - p.farPlans, p.todo.size(), p.farPlans, p.order.length, p.farSkipped, Math.max(0, p.detonateTime - now) / 20,
+                    p.strike, p.nearPlans, p.everInMemory.size(), p.farPlans, p.order.length, p.farSkipped, Math.max(0, p.detonateTime - now) / 20,
                     p.planBytes >> 20, p.ruins.shotBytes() >> 20, RuinWorkers.summary(), Math.round(RuinWorkers.utilisation() * 100),
                     (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20);
         }
@@ -332,6 +336,7 @@ public final class NuclearPrep {
             ChunkPos c = holder.getPos();
             if (p.considered.contains(c.toLong()) || nearest(c, d) > radius || inMemory(level, c.toLong()) == null) continue;
             p.considered.add(c.toLong());
+            p.everInMemory.add(c.toLong());
             fresh.add(c.toLong());
         }
         if (fresh.isEmpty()) return;
@@ -369,6 +374,7 @@ public final class NuclearPrep {
                 RuinPlan plan = chunk != null ? p.ruins.collect(level, chunk) : p.ruins.collect(new ChunkPos(c));
                 if (plan != null) {
                     keep(level, p, c, plan);
+                    p.nearPlans++;
                 } else if (p.ruins.running(c)) {
                     p.submitted.add(c); // чанк перезагрузили: план заново
                 }
@@ -387,7 +393,7 @@ public final class NuclearPrep {
         p.planBytes += plan.bytes();
         if (p.planBytes + RuinWorkers.bufferBytes(level.getHeight()) > PLANS_CAP && !p.capped) {
             p.capped = true;
-            Airstrike.LOG.warn("Руины удара №{}: готовые планы заняли {} МБ — дальше руины заранее не строятся ({} чанков из {} готовы)",
+            Airstrike.LOG.warn("Руины удара №{}: готовые планы заняли {} МБ — дальше руины заранее не строятся (планов {}, чанков тяжёлой зоны {})",
                     p.strike, p.planBytes >> 20, p.plans.size(), p.order.length);
         }
     }
@@ -753,8 +759,8 @@ public final class NuclearPrep {
     /** Памяти мало: готовые планы остаются, остальные чанки — на месте при волне (медленнее, но без нехватки памяти). */
     private static void stopForHeap(Prep p) {
         Runtime rt = Runtime.getRuntime();
-        Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся ({} чанков из {} готовы)",
-                p.strike, liveHeap() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.todo.size());
+        Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся (планов {}, чанков тяжёлой зоны {})",
+                p.strike, liveHeap() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.order.length);
         p.heapStop = true;
     }
 
@@ -801,8 +807,9 @@ public final class NuclearPrep {
             p.detonation = d.id();
             p.handedOff = now;
             p.farAtDetonation = java.util.Arrays.stream(p.order).filter(c -> level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) == null).toArray();
-            Airstrike.LOG.info("Подрыв №{}: руины заранее — {} чанков из {} в памяти, ещё строятся {}; с диска {} из {} не в памяти, ещё строятся {}, "
-                            + "не с диска {}; фоновые потоки {}", d.id(), p.plans.size() - p.farPlans, p.todo.size(), p.submitted.size(), p.farPlans,
+            Airstrike.LOG.info("Подрыв №{}: руины заранее — планов по чанкам в памяти {} (чанков в памяти за полёт {}), ещё строятся {}; с диска {} "
+                            + "(чанков зоны не в памяти при подрыве {}), ещё строятся {}, не с диска {}; фоновые потоки {}", d.id(), p.nearPlans, p.everInMemory.size(),
+                    p.submitted.size(), p.farPlans,
                     p.farAtDetonation.length, p.farRunning.size(), p.farSkipped, RuinWorkers.summary());
             p.nextZoneReport = now + ZONE_REPORT;
             return new Handoff(p.plans, p.planned.toLongArray(), p.ruins);
@@ -870,6 +877,7 @@ public final class NuclearPrep {
     public void clear(ServerLevel level, ScarQueue scars) {
         for (Prep p : preps) {
             release(level, p);
+            if (p.ruins != null && p.detonation < 0) p.ruins.cancelTasks();
             if (p.detonation >= 0 && !p.draining) scars.dropPrepared(p.detonation);
         }
         preps.clear();

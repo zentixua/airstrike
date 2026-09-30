@@ -16,6 +16,11 @@ sourceSets {
         compileClasspath += sourceSets.main.output
         runtimeClasspath += sourceSets.main.output
     }
+    // юнит-тесты чистых частей проверок (разбор сценария commands — CommandPlanTest)
+    test {
+        compileClasspath += sourceSets.devtest.output
+        runtimeClasspath += sourceSets.devtest.output
+    }
 }
 configurations {
     devtestCompileOnly.extendsFrom compileOnly

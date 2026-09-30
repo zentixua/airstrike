@@ -68,7 +68,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
-        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.RuinWorkers.shutdown());
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);

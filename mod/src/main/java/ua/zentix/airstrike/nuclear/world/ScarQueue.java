@@ -127,6 +127,11 @@ public final class ScarQueue {
      */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
     private static final int STATS = 20;
+    /**
+     * Чанки в памяти при подрыве, чьи руины ещё не встали (по номеру подрыва): когда пусто — строки критериев в лог сразу,
+     * не дожидаясь, пока очередь разойдётся вся (сценарий проверки мог кончиться раньше).
+     */
+    private final Map<Integer, it.unimi.dsi.fastutil.longs.LongOpenHashSet> awaitingMemory = new HashMap<>();
     /** Чанки, ушедшие игроку до своих руин (по номеру подрыва): в сводку — каждый один раз. */
     private final Map<Integer, it.unimi.dsi.fastutil.longs.LongOpenHashSet> sentEarly = new HashMap<>();
     /** Чанки, чьи руины встали (по номеру подрыва): ход зоны за волной ({@link NuclearPrep}). */
@@ -180,14 +185,7 @@ public final class ScarQueue {
         if (st[6] > 0) {
             Airstrike.LOG.info("Руины подрыва №{}: план и подмена на месте — в среднем {} мс, самые долгие {} мс", detonation, ms(st[7] / st[6]), ms(st[8]));
         }
-        // критерии проверки: доля руин по готовому плану у чанков в памяти при подрыве; чанки, ушедшие игроку целыми
-        Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, {} % от с соседями); "
-                        + "на экране игрока без соседей {}",
-                detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[11], st[10]), st[19]);
-        Airstrike.LOG.info("Руины подрыва №{}: ушло игроку до руин: {} (разных чанков)", detonation, st[12]);
-        Airstrike.LOG.info("Руины подрыва №{}: загружены после подрыва {} чанков по плану на месте — руины после волны в среднем через {} тиков, самое большее через {}; "
-                        + "{} по готовому плану — в среднем через {}, самое большее через {}",
-                detonation, st[13], st[13] == 0 ? 0 : st[14] / st[13], st[15], st[16], st[16] == 0 ? 0 : st[17] / st[16], st[18]);
+        criteria(detonation, st, "всё");
         sentEarly.remove(detonation);
         atDetonation.remove(detonation);
         ruinedBy.remove(detonation);
@@ -218,6 +216,21 @@ public final class ScarQueue {
         if (left != null) {
             for (long c : left.keySet()) if (!jobs.containsKey(c)) logs.remove(c);
         }
+    }
+
+    /**
+     * Строки критериев проверки (А: доля руин по готовому плану у чанков в памяти при подрыве, отставание у игроков;
+     * Б: ушло игроку до руин): когда встали руины всех чанков, бывших в памяти при подрыве, и в конце.
+     */
+    private static void criteria(int detonation, long[] st, String when) {
+        Airstrike.LOG.info("Руины подрыва №{} ({}): отставание от волны у игроков до {} тиков, у остальных до {}; план устарел {}", detonation, when, st[2], st[5], st[1]);
+        Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, {} % от с соседями); "
+                        + "на экране игрока без соседей {}",
+                detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[11], st[10]), st[19]);
+        Airstrike.LOG.info("Руины подрыва №{}: ушло игроку до руин: {} (разных чанков)", detonation, st[12]);
+        Airstrike.LOG.info("Руины подрыва №{}: загружены после подрыва {} чанков по плану на месте — руины после волны в среднем через {} тиков, самое большее через {}; "
+                        + "{} по готовому плану — в среднем через {}, самое большее через {}",
+                detonation, st[13], st[13] == 0 ? 0 : st[14] / st[13], st[15], st[16], st[16] == 0 ? 0 : st[17] / st[16], st[18]);
     }
 
     private static String percent(long part, long whole) {
@@ -365,8 +378,19 @@ public final class ScarQueue {
         }
     }
 
+    /** Руины чанка встали (или чанк ушёл из памяти): все чанки в памяти при подрыве стоят — строки критериев в лог. */
+    private void placedFromMemory(int detonation, long chunk) {
+        var waiting = awaitingMemory.get(detonation);
+        if (waiting == null) return;
+        waiting.remove(chunk);
+        if (!waiting.isEmpty()) return;
+        awaitingMemory.remove(detonation);
+        criteria(detonation, preparedStats.computeIfAbsent(detonation, k -> new long[STATS]), "встали руины всех чанков, бывших в памяти при подрыве");
+    }
+
     /** Выгружен: работа снимается (чанк с тикетом не выгружается — тикет снят раньше, в {@link #clear}). */
     public void drop(ServerLevel level, ChunkPos pos) {
+        for (int id : new ArrayList<>(awaitingMemory.keySet())) placedFromMemory(id, pos.toLong());
         Job job = jobs.remove(pos.toLong());
         if (job != null) release(level, job);
         // из очереди готовых снимется сам: работа берётся, только если она ещё в jobs
@@ -382,6 +406,7 @@ public final class ScarQueue {
         atDetonation.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
         ruinedBy.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
         sentEarly.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
+        awaitingMemory.keySet().removeIf(id -> !detonations.contains(id) && !prepared.containsKey(id));
     }
 
     public void clear(ServerLevel level) {
@@ -393,6 +418,7 @@ public final class ScarQueue {
         atDetonation.clear();
         ruinedBy.clear();
         sentEarly.clear();
+        awaitingMemory.clear();
         background.clear();
         jobs.clear();
         byDue.clear();
@@ -465,7 +491,20 @@ public final class ScarQueue {
             } finally {
                 clock.end(c0);
             }
-            if (scan.next >= scan.chunks.length) scans.poll();
+            if (scan.next >= scan.chunks.length) {
+                scans.poll();
+                // чанки в памяти при подрыве, чьи руины ещё впереди: строки критериев — когда встанут все
+                var memory = atDetonation.get(scan.d.id());
+                if (memory != null) {
+                    var waiting = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+                    for (long c : memory) {
+                        Job j = jobs.get(c);
+                        if (j != null && j.event < j.events.size() && j.events.subList(j.event, j.events.size()).contains(scan.d)) waiting.add(c);
+                    }
+                    awaitingMemory.put(scan.d.id(), waiting);
+                    placedFromMemory(scan.d.id(), Long.MIN_VALUE);
+                }
+            }
         }
         // фоновые планы, которые готовы, — первыми в очередь готовых: их чанки ждут с прихода волны
         for (java.util.Iterator<Job> it = background.iterator(); it.hasNext(); ) {
@@ -661,6 +700,7 @@ public final class ScarQueue {
         }
         chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
         chunk.setUnsaved(true);
+        placedFromMemory(d.id(), job.chunk);
         if (prepared.containsKey(d.id())) ruinedBy.computeIfAbsent(d.id(), k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet()).add(job.chunk);
         List<Log> fallen = logs.remove(job.chunk);
         if (fallen != null) fallen.forEach(l -> RuinPlan.placeLog(level, l.at(), l.state()));

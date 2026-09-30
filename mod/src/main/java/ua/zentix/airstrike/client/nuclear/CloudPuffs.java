@@ -31,6 +31,8 @@ public final class CloudPuffs {
 
     private record Puff(Kind kind, float a, float b, float c, float size, int tex, float rot, float spin, float shade) {}
 
+    /** За сколько секунд модели (e-кратно) оседает пыль у земли: воздушный подрыв, наземный. */
+    static final double DUST_SETTLE_AIR = 90, DUST_SETTLE_SURFACE = 240;
     private static final int CAP_BASE = 0x8C5A46, CAP_LATE = 0xC9C4BE, STEM = 0x8E7F70, DUST = 0x9C8A74, DUST_BURNT = 0x5E4E40,
             WILSON = 0xF4F4F6;
     /**
@@ -200,6 +202,12 @@ public final class CloudPuffs {
         double stemTop = capBot * Mth.clamp(t / (stab * 0.1), 0, 1);
         double stemAlpha = hob <= rf ? 0.8 : Mth.clamp(1.2 - hob / (rf * 6), 0.35, 0.8);
         double stemR = capR * 0.16;
+        // пыль у земли (юбка, раструб ножки) оседает: держится, пока ножка догоняет шапку, дальше редеет — у воздушного
+        // подрыва за полторы минуты (e-кратно), у наземного (грунт из воронки) — за четыре; сам гриб висит дальше.
+        // Без этого юбка (до 1.4 км от эпицентра, до 350 м в высоту у 15 кт) и раструб ножки (до 750 м) стояли
+        // сплошной бурой пеленой до конца гриба — 15 минут: руины у эпицентра были не видны ни с какой камеры
+        double lowDust = Math.exp(-Math.max(0, t - stab * 0.1) / (hob <= rf ? DUST_SETTLE_SURFACE : DUST_SETTLE_AIR));
+        double lowTop = Math.max(1, Math.min(capBot * 0.3, 1000 * Math.cbrt(y / 15)));
         // волна у земли: наклонная дальность фронта → радиус по земле
         double front = d.metres(d.frontRadius(t * 20 * d.scale()));
         double groundFront = Math.sqrt(Math.max(0, front * front - hob * hob));
@@ -261,14 +269,16 @@ public final class CloudPuffs {
                     double h = p.b * capBot;
                     if (h > stemTop) continue;
                     double w = p.b;
-                    double r = stemR * (0.75 + 0.9 * w * w) + stemR * 1.6 * Math.pow(1 - w, 6); // шире у шапки и у земли
+                    // шире у шапки и у земли; раструб у земли — пыль, он оседает вместе с юбкой
+                    double r = stemR * (0.75 + 0.9 * w * w) + stemR * 1.6 * Math.pow(1 - w, 6) * lowDust;
                     double rh = r * Math.sqrt(p.c);
                     double swirl = ang + t * 0.02;
                     px = Math.cos(swirl) * rh;
                     pz = Math.sin(swirl) * rh;
                     py = h;
                     size = Math.max(stemR * 1.8, r * 1.3) * p.size * detail;
-                    a = stemAlpha * smooth(4, 20, tau) * Mth.clamp((stemTop - h) / (capBot * 0.05 + 1), 0, 1);
+                    a = stemAlpha * smooth(4, 20, tau) * Mth.clamp((stemTop - h) / (capBot * 0.05 + 1), 0, 1)
+                            * Mth.lerp(Mth.clamp(h / lowTop, 0, 1), lowDust, 1);
                     shade *= 0.7 + 0.3 * w;
                     // ножка светится по всей высоте (горячий воздух, который тянет шар): верх и сердцевина — ярче
                     double core = (0.75 + 0.25 * w) * (1 - 0.15 * Math.sqrt(p.c));
@@ -282,7 +292,7 @@ public final class CloudPuffs {
                     pz = Math.sin(ang) * rs;
                     py = Math.min(capBot * 0.12, 350 * ys) * p.b * smooth(0, 30, t);
                     size = Math.max(60 * ys, rs * 0.22) * p.size * detail;
-                    a = 0.7 * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5);
+                    a = 0.7 * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5) * lowDust;
                     shade *= 0.8 + 0.2 * p.b;
                     heat = 0.35 * p.b * overhead;
                     rgb = DUST;
