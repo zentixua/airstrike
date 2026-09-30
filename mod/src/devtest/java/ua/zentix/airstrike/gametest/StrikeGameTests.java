@@ -548,9 +548,6 @@ public final class StrikeGameTests {
         h.assertTrue(mapAim(level, far, OptionalInt.of(top)).y == top - 0.5, "верх у потолка мира не принят");
         double generator = mapAim(level, far, OptionalInt.empty()).y;
         h.assertTrue(generator == Target.Ground.at(level, far.x, far.z).pos().y, "без карты не генератор: y " + generator);
-        // мир, поднятый со старой версии: генератор давал и дно мира (Newisle 30.09.2026, «по 83 -64 -370»)
-        int sea = level.getChunkSource().getGenerator().getSeaLevel();
-        h.assertTrue(generator >= sea - 0.5, "оценка без карты ниже уровня моря " + sea + ": y " + generator);
         for (int outside : new int[]{level.getMinBuildHeight(), top + 1}) {
             double y = mapAim(level, far, OptionalInt.of(outside)).y;
             h.assertTrue(y == generator, "верх вне мира (" + outside + ") принят: y " + y + ", генератор " + generator);

@@ -127,7 +127,12 @@ public final class Terrain {
     public static int surface(ServerLevel level, Heightmap.Types type, int x, int z) {
         if (ready(level, x >> 4, z >> 4)) return height(level, type, x, z);
         ChunkGenerator generator = level.getChunkSource().getGenerator();
-        return Math.max(generator.getSeaLevel(),
+        return estimate(generator.getSeaLevel(),
                 generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, level, level.getChunkSource().randomState()));
+    }
+
+    /** Оценка поверхности по генератору: его рельеф {@code base}, но не ниже его уровня моря {@code sea}. */
+    static int estimate(int sea, int base) {
+        return Math.max(sea, base);
     }
 }
