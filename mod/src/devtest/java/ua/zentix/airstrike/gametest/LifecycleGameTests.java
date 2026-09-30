@@ -371,7 +371,7 @@ public final class LifecycleGameTests {
      * не готов целиком, тикет загрузки {@code AreaLoader}.
      */
     private static int flightTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_flight", id) + tickets(level, "airstrike_area_load", id);
+        return TicketProbe.count(level, "airstrike_flight", id) + TicketProbe.count(level, "airstrike_area_load", id);
     }
 
     /** Тикет района «как раньше» — ванильный тикет региона сразу на весь район (контроль проверки). */
@@ -417,7 +417,7 @@ public final class LifecycleGameTests {
                         if (!Terrain.ready(level, centre[i].x + dx, centre[i].z + dz)) throw new GameTestAssertException(where + "тикет региона радиуса " + r + " на неготовый чанк " + dx + " " + dz);
                     }
                 }
-                int load = tickets(level, "airstrike_area_load", id[i]);
+                int load = TicketProbe.count(level, "airstrike_area_load", id[i]);
                 if (load != (r == distance[i] ? 0 : 1)) throw new GameTestAssertException(where + "тикетов загрузки " + load + " при радиусе " + r);
                 if (ticking[i] < 0 && level.isPositionEntityTicking(centre[i].getMiddleBlockPosition(64))) ticking[i] = tick[0];
             }
@@ -457,14 +457,14 @@ public final class LifecycleGameTests {
         h.assertFalse(Terrain.ready(level, centre.x, centre.z), "район не свежий");
         areas.hold(level, a);
         areas.hold(level, b);
-        h.assertTrue(tickets(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
+        h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) == 2, "у двух районов не два тикета загрузки");
         areas.release(level, a);
-        h.assertTrue(tickets(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
+        h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) == 1, "отпуск одного района снял загрузку другого");
         h.onEachTick(() -> {
             if (!regionRadii(level, "airstrike_test_shared_b", key).equals(List.of(2))) return;
             h.assertTrue(regionRadii(level, "airstrike_test_shared_a", key).isEmpty(), "отпущенный район снова взят");
             areas.release(level, b);
-            h.assertTrue(tickets(level, "airstrike_area_load", key) + tickets(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
+            h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) + TicketProbe.count(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
             h.succeed();
         });
     }
@@ -495,7 +495,7 @@ public final class LifecycleGameTests {
             List<Integer> radii = new java.util.ArrayList<>();
             for (SortedArraySet<Ticket<?>> set : map.values()) {
                 for (Ticket<?> t : set) {
-                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) radii.add(33 - t.getTicketLevel());
+                    if (t.getType().toString().equals(type) && id.equals(TicketProbe.key(t))) radii.add(33 - t.getTicketLevel());
                 }
             }
             return radii;
@@ -506,32 +506,6 @@ public final class LifecycleGameTests {
 
     /** Тикеты своего чанка и чанка впереди ({@code ChunkTickets}, ключ — UUID снаряда). */
     private static int chunkTickets(ServerLevel level, UUID id) {
-        return tickets(level, "airstrike_projectile", id);
-    }
-
-    private static int tickets(ServerLevel level, String type, UUID id) {
-        try {
-            Field f = DistanceManager.class.getDeclaredField("tickets");
-            f.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var map = (Long2ObjectOpenHashMap<SortedArraySet<Ticket<?>>>) f.get(level.getChunkSource().chunkMap.getDistanceManager());
-            int n = 0;
-            for (SortedArraySet<Ticket<?>> set : map.values()) {
-                for (Ticket<?> t : set) {
-                    if (t.getType().toString().equals(type) && id.equals(ticketKey(t))) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** Ключ тикета; у тикета загрузки {@code AreaLoader} значение — сам район, ключ — его. */
-    private static Object ticketKey(Ticket<?> t) throws ReflectiveOperationException {
-        Field key = Ticket.class.getDeclaredField("key");
-        key.setAccessible(true);
-        Object k = key.get(t);
-        return k instanceof AreaLoader.Area a ? a.key() : k;
+        return TicketProbe.count(level, "airstrike_projectile", id);
     }
 }

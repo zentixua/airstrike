@@ -1,6 +1,5 @@
 package ua.zentix.airstrike.gametest;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
@@ -9,13 +8,9 @@ import net.minecraft.gametest.framework.GameTestInfo;
 import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.server.level.ChunkMap;
-import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
-import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -60,7 +55,6 @@ import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.Warheads;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -1331,9 +1325,9 @@ public final class StrikeGameTests {
 
     /**
      * Уборка после теста — и когда он прошёл, и когда упал или вышел по сроку (в {@code succeedWhen} она шла бы только
-     * после успеха). Видна пакету: ею пользуются и другие классы тестов.
+     * после успеха). Открыта: ею пользуются и другие классы тестов, и сценарии полёта.
      */
-    static void afterTest(GameTestHelper h, Runnable cleanup) {
+    public static void afterTest(GameTestHelper h, Runnable cleanup) {
         h.testInfo.addListener(new GameTestListener() {
             @Override
             public void testStructureLoaded(GameTestInfo info) {
@@ -1744,36 +1738,12 @@ public final class StrikeGameTests {
 
     /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
     private static int pickTickets(ServerLevel level, UUID who) {
-        return tickets(level, who, PickHints::isPickTicket);
+        return TicketProbe.count(level, PickHints::isPickTicket, who);
     }
 
     /** Тикеты загрузки района ({@code AreaLoader}) с ключом {@code who}. */
     private static int loadTickets(ServerLevel level, UUID who) {
-        return tickets(level, who, t -> t.toString().equals("airstrike_area_load"));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static int tickets(ServerLevel level, UUID who, java.util.function.Predicate<TicketType<?>> type) {
-        try {
-            Field dm = ChunkMap.class.getDeclaredField("distanceManager");
-            dm.setAccessible(true);
-            DistanceManager d = (DistanceManager) dm.get(level.getChunkSource().chunkMap);
-            Field tf = DistanceManager.class.getDeclaredField("tickets");
-            tf.setAccessible(true);
-            Field key = Ticket.class.getDeclaredField("key");
-            key.setAccessible(true);
-            int n = 0;
-            for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
-                for (Ticket<?> t : set) {
-                    // у тикета загрузки AreaLoader значение — сам район
-                    Object k = key.get(t);
-                    if (type.test(t.getType()) && who.equals(k instanceof AreaLoader.Area a ? a.key() : k)) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException ex) {
-            throw new GameTestAssertException("очередь тикетов не читается: " + ex);
-        }
+        return TicketProbe.count(level, "airstrike_area_load", who);
     }
 
     @GameTest(template = "runway", timeoutTicks = 2400, batch = "salvo", skyAccess = true)

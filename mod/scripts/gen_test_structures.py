@@ -3,14 +3,14 @@
 GameTest ставит шаблон на блок выше своей точки отсчёта: слой шаблона y = 0 — это y = 1 в координатах теста.
 
   python3 scripts/gen_test_structures.py   → src/devtest/resources/data/airstrike/structure/*.nbt
+                                             (и data/airstrike_sweep/structure/pad.nbt — сценарии полёта)
 """
 import gzip
 import os
 import struct
 
 DATA_VERSION = 3955  # 1.21.1
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                   "src", "devtest", "resources", "data", "airstrike", "structure")
+DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "devtest", "resources", "data")
 
 TAG_END, TAG_INT, TAG_STRING, TAG_LIST, TAG_COMPOUND = 0, 3, 8, 9, 10
 
@@ -58,9 +58,10 @@ def structure(sx, sy, sz, floor_layers):
     return struct.pack(">b", TAG_COMPOUND) + _name("") + _payload(TAG_COMPOUND, root)
 
 
-def write(name, data):
-    os.makedirs(OUT, exist_ok=True)
-    path = os.path.join(OUT, name + ".nbt")
+def write(name, data, namespace="airstrike"):
+    out = os.path.join(DATA, namespace, "structure")
+    os.makedirs(out, exist_ok=True)
+    path = os.path.join(out, name + ".nbt")
     with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as f:
         f.write(data)
     print(path, os.path.getsize(path))
@@ -68,6 +69,8 @@ def write(name, data):
 
 # маленькая площадка для быстрых проверок
 write("pad", structure(8, 6, 8, ["minecraft:stone"]))
+# та же площадка в своём пространстве имён: runScenarioSweep включает только его — идут одни сценарии полёта
+write("pad", structure(8, 6, 8, ["minecraft:stone"]), "airstrike_sweep")
 # полигон: 8 слоёв камня, 2 грунта и дёрн — для воронок, бурения и прицела
 write("range", structure(64, 40, 64, ["minecraft:stone"] * 8 + ["minecraft:dirt"] * 2 + ["minecraft:grass_block"]))
 # взлётная полоса 32×256: снаряды заходят на цель с настоящей дистанции (ракета — с горкой)
