@@ -19,9 +19,14 @@ import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -57,7 +62,9 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
+import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.lang.reflect.Field;
@@ -118,6 +125,164 @@ public final class StrikeGameTests {
             h.assertTrue(drone.isRemoved(), "шахед ещё летит: " + drone.position());
             h.assertTrue(drone.getRemovalReason() == net.minecraft.world.entity.Entity.RemovalReason.DISCARDED, "шахед пропал: " + drone.getRemovalReason());
             assertCrater(h, RUNWAY_TARGET);
+        });
+    }
+
+    /**
+     * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
+     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (погоня набирает срок жизни на 2000
+     * блоков), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
+     * UUID в начале полосы. Шахед за ней не идёт: срок после потери — только на полёт до точки смерти, и бьёт он туда.
+     */
+    @GameTest(template = "runway", timeoutTicks = 600, batch = "drone_lost", skyAccess = true)
+    public static void droneStrikesWhereTargetDied(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 alive = top(h, RUNWAY_TARGET).add(0, 15, 0);
+        Cow cow = EntityType.COW.create(level);
+        cow.setNoAi(true);
+        cow.setNoGravity(true);
+        cow.moveTo(alive.x, alive.y, alive.z);
+        level.addFreshEntity(cow);
+        UUID cowId = cow.getUUID();
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        drone.launch(Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 50, 4))), Target.OfEntity.center(cow),
+                cow.getBoundingBox().getCenter(), null);
+        level.addFreshEntity(drone);
+        UUID id = drone.getUUID();
+        int[] tick = {0};
+        Vec3[] died = {null};
+        int[] lostAt = {-1};
+        int[] bound = {0};
+        boolean[] respawned = {false};
+        Vec3[] last = {drone.position()};
+        h.onEachTick(() -> {
+            int t = ++tick[0];
+            if (t <= 20) {
+                // цель уходит и возвращается: 20 сдвигов по 100 блоков погони
+                Vec3 to = t % 2 == 1 ? alive.add(0, 0, -100) : alive;
+                cow.teleportTo(to.x, to.y, to.z);
+            } else if (t == 25) {
+                died[0] = cow.getBoundingBox().getCenter();
+                cow.kill();
+            } else if (died[0] != null && cow.isRemoved() && !respawned[0]) {
+                respawned[0] = true;
+                Cow again = EntityType.COW.create(level);
+                again.setUUID(cowId);
+                again.setNoAi(true);
+                Vec3 at = top(h, new BlockPos(16, 3, 20));
+                again.moveTo(at.x, at.y, at.z);
+                level.addFreshEntity(again);
+            }
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            last[0] = f.position();
+            if (lostAt[0] < 0 && f.targetLost()) {
+                lostAt[0] = t;
+                // срок — полёт до точки с запасом ×1.5 и 10 с (здесь с допуском на тики между потерей и проверкой);
+                // без ограничения — ещё полторы тысячи тиков погони
+                bound[0] = 2 * f.etaTicks() + 200;
+                int left = f.lifetimeLeft();
+                h.assertTrue(left <= bound[0], "после потери цели срок жизни " + left + " тиков, а полёт до точки — " + f.etaTicks());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(died[0] != null && respawned[0], "цель не умерла и не возродилась");
+            h.assertTrue(lostAt[0] >= 0, "шахед не потерял цель");
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]) + ", с потери цели " + (tick[0] - lostAt[0]) + " тиков");
+            h.assertTrue(tick[0] - lostAt[0] <= bound[0], "с потери цели до удара " + (tick[0] - lostAt[0]) + " тиков");
+            h.assertTrue(last[0].distanceTo(died[0]) < 10, "шахед взорвался не у точки смерти цели: " + last[0].subtract(died[0]));
+        });
+    }
+
+    /**
+     * Цель умерла и возродилась между двумя тиками снаряда ({@code doImmediateRespawn}): новая сущность с тем же UUID —
+     * уже не та цель, слежение её не подхватывает, даже если мёртвой снаряд её так и не увидел.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void respawnedTargetIsLost(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Cow cow = h.spawn(EntityType.COW, RANGE_CENTER.above());
+        TargetTracker tracker = new TargetTracker(Target.OfEntity.center(cow), cow.getBoundingBox().getCenter());
+        tracker.tick(level);
+        h.assertFalse(tracker.isLost(), "живая цель потеряна");
+        cow.discard();
+        Cow again = EntityType.COW.create(level);
+        again.setUUID(cow.getUUID());
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER.offset(10, 1, 0)));
+        again.moveTo(at.x, at.y, at.z);
+        level.addFreshEntity(again);
+        h.assertTrue(level.getEntity(cow.getUUID()) == again, "новая сущность не нашлась по UUID");
+        tracker.tick(level);
+        h.assertTrue(tracker.isLost(), "слежение подхватило новую сущность с тем же UUID");
+        h.succeed();
+    }
+
+    /**
+     * Цель сбоку, внутри круга разворота (промах в пике, точка в воздухе, где пропала цель): шахед не кружит вокруг неё
+     * до конца срока жизни, а уходит прямо, набирает высоту и заходит снова. Всё — выше барьерной стены площадки
+     * (шаблон 64 блока): круг разворота шахеда шире полосы.
+     */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack", skyAccess = true)
+    public static void droneReattacksInsteadOfCircling(GameTestHelper h) {
+        droneReattacks(h, false);
+    }
+
+    /**
+     * То же, но цель — сущность, которая погибает в тот же тик, когда шахед её взял: её последняя точка внутри круга
+     * разворота, и повторный заход должен уложиться в срок после потери цели (полёт до точки ×1.5 и 10 с).
+     */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack_lost", skyAccess = true)
+    public static void droneReattacksLostTargetInTime(GameTestHelper h) {
+        droneReattacks(h, true);
+    }
+
+    private static void droneReattacks(GameTestHelper h, boolean targetDies) {
+        ServerLevel level = h.getLevel();
+        gameSpeed(h);
+        Vec3 point = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 85, 120)));
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(-8, 110, 20)));
+        drone.launch(start, new Target.Point(start.add(0, 0, 400)), start.add(0, 0, 400), null);
+        // старт за краем площадки: чанк там может не тикать — в мир шахед вернётся сам
+        VirtualFlights.launch(level, drone);
+        UUID id = drone.getUUID();
+        // цель, которая погибнет: висит в точке, центром тела в ней
+        Cow cow = targetDies ? EntityType.COW.create(level) : null;
+        if (cow != null) {
+            cow.setNoAi(true);
+            cow.setNoGravity(true);
+            cow.moveTo(point.x, point.y - cow.getBbHeight() / 2, point.z);
+            level.addFreshEntity(cow);
+        }
+        int[] tick = {0};
+        int[] retargetedAt = {-1};
+        int[] lostAt = {-1};
+        int[] bound = {0};
+        Vec3[] last = {start};
+        h.onEachTick(() -> {
+            tick[0]++;
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            last[0] = f.position();
+            // цель — в 24 блоках сбоку, чуть впереди и на 25 блоков ниже: круто под крылом
+            if (retargetedAt[0] < 0 && f.getZ() >= point.z - 4) {
+                retargetedAt[0] = tick[0];
+                Target target = cow != null ? Target.OfEntity.center(cow) : new Target.Point(point);
+                h.assertTrue(f.retarget(target, point), "шахед не принял цель");
+                if (cow != null) cow.kill();
+            }
+            if (targetDies && lostAt[0] < 0 && f.targetLost()) {
+                lostAt[0] = tick[0];
+                bound[0] = f.lifetimeLeft();
+                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели срок " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(retargetedAt[0] >= 0, "шахед не дошёл до места перенацеливания: " + h.relativeVec(last[0]));
+            if (targetDies) h.assertTrue(lostAt[0] >= 0, "шахед не потерял цель");
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]) + ", до цели " + (int) last[0].distanceTo(point));
+            h.assertTrue(last[0].distanceTo(point) < 10, "шахед взорвался не у цели: " + last[0].subtract(point));
+            if (targetDies) h.assertTrue(tick[0] - lostAt[0] < bound[0], "повторный заход не уложился в срок: " + (tick[0] - lostAt[0]) + " из " + bound[0]);
         });
     }
 
@@ -848,6 +1013,140 @@ public final class StrikeGameTests {
             h.assertFalse(h.getBlockState(RUNWAY_TARGET).is(Blocks.GRASS_BLOCK), "нет входного отверстия");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET.below()).is(Blocks.DIRT), "бомба не пробила грунт");
         });
+    }
+
+    /**
+     * Подрыв бомбы в скале под песком (камень до y = 14, выше до y = 22 песок с прослойками гравия, заряд на глубине 14,
+     * под ним — слой воды, который взрыв вскрывает на дне полости): песок над полостью, щебень бомбы и труба обрушения
+     * осыпаются сотнями блоков. Когда подрыв кончился, из-под штабеля песка в районе взрыва убирается его каменная полка
+     * (осыпание уже без взрывов). Живых падающих блоков в районе не больше {@link CraterFalls#LIVE_CAP} (в игре хоста
+     * 30.09.2026 Leaky видел по 151 и больше у воронок B-2), сверх них блоки легли сразу; ни один не пропал (песка и
+     * гравия — блоками, падающими и предметами — в конце столько же, сколько до обрушения полки), и, когда падение
+     * кончилось, ни один сыпучий блок не висит над пустотой или водой. Без {@link CraterFalls} живых разом — 1384.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "crater_falls", skyAccess = true)
+    public static void craterFallsStayUnderCap(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // только чанки, чьи соседи тоже на площадке (x и z от 16 до 47): им не ждать фоновой загрузки
+        BlockPos lo = new BlockPos(16, 1, 16), hi = new BlockPos(47, 22, 47);
+        sandBed(h, lo, hi, 15);
+        for (BlockPos p : BlockPos.betweenClosed(new BlockPos(24, 3, 24), new BlockPos(40, 3, 40))) {
+            level.setBlock(h.absolutePos(p), Blocks.WATER.defaultBlockState(), Block.UPDATE_CLIENTS);
+        }
+        // штабель 6×6×8 на каменной полке над грунтом, в углу площадки — дальше, чем достаёт взрыв в скале
+        BlockPos shelfLo = new BlockPos(17, 26, 42), shelfHi = new BlockPos(22, 26, 47);
+        for (BlockPos p : BlockPos.betweenClosed(shelfLo, shelfHi)) {
+            level.setBlock(h.absolutePos(p), Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+        }
+        for (BlockPos p : BlockPos.betweenClosed(shelfLo.above(), shelfHi.above(8))) {
+            level.setBlock(h.absolutePos(p), Blocks.SAND.defaultBlockState(), Block.UPDATE_CLIENTS);
+        }
+        BlockPos top = new BlockPos(hi.getX(), shelfHi.getY() + 8, hi.getZ());
+        AABB box = craterBox(h, lo, top);
+        Vec3 charge = Vec3.atCenterOf(h.absolutePos(new BlockPos(32, 8, 32)));
+        // район взрыва (досягаемость силы 20 — 41 блок) — сразу: иначе подрыв ждал бы фоновой генерации за краем площадки
+        generateNow(level, new ChunkPos(BlockPos.containing(charge)), 4);
+        long settledBefore = CraterFalls.get(level).settled();
+        Warheads.bunker(level, charge, charge.add(0, 15, 0), null, null);
+        h.onEachTick(() -> {
+            int live = level.getEntitiesOfClass(FallingBlockEntity.class, box).size();
+            h.assertTrue(live <= CraterFalls.LIVE_CAP, "живых падающих блоков " + live + " больше предела " + CraterFalls.LIVE_CAP);
+        });
+        // подрыв (таймлайн бомбы — 24 тика) кончился, и выброшенные им предметы упали (подброшенные вторичными подрывами
+        // летают дольше 40 тиков): счёт, потом полка — дальше песок и гравий только осыпаются; район ещё открыт (до
+        // конца подрыва + GRACE)
+        int[] loose = {-1};
+        long[] settledShelf = {-1};
+        h.runAtTickTime(120, () -> {
+            loose[0] = looseCount(level, box);
+            settledShelf[0] = CraterFalls.get(level).settled();
+            for (BlockPos p : BlockPos.betweenClosed(shelfLo, shelfHi)) level.setBlock(h.absolutePos(p), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(loose[0] >= 0, "подрыв ещё идёт");
+            h.assertTrue(CraterFalls.get(level).settled() > settledShelf[0], "штабель с полки не лёг сразу ни одним блоком: сохранение не проверено");
+            h.assertTrue(CraterFalls.get(level).settled() > settledBefore, "ни один блок не лёг сразу: осыпалось не больше предела, проверять нечего");
+            h.assertTrue(level.getEntitiesOfClass(FallingBlockEntity.class, box).isEmpty(), "блоки ещё падают");
+            assertSettled(h, lo, top);
+            int now = looseCount(level, box);
+            h.assertTrue(now == loose[0], "песка и гравия было " + loose[0] + ", стало " + now + ": блоки пропали или удвоились");
+        });
+    }
+
+    /**
+     * Три подрыва в песке на полосе, в 88 блоках друг от друга (районы взрывов не пересекаются) и в одном тике, как залп
+     * с большим разбросом: живых падающих блоков на всех — не больше {@link CraterFalls#TOTAL_CAP}, хотя каждый район
+     * пустил бы свои {@link CraterFalls#LIVE_CAP}, и больше одного районного предела (падают у нескольких воронок).
+     */
+    @GameTest(template = "runway", timeoutTicks = 400, batch = "crater_falls_salvo", skyAccess = true)
+    public static void craterFallsShareWorldCap(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        int[] centres = {40, 128, 216};
+        List<Vec3> charges = new ArrayList<>();
+        for (int z : centres) {
+            BlockPos lo = new BlockPos(4, 1, z - 12), hi = new BlockPos(27, 20, z + 12);
+            sandBed(h, lo, hi, 13);
+            Vec3 charge = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 7, z)));
+            generateNow(level, new ChunkPos(BlockPos.containing(charge)), 4);
+            charges.add(charge);
+        }
+        for (Vec3 c : charges) Warheads.bunker(level, c, c.add(0, 14, 0), null, null);
+        AABB box = craterBox(h, new BlockPos(0, 1, 0), new BlockPos(31, 20, 255));
+        long settledBefore = CraterFalls.get(level).settled();
+        int[] max = {0};
+        h.onEachTick(() -> {
+            int live = level.getEntitiesOfClass(FallingBlockEntity.class, box).size();
+            max[0] = Math.max(max[0], live);
+            h.assertTrue(live <= CraterFalls.TOTAL_CAP, "живых падающих блоков " + live + " больше общего предела " + CraterFalls.TOTAL_CAP);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(CraterFalls.get(level).settled() > settledBefore, "ни один блок не лёг сразу: проверять нечего");
+            h.assertTrue(max[0] > CraterFalls.LIVE_CAP, "живых разом было не больше " + max[0] + ": падали у одной воронки, общий предел не проверен");
+            h.assertTrue(level.getEntitiesOfClass(FallingBlockEntity.class, box).isEmpty(), "блоки ещё падают");
+        });
+    }
+
+    /** Грунт {@code lo}…{@code hi}: камень ниже {@code sandFrom}, выше — песок с прослойкой гравия через три слоя. */
+    private static void sandBed(GameTestHelper h, BlockPos lo, BlockPos hi, int sandFrom) {
+        for (BlockPos p : BlockPos.betweenClosed(lo, hi)) {
+            BlockState s = p.getY() < sandFrom ? Blocks.STONE.defaultBlockState()
+                    : p.getY() % 4 == 0 ? Blocks.GRAVEL.defaultBlockState() : Blocks.SAND.defaultBlockState();
+            h.getLevel().setBlock(h.absolutePos(p), s, Block.UPDATE_CLIENTS);
+        }
+    }
+
+    /** Коробка грунта {@code lo}…{@code hi} с запасом: осыпание, предметы и обломки не уходят за неё. */
+    private static AABB craterBox(GameTestHelper h, BlockPos lo, BlockPos hi) {
+        return new AABB(Vec3.atLowerCornerOf(h.absolutePos(lo)), Vec3.atLowerCornerOf(h.absolutePos(hi.offset(1, 1, 1)))).inflate(8, 16, 8);
+    }
+
+    /** Песок и гравий в коробке: блоки, падающие блоки и предметы (предметы — на всю высоту мира над коробкой). */
+    private static int looseCount(ServerLevel level, AABB box) {
+        int n = 0;
+        for (BlockPos p : BlockPos.betweenClosed(BlockPos.containing(box.minX, box.minY, box.minZ), BlockPos.containing(box.maxX - 1, box.maxY - 1, box.maxZ - 1))) {
+            if (loose(level.getBlockState(p))) n++;
+        }
+        for (FallingBlockEntity e : level.getEntitiesOfClass(FallingBlockEntity.class, box)) {
+            if (loose(e.getBlockState())) n++;
+        }
+        AABB column = new AABB(box.minX, level.getMinBuildHeight(), box.minZ, box.maxX, level.getMaxBuildHeight(), box.maxZ);
+        for (ItemEntity e : level.getEntitiesOfClass(ItemEntity.class, column)) {
+            if (e.getItem().is(Items.SAND) || e.getItem().is(Items.GRAVEL)) n += e.getItem().getCount();
+        }
+        return n;
+    }
+
+    private static boolean loose(BlockState s) {
+        return s.is(Blocks.SAND) || s.is(Blocks.GRAVEL);
+    }
+
+    /** Ни один сыпучий блок в {@code lo}…{@code hi} не висит над пустотой, огнём, водой или травой. */
+    private static void assertSettled(GameTestHelper h, BlockPos lo, BlockPos hi) {
+        for (BlockPos p : BlockPos.betweenClosed(lo.offset(0, 1, 0), hi)) {
+            BlockState s = h.getBlockState(p);
+            h.assertFalse(s.getBlock() instanceof FallingBlock && FallingBlock.isFree(h.getBlockState(p.below())),
+                    "сыпучий блок висит над пустотой: " + s + " на " + p);
+        }
     }
 
     /**

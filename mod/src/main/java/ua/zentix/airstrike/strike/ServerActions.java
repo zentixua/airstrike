@@ -210,7 +210,7 @@ public final class ServerActions {
 
     /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
     private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
-        StrikeService.log(who, l.weapon(), l.count(), l.spread(), aim.point());
+        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point());
         UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
             SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke());

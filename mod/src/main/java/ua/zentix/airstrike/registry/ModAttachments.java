@@ -13,6 +13,7 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.warhead.CraterFalls;
 
 import java.util.function.Supplier;
 
@@ -45,6 +46,10 @@ public final class ModAttachments {
     /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",
             () -> AttachmentType.builder(StrikeWorld::new).build());
+
+    /** Мир: осыпание в воронках обычных взрывов ({@link CraterFalls}); не сохраняется. */
+    public static final Supplier<AttachmentType<CraterFalls>> CRATER_FALLS = REGISTER.register("crater_falls",
+            () -> AttachmentType.builder(CraterFalls::new).build());
 
     /** Мир: ядерные очереди — фронт, свет, воронки, чанки, осадки у мобов ({@link NuclearWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<NuclearWorld>> NUCLEAR_WORLD = REGISTER.register("nuclear_world",
