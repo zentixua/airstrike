@@ -48,6 +48,19 @@ public final class ArrivalGameTests {
      */
     @GameTest(template = "range", timeoutTicks = 3600, batch = "arrival", skyAccess = true)
     public static void arrivalLoadsBeforeSalvoAreas(GameTestHelper h) {
+        arrivalDuringSalvo(h, FlightTickets.DISTANCE);
+    }
+
+    /**
+     * То же во время залпа «Ланцетов»: их район цели больше ({@link FlightTickets#LOITER_DISTANCE}, центр — уровень 27). С
+     * тикетом входа уровня 28 место входа ждало весь залп: готово через 2276 тиков, после всех 888 чанков районов.
+     */
+    @GameTest(template = "range", timeoutTicks = 3600, batch = "arrival_loiter", skyAccess = true)
+    public static void arrivalLoadsBeforeLoiterAreas(GameTestHelper h) {
+        arrivalDuringSalvo(h, FlightTickets.LOITER_DISTANCE);
+    }
+
+    private static void arrivalDuringSalvo(GameTestHelper h, int distance) {
         ServerLevel level = h.getLevel();
         ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
         ChunkPos p = new ChunkPos(base.x + 190, base.z);
@@ -63,7 +76,7 @@ public final class ArrivalGameTests {
         StrikeGameTests.afterTest(h, () -> {
             ArrivalTickets.release(level.getServer(), who, slot);
             level.getChunkSource().chunkMap.getDistanceManager().removeTicket(PLAYER_LOAD, p, ChunkLevel.byStatus(FullChunkStatus.FULL), p);
-            for (int i = 0; i < targets.size(); i++) FlightTickets.hold(level, targets.get(i), FlightTickets.DISTANCE, keys.get(i), false);
+            for (int i = 0; i < targets.size(); i++) FlightTickets.hold(level, targets.get(i), distance, keys.get(i), false);
         });
         int[] tick = {0}, unloadedAt = {-1}, salvoAt = {-1}, arrivedAt = {-1}, pendingAtArrival = {-1};
         h.onEachTick(() -> {
@@ -82,7 +95,7 @@ public final class ArrivalGameTests {
                     int bx = cx * 16 + rnd.nextInt(2 * SPREAD + 1) - SPREAD, bz = cz * 16 + rnd.nextInt(2 * SPREAD + 1) - SPREAD;
                     ChunkPos target = new ChunkPos(bx >> 4, bz >> 4);
                     UUID key = UUID.randomUUID();
-                    FlightTickets.hold(level, target, FlightTickets.DISTANCE, key, true);
+                    FlightTickets.hold(level, target, distance, key, true);
                     targets.add(target);
                     keys.add(key);
                 }
@@ -94,15 +107,15 @@ public final class ArrivalGameTests {
                 // вход: событие входа ставит тикет, тик игрока просит свой чанк
                 ArrivalTickets.arrive(level, p, who, slot);
                 level.getChunkSource().chunkMap.getDistanceManager().addTicket(PLAYER_LOAD, p, ChunkLevel.byStatus(FullChunkStatus.FULL), p);
-                pendingAtArrival[0] = pending(level, targets);
+                pendingAtArrival[0] = pending(level, targets, distance);
                 arrivedAt[0] = tick[0];
                 h.assertTrue(pendingAtArrival[0] > 0, "районы залпа готовы сразу — проверка ничего не проверила");
                 return;
             }
             if (!Terrain.ready(level, p.x, p.z)) return;
-            int left = pending(level, targets);
-            Airstrike.LOG.info("Вход во время залпа: P готов через {} тиков, чанков районов не готово {} из {} при входе",
-                    tick[0] - arrivedAt[0], left, pendingAtArrival[0]);
+            int left = pending(level, targets, distance);
+            Airstrike.LOG.info("Вход во время залпа (районы {}): P готов через {} тиков, чанков районов не готово {} из {} при входе",
+                    distance, tick[0] - arrivedAt[0], left, pendingAtArrival[0]);
             if (left * 2 < pendingAtArrival[0]) {
                 throw new GameTestAssertException("место входа ждало районы залпа: готово " + (pendingAtArrival[0] - left) + " из "
                         + pendingAtArrival[0] + " их чанков раньше него");
@@ -139,10 +152,55 @@ public final class ArrivalGameTests {
         });
     }
 
-    /** Чанков районов залпа (квадраты радиуса {@link FlightTickets#DISTANCE}), которые ещё не готовы. */
-    private static int pending(ServerLevel level, List<ChunkPos> targets) {
+    /**
+     * Тикет входа снимается, когда место держат тикеты игроков ({@code TicketType.PLAYER}) на квадрате радиуса
+     * {@code DISTANCE − 2}, не дальше обзора. Тикеты игроков здесь ставятся вручную — без игрока: мок-игрок ломается о
+     * пакеты Create.
+     */
+    @GameTest(template = "range", batch = "arrival_players")
+    public static void arrivalReleasedWhenPlayersHoldPlace(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        ChunkPos c = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        UUID who = UUID.randomUUID();
+        ArrivalTickets.Slot slot = new ArrivalTickets.Slot();
+        int r = ArrivalTickets.DISTANCE - 2, playerLevel = ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING);
+        var distances = level.getChunkSource().chunkMap.getDistanceManager();
+        List<ChunkPos> placed = new ArrayList<>();
+        StrikeGameTests.afterTest(h, () -> {
+            ArrivalTickets.release(level.getServer(), who, slot);
+            for (ChunkPos pos : placed) distances.removeTicket(TicketType.PLAYER, pos, playerLevel, pos);
+        });
+        ChunkPos corner = new ChunkPos(c.x + r, c.z + r);
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                ChunkPos pos = new ChunkPos(c.x + dx, c.z + dz);
+                if (pos.equals(corner)) continue;
+                distances.addTicket(TicketType.PLAYER, pos, playerLevel, pos);
+                placed.add(pos);
+            }
+        }
+        // без угла квадрата тикет стоит
+        ArrivalTickets.arrive(level, c, who, slot);
+        ArrivalTickets.tick(level.getServer(), who, slot, 32);
+        h.assertTrue(ArrivalTickets.count(level, who) == 1, "тикет входа снят, хотя угол квадрата не держит ни один игрок");
+        // обзор меньше квадрата: хватает квадрата обзора
+        ArrivalTickets.tick(level.getServer(), who, slot, r - 1);
+        h.assertTrue(ArrivalTickets.count(level, who) == 0, "тикет входа не снят, хотя квадрат обзора держат игроки");
+        // весь квадрат
+        ArrivalTickets.arrive(level, c, who, slot);
+        distances.addTicket(TicketType.PLAYER, corner, playerLevel, corner);
+        placed.add(corner);
+        ArrivalTickets.tick(level.getServer(), who, slot, 32);
+        h.assertTrue(ArrivalTickets.count(level, who) == 0, "тикет входа не снят, хотя весь квадрат держат игроки");
+        // слот пуст: следующий тик ничего не снимает и не падает
+        ArrivalTickets.tick(level.getServer(), who, slot, 32);
+        h.succeed();
+    }
+
+    /** Чанков районов залпа (квадраты радиуса {@code r}), которые ещё не готовы. */
+    private static int pending(ServerLevel level, List<ChunkPos> targets, int r) {
         Set<Long> seen = new HashSet<>();
-        int n = 0, r = FlightTickets.DISTANCE;
+        int n = 0;
         for (ChunkPos c : targets) {
             for (int dx = -r; dx <= r; dx++) {
                 for (int dz = -r; dz <= r; dz++) {
