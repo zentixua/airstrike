@@ -82,6 +82,9 @@ final class ScenarioRun {
     private static final int SETTLE_TICKS = 5;
     /** Сколько после конца полёта ждать, пока работа попаданий снесёт всё, что выбрали взрывы снаряда, тиков. */
     private static final int IMPACT_LIMIT = 600;
+    // TODO(корень 2): брать из WeaponSpec; сейчас — копия силы взрыва входа из Warheads.bunkerEntry
+    /** Сила взрыва входа бомбы в грунт: заряд бомбы сильнее. */
+    private static final float BUNKER_ENTRY_POWER = 4;
     /** Амплитуда хода моба по рельсу, блоков. */
     private static final double RAIL_HALF = 20;
     /**
@@ -133,6 +136,11 @@ final class ScenarioRun {
     private final Consumer<ExplosionEvent.Detonate> onDetonate = this::onDetonate;
     /** Блоки мира (не воздух), которые выбрали взрывы снаряда сценария ({@code Detonate}): работа попаданий сносит их. */
     private final List<BlockPos> blasted = new ArrayList<>();
+    /**
+     * Взорвался ли снаряд сценария ({@code ExplosionEvent.Start} с его UUID). У бомбы B-2 — только сам заряд: взрыв входа
+     * в грунт ({@code Warheads.bunkerEntry}, сила {@link #BUNKER_ENTRY_POWER}) подрывом не считается.
+     */
+    private boolean detonated;
     /** Тик сервера при пуске и в конце полёта (граница бюджета, очередь попаданий). */
     private int launchServerTick, endServerTick;
 
@@ -144,6 +152,8 @@ final class ScenarioRun {
         final int order;
         final WeaponType weapon;
         final double turnRate;
+        /** Бетонобойная бомба B-2 (а не сам B-2). */
+        final boolean bomb;
         Vec3 last;
         double lastStep;
         double heading = Double.NaN;
@@ -155,6 +165,7 @@ final class ScenarioRun {
         Track(int order, StrikeProjectile p) {
             this.order = order;
             this.weapon = p.weapon();
+            this.bomb = p instanceof BunkerBusterEntity;
             this.turnRate = turnRate(p);
             this.last = p.position();
         }
@@ -588,7 +599,8 @@ final class ScenarioRun {
 
     /** Работа попаданий дошла: всё выбранное взрывами снесено, и очередь попаданий с конца полёта пустела. */
     private boolean impactsDone() {
-        return WorkBudgetWatch.emptiedSince(endServerTick) && blasted.stream().allMatch(q -> gone(level.getBlockState(q)));
+        // B-2: итог — вход бомбы, подрыв идёт позже; ждать его (или срока, тогда checkHit упадёт)
+        return (detonated || s.launch().weapon != WeaponType.BUNKER) && WorkBudgetWatch.emptiedSince(endServerTick) && blasted.stream().allMatch(q -> gone(level.getBlockState(q)));
     }
 
     private static boolean gone(BlockState state) {
@@ -597,9 +609,13 @@ final class ScenarioRun {
 
     /** Первый взрыв снаряда сценария — по источнику урона (соседние сценарии далеко, но чужой взрыв не засчитать). */
     private void onBlast(ExplosionEvent.Start e) {
-        if (e.getLevel() != level || launchTick < 0 || outcome != null && !outcome.end.equals("gone")) return;
+        if (e.getLevel() != level || launchTick < 0) return;
         UUID by = StressDirector.blastBy(e.getExplosion());
         Track tr = by == null ? null : tracks.get(by);
+        if (tr != null && !(tr.bomb && e.getExplosion().radius() <= BUNKER_ENTRY_POWER)) {
+            detonated = true;
+        }
+        if (outcome != null && !outcome.end.equals("gone")) return;
         // тик итога — тик попадания (снаряд пропал), а не очереди работы: он зависит от чужих взрывов в том же тике
         if (tr != null) outcome = new Outcome("blast", outcome != null ? outcome.tick : tick - launchTick, e.getExplosion().center(), tr.weapon);
     }
@@ -672,6 +688,8 @@ final class ScenarioRun {
         if (stationaryAim == null) return;
         if (s.launch().weapon == WeaponType.BUNKER) {
             h.assertTrue(outcome.end.equals("entry") || outcome.end.equals("blast"), "бомба не дошла до грунта: " + outcome.end);
+            // эталон и итог кончаются входом: подрыв после него проверяется здесь (и его блоки — в checkWork)
+            h.assertTrue(detonated, "бомба вошла в грунт и не взорвалась за " + IMPACT_LIMIT + " тиков");
             double miss = outcome.at.subtract(stationaryAim).horizontalDistance();
             h.assertTrue(miss <= BombDrop.REACH_PAD + 3, String.format(Locale.ROOT, "бомба вошла в грунт в %.1f блоках от точки", miss));
             return;
