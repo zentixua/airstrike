@@ -139,7 +139,7 @@ def main():
     ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
     ap.add_argument("--jvm", action="append", default=[], metavar="ARG",
                     help="аргумент JVM поверх обычных, например --jvm=-Xmx12G --jvm=-XX:+UseZGC --jvm=-XX:+ZGenerational")
-    ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд")
+    ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд (код выхода 143)")
     ap.add_argument("--dir", default=os.path.join(paths.MOD, "run", "prod"))
     ap.add_argument("--no-copy", action="store_true",
                     help="не копировать инстанс: запустить уже готовый каталог --dir (например копию для съёмки mod/run/film/instance/minecraft)")
@@ -187,34 +187,78 @@ def main():
                 f"[wave]\nfile = {os.path.join(dest, 'audio.wav')}\n")
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
-    kwin = subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd],
-                            env={**os.environ, "ALSOFT_CONF": alsoft}, start_new_session=True)
+    sys.exit(run_in_group([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd],
+                          {**os.environ, "ALSOFT_CONF": alsoft}, a.seconds))
+
+
+def run_in_group(argv, env, seconds):
+    """Запуск в своей сессии; по сроку, Ctrl+C, обрыву терминала и внешнему TERM гасится вся группа.
+
+    Клиент — внук nested_kwin.sh (dbus-run-session → kwin → sh → java): TERM одной обёртке оставлял его работать
+    дальше, одновременно со следующей проверкой. Гасим группу: TERM, через 20 с — KILL оставшимся (как rig_trap в
+    tools/rig_procs.sh). Код выхода: как у процесса; по сроку — 143; по сигналу — 128 + его номер.
+    """
+    for sig in STOP_SIGNALS:
+        signal.signal(sig, _raise_stop)
+    proc, code = None, None
     try:
-        sys.exit(kwin.wait(timeout=a.seconds))
+        proc = subprocess.Popen(argv, env=env, start_new_session=True)
+        code = proc.wait(timeout=seconds)
+        if code < 0:
+            code = 128 - code
     except subprocess.TimeoutExpired:
-        # клиент — внук nested_kwin.sh (dbus-run-session → kwin → sh → java): TERM одной обёртке оставлял его жить
-        # дальше, и он шёл одновременно со следующей проверкой. Гасим всю сессию: TERM, через 20 с — KILL
-        stop_session(kwin)
-        sys.exit(kwin.returncode)
+        code = 128 + signal.SIGTERM
+    except Stop as e:
+        code = 128 + e.signum
+    finally:
+        for sig in STOP_SIGNALS:
+            signal.signal(sig, signal.SIG_IGN)  # повторный Ctrl+C не обрывает уборку
+        if proc is not None:
+            stop_group(proc)
+    return code
 
 
-def stop_session(proc):
-    """TERM всей сессии процесса (своя группа от start_new_session), через 20 с — KILL оставшимся."""
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+class Stop(Exception):
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
+def _raise_stop(signum, frame):
+    raise Stop(signum)
+
+
+def group_alive(pgid):
+    """Есть ли в группе живой процесс: по /proc/*/stat, зомби (Z) не в счёт — лидер остаётся зомби до wait()."""
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        fields = stat[stat.rindex(")") + 2:].split()  # имя процесса в скобках может содержать пробелы
+        if fields[0] != "Z" and int(fields[2]) == pgid:
+            return True
+    return False
+
+
+def stop_group(proc):
+    """TERM всей группе процесса, через 20 с — KILL оставшимся; лидер пожинается в конце, чтобы номер группы не ушёл."""
     for sig, wait in ((signal.SIGTERM, 20), (signal.SIGKILL, 5)):
+        if not group_alive(proc.pid):
+            break
         try:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
             break
         deadline = time.monotonic() + wait
-        while time.monotonic() < deadline:
-            try:
-                os.killpg(proc.pid, 0)
-            except ProcessLookupError:
-                break
+        while group_alive(proc.pid) and time.monotonic() < deadline:
             time.sleep(0.5)
-        else:
-            continue
-        break
     proc.wait()
 
 
