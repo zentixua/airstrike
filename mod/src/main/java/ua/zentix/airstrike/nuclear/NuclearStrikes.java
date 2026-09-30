@@ -221,7 +221,7 @@ public final class NuclearStrikes {
 
     public static void onChunkUnload(ChunkEvent.Unload e) {
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk) {
-            NuclearWorld.get(level).onChunkUnload(chunk);
+            NuclearWorld.get(level).onChunkUnload(level, chunk);
         }
     }
 

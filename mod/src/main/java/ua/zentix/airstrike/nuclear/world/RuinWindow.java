@@ -108,6 +108,12 @@ final class RuinWindow {
         return s[i].getBlockState(wx & 15, y & 15, wz & 15);
     }
 
+    /** Может ли в секции {@code section} (номер от низа мира) чанка {@code k} окна быть состояние из {@code test}. */
+    boolean mayHave(int k, int section, java.util.function.Predicate<BlockState> test) {
+        LevelChunkSection[] s = sections[k];
+        return s != null && section >= 0 && section < s.length && s[section].maybeHas(test);
+    }
+
     boolean has(int wx, int wz) {
         return wx >= 0 && wx < SIDE && wz >= 0 && wz < SIDE && chunks[(wz >> 4) * 3 + (wx >> 4)] != null;
     }

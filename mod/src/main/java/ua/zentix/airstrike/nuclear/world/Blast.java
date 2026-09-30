@@ -28,17 +28,22 @@ import java.util.List;
  * не зависит, поэтому разлом чанка один и тот же, кто бы и когда его ни посчитал (кэш — {@link RuinContext}).
  * <ul>
  * <li>Давление приходит только к граням у воздуха, связанного с небом: над верхом столбцов и не глубже
- * {@link #SKY_DEPTH} блоков внутрь через проёмы. Бункер, пещера без выхода, подвал не трогаются.</li>
+ * {@link #SKY_DEPTH} блоков внутрь через проёмы, а за проломами (раунды 2 и 3) — во весь связанный с ними воздух окна:
+ * волна затекает по этажам до ядра. Бункер, пещера без выхода, подвал не трогаются.</li>
  * <li>На гранях к взрыву — отражённое давление {@code P = max(p, Pr·cos θ)}, {@code Pr = 2p(7p₀+4p)/(7p₀+p)}; у стен
  * угол — в горизонтальной плоскости (волна у земли идёт стеблем Маха), у крыш — по вертикали.</li>
  * <li>Блок в элементе толщиной {@code t} ≤ 3 (ряд полных кубов с открытыми концами по наименьшей оси) ломается при
- * {@code P ≥ T·k(t)·jitter}, {@code k = 1, 2, 3.5}; пробитый с лица элемент ломается на всю толщину.</li>
- * <li>Опрокидывание: высокое и узкое (гибкость {@code H/t ≥ 4}, {@code t} ≤ 4 по направлению от взрыва, с небом
- * с обеих сторон) ломается по всему сечению при {@code Pr·cos θ·H/t ≥ T·k(3)·jitter}: так падают стены в два кирпича
- * и ядра высоток, а горы, скалы, мезы (толще 4) стоят.</li>
+ * {@code P ≥ T·k(t)·jitter}, {@code k = 1, 2, 3.5}; пробитый с лица элемент ломается на всю толщину. Грунт — только
+ * с небом с обеих сторон (гребень, стенка, навес).</li>
+ * <li>Опрокидывание: высокое и узкое (гибкость {@code H/t ≥ 4}, {@code t} ≤ {@link #MAX_TOPPLE} по направлению от
+ * взрыва, сзади небо) ломается по всему сечению при {@code Pr·cos θ·H/t ≥ T·k(3)·jitter}. {@code H} — высота над местом,
+ * пока сзади воздух: перекрытие за простенком кончает плечо на этаже. Так падают стены в два кирпича и ядра высоток,
+ * а горы, скалы, мезы (толще) стоят.</li>
  * <li>Два раунда: второй видит проломы первого (и воздух за ними: там опрокидывается только столб не шире
- * {@link #MAX_TOPPLE}). Третий — по проломам всех соседей ({@link #remnants}). Деревья валятся
+ * {@link #MAX_TOPPLE} поперёк). Третий — по проломам всех соседей ({@link #remnants}). Деревья валятся
  * до волны по блокам, стволом целиком.</li>
+ * <li>Неразрушимое (прочность &lt; 0 или ≥ 50: коренная порода, обсидиан, барьер, свет) не ломается, не падает
+ * и держит, как земля ({@link Props#fixed}).</li>
  * </ul>
  * Охват: решение о блоке читает не дальше 16 блоков — ширины соседнего чанка в окне.
  */
@@ -55,13 +60,13 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
     /** Во сколько раз элемент толщиной 1, 2, 3 прочнее тонкого. */
     static final double[] K = {0, 1, 2, 3.5};
     /** Гибкость, с которой элемент опрокидывается, и наибольшая его толщина. */
-    private static final int SLENDER = 4, MAX_TOPPLE = 4;
+    private static final int SLENDER = 4, MAX_TOPPLE = 6;
     private static final int SIDE = RuinWindow.SIDE, LO = 16, HI = 32;
 
     // ---------------------------------------------------------------- свойства состояний
 
     /** Как блок ведёт себя в физике руин. */
-    record Props(BlockResponse response, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves, boolean log) {
+    record Props(BlockResponse response, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves, boolean log, boolean fixed) {
         float threshold() {
             return response.thresholdPsi();
         }
@@ -99,7 +104,10 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         else if (log || r.kind() == BlockResponse.Kind.NONE || r.kind() == BlockResponse.Kind.GROUND || r.thresholdPsi() >= 12) span = 6;
         else span = 4;
         boolean waterlogged = !liquid && st.hasProperty(BlockStateProperties.WATERLOGGED) && st.getValue(BlockStateProperties.WATERLOGGED);
-        return new Props(r, full, bearing, span, liquid, waterlogged, leaves, log);
+        // неразрушимое (коренная порода, барьер, свет, рамка портала, обсидиан): не падает, не отрывается и держит
+        float destroy = st.getBlock().defaultDestroyTime();
+        boolean fixed = !st.isAir() && !liquid && (destroy < 0 || destroy >= 50);
+        return new Props(r, full, bearing, span, liquid, waterlogged, leaves, log, fixed);
     }
 
     /** Отражённое давление при падении по нормали (воздух, γ = 1.4), psi. */
@@ -117,11 +125,25 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
     }
 
     static Blast solve(ServerLevel level, RuinContext ctx, ChunkPos pos) {
-        return new Solver(new RuinWindow(level, ctx, pos), ctx.d).run();
+        Solver s = new Solver(new RuinWindow(level, ctx, pos), ctx.d);
+        try {
+            return s.run();
+        } finally {
+            s.close();
+        }
     }
 
-    /** Насколько глубоко третий раунд ({@link #remnants}) видит воздух за проломами, блоки. */
-    private static final int REMNANT_DEPTH = 2;
+    // буферы решателя (поток сервера): один решатель за раз берёт общие, вложенный — свои
+    private static byte[] skyBuf = new byte[0];
+    private static long[] goneBuf = new long[0];
+    private static boolean buffersBusy;
+
+    /** Очереди руин пусты: буферы решателя больше не нужны. */
+    static void releaseBuffers() {
+        if (buffersBusy) return;
+        skyBuf = new byte[0];
+        goneBuf = new long[0];
+    }
 
     /**
      * Третий раунд — по разлому всех чанков окна (его строит {@link Collapse}): что осталось стоять у проломов соседей
@@ -131,32 +153,41 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
     static int[] remnants(RuinWindow w, Detonation d, Blast[] blasts, int margin) {
         if (!AirstrikeConfig.SERVER.nukeBlockDamage.get()) return new int[0];
         Solver s = new Solver(w, d);
-        s.skyAir();
-        IntArrayList breaks = new IntArrayList();
-        for (int k = 0; k < 9; k++) {
-            if (blasts[k] == null) continue;
-            int bx = (k % 3) << 4, bz = (k / 3) << 4;
-            for (int c : blasts[k].removed()) {
-                int wx = bx + (c & 15), wz = bz + ((c >> 4) & 15), y = w.minY + ((c >>> RuinPlan.SECTION_SHIFT) << 4) + ((c >> 8) & 15);
-                if (!s.inside(wx, y, wz)) continue;
-                int i = s.idx(wx, y, wz);
-                Solver.set(s.gone, i);
-                breaks.add(i);
-            }
+        try {
+            return s.remnants(blasts, margin);
+        } finally {
+            s.close();
         }
-        IntArrayList out = new IntArrayList();
-        if (!breaks.isEmpty()) s.aroundBreaks(breaks, REMNANT_DEPTH, margin, out);
-        int[] res = new int[out.size()];
-        for (int q = 0; q < res.length; q++) {
-            int i = out.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + s.yb;
-            res[q] = wx | wz << 6 | (y - w.minY) << 12;
-        }
-        return res;
     }
 
     // ---------------------------------------------------------------- решение
 
     private static final class Solver {
+        /** Третий раунд ({@link Blast#remnants}): проломы всех чанков окна — пролом и есть. */
+        int[] remnants(Blast[] blasts, int margin) {
+            skyAir();
+            IntArrayList breaks = new IntArrayList();
+            for (int k = 0; k < 9; k++) {
+                if (blasts[k] == null) continue;
+                int bx = (k % 3) << 4, bz = (k / 3) << 4;
+                for (int c : blasts[k].removed()) {
+                    int wx = bx + (c & 15), wz = bz + ((c >> 4) & 15), y = w.minY + ((c >>> RuinPlan.SECTION_SHIFT) << 4) + ((c >> 8) & 15);
+                    if (!inside(wx, y, wz)) continue;
+                    int i = idx(wx, y, wz);
+                    set(gone, i);
+                    breaks.add(i);
+                }
+            }
+            IntArrayList out = new IntArrayList();
+            if (!breaks.isEmpty()) aroundBreaks(breaks, margin, out);
+            int[] res = new int[out.size()];
+            for (int q = 0; q < res.length; q++) {
+                int i = out.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+                res[q] = wx | wz << 6 | (y - w.minY) << 12;
+            }
+            return res;
+        }
+
         final RuinWindow w;
         final Detonation d;
         final Vec3 burst;
@@ -166,6 +197,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         /** Глубина воздуха, связанного с небом (1…{@link #SKY_DEPTH}); над верхом столбца — небо без записи. */
         final byte[] sky;
         final long[] gone;
+        /** Буферы {@link #sky} и {@link #gone} — общие ({@link #skyBuf}). */
+        final boolean pooled;
         final List<long[]> trees = new ArrayList<>();
         final List<BlockState> treeLogs = new ArrayList<>();
 
@@ -202,8 +235,25 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             this.yb = Math.max(w.minY, Math.min(minTop, maxTop) - SKY_DEPTH - 2);
             this.yt = Math.min(w.maxY - 1, maxTop + 1);
             this.h = Math.max(1, yt - yb + 1);
-            this.sky = new byte[SIDE * SIDE * h];
-            this.gone = new long[(SIDE * SIDE * h + 63) >> 6];
+            int n = SIDE * SIDE * h, words = (n + 63) >> 6;
+            if (buffersBusy) {
+                this.sky = new byte[n];
+                this.gone = new long[words];
+                this.pooled = false;
+            } else {
+                if (skyBuf.length < n) skyBuf = new byte[n];
+                if (goneBuf.length < words) goneBuf = new long[words];
+                java.util.Arrays.fill(skyBuf, 0, n, (byte) 0);
+                java.util.Arrays.fill(goneBuf, 0, words, 0L);
+                this.sky = skyBuf;
+                this.gone = goneBuf;
+                this.pooled = buffersBusy = true;
+            }
+        }
+
+        /** Буферы — обратно в общие. */
+        void close() {
+            if (pooled) buffersBusy = false;
         }
 
         int topOr(int wx, int wz) {
@@ -264,10 +314,10 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                     }
                 }
                 for (int i = 0; i < round.size(); i++) set(gone, round.getInt(i));
-                // проломы первого раунда открывают небу воздух за ними — не глубже SKY_DEPTH (зал без окон, ядро за фасадом);
-                // второй раунд — в самом чанке: блоки у проломов и у открытого ими воздуха
+                // проломы первого раунда впускают волну во весь воздух за ними (залы, этажи, ядро за фасадом);
+                // второй раунд — в самом чанке: блоки у проломов и у этого воздуха
                 IntArrayList second = new IntArrayList();
-                aroundBreaks(round, SKY_DEPTH, 0, second);
+                aroundBreaks(round, 0, second);
                 for (int i = 0; i < second.size(); i++) set(gone, second.getInt(i));
             }
             // сломанное в самом чанке — ключами плана
@@ -286,22 +336,22 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         }
 
         /**
-         * Воздух за проломами {@code breaks} становится воздухом с небом (не глубже {@code depth}), и блоки у проломов
-         * и у этого воздуха в столбцах чанка ± {@code margin} решаются заново — в {@code out}.
+         * Волна входит в проломы {@code breaks}: весь воздух окна, связанный с ними, получает давление падающей волны
+         * (становится воздухом с небом), и блоки у проломов и у этого воздуха в столбцах чанка ± {@code margin} решаются
+         * заново — в {@code out}.
          */
-        void aroundBreaks(IntArrayList breaks, int depth, int margin, IntArrayList out) {
+        void aroundBreaks(IntArrayList breaks, int margin, IntArrayList out) {
             IntArrayList reach = new IntArrayList(breaks);
             IntOpenHashSet seen = new IntOpenHashSet();
             for (int q = 0; q < reach.size(); q++) {
                 int c = reach.getInt(q), wx = c % SIDE, wz = (c / SIDE) % SIDE, y = c / (SIDE * SIDE) + yb;
                 int dc = bit(gone, c) ? 0 : sky[c];
-                if (dc >= depth) continue;
                 for (Direction dir : Direction.values()) {
                     int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
                     if (!inside(nx, ny, nz) || ny > w.top(nx, nz)) continue;
                     int n = idx(nx, ny, nz);
                     if (bit(gone, n) || sky[n] != 0 || !w.get(nx, ny, nz).isAir() || !seen.add(n)) continue;
-                    sky[n] = (byte) (dc + 1);
+                    sky[n] = (byte) Math.min(Byte.MAX_VALUE, dc + 1);
                     reach.add(n);
                 }
             }
@@ -355,7 +405,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             int seed = Mth.murmurHash3Mixer(Long.hashCode(BlockPos.asLong(x, y, z)));
             // грунт (земля, камень, терракота) ломается тонким элементом, только если с обеих сторон — воздух с небом:
             // гребень, стенка, навес; свод закрытой пещеры, бункера, подвала под толщей земли — нет (перепада нет)
-            boolean thin = t <= 3 && (p.response().kind() != BlockResponse.Kind.GROUND || t == 1 && !p.full() || ends(wx, y, wz, th));
+            // (и неполный грунт — тропинка, грядка, грязь: иначе траншеи по тропам и полям)
+            boolean thin = t <= 3 && (p.response().kind() != BlockResponse.Kind.GROUND || ends(wx, y, wz, th));
             if (thin) {
                 double pressure = facing > 0 ? Math.max(psi, pr * facing) : psi;
                 if (p.response().breaksAt(pressure / K[t], seed)) {
@@ -406,7 +457,10 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             int run = 0;
             while (run <= MAX_TOPPLE && full(alongX ? wx + step * run : wx, y, alongX ? wz : wz + step * run)) run++;
             if (run == 0 || run > MAX_TOPPLE) return;
-            if (!open(alongX ? wx + step * run : wx, y, alongX ? wz : wz + step * run)) return; // сзади не небо: массив, склон
+            int bx = alongX ? wx + step * run : wx, bz = alongX ? wz : wz + step * run;
+            if (!open(bx, y, bz)) return; // сзади не небо: массив, склон
+            // плечо — только та высота, где элемент стоит один, с воздухом сзади: простенок держит перекрытие над этажом
+            height = freeHeight(wx, y, wz, bx, bz, height);
             if (height < SLENDER * run) return;
             // за проломами (второй и третий раунды) опрокидывается только столб — ядро, угол, простенок: стену вширь
             // держат поперечные стены и перекрытия
@@ -421,6 +475,21 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                 int ax = alongX ? wx + step * i : wx, az = alongX ? wz : wz + step * i;
                 if (w.has(ax, az)) take(ax, y, az, out);
             }
+        }
+
+        /**
+         * Свободная высота над местом (не больше {@code limit}): блоки столбца стоят (не выбиты), а за ними, в столбце
+         * {@code bx, bz} за элементом, — воздух или пролом. Перекрытие или перемычка сзади — конец плеча.
+         */
+        int freeHeight(int wx, int y, int wz, int bx, int bz, int limit) {
+            int k = 0;
+            while (k < limit) {
+                int yy = y + k + 1;
+                if (isGone(wx, yy, wz) || w.get(wx, yy, wz).isAir()) break;
+                if (!isGone(bx, yy, bz) && !w.get(bx, yy, bz).isAir()) break;
+                k++;
+            }
+            return k;
         }
 
         /** Полный куб для толщины: жидкость — тоже (вода не даёт перепада), выбитое в раунде 1 — нет. */

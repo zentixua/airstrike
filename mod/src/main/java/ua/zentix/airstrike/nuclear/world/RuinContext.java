@@ -63,6 +63,22 @@ final class RuinContext {
         return b;
     }
 
+    /**
+     * Разломы окна чанка (он и загруженные соседи) — не больше одного за вызов: разлом холодного соседа — отдельная
+     * единица работы, а не девять в одной. true — все в кэше и верны (план чанка — одна единица), false — посчитан один.
+     */
+    boolean blastsReady(ServerLevel level, ChunkPos pos) {
+        for (int k = 0; k < 9; k++) {
+            ChunkPos p = new ChunkPos(pos.x + k % 3 - 1, pos.z + k / 3 - 1);
+            if (level.getChunkSource().getChunkNow(p.x, p.z) == null) continue;
+            Blast b = blasts.get(p.toLong());
+            if (b != null && b.stamp().current(level, this, p)) continue;
+            blasts.put(p.toLong(), Blast.solve(level, this, p));
+            return false;
+        }
+        return true;
+    }
+
     /** План чанка построен: разломы, нужные только планам вокруг, можно отпустить. */
     void planned(ChunkPos pos) {
         planned.add(pos.toLong());

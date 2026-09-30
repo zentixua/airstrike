@@ -31,7 +31,11 @@ public final class NuclearWorld {
     private final ScarQueue scars = new ScarQueue();
     /** Руины подрывов по номеру ({@link RuinContext}): пока у подрыва есть работа в очереди. */
     private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<RuinContext> ruins = new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
-    /** Раз в сколько тиков забывать руины подрывов без работы, и сколько тиков руины без работы держатся. */
+    /**
+     * Раз в сколько тиков забывать руины подрывов без работы, и сколько тиков руины без работы держатся (работа — план
+     * или подмена по ним; чанки, ждущие соседей, работой не считаются: край мира ждёт игрока часами, а руины подрыва —
+     * десятки МБ). Чанк, дождавшийся соседей потом, строит руины с новыми.
+     */
     private static final int RUINS_SWEEP = 100, RUINS_IDLE = 600;
     private final NuclearPrep prep = new NuclearPrep();
     private final List<PulseJob> pulses = new ArrayList<>();
@@ -59,10 +63,15 @@ public final class NuclearWorld {
         return ctx;
     }
 
-    /** Без работы в очереди и давно не брали — забыть (память разломов и старых блоков руин). */
+    /** Давно не брали и нет работы, кроме ждущих соседей, — забыть (память разломов и старых блоков руин). */
     private void sweepRuins(long now) {
         if (now % RUINS_SWEEP != 0 || ruins.isEmpty()) return;
         ruins.int2ObjectEntrySet().removeIf(e -> now - e.getValue().used > RUINS_IDLE && !scars.pending(e.getIntKey()));
+        // руин больше нет: буферы обхода (окно высокого города — десятки МБ) не держатся
+        if (ruins.isEmpty()) {
+            Collapse.releaseBuffers();
+            Blast.releaseBuffers();
+        }
     }
 
     public int queuedChunks() {
@@ -82,6 +91,11 @@ public final class NuclearWorld {
     /** По готовому плану, построенных на месте, устаревших планов. */
     public int[] ruinStats() {
         return scars.ruinStats();
+    }
+
+    /** Чанки очереди, держащие тикет с соседями (проверки). */
+    public long[] scarHolds() {
+        return scars.heldChunks();
     }
 
     public int craterJobs() {
@@ -150,14 +164,14 @@ public final class NuclearWorld {
         for (Detonation d : events.detonations()) scars.offer(chunk, d);
     }
 
-    public void onChunkUnload(LevelChunk chunk) {
-        scars.drop(chunk.getPos());
+    public void onChunkUnload(ServerLevel level, LevelChunk chunk) {
+        scars.drop(level, chunk.getPos());
     }
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
+        prep.clear(level, scars);
         scars.clear(level);
-        prep.clear(level);
         ruins.clear();
         pulses.clear();
         craters.forEach(c -> c.release(level));
@@ -207,7 +221,7 @@ public final class NuclearWorld {
             prep.tick(level, events, scars, clock);
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Подготовка руин упала с ошибкой; снята", e);
-            prep.clear(level);
+            prep.clear(level, scars);
         }
         long falloutStart = System.nanoTime();
         lastScarNanos = falloutStart - scarStart;

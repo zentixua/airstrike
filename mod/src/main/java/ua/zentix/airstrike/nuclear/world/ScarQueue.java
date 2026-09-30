@@ -37,9 +37,9 @@ import java.util.PriorityQueue;
  * <p>
  * Чанк на краю загруженного мира (сам загружен, соседи — нет) сам не дождётся соседей, если игрок не подойдёт
  * ближе, — а на краях двух стоянок игрока так и остаётся нетронутый шов. Такой чанк держит тикет с соседями
- * ({@link NuclearTickets#holdForScar}): ваниль грузит их в фоне, чанк проходится, тикет снимается. Соседи,
- * загруженные ради него, сами тикет не берут — иначе загрузка расползлась бы на весь радиус; они пройдутся,
- * когда их загрузит игрок.
+ * ({@link NuclearTickets#holdForScar}): ваниль грузит их в фоне, чанк проходится, тикет снимается. Чанки под
+ * живым тикетом ({@link #underHold}: весь квадрат ± {@link RuinPlanner#REACH}) сами тикет не берут — иначе загрузка
+ * расползлась бы на весь радиус; они пройдутся, когда их загрузит игрок.
  * <p>
  * В момент подрыва загружены тысячи чанков: и их снимок, и постановка в очередь идут уже под бюджетом
  * ({@link #scanLoaded}), в тике подрыва — ничего.
@@ -59,6 +59,8 @@ public final class ScarQueue {
         boolean held;
         /** Срок пришёл: в очереди готовых ({@link #readySeen}/{@link #readyUnseen}), а не в {@link #byDue}. */
         boolean ready;
+        /** Ждёт соседей (край загруженного мира): работы у подрыва от него может не быть никогда. */
+        boolean waitsNeighbours;
 
         Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
@@ -93,6 +95,8 @@ public final class ScarQueue {
     private static final int NEIGHBOUR_RETRY = 40;
 
     private final Long2ObjectOpenHashMap<Job> jobs = new Long2ObjectOpenHashMap<>();
+    /** Чанки, которые держат живые тикеты с соседями (квадрат держащего ± {@link RuinPlanner#REACH}): сколько тикетов. */
+    private final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap underHold = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
     private long lastSlowChunk = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
     /**
@@ -190,11 +194,15 @@ public final class ScarQueue {
         return String.format(java.util.Locale.ROOT, "%.1f", nanos / 1e6);
     }
 
-    /** У подрыва ещё есть работа: готовые руины, снимок загруженных чанков или чанки в очереди. */
+    /**
+     * У подрыва ещё есть работа: готовые руины, снимок загруженных чанков или чанки в очереди, кроме ждущих соседей
+     * (край загруженного мира может ждать их, пока игрок не подойдёт, — часами).
+     */
     public boolean pending(int detonation) {
         if (prepared.containsKey(detonation)) return true;
         for (Scan s : scans) if (s.d.id() == detonation) return true;
         for (Job j : jobs.values()) {
+            if (j.waitsNeighbours) continue;
             for (int e = j.event; e < j.events.size(); e++) if (j.events.get(e).id() == detonation) return true;
         }
         return false;
@@ -251,7 +259,7 @@ public final class ScarQueue {
         Job job = jobs.get(key);
         if (job != null && job.events.stream().anyMatch(e -> e.id() == d.id())) return;
         if (job == null) {
-            job = new Job(key, !nearHeld(chunk.getPos()));
+            job = new Job(key, !underHold.containsKey(key));
             jobs.put(key, job);
         } else if (!job.ready) {
             byDue.remove(job);
@@ -266,26 +274,39 @@ public final class ScarQueue {
         byDue.add(job);
     }
 
-    /** Рядом (или сам) чанк, который держит тикет с соседями, — значит, этот чанк, скорее всего, загружен им. */
-    private boolean nearHeld(ChunkPos pos) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                Job j = jobs.get(ChunkPos.asLong(pos.x + dx, pos.z + dz));
-                if (j != null && j.held) return true;
-            }
-        }
-        return false;
+    /** Чанки, держащие тикет с соседями (проверки). */
+    public long[] heldChunks() {
+        return jobs.values().stream().filter(j -> j.held).mapToLong(j -> j.chunk).toArray();
     }
 
-    private static void release(ServerLevel level, Job job) {
+    private void hold(ServerLevel level, Job job) {
+        NuclearTickets.holdForScar(level, new ChunkPos(job.chunk), true);
+        job.held = true;
+        mark(job.chunk, 1);
+    }
+
+    private void release(ServerLevel level, Job job) {
         if (!job.held) return;
         NuclearTickets.holdForScar(level, new ChunkPos(job.chunk), false);
         job.held = false;
+        mark(job.chunk, -1);
+    }
+
+    /** Квадрат тикета держащего чанка (± {@link RuinPlanner#REACH}): учёт в {@link #underHold}. */
+    private void mark(long chunk, int delta) {
+        int cx = ChunkPos.getX(chunk), cz = ChunkPos.getZ(chunk), r = RuinPlanner.REACH;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                long k = ChunkPos.asLong(cx + dx, cz + dz);
+                if (underHold.addTo(k, delta) + delta <= 0) underHold.remove(k);
+            }
+        }
     }
 
     /** Выгружен: работа снимается (чанк с тикетом не выгружается — тикет снят раньше, в {@link #clear}). */
-    public void drop(ChunkPos pos) {
+    public void drop(ServerLevel level, ChunkPos pos) {
         Job job = jobs.remove(pos.toLong());
+        if (job != null) release(level, job);
         // из очереди готовых снимется сам: работа берётся, только если она ещё в jobs
         if (job != null && !job.ready) byDue.remove(job);
         logs.remove(pos.toLong());
@@ -300,6 +321,7 @@ public final class ScarQueue {
 
     public void clear(ServerLevel level) {
         jobs.values().forEach(j -> release(level, j));
+        underHold.clear();
         scans.clear();
         prepared.clear();
         preparedStats.clear();
@@ -390,13 +412,17 @@ public final class ScarQueue {
         }
     }
 
-    /** Руины в чанке: по готовому плану, если он ещё верен, иначе — план по чанку как есть. */
-    private void ruin(ServerLevel level, Detonation d, LevelChunk chunk, ColumnScar.Budget budget, long lag, boolean seen) {
+    /**
+     * Руины в чанке: по готовому плану, если он ещё верен, иначе — план по чанку как есть. План на месте ждёт разломов
+     * окна: холодный разлом соседа — своя единица работы; false — посчитан он, руины — следующей единицей.
+     */
+    private boolean ruin(ServerLevel level, Detonation d, LevelChunk chunk, ColumnScar.Budget budget, long lag, boolean seen) {
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
         RuinPlan plan = plans != null ? plans.remove(chunk.getPos().toLong()) : null;
         long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[9]);
         if (seen) st[2] = Math.max(st[2], lag);
         else st[5] = Math.max(st[5], lag);
+        if (plan == null && !RuinPlanner.blastsReady(level, d, chunk)) return false;
         if (plan != null) {
             long t0 = System.nanoTime();
             if (plan.apply(level, chunk, budget)) {
@@ -406,10 +432,12 @@ public final class ScarQueue {
                 st[3] += took;
                 st[4] = Math.max(st[4], took);
                 deferLogs(level, d, plan);
-                return;
+                return true;
             }
             stalePlans++;
             st[1]++;
+            // устарел: план на месте — следующими единицами (сперва разломы окна)
+            return false;
         }
         long t0 = System.nanoTime();
         plan = RuinPlanner.plan(level, d, chunk);
@@ -420,6 +448,7 @@ public final class ScarQueue {
         st[7] += took;
         st[8] = Math.max(st[8], took);
         deferLogs(level, d, plan);
+        return true;
     }
 
     /** Стволы, упавшие в соседние чанки: сразу — если руины соседа уже стоят или его нет в очереди, иначе — после них. */
@@ -443,6 +472,7 @@ public final class ScarQueue {
         if (inMemory(level, job.chunk) == null) {
             // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
             jobs.remove(job.chunk);
+            release(level, job);
             logs.remove(job.chunk);
             return;
         }
@@ -450,21 +480,27 @@ public final class ScarQueue {
         if (!NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH)) {
             // край загруженного мира (сам чанк или соседи ниже полной загрузки): разрушим, когда загрузятся;
             // полностью загруженный край сам просит соседей
-            if (!job.held && job.mayHold && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) {
-                NuclearTickets.holdForScar(level, pos, true);
-                job.held = true;
-            }
+            // под чужим живым тикетом — не берёт: он и так стоит в загруженном квадрате, а свой растянул бы загрузку
+            if (!job.held && job.mayHold && !underHold.containsKey(job.chunk) && level.getChunkSource().getChunkNow(pos.x, pos.z) != null) hold(level, job);
+            job.waitsNeighbours = true;
             job.due = now + NEIGHBOUR_RETRY;
             byDue.add(job);
             return;
         }
+        job.waitsNeighbours = false;
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
         Detonation d = job.events.get(job.event);
         // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
         long c0 = clock.begin();
+        boolean seen = !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty();
         try {
-            ruin(level, d, chunk, budget, Math.max(0, now - job.wave), !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty());
+            if (!ruin(level, d, chunk, budget, Math.max(0, now - job.wave), seen)) {
+                // посчитан разлом соседа: руины чанка — следующей единицей, первым в той же очереди
+                job.ready = true;
+                (seen ? readySeen : readyUnseen).addFirst(job);
+                return;
+            }
         } finally {
             long took = clock.end(c0);
             // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с

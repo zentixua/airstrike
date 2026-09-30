@@ -215,11 +215,54 @@ public final class RuinPlan {
             if (n++ < 4) out.append(" [x ").append(c & 15).append(" y ").append((section(c) << 4) + ((c >> 8) & 15)).append(" z ").append((c >> 4) & 15)
                     .append(": ").append(a.get(c)).append(" | ").append(b.get(c)).append(']');
         }
-        if (fires.length != o.fires.length) out.append(" пожаров ").append(fires.length).append(" | ").append(o.fires.length);
-        return n == 0 && fires.length == o.fires.length ? null : n + " мест" + out;
+        // пожары — по местам: тень светового импульса у соседа, чьи руины уже стоят, — та же, что до них
+        java.util.TreeSet<Integer> fa = new java.util.TreeSet<>(), fb = new java.util.TreeSet<>();
+        for (int c : fires) fa.add(c & mask);
+        for (int c : o.fires) fb.add(c & mask);
+        java.util.TreeSet<Integer> onlyA = new java.util.TreeSet<>(fa), onlyB = new java.util.TreeSet<>(fb);
+        onlyA.removeAll(fb);
+        onlyB.removeAll(fa);
+        if (!onlyA.isEmpty() || !onlyB.isEmpty()) {
+            out.append(" пожаров ").append(fa.size()).append(" | ").append(fb.size()).append(", только слева ").append(onlyA.size())
+                    .append(", только справа ").append(onlyB.size());
+        }
+        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() ? null : n + " мест" + out;
+    }
+
+    /** Сколько тиков жидкости ставит план. */
+    public int fluidTickCount() {
+        return fluidTicks.length;
+    }
+
+    /** Больше всего тиков жидкости плана за одну секунду его расписания (проверки): не больше {@link #FLUID_TICKS}. */
+    public int maxFluidTicksPerSecond() {
+        it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap at = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+        int most = 0;
+        for (int k = 0; k < fluidTicks.length; k++) {
+            long p = fluidTicks[k];
+            int second = (fluidDelay(k, BlockPos.getX(p), BlockPos.getY(p), BlockPos.getZ(p)) - FLUID_DELAY) / 20;
+            most = Math.max(most, at.addTo(second, 1) + 1);
+        }
+        return most;
+    }
+
+    /** Первый тик жидкости — через столько тиков после подмены. */
+    private static final int FLUID_DELAY = 5;
+
+    /**
+     * Через сколько тиков тик жидкости {@code k} плана: по {@link #FLUID_TICKS} на секунду по порядку, внутри секунды —
+     * вразнобой по хешу места.
+     */
+    private static int fluidDelay(int k, int x, int y, int z) {
+        return FLUID_DELAY + 20 * (k / FLUID_TICKS) + (int) (RuinPlanner.hash(x, y, z, 37) * 20);
     }
 
     /** Сколько блоков меняет план (без пожаров). */
+    /** Сколько пожаров ставит план (проверки). */
+    public int fireCount() {
+        return fires.length;
+    }
+
     public int changedBlocks() {
         return cells.length;
     }
@@ -352,6 +395,20 @@ public final class RuinPlan {
             burning[lit++] = c;
             budget.fires++;
         }
+        // Sable держит копию блоков мира у аппаратов и видит только LevelChunk.setBlockState: у аппаратов — сообщить
+        if (ua.zentix.airstrike.compat.SableTerrain.present() && ua.zentix.airstrike.compat.SableTerrain.watched(level, chunk)) {
+            for (int k = 0; k < cells.length; k++) {
+                int c = cells[k];
+                if ((c & SLOW) != 0) continue;
+                at(m, c, x0, z0, minY);
+                ua.zentix.airstrike.compat.SableTerrain.changed(level, chunk, m.getX(), m.getY(), m.getZ(), olds[k], states[(c >>> STATE_SHIFT) & STATE_MASK]);
+            }
+            for (int k = 0; k < lit; k++) {
+                at(m, burning[k], x0, z0, minY);
+                ua.zentix.airstrike.compat.SableTerrain.changed(level, chunk, m.getX(), m.getY(), m.getZ(), net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
+                        states[(burning[k] >>> STATE_SHIFT) & STATE_MASK]);
+            }
+        }
         LevelLightEngine light = level.getChunkSource().getLightEngine();
         for (int i = 0; i < now.length; i++) {
             if (!bit(touched, i)) continue;
@@ -401,8 +458,7 @@ public final class RuinPlan {
             m.set(fluidTicks[k]);
             BlockState st = level.getBlockState(m);
             if (st.getFluidState().isEmpty()) continue;
-            level.scheduleTick(m.immutable(), st.getFluidState().getType(),
-                    5 + (int) (RuinPlanner.hash(m.getX(), m.getY(), m.getZ(), 37) * 35) + 20 * (k / FLUID_TICKS));
+            level.scheduleTick(m.immutable(), st.getFluidState().getType(), fluidDelay(k, m.getX(), m.getY(), m.getZ()));
         }
         PHASES[3] += System.nanoTime() - t;
         t = System.nanoTime();

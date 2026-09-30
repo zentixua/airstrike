@@ -53,6 +53,8 @@ final class Collapse {
     final RuinWindow w;
     final Blast[] blasts = new Blast[9];
     final int yb, yt, h;
+    /** Самая низкая исходная поверхность окна (верх опоры столбца): всё несущее не выше неё — земля, опора. */
+    final int surface;
     final long[] gone;
     /** Вода, которая стекла. */
     final long[] drained;
@@ -90,6 +92,14 @@ final class Collapse {
             low = Math.min(low, w.minY + ((c >>> RuinPlan.SECTION_SHIFT) << 4) + ((c >> 8) & 15));
         }
         if (low == Integer.MAX_VALUE) low = high;
+        int ground = Integer.MAX_VALUE;
+        for (int wz = 0; wz < SIDE; wz++) {
+            for (int wx = 0; wx < SIDE; wx++) {
+                int s = w.solid(wx, wz);
+                if (s != Integer.MIN_VALUE && w.has(wx, wz)) ground = Math.min(ground, s);
+            }
+        }
+        this.surface = ground == Integer.MAX_VALUE ? w.minY - 1 : ground;
         this.yb = Math.max(w.minY, low - 16);
         this.yt = Math.min(w.maxY - 1, Math.max(high, yb) + 1);
         this.h = yt - yb + 1;
@@ -142,11 +152,6 @@ final class Collapse {
         return Blast.props(w.get(wx, y, wz));
     }
 
-    boolean touchesGone(int wx, int y, int wz) {
-        for (Direction dir : Direction.values()) if (isGone(wx + dir.getStepX(), y + dir.getStepY(), wz + dir.getStepZ())) return true;
-        return false;
-    }
-
     // ---------------------------------------------------------------- решение
 
     private void run() {
@@ -181,7 +186,7 @@ final class Collapse {
         if (!logs) for (int k = 0; k < 9 && !logs; k++) logs = blasts[k] != null && !blasts[k].trees().isEmpty();
         if (support) support();
         if (logs) leaves();
-        drain();
+        if (!breaks.isEmpty()) drain();
         attachments();
         collect();
     }
@@ -194,13 +199,11 @@ final class Collapse {
 
     private void support() {
         int n = SIDE * SIDE * h;
-        if (before.length < n) {
-            before = new byte[n];
-            after = new byte[n];
-            ring = new int[n + 1];
-        }
-        distances(before, false, n);
-        distances(after, true, n);
+        buffers(n);
+        long[] fixed = fixedCells();
+        distances(before, false, n, fixed);
+        distances(after, true, n, fixed);
+        long[] down = new long[gone.length];
         IntArrayList fall = new IntArrayList();
         for (int y = yb; y <= yt; y++) {
             for (int wz = LO - C; wz < HI + C; wz++) {
@@ -209,23 +212,71 @@ final class Collapse {
                     if (bit(gone, i)) continue;
                     Blast.Props p = props(wx, y, wz);
                     if (!p.bearing()) continue;
-                    if (falls(i, wx, y, wz, after[i], p)) fall.add(i);
+                    if (falls(i, after[i], p)) {
+                        fall.add(i);
+                        set(down, i);
+                    }
                 }
+            }
+        }
+        // постройка, которую и до удара не держало ничего в пределах {@link #C} (зал шире 2C, стоящее на висящей
+        // площадке): падает всё, что касается сломанного или падающего, — и дальше по связанным, до неподвижной точки.
+        // Грунт так не падает: природные своды и навесы, которые «висели» и до удара, стоят
+        IntArrayList queue = new IntArrayList();
+        for (int y = yb; y <= yt; y++) {
+            for (int wz = LO - C; wz < HI + C; wz++) {
+                for (int wx = LO - C; wx < HI + C; wx++) {
+                    int i = idx(wx, y, wz);
+                    if (!unsupported(i, wx, y, wz, down)) continue;
+                    if (touches(wx, y, wz, gone) || touches(wx, y, wz, down)) {
+                        set(down, i);
+                        queue.add(i);
+                    }
+                }
+            }
+        }
+        for (int q = 0; q < queue.size(); q++) {
+            int i = queue.getInt(q), wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+            fall.add(i);
+            for (Direction dir : Direction.values()) {
+                int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                if (nx < LO - C || nx >= HI + C || nz < LO - C || nz >= HI + C || !inside(nx, ny, nz)) continue;
+                int m = idx(nx, ny, nz);
+                if (!unsupported(m, nx, ny, nz, down)) continue;
+                set(down, m);
+                queue.add(m);
             }
         }
         for (int i = 0; i < fall.size(); i++) set(gone, fall.getInt(i));
     }
 
+    /** Несущее не из грунта, без опоры в пределах {@link #C} и до удара, и после, ещё не падает. */
+    private boolean unsupported(int i, int wx, int y, int wz, long[] down) {
+        if (bit(gone, i) || bit(down, i) || before[i] < INF || after[i] < INF) return false;
+        Blast.Props p = props(wx, y, wz);
+        return p.bearing() && !p.fixed() && p.response().kind() != BlockResponse.Kind.GROUND;
+    }
+
+    private boolean touches(int wx, int y, int wz, long[] bits) {
+        for (Direction dir : Direction.values()) {
+            int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+            if (inside(nx, ny, nz) && bit(bits, idx(nx, ny, nz))) return true;
+        }
+        return false;
+    }
+
     /**
      * Падает ли блок, чья опора после удара — {@code a}: дальше его пролёта, и опору отняла волна (до неё была ближе,
-     * или стала дальше на 3 и больше, или её не было, а блок касается сломанного).
+     * или стала дальше на 3 и больше; не дальше {@link #INF}). Блок без опоры и до удара ({@code INF}) — отдельно
+     * ({@link #support}). Неразрушимое не падает.
      */
-    private boolean falls(int i, int wx, int y, int wz, int a, Blast.Props p) {
+    private boolean falls(int i, int a, Blast.Props p) {
+        if (p.fixed()) return false;
         int b = before[i];
         // грунт в постройке (терракота, кальцит, камень) — кладка без арматуры: треснув, она держится только так, как
         // держалась до удара, — консоль, которой стала опора подлиннее, падает
         if (a <= p.span()) return a > b && p.response().kind() == BlockResponse.Kind.GROUND;
-        return b <= p.span() || a >= b + 3 || b == INF && touchesGone(wx, y, wz);
+        return b <= p.span() || b < INF && a >= Math.min(b + 3, INF);
     }
 
     private boolean bearing(int i, int wx, int y, int wz, boolean afterBlast) {
@@ -233,21 +284,63 @@ final class Collapse {
         return props(wx, y, wz).bearing();
     }
 
+    /** Неразрушимое несущее в окне (только в секциях, чья палитра его знает) — опоры, как земля. */
+    private long[] fixedCells() {
+        long[] out = new long[gone.length];
+        for (int k = 0; k < 9; k++) {
+            if (w.chunk(k) == null) continue;
+            int bx = (k % 3) << 4, bz = (k / 3) << 4;
+            for (int sec = (yb - w.minY) >> 4; sec <= (yt - w.minY) >> 4; sec++) {
+                if (!w.mayHave(k, sec, st -> Blast.props(st).fixed() && Blast.props(st).bearing())) continue;
+                for (int y = Math.max(yb, w.minY + (sec << 4)); y <= Math.min(yt, w.minY + (sec << 4) + 15); y++) {
+                    for (int lz = 0; lz < 16; lz++) {
+                        for (int lx = 0; lx < 16; lx++) {
+                            Blast.Props p = props(bx + lx, y, bz + lz);
+                            if (p.fixed() && p.bearing()) set(out, idx(bx + lx, y, bz + lz));
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     /**
-     * 0-1 обход от опор низа окна: вверх 0, вбок и вниз +1, не дальше {@link #C}; дальше — {@link #INF}. После удара
-     * падающий блок ({@link #falls}) никого не держит: обход через него не идёт — обрушение идёт каскадом за один обход
-     * (места выходят из очереди по возрастанию расстояния, и первое — окончательное).
+     * 0-1 обход от опор (вверх 0, вбок и вниз +1, не дальше {@link #C}; дальше — {@link #INF}). Опоры — земля: всё
+     * несущее на низу окна и не выше самой низкой исходной поверхности окна ({@link #surface}), и неразрушимое. После
+     * удара падающий блок ({@link #falls}) никого не держит: обход через него не идёт — обрушение идёт каскадом за один
+     * обход (места выходят из очереди по возрастанию расстояния, и первое — окончательное).
      */
-    private void distances(byte[] dist, boolean afterBlast, int n) {
+    private void distances(byte[] dist, boolean afterBlast, int n, long[] fixed) {
         java.util.Arrays.fill(dist, 0, n, (byte) INF);
         int cap = n + 1, head = 0, tail = 0;
-        for (int wz = 0; wz < SIDE; wz++) {
-            for (int wx = 0; wx < SIDE; wx++) {
-                int i = idx(wx, yb, wz);
-                if (!bearing(i, wx, yb, wz, afterBlast)) continue;
-                dist[i] = 0;
-                ring[tail] = i;
-                tail = (tail + 1) % cap;
+        for (int y = yb; y <= yt; y++) {
+            boolean ground = y == yb || y <= surface;
+            for (int wz = 0; wz < SIDE; wz++) {
+                for (int wx = 0; wx < SIDE; wx++) {
+                    int i = idx(wx, y, wz);
+                    if (!(ground || bit(fixed, i)) || !bearing(i, wx, y, wz, afterBlast)) continue;
+                    dist[i] = 0;
+                    ring[tail] = i;
+                    tail = (tail + 1) % cap;
+                }
+            }
+            if (!ground && y > surface) {
+                // выше земли — только неразрушимое: его места уже собраны, остальные слои не перебираются
+                for (int wd = (y - yb) * SIDE * SIDE >> 6, e = ((yt - yb + 1) * SIDE * SIDE + 63) >> 6; wd < e; wd++) {
+                    long bits = fixed[wd];
+                    while (bits != 0) {
+                        int i = wd << 6 | Long.numberOfTrailingZeros(bits);
+                        bits &= bits - 1;
+                        if (i >= n || dist[i] == 0) continue;
+                        int wx = i % SIDE, wz = (i / SIDE) % SIDE, yy = i / (SIDE * SIDE) + yb;
+                        if (!bearing(i, wx, yy, wz, afterBlast)) continue;
+                        dist[i] = 0;
+                        ring[tail] = i;
+                        tail = (tail + 1) % cap;
+                    }
+                }
+                break;
             }
         }
         while (head != tail) {
@@ -255,7 +348,7 @@ final class Collapse {
             head = (head + 1) % cap;
             int di = dist[i];
             int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
-            if (afterBlast && di > 0 && falls(i, wx, y, wz, di, props(wx, y, wz))) continue;
+            if (afterBlast && di > 0 && falls(i, di, props(wx, y, wz))) continue;
             for (Direction dir : Direction.values()) {
                 int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
                 if (!inside(nx, ny, nz)) continue;
@@ -275,59 +368,112 @@ final class Collapse {
         }
     }
 
-    // ---------------------------------------------------------------- листва
-
-    /** Листва дальше {@link #LEAF_REACH} от уцелевшего ствола (по листве), которая до удара была ближе, — опадает. */
-    private void leaves() {
-        int n = SIDE * SIDE * h;
+    private static void buffers(int n) {
         if (before.length < n) {
             before = new byte[n];
             after = new byte[n];
             ring = new int[n + 1];
         }
-        leafDistances(before, false, n);
-        leafDistances(after, true, n);
-        for (int y = yb; y <= yt; y++) {
-            for (int wz = LO - C; wz < HI + C; wz++) {
-                for (int wx = LO - C; wx < HI + C; wx++) {
-                    int i = idx(wx, y, wz);
-                    if (bit(gone, i) || after[i] <= LEAF_REACH || before[i] > LEAF_REACH) continue;
-                    if (props(wx, y, wz).leaves()) set(gone, i);
+    }
+
+    /** Очереди руин пусты: буферы обхода больше не нужны (окно высокого города — десятки МБ). */
+    static void releaseBuffers() {
+        before = after = new byte[0];
+        ring = new int[0];
+    }
+
+    // ---------------------------------------------------------------- листва
+
+    /**
+     * Листва дальше {@link #LEAF_REACH} от уцелевшего ствола (по листве), которая до удара была ближе, — опадает.
+     * Измениться это могло только у листвы не дальше {@link #LEAF_REACH} от сломанного бревна или листа, поэтому
+     * обход — только вокруг них (стволы — в пределах двойного охвата), а не по всему окну.
+     */
+    private void leaves() {
+        // что сломано из дерева: семена
+        IntArrayList seeds = new IntArrayList();
+        for (int wd = 0; wd < gone.length; wd++) {
+            long bits = gone[wd];
+            while (bits != 0) {
+                int i = wd << 6 | Long.numberOfTrailingZeros(bits);
+                bits &= bits - 1;
+                int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+                Blast.Props p = props(wx, y, wz);
+                if (p.leaves() || p.log()) seeds.add(i);
+            }
+        }
+        if (seeds.isEmpty()) return;
+        // район: листва до 2·LEAF_REACH + 1 шагов от семян (и брёвна рядом с ней); ближние LEAF_REACH — кандидаты
+        it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap reach = new it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap();
+        IntArrayList logs = new IntArrayList(), queue = new IntArrayList();
+        for (int i : seeds) {
+            reach.put(i, (byte) 0);
+            queue.add(i);
+        }
+        for (int q = 0; q < queue.size(); q++) {
+            int i = queue.getInt(q), di = reach.get(i);
+            if (di > 2 * LEAF_REACH) continue;
+            int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+            for (Direction dir : Direction.values()) {
+                int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
+                if (!inside(nx, ny, nz)) continue;
+                int m = idx(nx, ny, nz);
+                if (reach.containsKey(m)) continue;
+                Blast.Props p = props(nx, ny, nz);
+                if (p.log()) {
+                    reach.put(m, (byte) (di + 1));
+                    logs.add(m);
+                } else if (p.leaves()) {
+                    reach.put(m, (byte) (di + 1));
+                    queue.add(m);
                 }
             }
         }
+        for (int i : seeds) if (props(i % SIDE, i / (SIDE * SIDE) + yb, (i / SIDE) % SIDE).log()) logs.add(i);
+        it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap was = leafDistances(reach, logs, false), now = leafDistances(reach, logs, true);
+        for (var e : reach.int2ByteEntrySet()) {
+            int i = e.getIntKey();
+            if (e.getByteValue() > LEAF_REACH || bit(gone, i)) continue;
+            int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
+            if (wx < LO - C || wx >= HI + C || wz < LO - C || wz >= HI + C || !props(wx, y, wz).leaves()) continue;
+            if (was.getOrDefault(i, (byte) (LEAF_REACH + 1)) <= LEAF_REACH && now.getOrDefault(i, (byte) (LEAF_REACH + 1)) > LEAF_REACH) set(gone, i);
+        }
     }
 
-    private void leafDistances(byte[] dist, boolean afterBlast, int n) {
-        java.util.Arrays.fill(dist, 0, n, (byte) (LEAF_REACH + 1));
-        int head = 0, tail = 0;
-        for (int i = 0; i < n; i++) {
-            int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
-            if (afterBlast && bit(gone, i) || !props(wx, y, wz).log()) continue;
-            dist[i] = 0;
-            ring[tail++] = i;
+    /** Расстояние по листве района до ствола (до или после удара), не дальше {@link #LEAF_REACH}. */
+    private it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap leafDistances(it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap reach, IntArrayList logs, boolean afterBlast) {
+        it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap dist = new it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap();
+        IntArrayList queue = new IntArrayList();
+        for (int i : logs) {
+            if (afterBlast && bit(gone, i) || dist.containsKey(i)) continue;
+            dist.put(i, (byte) 0);
+            queue.add(i);
         }
-        while (head < tail) {
-            int i = ring[head++];
-            int di = dist[i];
+        for (int q = 0; q < queue.size(); q++) {
+            int i = queue.getInt(q), di = dist.get(i);
             if (di >= LEAF_REACH) continue;
             int wx = i % SIDE, wz = (i / SIDE) % SIDE, y = i / (SIDE * SIDE) + yb;
             for (Direction dir : Direction.values()) {
                 int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
                 if (!inside(nx, ny, nz)) continue;
                 int m = idx(nx, ny, nz);
-                if (dist[m] <= di + 1 || afterBlast && bit(gone, m) || !props(nx, ny, nz).leaves()) continue;
-                dist[m] = (byte) (di + 1);
-                ring[tail++] = m;
+                if (!reach.containsKey(m) || dist.containsKey(m) || afterBlast && bit(gone, m) || !props(nx, ny, nz).leaves()) continue;
+                dist.put(m, (byte) (di + 1));
+                queue.add(m);
             }
         }
+        return dist;
     }
 
     // ---------------------------------------------------------------- вода
 
-    /** Малая вода у сломанного (пробито дно или стенка), с местами в чанке, — стекает целиком. */
+    /**
+     * Малая вода у сломанного (пробито дно или стенка), с местами в чанке, — стекает целиком. Обход водоёма
+     * останавливается, как только он большой ({@link #MAX_DRAIN} мест, {@link #DRAIN_WIDTH} в ширину) или у края окна:
+     * море не обходится целиком.
+     */
     private void drain() {
-        long[] seen = new long[gone.length];
+        long[] seen = new long[gone.length], big = new long[gone.length];
         IntArrayList body = new IntArrayList();
         for (int y = yb; y <= yt; y++) {
             for (int wz = LO; wz < HI; wz++) {
@@ -337,14 +483,14 @@ final class Collapse {
                     body.clear();
                     body.add(start);
                     set(seen, start);
-                    boolean edge = false, touches = false;
+                    boolean stop = false, touches = false;
                     int x0 = wx, x1 = wx, z0 = wz, z1 = wz;
-                    for (int q = 0; q < body.size(); q++) {
+                    for (int q = 0; q < body.size() && !stop; q++) {
                         int i = body.getInt(q), bx = i % SIDE, bz = (i / SIDE) % SIDE, by = i / (SIDE * SIDE) + yb;
                         for (Direction dir : Direction.values()) {
                             int nx = bx + dir.getStepX(), ny = by + dir.getStepY(), nz = bz + dir.getStepZ();
                             if (!inside(nx, ny, nz)) {
-                                if (ny <= yt && props(nx, ny, nz).fluid()) edge = true;
+                                if (ny <= yt && props(nx, ny, nz).fluid()) stop = true;
                                 continue;
                             }
                             int m = idx(nx, ny, nz);
@@ -352,7 +498,10 @@ final class Collapse {
                                 touches = true;
                                 continue;
                             }
-                            if (bit(seen, m) || !props(nx, ny, nz).fluid()) continue;
+                            if (!props(nx, ny, nz).fluid()) continue;
+                            // часть большого водоёма, обход которого уже бросили
+                            if (bit(big, m)) stop = true;
+                            if (bit(seen, m)) continue;
                             set(seen, m);
                             body.add(m);
                             x0 = Math.min(x0, nx);
@@ -360,8 +509,13 @@ final class Collapse {
                             z0 = Math.min(z0, nz);
                             z1 = Math.max(z1, nz);
                         }
+                        if (body.size() > MAX_DRAIN || x1 - x0 >= DRAIN_WIDTH || z1 - z0 >= DRAIN_WIDTH) stop = true;
                     }
-                    if (!touches || edge || body.size() > MAX_DRAIN || x1 - x0 >= DRAIN_WIDTH || z1 - z0 >= DRAIN_WIDTH) continue;
+                    if (stop) {
+                        for (int q = 0; q < body.size(); q++) set(big, body.getInt(q));
+                        continue;
+                    }
+                    if (!touches) continue;
                     for (int q = 0; q < body.size(); q++) {
                         set(drained, body.getInt(q));
                         set(gone, body.getInt(q));
@@ -391,6 +545,7 @@ final class Collapse {
     }
 
     private boolean detached(int wx, int y, int wz, BlockState st) {
+        if (Blast.props(st).fixed()) return false;
         Block b = st.getBlock();
         if ((b instanceof DoorBlock || b instanceof DoublePlantBlock) && st.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) {
             boolean lower = st.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER;

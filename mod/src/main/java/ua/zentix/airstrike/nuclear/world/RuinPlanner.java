@@ -43,7 +43,7 @@ import java.util.List;
  * <li>падает то, что потеряло опору ({@link Collapse}): этажи без стен, крыша на выбитых стёклах, листва без ствола,
  * вода без дна, навесное без того, на чём висело.</li>
  * </ul>
- * Потом — по земле после руин (верхний опорный блок): завал из щебня, где рухнула постройка (от 5 psi, в огненном
+ * Потом — по земле после руин (верхний опорный блок): завал из щебня, где рухнула постройка (в огненном
  * шаре — ничего), стволы, поваленные от эпицентра, содранный от 8 psi дёрн, свет: выжженная трава, растаявший снег,
  * тринитит и вскипевшая вода в шаре.
  * <p>
@@ -54,8 +54,6 @@ import java.util.List;
 public final class RuinPlanner {
     /** С какого давления волна сдирает дёрн. */
     static final double STRIP_PSI = 8;
-    /** С какого давления у земли постройка оставляет завал. */
-    static final double RUBBLE_PSI = 5;
     /** Сколько чанков вокруг должны быть загружены целиком для плана. */
     public static final int REACH = 2;
 
@@ -76,6 +74,18 @@ public final class RuinPlanner {
     /** План руин чанка (он и соседи в радиусе {@link #REACH} загружены целиком, поток сервера). */
     public static RuinPlan plan(ServerLevel level, Detonation d, LevelChunk chunk) {
         return plan(level, NuclearWorld.get(level).ruins(d, level.getGameTime()), chunk);
+    }
+
+    /**
+     * Готов ли чанк к плану одной единицей работы: разломы его окна в кэше. Нет — посчитан один из них (это и есть
+     * единица работы), план — следующей.
+     */
+    public static boolean blastsReady(ServerLevel level, Detonation d, LevelChunk chunk) {
+        return blastsReady(level, NuclearWorld.get(level).ruins(d, level.getGameTime()), chunk);
+    }
+
+    static boolean blastsReady(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
+        return !AirstrikeConfig.SERVER.nukeBlockDamage.get() || ctx.blastsReady(level, chunk.getPos());
     }
 
     static RuinPlan plan(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
@@ -105,7 +115,8 @@ public final class RuinPlanner {
             Vec3 at = new Vec3(x + 0.5, ground + 0.5, z + 0.5);
             boolean inFireball = d.surface() && Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8
                     && at.y > d.groundY() - d.fireballRadius();
-            if (blockDamage && !inFireball && groundPsi >= RUBBLE_PSI && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
+            // рухнувшее оставляет завал при любом давлении (дом падает и ниже 5 psi); в огненном шаре — ничего
+            if (blockDamage && !inFireball && c.removed[column] >= 3) rubble(s, lx, ground, lz, x, z, c.removed[column], c.wood[column]);
             // скоростной напор сдирает дёрн и траву: от 8 psi — голая земля, даже в тени
             if (blockDamage && groundPsi >= STRIP_PSI) strip(s, lx, ground, lz, x, z);
             scorch(level, ctx, s, lx, ground, lz, x, z, inFireball, groundPsi, fires);

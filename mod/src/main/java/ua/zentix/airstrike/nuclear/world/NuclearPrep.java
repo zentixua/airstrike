@@ -66,10 +66,11 @@ public final class NuclearPrep {
      */
     private static final int LOAD_RADIUS = TILE_RADIUS + RuinPlanner.REACH;
     /**
-     * Квадрат загрузки с кольцом: тикет поднимает и кольцо вокруг (ниже полной загрузки) — несгенерированный чанк
-     * в кольце генерировался бы во время удара, поэтому готовыми на диске должны быть и они.
+     * Квадрат загрузки с кольцами: тикет поднимает и чанки вокруг ниже полной загрузки — на 1 до деталей, на 2 до пещер
+     * (CARVERS), и несгенерированный чанк там генерировался бы во время удара, поэтому готовыми на диске должны быть
+     * и они. Дальше (3 и 4) — только первые шаги генерации (биомы, начала структур), без рельефа.
      */
-    private static final int RING = 2 * LOAD_RADIUS + 3;
+    private static final int RING_REACH = LOAD_RADIUS + 2, RING = 2 * RING_REACH + 1;
     /** Сколько квадратов отпускать за тик: каждый — 25 выгрузок чанков с записью на диск в этом тике сервера. */
     private static final int RELEASE_PER_TICK = 2;
     /** Квадратов в загрузке одновременно (не все сразу: игрокам тоже надо грузить мир). */
@@ -299,8 +300,8 @@ public final class NuclearPrep {
             if (!seen.add(centre.toLong())) continue;
             Tile t = new Tile(centre);
             p.tiles.add(t);
-            for (int dx = -LOAD_RADIUS - 1; dx <= LOAD_RADIUS + 1; dx++) {
-                for (int dz = -LOAD_RADIUS - 1; dz <= LOAD_RADIUS + 1; dz++) {
+            for (int dx = -RING_REACH; dx <= RING_REACH; dx++) {
+                for (int dz = -RING_REACH; dz <= RING_REACH; dz++) {
                     long k = ChunkPos.asLong(centre.x + dx, centre.z + dz);
                     if (Math.abs(dx) <= TILE_RADIUS && Math.abs(dz) <= TILE_RADIUS) p.tileOf.put(k, t);
                     List<Tile> asked = p.askedBy.get(k);
@@ -389,7 +390,10 @@ public final class NuclearPrep {
                 long c = t.waiting.removeLong(t.waiting.size() - 1);
                 p.waiting--;
                 LevelChunk chunk = readyChunk(level, c);
-                if (chunk != null) planChunk(level, p, shared, c, chunk);
+                if (chunk != null && !planChunk(level, p, shared, c, chunk)) {
+                    t.waiting.add(c);
+                    p.waiting++;
+                }
             }
             if (!t.waiting.isEmpty()) return;
         }
@@ -397,8 +401,9 @@ public final class NuclearPrep {
             long c = p.order[p.nextPlan++];
             Tile t = p.tileOf.get(c);
             LevelChunk chunk = readyChunk(level, c);
-            if (chunk != null) planChunk(level, p, shared, c, chunk);
-            else if (t != null && t.state != TileState.SKIP) {
+            if (chunk != null) {
+                if (!planChunk(level, p, shared, c, chunk)) p.nextPlan--;
+            } else if (t != null && t.state != TileState.SKIP) {
                 t.waiting.add(c);
                 p.waiting++;
             }
@@ -492,16 +497,24 @@ public final class NuclearPrep {
         return NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH) ? level.getChunkSource().getChunkNow(pos.x, pos.z) : null;
     }
 
-    private void planChunk(ServerLevel level, Prep p, WorkClock shared, long c, LevelChunk chunk) {
+    /**
+     * Одна единица работы по чанку: разлом холодного соседа (false — план следующей единицей) или план. Чанк, на котором
+     * план упал с ошибкой, пропускается (его руины построятся на месте), подготовка остальных идёт дальше.
+     */
+    private boolean planChunk(ServerLevel level, Prep p, WorkClock shared, long c, LevelChunk chunk) {
         long c0 = shared.begin();
         try {
+            if (!RuinPlanner.blastsReady(level, p.ruins, chunk)) return false;
             p.plans.put(c, RuinPlanner.plan(level, p.ruins, chunk));
             p.planned.add(c);
             Tile t = p.tileOf.get(c);
             if (t != null) t.planned++;
+        } catch (RuntimeException e) {
+            Airstrike.LOG.error("Руины заранее: план чанка {} упал с ошибкой; его руины построятся на месте", new ChunkPos(c), e);
         } finally {
             clock.record(shared.end(c0));
         }
+        return true;
     }
 
     // ---------------------------------------------------------------- подрыв
@@ -580,9 +593,12 @@ public final class NuclearPrep {
         p.tiles.clear();
     }
 
-    /** Отбой и выгрузка мира: все тикеты отпущены. */
-    public void clear(ServerLevel level) {
-        preps.forEach(p -> release(level, p));
+    /** Отбой, выгрузка мира, ошибка: все тикеты отпущены, готовые руины, отданные подрыву, очереди больше не нужны. */
+    public void clear(ServerLevel level, ScarQueue scars) {
+        for (Prep p : preps) {
+            release(level, p);
+            if (p.detonation >= 0 && !p.draining) scars.dropPrepared(p.detonation);
+        }
         preps.clear();
     }
 

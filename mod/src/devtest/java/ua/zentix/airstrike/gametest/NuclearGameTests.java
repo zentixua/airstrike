@@ -71,21 +71,49 @@ import java.util.Comparator;
 @GameTestHolder(Airstrike.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class NuclearGameTests {
-    private static final BlockPos CENTER = new BlockPos(32, 12, 32);
+    static final BlockPos CENTER = new BlockPos(32, 12, 32);
 
     private NuclearGameTests() {}
 
-    private static Detonation detonation(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
-        // шаблон стоит на блок выше своего начала: под площадкой слой воздуха, и для обрушения ({@code Collapse}) она
-        // вся — навес без опоры; под настоящим городом земля сплошная
+    static Detonation detonation(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
+        return detonation(h, at, hob, yieldKt, scale, true);
+    }
+
+    /**
+     * Подрыв над местом площадки. {@code fill}: шаблон стоит на блок выше своего начала — под площадкой слой воздуха,
+     * и для обрушения ({@code Collapse}) она вся — навес без опоры; под настоящим городом земля сплошная, поэтому
+     * слой засыпается. Без засыпки опоры у площадки нет и до удара — так проверяется постройка на «висящей» земле.
+     */
+    static Detonation detonation(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale, boolean fill) {
         ServerLevel level = h.getLevel();
-        for (BlockPos p : BlockPos.betweenClosed(BlockPos.ZERO, new BlockPos(63, 0, 63))) {
-            BlockPos a = h.absolutePos(p);
-            if (level.getBlockState(a).isAir()) level.setBlock(a, Blocks.STONE.defaultBlockState(), 2);
+        if (fill) {
+            for (BlockPos p : BlockPos.betweenClosed(BlockPos.ZERO, new BlockPos(63, 0, 63))) {
+                BlockPos a = h.absolutePos(p);
+                if (level.getBlockState(a).isAir()) level.setBlock(a, Blocks.STONE.defaultBlockState(), 2);
+            }
         }
+        return raw(h, at, hob, yieldKt, scale);
+    }
+
+    private static Detonation raw(GameTestHelper h, BlockPos at, double hob, double yieldKt, float scale) {
         BlockPos g = h.absolutePos(at);
         return new Detonation(1_000_000 + h.getLevel().random.nextInt(1000), new Vec3(g.getX() + 0.5, g.getY() + hob, g.getZ() + 0.5), g.getY(),
                 yieldKt, hob <= 0, h.getLevel().getGameTime(), 0, 0, 20_000, 7, scale, false);
+    }
+
+    /**
+     * 15 кт над {@code at} (в воздухе — на оптимальной высоте, иначе у земли) в таком масштабе, чтобы в центре блока
+     * {@code where} было {@code psi}: давление в месте постройки задаётся прямо, а не подбором её места.
+     */
+    static Detonation atPsi(GameTestHelper h, BlockPos at, boolean air, BlockPos where, double psi) {
+        Vec3 p = Vec3.atCenterOf(h.absolutePos(where));
+        double lo = 0.002, hi = 1;
+        for (int i = 0; i < 40; i++) {
+            double mid = Math.sqrt(lo * hi);
+            if (raw(h, at, air ? Yield.optimalBurstHeight(15) * mid : 0, 15, (float) mid).psi(p) < psi) lo = mid;
+            else hi = mid;
+        }
+        return detonation(h, at, air ? Yield.optimalBurstHeight(15) * hi : 0, 15, (float) hi);
     }
 
     /** Все столбцы площадки — как их прошла бы очередь разрушений. */
@@ -93,7 +121,7 @@ public final class NuclearGameTests {
         scarAll(h, d, new ColumnScar.Budget(true));
     }
 
-    private static List<RuinPlan> scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
+    static List<RuinPlan> scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
         ServerLevel level = h.getLevel();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         List<RuinPlan> plans = new java.util.ArrayList<>();
@@ -122,7 +150,7 @@ public final class NuclearGameTests {
     }
 
     /** Чанки площадки в порядке {@link #scarAll}. */
-    private static List<LevelChunk> chunks(GameTestHelper h) {
+    static List<LevelChunk> chunks(GameTestHelper h) {
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
         List<LevelChunk> out = new java.util.ArrayList<>();
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
@@ -147,36 +175,44 @@ public final class NuclearGameTests {
     }
 
     /**
-     * 15 кт у земли, 1 блок = 40 м: дерево в 600 м (18 psi) валится стволом от эпицентра, стекло в 1.2 км (4 psi)
-     * и доски в 880 м (7 psi) выбиты, стенка из каменного кирпича в два блока толщиной в 1 км (6 psi, отражённое ~14,
-     * порог 12 × 2) стоит, грунт цел. (Одиночный кирпич толщиной 1 под отражённым давлением ломается — это тонкий элемент.)
+     * 15 кт у земли, 1 блок = 50 м: дерево там, где у кроны 5.1–5.7 psi, валится стволом от эпицентра (бревно — 5 psi),
+     * а его листва (слой в 3 блока: волна ломает её только от ~7 psi) без ствола опадает — ни листа в воздухе; стекло
+     * в 1.45 км (~3 psi) и доски в 900 м (~7 psi) выбиты, стенка из каменного кирпича в два блока толщиной в 1.25 км
+     * (~4 psi) стоит, грунт цел. (Одиночный кирпич толщиной 1 под отражённым давлением ломается — это тонкий элемент.)
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_blocks", skyAccess = true)
     public static void blastBreaksLightKeepsMasonryFellsTrees(GameTestHelper h) {
-        BlockPos tree = CENTER.east(15);
+        Detonation d = detonation(h, CENTER, 0, 15, 0.02f);
+        BlockPos tree = null;
+        for (int dx = 4; dx <= 25 && tree == null; dx++) {
+            double psi = d.psi(Vec3.atCenterOf(h.absolutePos(CENTER.east(dx).above(4))));
+            if (psi >= 5.1 && psi <= 5.7) tree = CENTER.east(dx);
+        }
+        h.assertTrue(tree != null, "нет места с 5.1–5.7 psi у кроны на площадке");
         for (int i = 0; i < 4; i++) h.setBlock(tree.above(i), Blocks.OAK_LOG);
         for (BlockPos p : BlockPos.betweenClosed(tree.offset(-2, 3, -2), tree.offset(2, 5, 2))) {
             if (h.getBlockState(p).isAir()) h.setBlock(p, Blocks.OAK_LEAVES);
         }
-        BlockPos glass = CENTER.west(29), bricks = CENTER.north(25), planks = CENTER.south(22);
+        BlockPos glass = CENTER.west(29), bricks = CENTER.north(25), planks = CENTER.south(18);
         h.setBlock(glass, Blocks.GLASS);
         for (BlockPos p : BlockPos.betweenClosed(bricks.offset(-1, 0, -1), bricks.offset(1, 1, 0))) h.setBlock(p, Blocks.STONE_BRICKS);
         h.setBlock(planks, Blocks.OAK_PLANKS);
 
-        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f));
+        scarAll(h, d);
 
+        String at = String.format(Locale.ROOT, " (у кроны %.1f psi)", d.psi(Vec3.atCenterOf(h.absolutePos(tree.above(4)))));
         h.assertBlockNotPresent(Blocks.GLASS, glass);
         h.assertBlockNotPresent(Blocks.OAK_PLANKS, planks);
         for (BlockPos p : BlockPos.betweenClosed(bricks.offset(-1, 0, -1), bricks.offset(1, 1, 0))) h.assertBlockPresent(Blocks.STONE_BRICKS, p.immutable());
-        h.assertTrue(!h.getBlockState(tree.above()).is(BlockTags.LOGS), "ствол дерева стоит");
+        h.assertTrue(!h.getBlockState(tree.above()).is(BlockTags.LOGS), "ствол дерева стоит" + at);
         int lying = 0;
         for (int i = 0; i < 6; i++) {
             var s = h.getBlockState(tree.east(i));
             if (s.is(BlockTags.LOGS) && s.getValue(RotatedPillarBlock.AXIS) == Direction.Axis.X) lying++;
         }
-        h.assertTrue(lying >= 3, "дерево не легло от эпицентра: брёвен вдоль x " + lying);
+        h.assertTrue(lying >= 3, "дерево не легло от эпицентра: брёвен вдоль x " + lying + at);
         for (BlockPos p : BlockPos.betweenClosed(tree.offset(-2, 3, -2), tree.offset(2, 5, 2))) {
-            h.assertTrue(!h.getBlockState(p).is(BlockTags.LEAVES), "листва висит без ствола в " + p.toShortString());
+            h.assertTrue(!h.getBlockState(p).is(BlockTags.LEAVES), "листва висит без ствола в " + p.toShortString() + at);
         }
         h.assertTrue(!h.getBlockState(CENTER.east(10).below()).isAir(), "волна тронула грунт");
         h.succeed();
@@ -242,18 +278,39 @@ public final class NuclearGameTests {
 
     private static final int TOWER_HEIGHT = 150, TOWER_HALF = 4;
 
-    /** Башня {@link #towerAtGroundZeroFalls}; сколько блоков поставлено. */
+    /**
+     * Та же башня из бетона на площадке без засыпки: под площадкой шаблона воздух, и опоры у неё нет и до удара
+     * (для обрушения — всё {@code INF}). Постройка не из грунта падает и так: блок без опоры и до удара рушится
+     * каскадом от сломанного волной — ничего не висит (ревью: засыпка в других тестах прятала этот случай).
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_tower_floating", skyAccess = true)
+    public static void concreteTowerOnFloatingPadFalls(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f, false);
+        h.assertTrue(h.getBlockState(BlockPos.ZERO.offset(5, 0, 5)).isAir(), "под площадкой не воздух: тест ничего не проверяет");
+        int built = tower(h, c, true);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "бетон без засыпки");
+        h.succeed();
+    }
+
     private static int tower(GameTestHelper h, BlockPos c) {
+        return tower(h, c, false);
+    }
+
+    /** Башня {@link #towerAtGroundZeroFalls} (concrete — вся из бетона: постройка не из блоков грунта); сколько блоков поставлено. */
+    private static int tower(GameTestHelper h, BlockPos c, boolean concrete) {
         int built = 0;
         for (int y = 0; y < TOWER_HEIGHT; y++) {
             for (int dx = -TOWER_HALF; dx <= TOWER_HALF; dx++) {
                 for (int dz = -TOWER_HALF; dz <= TOWER_HALF; dz++) {
                     boolean wall = Math.abs(dx) == TOWER_HALF || Math.abs(dz) == TOWER_HALF;
                     BlockState st = null;
-                    if (dx == TOWER_HALF && dz == TOWER_HALF) st = Blocks.DIORITE.defaultBlockState();
-                    else if (wall) st = (y % 5 == 2 || y % 5 == 3) && Math.abs(dx + dz) % 2 == 1 ? Blocks.GLASS.defaultBlockState() : Blocks.BROWN_TERRACOTTA.defaultBlockState();
-                    else if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) st = Blocks.CALCITE.defaultBlockState();
-                    else if (y % 5 == 4) st = Blocks.WHITE_TERRACOTTA.defaultBlockState();
+                    if (dx == TOWER_HALF && dz == TOWER_HALF) st = (concrete ? Blocks.LIGHT_GRAY_CONCRETE : Blocks.DIORITE).defaultBlockState();
+                    else if (wall) st = (y % 5 == 2 || y % 5 == 3) && Math.abs(dx + dz) % 2 == 1 ? Blocks.GLASS.defaultBlockState()
+                            : (concrete ? Blocks.GRAY_CONCRETE : Blocks.BROWN_TERRACOTTA).defaultBlockState();
+                    else if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) st = (concrete ? Blocks.CYAN_CONCRETE : Blocks.CALCITE).defaultBlockState();
+                    else if (y % 5 == 4) st = (concrete ? Blocks.WHITE_CONCRETE : Blocks.WHITE_TERRACOTTA).defaultBlockState();
                     if (st != null && h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), st, 2)) built++;
                 }
             }
@@ -270,7 +327,7 @@ public final class NuclearGameTests {
             for (BlockPos p : BlockPos.betweenClosed(c.offset(-TOWER_HALF, y0, -TOWER_HALF), c.offset(TOWER_HALF, y0 + 9, TOWER_HALF))) {
                 BlockState st = h.getBlockState(p);
                 if (st.isAir()) continue;
-                if (st.is(Blocks.CALCITE)) core++;
+                if (st.is(Blocks.CALCITE) || st.is(Blocks.CYAN_CONCRETE)) core++;
                 else rest++;
             }
             out.append(' ').append(core).append('/').append(rest);
@@ -345,7 +402,7 @@ public final class NuclearGameTests {
     }
 
     /** Угол четырёх чанков у центра площадки (относительные координаты), как у {@link #towerAtGroundZeroFalls}. */
-    private static BlockPos chunkCorner(GameTestHelper h) {
+    static BlockPos chunkCorner(GameTestHelper h) {
         BlockPos abs = h.absolutePos(CENTER);
         BlockPos c = CENTER.offset(abs.getX() == h.absolutePos(CENTER.east()).getX() - 1 ? -(abs.getX() & 15) : abs.getX() & 15, 0,
                 abs.getZ() == h.absolutePos(CENTER.south()).getZ() - 1 ? -(abs.getZ() & 15) : abs.getZ() & 15);
@@ -408,12 +465,17 @@ public final class NuclearGameTests {
     }
 
     /**
-     * Кирпичные дома 5×7 с крышей там, где над окном 3.5–4.5 psi: у одного в стене к взрыву окно 3×3 — стёкла выбиты, стена
-     * над окном стоит (её держат простенки и поперечные стены); у другого окна лентой по всем стенам — верх дома
-     * ни на чём не стоит и падает целиком, ничего не висит над пустотой.
+     * Кирпичные дома 5×7 в пять этажей (перекрытия через 4 блока, крыша на 20-м) там, где над окном ~4.5 psi: у одного
+     * в стене к взрыву окно 3×3 — стёкла выбиты, простенки по бокам окна и стена над ним стоят (их держат поперечные
+     * стены и перекрытия: плечо простенка — этаж); у другого окна лентой по всем стенам — верх дома ни на чём не стоит
+     * и падает целиком, над пустотой не висит ни кирпич, ни стекло (завал из щебня на рухнувшем — можно).
      * <p>
-     * Раньше это были отдельно стоящие стены 20 блоков: на физике такая стена (кладка в блок, 4.5 psi) опрокидывается
-     * целиком, как и настоящая, — простенки проверяются в доме, где стену держат поперечные.
+     * Отличия от теста до физики (D4) и почему. Там были отдельно стоящие стены 20 блоков в блок толщиной: на физике
+     * такая стена при 4.5 psi опрокидывается целиком, как и настоящая, — поэтому стены в доме с поперечными стенами
+     * и перекрытиями; над окном, как и раньше, проверяются 12 рядов. Давление берётся у стены над окном (8 блоков
+     * над землёй), а не у земли: проверяется элемент там, и при низком подрыве у земли давление меньше. Место —
+     * первое от эпицентра, где давление опустилось до 4.5 psi (нижняя граница 3.5 — только чтобы шаг поиска не
+     * проскочил полосу); масштаб 0.022 вместо 0.03 — чтобы оно с обоими домами помещалось на площадке.
      */
     @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_window", skyAccess = true)
     public static void wallAboveWindowStandsOnlyWithPiers(GameTestHelper h) {
@@ -426,39 +488,51 @@ public final class NuclearGameTests {
         }
         h.assertTrue(far != null, "нет места с 3.5–4.5 psi на площадке");
         BlockPos piers = far.north(8), ribbon = far.south(4);
-        house(h, piers, 7, (dx, y, dz) -> dx == 0 && y >= 5 && y <= 7 && dz >= 2 && dz <= 4);
-        house(h, ribbon, 5, (dx, y, dz) -> y >= 5 && y <= 7);
+        house(h, piers, 7, HOUSE_HEIGHT, (dx, y, dz) -> dx == 0 && y >= 5 && y <= 7 && dz >= 2 && dz <= 4);
+        house(h, ribbon, 5, HOUSE_HEIGHT, (dx, y, dz) -> y >= 5 && y <= 7);
         scarAll(h, d, new ColumnScar.Budget(false));
         String at = far.toShortString() + " (" + String.format(Locale.ROOT, "%.1f", d.psi(Vec3.atCenterOf(h.absolutePos(far.above(8))))) + " psi)";
         for (int dz = 2; dz <= 4; dz++) {
             for (int y = 5; y <= 7; y++) h.assertTrue(!h.getBlockState(piers.south(dz).above(y)).is(Blocks.GLASS), "стекло цело на " + y + " блоке, " + at);
-            for (int y = 8; y < 12; y++) {
+            for (int y = 8; y < HOUSE_HEIGHT; y++) {
                 h.assertTrue(h.getBlockState(piers.south(dz).above(y)).is(Blocks.BRICKS), "стены над окном с простенками нет: " + y + " блок, " + at);
+            }
+        }
+        for (int dz : new int[] {1, 5}) {
+            for (int y = 5; y <= 7; y++) {
+                h.assertTrue(h.getBlockState(piers.south(dz).above(y)).is(Blocks.BRICKS), "простенок у окна упал: " + dz + ", " + y + " блок, " + at);
             }
         }
         for (int dx = 0; dx < 5; dx++) {
             for (int dz = 0; dz < 5; dz++) {
-                for (int y = 5; y <= 12; y++) {
+                for (int y = 5; y <= HOUSE_HEIGHT; y++) {
                     BlockState st = h.getBlockState(ribbon.offset(dx, y, dz));
-                    if (!st.isAir()) h.fail("верх дома над окнами лентой висит: " + st + " в " + ribbon.offset(dx, y, dz).toShortString() + ", " + at);
+                    // завал из щебня на рухнувшем углу — не висящая стена
+                    if (st.is(Blocks.BRICKS) || st.is(Blocks.GLASS)) h.fail("верх дома над окнами лентой висит: " + st + " в " + ribbon.offset(dx, y, dz).toShortString() + ", " + at);
                 }
             }
         }
         h.succeed();
     }
 
+    /** Высота стен дома в {@link #house}: пять этажей по 4 блока. */
+    private static final int HOUSE_HEIGHT = 20;
+
     private interface Glazing {
         boolean glass(int dx, int y, int dz);
     }
 
-    /** Кирпичный дом 5 (по x) × {@code width} (по z), стены 12 блоков и крыша; стекло — где скажет {@code glazing}. */
-    private static void house(GameTestHelper h, BlockPos at, int width, Glazing glazing) {
+    /**
+     * Кирпичный дом 5 (по x) × {@code width} (по z): стены {@code height} блоков, перекрытия через 4 блока (на 4-м, 8-м…)
+     * и крыша; стекло — где скажет {@code glazing}.
+     */
+    private static void house(GameTestHelper h, BlockPos at, int width, int height, Glazing glazing) {
         for (int dx = 0; dx < 5; dx++) {
             for (int dz = 0; dz < width; dz++) {
-                for (int y = 0; y <= 12; y++) {
+                for (int y = 0; y <= height; y++) {
                     boolean wall = dx == 0 || dx == 4 || dz == 0 || dz == width - 1;
-                    if (y < 12 && !wall) continue;
-                    h.setBlock(at.offset(dx, y, dz), y < 12 && glazing.glass(dx, y, dz) ? Blocks.GLASS : Blocks.BRICKS);
+                    if (y < height && !wall && (y == 0 || y % 4 != 0)) continue;
+                    h.setBlock(at.offset(dx, y, dz), y < height && wall && glazing.glass(dx, y, dz) ? Blocks.GLASS : Blocks.BRICKS);
                 }
             }
         }
@@ -509,34 +583,39 @@ public final class NuclearGameTests {
     }
 
     /**
-     * Руины чанка по плану заранее и по плану на месте, когда руины соседнего чанка уже стоят, — одни и те же: план
-     * читает соседа исходным (старые блоки мест его плана). Дом из досок с окнами поперёк границы чанков, ~10 psi.
+     * Руины чанка по плану заранее и по плану на месте, когда руины соседнего чанка уже стоят, — одни и те же, вплоть до
+     * мест пожаров: план читает соседа исходным (старые блоки мест его плана, карта высот до руин — для тени светового
+     * импульса). Кирпичный дом в два этажа поперёк угла четырёх чанков при ~4 psi; окна — только в западной половине:
+     * давление в восточную половину дома приходит через западные чанки, а их руины к плану восточных уже стоят. За
+     * домом — дёрн, который поджигает свет, в тени дома — нет.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_fresh", skyAccess = true)
     public static void freshPlanNextToRuinsMatchesPrepared(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos c = chunkCorner(h);
-        for (BlockPos p : BlockPos.betweenClosed(c.offset(-4, 0, -4), c.offset(4, 6, 4))) {
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-4, 0, -4), c.offset(4, 8, 4))) {
             int dx = p.getX() - c.getX(), dz = p.getZ() - c.getZ(), y = p.getY() - c.getY();
-            boolean wall = Math.abs(dx) == 4 || Math.abs(dz) == 4, roof = y == 6, floor = y == 3 && !wall;
-            if (!wall && !roof && !floor) continue;
-            boolean window = wall && (y == 1 || y == 4) && Math.floorMod(dx + dz, 3) == 1;
-            h.setBlock(p, window ? Blocks.GLASS : floor ? Blocks.OAK_SLAB : Blocks.OAK_PLANKS);
+            boolean wall = Math.abs(dx) == 4 || Math.abs(dz) == 4, slab = (y == 4 || y == 8) && !wall;
+            if (!wall && !slab && y != 8) continue;
+            boolean window = wall && y < 8 && dx < 0 && (y % 4 == 1 || y % 4 == 2) && Math.floorMod(dx + dz, 3) == 1;
+            h.setBlock(p, window ? Blocks.GLASS : Blocks.BRICKS);
         }
-        Detonation d = detonation(h, CENTER.west(24), 0, 15, 0.025f);
+        Detonation d = atPsi(h, c.west(28), false, c.above(4), 4);
         List<LevelChunk> chunks = chunks(h);
         List<RuinPlan> ahead = new java.util.ArrayList<>();
         for (LevelChunk chunk : chunks) ahead.add(RuinPlanner.plan(level, d, chunk));
-        int changed = 0;
+        int changed = 0, fires = 0;
         for (int i = 0; i < chunks.size(); i++) {
-            // на месте: план заново по чанку, когда соседи уже в руинах
+            // на месте: план заново по чанку, когда соседи с запада уже в руинах
             RuinPlan fresh = RuinPlanner.plan(level, d, chunks.get(i));
             String diff = fresh.differs(ahead.get(i));
             if (diff != null) h.fail("чанк " + chunks.get(i).getPos() + ": руины на месте не те, что заранее (на месте | заранее; y — от низа мира): " + diff);
-            h.assertTrue(fresh.apply(level, chunks.get(i), new ColumnScar.Budget(false)), "план на месте устарел");
+            h.assertTrue(fresh.apply(level, chunks.get(i), new ColumnScar.Budget(true)), "план на месте устарел");
             changed += fresh.changedBlocks();
+            fires += fresh.fireCount();
         }
         h.assertTrue(changed > 0, "дом не тронут");
+        h.assertTrue(fires > 0, "ни одного пожара: сравнение мест пожаров ничего не проверило");
         h.succeed();
     }
 
@@ -1275,7 +1354,7 @@ public final class NuclearGameTests {
         return n;
     }
 
-    private static final TicketType<ChunkPos> HOLD = TicketType.create("airstrike_test_hold", Comparator.comparingLong(ChunkPos::toLong));
+    static final TicketType<ChunkPos> HOLD = TicketType.create("airstrike_test_hold", Comparator.comparingLong(ChunkPos::toLong));
 
     /**
      * Полосы нетронутых чанков в зоне: у края видимости чанк опускается ниже полной загрузки и поднимается обратно,
@@ -1350,7 +1429,7 @@ public final class NuclearGameTests {
     }
 
     /** Верх земли в середине чанка (чанк загружен). */
-    private static BlockPos surface(ServerLevel level, ChunkPos p) {
+    static BlockPos surface(ServerLevel level, ChunkPos p) {
         int x = p.getMiddleBlockX(), z = p.getMiddleBlockZ();
         return new BlockPos(x, level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z), z);
     }
