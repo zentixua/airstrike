@@ -23,6 +23,10 @@ public class DroneEntity extends StrikeProjectile {
     public static final double CRUISE_HEIGHT = 45;
 
     private static final LaunchProfile LAUNCH = new LaunchProfile(8, 38, 0.075, 8, -9);
+    /** Предельная скорость разворота по курсу, °/тик: на маршруте и в пике, на наборе высоты. */
+    private static final double TURN_RATE = 3.0, CLIMB_TURN_RATE = 1.6;
+    /** Ближе этого (по горизонтали) пике из-за круга разворота не отменяем: малый промах добирает взрыватель. */
+    private static final double REATTACK_MIN = 16;
 
     /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
@@ -104,8 +108,13 @@ public class DroneEntity extends StrikeProjectile {
             holdAltitude(Math.max(cruiseAlt, terrain + 18), 0.10, 1.0, 0.12);
             if (phaseAge() > 60 && Math.abs(cruiseAlt - getY()) < 6) setPhase(FlightPhase.CRUISE);
         }
+        // цель внутри круга разворота (промах в пике, цель ушла вбок, точка в воздухе, где цель пропала): до неё не
+        // довернуть, и шахед кружил бы вокруг неё до конца срока жизни. Пике отменяется: шахед уходит прямо, набирая
+        // высоту, пока цель не выйдет из круга, и заходит снова — как крылатая ракета
+        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? CLIMB_TURN_RATE : TURN_RATE);
+        if (outOfTurn && flightPhase() == FlightPhase.TERMINAL) setPhase(FlightPhase.CRUISE);
         // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
-        if ((flightPhase() == FlightPhase.CRUISE || flightPhase() == FlightPhase.CLIMB) && onFinalLeg() && b.pitch() >= 18) {
+        if ((flightPhase() == FlightPhase.CRUISE || flightPhase() == FlightPhase.CLIMB) && onFinalLeg() && b.pitch() >= 18 && !outOfTurn) {
             setPhase(FlightPhase.TERMINAL);
         }
 
@@ -119,9 +128,11 @@ public class DroneEntity extends StrikeProjectile {
             speed = Math.min(3.0, speed + 0.04);
         }
         // над самой целью курс не трогаем; на старте разворот мягче (скорость ещё мала)
-        if (n.horizontal() > 8) {
-            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.08, 1.6, 0.12);
-            else flight.steerYaw(n.yaw(), 0.15, 3.0, 0.3);
+        if (outOfTurn) {
+            flight.settleYaw(ph == FlightPhase.CLIMB ? 0.12 : 0.3);
+        } else if (n.horizontal() > 8) {
+            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.08, CLIMB_TURN_RATE, 0.12);
+            else flight.steerYaw(n.yaw(), 0.15, TURN_RATE, 0.3);
         }
 
         advance(level, aim, 4.3);

@@ -34,9 +34,11 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.strike.ChunkTickets;
+import ua.zentix.airstrike.strike.FlightLog;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.StrikeService;
+import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
@@ -76,13 +78,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Взрыватель взводится на таком удалении от пусковой (или с выходом на маршевый участок). */
     private static final double ARM_DISTANCE = 96;
+    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
+    private static final double TURN_MARGIN = 1.2;
     /**
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
      * по 9×9 чанков от залпа с разбросом) или цель недостижима.
      */
-    /** Запас радиуса разворота в {@link #insideTurn}: угловая скорость набирается не сразу. */
-    private static final double TURN_MARGIN = 1.2;
     private static final int AREA_WAIT_LIMIT = 1200;
+    /** Запас срока жизни, тиков, сверх полёта до последней точки потерянной цели (см. {@link #onTargetLost}). */
+    private static final int LOST_GRACE = 200;
     /** Вне мира снаряд под поверхностью ещё летит к цели, пока он не ниже её на столько блоков (см. groundCrossing). */
     private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
@@ -105,6 +109,10 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     protected Vec3 launchPos;
     /** Срок жизни, тиков: время полёта по плану с запасом; 0 — {@link #defaultLifetime()}. */
     protected int lifetime;
+    /** Дробные тики, которые погоня за целью ещё не добавила к {@link #lifetime} (см. {@link #extendLifetime}). */
+    private double lifetimeCredit;
+    /** Срок жизни уже урезан до полёта в последнюю точку потерянной цели ({@link #onTargetLost}). */
+    private boolean lostCapped;
     /** Ядерная боевая часть вместо обычной (крылатая ракета, бомба). */
     @Nullable
     protected Loadout.Nuke nuclear;
@@ -172,6 +180,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     protected final boolean expired() {
         return age - areaWait >= maxAge();
+    }
+
+    /** Сколько тиков полёта осталось до конца срока жизни (сервер; ожидание района цели не в счёт). */
+    public int lifetimeLeft() {
+        return maxAge() - (age - areaWait);
     }
 
     /** Прочность: сколько урона выдержит, прежде чем его собьют. 0 — сбить нельзя. */
@@ -394,6 +407,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     public boolean retarget(Target target, Vec3 point) {
         if (tracker == null || !acceptsRetarget()) return false;
         extendLifetime(tracker.retarget(target, point));
+        lostCapped = false;
         if (route != null) route.skip();
         releaseTargetArea();
         syncAim();
@@ -701,8 +715,34 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Слежение за целью; возвращает текущую точку прицеливания. */
     protected Vec3 updateTarget(ServerLevel level) {
         extendLifetime(tracker.tick(level));
+        // и у снаряда, сохранённого прежней версией уже с потерянной целью и сроком погони (тега lost_capped нет)
+        if (tracker.isLost() && !lostCapped) onTargetLost(level);
         syncAim();
         return tracker.point();
+    }
+
+    /**
+     * Цель потеряна: снаряд идёт в её последнюю точку, и срок жизни — только на полёт туда (время до удара с тем же
+     * запасом, что у плана полёта, и {@link #LOST_GRACE}). Срок, набранный погоней за целью, пока она уходила, ему
+     * больше не нужен: с ним шахеды, чья цель умерла, кружили над точкой её смерти минутами (игра 30.09.2026).
+     * Не дошёл за этот срок — самоликвидация ({@link #advance}). В лог — строкой на залп ({@link FlightLog}).
+     */
+    private void onTargetLost(ServerLevel level) {
+        lostCapped = true;
+        lifetime = Math.min(maxAge(), age - areaWait + (int) Math.ceil(etaTicks() * 1.5) + LOST_GRACE);
+        BlockPos last = BlockPos.containing(tracker.point());
+        int seconds = Math.max(0, lifetimeLeft()) / 20;
+        Airstrike.LOG.debug("Снаряд {} {} у {} потерял цель, идёт в {}, срок {} с", getType().getDescriptionId(), getUUID(),
+                blockPosition(), last, seconds);
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(),
+                tracker.outOfReach() ? FlightLog.Event.LOST_OUT_OF_REACH : FlightLog.Event.LOST_GONE, last, true, seconds);
+    }
+
+    /** Срок жизни вышел: в лог — строкой на залп ({@link FlightLog}), каждый снаряд — строкой DEBUG. */
+    private void noteExpired(ServerLevel level, Vec3 aim, FlightLog.Event event) {
+        Airstrike.LOG.debug("Снаряд {} {} не долетел до {} за срок жизни ({}) у {}", getType().getDescriptionId(), getUUID(),
+                BlockPos.containing(aim), event, blockPosition());
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), event, BlockPos.containing(aim), targetLost(), 0);
     }
 
     /**
@@ -712,10 +752,16 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * из 158). Сдвиг ограничен запасом на погоню {@link TargetTracker#CHASE_BUDGET}: цель, которая всё время
      * уходит (элитры, быстрый аппарат), не держит снаряд и район цели вечно — кончился запас, цель потеряна,
      * срок жизни дальше не растёт. Застрявший при неподвижной цели снаряд срок убирает как прежде.
+     * <p>
+     * Дробные тики копятся в {@link #lifetimeCredit}: с округлением вверх каждый сдвиг цели от 0.01 блока давал целый
+     * тик, и срок снаряда за идущим (или качающимся на воде) игроком не убывал, пока не выбран весь запас погони.
      */
     private void extendLifetime(double moved) {
         if (moved <= 0) return;
-        lifetime = maxAge() + (int) Math.ceil(moved / cruiseSpeed() * 1.5);
+        lifetimeCredit += moved / cruiseSpeed() * 1.5;
+        int whole = (int) lifetimeCredit;
+        lifetimeCredit -= whole;
+        lifetime = maxAge() + whole;
     }
 
     /** Куда держать курс: следующая точка маршрута или цель. */
@@ -824,7 +870,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return false;
         }
         if (expired()) {
-            impact(level, pos.add(dir.scale(noseLength())), null);
+            // самоликвидация: так и не дошёл до цели. Ядерная БЧ вдали от цели не подрывается — только корпус и топливо
+            noteExpired(level, aim, FlightLog.Event.EXPIRED);
+            Vec3 nose = pos.add(dir.scale(noseLength()));
+            if (nuclear != null) crash(level, nose);
+            else impact(level, nose, null);
             return false;
         }
 
@@ -889,8 +939,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return true;
         }
         if (expired()) {
-            Airstrike.LOG.warn("Снаряд {} {} не долетел до {} за срок жизни и убран у {}", getType().getDescriptionId(), getUUID(),
-                    BlockPos.containing(aim), blockPosition());
+            noteExpired(level, aim, FlightLog.Event.EXPIRED_VIRTUAL);
             discard();
             return false;
         }
@@ -1254,6 +1303,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         launchPos = Nbt.getVec(tag, "launch");
         lifetime = tag.getInt("lifetime");
         areaWait = tag.getInt("area_wait");
+        lifetimeCredit = tag.getDouble("lifetime_credit");
+        lostCapped = tag.getBoolean("lost_capped");
         grounded = Nbt.getVec(tag, "grounded");
         readyTicks = tag.getInt("ready_ticks");
         sirenLead = tag.contains("siren_lead") ? tag.getInt("siren_lead") : -1;
@@ -1281,6 +1332,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (launchPos != null) Nbt.putVec(tag, "launch", launchPos);
         tag.putInt("lifetime", lifetime);
         tag.putInt("area_wait", areaWait);
+        tag.putDouble("lifetime_credit", lifetimeCredit);
+        tag.putBoolean("lost_capped", lostCapped);
         if (grounded != null) Nbt.putVec(tag, "grounded", grounded);
         tag.putInt("ready_ticks", readyTicks);
         tag.putInt("siren_lead", sirenLead);
