@@ -249,6 +249,39 @@ class TerrainTilesTest {
         });
     }
 
+    /**
+     * Сменился мир посреди фоновой постройки: она останавливается перед следующей колонкой (источник больше не
+     * спрашивают, поток не прерывают — DH пишет прерывание своего чтения в лог ошибкой), плитка возвращается в слой
+     * без колонок, читатель закрыт.
+     */
+    @Test
+    void cancelledBackgroundTileStopsBetweenColumns() {
+        TerrainTiles.Layer layer = layer();
+        int[] reads = {0};
+        boolean[] closed = {false};
+        TerrainSource.Reader reader = new TerrainSource.Reader() {
+            @Nullable
+            @Override
+            public TerrainSource.Column column(int x, int z) {
+                reads[0]++;
+                return null;
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+            }
+        };
+        TerrainTiles.Key key = new TerrainTiles.Key(0, 1, 1);
+        TerrainTiles.buildOffThread(layer, key, 3, reader, () -> reads[0] >= 10);
+        assertEquals(10, reads[0], "после отмены источник не спрашивают");
+        TerrainTiles.Built b = layer.done.poll();
+        assertEquals(key, b.key());
+        assertEquals(3, b.generation());
+        assertNull(b.columns(), "отменённая плитка — без колонок");
+        assertTrue(closed[0], "читатель закрыт");
+    }
+
     /** Фоновая плитка возвращается в слой при любом исходе, и при Error: иначе слой навсегда ждал бы её задачу. */
     @Test
     void backgroundTileReturnsEvenOnError() {
@@ -267,7 +300,7 @@ class TerrainTilesTest {
             }
         };
         TerrainTiles.Key key = new TerrainTiles.Key(2, 3, -1);
-        assertThrows(StackOverflowError.class, () -> TerrainTiles.buildOffThread(layer, key, 7, reader), "Error не глотается");
+        assertThrows(StackOverflowError.class, () -> TerrainTiles.buildOffThread(layer, key, 7, reader, () -> false), "Error не глотается");
         TerrainTiles.Built b = layer.done.poll();
         assertEquals(new TerrainTiles.Key(2, 3, -1), b.key());
         assertEquals(7, b.generation());
