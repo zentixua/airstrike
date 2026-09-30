@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "chunk.BoundTickingBlockEntityMixin",
+    "chunk.LevelChunkEditsMixin",
     "chunk.LevelChunkTickingMixin",
     "sable.SubLevelSplitGuardMixin"
   ],

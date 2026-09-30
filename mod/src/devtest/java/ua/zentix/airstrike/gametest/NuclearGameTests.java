@@ -186,6 +186,40 @@ public final class NuclearGameTests {
     }
 
     /**
+     * Блок, поставленный после плана внутри дома (не место плана: воздух там был и остаётся), держит карты высот
+     * столбца, хотя по плану крыша и стены падают до земли: подмена видит изменение чанка (счётчик
+     * {@code LevelChunkEditsMixin}) и ищет верх этих столбцов заново. Без этого карта высот столбца легла бы на землю.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins_edit", skyAccess = true)
+    public static void blockPlacedAfterPlanKeepsHeights(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos house = CENTER.east(12);
+        for (BlockPos p : BlockPos.betweenClosed(house.offset(-2, 0, -2), house.offset(2, 4, 2))) {
+            boolean wall = Math.abs(p.getX() - house.getX()) == 2 || Math.abs(p.getZ() - house.getZ()) == 2 || p.getY() == house.getY() + 4;
+            if (wall) h.setBlock(p, Blocks.OAK_PLANKS);
+        }
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(house));
+        h.assertTrue(chunk instanceof RuinPlan.Edits, "счётчик изменений чанка не встал (миксин LevelChunkEditsMixin)");
+        int[] before = heights(chunk, true);
+        RuinPlan plan = RuinPlanner.plan(level, detonation(h, CENTER, 0, 15, 0.025f), chunk);
+        BlockPos inside = house.above(3);
+        h.setBlock(inside, Blocks.STONE);
+        h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел: место внутри дома стало местом плана");
+        h.assertBlockPresent(Blocks.STONE, inside);
+        h.assertBlockNotPresent(Blocks.OAK_PLANKS, house.above(4));
+        int[] after = heights(chunk, false), full = heights(chunk, true);
+        for (int k = 0; k < full.length; k++) {
+            if (after[k] != full[k]) {
+                h.fail("столбец " + (k % 256) + ", " + (k / 256 < RuinPlan.HEIGHTMAP_TYPES.length ? RuinPlan.HEIGHTMAP_TYPES[k / 256] : "небо")
+                        + ": после подмены " + after[k] + ", пересчёт " + full[k] + " (до руин " + before[k] + ")");
+            }
+        }
+        BlockPos abs = h.absolutePos(inside);
+        h.assertTrue(level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) == abs.getY() + 1, "карта высот легла ниже камня");
+        h.succeed();
+    }
+
+    /**
      * Сундук с добычей и кровать в руинах: меняются через мир после подмены — ни предметов на земле, ни блок-сущности
      * при воздухе; удар из старого сохранения мощнее предела подрывается с пределом.
      */

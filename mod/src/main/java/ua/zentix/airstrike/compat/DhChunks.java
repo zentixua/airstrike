@@ -8,6 +8,7 @@ import com.seibel.distanthorizons.api.objects.DhApiResult;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import ua.zentix.airstrike.Airstrike;
 
 /**
@@ -19,10 +20,19 @@ import ua.zentix.airstrike.Airstrike;
 public final class DhChunks {
     /** Мажорная версия API, против которой собран мод (7.2.0, DH 3.3.x). */
     private static final int API_MAJOR = 7;
-    /** 0 — ещё не проверяли, 1 — DH с нашим API, −1 — нет (или API отказал: один раз в лог, дальше молча). */
+    /** 0 — ещё не проверяли, 1 — DH с нашим API, −1 — нет (или его классы не те, что знает мод). */
     private static volatile int state;
+    /** Ошибка или отказ API уже в логе (с запуска сервера): дальше — молча. Классы DH здесь не нужны. */
+    private static boolean logged, refused;
 
     private DhChunks() {
+    }
+
+    /** Запуск сервера (в одиночной игре — каждый мир): проверить DH заново, ошибки прошлого мира не в счёт. */
+    public static void onServerStarting(ServerStartingEvent e) {
+        state = 0;
+        logged = false;
+        refused = false;
     }
 
     /** Чанк мира сервера изменён целиком: DH перестроит его LOD. */
@@ -31,9 +41,16 @@ public final class DhChunks {
         if (state < 0) return;
         try {
             Api.overwrite(level, chunk);
-        } catch (RuntimeException | LinkageError e) {
+        } catch (LinkageError e) {
+            // API не то, под которое собран мод: до конца игры не трогаем
             state = -1;
-            Airstrike.LOG.warn("Distant Horizons: обновление LOD изменённого чанка не прошло — дальше LOD руин обновится при сохранении чанка", e);
+            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — LOD руин обновится при сохранении чанка", e);
+        } catch (RuntimeException e) {
+            // разовый отказ (мир DH ещё не готов и т. п.): этот чанк — при сохранении, следующие — снова через API
+            if (!logged) {
+                logged = true;
+                Airstrike.LOG.warn("Distant Horizons: обновление LOD изменённого чанка {} не прошло — он обновится при сохранении", chunk.getPos(), e);
+            }
         }
     }
 
@@ -46,8 +63,6 @@ public final class DhChunks {
     }
 
     private static final class Api {
-        private static boolean refused;
-
         static int major() {
             return DhApi.getApiMajorVersion();
         }

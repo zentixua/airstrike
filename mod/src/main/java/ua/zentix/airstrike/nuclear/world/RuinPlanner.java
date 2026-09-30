@@ -393,7 +393,7 @@ public final class RuinPlanner {
             }
             if (kept == 0 && fireOut.length == 0 && outside.isEmpty()) return RuinPlan.EMPTY;
             return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), fireOut, heights,
-                    lightAt.toLongArray(),
+                    lightAt.toLongArray(), System.identityHashCode(chunk), RuinPlan.edits(chunk),
                     outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState);
         }
 
