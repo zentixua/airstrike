@@ -1212,35 +1212,54 @@ public final class GridGameTests {
     }
 
     /**
-     * Секция целиком из одного двойника (палитра из одного значения): сохранение пишет лампы и не трогает секцию мира.
-     * {@code PalettedContainer.copy()} такой секции делит с ней палитру, и замена в копии расширяла живую секцию, а сама
-     * запись падала — чанк уходил на диск с двойниками.
+     * Секция, где двойнику нужна новая запись в палитре, а места в ней нет: сохранение пишет лампы и не трогает секцию
+     * мира. Копия {@code PalettedContainer.copy()} любой палитры, кроме глобальной, держит обработчик роста живой секции
+     * (палитра из одного значения — и вовсе та же), и замена в копии расширяла секцию мира, а запись падала — чанк
+     * уходил на диск с двойниками. Две секции: вся из двойника (одно значение) и полная линейная палитра (16 состояний).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "grid_save_tags", skyAccess = true)
-    public static void saveLeavesSingleValueSectionAlone(GameTestHelper h) {
+    public static void saveLeavesFullPaletteSectionsAlone(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
+        BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
+        PalettedContainer<BlockState> single = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, twin, PalettedContainer.Strategy.SECTION_STATES);
+        // воздух, 14 других блоков и двойник: 16 состояний — линейная палитра заполнена, фонаря в ней нет
+        List<Block> others = List.of(Blocks.STONE, Blocks.DIRT, Blocks.GRASS_BLOCK, Blocks.COBBLESTONE, Blocks.OAK_PLANKS, Blocks.SAND,
+                Blocks.GRAVEL, Blocks.GLASS, Blocks.BRICKS, Blocks.OAK_LOG, Blocks.WHITE_WOOL, Blocks.ANDESITE, Blocks.DIORITE, Blocks.GRANITE);
+        PalettedContainer<BlockState> linear = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(), PalettedContainer.Strategy.SECTION_STATES);
+        for (int i = 0; i < others.size(); i++) linear.set(i, 0, 0, others.get(i).defaultBlockState());
+        linear.set(15, 15, 15, twin);
         LevelChunk chunk = level.getChunkAt(h.absolutePos(CENTER));
-        // пустая секция над площадкой — на время теста вся из погашенных фонарей
+        // пустая секция над площадкой — на время проверки одна из этих
         int index = chunk.getSectionIndex(h.absolutePos(CENTER).getY()) + 4;
         LevelChunkSection air = chunk.getSections()[index];
         h.assertTrue(air.hasOnlyAir(), "секция над площадкой не пустая");
-        BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
-        PalettedContainer<BlockState> live = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, twin, PalettedContainer.Strategy.SECTION_STATES);
-        chunk.getSections()[index] = new LevelChunkSection(live, air.getBiomes());
-        try {
-            Tag before = BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow();
-            int size = live.getSerializedSize();
-            CompoundTag tag = ChunkSerializer.write(level, chunk);
-            ChunkSaves.onSave(new ChunkDataEvent.Save(chunk, level, tag));
-            h.assertFalse(tag.toString().contains("airstrike:unlit"), "двойники сохранены на диск");
-            h.assertTrue(tag.toString().contains("minecraft:sea_lantern"), "фонарей нет в теге");
-            h.assertTrue(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow().equals(before), "сохранение изменило секцию мира");
-            h.assertTrue(live.get(7, 7, 7) == twin, "сохранение зажгло фонарь в мире");
-            // палитра секции мира не выросла (блоки те же, но хранилище уже другое)
-            h.assertTrue(live.getSerializedSize() == size, "сохранение расширило палитру секции мира");
-        } finally {
-            chunk.getSections()[index] = air;
+        int sectionY = chunk.getSectionYFromSectionIndex(index);
+        for (PalettedContainer<BlockState> live : List.of(single, linear)) {
+            chunk.getSections()[index] = new LevelChunkSection(live, air.getBiomes());
+            try {
+                Tag before = BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow();
+                int size = live.getSerializedSize();
+                CompoundTag tag = ChunkSerializer.write(level, chunk);
+                ChunkSaves.onSave(new ChunkDataEvent.Save(chunk, level, tag));
+                CompoundTag saved = sections(tag).stream().filter(s -> s.getByte("Y") == sectionY).findFirst().orElseThrow().getCompound("block_states");
+                PalettedContainer<BlockState> disk = BLOCK_STATES.parse(NbtOps.INSTANCE, saved).getOrThrow();
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            BlockState inWorld = live.get(x, y, z), onDisk = disk.get(x, y, z);
+                            BlockState expected = inWorld == twin ? Blocks.SEA_LANTERN.defaultBlockState() : inWorld;
+                            if (onDisk != expected) h.fail("на диске " + onDisk + " вместо " + expected + " в " + x + " " + y + " " + z);
+                        }
+                    }
+                }
+                h.assertTrue(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow().equals(before), "сохранение изменило секцию мира");
+                h.assertTrue(live.get(15, 15, 15) == twin, "сохранение зажгло фонарь в мире");
+                // палитра секции мира не выросла (блоки те же, но хранилище уже другое)
+                h.assertTrue(live.getSerializedSize() == size, "сохранение расширило палитру секции мира");
+            } finally {
+                chunk.getSections()[index] = air;
+            }
         }
         h.succeed();
     }

@@ -60,7 +60,7 @@ public final class ChunkSaves {
                 if (index < 0 || index >= chunk.getSectionsCount()) continue;
                 LevelChunkSection section = chunk.getSection(index);
                 if (!ChunkLights.needs(section, false)) continue;
-                // тег секции — ровно то, что ваниль только что записала из этой секции (кодирование дешевле разбора)
+                // тег секции — ровно то, что ваниль только что записала из этой секции (сверка тегов вместо 4096 блоков)
                 if (!s.getCompound("block_states").equals(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, section.getStates()).getOrThrow())) {
                     // тег писал не ванильный конвейер для этого чанка — не наш; двойники этой секции уйдут на диск как есть
                     if (!foreignLogged) {
@@ -70,8 +70,9 @@ public final class ChunkSaves {
                     }
                     continue;
                 }
-                // своя копия — из тега, не copy(): у секции из одного блока copy() отдаёт ту же палитру, а та при
-                // первой замене расширяет живую секцию мира (обработчик роста палитры — у неё) и роняет запись
+                // своя копия — из тега, не copy(): копия любой палитры, кроме глобальной, держит обработчик роста живой
+                // секции (из одного значения — и вовсе та же палитра), и замена, которой палитре копии мало (лампы в ней
+                // нет, а места уже нет), расширяла секцию мира и роняла запись
                 PalettedContainer<BlockState> states = BLOCK_STATES.parse(NbtOps.INSTANCE, s.getCompound("block_states")).getOrThrow();
                 // палитра помнит и ушедшие состояния: двойник в ней ещё не значит двойник в секции
                 if (ChunkLights.apply(states, false) == 0) continue;
