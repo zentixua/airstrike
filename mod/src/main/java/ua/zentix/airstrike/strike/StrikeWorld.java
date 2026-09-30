@@ -2,6 +2,7 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
@@ -13,7 +14,10 @@ import ua.zentix.airstrike.work.UnitQueue;
 import ua.zentix.airstrike.work.WorkScheduler;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,6 +38,8 @@ public final class StrikeWorld {
     private final FlightLog flightLog = new FlightLog();
     /** Единицы работы попаданий — полоса {@link WorkScheduler.Lane#IMPACT} общего бюджета тика. */
     private final UnitQueue impacts = new UnitQueue();
+    /** Районы полос подлёта ({@link FlightTickets#holdApproach}): центр → снаряды, чьи полосы через него проходят. */
+    private final Map<ChunkPos, Set<UUID>> approach = new HashMap<>();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public StrikeWorld() {}
@@ -45,6 +51,11 @@ public final class StrikeWorld {
     /** Районы, которые мод грузит заранее: районы целей и взрывов, чанки снарядов, подсказки карты, ядерный удар. */
     public AreaLoader areas() {
         return areas;
+    }
+
+    /** Районы полос подлёта и снаряды, которые их держат ({@link FlightTickets}). */
+    Map<ChunkPos, Set<UUID>> approach() {
+        return approach;
     }
 
     /** Сколько потока сервера заняли попадания в этом тике (строка в лог о медленном). */

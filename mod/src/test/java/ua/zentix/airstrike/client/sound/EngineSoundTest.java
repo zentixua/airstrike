@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.net.S2C;
@@ -17,18 +18,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EngineSoundTest {
     private static final UUID ID = UUID.randomUUID();
     private static final Vec3 EAR = Vec3.ZERO;
+    /** Маршевая скорость ракеты, блоков/тик. */
+    private static final double V = CruiseMissileEntity.CRUISE_SPEED;
 
     /** Крылатая ракета с {@code from} блоков прямо на слушателя; цель — {@code aim}. */
     private static SourceTrack missile(double from, Vec3 aim) {
         return missile(from, aim, 100);
     }
 
-    /** То же, {@code ticks} тиков полёта (дальше 11.5·ticks − from блоков она уходит за слушателя). */
+    /** То же, {@code ticks} тиков полёта на маршевой скорости (дальше v·ticks − from блоков она уходит за слушателя). */
     private static SourceTrack missile(double from, Vec3 aim, int ticks) {
         SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
         for (int k = 0; k <= ticks; k++) {
-            double x = from - 11.5 * k;
-            t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 12, 0), new Vec3(-11.5, 0, 0), 90, 0,
+            double x = from - V * k;
+            t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0,
                     FlightPhase.CRUISE.ordinal(), 200 + k, aim));
         }
         return t;
@@ -39,22 +42,27 @@ class EngineSoundTest {
         return layer.tone(t, Emission.at(t, te, EAR, false));
     }
 
+    /** Когда до слушателя у начала координат доходит звук ракеты, вылетевшей с {@code from}, из точки в {@code d} блоках. */
+    private static double heardFrom(double from, double d) {
+        return (from - d) / V + d / Acoustics.SPEED;
+    }
+
     @Test
     void missileWhistlesTheWholeApproachFromAfar() {
         // ракета на последнем участке, слушатель у цели: свист слышно с 850 блоков (раньше — только с 260), и он нарастает
-        SourceTrack t = missile(1200, EAR);
-        double te = Acoustics.emissionTime(t, 80, EAR.x, EAR.y, EAR.z);
+        SourceTrack t = missile(1200, EAR, 300);
+        double te = Acoustics.emissionTime(t, heardFrom(1200, 850), EAR.x, EAR.y, EAR.z);
         Emission e = Emission.at(t, te, EAR, false);
         double far = EngineSound.Layer.MISSILE_WHISTLE.tone(t, e).gain();
         assertTrue(e.aimDistance() > 800 && far > 0.1, "в " + Math.round(e.aimDistance()) + " блоках от цели свист " + far);
-        assertTrue(heard(EngineSound.Layer.MISSILE_WHISTLE, t, 95).gain() > far, "на подлёте свист нарастает");
+        assertTrue(heard(EngineSound.Layer.MISSILE_WHISTLE, t, heardFrom(1200, 600)).gain() > far, "на подлёте свист нарастает");
     }
 
     @Test
     void missileWhistleWarnsFromThreeKilometres() {
         // путь по пакетам (раз в 2 тика), как у ракеты вне мира: с 3000 блоков на слушателя у цели; свист слышно
-        // до прихода ракеты не меньше 4 с (d·(1/v − 1/c) ≈ 86 тиков), и история пути не теряет слышимую точку
-        double from = Hearing.WHISTLE + Hearing.FADE, v = 11.5;
+        // до прихода ракеты почти на d·(1/v − 1/c) (≈ 575 тиков), и история пути не теряет слышимую точку
+        double from = Hearing.WHISTLE + Hearing.FADE, v = V;
         int arrival = (int) (from / v);
         SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
         int first = -1;
@@ -73,14 +81,16 @@ class EngineSoundTest {
         }
         assertTrue(first >= 0, "свиста не было");
         assertTrue(firstDistance > 2800, "свист слышно с " + Math.round(firstDistance) + " блоков");
-        assertTrue(arrival - first >= 80, "свист за " + (arrival - first) + " тиков до прихода ракеты");
+        // слышимая точка — в firstDistance блоках: звук оттуда опережает ракету на d·(1/v − 1/c), с запасом 10 %
+        double lead = firstDistance * (1 / v - 1 / Acoustics.SPEED);
+        assertTrue(arrival - first >= 0.9 * lead, "свист за " + (arrival - first) + " тиков до прихода ракеты, ожидание ~" + Math.round(lead));
     }
 
     @Test
     void missileOnDetourDoesNotWhistle() {
         // тот же пролёт над слушателем, но цель в стороне (ракета идёт по обходу маршрута): свиста подлёта нет
-        SourceTrack t = missile(1200, new Vec3(-300, 0, 800));
-        assertEquals(0, heard(EngineSound.Layer.MISSILE_WHISTLE, t, 80).gain(), 1e-12);
+        SourceTrack t = missile(1200, new Vec3(-300, 0, 800), 300);
+        assertEquals(0, heard(EngineSound.Layer.MISSILE_WHISTLE, t, heardFrom(1200, 450)).gain(), 1e-12);
     }
 
     @Test
@@ -88,7 +98,7 @@ class EngineSoundTest {
         // ракета проходит в 12 блоках над головой и уходит дальше (цель далеко за слушателем): мощность мотора (все его
         // слои: спереди, сзади, в пике, вдали — разные записи, складываются по мощности) на подлёте только растёт,
         // вслед только падает — без провала над головой и на смене ближнего гула дальним
-        SourceTrack t = missile(600, new Vec3(-3000, 0, 0), 110);
+        SourceTrack t = missile(200, new Vec3(-3000, 0, 0), 110);
         EngineSound.Layer[] engine = {EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
                 EngineSound.Layer.MISSILE_FAR};
         double prev = -1;
