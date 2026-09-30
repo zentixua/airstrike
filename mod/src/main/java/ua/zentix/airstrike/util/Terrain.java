@@ -30,6 +30,14 @@ public final class Terrain {
         return ready(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 
+    /** Готовы чанк и все восемь соседей: цепочка обновлений от блока в нём (до 16 блоков) не выходит за готовые. */
+    public static boolean neighbourhoodReady(Level level, int chunkX, int chunkZ) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) if (!ready(level, chunkX + dx, chunkZ + dz)) return false;
+        }
+        return true;
+    }
+
     /** Готовы все чанки, которых касается квадрат со стороной {@code 2r} вокруг точки. */
     public static boolean readyAround(Level level, Vec3 centre, double r) {
         for (int cx = Mth.floor(centre.x - r) >> 4; cx <= Mth.floor(centre.x + r) >> 4; cx++) {

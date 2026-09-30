@@ -21,6 +21,8 @@ public final class FlightTickets {
      * снаряд появляется в мире до цели, а соседние чанки готовы для взрыва и обломков.
      */
     public static final int DISTANCE = 4;
+    /** Район цели «Ланцета» ({@code LoiterEntity.targetArea}): уровень 27, круг барража весь в тикающих чанках. */
+    public static final int LOITER_DISTANCE = 6;
 
     private FlightTickets() {}
 

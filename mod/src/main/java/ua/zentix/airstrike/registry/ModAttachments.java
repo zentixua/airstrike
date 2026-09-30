@@ -10,6 +10,7 @@ import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
+import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 
@@ -68,6 +69,10 @@ public final class ModAttachments {
     /** Игрок: район, который грузится по клику на карте наведения ({@link PickHints}); не сохраняется. */
     public static final Supplier<AttachmentType<PickHints.Slot>> PICK_HINT = REGISTER.register("pick_hint",
             () -> AttachmentType.builder(PickHints.Slot::new).build());
+
+    /** Игрок: тикет, с которым место входа грузится раньше районов мода ({@link ArrivalTickets}); не сохраняется. */
+    public static final Supplier<AttachmentType<ArrivalTickets.Slot>> ARRIVAL = REGISTER.register("arrival",
+            () -> AttachmentType.builder(ArrivalTickets.Slot::new).build());
 
     private ModAttachments() {}
 }
