@@ -139,7 +139,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `command/AirstrikeCommand` — `/airstrike` (то же, что пульт, плюс ядерка, радиация, выдача); `item/` — пульт
   (`DesignatorItem`: бинокль, экран) и счётчик Гейгера; `util/` — `Local` (локальные координаты «^ ^ ^»),
   `Particles` (разброс частиц как у команды `particle`), `Terrain` (готовность чанка и высота без ожидания загрузки), `Nbt` (векторы в NBT), `BlockTicking` (блок-сущности тикают при готовых соседях); миксины (см. подводные камни):
-  `mixin/sable/` и `mixin/chunk/LevelChunkTickingMixin`.
+  `mixin/sable/` и `mixin/chunk/` (`BoundTickingBlockEntityMixin`, `LevelChunkTickingMixin`).
 - Состояние сервера, которое не сохраняется, — несохраняемые attachments NeoForge (мира: `StrikeWorld`, `NuclearWorld`; игрока:
   пауза между пусками, «HUD полётов показан»), а не статические карты: статика переживает смену мира в одиночной игре.
 - `client/` (`@Mod(dist = CLIENT)`) — `render/` (`WeaponModels` — модели снарядов из OBJ и их анимации
@@ -243,16 +243,20 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   дальность обзора сервера (по ней стоят тикеты игрока) меньше дистанции симуляции. Остановка 13 с на стенде (облако,
   fix-d: хранилище испытаний у района цели; обзор сервера 8, симуляция 6), вероятно, ванильная: игрок сместился на
   чанк за край заранее готового квадрата, а соседний чанк ещё генерировался. Оба случая закрывает миксин
-  `mixin/chunk/LevelChunkTickingMixin`: `LevelChunk.isTicking` (его зовёт только тик блок-сущности) ещё и требует
-  готового будущего `ChunkHolder.getTickingChunk` — того же условия «все 8 соседей FULL», по которому ваниль пускает
-  случайные тики и тики блоков (`util/BlockTicking`). Чанки плота Sable не задерживаются: Sable кладёт их держатель
+  `mixin/chunk/BoundTickingBlockEntityMixin`: в начале `LevelChunk$BoundTickingBlockEntity.tick` блок-сущность
+  тикает, только если у её чанка готово будущее `ChunkHolder.getTickingChunk` — то же условие «все 8 соседей FULL»,
+  по которому ваниль пускает случайные тики и тики блоков (`util/BlockTicking`; ответ на тик — у чанка,
+  `LevelChunkTickingMixin`). Не в `LevelChunk.isTicking`: Lithium (у хоста 0.15.4) заменяет этот вызов в тике своим
+  `@Redirect` (`world.block_entity_ticking.world_border`), и условие там не спрашивалось ни разу (сборка хоста 30.09.2026).
+  У «спящих» блок-сущностей Lithium тикер-заглушка, `getPos()` — null: код, перебирающий `Level.blockEntityTickers`,
+  проверяет место на null. Чанки плота Sable не задерживаются: Sable кладёт их держатель
   `PlotChunkHolder` в ту же `ChunkMap` (`ServerLevelPlot.addChunkHolder`), а он отдаёт чанк сам. GameTest
-  `blockEntitiesWaitForNeighbours` (без миксина падает на первом тике с неготовым соседом) и `craftBlockEntitiesTick`
-  (печь на собранном аппарате горит, держатель — `PlotChunkHolder`). В игре раз в минуту после запуска, пока не ясно,
-  `BlockTicking.onServerTick` пишет одну строку: условие спрашивают — или тик блок-сущностей идёт мимо него (миксин не
-  встал, другой мод заменил тик). `@Shadow` в миксине — только
-  на член, объявленный в самом целевом классе (refMap нет, в игре имена Mojang): `getPos` объявлен в `ChunkAccess`,
-  и миксин на `LevelChunk` с ним не вставал.
+  `blockEntitiesWaitForNeighbours` (печь в чанке с неготовым соседом не горит; без миксина и с Lithium на старом миксине
+  падает), `checkSkipsTickersWithoutPos` и `craftBlockEntitiesTick` (печь на собранном аппарате горит, держатель —
+  `PlotChunkHolder`). В игре раз в минуту после запуска, пока не ясно, `BlockTicking.onServerTick` пишет одну строку:
+  условие спрашивают — или тик блок-сущностей идёт мимо него (миксин не встал, другой мод заменил тик). `@Shadow`
+  в миксине — только на член, объявленный в самом целевом классе (refMap нет, в игре имена Mojang): `getPos` объявлен
+  в `ChunkAccess`, и миксин на `LevelChunk` с ним не вставал; внешний чанк вложенного класса — `this$0` (как у Lithium).
 - Все загруженные чанки — `chunkMap.getChunks()` (открыт AT).
 - `ChunkEvent.Load` приходит один раз за жизнь чанка в памяти: у края видимости чанк опускается ниже полной загрузки
   (`getChunkNow` — null) и поднимается обратно без выгрузки и без нового события. Очередь, которая держит чанки,

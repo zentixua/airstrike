@@ -4,6 +4,7 @@
   "package": "ua.zentix.airstrike.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "chunk.BoundTickingBlockEntityMixin",
     "chunk.LevelChunkTickingMixin",
     "sable.SubLevelSplitGuardMixin"
   ],

@@ -5,17 +5,20 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -24,7 +27,6 @@ import ua.zentix.airstrike.util.BlockTicking;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -45,17 +47,15 @@ public final class BlockTickingGameTests {
      * Чанк, который уже загружен целиком (уровень 33, сущности загружены), получает тикет региона радиуса 1: по уровню
      * он сразу тикает блоками (32), а соседи только начинают догружаться до полной загрузки (33). Так было на стенде
      * (облако 29.09.2026): игрок сместился на чанк, хранилище испытаний у нового края тикало и грузило соседа синхронно,
-     * сервер стоял 13 с (на {@code main} — 31 с). Пока сосед не готов, блок-сущности чанка не тикают
-     * ({@code LevelChunk.isTicking} — false), а с готовыми соседями тикают. Проверка засчитывается, только если такие
-     * тики были; без миксина ваниль здесь пускает блок-сущности.
+     * сервер стоял 13 с (на {@code main} — 31 с). В чанке горящая печь: пока сосед не готов, она не тикает (горение не
+     * начинается), с готовыми соседями — тикает. Проверяется сам тик блок-сущности, а не {@code LevelChunk.isTicking}:
+     * Lithium заменяет этот вызов в тике своим, и условие там не спрашивалось (сборка хоста, 30.09.2026). Проверка
+     * засчитывается, только если такие тики были; без миксина ваниль здесь пускает печь.
      */
     @GameTest(template = "range", timeoutTicks = 2400, batch = "block_ticking", skyAccess = true)
     public static void blockEntitiesWaitForNeighbours(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        // миксин встал: вызов LevelChunk.isTicking проходит через условие
         long checks = BlockTicking.checks();
-        isTicking(level.getChunkAt(h.absolutePos(RANGE_CENTER)));
-        h.assertTrue(BlockTicking.checks() > checks, "миксин LevelChunkTickingMixin не встал");
         // чанк грузится в фоне: срок — игровой
         StrikeGameTests.gameSpeed(h);
         ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
@@ -69,35 +69,79 @@ public final class BlockTickingGameTests {
             level.getChunkSource().removeRegionTicket(PLAIN, c, 1, id);
         });
         int[] tick = {0}, raisedAt = {-1}, exposed = {0};
+        AbstractFurnaceBlockEntity[] furnace = {null};
         h.onEachTick(() -> {
             tick[0]++;
             LevelChunk chunk = level.getChunkSource().getChunkNow(c.x, c.z);
             if (raisedAt[0] < 0) {
                 if (chunk == null || !level.areEntitiesLoaded(c.toLong())) return;
+                // печь посреди чанка, над поверхностью: её обновления соседей остаются в чанке
+                BlockPos mid = c.getMiddleBlockPosition(0);
+                BlockPos at = mid.atY(chunk.getHeight(Heightmap.Types.WORLD_SURFACE, mid.getX(), mid.getZ()) + 2);
+                level.setBlock(at, Blocks.FURNACE.defaultBlockState(), Block.UPDATE_CLIENTS);
+                furnace[0] = (AbstractFurnaceBlockEntity) level.getBlockEntity(at);
+                furnace[0].setItem(0, new ItemStack(Items.RAW_IRON, 64));
+                furnace[0].setItem(1, new ItemStack(Items.COAL, 8));
                 level.getChunkSource().addRegionTicket(PLAIN, c, 1, id);
                 raisedAt[0] = tick[0];
                 return;
             }
-            if (chunk == null || !level.shouldTickBlocksAt(c.toLong())) return;
-            boolean blockEntities = isTicking(chunk);
+            if (furnace[0].isRemoved()) throw new GameTestAssertException("печь пропала: чанк выгружен");
+            // печь, которая хоть раз тикнула, горит: уголь взят в первом же её тике
+            boolean ticked = litTime(furnace[0]) > 0;
             if (!neighboursReady(level, c.x, c.z)) {
-                exposed[0]++;
-                if (blockEntities) {
-                    throw new GameTestAssertException("тик " + tick[0] + ": блок-сущности тикают, а сосед чанка не готов");
-                }
+                if (level.shouldTickBlocksAt(c.toLong()) && chunk.getFullStatus().isOrAfter(FullChunkStatus.BLOCK_TICKING)) exposed[0]++;
+                if (ticked) throw new GameTestAssertException("тик " + tick[0] + ": печь тикает, а сосед чанка не готов");
                 return;
             }
-            if (!blockEntities) {
+            if (!ticked) {
                 if (tick[0] - raisedAt[0] > 600) {
-                    throw new GameTestAssertException("соседи готовы, а блок-сущности не тикают " + (tick[0] - raisedAt[0]) + " тиков");
+                    throw new GameTestAssertException("соседи готовы, а печь не тикает " + (tick[0] - raisedAt[0]) + " тиков");
                 }
                 return;
             }
-            Airstrike.LOG.info("Блок-сущности у неготовых соседей: чанк загружен на тике {}, тиков с неготовым соседом {}, тикают с тика {}",
-                    raisedAt[0], exposed[0], tick[0]);
+            Airstrike.LOG.info("Блок-сущности у неготовых соседей: печь поставлена на тике {}, тиков, когда ваниль пустила бы её "
+                    + "с неготовым соседом, {}, тикает с тика {}", raisedAt[0], exposed[0], tick[0]);
             h.assertTrue(exposed[0] > 0, "соседи были готовы сразу — проверка ничего не проверила");
+            h.assertTrue(BlockTicking.checks() > checks, "миксин BoundTickingBlockEntityMixin не встал: условие не спрашивали");
             h.succeed();
         });
+    }
+
+    /**
+     * Проверка в игре, что условие стоит на тике блок-сущностей, не падает на «спящих» блок-сущностях Lithium: у их
+     * тикера-заглушки место — null (сборка хоста 30.09.2026: NullPointerException в тике сервера через минуту после входа).
+     */
+    @GameTest(template = "range", batch = "block_ticking_sleeping")
+    public static void checkSkipsTickersWithoutPos(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        TickingBlockEntity sleeping = new TickingBlockEntity() {
+            @Override
+            public void tick() {}
+
+            @Override
+            public boolean isRemoved() {
+                return false;
+            }
+
+            @Override
+            public BlockPos getPos() {
+                return null;
+            }
+
+            @Override
+            public String getType() {
+                return "<lithium_sleeping>";
+            }
+        };
+        // только на время вызова: сама ваниль без Lithium на таком тикере упала бы в Level.tickBlockEntities
+        level.blockEntityTickers.add(0, sleeping);
+        try {
+            BlockTicking.shouldHaveTicked(level.getServer());
+        } finally {
+            level.blockEntityTickers.remove(sleeping);
+        }
+        h.succeed();
     }
 
     /**
@@ -170,7 +214,7 @@ public final class BlockTickingGameTests {
      */
     private static AbstractFurnaceBlockEntity craftFurnace(ServerLevel level, BlockPos origin) {
         for (TickingBlockEntity t : tickers(level)) {
-            if (t.isRemoved() || t.getPos().equals(origin)) continue;
+            if (t.isRemoved() || t.getPos() == null || t.getPos().equals(origin)) continue;
             BlockEntity be = level.getBlockEntity(t.getPos());
             if (be instanceof AbstractFurnaceBlockEntity f && f.getItem(0).is(Items.RAW_IRON)) return f;
         }
@@ -199,17 +243,6 @@ public final class BlockTickingGameTests {
             return f.getInt(furnace);
         } catch (ReflectiveOperationException e) {
             throw new GameTestAssertException("горение печи недоступно: " + e);
-        }
-    }
-
-    /** {@code LevelChunk.isTicking} — тикают ли блок-сущности в чанке (с миксином — и по готовности соседей). */
-    private static boolean isTicking(LevelChunk chunk) {
-        try {
-            Method m = LevelChunk.class.getDeclaredMethod("isTicking", BlockPos.class);
-            m.setAccessible(true);
-            return (boolean) m.invoke(chunk, chunk.getPos().getMiddleBlockPosition(64));
-        } catch (ReflectiveOperationException e) {
-            throw new GameTestAssertException("LevelChunk.isTicking недоступен: " + e);
         }
     }
 

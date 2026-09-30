@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.util;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -10,7 +11,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
 
 /**
- * Блок-сущности чанка тикают, только когда готовы все 8 соседей ({@link ua.zentix.airstrike.mixin.chunk.LevelChunkTickingMixin}).
+ * Блок-сущности чанка тикают, только когда готовы все 8 соседей ({@link ua.zentix.airstrike.mixin.chunk.BoundTickingBlockEntityMixin}).
  * <p>
  * Ваниль пускает блок-сущность тикать по двум уровням: загрузки чанка ≤ 32 ({@code LevelChunk.isTicking}) и счёта тика
  * &lt; 33 ({@code ServerLevel.shouldTickBlocksAt}); готовность соседей не проверяется. Улей или хранилище испытаний у края
@@ -29,7 +30,7 @@ public final class BlockTicking {
     /** Через столько тиков после запуска сервера — проверка, что условие действительно стоит на тике блок-сущностей. */
     private static final int CHECK_EVERY = 1200;
     /**
-     * Сколько раз сервер спрашивал условие (миксин встал и тик блок-сущностей идёт через {@code LevelChunk.isTicking})
+     * Сколько раз сервер спрашивал условие (миксин встал и тик блок-сущностей идёт через {@code BoundTickingBlockEntity.tick})
      * и сказана ли уже строка о нём. Только поток сервера; с каждым запуском сервера — заново ({@link #onServerStarting}):
      * статика переживает смену мира в одиночной игре.
      */
@@ -37,6 +38,11 @@ public final class BlockTicking {
     private static boolean reported;
 
     private BlockTicking() {}
+
+    /** Чанк сервера: готовы ли соседи для тика его блок-сущностей (ответ на тик — у самого чанка). */
+    public interface ChunkGate {
+        boolean airstrike$neighboursReady(ServerLevel server);
+    }
 
     /** Соседи чанка готовы (или это чанк аппарата) — блок-сущности могут тикать. */
     public static boolean neighboursReady(ServerLevel level, ChunkPos pos) {
@@ -60,8 +66,8 @@ public final class BlockTicking {
 
     /**
      * Миксин необязательный ({@code required: false}): не вставший — лишь предупреждение Mixin в логе, а другой мод
-     * сборки может тикать блок-сущности мимо {@code LevelChunk.isTicking}. Раз в минуту после запуска, пока не ясно:
-     * есть блок-сущность, которая должна была тикать, — условие спрашивали или нет. Итог — одна строка в лог.
+     * сборки может тикать блок-сущности мимо {@code BoundTickingBlockEntity.tick}. Раз в минуту после запуска, пока не
+     * ясно: есть блок-сущность, которая должна была тикать, — условие спрашивали или нет. Итог — одна строка в лог.
      */
     public static void onServerTick(ServerTickEvent.Post e) {
         if (reported || e.getServer().getTickCount() % CHECK_EVERY != 0) return;
@@ -70,15 +76,23 @@ public final class BlockTicking {
             Airstrike.LOG.info("Блок-сущности тикают только при готовых соседних чанках (проверок: {})", checks);
             return;
         }
-        for (ServerLevel level : e.getServer().getAllLevels()) {
+        if (!shouldHaveTicked(e.getServer())) return;
+        reported = true;
+        Airstrike.LOG.warn("Тик блок-сущностей идёт мимо BoundTickingBlockEntity.tick (миксин BoundTickingBlockEntityMixin не встал "
+                + "или другой мод заменил тик): блок-сущности у края прогрузки могут грузить соседние чанки синхронно");
+    }
+
+    /**
+     * Есть блок-сущность, которая в этом тике должна была тикать. У «спящих» блок-сущностей Lithium место — null
+     * (его тикер-заглушка; сам Lithium такие в {@code Level.tickBlockEntities} пропускает): они не тикают.
+     */
+    public static boolean shouldHaveTicked(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
             for (TickingBlockEntity t : level.blockEntityTickers) {
                 BlockPos pos = t.getPos();
-                if (t.isRemoved() || !level.shouldTickBlocksAt(ChunkPos.asLong(pos))) continue;
-                reported = true;
-                Airstrike.LOG.warn("Тик блок-сущностей идёт мимо LevelChunk.isTicking (миксин LevelChunkTickingMixin не встал или "
-                        + "другой мод заменил тик): блок-сущности у края прогрузки могут грузить соседние чанки синхронно");
-                return;
+                if (!t.isRemoved() && pos != null && level.shouldTickBlocksAt(ChunkPos.asLong(pos))) return true;
             }
         }
+        return false;
     }
 }
