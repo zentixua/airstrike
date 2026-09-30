@@ -11,6 +11,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.guidance.Dive;
 import ua.zentix.airstrike.guidance.Orbit;
 import ua.zentix.airstrike.guidance.Route;
+import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
@@ -141,7 +142,7 @@ public class LoiterEntity extends StrikeProjectile {
      */
     @Override
     protected int targetArea() {
-        return 6;
+        return FlightTickets.LOITER_DISTANCE;
     }
 
     @Override
