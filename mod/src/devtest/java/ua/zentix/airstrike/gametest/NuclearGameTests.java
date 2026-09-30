@@ -622,7 +622,26 @@ public final class NuclearGameTests {
             fires += fresh.fireCount();
         }
         h.assertTrue(changed > 0, "дом не тронут");
-        h.assertTrue(fires > 0, "ни одного пожара: сравнение мест пожаров ничего не проверило");
+        if (fires == 0) {
+            // разбор: настройка пожаров, дёрн под небом на площадке и свет у него
+            int grass = 0, open = 0;
+            double most = 0;
+            BlockPos top = null;
+            for (BlockPos p : BlockPos.betweenClosed(h.absolutePos(new BlockPos(0, 0, 0)), h.absolutePos(new BlockPos(63, 40, 63)))) {
+                if (!level.getBlockState(p).is(Blocks.GRASS_BLOCK)) continue;
+                grass++;
+                if (level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, p.getX(), p.getZ()) == p.getY() + 1) open++;
+                double f = d.fluence(Vec3.atCenterOf(p).add(0, 1, 0));
+                if (f > most) most = f;
+            }
+            for (BlockPos p : BlockPos.betweenClosed(h.absolutePos(new BlockPos(0, 41, 0)), h.absolutePos(new BlockPos(63, 120, 63)))) {
+                if (!level.getBlockState(p).isAir() && (top == null || p.getY() > top.getY())) top = p.immutable();
+            }
+            h.fail("ни одного пожара: сравнение мест пожаров ничего не проверило (пожары в настройке "
+                    + AirstrikeConfig.SERVER.nukeFires.get() + ", дёрн " + grass + ", под небом " + open + ", свет у дёрна до "
+                    + String.format(Locale.ROOT, "%.1f", most) + ", выше площадки " + (top == null ? "ничего" : level.getBlockState(top) + " " + top.toShortString())
+                    + ", подрыв " + d.burst() + ", угол " + h.absolutePos(c).toShortString() + ")");
+        }
         h.succeed();
     }
 
