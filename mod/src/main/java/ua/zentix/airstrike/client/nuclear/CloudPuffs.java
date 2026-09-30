@@ -33,10 +33,23 @@ public final class CloudPuffs {
 
     private static final int CAP_BASE = 0x8C5A46, CAP_LATE = 0xC9C4BE, STEM = 0x8E7F70, DUST = 0x9C8A74, DUST_BURNT = 0x5E4E40,
             WILSON = 0xF4F4F6;
-    /** Накал изнутри: сначала жёлто-оранжевый, к концу — тёмно-красный; пожары под стеной — оранжевое пламя. */
-    private static final int GLOW_HOT = 0xFFB050, GLOW_LATE = 0xD8461C, FIRE = 0xFF8A2E;
-    /** Отсвет накала в самом дыме (ночью он не даёт грибу стать тёмным) и сила свечения клуба в складывающемся проходе. */
-    private static final double GLOW_IN_SMOKE = 0.5, EMISSIVE = 0.22;
+    /**
+     * Цвет накала изнутри по времени (с при 15 кт, у 1 кт короче — {@link #glowScale}): бело-жёлтый у шара,
+     * жёлто-оранжевый, оранжевый, к минуте — тёплый буро-оранжевый, потом — дым, освещённый снизу пожарами и небом.
+     * Яркость накала — отдельно ({@link #glow}); цвет не темнеет до тёмно-красного: на ночном небе тёмно-красный
+     * дым, умноженный на гаснущий накал, выглядел чёрным.
+     */
+    private static final double[] GLOW_T = {0, 10, 35, 65, 100, 160};
+    private static final int[] GLOW_RGB = {0xFFD890, 0xFFB050, 0xFF8C3C, 0xF27838, 0xC87A50, 0xB08C78};
+    /** Пожары под стеной — оранжевое пламя. */
+    private static final int FIRE = 0xFF8A2E;
+    /** Отсвет накала в самом дыме и сила свечения клуба в складывающемся проходе. */
+    private static final double GLOW_IN_SMOKE = 0.85, EMISSIVE = 0.3;
+    /**
+     * Шапка и ножка и после накала не чернеют: их снизу освещают пожары, сверху — небо. Это нижняя граница их
+     * отсвета (доля от полного накала) — остывший гриб ночью серо-бурый, а не чёрный.
+     */
+    static final double EMBER = 0.5;
     /** Под это число клубов подобраны их размеры: клубов больше — они мельче, контур резче. */
     private static final double REFERENCE_PUFFS = 600;
 
@@ -86,15 +99,45 @@ public final class CloudPuffs {
         return 4 * CloudModel.stabilizationSeconds(d.yieldKt());
     }
 
-    /** Растяжка времени свечения с мощностью: 1 до 15 кт, у 1 Мт — ×2.9. */
+    /**
+     * Растяжка времени свечения с мощностью: 1 у 15 кт, у 1 кт — ×0.51 (шар и гриб вдвое ниже, остывают быстрее:
+     * накал полный 20 с и гаснет к 75 с).
+     */
     static double glowScale(double yieldKt) {
-        return Math.max(1, Math.pow(yieldKt / 15, 0.25));
+        return Math.pow(Math.max(yieldKt, 0.1) / 15, 0.25);
     }
 
-    /** Накал гриба изнутри 0..1 при любой мощности: полный 30 с, к 70 с — 0.4, гаснет к 100 с; у мегатонн — дольше. */
+    /**
+     * Накал гриба изнутри 0..1: у 15 кт полный 40 с, к 70 с — 0.8, к 90 с — 0.57, гаснет к 150 с (дальше шапку
+     * и ножку освещают пожары и небо, {@link #EMBER}); у 1 кт — вдвое короче ({@link #glowScale}).
+     */
     static double glow(double t, double yieldKt) {
         double k = glowScale(yieldKt);
-        return 1 - smooth(30 * k, 100 * k, t);
+        return 1 - smooth(40 * k, 150 * k, t);
+    }
+
+    /** Цвет накала в момент t (RGB): по ключам {@link #GLOW_T}, растянутым с мощностью. */
+    static int glowRgb(double t, double yieldKt) {
+        double x = t / glowScale(yieldKt);
+        int n = GLOW_T.length;
+        if (x >= GLOW_T[n - 1]) return GLOW_RGB[n - 1];
+        int i = 1;
+        while (GLOW_T[i] < x) i++;
+        return lerpRgb(GLOW_RGB[i - 1], GLOW_RGB[i], Mth.clamp((x - GLOW_T[i - 1]) / (GLOW_T[i] - GLOW_T[i - 1]), 0, 1));
+    }
+
+    /**
+     * Цвет клуба дыма: свет неба на нём плюс отсвет накала изнутри ({@code heat} 0..1, цвет {@code hot}). Днём
+     * глаз привыкает к свету — отсвет виден слабее; ночью он и есть весь цвет гриба. Возвращает r, g, b в 0..1.
+     */
+    static float[] smoke(int rgb, double shade, float ambient, int hot, double heat) {
+        double inner = heat * GLOW_IN_SMOKE * (1 - 0.5 * ambient);
+        float[] c = new float[3];
+        for (int i = 0; i < 3; i++) {
+            int sh = 16 - 8 * i;
+            c[i] = (float) Math.min(1, ((rgb >> sh) & 0xFF) / 255.0 * shade * ambient + ((hot >> sh) & 0xFF) / 255.0 * inner);
+        }
+        return c;
     }
 
     /**
@@ -143,9 +186,14 @@ public final class CloudPuffs {
         double tau = t / tMax;
         double capVis = smooth(50, 110, tau);
         double glow = glow(t, y);
-        int glowRgb = lerpRgb(GLOW_HOT, GLOW_LATE, smooth(3, 60 * glowScale(y), t));
+        int glowRgb = glowRgb(t, y);
+        // шапку и ножку после накала освещают пожары и небо: отсвет не ниже EMBER
+        double ember = Math.max(glow, EMBER);
+        // шар освещает всё вокруг себя: облако Вильсона, пыль под ним
+        double fireball = fireballGlow(t, y);
+        int fireballRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
         // свет сверху на пыль у земли: от шара, потом от раскалённой шапки
-        double overhead = Math.max(fireballGlow(t, y), 0.5 * glow);
+        double overhead = Math.max(fireball, 0.5 * glow);
         int capRgb = lerpRgb(CAP_BASE, CAP_LATE, Mth.clamp(t / 90, 0, 1));
         // ножка — пыль, которую тянет вверх за шаром: догоняет шапку за десятую часть подъёма;
         // у высокого воздушного подрыва она тоньше и бледнее
@@ -173,7 +221,8 @@ public final class CloudPuffs {
             int rgb;
             int hot = glowRgb;
             double shade = p.shade;
-            double heat = 0; // накал изнутри или отсвет огня 0..1
+            double heat = 0; // отсвет накала или огня на дыме 0..1
+            double emit = -1; // своё свечение клуба 0..1 (складывающийся проход); -1 — столько же, сколько отсвет
             double ang = p.a * Math.PI * 2;
             switch (p.kind) {
                 case CAP -> {
@@ -190,8 +239,10 @@ public final class CloudPuffs {
                     size = rt * 1.25 * p.size * detail;
                     a = 0.9 * capVis;
                     shade *= 0.62 + 0.38 * (vert * 0.5 + 0.5);
-                    // жарче всего низ шапки и сердцевина вихря, внешний край — слабее
-                    heat = glow * (0.35 + 0.65 * (0.5 - 0.5 * vert)) * (1 - 0.45 * Math.max(0, Math.cos(th)) * fill);
+                    // жарче всего низ шапки и сердцевина вихря, внешний край и верх — слабее, но светятся и они
+                    double core = (0.55 + 0.45 * (0.5 - 0.5 * vert)) * (1 - 0.3 * Math.max(0, Math.cos(th)) * fill);
+                    heat = ember * core;
+                    emit = glow * core;
                     rgb = capRgb;
                 }
                 case DOME -> {
@@ -202,7 +253,8 @@ public final class CloudPuffs {
                     size = capR * 0.5 * p.size * detail;
                     a = 0.85 * capVis;
                     shade *= 1.05;
-                    heat = glow * 0.3;
+                    heat = ember * 0.6;
+                    emit = glow * 0.6;
                     rgb = capRgb;
                 }
                 case STEM -> {
@@ -218,8 +270,10 @@ public final class CloudPuffs {
                     size = Math.max(stemR * 1.8, r * 1.3) * p.size * detail;
                     a = stemAlpha * smooth(4, 20, tau) * Mth.clamp((stemTop - h) / (capBot * 0.05 + 1), 0, 1);
                     shade *= 0.7 + 0.3 * w;
-                    // горячее верх ножки и её сердцевина
-                    heat = glow * (0.3 + 0.7 * w * w) * (1 - 0.35 * Math.sqrt(p.c));
+                    // ножка светится по всей высоте (горячий воздух, который тянет шар): верх и сердцевина — ярче
+                    double core = (0.75 + 0.25 * w) * (1 - 0.15 * Math.sqrt(p.c));
+                    heat = ember * core;
+                    emit = glow * core;
                     rgb = STEM;
                 }
                 case SKIRT -> {
@@ -245,7 +299,7 @@ public final class CloudPuffs {
                     a = 0.9 * Math.max(headK, 0.45) * smooth(0, 1.5, t) * Mth.clamp(1 - settle / 150, 0, 1);
                     shade *= 0.75 + 0.35 * p.b;
                     double fire = fireZone(rr);
-                    double lit = 0.55 * p.b * overhead * lightFalloff(rr, rf);
+                    double lit = (0.3 + 0.4 * p.b) * overhead * lightFalloff(rr, rf);
                     double burn = fire * (0.95 - 0.45 * p.b) * glow;
                     heat = Math.max(lit, burn);
                     if (burn > lit) hot = FIRE;
@@ -284,6 +338,9 @@ public final class CloudPuffs {
                     size = r * 0.8 * p.size;
                     a = 0.3 * env;
                     rgb = WILSON;
+                    // конденсат вокруг раскалённого шара освещён им: бело-жёлтый, а не серый
+                    heat = 0.9 * fireball;
+                    hot = fireballRgb;
                 }
             }
             a *= life;
@@ -293,14 +350,12 @@ public final class CloudPuffs {
             px += windX * drift;
             pz += windZ * drift;
 
-            // дым: свет неба и отсвет накала изнутри — ночью низ шапки, ножка и стена оранжевые, а не чёрные
+            // дым: свет неба и отсвет накала изнутри — ночью шапка, ножка и стена оранжевые, а не чёрные
+            float[] c = smoke(rgb, shade, ambient, hot, heat);
             float hr = ((hot >> 16) & 0xFF) / 255f, hg = ((hot >> 8) & 0xFF) / 255f, hb = (hot & 0xFF) / 255f;
-            double inner = heat * GLOW_IN_SMOKE;
-            float cr = (float) Math.min(1, ((rgb >> 16) & 0xFF) / 255.0 * shade * ambient + hr * inner);
-            float cg = (float) Math.min(1, ((rgb >> 8) & 0xFF) / 255.0 * shade * ambient + hg * inner);
-            float cb = (float) Math.min(1, (rgb & 0xFF) / 255.0 * shade * ambient + hb * inner);
+            double glowA = a * (emit < 0 ? heat : emit) * EMISSIVE;
             out.accept(new Sprite(d.burst().x + d.blocks(px), d.groundY() + d.blocks(py), d.burst().z + d.blocks(pz), d.blocks(size),
-                    p.rot + (float) (p.spin * t), cr, cg, cb, (float) Math.min(1, a), hr, hg, hb, (float) (a * heat * EMISSIVE), p.tex));
+                    p.rot + (float) (p.spin * t), c[0], c[1], c[2], (float) Math.min(1, a), hr, hg, hb, (float) glowA, p.tex));
         }
     }
 

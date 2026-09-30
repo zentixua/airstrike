@@ -14,15 +14,17 @@ public final class FireballModel {
 
     /**
      * Ключевые точки цвета: t / t_max (второго максимума) и цвет RGB. Шар светится всем объёмом ~100 t_max:
-     * 15 кт — жёлто-оранжевый к 2 с, оранжевый к 7 с, красно-бурый к 16 с.
+     * 15 кт — слепяще бело-жёлтый первые 1–2 с, жёлто-оранжевый к 5 с, оранжевый к 9 с, красно-бурый к 16 с.
+     * Жёлтый — с заметной долей синего: чистый жёлтый (R = G, B ≈ 0) на экране читается лаймовым.
      */
-    private static final double[] COLOR_T = {0, 0.5, 2, 16, 60, 130, 400};
+    private static final double[] COLOR_T = {0, 0.5, 8, 20, 40, 75, 130, 400};
     private static final int[] COLOR_RGB = {
             0xC8DCFF, // бело-голубой первый импульс
             0xFFFFFF, // белый
-            0xFFFADC, // бледно-жёлтый
-            0xFFBE50, // жёлто-оранжевый
-            0xE66E28, // оранжевый
+            0xFFFCEE, // тёплый белый (1 с у 15 кт)
+            0xFFEAB4, // бело-жёлтый (2.5 с)
+            0xFFBE64, // жёлто-оранжевый (5 с)
+            0xF4823A, // оранжевый (9 с)
             0x8C3C23, // красно-бурый (оксиды азота)
             0x96908A, // серое облако
     };
@@ -70,7 +72,7 @@ public final class FireballModel {
         return max * Math.min(LATE_GROWTH_CAP, 1 + 0.1 * Math.log(t / tg));
     }
 
-    /** Цвет ARGB (непрозрачный): бело-голубой → белый → жёлто-оранжевый → красно-бурый → серый. */
+    /** Цвет ARGB (непрозрачный): бело-голубой → белый → бело-жёлтый → жёлто-оранжевый → красно-бурый → серый. */
     public static int colorArgb(double t, double yieldKt) {
         double tau = Math.max(0, t) / secondMaximumSeconds(yieldKt);
         int n = COLOR_T.length;

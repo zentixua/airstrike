@@ -168,7 +168,11 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- огненный шар
 
-    /** Шар и корона — второе солнце: плазма с прокруткой, складывается со светом (ярче всего вокруг). */
+    /**
+     * Шар и корона — второе солнце. Сначала непрозрачный диск шара обычным смешиванием: шар закрывает небо, а не
+     * складывается с ним (жёлтое поверх серо-голубого неба давало лаймовый диск), к центру — бело-жёлтый накал,
+     * к краю — оранжевее. Поверх — плазма и корона, складываются со светом; ореол вокруг — тёплый.
+     */
     private static void drawFireballs(Camera camera, float partial, float far) {
         Vec3 cam = camera.getPosition();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
@@ -192,17 +196,45 @@ public final class NukeRenderer {
             int rgb = FireballModel.colorArgb(t, d.yieldKt());
             float glow = (float) Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.65) * fade;
             float cr = ((rgb >> 16) & 0xFF) / 255f, cg = ((rgb >> 8) & 0xFF) / 255f, cb = (rgb & 0xFF) / 255f;
+            // бело-жёлтый накал середины: первые секунды — почти белый, к оранжевому шару — слабее
+            float white = (float) (1 - CloudPuffs.smooth(20, 60, t / FireballModel.secondMaximumSeconds(d.yieldKt())));
             float scroll = (float) (t * 0.04);
+            disc((float) dx, (float) dy, (float) dz, (float) r, cr, cg, cb, white, fade);
             setup(PLASMA, true);
             sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
-            sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.9f, cb * 0.8f, glow * 0.35f);
-            // ореол: плоское свечение к камере, в 4 раза шире шара
+            sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.85f, cb * 0.6f, glow * 0.35f);
+            // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень)
             setup(FLARE, true);
             Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-            billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg, cb, glow * 0.6f);
+            billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
             draw(b);
         }
+    }
+
+    /**
+     * Непрозрачное тело шара (без текстуры, обычное смешивание): к камере — бело-жёлтый накал ({@code white} 0..1),
+     * к краю диска — цвет шара, оранжевее и темнее (край шара холоднее и светит вскользь). Грани с обратной
+     * стороны прозрачные.
+     */
+    private static void disc(float x, float y, float z, float r, float cr, float cg, float cb, float white, float alpha) {
+        float len = Mth.sqrt(x * x + y * y + z * z);
+        if (len < 1e-3f) return;
+        // к камере от центра шара
+        float vx = -x / len, vy = -y / len, vz = -z / len;
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        blend(false);
+        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        for (float[] v : ICOSPHERE) {
+            float mu = v[0] * vx + v[1] * vy + v[2] * vz;
+            float m = Math.max(0, mu);
+            float hot = white * m; // середина — к белому
+            float limb = 0.75f + 0.25f * m; // край диска чуть темнее
+            float r0 = Mth.lerp(hot, cr, 1f) * limb, g0 = Mth.lerp(hot, cg * (0.8f + 0.2f * m), 0.97f) * limb,
+                    b0 = Mth.lerp(hot, cb * (0.55f + 0.45f * m), 0.86f) * limb;
+            b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setColor(r0, g0, b0, mu > 0 ? alpha : 0f);
+        }
+        draw(b);
     }
 
     private static void sphere(float x, float y, float z, float r, float scroll, float cr, float cg, float cb, float a) {
