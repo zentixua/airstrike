@@ -65,16 +65,18 @@ public final class NukeSky {
         if (ClientNuclear.isEmpty() && rain <= 0) return;
         float partial = (float) e.getPartialTick();
         float r = e.getRed(), g = e.getGreen(), b = e.getBlue();
-        // бурая мгла у эпицентра: минута после подрыва, тем гуще, чем ближе
+        // бурая мгла у эпицентра: минута после прихода стены пыли, тем гуще, чем ближе
         Vec3 cam = e.getCamera().getPosition();
         float dust = 0, amber = 0;
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
-            double t = a.seconds(partial);
             amber = Math.max(amber, amber(a, cam, partial));
-            if (t < 0.5) continue;
-            double near = 1 - cam.distanceTo(d.burst()) / (d.radiusMax() * 2);
+            double dist = cam.distanceTo(d.burst());
+            double near = 1 - dist / (d.radiusMax() * 2);
             if (near <= 0) continue;
+            // мгла — пыль, которую принесла стена: от её прихода к камере
+            double t = (a.ticks(partial) - d.arrivalTicks(dist)) / (20.0 * d.scale());
+            if (t < 0.5) continue;
             dust = Math.max(dust, (float) (0.45 * near * Math.exp(-t / 45) * CloudPuffs.smooth(0.5, 4, t)));
         }
         // янтарная засветка, пока светятся шар и гриб

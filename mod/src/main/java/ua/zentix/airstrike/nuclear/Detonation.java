@@ -20,7 +20,8 @@ import ua.zentix.airstrike.util.Terrain;
  * шар, гриб и осадки. Хранится в мире ({@link NuclearEvents}) и уходит клиентам одним пакетом.
  * <p>
  * Масштаб {@code scale}: 1 блок = 1/scale метра (1.0 — как в жизни). Расстояния модели делятся на него,
- * время фронта умножается — фронт в блоках идёт со скоростью звука при любом масштабе.
+ * время фронта умножается. Фронт в игре идёт медленнее модели — видимой стеной, за ней звук со скоростью звука
+ * ({@link FrontProfile}): {@link #arrivalTicks}, {@link #frontRadius}.
  *
  * @param id        номер подрыва в мире (растёт)
  * @param burst     точка подрыва
@@ -198,8 +199,9 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         }
 
         static FrontProfile front(Detonation d) {
-            // до двух радиусов шара — как у модели: вспышка и шар не меняются
-            return FRONT.computeIfAbsent(d, x -> FrontProfile.of(x.arrival(), x.scale, 2 * x.fireballRadius(), x.radiusMax() * 1.5));
+            // у эпицентра — как у модели: вспышка и шар не меняются; за стеной пыли (0.3 psi) — только звук
+            return FRONT.computeIfAbsent(d, x -> FrontProfile.of(x.arrival(), x.scale, FrontProfile.slowFrom(x.fireballRadius()),
+                    x.blocks(BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), x.yieldKt)), x.radiusMax() * 1.5));
         }
 
         static double radiusMax(Detonation d) {

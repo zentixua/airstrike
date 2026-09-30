@@ -3,15 +3,21 @@ package ua.zentix.airstrike.nuclear.model;
 /**
  * Приход фронта в игре — в блоках и тиках. До {@code slowFrom} блоков — как у модели ({@link ArrivalTable}: сверхзвук,
  * шар и вспышка как в жизни), дальше фронт плавно замедляется до {@link #MIN_SPEED} блоков за тик к {@code slowTo} и
- * дальше идёт с ней: при настоящих 17 блоках за тик прорисовка в 8 чанков проходится за 0.4 с, и стена пыли и огня,
- * которая убивает, приходит мгновенно (Артём 30.09.2026). Давление — по-прежнему функция расстояния, меняется только
- * время прихода; стена пыли, звук, урон, отброс и руины берут время отсюда и приходят вместе.
+ * идёт с ней, пока видна стена пыли (до {@code soundFrom}, 0.3 psi): при настоящих 17 блоках за тик прорисовка
+ * в 8 чанков проходится за 0.4 с, и стена пыли и огня, которая убивает, приходит мгновенно (Артём 30.09.2026). За
+ * стеной остаётся только звук — он идёт со скоростью звука, и дальний удар (Distant Horizons, 5 км) слышен через секунды,
+ * а не минуты. Давление — по-прежнему функция расстояния, меняется только время прихода; стена пыли, звук, урон,
+ * отброс и руины берут время отсюда и приходят вместе.
  */
 public final class FrontProfile {
     /** Скорость фронта вдали, блоков за тик (60 блоков в секунду). */
     public static final double MIN_SPEED = 3;
     /** Докуда фронт замедляется, блоки (не ближе трёх {@code slowFrom}). */
     public static final double SLOW_TO = 600;
+    /** Дальше скольких блоков фронт не идёт как у модели (у 15 кт в масштабе 1 два радиуса шара — 400–500 блоков). */
+    public static final double SLOW_FROM_MAX = 200;
+    /** Скорость звука, блоков за тик (при любом масштабе). */
+    public static final double SOUND_SPEED = 17.15;
     private static final int NODES = 2000;
 
     /** Расстояния, блоки (первый узел — 0), по возрастанию. */
@@ -19,18 +25,28 @@ public final class FrontProfile {
     /** Время прихода в узлы, тики, по возрастанию. */
     private final double[] time;
 
-    private FrontProfile(double[] range, double[] time) {
+    /** Скорость за таблицей, блоков за тик. */
+    private final double tail;
+
+    private FrontProfile(double[] range, double[] time, double tail) {
         this.range = range;
         this.time = time;
+        this.tail = tail;
+    }
+
+    /** Докуда фронт идёт как у модели: два радиуса шара, но не дальше {@link #SLOW_FROM_MAX}. */
+    public static double slowFrom(double fireballRadius) {
+        return Math.min(2 * fireballRadius, SLOW_FROM_MAX);
     }
 
     /**
      * @param model    приход фронта модели, м и с
      * @param scale    блоков на метр модели (время фронта в тиках — секунды × 20 × scale)
-     * @param slowFrom докуда фронт идёт как у модели, блоки
-     * @param maxRange до какого расстояния таблица, блоки (дальше — {@link #MIN_SPEED})
+     * @param slowFrom  докуда фронт идёт как у модели, блоки
+     * @param soundFrom где кончается стена пыли (0.3 psi), блоки: дальше — со скоростью звука
+     * @param maxRange  до какого расстояния таблица, блоки
      */
-    public static FrontProfile of(ArrivalTable model, double scale, double slowFrom, double maxRange) {
+    public static FrontProfile of(ArrivalTable model, double scale, double slowFrom, double soundFrom, double maxRange) {
         double slowTo = Math.max(SLOW_TO, slowFrom * 3);
         double max = Math.max(maxRange, slowTo) * 1.05;
         double[] r = new double[NODES + 1], t = new double[NODES + 1];
@@ -42,9 +58,10 @@ public final class FrontProfile {
             double dr = r[i] - r[i - 1];
             double dtModel = ticks(model, scale, r[i]) - ticks(model, scale, r[i - 1]);
             double mid = (r[i] + r[i - 1]) * 0.5;
-            t[i] = t[i - 1] + Math.max(dtModel, dr / limit(mid, slowFrom, slowTo, v0));
+            double v = mid > soundFrom ? SOUND_SPEED : limit(mid, slowFrom, slowTo, v0);
+            t[i] = t[i - 1] + Math.max(dtModel, dr / v);
         }
-        return new FrontProfile(r, t);
+        return new FrontProfile(r, t, max > soundFrom ? SOUND_SPEED : MIN_SPEED);
     }
 
     /** Предел скорости на расстоянии {@code r}, блоков за тик: до {@code from} нет, дальше плавно до {@link #MIN_SPEED}. */
@@ -69,14 +86,14 @@ public final class FrontProfile {
     /** Через сколько тиков фронт дойдёт до расстояния {@code blocks} от точки подрыва. */
     public double arrivalTicks(double blocks) {
         if (blocks <= 0) return 0;
-        if (blocks >= range[NODES]) return time[NODES] + (blocks - range[NODES]) / MIN_SPEED;
+        if (blocks >= range[NODES]) return time[NODES] + (blocks - range[NODES]) / tail;
         return interpolate(range, time, blocks);
     }
 
     /** Расстояние фронта от точки подрыва через {@code ticks}, блоки (обратная к {@link #arrivalTicks}). */
     public double radiusAt(double ticks) {
         if (ticks <= 0) return 0;
-        if (ticks >= time[NODES]) return range[NODES] + (ticks - time[NODES]) * MIN_SPEED;
+        if (ticks >= time[NODES]) return range[NODES] + (ticks - time[NODES]) * tail;
         return interpolate(time, range, ticks);
     }
 

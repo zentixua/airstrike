@@ -175,11 +175,12 @@ public final class ClientNuclear {
     }
 
     /**
-     * Подрыв исчезает с клиента, когда гриб рассеялся, а подрыв с осадками — когда его забудет и сервер
-     * (далеко по ветру осадки и чёрный дождь приходят через десятки игровых часов).
+     * Подрыв исчезает с клиента, когда гриб рассеялся и звук дошёл до дальних слушателей (Distant Horizons: 20 км),
+     * а подрыв с осадками — когда его забудет и сервер (далеко по ветру осадки и чёрный дождь приходят через десятки
+     * игровых часов).
      */
     private static double lifeTicks(Detonation d) {
-        double cloudTicks = CloudPuffs.lifeSeconds(d) * 20 * d.scale();
+        double cloudTicks = Math.max(CloudPuffs.lifeSeconds(d) * 20 * d.scale(), d.arrivalTicks(d.blocks(20_000)) + 200);
         return d.hasFallout() ? Math.max(cloudTicks, NuclearEvents.FORGET_AFTER) : cloudTicks;
     }
 
