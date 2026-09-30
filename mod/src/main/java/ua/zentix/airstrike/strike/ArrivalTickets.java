@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.strike;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -10,6 +11,7 @@ import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.jetbrains.annotations.Nullable;
@@ -47,8 +49,16 @@ import java.util.UUID;
  * Наблюдателю без генерации чанков ({@code spectatorsGenerateChunks} = false) тикет не ставится: ваниль не даёт ему своих
  * тикетов и не тикает его над незагруженными чанками.
  * <p>
- * Не закрывает возрождение ({@code PlayerList.respawn} проверяет место синхронно ещё до события), поиск портала
- * ({@code PortalForcer}) и телепорт внутри измерения — они грузят чанки до того, как мод о них узнаёт.
+ * Возрождение: {@code PlayerList.respawn} читает блок кровати или якоря синхронно
+ * ({@code ServerPlayer.findRespawnAndUseSpawnBlock → Level.getBlockState}) ещё до {@code PlayerRespawnPositionEvent} и
+ * {@code PlayerRespawnEvent}, — поэтому тот же тикет ставится уже при смерти ({@code LivingDeathEvent}) на место
+ * возрождения: точку возрождения игрока ({@code getRespawnPosition}/{@code getRespawnDimension}) или, если её нет, точку
+ * появления мира. Пока открыт экран смерти, место грузится первым; срока у этого тикета нет — его снимает возрождение
+ * (тикет входа уже на том месте, где игрок появился), выход игрока или отменённая другим модом смерть. Слот переходит к
+ * новому объекту игрока в {@code PlayerEvent.Clone}: attachment без сериализатора сам не копируется.
+ * <p>
+ * Не закрывает поиск портала ({@code PortalForcer}) и телепорт внутри измерения — они грузят чанки до того, как мод о них
+ * узнаёт; а при возрождении — место, которое другой мод подменил в {@code PlayerRespawnPositionEvent}.
  */
 public final class ArrivalTickets {
     /** Уровень тикета 33 − 7 = 26: ниже центра района «Ланцета» (27). */
@@ -66,6 +76,8 @@ public final class ArrivalTickets {
         @Nullable
         ChunkPos held;
         long until;
+        /** Тикет стоит на месте возрождения, игрок мёртв: срока нет. */
+        boolean respawn;
     }
 
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent e) {
@@ -73,6 +85,22 @@ public final class ArrivalTickets {
     }
 
     public static void onChangeDimension(PlayerEvent.PlayerChangedDimensionEvent e) {
+        if (e.getEntity() instanceof ServerPlayer p) arrive(p);
+    }
+
+    /** Последним: смерть, которую отменил другой мод, тикета не ставит. */
+    public static void onDeath(LivingDeathEvent e) {
+        if (!e.isCanceled() && e.getEntity() instanceof ServerPlayer p) awaitRespawn(p);
+    }
+
+    /** Слот — новому объекту игрока (возрождение, выход из Края): без сериализатора attachment не копируется. */
+    public static void onClone(PlayerEvent.Clone e) {
+        if (e.getOriginal().hasData(ModAttachments.ARRIVAL.get())) {
+            e.getEntity().setData(ModAttachments.ARRIVAL.get(), e.getOriginal().getData(ModAttachments.ARRIVAL.get()));
+        }
+    }
+
+    public static void onRespawn(PlayerEvent.PlayerRespawnEvent e) {
         if (e.getEntity() instanceof ServerPlayer p) arrive(p);
     }
 
@@ -84,7 +112,31 @@ public final class ArrivalTickets {
 
     public static void onPlayerTick(PlayerTickEvent.Post e) {
         if (!(e.getEntity() instanceof ServerPlayer p) || !p.hasData(ModAttachments.ARRIVAL.get())) return;
-        tick(p.server, p.getUUID(), p.getData(ModAttachments.ARRIVAL.get()), p.server.getPlayerList().getViewDistance());
+        Slot slot = p.getData(ModAttachments.ARRIVAL.get());
+        // тикет возрождения у живого игрока: смерть отменили или возрождение не поставило своего тикета
+        if (slot.respawn && !p.isDeadOrDying()) release(p.server, p.getUUID(), slot);
+        tick(p.server, p.getUUID(), slot, p.server.getPlayerList().getViewDistance());
+    }
+
+    /** Место возрождения: точка игрока (кровать, якорь) или точка появления верхнего мира, как у {@code PlayerList.respawn}. */
+    private static void awaitRespawn(ServerPlayer p) {
+        ServerLevel level = p.server.getLevel(p.getRespawnDimension());
+        BlockPos pos = p.getRespawnPosition();
+        if (level == null || pos == null) {
+            level = p.server.overworld();
+            pos = level.getSharedSpawnPos();
+        }
+        awaitRespawn(level, new ChunkPos(pos), p.getUUID(), p.getData(ModAttachments.ARRIVAL.get()));
+    }
+
+    /** Поставить тикет на место возрождения вместо прежнего, без срока (и в тестах, где игрока нет). */
+    public static void awaitRespawn(ServerLevel level, ChunkPos pos, UUID who, Slot slot) {
+        release(level.getServer(), who, slot);
+        StrikeWorld.get(level).areas().hold(level, area(pos, who));
+        slot.until = Long.MAX_VALUE;
+        slot.respawn = true;
+        slot.dimension = level.dimension();
+        slot.held = pos;
     }
 
     private static void arrive(ServerPlayer p) {
@@ -97,6 +149,7 @@ public final class ArrivalTickets {
     public static void arrive(ServerLevel level, ChunkPos pos, UUID who, Slot slot) {
         release(level.getServer(), who, slot);
         slot.until = level.getGameTime() + LIFESPAN;
+        slot.respawn = false;
         StrikeWorld.get(level).areas().hold(level, area(pos, who), slot.until);
         slot.dimension = level.dimension();
         slot.held = pos;
@@ -107,7 +160,7 @@ public final class ArrivalTickets {
      * {@code viewDistance}) или вышел срок; и в тестах, где игрока нет.
      */
     public static void tick(MinecraftServer server, UUID who, Slot slot, int viewDistance) {
-        if (slot.held == null || slot.dimension == null) return;
+        if (slot.held == null || slot.dimension == null || slot.respawn) return;
         ServerLevel level = server.getLevel(slot.dimension);
         if (level == null || level.getGameTime() >= slot.until || coveredByPlayers(level, slot.held, Math.min(DISTANCE - 2, viewDistance))) {
             release(server, who, slot);
@@ -121,6 +174,7 @@ public final class ArrivalTickets {
         if (level != null) StrikeWorld.get(level).areas().release(level, area(slot.held, who));
         slot.held = null;
         slot.dimension = null;
+        slot.respawn = false;
     }
 
     /** Сколько тикетов входа у игрока стоит (проверки). */

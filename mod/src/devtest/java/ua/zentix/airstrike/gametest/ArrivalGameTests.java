@@ -197,6 +197,45 @@ public final class ArrivalGameTests {
         h.succeed();
     }
 
+    /**
+     * Тикет на месте возрождения (ставится при смерти) стоит, пока открыт экран смерти, — дольше срока тикета входа и
+     * даже когда место держат тикеты игроков; возрождение (вход на новом месте) его заменяет.
+     */
+    @GameTest(template = "range", timeoutTicks = ArrivalTickets.LIFESPAN + 100, batch = "arrival_respawn")
+    public static void respawnTicketWaitsForRespawn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        ChunkPos c = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        UUID who = UUID.randomUUID();
+        ArrivalTickets.Slot slot = new ArrivalTickets.Slot();
+        int r = ArrivalTickets.DISTANCE - 2, playerLevel = ChunkLevel.byStatus(FullChunkStatus.ENTITY_TICKING);
+        var distances = level.getChunkSource().chunkMap.getDistanceManager();
+        List<ChunkPos> placed = new ArrayList<>();
+        StrikeGameTests.afterTest(h, () -> {
+            ArrivalTickets.release(level.getServer(), who, slot);
+            for (ChunkPos pos : placed) distances.removeTicket(TicketType.PLAYER, pos, playerLevel, pos);
+        });
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                ChunkPos pos = new ChunkPos(c.x + dx, c.z + dz);
+                distances.addTicket(TicketType.PLAYER, pos, playerLevel, pos);
+                placed.add(pos);
+            }
+        }
+        ArrivalTickets.awaitRespawn(level, c, who, slot);
+        long placedAt = level.getGameTime();
+        h.onEachTick(() -> {
+            ArrivalTickets.tick(level.getServer(), who, slot, 32);
+            if (ArrivalTickets.count(level, who) != 1) {
+                throw new GameTestAssertException("тикет места возрождения снят через " + (level.getGameTime() - placedAt) + " тиков, игрок ещё мёртв");
+            }
+            if (level.getGameTime() - placedAt <= ArrivalTickets.LIFESPAN + 20) return;
+            // возрождение в другом месте: тикет входа там, тикет места возрождения снят
+            ArrivalTickets.arrive(level, new ChunkPos(c.x + 20, c.z), who, slot);
+            h.assertTrue(ArrivalTickets.count(level, who) == 1, "возрождение не заменило тикет места возрождения");
+            h.succeed();
+        });
+    }
+
     /** Чанков районов залпа (квадраты радиуса {@code r}), которые ещё не готовы. */
     private static int pending(ServerLevel level, List<ChunkPos> targets, int r) {
         Set<Long> seen = new HashSet<>();
