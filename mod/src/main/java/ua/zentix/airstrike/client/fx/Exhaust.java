@@ -6,6 +6,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.entity.BomberEntity;
@@ -20,6 +21,7 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.util.Local;
 
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -71,34 +73,47 @@ public final class Exhaust {
         float flicker = 0.9f + 0.1f * Mth.sin((e.age() + partial) * 2.7f) * Mth.sin((e.age() + partial) * 1.3f + 1);
         FlightPhase ph = e.flightPhase();
         if (ph == FlightPhase.READY && !(e instanceof IcbmEntity)) return null;
+        ClientWeaponSpec.ClientAirframe nozzles = nozzles(e);
+        ClientWeaponSpec.At engine = nozzles.enginePlume(), booster = nozzles.boosterPlume();
         if (ph.boosterLit() && e instanceof RocketEntity) {
             // РСЗО: короткая яркая струя, вспыхивает сразу (поджиг — доли секунды); в трубе её не видно
-            return new Plume(0, -1.5f, 3.0f * flicker, 0.15f, 1, false, 0xFFF4E0, 0xFF8A30);
+            return new Plume((float) engine.y(), (float) engine.z(), 3.0f * flicker, 0.15f, 1, false, 0xFFF4E0, 0xFF8A30);
         }
         if (ph.boosterLit() && (e instanceof DroneEntity || e instanceof CruiseMissileEntity)) {
             // твердотопливный ускоритель: на поджиге струя вырастает за полсекунды, дальше — ровный яркий факел
             float grow = ph == FlightPhase.IGNITION ? Math.min(1, (e.phaseAge() + partial) / 10f) : 1;
             return e instanceof DroneEntity
-                    ? new Plume(-0.29f, -1.93f, 2.2f * grow * flicker, 0.13f, 1, false, 0xFFF4E0, 0xFF8A30)
-                    : new Plume(0, -3.44f, 4.0f * grow * flicker, 0.25f, 1, true, 0xFFF4E0, 0xFF8A30);
+                    ? new Plume((float) booster.y(), (float) booster.z(), 2.2f * grow * flicker, 0.13f, 1, false, 0xFFF4E0, 0xFF8A30)
+                    : new Plume((float) booster.y(), (float) booster.z(), 4.0f * grow * flicker, 0.25f, 1, true, 0xFFF4E0, 0xFF8A30);
         }
         return switch (e) {
             // «Минитмен»: 18 м струи с алмазами, на разгоне длиннее
-            case IcbmEntity i -> new Plume(0, -9.7f, (14 + Math.min(10, i.age() * 0.15f)) * flicker, 1.1f, 1, true, 0xFFF4E0, 0xFF8A30);
+            case IcbmEntity i -> new Plume((float) engine.y(), (float) engine.z(), (14 + Math.min(10, i.age() * 0.15f)) * flicker, 1.1f, 1, true,
+                    0xFFF4E0, 0xFF8A30);
             // маршевый ТРД почти невидим — тусклое свечение; в пике ярче (форсаж для прорыва ПВО — художественно)
             case CruiseMissileEntity m -> ph == FlightPhase.TERMINAL
-                    ? new Plume(0, -2.88f, 2.0f * flicker, 0.18f, 0.9f, false, 0xFFE8C0, 0xFF6A20)
-                    : new Plume(0, -2.88f, 1.0f * flicker, 0.14f, 0.55f, false, 0xFFD8A0, 0xFF5A18);
+                    ? new Plume((float) engine.y(), (float) engine.z(), 2.0f * flicker, 0.18f, 0.9f, false, 0xFFE8C0, 0xFF6A20)
+                    : new Plume((float) engine.y(), (float) engine.z(), 1.0f * flicker, 0.14f, 0.55f, false, 0xFFD8A0, 0xFF5A18);
             default -> null;
         };
+    }
+
+    /** Сопла сущности из клиентского паспорта (у B-2 и его бомбы — свои). */
+    private static ClientWeaponSpec.ClientAirframe nozzles(StrikeProjectile e) {
+        return ClientWeaponSpec.of(e.weapon()).airframe(!(e instanceof BomberEntity));
+    }
+
+    /** Точка в осях снаряда — в мир. */
+    private static Vec3 at(StrikeProjectile e, ClientWeaponSpec.At p) {
+        return Local.at(e.position(), e.getYRot(), e.getXRot(), p.x(), p.y(), p.z());
     }
 
     // ---------------------------------------------------------------- шахед
 
     /** Поршневой мотор: тонкий сизый выхлоп за винтом; в пике — гуще (мотор на полном газу). */
     private static void drone(ClientLevel level, DroneEntity e, State s) {
-        if (booster(level, e, s, -0.29, -1.95, 0.55f)) return;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0.03, -1.95);
+        if (booster(level, e, s)) return;
+        Vec3 nozzle = at(e, nozzles(e).engine());
         boolean dive = e.flightPhase() == FlightPhase.TERMINAL;
         Fx.Spec puff = Fx.smoke().size(0.3f, dive ? 1.6f : 1.2f).life(dive ? 60 : 40).color(0x6A6C72, 0xB6B8BE)
                 .alpha(dive ? 0.3f : 0.18f).drag(0.9f).rise(0.002f).fadeIn(2).fadeFrom(0.2f);
@@ -129,7 +144,7 @@ public final class Exhaust {
             s.pad = e.position().add(back.scale(LauncherEntity.TUBE_LENGTH / 2));
             s.muzzle = e.position().subtract(back.scale(LauncherEntity.TUBE_LENGTH / 2));
         }
-        Vec3 nozzle = Local.at(e.position(), yaw, pitch, 0, 0, -1.5);
+        Vec3 nozzle = at(e, nozzles(e).engine());
         if (ph == FlightPhase.IGNITION) {
             // струя из заднего среза трубы
             for (int i = 0; i < 4; i++) {
@@ -184,9 +199,9 @@ public final class Exhaust {
 
     /** Горячий след ТРД; в пике — ещё и пар на корпусе (конденсация на околозвуке). */
     private static void missile(ClientLevel level, CruiseMissileEntity e, State s) {
-        if (!e.isActive() || booster(level, e, s, 0, -3.45, 0.8f)) return;
+        if (!e.isActive() || booster(level, e, s)) return;
         RandomSource r = level.random;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -3.2);
+        Vec3 nozzle = at(e, nozzles(e).engine());
         Fx.Spec haze = Fx.smoke().size(0.2f, 1.4f).life(60).color(0xB8B4AE, 0xDADAD8).alpha(0.16f).drag(0.94f)
                 .fadeIn(2).fadeFrom(0.25f).rise(0.001f);
         trail(level, s, nozzle, haze, 2.5, r);
@@ -210,18 +225,17 @@ public final class Exhaust {
     /**
      * Шахед и ракета на пусковой и на ускорителе: на направляющей — ничего; поджиг — огонь и клубы дыма, которые
      * бьют в пусковую и растекаются вокруг неё; разгон — плотный белый шлейф твердотопливного ускорителя, который
-     * висит в воздухе дугой старта. После отделения — обычный выхлоп (вернёт false).
-     *
-     * @param y     высота оси ускорителя над осью снаряда
-     * @param tail  срез сопла ускорителя по оси снаряда (нос по +Z)
-     * @param scale размер дыма (шахед меньше ракеты)
+     * висит в воздухе дугой старта. После отделения — обычный выхлоп (вернёт false). Срез сопла ускорителя и размер
+     * дыма (шахед меньше ракеты) — из клиентского паспорта.
      */
-    private static boolean booster(ClientLevel level, StrikeProjectile e, State s, double y, double tail, float scale) {
+    private static boolean booster(ClientLevel level, StrikeProjectile e, State s) {
         FlightPhase ph = e.flightPhase();
         if (ph == FlightPhase.READY) return true;
         if (!ph.boosterLit()) return false;
         RandomSource r = level.random;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, y, tail);
+        ClientWeaponSpec.ClientAirframe nozzles = nozzles(e);
+        float scale = nozzles.boosterSmoke();
+        Vec3 nozzle = at(e, nozzles.boosterNozzle());
         Vec3 back = Local.offset(e.getYRot(), e.getXRot(), 0, 0, -1);
         if (s.pad == null) s.pad = nozzle;
         Fx.Spec trail = Fx.smoke().size(0.5f * scale, 3.5f * scale).life(260 + r.nextInt(120)).color(0xF2EFEA, 0xC4C0BA).colorCurve(0.6f)
@@ -254,7 +268,7 @@ public final class Exhaust {
      */
     private static void icbm(ClientLevel level, IcbmEntity e, State s) {
         RandomSource r = level.random;
-        Vec3 nozzle = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -10);
+        Vec3 nozzle = at(e, nozzles(e).engine());
         // скорость ракеты за тик: языки огня летят вместе с ней и отстают, а не висят в воздухе
         Vec3 motion = s.lastNozzle == null ? Vec3.ZERO : nozzle.subtract(s.lastNozzle);
         Fx.Spec trail = Fx.smoke().size(1.8f, 8).life(900 + r.nextInt(300)).color(0xF2EFEA, 0xBDBAB6).colorCurve(0.6f)
@@ -300,9 +314,9 @@ public final class Exhaust {
 
     /** Инверсионные следы четырёх двигателей: белые, долгие, расплываются. */
     private static void bomber(ClientLevel level, BomberEntity e, State s) {
-        double[][] engines = {{3.2, -9.5}, {1.9, -9.3}, {-1.9, -9.3}, {-3.2, -9.5}};
-        for (int i = 0; i < engines.length; i++) {
-            Vec3 p = Local.at(e.position(), e.getYRot(), e.getXRot(), engines[i][0], 0.3, engines[i][1]);
+        List<ClientWeaponSpec.At> engines = nozzles(e).engines();
+        for (int i = 0; i < engines.size(); i++) {
+            Vec3 p = at(e, engines.get(i));
             Fx.Spec puff = Fx.smoke().size(0.35f, 2.8f).life(500).color(0xFFFFFF, 0xE6EAF0).alpha(0.65f).drag(0.9f).fadeIn(8)
                     .fadeFrom(0.4f).wind(0.6f).spin(0.004f).budget(FxBudget.TRAIL);
             s.lastContrail[i] = segment(level, s.lastContrail[i], p, puff, 3, level.random);
@@ -318,7 +332,7 @@ public final class Exhaust {
                     .color(0x7A7066, 0xA49A90).alpha(0.6f).rise(0.002f).budget(FxBudget.GROUND).spawn(level, in.x + r.nextGaussian() * 0.4, in.y + 0.4, in.z + r.nextGaussian() * 0.4);
             return;
         }
-        Vec3 tail = Local.at(e.position(), e.getYRot(), e.getXRot(), 0, 0, -5.2);
+        Vec3 tail = at(e, nozzles(e).engine());
         Fx.Spec wake = Fx.smoke().size(0.2f, 0.9f).life(24).color(0xDADCE0, 0xF2F2F2).alpha(0.3f).drag(0.85f).fadeIn(1).fadeFrom(0.2f);
         trail(level, s, tail, wake, 2, r);
         if (e.speed() >= 8) {

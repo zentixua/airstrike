@@ -74,35 +74,11 @@ public class RocketEntity extends StrikeProjectile {
         return WeaponType.ROCKET;
     }
 
-    @Override
-    protected double noseLength() {
-        return 1.45;
-    }
-
     /** Средняя скорость по траектории — для оценок; время подлёта считается по самой траектории. */
-    @Override
-    public double cruiseSpeed() {
-        return 4;
-    }
 
     @Override
     protected boolean climbs() {
         return false;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 2400;
-    }
-
-    @Override
-    protected float maxHealth() {
-        return 2;
-    }
-
-    @Override
-    protected double clearance() {
-        return 4;
     }
 
     @Override
@@ -170,7 +146,7 @@ public class RocketEntity extends StrikeProjectile {
         }
         // вне мира путь кончился на поверхности: ни траектории, ни растяжения — ждать там загрузки и попасть
         if (isGrounded()) {
-            advance(level, impactAt, 1.5);
+            advance(level, impactAt, airframe().reachPad());
             return;
         }
         if (start == null) solve(position(), impactAt);
@@ -192,7 +168,7 @@ public class RocketEntity extends StrikeProjectile {
         face(v);
         speed = v.length();
         Vec3 before = position();
-        if (!advance(level, impactAt, 1.5)) return;
+        if (!advance(level, impactAt, airframe().reachPad())) return;
         // вне мира у самой цели снаряд ждёт загрузки района — тогда он не сдвинулся и время траектории стоит
         if (position().distanceToSqr(before) > 1.0e-6) t += step;
     }

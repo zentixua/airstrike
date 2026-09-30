@@ -13,7 +13,9 @@
       "Bash(./gradlew *)", "Bash(chmod +x gradlew)",
       "Bash(python3 tools/validate.py *)", "Bash(python3 tools/pack.py *)", "Bash(python3 tools/logscan.py *)",
       "Bash(unzip *)", "Bash(jar *)", "Bash(javap *)",
-      "Bash(mkdir *)", "Bash(cp *)", "Bash(mv *)"
+      "Bash(mkdir *)", "Bash(cp *)", "Bash(mv *)",
+      "Bash(git merge:*)",
+      "mcp__github__merge_pull_request"
     ],
     "deny": [
       "Bash(git push --force *)", "Bash(git push -f *)", "Bash(git push --force-with-lease *)"
