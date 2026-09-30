@@ -558,7 +558,6 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
-    /** Точка цели по подсказке пульта «место с карты», как её разбирает сервер. */
     /**
      * Один ответ на «где земля» ({@link Terrain#estimate}) в настоящем мире: у готового чанка — его карта высот;
      * у неготового приказ берёт карту клиента, без неё — генератор (не ниже моря), полёт вне мира — уровень моря
@@ -601,6 +600,7 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
+    /** Точка цели по подсказке пульта «место с карты», как её разбирает сервер. */
     private static Vec3 mapAim(ServerLevel level, Vec3 at, OptionalInt mapSurface) {
         return ServerActions.groundAim(level, C2S.AimHint.ground(at.x, at.z, mapSurface)).point();
     }

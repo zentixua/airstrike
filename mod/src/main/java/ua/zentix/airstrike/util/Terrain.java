@@ -164,7 +164,7 @@ public final class Terrain {
      * Какие источники вызывающему разрешены и подсказка карты клиента, если она есть. Цена — в самом наборе:
      * {@link #CHUNK} и {@link #FLIGHT} годятся для тика, {@link #ORDER} читает генератор — только для приказа.
      */
-    public record Allowed(Set<Source> sources, Optional<Integer> map) {
+    public static final class Allowed {
         /** В мире, в тике: только готовый чанк (и потолок, где он есть), иначе низ мира. */
         public static final Allowed CHUNK = new Allowed(Set.of(Source.CHUNK, Source.CEILING), Optional.empty());
         /** Полёт вне мира, в тике: готовый чанк, иначе уровень моря; потолок — не земля. */
@@ -172,9 +172,14 @@ public final class Terrain {
         /** Приказ (раз на пуск): готовый чанк, иначе рельеф генератора. */
         public static final Allowed ORDER = new Allowed(Set.of(Source.CHUNK, Source.CEILING, Source.GENERATOR), Optional.empty());
 
-        public Allowed {
-            sources = Set.copyOf(sources);
+        private final Set<Source> sources;
+        private final Optional<Integer> map;
+
+        /** Снаружи — только наборы выше и {@link #withMap}. */
+        Allowed(Set<Source> sources, Optional<Integer> map) {
             if (sources.contains(Source.CLIENT_MAP) != map.isPresent()) throw new IllegalArgumentException("CLIENT_MAP — только с подсказкой карты");
+            this.sources = Set.copyOf(sources);
+            this.map = map;
         }
 
         /**
@@ -190,6 +195,11 @@ public final class Terrain {
 
         boolean permits(Source source) {
             return sources.contains(source);
+        }
+
+        /** Подсказка карты клиента (есть, только если разрешён {@link Source#CLIENT_MAP}). */
+        Optional<Integer> map() {
+            return map;
         }
     }
 
