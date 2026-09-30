@@ -330,6 +330,14 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return 0;
     }
 
+    /**
+     * Сколько пути по плану осталось до удара, блоков: по нему урезается запас хода, когда цель потеряна
+     * ({@link Mission#lose}). По умолчанию — путь до цели ({@link #pathToAim}); у «Ланцета» — ещё круг и пике.
+     */
+    protected double plannedPathLeft() {
+        return pathToAim();
+    }
+
     /** Путь до цели: по оставшемуся маршруту, а без него — напрямую, блоков. */
     protected final double pathToAim() {
         Vec3 aim = tracker == null ? position() : tracker.point();
@@ -754,7 +762,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     protected Vec3 updateTarget(ServerLevel level) {
         mission().chase(tracker.tick(level));
         // и у снаряда, сохранённого прежней версией уже с потерянной целью (флага «урезан» нет)
-        if (tracker.isLost() && mission().lose(pathToAim(), cruiseSpeed())) onTargetLost(level);
+        if (tracker.isLost() && mission().lose(plannedPathLeft(), cruiseSpeed())) onTargetLost(level);
         syncAim();
         return tracker.point();
     }

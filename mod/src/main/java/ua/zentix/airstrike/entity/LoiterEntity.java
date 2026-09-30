@@ -137,6 +137,25 @@ public class LoiterEntity extends StrikeProjectile {
         };
     }
 
+    /**
+     * Путь по плану до удара, как у времени до удара ({@link #etaTicks}): до круга, остаток круга на маршевой и пике на
+     * скорости пике. Цель, потерянная на круге, не обрывает барраж: «Ланцет» докружит и зайдёт на её последнюю точку.
+     */
+    @Override
+    protected double plannedPathLeft() {
+        double dive = DIVE_TICKS * AIR.diveSpeed();
+        return switch (flightPhase()) {
+            case TERMINAL -> super.plannedPathLeft();
+            case LOITER -> (strikeNow ? 0 : Math.max(0, loiterTicks - phaseAge()) * AIR.cruiseSpeed()) + dive;
+            default -> {
+                Vec3 aim = tracker.point();
+                double dx = aim.x - getX(), dz = aim.z - getZ();
+                double toOrbit = Math.max(0, Math.sqrt(dx * dx + dz * dz) - orbitRadius);
+                yield toOrbit + (strikeNow ? 0 : loiterTicks * AIR.cruiseSpeed()) + dive;
+            }
+        };
+    }
+
     @Override
     protected void onRetarget() {
         // рядом — атака сразу; далеко — лететь туда и кружить уже там

@@ -53,6 +53,7 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.BombDrop;
+import ua.zentix.airstrike.guidance.Mission;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -806,6 +807,46 @@ public final class StrikeGameTests {
             h.assertTrue(Math.abs(drift[0]) <= ua.zentix.airstrike.guidance.Orbit.TOLERANCE, "ушёл с круга радиусом " + drift[1] + " на " + drift[0]);
             h.assertTrue(dived[0], "не пикировал: " + last[0]);
             h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
+        });
+    }
+
+    /**
+     * Запас хода «Ланцета» на самый долгий круг (барраж из настроек +20 %): план — путь до цели × 1.5, круг на маршевой
+     * и пике на своей скорости ({@code LoiterEntity.extraRange}) — покрывает весь полёт, резерв сверх плана
+     * ({@link Mission#RESERVE_TICKS}) остаётся нетронутым к подрыву. Пике быстрее круга (4 блока/тик против 1.6):
+     * в тиках плана на маршевой его не хватало бы.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1600, batch = "loiter_range", skyAccess = true)
+    public static void loiterFullCircleWithinRange(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = airTarget(h);
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        e.launch(point.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), -150), new Target.Point(point), point, null);
+        int longest = (int) (ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.get() * 20 * 1.2);
+        CompoundTag tag = e.saveWithoutId(new CompoundTag());
+        tag.putInt("loiter_ticks", longest);
+        e.load(tag);
+        e.setRoute(null);
+        level.addFreshEntity(e);
+        java.util.UUID id = e.getUUID();
+        double reserve = Mission.RESERVE_TICKS * WeaponSpec.LOITER.airframe().cruiseSpeed();
+        int[] loiter = {0};
+        double[] left = {Double.NaN};
+        Vec3[] lastPos = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            LoiterEntity l = findLoiter(level, id);
+            if (l == null) return;
+            lastPos[0] = l.position();
+            left[0] = l.rangeLeft();
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " запас " + Math.round(l.rangeLeft());
+            if (l.flightPhase() == FlightPhase.LOITER) loiter[0]++;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
+            h.assertTrue(loiter[0] >= longest, "кружил " + loiter[0] + " тиков, а должен " + longest);
+            h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
+            h.assertTrue(left[0] >= reserve, "план не покрыл полёт: к подрыву осталось " + Math.round(left[0]) + " блоков из резерва " + Math.round(reserve));
         });
     }
 
