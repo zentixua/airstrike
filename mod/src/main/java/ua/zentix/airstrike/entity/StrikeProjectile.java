@@ -46,6 +46,8 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -65,7 +67,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     /**
      * Сдвиг за последний тик сервера ({@link #velocity()}). Ванильный пакет скорости сущности его не довезёт: он режет
-     * компоненты до 3,9 блока/тик, а ракета летит 11,5, МБР — до 25.
+     * компоненты до 3,9 блока/тик, а B-2 летит 12, МБР — до 25.
      */
     private static final EntityDataAccessor<Vector3f> DATA_VELOCITY = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.VECTOR3);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
@@ -138,6 +140,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Чанк, вокруг которого держится район цели (null — не держится). */
     @Nullable
     private ChunkPos heldArea;
+    /** Полоса подлёта к цели, которую держит снаряд ({@link #visibleLeg}); не сохраняется, как и тикеты. */
+    private List<ChunkPos> heldApproach = List.of();
 
     private final LongSet forcedChunks = new LongOpenHashSet();
 
@@ -599,15 +603,46 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (tracker == null || isRemoved()) return;
         // путь вне мира кончился на поверхности: грузится место попадания, а не цель
         Vec3 aim = grounded != null ? grounded : tracker.point();
-        if (heldArea != null) {
-            if (heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) < 2) return;
-            releaseTargetArea();
-        }
-        double d = position().distanceTo(aim);
-        if (d <= preloadDistance()) {
+        if (heldArea != null && heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) >= 2) releaseTargetArea();
+        boolean taken = false;
+        if (heldArea == null && position().distanceTo(aim) <= preloadDistance()) {
             heldArea = new ChunkPos(BlockPos.containing(aim));
             FlightTickets.hold(level, heldArea, targetArea(), getUUID(), true);
+            taken = true;
         }
+        if (heldArea != null && visibleLeg() > 0 && (taken || age % 20 == 0)) updateApproach(level, aim);
+    }
+
+    /**
+     * Полоса подлёта ({@link #visibleLeg}), пока снаряд держит район цели: берётся, когда у цели есть кому смотреть
+     * ({@link FlightTickets#watched}), и отпускается, когда смотреть больше некому. Раз в секунду: игрок мог подойти или
+     * уйти. Не хватило места в мире ({@link FlightTickets#APPROACH_LIMIT}) — попробует через секунду.
+     */
+    private void updateApproach(ServerLevel level, Vec3 aim) {
+        if (!FlightTickets.watched(level, aim, visibleLeg())) {
+            FlightTickets.releaseApproach(level, heldApproach, getUUID());
+            heldApproach = List.of();
+            return;
+        }
+        if (!heldApproach.isEmpty()) return;
+        // назад по пути снаряда: цель, точки маршрута от последней (точка входа) к ближайшей, сам снаряд
+        List<Vec3> path = new ArrayList<>();
+        path.add(aim);
+        if (route != null) {
+            List<Vec3> pts = route.points();
+            for (int i = pts.size() - 1; i >= route.index(); i--) path.add(pts.get(i));
+        }
+        path.add(position());
+        List<ChunkPos> centres = FlightTickets.approach(path, visibleLeg());
+        if (FlightTickets.holdApproach(level, centres, getUUID())) heldApproach = centres;
+    }
+
+    /**
+     * Сколько последнего пути до цели снаряд летит в мире, а не вне его ({@link FlightTickets#approach}): столько
+     * его подлёт видно игроку у цели, если это не дальше прорисовки. 0 — только район цели.
+     */
+    protected double visibleLeg() {
+        return 0;
     }
 
     /** С какого расстояния до цели её район грузится заранее: {@link #PRELOAD_TICKS} полёта, не меньше 400 блоков. */
@@ -637,8 +672,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Отпустить район цели (снаряд убран или перенацелен — новый район возьмётся на подлёте). */
     private void releaseTargetArea() {
-        if (heldArea != null && level() instanceof ServerLevel level) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
+        if (level() instanceof ServerLevel level) {
+            if (heldArea != null) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
+            FlightTickets.releaseApproach(level, heldApproach, getUUID());
+        }
         heldArea = null;
+        heldApproach = List.of();
     }
 
     /** Размер района цели, который грузится заранее: уровень тикета {@link FlightTickets} (4 — ±40 блоков). */
@@ -801,8 +840,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Точка внутри круга разворота: с предельной угловой скоростью {@code maxRateDeg} °/тик снаряд до неё не довернёт
-     * и кружил бы вокруг неё, пока не выйдет срок жизни (крылатая ракета на 12 блоках/тик и 3°/тик разворачивается
-     * по кругу радиусом ~240 блоков: цель, сместившаяся вбок на атаке, оставалась внутри). Такой снаряд сначала уходит
+     * и кружил бы вокруг неё, пока не выйдет срок жизни (крылатая ракета на 4 блоках/тик и 3°/тик разворачивается
+     * по кругу радиусом ~80 блоков: цель, сместившаяся вбок на атаке, оставалась внутри). Такой снаряд сначала уходит
      * прямо, пока точка не выйдет из круга, и заходит снова. С запасом на разгон угловой скорости — {@link #TURN_MARGIN}.
      */
     protected final boolean insideTurn(Vec3 point, double maxRateDeg) {

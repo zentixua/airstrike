@@ -17,17 +17,34 @@ import ua.zentix.airstrike.target.Target;
 import java.util.UUID;
 
 /**
- * Крылатая ракета: 230 м/с (11.5 блока/тик). Старт из наклонного контейнера: стартовый ускоритель выносит её
+ * Крылатая ракета: 80 м/с (4 блока/тик, ≈290 км/ч). Старт из наклонного контейнера: стартовый ускоритель выносит её
  * вверх (~2 с), отделяется, запускается турбореактивный двигатель — разгон до маршевой, снижение на бреющий
  * полёт в 12 блоках над рельефом и маршрут в обход. На последнем участке в 160 блоках от цели — горка и
- * пикирование по дуге с разгоном до 12.5 блока/тик. С ядерной БЧ при воздушном подрыве срабатывает над целью.
+ * пикирование по дуге с разгоном до 5 блоков/тик. С ядерной БЧ при воздушном подрыве срабатывает над целью.
+ *
+ * <p>Скорость медленнее настоящей (у Х-101 и «Калибра» ~250 м/с) ради того, чтобы подлёт было видно: настоящую ракету
+ * очевидец видит за километры, а в игре она появляется в пределах прорисовки (12 чанков — 192 блока). На 11.5 блока/тик
+ * она пролетала их меньше чем за секунду, а при 12 TPS сервера — рывками по 11 блоков; на 4 блоках/тик подлёт от края
+ * прорисовки с горкой и пикированием длится ~2.5 с (при 12 TPS ~4 с), пролёт поперёк поля зрения — ~5 с. Время
+ * полёта до удара задаёт настройка {@code missile_flight_time}: путь маршрута — скорость × время. Последние
+ * {@link #VISIBLE_LEG} блоков ракета летит в мире (полоса подлёта), когда у цели есть игрок, а не вне его: иначе она
+ * появлялась бы только в пределах дистанции симуляции сервера у игрока.
  */
 public class CruiseMissileEntity extends StrikeProjectile {
-    public static final double CRUISE_SPEED = 11.5;
+    public static final double CRUISE_SPEED = 4.0;
+    /**
+     * Последние столько блоков до цели ракета летит в мире ({@link ua.zentix.airstrike.strike.FlightTickets#approach}):
+     * больше дальности прорисовки 12 чанков, чтобы подлёт с её края был виден, даже когда дистанция симуляции сервера
+     * меньше (8 чанков — сущности тикают лишь в ~128 блоках от игрока). Только когда у цели есть кому смотреть, районы
+     * полос общие для залпа и их число в мире ограничено ({@link ua.zentix.airstrike.strike.FlightTickets#holdApproach}).
+     */
+    public static final double VISIBLE_LEG = 256;
+    /** Маршевая скорость в 2.3.0 и раньше: ракеты, сохранённые в полёте без ключа {@code cruise_speed}, летели так. */
+    private static final double LEGACY_CRUISE_SPEED = 11.5;
     /** Горка перед пикированием начинается в стольких блоках от цели. */
     public static final double TERMINAL_RANGE = 160;
     /** Предельная скорость в пикировании. */
-    private static final double DIVE_SPEED = 12.5;
+    private static final double DIVE_SPEED = 5.0;
     /** Горка только при заходе хотя бы с такого расстояния: ближе ракете не хватит места набрать высоту. */
     private static final double POP_UP_MIN_RANGE = 185;
     /** Предельная скорость разворота по курсу, °/тик: на маршруте и атаке, на наборе высоты. */
@@ -35,7 +52,8 @@ public class CruiseMissileEntity extends StrikeProjectile {
     /** Ближе этого (по горизонтали) атаку из-за круга разворота не отменяем. */
     private static final double REATTACK_MIN = 64;
 
-    private static final LaunchProfile LAUNCH = new LaunchProfile(6, 40, 0.15, 8, -14);
+    /** Ускоритель выносит ракету до ~3.4 блока/тик — ниже маршевой: дальше разгоняет турбина, без рывка вниз. */
+    private static final LaunchProfile LAUNCH = new LaunchProfile(6, 40, 0.09, 8, -14);
 
     /** Горка перед пикированием — только при длинном заходе. */
     private boolean popUp = true;
@@ -57,6 +75,11 @@ public class CruiseMissileEntity extends StrikeProjectile {
     @Override
     public double cruiseSpeed() {
         return CRUISE_SPEED;
+    }
+
+    @Override
+    protected double visibleLeg() {
+        return VISIBLE_LEG;
     }
 
     @Override
@@ -166,11 +189,20 @@ public class CruiseMissileEntity extends StrikeProjectile {
     protected void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         popUp = !tag.contains("pop_up") || tag.getBoolean("pop_up");
+        // срок жизни посчитан по плану полёта на той скорости, с которой ракету сохранили: на другой маршевой остаток
+        // пути занимает другое время — остаток срока растягивается так же, иначе ракета пропала бы посреди полёта
+        double saved = tag.contains("cruise_speed") ? tag.getDouble("cruise_speed") : LEGACY_CRUISE_SPEED;
+        if (saved > CRUISE_SPEED) {
+            if (lifetime > 0) lifetime = age + (int) Math.ceil(Math.max(0, lifetime - age) * saved / CRUISE_SPEED);
+            // и летит уже с новой: на маршруте скорость сама падает до маршевой, а на горке осталась бы старой
+            speed = Math.min(speed, CRUISE_SPEED);
+        }
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         tag.putBoolean("pop_up", popUp);
+        tag.putDouble("cruise_speed", CRUISE_SPEED);
     }
 }
