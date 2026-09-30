@@ -26,7 +26,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -45,14 +44,15 @@ import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModParticles;
-import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.work.UnitQueue;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +61,7 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 
 /**
  * Боевые части. Разрушения и урон — на сервере по таймлайну (как fx/mfx/bfx в датапаке, только без криперов,
@@ -90,7 +91,7 @@ public final class Warheads {
         long t0 = System.nanoTime();
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
         GroundMaterial mat = GroundMaterial.sample(level, BlockPos.containing(point.add(0, 1, 0)));
-        explode(level, point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
+        explode(level, null, List.of(), point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
         // кинетический удар: рядом с точкой попадания — смертельно
         hurtAround(level, point, 14, bomb, ownerEntity, ModDamageTypes.KINETIC, d -> d <= 4.5 ? 60 : d <= 9 ? 22 : 7);
         PacketDistributor.sendToPlayersNear(level, null, point.x, point.y, point.z, 320, new S2C.BunkerImpact(point, mat.ordinal()));
@@ -133,21 +134,74 @@ public final class Warheads {
 
     /**
      * Ванильный взрыв без его звука и частиц (звук с задержкой и картинку взрыва даёт клиент): разрушения по правилам TNT,
-     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Только по готовым чанкам
-     * ({@link #whenReady}).
+     * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Делается единицами в очереди
+     * попаданий ({@link StagedExplosion}) под общим бюджетом тика, только по готовым чанкам.
+     *
+     * @param area  район таймлайна, который накрывает и этот взрыв, или null — взрыв возьмёт свой
+     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара)
      */
-    static void explode(ServerLevel level, Vec3 at, float power, boolean fire, @Nullable Entity direct, @Nullable Entity owner,
-                        @Nullable ExplosionDamageCalculator calculator) {
+    static StagedExplosion explode(ServerLevel level, @Nullable BlastArea area, List<StagedExplosion> after, Vec3 at, float power,
+                                   boolean fire, @Nullable Entity direct, @Nullable Entity owner, @Nullable ExplosionDamageCalculator calculator) {
         boolean blocks = AirstrikeConfig.SERVER.blockDamage.get();
         boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
-        whenReady(level, at, reach(power), l -> {
+        BlastArea held = area != null ? area.retain() : BlastArea.hold(level, at, reach(power));
+        StagedExplosion job = new StagedExplosion(held, after, at, power, burns, blocks, direct, owner, calculator);
+        StrikeWorld.get(level).impacts().add(level, job);
+        return job;
+    }
+
+    /** Кончились ли все взрывы {@code after}. */
+    static boolean pending(List<StagedExplosion> after) {
+        for (StagedExplosion e : after) if (!e.done()) return true;
+        return false;
+    }
+
+    /**
+     * Работа попадания одной единицей в очереди попаданий: после взрывов {@code after} (главного взрыва удара), когда
+     * район {@code area} готов.
+     *
+     * @param work возвращает, сколько сделано (блоков, обломков) — для замера
+     */
+    static void unit(ServerLevel level, BlastArea area, List<StagedExplosion> after, ImpactCost.Kind kind, String what,
+                     ToIntFunction<ServerLevel> work) {
+        StrikeWorld.get(level).impacts().add(level, new Unit(area.retain(), after, kind, what, work));
+    }
+
+    private record Unit(BlastArea area, List<StagedExplosion> after, ImpactCost.Kind kind, String what,
+                        ToIntFunction<ServerLevel> work) implements UnitQueue.Job {
+        @Override
+        public boolean ready(ServerLevel level) {
+            return area.ready(level);
+        }
+
+        @Override
+        public boolean blocked() {
+            return pending(after);
+        }
+
+        @Override
+        public int unitKind() {
+            return kind.ordinal();
+        }
+
+        @Override
+        public boolean step(ServerLevel level) {
             long t0 = System.nanoTime();
-            l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
-                    at.x, at.y, at.z, power, burns,
-                    blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                    ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
-            StrikeWorld.get(l).impactCost().add(ImpactCost.Kind.EXPLOSIONS, System.nanoTime() - t0, 1);
-        });
+            int n = work.applyAsInt(level);
+            area.record(level, kind, System.nanoTime() - t0, n);
+            return false;
+        }
+
+        @Override
+        public void end(ServerLevel level) {
+            area.release(level);
+        }
+
+        @Override
+        public String describe() {
+            Vec3 c = area.centre();
+            return what + " у " + Mth.floor(c.x) + " " + Mth.floor(c.y) + " " + Mth.floor(c.z);
+        }
     }
 
     /**
@@ -231,41 +285,130 @@ public final class Warheads {
      * @return сколько блоков выбито
      */
     public static int shatter(ServerLevel level, Vec3 center, int radius, int below, int above, TagKey<Block> tag) {
-        BlockPos c = BlockPos.containing(center);
-        BlockPos min = c.offset(-radius, -below, -radius), max = c.offset(radius, above, radius);
+        Shatter job = new Shatter(null, List.of(), center, radius, below, above, tag, (l, n) -> {});
         int broken = 0;
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (int sx = SectionPos.blockToSectionCoord(min.getX()); sx <= SectionPos.blockToSectionCoord(max.getX()); sx++) {
-            for (int sz = SectionPos.blockToSectionCoord(min.getZ()); sz <= SectionPos.blockToSectionCoord(max.getZ()); sz++) {
-                LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
-                if (chunk == null) continue;
-                // соседи чанка готовы — любой его блок меняется как обычно; нет — без обновлений соседей и не у края
-                boolean edgesReady = Terrain.neighbourhoodReady(level, sx, sz);
-                for (int sy = SectionPos.blockToSectionCoord(min.getY()); sy <= SectionPos.blockToSectionCoord(max.getY()); sy++) {
-                    int idx = chunk.getSectionIndexFromSectionY(sy);
-                    if (idx < 0 || idx >= chunk.getSectionsCount()) continue;
-                    LevelChunkSection section = chunk.getSection(idx);
-                    if (section.hasOnlyAir() || !section.maybeHas(s -> s.is(tag))) continue;
-                    int x0 = Math.max(min.getX(), SectionPos.sectionToBlockCoord(sx)), x1 = Math.min(max.getX(), SectionPos.sectionToBlockCoord(sx) + 15);
-                    int y0 = Math.max(min.getY(), SectionPos.sectionToBlockCoord(sy)), y1 = Math.min(max.getY(), SectionPos.sectionToBlockCoord(sy) + 15);
-                    int z0 = Math.max(min.getZ(), SectionPos.sectionToBlockCoord(sz)), z1 = Math.min(max.getZ(), SectionPos.sectionToBlockCoord(sz) + 15);
-                    for (int x = x0; x <= x1; x++) {
-                        for (int y = y0; y <= y1; y++) {
-                            for (int z = z0; z <= z1; z++) {
-                                // из уже взятой секции: setBlock меняет её же, так что следующие чтения верны
-                                if (section.getBlockState(x & 15, y & 15, z & 15).is(tag)) {
-                                    m.set(x, y, z);
-                                    if (!edgesReady && !Terrain.readyAround(level, Vec3.atCenterOf(m), EDGE)) continue;
-                                    level.setBlock(m, Blocks.AIR.defaultBlockState(), edgesReady ? Block.UPDATE_ALL : EDGE_FLAGS);
-                                    broken++;
-                                }
-                            }
+        while (job.hasNext()) broken += job.nextSection(level);
+        return broken;
+    }
+
+    /**
+     * Выбить стёкла (или листву) единицами в очереди попаданий: секция 16³, где они есть, — одна единица.
+     *
+     * @param first звук и частицы — с первой секцией, где что-то выбито (сколько выбито в ней)
+     */
+    static void shatterUnits(ServerLevel level, BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
+                             BiConsumer<ServerLevel, Integer> first) {
+        StrikeWorld.get(level).impacts().add(level, new Shatter(area.retain(), after, center, radius, below, above, tag, first));
+    }
+
+    /** {@link #shatter} по секциям: секции без таких блоков пропускаются в той же единице, работа — одна секция. */
+    private static final class Shatter implements UnitQueue.Job {
+        @Nullable
+        private final BlastArea area;
+        private final List<StagedExplosion> after;
+        private final Vec3 center;
+        private final TagKey<Block> tag;
+        private final BiConsumer<ServerLevel, Integer> first;
+        private final BlockPos min, max;
+        private final int sx0, sy0, sz0, nx, ny, nz;
+        private int index;
+        private boolean broke;
+
+        Shatter(@Nullable BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
+                BiConsumer<ServerLevel, Integer> first) {
+            this.area = area;
+            this.after = after;
+            this.center = center;
+            this.tag = tag;
+            this.first = first;
+            BlockPos c = BlockPos.containing(center);
+            min = c.offset(-radius, -below, -radius);
+            max = c.offset(radius, above, radius);
+            sx0 = SectionPos.blockToSectionCoord(min.getX());
+            sy0 = SectionPos.blockToSectionCoord(min.getY());
+            sz0 = SectionPos.blockToSectionCoord(min.getZ());
+            nx = SectionPos.blockToSectionCoord(max.getX()) - sx0 + 1;
+            ny = SectionPos.blockToSectionCoord(max.getY()) - sy0 + 1;
+            nz = SectionPos.blockToSectionCoord(max.getZ()) - sz0 + 1;
+        }
+
+        boolean hasNext() {
+            return index < nx * ny * nz;
+        }
+
+        /** Следующая секция по порядку; сколько блоков в ней выбито (0 — нечего или чанк не готов). */
+        int nextSection(ServerLevel level) {
+            int i = index++;
+            int sx = sx0 + i / (ny * nz), sz = sz0 + i / ny % nz, sy = sy0 + i % ny;
+            LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
+            if (chunk == null) return 0;
+            int idx = chunk.getSectionIndexFromSectionY(sy);
+            if (idx < 0 || idx >= chunk.getSectionsCount()) return 0;
+            LevelChunkSection section = chunk.getSection(idx);
+            if (section.hasOnlyAir() || !section.maybeHas(st -> st.is(tag))) return 0;
+            // соседи чанка готовы — любой его блок меняется как обычно; нет — без обновлений соседей и не у края
+            boolean edgesReady = Terrain.neighbourhoodReady(level, sx, sz);
+            int x0 = Math.max(min.getX(), SectionPos.sectionToBlockCoord(sx)), x1 = Math.min(max.getX(), SectionPos.sectionToBlockCoord(sx) + 15);
+            int y0 = Math.max(min.getY(), SectionPos.sectionToBlockCoord(sy)), y1 = Math.min(max.getY(), SectionPos.sectionToBlockCoord(sy) + 15);
+            int z0 = Math.max(min.getZ(), SectionPos.sectionToBlockCoord(sz)), z1 = Math.min(max.getZ(), SectionPos.sectionToBlockCoord(sz) + 15);
+            int broken = 0;
+            BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+            for (int x = x0; x <= x1; x++) {
+                for (int y = y0; y <= y1; y++) {
+                    for (int z = z0; z <= z1; z++) {
+                        // из уже взятой секции: setBlock меняет её же, так что следующие чтения верны
+                        if (section.getBlockState(x & 15, y & 15, z & 15).is(tag)) {
+                            m.set(x, y, z);
+                            if (!edgesReady && !Terrain.readyAround(level, Vec3.atCenterOf(m), EDGE)) continue;
+                            level.setBlock(m, Blocks.AIR.defaultBlockState(), edgesReady ? Block.UPDATE_ALL : EDGE_FLAGS);
+                            broken++;
                         }
                     }
                 }
             }
+            return broken;
         }
-        return broken;
+
+        @Override
+        public boolean ready(ServerLevel level) {
+            return area == null || area.ready(level);
+        }
+
+        @Override
+        public boolean blocked() {
+            return pending(after);
+        }
+
+        @Override
+        public int unitKind() {
+            return ImpactCost.Kind.GLASS.ordinal();
+        }
+
+        @Override
+        public boolean step(ServerLevel level) {
+            long t0 = System.nanoTime();
+            int broken = 0;
+            // секции без таких блоков — в той же единице: работа — одна секция, где они есть
+            while (hasNext() && broken == 0) broken += nextSection(level);
+            if (broken > 0 && !broke) {
+                broke = true;
+                first.accept(level, broken);
+            }
+            long took = System.nanoTime() - t0;
+            if (area != null) area.record(level, ImpactCost.Kind.GLASS, took, broken);
+            else StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, took, broken);
+            return hasNext();
+        }
+
+        @Override
+        public void end(ServerLevel level) {
+            if (area != null) area.release(level);
+        }
+
+        @Override
+        public String describe() {
+            return "Стёкла у " + Mth.floor(center.x) + " " + Mth.floor(center.y) + " " + Mth.floor(center.z);
+        }
     }
 
     /**
@@ -382,6 +525,8 @@ public final class Warheads {
         private final Entity owner;
         private final GroundMaterial mat;
         private final BlastArea area;
+        /** Главный взрыв: остальная работа удара ждёт, пока он снесёт своё. */
+        private final List<StagedExplosion> main;
         private int t;
 
         SurfaceBlast(ServerLevel level, WeaponType weapon, Vec3 pos, @Nullable Entity direct, @Nullable UUID ownerId) {
@@ -402,7 +547,7 @@ public final class Warheads {
             float surface = (float) pos.y;
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
                     new S2C.Blast(kind, pos, mat.ordinal(), surface, level.random.nextLong()));
-            explode(level, pos, power(weapon), false, direct, owner, null);
+            main = List.of(explode(level, area, List.of(), pos, power(weapon), false, direct, owner, null));
         }
 
         @Override
@@ -411,21 +556,23 @@ public final class Warheads {
             boolean missile = weapon == WeaponType.MISSILE;
             if (t == 1) {
                 // огненный шар — второй, зажигательный подрыв; у ракеты ещё кольцо горящих обломков
-                explode(level, pos, missile ? 3 : 2, true, direct, owner, null);
+                explode(level, area, main, pos, missile ? 3 : 2, true, direct, owner, null);
                 if (missile) {
-                    for (int i = 0; i < 8; i++) {
-                        double a = i * Math.PI / 4;
-                        igniteGround(level, pos.x + Math.cos(a) * 7, pos.z + Math.sin(a) * 7);
-                    }
+                    unit(level, area, main, ImpactCost.Kind.GROUND, "Кольцо огня", l -> {
+                        for (int i = 0; i < 8; i++) {
+                            double a = i * Math.PI / 4;
+                            igniteGround(l, pos.x + Math.cos(a) * 7, pos.z + Math.sin(a) * 7);
+                        }
+                        return 8;
+                    });
                 }
-                long t0 = System.nanoTime();
-                int debris = missile ? DebrisSpawner.missile(level, pos, mat) : DebrisSpawner.drone(level, pos, mat);
-                StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.DEBRIS, System.nanoTime() - t0, debris);
+                unit(level, area, main, ImpactCost.Kind.DEBRIS, "Обломки",
+                        l -> missile ? DebrisSpawner.missile(l, pos, mat) : DebrisSpawner.drone(l, pos, mat));
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
             if (missile) {
                 for (Secondary s : MISSILE_SECONDARIES) {
-                    if (s.tick() == t) explode(level, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
+                    if (s.tick() == t) explode(level, area, main, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
                 }
                 push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> true, (p, band) -> {
                     if (band == 1) {
@@ -440,12 +587,12 @@ public final class Warheads {
             } else {
                 switch (t) {
                     case 3 -> {
-                        explode(level, pos.add(4, 0, -3), 3, false, direct, owner, null);
-                        explode(level, pos.add(-3, 1, 4), 3, false, direct, owner, null);
+                        explode(level, area, main, pos.add(4, 0, -3), 3, false, direct, owner, null);
+                        explode(level, area, main, pos.add(-3, 1, 4), 3, false, direct, owner, null);
                     }
                     case 6 -> {
-                        explode(level, pos.add(-4, 0, -4), 4, false, direct, owner, null);
-                        explode(level, pos.add(2, 2, 5), 2, false, direct, owner, null);
+                        explode(level, area, main, pos.add(-4, 0, -4), 4, false, direct, owner, null);
+                        explode(level, area, main, pos.add(2, 2, 5), 2, false, direct, owner, null);
                     }
                     default -> {}
                 }
@@ -459,21 +606,19 @@ public final class Warheads {
             area.release(level);
         }
 
+        /** Стёкла (и листва у ракеты) — единицами по секциям; звук и частицы — с первой секцией, где что-то выбито. */
         private void shatterGlass(ServerLevel level, boolean missile) {
-            long t0 = System.nanoTime();
-            int glass = missile ? shatter(level, pos, 26, 8, 22, ModTags.SHATTERS) : shatter(level, pos, 16, 6, 12, ModTags.SHATTERS);
-            int leaves = missile ? shatter(level, pos, 11, 3, 16, BlockTags.LEAVES) : 0;
-            StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, System.nanoTime() - t0, glass + leaves);
-            if (glass > 0) {
+            shatterUnits(level, area, main, pos, missile ? 26 : 16, missile ? 8 : 6, missile ? 22 : 12, ModTags.SHATTERS, (l, n) -> {
                 float vol = missile ? 6 : 4;
-                level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 0.7f : 0.8f);
-                level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 1.0f : 1.2f);
-                if (missile) level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, 1.3f);
-                forced(level, new BlockParticleOption(ParticleTypes.BLOCK, Blocks.GLASS.defaultBlockState()), pos.add(0, missile ? 4 : 3, 0),
+                l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 0.7f : 0.8f);
+                l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 1.0f : 1.2f);
+                if (missile) l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, 1.3f);
+                forced(l, new BlockParticleOption(ParticleTypes.BLOCK, Blocks.GLASS.defaultBlockState()), pos.add(0, missile ? 4 : 3, 0),
                         missile ? 500 : 250, missile ? 16 : 10, missile ? 6 : 5, missile ? 16 : 10, 0, 256);
-            }
-            if (leaves > 0) {
-                level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f);
+            });
+            if (missile) {
+                shatterUnits(level, area, main, pos, 11, 3, 16, BlockTags.LEAVES,
+                        (l, n) -> l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f));
             }
         }
     }
@@ -497,6 +642,8 @@ public final class Warheads {
         /** Ослабленная зона: взрыв выгрызает её как пустоту, уцелевшее потом становится щебнем. */
         private final Set<BlockPos> weakened = new HashSet<>();
         private final BlastArea area;
+        /** Подрывы заряда: полость, огонь и щебень — после них. */
+        private final List<StagedExplosion> main;
         private int t;
 
         BunkerBlast(ServerLevel level, Vec3 pos, Vec3 entry, @Nullable Entity direct, @Nullable UUID ownerId) {
@@ -530,11 +677,13 @@ public final class Warheads {
                     return weakened.contains(p) ? Optional.of(0f) : super.getBlockExplosionResistance(explosion, reader, p, state, fluid);
                 }
             };
+            List<StagedExplosion> blasts = new ArrayList<>(3);
             for (int i = 0; i < 2; i++) {
                 Vec3 o = pos.add(level.random.nextIntBetweenInclusive(-3, 3), level.random.nextIntBetweenInclusive(-2, 2), level.random.nextIntBetweenInclusive(-3, 3));
-                explode(level, o, 12, false, direct, owner, weak);
+                blasts.add(explode(level, area, List.of(), o, 12, false, direct, owner, weak));
             }
-            explode(level, pos, power(WeaponType.BUNKER), false, direct, owner, weak);
+            blasts.add(explode(level, area, List.of(), pos, power(WeaponType.BUNKER), false, direct, owner, weak));
+            main = List.copyOf(blasts);
 
             // ударная волна в породе достаёт и за камнем, без прямой видимости
             hurtAround(level, pos, 24, direct, owner, ModDamageTypes.SHOCKWAVE, d -> d <= 10 ? 200 : d <= 16 ? 40 : 12);
@@ -550,18 +699,25 @@ public final class Warheads {
         public boolean tick(ServerLevel level) {
             t++;
             switch (t) {
-                case 1 -> igniteCavity(level);
-                case 2 -> rubble(level);
+                // после подрывов, которые поставлены раньше: огонь на дне и щебень — в уже выгрызенной полости
+                case 1 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Огонь в полости", l -> {
+                    igniteCavity(l);
+                    return 6;
+                });
+                case 2 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Щебень", this::rubble);
                 case 3 -> {
-                    explode(level, pos.add(4, -2, -3), 4, false, direct, owner, null);
-                    explode(level, pos.add(-4, 1, 3), 4, false, direct, owner, null);
+                    explode(level, area, main, pos.add(4, -2, -3), 4, false, direct, owner, null);
+                    explode(level, area, main, pos.add(-4, 1, 3), 4, false, direct, owner, null);
                     PacketDistributor.sendToPlayersNear(level, null, entry.x, entry.y, entry.z, 200, new S2C.Vent(entry, ventMat.ordinal()));
-                    long t0 = System.nanoTime();
-                    int debris = DebrisSpawner.vent(level, entry, ventMat);
-                    StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.DEBRIS, System.nanoTime() - t0, debris);
+                    unit(level, area, main, ImpactCost.Kind.DEBRIS, "Выброс", l -> DebrisSpawner.vent(l, entry, ventMat));
                 }
                 case 22 -> {
-                    if (AirstrikeConfig.SERVER.collapse.get() && depth >= 4 && depth <= 48) collapse(level);
+                    if (AirstrikeConfig.SERVER.collapse.get() && depth >= 4 && depth <= 48) {
+                        unit(level, area, main, ImpactCost.Kind.GROUND, "Обрушение свода", l -> {
+                            collapse(l);
+                            return 1;
+                        });
+                    }
                 }
                 default -> {}
             }
@@ -600,8 +756,8 @@ public final class Warheads {
             }
         }
 
-        /** Что уцелело от ослабленной зоны — дроблёная порода; щебень под сводом осыпается в полость. */
-        private void rubble(ServerLevel level) {
+        /** Что уцелело от ослабленной зоны — дроблёная порода; щебень под сводом осыпается в полость. Сколько блоков смотрели. */
+        private int rubble(ServerLevel level) {
             int cy = BlockPos.containing(pos).getY();
             for (BlockPos p : weakened) {
                 BlockState s = level.getBlockState(p);
@@ -611,6 +767,7 @@ public final class Warheads {
             Set<BlockPos> magma = new HashSet<>();
             for (int i = 0; i < 3; i++) blob(BlockPos.containing(pos), 5, 1, 5, -7, 1, 2, level.random, magma::add);
             fill(level, magma, Blocks.MAGMA_BLOCK.defaultBlockState(), ModTags.BB_ROCK);
+            return weakened.size() + magma.size();
         }
 
         /** «Труба» обрушения из щебня от свода полости к поверхности и рваная воронка провала наверху. */

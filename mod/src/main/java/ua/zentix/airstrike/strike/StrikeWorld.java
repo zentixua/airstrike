@@ -8,7 +8,10 @@ import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.work.UnitQueue;
+import ua.zentix.airstrike.work.WorkScheduler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +36,8 @@ public final class StrikeWorld {
     private final AreaLoader areas = new AreaLoader();
     private final ImpactCost impactCost = new ImpactCost();
     private final FlightLog flightLog = new FlightLog();
+    /** Единицы работы попаданий — полоса {@link WorkScheduler.Lane#IMPACT} общего бюджета тика. */
+    private final UnitQueue impacts = new UnitQueue();
     /** Районы полос подлёта ({@link FlightTickets#holdApproach}): центр → снаряды, чьи полосы через него проходят. */
     private final Map<ChunkPos, Set<UUID>> approach = new HashMap<>();
 
@@ -56,6 +61,27 @@ public final class StrikeWorld {
     /** Сколько потока сервера заняли попадания в этом тике (строка в лог о медленном). */
     public ImpactCost impactCost() {
         return impactCost;
+    }
+
+    /**
+     * Работа попаданий (взрывы, стёкла, обломки): таймлайн в свой тик ставит сюда единицы, а делает их планировщик
+     * ({@link WorkScheduler}) под общим бюджетом тика — в том же тике, если очередь пуста.
+     */
+    public UnitQueue impacts() {
+        return impacts;
+    }
+
+    /** Полоса попаданий в этом мире: единицы, пока часы разрешают. */
+    public void workImpacts(ServerLevel level, WorkClock clock) {
+        if (impacts.isEmpty()) return;
+        long t0 = System.nanoTime();
+        impacts.work(level, clock);
+        impactCost.step(System.nanoTime() - t0);
+    }
+
+    /** Конец тика сервера для попаданий этого мира: медленный тик и долгая очередь — в лог. */
+    public void endImpactTick(ServerLevel level) {
+        impactCost.endTick(level, impacts);
     }
 
     /** Концы полётов не по плану за этот тик: в лог — в конце тика мира. */
@@ -94,7 +120,7 @@ public final class StrikeWorld {
     }
 
     private boolean idle() {
-        return timelines.isEmpty() && pending.isEmpty();
+        return timelines.isEmpty() && pending.isEmpty() && impacts.isEmpty();
     }
 
     private void tick(ServerLevel level) {
@@ -113,7 +139,19 @@ public final class StrikeWorld {
             return done;
         });
         impactCost.step(System.nanoTime() - t0);
-        impactCost.endTick(level);
+    }
+
+    /**
+     * Убрать всё без работы: таймлайны и очередь попаданий отпускают свои районы. Для проверок, которые изображают
+     * остановку сервера ({@code WorkGameTests.stopFinishesQueue}): их остатки не должны доставаться следующим.
+     */
+    public void dropAll(ServerLevel level) {
+        timelines.addAll(pending);
+        pending.clear();
+        List<Timeline> all = new ArrayList<>(timelines);
+        timelines.clear();
+        for (Timeline t : all) t.end(level);
+        impacts.clear(level);
     }
 
     /** Все снаряды мира: в мире и вне его ({@link VirtualFlights}). */
@@ -146,10 +184,14 @@ public final class StrikeWorld {
     /**
      * Сервер останавливается (в том числе «Сохранить и выйти» в одиночной игре): снаряды в мире уходят в полёт вне
      * мира и сохраняются с ним, а после запуска летят дальше сами — иначе они ждали бы в файлах чанков, пока кто-то
-     * не придёт туда снова, и тикеты района цели после запуска были бы потеряны.
+     * не придёт туда снова, и тикеты района цели после запуска были бы потеряны. Очередь попаданий доделывается
+     * до этого, без бюджета ({@link UnitQueue#finish(ServerLevel)}).
      */
     public static void onServerStopping(ServerStoppingEvent event) {
         for (ServerLevel level : event.getServer().getAllLevels()) {
+            // работа попаданий не сохраняется: начатое и поставленное доделать сейчас, иначе в мире остались бы взрывы,
+            // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются, как раньше)
+            if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).impacts.finish(level);
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) {
                 p.parkForShutdown(level);
             }

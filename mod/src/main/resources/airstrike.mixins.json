@@ -7,6 +7,7 @@
     "chunk.BoundTickingBlockEntityMixin",
     "chunk.LevelChunkEditsMixin",
     "chunk.LevelChunkTickingMixin",
+    "explosion.ExplosionTimingMixin",
     "net.PlayerChunkSenderMixin",
     "sable.SubLevelSplitGuardMixin",
     "server.StopServerChunksMixin"

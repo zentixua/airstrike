@@ -164,18 +164,20 @@ public final class NuclearStrikes {
     // ---------------------------------------------------------------- события мира
 
     /**
-     * Ядерная часть всех измерений — после тика миров, под одним бюджетом на тик сервера ({@code destruction_ms_per_tick}).
-     * Каждый тик первым идёт следующее измерение: первому достаётся весь бюджет (и одна единица работы — всегда),
-     * так что очередь одного измерения не держит работу другого вечно.
+     * Ядерная часть всех измерений — полоса NUCLEAR общего бюджета ({@code WorkScheduler}): после попаданий, срок —
+     * что оставили они, не больше {@code destruction_ms_per_tick}; часы уже запущены. Миры — по кругу, как у полосы
+     * (первому достаётся весь срок и одна единица работы — всегда). Фоновый пул руин ({@code RuinWorkers}) — вне часов.
      */
-    public static void onServerTick(ServerTickEvent.Post e) {
-        MinecraftServer server = e.getServer();
-        WorkClock clock = NuclearWorld.clock(server);
-        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
-        List<ServerLevel> levels = new ArrayList<>();
-        server.getAllLevels().forEach(levels::add);
-        Collections.rotate(levels, -(server.getTickCount() % levels.size()));
+    public static void work(List<ServerLevel> levels, WorkClock clock) {
         for (ServerLevel level : levels) tick(level, clock);
+    }
+
+    /** Есть ли у очередей ядерки работа потока сервера (в любом измерении). */
+    public static boolean pending(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.hasData(ua.zentix.airstrike.registry.ModAttachments.NUCLEAR_WORLD) && NuclearWorld.get(level).busy()) return true;
+        }
+        return false;
     }
 
     private static void tick(ServerLevel level, WorkClock clock) {

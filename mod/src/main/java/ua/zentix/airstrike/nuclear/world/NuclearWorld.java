@@ -80,6 +80,14 @@ public final class NuclearWorld {
         Blast.releaseBuffers();
     }
 
+    /**
+     * Есть ли работа потока сервера у очередей ядерки (полоса NUCLEAR {@code WorkScheduler}: пока есть, попадания
+     * берут не весь общий бюджет).
+     */
+    public boolean busy() {
+        return !pulses.isEmpty() || !craters.isEmpty() || scars.size() > 0 || !prep.idle() || blast.busy();
+    }
+
     public int queuedChunks() {
         return scars.size();
     }
