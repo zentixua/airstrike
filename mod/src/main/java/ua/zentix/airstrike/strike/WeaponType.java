@@ -18,7 +18,7 @@ import java.util.function.IntFunction;
 public enum WeaponType implements StringRepresentable {
     /** Дрон-камикадзе в духе Shahed-136: ≈150 км/ч, крейсер над рельефом, пикирование на цель. */
     DRONE(0, "drone", 20, 40, SirenKind.AIR_RAID),
-    /** Крылатая ракета: бреющий полёт, горка, пикирование; 230 м/с. */
+    /** Крылатая ракета: бреющий полёт, горка, пикирование; 80 м/с — медленнее настоящей, чтобы подлёт было видно. */
     MISSILE(1, "missile", 15, 30, SirenKind.MISSILE),
     /** B-2 и бетонобойная бомба: пробивает грунт и взрывается под землёй. */
     BUNKER(2, "bunker", 60, 80, SirenKind.AIR_RAID),
