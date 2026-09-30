@@ -556,7 +556,11 @@ class Timeline:
         u = self.unit
         if until is not None:
             end = self.at(until)
-            units = snap_units(int(round((end - self.t) / u)), [it.dur for it in items])
+            total = int(round((end - self.t) / u))
+            own = [max(1, int(round(it.dur / u))) for it in items]
+            # длины уже на сетке и ровно заполняют часть — как есть: пропорциональное деление с округлением
+            # отдавало короткому отрезку одну единицу (стадион — 0,9 с вместо 1,9, Артём 30.09)
+            units = own if sum(own) == total else snap_units(total, [it.dur for it in items])
         else:
             units = [max(1, int(round(it.dur / u))) for it in items]
         for it, n in zip(items, units):
@@ -590,7 +594,8 @@ def trailer_edit(music, blackout=True):
     """
     tl = Timeline(music)
     # холодное начало: до музыки, свободно по секундам
-    tl.add(Clip("cold_open", "slowest-1.75", 1.9, tail=1.2, sfx=1.1), Black(1.0))
+    # до удара в стену и чёрный кадр сразу после вспышки (Артём 30.09: камера отворачивалась до чёрного)
+    tl.add(Clip("cold_open", "mark:gone+0.15", 1.9, align="end", tail=1.2, sfx=1.1), Black(1.0))
     tl.play((music.a, None))
     tl.run([
         Card(("EVERYTHING YOU SEE",), 3.7, fade=0.5),
@@ -605,19 +610,22 @@ def trailer_edit(music, blackout=True):
     tl.run([
         Clip("launch_missile", "sound:launch.booster-0.4", 1.9, whoosh=True),
         Clip("missile_tower", "mark:freeze-0.6", 3.7, impact="mark:freeze"),
-        Clip("launch_drone", "sound:launch.booster-0.3", 1.9, whoosh=True),
-        Clip("boost", 0.2, 1.9, whoosh=True),
+        Clip("launch_drone", "sound:launch.booster-0.3", 0.95, whoosh=True),
+        Clip("boost", 0.2, 0.95, whoosh=True),
         Clip("drone_city", 1.0, 1.9),
         Clip("impact_drone", "mark:freeze-0.9", 2.8, impact="mark:freeze"),
-        Clip("loiter_launch", "sound:loiter.launch-0.4", 1.9, whoosh=True),
+        Clip("loiter_launch", "sound:loiter.launch-0.4", 0.95, whoosh=True),
         Clip("loiter_strike", "mark:gone-1.5", 1.9, impact="mark:gone"),
         Clip("rocket_launch", "sound:rocket.launch-0.5", 1.9, whoosh=True),
-        Clip("rocket_impact", "mark:gone-0.5", 1.9, impact="mark:gone"),
+        # стадион: подлёт пакета и попадания подряд — с секунды до первого (Артём 30.09: попадания мелькали 0,9 с)
+        Clip("rocket_impact", "mark:gone-1.0", 2.8, impact="mark:gone"),
         Clip("fighters", "slowest-1.2", 2.8, whoosh=True),
-        Clip("missile_camera", "mark:close", 2.8, frame_y=0.0, whoosh=True),
-        Clip("bomb_bay", "mark:release-1.4", 1.9),
+        # с борта до удара и полсекунды помех после: дальше камера мода уже у наводчика (Артём 30.09)
+        Clip("missile_camera", "mark:gone+0.5", 2.8, align="end", frame_y=0.0, whoosh=True),
+        # «release» — B-2 отвернул на выход (EGRESS): дальше крен 45° и камера погони дёргается за ним (Артём 30.09)
+        Clip("bomb_bay", "mark:release-0.1", 1.9, align="end"),
         Clip("bomb_impact", "mark:freeze-0.8", 2.8, impact="mark:freeze"),
-        Clip("swarm_night", "mark:gone-1.2", 2.8),
+        Clip("swarm_night", "mark:gone-1.2", 1.9),
         Clip("grad_night", "mark:gone-0.8", 2.8, impact="mark:gone"),
         Clip("barrage", "mark:gone#3-0.6", 2.8, impact="mark:gone#3"),
     ], until="a_end")
@@ -636,7 +644,8 @@ def trailer_edit(music, blackout=True):
         tl.add(Clip("night_after", 1.0, 6.4, sfx=0.8))
     tl.play(music.b3, (music.b4, None))
     tl.run([
-        Clip("siren", 0.4, 3.7),
+        # отсчёт до удара — вверху экрана: в средней полосе кинокаше он уходил под рамку (Артём 30.09)
+        Clip("siren", 0.4, 3.7, frame_y=0.0),
         Clip("icbm", 0.0, 3.7, game=((0.1, "nuke_launch", 0.6),)),
         # план пишется с пуска; звук пуска игра даёт только в первые 2 с после пакета — на ноутбуке (дубль 2) его
         # в журнале не было, тогда он из ресурсов мода
@@ -726,6 +735,52 @@ def resolve(cut, shots):
             else:
                 c.src = max(0.0, s.duration - span)
     return cut
+
+
+# рывок камеры в ролике: поворот быстрее этого (градусов в секунду ролика); план с борта поворачивает с ракетой
+JERK_DEG_S = 120
+JERK_OK = {"missile_camera"}
+
+
+def camera_jerks(cut, shots, limit=JERK_DEG_S):
+    """Рывки камеры внутри отрезков: [(момент ролика, план, °/с)] — где взгляд поворачивается быстрее limit
+    в секундах ролика (с учётом замедления плана и скорости отрезка). Срыв камеры в стоп-кадр и доворот в начале
+    отрезка Артём видел сразу (30.09)."""
+    out = []
+    for c in cut.items:
+        if not isinstance(c, Clip) or c.shot in JERK_OK:
+            continue
+        s = shots[c.shot]
+        k0 = int(c.src * FPS)
+        k1 = min(s.count - 1, int((c.src + c.dur * c.rate) * FPS))
+        worst = None
+        for k in range(k0 + 1, k1 + 1):
+            a, b = s.cam(k - 1), s.cam(k)
+            dyaw = (b[3] - a[3] + 180) % 360 - 180
+            w = math.hypot(dyaw, b[4] - a[4]) * FPS * c.rate
+            if w > limit and (worst is None or w > worst[2]):
+                worst = (c.trailer_time(k / FPS), c.shot, w)
+        if worst:
+            out.append(worst)
+    return out
+
+
+def cut_points(cut, shots):
+    """Склейки и переходы скорости ролика для проверки глазами (tools/trailer/cut_sheets.py): [(момент, что)]."""
+    out = []
+    for it in cut.items:
+        name = it.shot if isinstance(it, Clip) else type(it).__name__.lower()
+        out.append((round(it.start, 3), f"склейка → {name}"))
+        if not isinstance(it, Clip):
+            continue
+        s = shots[it.shot]
+        end = it.start + it.dur
+        for f0, f1 in s.freezes():
+            for v, what in ((f0, "стоп-кадр"), (f1, "мир пошёл")):
+                t = it.trailer_time(v)
+                if it.start + 0.05 < t < end - 0.05:
+                    out.append((round(t, 3), f"{what}: {it.shot}"))
+    return out
 
 
 def sfx_layer(cut, shots, music):
@@ -1550,7 +1605,11 @@ def main():
         todo.append(("тизер", teaser_edit, TEASER_DRAFT if args.draft else TEASER, True, base + "-teaser.mp4"))
     for label, build, size, vertical, path in todo:
         cut = sfx_layer(resolve(build(music), shots), shots, music)
+        for t, name, w in camera_jerks(cut, shots):
+            print(f"  ! рывок камеры: {name} на {t:.2f} с ролика — {w:.0f}°/с")
         print(f"{label}: {cut.total:.1f} с, {len(cut.items)} отрезков, {size[0]}×{size[1]}")
+        with open(os.path.splitext(path)[0] + "-cuts.json", "w", encoding="utf-8") as f:
+            json.dump(cut_points(cut, shots), f, ensure_ascii=False, indent=0)
         audio = base + ("-teaser" if vertical else "") + "-audio.wav"
         sf.write(audio, mix(cut, shots, music, lib), SR, subtype="PCM_24")
         encode(cut, shots, size, vertical, audio, path, jobs, args.preset, 23 if args.draft else 16, args.draft)

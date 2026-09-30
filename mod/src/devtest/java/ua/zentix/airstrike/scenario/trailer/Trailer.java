@@ -115,6 +115,8 @@ public final class Trailer {
     private Vec3 northFacade = NORTH_TOWER;
     /** Середина крыши главной башни (цель с карты). */
     private Vec3 towerTop = TOWER;
+    /** Стена главной башни со стороны поста ниже верха, вдали от самолётов-построек карты у её верха ({@link #wallAwayFromCraft}). */
+    private Vec3 towerWall = TOWER;
     /** Крыша средней высоты у намеченного места удара шахедов (см. {@link #roofNear}). */
     private Vec3 droneRoof = DOWNTOWN.add(90, 0, 60);
     /** Площадка для бетонобойной бомбы у южных башен (см. {@link #plazaNear}). */
@@ -142,6 +144,8 @@ public final class Trailer {
     /** Истребители: 10 блоков за тик (200 м/с), план — 150 тиков (7,5 с); сколько крена берёт камера (знак проверен кадрами). */
     private static final double FIGHTER_SPEED = 10;
     private static final int FIGHTER_TICKS = 150;
+    /** Через сколько тиков мира после взрыва застывает кадр: к этому времени клиент уже получил обломки и огонь. */
+    private static final int FREEZE_DELAY = 4;
     private static final float FIGHTER_CAMERA_FALL = 0.6f;
 
     /** Планы, не прошедшие проверку кадров ({@link ShotCheck}). */
@@ -238,9 +242,11 @@ public final class Trailer {
         waitTicks(100);
         run(() -> fire("drone", northFacade));
         shot("cold_open").after(() -> nearest(DroneEntity.class, northFacade, 130) != null, 3000).noPrep().length(70).hidden()
-                .speed(1, slowNear(DroneEntity.class, () -> CineCamera.pose() == null ? northFacade : CineCamera.pose().pos(), 14, 0.3))
+                .speed(1, slowNear(DroneEntity.class, () -> CineCamera.pose() == null ? northFacade : CineCamera.pose().pos(), 32, 0.3))
                 .shake(0.12)
-                .camera(() -> pastLens(nearest(DroneEntity.class, northFacade, 130), 26, 3.2, 1.2, 52))
+                // в 22 блоках сбоку от пути: шахед проходит мимо и уходит в стену, камера доворачивает за ним меньше чем
+                // на пол-оборота и видит удар; в 3 блоках он пролетал за спину, и камера отворачивалась (Артём 30.09)
+                .camera(() -> pastLens(nearest(DroneEntity.class, northFacade, 130), 30, 22, 4, 50))
                 .endWhen(() -> nearest(DroneEntity.class, northFacade, 400) == null, 6);
     }
 
@@ -299,7 +305,7 @@ public final class Trailer {
         shot("map").length(100).hud().player(t -> new Pose(Vec3.ZERO, yawTo(post, TOWER), 10, 0, 70))
                 .prepare(() -> {
                     ua.zentix.airstrike.client.screen.MapScreen.reset();
-                    ua.zentix.airstrike.client.map.MapTarget.set(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(towerTop.x, towerTop.z));
+                    ua.zentix.airstrike.client.map.MapTarget.set(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(towerWall.x, towerWall.z));
                     mc.setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
                 })
                 // первая плитка DH — ещё не карта: после неё ещё 10 с на остальные (без DH ждать нечего)
@@ -319,15 +325,17 @@ public final class Trailer {
             Vec3 from = ground(at.add(fwd.scale(12)).add(right.scale(-7))).add(0, 2.2, 0);
             return CineCamera.track(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, at, 200), at.add(0, 2.5, 0), 0.35), 66);
         });
-        // ракета в крышу главной башни: с соседней крыши, на подлёте замедление, взрыв замирает, камера его облетает
-        Supplier<Vec3> roof = () -> towerTop;
+        // ракета в стену главной башни ниже верха: у крыши в небе висят два самолёта-постройки карты, и ракета рвалась
+        // рядом с ними, а облёт шёл вокруг точки в небе (Артём 30.09). На подлёте замедление, взрыв замирает, камера
+        // облетает его с городом внизу
+        Supplier<Vec3> roof = () -> towerWall;
         shot("missile_tower").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(CruiseMissileEntity.class, roof, 220, 0.2))
                 .bulletTime(CruiseMissileEntity.class, roof, 170, 0.35)
                 .camera(() -> {
                     Vec3 top = roof.get();
-                    Vec3 from = top.add(toPost.scale(120)).add(side.scale(90)).add(0, -25, 0);
-                    return bulletTimeCamera(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, top, 900), top, 0.45), 38, 70, 40);
+                    Vec3 from = top.add(toPost.scale(120)).add(side.scale(90)).add(0, -10, 0);
+                    return bulletTimeCamera(from, smoothFocus(() -> nearest(CruiseMissileEntity.class, top, 900), top, 0.45), 38, 70, 40, top);
                 })
                 .when(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) != null, 3000)
                 .endWhen(() -> nearest(CruiseMissileEntity.class, roof.get(), 900) == null, 60)
@@ -427,12 +435,16 @@ public final class Trailer {
             Vec3 b = ground(at.add(right.scale(8)).add(fwd.scale(8))).add(0, 2.0, 0);
             return CineCamera.dolly(a, b, 170, () -> at.add(fwd.scale(3)).add(0, 2.2, 0), 72);
         });
-        shot("rocket_impact").hidden().length(220).speed(0.6).shake(0.08).camera(() -> {
+        // над стадионом сбоку, ближе к посту: ракеты входят в кадр сверху со стороны пуска и падают на поле
+        // (Артём 30.09: с 160 блоков попадания читались долю секунды, подлёта не было)
+        shot("rocket_impact").hidden().length(260).speed(0.6).shake(0.08).camera(() -> {
             Vec3 t = ground(STADIUM);
-            Vec3 a = ground(t.add(side.scale(160)).add(toPost.scale(-60))).add(0, 60, 0);
-            Vec3 b = ground(t.add(side.scale(130)).add(toPost.scale(-40))).add(0, 52, 0);
-            return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(0, 10, 0), 50), CineCamera.Key.at(220, b, t, 46));
-        }).when(() -> nearest(RocketEntity.class, STADIUM, 250) != null, 6000)
+            Vec3 a = t.add(side.scale(80)).add(toPost.scale(40)).add(0, 48, 0);
+            Vec3 b = t.add(side.scale(70)).add(toPost.scale(30)).add(0, 44, 0);
+            return CineCamera.spline(true, CineCamera.Key.at(0, a, t.add(toPost.scale(25)).add(0, 14, 0), 52),
+                    CineCamera.Key.at(260, b, t.add(0, 4, 0), 50));
+        }).when(() -> nearest(RocketEntity.class, STADIUM, 450) != null, 6000)
+                .subject(() -> ground(STADIUM).add(0, 4, 0), 60, 0.2)
                 .endWhen(() -> nearest(RocketEntity.class, STADIUM, 1200) == null, 80);
     }
 
@@ -889,6 +901,7 @@ public final class Trailer {
         silo = new Vec3(silo.x, height(level, Mth.floor(silo.x), Mth.floor(silo.z)), silo.z);
         // шахед холодного начала и ракета с борта заходят с запада — в западные стены
         towerTop = top(level, TOWER);
+        towerWall = wallAwayFromCraft(level);
         droneRoof = roofNear(level, DOWNTOWN.add(90, 0, 60), 48);
         bombPlaza = plazaNear(level, SOUTH_TOWERS.add(50, 0, -70), 90, 14);
         northFacade = facade(level, NORTH_TOWER, 120, new Vec3(-1, 0, 0));
@@ -1011,6 +1024,34 @@ public final class Trailer {
             }
         }
         return axis;
+    }
+
+    /**
+     * Стена главной башни со стороны поста, дальше всего от аппаратов у башни (самолёты-постройки карты Greenfield —
+     * аппараты Sable в небе у её верха): ракета, пройдя рядом, рвалась у них неконтактным взрывателем.
+     */
+    private Vec3 wallAwayFromCraft(ServerLevel level) {
+        List<Vec3> craft = new ArrayList<>();
+        for (var s : ua.zentix.airstrike.compat.SubLevels.near(level, towerTop, 300)) craft.add(ua.zentix.airstrike.compat.SubLevels.center(s));
+        int top = Mth.floor(towerTop.y);
+        Vec3 best = null;
+        double bestGap = -1;
+        for (int y : new int[]{top - 40, top - 60, top - 80, top - 100}) {
+            if (y < TOWER.y + 30) break;
+            Vec3 w = facade(level, TOWER, y, toPost);
+            // зазор до аппаратов — от точки удара и от последних 250 блоков подлёта (с поста)
+            double gap = Double.MAX_VALUE;
+            for (Vec3 c : craft) {
+                for (int k = 0; k <= 10; k++) gap = Math.min(gap, c.distanceTo(w.add(toPost.scale(25 * k))));
+            }
+            if (gap > bestGap + 1e-6) {
+                best = w;
+                bestGap = gap;
+            }
+            if (gap >= 60) break;
+        }
+        Airstrike.LOG.info("TRAILER стена башни {}: аппаратов рядом {} ({}), зазор {}", best, craft.size(), craft, bestGap);
+        return best;
     }
 
     /**
@@ -1346,7 +1387,13 @@ public final class Trailer {
         Vec3 right = new Vec3(-flat.z, 0, flat.x);
         Vec3 cam = p.add(v.scale(ahead)).add(right.scale(sideOff)).add(0, up, 0);
         final Entity target = e;
-        return CineCamera.track(cam, smoothFocus(() -> target.isRemoved() ? null : target, p, 0.6), fov);
+        // пропал (удар) — взгляд остаётся там, где его видели последним: возврат к точке старта разворачивал камеру
+        // от стены перед чёрным кадром (Артём 30.09)
+        final Vec3[] seen = {p};
+        return CineCamera.track(cam, smoothFocus(() -> {
+            if (!target.isRemoved()) seen[0] = target.getPosition(CineCamera.partial());
+            return seen[0];
+        }, p, 0.6), fov);
     }
 
     /**
@@ -1377,7 +1424,14 @@ public final class Trailer {
             double arcTicks = Math.max(1, shot.freezeFrames * shot.freezeCamSpeed * Recorder.TPS / Recorder.VIDEO_FPS);
             double u = CineCamera.smooth(Math.min(1, (t - f) / arcTicks));
             Vec3 center = new Vec3(look.x, c.y, look.z);
-            return Pose.look(arcPoint(center, arc[0].from(), u, arc[0].arc(), arc[0].radius()), look, 0, fov);
+            Pose p = Pose.look(arcPoint(center, arc[0].from(), u, arc[0].arc(), arc[0].radius()), look, 0, fov);
+            // взгляд переходит со снаряда на шар за 0,4 с ролика: в миг заморозки он прыгал на месте (363–971°/с,
+            // «срыв камеры» у Артёма 30.09)
+            double blendTicks = Math.max(1, 0.4 * Recorder.TPS * shot.freezeCamSpeed);
+            if (t - f >= blendTicks) return p;
+            Pose b = before.at(t);
+            float w = (float) CineCamera.smooth((t - f) / blendTicks);
+            return new Pose(p.pos(), Mth.rotLerp(w, b.yaw(), p.yaw()), Mth.lerp(w, b.pitch(), p.pitch()), p.roll(), p.fov());
         };
     }
 
@@ -1865,7 +1919,7 @@ public final class Trailer {
          * камера идёт со скоростью {@code camSpeed} ({@link #bulletTimeCamera} облетает место взрыва).
          */
         Shot bulletTime(Class<? extends Entity> type, Supplier<Vec3> at, int frames, double camSpeed) {
-            return bulletTime(type, at, 40, 0, frames, camSpeed);
+            return bulletTime(type, at, 40, FREEZE_DELAY, frames, camSpeed);
         }
 
         /**

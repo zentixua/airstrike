@@ -150,7 +150,7 @@ def full_recording():
     S.append(shot_lines("rocket_impact", 360, speed=0.6, want=lambda k: 0.6, marks=[(150, "gone:airstrike:rocket")],
                         sounds=[(152, "airstrike:rocket.blast", snd("rocket_blast_1"), False, None)]))
     S.append(shot_lines("missile_camera", 400, speed=0.2, want=lambda k: 0.2, hud=True,
-                        marks=[(60, "video"), (200, "close"), (380, "exit")]))
+                        marks=[(60, "video"), (200, "close"), (330, "gone:airstrike:cruise_missile"), (380, "exit")]))
     S.append(shot_lines("bomb_bay", 400, speed=0.25, want=lambda k: 0.25, marks=[(200, "release")]))
     S.append(shot_lines("bomb_impact", 600, lambda k: 0.3 if k >= 100 else 0.75, speed=0.75, freeze_at=50, freeze_frames=150,
                         sounds=[(300, "airstrike:bomb.impact", snd("bomb_impact"), False, None)]))
@@ -557,3 +557,29 @@ if __name__ == "__main__":
         print("синтетическая запись:", sys.argv[2])
         sys.exit(0)
     sys.exit(pytest.main([__file__, "-q", *sys.argv[1:]]))
+
+
+def test_camera_jerk_and_cut_points(tmp_path):
+    """Рывок камеры внутри отрезка — в предупреждения; плавный поворот — нет. Список склеек для листов проверки
+    — все склейки ролика и стоп-кадры внутри отрезков."""
+    rec = full_recording()
+    m = edit.MUSICS["eyes"]
+    write_recording(str(tmp_path / "a"), rec, every=30)
+    shots = edit.load_recording(str(tmp_path / "a"))
+    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+    assert edit.camera_jerks(cut, shots) == []
+    clip = next(c for c in cut.items if isinstance(c, edit.Clip) and c.shot == "rocket_impact")
+    k = int(clip.src * edit.FPS) + 30
+    for line in (x for lines in rec for x in lines):
+        if line["shot"] == "rocket_impact" and line["type"] == "frame":
+            # плавный поворот 30°/с до кадра k, в кадре k — скачок на 20°
+            line["cam"][3] = line["k"] * 0.5 + (20.0 if line["k"] >= k else 0.0)
+    write_recording(str(tmp_path / "b"), rec, every=30)
+    shots = edit.load_recording(str(tmp_path / "b"))
+    cut = edit.resolve(edit.trailer_edit(m, blackout=False), shots)
+    jerks = edit.camera_jerks(cut, shots)
+    assert [j[1] for j in jerks] == ["rocket_impact"]
+    assert jerks[0][0] == pytest.approx(clip.trailer_time(k / edit.FPS), abs=0.05)
+    points = edit.cut_points(cut, shots)
+    assert len([p for p in points if p[1].startswith("склейка")]) == len(cut.items)
+    assert any(p[1] == "стоп-кадр: missile_tower" for p in points)
