@@ -79,10 +79,14 @@ public final class WorkClock {
         }
     }
 
-    /** Успеем ли ещё одну единицу работы до срока. */
+    /**
+     * Успеем ли ещё одну единицу работы до срока. Первая единица тика — всегда, даже при сроке, который уже прошёл
+     * ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по порядку общего бюджета может не остаться).
+     */
     public boolean canStart() {
+        if (!worked) return true;
         long now = time.getAsLong();
-        return now < deadline && (!worked || now + (long) estimate < deadline);
+        return now + (long) estimate < deadline;
     }
 
     /** Начало единицы работы: отметка для {@link #end}. */
@@ -123,6 +127,16 @@ public final class WorkClock {
     /** Для статуса: самая долгая единица за последние 5–10 с (прошлое окно в 100 тиков и текущее), нс. */
     public long largestRecentNanos() {
         return Math.max(largest, largestBefore);
+    }
+
+    /** Время работы в этом тике, нс (по этим часам: у считающих — единицы × цену). */
+    public long usedThisTickNanos() {
+        return usedThisTick;
+    }
+
+    /** Есть ли работа в этом тике. */
+    public boolean workedThisTick() {
+        return worked;
     }
 
     /** Больше всего времени работы за один тик, нс (для проверок). */

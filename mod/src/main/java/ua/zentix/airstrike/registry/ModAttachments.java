@@ -13,6 +13,7 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.work.WorkScheduler;
 import ua.zentix.airstrike.warhead.CraterFalls;
 
 import java.util.function.Supplier;
@@ -42,6 +43,10 @@ public final class ModAttachments {
     /** Верхний мир: часы бюджета блэкаута — один на тик сервера ({@link Blackouts#clock}); не сохраняется. */
     public static final Supplier<AttachmentType<WorkClock>> GRID_CLOCK = REGISTER.register("grid_clock",
             () -> AttachmentType.builder(Blackouts::newClock).build());
+
+    /** Верхний мир: часы полосы попаданий общего бюджета ({@link WorkScheduler#impactClock}); не сохраняется. */
+    public static final Supplier<AttachmentType<WorkClock>> IMPACT_CLOCK = REGISTER.register("impact_clock",
+            () -> AttachmentType.builder(WorkScheduler::newImpactClock).build());
 
     /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",

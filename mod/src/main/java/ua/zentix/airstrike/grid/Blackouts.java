@@ -11,7 +11,6 @@ import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
@@ -22,9 +21,9 @@ import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.work.WorkScheduler;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -173,16 +172,13 @@ public final class Blackouts {
     // ---------------------------------------------------------------- события
 
     /**
-     * Блэкаут всех измерений — после тика миров, под своим бюджетом на тик сервера ({@code grid.ms_per_tick}).
-     * Каждый тик первым идёт следующее измерение, как у ядерных очередей.
+     * Блэкаут всех измерений — полоса {@link WorkScheduler.Lane#GRID} общего бюджета тика: не больше
+     * {@code grid.ms_per_tick} и не больше, чем оставили полосы выше. {@code levels} — первым идёт следующее
+     * измерение, как у ядерных очередей.
+     *
+     * @param clock часы полосы, уже запущены
      */
-    public static void onServerTick(ServerTickEvent.Post e) {
-        MinecraftServer server = e.getServer();
-        WorkClock clock = clock(server);
-        clock.start(AirstrikeConfig.SERVER.gridTimeBudgetMs.get() * 1_000_000L);
-        List<ServerLevel> levels = new ArrayList<>();
-        server.getAllLevels().forEach(levels::add);
-        Collections.rotate(levels, -(server.getTickCount() % levels.size()));
+    public static void work(MinecraftServer server, List<ServerLevel> levels, WorkClock clock) {
         boolean plots = server.getTickCount() % BlackoutWorld.PLOT_SCAN == 0 && ModList.get().isLoaded("sable");
         boolean second = server.getTickCount() % 20 == 0;
         for (ServerLevel level : levels) {
@@ -197,6 +193,17 @@ public final class Blackouts {
                 BlackoutWorld.get(level).tick(level, clock);
             }
         }
+    }
+
+    /**
+     * Есть ли у блэкаута работа в очереди хоть в одном мире (полосам выше — не весь бюджет). Само отключение — ещё
+     * не работа: каскад ставит кварталы в очередь по времени, а между ними блэкауту делать нечего.
+     */
+    public static boolean pending(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.hasData(ModAttachments.BLACKOUT_WORLD) && BlackoutWorld.get(level).busy()) return true;
+        }
+        return false;
     }
 
     /** Часы бюджета блэкаута — одни на сервер (в верхнем мире). */

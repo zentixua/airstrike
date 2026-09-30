@@ -19,6 +19,9 @@ import java.util.UUID;
  * и вторичный подрыв через несколько тиков читал бы их синхронно, ожидая загрузку прямо в тике. Тикет не сохраняется
  * в мире; ключ — свой у каждого района, соседние взрывы залпа не снимают его друг у друга. Тот же район — и район
  * осыпания воронки ({@link CraterFalls}).
+ * <p>
+ * Держателей может быть несколько: таймлайн взрыва и его единицы работы в очереди попаданий ({@link StagedExplosion}
+ * и другие), которые при большом залпе кончаются позже таймлайна. Район отпускается с последним ({@link #retain}).
  */
 final class BlastArea {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_blast", Comparator.<UUID>naturalOrder());
@@ -29,6 +32,8 @@ final class BlastArea {
     /** Уровень тикета 33 − distance: полностью загружен квадрат ±distance чанков вокруг {@link #chunk}. */
     private final int distance;
     private final UUID key = UUID.randomUUID();
+    /** Сколько держателей ещё не отпустили район. */
+    private int holders = 1;
 
     private BlastArea(Vec3 centre, double reach) {
         this.centre = centre;
@@ -49,11 +54,20 @@ final class BlastArea {
         return area;
     }
 
+    /** Ещё один держатель (единица работы, которая может кончиться позже взявшего): отпустить — своим {@link #release}. */
+    BlastArea retain() {
+        if (holders <= 0) throw new IllegalStateException("район взрыва уже отпущен");
+        holders++;
+        return this;
+    }
+
     boolean ready(ServerLevel level) {
         return Terrain.readyAround(level, centre, reach);
     }
 
+    /** Держатель отпускает район; последний — снимает тикет и закрывает осыпание. */
     void release(ServerLevel level) {
+        if (holders <= 0 || --holders > 0) return;
         StrikeWorld.get(level).areas().release(level, area());
         CraterFalls.get(level).close(level, key);
     }
