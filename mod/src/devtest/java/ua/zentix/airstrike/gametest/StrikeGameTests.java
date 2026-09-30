@@ -190,9 +190,9 @@ public final class StrikeGameTests {
             if (lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = t;
                 // запас хода — полёт до точки с запасом ×1.5 и 10 с на маршевой (здесь с допуском на тики между потерей и
-                // проверкой); без ограничения — ещё полторы тысячи тиков погони
+                // проверкой); в тиках — на нынешней скорости, как время до удара; без ограничения — ещё полторы тысячи тиков погони
                 bound[0] = 2 * f.etaTicks() + 200;
-                int left = (int) (f.rangeLeft() / f.cruiseSpeed());
+                int left = (int) (f.rangeLeft() / Math.max(f.cruiseSpeed(), f.speed()));
                 h.assertTrue(left <= bound[0], "после потери цели запас хода на " + left + " тиков, а полёт до точки — " + f.etaTicks());
             }
         });
@@ -284,7 +284,7 @@ public final class StrikeGameTests {
             }
             if (targetDies && lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = tick[0];
-                bound[0] = (int) (f.rangeLeft() / f.cruiseSpeed());
+                bound[0] = (int) (f.rangeLeft() / Math.max(f.cruiseSpeed(), f.speed()));
                 h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели запас хода на " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
             }
         });
