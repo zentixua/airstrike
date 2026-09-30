@@ -430,7 +430,9 @@ public final class StrikeGameTests {
      * Ракета издалека вне мира возвращается в мир на краю полосы подлёта ({@link CruiseMissileEntity#VISIBLE_LEG}),
      * а не у района цели (±40 блоков): её подлёт видно игроку у цели и при дистанции симуляции меньше прорисовки.
      * Заход — поперёк полосы: чанки самой площадки держит GameTest, и ракета вдоль неё вошла бы в мир и без полосы подлёта.
-     * В темпе игры: полоса грузится в фоне. Удар — и все районы отпущены.
+     * В темпе игры: полоса грузится в фоне, и её дальний край к подлёту готов не всегда (вход в мир в 192 блоках и дальше
+     * от цели); порог — дальше края дистанции симуляции 8 (128 блоков) с запасом, без полосы — 38 блоков.
+     * Удар — и все районы отпущены.
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_approach", skyAccess = true)
     public static void missileEntersWorldAtApproachEdge(GameTestHelper h) {
@@ -455,7 +457,7 @@ public final class StrikeGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
-            h.assertTrue(entered[0] >= 200, "ракета вернулась в мир в " + Math.round(entered[0]) + " блоках от цели, а не на краю полосы подлёта");
+            h.assertTrue(entered[0] >= 160, "ракета вернулась в мир в " + Math.round(entered[0]) + " блоках от цели, а не на краю полосы подлёта");
             h.assertTrue(FlightTickets.held(level, id) == 0, "ракета не отпустила районы");
         });
     }
