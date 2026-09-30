@@ -62,6 +62,7 @@ import ua.zentix.airstrike.strike.VirtualFlights;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
+import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.warhead.Warheads;
@@ -124,6 +125,164 @@ public final class StrikeGameTests {
             h.assertTrue(drone.isRemoved(), "шахед ещё летит: " + drone.position());
             h.assertTrue(drone.getRemovalReason() == net.minecraft.world.entity.Entity.RemovalReason.DISCARDED, "шахед пропал: " + drone.getRemovalReason());
             assertCrater(h, RUNWAY_TARGET);
+        });
+    }
+
+    /**
+     * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
+     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (погоня набирает срок жизни на 2000
+     * блоков), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
+     * UUID в начале полосы. Шахед за ней не идёт: срок после потери — только на полёт до точки смерти, и бьёт он туда.
+     */
+    @GameTest(template = "runway", timeoutTicks = 600, batch = "drone_lost", skyAccess = true)
+    public static void droneStrikesWhereTargetDied(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 alive = top(h, RUNWAY_TARGET).add(0, 15, 0);
+        Cow cow = EntityType.COW.create(level);
+        cow.setNoAi(true);
+        cow.setNoGravity(true);
+        cow.moveTo(alive.x, alive.y, alive.z);
+        level.addFreshEntity(cow);
+        UUID cowId = cow.getUUID();
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        drone.launch(Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 50, 4))), Target.OfEntity.center(cow),
+                cow.getBoundingBox().getCenter(), null);
+        level.addFreshEntity(drone);
+        UUID id = drone.getUUID();
+        int[] tick = {0};
+        Vec3[] died = {null};
+        int[] lostAt = {-1};
+        int[] bound = {0};
+        boolean[] respawned = {false};
+        Vec3[] last = {drone.position()};
+        h.onEachTick(() -> {
+            int t = ++tick[0];
+            if (t <= 20) {
+                // цель уходит и возвращается: 20 сдвигов по 100 блоков погони
+                Vec3 to = t % 2 == 1 ? alive.add(0, 0, -100) : alive;
+                cow.teleportTo(to.x, to.y, to.z);
+            } else if (t == 25) {
+                died[0] = cow.getBoundingBox().getCenter();
+                cow.kill();
+            } else if (died[0] != null && cow.isRemoved() && !respawned[0]) {
+                respawned[0] = true;
+                Cow again = EntityType.COW.create(level);
+                again.setUUID(cowId);
+                again.setNoAi(true);
+                Vec3 at = top(h, new BlockPos(16, 3, 20));
+                again.moveTo(at.x, at.y, at.z);
+                level.addFreshEntity(again);
+            }
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            last[0] = f.position();
+            if (lostAt[0] < 0 && f.targetLost()) {
+                lostAt[0] = t;
+                // срок — полёт до точки с запасом ×1.5 и 10 с (здесь с допуском на тики между потерей и проверкой);
+                // без ограничения — ещё полторы тысячи тиков погони
+                bound[0] = 2 * f.etaTicks() + 200;
+                int left = f.lifetimeLeft();
+                h.assertTrue(left <= bound[0], "после потери цели срок жизни " + left + " тиков, а полёт до точки — " + f.etaTicks());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(died[0] != null && respawned[0], "цель не умерла и не возродилась");
+            h.assertTrue(lostAt[0] >= 0, "шахед не потерял цель");
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]) + ", с потери цели " + (tick[0] - lostAt[0]) + " тиков");
+            h.assertTrue(tick[0] - lostAt[0] <= bound[0], "с потери цели до удара " + (tick[0] - lostAt[0]) + " тиков");
+            h.assertTrue(last[0].distanceTo(died[0]) < 10, "шахед взорвался не у точки смерти цели: " + last[0].subtract(died[0]));
+        });
+    }
+
+    /**
+     * Цель умерла и возродилась между двумя тиками снаряда ({@code doImmediateRespawn}): новая сущность с тем же UUID —
+     * уже не та цель, слежение её не подхватывает, даже если мёртвой снаряд её так и не увидел.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void respawnedTargetIsLost(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Cow cow = h.spawn(EntityType.COW, RANGE_CENTER.above());
+        TargetTracker tracker = new TargetTracker(Target.OfEntity.center(cow), cow.getBoundingBox().getCenter());
+        tracker.tick(level);
+        h.assertFalse(tracker.isLost(), "живая цель потеряна");
+        cow.discard();
+        Cow again = EntityType.COW.create(level);
+        again.setUUID(cow.getUUID());
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER.offset(10, 1, 0)));
+        again.moveTo(at.x, at.y, at.z);
+        level.addFreshEntity(again);
+        h.assertTrue(level.getEntity(cow.getUUID()) == again, "новая сущность не нашлась по UUID");
+        tracker.tick(level);
+        h.assertTrue(tracker.isLost(), "слежение подхватило новую сущность с тем же UUID");
+        h.succeed();
+    }
+
+    /**
+     * Цель сбоку, внутри круга разворота (промах в пике, точка в воздухе, где пропала цель): шахед не кружит вокруг неё
+     * до конца срока жизни, а уходит прямо, набирает высоту и заходит снова. Всё — выше барьерной стены площадки
+     * (шаблон 64 блока): круг разворота шахеда шире полосы.
+     */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack", skyAccess = true)
+    public static void droneReattacksInsteadOfCircling(GameTestHelper h) {
+        droneReattacks(h, false);
+    }
+
+    /**
+     * То же, но цель — сущность, которая погибает в тот же тик, когда шахед её взял: её последняя точка внутри круга
+     * разворота, и повторный заход должен уложиться в срок после потери цели (полёт до точки ×1.5 и 10 с).
+     */
+    @GameTest(template = "runway", timeoutTicks = 700, batch = "drone_reattack_lost", skyAccess = true)
+    public static void droneReattacksLostTargetInTime(GameTestHelper h) {
+        droneReattacks(h, true);
+    }
+
+    private static void droneReattacks(GameTestHelper h, boolean targetDies) {
+        ServerLevel level = h.getLevel();
+        gameSpeed(h);
+        Vec3 point = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 85, 120)));
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(-8, 110, 20)));
+        drone.launch(start, new Target.Point(start.add(0, 0, 400)), start.add(0, 0, 400), null);
+        // старт за краем площадки: чанк там может не тикать — в мир шахед вернётся сам
+        VirtualFlights.launch(level, drone);
+        UUID id = drone.getUUID();
+        // цель, которая погибнет: висит в точке, центром тела в ней
+        Cow cow = targetDies ? EntityType.COW.create(level) : null;
+        if (cow != null) {
+            cow.setNoAi(true);
+            cow.setNoGravity(true);
+            cow.moveTo(point.x, point.y - cow.getBbHeight() / 2, point.z);
+            level.addFreshEntity(cow);
+        }
+        int[] tick = {0};
+        int[] retargetedAt = {-1};
+        int[] lostAt = {-1};
+        int[] bound = {0};
+        Vec3[] last = {start};
+        h.onEachTick(() -> {
+            tick[0]++;
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            last[0] = f.position();
+            // цель — в 24 блоках сбоку, чуть впереди и на 25 блоков ниже: круто под крылом
+            if (retargetedAt[0] < 0 && f.getZ() >= point.z - 4) {
+                retargetedAt[0] = tick[0];
+                Target target = cow != null ? Target.OfEntity.center(cow) : new Target.Point(point);
+                h.assertTrue(f.retarget(target, point), "шахед не принял цель");
+                if (cow != null) cow.kill();
+            }
+            if (targetDies && lostAt[0] < 0 && f.targetLost()) {
+                lostAt[0] = tick[0];
+                bound[0] = f.lifetimeLeft();
+                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели срок " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(retargetedAt[0] >= 0, "шахед не дошёл до места перенацеливания: " + h.relativeVec(last[0]));
+            if (targetDies) h.assertTrue(lostAt[0] >= 0, "шахед не потерял цель");
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]) + ", до цели " + (int) last[0].distanceTo(point));
+            h.assertTrue(last[0].distanceTo(point) < 10, "шахед взорвался не у цели: " + last[0].subtract(point));
+            if (targetDies) h.assertTrue(tick[0] - lostAt[0] < bound[0], "повторный заход не уложился в срок: " + (tick[0] - lostAt[0]) + " из " + bound[0]);
         });
     }
 
