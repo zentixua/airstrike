@@ -29,6 +29,7 @@ public final class NuclearWorld {
     private static final int SLOW_LOG_PERIOD = 100;
 
     private final ScarQueue scars = new ScarQueue();
+    private final NuclearPrep prep = new NuclearPrep();
     private final List<PulseJob> pulses = new ArrayList<>();
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
@@ -48,6 +49,21 @@ public final class NuclearWorld {
 
     public int queuedChunks() {
         return scars.size();
+    }
+
+    /** Руины заранее: сколько готово (по всем летящим ударам). */
+    public int plannedChunks() {
+        return prep.plannedChunks();
+    }
+
+    /** Квадраты чанков, которые держит подготовка руин. */
+    public int prepTiles() {
+        return prep.heldTiles();
+    }
+
+    /** По готовому плану, построенных на месте, устаревших планов. */
+    public int[] ruinStats() {
+        return scars.ruinStats();
     }
 
     public int craterJobs() {
@@ -95,7 +111,9 @@ public final class NuclearWorld {
     public void onDetonation(ServerLevel level, Detonation d, @Nullable UUID owner) {
         pulses.add(new PulseJob(level, d, owner));
         blast.onDetonation(d, owner);
-        scars.scanLoaded(d);
+        NuclearPrep.Handoff ready = prep.handOff(d, level.getGameTime());
+        if (ready != null) scars.scanLoaded(d, ready.plans(), ready.order());
+        else scars.scanLoaded(d);
         if (d.surface() && AirstrikeConfig.SERVER.nukeCrater.get() && AirstrikeConfig.SERVER.nukeBlockDamage.get()
                 && CraterModel.formsCrater(d.hobMetres(), d.yieldKt())) {
             craters.add(new CraterJob(d, 0));
@@ -116,6 +134,7 @@ public final class NuclearWorld {
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
         scars.clear(level);
+        prep.clear(level);
         pulses.clear();
         craters.forEach(c -> c.release(level));
         craters.clear();
@@ -157,7 +176,14 @@ public final class NuclearWorld {
         digCraters(level, events, clock);
         long scarStart = System.nanoTime();
         lastCraterNanos = scarStart - craterStart;
-        scars.work(level, now, clock, level.random);
+        scars.work(level, now, clock);
+        // руины заранее — из того, что осталось от бюджета: волна уже идущего подрыва важнее
+        try {
+            prep.tick(level, events, scars, clock);
+        } catch (RuntimeException e) {
+            Airstrike.LOG.error("Подготовка руин упала с ошибкой; снята", e);
+            prep.clear(level);
+        }
         long falloutStart = System.nanoTime();
         lastScarNanos = falloutStart - scarStart;
         try {

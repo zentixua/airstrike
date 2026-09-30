@@ -65,6 +65,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.BooleanValue nukeBlackRain;
         public final ModConfigSpec.IntValue nukeFlightTime;
         public final ModConfigSpec.IntValue nukeTimeBudgetMs;
+        public final ModConfigSpec.IntValue nukePrepMsPerTick;
         public final ModConfigSpec.IntValue nukeMaxFires;
         public final ModConfigSpec.IntValue nukeWarningRadius;
 
@@ -143,7 +144,7 @@ public final class AirstrikeConfig {
             nukeDefaultYield = b.comment("Мощность для /airstrike nuke без числа, кт (15 — Хиросима). В пульте мощность выбирается на экране.")
                     .translation("airstrike.config.nuke_default_yield").defineInRange("default_yield", 15, 1, Loadout.Nuke.MAX_YIELD);
             nukeMaxYield = b.comment("Наибольшая мощность, кт.")
-                    .translation("airstrike.config.nuke_max_yield").defineInRange("max_yield", 1000, 1, Loadout.Nuke.MAX_YIELD);
+                    .translation("airstrike.config.nuke_max_yield").defineInRange("max_yield", Loadout.Nuke.MAX_YIELD, 1, Loadout.Nuke.MAX_YIELD);
             nukeEffectsScale = b.comment("Масштаб всех радиусов: 1.0 — как в жизни (1 блок = 1 м), меньше — для маленьких миров.")
                     .translation("airstrike.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
             nukeBlockDamage = b.comment("Ударная волна разрушает постройки и деревья.")
@@ -169,6 +170,9 @@ public final class AirstrikeConfig {
             nukeTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на разрушения (1–45). По умолчанию 30:",
                             "разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна.")
                     .translation("airstrike.config.nuke_time_budget").defineInRange("destruction_ms_per_tick", 30, 1, 45);
+            nukePrepMsPerTick = b.comment("Сколько миллисекунд тика, пока летит МБР, сервер тратит на руины заранее (0–20).",
+                            "Руины ближней зоны строятся во время полёта и ставятся вместе с фронтом волны.")
+                    .translation("airstrike.config.nuke_prep_budget").defineInRange("prep_ms_per_tick", 8, 0, 20);
             nukeMaxFires = b.comment("Наибольшее число пожаров от одного подрыва.")
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
@@ -210,7 +214,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.BooleanValue soundMuffling;
 
         public enum CloudQuality {
-            LOW(300), MEDIUM(600), HIGH(1200);
+            LOW(750), MEDIUM(1500), HIGH(2500);
 
             public final int puffs;
 
@@ -230,7 +234,7 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.auto_camera").define("auto_camera", false);
             zoom = b.comment("Кратность бинокля пульта.")
                     .translation("airstrike.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
-            nukeCloudQuality = b.comment("Подробность ядерного гриба: LOW / MEDIUM / HIGH — 300 / 600 / 1200 клубов.")
+            nukeCloudQuality = b.comment("Подробность ядерного гриба: LOW / MEDIUM / HIGH — 750 / 1500 / 2500 клубов (и ещё 4/5 от этого — пылевая стена).")
                     .translation("airstrike.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
             nukeTinnitus = b.comment("Звон в ушах и глухота после близкой ударной волны.")
                     .translation("airstrike.config.nuke_tinnitus").define("nuke_tinnitus", true);

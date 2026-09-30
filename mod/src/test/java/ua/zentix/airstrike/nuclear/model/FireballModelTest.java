@@ -58,7 +58,7 @@ class FireballModelTest {
         int early = FireballModel.colorArgb(0, y);
         assertTrue((early & 0xFF) > ((early >> 16) & 0xFF), "сначала голубоватый");
         assertEquals(0xFFFFFFFF, FireballModel.colorArgb(0.5 * tMax, y));
-        int brown = FireballModel.colorArgb(80 * tMax, y);
+        int brown = FireballModel.colorArgb(130 * tMax, y);
         assertTrue(((brown >> 16) & 0xFF) > 2 * (brown & 0xFF), "красно-бурый");
         int grey = FireballModel.colorArgb(1e4, y);
         assertNotEquals(brown, grey);

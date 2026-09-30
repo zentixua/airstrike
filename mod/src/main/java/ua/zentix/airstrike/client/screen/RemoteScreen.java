@@ -216,7 +216,7 @@ public class RemoteScreen extends Screen {
                 .tooltip(Tooltip.create(Component.translatable("airstrike.remote.warhead.tooltip"))).build();
     }
 
-    /** Следующий пресет мощности (1 кт → 15 → 100 → 300 → 1 Мт → 10 Мт → 1 кт); сервер урежет до max_yield. */
+    /** Следующий пресет мощности (1 кт → 15 → 1 кт); сервер урежет до max_yield. */
     private static int nextYield(int kt) {
         for (Yield y : Yield.values()) {
             if (y.kt() > kt) return (int) y.kt();

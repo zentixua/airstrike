@@ -12,8 +12,11 @@ public final class FireballModel {
     /** Шар дорастает до этой доли от максимума, дальше растёт медленно, остывая. */
     private static final double LATE_GROWTH_CAP = 1.3;
 
-    /** Ключевые точки цвета: t / t_max (второго максимума) и цвет RGB. */
-    private static final double[] COLOR_T = {0, 0.5, 2, 6, 25, 80, 250};
+    /**
+     * Ключевые точки цвета: t / t_max (второго максимума) и цвет RGB. Шар светится всем объёмом ~100 t_max:
+     * 15 кт — жёлто-оранжевый к 2 с, оранжевый к 7 с, красно-бурый к 16 с.
+     */
+    private static final double[] COLOR_T = {0, 0.5, 2, 16, 60, 130, 400};
     private static final int[] COLOR_RGB = {
             0xC8DCFF, // бело-голубой первый импульс
             0xFFFFFF, // белый
