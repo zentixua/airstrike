@@ -668,7 +668,7 @@ def trailer_edit(music, blackout=True):
 
 
 def teaser_edit(music):
-    """Вертикальный тизер 30 с: стоп-кадр ракеты у башни, шквал, вспышка, волна, логотип на ударе, последний кадр."""
+    """Вертикальный тизер 30 с: стоп-кадр ракеты у башни, шквал, вспышка, волна, логотип на ударе, гриб, последний кадр."""
     tl = Timeline(music)
     tl.play((music.teaser, None))
     tl.run([
@@ -683,8 +683,10 @@ def teaser_edit(music):
             Clip("wave_hill", "tick:60-1.2", 2.8, impact="tick:60")], until="title")
     tl.marks["title"] = tl.t
     end = music.teaser + music.snap * round(30.0 / tl.unit)      # 30 с, ровно на сетке
-    tl.run([Card(("AIRSTRIKE",), 3.7, "title", fade=0.04),
-            Card(("AIRSTRIKE", PLATFORM, REPO), 6.0, "end", fade=0.4)], until=end)
+    # после логотипа — гриб: одни надписи занимали треть тизера (черновик 30.09)
+    tl.run([Card(("AIRSTRIKE",), 2.8, "title", fade=0.04),
+            Clip("mushroom", 2.0, 2.8),
+            Card(("AIRSTRIKE", PLATFORM, REPO), 3.7, "end", fade=0.4)], until=end)
     tl.stop(fade=2.5, at=tl.t - 2.5)
     return tl.cut()
 
