@@ -33,6 +33,7 @@ import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
+import ua.zentix.airstrike.client.map.MapPlayers;
 import ua.zentix.airstrike.client.map.MapTarget;
 import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.nuclear.ClientNuclear;
@@ -165,6 +166,7 @@ public final class AirstrikeClient {
         if (mc.isPaused()) return;
         Designator.tick();
         ClientFlights.tick();
+        TerrainTiles.tick();
         ProjectileCamera.tick();
         ClientSounds.tick();
         Effects.tick();
@@ -200,6 +202,7 @@ public final class AirstrikeClient {
         Designator.reset();
         ClientNuclear.reset();
         MapTarget.reset();
+        MapPlayers.reset();
         MapScreen.reset();
         TerrainTiles.reset();
     }
@@ -288,6 +291,11 @@ public final class AirstrikeClient {
         @Override
         public void heard(S2C.Heard p) {
             ClientSounds.heard(p);
+        }
+
+        @Override
+        public void mapPlayers(S2C.MapPlayers p) {
+            MapPlayers.received(p);
         }
 
         @Override

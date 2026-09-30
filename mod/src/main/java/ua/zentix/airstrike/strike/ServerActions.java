@@ -90,6 +90,21 @@ public final class ServerActions {
         stack.set(ModDataComponents.LOADOUT.get(), clamp(p.loadout()));
     }
 
+    /**
+     * Игроки для карты наведения — тем, кому можно пульт (пульт и так целится в любого игрока по имени): все
+     * в измерении спросившего, кроме него самого и наблюдателей.
+     */
+    public static void mapPlayers(C2S.MapPlayers p, IPayloadContext ctx) {
+        if (!(ctx.player() instanceof ServerPlayer player) || !mayUse(player)) return;
+        if (tooSoon(player, ModAttachments.LAST_MAP_PLAYERS.get())) return;
+        List<S2C.MapPlayer> marks = new ArrayList<>();
+        for (ServerPlayer other : player.serverLevel().players()) {
+            if (other == player || other.isSpectator()) continue;
+            marks.add(new S2C.MapPlayer(other.getUUID(), other.getGameProfile().getName(), other.getX(), other.getZ()));
+        }
+        PacketDistributor.sendToPlayer(player, new S2C.MapPlayers(marks));
+    }
+
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;

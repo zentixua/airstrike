@@ -62,6 +62,10 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<Long>> LAST_RETARGET = REGISTER.register("last_retarget",
             () -> AttachmentType.builder(() -> 0L).build());
 
+    /** Игрок: игровое время последнего запроса игроков для карты наведения; не сохраняется. */
+    public static final Supplier<AttachmentType<Long>> LAST_MAP_PLAYERS = REGISTER.register("last_map_players",
+            () -> AttachmentType.builder(() -> 0L).build());
+
     /** Игрок: ему показан непустой список снарядов в полёте — погасить HUD, когда всё долетит; не сохраняется. */
     public static final Supplier<AttachmentType<Boolean>> FLIGHTS_SHOWN = REGISTER.register("flights_shown",
             () -> AttachmentType.builder(() -> false).build());

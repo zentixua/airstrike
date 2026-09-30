@@ -233,6 +233,29 @@ public final class S2C {
         };
     }
 
+    /**
+     * Игроки для карты наведения — ответ на {@link C2S.MapPlayers}: кроме спросившего и наблюдателей, все в его
+     * измерении, где бы они ни были (сущностей дальше дальности отслеживания у клиента нет).
+     */
+    public record MapPlayers(List<MapPlayer> players) implements CustomPacketPayload {
+        public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players"));
+        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = MapPlayer.CODEC.apply(ByteBufCodecs.list()).map(MapPlayers::new, MapPlayers::players);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** Игрок на карте: UUID, имя (им же пульт целится), где он. */
+    public record MapPlayer(UUID id, String name, double x, double z) {
+        /** Имя игрока в Minecraft — до 16 знаков; запас на имена модов. */
+        public static final int MAX_NAME = 64;
+        public static final StreamCodec<ByteBuf, MapPlayer> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, MapPlayer::id, ByteBufCodecs.stringUtf8(MAX_NAME), MapPlayer::name,
+                ByteBufCodecs.DOUBLE, MapPlayer::x, ByteBufCodecs.DOUBLE, MapPlayer::z, MapPlayer::new);
+    }
+
     /** Открыть экран пульта (команда /airstrike menu). */
     public record OpenRemote() implements CustomPacketPayload {
         public static final Type<OpenRemote> TYPE = new Type<>(Airstrike.id("open_remote"));
