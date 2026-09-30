@@ -116,7 +116,9 @@ public final class Trailer {
     /** Середина крыши главной башни (цель с карты). */
     private Vec3 towerTop = TOWER;
     /** Последние взрывы на сервере (ванильный explode боевых частей), новые — в конце. */
-    private final java.util.concurrent.ConcurrentLinkedDeque<Vec3> blasts = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private final java.util.concurrent.ConcurrentLinkedDeque<Blast> blasts = new java.util.concurrent.ConcurrentLinkedDeque<>();
+
+    private record Blast(Vec3 pos, long tick) {}
     /** Уступ главной башни, куда бьёт ракета с карты: ниже крыши, вдали от самолётов-построек карты ({@link #wallAwayFromCraft}). */
     private Vec3 towerWall = TOWER;
     /** Крыша средней высоты у намеченного места удара шахедов (см. {@link #roofNear}). */
@@ -209,7 +211,7 @@ public final class Trailer {
         run(() -> net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
                 (net.neoforged.neoforge.event.level.ExplosionEvent.Start e) -> {
                     if (e.getLevel().isClientSide()) return;
-                    blasts.addLast(e.getExplosion().center());
+                    blasts.addLast(new Blast(e.getExplosion().center(), e.getLevel().getGameTime()));
                     while (blasts.size() > 64) blasts.pollFirst();
                 }));
         onServer(this::findLocations);
@@ -342,14 +344,20 @@ public final class Trailer {
         // облетает его с городом внизу
         Supplier<Vec3> roof = () -> towerWall;
         final Shot[] missileTower = {null};
+        final Boolean[] blastOk = {null};
         missileTower[0] = shot("missile_tower").hidden().length(200).shake(0.08)
                 .speed(1, slowNear(CruiseMissileEntity.class, roof, 220, 0.2))
                 // проверка: взрыв на уступе (не в воздухе на подлёте) и не у самолётов-построек карты
                 .requires("взрыв на уступе башни вдали от самолётов", () -> {
                     Vec3 blast = missileTower[0].impact;
-                    if (blast == null || blast.distanceTo(towerWall) > 10) return false;
-                    MinecraftServer server = mc.getSingleplayerServer();
-                    return server.submit(() -> craftNear(server.overworld(), blast, 40).isEmpty()).join();
+                    if (blast == null) return false;
+                    // один раз, в первый кадр после взрыва: позже аппарат мог отлететь, и проверка проходила бы
+                    if (blastOk[0] == null) {
+                        MinecraftServer server = mc.getSingleplayerServer();
+                        blastOk[0] = blast.distanceTo(towerWall) <= 10
+                                && server.submit(() -> craftNear(server.overworld(), blast, 40).isEmpty()).join();
+                    }
+                    return blastOk[0];
                 })
                 .bulletTime(CruiseMissileEntity.class, roof, 170, 0.35)
                 .camera(() -> {
@@ -1070,7 +1078,7 @@ public final class Trailer {
                 int h = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
                 if (h != prev) profile.append(' ').append(k).append(':').append(h);
                 // уступ: столбец ниже соседнего (ближе к оси), но ещё на башне, а не у её подножия
-                if (h < prev - 2 && h <= top - 15 && h >= top - 100 && h >= TOWER.y + 40) {
+                if (h < prev - 2 && h <= top - 8 && h >= top - 100 && h >= TOWER.y + 30) {
                     Vec3 p = new Vec3(x + 0.5, h - 0.5, z + 0.5);
                     double gap = craft.isEmpty() ? 999 : craft.stream().mapToDouble(c -> approachGap(c, p)).min().orElse(999);
                     double score = Math.min(gap, 80) + dir.dot(toPost) * 60 - (top - h) * 0.1;
@@ -1079,7 +1087,7 @@ public final class Trailer {
                         bestScore = score;
                         bestGap = gap;
                     }
-                    break;
+                    if (gap >= 60) break;
                 }
                 prev = h;
             }
@@ -1095,21 +1103,23 @@ public final class Trailer {
 
     /**
      * Место взрыва снаряда, которого клиент последний раз видел в {@code seen}: ближайший к нему из недавних взрывов
-     * сервера (в пределах {@code reach}), нет такого — сама {@code seen}.
+     * сервера не раньше тика {@code since} (в пределах {@code reach}), нет такого — сама {@code seen} (с WARN).
      */
-    private Vec3 blastNear(Vec3 seen, double reach) {
+    private Vec3 blastNear(Vec3 seen, double reach, long since) {
         Vec3 best = seen;
         double bestD = reach;
-        int n = 0;
-        for (var it = blasts.descendingIterator(); it.hasNext() && n < 16; n++) {
-            Vec3 b = it.next();
+        for (var it = blasts.descendingIterator(); it.hasNext(); ) {
+            Blast bl = it.next();
+            if (bl.tick() < since) break;
+            Vec3 b = bl.pos();
             double d = b.distanceTo(seen);
             if (d < bestD) {
                 best = b;
                 bestD = d;
             }
         }
-        if (best != seen) Airstrike.LOG.info("TRAILER взрыв {} (снаряд видели в {}, {} блоков)", best, seen, String.format(Locale.ROOT, "%.1f", bestD));
+        if (best == seen) Airstrike.LOG.warn("TRAILER взрыва у {} на сервере нет — место взрыва по клиенту", seen);
+        else Airstrike.LOG.info("TRAILER взрыв {} (снаряд видели в {}, {} блоков)", best, seen, String.format(Locale.ROOT, "%.1f", bestD));
         return best;
     }
 
@@ -1123,7 +1133,8 @@ public final class Trailer {
     /** Зазор от аппарата {@code c} до точки удара и последних 250 блоков подлёта к ней (со стороны поста). */
     private double approachGap(Vec3 c, Vec3 p) {
         double gap = Double.MAX_VALUE;
-        for (int k = 0; k <= 10; k++) gap = Math.min(gap, c.distanceTo(p.add(toPost.scale(25 * k)).add(0, 2 * k, 0)));
+        // крылатая ракета на подлёте поднимается до ~32 блоков над целью (горка): подлёт — от цели вверх до +32
+        for (int k = 0; k <= 10; k++) gap = Math.min(gap, c.distanceTo(p.add(toPost.scale(25 * k)).add(0, Math.min(32, 8 * k), 0)));
         return gap;
     }
 
@@ -2016,7 +2027,7 @@ public final class Trailer {
                     last[0] = null;
                     return false;
                 }
-                impact = blastNear(last[0], reach);
+                impact = blastNear(last[0], reach, mc.level.getGameTime() - 10);
                 goneAt[0] = rec.worldTime();
                 return delayTicks <= 0;
             }, frames, camSpeed);
