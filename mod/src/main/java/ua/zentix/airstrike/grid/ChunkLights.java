@@ -168,6 +168,7 @@ public final class ChunkLights {
                     light.checkBlock(p);
                     level.getChunkSource().blockChanged(p);
                 } else if (!neighbours || !level.setBlock(p, to, FLAGS)) {
+                    // на краю такая пара ждёт следующего повода (загрузка, каскад); у ламп сети таких пар нет (GameTest)
                     continue;
                 }
                 if (!dark && signal(to)) signalled.add(p.asLong());

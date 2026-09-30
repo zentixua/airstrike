@@ -5,6 +5,7 @@ import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.levelgen.Heightmap;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.registry.ModBlocks;
 
@@ -49,13 +50,18 @@ public final class GridLights {
 
     /**
      * Для мира лампа и двойник — один и тот же блок, кроме света: ни блок-сущности, ни другой формы (столкновения,
-     * контура, затенения), ни другого воздуха, ни другой непрозрачности. Тогда их можно менять прямо в палитре секции,
-     * без {@code setBlock}: соседям, картам высот, физике аппаратов и столкновениям знать не о чем, остаётся свет.
+     * контура, затенения), ни другого воздуха, ни другой непрозрачности, ни другого пропуска неба, ни другого места
+     * в картах высот. Тогда их можно менять прямо в палитре секции, без {@code setBlock} (он же обновляет карты высот
+     * и источники неба чанка): соседям, картам высот, физике аппаратов и столкновениям знать не о чем, остаётся свет.
      */
     private static boolean sameInWorld(BlockState a, BlockState b) {
         var at = EmptyBlockGetter.INSTANCE;
+        for (Heightmap.Types type : Heightmap.Types.values()) {
+            if (type.isOpaque().test(a) != type.isOpaque().test(b)) return false;
+        }
         return !a.hasBlockEntity() && !b.hasBlockEntity() && a.isAir() == b.isAir() && a.canOcclude() == b.canOcclude()
                 && a.getFluidState().equals(b.getFluidState())
+                && a.propagatesSkylightDown(at, BlockPos.ZERO) == b.propagatesSkylightDown(at, BlockPos.ZERO)
                 && a.getLightBlock(at, BlockPos.ZERO) == b.getLightBlock(at, BlockPos.ZERO)
                 && a.useShapeForLightOcclusion() == b.useShapeForLightOcclusion()
                 && a.getCollisionShape(at, BlockPos.ZERO).toAabbs().equals(b.getCollisionShape(at, BlockPos.ZERO).toAabbs())

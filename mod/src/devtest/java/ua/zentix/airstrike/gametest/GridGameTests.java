@@ -455,6 +455,12 @@ public final class GridGameTests {
     }
 
     /**
+     * Радиус отключения города: угол города — в ~373 блоках от центра, а зерно квартала (ячейка Вороного) лежит до ~60
+     * блоков дальше своих чанков; при 400 угловой чанк на некоторых местах площадки оставался вне отключения.
+     */
+    private static final int CITY_RADIUS = 480;
+
+    /**
      * Город: 1024 загруженных чанка по 8 ламп. Единица работы очереди — {@code UNIT_WORK} работы по стольким чанкам,
      * сколько уместится (лампа в палитре — 1, проход секций чанка с лампами — {@code SCAN_COST}), и чанк кончается
      * тем же проходом, что перевёл его последнюю лампу: на считающих часах и гашение, и возврат света идут не меньше
@@ -515,19 +521,17 @@ public final class GridGameTests {
         int[] ticks = new int[4], units = new int[2];
         long[] maxTick = new long[2];
         Blackouts.useClock(level.getServer(), counting);
-        Blackouts.blackout(level, at, 400, 1000, -1);
-        // счётчики работы для /airstrike grid status: за какое-нибудь окно гашения — единицы, лампы, пройденные чанки
-        long[] seen = new long[BlackoutWorld.Work.values().length];
+        // счётчики работы для /airstrike grid status (с загрузки мира: окно в 100 тиков сервер GameTest на CI
+        // проходит целиком за время гашения, и прошлое окно бывает пустым) — единицы, лампы, пройденные чанки
+        long[] before = BlackoutWorld.get(level).totals();
+        Blackouts.blackout(level, at, CITY_RADIUS, 1000, -1);
         h.startSequence()
-                .thenWaitUntil(() -> {
-                    long[] last = BlackoutWorld.get(level).work()[0];
-                    for (int i = 0; i < seen.length; i++) seen[i] = Math.max(seen[i], last[i]);
-                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
-                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
                 .thenExecute(() -> {
                     for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(level.getBlockState(p)), "лампа " + p + " горит");
+                    long[] after = BlackoutWorld.get(level).totals();
                     for (BlackoutWorld.Work w : List.of(BlackoutWorld.Work.UNIT, BlackoutWorld.Work.LAMPS, BlackoutWorld.Work.PASS_DONE)) {
-                        h.assertTrue(seen[w.ordinal()] > 0, "счётчик " + w + " пуст за все окна гашения");
+                        h.assertTrue(after[w.ordinal()] > before[w.ordinal()], "счётчик " + w + " не вырос за гашение");
                     }
                     ticks[0] = counting.ticksWorked();
                     units[0] = counting.units();
@@ -541,10 +545,12 @@ public final class GridGameTests {
                     // на настоящих часах блэкаута — как в игре
                     real[0] = Blackouts.newClock();
                     Blackouts.useClock(level.getServer(), real[0]);
-                    Blackouts.blackout(level, at, 400, 1000, -1);
+                    Blackouts.blackout(level, at, CITY_RADIUS, 1000, -1);
                 })
                 .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
                 .thenExecute(() -> {
+                    // шаг выше упал (проверка теста): без часов — дальше ничего не мерить, сервер не ронять
+                    h.assertTrue(real[0] != null, "настоящие часы не поставлены — упал прошлый шаг");
                     ticks[2] = real[0].ticksWorked();
                     maxTick[0] = real[0].maxTickNanos();
                     real[0] = Blackouts.newClock();
@@ -553,6 +559,7 @@ public final class GridGameTests {
                 })
                 .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт"))
                 .thenExecute(() -> {
+                    h.assertTrue(real[0] != null, "настоящие часы не поставлены — упал прошлый шаг");
                     ticks[3] = real[0].ticksWorked();
                     maxTick[1] = real[0].maxTickNanos();
                     Blackouts.useClock(level.getServer(), Blackouts.newClock());

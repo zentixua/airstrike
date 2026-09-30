@@ -241,7 +241,7 @@ public final class Blackouts {
         if (e.getLevel() instanceof ServerLevel level && GridLights.isLit(e.getPlacedBlock())) {
             BlockPos pos = e.getPos();
             if (PowerGrid.get(level).dark(pos.getX() >> 4, pos.getZ() >> 4, level.getGameTime())) {
-                BlackoutWorld.get(level).enqueue(ChunkPos.asLong(pos));
+                BlackoutWorld.get(level).lampPlaced(level, pos);
             }
         }
     }
