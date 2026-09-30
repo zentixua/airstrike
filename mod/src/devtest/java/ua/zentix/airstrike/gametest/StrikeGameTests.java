@@ -19,9 +19,12 @@ import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -58,6 +61,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.lang.reflect.Field;
@@ -847,6 +851,50 @@ public final class StrikeGameTests {
             h.assertTrue(bomb.isRemoved(), "бомба ещё не взорвалась");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET).is(Blocks.GRASS_BLOCK), "нет входного отверстия");
             h.assertFalse(h.getBlockState(RUNWAY_TARGET.below()).is(Blocks.DIRT), "бомба не пробила грунт");
+        });
+    }
+
+    /** Где у площадки {@link #craterFallsStayUnderCap} кончается камень и начинается песок. */
+    private static final int SAND_FROM = 15;
+
+    /**
+     * Подрыв бомбы в скале под песком (камень до y = 14, выше до y = 22 песок с прослойками гравия, заряд на глубине
+     * 14): песок над полостью, щебень бомбы и труба обрушения осыпаются сотнями блоков. Живых падающих блоков в районе не больше {@link CraterFalls#LIVE_CAP} (в игре хоста
+     * 30.09.2026 Leaky видел по 151 и больше у воронок B-2), и предел достигнут — осыпалось больше, чем пущено живыми;
+     * остальное легло сразу: когда падение кончилось, ни один сыпучий блок не висит над пустотой. Без
+     * {@link CraterFalls} живых — сотни.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "crater_falls", skyAccess = true)
+    public static void craterFallsStayUnderCap(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // только чанки, чьи соседи тоже на площадке (x и z от 16 до 47): им не ждать фоновой загрузки
+        BlockPos lo = new BlockPos(16, 1, 16), hi = new BlockPos(47, 22, 47);
+        for (BlockPos p : BlockPos.betweenClosed(lo, hi)) {
+            BlockState s = p.getY() < SAND_FROM ? Blocks.STONE.defaultBlockState() : p.getY() % 4 == 0 ? Blocks.GRAVEL.defaultBlockState() : Blocks.SAND.defaultBlockState();
+            level.setBlock(h.absolutePos(p), s, Block.UPDATE_CLIENTS);
+        }
+        AABB box = new AABB(Vec3.atLowerCornerOf(h.absolutePos(lo)), Vec3.atLowerCornerOf(h.absolutePos(hi.offset(1, 1, 1)))).inflate(0, 16, 0);
+        Vec3 charge = Vec3.atCenterOf(h.absolutePos(new BlockPos(32, 8, 32)));
+        // район взрыва (досягаемость силы 20 — 41 блок) — сразу: иначе подрыв ждал бы фоновой генерации за краем площадки
+        generateNow(level, new ChunkPos(BlockPos.containing(charge)), 4);
+        Warheads.bunker(level, charge, charge.add(0, 15, 0), null, null);
+        int[] max = {0};
+        long start = level.getGameTime();
+        h.onEachTick(() -> {
+            int live = level.getEntitiesOfClass(FallingBlockEntity.class, box).size();
+            max[0] = Math.max(max[0], live);
+            h.assertTrue(live <= CraterFalls.LIVE_CAP, "живых падающих блоков " + live + " больше предела " + CraterFalls.LIVE_CAP);
+        });
+        h.succeedWhen(() -> {
+            // после обрушения свода (тик 22 подрыва) и осыпания за ним
+            h.assertTrue(level.getGameTime() - start > 40, "подрыв ещё идёт");
+            h.assertTrue(max[0] == CraterFalls.LIVE_CAP, "живых падающих блоков было не больше " + max[0] + ": предел не достигнут, проверять нечего");
+            h.assertTrue(level.getEntitiesOfClass(FallingBlockEntity.class, box).isEmpty(), "блоки ещё падают");
+            for (BlockPos p : BlockPos.betweenClosed(lo.offset(0, 1, 0), hi)) {
+                BlockState s = h.getBlockState(p);
+                h.assertFalse(s.getBlock() instanceof FallingBlock && FallingBlock.isFree(h.getBlockState(p.below())),
+                        "сыпучий блок висит над пустотой: " + s + " на " + p);
+            }
         });
     }
 
