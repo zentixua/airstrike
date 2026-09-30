@@ -1258,7 +1258,8 @@ public final class GridGameTests {
                     }
                 }
                 h.assertTrue(BLOCK_STATES.encodeStart(NbtOps.INSTANCE, live).getOrThrow().equals(before), "сохранение изменило секцию мира");
-                h.assertTrue(live.get(15, 15, 15) == twin, "сохранение зажгло фонарь в мире");
+                // в глобальной палитре без двойников в этом месте — другой блок (его сверил цикл выше)
+                h.assertTrue(live == global || live.get(15, 15, 15) == twin, "сохранение зажгло фонарь в мире");
                 // палитра секции мира не выросла (блоки те же, но хранилище уже другое)
                 h.assertTrue(live.getSerializedSize() == size, "сохранение расширило палитру секции мира");
             } finally {
