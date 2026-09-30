@@ -5,10 +5,8 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.FallingBlock;
@@ -16,7 +14,6 @@ import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
-import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.nuclear.Detonation;
 
 import java.util.ArrayList;
@@ -70,8 +67,12 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
 
     // ---------------------------------------------------------------- свойства состояний
 
-    /** Как блок ведёт себя в физике руин. */
-    record Props(BlockResponse response, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves, boolean log, boolean fixed) {
+    /**
+     * Как блок ведёт себя в физике руин. {@code rubble} — даёт завал, когда рушится (прочность от 1: не трава, не
+     * стекло), {@code wood} — завал из дерева (рубится топором).
+     */
+    record Props(BlockResponse response, boolean air, boolean full, boolean bearing, int span, boolean fluid, boolean waterlogged, boolean leaves,
+                 boolean log, boolean fixed, boolean rubble, boolean wood) {
         float threshold() {
             return response.thresholdPsi();
         }
@@ -82,18 +83,64 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         }
     }
 
+    /** Свойства состояний для решателей руин: в потоке сервера — по общей таблице, в фоне — по опубликованной. */
+    interface PropsView {
+        Props get(BlockState st);
+    }
+
+    /** Все известные свойства (только поток сервера). */
     private static final Reference2ObjectOpenHashMap<BlockState, Props> PROPS = new Reference2ObjectOpenHashMap<>();
+    /** Копия {@link #PROPS} для фоновых потоков: не меняется, новая — при {@link #publish}. */
+    private static volatile Reference2ObjectOpenHashMap<BlockState, Props> published = new Reference2ObjectOpenHashMap<>();
+    private static boolean dirty;
+    /** Сколько раз таблицу сбрасывали: снимок, снятый до сброса, заново заносит свои состояния ({@link ChunkShot#current}). */
+    static int generation;
 
     /** Теги перезагрузили: пороги другие (поток сервера — как и всё в руинах). */
     static void clearProps() {
+        generation++;
         PROPS.clear();
+        published = new Reference2ObjectOpenHashMap<>();
+        dirty = false;
     }
 
+    /** Свойства состояния (поток сервера). */
     static Props props(BlockState st) {
         Props p = PROPS.get(st);
-        if (p == null) PROPS.put(st, p = computeProps(st));
+        if (p == null) {
+            PROPS.put(st, p = computeProps(st));
+            dirty = true;
+        }
         return p;
     }
+
+    /** Состояние из снимка ({@link ChunkShot}) — в таблицу (поток сервера); фоновым потокам — после {@link #publish}. */
+    static void ensure(BlockState st) {
+        props(st);
+    }
+
+    /** Таблица для фоновых задач, созданных после этого вызова (поток сервера): все свойства, известные сейчас. */
+    static PropsView publish() {
+        props(AIR);
+        props(RuinWindow.MASS);
+        props(WATER);
+        if (dirty) {
+            published = new Reference2ObjectOpenHashMap<>(PROPS);
+            dirty = false;
+        }
+        Reference2ObjectOpenHashMap<BlockState, Props> table = published;
+        return st -> {
+            Props p = table.get(st);
+            if (p == null) throw new IllegalStateException("Руины: свойства состояния " + st + " не в таблице снимка");
+            return p;
+        };
+    }
+
+    /** Свойства в потоке сервера. */
+    static final PropsView SERVER = Blast::props;
+
+    private static final BlockState AIR = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
+            WATER = net.minecraft.world.level.block.Blocks.WATER.defaultBlockState();
 
     private static Props computeProps(BlockState st) {
         BlockResponse r = BlockResponse.of(st);
@@ -112,7 +159,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         // неразрушимое (коренная порода, барьер, свет, рамка портала, обсидиан): не падает, не отрывается и держит
         float destroy = st.getBlock().defaultDestroyTime();
         boolean fixed = !st.isAir() && !liquid && (destroy < 0 || destroy >= 50);
-        return new Props(r, full, bearing, span, liquid, waterlogged, leaves, log, fixed);
+        return new Props(r, st.isAir(), full, bearing, span, liquid, waterlogged, leaves, log, fixed, destroy >= 1, st.is(BlockTags.MINEABLE_WITH_AXE));
     }
 
     /** Отражённое давление при падении по нормали (воздух, γ = 1.4), psi. */
@@ -129,25 +176,31 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         return java.util.Arrays.binarySearch(removed, i << RuinPlan.SECTION_SHIFT | (y & 15) << 8 | lz << 4 | lx) >= 0;
     }
 
-    static Blast solve(ServerLevel level, RuinContext ctx, ChunkPos pos) {
-        Solver s = new Solver(new RuinWindow(level, ctx, pos), ctx.d);
+    /** Разлом чанка окна {@code w} (любой поток: окно — из снимков). */
+    static Blast solve(RuinWindow w, Detonation d, boolean blockDamage, boolean treeFall) {
+        Solver s = new Solver(w, d);
         try {
-            return s.run();
+            return s.run(blockDamage, treeFall);
         } finally {
             s.close();
         }
     }
 
-    // буферы решателя (поток сервера): один решатель за раз берёт общие, вложенный — свои
-    private static byte[] skyBuf = new byte[0];
-    private static long[] goneBuf = new long[0];
-    private static boolean buffersBusy;
+    /** Буферы решателя — свои у каждого потока: один решатель за раз берёт их, вложенный — свои. */
+    private static final class Buffers {
+        byte[] sky = new byte[0];
+        long[] gone = new long[0];
+        boolean busy;
+    }
 
-    /** Очереди руин пусты: буферы решателя больше не нужны. */
+    private static final ThreadLocal<Buffers> BUFFERS = ThreadLocal.withInitial(Buffers::new);
+
+    /** Очереди руин пусты: буферы решателя этого потока больше не нужны. */
     static void releaseBuffers() {
-        if (buffersBusy) return;
-        skyBuf = new byte[0];
-        goneBuf = new long[0];
+        Buffers b = BUFFERS.get();
+        if (b.busy) return;
+        b.sky = new byte[0];
+        b.gone = new long[0];
     }
 
     /**
@@ -155,8 +208,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
      * (угол дома, стена у перекрытия, ядро за выбитыми этажами), теперь тоньше и открыто с другой стороны — решается
      * заново теми же правилами в столбцах чанка ± {@code margin}. Места — окна: {@code wx | wz << 6 | (y − minY) << 12}.
      */
-    static int[] remnants(RuinWindow w, Detonation d, Blast[] blasts, int margin) {
-        if (!AirstrikeConfig.SERVER.nukeBlockDamage.get()) return new int[0];
+    static int[] remnants(RuinWindow w, Detonation d, Blast[] blasts, int margin, boolean blockDamage) {
+        if (!blockDamage) return new int[0];
         Solver s = new Solver(w, d);
         try {
             return s.remnants(blasts, margin);
@@ -202,8 +255,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         /** Глубина воздуха, связанного с небом (1…{@link #SKY_DEPTH}); над верхом столбца — небо без записи. */
         final byte[] sky;
         final long[] gone;
-        /** Буферы {@link #sky} и {@link #gone} — общие ({@link #skyBuf}). */
-        final boolean pooled;
+        /** Буферы {@link #sky} и {@link #gone} — потока ({@link #BUFFERS}). */
+        final Buffers pooled;
         final List<long[]> trees = new ArrayList<>();
         final List<BlockState> treeLogs = new ArrayList<>();
 
@@ -241,24 +294,26 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             this.yt = Math.min(w.maxY - 1, maxTop + 1);
             this.h = Math.max(1, yt - yb + 1);
             int n = SIDE * SIDE * h, words = (n + 63) >> 6;
-            if (buffersBusy) {
+            Buffers b = BUFFERS.get();
+            if (b.busy) {
                 this.sky = new byte[n];
                 this.gone = new long[words];
-                this.pooled = false;
+                this.pooled = null;
             } else {
-                if (skyBuf.length < n) skyBuf = new byte[n];
-                if (goneBuf.length < words) goneBuf = new long[words];
-                java.util.Arrays.fill(skyBuf, 0, n, (byte) 0);
-                java.util.Arrays.fill(goneBuf, 0, words, 0L);
-                this.sky = skyBuf;
-                this.gone = goneBuf;
-                this.pooled = buffersBusy = true;
+                if (b.sky.length < n) b.sky = new byte[n];
+                if (b.gone.length < words) b.gone = new long[words];
+                java.util.Arrays.fill(b.sky, 0, n, (byte) 0);
+                java.util.Arrays.fill(b.gone, 0, words, 0L);
+                this.sky = b.sky;
+                this.gone = b.gone;
+                b.busy = true;
+                this.pooled = b;
             }
         }
 
         /** Буферы — обратно в общие. */
         void close() {
-            if (pooled) buffersBusy = false;
+            if (pooled != null) pooled.busy = false;
         }
 
         int topOr(int wx, int wz) {
@@ -296,10 +351,10 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             return sky[i] > 0 || bit(gone, i);
         }
 
-        Blast run() {
-            if (AirstrikeConfig.SERVER.nukeBlockDamage.get()) {
+        Blast run(boolean blockDamage, boolean treeFall) {
+            if (blockDamage) {
                 skyAir();
-                if (AirstrikeConfig.SERVER.nukeTreeFall.get()) fellTrees();
+                if (treeFall) fellTrees();
                 IntArrayList round = new IntArrayList();
                 for (int wz = LO - ROUND_ONE; wz < HI + ROUND_ONE; wz++) {
                     for (int wx = LO - ROUND_ONE; wx < HI + ROUND_ONE; wx++) {
@@ -308,13 +363,12 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                         int low = Math.max(yb, Math.min(t, lowTop[wz * SIDE + wx]) - SKY_DEPTH - 1);
                         double pmax = reflected(d.psi(new Vec3(w.x0 + wx + 0.5, Mth.clamp(burst.y, low, t + 1), w.z0 + wz + 0.5)));
                         for (int y = Math.min(t, yt); y >= low; y--) {
-                            BlockState st = w.get(wx, y, wz);
-                            if (st.isAir() || isGone(wx, y, wz)) continue;
-                            Props p = props(st);
+                            Props p = w.props(wx, y, wz);
+                            if (p.air() || isGone(wx, y, wz)) continue;
                             if (!p.breakable()) continue;
                             // отсечка: блок не сломается и опрокидыванием (гибкость — не больше высоты над ним: 64 блока)
                             if (p.threshold() * 0.85 > pmax * 64 / K[3]) continue;
-                            decide(wx, y, wz, st, p, pmax, round, true);
+                            decide(wx, y, wz, p, pmax, round, true);
                         }
                     }
                 }
@@ -357,7 +411,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                     if (!inside(nx, ny, nz) || ny > w.top(nx, nz)) continue;
                     int n = idx(nx, ny, nz);
                     // место с небом уже пройдено (у воздуха — отметка глубины, проставленная при первом заходе)
-                    if (bit(gone, n) || sky[n] != 0 || !w.get(nx, ny, nz).isAir()) continue;
+                    if (bit(gone, n) || sky[n] != 0 || !w.air(nx, ny, nz)) continue;
                     sky[n] = (byte) Math.min(Byte.MAX_VALUE, dc + 1);
                     reach.add(n);
                 }
@@ -370,17 +424,15 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                     if (nx < LO - margin || nx >= HI + margin || nz < LO - margin || nz >= HI + margin || ny < yb || ny > yt) continue;
                     int n = idx(nx, ny, nz);
                     if (bit(gone, n) || !seen.add(n)) continue;
-                    BlockState st = w.get(nx, ny, nz);
-                    if (st.isAir()) continue;
-                    Props p = props(st);
-                    if (!p.breakable()) continue;
-                    decide(nx, ny, nz, st, p, Double.MAX_VALUE, out, false);
+                    Props p = w.props(nx, ny, nz);
+                    if (p.air() || !p.breakable()) continue;
+                    decide(nx, ny, nz, p, Double.MAX_VALUE, out, false);
                 }
             }
         }
 
         /** Сломать ли блок (толщина, отражение) и опрокинуть ли элемент; сломанные места — в {@code out}. */
-        void decide(int wx, int y, int wz, BlockState st, Props p, double pmax, IntArrayList out, boolean first) {
+        void decide(int wx, int y, int wz, Props p, double pmax, IntArrayList out, boolean first) {
             int x = w.x0 + wx, z = w.z0 + wz;
             double cx = x + 0.5, cy = y + 0.5, cz = z + 0.5;
             double ux = burst.x - cx, uy = burst.y - cy, uz = burst.z - cz, len = Math.sqrt(ux * ux + uy * uy + uz * uz);
@@ -405,7 +457,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             int height = 0;
             if (t > 3) {
                 if (p.leaves() || hl < 1e-6) return;
-                while (height < 64 && y + height + 1 <= w.maxY - 1 && !w.get(wx, y + height + 1, wz).isAir()) height++;
+                while (height < 64 && y + height + 1 <= w.maxY - 1 && !w.air(wx, y + height + 1, wz)) height++;
                 if (height < SLENDER) return;
             }
             double psi = d.psi(new Vec3(cx, cy, cz)), pr = reflected(psi);
@@ -431,7 +483,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             }
             if (t <= 3) {
                 if (p.leaves() || hl < 1e-6) return;
-                while (height < 64 && y + height + 1 <= w.maxY - 1 && !w.get(wx, y + height + 1, wz).isAir()) height++;
+                while (height < 64 && y + height + 1 <= w.maxY - 1 && !w.air(wx, y + height + 1, wz)) height++;
                 if (height < SLENDER) return;
             }
             topple(wx, y, wz, p, pr, ex, ez, height, seed, out, first);
@@ -447,7 +499,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         /** Место в разлом, если оно ломается (жидкость и неломаемое внутри элемента остаются). */
         void take(int wx, int y, int wz, IntArrayList out) {
             if (!inside(wx, y, wz)) return;
-            Props p = props(w.get(wx, y, wz));
+            Props p = w.props(wx, y, wz);
             if (p.breakable() && p.full()) out.add(idx(wx, y, wz));
         }
 
@@ -494,8 +546,8 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             int k = 0;
             while (k < limit) {
                 int yy = y + k + 1;
-                if (isGone(wx, yy, wz) || w.get(wx, yy, wz).isAir()) break;
-                if (!isGone(bx, yy, bz) && !w.get(bx, yy, bz).isAir()) break;
+                if (isGone(wx, yy, wz) || w.air(wx, yy, wz)) break;
+                if (!isGone(bx, yy, bz) && !w.air(bx, yy, bz)) break;
                 k++;
             }
             return k;
@@ -504,18 +556,18 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         /** Полный куб ряда опрокидывания: жидкость — тоже (за водой не небо), выбитое в раунде 1 — нет. */
         boolean full(int wx, int y, int wz) {
             if (isGone(wx, y, wz)) return false;
-            Props p = props(w.get(wx, y, wz));
+            Props p = w.props(wx, y, wz);
             return p.full() || p.fluid();
         }
 
         /** Твёрдый полный куб для толщины: жидкость — нет, выбитое в раунде 1 — нет. */
         boolean solid(int wx, int y, int wz) {
-            return !isGone(wx, y, wz) && props(w.get(wx, y, wz)).full();
+            return !isGone(wx, y, wz) && w.props(wx, y, wz).full();
         }
 
         /** Жидкость (не выбитая): за ней перепада нет. */
         boolean wet(int wx, int y, int wz) {
-            return inside(wx, y, wz) && !isGone(wx, y, wz) && props(w.get(wx, y, wz)).fluid();
+            return inside(wx, y, wz) && !isGone(wx, y, wz) && w.props(wx, y, wz).fluid();
         }
 
         /**
@@ -557,7 +609,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                         // места столбца выше верха соседа смотрят в небо сбоку
                         for (int y = Math.max(low, topOr(nx, nz) + 1); y <= Math.min(t, yt); y++) {
                             int i = idx(wx, y, wz);
-                            if (sky[i] != 0 || !w.get(wx, y, wz).isAir()) continue;
+                            if (sky[i] != 0 || !w.air(wx, y, wz)) continue;
                             sky[i] = 1;
                             queue.add(i);
                         }
@@ -573,7 +625,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                     int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
                     if (!inside(nx, ny, nz) || ny > w.top(nx, nz)) continue;
                     int n = idx(nx, ny, nz);
-                    if (sky[n] != 0 || !w.get(nx, ny, nz).isAir()) continue;
+                    if (sky[n] != 0 || !w.air(nx, ny, nz)) continue;
                     sky[n] = (byte) (depth + 1);
                     queue.add(n);
                 }
@@ -587,17 +639,17 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
                     int t = w.top(wx, wz);
                     if (t == Integer.MIN_VALUE || !w.has(wx, wz)) continue;
                     for (int y = Math.min(t, yt); y > yb; y--) {
-                        BlockState st = w.get(wx, y, wz);
-                        if (!st.is(BlockTags.LOGS) || isGone(wx, y, wz)) continue;
-                        BlockState below = w.get(wx, y - 1, wz);
-                        Props pb = props(below);
+                        Props p = w.props(wx, y, wz);
+                        if (!p.log() || isGone(wx, y, wz)) continue;
+                        Props pb = w.props(wx, y - 1, wz);
                         if (pb.log() || pb.leaves() || !pb.bearing()) continue;
                         int x = w.x0 + wx, z = w.z0 + wz;
-                        if (d.psi(new Vec3(x + 0.5, y + 0.5, z + 0.5)) < props(st).threshold()) continue;
+                        if (d.psi(new Vec3(x + 0.5, y + 0.5, z + 0.5)) < p.threshold()) continue;
                         // ствол — только дерево: над ним листва (иначе бревенчатая стена или столб)
                         int height = 0;
-                        while (height < 24 && y + height <= yt && w.get(wx, y + height, wz).is(BlockTags.LOGS)) height++;
-                        if (!props(w.get(wx, y + height, wz)).leaves() && !nearLeaves(wx, y + height - 1, wz)) continue;
+                        while (height < 24 && y + height <= yt && w.props(wx, y + height, wz).log()) height++;
+                        if (!w.props(wx, y + height, wz).leaves() && !nearLeaves(wx, y + height - 1, wz)) continue;
+                        BlockState st = w.get(wx, y, wz);
                         for (int i = 0; i < height; i++) set(gone, idx(wx, y + i, wz));
                         if (wx >= LO && wx < HI && wz >= LO && wz < HI) {
                             double dx = x - burst.x, dz = z - burst.z;
@@ -612,7 +664,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         }
 
         boolean nearLeaves(int wx, int y, int wz) {
-            for (Direction dir : Direction.values()) if (props(w.get(wx + dir.getStepX(), y + dir.getStepY(), wz + dir.getStepZ())).leaves()) return true;
+            for (Direction dir : Direction.values()) if (w.props(wx + dir.getStepX(), y + dir.getStepY(), wz + dir.getStepZ()).leaves()) return true;
             return false;
         }
     }

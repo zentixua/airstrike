@@ -46,6 +46,12 @@ public final class ClientScenario {
     private record Step(int at, Runnable action) {}
 
     private final List<Step> steps = new ArrayList<>();
+    /**
+     * Сценарий commands, {@code wait:nuke}: тик, с которого шаги ждут пакета подрыва ({@code -1} — не ждут), и сколько
+     * тиков они уже ждут; подрывы, которые клиент знал, когда шаги встали, — не тот подрыв.
+     */
+    private int nukeGate = -1, nukeGateWaited;
+    private final java.util.Set<Integer> nukeGateSeen = new java.util.HashSet<>();
     private boolean started;
     private int tick = -1;
     private Vec3 target = Vec3.ZERO;
@@ -141,6 +147,7 @@ public final class ClientScenario {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) return;
         tick++;
+        if (nukeGate >= 0 && tick >= nukeGate) holdForNuke();
         for (Step s : List.copyOf(steps)) {
             if (s.at == tick) s.action.run();
         }
@@ -961,7 +968,9 @@ public final class ClientScenario {
     /**
      * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
-     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
+     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code wait:nuke} — дальше шаги
+     * отсчитываются от прихода к клиенту пакета нового подрыва (один раз за сценарий; сервер может отставать от часов
+     * клиента, и снимок «через N тиков после пуска» выходил до подрыва), {@code shot:имя} — снимок экрана
      * {@code имя_тик.png}, {@code hud:off}/{@code hud:on} — скрыть и вернуть интерфейс (как F1: чат с ответами команд
      * не закрывает кадр, а в лог клиента идёт как прежде). Шаги идут друг за другом: после команды — 40 тиков, после
      * снимка — 20, после {@code hud:} — 1 (снимок берёт уже нарисованный кадр: в тот же тик он был бы ещё с интерфейсом),
@@ -988,6 +997,12 @@ public final class ClientScenario {
                     continue;
                 }
                 t += ticks;
+            } else if (c.equals("wait:nuke")) {
+                if (nukeGate >= 0) {
+                    Airstrike.LOG.warn("SCENARIO commands: второй «wait:nuke» пропущен — ждать подрыва можно один раз");
+                    continue;
+                }
+                nukeGate = t;
             } else if (c.startsWith("shot:")) {
                 shot(t, c.substring("shot:".length()).strip());
                 t += 20;
@@ -1295,6 +1310,24 @@ public final class ClientScenario {
             y = 64;
         }
         target = new Vec3(x, y, z);
+    }
+
+    /**
+     * {@code wait:nuke}: пока к клиенту не пришёл пакет нового подрыва, все шаги после этого тика сдвигаются на тик.
+     * Подрыва нет за {@value #COMMANDS_MAX_WAIT} тиков — строка в лог, и шаги идут дальше.
+     */
+    private void holdForNuke() {
+        var known = ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations();
+        if (tick == nukeGate) known.forEach(a -> nukeGateSeen.add(a.d.id()));
+        boolean arrived = known.stream().anyMatch(a -> !nukeGateSeen.contains(a.d.id()));
+        if (arrived || nukeGateWaited >= COMMANDS_MAX_WAIT) {
+            if (arrived) Airstrike.LOG.info("SCENARIO commands: подрыв пришёл, шаги ждали {} тиков", nukeGateWaited);
+            else Airstrike.LOG.warn("SCENARIO commands: подрыва нет за {} тиков — шаги идут дальше", nukeGateWaited);
+            nukeGate = -1;
+            return;
+        }
+        nukeGateWaited++;
+        steps.replaceAll(s -> s.at >= tick ? new Step(s.at + 1, s.action) : s);
     }
 
     private void at(int t, Runnable r) {

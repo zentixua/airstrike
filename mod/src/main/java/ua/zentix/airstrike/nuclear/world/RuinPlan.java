@@ -315,6 +315,18 @@ public final class RuinPlan {
         return null;
     }
 
+    /** Каждое старое состояние мест плана (с повторами). */
+    void forEachOld(java.util.function.Consumer<BlockState> each) {
+        for (BlockState o : olds) each.accept(o);
+    }
+
+    /** Есть ли среди старых состояний мест секции {@code section} такое, что {@code test}. */
+    boolean anyOld(int section, java.util.function.Predicate<BlockState> test) {
+        if (section < 0 || section >= oldHashes.length || oldHashes[section] == 0) return false;
+        for (int k = 0; k < cells.length; k++) if (section(cells[k]) == section && test.test(olds[k])) return true;
+        return false;
+    }
+
     /** Верх столбцов по старым блокам мест плана: [0..255] — не-воздух, [256..511] — опора без листвы (или жидкость); MIN — нет. */
     int[] oldTops(int minY) {
         int[] t = oldTops;

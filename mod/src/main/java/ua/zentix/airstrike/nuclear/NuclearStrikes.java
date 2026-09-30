@@ -225,6 +225,11 @@ public final class NuclearStrikes {
         }
     }
 
+    /** Чанк ушёл игроку: руины, которые должны уже стоять, а не стоят, — в сводку подрыва. */
+    public static void onChunkSent(net.neoforged.neoforge.event.level.ChunkWatchEvent.Sent e) {
+        NuclearWorld.get(e.getLevel()).onChunkSent(e.getLevel(), e.getChunk());
+    }
+
     /** Вход и смена измерения: действующие подрывы и летящие ракеты этого измерения. */
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent e) {
         if (e.getEntity() instanceof ServerPlayer p) {

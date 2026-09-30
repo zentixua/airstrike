@@ -77,6 +77,24 @@ public final class RuinPlanner {
     }
 
     /**
+     * Для проверок: план чанка с чистого листа (без кэша подрыва), в потоке сервера или фоновыми потоками (поток
+     * сервера ждёт задачу). Одинаковые планы обоими путями — фоновый решатель не читает мир.
+     */
+    public static RuinPlan planFresh(ServerLevel level, Detonation d, LevelChunk chunk, boolean background) {
+        RuinContext ctx = new RuinContext(d);
+        if (!background) return plan(level, ctx, chunk);
+        if (!ctx.submit(level, chunk)) throw new IllegalStateException("фоновые потоки руин заняты");
+        long until = System.nanoTime() + 60_000_000_000L;
+        while (!ctx.done(chunk.getPos().toLong())) {
+            if (System.nanoTime() > until) throw new IllegalStateException("фоновый план не готов за минуту");
+            java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+        }
+        RuinPlan plan = ctx.collect(level, chunk);
+        if (plan == null) throw new IllegalStateException("фоновый план упал");
+        return plan;
+    }
+
+    /**
      * Готов ли чанк к плану одной единицей работы: разломы его окна в кэше. Нет — посчитан один из них (это и есть
      * единица работы), план — следующей.
      */
@@ -89,13 +107,21 @@ public final class RuinPlanner {
     }
 
     static RuinPlan plan(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
+        return finish(level, ctx, chunk, Collapse.solve(ctx.grid(level, chunk.getPos(), false)));
+    }
+
+    /**
+     * План по готовому обрушению (поток сервера): пожары, завал, дёрн, свет, поваленные стволы — по живому чанку, и
+     * разница к его секциям. Обрушение построено по снимкам ({@link RuinWindow}): для фонового — вызывающий проверил,
+     * что снимок чанка ещё верен.
+     */
+    static RuinPlan finish(ServerLevel level, RuinContext ctx, LevelChunk chunk, Collapse c) {
         Detonation d = ctx.d;
         Sections s = new Sections(chunk);
         boolean blockDamage = AirstrikeConfig.SERVER.nukeBlockDamage.get();
         boolean fires = AirstrikeConfig.SERVER.nukeFires.get();
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        Collapse c = Collapse.solve(level, ctx, chunk.getPos());
         for (var e : c.changes.long2ObjectEntrySet()) {
             long at = e.getLongKey();
             s.set(BlockPos.getX(at) & 15, BlockPos.getY(at), BlockPos.getZ(at) & 15, e.getValue());

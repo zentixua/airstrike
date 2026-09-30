@@ -4,9 +4,6 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -46,9 +43,15 @@ final class Collapse {
     private static final int MAX_DRAIN = 4096, DRAIN_WIDTH = 16, LEAF_REACH = 6;
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
-    // буферы обхода (поток сервера, без повторного входа): растут и переиспользуются
-    private static byte[] before = new byte[0], after = new byte[0];
-    private static int[] ring = new int[0];
+    /** Буферы обхода — свои у каждого потока (без повторного входа): растут и переиспользуются. */
+    private static final class Buffers {
+        byte[] before = new byte[0], after = new byte[0];
+        int[] ring = new int[0];
+    }
+
+    private static final ThreadLocal<Buffers> BUFFERS = ThreadLocal.withInitial(Buffers::new);
+    private byte[] before, after;
+    private int[] ring;
 
     final RuinWindow w;
     final Blast[] blasts = new Blast[9];
@@ -69,13 +72,15 @@ final class Collapse {
     final LongArrayList fluidTicks = new LongArrayList();
 
     private final Detonation d;
+    private final boolean blockDamage;
 
-    private Collapse(ServerLevel level, RuinContext ctx, ChunkPos pos) {
-        this.w = new RuinWindow(level, ctx, pos);
-        this.d = ctx.d;
+    private Collapse(RuinContext.Grid g) {
+        this.w = g.windowOf(0, 0);
+        this.d = g.ctx().d;
+        this.blockDamage = g.blockDamage();
         for (int k = 0; k < 9; k++) {
-            if (w.chunk(k) == null) continue;
-            blasts[k] = ctx.blast(level, new ChunkPos(pos.x + k % 3 - 1, pos.z + k / 3 - 1));
+            if (!w.present(k)) continue;
+            blasts[k] = g.blast(k % 3 - 1, k / 3 - 1);
         }
         int low = Integer.MAX_VALUE, high = w.minY;
         for (int wz = 0; wz < SIDE; wz++) {
@@ -116,10 +121,16 @@ final class Collapse {
         }
     }
 
-    static Collapse solve(ServerLevel level, RuinContext ctx, ChunkPos pos) {
-        Collapse c = new Collapse(level, ctx, pos);
+    /** Руины чанка в центре снимков (любой поток): разломы окна — из кэша подрыва или заново. */
+    static Collapse solve(RuinContext.Grid g) {
+        Collapse c = new Collapse(g);
         c.run();
         return c;
+    }
+
+    /** По каким снимкам построено окно чанка. */
+    RuinWindow.Stamp stamp() {
+        return w.stamp();
     }
 
     Blast blast() {
@@ -149,7 +160,7 @@ final class Collapse {
     }
 
     Blast.Props props(int wx, int y, int wz) {
-        return Blast.props(w.get(wx, y, wz));
+        return w.props(wx, y, wz);
     }
 
     // ---------------------------------------------------------------- решение
@@ -167,7 +178,7 @@ final class Collapse {
             }
         }
         if (!breaks.isEmpty()) {
-            for (int e : Blast.remnants(w, d, blasts, C + 1)) {
+            for (int e : Blast.remnants(w, d, blasts, C + 1, blockDamage)) {
                 int wx = e & 63, wz = (e >> 6) & 63, y = w.minY + (e >>> 12);
                 if (!inside(wx, y, wz) || isGone(wx, y, wz)) continue;
                 set(gone, idx(wx, y, wz));
@@ -289,10 +300,10 @@ final class Collapse {
     private long[] fixedCells() {
         long[] out = new long[gone.length];
         for (int k = 0; k < 9; k++) {
-            if (w.chunk(k) == null) continue;
+            if (!w.present(k)) continue;
             int bx = (k % 3) << 4, bz = (k / 3) << 4;
             for (int sec = (yb - w.minY) >> 4; sec <= (yt - w.minY) >> 4; sec++) {
-                if (!w.mayHave(k, sec, st -> Blast.props(st).fixed() && Blast.props(st).bearing())) continue;
+                if (!w.mayHave(k, sec, st -> w.view.get(st).fixed() && w.view.get(st).bearing())) continue;
                 for (int y = Math.max(yb, w.minY + (sec << 4)); y <= Math.min(yt, w.minY + (sec << 4) + 15); y++) {
                     for (int lz = 0; lz < 16; lz++) {
                         for (int lx = 0; lx < 16; lx++) {
@@ -369,18 +380,23 @@ final class Collapse {
         }
     }
 
-    private static void buffers(int n) {
-        if (before.length < n) {
-            before = new byte[n];
-            after = new byte[n];
-            ring = new int[n + 1];
+    private void buffers(int n) {
+        Buffers b = BUFFERS.get();
+        if (b.before.length < n) {
+            b.before = new byte[n];
+            b.after = new byte[n];
+            b.ring = new int[n + 1];
         }
+        before = b.before;
+        after = b.after;
+        ring = b.ring;
     }
 
-    /** Очереди руин пусты: буферы обхода больше не нужны (окно высокого города — десятки МБ). */
+    /** Очереди руин пусты: буферы обхода этого потока больше не нужны (окно высокого города — десятки МБ). */
     static void releaseBuffers() {
-        before = after = new byte[0];
-        ring = new int[0];
+        Buffers b = BUFFERS.get();
+        b.before = b.after = new byte[0];
+        b.ring = new int[0];
     }
 
     // ---------------------------------------------------------------- листва
@@ -536,17 +552,26 @@ final class Collapse {
                     for (int wx = LO; wx < HI; wx++) {
                         int i = idx(wx, y, wz);
                         if (bit(gone, i)) continue;
-                        BlockState st = w.get(wx, y, wz);
-                        if (st.isAir() || Blast.props(st).fluid()) continue;
-                        if (detached(wx, y, wz, st)) set(gone, i);
+                        Blast.Props p = props(wx, y, wz);
+                        if (p.air() || p.fluid() || p.fixed()) continue;
+                        // опорное стоит само (его роняет обход опоры), листва держится за ствол
+                        if ((p.bearing() || p.leaves()) && !attached(w.get(wx, y, wz))) continue;
+                        if (detached(wx, y, wz, w.get(wx, y, wz), p)) set(gone, i);
                     }
                 }
             }
         }
     }
 
-    private boolean detached(int wx, int y, int wz, BlockState st) {
-        if (Blast.props(st).fixed()) return false;
+    /** Держится за соседа по своему виду (дверь, кровать, кнопка, настенное), а не стоит само. */
+    private static boolean attached(BlockState st) {
+        Block b = st.getBlock();
+        return b instanceof DoorBlock || b instanceof DoublePlantBlock || b instanceof BedBlock || b instanceof FaceAttachedHorizontalDirectionalBlock
+                || b instanceof WallTorchBlock || b instanceof WallSignBlock || b instanceof WallBannerBlock || b instanceof LadderBlock;
+    }
+
+    private boolean detached(int wx, int y, int wz, BlockState st, Blast.Props p) {
+        if (p.fixed()) return false;
         Block b = st.getBlock();
         if ((b instanceof DoorBlock || b instanceof DoublePlantBlock) && st.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) {
             boolean lower = st.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER;
@@ -570,7 +595,7 @@ final class Collapse {
         }
         // опорное стоит само (его роняет обход опоры); остальное без коллизии — ковёр, факел, рельс, пыль, растение — на
         // том, что под ним
-        if (Blast.props(st).bearing() || Blast.props(st).leaves()) return false;
+        if (p.bearing() || p.leaves()) return false;
         return isGone(wx, y - 1, wz);
     }
 
@@ -584,16 +609,15 @@ final class Collapse {
                 int column = (wz - LO) << 4 | (wx - LO);
                 for (int y = yt; y >= yb; y--) {
                     int i = idx(wx, y, wz);
-                    BlockState st = w.get(wx, y, wz);
-                    Blast.Props p = Blast.props(st);
+                    Blast.Props p = props(wx, y, wz);
                     if (bit(gone, i)) {
-                        if (st.isAir()) continue;
+                        if (p.air()) continue;
                         long at = BlockPos.asLong(w.x0 + wx, y, w.z0 + wz);
                         changes.put(at, p.waterlogged() && wet(wx, y, wz) ? Blocks.WATER.defaultBlockState() : AIR);
                         if (p.leaves() && own != null && own.gone(wx - LO, y, wz - LO)) leaves.add(at);
-                        if (!p.fluid() && !p.leaves() && !p.log() && st.getBlock().defaultDestroyTime() >= 1) {
+                        if (!p.fluid() && !p.leaves() && !p.log() && p.rubble()) {
                             removed[column]++;
-                            if (st.is(BlockTags.MINEABLE_WITH_AXE)) wood[column]++;
+                            if (p.wood()) wood[column]++;
                         }
                         continue;
                     }
@@ -626,8 +650,8 @@ final class Collapse {
             if (dir == Direction.DOWN) continue;
             int nx = wx + dir.getStepX(), ny = y + dir.getStepY(), nz = wz + dir.getStepZ();
             if (!inside(nx, ny, nz) || bit(drained, idx(nx, ny, nz))) continue;
-            BlockState n = w.get(nx, ny, nz);
-            if (Blast.props(n).fluid() && !isGone(nx, ny, nz) || Blast.props(n).waterlogged() && !isGone(nx, ny, nz)) return true;
+            Blast.Props n = props(nx, ny, nz);
+            if ((n.fluid() || n.waterlogged()) && !isGone(nx, ny, nz)) return true;
         }
         return false;
     }

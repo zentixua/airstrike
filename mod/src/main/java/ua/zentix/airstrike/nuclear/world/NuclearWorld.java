@@ -66,7 +66,11 @@ public final class NuclearWorld {
     /** Давно не брали и нет работы, кроме ждущих соседей, — забыть (память разломов и старых блоков руин). */
     private void sweepRuins(long now) {
         if (now % RUINS_SWEEP != 0) return;
-        ruins.int2ObjectEntrySet().removeIf(e -> now - e.getValue().used > RUINS_IDLE && !scars.pending(e.getIntKey()));
+        ruins.int2ObjectEntrySet().removeIf(e -> {
+            if (now - e.getValue().used <= RUINS_IDLE || scars.pending(e.getIntKey())) return false;
+            e.getValue().cancelTasks();
+            return true;
+        });
         // ни руин, ни подготовки: буферы обхода (окно высокого города — десятки МБ) не держатся
         if (ruins.isEmpty() && prep.idle()) releaseBuffers();
     }
@@ -168,12 +172,31 @@ public final class NuclearWorld {
 
     public void onChunkUnload(ServerLevel level, LevelChunk chunk) {
         scars.drop(level, chunk.getPos());
+        // фоновые планы выгруженного чанка: снимки не того чанка, которым он загрузится
+        for (RuinContext ctx : ruins.values()) ctx.forget(chunk.getPos().toLong());
+        prep.forget(chunk.getPos().toLong());
+    }
+
+    /** Чанк ушёл игроку (сводка подрыва: ушло игроку до руин). */
+    public void onChunkSent(ServerLevel level, LevelChunk chunk) {
+        scars.sent(chunk.getPos().toLong(), level.getGameTime());
+    }
+
+    /** Не отдавать чанк игроку, пока в нём не встали руины, до которых уже дошла волна ({@code PlayerChunkSenderMixin}). */
+    public boolean withholds(ServerLevel level, long chunk) {
+        return scars.withholds(chunk, level.getGameTime());
+    }
+
+    /** Есть ли что не отдавать игрокам (быстрая проверка). */
+    public boolean mayWithhold() {
+        return scars.mayWithhold();
     }
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
         prep.clear(level, scars);
         scars.clear(level);
+        ruins.values().forEach(RuinContext::cancelTasks);
         ruins.clear();
         pulses.clear();
         craters.forEach(c -> c.release(level));
