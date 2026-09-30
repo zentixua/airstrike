@@ -27,15 +27,16 @@ import java.util.UUID;
  * она пролетала их меньше чем за секунду, а при 12 TPS сервера — рывками по 11 блоков; на 4 блоках/тик подлёт от края
  * прорисовки с горкой и пикированием длится ~2.5 с (при 12 TPS ~4 с), пролёт поперёк поля зрения — ~5 с. Время
  * полёта до удара задаёт настройка {@code missile_flight_time}: путь маршрута — скорость × время. Последние
- * {@link #VISIBLE_LEG} блоков ракета летит в мире (полоса подлёта), а не вне его: иначе она появлялась бы только
- * в пределах дистанции симуляции сервера у игрока.
+ * {@link #VISIBLE_LEG} блоков ракета летит в мире (полоса подлёта), когда у цели есть игрок, а не вне его: иначе она
+ * появлялась бы только в пределах дистанции симуляции сервера у игрока.
  */
 public class CruiseMissileEntity extends StrikeProjectile {
     public static final double CRUISE_SPEED = 4.0;
     /**
      * Последние столько блоков до цели ракета летит в мире ({@link ua.zentix.airstrike.strike.FlightTickets#approach}):
      * больше дальности прорисовки 12 чанков, чтобы подлёт с её края был виден, даже когда дистанция симуляции сервера
-     * меньше (8 чанков — сущности тикают лишь в ~128 блоках от игрока).
+     * меньше (8 чанков — сущности тикают лишь в ~128 блоках от игрока). Только когда у цели есть кому смотреть, районы
+     * полос общие для залпа и их число в мире ограничено ({@link ua.zentix.airstrike.strike.FlightTickets#holdApproach}).
      */
     public static final double VISIBLE_LEG = 256;
     /** Маршевая скорость в 2.3.0 и раньше: ракеты, сохранённые в полёте без ключа {@code cruise_speed}, летели так. */
@@ -191,7 +192,11 @@ public class CruiseMissileEntity extends StrikeProjectile {
         // срок жизни посчитан по плану полёта на той скорости, с которой ракету сохранили: на другой маршевой остаток
         // пути занимает другое время — остаток срока растягивается так же, иначе ракета пропала бы посреди полёта
         double saved = tag.contains("cruise_speed") ? tag.getDouble("cruise_speed") : LEGACY_CRUISE_SPEED;
-        if (lifetime > 0 && saved > CRUISE_SPEED) lifetime = age + (int) Math.ceil(Math.max(0, lifetime - age) * saved / CRUISE_SPEED);
+        if (saved > CRUISE_SPEED) {
+            if (lifetime > 0) lifetime = age + (int) Math.ceil(Math.max(0, lifetime - age) * saved / CRUISE_SPEED);
+            // и летит уже с новой: на маршруте скорость сама падает до маршевой, а на горке осталась бы старой
+            speed = Math.min(speed, CRUISE_SPEED);
+        }
     }
 
     @Override

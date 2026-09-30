@@ -46,6 +46,7 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -585,21 +586,38 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (tracker == null || isRemoved()) return;
         // путь вне мира кончился на поверхности: грузится место попадания, а не цель
         Vec3 aim = grounded != null ? grounded : tracker.point();
-        if (heldArea != null) {
-            if (heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) < 2) return;
-            releaseTargetArea();
-        }
-        double d = position().distanceTo(aim);
-        if (d <= preloadDistance()) {
+        if (heldArea != null && heldArea.getChessboardDistance(new ChunkPos(BlockPos.containing(aim))) >= 2) releaseTargetArea();
+        boolean taken = false;
+        if (heldArea == null && position().distanceTo(aim) <= preloadDistance()) {
             heldArea = new ChunkPos(BlockPos.containing(aim));
             FlightTickets.hold(level, heldArea, targetArea(), getUUID(), true);
-            // полоса — со стороны, откуда снаряд зайдёт: от точки входа маршрута, пройден маршрут — от самого снаряда
-            if (visibleLeg() > 0) {
-                Vec3 from = route != null && !route.finished() && route.size() > 0 ? route.points().getLast() : position();
-                heldApproach = FlightTickets.approach(aim, from, visibleLeg());
-                for (ChunkPos c : heldApproach) FlightTickets.hold(level, c, FlightTickets.APPROACH_DISTANCE, getUUID(), true);
-            }
+            taken = true;
         }
+        if (heldArea != null && visibleLeg() > 0 && (taken || age % 20 == 0)) updateApproach(level, aim);
+    }
+
+    /**
+     * Полоса подлёта ({@link #visibleLeg}), пока снаряд держит район цели: берётся, когда у цели есть кому смотреть
+     * ({@link FlightTickets#watched}), и отпускается, когда смотреть больше некому. Раз в секунду: игрок мог подойти или
+     * уйти. Не хватило места в мире ({@link FlightTickets#APPROACH_LIMIT}) — попробует через секунду.
+     */
+    private void updateApproach(ServerLevel level, Vec3 aim) {
+        if (!FlightTickets.watched(level, aim, visibleLeg())) {
+            FlightTickets.releaseApproach(level, heldApproach, getUUID());
+            heldApproach = List.of();
+            return;
+        }
+        if (!heldApproach.isEmpty()) return;
+        // назад по пути снаряда: цель, точки маршрута от последней (точка входа) к ближайшей, сам снаряд
+        List<Vec3> path = new ArrayList<>();
+        path.add(aim);
+        if (route != null) {
+            List<Vec3> pts = route.points();
+            for (int i = pts.size() - 1; i >= route.index(); i--) path.add(pts.get(i));
+        }
+        path.add(position());
+        List<ChunkPos> centres = FlightTickets.approach(path, visibleLeg());
+        if (FlightTickets.holdApproach(level, centres, getUUID())) heldApproach = centres;
     }
 
     /**
@@ -639,7 +657,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private void releaseTargetArea() {
         if (level() instanceof ServerLevel level) {
             if (heldArea != null) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
-            for (ChunkPos c : heldApproach) FlightTickets.hold(level, c, FlightTickets.APPROACH_DISTANCE, getUUID(), false);
+            FlightTickets.releaseApproach(level, heldApproach, getUUID());
         }
         heldArea = null;
         heldApproach = List.of();

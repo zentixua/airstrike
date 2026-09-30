@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.gametest;
 
+import com.mojang.authlib.GameProfile;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
@@ -8,6 +9,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.gametest.framework.GameTestInfo;
 import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
@@ -31,6 +33,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.jetbrains.annotations.Nullable;
@@ -363,6 +366,33 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Ракета, сохранённая в полёте версией 2.3.0 (без ключа {@code cruise_speed}, 11.5 блока/тик, на горке): после загрузки
+     * летит с новой маршевой, а остаток срока жизни растянут на неё. Сохранённая новой версией — без изменений.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void legacyMissileSlowsDownOnLoad(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 aim = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
+        CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+        m.launch(aim.add(0, 40, -300), new Target.Point(aim), aim, null);
+        CompoundTag tag = m.saveWithoutId(new CompoundTag());
+        tag.putInt("age", 100);
+        tag.putInt("lifetime", 400);
+        tag.putString("flight_phase", FlightPhase.POP_UP.getSerializedName());
+        CruiseMissileEntity fresh = ModEntities.CRUISE_MISSILE.get().create(level);
+        fresh.load(tag);
+        h.assertTrue(fresh.lifetimeLeft() == 300, "сохранённая новой версией: срок " + fresh.lifetimeLeft() + " вместо 300");
+        tag.remove("cruise_speed");
+        tag.putDouble("speed", 11.5);
+        CruiseMissileEntity old = ModEntities.CRUISE_MISSILE.get().create(level);
+        old.load(tag);
+        h.assertTrue(old.speed() <= CruiseMissileEntity.CRUISE_SPEED, "старая ракета летит " + old.speed() + " блока/тик");
+        int stretched = (int) Math.ceil(300 * 11.5 / CruiseMissileEntity.CRUISE_SPEED);
+        h.assertTrue(old.lifetimeLeft() == stretched, "старая ракета: срок " + old.lifetimeLeft() + " вместо " + stretched);
+        h.succeed();
+    }
+
+    /**
      * Крылатая ракета с пусковой по маршруту с обходом (пуск, разгон, набор, маршрут вне мира, горка, пикирование):
      * скорость не проседает на переходах разгон → набор → маршрут (ускоритель разгоняет ниже маршевой, дальше турбина),
      * а время до удара, названное на пусковой (HUD, сирена, «удар через ~N с»), сходится с настоящим в пределах 10 %.
@@ -430,17 +460,22 @@ public final class StrikeGameTests {
      * Ракета издалека вне мира возвращается в мир на краю полосы подлёта ({@link CruiseMissileEntity#VISIBLE_LEG}),
      * а не у района цели (±40 блоков): её подлёт видно игроку у цели и при дистанции симуляции меньше прорисовки.
      * Заход — поперёк полосы: чанки самой площадки держит GameTest, и ракета вдоль неё вошла бы в мир и без полосы подлёта.
-     * В темпе игры: полоса грузится в фоне, и её дальний край к подлёту готов не всегда (вход в мир в 192 блоках и дальше
-     * от цели); порог — дальше края дистанции симуляции 8 (128 блоков) с запасом, без полосы — 38 блоков.
-     * Удар — и все районы отпущены.
+     * Чанки полосы сгенерированы заранее: время фоновой генерации меряет стенд, а не GameTest. В темпе игры: районы
+     * растут по тикам. Без полосы ракета входит в мир в 38 блоках. Удар — и все районы отпущены.
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_approach", skyAccess = true)
     public static void missileEntersWorldAtApproachEdge(GameTestHelper h) {
         gameSpeed(h);
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
+        Vec3 start = point.add(1200, 80, 0);
+        for (ChunkPos c : FlightTickets.approach(List.of(point, start), CruiseMissileEntity.VISIBLE_LEG)) {
+            int r = FlightTickets.APPROACH_DISTANCE;
+            for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) level.getChunk(c.x + dx, c.z + dz);
+        }
+        watcher(h, point);
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
-        missile.launch(point.add(1200, 80, 0), new Target.Point(point), point, null);
+        missile.launch(start, new Target.Point(point), point, null);
         missile.setRoute(Route.direct());
         VirtualFlights.launch(level, missile);
         UUID id = missile.getUUID();
@@ -457,9 +492,89 @@ public final class StrikeGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
-            h.assertTrue(entered[0] >= 160, "ракета вернулась в мир в " + Math.round(entered[0]) + " блоках от цели, а не на краю полосы подлёта");
+            h.assertTrue(entered[0] >= 224, "ракета вернулась в мир в " + Math.round(entered[0]) + " блоках от цели, а не на краю полосы подлёта");
             h.assertTrue(FlightTickets.held(level, id) == 0, "ракета не отпустила районы");
         });
+    }
+
+    /**
+     * Полоса подлёта — только когда у цели есть кому смотреть, общая для залпа и в пределах {@link FlightTickets#APPROACH_LIMIT}
+     * на мир (обзор 30.09.2026: полоса на каждую ракету — ~150 чанков, залп из 30 ракет — тысячи чанков в очереди генерации).
+     * Две ракеты по одной точке с одного направления держат один набор районов; игрок ушёл — полоса отпущена; полоса,
+     * которой не хватает места в мире, не берётся.
+     */
+    @GameTest(template = "runway", timeoutTicks = 200, batch = "missile_approach_shared", skyAccess = true)
+    public static void missileApproachOnlyWatchedSharedAndCapped(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        List<CruiseMissileEntity> made = new ArrayList<>();
+        afterTest(h, () -> made.forEach(m -> {
+            StrikeProjectile p = findProjectile(level, m.getUUID());
+            if (p != null) p.discard();
+        }));
+        // вне мира, в 1000 блоках: район цели берётся сразу, до удара далеко
+        for (int i = 0; i < 2; i++) {
+            CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
+            m.launch(point.add(1000, 80, 0), new Target.Point(point), point, null);
+            m.setRoute(Route.direct());
+            VirtualFlights.launch(level, m);
+            made.add(m);
+        }
+        int n = FlightTickets.approach(List.of(point, point.add(1000, 0, 0)), CruiseMissileEntity.VISIBLE_LEG).size();
+        FakePlayer[] player = {null};
+        int[] tick = {0};
+        String[] fail = {null};
+        h.onEachTick(() -> {
+            int t = ++tick[0];
+            if (fail[0] != null) return;
+            int areas = FlightTickets.approachAreas(level);
+            int held = FlightTickets.held(level, made.getFirst().getUUID());
+            if (t == 30 && (areas != 0 || held != 1)) fail[0] = "без игрока у цели районов полосы " + areas + ", у ракеты районов " + held;
+            if (t == 31) player[0] = watcher(h, point);
+            if (t == 60 && (areas != n || held != 1 + n || FlightTickets.held(level, made.get(1).getUUID()) != 1 + n)) {
+                fail[0] = "с игроком у цели районов полосы " + areas + " (нужно " + n + " — одна полоса на обе ракеты), у ракеты " + held;
+            }
+            if (t == 61) {
+                // полосы других направлений: мир набирает предел, лишняя полоса не берётся целиком
+                UUID other = UUID.randomUUID();
+                int taken = 0;
+                for (int k = 1; k < 64; k++) {
+                    double a = Math.toRadians(k * 5.625);
+                    List<ChunkPos> c = FlightTickets.approach(List.of(point, point.add(1000 * Math.sin(a), 0, -1000 * Math.cos(a))),
+                            CruiseMissileEntity.VISIBLE_LEG);
+                    if (!FlightTickets.holdApproach(level, c, other)) break;
+                    taken++;
+                }
+                int full = FlightTickets.approachAreas(level);
+                if (full > FlightTickets.APPROACH_LIMIT || taken == 0) fail[0] = "предел полос: районов " + full + ", взято полос " + taken;
+                for (int k = 1; k <= taken; k++) {
+                    double a = Math.toRadians(k * 5.625);
+                    FlightTickets.releaseApproach(level, FlightTickets.approach(List.of(point, point.add(1000 * Math.sin(a), 0, -1000 * Math.cos(a))),
+                            CruiseMissileEntity.VISIBLE_LEG), other);
+                }
+                if (FlightTickets.approachAreas(level) != n) fail[0] = "после отпуска чужих полос районов " + FlightTickets.approachAreas(level) + ", нужно " + n;
+                level.players().remove(player[0]);
+            }
+            if (t == 90 && (areas != 0 || held != 1)) fail[0] = "игрок ушёл, а районов полосы " + areas + ", у ракеты " + held;
+        });
+        h.runAtTickTime(100, () -> {
+            if (fail[0] != null) throw new GameTestAssertException(fail[0]);
+            h.assertTrue(n >= 6, "полоса из " + n + " районов");
+            h.succeed();
+        });
+    }
+
+    /**
+     * Игрок у цели для полосы подлёта ({@link FlightTickets#watched}): {@code FakePlayer} NeoForge только в списке игроков
+     * мира — без тикетов чанков (его нет в {@code ChunkMap}) и без пакетов. Убирается после теста.
+     */
+    private static FakePlayer watcher(GameTestHelper h, Vec3 at) {
+        ServerLevel level = h.getLevel();
+        var p = new FakePlayer(level, new GameProfile(UUID.randomUUID(), "watcher"));
+        p.moveTo(at.x, at.y, at.z);
+        level.players().add(p);
+        afterTest(h, () -> level.players().remove(p));
+        return p;
     }
 
     /**
@@ -569,7 +684,7 @@ public final class StrikeGameTests {
         m.launch(target.add(0, 0, -150), new Target.Point(target), target, null);
         m.setRoute(Route.direct());
         // курс на восток, цель в 150 блоках к югу, фаза — уже атака, срока жизни — на заход с запасом
-        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        CompoundTag tag = new CompoundTag();
         m.saveWithoutId(tag);
         tag.getCompound("flight").putFloat("yaw", -90);
         tag.getCompound("flight").putFloat("pitch", 0);
