@@ -26,10 +26,20 @@ import java.util.UUID;
  * очевидец видит за километры, а в игре она появляется в пределах прорисовки (12 чанков — 192 блока). На 11.5 блока/тик
  * она пролетала их меньше чем за секунду, а при 12 TPS сервера — рывками по 11 блоков; на 4 блоках/тик подлёт от края
  * прорисовки с горкой и пикированием длится ~2.5 с (при 12 TPS ~4 с), пролёт поперёк поля зрения — ~5 с. Время
- * полёта до удара задаёт настройка {@code missile_flight_time}: путь маршрута — скорость × время.
+ * полёта до удара задаёт настройка {@code missile_flight_time}: путь маршрута — скорость × время. Последние
+ * {@link #VISIBLE_LEG} блоков ракета летит в мире (полоса подлёта), а не вне его: иначе она появлялась бы только
+ * в пределах дистанции симуляции сервера у игрока.
  */
 public class CruiseMissileEntity extends StrikeProjectile {
     public static final double CRUISE_SPEED = 4.0;
+    /**
+     * Последние столько блоков до цели ракета летит в мире ({@link ua.zentix.airstrike.strike.FlightTickets#approach}):
+     * больше дальности прорисовки 12 чанков, чтобы подлёт с её края был виден, даже когда дистанция симуляции сервера
+     * меньше (8 чанков — сущности тикают лишь в ~128 блоках от игрока).
+     */
+    public static final double VISIBLE_LEG = 256;
+    /** Маршевая скорость в 2.3.0 и раньше: ракеты, сохранённые в полёте без ключа {@code cruise_speed}, летели так. */
+    private static final double LEGACY_CRUISE_SPEED = 11.5;
     /** Горка перед пикированием начинается в стольких блоках от цели. */
     public static final double TERMINAL_RANGE = 160;
     /** Предельная скорость в пикировании. */
@@ -64,6 +74,11 @@ public class CruiseMissileEntity extends StrikeProjectile {
     @Override
     public double cruiseSpeed() {
         return CRUISE_SPEED;
+    }
+
+    @Override
+    protected double visibleLeg() {
+        return VISIBLE_LEG;
     }
 
     @Override
@@ -173,11 +188,16 @@ public class CruiseMissileEntity extends StrikeProjectile {
     protected void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         popUp = !tag.contains("pop_up") || tag.getBoolean("pop_up");
+        // срок жизни посчитан по плану полёта на той скорости, с которой ракету сохранили: на другой маршевой остаток
+        // пути занимает другое время — остаток срока растягивается так же, иначе ракета пропала бы посреди полёта
+        double saved = tag.contains("cruise_speed") ? tag.getDouble("cruise_speed") : LEGACY_CRUISE_SPEED;
+        if (lifetime > 0 && saved > CRUISE_SPEED) lifetime = age + (int) Math.ceil(Math.max(0, lifetime - age) * saved / CRUISE_SPEED);
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         tag.putBoolean("pop_up", popUp);
+        tag.putDouble("cruise_speed", CRUISE_SPEED);
     }
 }

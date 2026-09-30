@@ -76,7 +76,8 @@ import java.util.concurrent.locks.LockSupport;
  * с пусковой, ракета пролетает незагруженный мир, бомба бурит,
  * залп выпускает все снаряды, прицел различает блок и сущность, данные переживают сохранение.
  * Шаблоны (scripts/gen_test_structures.py): «range» — площадка 64×64, дёрн на y = 11 (поверхность y = 12);
- * «runway» — полоса 32×256, дёрн на y = 3 (поверхность y = 4): снаряды заходят с настоящей дистанции.
+ * «runway» — полоса 32×256, дёрн на y = 3 (поверхность y = 4), высота 8 (стена из барьеров вокруг — не выше):
+ * снаряды заходят с настоящей дистанции.
  * Полётным тестам нужен skyAccess: иначе GameTest накрывает площадку потолком из барьеров, и рельеф — это потолок.
  */
 @GameTestHolder(Airstrike.MOD_ID)
@@ -193,6 +194,103 @@ public final class StrikeGameTests {
             // уйдя из загруженных чанков, шахед летит вне мира и возвращается новой сущностью с тем же UUID
             h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), "шахед ещё летит: " + last[0]);
             assertCrater(h, RUNWAY_TARGET, last[0]);
+        });
+    }
+
+    /**
+     * Крылатая ракета с пусковой по маршруту с обходом (пуск, разгон, набор, маршрут вне мира, горка, пикирование):
+     * скорость не проседает на переходах разгон → набор → маршрут (ускоритель разгоняет ниже маршевой, дальше турбина),
+     * а время до удара, названное на пусковой (HUD, сирена, «удар через ~N с»), сходится с настоящим в пределах 10 %.
+     * В темпе игры: путь уходит за площадку, район цели грузится в фоне.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_launcher", skyAccess = true)
+    public static void missileFromLauncherKeepsSpeedAndEta(GameTestHelper h) {
+        gameSpeed(h);
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        // 600 блоков пути: точка обхода в ~220 блоках сбоку от полосы, вход в 150 блоках до цели; пакет, как в игре
+        // (StrikeService.fromLauncher), смотрит на первую точку маршрута
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
+        Vec3 approach = new Vec3(0, 0, 1);
+        Vec3 first = Route.plan(site, point, approach, 600, 150, 1).current();
+        float yaw = ua.zentix.airstrike.guidance.FlightController.anglesTo(site, first)[0];
+        LauncherEntity launcher = LauncherEntity.create(level, site, yaw, WeaponType.MISSILE, null);
+        level.addFreshEntity(launcher);
+        int ready = LauncherEntity.DEPLOY_TICKS + 10;
+        Vec3 rail = launcher.railPoint(0);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), ready, LauncherEntity.DEPLOY_TICKS, new Target.Point(point), point, null);
+        missile.setRoute(Route.plan(rail, point, approach, 600, 150, 1));
+        int eta = missile.etaTicks();
+        level.addFreshEntity(missile);
+        UUID id = missile.getUUID();
+        int[] ticks = {0};
+        double[] prev = {-1};
+        boolean[] cruised = {false};
+        String[] drop = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            StrikeProjectile p = findProjectile(level, id);
+            if (p == null) return;
+            ticks[0]++;
+            FlightPhase ph = p.flightPhase();
+            last[0] = ph + " " + h.relativeVec(p.position()) + " v=" + p.speed();
+            if (ph == FlightPhase.CRUISE) cruised[0] = true;
+            boolean steady = ph == FlightPhase.BOOST || ph == FlightPhase.CLIMB || ph == FlightPhase.CRUISE;
+            if (steady && prev[0] >= 0 && p.speed() < prev[0] - 1e-9 && drop[0] == null) {
+                drop[0] = "скорость упала " + prev[0] + " → " + p.speed() + " на " + ph;
+            }
+            prev[0] = steady ? p.speed() : -1;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит: " + last[0]);
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+            h.assertTrue(cruised[0], "ракета не выходила на маршрут");
+            h.assertTrue(drop[0] == null, drop[0]);
+            h.assertTrue(Math.abs(ticks[0] - eta) <= eta / 10, "время до удара на пусковой " + eta + " тиков, на деле " + ticks[0]);
+            h.assertTrue(FlightTickets.held(level, id) == 0, "ракета не отпустила районы");
+        });
+    }
+
+    /** Снаряд по UUID: в мире или вне его (уходя из загруженных чанков, он становится новой сущностью). */
+    private static StrikeProjectile findProjectile(ServerLevel level, UUID id) {
+        if (level.getEntity(id) instanceof StrikeProjectile e) return e;
+        for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+            if (p.getUUID().equals(id)) return p;
+        }
+        return null;
+    }
+
+    /**
+     * Ракета издалека вне мира возвращается в мир на краю полосы подлёта ({@link CruiseMissileEntity#VISIBLE_LEG}),
+     * а не у района цели (±40 блоков): её подлёт видно игроку у цели и при дистанции симуляции меньше прорисовки.
+     * В темпе игры: полоса грузится в фоне. Удар — и все районы отпущены.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_approach", skyAccess = true)
+    public static void missileEntersWorldAtApproachEdge(GameTestHelper h) {
+        gameSpeed(h);
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(point.add(0, 80, -1200), new Target.Point(point), point, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        UUID id = missile.getUUID();
+        double[] entered = {-1};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            if (level.getEntity(id) instanceof CruiseMissileEntity m && !m.isVirtual()) {
+                if (entered[0] < 0) entered[0] = Math.hypot(m.getX() - point.x, m.getZ() - point.z);
+                last[0] = "в мире " + m.flightPhase() + " " + h.relativeVec(m.position());
+            } else if (findProjectile(level, id) instanceof StrikeProjectile p) {
+                last[0] = "вне мира " + p.flightPhase() + " " + h.relativeVec(p.position());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит: " + last[0]);
+            assertCrater(h, RUNWAY_TARGET, last[0]);
+            h.assertTrue(entered[0] >= 200, "ракета вернулась в мир в " + Math.round(entered[0]) + " блоках от цели, а не на краю полосы подлёта");
+            h.assertTrue(FlightTickets.held(level, id) == 0, "ракета не отпустила районы");
         });
     }
 
@@ -434,7 +532,7 @@ public final class StrikeGameTests {
     @GameTest(template = "runway", timeoutTicks = 900, batch = "loiter_moving", skyAccess = true)
     public static void loiterHitsMovingTarget(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        // высоко над барьерной стеной вокруг площадки (высота шаблона 64): круг цели доходит до края полосы (x = 32),
+        // высоко над барьерной стеной вокруг площадки (шаблон был высотой 64): круг цели доходит до края полосы (x = 32),
         // и пике у края на высоте стены, как и выход из пике после промаха (до 45 блоков ниже цели) и повторный заход,
         // били в барьер (CI 29.09.2026: снаряд пропал в 12 блоках от цели)
         Vec3 center = airTarget(h).add(0, 100, 0);
@@ -558,7 +656,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
-        // выше барьерной стены вокруг площадки теста (высота шаблона 64): иначе ракета бьётся в неё на входе
+        // выше барьерной стены вокруг площадки теста: иначе ракета бьётся в неё на входе
         missile.launch(point.add(0, 80, -1500), new Target.Point(point), point, null);
         missile.setRoute(Route.direct());
         VirtualFlights.launch(level, missile);

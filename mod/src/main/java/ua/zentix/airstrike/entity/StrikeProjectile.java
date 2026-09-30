@@ -44,6 +44,7 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,7 +64,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final EntityDataAccessor<Float> DATA_SPEED = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.FLOAT);
     /**
      * Сдвиг за последний тик сервера ({@link #velocity()}). Ванильный пакет скорости сущности его не довезёт: он режет
-     * компоненты до 3,9 блока/тик, а ракета летит 11,5, МБР — до 25.
+     * компоненты до 3,9 блока/тик, а B-2 летит 12, МБР — до 25.
      */
     private static final EntityDataAccessor<Vector3f> DATA_VELOCITY = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.VECTOR3);
     private static final EntityDataAccessor<Byte> DATA_PHASE = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
@@ -130,6 +131,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Чанк, вокруг которого держится район цели (null — не держится). */
     @Nullable
     private ChunkPos heldArea;
+    /** Полоса подлёта к цели, которую держит снаряд ({@link #visibleLeg}); не сохраняется, как и тикеты. */
+    private List<ChunkPos> heldApproach = List.of();
 
     private final LongSet forcedChunks = new LongOpenHashSet();
 
@@ -576,7 +579,21 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (d <= preloadDistance()) {
             heldArea = new ChunkPos(BlockPos.containing(aim));
             FlightTickets.hold(level, heldArea, targetArea(), getUUID(), true);
+            // полоса — со стороны, откуда снаряд зайдёт: от точки входа маршрута, пройден маршрут — от самого снаряда
+            if (visibleLeg() > 0) {
+                Vec3 from = route != null && !route.finished() && route.size() > 0 ? route.points().getLast() : position();
+                heldApproach = FlightTickets.approach(aim, from, visibleLeg());
+                for (ChunkPos c : heldApproach) FlightTickets.hold(level, c, FlightTickets.APPROACH_DISTANCE, getUUID(), true);
+            }
         }
+    }
+
+    /**
+     * Сколько последнего пути до цели снаряд летит в мире, а не вне его ({@link FlightTickets#approach}): столько
+     * его подлёт видно игроку у цели, если это не дальше прорисовки. 0 — только район цели.
+     */
+    protected double visibleLeg() {
+        return 0;
     }
 
     /** С какого расстояния до цели её район грузится заранее: {@link #PRELOAD_TICKS} полёта, не меньше 400 блоков. */
@@ -606,8 +623,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Отпустить район цели (снаряд убран или перенацелен — новый район возьмётся на подлёте). */
     private void releaseTargetArea() {
-        if (heldArea != null && level() instanceof ServerLevel level) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
+        if (level() instanceof ServerLevel level) {
+            if (heldArea != null) FlightTickets.hold(level, heldArea, targetArea(), getUUID(), false);
+            for (ChunkPos c : heldApproach) FlightTickets.hold(level, c, FlightTickets.APPROACH_DISTANCE, getUUID(), false);
+        }
         heldArea = null;
+        heldApproach = List.of();
     }
 
     /** Размер района цели, который грузится заранее: уровень тикета {@link FlightTickets} (4 — ±40 блоков). */

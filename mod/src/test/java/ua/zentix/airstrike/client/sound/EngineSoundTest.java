@@ -61,7 +61,7 @@ class EngineSoundTest {
     @Test
     void missileWhistleWarnsFromThreeKilometres() {
         // путь по пакетам (раз в 2 тика), как у ракеты вне мира: с 3000 блоков на слушателя у цели; свист слышно
-        // до прихода ракеты не меньше 4 с (d·(1/v − 1/c) ≈ 575 тиков), и история пути не теряет слышимую точку
+        // до прихода ракеты почти на d·(1/v − 1/c) (≈ 575 тиков), и история пути не теряет слышимую точку
         double from = Hearing.WHISTLE + Hearing.FADE, v = V;
         int arrival = (int) (from / v);
         SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
@@ -81,7 +81,9 @@ class EngineSoundTest {
         }
         assertTrue(first >= 0, "свиста не было");
         assertTrue(firstDistance > 2800, "свист слышно с " + Math.round(firstDistance) + " блоков");
-        assertTrue(arrival - first >= 80, "свист за " + (arrival - first) + " тиков до прихода ракеты");
+        // слышимая точка — в firstDistance блоках: звук оттуда опережает ракету на d·(1/v − 1/c), с запасом 10 %
+        double lead = firstDistance * (1 / v - 1 / Acoustics.SPEED);
+        assertTrue(arrival - first >= 0.9 * lead, "свист за " + (arrival - first) + " тиков до прихода ракеты, ожидание ~" + Math.round(lead));
     }
 
     @Test
