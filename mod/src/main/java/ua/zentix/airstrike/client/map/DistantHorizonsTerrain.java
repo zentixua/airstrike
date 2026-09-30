@@ -17,17 +17,19 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.MapColor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
-import java.util.Queue;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -57,9 +59,6 @@ final class DistantHorizonsTerrain implements TerrainSource {
      */
     private static final long REFRESH_NS = 300_000_000_000L;
 
-    /** Чанк, который DH обновил в мире {@code level} (событие приходит из его потоков). */
-    private record Change(IDhApiLevelWrapper level, int chunkX, int chunkZ) {}
-
     /** Для лога: колонки с верхом, без данных, отказы API и первый отказ; почему не открылся мир. */
     private final AtomicLong found = new AtomicLong(), empty = new AtomicLong(), failed = new AtomicLong();
     /** Исключение из API уже в логе со стеком (дальше — только в счётчике отказов). */
@@ -70,8 +69,11 @@ final class DistantHorizonsTerrain implements TerrainSource {
     private static volatile boolean initialized;
     /** Миры, которые DH сейчас держит загруженными. */
     private static final Set<IDhApiLevelWrapper> loaded = ConcurrentHashMap.newKeySet();
-    /** Изменения из событий DH; разбирает поток игры каждый тик ({@link #changes}). */
-    private static final Queue<Change> changed = new ConcurrentLinkedQueue<>();
+    /**
+     * Чанки ({@link ChunkPos#asLong}), которые DH обновил, по мирам: событие приходит из его потоков, разбирает поток
+     * игры каждый тик ({@link #changes}); один чанк DH сохраняет много раз подряд — в наборе он один.
+     */
+    private static final Map<IDhApiLevelWrapper, Set<Long>> changed = new HashMap<>();
 
     /** Версия API DH — та, против которой мод собран; иначе источника нет (и запись в лог). */
     static boolean supported() {
@@ -100,12 +102,18 @@ final class DistantHorizonsTerrain implements TerrainSource {
             @Override
             public void onLevelUnload(DhApiEventParam<EventParam> input) {
                 loaded.remove(input.value.levelWrapper);
+                synchronized (changed) {
+                    changed.remove(input.value.levelWrapper);
+                }
             }
         });
         DhApiEventRegister.on(DhApiChunkModifiedEvent.class, new DhApiChunkModifiedEvent() {
             @Override
             public void onChunkModified(DhApiEventParam<EventParam> input) {
-                changed.add(new Change(input.value.levelWrapper, input.value.chunkX, input.value.chunkZ));
+                long chunk = ChunkPos.asLong(input.value.chunkX, input.value.chunkZ);
+                synchronized (changed) {
+                    changed.computeIfAbsent(input.value.levelWrapper, l -> new HashSet<>()).add(chunk);
+                }
             }
         });
         // DH мог инициализироваться раньше подписки: тогда событие уже прошло, а поля уже заполнены
@@ -126,8 +134,21 @@ final class DistantHorizonsTerrain implements TerrainSource {
     @Override
     public void changes(ClientLevel level, ChunkSink sink) {
         IDhApiLevelWrapper mine = initialized ? dhLevel(level) : null;
-        for (Change c; (c = changed.poll()) != null; ) {
-            if (c.level == mine) sink.changed(c.chunkX, c.chunkZ);
+        Set<Long> chunks;
+        synchronized (changed) {
+            if (changed.isEmpty()) return;
+            chunks = mine == null ? null : changed.get(mine);
+            changed.clear();
+        }
+        if (chunks != null) {
+            for (long c : chunks) sink.changed(ChunkPos.getX(c), ChunkPos.getZ(c));
+        }
+    }
+
+    /** Выход из мира: накопленное — уже ничьё, и не держать обёртки его миров. */
+    static void clearChanges() {
+        synchronized (changed) {
+            changed.clear();
         }
     }
 

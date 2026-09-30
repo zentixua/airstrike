@@ -13,6 +13,8 @@ import net.minecraft.world.level.material.MapColor;
 import net.neoforged.fml.ModList;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.registry.ModItems;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,7 +47,8 @@ import java.util.concurrent.Executors;
  * Каждое чтение DH — участок его базы 64×64 блока (распаковка, в очереди его потоков файлов), поэтому рельеф из DH
  * читается по возможности один раз: плитка крупнее собирается из четырёх готовых плиток уровнем ниже ({@link #compose}),
  * подробные плитки вокруг игрока строятся заранее, пока карта закрыта ({@link #tick}), — карта открывается на игроке
- * сразу; готовая плитка DH перестраивается по его событию изменения чанка, а не по часам. Плитки живут, пока открыт
+ * сразу; готовая плитка DH перестраивается по его событию изменения чанка, а не по часам, и перестроенная мелкая
+ * плитка сразу копируется в свою четверть крупных. Плитки живут, пока открыт
  * мир, самые давние по показу вытесняются.
  */
 public final class TerrainTiles {
@@ -108,12 +111,24 @@ public final class TerrainTiles {
             filled++;
         }
 
+        /** Клетка {@code i} — как клетка {@code j} плитки {@code from}; без данных там — и здесь без данных. */
         void copy(int i, Columns from, int j) {
-            if (!from.has(j)) return;
+            if (has(i)) filled--;
             height[i] = from.height[j];
             color[i] = from.color[j];
             depth[i] = from.depth[j];
-            filled++;
+            if (has(i)) filled++;
+        }
+
+        /**
+         * Четверть плитки ({@code q}: 0 — северо-запад, 1 — северо-восток, 2 — юго-запад, 3 — юго-восток) — из плитки
+         * уровнем ниже на её месте: пиксель — клетка ребёнка у середины своей клетки.
+         */
+        void putQuarter(int q, Columns kid) {
+            int half = SIZE / 2, x0 = (q & 1) * half, z0 = (q >> 1) * half;
+            for (int z = 0; z < half; z++) {
+                for (int x = 0; x < half; x++) copy((z0 + z) * SIZE + x0 + x, kid, (2 * z + 1) * SIZE + 2 * x + 1);
+            }
         }
 
         boolean empty() {
@@ -125,7 +140,7 @@ public final class TerrainTiles {
         }
     }
 
-    private static final class Tile {
+    static final class Tile {
         final Key key;
         @Nullable
         DynamicTexture texture;
@@ -140,8 +155,9 @@ public final class TerrainTiles {
         /** Когда начата фоновая постройка; 0 — не строится. */
         long buildingSince;
         /**
-         * Рельеф под плиткой изменился (событие источника, перестроена плитка уровнем ниже) — перестроить раньше
-         * обычного. Снимается, когда постройка начата: изменение во время постройки её снова ставит.
+         * Источник сообщил, что рельеф под плиткой изменился, — перестроить раньше обычного. Снимается, когда постройка
+         * начата: изменение во время постройки её снова ставит. Перестроенная плитка уровнем ниже её не ставит — она
+         * сразу копируется в свою четверть ({@link #propagate}).
          */
         boolean stale;
 
@@ -150,12 +166,18 @@ public final class TerrainTiles {
         }
     }
 
-    /** Готовая плитка: колонки (null — не построена, её спросят снова, как пустую), пиксели ABGR, сколько строилась. */
-    record Built(Key key, int generation, @Nullable Columns columns, int[] pixels, long nanos) {
+    /**
+     * Готовая плитка: колонки (null — не построена, её спросят снова, как пустую), сколько строилась. Пиксели рисует
+     * поток игры: первому ряду нужна плитка к северу.
+     */
+    record Built(Key key, int generation, @Nullable Columns columns, long nanos) {
         static Built failed(Key key, int generation) {
-            return new Built(key, generation, null, new int[0], 0);
+            return new Built(key, generation, null, 0);
         }
     }
+
+    /** Дети крупной плитки: все свежие — собрать из них; кто-то строится или пора обновить — подождать; кого-то нет — читать источник. */
+    enum Kids { READY, REFRESHING, ABSENT }
 
     /** Плитки одного источника рельефа. */
     static final class Layer {
@@ -201,6 +223,8 @@ public final class TerrainTiles {
     private static long frame;
     private static int ticks;
     private static Progress progress = new Progress(0, 0);
+    /** Карту в этом мире уже открывали: рельеф вокруг игрока строится заранее и без пульта в руках. */
+    private static boolean opened;
 
     private TerrainTiles() {}
 
@@ -260,15 +284,34 @@ public final class TerrainTiles {
             layer.source.changes(current, (chunkX, chunkZ) -> changed(layer, chunkX, chunkZ));
         }
         if (++ticks % PREFETCH_PERIOD != 0) return;
+        boolean wanted = prefetchWanted(player);
         for (Layer layer : layers) {
             // заранее — только из фона: слой чанков строится в кадре и быстро, а чанки у игрока и так под рукой
             if (!layer.source.offThread() || layer.broken) continue;
+            if (!wanted) {
+                layer.prefetch = Set.of();
+                continue;
+            }
             List<Key> keys = around(player.getX(), player.getZ());
             layer.prefetch = new HashSet<>(keys);
             for (Key k : keys) layer.tiles.computeIfAbsent(k, Tile::new);
             evict(layer);
             request(current, layer, keys, true);
         }
+    }
+
+    /**
+     * Рельеф заранее — только тем, кому карта нужна: включено в настройках клиента, и пульт в инвентаре или карту
+     * в этом мире уже открывали. Иначе DH читал бы свою базу у каждого игрока со сборкой всю игру.
+     */
+    private static boolean prefetchWanted(LocalPlayer player) {
+        if (!AirstrikeConfig.CLIENT.mapPrefetch.get()) return false;
+        return opened || player.getInventory().contains(s -> s.is(ModItems.DESIGNATOR.get()));
+    }
+
+    /** Карта наведения открыта: дальше рельеф вокруг игрока строится заранее до выхода из мира. */
+    public static void opened() {
+        opened = true;
     }
 
     /** Что построено из плиток, которые рисовались в последнем кадре карты. */
@@ -336,6 +379,9 @@ public final class TerrainTiles {
         level = null;
         generation++;
         progress = new Progress(0, 0);
+        opened = false;
+        // очередь событий DH держала бы обёртки мира, из которого вышли
+        if (distantHorizons) DistantHorizonsTerrain.clearChanges();
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
@@ -443,8 +489,10 @@ public final class TerrainTiles {
 
     /**
      * Построить нужные из {@code keys} (ближние первыми): сначала те, которых нет, потом устаревшие. Крупную плитку —
-     * из четырёх готовых уровнем ниже, если они есть; иначе из источника: в фоне ({@link #MAX_JOBS} сразу) или в кадре
-     * под {@link #FRAME_BUDGET_NS}. {@code prefetch} — заранее, пока карту не смотрят: только недостающие и устаревшие.
+     * из четырёх свежих уровнем ниже ({@link #kids}); если из них какие-то строятся или устарели — сперва они, а она
+     * ждёт; если каких-то нет — из источника: в фоне ({@link #MAX_JOBS} сразу) или в кадре под {@link #FRAME_BUDGET_NS}.
+     * {@code prefetch} — заранее, пока карту не смотрят: недостающие, устаревшие и неполные по их часам (полные
+     * перечитываются по событию источника или когда их смотрят).
      */
     private static void request(ClientLevel current, Layer layer, List<Key> keys, boolean prefetch) {
         TerrainSource src = layer.source;
@@ -461,19 +509,36 @@ public final class TerrainTiles {
             }
             int u = urgency(false, t.builtAt, t.stale, t.columns, src.refreshNanos(), now);
             if (u == 0) todo.add(t);
-            else if (u == 1 && !prefetch) later.add(t);
+            else if (u == 1 && (!prefetch || t.columns == null || !t.columns.complete())) later.add(t);
         }
         todo.addAll(later);
+        Set<Key> queued = new HashSet<>();
+        for (Tile t : todo) queued.add(t.key);
         TerrainSource.Reader inFrame = null;
         try {
-            for (Tile t : todo) {
+            // список растёт: детям крупной плитки, которых пора обновить, — место в конце
+            for (int n = 0; n < todo.size(); n++) {
+                Tile t = todo.get(n);
                 if (System.nanoTime() > deadline) return;
-                Columns fromChildren = compose(layer, t.key);
-                if (fromChildren != null) {
-                    t.stale = false;
-                    layer.composed++;
-                    apply(layer, new Built(t.key, generation, fromChildren, paint(fromChildren, t.key.level), 0), false);
-                    continue;
+                if (t.buildingSince != 0) continue;
+                Tile[] kids = kidsOf(layer, t.key);
+                switch (kids(kids, src.refreshNanos(), now)) {
+                    case READY -> {
+                        Columns c = new Columns();
+                        for (int q = 0; q < 4; q++) c.putQuarter(q, kids[q].columns);
+                        t.stale = false;
+                        layer.composed++;
+                        apply(layer, new Built(t.key, generation, c, 0), false);
+                        continue;
+                    }
+                    case REFRESHING -> {
+                        for (Tile kid : kids) {
+                            if (kid.buildingSince == 0 && urgency(false, kid.builtAt, kid.stale, kid.columns, src.refreshNanos(), now) >= 0
+                                    && queued.add(kid.key)) todo.add(kid);
+                        }
+                        continue;
+                    }
+                    case ABSENT -> {}
                 }
                 if (src.offThread()) {
                     if (layer.jobs >= MAX_JOBS) continue;
@@ -497,33 +562,43 @@ public final class TerrainTiles {
         }
     }
 
-    /**
-     * Крупная плитка из четырёх плиток уровнем ниже, если все они уже строились: пиксель — клетка ребёнка у середины
-     * своей клетки. Рельеф, прочитанный из источника раз, служит всем масштабам. Null — детей нет, читать источник.
-     */
+    /** Четыре плитки уровнем ниже (северо-запад, северо-восток, юго-запад, юго-восток); у подробной — нет. */
     @Nullable
-    private static Columns compose(Layer layer, Key key) {
+    private static Tile[] kidsOf(Layer layer, Key key) {
         if (key.level == 0) return null;
-        Columns[] kids = new Columns[4];
-        for (int i = 0; i < 4; i++) {
-            Tile kid = layer.tiles.get(new Key(key.level - 1, key.tx * 2 + (i & 1), key.tz * 2 + (i >> 1)));
-            if (kid == null || kid.columns == null) return null;
-            kids[i] = kid.columns;
+        Tile[] kids = new Tile[4];
+        for (int q = 0; q < 4; q++) kids[q] = layer.tiles.get(new Key(key.level - 1, key.tx * 2 + (q & 1), key.tz * 2 + (q >> 1)));
+        return kids;
+    }
+
+    /**
+     * Можно ли собрать крупную плитку из детей. Рельеф, прочитанный из источника раз, служит всем масштабам, а плитка
+     * из источника стоит столько же участков DH, сколько её четыре ребёнка вместе, — поэтому собирается из детей, когда
+     * они все свежи: не устарели по событию и не пора их обновить по часам (неполного — {@link #PARTIAL_REFRESH_NS},
+     * пустого — {@link #EMPTY_REFRESH_NS}: только что переспрошенный неполный ребёнок так же свеж, как источник, и
+     * прочитанная заново крупная плитка была бы с теми же дырами). Строится или устарел кто-то из них — ждать его
+     * (крупная плитка из источника прочла бы те же участки второй раз). Кого-то нет (или его постройка не удалась) —
+     * {@link Kids#ABSENT}: читать источник.
+     */
+    static Kids kids(@Nullable Tile[] kids, long refreshNanos, long now) {
+        if (kids == null) return Kids.ABSENT;
+        boolean waiting = false;
+        for (Tile kid : kids) {
+            if (kid == null) return Kids.ABSENT;
+            if (kid.buildingSince != 0) {
+                waiting = true;
+                continue;
+            }
+            if (kid.columns == null) return Kids.ABSENT;
+            if (urgency(false, kid.builtAt, kid.stale, kid.columns, refreshNanos, now) >= 0) waiting = true;
         }
-        return compose(kids);
+        return waiting ? Kids.REFRESHING : Kids.READY;
     }
 
     /** Сборка из детей в порядке: северо-запад, северо-восток, юго-запад, юго-восток. */
     static Columns compose(Columns[] kids) {
         Columns c = new Columns();
-        for (int z = 0; z < SIZE; z++) {
-            int kz = 2 * z + 1;
-            for (int x = 0; x < SIZE; x++) {
-                int kx = 2 * x + 1;
-                Columns kid = kids[(kz / SIZE) * 2 + kx / SIZE];
-                c.copy(z * SIZE + x, kid, (kz % SIZE) * SIZE + kx % SIZE);
-            }
-        }
+        for (int q = 0; q < 4; q++) c.putQuarter(q, kids[q]);
         return c;
     }
 
@@ -563,7 +638,7 @@ public final class TerrainTiles {
     }
 
     /** Источник сообщил об изменении чанка: плитки над ним на всех уровнях перестроятся, когда понадобятся. */
-    private static void changed(Layer layer, int chunkX, int chunkZ) {
+    static void changed(Layer layer, int chunkX, int chunkZ) {
         for (int l = 0; l <= MAX_LEVEL; l++) {
             int span = SIZE << l;
             Tile t = layer.tiles.get(new Key(l, Math.floorDiv(chunkX * 16, span), Math.floorDiv(chunkZ * 16, span)));
@@ -589,20 +664,44 @@ public final class TerrainTiles {
         }
         if (c == null) return;
         t.columns = c;
-        // плитка уровнем выше собрана из этой (или прочитана раньше): пусть соберётся заново
-        if (b.key.level < MAX_LEVEL) {
-            Tile parent = layer.tiles.get(b.key.parent());
-            if (parent != null) parent.stale = true;
+        repaint(layer, t);
+        propagate(layer, t);
+    }
+
+    /**
+     * Перестроенная плитка — в свою четверть плиток крупнее, что уже есть (до самой крупной): они не перечитывают
+     * источник ради изменения, которое уже прочитано. Плитка крупнее, что строится из источника, получит своё.
+     */
+    private static void propagate(Layer layer, Tile t) {
+        for (Tile kid = t; kid.key.level < MAX_LEVEL; ) {
+            Tile parent = layer.tiles.get(kid.key.parent());
+            if (parent == null || parent.columns == null || parent.buildingSince != 0 || kid.columns == null) return;
+            parent.columns.putQuarter((Math.floorMod(kid.key.tz, 2) << 1) | Math.floorMod(kid.key.tx, 2), kid.columns);
+            repaint(layer, parent);
+            kid = parent;
         }
+    }
+
+    /** Пиксели плитки и её южной соседки: у той первый ряд тенится по последнему ряду этой. */
+    private static void repaint(Layer layer, Tile t) {
+        upload(layer, t);
+        Tile south = layer.tiles.get(new Key(t.key.level, t.key.tx, t.key.tz + 1));
+        if (south != null && south.columns != null) upload(layer, south);
+    }
+
+    private static void upload(Layer layer, Tile t) {
+        if (t.columns == null) return;
+        Tile north = layer.tiles.get(new Key(t.key.level, t.key.tx, t.key.tz - 1));
+        int[] pixels = paint(t.columns, t.key.level, north == null ? null : north.columns);
         if (t.texture == null) {
             t.texture = new DynamicTexture(SIZE, SIZE, false);
-            t.id = Airstrike.id("map/" + layer.name + "/" + b.key.level + "/" + b.key.tx + "/" + b.key.tz);
+            t.id = Airstrike.id("map/" + layer.name + "/" + t.key.level + "/" + t.key.tx + "/" + t.key.tz);
             Minecraft.getInstance().getTextureManager().register(t.id, t.texture);
         }
         NativeImage image = t.texture.getPixels();
         if (image == null) return;
         for (int z = 0; z < SIZE; z++) {
-            for (int x = 0; x < SIZE; x++) image.setPixelRGBA(x, z, b.pixels[z * SIZE + x]);
+            for (int x = 0; x < SIZE; x++) image.setPixelRGBA(x, z, pixels[z * SIZE + x]);
         }
         t.texture.upload();
     }
@@ -644,25 +743,27 @@ public final class TerrainTiles {
                 if (col != null) c.set(z * SIZE + x, col);
             }
         }
-        return new Built(key, gen, c, paint(c, key.level), System.nanoTime() - start);
+        return new Built(key, gen, c, System.nanoTime() - start);
     }
 
     /**
      * Пиксели плитки (ABGR, как у {@link NativeImage}); без данных — прозрачный. Тень как у ванильной карты
-     * ({@code MapItem.update}) — по перепаду с северной соседкой; у первого ряда соседка за краем плитки, и её высота
-     * оценивается по склону к южной (чтение соседней плитки стоило бы ещё участка источника на каждую плитку).
+     * ({@code MapItem.update}) — по перепаду с северной соседкой; у первого ряда соседка — последний ряд плитки
+     * {@code north} к северу, если она в памяти (придёт позже — эту перерисуют), иначе её высота оценивается по склону
+     * к южной (читать соседнюю плитку ради одного ряда стоило бы ещё участка источника на каждую плитку).
      */
-    static int[] paint(Columns c, int level) {
+    static int[] paint(Columns c, int level, @Nullable Columns north) {
         int step = 1 << level;
         int[] pixels = new int[SIZE * SIZE];
         for (int z = 0; z < SIZE; z++) {
             for (int x = 0; x < SIZE; x++) {
                 int i = z * SIZE + x;
                 if (!c.has(i)) continue;
-                int h = c.height[i], north;
-                if (z > 0) north = c.has(i - SIZE) ? c.height[i - SIZE] : NO_HEIGHT;
-                else north = c.has(i + SIZE) ? 2 * h - c.height[i + SIZE] : NO_HEIGHT;
-                pixels[i] = MapColor.byId(c.color[i] & 0x3F).calculateRGBColor(shade(h, c.depth[i], north, step, x + z));
+                int h = c.height[i], northH;
+                if (z > 0) northH = c.has(i - SIZE) ? c.height[i - SIZE] : NO_HEIGHT;
+                else if (north != null && north.has(i + (SIZE - 1) * SIZE)) northH = north.height[i + (SIZE - 1) * SIZE];
+                else northH = c.has(i + SIZE) ? 2 * h - c.height[i + SIZE] : NO_HEIGHT;
+                pixels[i] = MapColor.byId(c.color[i] & 0x3F).calculateRGBColor(shade(h, c.depth[i], northH, step, x + z));
             }
         }
         return pixels;

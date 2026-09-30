@@ -234,8 +234,9 @@ public final class S2C {
     }
 
     /**
-     * Игроки для карты наведения — ответ на {@link C2S.MapPlayers}: кроме спросившего и наблюдателей, все в его
-     * измерении, где бы они ни были (сущностей дальше дальности отслеживания у клиента нет).
+     * Игроки для карты наведения — ответ на {@link C2S.MapPlayers}: в измерении спросившего и не дальше
+     * {@code map_range}, кроме него самого, наблюдателей и невидимых (сущностей дальше дальности отслеживания у клиента
+     * нет; кто попадает в список — {@code ServerActions.mapPlayers}).
      */
     public record MapPlayers(List<MapPlayer> players) implements CustomPacketPayload {
         public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players"));

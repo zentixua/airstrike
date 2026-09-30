@@ -26,6 +26,7 @@ import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -75,6 +76,8 @@ public class MapScreen extends Screen {
     private long openedNs;
     private TerrainTiles.Progress atOpen = new TerrainTiles.Progress(0, 0);
     private boolean readyLogged;
+    /** Другие игроки в этом кадре ({@link MapPlayers#marks}): картинка, клик и строка цели берут одно и то же. */
+    private List<MapPlayers.Mark> marks = List.of();
 
     public MapScreen(RemoteScreen remote) {
         super(Component.translatable("airstrike.map.title"));
@@ -90,6 +93,7 @@ public class MapScreen extends Screen {
     @Override
     protected void init() {
         Minecraft mc = Minecraft.getInstance();
+        TerrainTiles.opened();
         LocalPlayer p = mc.player;
         // в другом измерении прежний вид — чужие координаты: карта открывается на выбранном месте или на игроке
         if (p != null && mc.level != null && !mc.level.dimension().equals(placedIn)) {
@@ -188,7 +192,7 @@ public class MapScreen extends Screen {
         MapProjection map = projection();
         MapPlayers.Mark best = null;
         double bestD = PICK_RADIUS * PICK_RADIUS;
-        for (MapPlayers.Mark m : MapPlayers.marks(Minecraft.getInstance().level, 1)) {
+        for (MapPlayers.Mark m : marks) {
             int[] at = map.at(m.x(), m.z());
             int[] edge = edge(at[0], at[1], height - BOTTOM);
             if (edge != null) at = edge;
@@ -289,6 +293,7 @@ public class MapScreen extends Screen {
         LocalPlayer p = mc.player;
         g.fill(0, 0, width, height, BG);
         if (p == null) return;
+        marks = MapPlayers.marks(mc.level, partialTick);
         MapProjection map = projection();
         int bottom = height - BOTTOM;
         TerrainTiles.render(g, map, 0, TOP, width, bottom);
@@ -305,7 +310,7 @@ public class MapScreen extends Screen {
         // цель: район разброса залпа (заливка и граница), перекрестие, линия от оператора
         int[] aim = null;
         if (aimedPlayer.isPresent()) {
-            for (MapPlayers.Mark m : MapPlayers.marks(mc.level, partialTick)) {
+            for (MapPlayers.Mark m : marks) {
                 if (m.name().equalsIgnoreCase(aimedPlayer.get())) aim = map.at(m.x(), m.z());
             }
         } else {
@@ -342,7 +347,7 @@ public class MapScreen extends Screen {
 
         // игроки: значок и имя; за краем — стрелкой; под курсором — рамка (клик — цель)
         MapPlayers.Mark hover = onMap(mouseX, mouseY) ? playerAt(mouseX, mouseY) : null;
-        for (MapPlayers.Mark m : MapPlayers.marks(mc.level, partialTick)) {
+        for (MapPlayers.Mark m : marks) {
             int[] at = map.at(m.x(), m.z());
             Component name = Component.literal(m.name());
             boolean aimed = aimedPlayer.isPresent() && m.name().equalsIgnoreCase(aimedPlayer.get());
@@ -367,9 +372,13 @@ public class MapScreen extends Screen {
         g.disableScissor();
     }
 
-    /** Время, за которое рельеф вида построился целиком с открытия карты, — один раз в лог (замер на железе игрока). */
+    /**
+     * Время, за которое рельеф вида построился целиком с открытия карты, — один раз в лог (замер на железе игрока).
+     * Отсчёт — с первого кадра, где видны плитки: мельче самых крупных плиток карта их не строит.
+     */
     private void logReady() {
         TerrainTiles.Progress p = TerrainTiles.progress();
+        if (p.visible() == 0) return;
         if (openedNs == 0) {
             openedNs = System.nanoTime();
             atOpen = p;
@@ -448,7 +457,7 @@ public class MapScreen extends Screen {
     private Component targetLine(Vec3 me) {
         Optional<String> player = selectedPlayer();
         if (player.isPresent()) {
-            for (MapPlayers.Mark m : MapPlayers.marks(Minecraft.getInstance().level, 1)) {
+            for (MapPlayers.Mark m : marks) {
                 if (m.name().equalsIgnoreCase(player.get())) {
                     return Component.translatable("airstrike.map.selected_player", m.name(), place(m.x(), m.z(), me));
                 }

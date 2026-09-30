@@ -38,26 +38,51 @@ class TerrainTilesTest {
     }
 
     /**
-     * Первый ряд плитки: северная соседка — за краем, её высота оценивается по склону к южной, поэтому склон
+     * Первый ряд плитки без плитки к северу в памяти: её высота оценивается по склону к южной, поэтому склон
      * тенится так же, как в остальных рядах (раньше ради неё читался ещё участок DH на каждую плитку).
      */
     @Test
     void firstRowShadedBySlopeInside() {
-        TerrainTiles.Columns c = new TerrainTiles.Columns();
-        // склон вверх к югу на 2 блока за клетку, по всей плитке
-        for (int z = 0; z < TerrainTiles.SIZE; z++) {
-            for (int x = 0; x < TerrainTiles.SIZE; x++) c.set(z * TerrainTiles.SIZE + x, new TerrainSource.Column(60 + 2 * z, MapColor.GRASS, 0));
-        }
-        int[] pixels = TerrainTiles.paint(c, 0);
+        TerrainTiles.Columns c = filled((x, z) -> 60 + 2 * z); // склон вверх к югу на 2 блока за клетку
+        int[] pixels = TerrainTiles.paint(c, 0, null);
         int high = MapColor.GRASS.calculateRGBColor(MapColor.Brightness.HIGH);
         assertEquals(high, pixels[0], "первый ряд — как второй");
         assertEquals(high, pixels[TerrainTiles.SIZE]);
-        assertEquals(0, TerrainTiles.paint(new TerrainTiles.Columns(), 0)[0], "без данных — прозрачно");
+        assertEquals(0, TerrainTiles.paint(new TerrainTiles.Columns(), 0, null)[0], "без данных — прозрачно");
+    }
+
+    /** Плитка к северу в памяти: первый ряд тенится по её последнему ряду, а не по оценке склона. */
+    @Test
+    void firstRowShadedByNorthTile() {
+        int n = TerrainTiles.SIZE;
+        TerrainTiles.Columns flat = filled((x, z) -> 64);
+        // к северу — обрыв: последний ряд северной плитки на 10 блоков выше
+        TerrainTiles.Columns north = filled((x, z) -> z == n - 1 ? 74 : 64);
+        assertEquals(MapColor.GRASS.calculateRGBColor(MapColor.Brightness.LOW), TerrainTiles.paint(flat, 0, north)[0], "ниже северного ряда соседки");
+        assertEquals(MapColor.GRASS.calculateRGBColor(MapColor.Brightness.NORMAL), TerrainTiles.paint(flat, 0, null)[0], "без соседки — ровно");
+        // у соседки дыра в последнем ряду — оценка по склону
+        TerrainTiles.Columns holed = filled((x, z) -> z == n - 1 ? Integer.MIN_VALUE : 64);
+        assertEquals(MapColor.GRASS.calculateRGBColor(MapColor.Brightness.NORMAL), TerrainTiles.paint(flat, 0, holed)[0]);
+    }
+
+    /** Отметка «рельеф изменился» по чанку — на плитках над ним на всех уровнях, и за минусом координат. */
+    @Test
+    void changedChunkMarksTilesAtNegativeCoordinates() {
+        TerrainTiles.Layer layer = layer();
+        TerrainTiles.Key[] over = {new TerrainTiles.Key(0, -1, -2), new TerrainTiles.Key(1, -1, -1), new TerrainTiles.Key(4, -1, -1)};
+        TerrainTiles.Key[] beside = {new TerrainTiles.Key(0, 0, -2), new TerrainTiles.Key(0, -1, -1), new TerrainTiles.Key(0, -2, -2)};
+        for (TerrainTiles.Key k : over) layer.tiles.put(k, new TerrainTiles.Tile(k));
+        for (TerrainTiles.Key k : beside) layer.tiles.put(k, new TerrainTiles.Tile(k));
+        // чанк (−1, −5): блоки x −16…−1, z −80…−65 — плитка (−1, −2) уровня 0
+        TerrainTiles.changed(layer, -1, -5);
+        for (TerrainTiles.Key k : over) assertTrue(layer.tiles.get(k).stale, "не отмечена " + k);
+        for (TerrainTiles.Key k : beside) assertFalse(layer.tiles.get(k).stale, "отмечена соседняя " + k);
     }
 
     /**
-     * Крупная плитка из четырёх мелких: пиксель — клетка ребёнка у середины своей клетки (как у плитки из источника
-     * с шагом вдвое больше), дети — северо-запад, северо-восток, юго-запад, юго-восток; дыры детей остаются дырами.
+     * Крупная плитка из четырёх мелких: пиксель — клетка ребёнка у середины своей клетки (у плитки уровня 1 это та же
+     * колонка, что прочла бы плитка из источника; у крупнее — сдвинутая на четверть клетки к юго-востоку, на глаз
+     * не видно), дети — северо-запад, северо-восток, юго-запад, юго-восток; дыры детей остаются дырами.
      */
     @Test
     void composeSamplesChildrenAtCellMiddles() {
@@ -101,6 +126,71 @@ class TerrainTilesTest {
         assertEquals(1, TerrainTiles.urgency(false, now - 31 * s, false, full, 30 * s, now), "полная — по часам источника");
     }
 
+    /**
+     * Перестроенная мелкая плитка ложится в свою четверть крупной, не трогая остальные три, и счёт колонок с данными
+     * пересчитывается (дыра на месте данных — минус, данные на месте дыры — плюс).
+     */
+    @Test
+    void quarterReplacesOnlyItsPart() {
+        int n = TerrainTiles.SIZE;
+        TerrainTiles.Columns[] kids = {filled((x, z) -> 1), filled((x, z) -> 2), filled((x, z) -> 3), filled((x, z) -> 4)};
+        TerrainTiles.Columns parent = TerrainTiles.compose(kids);
+        assertTrue(parent.complete());
+        // юго-восточный ребёнок перестроен: половина без данных, половина выше
+        parent.putQuarter(3, filled((x, z) -> x < n / 2 ? Integer.MIN_VALUE : 40));
+        assertEquals(n * n - n * n / 8, parent.filled, "у четверти половина — дыры");
+        assertEquals(1, parent.height[0]);
+        assertEquals(2, parent.height[n - 1]);
+        assertEquals(3, parent.height[(n - 1) * n]);
+        assertFalse(parent.has(n / 2 * n + n / 2), "юго-восток, западная половина — дыра");
+        assertEquals(40, parent.height[n * n - 1]);
+        parent.putQuarter(3, kids[3]);
+        assertTrue(parent.complete(), "дыры снова закрыты");
+        assertEquals(4, parent.height[n * n - 1]);
+    }
+
+    /**
+     * Крупная плитка собирается из детей, только когда все четыре свежи; строится или устарел кто-то — ждёт его
+     * (а не читает источник второй раз); кого-то нет или его постройка не удалась — читает источник.
+     */
+    @Test
+    void composeOnlyFromFreshChildren() {
+        long s = 1_000_000_000L, now = 1000 * s, never = Long.MAX_VALUE;
+        assertEquals(TerrainTiles.Kids.ABSENT, TerrainTiles.kids(null, never, now), "у подробной детей нет");
+        assertEquals(TerrainTiles.Kids.READY, TerrainTiles.kids(kids(now - s), never, now));
+
+        TerrainTiles.Tile[] missing = kids(now - s);
+        missing[2] = null;
+        assertEquals(TerrainTiles.Kids.ABSENT, TerrainTiles.kids(missing, never, now), "ребёнка нет");
+        TerrainTiles.Tile[] failed = kids(now - s);
+        failed[1].columns = null;
+        assertEquals(TerrainTiles.Kids.ABSENT, TerrainTiles.kids(failed, never, now), "постройка не удалась");
+
+        TerrainTiles.Tile[] stale = kids(now - s);
+        stale[3].stale = true;
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(stale, never, now), "устарел по событию");
+        TerrainTiles.Tile[] building = kids(now - s);
+        building[0].buildingSince = now - s;
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(building, never, now), "строится");
+        TerrainTiles.Tile[] firstBuild = kids(now - s);
+        firstBuild[0].columns = null;
+        firstBuild[0].buildingSince = now - s;
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(firstBuild, never, now), "строится впервые — ждать, не читать второй раз");
+
+        // неполный ребёнок: свежий — годится (источник дал бы те же дыры), пора переспросить — сперва он
+        TerrainTiles.Tile[] partial = kids(now - s);
+        partial[2].columns = new TerrainTiles.Columns();
+        partial[2].columns.set(0, new TerrainSource.Column(64, MapColor.GRASS, 0));
+        assertEquals(TerrainTiles.Kids.READY, TerrainTiles.kids(partial, never, now));
+        partial[2].builtAt = now - 31 * s;
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(partial, never, now), "неполный через 30 с");
+        TerrainTiles.Tile[] empty = kids(now - 6 * s);
+        empty[1].columns = new TerrainTiles.Columns();
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(empty, never, now), "пустой через 5 с");
+        // полные — по часам источника
+        assertEquals(TerrainTiles.Kids.REFRESHING, TerrainTiles.kids(kids(now - 31 * s), 30 * s, now));
+    }
+
     /** Заранее — подробные плитки в квадрате вокруг игрока, ближние первыми (его плитка — первая). */
     @Test
     void prefetchAroundPlayerNearestFirst() {
@@ -111,10 +201,36 @@ class TerrainTilesTest {
         assertTrue(keys.stream().allMatch(k -> k.level() == 0 && Math.abs(k.tx() + 2) <= r && Math.abs(k.tz() - 10) <= r));
     }
 
-    /** Фоновая плитка возвращается в слой при любом исходе, и при Error: иначе слой навсегда ждал бы её задачу. */
-    @Test
-    void backgroundTileReturnsEvenOnError() {
-        TerrainTiles.Layer layer = new TerrainTiles.Layer("test", new TerrainSource() {
+    private interface HeightAt {
+        int at(int x, int z);
+    }
+
+    /** Плитка с данными во всех клетках, высота по месту; {@link Integer#MIN_VALUE} — дыра. */
+    private static TerrainTiles.Columns filled(HeightAt h) {
+        TerrainTiles.Columns c = new TerrainTiles.Columns();
+        int n = TerrainTiles.SIZE;
+        for (int z = 0; z < n; z++) {
+            for (int x = 0; x < n; x++) {
+                int y = h.at(x, z);
+                if (y != Integer.MIN_VALUE) c.set(z * n + x, new TerrainSource.Column(y, MapColor.GRASS, 0));
+            }
+        }
+        return c;
+    }
+
+    /** Четыре полных готовых ребёнка плитки (1, 0, 0), построенные в {@code builtAt}. */
+    private static TerrainTiles.Tile[] kids(long builtAt) {
+        TerrainTiles.Tile[] kids = new TerrainTiles.Tile[4];
+        for (int q = 0; q < 4; q++) {
+            kids[q] = new TerrainTiles.Tile(new TerrainTiles.Key(0, q & 1, q >> 1));
+            kids[q].columns = filled((x, z) -> 64);
+            kids[q].builtAt = builtAt;
+        }
+        return kids;
+    }
+
+    private static TerrainTiles.Layer layer() {
+        return new TerrainTiles.Layer("test", new TerrainSource() {
             @Override
             public boolean offThread() {
                 return true;
@@ -131,6 +247,12 @@ class TerrainTilesTest {
                 return null;
             }
         });
+    }
+
+    /** Фоновая плитка возвращается в слой при любом исходе, и при Error: иначе слой навсегда ждал бы её задачу. */
+    @Test
+    void backgroundTileReturnsEvenOnError() {
+        TerrainTiles.Layer layer = layer();
         boolean[] closed = {false};
         TerrainSource.Reader reader = new TerrainSource.Reader() {
             @Nullable
@@ -149,8 +271,7 @@ class TerrainTilesTest {
         TerrainTiles.Built b = layer.done.poll();
         assertEquals(new TerrainTiles.Key(2, 3, -1), b.key());
         assertEquals(7, b.generation());
-        assertEquals(0, b.pixels().length, "без пикселей — спросят снова");
-        assertNull(b.columns());
+        assertNull(b.columns(), "без колонок — спросят снова");
         assertTrue(closed[0], "читатель закрыт");
     }
 }
