@@ -6,6 +6,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 
@@ -18,13 +19,8 @@ import java.util.UUID;
  * под горизонт; в пике разгон до 3 блоков/тик.
  */
 public class DroneEntity extends StrikeProjectile {
-    public static final double CRUISE_SPEED = 2.1;
-    /** Высота крейсера над стартом и целью. */
-    public static final double CRUISE_HEIGHT = 45;
-
-    private static final LaunchProfile LAUNCH = new LaunchProfile(8, 38, 0.075, 8, -9);
-    /** Предельная скорость разворота по курсу, °/тик: на маршруте и в пике, на наборе высоты. */
-    private static final double TURN_RATE = 3.0, CLIMB_TURN_RATE = 1.6;
+    /** Паспорт: скорости, пределы поворота на маршруте и наборе, высота крейсера над стартом и целью, старт. */
+    private static final WeaponSpec.Airframe AIR = WeaponSpec.DRONE.airframe();
     /** Ближе этого (по горизонтали) пике из-за круга разворота не отменяем: малый промах добирает взрыватель. */
     private static final double REATTACK_MIN = 16;
 
@@ -40,37 +36,6 @@ public class DroneEntity extends StrikeProjectile {
         return WeaponType.DRONE;
     }
 
-    @Override
-    protected double noseLength() {
-        return 1.83;
-    }
-
-    @Override
-    public double cruiseSpeed() {
-        return CRUISE_SPEED;
-    }
-
-    @Override
-    protected int defaultLifetime() {
-        return 900;
-    }
-
-    @Override
-    protected float maxHealth() {
-        return 12;
-    }
-
-    @Override
-    protected double clearance() {
-        return 20;
-    }
-
-    @Override
-    @Nullable
-    protected LaunchProfile launchProfile() {
-        return LAUNCH;
-    }
-
     /** Уже в воздухе (заход издалека, тесты): высота полёта = max(старт, цель+30, рельеф+20). */
     @Override
     public void launch(Vec3 pos, Target target, Vec3 targetPoint, @Nullable UUID owner) {
@@ -78,7 +43,7 @@ public class DroneEntity extends StrikeProjectile {
         y = Math.max(y, surfaceY(level(), pos.x, pos.z) + 20);
         Vec3 start = new Vec3(pos.x, y, pos.z);
         super.launch(start, target, targetPoint, owner);
-        speed = CRUISE_SPEED;
+        speed = AIR.cruiseSpeed();
         cruiseAlt = y;
         altFilter = y;
         setPhase(FlightPhase.CRUISE);
@@ -88,7 +53,7 @@ public class DroneEntity extends StrikeProjectile {
     public void placeOnLauncher(Vec3 rail, float yaw, float elevation, int readyTicks, int hiddenTicks, Target target, Vec3 targetPoint,
                                 @Nullable UUID owner) {
         super.placeOnLauncher(rail, yaw, elevation, readyTicks, hiddenTicks, target, targetPoint, owner);
-        cruiseAlt = Math.max(rail.y, targetPoint.y) + CRUISE_HEIGHT;
+        cruiseAlt = Math.max(rail.y, targetPoint.y) + AIR.cruiseHeight();
     }
 
     @Override
@@ -103,7 +68,7 @@ public class DroneEntity extends StrikeProjectile {
 
         if (ph == FlightPhase.CLIMB) {
             // винт на полных оборотах, скорость после ускорителя спадает к крейсерской
-            speed += (CRUISE_SPEED - speed) * 0.04;
+            speed += (AIR.cruiseSpeed() - speed) * 0.04;
             double terrain = terrainAhead(level, 15, 30, 45);
             holdAltitude(Math.max(cruiseAlt, terrain + 18), 0.10, 1.0, 0.12);
             if (phaseAge() > 60 && Math.abs(cruiseAlt - getY()) < 6) setPhase(FlightPhase.CRUISE);
@@ -111,7 +76,7 @@ public class DroneEntity extends StrikeProjectile {
         // цель внутри круга разворота (промах в пике, цель ушла вбок, точка в воздухе, где цель пропала): до неё не
         // довернуть, и шахед кружил бы вокруг неё до конца срока жизни. Пике отменяется: шахед уходит прямо, набирая
         // высоту, пока цель не выйдет из круга, и заходит снова — как крылатая ракета
-        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? CLIMB_TURN_RATE : TURN_RATE);
+        boolean outOfTurn = n.horizontal() > REATTACK_MIN && insideTurn(nav, ph == FlightPhase.CLIMB ? AIR.climbTurnRate() : AIR.turnRate());
         if (outOfTurn && flightPhase() == FlightPhase.TERMINAL) setPhase(FlightPhase.CRUISE);
         // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
         if ((flightPhase() == FlightPhase.CRUISE || flightPhase() == FlightPhase.CLIMB) && onFinalLeg() && b.pitch() >= 18 && !outOfTurn) {
@@ -119,25 +84,24 @@ public class DroneEntity extends StrikeProjectile {
         }
 
         if (flightPhase() == FlightPhase.CRUISE) {
-            speed += (CRUISE_SPEED - speed) * 0.05;
+            speed += (AIR.cruiseSpeed() - speed) * 0.05;
             double terrain = terrainAhead(level, 15, 30, 45);
             double desired = Math.max(Math.max(terrain + 18, cruiseAlt), aim.y + 30);
             holdAltitude(desired, 0.12, 1.2, 0.15);
         } else if (flightPhase() == FlightPhase.TERMINAL) {
             flight.arcPitch(b.pitch(), speed, b.distance(), 4.0, 0.25);
-            speed = Math.min(3.0, speed + 0.04);
+            speed = Math.min(AIR.diveSpeed(), speed + 0.04);
         }
         // над самой целью курс не трогаем; на старте разворот мягче (скорость ещё мала)
         if (outOfTurn) {
             flight.settleYaw(ph == FlightPhase.CLIMB ? 0.12 : 0.3);
         } else if (n.horizontal() > 8) {
-            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.08, CLIMB_TURN_RATE, 0.12);
-            else flight.steerYaw(n.yaw(), 0.15, TURN_RATE, 0.3);
+            if (ph == FlightPhase.CLIMB) flight.steerYaw(n.yaw(), 0.08, AIR.climbTurnRate(), 0.12);
+            else flight.steerYaw(n.yaw(), 0.15, AIR.turnRate(), 0.3);
         }
 
-        advance(level, aim, 4.3);
+        advance(level, aim, AIR.reachPad());
     }
-
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {

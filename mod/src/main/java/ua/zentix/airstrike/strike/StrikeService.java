@@ -17,8 +17,6 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.BomberEntity;
-import ua.zentix.airstrike.entity.CruiseMissileEntity;
-import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
@@ -69,7 +67,8 @@ public final class StrikeService {
                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (shooter != null && shooter.level() != level) shooter = null;
-        if (weapon == WeaponType.NUKE) {
+        WeaponSpec spec = weapon.spec();
+        if (spec.launch() == WeaponSpec.Launch.ICBM) {
             // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
             boolean ok = target instanceof Target.Ground
                     ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter)
@@ -77,52 +76,38 @@ public final class StrikeService {
             return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
         }
         Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
-        StrikeProjectile p = switch (weapon) {
-            case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
+        StrikeProjectile p = switch (spec.launch()) {
+            case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
             case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter);
-            default -> launchBomber(level, target, point, approachYaw, owner);
+            case BOMBER -> launchBomber(level, target, point, approachYaw, owner);
+            case ICBM -> throw new IllegalStateException("МБР пускает NuclearStrikes");
         };
         if (p == null) return Result.FAILED;
         p.setNuclear(warhead);
-        if (siren && AirstrikeConfig.SERVER.siren.get()) p.armSiren(sirenLead(weapon));
+        if (siren && AirstrikeConfig.SERVER.siren.get()) p.armSiren(spec.sirenLead());
         int eta = p.etaTicks();
         if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
         return new Result(true, eta);
     }
 
-    /** За сколько до удара цель «видит» снаряд и включается тревога: шахед 25 с, ракета 15 с, РСЗО 8 с, B-2 и барраж 20 с. */
-    private static int sirenLead(WeaponType weapon) {
-        return switch (weapon) {
-            case DRONE -> 500;
-            case MISSILE -> 300;
-            case ROCKET -> 160;
-            case LOITER -> 400;
-            default -> 400;
-        };
-    }
-
-    private static double cruiseSpeed(WeaponType weapon) {
-        return weapon == WeaponType.DRONE ? DroneEntity.CRUISE_SPEED : CruiseMissileEntity.CRUISE_SPEED;
-    }
-
-    /** Длина маршрута на заданное время полёта. */
+    /** Длина маршрута на время полёта из настроек (паспорт). */
     private static double pathLength(WeaponType weapon) {
-        int seconds = weapon == WeaponType.DRONE ? AirstrikeConfig.SERVER.droneFlightTime.get() : AirstrikeConfig.SERVER.missileFlightTime.get();
-        return cruiseSpeed(weapon) * seconds * 20;
+        return weapon.spec().airframe().cruiseSpeed() * weapon.spec().route().seconds() * 20;
     }
 
-    /** Последний прямой участок перед целью: шахед 300 блоков, ракета 500 — и всегда из-за спины стреляющего. */
+    /** Последний прямой участок перед целью (паспорт: шахед 300 блоков, ракета 500) — и всегда из-за спины стреляющего. */
     private static double entryDistance(WeaponType weapon, Vec3 point, @Nullable ServerPlayer shooter) {
-        double base = weapon == WeaponType.DRONE ? 300 : 500;
+        double base = weapon.spec().route().finalLeg();
         if (shooter == null) return base;
         double dx = point.x - shooter.getX(), dz = point.z - shooter.getZ();
         return Math.max(base, Math.sqrt(dx * dx + dz * dz) + 150);
     }
 
+    /** Снаряд оружия, ещё не в мире. */
     @Nullable
     private static StrikeProjectile create(ServerLevel level, WeaponType weapon) {
-        return weapon == WeaponType.DRONE ? ModEntities.DRONE.get().create(level) : ModEntities.CRUISE_MISSILE.get().create(level);
+        return weapon.spec().airframe().entity().get().create(level);
     }
 
     /** Шахед или ракета: с пусковой рядом со стреляющим, иначе издалека. Снаряд ещё не добавлен в мир. */
@@ -154,7 +139,7 @@ public final class StrikeService {
         }
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
-        Slot slot = Slot.reserve(level, launcher, 12, 24);
+        Slot slot = Slot.reserve(level, launcher);
         p.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point, shooter.getUUID());
         p.setRoute(Route.plan(slot.rail(), point, dir, length, entry, side));
         return p;
@@ -168,9 +153,9 @@ public final class StrikeService {
      * @param hidden сколько тиков снаряд скрыт в пакете, пока тот поднимается
      */
     private record Slot(Vec3 rail, int ready, int hidden) {
-        static Slot reserve(ServerLevel level, LauncherEntity launcher, int minReady, int busyTicks) {
+        static Slot reserve(ServerLevel level, LauncherEntity launcher) {
             long now = level.getGameTime();
-            int[] slot = launcher.reserve(now, minReady, busyTicks);
+            int[] slot = launcher.reserve(now, launcher.rack().minReady(), launcher.rack().busyTicks());
             return new Slot(launcher.railPoint(slot[0]), slot[1], launcher.raisingTicks(now));
         }
     }
@@ -200,21 +185,16 @@ public final class StrikeService {
         if (p == null) return null;
         // короткий полёт из настроек: старт не ближе точки входа, иначе первым делом разворот назад
         length = Math.max(length, entry);
-        Vec3 start = point.subtract(dir.scale(length)).add(0, weapon == WeaponType.DRONE ? DroneEntity.CRUISE_HEIGHT : 12, 0);
+        Vec3 start = point.subtract(dir.scale(length)).add(0, weapon.spec().airframe().cruiseHeight(), 0);
         p.launch(start, target, point, owner);
         p.setRoute(Route.plan(start, point, dir, length, entry, side));
         startVirtual(level, p);
         return p;
     }
 
-    /** Труба пакета РСЗО после пуска перезаряжается минуту. */
-    public static final int ROCKET_RELOAD = 1200;
-    /** Пусковая РСЗО без стреляющего рядом стоит за столько блоков от цели (по направлению захода). */
-    private static final double ROCKET_STANDOFF = 600;
-
     /**
      * РСЗО: снаряд в трубе пакета у стреляющего (пакет доворачивается на цель, если молчит), иначе с позиции
-     * за {@link #ROCKET_STANDOFF} блоков. Неуправляемый: своё рассеивание ~1% дальности, за целью не следит.
+     * за вынос пусковой из паспорта ({@link WeaponSpec.Route#standoff}). Неуправляемый: своё рассеивание ~1% дальности, за целью не следит.
      */
     @Nullable
     private static StrikeProjectile launchRocket(ServerLevel level, Target target, Vec3 point, float yaw,
@@ -224,20 +204,17 @@ public final class StrikeService {
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
             LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.ROCKET, point);
             if (launcher != null) {
-                Slot slot = Slot.reserve(level, launcher, 10, ROCKET_RELOAD);
+                Slot slot = Slot.reserve(level, launcher);
                 r.placeInTube(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target,
                         scatter(level, slot.rail(), point), shooter.getUUID());
                 return r;
             }
         }
-        Vec3 from = point.subtract(Local.horizontal(yaw).scale(ROCKET_STANDOFF));
+        Vec3 from = point.subtract(Local.horizontal(yaw).scale(WeaponType.ROCKET.spec().route().standoff()));
         r.launchFrom(from, target, scatter(level, from, point), owner);
         startVirtual(level, r);
         return r;
     }
-
-    /** Пусковая барражирующих боеприпасов без стреляющего рядом стоит за столько блоков от цели. */
-    private static final double LOITER_STANDOFF = 500;
 
     /**
      * Барражирующий боеприпас: с катапульты у стреляющего (доворачивается на цель, если молчит) прямо к цели,
@@ -251,14 +228,15 @@ public final class StrikeService {
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
             LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.LOITER, point);
             if (launcher != null) {
-                Slot slot = Slot.reserve(level, launcher, 12, 24);
+                Slot slot = Slot.reserve(level, launcher);
                 e.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point,
                         shooter.getUUID());
                 e.setRoute(null);
                 return e;
             }
         }
-        Vec3 from = point.subtract(Local.horizontal(yaw).scale(LOITER_STANDOFF)).add(0, LoiterEntity.LOITER_HEIGHT, 0);
+        WeaponSpec spec = WeaponType.LOITER.spec();
+        Vec3 from = point.subtract(Local.horizontal(yaw).scale(spec.route().standoff())).add(0, spec.airframe().cruiseHeight(), 0);
         e.launch(from, target, point, owner);
         e.setRoute(null);
         startVirtual(level, e);
@@ -289,7 +267,8 @@ public final class StrikeService {
         BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
-        double length = BomberEntity.CRUISE_SPEED * AirstrikeConfig.SERVER.bomberFlightTime.get() * 20 + BomberEntity.RELEASE_DISTANCE;
+        WeaponSpec spec = WeaponType.BUNKER.spec();
+        double length = spec.airframe().cruiseSpeed() * spec.route().seconds() * 20 + spec.route().finalLeg();
         e.launch(surface.subtract(Local.horizontal(yaw).scale(length)), surface, goal, owner);
         e.setRoute(null);
         startVirtual(level, e);
@@ -335,6 +314,6 @@ public final class StrikeService {
         player.displayClientMessage(Component.translatable("airstrike.launched." + weapon.getSerializedName(), (etaTicks + 19) / 20,
                         Component.keybind(Airstrike.CAMERA_KEY))
                 .withStyle(ChatFormatting.RED), true);
-        player.playNotifySound(SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.MASTER, 1.0f, weapon == WeaponType.DRONE ? 0.6f : 0.5f);
+        player.playNotifySound(SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.MASTER, 1.0f, weapon.spec().confirmPitch());
     }
 }

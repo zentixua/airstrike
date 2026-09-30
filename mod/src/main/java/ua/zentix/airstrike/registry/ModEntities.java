@@ -71,16 +71,9 @@ public final class ModEntities {
 
     private ModEntities() {}
 
-    /** Сущность, которой летит оружие (у B-2 — сам бомбардировщик до сброса). */
+    /** Сущность, которой летит оружие (у B-2 — сам бомбардировщик до сброса): из паспорта оружия. */
     public static EntityType<? extends StrikeProjectile> of(WeaponType weapon) {
-        return switch (weapon) {
-            case DRONE -> DRONE.get();
-            case MISSILE -> CRUISE_MISSILE.get();
-            case BUNKER -> BOMBER.get();
-            case NUKE -> ICBM.get();
-            case ROCKET -> ROCKET.get();
-            case LOITER -> LOITER.get();
-        };
+        return weapon.spec().airframe().entity().get();
     }
 
     /**

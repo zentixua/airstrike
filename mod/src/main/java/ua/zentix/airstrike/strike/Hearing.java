@@ -1,13 +1,12 @@
 package ua.zentix.airstrike.strike;
 
-import ua.zentix.airstrike.entity.BomberEntity;
-import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 /**
  * Докуда слышно снаряд. Срезы громкости слоёв его звука (клиент, {@code EngineSound}: дальше среза громкость плавно
  * гаснет за {@link #FADE} блоков) и то, кому сервер шлёт путь снаряда, которого нет у клиента ({@link FlightSounds}), —
- * одни и те же числа, поэтому они здесь, а не в клиентском коде.
+ * одни и те же числа, поэтому они здесь, а не в клиентском коде. Какой срез у снаряда в какой фазе — в паспорте
+ * ({@link WeaponSpec.Airframe#audible}).
  */
 public final class Hearing {
     /** За срезом громкость спадает до нуля на этом расстоянии. */
@@ -42,18 +41,9 @@ public final class Hearing {
 
     private Hearing() {}
 
-    /** Дальше этого расстояния снаряд сейчас не слышно ни в одном слое (0 — не слышно вовсе). */
+    /** Дальше этого расстояния снаряд сейчас не слышно ни в одном слое (0 — не слышно вовсе): по паспорту его аппарата. */
     public static double range(StrikeProjectile p) {
-        FlightPhase ph = p.flightPhase();
-        boolean launching = ph.onLauncher() || ph.boosterLit();
-        double cutoff = switch (p.weapon()) {
-            case DRONE -> launching ? BOOSTER : ENGINE;
-            case MISSILE -> launching ? BOOSTER : WHISTLE;
-            case BUNKER -> p instanceof BomberEntity ? JET : ENGINE;
-            case NUKE -> ph.boosterLit() ? ICBM : 0;
-            case ROCKET -> launching ? ROCKET_LAUNCH : ROCKET_AIR;
-            case LOITER -> ph.onLauncher() ? ENGINE : LOITER_DIVE;
-        };
+        double cutoff = p.airframe().audible().applyAsDouble(p.flightPhase());
         return cutoff > 0 ? cutoff + FADE : 0;
     }
 }

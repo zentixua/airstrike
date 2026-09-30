@@ -40,6 +40,7 @@ import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.StrikeService;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
@@ -160,14 +161,25 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     public abstract WeaponType weapon();
 
+    /** Паспорт летательного аппарата этого снаряда (у бомбы B-2 — {@link WeaponSpec#payload}). */
+    public WeaponSpec.Airframe airframe() {
+        return weapon().spec().airframe();
+    }
+
     /** Полудлина корпуса: от центра до носа, блоков. */
-    protected abstract double noseLength();
+    protected final double noseLength() {
+        return airframe().noseLength();
+    }
 
     /** Маршевая скорость, блоков/тик: по ней считается время подлёта. */
-    public abstract double cruiseSpeed();
+    public final double cruiseSpeed() {
+        return airframe().cruiseSpeed();
+    }
 
     /** Срок жизни, если он не задан планом полёта. */
-    protected abstract int defaultLifetime();
+    protected final int defaultLifetime() {
+        return airframe().lifetime();
+    }
 
     /** Через сколько тиков взрываться (или исчезать) в любом случае. */
     protected final int maxAge() {
@@ -189,8 +201,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /** Прочность: сколько урона выдержит, прежде чем его собьют. 0 — сбить нельзя. */
-    protected float maxHealth() {
-        return 0;
+    protected final float maxHealth() {
+        return airframe().health();
     }
 
     /** Держать ли тикеты чанков по курсу (бомбардировщику после сброса не нужно: улетает и исчезает). */
@@ -204,25 +216,14 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /** Наименьший запас высоты над рельефом, с которым снаряд возвращается в мир из виртуального полёта. */
-    protected double clearance() {
-        return 12;
+    protected final double clearance() {
+        return airframe().clearance();
     }
 
-    /**
-     * Стартовый участок с пусковой: сколько гореть на направляющей, сколько работает ускоритель, как разгоняет
-     * и куда к концу разгона опускает нос. Null — снаряд с пусковой не стартует.
-     *
-     * @param ignitionTicks ускоритель горит, снаряд ещё стоит
-     * @param boostTicks    работа ускорителя после схода
-     * @param boostAccel    прирост скорости за тик, блоков/тик²
-     * @param railTicks     первые тики разгона нос держит угол направляющей
-     * @param boostEndPitch тангаж к концу разгона (° , < 0 — нос вверх)
-     */
-    protected record LaunchProfile(int ignitionTicks, int boostTicks, double boostAccel, int railTicks, float boostEndPitch) {}
-
+    /** Стартовый участок с пусковой; null — снаряд с пусковой не стартует. */
     @Nullable
-    protected LaunchProfile launchProfile() {
-        return null;
+    protected final WeaponSpec.LaunchProfile launchProfile() {
+        return airframe().launchProfile();
     }
 
     /** Сколько стоять на пусковой до поджига (задаёт {@link #placeOnLauncher}). */
@@ -232,7 +233,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Сколько тиков ещё до схода с пусковой и выхода на маршевую скорость (для времени подлёта). */
     protected int launchTicksLeft() {
-        LaunchProfile lp = launchProfile();
+        WeaponSpec.LaunchProfile lp = launchProfile();
         if (lp == null) return 0;
         return switch (flightPhase()) {
             case READY -> Math.max(0, readyTicks - phaseAge()) + lp.ignitionTicks() + lp.boostTicks();
@@ -633,8 +634,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Сколько последнего пути до цели снаряд летит в мире, а не вне его ({@link FlightTickets#approach}): столько
      * его подлёт видно игроку у цели, если это не дальше прорисовки. 0 — только район цели.
      */
-    protected double visibleLeg() {
-        return 0;
+    protected final double visibleLeg() {
+        return airframe().visibleLeg();
     }
 
     /** С какого расстояния до цели её район грузится заранее: {@link #PRELOAD_TICKS} полёта, не меньше 400 блоков. */
@@ -689,7 +690,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * ({@link #separate}) и фаза {@link FlightPhase#CLIMB}. Возвращает true, пока снаряд на стартовом участке.
      */
     protected boolean launchTick(ServerLevel level) {
-        LaunchProfile lp = launchProfile();
+        WeaponSpec.LaunchProfile lp = launchProfile();
         FlightPhase ph = flightPhase();
         if (lp == null || !ph.launching()) return false;
         switch (ph) {

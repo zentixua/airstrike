@@ -83,14 +83,22 @@ public class LauncherEntity extends Entity {
         return (int) Math.max(0, deployedAt() + DEPLOY_TICKS - now);
     }
 
-    /** Угол возвышения направляющей: шахеды 15°, катапульта барражирующих 20°, ракеты 40°, трубы РСЗО 50°. */
+    /**
+     * Пакет пусковой оружия (паспорт, {@code WeaponSpec#rack}); у оружия без пусковой у игрока (B-2, МБР — такой
+     * пусковой не бывает, разве что из чужого сохранения) — пакет шахедов.
+     */
+    public static LauncherRack rack(WeaponType weapon) {
+        LauncherRack rack = weapon.spec().rack();
+        return rack != null ? rack : LauncherRack.DRONE;
+    }
+
+    public LauncherRack rack() {
+        return rack(weapon());
+    }
+
+    /** Угол возвышения направляющей (паспорт): шахеды 15°, катапульта барражирующих 20°, ракеты 40°, трубы РСЗО 50°. */
     public static float elevation(WeaponType weapon) {
-        return switch (weapon) {
-            case MISSILE -> 40f;
-            case ROCKET -> 50f;
-            case LOITER -> 20f;
-            default -> 15f;
-        };
+        return rack(weapon).elevation();
     }
 
     public float elevation() {
@@ -105,11 +113,7 @@ public class LauncherEntity extends Entity {
     }
 
     public static int slots(WeaponType weapon) {
-        return switch (weapon) {
-            case MISSILE -> 2;
-            case ROCKET -> ROCKET_COLUMNS * ROCKET_ROWS;
-            default -> 5;
-        };
+        return rack(weapon).slots();
     }
 
     /** Пакет РСЗО: 4 ряда по 10 труб, шаг труб и длина трубы (блоков). */
@@ -123,33 +127,8 @@ public class LauncherEntity extends Entity {
     public Vec3 railPoint(int slot) {
         float yaw = getYRot();
         Vec3 pivot = Local.at(position(), yaw, 0, 0, PIVOT_UP, -PIVOT_BACK);
-        double left, up, forward;
-        switch (weapon()) {
-            case MISSILE -> {
-                left = slot == 0 ? 0.62 : -0.62;
-                up = 0.64;
-                forward = 3.3;
-            }
-            case ROCKET -> {
-                // очередь идёт по рядам слева направо, начиная с верхнего — как на «Граде»
-                int col = slot % ROCKET_COLUMNS, row = ROCKET_ROWS - 1 - slot / ROCKET_COLUMNS;
-                left = (ROCKET_COLUMNS - 1) * TUBE_PITCH / 2 - col * TUBE_PITCH;
-                up = 0.3 + row * TUBE_PITCH;
-                forward = TUBE_LENGTH / 2;
-            }
-            case LOITER -> {
-                left = loiterLeft(slot);
-                up = loiterUp(slot);
-                forward = 1.35;
-            }
-            default -> {
-                // шахеды одна над другой: центр ячейки, 2 м от оси (хвост с ускорителем — у задней стенки)
-                left = 0;
-                up = 0.45 + 0.8 * slot;
-                forward = 2.0;
-            }
-        }
-        return Local.at(pivot, yaw, -elevation(), left, up, forward);
+        double[] at = rack().slotOffset(slot);
+        return Local.at(pivot, yaw, -elevation(), at[0], at[1], at[2]);
     }
 
     /** Направляющие барражирующих: три внизу, два сверху (0.83 м между осями). */
@@ -163,7 +142,7 @@ public class LauncherEntity extends Entity {
 
     /** Наименьший интервал между пусками с одной установки, тиков: РСЗО — полсекунды, остальные — 0.8 с. */
     public static int spacing(WeaponType weapon) {
-        return weapon == WeaponType.ROCKET ? 8 : 16;
+        return rack(weapon).spacing();
     }
 
     /**
