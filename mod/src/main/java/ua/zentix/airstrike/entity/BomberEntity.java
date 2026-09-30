@@ -12,6 +12,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.guidance.Bearing;
 import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
@@ -146,12 +147,12 @@ public class BomberEntity extends StrikeProjectile {
                 release(level, drop);
             }
         }
-        if (age >= maxAge() && !released) {
-            Airstrike.LOG.warn("B-2 {} не сбросил бомбу за срок жизни и убран у {} (точка {}, вне мира {})", getUUID(),
+        if (exhausted() && !released) {
+            Airstrike.LOG.warn("B-2 {} не сбросил бомбу, кончился запас хода, убран у {} (точка {}, вне мира {})", getUUID(),
                     blockPosition(), BlockPos.containing(aim), isVirtual());
         }
         // вне мира после сброса лететь незачем: уход никто не увидит
-        if (age >= maxAge() || released && (phaseAge() >= EGRESS_TICKS || isVirtual())) {
+        if (exhausted() || released && (phaseAge() >= EGRESS_TICKS || isVirtual())) {
             discard();
             return;
         }

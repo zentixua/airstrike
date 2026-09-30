@@ -9,6 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.guidance.FlightController;
+import ua.zentix.airstrike.guidance.Mission;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Nbt;
@@ -45,6 +46,8 @@ public class RocketEntity extends StrikeProjectile {
      * (StrikeProjectile.advanceVirtual ждёт в 48 блоках плюс шаг).
      */
     private static final double HOLD_OFF = 64;
+    /** Запас хода сверх дуги траектории, тиков на маршевой скорости: снаряд, не попавший в точку, летит дальше вниз. */
+    private static final int OVERSHOOT_TICKS = 200;
 
     /** Точка падения — куда навели при пуске. */
     @Nullable
@@ -200,8 +203,8 @@ public class RocketEntity extends StrikeProjectile {
      * {@link #HOLD_OFF} блоков от цели замедляются плавно (темп = оставшееся до них время / STRETCH_TICKS, меняется
      * не быстрее {@link #RATE_SLEW} за тик): снаряд подходит к этой черте всё медленнее и не замирает; район готов —
      * темп так же плавно возвращается к 1. Вне мира
-     * снаряда никто не видит, только слышит путь издалека. Растянутое время — ожидание района: в срок жизни не входит,
-     * предел общий с ожиданием у цели.
+     * снаряда никто не видит, только слышит путь издалека. Растянутое время — ожидание района: снаряд идёт медленнее и
+     * хода на него не тратит, предел ожидания общий с ожиданием у цели.
      */
     private double stretch(ServerLevel level) {
         double want = aimAreaReady(level, impactAt) ? 1 : Math.min(1, Math.max(0, holdAt - t) / STRETCH_TICKS);
@@ -257,6 +260,22 @@ public class RocketEntity extends StrikeProjectile {
         restart(from, to, Ballistics.ticksFor(from, to, elevation, MIN_FLIGHT));
     }
 
+    /**
+     * Длина дуги текущей траектории от времени {@code from} до точки падения, блоков: столько снаряд пролетит по тикам
+     * (дробное начало — полёт вне мира растягивается).
+     */
+    private double arcFrom(double from) {
+        int first = (int) Math.ceil(from);
+        double arc = first < flightTicks ? at(first).subtract(at(from)).length() : 0;
+        for (int k = first; k < flightTicks; k++) arc += at(k + 1).subtract(at(k)).length();
+        return arc;
+    }
+
+    /** Запас хода на остаток траектории от {@link #t}: дуга до точки падения и перелёт {@link #OVERSHOOT_TICKS}. */
+    private Mission missionLeft() {
+        return Mission.of(arcFrom(t) + OVERSHOOT_TICKS * cruiseSpeed());
+    }
+
     /** Сколько тиков осталось лететь по текущей траектории — для пересчёта с текущего места (не меньше 8). */
     private int ticksLeft() {
         return Math.max(8, (int) Math.ceil(flightTicks - t));
@@ -267,7 +286,7 @@ public class RocketEntity extends StrikeProjectile {
         t = 0;
         flightTicks = Math.max(1, ticks);
         v0 = Ballistics.launchVelocity(from, to, flightTicks);
-        lifetime = age + flightTicks + 200;
+        setMission(missionLeft());
         holdAt = holdPoint(to);
     }
 
@@ -283,6 +302,9 @@ public class RocketEntity extends StrikeProjectile {
             flightTicks = tag.getInt("flight_ticks");
             t = tag.contains("t") ? tag.getDouble("t") : tag.getInt("n");
             if (impactAt != null) holdAt = holdPoint(impactAt);
+            // 2.3.x (срок жизни, ключа mission нет): на дальней дуге снаряд быстрее маршевой, и остаток срока × маршевая
+            // кончался на полпути (5 км: ≈ 3600 блоков хода на ≈ 5700 блоков дуги) — запас по самой дуге
+            if (!tag.contains("mission")) setMission(missionLeft());
         }
     }
 

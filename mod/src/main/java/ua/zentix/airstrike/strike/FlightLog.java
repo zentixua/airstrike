@@ -23,10 +23,10 @@ public final class FlightLog {
         LOST_GONE(Level.INFO, "потеряли цель (пропала), идут в её последнюю точку"),
         /** Цель ушла дальше запаса погони. */
         LOST_OUT_OF_REACH(Level.INFO, "потеряли цель (ушла дальше запаса погони), идут в её последнюю точку"),
-        /** Срок жизни вышел в мире: самоликвидация. */
-        EXPIRED(Level.INFO, "не долетели за срок жизни и самоликвидировались, цель"),
-        /** Срок жизни вышел вне мира: снаряд убран без взрыва. */
-        EXPIRED_VIRTUAL(Level.WARN, "не долетели за срок жизни вне мира и убраны, цель");
+        /** Запас хода кончился в мире: самоликвидация. */
+        EXPIRED(Level.INFO, "не долетели (кончился запас хода) и самоликвидировались, цель"),
+        /** Запас хода кончился вне мира: снаряд убран без взрыва. */
+        EXPIRED_VIRTUAL(Level.WARN, "не долетели (кончился запас хода) вне мира и убраны, цель");
 
         private final Level level;
         private final String text;
@@ -42,7 +42,7 @@ public final class FlightLog {
 
     private record Key(String weapon, Event event, boolean targetLost) {}
 
-    /** Сколько снарядов в группе, самый долгий оставшийся срок (секунд) и рамка их точек. */
+    /** Сколько снарядов в группе, самый большой оставшийся запас хода (секунд полёта на маршевой) и рамка их точек. */
     private static final class Group {
         int count;
         int seconds;
@@ -76,7 +76,7 @@ public final class FlightLog {
      * @param weapon     вид снаряда (id типа сущности)
      * @param point      последняя точка цели (для потери) или точка, куда он шёл
      * @param targetLost цель к этому времени потеряна
-     * @param seconds    сколько ему осталось лететь, секунд (для потери цели; иначе 0)
+     * @param seconds    на сколько секунд полёта на маршевой скорости ему осталось запаса хода (для потери цели; иначе 0)
      */
     public void note(String weapon, Event event, BlockPos point, boolean targetLost, int seconds) {
         groups.computeIfAbsent(new Key(weapon, event, targetLost), k -> new Group()).add(point, seconds);
@@ -87,7 +87,7 @@ public final class FlightLog {
         List<Line> lines = new ArrayList<>(groups.size());
         groups.forEach((k, g) -> {
             String tail = switch (k.event) {
-                case LOST_GONE, LOST_OUT_OF_REACH -> ", срок ≤ " + g.seconds + " с";
+                case LOST_GONE, LOST_OUT_OF_REACH -> ", запас хода ≤ " + g.seconds + " с";
                 case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (потеряна)" : "";
             };
             lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",

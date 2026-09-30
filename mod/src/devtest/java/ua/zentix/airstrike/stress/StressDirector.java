@@ -1095,7 +1095,7 @@ public final class StressDirector {
 
     private void lost(Gone g, String note) {
         Watch w = g.w;
-        // конец — по самому объекту: снаряд, убранный вне мира (срок жизни), не шлёт события ухода, и «ушёл»
+        // конец — по самому объекту: снаряд, убранный вне мира (кончился запас хода), не шлёт события ухода, и «ушёл»
         // тогда говорит о его последнем уходе из мира в полёт вне мира, раньше конца
         log("lost %s %s у %d %d %d, замечен последний раз у %d %d %d (цель %d %d %d, вне мира %b, конец: %s фаза %s возраст %d, взрыва нет %d тиков%s; "
                         + "последний уход из мира: %s)",
@@ -1512,22 +1512,19 @@ public final class StressDirector {
         return byType.toString();
     }
 
-    /** Срок жизни снаряда вышел (ожидание района цели в него не входит), а он всё ещё летит. */
+    /** Запас хода снаряда кончился больше секунды полёта назад, а он всё ещё летит. */
     private static boolean overdue(StrikeProjectile p) {
-        CompoundTag tag = new CompoundTag();
-        p.saveWithoutId(tag);
-        int lifetime = tag.getInt("lifetime");
-        return lifetime > 0 && p.age() - tag.getInt("area_wait") > lifetime + 20;
+        return p.rangeLeft() < -20 * p.cruiseSpeed();
     }
 
-    /** Состояние снаряда: срок жизни, погоня и ожидание района цели — из NBT, этого снаружи больше нигде не видно. */
+    /** Состояние снаряда: запас хода, погоня и ожидание района цели — из NBT, этого снаружи больше нигде не видно. */
     private void describe(String what, UUID id, Watch w) {
         StrikeProjectile p = w.ref;
         CompoundTag tag = new CompoundTag();
         p.saveWithoutId(tag);
-        log("%s %s %s у %s фаза %s (%d тиков) возраст %d срок %d погоня %.0f ждал района %d цель %s у %s вне мира %b убран %s тикает %b",
+        log("%s %s %s у %s фаза %s (%d тиков) возраст %d запас %.0f погоня %.0f ждал района %d цель %s у %s вне мира %b убран %s тикает %b",
                 what, w.type, id, p.blockPosition().toShortString(), p.flightPhase().getSerializedName(), tag.getInt("phase_age"),
-                p.age(), tag.getInt("lifetime"), tag.getCompound("tracker").getDouble("chased"), tag.getInt("area_wait"), p.target(),
+                p.age(), p.rangeLeft(), tag.getCompound("tracker").getDouble("chased"), tag.getInt("area_wait"), p.target(),
                 BlockPos.containing(p.aimPoint()).toShortString(), p.isVirtual(), p.getRemovalReason(),
                 p.level() instanceof ServerLevel l && l.isPositionEntityTicking(p.blockPosition()));
     }
