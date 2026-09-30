@@ -84,7 +84,7 @@ timeout -k 60 20m ./gradlew scenarioJar -q --console=plain; echo "код $?"; ls
 W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 echo "начало: $(date -u +%T) UTC" && timeout -k 60 45m tools/laptop_job.sh nuke-gate4 -- python3 tools/prod_client.py commands --no-copy --dir "/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" --world greenfield-gate --seconds 2400 \
   --prop "airstrike.commands=hud:off;gamemode spectator;tp @s -863.5 130 -496.4 -90 -10;wait:600;airstrike nuke at 136.5 69 -495.5 15 air;wait:nuke;wait:10;shot:flash;wait:40;shot:fireball;wait:30;shot:wave;tp @s -3803 120 -499 -90 -5;wait:260;shot:far_dh;tp @s -3803 120 -499 -90 -30;wait:1020;shot:glow70;tp @s -863.5 130 -496.4 -90 -10;wait:4380;time set 6000;shot:close_ruins;tp @s 456.5 220 -495.5 90 -30;wait:160;shot:ruins_e;tp @s 136.5 220 -175.5 180 -30;wait:160;shot:ruins_s;tp @s -183.5 220 -495.5 -90 -30;wait:160;shot:ruins_w;tp @s 136.5 220 -815.5 0 -30;wait:160;shot:ruins_n;wait:200"; code=$?; echo "код $code, конец: $(date -u +%T) UTC"; \
-[ "$code" = 124 ] && systemctl --user stop 'airstrike-job-nuke-gate4-*'; true
+case "$code" in 124|137) systemctl --user stop 'airstrike-job-nuke-gate4-*';; esac; true
 ```
 Перед `close_ruins` — `time set 6000` (полдень: кадры руин — днём, при любом времени мира); команда ждёт свои 40 тиков,
 пауза перед ней на 20 меньше — кадр на 1 с позже, чем в gate3. Время кадров — от прихода к клиенту пакета подрыва (`wait:nuke`: прошлый прогон считал от пуска, и вспышка вышла
@@ -204,7 +204,7 @@ ls "$FILM/mods"/airstrike-*.jar; grep -E '^renderDistance:' "$FILM/options.txt";
 - `POI data mismatch` — **0**; logscan — без новых ошибок;
 - строки `Работа мода за 30 с` есть (раз в 30 с, пока полосы мода работают) — для сведения, не критерий;
 - только для сведения: руины после волны у загруженных после подрыва — по плану на месте и по готовому плану (среднее
-  и наибольшее, тики), «зона за волной: готово X из Y», «окна с диска», число потоков и снижений;
+  и наибольшее, тики), «зона за волной: готово X из Y», «окна с диска» (отдельно — сколько соседей нет на диске целыми), число потоков и снижений;
 - flash: кадр залит светом; fireball: шар; wave: стена пыли и огня идёт к камере, город за ней уже в руинах,
   перед ней ещё целый;
 - far_dh (для сведения): LOD Distant Horizons дальних колец меняется, только когда их чанки загружены за волной, — написать,

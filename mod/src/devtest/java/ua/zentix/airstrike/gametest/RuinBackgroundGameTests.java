@@ -443,7 +443,7 @@ public final class RuinBackgroundGameTests {
                     plan[0] = RuinPlanner.planWithWindow(level, d, chunk, window);
                     h.assertTrue(plan[0].changedBlocks() > 0, "постройка не разрушена: сравнивать нечего");
                     h.assertFalse(plan[0].needsNeighbours(level, chunk), "плану X нужны соседи — случай не тот");
-                    h.assertFalse(plan[0].waitsNeighbours(level, chunk), "очередь ждала бы соседей X");
+                    h.assertTrue(plan[0].waitsNeighbours(level, chunk) == 0, "очередь ждала бы соседей X");
                     before[0] = blocks(chunk);
                     h.assertTrue(plan[0].apply(level, chunk, new ua.zentix.airstrike.nuclear.world.ColumnScar.Budget(false)), "план X устарел");
                     for (int dx = -1; dx <= 1; dx++) {
@@ -473,6 +473,35 @@ public final class RuinBackgroundGameTests {
                 .thenWaitUntil(() -> h.assertFalse(!sable() || ua.zentix.airstrike.compat.SubLevels.near(level, craftCentre(h), 8).isEmpty(), "аппарат собирается"))
                 .thenExecute(() -> craftChunkWaits(h, x, plan[0]))
                 .thenSucceed();
+    }
+
+    /**
+     * Блок-сущность не из ванили в середине чанка (подставка Create): её {@code onRemove} ходит цепочкой через соседние
+     * блоки (лента Create — до 20 блоков), поэтому подмена ждёт соседей радиуса {@code RuinPlanner.REACH}, а не 1 и не 0,
+     * как у сундука там же. Оба блока — в огненном шаре: план их снимает.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_be_reach", skyAccess = true)
+    public static void moddedBlockEntityWaitsReach(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.afterTest(h, () -> NuclearStrikes.clear(level));
+        Block depot = BuiltInRegistries.BLOCK.get(ResourceLocation.fromNamespaceAndPath("create", "depot"));
+        h.assertTrue(depot != Blocks.AIR, "нет create:depot — Create не загружен");
+        BlockPos centre = h.absolutePos(NuclearGameTests.CENTER);
+        ChunkPos c = new ChunkPos(centre);
+        BlockPos spot = new BlockPos(c.getMinBlockX() + 8, centre.getY() + 1, c.getMinBlockZ() + 8);
+        LevelChunk chunk = level.getChunkAt(spot);
+        Detonation d = NuclearGameTests.detonation(h, NuclearGameTests.CENTER, 0, 15, 0.05f);
+        level.setBlock(spot, depot.defaultBlockState(), 3);
+        h.assertTrue(level.getBlockState(spot).hasBlockEntity(), "у подставки нет блок-сущности");
+        RuinPlan withDepot = RuinPlanner.planWithWindow(level, d, chunk, new int[2]);
+        h.assertTrue(withDepot.neighbourRadius(level, chunk) == RuinPlanner.REACH,
+                "подставка Create в середине чанка: подмена ждёт соседей радиуса " + withDepot.neighbourRadius(level, chunk) + ", а не " + RuinPlanner.REACH);
+        level.setBlock(spot, Blocks.CHEST.defaultBlockState(), 3);
+        RuinPlan withChest = RuinPlanner.planWithWindow(level, d, chunk, new int[2]);
+        h.assertTrue(withChest.neighbourRadius(level, chunk) == 0, "сундук в середине чанка: подмена ждёт соседей радиуса " + withChest.neighbourRadius(level, chunk));
+        h.assertTrue(withChest.apply(level, chunk, new ua.zentix.airstrike.nuclear.world.ColumnScar.Budget(false)), "план устарел");
+        h.assertFalse(level.getBlockState(spot).is(Blocks.CHEST), "сундук не снят: случай не тот");
+        h.succeed();
     }
 
     private static boolean sable() {

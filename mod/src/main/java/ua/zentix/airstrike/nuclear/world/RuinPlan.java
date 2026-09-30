@@ -238,24 +238,39 @@ public final class RuinPlan {
     }
 
     /**
-     * Подмене нужны загруженные соседи в радиусе 1 (иначе ей хватает самого чанка): она читает соседний чанк, только
-     * когда меняет через мир блок-сущность или место POI ({@code SLOW}) у края чанка — {@code onRemove} сундука,
-     * компаратора, сети Create смотрит соседние блоки ({@link #EDGE} от края), — или когда у чанка аппараты Sable
-     * ({@code SableTerrain}: на каждое место он читает 6 соседей). Остальное пишется в свои секции; тики жидкости
-     * в незагруженных соседях не ставятся ({@link #write}).
+     * Какие соседи нужны подмене загруженными (0 — хватает самого чанка). Радиус 1 — когда она меняет через мир
+     * блок-сущность или место POI ({@code SLOW}) у края чанка: {@code onRemove} сундука, компаратора смотрит соседние
+     * блоки ({@link #EDGE} от края), — или когда у чанка аппараты Sable ({@code SableTerrain}: на каждое место он
+     * читает 6 соседей). Радиус {@link RuinPlanner#REACH} — когда через мир снимается блок-сущность не из ванили, где
+     * бы она ни стояла: её {@code onRemove} ходит цепочкой (лента Create снимает сегменты до 20 блоков через
+     * {@code getBlockState}, сеть валов обходится через {@code getBlockEntity}) и грузила бы соседа синхронно.
+     * Остальное пишется в свои секции; тики жидкости в незагруженных соседях не ставятся ({@link #write}).
      */
-    public boolean needsNeighbours(ServerLevel level, LevelChunk chunk) {
+    public int neighbourRadius(ServerLevel level, LevelChunk chunk) {
+        int r = 0;
+        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ(), minY = chunk.getMinBuildHeight();
         for (int c : cells) {
             if ((c & SLOW) == 0) continue;
+            BlockState old = chunk.getBlockState(at(m, c, x0, z0, minY));
+            if (old.hasBlockEntity() && !"minecraft".equals(net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(old.getBlock()).getNamespace())) {
+                return RuinPlanner.REACH;
+            }
             int x = c & 15, z = (c >> 4) & 15;
-            if (x < EDGE || x > 15 - EDGE || z < EDGE || z > 15 - EDGE) return true;
+            if (x < EDGE || x > 15 - EDGE || z < EDGE || z > 15 - EDGE) r = 1;
         }
-        return SableTerrain.watched(level, chunk);
+        return r > 0 || SableTerrain.watched(level, chunk) ? 1 : 0;
     }
 
-    /** Подмене нужны соседи радиуса 1 ({@link #needsNeighbours}), а они не загружены: очередь руин ждёт их. */
-    public boolean waitsNeighbours(ServerLevel level, LevelChunk chunk) {
-        return !NuclearTickets.neighbourhoodLoaded(level, chunk.getPos(), 1) && needsNeighbours(level, chunk);
+    /** Подмене нужны соседи ({@link #neighbourRadius}). */
+    public boolean needsNeighbours(ServerLevel level, LevelChunk chunk) {
+        return neighbourRadius(level, chunk) > 0;
+    }
+
+    /** Подмене нужны соседи ({@link #neighbourRadius}), а они не загружены: радиус, которого очередь руин ждёт, иначе 0. */
+    public int waitsNeighbours(ServerLevel level, LevelChunk chunk) {
+        int r = neighbourRadius(level, chunk);
+        return r > 0 && !NuclearTickets.neighbourhoodLoaded(level, chunk.getPos(), r) ? r : 0;
     }
 
     /** Сколько блоков от края чанка {@code onRemove} блок-сущности может читать соседей (компаратор — через блок). */
@@ -500,7 +515,8 @@ public final class RuinPlan {
         // FLUID_TICKS за секунду: подмена не будит соседей, без тика вода стояла бы стеной
         for (int k = 0; k < fluidTicks.length; k++) {
             m.set(fluidTicks[k]);
-            // сосед не загружен (готовому плану соседи не нужны): его вода получит тик от своих же обновлений
+            // сосед не загружен (готовому плану соседи не нужны): тика нет — загрузка чанка его не ставит, и вода там
+            // стоит, пока её не тронет обновление блока рядом
             if (!Terrain.ready(level, m)) continue;
             BlockState st = level.getBlockState(m);
             if (st.getFluidState().isEmpty()) continue;

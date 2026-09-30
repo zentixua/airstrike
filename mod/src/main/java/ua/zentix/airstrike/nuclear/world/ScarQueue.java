@@ -93,10 +93,14 @@ public final class ScarQueue {
     private static final int EARLY = 1;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 10;
-    /** Итог единицы {@link #ruin}: руины стоят; ещё единица (посчитан разлом соседа, план устарел); ждать соседей радиуса 1. */
+    /** Итог единицы {@link #ruin}: руины стоят; ещё единица (посчитан разлом соседа, план устарел); ждать соседей ({@link #waitRadius}). */
     private static final int RUINED = 0, AGAIN = 1, WAIT = 2;
+
+    /** Радиус соседей, которых ждёт подмена, вернувшая {@code WAIT} ({@link RuinPlan#waitsNeighbours}). */
+    private int waitRadius;
+
     /**
-     * Готовые планы, чья подмена ждёт соседей радиуса 1 ({@link RuinPlan#needsNeighbours}): план, собранный из фоновой
+     * Готовые планы, чья подмена ждёт соседей ({@link RuinPlan#neighbourRadius}): план, собранный из фоновой
      * задачи, не теряется, пока соседи грузятся.
      */
     private final Long2ObjectOpenHashMap<Parked> parked = new Long2ObjectOpenHashMap<>();
@@ -577,7 +581,7 @@ public final class ScarQueue {
         long key = chunk.getPos().toLong();
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
         RuinPlan plan = plans != null ? plans.get(key) : null;
-        if (plan != null && plan.waitsNeighbours(level, chunk)) return WAIT;
+        if (plan != null && (waitRadius = plan.waitsNeighbours(level, chunk)) > 0) return WAIT;
         if (plan != null) plans.remove(key);
         long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[STATS]);
         if (seen) st[2] = Math.max(st[2], lag);
@@ -614,13 +618,13 @@ public final class ScarQueue {
         Parked kept = parked.get(key);
         if (kept != null && kept.detonation() == d.id()) {
             plan = kept.plan();
-            if (plan.waitsNeighbours(level, chunk)) return WAIT;
+            if ((waitRadius = plan.waitsNeighbours(level, chunk)) > 0) return WAIT;
             parked.remove(key);
         } else if (background(ctx, key)) {
             // фоновый план готов ({@link #work} берёт его, только когда готов): достроить и поставить
             plan = ctx.collect(level, chunk);
             if (plan == null) return AGAIN;
-            if (plan.waitsNeighbours(level, chunk)) {
+            if ((waitRadius = plan.waitsNeighbours(level, chunk)) > 0) {
                 parked.put(key, new Parked(d.id(), plan));
                 return WAIT;
             }
@@ -689,7 +693,8 @@ public final class ScarQueue {
     /**
      * Первый в очереди чанк (его срок пришёл): руины одной единицей работы. Что нужно от соседей, зависит от плана:
      * готовому (заранее или из фоновой задачи) — ничего, кроме радиуса 1 у подмены через мир у края и у аппаратов
-     * ({@link RuinPlan#needsNeighbours}); плану в фоне — снимки окна 5×5 ({@link RuinPlanner#REACH}): соседи в памяти —
+     * и радиуса {@link RuinPlanner#REACH} у блок-сущностей не из ванили ({@link RuinPlan#neighbourRadius}); плану
+     * в фоне — снимки окна 5×5 ({@link RuinPlanner#REACH}): соседи в памяти —
      * снимком, остальные — с диска ({@link RuinContext#requestWindow}), не загружаясь в мир; соседа нет на диске целым
      * (не сгенерирован) — в окне он сплошной массив, как край мира; плану в потоке сервера (разрушения выключены или
      * фоновый план упал) — загруженное окно, соседи грузятся тикетом.
@@ -757,7 +762,7 @@ public final class ScarQueue {
                 return;
             }
             if (r == WAIT) {
-                waitNeighbours(level, job, now, 1);
+                waitNeighbours(level, job, now, waitRadius);
                 return;
             }
         } finally {
