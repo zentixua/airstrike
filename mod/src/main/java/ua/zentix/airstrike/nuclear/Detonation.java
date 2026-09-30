@@ -10,6 +10,7 @@ import ua.zentix.airstrike.nuclear.model.ArrivalTable;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.FalloutModel;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
+import ua.zentix.airstrike.nuclear.model.FrontProfile;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
 import ua.zentix.airstrike.util.StreamCodecs;
 import ua.zentix.airstrike.util.Terrain;
@@ -109,14 +110,19 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         return Caches.arrival(this);
     }
 
+    /** Приход фронта в игре (кэш на подрыв): у эпицентра как у модели, дальше медленнее ({@link FrontProfile}). */
+    public FrontProfile front() {
+        return Caches.front(this);
+    }
+
     /** Через сколько тиков после подрыва фронт дойдёт до точки на расстоянии {@code blocks}. */
     public double arrivalTicks(double blocks) {
-        return arrival().arrivalSeconds(metres(blocks)) * 20 * scale;
+        return front().arrivalTicks(blocks);
     }
 
     /** Радиус фронта (блоки) через {@code ticks} после подрыва. */
     public double frontRadius(double ticks) {
-        return blocks(arrival().radiusAt(ticks / (20.0 * scale)));
+        return front().radiusAt(ticks);
     }
 
     /** Докуда что-то вообще меняется (блоки): стёкла или ожоги 1-й степени — что дальше. */
@@ -184,10 +190,16 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     /** Кэши, которые дорого считать на каждый вызов (таблица прихода, наибольший радиус). */
     private static final class Caches {
         private static final java.util.Map<Detonation, ArrivalTable> ARRIVAL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+        private static final java.util.Map<Detonation, FrontProfile> FRONT = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
         private static final java.util.Map<Detonation, Double> RADIUS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
         static ArrivalTable arrival(Detonation d) {
             return ARRIVAL.computeIfAbsent(d, x -> ArrivalTable.of(x.yieldKt, Math.max(1000, x.metres(x.radiusMax()) * 1.5)));
+        }
+
+        static FrontProfile front(Detonation d) {
+            // до двух радиусов шара — как у модели: вспышка и шар не меняются
+            return FRONT.computeIfAbsent(d, x -> FrontProfile.of(x.arrival(), x.scale, 2 * x.fireballRadius(), x.radiusMax() * 1.5));
         }
 
         static double radiusMax(Detonation d) {

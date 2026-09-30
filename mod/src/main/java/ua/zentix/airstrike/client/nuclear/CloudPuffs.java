@@ -375,9 +375,9 @@ public final class CloudPuffs {
         return 1 / (1 + x * x);
     }
 
-    /** Когда фронт дошёл до радиуса {@code groundM} по земле, с. */
+    /** Когда фронт дошёл до радиуса {@code groundM} по земле, с модели (фронт — как у сервера, {@link Detonation#arrivalTicks}). */
     private double timeTo(double groundM, double hob) {
-        return d.arrival().arrivalSeconds(Math.hypot(groundM, hob));
+        return d.arrivalTicks(d.blocks(Math.hypot(groundM, hob))) / (20 * d.scale());
     }
 
     static double smooth(double e0, double e1, double x) {
