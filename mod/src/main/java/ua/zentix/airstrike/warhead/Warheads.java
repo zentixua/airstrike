@@ -138,7 +138,8 @@ public final class Warheads {
      * попаданий ({@link StagedExplosion}) под общим бюджетом тика, только по готовым чанкам.
      *
      * @param area  район таймлайна, который накрывает и этот взрыв, или null — взрыв возьмёт свой
-     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара)
+     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара); блоки снимаются, когда взрывы того же
+     *              района и тика выбрали лучами и побили сущности ({@link BlastArea#peersPicking})
      */
     static StagedExplosion explode(ServerLevel level, @Nullable BlastArea area, List<StagedExplosion> after, Vec3 at, float power,
                                    boolean fire, @Nullable Entity direct, @Nullable Entity owner, @Nullable ExplosionDamageCalculator calculator) {
@@ -146,6 +147,7 @@ public final class Warheads {
         boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
         BlastArea held = area != null ? area.retain() : BlastArea.hold(level, at, reach(power));
         StagedExplosion job = new StagedExplosion(held, after, at, power, burns, blocks, direct, owner, calculator);
+        held.queued(job, level.getGameTime());
         StrikeWorld.get(level).impacts().add(level, job);
         return job;
     }

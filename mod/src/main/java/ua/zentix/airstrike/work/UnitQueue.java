@@ -17,7 +17,8 @@ import java.util.List;
  * <p>
  * Работа, чей район ещё не готов ({@link Job#ready}), пропускается, пока не станет готов, а следующие за ней идут;
  * ждёт не дольше {@link #GIVE_UP_TICKS}. Работа, которая ждёт другую ({@link Job#blocked}: огненный шар и стёкла удара
- * — его главный взрыв целиком), тоже пропускается. Не сохраняется (как таймлайны взрывов); при остановке сервера
+ * — его главный взрыв целиком; блоки взрыва — лучи других взрывов того же тика), тоже пропускается; спрашивается перед
+ * каждой единицей. Не сохраняется (как таймлайны взрывов); при остановке сервера
  * доделывается ({@link #finish(ServerLevel)}).
  */
 public final class UnitQueue {
@@ -61,7 +62,7 @@ public final class UnitQueue {
         }
     }
 
-    private enum Outcome { SKIPPED, OUT_OF_TIME, MORE, DONE }
+    private enum Outcome { SKIPPED, OUT_OF_TIME, MORE, PAUSED, DONE }
 
     /** Не начатые работы. */
     private final List<Entry> heads = new ArrayList<>();
@@ -120,7 +121,7 @@ public final class UnitQueue {
             Outcome o = run(level, now, e, clock, Integer.MAX_VALUE);
             // срок вышел посреди работы: следующие ждут её конца
             if (o == Outcome.OUT_OF_TIME || o == Outcome.MORE) return;
-            if (o == Outcome.SKIPPED) {
+            if (o == Outcome.SKIPPED || o == Outcome.PAUSED) {
                 i++;
                 continue;
             }
@@ -139,6 +140,8 @@ public final class UnitQueue {
                 return Outcome.DONE;
             }
             for (int n = 0; n < max; n++) {
+                // между единицами работа могла дойти до того, что ждёт другую: следующие идут
+                if (n > 0 && e.job.blocked()) return Outcome.PAUSED;
                 int kind = e.job.unitKind();
                 if (!clock.canStart(kind)) return n == 0 ? Outcome.OUT_OF_TIME : Outcome.MORE;
                 long c0 = clock.begin();

@@ -487,6 +487,86 @@ public final class WorkGameTests {
     }
 
     /**
+     * Аппарат в охвате лучей, но дальше 1,3 силы (в воздухе луч уходит до ~1,73 силы): взрыв — ванильным путём, иначе
+     * миксин Sable не толкнул бы аппарат и не снял бы его блоки. На старом охвате (сила × 1,3 + 1) падает.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "work_craft_reach", skyAccess = true)
+    public static void craftInRayReachGoesVanilla(GameTestHelper h) {
+        if (!ModList.get().isLoaded("sable")) {
+            h.succeed();
+            return;
+        }
+        ServerLevel level = h.getLevel();
+        float power = 8;
+        // ближний край аппарата — в 12 блоках: дальше 1,3 × 8 + 1, ближе, чем луч силы до 10,4 уходит по воздуху (~13,9)
+        BlockPos base = CENTER.offset(12, 0, -1);
+        for (int x = 0; x < 3; x++) for (int y = 0; y < 3; y++) for (int z = 0; z < 3; z++) h.setBlock(base.offset(x, y, z), Blocks.OAK_PLANKS);
+        BlockPos a = h.absolutePos(base), b = h.absolutePos(base.offset(2, 2, 2));
+        level.getServer().getCommands().performPrefixedCommand(level.getServer().createCommandSourceStack().withLevel(level).withPermission(4)
+                .withSuppressedOutput(), String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d",
+                a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ()));
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
+        int[] waited = {0};
+        boolean[] fired = {false};
+        h.onEachTick(() -> {
+            if (fired[0] || waited[0]++ != 5) return;
+            h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
+            h.assertTrue(at.distanceTo(Vec3.atLowerCornerOf(a)) > power * 1.3 + 1, "аппарат ближе старого охвата — проверять нечего");
+            ExplosionTimer.forget();
+            Warheads.testRays(level, at, power, null, 1L, false, 128);
+            fired[0] = true;
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(fired[0] && StrikeWorld.get(level).impacts().isEmpty(), "взрыв не кончился");
+            h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.MIXIN_MARKS,
+                    "аппарат в охвате лучей, а путь свой: отметок " + ExplosionTimer.lastMarks());
+        });
+    }
+
+    /**
+     * Три подрыва бетонобойной бомбы (один район, один тик) на считающих часах: все выбирают лучами по нетронутой породе —
+     * ни один блок, выбранный прошлым подрывом, не снят к {@code ExplosionEvent.Detonate} следующего. Иначе лучи
+     * следующего шли то по снятому, то нет (и песок, начавший падать, разлетался от следующего подрыва), и воронка
+     * зависела от скорости сервера: на CI — от 5,3 до 8,6 тыс. блоков.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "work_area_order", skyAccess = true)
+    public static void areaExplosionsPickTogether(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        for (BlockPos p : BlockPos.betweenClosed(CENTER.offset(-10, -10, -10), CENTER.offset(10, 0, 10))) {
+            level.setBlock(h.absolutePos(p), Blocks.STONE.defaultBlockState(), 2);
+        }
+        useCounting(h, WorkClock.counting(MS));
+        Vec3 charge = Vec3.atCenterOf(h.absolutePos(CENTER.offset(0, -5, 0)));
+        List<Blast> blasts = recordBlasts(h, 48);
+        List<String> early = new ArrayList<>();
+        long[] first = {-1}, last = {-1};
+        Consumer<ExplosionEvent.Detonate> check = e -> {
+            // после записи взрывов (LOWEST): последний в списке — этот подрыв
+            if (e.getLevel() != level || e.getExplosion().radius() < 12 || e.getExplosion().center().distanceTo(charge) > 8) return;
+            if (first[0] < 0) first[0] = level.getGameTime();
+            last[0] = level.getGameTime();
+            for (int i = 0; i < blasts.size() - 1; i++) {
+                if (blasts.get(i).radius() < 12) continue;
+                for (BlockPos p : blasts.get(i).blocks()) {
+                    if (gone(level.getBlockState(p))) {
+                        early.add("к подрыву " + (i + 2) + " снят " + p + " прошлого");
+                        return;
+                    }
+                }
+            }
+        };
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, check);
+        StrikeGameTests.afterTest(h, () -> NeoForge.EVENT_BUS.unregister(check));
+        Warheads.bunker(level, charge, charge.add(0, 14, 0), null, null);
+        h.succeedWhen(() -> {
+            long mains = blasts.stream().filter(b -> b.radius() >= 12).count();
+            h.assertTrue(mains == 3 && StrikeWorld.get(level).impacts().isEmpty(), "подрывов " + mains);
+            h.assertTrue(last[0] > first[0], "все подрывы в одном тике — порядок не проверен");
+            h.assertTrue(early.isEmpty(), early.toString());
+        });
+    }
+
+    /**
      * Работа, чей район не готов, ждёт и ничего не читает (иначе чанк загрузился бы в тике), а следующие за ней идут:
      * подрыв вдали от загруженного мира и подрыв на площадке — второй в тике удара, первый — когда район догружен.
      */

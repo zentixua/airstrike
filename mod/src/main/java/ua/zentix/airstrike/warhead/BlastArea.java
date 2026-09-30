@@ -11,7 +11,9 @@ import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -51,6 +53,14 @@ final class BlastArea {
     private final int[] done = new int[ImpactCost.Kind.values().length];
     private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
     private final StagedExplosion.RayCounts rayCounts = new StagedExplosion.RayCounts();
+    /**
+     * Взрывы района, ещё не кончившиеся, с тиком постановки. Взрывы одного тика (подрывы бетонобойной бомбы) выбирают
+     * лучами и бьют сущности по нетронутому, а блоки снимают, когда все они это сделали ({@link #peersPicking}), —
+     * иначе лучи следующего шли то по снятому, то нет, и воронка зависела бы от того, сколько успевает поток сервера.
+     */
+    private final List<Queued> explosions = new ArrayList<>();
+
+    private record Queued(StagedExplosion explosion, long tick) {}
 
     private BlastArea(Vec3 centre, double reach) {
         this.centre = centre;
@@ -70,6 +80,26 @@ final class BlastArea {
         StrikeWorld.get(level).areas().hold(level, area.area());
         CraterFalls.get(level).open(level, area.key, centre, reach);
         return area;
+    }
+
+    /** Взрыв района поставлен в очередь в тике {@code tick}. */
+    void queued(StagedExplosion e, long tick) {
+        explosions.removeIf(q -> q.explosion().done());
+        explosions.add(new Queued(e, tick));
+    }
+
+    /**
+     * Взрыв того же тика, что и {@code e}, ещё выбирает лучами или бьёт сущности: блоки {@code e} ждут. Взрыв, который
+     * сам ждёт другие целиком (огненный шар и вторичные — главный), не в счёт: он и должен идти по снятому.
+     */
+    boolean peersPicking(StagedExplosion e) {
+        long tick = Long.MIN_VALUE;
+        for (Queued q : explosions) if (q.explosion() == e) tick = q.tick();
+        for (Queued q : explosions) {
+            StagedExplosion p = q.explosion();
+            if (p != e && q.tick() == tick && p.picking() && !p.waiting()) return true;
+        }
+        return false;
     }
 
     /** Ещё один держатель (единица работы, которая может кончиться позже взявшего): отпустить — своим {@link #release}. */

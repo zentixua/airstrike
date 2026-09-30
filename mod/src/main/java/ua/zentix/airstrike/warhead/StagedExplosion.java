@@ -214,9 +214,19 @@ final class StagedExplosion implements UnitQueue.Job {
         return area.ready(level);
     }
 
+    /** Ещё выбирает лучами или бьёт сущности (блоки не снимает). */
+    boolean picking() {
+        return !done && phase.ordinal() < Phase.BLOCKS.ordinal();
+    }
+
+    /** Ждёт взрывы {@code after} целиком. */
+    boolean waiting() {
+        return Warheads.pending(after);
+    }
+
     @Override
     public boolean blocked() {
-        return Warheads.pending(after);
+        return waiting() || phase == Phase.BLOCKS && area.peersPicking(this);
     }
 
     @Override
@@ -249,9 +259,8 @@ final class StagedExplosion implements UnitQueue.Job {
             case SPLIT -> more = split(level);
             case DAMAGE -> more = damage(level);
             default -> {
-                int from = next;
                 more = portion(level);
-                count = next - from;
+                count = blown;
             }
         }
         area.record(level, kind, System.nanoTime() - t0, count);
@@ -287,8 +296,9 @@ final class StagedExplosion implements UnitQueue.Job {
         boolean cancelled = EventHooks.onExplosionStart(level, e);
         time(ExplosionTimer.Stage.START, t);
         if (cancelled) return false;
-        // луч не уходит дальше 1,3 силы × 0,3/0,315: сила падает не меньше чем на 0,315 за шаг в 0,3 блока
-        double reach = power * 1.3 + 1;
+        // в воздухе калькулятор сопротивления не даёт, и сила луча падает только на 0,225 за шаг в 0,3 блока: луч
+        // уходит до 1,3 × 1,33 ≈ 1,73 силы — аппарат ищем в охвате района взрыва (2 силы + 1)
+        double reach = Warheads.reach(power);
         counts.craftQueries++;
         if (seed != null) level.random.setSeed(seed);
         if (forceVanilla || SubLevels.mayHaveCraftNear(level, at, reach)) return vanilla(level, e);
@@ -380,7 +390,8 @@ final class StagedExplosion implements UnitQueue.Job {
     /**
      * Разбор выбранного: воздух без огня отбрасывается первым (у силы 20 выбранных — десятки тысяч, в основном воздух),
      * плот аппарата — вопрос к Sable раз на чанк, мир — от центра наружу по заранее посчитанному расстоянию. Блоки
-     * аппаратов снимаются сразу.
+     * аппаратов снимаются сразу. Блок для сверки порции ({@link #portion}) — тот, что стоит на месте в момент разбора
+     * (после всех лучей), а не в момент луча.
      */
     private boolean split(ServerLevel level) {
         long t = System.nanoTime();
@@ -427,7 +438,8 @@ final class StagedExplosion implements UnitQueue.Job {
         int end = Math.min(entities.size(), nextEntity + ENTITIES_PER_UNIT);
         for (int i = nextEntity; i < end; i++) {
             Entity entity = entities.get(i);
-            if (!entity.isAlive() || entity.ignoreExplosion(e)) continue;
+            // между единицами сущность могла умереть или уйти в другое измерение
+            if (!entity.isAlive() || entity.level() != level || entity.ignoreExplosion(e)) continue;
             double d11 = Math.sqrt(entity.distanceToSqr(at)) / (double) f2;
             if (d11 > 1.0) continue;
             double d5 = entity.getX() - at.x;
@@ -447,6 +459,8 @@ final class StagedExplosion implements UnitQueue.Job {
                 e.getHitPlayers().put(player, push);
                 if (player instanceof ServerPlayer sp && sp.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(sp, push);
             }
+            // как у ванили (источник взрыва — null): игрок помнит толчок — урон от падения после него, булава
+            entity.onExplosionHit(null);
         }
         nextEntity = end;
         time(ExplosionTimer.Stage.DAMAGE, t);
@@ -468,6 +482,9 @@ final class StagedExplosion implements UnitQueue.Job {
                 e.getBlockInteraction(), e.getSmallExplosionParticles(), e.getLargeExplosionParticles(), e.getExplosionSound()));
     }
 
+    /** Сколько блоков сняла последняя порция (блок, сменившийся с лучей, не в счёт) — для «снято блоков». */
+    private int blown;
+
     /** Порция блоков мира. */
     private boolean portion(ServerLevel level) {
         int end = Math.min(toBlow.size(), next + PORTION);
@@ -477,6 +494,7 @@ final class StagedExplosion implements UnitQueue.Job {
             if (Terrain.ready(level, p) && level.getBlockState(p).is(blocksAtRays.get(i))) portion.add(p);
         }
         next = end;
+        blown = portion.size();
         blow(level, portion);
         return next < toBlow.size();
     }
