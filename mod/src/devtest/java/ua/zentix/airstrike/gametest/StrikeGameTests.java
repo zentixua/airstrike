@@ -121,18 +121,42 @@ public final class StrikeGameTests {
         });
     }
 
+    /** Край прорисовки 12 чанков: отсюда игрок у цели видит подлетающую ракету. */
+    private static final double VIEW_EDGE = 192;
+    /** Подлёт от края прорисовки должен длиться хотя бы столько тиков (2 с при 20 TPS): его должно быть видно. */
+    private static final int MIN_VISIBLE_APPROACH = 40;
+
+    /**
+     * 199 блоков до цели: бреющий полёт, горка и пикирование. Подлёт видно: от края прорисовки (192 блока) до удара —
+     * не меньше {@link #MIN_VISIBLE_APPROACH} тиков (на 11.5 блока/тик было 17), а время до удара, которое ракета
+     * называет на старте (HUD, сирена), сходится с настоящим.
+     */
     @GameTest(template = "runway", timeoutTicks = 300, batch = "missile", skyAccess = true)
     public static void missileStrikesAfterPopUp(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
-        // 199 блоков до цели: бреющий полёт, горка и пикирование
+        Vec3 aim = top(h, RUNWAY_TARGET);
         Vec3 start = Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 5, 1)));
-        missile.launch(start, new Target.Point(top(h, RUNWAY_TARGET)), top(h, RUNWAY_TARGET), null);
+        missile.launch(start, new Target.Point(aim), aim, null);
+        int eta = missile.etaTicks();
         level.addFreshEntity(missile);
+        int[] ticks = {0}, inView = {-1};
+        boolean[] poppedUp = {false};
+        h.onEachTick(() -> {
+            if (missile.isRemoved()) return;
+            ticks[0]++;
+            if (inView[0] < 0 && missile.position().distanceTo(aim) <= VIEW_EDGE) inView[0] = ticks[0];
+            if (missile.flightPhase() == FlightPhase.POP_UP) poppedUp[0] = true;
+        });
         h.succeedWhen(() -> {
             h.assertTrue(missile.isRemoved(), "ракета ещё летит: " + missile.position());
             h.assertTrue(missile.getRemovalReason() == net.minecraft.world.entity.Entity.RemovalReason.DISCARDED, "ракета пропала: " + missile.getRemovalReason());
             assertCrater(h, RUNWAY_TARGET);
+            h.assertTrue(poppedUp[0], "горки не было");
+            h.assertTrue(inView[0] > 0, "ракета не входила в прорисовку у цели");
+            int visible = ticks[0] - inView[0];
+            h.assertTrue(visible >= MIN_VISIBLE_APPROACH, "подлёт от края прорисовки — " + visible + " тиков, меньше " + MIN_VISIBLE_APPROACH);
+            h.assertTrue(Math.abs(ticks[0] - eta) <= eta / 4, "время до удара на старте " + eta + " тиков, на деле " + ticks[0]);
         });
     }
 
@@ -266,9 +290,10 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Крылатая ракета на атаке, у которой цель оказалась сбоку внутри круга разворота (на 12 блоках/тик и 3°/тик —
-     * радиус ~240 блоков): уходит прямо, пока цель не выйдет из круга, и заходит снова. Раньше она кружила вокруг
-     * цели, пока не выходил срок жизни (стенд нагрузки на ноутбуке: ракета убрана в 270 блоках от цели, на атаке).
+     * Крылатая ракета на атаке, у которой цель оказалась сбоку внутри круга разворота (на 4 блоках/тик и 3°/тик —
+     * радиус ~80 блоков, с запасом {@code TURN_MARGIN} ~90): уходит прямо, пока цель не выйдет из круга, и заходит
+     * снова. Раньше она кружила вокруг цели, пока не выходил срок жизни (стенд нагрузки на ноутбуке: ракета убрана
+     * в 270 блоках от цели, на атаке).
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "missile_reattack", skyAccess = true)
     public static void missileReattacksTargetInsideTurn(GameTestHelper h) {
