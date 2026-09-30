@@ -53,45 +53,49 @@ public final class DebrisSpawner {
         return burnStates;
     }
 
-    public static void drone(ServerLevel level, Vec3 at, GroundMaterial mat) {
-        spawn(level, at, mat.debris(), false, 1.5, 0.5, 1.6);
-        spawn(level, at, mat.debris(), false, 1.5, 0.5, 1.6);
-        spawnCharred(level, at, 1.5, 0.5, 1.6);
-        spawn(level, at, wreckDrone(), false, 1.5, 0.5, 1.6);
-        spawnBurning(level, at, 1.5, 0.5, 1.6);
+    /** Обломки шахеда; возвращает, сколько их. */
+    public static int drone(ServerLevel level, Vec3 at, GroundMaterial mat) {
+        return spawn(level, at, mat.debris(), false, 1.5, 0.5, 1.6)
+                + spawn(level, at, mat.debris(), false, 1.5, 0.5, 1.6)
+                + spawnCharred(level, at, 1.5, 0.5, 1.6)
+                + spawn(level, at, wreckDrone(), false, 1.5, 0.5, 1.6)
+                + spawnBurning(level, at, 1.5, 0.5, 1.6);
     }
 
-    public static void missile(ServerLevel level, Vec3 at, GroundMaterial mat) {
-        for (int i = 0; i < 4; i++) spawn(level, at, mat.debris(), false, 2.1, 0.6, 2.2);
-        spawnCharred(level, at, 2.1, 0.6, 2.2);
-        spawnCharred(level, at, 2.1, 0.6, 2.2);
-        spawn(level, at, wreckMissile(), false, 2.1, 0.6, 2.2);
-        spawnBurning(level, at, 2.1, 0.6, 2.2);
-        spawnBurning(level, at, 2.1, 0.6, 2.2);
+    /** Обломки ракеты; возвращает, сколько их. */
+    public static int missile(ServerLevel level, Vec3 at, GroundMaterial mat) {
+        int n = 0;
+        for (int i = 0; i < 4; i++) n += spawn(level, at, mat.debris(), false, 2.1, 0.6, 2.2);
+        return n + spawnCharred(level, at, 2.1, 0.6, 2.2)
+                + spawnCharred(level, at, 2.1, 0.6, 2.2)
+                + spawn(level, at, wreckMissile(), false, 2.1, 0.6, 2.2)
+                + spawnBurning(level, at, 2.1, 0.6, 2.2)
+                + spawnBurning(level, at, 2.1, 0.6, 2.2);
     }
 
-    /** Выброс газов из скважины бомбы: грунт и угли вверх почти отвесно. */
-    public static void vent(ServerLevel level, Vec3 at, GroundMaterial mat) {
-        spawn(level, at, mat.debris(), false, 0.45, 1.2, 2.7);
-        spawn(level, at, mat.debris(), false, 0.45, 1.2, 2.7);
-        spawnCharred(level, at, 0.45, 1.2, 2.7);
+    /** Выброс газов из скважины бомбы: грунт и угли вверх почти отвесно. Возвращает, сколько обломков. */
+    public static int vent(ServerLevel level, Vec3 at, GroundMaterial mat) {
+        return spawn(level, at, mat.debris(), false, 0.45, 1.2, 2.7)
+                + spawn(level, at, mat.debris(), false, 0.45, 1.2, 2.7)
+                + spawnCharred(level, at, 0.45, 1.2, 2.7);
     }
 
-    private static void spawn(ServerLevel level, Vec3 at, List<BlockState> states, boolean hot, double horizontal, double upMin, double upMax) {
+    private static int spawn(ServerLevel level, Vec3 at, List<BlockState> states, boolean hot, double horizontal, double upMin, double upMax) {
         for (BlockState s : states) {
             level.addFreshEntity(DebrisEntity.create(level, start(level.random, at), s, hot, true, velocity(level.random, horizontal, upMin, upMax)));
         }
+        return states.size();
     }
 
-    private static void spawnCharred(ServerLevel level, Vec3 at, double horizontal, double upMin, double upMax) {
-        spawn(level, at, embers(), true, horizontal, upMin, upMax);
-        spawn(level, at, ash(), false, horizontal, upMin, upMax);
+    private static int spawnCharred(ServerLevel level, Vec3 at, double horizontal, double upMin, double upMax) {
+        return spawn(level, at, embers(), true, horizontal, upMin, upMax) + spawn(level, at, ash(), false, horizontal, upMin, upMax);
     }
 
-    private static void spawnBurning(ServerLevel level, Vec3 at, double horizontal, double upMin, double upMax) {
+    private static int spawnBurning(ServerLevel level, Vec3 at, double horizontal, double upMin, double upMax) {
         for (BlockState s : burning()) {
             level.addFreshEntity(DebrisEntity.create(level, start(level.random, at), s, true, false, velocity(level.random, horizontal, upMin, upMax)));
         }
+        return burning().size();
     }
 
     private static Vec3 start(RandomSource r, Vec3 at) {

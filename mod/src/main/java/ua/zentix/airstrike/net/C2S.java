@@ -12,6 +12,7 @@ import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /** Клиент → сервер. Сервер ничему не верит на слово: руку, предмет, дальность и цель проверяет сам. */
@@ -24,18 +25,26 @@ public final class C2S {
      * Что клиент видит под прицелом бинокля. Движущуюся цель клиент и сервер видят чуть по-разному,
      * поэтому клиент говорит, что именно выбрано, а сервер находит это у себя и проверяет.
      *
-     * @param kind   0 — точка, 1 — сущность (entityId), 2 — аппарат Sable (plotPos — точка в плоте), 3 — место на земле
-     *               с карты (x и z; высота — оценка клиента, сервер берёт поверхность)
+     * @param kind       0 — точка, 1 — сущность (entityId), 2 — аппарат Sable (plotPos — точка в плоте), 3 — место на земле
+     *                   с карты (x и z; высоту земли там находит сервер)
+     * @param mapSurface у места с карты — верх земли там по карте клиента (первый воздух над землёй, как карта высот),
+     *                   если карта его знает: оценка сервера, пока чанк места у него не готов
      */
-    public record AimHint(int kind, Vec3 point, int entityId, Vec3 plotPos) {
+    public record AimHint(int kind, Vec3 point, int entityId, Vec3 plotPos, Optional<Integer> mapSurface) {
         public static final int POINT = 0, ENTITY = 1, AIRCRAFT = 2, GROUND = 3;
 
-        /** Место на земле, выбранное на карте: только x и z, высоту земли там находит сервер ({@code Target.Ground.at}). */
-        public static AimHint ground(double x, double z) {
-            return new AimHint(GROUND, new Vec3(x, 0, z), 0, Vec3.ZERO);
+        public AimHint(int kind, Vec3 point, int entityId, Vec3 plotPos) {
+            this(kind, point, entityId, plotPos, Optional.empty());
+        }
+
+        /** Место на земле, выбранное на карте: x и z и верх земли по карте клиента, если он там известен. */
+        public static AimHint ground(double x, double z, OptionalInt mapSurface) {
+            return new AimHint(GROUND, new Vec3(x, 0, z), 0, Vec3.ZERO,
+                    mapSurface.isPresent() ? Optional.of(mapSurface.getAsInt()) : Optional.empty());
         }
         public static final StreamCodec<ByteBuf, AimHint> CODEC = StreamCodec.composite(
-                ByteBufCodecs.VAR_INT, AimHint::kind, StreamCodecs.VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId, StreamCodecs.VEC3, AimHint::plotPos, AimHint::new);
+                ByteBufCodecs.VAR_INT, AimHint::kind, StreamCodecs.VEC3, AimHint::point, ByteBufCodecs.VAR_INT, AimHint::entityId,
+                StreamCodecs.VEC3, AimHint::plotPos, ByteBufCodecs.optional(ByteBufCodecs.VAR_INT), AimHint::mapSurface, AimHint::new);
     }
 
     /**

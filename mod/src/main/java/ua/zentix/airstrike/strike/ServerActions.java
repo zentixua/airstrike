@@ -253,13 +253,18 @@ public final class ServerActions {
                 }
             }
             case C2S.AimHint.GROUND -> {
-                Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z);
-                return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
-                        Mth.floor(h.point().x), Mth.floor(h.point().z)));
+                return groundAim(level, h);
             }
             default -> {}
         }
         return new Aim(new Target.Point(h.point()), h.point(), null);
+    }
+
+    /** Место с карты: x и z из подсказки, высота — {@link Target.Ground#at} (верх по карте клиента — оценка). */
+    public static Aim groundAim(ServerLevel level, C2S.AimHint h) {
+        Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z, h.mapSurface());
+        return new Aim(ground, ground.pos(), Component.translatable("airstrike.target.map_point",
+                Mth.floor(h.point().x), Mth.floor(h.point().z)));
     }
 
     /** Цель по режиму экрана пульта. */

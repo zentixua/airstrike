@@ -81,7 +81,7 @@ public final class StrikeService {
             case DRONE, MISSILE -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
             case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter);
-            default -> launchBomber(level, point, approachYaw, owner);
+            default -> launchBomber(level, target, point, approachYaw, owner);
         };
         if (p == null) return Result.FAILED;
         p.setNuclear(warhead);
@@ -275,13 +275,17 @@ public final class StrikeService {
      * Бомба бьёт по точке на поверхности над целью (с разбросом ±2.5 блока) и за движущейся целью не следит;
      * если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
      */
-    private static StrikeProjectile launchBomber(ServerLevel level, Vec3 point, float yaw, @Nullable UUID owner) {
+    private static StrikeProjectile launchBomber(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
         double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
         int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
-        // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней
-        double sy = Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
+        // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней;
+        // у неготового чанка место с карты знает её лучше генератора; к сбросу B-2 уточняет её по готовому чанку
+        double sy = target instanceof Target.Ground && !Terrain.ready(level, sx >> 4, sz >> 4)
+                ? point.y + 0.5
+                : Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz);
         Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
-        BlockPos goal = surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
+        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
+        BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
         double length = BomberEntity.CRUISE_SPEED * AirstrikeConfig.SERVER.bomberFlightTime.get() * 20 + BomberEntity.RELEASE_DISTANCE;

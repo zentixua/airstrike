@@ -401,6 +401,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
+     * Точка цели уточнилась (та же цель): трекер держит её неподвижной точкой, прицел для HUD, сирены и камеры —
+     * тоже она; район цели идёт за ней ({@link #holdTargetArea}).
+     */
+    protected final void settleAim(Vec3 point) {
+        tracker.settle(point);
+        syncAim();
+    }
+
+    /**
      * Перенацелить в полёте (из камеры снаряда): новая цель, маршрут брошен — дальше прямо на неё.
      *
      * @return снаряд принял цель
