@@ -202,6 +202,14 @@ public final class BlastEffects {
     // ================================================================ бетонобойная бомба (bfx)
 
     static final class Bunker extends Timeline {
+        /**
+         * Заряд не глубже — взрыв прорывается наружу (комната здания, куда бомба вошла сквозь крышу, мягкий грунт
+         * над неглубокой полостью): огненный шар, как у наземного взрыва. Глубже — только полость, толчок и выброс газов.
+         */
+        static final int BREACH_DEPTH = 10;
+        /** Радиус огненного шара прорыва, блоки: 2,4 т ВВ (шар ∝ W^⅓ — ×1,75 к ракете), часть энергии уходит в грунт. */
+        static final float R = 11f;
+
         private final Vec3 surface;
         private final int depth;
 
@@ -214,8 +222,13 @@ public final class BlastEffects {
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                // под землёй вспышку видно только в самой полости и рядом
-                flash(level, 8, 70, 0.8f);
+                if (depth <= BREACH_DEPTH) {
+                    flash(level, 3 * R, 400, 0.8f);
+                    Explosions.burst(level, pos, R, mat, random);
+                } else {
+                    // под землёй вспышку видно только в самой полости и рядом
+                    flash(level, 8, 70, 0.8f);
+                }
                 return true;
             }
             if (t <= 6) {
@@ -279,8 +292,13 @@ public final class BlastEffects {
             @Override
             boolean run(ClientLevel level, int t) {
                 if (t == 0) {
-                    Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 1, 0), 0, 0, 0, 0, 1);
-                    Particles.burst(level, ParticleTypes.EXPLOSION, pos.add(0, 1, 0), 1, 1, 1, 0, 12);
+                    // удар корпуса без подрыва — огня нет: выброс пыли и комьев грунта из воронки входа
+                    int dust = Explosions.rgb(mat);
+                    for (int i = 0; i < 10; i++) {
+                        Fx.smoke().vel(Explosions.dir(random, 0.3).scale(0.2 + 0.25 * random.nextDouble())).size(1, 3.5f).growFast()
+                                .life(90 + random.nextInt(60)).color(dust, Explosions.lighten(dust, 0.3f)).alpha(0.7f).drag(0.88f)
+                                .rise(0.003f).fadeFrom(0.3f).budget(FxBudget.GROUND).spawn(level, pos.add(0, 1, 0));
+                    }
                     spray(level, 1);
                 }
                 return t < 30;

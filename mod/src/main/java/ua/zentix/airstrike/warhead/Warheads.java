@@ -44,6 +44,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
+import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -51,6 +52,7 @@ import ua.zentix.airstrike.strike.Timeline;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -121,7 +123,7 @@ public final class Warheads {
     }
 
     /**
-     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
+     * Ванильный взрыв без его звука и частиц (звук с задержкой и картинку взрыва даёт клиент): разрушения по правилам TNT,
      * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Только по готовым чанкам
      * ({@link #whenReady}).
      */
@@ -132,7 +134,7 @@ public final class Warheads {
         whenReady(level, at, reach(power), l -> l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
                 at.x, at.y, at.z, power, burns,
                 blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+                ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT));
     }
 
     /**
@@ -487,7 +489,7 @@ public final class Warheads {
             BlockPos c = BlockPos.containing(pos);
             this.mat = GroundMaterial.sample(level, c);
             this.ventMat = GroundMaterial.sample(level, BlockPos.containing(entry));
-            this.surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX(), c.getZ());
+            this.surfaceY = surfaceAbove(level, c);
             this.depth = Mth.floor(surfaceY - pos.y);
 
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
@@ -550,6 +552,22 @@ public final class Warheads {
         @Override
         public void end(ServerLevel level) {
             area.release(level);
+        }
+
+        /**
+         * Верх над зарядом без его же скважины: карта высот в колонке заряда — это дно пробитого бомбой хода (ход до
+         * блока вбок), поэтому берётся нижняя медиана колонок кольца в 2 блоках вокруг — крыша постройки, грунт.
+         */
+        private static int surfaceAbove(ServerLevel level, BlockPos c) {
+            int[] h = new int[8];
+            int i = 0;
+            for (int dx = -2; dx <= 2; dx += 2) {
+                for (int dz = -2; dz <= 2; dz += 2) {
+                    if (dx != 0 || dz != 0) h[i++] = level.getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX() + dx, c.getZ() + dz);
+                }
+            }
+            Arrays.sort(h);
+            return h[3];
         }
 
         /** Огонь на дне полости (огненные шары датапака). */
