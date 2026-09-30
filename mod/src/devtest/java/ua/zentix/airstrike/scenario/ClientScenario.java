@@ -903,7 +903,10 @@ public final class ClientScenario {
      * Команды из свойства {@code airstrike.commands} (через «;») в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
      * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
-     * {@code имя_тик.png}. Шаги идут друг за другом: после команды — 40 тиков, после снимка — 20, и {@code wait:N}
+     * {@code имя_тик.png}, {@code hud:off}/{@code hud:on} — скрыть и вернуть интерфейс (как F1: чат с ответами команд
+     * не закрывает кадр, а в лог клиента идёт как прежде). Шаги идут друг за другом: после команды — 40 тиков, после
+     * снимка — 20, после {@code hud:} — 1 (снимок берёт уже нарисованный кадр: в тот же тик он был бы ещё с интерфейсом),
+     * и {@code wait:N}
      * прибавляется к ним ({@code cmd;wait:1200;shot:x} снимает через 1240 тиков после команды). Неверный {@code wait:}
      * пишется в лог и пропускается: исключение здесь остановило бы загрузку модов, и «SCENARIO done» не пришёл бы.
      */
@@ -929,6 +932,10 @@ public final class ClientScenario {
             } else if (c.startsWith("shot:")) {
                 shot(t, c.substring("shot:".length()).strip());
                 t += 20;
+            } else if (c.equals("hud:off") || c.equals("hud:on")) {
+                boolean hide = c.equals("hud:off");
+                at(t, () -> Minecraft.getInstance().options.hideGui = hide);
+                t += 1;
             } else {
                 at(t, () -> cmd(c));
                 t += 40;
