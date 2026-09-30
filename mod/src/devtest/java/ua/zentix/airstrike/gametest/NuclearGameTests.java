@@ -637,7 +637,23 @@ public final class NuclearGameTests {
             for (BlockPos p : BlockPos.betweenClosed(h.absolutePos(new BlockPos(0, 41, 0)), h.absolutePos(new BlockPos(63, 120, 63)))) {
                 if (!level.getBlockState(p).isAir() && (top == null || p.getY() > top.getY())) top = p.immutable();
             }
-            h.fail("ни одного пожара: сравнение мест пожаров ничего не проверило (пожары в настройке "
+            // что стало с верхом площадки (y 10: дёрн шаблона) и видит ли его шар по живому миру
+            int kept = 0, burnt = 0, gone = 0, seen = 0, fireball = 0;
+            for (int x = 0; x < 64; x++) {
+                for (int z = 0; z < 64; z++) {
+                    BlockPos p = h.absolutePos(new BlockPos(x, 10, z));
+                    BlockState st = level.getBlockState(p);
+                    if (st.is(Blocks.GRASS_BLOCK)) kept++;
+                    else if (st.is(Blocks.DIRT) || st.is(Blocks.COARSE_DIRT)) burnt++;
+                    else gone++;
+                    Vec3 at = Vec3.atCenterOf(p).add(0, 0.5, 0);
+                    if (Math.hypot(at.x - d.burst().x, at.z - d.burst().z) < d.fireballRadius() * 0.8) fireball++;
+                    else if (ua.zentix.airstrike.nuclear.world.ThermalShadow.visible(level, d.burst(), at) && d.fluence(at) >= 5) seen++;
+                }
+            }
+            h.fail("ни одного пожара: сравнение мест пожаров ничего не проверило (верх площадки после руин: дёрн " + kept
+                    + ", выжжен " + burnt + ", другое " + gone + "; в шаре " + fireball + ", вне шара видят шар при свете ≥ 5 — " + seen
+                    + "; шар " + String.format(Locale.ROOT, "%.1f", d.fireballRadius()) + "; пожары в настройке "
                     + AirstrikeConfig.SERVER.nukeFires.get() + ", дёрн " + grass + ", под небом " + open + ", свет у дёрна до "
                     + String.format(Locale.ROOT, "%.1f", most) + ", выше площадки " + (top == null ? "ничего" : level.getBlockState(top) + " " + top.toShortString())
                     + ", подрыв " + d.burst() + ", угол " + h.absolutePos(c).toShortString() + ")");
