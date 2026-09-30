@@ -35,6 +35,8 @@ public final class WorkClock {
     private long deadline;
     /** Оценка длительности следующей единицы, нс. */
     private double estimate;
+    /** Оценки по видам единиц ({@link #canStart(int)}), нс: дешёвая порция не делает смелее перед дорогой единицей. */
+    private double[] kindEstimate = new double[0];
     /** В этом тике уже что-то сделано (одну единицу делаем всегда, иначе после очень долгой очередь встала бы). */
     private boolean worked;
     private int unitsThisTick, maxUnitsPerTick, ticksWorked, units;
@@ -73,16 +75,35 @@ public final class WorkClock {
         unitsThisTick = 0;
         usedThisTick = 0;
         estimate *= tickDecay;
+        for (int i = 0; i < kindEstimate.length; i++) kindEstimate[i] *= tickDecay;
         if (++ticks % 100 == 0) {
             largestBefore = largest;
             largest = 0;
         }
     }
 
-    /** Успеем ли ещё одну единицу работы до срока. */
+    /**
+     * Успеем ли ещё одну единицу работы до срока. Первая единица тика — всегда, даже при сроке, который уже прошёл
+     * ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по порядку общего бюджета может не остаться).
+     */
     public boolean canStart() {
+        if (!worked) return true;
         long now = time.getAsLong();
-        return now < deadline && (!worked || now + (long) estimate < deadline);
+        return now + (long) estimate < deadline;
+    }
+
+    /**
+     * То же для единицы вида {@code kind} (0, 1, …) — по оценке этого вида: у полосы с единицами разной цены (лучи
+     * взрыва и порция блоков) общая оценка после дешёвых пускала дорогую единицу впритык к сроку.
+     */
+    public boolean canStart(int kind) {
+        if (!worked) return true;
+        long now = time.getAsLong();
+        return now + (long) kindEstimate(kind) < deadline;
+    }
+
+    private double kindEstimate(int kind) {
+        return kind < kindEstimate.length ? kindEstimate[kind] : 0;
     }
 
     /** Начало единицы работы: отметка для {@link #end}. */
@@ -95,6 +116,14 @@ public final class WorkClock {
         if (unitCost > 0) fakeNow += unitCost;
         long took = time.getAsLong() - began;
         record(took);
+        return took;
+    }
+
+    /** Единица вида {@code kind}, начатая в {@code began}, закончена ({@link #canStart(int)}). */
+    public long end(long began, int kind) {
+        long took = end(began);
+        if (kind >= kindEstimate.length) kindEstimate = java.util.Arrays.copyOf(kindEstimate, kind + 1);
+        kindEstimate[kind] = Math.max(took, kindEstimate[kind] * DECAY);
         return took;
     }
 
@@ -123,6 +152,16 @@ public final class WorkClock {
     /** Для статуса: самая долгая единица за последние 5–10 с (прошлое окно в 100 тиков и текущее), нс. */
     public long largestRecentNanos() {
         return Math.max(largest, largestBefore);
+    }
+
+    /** Время работы в этом тике, нс (по этим часам: у считающих — единицы × цену). */
+    public long usedThisTickNanos() {
+        return usedThisTick;
+    }
+
+    /** Есть ли работа в этом тике. */
+    public boolean workedThisTick() {
+        return worked;
     }
 
     /** Больше всего времени работы за один тик, нс (для проверок). */

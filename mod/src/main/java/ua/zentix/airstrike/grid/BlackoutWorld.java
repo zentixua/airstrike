@@ -464,7 +464,7 @@ public final class BlackoutWorld {
 
     /**
      * Есть ли работа без отключений: очереди, свет с диска, сверка ламп. Мир без отключений и без работы не тикает
-     * ({@link Blackouts#onServerTick}).
+     * ({@link Blackouts#work}).
      */
     public boolean busy() {
         return !idle() || !staleLight.isEmpty() || !resignal.isEmpty();

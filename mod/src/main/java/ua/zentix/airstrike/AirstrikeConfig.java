@@ -77,6 +77,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue gridRestoreSpread;
         public final ModConfigSpec.BooleanValue gridNuke;
         public final ModConfigSpec.IntValue gridTimeBudgetMs;
+        public final ModConfigSpec.IntValue workBudgetMs;
 
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
@@ -198,6 +199,13 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.grid_nuke").define("nuke_blackout", true);
             gridTimeBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на лампы блэкаута (1–20).")
                     .translation("airstrike.config.grid_time_budget").defineInRange("ms_per_tick", 4, 1, 20);
+            b.pop();
+
+            b.translation("airstrike.config.performance").push("performance");
+            workBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер тратит на тяжёлую работу мода, всё вместе (5–45):",
+                            "разрушения от попаданий, затем лампы блэкаута (не больше своего ms_per_tick). Больше — разрушения залпа",
+                            "появляются быстрее ценой TPS; меньше — ровнее тик, воронки залпа достраиваются дольше.")
+                    .translation("airstrike.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
         }
     }

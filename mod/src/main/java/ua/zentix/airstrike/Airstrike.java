@@ -33,6 +33,7 @@ import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.BlockTicking;
 import ua.zentix.airstrike.warhead.CraterFalls;
+import ua.zentix.airstrike.work.WorkScheduler;
 
 /**
  * Airstrike: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы, МБР с ядерной БЧ.
@@ -92,7 +93,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(RadiationTicker::onHeal);
         NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
 
-        NeoForge.EVENT_BUS.addListener(Blackouts::onServerTick);
+        NeoForge.EVENT_BUS.addListener(WorkScheduler::onServerTick);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
