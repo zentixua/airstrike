@@ -148,11 +148,25 @@ public final class ScarQueue {
     public void dropPrepared(int detonation) {
         Long2ObjectOpenHashMap<RuinPlan> left = prepared.remove(detonation);
         long[] st = preparedStats.remove(detonation);
-        if (st == null) st = new long[7];
+        if (st == null) st = new long[9];
         Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, на месте {}, не дождались {}; отставание от волны до {} тиков "
                         + "(у игроков до {}, у остальных до {}); подмена чанка в среднем {} мкс, самая долгая {} мс",
                 detonation, st[0], st[1], st[6], left == null ? 0 : left.size(), Math.max(st[2], st[5]), st[2], st[5],
                 st[0] == 0 ? 0 : st[3] / st[0] / 1000, String.format(java.util.Locale.ROOT, "%.1f", st[4] / 1e6));
+        if (st[6] > 0) {
+            Airstrike.LOG.info("Руины подрыва №{}: план и подмена на месте — в среднем {} мс, самые долгие {} мс", detonation, ms(st[7] / st[6]), ms(st[8]));
+        }
+        if (left != null && !left.isEmpty()) {
+            // почему не дождались: чанк так и стоял в очереди (соседи не загрузились) или в очередь не попал (выгружен)
+            StringBuilder some = new StringBuilder();
+            int queued = 0, shown = 0;
+            for (long c : left.keySet()) {
+                boolean inQueue = jobs.containsKey(c);
+                if (inQueue) queued++;
+                if (shown++ < 5) some.append(shown > 1 ? ", " : "").append(new ChunkPos(c)).append(inQueue ? " в очереди" : "");
+            }
+            Airstrike.LOG.info("Руины подрыва №{}: не дождались {} чанков, из них в очереди {}: {}", detonation, left.size(), queued, some);
+        }
         long[] ph = RuinPlan.PHASES;
         Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
                 ph[0] / 1_000_000, ph[1] / 1_000_000, ph[2] / 1_000_000, ph[3] / 1_000_000, ph[4] / 1_000_000);
@@ -364,7 +378,7 @@ public final class ScarQueue {
     private void ruin(ServerLevel level, Detonation d, LevelChunk chunk, ColumnScar.Budget budget, long lag, boolean seen) {
         Long2ObjectOpenHashMap<RuinPlan> plans = prepared.get(d.id());
         RuinPlan plan = plans != null ? plans.remove(chunk.getPos().toLong()) : null;
-        long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[7]);
+        long[] st = preparedStats.computeIfAbsent(d.id(), k -> new long[9]);
         if (seen) st[2] = Math.max(st[2], lag);
         else st[5] = Math.max(st[5], lag);
         if (plan != null) {
@@ -381,10 +395,14 @@ public final class ScarQueue {
             stalePlans++;
             st[1]++;
         }
+        long t0 = System.nanoTime();
         plan = RuinPlanner.plan(level, d, chunk);
         plan.apply(level, chunk, budget);
+        long took = System.nanoTime() - t0;
         appliedFresh++;
         st[6]++;
+        st[7] += took;
+        st[8] = Math.max(st[8], took);
         deferLogs(level, d, plan);
     }
 

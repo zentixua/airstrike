@@ -47,6 +47,15 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
         if (e.getUpdateCause() == TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) clearCache();
     }
 
+    /** Блок грунта выше природной земли — часть постройки (терракота, кальцит, камень): как кладка. */
+    private static final BlockResponse BUILT = new BlockResponse(12f, Kind.BREAK);
+
+    /** Как блок над природной землёй: грунт там — постройка ({@code RuinPlanner.naturalGround}). */
+    public static BlockResponse built(BlockState s) {
+        BlockResponse r = of(s);
+        return r.kind == Kind.GROUND ? BUILT : r;
+    }
+
     public boolean breaksAt(double psi, int jitterSeed) {
         if (thresholdPsi == NEVER) return false;
         // ±15%: соседние одинаковые блоки ломаются не по линейке

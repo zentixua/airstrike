@@ -149,7 +149,7 @@ public final class RuinPlan {
     static long edits(LevelChunk chunk) {
         if (!(chunk instanceof Edits e)) return -1;
         if (editsWork == 0) {
-            BlockPos p = new BlockPos(chunk.getPos().getMinBlockX(), chunk.getMinBuildHeight(), chunk.getPos().getMinBlockZ());
+            BlockPos p = new BlockPos(chunk.getPos().getMinBlockX() + 8, chunk.getMinBuildHeight(), chunk.getPos().getMinBlockZ() + 8);
             long before = e.airstrike$edits();
             chunk.setBlockState(p, chunk.getBlockState(p), false);
             editsWork = e.airstrike$edits() != before ? 1 : -1;
