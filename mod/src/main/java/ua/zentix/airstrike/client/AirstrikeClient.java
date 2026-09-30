@@ -163,21 +163,16 @@ public final class AirstrikeClient {
         while (Keys.FIRE.consumeClick()) Designator.fire();
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
         if (mc.isPaused()) return;
-        // мир остановлен (/tick freeze): снаряды, взрывы, вспышки и ядерная картинка стоят вместе с ним, как частицы
-        // и сущности ванили (иначе часы подрыва на клиенте уходят вперёд от сервера); прицел и пульт работают
-        boolean running = mc.level.tickRateManager().runsNormally();
         Designator.tick();
-        if (running) ClientFlights.tick();
+        ClientFlights.tick();
         ProjectileCamera.tick();
-        if (running) {
-            ClientSounds.tick();
-            Effects.tick();
-            CameraShake.tick();
-            Flash.tick();
-        }
+        ClientSounds.tick();
+        Effects.tick();
+        CameraShake.tick();
+        Flash.tick();
         Alerts.tick();
         NukeArming.tick();
-        if (running) ClientNuclear.tick();
+        ClientNuclear.tick();
     }
 
     /** Колесо мыши в бинокле — выбор оружия, а не слота хотбара. */
