@@ -130,6 +130,19 @@ public final class StrikeWorld {
         impactCost.step(System.nanoTime() - t0);
     }
 
+    /**
+     * Убрать всё без работы: таймлайны и очередь попаданий отпускают свои районы. Для проверок, которые изображают
+     * остановку сервера ({@code WorkGameTests.stopFinishesQueue}): их остатки не должны доставаться следующим.
+     */
+    public void dropAll(ServerLevel level) {
+        timelines.addAll(pending);
+        pending.clear();
+        List<Timeline> all = new ArrayList<>(timelines);
+        timelines.clear();
+        for (Timeline t : all) t.end(level);
+        impacts.clear(level);
+    }
+
     /** Все снаряды мира: в мире и вне его ({@link VirtualFlights}). */
     public static List<StrikeProjectile> projectiles(ServerLevel level) {
         List<StrikeProjectile> all = new ArrayList<>(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved()));
@@ -160,15 +173,17 @@ public final class StrikeWorld {
     /**
      * Сервер останавливается (в том числе «Сохранить и выйти» в одиночной игре): снаряды в мире уходят в полёт вне
      * мира и сохраняются с ним, а после запуска летят дальше сами — иначе они ждали бы в файлах чанков, пока кто-то
-     * не придёт туда снова, и тикеты района цели после запуска были бы потеряны.
+     * не придёт туда снова, и тикеты района цели после запуска были бы потеряны. Очередь попаданий доделывается
+     * до этого, без бюджета ({@link UnitQueue#finish(ServerLevel)}).
      */
     public static void onServerStopping(ServerStoppingEvent event) {
         for (ServerLevel level : event.getServer().getAllLevels()) {
+            // работа попаданий не сохраняется: начатое и поставленное доделать сейчас, иначе в мире остались бы взрывы,
+            // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются, как раньше)
+            if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).impacts.finish(level);
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) {
                 p.parkForShutdown(level);
             }
-            // работа попаданий не сохраняется (как таймлайны): тикеты районов — отпустить
-            if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).impacts.clear(level);
         }
     }
 }

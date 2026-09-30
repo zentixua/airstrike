@@ -52,6 +52,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.work.UnitQueue;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -90,7 +91,7 @@ public final class Warheads {
         long t0 = System.nanoTime();
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
         GroundMaterial mat = GroundMaterial.sample(level, BlockPos.containing(point.add(0, 1, 0)));
-        explode(level, null, point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
+        explode(level, null, List.of(), point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
         // кинетический удар: рядом с точкой попадания — смертельно
         hurtAround(level, point, 14, bomb, ownerEntity, ModDamageTypes.KINETIC, d -> d <= 4.5 ? 60 : d <= 9 ? 22 : 7);
         PacketDistributor.sendToPlayersNear(level, null, point.x, point.y, point.z, 320, new S2C.BunkerImpact(point, mat.ordinal()));
@@ -136,37 +137,58 @@ public final class Warheads {
      * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Делается единицами в очереди
      * попаданий ({@link StagedExplosion}) под общим бюджетом тика, только по готовым чанкам.
      *
-     * @param area район таймлайна, который накрывает и этот взрыв, или null — взрыв возьмёт свой
+     * @param area  район таймлайна, который накрывает и этот взрыв, или null — взрыв возьмёт свой
+     * @param after взрывы, которые должны кончиться раньше (главный взрыв удара)
      */
-    static void explode(ServerLevel level, @Nullable BlastArea area, Vec3 at, float power, boolean fire, @Nullable Entity direct,
-                        @Nullable Entity owner, @Nullable ExplosionDamageCalculator calculator) {
+    static StagedExplosion explode(ServerLevel level, @Nullable BlastArea area, List<StagedExplosion> after, Vec3 at, float power,
+                                   boolean fire, @Nullable Entity direct, @Nullable Entity owner, @Nullable ExplosionDamageCalculator calculator) {
         boolean blocks = AirstrikeConfig.SERVER.blockDamage.get();
         boolean burns = fire && AirstrikeConfig.SERVER.fire.get();
         BlastArea held = area != null ? area.retain() : BlastArea.hold(level, at, reach(power));
-        StrikeWorld.get(level).impacts().add(level, new StagedExplosion(held, at, power, burns, blocks, direct, owner, calculator));
+        StagedExplosion job = new StagedExplosion(held, after, at, power, burns, blocks, direct, owner, calculator);
+        StrikeWorld.get(level).impacts().add(level, job);
+        return job;
+    }
+
+    /** Кончились ли все взрывы {@code after}. */
+    static boolean pending(List<StagedExplosion> after) {
+        for (StagedExplosion e : after) if (!e.done()) return true;
+        return false;
     }
 
     /**
-     * Работа попадания одной единицей в очереди попаданий: после всего, что поставлено раньше (взрывы того же удара),
-     * когда район {@code area} готов.
+     * Работа попадания одной единицей в очереди попаданий: после взрывов {@code after} (главного взрыва удара), когда
+     * район {@code area} готов.
      *
      * @param work возвращает, сколько сделано (блоков, обломков) — для замера
      */
-    static void unit(ServerLevel level, BlastArea area, ImpactCost.Kind kind, String what, ToIntFunction<ServerLevel> work) {
-        StrikeWorld.get(level).impacts().add(level, new Unit(area.retain(), kind, what, work));
+    static void unit(ServerLevel level, BlastArea area, List<StagedExplosion> after, ImpactCost.Kind kind, String what,
+                     ToIntFunction<ServerLevel> work) {
+        StrikeWorld.get(level).impacts().add(level, new Unit(area.retain(), after, kind, what, work));
     }
 
-    private record Unit(BlastArea area, ImpactCost.Kind kind, String what, ToIntFunction<ServerLevel> work) implements UnitQueue.Job {
+    private record Unit(BlastArea area, List<StagedExplosion> after, ImpactCost.Kind kind, String what,
+                        ToIntFunction<ServerLevel> work) implements UnitQueue.Job {
         @Override
         public boolean ready(ServerLevel level) {
             return area.ready(level);
         }
 
         @Override
+        public boolean blocked() {
+            return pending(after);
+        }
+
+        @Override
+        public int unitKind() {
+            return kind.ordinal();
+        }
+
+        @Override
         public boolean step(ServerLevel level) {
             long t0 = System.nanoTime();
             int n = work.applyAsInt(level);
-            StrikeWorld.get(level).impactCost().add(kind, System.nanoTime() - t0, n);
+            area.record(level, kind, System.nanoTime() - t0, n);
             return false;
         }
 
@@ -263,7 +285,7 @@ public final class Warheads {
      * @return сколько блоков выбито
      */
     public static int shatter(ServerLevel level, Vec3 center, int radius, int below, int above, TagKey<Block> tag) {
-        Shatter job = new Shatter(null, center, radius, below, above, tag, (l, n) -> {});
+        Shatter job = new Shatter(null, List.of(), center, radius, below, above, tag, (l, n) -> {});
         int broken = 0;
         while (job.hasNext()) broken += job.nextSection(level);
         return broken;
@@ -274,15 +296,16 @@ public final class Warheads {
      *
      * @param first звук и частицы — с первой секцией, где что-то выбито (сколько выбито в ней)
      */
-    static void shatterUnits(ServerLevel level, BlastArea area, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
+    static void shatterUnits(ServerLevel level, BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
                              BiConsumer<ServerLevel, Integer> first) {
-        StrikeWorld.get(level).impacts().add(level, new Shatter(area.retain(), center, radius, below, above, tag, first));
+        StrikeWorld.get(level).impacts().add(level, new Shatter(area.retain(), after, center, radius, below, above, tag, first));
     }
 
     /** {@link #shatter} по секциям: секции без таких блоков пропускаются в той же единице, работа — одна секция. */
     private static final class Shatter implements UnitQueue.Job {
         @Nullable
         private final BlastArea area;
+        private final List<StagedExplosion> after;
         private final Vec3 center;
         private final TagKey<Block> tag;
         private final BiConsumer<ServerLevel, Integer> first;
@@ -291,8 +314,10 @@ public final class Warheads {
         private int index;
         private boolean broke;
 
-        Shatter(@Nullable BlastArea area, Vec3 center, int radius, int below, int above, TagKey<Block> tag, BiConsumer<ServerLevel, Integer> first) {
+        Shatter(@Nullable BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
+                BiConsumer<ServerLevel, Integer> first) {
             this.area = area;
+            this.after = after;
             this.center = center;
             this.tag = tag;
             this.first = first;
@@ -345,6 +370,21 @@ public final class Warheads {
         }
 
         @Override
+        public boolean ready(ServerLevel level) {
+            return area == null || area.ready(level);
+        }
+
+        @Override
+        public boolean blocked() {
+            return pending(after);
+        }
+
+        @Override
+        public int unitKind() {
+            return ImpactCost.Kind.GLASS.ordinal();
+        }
+
+        @Override
         public boolean step(ServerLevel level) {
             long t0 = System.nanoTime();
             int broken = 0;
@@ -354,7 +394,9 @@ public final class Warheads {
                 broke = true;
                 first.accept(level, broken);
             }
-            StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, System.nanoTime() - t0, broken);
+            long took = System.nanoTime() - t0;
+            if (area != null) area.record(level, ImpactCost.Kind.GLASS, took, broken);
+            else StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, took, broken);
             return hasNext();
         }
 
@@ -483,6 +525,8 @@ public final class Warheads {
         private final Entity owner;
         private final GroundMaterial mat;
         private final BlastArea area;
+        /** Главный взрыв: остальная работа удара ждёт, пока он снесёт своё. */
+        private final List<StagedExplosion> main;
         private int t;
 
         SurfaceBlast(ServerLevel level, WeaponType weapon, Vec3 pos, @Nullable Entity direct, @Nullable UUID ownerId) {
@@ -503,7 +547,7 @@ public final class Warheads {
             float surface = (float) pos.y;
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
                     new S2C.Blast(kind, pos, mat.ordinal(), surface, level.random.nextLong()));
-            explode(level, area, pos, power(weapon), false, direct, owner, null);
+            main = List.of(explode(level, area, List.of(), pos, power(weapon), false, direct, owner, null));
         }
 
         @Override
@@ -512,9 +556,9 @@ public final class Warheads {
             boolean missile = weapon == WeaponType.MISSILE;
             if (t == 1) {
                 // огненный шар — второй, зажигательный подрыв; у ракеты ещё кольцо горящих обломков
-                explode(level, area, pos, missile ? 3 : 2, true, direct, owner, null);
+                explode(level, area, main, pos, missile ? 3 : 2, true, direct, owner, null);
                 if (missile) {
-                    unit(level, area, ImpactCost.Kind.GROUND, "Кольцо огня", l -> {
+                    unit(level, area, main, ImpactCost.Kind.GROUND, "Кольцо огня", l -> {
                         for (int i = 0; i < 8; i++) {
                             double a = i * Math.PI / 4;
                             igniteGround(l, pos.x + Math.cos(a) * 7, pos.z + Math.sin(a) * 7);
@@ -522,13 +566,13 @@ public final class Warheads {
                         return 8;
                     });
                 }
-                unit(level, area, ImpactCost.Kind.DEBRIS, "Обломки",
+                unit(level, area, main, ImpactCost.Kind.DEBRIS, "Обломки",
                         l -> missile ? DebrisSpawner.missile(l, pos, mat) : DebrisSpawner.drone(l, pos, mat));
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
             if (missile) {
                 for (Secondary s : MISSILE_SECONDARIES) {
-                    if (s.tick() == t) explode(level, area, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
+                    if (s.tick() == t) explode(level, area, main, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
                 }
                 push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> true, (p, band) -> {
                     if (band == 1) {
@@ -543,12 +587,12 @@ public final class Warheads {
             } else {
                 switch (t) {
                     case 3 -> {
-                        explode(level, area, pos.add(4, 0, -3), 3, false, direct, owner, null);
-                        explode(level, area, pos.add(-3, 1, 4), 3, false, direct, owner, null);
+                        explode(level, area, main, pos.add(4, 0, -3), 3, false, direct, owner, null);
+                        explode(level, area, main, pos.add(-3, 1, 4), 3, false, direct, owner, null);
                     }
                     case 6 -> {
-                        explode(level, area, pos.add(-4, 0, -4), 4, false, direct, owner, null);
-                        explode(level, area, pos.add(2, 2, 5), 2, false, direct, owner, null);
+                        explode(level, area, main, pos.add(-4, 0, -4), 4, false, direct, owner, null);
+                        explode(level, area, main, pos.add(2, 2, 5), 2, false, direct, owner, null);
                     }
                     default -> {}
                 }
@@ -564,7 +608,7 @@ public final class Warheads {
 
         /** Стёкла (и листва у ракеты) — единицами по секциям; звук и частицы — с первой секцией, где что-то выбито. */
         private void shatterGlass(ServerLevel level, boolean missile) {
-            shatterUnits(level, area, pos, missile ? 26 : 16, missile ? 8 : 6, missile ? 22 : 12, ModTags.SHATTERS, (l, n) -> {
+            shatterUnits(level, area, main, pos, missile ? 26 : 16, missile ? 8 : 6, missile ? 22 : 12, ModTags.SHATTERS, (l, n) -> {
                 float vol = missile ? 6 : 4;
                 l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 0.7f : 0.8f);
                 l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 1.0f : 1.2f);
@@ -573,7 +617,7 @@ public final class Warheads {
                         missile ? 500 : 250, missile ? 16 : 10, missile ? 6 : 5, missile ? 16 : 10, 0, 256);
             });
             if (missile) {
-                shatterUnits(level, area, pos, 11, 3, 16, BlockTags.LEAVES,
+                shatterUnits(level, area, main, pos, 11, 3, 16, BlockTags.LEAVES,
                         (l, n) -> l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f));
             }
         }
@@ -598,6 +642,8 @@ public final class Warheads {
         /** Ослабленная зона: взрыв выгрызает её как пустоту, уцелевшее потом становится щебнем. */
         private final Set<BlockPos> weakened = new HashSet<>();
         private final BlastArea area;
+        /** Подрывы заряда: полость, огонь и щебень — после них. */
+        private final List<StagedExplosion> main;
         private int t;
 
         BunkerBlast(ServerLevel level, Vec3 pos, Vec3 entry, @Nullable Entity direct, @Nullable UUID ownerId) {
@@ -631,11 +677,13 @@ public final class Warheads {
                     return weakened.contains(p) ? Optional.of(0f) : super.getBlockExplosionResistance(explosion, reader, p, state, fluid);
                 }
             };
+            List<StagedExplosion> blasts = new ArrayList<>(3);
             for (int i = 0; i < 2; i++) {
                 Vec3 o = pos.add(level.random.nextIntBetweenInclusive(-3, 3), level.random.nextIntBetweenInclusive(-2, 2), level.random.nextIntBetweenInclusive(-3, 3));
-                explode(level, area, o, 12, false, direct, owner, weak);
+                blasts.add(explode(level, area, List.of(), o, 12, false, direct, owner, weak));
             }
-            explode(level, area, pos, power(WeaponType.BUNKER), false, direct, owner, weak);
+            blasts.add(explode(level, area, List.of(), pos, power(WeaponType.BUNKER), false, direct, owner, weak));
+            main = List.copyOf(blasts);
 
             // ударная волна в породе достаёт и за камнем, без прямой видимости
             hurtAround(level, pos, 24, direct, owner, ModDamageTypes.SHOCKWAVE, d -> d <= 10 ? 200 : d <= 16 ? 40 : 12);
@@ -652,20 +700,20 @@ public final class Warheads {
             t++;
             switch (t) {
                 // после подрывов, которые поставлены раньше: огонь на дне и щебень — в уже выгрызенной полости
-                case 1 -> unit(level, area, ImpactCost.Kind.GROUND, "Огонь в полости", l -> {
+                case 1 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Огонь в полости", l -> {
                     igniteCavity(l);
                     return 6;
                 });
-                case 2 -> unit(level, area, ImpactCost.Kind.GROUND, "Щебень", this::rubble);
+                case 2 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Щебень", this::rubble);
                 case 3 -> {
-                    explode(level, area, pos.add(4, -2, -3), 4, false, direct, owner, null);
-                    explode(level, area, pos.add(-4, 1, 3), 4, false, direct, owner, null);
+                    explode(level, area, main, pos.add(4, -2, -3), 4, false, direct, owner, null);
+                    explode(level, area, main, pos.add(-4, 1, 3), 4, false, direct, owner, null);
                     PacketDistributor.sendToPlayersNear(level, null, entry.x, entry.y, entry.z, 200, new S2C.Vent(entry, ventMat.ordinal()));
-                    unit(level, area, ImpactCost.Kind.DEBRIS, "Выброс", l -> DebrisSpawner.vent(l, entry, ventMat));
+                    unit(level, area, main, ImpactCost.Kind.DEBRIS, "Выброс", l -> DebrisSpawner.vent(l, entry, ventMat));
                 }
                 case 22 -> {
                     if (AirstrikeConfig.SERVER.collapse.get() && depth >= 4 && depth <= 48) {
-                        unit(level, area, ImpactCost.Kind.GROUND, "Обрушение свода", l -> {
+                        unit(level, area, main, ImpactCost.Kind.GROUND, "Обрушение свода", l -> {
                             collapse(l);
                             return 1;
                         });

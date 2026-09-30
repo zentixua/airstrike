@@ -2,6 +2,7 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ServerLevel;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.warhead.ExplosionTimer;
 import ua.zentix.airstrike.work.UnitQueue;
 
 import java.util.Arrays;
@@ -31,6 +32,10 @@ public final class ImpactCost {
         Kind(String label) {
             this.label = label;
         }
+
+        public String label() {
+            return label;
+        }
     }
 
     /** Медленный тик попаданий: больше целого тика сервера. */
@@ -42,6 +47,8 @@ public final class ImpactCost {
 
     private final long[] nanos = new long[Kind.values().length];
     private final int[] counts = new int[Kind.values().length];
+    /** Из чего сложились лучи взрывов ({@link Kind#RAYS}): шаги {@code Explosion.explode} по {@link ExplosionTimer}. */
+    private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
     private long total;
     private long lastLog = Long.MIN_VALUE / 2;
     private int slowSinceLog;
@@ -51,6 +58,11 @@ public final class ImpactCost {
     public void add(Kind kind, long took, int count) {
         nanos[kind.ordinal()] += took;
         counts[kind.ordinal()] += count;
+    }
+
+    /** Шаги лучей одного взрыва, нс ({@link ExplosionTimer}). */
+    public void addRayStages(long[] stages) {
+        for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
     }
 
     /** Шаг попадания (начало взрыва или тик таймлайна) занял {@code took} нс — всё вместе, с видами работы внутри. */
@@ -72,6 +84,14 @@ public final class ImpactCost {
                 for (Kind k : Kind.values()) {
                     if (parts.length() > 0) parts.append(", ");
                     parts.append(k.label).append(' ').append(nanos[k.ordinal()] / 1_000_000).append(" мс (").append(counts[k.ordinal()]).append(')');
+                    if (k == Kind.RAYS && counts[k.ordinal()] > 0) {
+                        parts.append(" [");
+                        for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
+                            if (st.ordinal() > 0) parts.append(", ");
+                            parts.append(st.label).append(' ').append(rayStages[st.ordinal()] / 1_000_000);
+                        }
+                        parts.append(" мс]");
+                    }
                 }
                 Airstrike.LOG.warn("Попадания ({}): {} мс за тик — {}; в очереди {}; таких тиков после прошлой строки: {}",
                         level.dimension().location(), total / 1_000_000, parts, queue.size(), slowSinceLog);
@@ -84,5 +104,6 @@ public final class ImpactCost {
         total = 0;
         Arrays.fill(nanos, 0);
         Arrays.fill(counts, 0);
+        Arrays.fill(rayStages, 0);
     }
 }

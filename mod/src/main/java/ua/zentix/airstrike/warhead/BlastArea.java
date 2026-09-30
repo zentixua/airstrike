@@ -5,11 +5,14 @@ import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -22,6 +25,9 @@ import java.util.UUID;
  * <p>
  * Держателей может быть несколько: таймлайн взрыва и его единицы работы в очереди попаданий ({@link StagedExplosion}
  * и другие), которые при большом залпе кончаются позже таймлайна. Район отпускается с последним ({@link #retain}).
+ * <p>
+ * Единицы работы удара пишут сюда свой замер ({@link #record}); с последним держателем — итоговая строка в лог: сколько
+ * единиц, взрывов и снятых блоков, за сколько тиков, самая долгая единица и из чего сложились лучи взрывов.
  */
 final class BlastArea {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_blast", Comparator.<UUID>naturalOrder());
@@ -34,6 +40,16 @@ final class BlastArea {
     private final UUID key = UUID.randomUUID();
     /** Сколько держателей ещё не отпустили район. */
     private int holders = 1;
+
+    /** Итог работы удара: единицы, их время, самая долгая, что сделано по видам, шаги лучей взрывов. */
+    private long heldAt;
+    private long lastUnitAt;
+    private int units;
+    private long nanos;
+    private long maxUnit;
+    private ImpactCost.Kind maxKind = ImpactCost.Kind.RAYS;
+    private final int[] done = new int[ImpactCost.Kind.values().length];
+    private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
 
     private BlastArea(Vec3 centre, double reach) {
         this.centre = centre;
@@ -49,6 +65,7 @@ final class BlastArea {
     /** Взять район: всё в {@code reach} блоков от {@code centre} грузится и остаётся готовым до {@link #release}. */
     static BlastArea hold(ServerLevel level, Vec3 centre, double reach) {
         BlastArea area = new BlastArea(centre, reach);
+        area.heldAt = level.getGameTime();
         StrikeWorld.get(level).areas().hold(level, area.area());
         CraterFalls.get(level).open(level, area.key, centre, reach);
         return area;
@@ -61,6 +78,32 @@ final class BlastArea {
         return this;
     }
 
+    /**
+     * Единица работы удара вида {@code kind} заняла {@code took} нс и сделала {@code count} (взрывов, блоков, обломков):
+     * в замер тика мира ({@link ImpactCost}) и в итог удара.
+     */
+    void record(ServerLevel level, ImpactCost.Kind kind, long took, int count) {
+        record(level, StrikeWorld.get(level).impactCost(), kind, took, count);
+    }
+
+    void record(ServerLevel level, ImpactCost cost, ImpactCost.Kind kind, long took, int count) {
+        cost.add(kind, took, count);
+        units++;
+        nanos += took;
+        done[kind.ordinal()] += count;
+        if (took > maxUnit) {
+            maxUnit = took;
+            maxKind = kind;
+        }
+        lastUnitAt = level.getGameTime();
+    }
+
+    /** Шаги лучей одного взрыва ({@link ExplosionTimer}, нс). */
+    void recordRays(ServerLevel level, long[] stages) {
+        StrikeWorld.get(level).impactCost().addRayStages(stages);
+        for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
+    }
+
     boolean ready(ServerLevel level) {
         return Terrain.readyAround(level, centre, reach);
     }
@@ -70,6 +113,26 @@ final class BlastArea {
         if (holders <= 0 || --holders > 0) return;
         StrikeWorld.get(level).areas().release(level, area());
         CraterFalls.get(level).close(level, key);
+        if (units > 0) Airstrike.LOG.info(summary(level.dimension().location().toString()));
+    }
+
+    /** Итоговая строка удара (для {@code tools/logscan.py}). */
+    String summary(String dimension) {
+        StringBuilder rays = new StringBuilder();
+        for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
+            if (rays.length() > 0) rays.append(", ");
+            rays.append(st.label).append(' ').append(ms(rayStages[st.ordinal()]));
+        }
+        return String.format(Locale.ROOT,
+                "Итог удара (%s) у %d %d %d: %d единиц, взрывов %d, снято блоков %d, стёкол %d, обломков %d, за %d тиков, всего %s мс, "
+                        + "самая долгая единица %s мс (%s); лучи: %s мс",
+                dimension, Mth.floor(centre.x), Mth.floor(centre.y), Mth.floor(centre.z), units,
+                done[ImpactCost.Kind.RAYS.ordinal()], done[ImpactCost.Kind.BLOCKS.ordinal()], done[ImpactCost.Kind.GLASS.ordinal()],
+                done[ImpactCost.Kind.DEBRIS.ordinal()], lastUnitAt - heldAt + 1, ms(nanos), ms(maxUnit), maxKind.label(), rays);
+    }
+
+    private static String ms(long nanos) {
+        return String.format(Locale.ROOT, "%.1f", nanos / 1e6);
     }
 
     private AreaLoader.Area area() {
