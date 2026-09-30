@@ -7,6 +7,7 @@ import net.minecraft.core.Position;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import ua.zentix.airstrike.Airstrike;
@@ -104,6 +105,17 @@ public final class SubLevels {
             fail(e);
         }
         return out;
+    }
+
+    /**
+     * Может ли в кубе ±{@code radius} вокруг {@code at} быть аппарат: есть хоть один по габаритам — или Sable стоит,
+     * а связь с ним сломана (тогда «да»: лучше ванильный путь со всеми миксинами Sable).
+     */
+    public static boolean mayHaveCraftNear(Level level, Vec3 at, double radius) {
+        if (!ModList.get().isLoaded("sable")) return false;
+        if (broken) return true;
+        List<SubLevelAccess> near = near(level, at, radius);
+        return broken || !near.isEmpty();
     }
 
     /** Все аппараты мира. */
