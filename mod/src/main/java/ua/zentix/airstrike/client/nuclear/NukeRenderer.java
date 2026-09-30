@@ -30,8 +30,9 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Картинка ядерного удара в мире (DESIGN-nuke §6): огненный шар (икосфера с плазмой), гриб из клубов, пылевая
- * стена, облако Вильсона, след входа боеголовки и чёрный дождь.
+ * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, огненный шар (икосфера с плазмой), гриб из клубов
+ * и его накал изнутри (второй, складывающийся проход тех же клубов), пылевая стена, облако Вильсона, след входа
+ * боеголовки и чёрный дождь.
  * <p>
  * Дальняя плоскость отсечения в 1.21.1 — 4 × дальность прорисовки, а гриб 15 кт — 12 км в высоту. Всё, что
  * дальше {@code 0.97·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
@@ -48,7 +49,8 @@ public final class NukeRenderer {
     private static final float[][] ICOSPHERE = Icosphere.build(3);
 
     /** Клуб, уже перенесённый к камере: координаты относительно камеры, размер, цвет. */
-    private record Quad(float x, float y, float z, float size, float rot, float r, float g, float b, float a, int tex, double dist) {}
+    private record Quad(float x, float y, float z, float size, float rot, float r, float g, float b, float a,
+                        float gr, float gg, float gb, float ga, int tex, double dist) {}
 
     private static final List<Quad> QUADS = new ArrayList<>();
 
@@ -70,8 +72,10 @@ public final class NukeRenderer {
         RenderSystem.applyModelViewMatrix();
         try {
             collect(level, camera, partial, far);
+            drawSkyGlow(camera, partial, far);
             drawFireballs(camera, partial, far);
             drawQuads(camera, QUADS);
+            drawGlow(camera, QUADS);
             drawReentry(level, camera, partial, far);
             drawBlackRain(level, camera, partial);
         } finally {
@@ -105,7 +109,8 @@ public final class NukeRenderer {
                 float r = Mth.lerp(haze, s.r(), fog[0]), g = Mth.lerp(haze, s.g(), fog[1]), b = Mth.lerp(haze, s.b(), fog[2]);
                 float alpha = s.a() * (1 - 0.5f * haze);
                 double k = dist > far ? far / dist : 1;
-                QUADS.add(new Quad((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) (s.size() * k), s.rot(), r, g, b, alpha, s.tex(), dist));
+                QUADS.add(new Quad((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) (s.size() * k), s.rot(), r, g, b, alpha,
+                        s.gr(), s.gg(), s.gb(), s.ga() * (1 - 0.7f * haze), s.tex(), dist));
             });
         }
         QUADS.sort(Comparator.comparingDouble(Quad::dist).reversed());
@@ -123,17 +128,60 @@ public final class NukeRenderer {
         draw(b);
     }
 
+    /** Накал гриба и стены изнутри: те же клубы вторым проходом, свет складывается — порядок не важен. */
+    private static void drawGlow(Camera camera, List<Quad> quads) {
+        if (quads.isEmpty()) return;
+        setup(PUFFS, true);
+        Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
+        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        for (Quad q : quads) {
+            if (q.ga() < 0.004f) continue;
+            float u0 = (q.tex() % 4) * 0.25f, v0 = (q.tex() / 4) * 0.5f;
+            billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.gr(), q.gg(), q.gb(), q.ga());
+        }
+        draw(b);
+    }
+
+    // ---------------------------------------------------------------- небо
+
+    /**
+     * Янтарное небо после вспышки ({@link NukeSky#amber}): купол у дальней плоскости — мир ближе закрывает его,
+     * поэтому окрашено только небо, сильнее всего в сторону подрыва.
+     */
+    private static void drawSkyGlow(Camera camera, float partial, float far) {
+        Vec3 cam = camera.getPosition();
+        for (ClientNuclear.Active a : ClientNuclear.detonations()) {
+            float amber = NukeSky.amber(a, cam, partial);
+            if (amber <= 0.004f) continue;
+            Vec3 dir = a.d.burst().subtract(cam).normalize();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            blend(false);
+            BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+            for (float[] v : ICOSPHERE) {
+                double toward = Math.max(0, v[0] * dir.x + v[1] * dir.y + v[2] * dir.z);
+                float alpha = amber * (0.2f + 0.5f * (float) (toward * toward * toward));
+                b.addVertex(v[0] * far, v[1] * far, v[2] * far).setColor(1f, 0.55f, 0.22f, alpha);
+            }
+            draw(b);
+        }
+    }
+
     // ---------------------------------------------------------------- огненный шар
 
-    /** Шар и корона: плазма с прокруткой, складывается со светом (ярче всего вокруг). */
+    /**
+     * Шар и корона — второе солнце. Сначала непрозрачный диск шара обычным смешиванием: шар закрывает небо, а не
+     * складывается с ним (жёлтое поверх серо-голубого неба давало лаймовый диск), к центру — бело-жёлтый накал,
+     * к краю — оранжевее. Поверх — плазма и корона, складываются со светом; ореол вокруг — тёплый.
+     */
     private static void drawFireballs(Camera camera, float partial, float far) {
         Vec3 cam = camera.getPosition();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
             double t = a.seconds(partial);
             if (t <= 0) continue;
-            double tau = t / FireballModel.secondMaximumSeconds(d.yieldKt());
-            if (tau > 80) continue;
+            // светится весь объём, пока не остынет; потом его свет — накал шапки и ножки (CloudPuffs)
+            float fade = (float) CloudPuffs.fireballGlow(t, d.yieldKt());
+            if (fade <= 0) continue;
             double r = d.blocks(FireballModel.radius(t, d.yieldKt(), d.surface()));
             double cy = d.groundY() + d.blocks(FireballModel.centreHeight(t, d.hobMetres(), d.yieldKt()));
             double dx = d.burst().x - cam.x, dy = cy - cam.y, dz = d.burst().z - cam.z;
@@ -146,21 +194,47 @@ public final class NukeRenderer {
                 r *= k;
             }
             int rgb = FireballModel.colorArgb(t, d.yieldKt());
-            // шар гаснет, когда его закрывает шапка (она проступает на тех же τ, см. CloudPuffs)
-            float fade = (float) (1 - CloudPuffs.smooth(8, 45, tau));
-            float glow = (float) Math.max(0.35, Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.35)) * fade;
+            float glow = (float) Math.min(1, FireballModel.brightness(t, d.yieldKt()) * 3 + 0.65) * fade;
             float cr = ((rgb >> 16) & 0xFF) / 255f, cg = ((rgb >> 8) & 0xFF) / 255f, cb = (rgb & 0xFF) / 255f;
+            // бело-жёлтый накал середины: первые секунды — почти белый, к оранжевому шару — слабее
+            float white = (float) (1 - CloudPuffs.smooth(20, 60, t / FireballModel.secondMaximumSeconds(d.yieldKt())));
             float scroll = (float) (t * 0.04);
+            disc((float) dx, (float) dy, (float) dz, (float) r, cr, cg, cb, white, fade);
             setup(PLASMA, true);
             sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
-            sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.9f, cb * 0.8f, glow * 0.35f);
-            // ореол: плоское свечение к камере, в 3 раза шире шара
+            sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.85f, cb * 0.6f, glow * 0.35f);
+            // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень)
             setup(FLARE, true);
             Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-            billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 3), 0, 0, 0, 1, 1, cr, cg, cb, glow * 0.5f);
+            billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
             draw(b);
         }
+    }
+
+    /**
+     * Непрозрачное тело шара (без текстуры, обычное смешивание): к камере — бело-жёлтый накал ({@code white} 0..1),
+     * к краю диска — цвет шара, оранжевее и темнее (край шара холоднее и светит вскользь). Грани с обратной
+     * стороны прозрачные.
+     */
+    private static void disc(float x, float y, float z, float r, float cr, float cg, float cb, float white, float alpha) {
+        float len = Mth.sqrt(x * x + y * y + z * z);
+        if (len < 1e-3f) return;
+        // к камере от центра шара
+        float vx = -x / len, vy = -y / len, vz = -z / len;
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        blend(false);
+        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        for (float[] v : ICOSPHERE) {
+            float mu = v[0] * vx + v[1] * vy + v[2] * vz;
+            float m = Math.max(0, mu);
+            float hot = white * m; // середина — к белому
+            float limb = 0.75f + 0.25f * m; // край диска чуть темнее
+            float r0 = Mth.lerp(hot, cr, 1f) * limb, g0 = Mth.lerp(hot, cg * (0.8f + 0.2f * m), 0.97f) * limb,
+                    b0 = Mth.lerp(hot, cb * (0.55f + 0.45f * m), 0.86f) * limb;
+            b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setColor(r0, g0, b0, mu > 0 ? alpha : 0f);
+        }
+        draw(b);
     }
 
     private static void sphere(float x, float y, float z, float r, float scroll, float cr, float cg, float cb, float a) {
@@ -252,10 +326,15 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- общее
 
-    /** Своя текстура и смешивание; глубина проверяется, но не пишется (прозрачное поверх непрозрачного мира). */
+    /** Своя текстура и смешивание. */
     private static void setup(ResourceLocation texture, boolean additive) {
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderTexture(0, texture);
+        blend(additive);
+    }
+
+    /** Обычное смешивание или сложение света; глубина проверяется, но не пишется (прозрачное поверх мира). */
+    private static void blend(boolean additive) {
         RenderSystem.enableBlend();
         if (additive) {
             RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);

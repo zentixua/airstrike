@@ -1,13 +1,14 @@
 package ua.zentix.airstrike.gametest;
 
 import com.mojang.serialization.Codec;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.SectionPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -37,15 +38,20 @@ import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.UpgradeData;
 import net.minecraft.world.level.chunk.status.ChunkType;
 import net.minecraft.world.level.chunk.storage.ChunkSerializer;
+import net.minecraft.world.level.chunk.storage.RegionStorageInfo;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.common.util.BlockSnapshot;
+import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -61,6 +67,7 @@ import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.PowerGrid;
 import ua.zentix.airstrike.grid.SubstationBlock;
 import ua.zentix.airstrike.grid.block.Unlit;
+import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
@@ -89,16 +96,25 @@ public final class GridGameTests {
 
     private GridGameTests() {}
 
-    /** Отключения других проверок — на возврат, чтобы они не гасили площадку посреди этой. */
+    /**
+     * Отключения других проверок — свет во всех кварталах сейчас, чтобы они не гасили площадку посреди этой
+     * (с разбросом команды квартал площадки оставался бы тёмным до 10 с — дольше срока иных проверок).
+     */
     private static void quiet(ServerLevel level) {
-        Blackouts.restore(level, null, 0);
+        Blackouts.restore(level, null, 0, 0);
+        // подстанции других проверок остаются в мире: ядерный удар этой выбил бы их (порядок партий — по хешу имён)
+        PowerGrid grid = PowerGrid.get(level);
+        List<Integer> ids = new ArrayList<>();
+        for (Node n : grid.nodes()) ids.add(n.id());
+        ids.forEach(grid::removeNode);
     }
 
     /**
      * Каждое состояние каждой лампы сети туда и обратно — то же состояние; у двойника нет света. На площадке —
      * лампы в «неудобных» состояниях (висящий фонарь под водой, стержень края на восток, лампа из красного камня под
      * сигналом, медная лампа под сигналом, блок света 7 под водой): после погашения и соседских обновлений двойники
-     * те же, после возврата света — ровно прежние состояния.
+     * те же, после возврата света — ровно прежние состояния. Каждая пара для мира — один блок, кроме света
+     * ({@link GridLights#inPlace}): очередь меняет их прямо в палитре секции.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "grid_round_trip", skyAccess = true)
     public static void lampsRoundTripExactly(GameTestHelper h) {
@@ -114,6 +130,8 @@ public final class GridGameTests {
                 h.assertTrue(emission == 0, off + " светит " + emission);
                 h.assertTrue(GridLights.lit(off) == s, s + " → " + off + " → " + GridLights.lit(off));
                 h.assertTrue(off.getValues().equals(s.getValues()), "свойства " + s + " и " + off + " разные");
+                // очередь меняет лампы прямо в палитре: для мира пара — один блок, кроме света
+                h.assertTrue(GridLights.inPlace(s) && GridLights.inPlace(off), s + " и " + off + " различаются не только светом");
             }
         }
         h.assertTrue(pairs == 19, "ламп сети: " + pairs);
@@ -126,9 +144,14 @@ public final class GridGameTests {
         h.assertTrue(chunks.size() == 1, "лампы в " + chunks.size() + " чанках");
         // единица работы — не больше заданного числа ламп, остальное — следующей
         LevelChunk chunk = level.getChunk(chunks.get(0).x, chunks.get(0).z);
-        int dark = ChunkLights.apply(level, chunk, true, 5);
-        h.assertTrue(dark == 5, "за единицу погашено " + dark + " вместо 5");
-        dark += ChunkLights.apply(level, chunk, true);
+        ChunkLights.Pass first = ChunkLights.apply(level, chunk, true, 5);
+        int dark = first.changed();
+        h.assertTrue(dark == 5 && !first.done(), "за единицу погашено " + dark + " вместо 5 (чанк пройден: " + first.done() + ")");
+        // ровно столько ламп, сколько осталось, с места остановки — чанк пройден этим же проходом
+        ChunkLights.Pass rest = ChunkLights.apply(level, chunk, true, placed.size() - 5, first.next());
+        dark += rest.changed();
+        h.assertTrue(rest.done(), "чанк ровно с лимитом ламп не пройден до конца");
+        h.assertTrue(ChunkLights.apply(level, chunk, true, 1).changed() == 0, "после прохода до конца остались лампы");
         h.assertTrue(dark == placed.size(), "погашено " + dark + " из " + placed.size());
         for (var e : placed.entrySet()) {
             BlockState now = level.getBlockState(e.getKey());
@@ -393,7 +416,495 @@ public final class GridGameTests {
                     h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
                     h.assertFalse(level.getChunkAt(h.absolutePos(lamps.get(0))).hasData(ModAttachments.GRID_DARK), "отметка тёмного чанка осталась");
                 })
-                .thenExecute(() -> Blackouts.useClock(level.getServer(), new WorkClock()))
+                .thenExecute(() -> Blackouts.useClock(level.getServer(), Blackouts.newClock()))
+                .thenSucceed();
+    }
+
+    /**
+     * Ядерный удар гасит свой радиус и выбивает подстанции в нём: подстанция не «под током» (не гудит, искрит), пока
+     * свет не вернут; после возврата — лампы прежние, подстанция работает.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "grid_nuke", skyAccess = true)
+    public static void nukeBlacksOutAndKnocksOutSubstations(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        h.setBlock(CENTER, ModBlocks.SUBSTATION.get());
+        Node node = PowerGrid.get(level).nodeAt(h.absolutePos(CENTER));
+        h.assertTrue(node != null && node.block(), "подстанция не стала узлом сети");
+        List<BlockPos> lamps = List.of(new BlockPos(18, 12, 18), new BlockPos(45, 12, 45));
+        for (BlockPos p : lamps) h.setBlock(p, Blocks.LANTERN);
+        // воздушный подрыв в стороне от подстанции (как в ядерных проверках: 15 кт, масштаб 0.1); сам подрыв здесь не нужен
+        BlockPos g = h.absolutePos(CENTER.east(8));
+        Detonation d = new Detonation(2_000_000 + level.random.nextInt(1000), new Vec3(g.getX() + 0.5, g.getY() + 300, g.getZ() + 0.5), g.getY(),
+                15, false, level.getGameTime(), 0, 0, 20_000, 7, 0.1f, false);
+        h.assertTrue(d.radiusMax() > 64, "радиус подрыва " + d.radiusMax() + " не накрывает площадку");
+        Blackouts.nuke(level, d);
+        h.assertTrue(PowerGrid.get(level).downOutage(node.id(), level.getGameTime()).isPresent(), "ядерный удар не выбил подстанцию");
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    h.assertFalse(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция в радиусе подрыва «под током»");
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
+                })
+                // подрыв и выбитая им подстанция — два отключения (других нет: quiet)
+                .thenExecute(() -> h.assertTrue(Blackouts.restore(level, null, 0) == 2, "возвращено не два отключения"))
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
+                    h.assertTrue(h.getBlockState(CENTER).getValue(SubstationBlock.POWERED), "подстанция не заработала");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Радиус отключения города: угол города — в ~373 блоках от центра, а зерно квартала (ячейка Вороного) лежит до ~60
+     * блоков дальше своих чанков; при 400 угловой чанк на некоторых местах площадки оставался вне отключения.
+     */
+    private static final int CITY_RADIUS = 480;
+
+    /**
+     * Город: 1024 загруженных чанка по 8 ламп. Единица работы очереди — {@code UNIT_WORK} работы по стольким чанкам,
+     * сколько уместится (лампа в палитре — 1, проход секций чанка с лампами — {@code SCAN_COST}), и чанк кончается
+     * тем же проходом, что перевёл его последнюю лампу: на считающих часах и гашение, и возврат света идут не меньше
+     * 1.2 чанка на единицу работы (при полной очереди — 2, но каскад идёт по кварталам, и последняя единица квартала
+     * бывает неполной; по чанку за единицу и ещё единица на холостой проход, как до правки, — полчанка). Потом тот же каскад на настоящих часах блэкаута — в лог чанки за тик и самый долгий тик, и время
+     * на лампу (не проверка: настенное время на CI плавает).
+     */
+    @GameTest(template = "range", timeoutTicks = 4800, batch = "grid_city", skyAccess = true)
+    public static void cityQueueRunsManyChunksPerTick(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        int y = h.absolutePos(CENTER).getY() + 1;
+        List<ChunkPos> held = new ArrayList<>();
+        List<BlockPos> lamps = new ArrayList<>();
+        for (int dx = -16; dx < 16; dx++) {
+            for (int dz = -16; dz < 16; dz++) {
+                ChunkPos p = new ChunkPos(mid.x + dx, mid.z + dz);
+                chunks.addRegionTicket(HOLD, p, 1, p);
+                held.add(p);
+            }
+        }
+        for (ChunkPos p : held) {
+            level.getChunk(p.x, p.z);
+            for (int i = 0; i < 8; i++) {
+                BlockPos at = new BlockPos(p.getMinBlockX() + 1 + i, y, p.getMinBlockZ() + 1 + i);
+                level.setBlock(at, Blocks.SEA_LANTERN.defaultBlockState(), Block.UPDATE_CLIENTS);
+                lamps.add(at);
+            }
+        }
+        // время на лампу: один setBlock и чанк целиком через ChunkLights.apply (с проходом секций) — по 128 чанков
+        long t0 = System.nanoTime();
+        for (int i = 0; i < 128 * 8; i++) level.setBlock(lamps.get(i), GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+        long set = System.nanoTime() - t0;
+        for (int i = 0; i < 128 * 8; i++) level.setBlock(lamps.get(i), Blocks.SEA_LANTERN.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+        t0 = System.nanoTime();
+        int n = 0;
+        for (int i = 128; i < 256; i++) n += ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), true);
+        long apply = System.nanoTime() - t0;
+        for (int i = 128; i < 256; i++) ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), false);
+        // и лампы соседних площадок, если они в этих чанках
+        h.assertTrue(n >= 128 * 8, "погашено " + n);
+        t0 = System.nanoTime();
+        int m = 0;
+        for (int i = 256; i < 384; i++) {
+            m += ChunkLights.applyInPlace(level, level.getChunk(held.get(i).x, held.get(i).z), true, Integer.MAX_VALUE, 0, true, new LongArrayList()).changed();
+        }
+        long inPlace = System.nanoTime() - t0;
+        for (int i = 256; i < 384; i++) ChunkLights.apply(level, level.getChunk(held.get(i).x, held.get(i).z), false);
+        Airstrike.LOG.info("GRIDBENCH лампа: setBlock {} мкс, ChunkLights.apply {} мкс, в палитре {} мкс (с проходом секций, по {} и {} ламп)",
+                String.format(Locale.ROOT, "%.1f", set / 1e3 / (128 * 8)), String.format(Locale.ROOT, "%.1f", apply / 1e3 / n),
+                String.format(Locale.ROOT, "%.1f", inPlace / 1e3 / m), n, m);
+
+        Vec3 at = Vec3.atCenterOf(h.absolutePos(CENTER));
+        WorkClock counting = WorkClock.counting(1_000_000L);
+        WorkClock[] real = {null};
+        int[] ticks = new int[4], units = new int[2];
+        long[] maxTick = new long[2];
+        Blackouts.useClock(level.getServer(), counting);
+        // счётчики работы для /airstrike grid status (с загрузки мира: окно в 100 тиков сервер GameTest на CI
+        // проходит целиком за время гашения, и прошлое окно бывает пустым) — единицы, лампы, пройденные чанки
+        long[] before = BlackoutWorld.get(level).totals();
+        Blackouts.blackout(level, at, CITY_RADIUS, 1000, -1);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
+                .thenExecute(() -> {
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(level.getBlockState(p)), "лампа " + p + " горит");
+                    long[] after = BlackoutWorld.get(level).totals();
+                    for (BlackoutWorld.Work w : List.of(BlackoutWorld.Work.UNIT, BlackoutWorld.Work.LAMPS, BlackoutWorld.Work.PASS_DONE)) {
+                        h.assertTrue(after[w.ordinal()] > before[w.ordinal()], "счётчик " + w + " не вырос за гашение");
+                    }
+                    ticks[0] = counting.ticksWorked();
+                    units[0] = counting.units();
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт"))
+                .thenExecute(() -> {
+                    ticks[1] = counting.ticksWorked() - ticks[0];
+                    units[1] = counting.units() - units[0];
+                    assertAllLit(h, level, lamps, mid);
+                    // на настоящих часах блэкаута — как в игре
+                    real[0] = Blackouts.newClock();
+                    Blackouts.useClock(level.getServer(), real[0]);
+                    Blackouts.blackout(level, at, CITY_RADIUS, 1000, -1);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт"))
+                .thenExecute(() -> {
+                    // шаг выше упал (проверка теста): без часов — дальше ничего не мерить, сервер не ронять
+                    h.assertTrue(real[0] != null, "настоящие часы не поставлены — упал прошлый шаг");
+                    ticks[2] = real[0].ticksWorked();
+                    maxTick[0] = real[0].maxTickNanos();
+                    real[0] = Blackouts.newClock();
+                    Blackouts.useClock(level.getServer(), real[0]);
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт"))
+                .thenExecute(() -> {
+                    h.assertTrue(real[0] != null, "настоящие часы не поставлены — упал прошлый шаг");
+                    ticks[3] = real[0].ticksWorked();
+                    maxTick[1] = real[0].maxTickNanos();
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 1, p));
+                    assertAllLit(h, level, lamps, mid);
+                    int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+                    // на единицу, а не на тик: каскад идёт по кварталам со сдвигом, и в части тиков очередь пустеет раньше срока
+                    double off = (double) held.size() / units[0], on = (double) held.size() / units[1];
+                    Airstrike.LOG.info("GRIDBENCH считающие часы (до {} единиц за тик): гашение {} чанков на единицу ({} единиц, {} тиков), возврат {} ({} единиц, {} тиков)",
+                            counting.maxUnitsPerTick(), String.format(Locale.ROOT, "%.2f", off), units[0], ticks[0], String.format(Locale.ROOT, "%.2f", on), units[1], ticks[1]);
+                    Airstrike.LOG.info("GRIDBENCH настоящие часы (бюджет {} мс): гашение {} чанков/тик ({} тиков, самый долгий {} мс), возврат {} чанков/тик ({} тиков, самый долгий {} мс)",
+                            budget, String.format(Locale.ROOT, "%.1f", (double) held.size() / ticks[2]), ticks[2], String.format(Locale.ROOT, "%.2f", maxTick[0] / 1e6),
+                            String.format(Locale.ROOT, "%.1f", (double) held.size() / ticks[3]), ticks[3], String.format(Locale.ROOT, "%.2f", maxTick[1] / 1e6));
+                    h.assertTrue(off >= 1.2 && on >= 1.2, "чанков на единицу работы: гашение " + off + ", возврат " + on + " (нужно не меньше 1.2)");
+                })
+                .thenSucceed();
+    }
+
+    /** Все лампы города снова прежние (первая не зажёгшаяся — в лог с её чанком). */
+    private static void assertAllLit(GameTestHelper h, ServerLevel level, List<BlockPos> lamps, ChunkPos mid) {
+        List<BlockPos> bad = lamps.stream().filter(p -> level.getBlockState(p) != Blocks.SEA_LANTERN.defaultBlockState()).toList();
+        if (bad.isEmpty()) return;
+        BlockPos b = bad.get(0);
+        ChunkPos c = new ChunkPos(b);
+        Airstrike.LOG.info("GRIDDEBUG не зажглось {}: первая {} {} чанк {} ({} {}), тёмный {}, задет {}", bad.size(), b, level.getBlockState(b), c,
+                c.x - mid.x, c.z - mid.z, PowerGrid.get(level).dark(c.x, c.z, level.getGameTime()), PowerGrid.get(level).covered(c.x, c.z));
+        h.fail(bad.size() + " ламп не зажглись прежними, первая " + b);
+    }
+
+    /**
+     * Чанк, залитый светом: 32 768 блоков света и фонаря (как невидимые блоки света карт-городов, до 7400 на чанк) —
+     * десятки единиц работы. Очередь переводит его проходами с места остановки и доводит до конца (неверный конец чанка
+     * оставил бы лампы гореть). Потом чанк выгружается посреди гашения (по единице за тик) и загружается снова: в тёмном
+     * квартале — ни одной горящей лампы; свет возвращается весь. В темпе игры: выгрузка ждёт записи чанка в фоне, а
+     * сервер GameTest без пауз проходил бы башню раньше.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_tower", skyAccess = true)
+    public static void lampTowerConvertsAcrossPassesAndUnload(GameTestHelper h) {
+        StrikeGameTests.gameSpeed(h);
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.west(480)));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockState light = Blocks.LIGHT.defaultBlockState(), lantern = Blocks.SEA_LANTERN.defaultBlockState();
+        WorkClock fast = WorkClock.counting(1_000_000L);
+        // 3 мс единица при бюджете 4 мс — одна единица за тик: гашение башни идёт десятки тиков
+        WorkClock slow = WorkClock.counting(3_000_000L);
+        long[] lampsAtStart = {0};
+        hold(level, far);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
+                .thenExecute(() -> {
+                    placed.putAll(fill(level, far, 128, light, lantern));
+                    Blackouts.useClock(level.getServer(), fast);
+                    Blackouts.blackout(level, Vec3.atCenterOf(placed.keySet().iterator().next()), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                    assertLamps(h, level, placed, true);
+                })
+                .thenExecute(() -> {
+                    h.assertTrue(fast.units() >= placed.size() / BlackoutWorld.UNIT_WORK, "башня погасла за " + fast.units() + " единиц — проходов не было");
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> {
+                    lampsAtStart[0] = BlackoutWorld.get(level).totals()[BlackoutWorld.Work.LAMPS.ordinal()];
+                    Blackouts.useClock(level.getServer(), slow);
+                    Blackouts.blackout(level, Vec3.atCenterOf(placed.keySet().iterator().next()), 200, 1000, -1);
+                })
+                // первые лампы погасли — чанк уходит из памяти посреди перевода
+                .thenWaitUntil(() -> h.assertTrue(placed.keySet().stream().anyMatch(p -> GridLights.isUnlit(level.getBlockState(p))), "гашение не началось"))
+                .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenWaitUntil(() -> unloaded(h, level, far))
+                .thenExecute(() -> {
+                    long lamps = BlackoutWorld.get(level).totals()[BlackoutWorld.Work.LAMPS.ordinal()] - lampsAtStart[0];
+                    h.assertTrue(lamps < placed.size(), "башня погасла до выгрузки (" + lamps + " ламп) — выгрузки посреди прохода не было");
+                    hold(level, far);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится");
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                    assertLamps(h, level, placed, true);
+                })
+                .thenExecute(() -> Blackouts.restore(level, null, 0, 0))
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    chunks.removeRegionTicket(HOLD, far, 2, far);
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Четыре чанка по 7168 блоков света (плотнее самых плотных чанков карт-городов): лампы меняются в палитре, и
+     * очередь переводит их не дороже чем по {@code UNIT_WORK} ламп на единицу работы (через {@code setBlock} было 32),
+     * оба пути до конца; свет в середине куба гаснет и возвращается.
+     */
+    @GameTest(template = "range", timeoutTicks = 2400, batch = "grid_dense", skyAccess = true)
+    public static void denseLightChunksConvertInBoundedUnits(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos base = new ChunkPos(h.absolutePos(CENTER.east(480).south(480)));
+        List<ChunkPos> held = List.of(base, new ChunkPos(base.x + 1, base.z), new ChunkPos(base.x, base.z + 1), new ChunkPos(base.x + 1, base.z + 1));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockState light = Blocks.LIGHT.defaultBlockState();
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        BlockPos[] mid = {null};
+        int[] units = new int[2];
+        long[] before = new long[BlackoutWorld.Work.values().length];
+        held.forEach(p -> hold(level, p));
+        h.startSequence()
+                .thenWaitUntil(() -> held.forEach(p -> h.assertTrue(chunks.getChunkNow(p.x, p.z) != null, "чанк " + p + " грузится")))
+                .thenExecute(() -> {
+                    // одна высота на все четыре чанка — сплошной куб, его середина далеко от края
+                    int y = held.stream().mapToInt(p -> caseOrigin(level, p).getY()).max().orElseThrow();
+                    for (ChunkPos p : held) placed.putAll(fill(level, p, y, 28, light, light));
+                    mid[0] = new BlockPos(base.getMaxBlockX(), y + 14, base.getMaxBlockZ());
+                    Blackouts.useClock(level.getServer(), clock);
+                })
+                .thenWaitUntil(() -> assertBlockLight(h, level, mid[0], 15))
+                .thenExecute(() -> {
+                    System.arraycopy(BlackoutWorld.get(level).totals(), 0, before, 0, before.length);
+                    Blackouts.blackout(level, Vec3.atCenterOf(mid[0]), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "гашение идёт");
+                    assertLamps(h, level, placed, true);
+                })
+                .thenWaitUntil(() -> assertBlockLight(h, level, mid[0], 0))
+                .thenExecute(() -> {
+                    units[0] = (int) (BlackoutWorld.get(level).totals()[BlackoutWorld.Work.UNIT.ordinal()] - before[BlackoutWorld.Work.UNIT.ordinal()]);
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenWaitUntil(() -> assertBlockLight(h, level, mid[0], 15))
+                .thenExecute(() -> {
+                    units[1] = (int) (BlackoutWorld.get(level).totals()[BlackoutWorld.Work.UNIT.ordinal()] - before[BlackoutWorld.Work.UNIT.ordinal()]) - units[0];
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 2, p));
+                    // единицы перевода (без разбора каскада на ряды): по единице на UNIT_WORK ламп и запас на концы
+                    // проходов и пустые чанки района (через setBlock по 32 лампы — 900 единиц)
+                    int most = placed.size() * 115 / 100 / BlackoutWorld.UNIT_WORK + 2 * held.size();
+                    long[] t = BlackoutWorld.get(level).totals();
+                    StringBuilder kinds = new StringBuilder();
+                    for (BlackoutWorld.Work w : BlackoutWorld.Work.values()) kinds.append(' ').append(w).append('=').append(t[w.ordinal()] - before[w.ordinal()]);
+                    Airstrike.LOG.info("GRIDBENCH плотные чанки: {} блоков света, гашение {} единиц, возврат {} (не больше {});{}", placed.size(), units[0], units[1], most, kinds);
+                    h.assertTrue(units[0] <= most && units[1] <= most, "единиц работы: гашение " + units[0] + ", возврат " + units[1] + " (не больше " + most + ")");
+                })
+                .thenSucceed();
+    }
+
+    /** Столб блоков с угла чанка высотой {@code height} над его рельефом: каждый девятый — {@code other}, остальные — {@code block}. */
+    private static Map<BlockPos, BlockState> fill(ServerLevel level, ChunkPos p, int height, BlockState block, BlockState other) {
+        return fill(level, p, caseOrigin(level, p).getY(), height, block, other);
+    }
+
+    private static Map<BlockPos, BlockState> fill(ServerLevel level, ChunkPos p, int y0, int height, BlockState block, BlockState other) {
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    BlockPos at = new BlockPos(p.getMinBlockX() + x, y0 + y, p.getMinBlockZ() + z);
+                    BlockState s = (x + y + z) % 9 == 0 ? other : block;
+                    level.setBlock(at, s, Block.UPDATE_CLIENTS);
+                    placed.put(at, s);
+                }
+            }
+        }
+        return placed;
+    }
+
+    /**
+     * Чтение чанка с диска не для мира (LOD, карты: другие моды зовут {@code ChunkSerializer.read}, в том числе в своих
+     * потоках) не трогает очередь блэкаута: копия уже загруженного чанка в потоке сервера и чтение в чужом потоке не
+     * ставят свет с диска чанку мира (иначе очередь снова и снова проходила бы его лампы) и не пишут в её карты.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_foreign_read", skyAccess = true)
+    public static void foreignChunkReadsLeaveQueueAlone(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos far = new ChunkPos(h.absolutePos(CENTER.south(480)));
+        Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+        BlockState lantern = Blocks.SEA_LANTERN.defaultBlockState();
+        RegionStorageInfo info = new RegionStorageInfo("gametest", level.dimension(), "chunk");
+        hold(level, far);
+        h.startSequence()
+                .thenWaitUntil(() -> h.assertTrue(chunks.getChunkNow(far.x, far.z) != null, "чанк грузится"))
+                .thenExecute(() -> {
+                    BlockPos origin = caseOrigin(level, far);
+                    for (int i = 0; i < 40; i++) placed.put(origin.offset(i % 10, i / 10, 0), lantern);
+                    placed.keySet().forEach(p -> level.setBlock(p, lantern, Block.UPDATE_ALL));
+                    Blackouts.blackout(level, Vec3.atCenterOf(origin), 200, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    assertLamps(h, level, placed, true);
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "очередь занята");
+                })
+                .thenExecute(() -> {
+                    LevelChunk chunk = level.getChunk(far.x, far.z);
+                    // как на диске: лампы вместо двойников
+                    CompoundTag tag = ChunkSerializer.write(level, chunk);
+                    NeoForge.EVENT_BUS.post(new ChunkDataEvent.Save(chunk, level, tag));
+                    h.assertFalse(tag.toString().contains(Airstrike.MOD_ID + ":unlit"), "в теге двойники");
+                    long copies = ChunkSaves.foreignReads(ChunkSaves.COPY), offThread = ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD);
+                    // копия в потоке сервера
+                    LevelChunk copy = ((ImposterProtoChunk) ChunkSerializer.read(level, level.getPoiManager(), info, far, tag)).getWrapped();
+                    h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.COPY) == copies + 1, "копия чанка мира не узнана");
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "копия чанка мира поставила его лампы в очередь");
+                    // то же событие в чужом потоке (как у LOD)
+                    Thread reader = new Thread(() -> NeoForge.EVENT_BUS.post(new ChunkDataEvent.Load(copy, tag, ChunkType.LEVELCHUNK)), "gametest-foreign-reader");
+                    reader.start();
+                    try {
+                        reader.join(10_000);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                    h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD) == offThread + 1, "чтение в чужом потоке не узнано");
+                    h.assertFalse(BlackoutWorld.get(level).busy(), "чтение в чужом потоке поставило лампы в очередь");
+                    assertLamps(h, level, placed, true);
+                    Blackouts.restore(level, null, 0, 0);
+                })
+                .thenWaitUntil(() -> {
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "возврат идёт");
+                    assertLamps(h, level, placed, false);
+                })
+                .thenExecute(() -> chunks.removeRegionTicket(HOLD, far, 2, far))
+                .thenSucceed();
+    }
+
+    /**
+     * Чанки без ламп не тормозят очередь: пачкой за единицу работы, а не по одному (каждый ждал бы оценки тяжёлого
+     * чанка с лампами). 144 загруженных чанка района при бюджете 4 мс (считающие часы: 3 единицы по 1 мс за тик) по
+     * одному — 48 тиков одной очереди, пачками — несколько тиков на весь каскад.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_settle", skyAccess = true)
+    public static void emptyChunksSettleInBatches(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        var chunks = level.getChunkSource();
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        List<ChunkPos> held = new ArrayList<>();
+        for (int dx = -6; dx < 6; dx++) {
+            for (int dz = -6; dz < 6; dz++) {
+                ChunkPos p = new ChunkPos(mid.x + dx, mid.z + dz);
+                chunks.addRegionTicket(HOLD, p, 1, p);
+                level.getChunk(p.x, p.z);
+                held.add(p);
+            }
+        }
+        BlockPos lamp = new BlockPos(18, 12, 18);
+        h.setBlock(lamp, Blocks.LANTERN);
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+        long[] start = {0};
+        long[] took = {0};
+        h.startSequence()
+                // возврат света от прошлых проверок (quiet) должен пройти до замера
+                .thenWaitUntil(() -> h.assertTrue(BlackoutWorld.get(level).idle(), "очередь от прошлых проверок идёт"))
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), clock);
+                    start[0] = level.getGameTime();
+                    Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 150, 1000, -1);
+                })
+                .thenWaitUntil(() -> {
+                    BlackoutWorld world = BlackoutWorld.get(level);
+                    h.assertTrue(world.idle() && GridLights.isUnlit(h.getBlockState(lamp)), "каскад идёт");
+                    took[0] = level.getGameTime() - start[0];
+                })
+                .thenExecute(() -> {
+                    Blackouts.useClock(level.getServer(), Blackouts.newClock());
+                    held.forEach(p -> chunks.removeRegionTicket(HOLD, p, 1, p));
+                    // чанки в памяти, которые задевает отключение, — каждый проходит очередь
+                    long covered = held.stream().filter(p -> PowerGrid.get(level).covered(p.x, p.z)).count();
+                    h.assertTrue(covered >= 100, "отключение задело только " + covered + " чанков — проверять нечего");
+                    // по единице на чанк — covered / units тиков на одну очередь
+                    int units = clock.maxUnitsPerTick();
+                    h.assertTrue(took[0] * units < covered, "каскад по " + covered + " чанкам шёл " + took[0] + " тиков при " + units + " единицах за тик (бюджет " + budget + " мс)");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Лампа, поставленная в тёмном квартале, когда каскад уже прошёл, гаснет — по событию постановки (сама по себе
+     * она не погасла бы: каскад по её чанку больше не придёт).
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "grid_placed", skyAccess = true)
+    public static void lampPlacedInDarkDistrictGoesOut(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        // обе — в чанке середины площадки (он весь на ней): этот чанк каскад уже прошёл
+        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        int y = h.absolutePos(CENTER).getY() + 1;
+        BlockPos first = new BlockPos(mid.getMinBlockX() + 3, y, mid.getMinBlockZ() + 3), placed = first.offset(6, 0, 6);
+        level.setBlock(first, Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 1000, -1);
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    h.assertTrue(GridLights.isUnlit(level.getBlockState(first)), "фонарь " + first + " горит");
+                    // весь каскад прошёл: лампу могла бы погасить только постановка
+                    h.assertTrue(BlackoutWorld.get(level).idle(), "каскад идёт");
+                })
+                .thenExecute(() -> level.setBlock(placed, Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL))
+                .thenIdle(10)
+                .thenExecute(() -> {
+                    h.assertTrue(level.getBlockState(placed).is(Blocks.LANTERN), "фонарь погас без события: " + level.getBlockState(placed));
+                    Blackouts.onBlockPlaced(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, placed), Blocks.STONE.defaultBlockState(), null));
+                })
+                .thenWaitUntil(() -> h.assertTrue(GridLights.isUnlit(level.getBlockState(placed)), "поставленный фонарь горит"))
+                .thenSucceed();
+    }
+
+    /**
+     * Перезапуск посреди каскада: очередь блэкаута не сохраняется (несохраняемый attachment мира) — каскад идёт
+     * заново по сохранённой сети, и район гаснет, как без перезапуска.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "grid_restart", skyAccess = true)
+    public static void cascadeResumesAfterRestart(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        quiet(level);
+        List<BlockPos> lamps = List.of(new BlockPos(18, 12, 18), new BlockPos(45, 12, 45));
+        for (BlockPos p : lamps) h.setBlock(p, Blocks.LANTERN);
+        // медленный каскад (10 блоков в секунду); память блэкаута — как у только что загруженного мира
+        Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 200, 0.5, -1);
+        level.setData(ModAttachments.BLACKOUT_WORLD, new BlackoutWorld());
+        h.startSequence()
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertTrue(GridLights.isUnlit(h.getBlockState(p)), "фонарь " + p + " горит");
+                })
+                .thenExecute(() -> Blackouts.restore(level, null, 0, 0))
+                .thenWaitUntil(() -> {
+                    for (BlockPos p : lamps) h.assertBlockState(p, s -> s == Blocks.LANTERN.defaultBlockState(), () -> "фонарь " + p + " не зажёгся прежним");
+                })
                 .thenSucceed();
     }
 
@@ -625,7 +1136,7 @@ public final class GridGameTests {
                     h.assertTrue(level.getBlockEntity(chest[0]) instanceof ChestBlockEntity c && ItemStack.matches(c.getItem(4), loot),
                             "сундук после диска: " + level.getBlockEntity(chest[0]));
                     for (var e : biomes.entrySet()) {
-                        h.assertTrue(level.getBiome(e.getKey()).is(e.getValue()), "биом в " + e.getKey() + ": " + level.getBiome(e.getKey()));
+                        h.assertTrue(level.getBiome(e.getKey()).value() == e.getValue().value(), "биом в " + e.getKey() + ": " + level.getBiome(e.getKey()));
                     }
                     chunks.removeRegionTicket(HOLD, far, 2, far);
                 })
@@ -770,11 +1281,5 @@ public final class GridGameTests {
         level.getChunkSource().tick(() -> true, false);
         var holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(p.toLong());
         h.assertTrue(holder == null, "чанк не выгрузился: уровень " + (holder == null ? 0 : holder.getTicketLevel()));
-    }
-
-    /** Верх земли в середине чанка (чанк загружен). */
-    private static BlockPos surface(ServerLevel level, ChunkPos p) {
-        int x = p.getMiddleBlockX(), z = p.getMiddleBlockZ();
-        return new BlockPos(x, level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z), z);
     }
 }

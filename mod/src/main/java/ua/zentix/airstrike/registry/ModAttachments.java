@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.grid.BlackoutWorld;
+import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
@@ -32,13 +33,13 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<Boolean>> GRID_DARK = REGISTER.register("grid_dark",
             () -> AttachmentType.builder(() -> false).build());
 
-    /** Мир: блэкаут — каскады, очередь чанков, копии с диска для LOD ({@link BlackoutWorld}); не сохраняется. */
+    /** Мир: блэкаут — каскады и очередь чанков ({@link BlackoutWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<BlackoutWorld>> BLACKOUT_WORLD = REGISTER.register("blackout_world",
             () -> AttachmentType.builder(BlackoutWorld::new).build());
 
-    /** Верхний мир: часы бюджета блэкаута — один на тик сервера ({@link ua.zentix.airstrike.grid.Blackouts#clock}); не сохраняется. */
+    /** Верхний мир: часы бюджета блэкаута — один на тик сервера ({@link Blackouts#clock}); не сохраняется. */
     public static final Supplier<AttachmentType<WorkClock>> GRID_CLOCK = REGISTER.register("grid_clock",
-            () -> AttachmentType.builder(WorkClock::new).build());
+            () -> AttachmentType.builder(Blackouts::newClock).build());
 
     /** Мир: таймлайны взрывов ({@link StrikeWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<StrikeWorld>> STRIKE_WORLD = REGISTER.register("strike_world",

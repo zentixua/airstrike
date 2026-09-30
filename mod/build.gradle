@@ -45,6 +45,8 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 // ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
 def dhModPatterns = System.getenv('AIRSTRIKE_DH') ? ['DistantHorizons-*.jar'] : []
+// GameTest с Lithium, как у хоста (-PwithLithium): Lithium заменяет вызовы в тике блок-сущностей (BoundTickingBlockEntityMixin)
+def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
 
 // каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
 def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
@@ -109,8 +111,22 @@ neoForge {
             jvmArgument "-Xlog:gc:file=${project.file('run/stress/server/gc.log').absolutePath}:time,uptime"
             // профиль JFR сервера по желанию, как у сценария клиента: AIRSTRIKE_JFR=1 tools/stress.sh → run/stress/server/stress.jfr
             if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/stress/server/stress.jfr').absolutePath},settings=profile"
-            // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента
-            jvmArgument '-Xmx4g'
+            // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента.
+            // AIRSTRIKE_RIG_JVM=artem — сервер с JVM, как в игре у Артёма (8 ГБ, поколенческий ZGC), только где хватает
+            // памяти (VPS): 8 ГБ сервера и три клиента по 2 ГБ облако на 15 ГБ не вынесет. Режиссёр пишет сборщик в лог
+            // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим сборщиком (airstrike.stress.gc —
+            // начало имени MXBean: у поколенческого ZGC «ZGC Minor/Major …», у прежнего — «ZGC Cycles») или с кучей
+            // меньше заказанной (airstrike.stress.heap, МБ)
+            def rigJvm = System.getenv('AIRSTRIKE_RIG_JVM') ?: 'default'
+            if (rigJvm == 'artem') {
+                ['-Xmx8g', '-XX:+UseZGC', '-XX:+ZGenerational'].each { jvmArgument it }
+                systemProperty 'airstrike.stress.gc', 'ZGC Minor'
+                systemProperty 'airstrike.stress.heap', '8192'
+            } else if (rigJvm == 'default') {
+                jvmArgument '-Xmx4g'
+            } else {
+                throw new GradleException("AIRSTRIKE_RIG_JVM=${rigJvm}: ожидается artem или default")
+            }
         }
         stressClient {
             client()
@@ -240,7 +256,9 @@ tasks.register('rigLaunch') {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        from(mcModsDir) { (runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns : runtimeModPatterns).each { include it } }
+        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns
+                : runDir == 'gametest' ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
+        from(mcModsDir) { patterns.each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
         onlyIf { mcModsDir.isDirectory() }
     }

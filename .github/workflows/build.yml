@@ -65,6 +65,13 @@ jobs:
           ./gradlew runGameTestServer -PmcModsDir=run/ci-mods --console=plain
           grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
 
+      # у хоста Lithium: он заменяет вызовы в тике блок-сущностей, миксины мода должны работать и с ним
+      - name: GameTest с Lithium
+        run: |
+          ./gradlew runGameTestServer -PmcModsDir=run/ci-mods -PwithLithium --console=plain
+          grep -F 'Lithium 0.15.4' run/gametest/logs/latest.log
+          grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
+
       - uses: actions/upload-artifact@v4
         with:
           name: airstrike-jar

@@ -135,10 +135,14 @@ public final class Warheads {
                 ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
     }
 
+    /**
+     * Сколько отложенный взрыв ({@link #whenReady}) ждёт своего района: тикет грузит район за секунды; если за 5 минут
+     * не вышло (мир не грузится), взрыв отменяется.
+     */
+    public static final int DEFERRED_GIVE_UP_TICKS = 6000;
+
     /** Взрыв, который ждёт готовности своего района ({@link #whenReady}). */
     private static final class Deferred implements Timeline {
-        /** Тикет грузит район за секунды; если за 5 минут не вышло (мир не грузится), взрыв отменяется. */
-        private static final int GIVE_UP_TICKS = 6000;
         private final BlastArea area;
         private final Consumer<ServerLevel> action;
         private int waited;
@@ -154,10 +158,10 @@ public final class Warheads {
                 action.accept(level);
                 return false;
             }
-            if (++waited < GIVE_UP_TICKS) return true;
+            if (++waited < DEFERRED_GIVE_UP_TICKS) return true;
             Vec3 c = area.centre();
             Airstrike.LOG.warn("Взрыв у {} {} {} отменён: район не загрузился за {} тиков",
-                    Mth.floor(c.x), Mth.floor(c.y), Mth.floor(c.z), GIVE_UP_TICKS);
+                    Mth.floor(c.x), Mth.floor(c.y), Mth.floor(c.z), DEFERRED_GIVE_UP_TICKS);
             return false;
         }
 

@@ -1,13 +1,12 @@
 package ua.zentix.airstrike.nuclear.model;
 
-/** Пресеты мощности (килотонны) с ключом перевода и оптимальная высота воздушного подрыва. */
+/**
+ * Пресеты мощности (килотонны) с ключом перевода и оптимальная высота воздушного подрыва. Мощнее 15 кт в моде нет
+ * ({@code Loadout.Nuke.MAX_YIELD}): тяжёлая зона 15 кт — около 15 тыс. чанков, и руины в ней успевают за фронтом.
+ */
 public enum Yield {
     TACTICAL(1, "tactical"),
-    HIROSHIMA(15, "hiroshima"),
-    W76(100, "w76"),
-    W87(300, "w87"),
-    MEGATON(1000, "megaton"),
-    MEGATON_10(10000, "megaton_10");
+    HIROSHIMA(15, "hiroshima");
 
     private final double kt;
     private final String key;

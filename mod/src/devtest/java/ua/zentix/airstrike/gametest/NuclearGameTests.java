@@ -36,6 +36,10 @@ import ua.zentix.airstrike.nuclear.model.CraterModel;
 import ua.zentix.airstrike.nuclear.model.PromptRadiationModel;
 import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.nuclear.world.ColumnScar;
+import ua.zentix.airstrike.grid.GridLights;
+import net.minecraft.world.level.block.state.BlockState;
+import ua.zentix.airstrike.nuclear.world.RuinPlan;
+import ua.zentix.airstrike.nuclear.world.RuinPlanner;
 import ua.zentix.airstrike.nuclear.world.CraterJob;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
@@ -85,10 +89,43 @@ public final class NuclearGameTests {
     private static void scarAll(GameTestHelper h, Detonation d, ColumnScar.Budget budget) {
         ServerLevel level = h.getLevel();
         BlockPos a = h.absolutePos(BlockPos.ZERO), b = h.absolutePos(new BlockPos(63, 0, 63));
-        RandomSource random = RandomSource.create(1);
-        for (int x = Math.min(a.getX(), b.getX()); x <= Math.max(a.getX(), b.getX()); x++) {
-            for (int z = Math.min(a.getZ(), b.getZ()); z <= Math.max(a.getZ(), b.getZ()); z++) ColumnScar.apply(level, d, x, z, budget, random);
+        List<RuinPlan> plans = new java.util.ArrayList<>();
+        for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
+            for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
+                LevelChunk chunk = level.getChunk(cx, cz);
+                int[] before = heights(chunk, true);
+                RuinPlan plan = RuinPlanner.plan(level, d, chunk);
+                h.assertTrue(plan.apply(level, chunk, budget), "свежий план устарел");
+                // карты высот и источники неба из плана — те же, что при пересчёте чанка целиком
+                int[] after = heights(chunk, false), full = heights(chunk, true);
+                for (int k = 0; k < full.length; k++) {
+                    if (after[k] != full[k]) {
+                        h.fail("чанк " + chunk.getPos() + ": " + (k / 256 < RuinPlan.HEIGHTMAP_TYPES.length ? RuinPlan.HEIGHTMAP_TYPES[k / 256] : "небо")
+                                + " в столбце " + (k % 256) + " после подмены " + after[k] + ", пересчёт " + full[k] + " (до руин " + before[k] + ")");
+                    }
+                }
+                plans.add(plan);
+            }
         }
+        // стволы, упавшие в соседний чанк, — после руин всех чанков (как в очереди)
+        for (RuinPlan plan : plans) {
+            for (int k = 0; k < plan.outsideCount(); k++) RuinPlan.placeLog(level, plan.outsidePos(k), plan.outsideState(k));
+        }
+    }
+
+    /** Карты высот и нижние источники неба чанка подряд по столбцам; recompute — сперва пересчитать чанк целиком. */
+    private static int[] heights(LevelChunk chunk, boolean recompute) {
+        if (recompute) {
+            net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.copyOf(List.of(RuinPlan.HEIGHTMAP_TYPES)));
+            chunk.initializeLightSources();
+        }
+        int types = RuinPlan.HEIGHTMAP_TYPES.length;
+        int[] out = new int[256 * (types + 1)];
+        for (int column = 0; column < 256; column++) {
+            for (int t = 0; t < types; t++) out[t * 256 + column] = chunk.getOrCreateHeightmapUnprimed(RuinPlan.HEIGHTMAP_TYPES[t]).getFirstAvailable(column & 15, column >> 4);
+            out[types * 256 + column] = chunk.getSkyLightSources().getLowestSourceY(column & 15, column >> 4);
+        }
+        return out;
     }
 
     /**
@@ -123,6 +160,157 @@ public final class NuclearGameTests {
         h.assertTrue(lying >= 3, "дерево не легло от эпицентра: брёвен вдоль x " + lying);
         h.assertTrue(!h.getBlockState(CENTER.east(10).below()).isAir(), "волна тронула грунт");
         h.succeed();
+    }
+
+    /**
+     * Руины: башня из каменного кирпича 3×3×4 в 480 м от 15 кт у земли (1 блок = 40 м, ~30 psi) рушится, на её месте —
+     * завал в блок высотой; карты высот чанка — по руинам (подмена секций целиком, без {@code setBlock} на каждый блок).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins", skyAccess = true)
+    public static void collapsedBuildingLeavesRubble(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos tower = CENTER.east(12);
+        for (BlockPos p : BlockPos.betweenClosed(tower.offset(-1, 0, -1), tower.offset(1, 3, 1))) h.setBlock(p, Blocks.STONE_BRICKS);
+        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        for (BlockPos p : BlockPos.betweenClosed(tower.offset(-1, 0, -1), tower.offset(1, 0, 1))) {
+            BlockPos q = p.immutable();
+            var rubble = h.getBlockState(q);
+            h.assertTrue(rubble.is(Blocks.GRAVEL) || rubble.is(Blocks.COBBLESTONE) || rubble.is(Blocks.ANDESITE) || rubble.is(Blocks.TUFF),
+                    "нет завала в " + q.toShortString() + ": " + rubble);
+            for (int y = 1; y <= 3; y++) h.assertTrue(h.getBlockState(q.above(y)).isAir(), "башня стоит: " + q.above(y).toShortString());
+            BlockPos abs = h.absolutePos(q);
+            h.assertTrue(level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) == abs.getY() + 1,
+                    "карта высот не по руинам: " + level.getHeight(Heightmap.Types.WORLD_SURFACE, abs.getX(), abs.getZ()) + " вместо " + (abs.getY() + 1));
+        }
+        h.succeed();
+    }
+
+    /**
+     * Сундук с добычей и кровать в руинах: меняются через мир после подмены — ни предметов на земле, ни блок-сущности
+     * при воздухе; удар из старого сохранения мощнее предела подрывается с пределом.
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins_be", skyAccess = true)
+    public static void containersInRuinsLeaveNothing(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos chest = CENTER.east(8), bed = CENTER.east(8).north(2);
+        h.setBlock(chest, Blocks.CHEST);
+        if (h.getBlockEntity(chest) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity c) {
+            c.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 64));
+        }
+        h.setBlock(bed, Blocks.RED_BED);
+        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        h.assertBlockNotPresent(Blocks.CHEST, chest);
+        h.assertTrue(level.getBlockEntity(h.absolutePos(chest)) == null || h.getBlockState(chest).hasBlockEntity(),
+                "блок-сущность сундука осталась при " + h.getBlockState(chest));
+        var items = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(h.absolutePos(CENTER)).inflate(40));
+        h.assertTrue(items.isEmpty(), "на земле предметы: " + items.size());
+        // старое сохранение: удар в 1 Мт
+        var tag = NuclearEvents.ScheduledStrike.CODEC.encodeStart(net.minecraft.nbt.NbtOps.INSTANCE,
+                new NuclearEvents.ScheduledStrike(1, Vec3.ZERO, 1000, true, 0, 1, Vec3.ZERO, java.util.Optional.empty(), false)).getOrThrow();
+        double kt = NuclearEvents.ScheduledStrike.CODEC.parse(net.minecraft.nbt.NbtOps.INSTANCE, tag).getOrThrow().yieldKt();
+        h.assertTrue(kt == ua.zentix.airstrike.strike.Loadout.Nuke.MAX_YIELD, "мощность из сохранения не ограничена: " + kt);
+        h.succeed();
+    }
+
+    /** План, в местах которого после него что-то меняли, не ставится: руины строятся заново по чанку как есть. */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_stale_plan", skyAccess = true)
+    public static void stalePlanIsRebuilt(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos glass = CENTER.west(8);
+        h.setBlock(glass, Blocks.GLASS);
+        Detonation d = detonation(h, CENTER, 0, 15, 0.025f);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(glass));
+        RuinPlan plan = RuinPlanner.plan(level, d, chunk);
+        // игрок заменил стекло уже после плана
+        h.setBlock(glass, Blocks.WHITE_STAINED_GLASS);
+        ColumnScar.Budget budget = new ColumnScar.Budget(false);
+        h.assertFalse(plan.apply(level, chunk, budget), "устаревший план поставлен");
+        h.assertBlockPresent(Blocks.WHITE_STAINED_GLASS, glass);
+        h.assertTrue(RuinPlanner.plan(level, d, chunk).apply(level, chunk, budget), "новый план не поставлен");
+        h.assertBlockNotPresent(Blocks.WHITE_STAINED_GLASS, glass);
+        h.succeed();
+    }
+
+    /**
+     * Блэкаут гасит лампы прямо в палитре секции — план от этого не устаревает, а погашенная лампа после руин не
+     * зажигается снова (план пишет в секцию только свои места).
+     */
+    @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_stale_plan", skyAccess = true)
+    public static void blackoutKeepsPlanAndLampsDark(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos glass = CENTER.west(8), lamp = glass.north(), lantern = glass.south();
+        h.setBlock(glass, Blocks.GLASS);
+        h.setBlock(lamp, Blocks.REDSTONE_LAMP);
+        h.setBlock(lantern, Blocks.LANTERN);
+        Detonation d = detonation(h, CENTER, 0, 15, 0.025f);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(glass));
+        RuinPlan plan = RuinPlanner.plan(level, d, chunk);
+        for (BlockPos p : List.of(lamp, lantern)) {
+            BlockState dark = GridLights.unlit(h.getBlockState(p));
+            h.assertTrue(dark != null, "не лампа сети: " + h.getBlockState(p));
+            h.setBlock(p, dark);
+        }
+        h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел от блэкаута");
+        h.assertBlockNotPresent(Blocks.GLASS, glass);
+        h.assertBlockNotPresent(Blocks.REDSTONE_LAMP, lamp);
+        h.assertBlockNotPresent(Blocks.LANTERN, lantern);
+        h.succeed();
+    }
+
+    /**
+     * Руины заранее: пока летит МБР, чанки тяжёлой зоны готовятся; в момент подрыва их руины встают по плану, каждый
+     * чанк — не позже чем через 2 тика после прихода фронта к нему (стекло в 16 блоках, 15 кт в воздухе, масштаб 0.02),
+     * а тикеты подготовки отпускаются. Считающие часы: бюджет не зависит от машины CI.
+     */
+    @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
+    public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos glass = CENTER.west(16);
+        h.setBlock(glass, Blocks.GLASS);
+        double scale = AirstrikeConfig.SERVER.nukeEffectsScale.get();
+        AirstrikeConfig.SERVER.nukeEffectsScale.set(0.02);
+        NuclearWorld w = NuclearWorld.get(level);
+        WorkClock clock = WorkClock.counting(1_000_000L);
+        NuclearWorld.useClock(level.getServer(), clock);
+        NuclearEvents events = NuclearEvents.get(level);
+        long now = level.getGameTime();
+        Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(CENTER));
+        events.schedule(new NuclearEvents.ScheduledStrike(events.nextId(), target, 15, true, now, now + 300, target, java.util.Optional.empty(), false));
+        int[] plannedBefore = {-1};
+        long[] glassGone = {-1};
+        h.onEachTick(() -> {
+            String failure = null;
+            if (!events.scheduled().isEmpty()) plannedBefore[0] = w.plannedChunks();
+            if (glassGone[0] < 0 && !h.getBlockState(glass).is(Blocks.GLASS)) glassGone[0] = level.getGameTime(); // на месте стекла бывает и пожар
+            Detonation d = events.detonations().stream().filter(x -> x.burst().distanceTo(target) < 20).findFirst().orElse(null);
+            if (d != null && glassGone[0] >= 0) {
+                BlockPos g = h.absolutePos(glass);
+                ChunkPos c = new ChunkPos(g);
+                double x = Math.max(c.getMinBlockX(), Math.min(d.burst().x, c.getMaxBlockX() + 1)), z = Math.max(c.getMinBlockZ(), Math.min(d.burst().z, c.getMaxBlockZ() + 1));
+                double slant = Math.sqrt((x - d.burst().x) * (x - d.burst().x) + (z - d.burst().z) * (z - d.burst().z) + Math.pow(d.burst().y - d.groundY(), 2));
+                long due = d.gameTime() + (long) d.arrivalTicks(slant);
+                if (plannedBefore[0] <= 0) failure = "руины не готовились во время полёта";
+                else if (w.ruinStats()[0] == 0) failure = "ни один чанк не встал по готовому плану";
+                else if (glassGone[0] > due + 2) failure = "руины отстали от фронта: стекло выбито через " + (glassGone[0] - due) + " тиков после прихода волны";
+                else if (w.plannedChunks() > 0 || w.prepTiles() > 0) return; // ждём, пока подготовка отпустит тикеты
+                else {
+                    h.assertTrue(clock.maxUnitsPerTick() <= AirstrikeConfig.SERVER.nukeTimeBudgetMs.get(), "за тик " + clock.maxUnitsPerTick() + " единиц");
+                    AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+                    NuclearWorld.useClock(level.getServer(), new WorkClock());
+                    NuclearStrikes.clear(level);
+                    h.succeed();
+                    return;
+                }
+            }
+            if (failure != null || level.getGameTime() > now + 850) {
+                AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+                NuclearWorld.useClock(level.getServer(), new WorkClock());
+                NuclearStrikes.clear(level);
+                throw new net.minecraft.gametest.framework.GameTestAssertException(failure != null ? failure
+                        : "подрыв не прошёл до конца: готово " + plannedBefore[0] + ", по плану " + w.ruinStats()[0] + ", осталось " + w.plannedChunks()
+                        + ", квадратов " + w.prepTiles() + ", подрыв " + (d != null) + ", стекло " + glassGone[0]);
+            }
+        });
     }
 
     /** Забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает; свежий — поджигает. */
@@ -221,7 +409,8 @@ public final class NuclearGameTests {
     }
 
     /**
-     * Наземный подрыв 1 Мт, 1 блок = 15 м: чаша по профилю модели ±1 блок от природного грунта каждого столбца
+     * Наземный подрыв 1 Мт в обход предела 15 кт (подрыв собран в проверке, не через {@code detonate}) — ради крупной
+     * чаши, 1 блок = 15 м: чаша по профилю модели ±1 блок от природного грунта каждого столбца
      * (бугор в чаше углубляется от своей высоты, холм на валу не срезается), вокруг вал; воздушный подрыв воронки не даёт.
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "nuke_crater", skyAccess = true)

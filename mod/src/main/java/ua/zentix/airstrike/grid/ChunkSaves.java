@@ -22,6 +22,9 @@ import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.registry.ModAttachments;
 
+import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicLongArray;
+
 /**
  * На диске двойников не бывает: погашенная лампа — только состояние чанка в памяти. Сохраняется чанк с настоящими
  * лампами (и пересветом при загрузке), а загруженный в тёмном квартале гаснет сразу, в палитре, ещё до того, как
@@ -68,7 +71,8 @@ public final class ChunkSaves {
                     continue;
                 }
                 PalettedContainer<BlockState> states = section.getStates().copy();
-                ChunkLights.apply(states, false);
+                // палитра помнит и ушедшие состояния: двойник в ней ещё не значит двойник в секции
+                if (ChunkLights.apply(states, false) == 0) continue;
                 s.put("block_states", BLOCK_STATES.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
                 changed = true;
             }
@@ -94,10 +98,20 @@ public final class ChunkSaves {
      */
     public static void onLoad(ChunkDataEvent.Load e) {
         if (e.getType() != ChunkType.LEVELCHUNK || !(e.getChunk() instanceof LevelChunk chunk) || !(e.getLevel() instanceof ServerLevel level)) return;
+        // событие приходит из самого ChunkSerializer.read: его зовут и другие моды (LOD, карты), в том числе в своих
+        // потоках, — это копия с диска, а не чанк мира. Мир загружает чанки в потоке сервера (ChunkMap.scheduleChunkLoad);
+        // в чужом потоке — ничего не трогать (состояние сети и очереди — только потока сервера)
+        if (!level.getServer().isSameThread()) {
+            foreignRead(OFF_THREAD, chunk.getPos(), "поток " + Thread.currentThread().getName());
+            return;
+        }
+        // копия чанка, который уже в мире: гасить её можно, а свет с диска у чанка мира убирать нечего — не трогать его
+        boolean copy = BlackoutWorld.inMemory(level, chunk.getPos().toLong()) != null;
+        if (copy) foreignRead(COPY, chunk.getPos(), "чанк уже в мире");
         PowerGrid grid = PowerGrid.get(level);
         LevelChunkSection[] sections = chunk.getSections();
-        boolean marked = chunk.hasData(ModAttachments.GRID_DARK);
-        if (!marked && grid.outages().isEmpty() && !ChunkLights.anyUnlit(sections)) return;
+        // отметка GRID_DARK не сохраняется: у чанка с диска её нет
+        if (grid.outages().isEmpty() && !ChunkLights.anyUnlit(sections)) return;
         ChunkPos pos = chunk.getPos();
         boolean dark = grid.dark(pos.x, pos.z, level.getGameTime());
         LongArrayList stale = new LongArrayList();
@@ -112,9 +126,30 @@ public final class ChunkSaves {
                 else lit[0]++;
             });
         }
-        if (lit[0] > 0) chunk.setLightCorrect(false);
+        if (lit[0] > 0) {
+            chunk.setLightCorrect(false);
+            // двойники на диске (сохранение без перехвата) — переписать при следующем сохранении
+            chunk.setUnsaved(true);
+        }
+        if (copy) return;
         if (!stale.isEmpty() || level.hasData(ModAttachments.BLACKOUT_WORLD)) BlackoutWorld.get(level).staleLight(pos, stale);
         if (dark && ChunkLights.anyUnlit(sections)) chunk.setData(ModAttachments.GRID_DARK, true);
-        else if (marked) chunk.removeData(ModAttachments.GRID_DARK);
+    }
+
+    /** Чтения чанков с диска не для мира (с запуска): в чужом потоке и копии чанков, которые уже в мире. */
+    public static final int OFF_THREAD = 0, COPY = 1;
+    private static final AtomicLongArray FOREIGN_READS = new AtomicLongArray(2);
+    private static final AtomicIntegerArray FOREIGN_LOGGED = new AtomicIntegerArray(2);
+
+    private static void foreignRead(int kind, ChunkPos pos, String what) {
+        FOREIGN_READS.incrementAndGet(kind);
+        // первый случай каждого вида — со стеком: он называет мод, который читает чанки
+        if (FOREIGN_LOGGED.compareAndSet(kind, 0, 1)) {
+            Airstrike.LOG.info("Блэкаут: чанк {} прочитан с диска не для мира ({}) — очередь блэкаута его не трогает", pos, what, new Throwable("кто читает"));
+        }
+    }
+
+    public static long foreignReads(int kind) {
+        return FOREIGN_READS.get(kind);
     }
 }

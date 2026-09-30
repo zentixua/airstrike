@@ -11,16 +11,22 @@ import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
+import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.grid.Node;
 import ua.zentix.airstrike.grid.Outage;
 import ua.zentix.airstrike.grid.PowerGrid;
+import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
+
+import java.util.Locale;
 
 /**
  * /airstrike grid — сеть и блэкаут (операторы):
@@ -86,6 +92,33 @@ final class GridCommand {
         }
         int o = outages, n = nodes, q = queued, l = lamps;
         ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status", o, n, q, l), false);
+        // почему очередь идёт с такой скоростью: единиц за тик при бюджете, оценка следующей и самая долгая
+        WorkClock clock = Blackouts.clock(ctx.getSource().getServer());
+        String estimate = String.format(Locale.ROOT, "%.2f", clock.estimateNanos() / 1e6), largest = String.format(Locale.ROOT, "%.2f", clock.largestRecentNanos() / 1e6);
+        int units = clock.unitsLastTick(), budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status_clock", units, budget, estimate, largest), false);
+        // куда ушёл бюджет за прошлое окно: виды работы — сколько раз и сколько времени
+        for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
+            if (!level.hasData(ModAttachments.BLACKOUT_WORLD)) continue;
+            long[][] work = BlackoutWorld.get(level).work();
+            MutableComponent parts = Component.empty();
+            for (BlackoutWorld.Work w : BlackoutWorld.Work.values()) {
+                long times = work[0][w.ordinal()], t = work[1][w.ordinal()];
+                if (times == 0) continue;
+                if (!parts.getSiblings().isEmpty()) parts.append(", ");
+                String key = "airstrike.grid.work." + w.name().toLowerCase(Locale.ROOT);
+                parts.append(t > 0 ? Component.translatable("airstrike.grid.work.timed", Component.translatable(key), times, String.format(Locale.ROOT, "%.1f", t / 1e6))
+                        : Component.translatable("airstrike.grid.work.counted", Component.translatable(key), times));
+            }
+            if (parts.getSiblings().isEmpty()) continue;
+            String dimension = level.dimension().location().toString();
+            ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status_work", dimension, BlackoutWorld.STATS_WINDOW / 20, parts), false);
+            ChunkPos head = BlackoutWorld.get(level).repeatedChunk();
+            int times = BlackoutWorld.get(level).repeatedTimes();
+            if (head != null) ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status_head", head.x, head.z, times), false);
+        }
+        long offThread = ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD), copies = ChunkSaves.foreignReads(ChunkSaves.COPY);
+        if (offThread + copies > 0) ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.grid.status_reads", offThread, copies), false);
         for (ServerLevel level : ctx.getSource().getServer().getAllLevels()) {
             long now = level.getGameTime();
             String dimension = level.dimension().location().toString();

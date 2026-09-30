@@ -193,7 +193,7 @@ public final class NuclearStrikes {
         for (NuclearEvents.ScheduledStrike s : due) {
             events.unschedule(s);
             holdGround(level, s, false);
-            Vec3 at = s.surface() ? surface(level, s.target()) : s.target();
+            Vec3 at = s.surface() ? NuclearWarhead.surfaceAt(level, s.target()) : s.target();
             NuclearWarhead.detonate(level, at, s.yieldKt(), s.airBurst(), s.owner().orElse(null));
         }
         if (now % 1200 == 0) events.prune(now);
@@ -263,11 +263,6 @@ public final class NuclearStrikes {
     }
 
     /** Точка на поверхности в месте цели, выше она или ниже оценки (цель с карты); чанк не готов — оценка. */
-    private static Vec3 surface(ServerLevel level, Vec3 at) {
-        BlockPos p = BlockPos.containing(at);
-        if (!Terrain.ready(level, p)) return at;
-        return new Vec3(at.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), at.z);
-    }
 
     /** Точка на земле под целью (для пуска по игроку или сущности — по их позиции). */
     public static Vec3 ground(ServerLevel level, Vec3 at) {

@@ -54,24 +54,42 @@ public final class NuclearWarhead {
     /** @param scale масштаб радиусов (1 — как в жизни); обычно из настройки effects_scale, GameTest задаёт свой */
     public static Detonation detonate(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable UUID owner, float scale) {
         long started = System.nanoTime();
+        // предел мощности — и для ударов из старых сохранений и команд других модов
+        yieldKt = Math.min(yieldKt, ua.zentix.airstrike.strike.Loadout.Nuke.MAX_YIELD);
         NuclearEvents events = NuclearEvents.get(level);
+        Detonation g = geometry(level, target, yieldKt, airBurst, scale);
+        Detonation d = new Detonation(events.nextId(), g.burst(), g.groundY(), yieldKt, g.surface(),
+                level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
+                g.visibility(), level.random.nextLong(), scale, g.surface() && AirstrikeConfig.SERVER.nukeFallout.get());
+        events.add(d);
+        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
+
+        NuclearWorld.get(level).onDetonation(level, d, owner);
+        Blackouts.nuke(level, d);
+        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), d.surface() ? "наземный" : "воздушный",
+                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
+        return d;
+    }
+
+    /**
+     * Место подрыва без номера, времени и случайных деталей: точка подрыва, земля под ней, наземный ли, видимость.
+     * По нему же строятся руины заранее ({@link ua.zentix.airstrike.nuclear.world.NuclearPrep}) — они совпадут с подрывом.
+     */
+    public static Detonation geometry(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, float scale) {
         int groundY = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(target.x), Mth.floor(target.z));
         double ground = Terrain.ready(level, Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) ? Math.min(groundY, target.y) : target.y;
         if (ground <= level.getMinBuildHeight()) ground = target.y;
         double hob = airBurst ? Yield.optimalBurstHeight(yieldKt) * scale : 0;
         boolean surface = hob / scale < FireballModel.maxRadius(yieldKt, true);
         float visibility = (float) (level.isThundering() ? ThermalModel.VISIBILITY_THUNDER : level.isRaining() ? ThermalModel.VISIBILITY_RAIN : ThermalModel.VISIBILITY_CLEAR);
-        Detonation d = new Detonation(events.nextId(), new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface,
-                level.getGameTime(), (float) (level.random.nextDouble() * Math.PI * 2), 5 + level.random.nextFloat() * 10,
-                visibility, level.random.nextLong(), scale, surface && AirstrikeConfig.SERVER.nukeFallout.get());
-        events.add(d);
-        PacketDistributor.sendToPlayersInDimension(level, new S2C.NukeDetonation(d));
+        return new Detonation(-1, new Vec3(target.x, ground + hob, target.z), ground, yieldKt, surface, 0, 0, 0, visibility, 0, scale, false);
+    }
 
-        NuclearWorld.get(level).onDetonation(level, d, owner);
-        Blackouts.nuke(level, d);
-        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), surface ? "наземный" : "воздушный",
-                Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
-        return d;
+    /** Точка на поверхности над целью (удар «по поверхности»: цель — место на карте). */
+    public static Vec3 surfaceAt(ServerLevel level, Vec3 at) {
+        BlockPos p = BlockPos.containing(at);
+        if (!Terrain.ready(level, p)) return at;
+        return new Vec3(at.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), at.z);
     }
 
     /** Дальше этого (блоки) ни свет, ни проникающая радиация сущностей не трогают: ожоги 1-й степени или 50 бэр. */

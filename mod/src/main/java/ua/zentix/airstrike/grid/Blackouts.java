@@ -86,10 +86,18 @@ public final class Blackouts {
         Substations.sync(level, grid, now);
     }
 
-    /** Ядерный удар обесточивает всё, до чего доходит (стёкла или ожоги), сразу по вспышке. */
+    /**
+     * Ядерный удар обесточивает всё, до чего доходит (стёкла или ожоги), сразу по вспышке; подстанции в этом радиусе
+     * выбиты — каждая гасит и свой район.
+     */
     public static void nuke(ServerLevel level, Detonation d) {
         if (!AirstrikeConfig.SERVER.gridEnabled.get() || !AirstrikeConfig.SERVER.gridNuke.get()) return;
-        blackout(level, d.burst(), d.radiusMax(), NUKE_SPEED, -1);
+        Outage o = blackout(level, d.burst(), d.radiusMax(), NUKE_SPEED, -1);
+        List<Node> hit = new ArrayList<>();
+        for (Node n : PowerGrid.get(level).nodes()) {
+            if (Math.hypot(n.pos().getX() + 0.5 - o.x(), n.pos().getZ() + 0.5 - o.z()) <= o.radius()) hit.add(n);
+        }
+        hit.forEach(n -> knockOut(level, n));
     }
 
     /**
@@ -103,7 +111,7 @@ public final class Blackouts {
         long now = level.getGameTime();
         Outage o = PowerGrid.get(level).addOutage(at.x, at.z, radius, now, speed, restoreAt(now), restoreSpread(), node);
         BlackoutWorld.get(level).onOutage(o);
-        Airstrike.LOG.info("Блэкаут №{}: {} {}, радиус {}, {}", o.id(), Math.round(at.x), Math.round(at.z), Math.round(radius),
+        Airstrike.LOG.info("Блэкаут №{} ({}): {} {}, радиус {}, {}", o.id(), level.dimension().location(), Math.round(at.x), Math.round(at.z), Math.round(radius),
                 o.restoreAt() == Outage.NEVER ? "свет не вернётся сам" : String.format(Locale.ROOT, "свет вернётся через %d мин",
                         (o.restoreAt() - now) / 1200));
         return o;
@@ -117,6 +125,11 @@ public final class Blackouts {
      * @return сколько отключений снято
      */
     public static int restore(ServerLevel level, @Nullable Vec3 at, double radius) {
+        return restore(level, at, radius, COMMAND_RESTORE_SPREAD);
+    }
+
+    /** То же, свет — вразнобой за {@code spread} тиков (0 — во всех кварталах сейчас). */
+    public static int restore(ServerLevel level, @Nullable Vec3 at, double radius, int spread) {
         PowerGrid grid = PowerGrid.get(level);
         long now = level.getGameTime();
         int n = 0;
@@ -124,18 +137,18 @@ public final class Blackouts {
             if (at != null && Math.hypot(o.x() - at.x, o.z() - at.z) > radius) continue;
             Outage restoring;
             if (o.restoreAt() > now) {
-                restoring = o.restoring(now, COMMAND_RESTORE_SPREAD);
+                restoring = o.restoring(now, spread);
             } else {
                 // разброс только сжимается: кварталы, где свет уже есть, так и остаются светлыми
-                long spread = Math.min(o.restoreSpread(), now - o.restoreAt() + COMMAND_RESTORE_SPREAD);
-                if (spread >= o.restoreSpread()) continue;
-                restoring = o.restoring(o.restoreAt(), (int) spread);
+                long left = Math.min(o.restoreSpread(), now - o.restoreAt() + spread);
+                if (left >= o.restoreSpread()) continue;
+                restoring = o.restoring(o.restoreAt(), (int) left);
             }
             grid.replace(restoring);
             // каскад возврата — заново по новым срокам
             grid.swept(o.id(), true, Long.MIN_VALUE);
             BlackoutWorld.get(level).onRestore(restoring);
-            Airstrike.LOG.info("Блэкаут №{}: свет возвращают по команде", o.id());
+            Airstrike.LOG.info("Блэкаут №{} ({}): свет возвращают по команде", o.id(), level.dimension().location());
             n++;
         }
         Substations.sync(level, grid, now);
@@ -191,7 +204,15 @@ public final class Blackouts {
         return server.overworld().getData(ModAttachments.GRID_CLOCK);
     }
 
-    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}). */
+    /**
+     * Часы бюджета блэкаута: единицы очереди дешёвые и ровные (≈0.3 мс), и оценка тает вдвое к каждому тику, чтобы
+     * один всплеск (пауза GC, чужой затык) не держал очередь на одной единице за тик ({@link WorkClock#decaying}).
+     */
+    public static WorkClock newClock() {
+        return WorkClock.decaying(0.5);
+    }
+
+    /** Подменить часы бюджета (проверки — считающими, {@link WorkClock#counting}; вернуть — {@link #newClock}). */
     public static void useClock(MinecraftServer server, WorkClock clock) {
         server.overworld().setData(ModAttachments.GRID_CLOCK, clock);
     }
@@ -220,7 +241,7 @@ public final class Blackouts {
         if (e.getLevel() instanceof ServerLevel level && GridLights.isLit(e.getPlacedBlock())) {
             BlockPos pos = e.getPos();
             if (PowerGrid.get(level).dark(pos.getX() >> 4, pos.getZ() >> 4, level.getGameTime())) {
-                BlackoutWorld.get(level).enqueue(ChunkPos.asLong(pos));
+                BlackoutWorld.get(level).lampPlaced(level, pos);
             }
         }
     }

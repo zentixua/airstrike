@@ -55,6 +55,45 @@ public final class ClientNuclear {
         }
     }
 
+    /**
+     * На сколько тиков часы клиента могут уходить вперёд сервера. Клиент сам прибавляет тик к игровому времени,
+     * а сервер присылает своё раз в секунду: пока сервер отстаёт (генерация, руины, сохранение), часы клиента
+     * убегают вперёд и потом прыгают назад. Отсчёт до подрыва по часам клиента поэтому доходит до нуля раньше,
+     * чем сервер доходит до срока, — это не задержка подрыва. Запас — самый большой прыжок назад за последние
+     * десятки секунд (медленно тает), плюс {@link #DELAY_GRACE_TICKS}.
+     */
+    static final class ClockLead {
+        /** Тает на столько тиков за тик: прыжок в секунду забывается за 20 с. */
+        static final double DECAY = 0.05;
+        private long last = Long.MIN_VALUE;
+        private double lead;
+
+        void tick(long now) {
+            if (last != Long.MIN_VALUE && now < last + 1 && last + 1 - now < 20 * 60) {
+                lead = Math.max(lead, last + 1 - now);
+            } else {
+                lead = Math.max(0, lead - DECAY);
+            }
+            last = now;
+        }
+
+        double lead() {
+            return lead;
+        }
+
+        void reset() {
+            last = Long.MIN_VALUE;
+            lead = 0;
+        }
+    }
+
+    /**
+     * Сколько тиков после срока по часам клиента ждать пакета подрыва, прежде чем говорить «подрыв задерживается»:
+     * сервер шлёт время раз в 20 тиков, пакет подрыва идёт с задержкой сети.
+     */
+    static final int DELAY_GRACE_TICKS = 50;
+
+    private static final ClockLead CLOCK = new ClockLead();
     private static final Map<Integer, Active> DETONATIONS = new LinkedHashMap<>();
     private static final Map<Integer, S2C.NukeWarning> WARNINGS = new LinkedHashMap<>();
     @Nullable
@@ -104,6 +143,7 @@ public final class ClientNuclear {
         DETONATIONS.clear();
         WARNINGS.clear();
         radiation = null;
+        CLOCK.reset();
         NukeFlash.reset();
         NukeSounds.reset();
         NukeSky.reset();
@@ -117,6 +157,7 @@ public final class ClientNuclear {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) return;
         long now = level.getGameTime();
+        CLOCK.tick(now);
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
             a.age++;
@@ -154,6 +195,18 @@ public final class ClientNuclear {
 
     public static Iterable<S2C.NukeWarning> warnings() {
         return WARNINGS.values();
+    }
+
+    /**
+     * Сервер задерживает подрыв (догружает место удара), а не просто часы клиента ушли вперёд: срок прошёл
+     * с запасом на отставание сервера и на задержку пакета.
+     */
+    public static boolean detonationOverdue(S2C.NukeWarning w, double now) {
+        return overdue(now, w.detonateTime(), CLOCK.lead());
+    }
+
+    static boolean overdue(double now, long detonateTime, double lead) {
+        return now - detonateTime > DELAY_GRACE_TICKS + lead;
     }
 
     @Nullable
