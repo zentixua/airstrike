@@ -46,7 +46,8 @@ import java.util.Locale;
  *     плотов Sable) снимаются здесь же: через тики аппарат мог уже расколоться, а его плот — уйти другому аппарату.</li>
  *     <li>Дальше: блоки мира от центра наружу, порция за единицу — шагами {@code Explosion.finalizeExplosion}
  *     ({@code onExplosionHit} каждого блока, затем огонь). Выпадение копится за весь взрыв и выпадает в конце, как
- *     у ванили одним списком. Блок, который сменился с момента лучей (натекла вода, поставил игрок), не трогается.</li>
+ *     у ванили одним списком. Блок, который сменился с момента лучей (натекла вода, поставил игрок), не трогается;
+ *     сменившиеся свойства того же блока (забор потерял соседа) — не смена.</li>
  * </ol>
  * Взрыв с центром в сетке плотов (на аппарате) — одним ванильным {@code level.explode}: Sable переносит такой взрыв
  * в мир своей обёрткой {@code ServerLevel.explode}, которой здесь нет.
@@ -74,9 +75,13 @@ final class StagedExplosion implements UnitQueue.Job {
 
     @Nullable
     private Explosion explosion;
-    /** Блоки мира, от центра наружу, и их состояния на момент лучей. */
+    /**
+     * Блоки мира, от центра наружу, и сами блоки на момент лучей. Сравнивается блок, а не состояние: снятие внутренней
+     * порции меняет свойства соседей снаружи (заборы, стены, панели, лестницы, сундуки, провод, снег на траве,
+     * дистанция листвы), а выбраны лучами они всё равно.
+     */
     private List<BlockPos> toBlow = List.of();
-    private List<BlockState> states = List.of();
+    private List<Block> blocksAtRays = List.of();
     private int next;
     /** Выпадение за весь взрыв (как {@code Explosion.addOrAppendStack}). */
     private final List<Pair<ItemStack, BlockPos>> drops = new ArrayList<>();
@@ -131,7 +136,7 @@ final class StagedExplosion implements UnitQueue.Job {
         List<BlockPos> portion = new ArrayList<>(end - next);
         for (int i = next; i < end; i++) {
             BlockPos p = toBlow.get(i);
-            if (Terrain.ready(level, p) && level.getBlockState(p) == states.get(i)) portion.add(p);
+            if (Terrain.ready(level, p) && level.getBlockState(p).is(blocksAtRays.get(i))) portion.add(p);
         }
         next = end;
         blow(level, portion);
@@ -178,17 +183,17 @@ final class StagedExplosion implements UnitQueue.Job {
         // аппараты — сейчас: их плот живёт своей жизнью
         blow(level, plot);
         // в списке лучей и воздух (по нему ставится огонь): без огня воздуху порция ничего не сделает — не носить его
-        List<BlockState> seen = new ArrayList<>(world.size());
+        List<Block> seen = new ArrayList<>(world.size());
         List<BlockPos> kept = new ArrayList<>(world.size());
         world.sort(Comparator.comparingDouble(p -> p.distToCenterSqr(at)));
         for (BlockPos p : world) {
             BlockState s = level.getBlockState(p);
             if (!fire && s.isAir()) continue;
             kept.add(p);
-            seen.add(s);
+            seen.add(s.getBlock());
         }
         toBlow = kept;
-        states = seen;
+        blocksAtRays = seen;
         return !toBlow.isEmpty();
     }
 

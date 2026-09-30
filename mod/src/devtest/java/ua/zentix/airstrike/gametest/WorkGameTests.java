@@ -312,6 +312,45 @@ public final class WorkGameTests {
     }
 
     /**
+     * Соединяющиеся блоки: снятие внутренней порции меняет свойства внешних соседей (забор, стена и панель теряют
+     * соседа, лестница — форму, листва — дистанцию), но это тот же блок — лучи его выбрали, и он снесён.
+     */
+    @GameTest(template = "range", timeoutTicks = 600, batch = "work_connected", skyAccess = true)
+    public static void portionTakesReshapedNeighbours(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        boolean debris = AirstrikeConfig.SERVER.debrisStay.get();
+        AirstrikeConfig.SERVER.debrisStay.set(false);
+        StrikeGameTests.afterTest(h, () -> AirstrikeConfig.SERVER.debrisStay.set(debris));
+        BlockPos c = h.absolutePos(CENTER);
+        BlockState[] rows = {Blocks.OAK_FENCE.defaultBlockState(), Blocks.GLASS_PANE.defaultBlockState(),
+                Blocks.COBBLESTONE_WALL.defaultBlockState(), Blocks.IRON_BARS.defaultBlockState(),
+                Blocks.OAK_STAIRS.defaultBlockState(), Blocks.OAK_LEAVES.defaultBlockState()};
+        // ряды через центр по x и по z, соседи соединяются (флаг 3 — обновления формы)
+        for (int i = -20; i <= 20; i++) {
+            for (int y = 0; y < rows.length; y++) {
+                level.setBlock(c.offset(i, y, 1), rows[y], 3);
+                level.setBlock(c.offset(1, y, i), rows[y], 3);
+            }
+        }
+        WorkClock clock = WorkClock.counting(MS);
+        useCounting(h, clock);
+        List<Blast> blasts = recordBlasts(h, 48);
+        Warheads.detonate(level, WeaponType.MISSILE, Vec3.atBottomCenterOf(c), null, null);
+        h.succeedWhen(() -> {
+            h.assertTrue(!blasts.isEmpty() && StrikeWorld.get(level).impacts().isEmpty(), "очередь не пуста");
+            int connected = 0;
+            for (Blast b : blasts) {
+                for (BlockPos p : b.blocks()) {
+                    BlockState now = level.getBlockState(p);
+                    h.assertTrue(gone(now), "выбран лучами и не снесён: " + p + " " + now + " (взрыв у " + b.at() + ")");
+                }
+            }
+            for (BlockPos p : blasts.getFirst().blocks()) if (Math.abs(p.getX() - c.getX()) <= 1 || Math.abs(p.getZ() - c.getZ()) <= 1) connected++;
+            h.assertTrue(connected > 3 * 16, "лучи задели мало рядов (" + connected + ") — порций снаружи нет");
+        });
+    }
+
+    /**
      * Взрыв у собранного аппарата Sable: блоки аппарата (в сетке плотов), которые выбрали лучи, сняты в тике взрыва —
      * через тики аппарат мог уже расколоться, а его плот уйти другому.
      */
