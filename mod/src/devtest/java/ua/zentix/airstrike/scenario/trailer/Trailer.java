@@ -1261,16 +1261,21 @@ public final class Trailer {
     private String flightsNow() {
         MinecraftServer server = mc.getSingleplayerServer();
         if (server == null) return "?";
-        StringBuilder b = new StringBuilder();
-        ServerLevel level = server.overworld();
         Vec3 me = mc.gameRenderer.getMainCamera().getPosition();
-        int n = 0;
-        for (StrikeProjectile e : level.getEntitiesOfClass(StrikeProjectile.class, new net.minecraft.world.phys.AABB(me, me).inflate(30000))) {
-            if (n++ < 4) b.append(String.format(Locale.ROOT, "%s в мире (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
-        }
-        for (StrikeProjectile e : ua.zentix.airstrike.strike.VirtualFlights.get(level).flights()) {
-            if (n++ < 6) b.append(String.format(Locale.ROOT, "%s вне мира (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
-        }
+        // снаряды — на потоке сервера: список полётов вне мира меняется в его тике (из потока клиента —
+        // ConcurrentModificationException, облако 30.09)
+        StringBuilder b = new StringBuilder(server.submit(() -> {
+            StringBuilder sb = new StringBuilder();
+            ServerLevel level = server.overworld();
+            int n = 0;
+            for (StrikeProjectile e : level.getEntitiesOfClass(StrikeProjectile.class, new net.minecraft.world.phys.AABB(me, me).inflate(30000))) {
+                if (n++ < 4) sb.append(String.format(Locale.ROOT, "%s в мире (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
+            }
+            for (StrikeProjectile e : ua.zentix.airstrike.strike.VirtualFlights.get(level).flights()) {
+                if (n++ < 6) sb.append(String.format(Locale.ROOT, "%s вне мира (%.0f %.0f %.0f) в %.0f; ", e.getType().toShortString(), e.getX(), e.getY(), e.getZ(), e.position().distanceTo(me)));
+            }
+            return sb.toString();
+        }).join());
         int client = 0;
         for (Entity e : mc.level.entitiesForRendering()) if (e instanceof StrikeProjectile) client++;
         return b.append("у клиента ").append(client).toString();
