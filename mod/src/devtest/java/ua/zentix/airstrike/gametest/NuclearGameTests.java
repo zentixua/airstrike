@@ -319,6 +319,267 @@ public final class NuclearGameTests {
         h.succeed();
     }
 
+    /** Угол четырёх чанков у центра площадки (относительные координаты), как у {@link #towerAtGroundZeroFalls}. */
+    private static BlockPos chunkCorner(GameTestHelper h) {
+        BlockPos abs = h.absolutePos(CENTER);
+        BlockPos c = CENTER.offset(abs.getX() == h.absolutePos(CENTER.east()).getX() - 1 ? -(abs.getX() & 15) : abs.getX() & 15, 0,
+                abs.getZ() == h.absolutePos(CENTER.south()).getZ() - 1 ? -(abs.getZ() & 15) : abs.getZ() & 15);
+        BlockPos ca = h.absolutePos(c);
+        h.assertTrue((ca.getX() & 15) == 0 && (ca.getZ() & 15) == 0, "не угол чанков: " + ca.toShortString());
+        return c;
+    }
+
+    /**
+     * Та же башня с бассейном на 25-м этаже (вода на перекрытии между стенами): вода в столбце не делает постройку
+     * рельефом — башня рушится, вода уходит вместе с ней, ничего не висит.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_pool", skyAccess = true)
+    public static void towerWithPoolFalls(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        int built = tower(h, c);
+        for (int dx = 1 - TOWER_HALF; dx < TOWER_HALF; dx++) {
+            for (int dz = 1 - TOWER_HALF; dz < TOWER_HALF; dz++) {
+                if (dx >= -1 && dx <= 0 && dz >= -1 && dz <= 0) continue;
+                for (int y = 25; y <= 26; y++) h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), Blocks.WATER.defaultBlockState(), 2);
+            }
+        }
+        scarAll(h, d, new ColumnScar.Budget(false));
+        towerFell(h, d, c, built, "с бассейном");
+        h.succeed();
+    }
+
+    /**
+     * Глухая стена (терракота без окон и перекрытий) ровно на границе чанков, дом с перекрытиями — в соседнем чанке:
+     * стена — часть постройки и рушится с ней, а не стоит на всю высоту (облако: полосы по границам чанков).
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_chunk_wall", skyAccess = true)
+    public static void blankWallOnChunkLineFalls(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
+        int height = 60;
+        // стена — в последнем столбце западного чанка (lx = 15), дом — в восточном
+        for (int y = 0; y < height; y++) {
+            for (int dx = -1; dx <= 5; dx++) {
+                for (int dz = 2; dz <= 8; dz++) {
+                    boolean edge = dx == -1 || dx == 5 || dz == 2 || dz == 8;
+                    BlockState st = null;
+                    if (dx == -1) st = Blocks.BROWN_TERRACOTTA.defaultBlockState();
+                    else if (edge) st = y % 5 == 2 && (dx + dz) % 2 == 0 ? Blocks.GLASS.defaultBlockState() : Blocks.BROWN_TERRACOTTA.defaultBlockState();
+                    else if (y % 5 == 4) st = Blocks.WHITE_TERRACOTTA.defaultBlockState();
+                    if (st != null) h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), st, 2);
+                }
+            }
+        }
+        h.assertTrue((h.absolutePos(c.offset(-1, 0, 0)).getX() & 15) == 15, "стена не на границе чанков");
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        for (int dz = 2; dz <= 8; dz++) {
+            for (int y = 5; y < height; y++) {
+                BlockState st = h.getBlockState(c.offset(-1, y, dz));
+                if (!st.isAir()) h.fail("глухая стена на границе чанков стоит: " + st + " на " + y + " блоке, " + c.offset(-1, y, dz).toShortString());
+            }
+        }
+        h.succeed();
+    }
+
+    /**
+     * Кирпичные стены там, где у земли 2.5–4.5 psi: стена 7 в ширину с окном 3×3 — стёкла выбиты, стена над окном стоит
+     * (её держат простенки); стена 5 в ширину, у которой окно во всю ширину, — над окном опоры нет, она падает, и ничего
+     * не висит над пустотой.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_window", skyAccess = true)
+    public static void wallAboveWindowStandsOnlyWithPiers(GameTestHelper h) {
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.03, 15, 0.03f);
+        BlockPos far = null;
+        for (int dx = 2; dx <= 30 && far == null; dx++) {
+            double psi = d.psi(Vec3.atCenterOf(h.absolutePos(CENTER.east(dx))));
+            if (psi >= 2.5 && psi <= 4.5) far = CENTER.east(dx);
+        }
+        h.assertTrue(far != null, "нет места с 2.5–4.5 psi на площадке");
+        BlockPos piers = far.north(8), open = far.south(4);
+        for (int dz = 0; dz < 7; dz++) {
+            for (int y = 0; y < 20; y++) h.setBlock(piers.south(dz).above(y), y >= 5 && y <= 7 && dz >= 2 && dz <= 4 ? Blocks.GLASS : Blocks.BRICKS);
+        }
+        for (int dz = 0; dz < 5; dz++) {
+            for (int y = 0; y < 20; y++) h.setBlock(open.south(dz).above(y), y >= 5 && y <= 7 ? Blocks.GLASS : Blocks.BRICKS);
+        }
+        scarAll(h, d, new ColumnScar.Budget(false));
+        String at = far.toShortString() + " (" + String.format(Locale.ROOT, "%.1f", d.psi(Vec3.atCenterOf(h.absolutePos(far)))) + " psi)";
+        for (int dz = 2; dz <= 4; dz++) {
+            for (int y = 5; y <= 7; y++) h.assertTrue(!h.getBlockState(piers.south(dz).above(y)).is(Blocks.GLASS), "стекло цело на " + y + " блоке, " + at);
+            for (int y = 8; y < 20; y++) {
+                h.assertTrue(h.getBlockState(piers.south(dz).above(y)).is(Blocks.BRICKS), "стены над окном с простенками нет: " + y + " блок, " + at);
+            }
+        }
+        for (int dz = 0; dz < 5; dz++) {
+            for (int y = 5; y < 20; y++) {
+                BlockState st = h.getBlockState(open.south(dz).above(y));
+                if (!st.isAir()) h.fail("стена над окном во всю ширину висит: " + st + " на " + y + " блоке, " + at);
+            }
+        }
+        h.succeed();
+    }
+
+    /**
+     * Небоскрёб 11×11×120 в эпицентре: стены с окнами, перекрытия через 4 блока, сплошное ядро 3×3 из кальцита
+     * (лестницы и шахты лифтов) — рушится весь, ядро тоже: не больше 5 % блоков выше завала, ничего не висит.
+     */
+    @GameTest(template = "range", timeoutTicks = 80, batch = "nuke_skyscraper", skyAccess = true)
+    public static void skyscraperAtGroundZeroFalls(GameTestHelper h) {
+        BlockPos c = chunkCorner(h);
+        int half = 5, height = 120, built = 0;
+        for (int y = 0; y < height; y++) {
+            for (int dx = -half; dx <= half; dx++) {
+                for (int dz = -half; dz <= half; dz++) {
+                    boolean wall = Math.abs(dx) == half || Math.abs(dz) == half;
+                    BlockState st = null;
+                    if (wall) st = y % 4 != 3 && Math.abs(dx + dz) % 3 != 0 ? Blocks.GLASS.defaultBlockState() : Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
+                    else if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) st = Blocks.CALCITE.defaultBlockState();
+                    else if (y % 4 == 3) st = Blocks.SMOOTH_STONE.defaultBlockState();
+                    if (st != null && h.getLevel().setBlock(h.absolutePos(c.offset(dx, y, dz)), st, 2)) built++;
+                }
+            }
+        }
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        int standing = 0;
+        for (int dx = -half; dx <= half; dx++) {
+            for (int dz = -half; dz <= half; dz++) {
+                int air = 0;
+                for (int y = 0; y < height; y++) {
+                    BlockState st = h.getBlockState(c.offset(dx, y, dz));
+                    if (st.isAir()) {
+                        air++;
+                        continue;
+                    }
+                    if (y >= 5) standing++;
+                    if (air >= 2) h.fail("висит в воздухе " + st + " в " + c.offset(dx, y, dz).toShortString());
+                    air = 0;
+                }
+            }
+        }
+        h.assertTrue(standing * 20 <= built, "небоскрёб стоит: выше завала " + standing + " блоков из " + built);
+        h.succeed();
+    }
+
+    /**
+     * Фасад из плит, ступеней и стеклянных панелей (столбы 5×30) там, где у земли 5–10 psi: рушится, ничего не висит.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_facade", skyAccess = true)
+    public static void slabStairPaneFacadeFalls(GameTestHelper h) {
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.03, 15, 0.03f);
+        BlockPos mid = null;
+        for (int dx = 2; dx <= 30 && mid == null; dx++) {
+            double psi = d.psi(Vec3.atCenterOf(h.absolutePos(CENTER.east(dx))));
+            if (psi >= 5 && psi <= 10) mid = CENTER.east(dx);
+        }
+        h.assertTrue(mid != null, "нет места с 5–10 psi на площадке");
+        BlockState[] rows = {Blocks.STONE_BRICK_SLAB.defaultBlockState(), Blocks.GLASS_PANE.defaultBlockState(), Blocks.GLASS_PANE.defaultBlockState(),
+                Blocks.STONE_BRICK_STAIRS.defaultBlockState(), Blocks.GLASS_PANE.defaultBlockState()};
+        for (int dz = 0; dz < 5; dz++) {
+            for (int y = 0; y < 30; y++) h.setBlock(mid.south(dz).above(y), rows[y % rows.length]);
+        }
+        scarAll(h, d, new ColumnScar.Budget(false));
+        String at = mid.toShortString() + " (" + String.format(Locale.ROOT, "%.0f", d.psi(Vec3.atCenterOf(h.absolutePos(mid)))) + " psi)";
+        for (int dz = 0; dz < 5; dz++) {
+            int air = 0;
+            for (int y = 0; y < 30; y++) {
+                BlockState st = h.getBlockState(mid.south(dz).above(y));
+                if (st.isAir()) {
+                    air++;
+                    continue;
+                }
+                if (air >= 2) h.fail("висит в воздухе " + st + " на " + y + " блоке фасада, " + at);
+                if (y >= 5) h.fail("фасад стоит: " + st + " на " + y + " блоке, " + at);
+                air = 0;
+            }
+        }
+        h.succeed();
+    }
+
+    /**
+     * Башня 5×5×60 на берегу реки (русло 3 блока у её стены, каменное дно) в эпицентре: башня рушится, дно и берег
+     * целы, через 60 тиков нигде нет воды над пустотой (стен воды нет: вода затекла в пролом или стекла).
+     */
+    @GameTest(template = "range", timeoutTicks = 160, batch = "nuke_shore", skyAccess = true)
+    public static void shoreTowerFallsWithoutWaterWalls(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos t = CENTER.offset(-2, 0, -2);
+        List<BlockPos> bed = new java.util.ArrayList<>();
+        // берег и дно: камень на 6 блоков вниз под рекой и башней; русло вдоль восточной стены башни
+        for (BlockPos p : BlockPos.betweenClosed(t.offset(-3, -6, -3), t.offset(10, -1, 8))) {
+            level.setBlock(h.absolutePos(p), Blocks.STONE.defaultBlockState(), 2);
+            bed.add(p.immutable());
+        }
+        for (BlockPos p : BlockPos.betweenClosed(t.offset(5, -3, -3), t.offset(7, -1, 8))) level.setBlock(h.absolutePos(p), Blocks.WATER.defaultBlockState(), 2);
+        bed.removeIf(p -> p.getX() >= t.getX() + 5 && p.getX() <= t.getX() + 7 && p.getY() >= t.getY() - 3);
+        for (int y = 0; y < 60; y++) {
+            for (int dx = 0; dx < 5; dx++) {
+                for (int dz = 0; dz < 5; dz++) {
+                    boolean wall = dx == 0 || dx == 4 || dz == 0 || dz == 4;
+                    BlockState st = wall ? (y % 4 == 2 && (dx + dz) % 2 == 1 ? Blocks.GLASS : Blocks.BROWN_TERRACOTTA).defaultBlockState()
+                            : y % 4 == 3 ? Blocks.WHITE_TERRACOTTA.defaultBlockState() : null;
+                    if (st != null) level.setBlock(h.absolutePos(t.offset(dx, y, dz)), st, 2);
+                }
+            }
+        }
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        h.runAfterDelay(60, () -> {
+            for (BlockPos q : bed) if (h.getBlockState(q).isAir()) h.fail("берег или дно выбиты: " + q.toShortString());
+            for (int dx = 0; dx < 5; dx++) {
+                for (int dz = 0; dz < 5; dz++) {
+                    for (int y = 5; y < 60; y++) {
+                        BlockState st = h.getBlockState(t.offset(dx, y, dz));
+                        if (!st.isAir() && st.getFluidState().isEmpty()) h.fail("башня на берегу стоит: " + st + " в " + t.offset(dx, y, dz).toShortString());
+                    }
+                }
+            }
+            for (BlockPos p : BlockPos.betweenClosed(t.offset(-3, -3, -3), t.offset(10, 60, 8))) {
+                if (!h.getBlockState(p).getFluidState().isEmpty() && h.getBlockState(p.below()).isAir()) h.fail("вода над пустотой в " + p.toShortString());
+            }
+            h.succeed();
+        });
+    }
+
+    /**
+     * Постройка вплотную к скале (дом из терракоты с окнами у отвесной стены камня 12×12×30) в эпицентре: дом рушится,
+     * скала — ни одного выбитого блока.
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "nuke_cliff", skyAccess = true)
+    public static void buildingAgainstCliffFallsCliffStays(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos cliff = CENTER.offset(-12, 0, -6);
+        List<BlockPos> rock = new java.util.ArrayList<>();
+        for (BlockPos p : BlockPos.betweenClosed(cliff, cliff.offset(11, 29, 11))) {
+            level.setBlock(h.absolutePos(p), Blocks.STONE.defaultBlockState(), 2);
+            rock.add(p.immutable());
+        }
+        BlockPos house = cliff.offset(12, 0, 3);
+        for (int y = 0; y < 30; y++) {
+            for (int dx = 0; dx < 6; dx++) {
+                for (int dz = 0; dz < 6; dz++) {
+                    boolean wall = dx == 5 || dz == 0 || dz == 5 || dx == 0;
+                    BlockState st = wall ? (y % 4 == 2 && dx > 0 && (dx + dz) % 2 == 1 ? Blocks.GLASS : Blocks.BROWN_TERRACOTTA).defaultBlockState()
+                            : y % 4 == 3 ? Blocks.WHITE_TERRACOTTA.defaultBlockState() : null;
+                    if (st != null) level.setBlock(h.absolutePos(house.offset(dx, y, dz)), st, 2);
+                }
+            }
+        }
+        Detonation d = detonation(h, CENTER, Yield.optimalBurstHeight(15) * 0.3, 15, 0.3f);
+        scarAll(h, d, new ColumnScar.Budget(false));
+        for (BlockPos q : rock) if (h.getBlockState(q).isAir()) h.fail("скала выбита: " + q.toShortString());
+        for (int dx = 1; dx < 6; dx++) {
+            for (int dz = 0; dz < 6; dz++) {
+                for (int y = 5; y < 30; y++) {
+                    BlockState st = h.getBlockState(house.offset(dx, y, dz));
+                    if (!st.isAir()) h.fail("дом у скалы стоит: " + st + " в " + house.offset(dx, y, dz).toShortString());
+                }
+            }
+        }
+        h.succeed();
+    }
+
     /**
      * Рельеф в эпицентре той же башни ({@link #towerAtGroundZeroFalls}) не меняется: скала из камня под дёрном с руслом
      * реки и меза из терракоты с пещерой под тонким сводом — ни одного выбитого блока грунта, вода на месте и не
