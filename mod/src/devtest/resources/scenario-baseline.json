@@ -1,40 +1,40 @@
 {
   "scenarios": {
     "bomber.point.hill.0": {
-      "end": "blast",
-      "tick": 520,
+      "end": "entry",
+      "tick": 521,
       "x": 0.0,
       "y": 0.5,
       "z": 0.0,
-      "hash": "4b351105e49bc508"
+      "hash": "e9eae44a9db958b1"
     },
     "bomber.point.none.0": {
-      "end": "blast",
-      "tick": 275,
+      "end": "entry",
+      "tick": 276,
       "x": 0.0,
       "y": 0.5,
       "z": 0.0,
-      "hash": "c4266f1af29bac64"
+      "hash": "5f84cdc584be48d1"
     },
     "bomber.point.quarry.0": {
-      "end": "blast",
-      "tick": 358,
+      "end": "entry",
+      "tick": 359,
       "x": 0.0,
       "y": 0.5,
       "z": 0.0,
-      "hash": "2a901f685eac1265"
+      "hash": "a5d2be89a8d039fb"
     },
     "bomber.point.retarget.0": {
-      "end": "blast",
-      "tick": 330,
-      "x": -95.01,
+      "end": "entry",
+      "tick": 331,
+      "x": -95.0,
       "y": 0.5,
-      "z": -145.44,
-      "hash": "0c6079012704c4d5"
+      "z": -145.5,
+      "hash": "d9694dd7949519a6"
     },
     "drone_far.mob.hill.0": {
       "end": "blast",
-      "tick": 621,
+      "tick": 622,
       "x": 10.93,
       "y": 0.45,
       "z": 12.71,
@@ -42,7 +42,7 @@
     },
     "drone_far.mob.none.0": {
       "end": "blast",
-      "tick": 362,
+      "tick": 363,
       "x": -3.12,
       "y": 0.45,
       "z": -13.83,
@@ -50,7 +50,7 @@
     },
     "drone_far.mob.quarry.0": {
       "end": "blast",
-      "tick": 528,
+      "tick": 529,
       "x": 2.06,
       "y": 0.45,
       "z": -2.87,
@@ -58,7 +58,7 @@
     },
     "drone_far.mob.retarget.0": {
       "end": "blast",
-      "tick": 682,
+      "tick": 683,
       "x": 52.9,
       "y": 0.0,
       "z": 218.09,
@@ -66,7 +66,7 @@
     },
     "drone_far.mob.target_gone.0": {
       "end": "blast",
-      "tick": 343,
+      "tick": 344,
       "x": -8.95,
       "y": 0.45,
       "z": -5.3,
@@ -74,7 +74,7 @@
     },
     "drone_far.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 830,
+      "tick": 831,
       "x": 0.48,
       "y": 0.45,
       "z": -1.42,
@@ -82,7 +82,7 @@
     },
     "drone_far.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 736,
+      "tick": 737,
       "x": 142.59,
       "y": 0.45,
       "z": -284.45,
@@ -90,7 +90,7 @@
     },
     "drone_far.player.none.0": {
       "end": "blast",
-      "tick": 785,
+      "tick": 786,
       "x": 21.05,
       "y": 26.65,
       "z": 34.57,
@@ -98,7 +98,7 @@
     },
     "drone_far.player.retarget.0": {
       "end": "blast",
-      "tick": 711,
+      "tick": 712,
       "x": -306.16,
       "y": 0.0,
       "z": -200.43,
@@ -106,7 +106,7 @@
     },
     "drone_far.player.target_gone.0": {
       "end": "blast",
-      "tick": 875,
+      "tick": 876,
       "x": 35.08,
       "y": 32.12,
       "z": 19.94,
@@ -114,7 +114,7 @@
     },
     "drone_far.player.teleport_far.0": {
       "end": "blast",
-      "tick": 496,
+      "tick": 497,
       "x": -41.29,
       "y": 33.18,
       "z": 2.95,
@@ -122,7 +122,7 @@
     },
     "drone_far.player.teleport_near.0": {
       "end": "blast",
-      "tick": 356,
+      "tick": 357,
       "x": 89.97,
       "y": 9.78,
       "z": -245.22,
@@ -130,7 +130,7 @@
     },
     "drone_far.point.beside.0": {
       "end": "blast",
-      "tick": 689,
+      "tick": 690,
       "x": -121.74,
       "y": 0.0,
       "z": 36.71,
@@ -138,7 +138,7 @@
     },
     "drone_far.point.hill.0": {
       "end": "blast",
-      "tick": 832,
+      "tick": 833,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -146,7 +146,7 @@
     },
     "drone_far.point.none.0": {
       "end": "blast",
-      "tick": 295,
+      "tick": 296,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -154,7 +154,7 @@
     },
     "drone_far.point.quarry.0": {
       "end": "blast",
-      "tick": 881,
+      "tick": 882,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -162,7 +162,7 @@
     },
     "drone_far.point.retarget.0": {
       "end": "blast",
-      "tick": 907,
+      "tick": 908,
       "x": 69.94,
       "y": 0.0,
       "z": -228.37,
@@ -170,7 +170,7 @@
     },
     "drone_rail.mob.hill.0": {
       "end": "blast",
-      "tick": 862,
+      "tick": 863,
       "x": -0.66,
       "y": 0.45,
       "z": 0.7,
@@ -178,7 +178,7 @@
     },
     "drone_rail.mob.none.0": {
       "end": "blast",
-      "tick": 950,
+      "tick": 951,
       "x": 6.88,
       "y": 0.45,
       "z": 2.8,
@@ -186,7 +186,7 @@
     },
     "drone_rail.mob.quarry.0": {
       "end": "blast",
-      "tick": 391,
+      "tick": 392,
       "x": -4.43,
       "y": 0.45,
       "z": -9.19,
@@ -194,7 +194,7 @@
     },
     "drone_rail.mob.retarget.0": {
       "end": "blast",
-      "tick": 427,
+      "tick": 428,
       "x": 223.91,
       "y": 0.0,
       "z": 258.15,
@@ -202,7 +202,7 @@
     },
     "drone_rail.mob.target_gone.0": {
       "end": "blast",
-      "tick": 889,
+      "tick": 890,
       "x": -4.13,
       "y": 0.45,
       "z": -8.19,
@@ -210,7 +210,7 @@
     },
     "drone_rail.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 860,
+      "tick": 861,
       "x": 0.76,
       "y": 0.45,
       "z": 6.29,
@@ -218,7 +218,7 @@
     },
     "drone_rail.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 1123,
+      "tick": 1124,
       "x": 234.12,
       "y": 0.45,
       "z": -189.06,
@@ -226,7 +226,7 @@
     },
     "drone_rail.player.none.0": {
       "end": "blast",
-      "tick": 914,
+      "tick": 915,
       "x": -28.6,
       "y": 23.21,
       "z": 19.98,
@@ -234,7 +234,7 @@
     },
     "drone_rail.player.retarget.0": {
       "end": "blast",
-      "tick": 936,
+      "tick": 937,
       "x": -285.16,
       "y": 0.0,
       "z": 194.22,
@@ -242,7 +242,7 @@
     },
     "drone_rail.player.target_gone.0": {
       "end": "blast",
-      "tick": 583,
+      "tick": 584,
       "x": 12.42,
       "y": 29.5,
       "z": -43.89,
@@ -250,7 +250,7 @@
     },
     "drone_rail.player.teleport_far.0": {
       "end": "blast",
-      "tick": 967,
+      "tick": 968,
       "x": -10.25,
       "y": 9.33,
       "z": 38.25,
@@ -258,7 +258,7 @@
     },
     "drone_rail.player.teleport_near.0": {
       "end": "blast",
-      "tick": 1246,
+      "tick": 1247,
       "x": -262.68,
       "y": 10.83,
       "z": 187.02,
@@ -266,7 +266,7 @@
     },
     "drone_rail.point.beside.0": {
       "end": "blast",
-      "tick": 669,
+      "tick": 670,
       "x": 64.18,
       "y": 0.0,
       "z": 109.74,
@@ -274,7 +274,7 @@
     },
     "drone_rail.point.hill.0": {
       "end": "blast",
-      "tick": 675,
+      "tick": 676,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -282,7 +282,7 @@
     },
     "drone_rail.point.none.0": {
       "end": "blast",
-      "tick": 714,
+      "tick": 715,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -290,7 +290,7 @@
     },
     "drone_rail.point.quarry.0": {
       "end": "blast",
-      "tick": 501,
+      "tick": 502,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -298,7 +298,7 @@
     },
     "drone_rail.point.retarget.0": {
       "end": "blast",
-      "tick": 461,
+      "tick": 462,
       "x": -229.88,
       "y": 0.0,
       "z": -116.72,
@@ -314,7 +314,7 @@
     },
     "loiter_far.mob.hill.0": {
       "end": "blast",
-      "tick": 874,
+      "tick": 875,
       "x": 12.54,
       "y": 0.45,
       "z": -4.62,
@@ -322,7 +322,7 @@
     },
     "loiter_far.mob.none.0": {
       "end": "blast",
-      "tick": 935,
+      "tick": 936,
       "x": 11.9,
       "y": 0.45,
       "z": -15.8,
@@ -330,7 +330,7 @@
     },
     "loiter_far.mob.quarry.0": {
       "end": "blast",
-      "tick": 622,
+      "tick": 623,
       "x": 18.13,
       "y": 2.45,
       "z": 6.58,
@@ -338,7 +338,7 @@
     },
     "loiter_far.mob.retarget.0": {
       "end": "blast",
-      "tick": 1059,
+      "tick": 1060,
       "x": 206.26,
       "y": 0.0,
       "z": 122.84,
@@ -346,7 +346,7 @@
     },
     "loiter_far.mob.target_gone.0": {
       "end": "blast",
-      "tick": 939,
+      "tick": 940,
       "x": 11.68,
       "y": 0.45,
       "z": -4.57,
@@ -354,7 +354,7 @@
     },
     "loiter_far.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 992,
+      "tick": 993,
       "x": -18.1,
       "y": 0.45,
       "z": 5.75,
@@ -362,7 +362,7 @@
     },
     "loiter_far.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 624,
+      "tick": 625,
       "x": 272.41,
       "y": 0.45,
       "z": 149.31,
@@ -370,7 +370,7 @@
     },
     "loiter_far.player.none.0": {
       "end": "blast",
-      "tick": 880,
+      "tick": 881,
       "x": 14.55,
       "y": 26.78,
       "z": 40.03,
@@ -378,7 +378,7 @@
     },
     "loiter_far.player.retarget.0": {
       "end": "blast",
-      "tick": 994,
+      "tick": 995,
       "x": 134.25,
       "y": 0.0,
       "z": 184.36,
@@ -386,7 +386,7 @@
     },
     "loiter_far.player.target_gone.0": {
       "end": "blast",
-      "tick": 901,
+      "tick": 902,
       "x": -8.78,
       "y": 20.54,
       "z": 45.36,
@@ -394,7 +394,7 @@
     },
     "loiter_far.player.teleport_far.0": {
       "end": "blast",
-      "tick": 819,
+      "tick": 820,
       "x": 26.88,
       "y": 18.98,
       "z": -43.33,
@@ -402,7 +402,7 @@
     },
     "loiter_far.player.teleport_near.0": {
       "end": "blast",
-      "tick": 1096,
+      "tick": 1097,
       "x": 63.59,
       "y": 22.35,
       "z": 266.96,
@@ -410,7 +410,7 @@
     },
     "loiter_far.point.beside.0": {
       "end": "blast",
-      "tick": 403,
+      "tick": 404,
       "x": -64.33,
       "y": 0.0,
       "z": 110.49,
@@ -418,7 +418,7 @@
     },
     "loiter_far.point.hill.0": {
       "end": "blast",
-      "tick": 841,
+      "tick": 842,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -426,7 +426,7 @@
     },
     "loiter_far.point.none.0": {
       "end": "blast",
-      "tick": 840,
+      "tick": 841,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -434,7 +434,7 @@
     },
     "loiter_far.point.quarry.0": {
       "end": "blast",
-      "tick": 826,
+      "tick": 827,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -442,7 +442,7 @@
     },
     "loiter_far.point.retarget.0": {
       "end": "blast",
-      "tick": 939,
+      "tick": 940,
       "x": -208.76,
       "y": 0.0,
       "z": 2.55,
@@ -458,7 +458,7 @@
     },
     "loiter_rail.mob.none.0": {
       "end": "blast",
-      "tick": 803,
+      "tick": 804,
       "x": 13.52,
       "y": 2.38,
       "z": 6.01,
@@ -466,7 +466,7 @@
     },
     "loiter_rail.mob.quarry.0": {
       "end": "blast",
-      "tick": 747,
+      "tick": 748,
       "x": -1.67,
       "y": 0.45,
       "z": 3.44,
@@ -474,7 +474,7 @@
     },
     "loiter_rail.mob.retarget.0": {
       "end": "blast",
-      "tick": 1053,
+      "tick": 1054,
       "x": -311.27,
       "y": 0.0,
       "z": -39.64,
@@ -482,7 +482,7 @@
     },
     "loiter_rail.mob.target_gone.0": {
       "end": "blast",
-      "tick": 781,
+      "tick": 782,
       "x": -0.37,
       "y": 0.45,
       "z": 3.57,
@@ -490,7 +490,7 @@
     },
     "loiter_rail.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 809,
+      "tick": 810,
       "x": -2.29,
       "y": 0.45,
       "z": -13.02,
@@ -498,7 +498,7 @@
     },
     "loiter_rail.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 844,
+      "tick": 845,
       "x": 203.77,
       "y": 0.45,
       "z": -216.53,
@@ -506,7 +506,7 @@
     },
     "loiter_rail.player.none.0": {
       "end": "blast",
-      "tick": 856,
+      "tick": 857,
       "x": 12.15,
       "y": 40.03,
       "z": -53.43,
@@ -514,7 +514,7 @@
     },
     "loiter_rail.player.retarget.0": {
       "end": "blast",
-      "tick": 1328,
+      "tick": 1329,
       "x": 205.4,
       "y": 0.0,
       "z": 290.29,
@@ -522,7 +522,7 @@
     },
     "loiter_rail.player.target_gone.0": {
       "end": "blast",
-      "tick": 915,
+      "tick": 916,
       "x": 30.33,
       "y": 10.21,
       "z": -48.68,
@@ -530,7 +530,7 @@
     },
     "loiter_rail.player.teleport_far.0": {
       "end": "blast",
-      "tick": 994,
+      "tick": 995,
       "x": -41.5,
       "y": 29.05,
       "z": 13.55,
@@ -538,7 +538,7 @@
     },
     "loiter_rail.player.teleport_near.0": {
       "end": "blast",
-      "tick": 635,
+      "tick": 636,
       "x": 261.87,
       "y": 36.37,
       "z": -188.42,
@@ -546,7 +546,7 @@
     },
     "loiter_rail.point.beside.0": {
       "end": "blast",
-      "tick": 226,
+      "tick": 227,
       "x": 20.42,
       "y": 0.0,
       "z": 126.29,
@@ -554,7 +554,7 @@
     },
     "loiter_rail.point.hill.0": {
       "end": "blast",
-      "tick": 734,
+      "tick": 735,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -562,7 +562,7 @@
     },
     "loiter_rail.point.none.0": {
       "end": "blast",
-      "tick": 654,
+      "tick": 655,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -570,7 +570,7 @@
     },
     "loiter_rail.point.quarry.0": {
       "end": "blast",
-      "tick": 855,
+      "tick": 856,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -578,7 +578,7 @@
     },
     "loiter_rail.point.retarget.0": {
       "end": "blast",
-      "tick": 1078,
+      "tick": 1079,
       "x": -132.94,
       "y": 0.0,
       "z": -274.01,
@@ -586,7 +586,7 @@
     },
     "missile_far.mob.hill.0": {
       "end": "blast",
-      "tick": 185,
+      "tick": 186,
       "x": 10.57,
       "y": 0.45,
       "z": 0.91,
@@ -594,7 +594,7 @@
     },
     "missile_far.mob.none.0": {
       "end": "blast",
-      "tick": 516,
+      "tick": 517,
       "x": 3.11,
       "y": 0.45,
       "z": 1.81,
@@ -602,7 +602,7 @@
     },
     "missile_far.mob.quarry.0": {
       "end": "blast",
-      "tick": 456,
+      "tick": 457,
       "x": -10.58,
       "y": 0.45,
       "z": -7.35,
@@ -610,7 +610,7 @@
     },
     "missile_far.mob.retarget.0": {
       "end": "blast",
-      "tick": 514,
+      "tick": 515,
       "x": 107.41,
       "y": 0.0,
       "z": -195.02,
@@ -618,7 +618,7 @@
     },
     "missile_far.mob.target_gone.0": {
       "end": "blast",
-      "tick": 583,
+      "tick": 584,
       "x": -1.16,
       "y": 0.45,
       "z": -3.9,
@@ -626,7 +626,7 @@
     },
     "missile_far.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 382,
+      "tick": 383,
       "x": -0.53,
       "y": 0.45,
       "z": -0.4,
@@ -634,7 +634,7 @@
     },
     "missile_far.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 367,
+      "tick": 368,
       "x": 6.55,
       "y": 0.45,
       "z": 299.68,
@@ -642,7 +642,7 @@
     },
     "missile_far.player.none.0": {
       "end": "blast",
-      "tick": 514,
+      "tick": 515,
       "x": 22.76,
       "y": 16.13,
       "z": -2.61,
@@ -650,7 +650,7 @@
     },
     "missile_far.player.retarget.0": {
       "end": "blast",
-      "tick": 192,
+      "tick": 193,
       "x": 169.12,
       "y": 0.0,
       "z": 267.16,
@@ -658,7 +658,7 @@
     },
     "missile_far.player.target_gone.0": {
       "end": "blast",
-      "tick": 289,
+      "tick": 290,
       "x": -48.9,
       "y": 25.34,
       "z": -11.09,
@@ -666,7 +666,7 @@
     },
     "missile_far.player.teleport_far.0": {
       "end": "blast",
-      "tick": 422,
+      "tick": 423,
       "x": -29.75,
       "y": 32.05,
       "z": 0.74,
@@ -674,7 +674,7 @@
     },
     "missile_far.player.teleport_near.0": {
       "end": "blast",
-      "tick": 320,
+      "tick": 321,
       "x": 220.0,
       "y": 18.95,
       "z": 239.97,
@@ -682,7 +682,7 @@
     },
     "missile_far.point.beside.0": {
       "end": "blast",
-      "tick": 537,
+      "tick": 538,
       "x": 127.75,
       "y": 0.0,
       "z": 1.06,
@@ -690,7 +690,7 @@
     },
     "missile_far.point.hill.0": {
       "end": "blast",
-      "tick": 592,
+      "tick": 593,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -698,7 +698,7 @@
     },
     "missile_far.point.none.0": {
       "end": "blast",
-      "tick": 204,
+      "tick": 205,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -706,7 +706,7 @@
     },
     "missile_far.point.quarry.0": {
       "end": "blast",
-      "tick": 208,
+      "tick": 209,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -714,7 +714,7 @@
     },
     "missile_far.point.retarget.0": {
       "end": "blast",
-      "tick": 196,
+      "tick": 197,
       "x": -276.85,
       "y": 0.0,
       "z": -10.12,
@@ -722,7 +722,7 @@
     },
     "missile_rail.mob.hill.0": {
       "end": "blast",
-      "tick": 451,
+      "tick": 452,
       "x": 16.2,
       "y": 0.45,
       "z": 0.86,
@@ -730,7 +730,7 @@
     },
     "missile_rail.mob.none.0": {
       "end": "blast",
-      "tick": 522,
+      "tick": 523,
       "x": 2.18,
       "y": 0.45,
       "z": -8.2,
@@ -738,7 +738,7 @@
     },
     "missile_rail.mob.quarry.0": {
       "end": "blast",
-      "tick": 468,
+      "tick": 469,
       "x": 3.43,
       "y": 0.45,
       "z": -16.57,
@@ -746,7 +746,7 @@
     },
     "missile_rail.mob.retarget.0": {
       "end": "blast",
-      "tick": 324,
+      "tick": 325,
       "x": -157.17,
       "y": 0.0,
       "z": 257.8,
@@ -754,7 +754,7 @@
     },
     "missile_rail.mob.target_gone.0": {
       "end": "blast",
-      "tick": 340,
+      "tick": 341,
       "x": -4.68,
       "y": 0.45,
       "z": -10.58,
@@ -762,7 +762,7 @@
     },
     "missile_rail.mob.teleport_far.0": {
       "end": "blast",
-      "tick": 421,
+      "tick": 422,
       "x": -10.42,
       "y": 0.45,
       "z": 2.36,
@@ -770,7 +770,7 @@
     },
     "missile_rail.mob.teleport_near.0": {
       "end": "blast",
-      "tick": 335,
+      "tick": 336,
       "x": 233.61,
       "y": 0.45,
       "z": -172.9,
@@ -778,7 +778,7 @@
     },
     "missile_rail.player.none.0": {
       "end": "blast",
-      "tick": 643,
+      "tick": 644,
       "x": 23.52,
       "y": 31.97,
       "z": -33.56,
@@ -786,7 +786,7 @@
     },
     "missile_rail.player.retarget.0": {
       "end": "blast",
-      "tick": 291,
+      "tick": 292,
       "x": 155.57,
       "y": 0.0,
       "z": 243.59,
@@ -794,7 +794,7 @@
     },
     "missile_rail.player.target_gone.0": {
       "end": "blast",
-      "tick": 474,
+      "tick": 475,
       "x": 16.6,
       "y": 28.62,
       "z": -40.44,
@@ -802,7 +802,7 @@
     },
     "missile_rail.player.teleport_far.0": {
       "end": "blast",
-      "tick": 281,
+      "tick": 282,
       "x": -11.7,
       "y": 24.59,
       "z": 42.14,
@@ -810,7 +810,7 @@
     },
     "missile_rail.player.teleport_near.0": {
       "end": "blast",
-      "tick": 292,
+      "tick": 293,
       "x": -86.78,
       "y": 14.34,
       "z": -261.63,
@@ -818,7 +818,7 @@
     },
     "missile_rail.point.beside.0": {
       "end": "blast",
-      "tick": 440,
+      "tick": 441,
       "x": 73.3,
       "y": 0.0,
       "z": -102.85,
@@ -826,7 +826,7 @@
     },
     "missile_rail.point.hill.0": {
       "end": "blast",
-      "tick": 614,
+      "tick": 615,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -834,7 +834,7 @@
     },
     "missile_rail.point.none.0": {
       "end": "blast",
-      "tick": 590,
+      "tick": 591,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -842,7 +842,7 @@
     },
     "missile_rail.point.quarry.0": {
       "end": "blast",
-      "tick": 456,
+      "tick": 457,
       "x": 0.0,
       "y": 0.0,
       "z": 0.0,
@@ -850,7 +850,7 @@
     },
     "missile_rail.point.retarget.0": {
       "end": "blast",
-      "tick": 288,
+      "tick": 289,
       "x": -146.45,
       "y": 0.0,
       "z": 67.37,
@@ -858,7 +858,7 @@
     },
     "rocket_far.mob.none.0": {
       "end": "blast",
-      "tick": 269,
+      "tick": 270,
       "x": 5.16,
       "y": 0.45,
       "z": -6.34,
@@ -866,7 +866,7 @@
     },
     "rocket_far.point.hill.0": {
       "end": "blast",
-      "tick": 219,
+      "tick": 220,
       "x": 2.94,
       "y": 0.0,
       "z": -3.34,
@@ -874,7 +874,7 @@
     },
     "rocket_far.point.none.0": {
       "end": "blast",
-      "tick": 243,
+      "tick": 244,
       "x": -3.39,
       "y": 0.0,
       "z": -3.36,
@@ -882,7 +882,7 @@
     },
     "rocket_far.point.quarry.0": {
       "end": "blast",
-      "tick": 221,
+      "tick": 222,
       "x": -2.93,
       "y": 0.0,
       "z": 3.22,
@@ -890,7 +890,7 @@
     },
     "rocket_tube.mob.none.0": {
       "end": "blast",
-      "tick": 274,
+      "tick": 275,
       "x": -4.73,
       "y": 0.45,
       "z": 0.69,
@@ -898,7 +898,7 @@
     },
     "rocket_tube.point.hill.0": {
       "end": "blast",
-      "tick": 257,
+      "tick": 258,
       "x": 3.53,
       "y": 0.0,
       "z": -5.7,
@@ -906,7 +906,7 @@
     },
     "rocket_tube.point.none.0": {
       "end": "blast",
-      "tick": 266,
+      "tick": 267,
       "x": -9.34,
       "y": 0.0,
       "z": -0.21,
@@ -914,7 +914,7 @@
     },
     "rocket_tube.point.quarry.0": {
       "end": "blast",
-      "tick": 163,
+      "tick": 164,
       "x": -0.71,
       "y": 0.0,
       "z": 0.77,

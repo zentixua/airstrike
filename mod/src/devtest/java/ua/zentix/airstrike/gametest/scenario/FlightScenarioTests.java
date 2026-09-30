@@ -39,6 +39,7 @@ public final class FlightScenarioTests {
         String template = (SWEEP ? "airstrike_sweep" : Airstrike.MOD_ID) + ":pad";
         List<TestFunction> out = new ArrayList<>();
         all.removeIf(s -> !ScenarioMode.selected(s));
+        if (all.isEmpty()) Airstrike.LOG.error("SCENARIO: выбор сценариев (-PscenarioOnly) не подошёл ни к одному — GameTest не запустится");
         for (int i = 0; i < all.size(); i++) {
             Scenario s = all.get(i);
             out.add(new TestFunction("flight_scenarios_" + i / BATCH, "flightscenario." + s.id(), template, Rotation.NONE, TIMEOUT, 0,

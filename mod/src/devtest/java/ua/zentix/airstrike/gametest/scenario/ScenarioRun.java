@@ -10,7 +10,9 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
@@ -63,6 +65,9 @@ import java.util.function.Consumer;
  *     <li>неподвижная цель поражена в пределах дальности взрывателя ({@link #checkHit});</li>
  *     <li>после конца полёта ни тикетов с UUID снаряда, ни записи в {@link VirtualFlights};</li>
  *     <li>мод не читал неготовых чанков ({@link SyncLoadWatch});</li>
+ *     <li>бюджет работы за тик (корень 1): полоса попаданий не больше общего срока и единицы, с блэкаутом — единицы
+ *         на полосу; очередь попаданий пустеет; всё, что выбрали взрывы снаряда, снесено ({@link #checkWork}). Часы
+ *         общие на сервер: превышение засчитывается всем сценариям, чей полёт шёл в том тике;</li>
  *     <li>полёт совпадает с эталоном ({@link Baseline}), если сценарий в нём.</li>
  * </ul>
  */
@@ -75,6 +80,8 @@ final class ScenarioRun {
     private static final int CRAFT_WAIT = 100;
     /** Сколько ждать после конца полёта, пока отпустятся районы (очередь районов тикает в конце тика мира). */
     private static final int SETTLE_TICKS = 5;
+    /** Сколько после конца полёта ждать, пока работа попаданий снесёт всё, что выбрали взрывы снаряда, тиков. */
+    private static final int IMPACT_LIMIT = 600;
     /** Амплитуда хода моба по рельсу, блоков. */
     private static final double RAIL_HALF = 20;
     /**
@@ -123,6 +130,11 @@ final class ScenarioRun {
     @Nullable
     private Outcome outcome;
     private final Consumer<ExplosionEvent.Start> onBlast = this::onBlast;
+    private final Consumer<ExplosionEvent.Detonate> onDetonate = this::onDetonate;
+    /** Блоки мира (не воздух), которые выбрали взрывы снаряда сценария ({@code Detonate}): работа попаданий сносит их. */
+    private final List<BlockPos> blasted = new ArrayList<>();
+    /** Тик сервера при пуске и в конце полёта (граница бюджета, очередь попаданий). */
+    private int launchServerTick, endServerTick;
 
     /** Итог полёта: чем кончился, на каком тике от пуска и где. */
     private record Outcome(String end, int tick, Vec3 at, WeaponType weapon) {}
@@ -164,6 +176,8 @@ final class ScenarioRun {
         if (ScenarioMode.REAL_CHUNKS) ScenarioMode.paceServer();
         else InstantChunks.acquire();
         NeoForge.EVENT_BUS.addListener(onBlast);
+        NeoForge.EVENT_BUS.addListener(onDetonate);
+        WorkBudgetWatch.acquire(level.getServer());
         StrikeGameTests.afterTest(h, this::cleanup);
         h.onEachTick(this::tick);
         h.succeedWhen(() -> h.assertTrue(checked, "полёт ещё идёт: " + status() + " — " + ScenarioMode.reproduce(s)));
@@ -182,7 +196,7 @@ final class ScenarioRun {
         moveTarget();
         if (!disturbed && s.disturbance().inFlight() && (s.disturbance() == Scenario.Disturbance.BESIDE ? onApproach() : tick >= disturbAt)) disturb();
         observe();
-        if (endTick >= 0 && !checked && tick >= endTick + SETTLE_TICKS) {
+        if (endTick >= 0 && !checked && tick >= endTick + SETTLE_TICKS && (impactsDone() || tick >= endTick + IMPACT_LIMIT)) {
             check();
             checked = true;
         }
@@ -280,6 +294,7 @@ final class ScenarioRun {
         if (s.target() == Scenario.TargetKind.POINT && s.launch() != Scenario.Launch.ICBM) stationaryAim = aim;
         launchTick = tick;
         launchGameTime = level.getGameTime();
+        launchServerTick = level.getServer().getTickCount();
         disturbAt = tick + (int) Math.round(p.when() * eta0);
     }
 
@@ -513,7 +528,10 @@ final class ScenarioRun {
         }
         if (endTick < 0 && now.isEmpty() && !tracks.isEmpty()) {
             endTick = tick;
+            endServerTick = level.getServer().getTickCount();
             if (outcome == null) {
+                // пока «пропал»: взрыв попадания начинается в работе попаданий (WorkScheduler), в конце тика сервера
+                // или позже, когда до него дойдёт очередь, — тогда итог станет взрывом с этим же тиком
                 Track last = tracks.values().stream().reduce((a, b) -> b).orElseThrow();
                 outcome = new Outcome("gone", t, last.last, last.weapon);
             }
@@ -554,25 +572,51 @@ final class ScenarioRun {
         };
     }
 
+    /** Что выбрал взрыв снаряда сценария (любой: подрыв, огненный шар, вторичные) — блоки мира рядом, не аппарата. */
+    private void onDetonate(ExplosionEvent.Detonate e) {
+        if (e.getLevel() != level) return;
+        UUID by = StressDirector.blastBy(e.getExplosion());
+        // столкновение до взведения (crash) — взрыв без разрушения блоков: список Detonate у него есть, но ваниль его не сносит
+        if (by == null || !tracks.containsKey(by) || !e.getExplosion().interactsWithBlocks()) return;
+        Vec3 c = e.getExplosion().center();
+        double reach = e.getExplosion().radius() * 2 + 2;
+        for (BlockPos q : e.getAffectedBlocks()) {
+            // блоки аппарата Sable живут в плоте, далеко от места взрыва: их судьба — дело Sable
+            if (!level.getBlockState(q).isAir() && Vec3.atCenterOf(q).distanceTo(c) <= reach) blasted.add(q.immutable());
+        }
+    }
+
+    /** Работа попаданий дошла: всё выбранное взрывами снесено, и очередь попаданий с конца полёта пустела. */
+    private boolean impactsDone() {
+        return WorkBudgetWatch.emptiedSince(endServerTick) && blasted.stream().allMatch(q -> gone(level.getBlockState(q)));
+    }
+
+    private static boolean gone(BlockState state) {
+        return state.isAir() || state.getBlock() instanceof BaseFireBlock;
+    }
+
     /** Первый взрыв снаряда сценария — по источнику урона (соседние сценарии далеко, но чужой взрыв не засчитать). */
     private void onBlast(ExplosionEvent.Start e) {
-        if (e.getLevel() != level || outcome != null || launchTick < 0) return;
+        if (e.getLevel() != level || launchTick < 0 || outcome != null && !outcome.end.equals("gone")) return;
         UUID by = StressDirector.blastBy(e.getExplosion());
         Track tr = by == null ? null : tracks.get(by);
-        if (tr != null) outcome = new Outcome("blast", tick - launchTick, e.getExplosion().center(), tr.weapon);
+        // тик итога — тик попадания (снаряд пропал), а не очереди работы: он зависит от чужих взрывов в том же тике
+        if (tr != null) outcome = new Outcome("blast", outcome != null ? outcome.tick : tick - launchTick, e.getExplosion().center(), tr.weapon);
     }
 
     // ---------------------------------------------------------------- проверки
 
     private void check() {
         double turn = tracks.values().stream().mapToDouble(tr -> tr.turn).max().orElse(0);
-        Airstrike.LOG.info("SCENARIO flight {}: {} на тике {} (план {}), у {}, поворот у цели до {}°, промах {}", s.id(), outcome.end, outcome.tick,
-                eta0, rel(outcome.at), Math.round(turn), stationaryAim == null ? "—" : String.format(Locale.ROOT, "%.1f", outcome.at.distanceTo(stationaryAim)));
+        Airstrike.LOG.info("SCENARIO flight {}: {} на тике {} (план {}), у {}, поворот у цели до {}°, промах {}, взрывы выбрали {} блоков", s.id(),
+                outcome.end, outcome.tick, eta0, rel(outcome.at), Math.round(turn),
+                stationaryAim == null ? "—" : String.format(Locale.ROOT, "%.1f", outcome.at.distanceTo(stationaryAim)), blasted.size());
         try {
             known(Scenario.Property.TURN, this::checkTurns);
             checkDuration();
             known(Scenario.Property.HIT, this::checkHit);
             checkReleased();
+            checkWork();
             List<SyncLoadWatch.Violation> reads = SyncLoadWatch.since(launchGameTime);
             h.assertTrue(reads.isEmpty(), "синхронная загрузка чанков по вине мода: " + reads);
             // с настоящей загрузкой полёт зависит от скорости генерации на машине: эталон не про него
@@ -660,6 +704,20 @@ final class ScenarioRun {
         }
     }
 
+    /**
+     * Бюджет работы (корень 1) на считающих часах ({@link WorkBudgetWatch}): от пуска до проверки ни в одном тике полоса
+     * попаданий не взяла больше общего срока и единицы (с блэкаутом — единицы на полосу); очередь попаданий после
+     * полёта пустела; каждый блок, который выбрали взрывы снаряда, снесён (или горит).
+     */
+    private void checkWork() {
+        List<WorkBudgetWatch.Violation> over = WorkBudgetWatch.since(launchServerTick);
+        h.assertTrue(over.isEmpty(), "бюджет работы за тик превышен: " + over);
+        h.assertTrue(WorkBudgetWatch.emptiedSince(endServerTick), "очередь попаданий не опустела за " + IMPACT_LIMIT + " тиков после полёта");
+        List<String> left = blasted.stream().filter(q -> !gone(level.getBlockState(q))).limit(5)
+                .map(q -> q.toShortString() + " " + level.getBlockState(q)).toList();
+        h.assertTrue(left.isEmpty(), "взрывы выбрали, но не снесли (" + blasted.size() + " выбрано): " + left);
+    }
+
     private void checkBaseline() {
         Baseline.Entry got = new Baseline.Entry(outcome.end, outcome.tick, round(outcome.at.x - site.origin.x),
                 round(outcome.at.y - site.origin.y), round(outcome.at.z - site.origin.z), trace.hex());
@@ -690,6 +748,8 @@ final class ScenarioRun {
 
     private void cleanup() {
         NeoForge.EVENT_BUS.unregister(onBlast);
+        NeoForge.EVENT_BUS.unregister(onDetonate);
+        WorkBudgetWatch.release(level.getServer());
         if (!ScenarioMode.REAL_CHUNKS) InstantChunks.release();
         VirtualFlights.get(level).clear(level, e -> owner.equals(e.ownerId()));
         for (StrikeProjectile e : live()) e.discard();

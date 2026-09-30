@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
  * Режим прогона сценариев (системные свойства задач Gradle).
  * <ul>
  *     <li>{@code airstrike.scenario.only} ({@code -PscenarioOnly=…}) — только сценарии, имя которых подходит под
- *     регулярное выражение: так повторяют одно падение;</li>
+ *     регулярное выражение (без обратной косой черты: файл аргументов MDG её удваивает): так повторяют одно падение;</li>
  *     <li>{@code airstrike.scenario.realChunks} ({@code -PscenarioRealChunks}) — настоящая загрузка чанков: без
  *     {@link InstantChunks}, сервер в темпе игры (20 тиков/с), свойства те же, эталон не сверяется (полёт зависит
  *     от того, как быстро машина генерирует).</li>
@@ -35,7 +35,8 @@ final class ScenarioMode {
 
     /** Как повторить сценарий одним прогоном — к каждому сообщению о падении. */
     static String reproduce(Scenario s) {
-        return "повторить: ./gradlew runScenarioSweep -PscenarioOnly='^" + s.id().replace(".", "\\.") + "$' -PscenarioSeeds="
+        // точки не экранировать: файл аргументов MDG удваивает обратную косую черту, а точка и так совпадает с точкой
+        return "повторить: ./gradlew runScenarioSweep -PscenarioOnly='^" + s.id() + "$' -PscenarioSeeds="
                 + (s.seed() + 1) + (REAL_CHUNKS ? " -PscenarioRealChunks" : "");
     }
 
