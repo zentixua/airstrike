@@ -15,6 +15,7 @@ import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.util.Particles;
+import ua.zentix.airstrike.warhead.BunkerCover;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 import ua.zentix.airstrike.warhead.Warheads;
 
@@ -76,15 +77,21 @@ public final class BlastEffects {
          * @param near ближе этого — полная сила, блоки
          */
         void flash(ClientLevel level, double near, double range, float decay) {
+            flash(level, pos, near, range, decay);
+        }
+
+        /** То же с источником света в {@code at}. */
+        void flash(ClientLevel level, Vec3 at, double near, double range, float decay) {
             Minecraft mc = Minecraft.getInstance();
             Player player = mc.player;
             if (player == null) return;
             Camera camera = mc.gameRenderer.getMainCamera();
             Vec3 eye = camera.getPosition();
-            Vec3 to = pos.add(0, 1.5, 0).subtract(eye);
+            Vec3 light = at.add(0, 1.5, 0);
+            Vec3 to = light.subtract(eye);
             double d = to.length();
             if (d >= range) return;
-            boolean visible = level.clip(new ClipContext(eye, pos.add(0, 1.5, 0), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player))
+            boolean visible = level.clip(new ClipContext(eye, light, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player))
                     .getType() == HitResult.Type.MISS;
             double cos = d < 1e-6 ? 1 : new Vec3(camera.getLookVector()).dot(to) / d;
             float s = FlashFalloff.strength(d, near, range, cos, visible);
@@ -172,6 +179,10 @@ public final class BlastEffects {
                 Explosions.condensation(level, pos.add(0, 2, 0), 30, random);
             }
             Explosions.column(level, pos, R, t, COLUMN_TICKS, 320, random);
+            for (Warheads.Secondary s : Warheads.MISSILE_SECONDARIES) {
+                // вторичные подрывы сервера (ванильных клубов у них нет): огонь, дым и искры там же и тогда же
+                if (s.tick() == t) Explosions.cookoff(level, pos.add(s.dx(), s.dy(), s.dz()), s.power(), random);
+            }
             switch (t) {
                 case 10 -> BlastSounds.fire(pos, 0.9f);
                 case 150 -> BlastSounds.fire(pos, 0.85f);
@@ -202,20 +213,32 @@ public final class BlastEffects {
     // ================================================================ бетонобойная бомба (bfx)
 
     static final class Bunker extends Timeline {
+        /** Радиус огненного шара прорыва, блоки: 2,4 т ВВ (шар ∝ W^⅓ — ×1,75 к ракете), часть энергии уходит в грунт. */
+        static final float R = 11f;
+
         private final Vec3 surface;
         private final int depth;
+        /** Взрыв прорывается наружу ({@link BunkerCover#BREACH_DEPTH}). */
+        private final boolean breach;
 
         Bunker(Vec3 pos, GroundMaterial mat, float surfaceY, long seed) {
             super(pos, mat, seed);
             this.surface = new Vec3(pos.x, surfaceY, pos.z);
-            this.depth = (int) Math.floor(surfaceY - pos.y);
+            this.depth = BunkerCover.depth((int) surfaceY, pos.y);
+            this.breach = BunkerCover.breaches((int) surfaceY, pos.y);
         }
 
         @Override
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
-                // под землёй вспышку видно только в самой полости и рядом
-                flash(level, 8, 70, 0.8f);
+                if (breach) {
+                    // газы и огонь вырываются над зарядом: шар, дым, вал пыли и вспышка — на поверхности, а не в толще грунта
+                    flash(level, surface, 3 * R, 400, 0.8f);
+                    Explosions.burst(level, surface, R, mat, random);
+                } else {
+                    // под землёй вспышку видно только в самой полости и рядом
+                    flash(level, 8, 70, 0.8f);
+                }
                 return true;
             }
             if (t <= 6) {
@@ -279,8 +302,13 @@ public final class BlastEffects {
             @Override
             boolean run(ClientLevel level, int t) {
                 if (t == 0) {
-                    Particles.burst(level, ParticleTypes.EXPLOSION_EMITTER, pos.add(0, 1, 0), 0, 0, 0, 0, 1);
-                    Particles.burst(level, ParticleTypes.EXPLOSION, pos.add(0, 1, 0), 1, 1, 1, 0, 12);
+                    // удар корпуса без подрыва — огня нет: выброс пыли и комьев грунта из воронки входа
+                    int dust = Explosions.rgb(mat);
+                    for (int i = 0; i < 10; i++) {
+                        Fx.smoke().vel(Explosions.dir(random, 0.3).scale(0.2 + 0.25 * random.nextDouble())).size(1, 3.5f).growFast()
+                                .life(90 + random.nextInt(60)).color(dust, Explosions.lighten(dust, 0.3f)).alpha(0.7f).drag(0.88f)
+                                .rise(0.003f).fadeFrom(0.3f).budget(FxBudget.GROUND).spawn(level, pos.add(0, 1, 0));
+                    }
                     spray(level, 1);
                 }
                 return t < 30;

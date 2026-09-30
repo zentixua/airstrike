@@ -44,6 +44,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
+import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -52,6 +53,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -121,7 +123,7 @@ public final class Warheads {
     }
 
     /**
-     * Ванильный взрыв без его звука (звук с задержкой играет клиент): разрушения по правилам TNT,
+     * Ванильный взрыв без его звука и частиц (звук с задержкой и картинку взрыва даёт клиент): разрушения по правилам TNT,
      * урон с нашим типом («жертва авиаудара»), приваты и Sable работают как обычно. Только по готовым чанкам
      * ({@link #whenReady}).
      */
@@ -132,7 +134,7 @@ public final class Warheads {
         whenReady(level, at, reach(power), l -> l.explode(null, ModDamageTypes.source(l, ModDamageTypes.STRIKE, direct, owner), calculator,
                 at.x, at.y, at.z, power, burns,
                 blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+                ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT));
     }
 
     /**
@@ -345,6 +347,18 @@ public final class Warheads {
 
     // ================================================================ шахед и ракета
 
+    /** Вторичный подрыв: тик после удара, сдвиг от точки удара, сила. */
+    public record Secondary(int tick, double dx, double dy, double dz, float power) {}
+
+    /**
+     * Вторичные подрывы крылатой ракеты (топливо, обломки корпуса): по ним и разрушения на сервере, и картинка у клиента
+     * ({@code BlastEffects.Missile}) — своих частиц у взрывов нет ({@link ModParticles#NONE}).
+     */
+    public static final List<Secondary> MISSILE_SECONDARIES = List.of(
+            new Secondary(3, 8, 0, -5, 5), new Secondary(3, -6, 1, 7, 5),
+            new Secondary(5, -8, 0, -7, 4), new Secondary(5, 3, 1, 9, 4),
+            new Secondary(9, 10, 0, 2, 3));
+
     /** Таймлайн наземного взрыва (fx/tick и mfx/tick датапака). */
     static final class SurfaceBlast implements Timeline {
         private final WeaponType weapon;
@@ -397,17 +411,8 @@ public final class Warheads {
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
             if (missile) {
-                switch (t) {
-                    case 3 -> {
-                        explode(level, pos.add(8, 0, -5), 5, false, direct, owner, null);
-                        explode(level, pos.add(-6, 1, 7), 5, false, direct, owner, null);
-                    }
-                    case 5 -> {
-                        explode(level, pos.add(-8, 0, -7), 4, false, direct, owner, null);
-                        explode(level, pos.add(3, 1, 9), 4, false, direct, owner, null);
-                    }
-                    case 9 -> explode(level, pos.add(10, 0, 2), 3, false, direct, owner, null);
-                    default -> {}
+                for (Secondary s : MISSILE_SECONDARIES) {
+                    if (s.tick() == t) explode(level, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
                 }
                 push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> true, (p, band) -> {
                     if (band == 1) {
@@ -469,6 +474,7 @@ public final class Warheads {
         private final Entity owner;
         private final GroundMaterial mat;
         private final GroundMaterial ventMat;
+        /** Верх колонки заряда (по нему — обрушение свода, как было). */
         private final int surfaceY;
         /** Глубина взрыва под поверхностью, блоков. */
         private final int depth;
@@ -489,9 +495,11 @@ public final class Warheads {
             this.ventMat = GroundMaterial.sample(level, BlockPos.containing(entry));
             this.surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, c.getX(), c.getZ());
             this.depth = Mth.floor(surfaceY - pos.y);
+            // клиенту — верх над зарядом без скважины: по нему прорыв наружу, вспучивание грунта и курящийся провал
+            int cover = surfaceAbove(level, c);
 
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
-                    new S2C.Blast(S2C.Blast.BUNKER, pos, mat.ordinal(), surfaceY, level.random.nextLong()));
+                    new S2C.Blast(S2C.Blast.BUNKER, pos, mat.ordinal(), cover, level.random.nextLong()));
 
             // каверна: порода вокруг заряда в неровных комьях «ослаблена» — взрыв выгрызает полость рваной формы
             for (int i = 0; i < 12; i++) {
@@ -550,6 +558,18 @@ public final class Warheads {
         @Override
         public void end(ServerLevel level) {
             area.release(level);
+        }
+
+        /**
+         * Верх над зарядом без его же скважины ({@link BunkerCover}); листва не в счёт (кроны — не укрытие). Только сервер:
+         * карта {@code …_NO_LEAVES} есть лишь на нём.
+         */
+        private static int surfaceAbove(ServerLevel level, BlockPos c) {
+            int[] h = new int[BunkerCover.RING.length];
+            for (int i = 0; i < h.length; i++) {
+                h[i] = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c.getX() + BunkerCover.RING[i][0], c.getZ() + BunkerCover.RING[i][1]);
+            }
+            return BunkerCover.surface(h);
         }
 
         /** Огонь на дне полости (огненные шары датапака). */
