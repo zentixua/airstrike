@@ -93,6 +93,11 @@ public final class AreaLoader {
         grow(level, area);
     }
 
+    /** Продлить район, взятый на время, до тика {@code until}; отпущенный — не брать снова. */
+    public void renew(Area area, long until) {
+        if (requests.containsKey(area)) expiring.put(area, until);
+    }
+
     /** Отпустить район: тикет региона и, если район ещё рос, тикет загрузки. */
     public void release(ServerLevel level, Area area) {
         expiring.remove(area);

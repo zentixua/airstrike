@@ -88,6 +88,7 @@ public final class Fx {
         e.registerSpriteSet(ModParticles.SPARK.get(), s -> provider(spark = s, Kind.SPARK));
         e.registerSpriteSet(ModParticles.FLASH.get(), s -> provider(flash = s, Kind.FLASH));
         e.registerSpriteSet(ModParticles.RING.get(), s -> provider(ring = s, Kind.RING));
+        e.registerSpecial(ModParticles.NONE.get(), (type, level, x, y, z, dx, dy, dz) -> null);
     }
 
     /** Для команды /particle: частица с настройками по умолчанию. */

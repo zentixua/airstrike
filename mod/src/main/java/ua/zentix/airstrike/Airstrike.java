@@ -73,6 +73,9 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogin);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onChangeDimension);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ArrivalTickets::onDeath);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onClone);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onRespawn);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogout);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);

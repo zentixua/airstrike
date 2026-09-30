@@ -2,7 +2,6 @@ package ua.zentix.airstrike.nuclear.world;
 
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -23,6 +22,7 @@ import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.registry.ModDamageTypes;
+import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.warhead.Warheads;
 
@@ -226,7 +226,7 @@ final class BlastFront {
                 ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), new AircraftOnly(l),
                 a.at().x, a.at().y, a.at().z, a.power(), false,
                 blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
-                ParticleTypes.EXPLOSION, ParticleTypes.EXPLOSION_EMITTER, ModSounds.SILENT));
+                ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT));
     }
 
     /**
