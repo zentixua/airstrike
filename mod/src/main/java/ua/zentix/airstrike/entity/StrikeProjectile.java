@@ -344,6 +344,14 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return route != null && !route.finished() ? route.remaining(position(), aim) : position().distanceTo(aim);
     }
 
+    /**
+     * Зерно своей случайности снаряда (круг барража, сторона ухода B-2) — до {@link #launch}: сценарии полёта
+     * (GameTest) повторяют полёт точно. В игре не зовётся: у каждого снаряда своё случайное зерно.
+     */
+    public void seed(long seed) {
+        random.setSeed(seed);
+    }
+
     /** Ядерная боевая часть (только для носителей, которые её несут). */
     public void setNuclear(@Nullable Loadout.Nuke nuke) {
         this.nuclear = nuke;

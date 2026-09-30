@@ -60,8 +60,11 @@ public final class ArrivalGameTests {
      * Место, где игрок уже был (чанк P и округа сгенерированы и выгружены), и через 5 тиков после залпа из 30 районов с
      * разбросом 150 в свежий рельеф — вход: тикет входа и загрузка P, как её просит тик игрока. Без тикета входа
      * загрузка P стоит в очереди за районами залпа (уровни 29–33 против 33) — на стенде сервер ждал её в тике. С ним P
-     * готов, пока районы залпа ещё почти не готовы: засчитывается, если к готовности P готово меньше половины чанков
-     * районов, которые не были готовы при входе.
+     * идёт в очереди первым: засчитывается, если P готов раньше, чем целиком готов хоть один район залпа, у которого при
+     * входе не было готово больше половины чанков. Порядок, а не доля: сколько чанков районов успеет догенерироваться,
+     * пока грузится P, зависит от числа ядер и нагрузки машины (задачи генерации, уже отданные потокам, очередь
+     * не обгоняет) — доля «меньше половины» падала на занятой машине (774 из 888 при соседней сборке на тех же
+     * 4 ядрах), хотя P шёл первым.
      */
     @GameTest(template = "range", timeoutTicks = 3600, batch = "arrival", skyAccess = true)
     public static void arrivalLoadsBeforeSalvoAreas(GameTestHelper h) {
@@ -96,6 +99,8 @@ public final class ArrivalGameTests {
             for (int i = 0; i < targets.size(); i++) FlightTickets.hold(level, targets.get(i), distance, keys.get(i), false);
         });
         int[] tick = {0}, unloadedAt = {-1}, salvoAt = {-1}, arrivedAt = {-1}, pendingAtArrival = {-1};
+        // районы залпа, в основном не готовые при входе: ни один не должен стать готовым раньше P
+        List<ChunkPos> racing = new ArrayList<>();
         h.onEachTick(() -> {
             tick[0]++;
             if (salvoAt[0] < 0) {
@@ -125,18 +130,24 @@ public final class ArrivalGameTests {
                 ArrivalTickets.arrive(level, p, who, slot);
                 level.getChunkSource().chunkMap.getDistanceManager().addTicket(PLAYER_LOAD, p, ChunkLevel.byStatus(FullChunkStatus.FULL), p);
                 pendingAtArrival[0] = pending(level, targets, distance);
+                // районы, у которых при входе не готово больше половины: почти готовый район мог добраться последними задачами,
+                // уже отданными потокам генерации
+                int area = (2 * distance + 1) * (2 * distance + 1);
+                for (ChunkPos t : targets) if (!racing.contains(t) && pending(level, List.of(t), distance) * 2 > area) racing.add(t);
                 arrivedAt[0] = tick[0];
-                h.assertTrue(pendingAtArrival[0] > 0, "районы залпа готовы сразу — проверка ничего не проверила");
+                h.assertTrue(!racing.isEmpty(), "районы залпа готовы сразу — проверка ничего не проверила");
                 return;
             }
-            if (!Terrain.ready(level, p.x, p.z)) return;
-            int left = pending(level, targets, distance);
-            Airstrike.LOG.info("Вход во время залпа (районы {}): P готов через {} тиков, чанков районов не готово {} из {} при входе",
-                    distance, tick[0] - arrivedAt[0], left, pendingAtArrival[0]);
-            if (left * 2 < pendingAtArrival[0]) {
-                throw new GameTestAssertException("место входа ждало районы залпа: готово " + (pendingAtArrival[0] - left) + " из "
-                        + pendingAtArrival[0] + " их чанков раньше него");
+            boolean ready = Terrain.ready(level, p.x, p.z);
+            for (ChunkPos t : racing) {
+                if (pending(level, List.of(t), distance) == 0) {
+                    throw new GameTestAssertException("место входа ждало районы залпа: район у " + t + " готов через "
+                            + (tick[0] - arrivedAt[0]) + " тиков после входа, место — " + (ready ? "в том же тике" : "ещё нет"));
+                }
             }
+            if (!ready) return;
+            Airstrike.LOG.info("Вход во время залпа (районы {}): P готов через {} тиков, чанков районов не готово {} из {} при входе",
+                    distance, tick[0] - arrivedAt[0], pending(level, targets, distance), pendingAtArrival[0]);
             h.assertTrue(ArrivalTickets.count(level, who) == 1, "тикет входа снят раньше срока");
             h.succeed();
         });
