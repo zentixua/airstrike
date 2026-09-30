@@ -3,7 +3,6 @@ package ua.zentix.airstrike.target;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -63,7 +62,7 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
                 Vec3.CODEC.fieldOf("pos").forGetter(Ground::pos)
         ).apply(i, Ground::new));
 
-        /** Место без карты клиента (команда, сервер): оценка до загрузки чанка — рельеф генератора. */
+        /** Место без карты клиента (команда, сервер): оценка до загрузки чанка — рельеф генератора ({@link Terrain.Source}). */
         public static Ground at(ServerLevel level, double x, double z) {
             return at(level, x, z, Optional.empty());
         }
@@ -72,17 +71,15 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
          * Место на карте (x, z): высоту знает только сервер. Чанк готов — верх, как его рисует карта (кроны деревьев,
          * крыши: снаряд, шедший к земле под кронами, взрывался в них, не долетев). Иначе оценка — верх по карте
          * клиента {@code mapSurface} (Distant Horizons или чанки клиента: карта, на которой выбрано место), а если карта
-         * там пуста — рельеф, каким его строит генератор мира ({@code ChunkGenerator.getBaseHeight}: шум без загрузки
-         * чанка, без деревьев и построек; у мира, построенного не генератором, — город с карты мира, — он с поверхностью
-         * не совпадает: Greenfield, 30.09.2026 — 63 под крышей на 107). Когда чанк у цели загрузится, {@link #surface}
-         * уточнит.
+         * там пуста — рельеф генератора (источники — {@link Terrain.Source}). Когда чанк у цели загрузится,
+         * {@link #surface} уточнит.
          *
          * @param mapSurface первый воздух над землёй по карте клиента; вне высот мира не в счёт
          */
         public static Ground at(ServerLevel level, double x, double z, Optional<Integer> mapSurface) {
-            int estimate = mapSurface.filter(h -> !level.isOutsideBuildHeight(h - 1))
-                    .orElseGet(() -> Terrain.surface(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z)));
-            return new Ground(new Ground(new Vec3(x, estimate - 0.5, z)).surface(level));
+            Terrain.Surface estimate = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z),
+                    Terrain.Allowed.ORDER.withMap(mapSurface));
+            return new Ground(new Vec3(x, estimate.y() - 0.5, z));
         }
 
         @Override
@@ -92,9 +89,8 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
 
         /** Середина верхнего блока (с листвой, как на карте); чанк не готов — оценка из {@link #at}. */
         public Vec3 surface(ServerLevel level) {
-            BlockPos column = BlockPos.containing(pos.x, 0, pos.z);
-            if (!Terrain.ready(level, column)) return pos;
-            return new Vec3(pos.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING, column.getX(), column.getZ()) - 0.5, pos.z);
+            Terrain.Surface top = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(pos.x), Mth.floor(pos.z), Terrain.Allowed.CHUNK);
+            return top.known() ? new Vec3(pos.x, top.y() - 0.5, pos.z) : pos;
         }
 
         @Override
@@ -141,10 +137,10 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
             Vec3 at = e.position().add(offset);
             if (spread.equals(Vec3.ZERO)) return Optional.of(at);
             double x = at.x + spread.x, z = at.z + spread.z;
-            BlockPos column = BlockPos.containing(x, 0, z);
             // высота земли — только из готового чанка (район цели грузится заранее); иначе — на высоте цели
-            if (!e.onGround() || !Terrain.ready(level, column)) return Optional.of(new Vec3(x, at.y, z));
-            return Optional.of(new Vec3(x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()) - 0.5, z));
+            if (!e.onGround()) return Optional.of(new Vec3(x, at.y, z));
+            Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(x), Mth.floor(z), Terrain.Allowed.CHUNK);
+            return Optional.of(new Vec3(x, ground.known() ? ground.y() - 0.5 : at.y, z));
         }
 
         @Override
