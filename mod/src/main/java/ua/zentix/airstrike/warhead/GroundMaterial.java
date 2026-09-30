@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.SlabType;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,7 +70,9 @@ public enum GroundMaterial {
         return this == WATER;
     }
 
+    /** Грунт в точке удара; чанк не готов — гравий: чтение из неготового чанка на сервере грузит его прямо в тике. */
     public static GroundMaterial sample(Level level, BlockPos at) {
+        if (!Terrain.ready(level, at)) return GRAVEL;
         GroundMaterial below = classify(level.getBlockState(at.below()));
         GroundMaterial here = classify(level.getBlockState(at));
         return here != null ? here : below != null ? below : GRAVEL;

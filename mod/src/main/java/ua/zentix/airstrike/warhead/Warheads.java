@@ -206,7 +206,12 @@ public final class Warheads {
 
     /**
      * Ударная волна выбивает стёкла (и листву — только у ракеты). Сканируем лишь секции чанков, где такие блоки
-     * вообще есть, поэтому даже куб 53×31×53 обходится дёшево. Незагруженные чанки пропускаются.
+     * вообще есть, поэтому даже куб 53×31×53 обходится дёшево. Незагруженные чанки пропускаются. У чанка с неготовым
+     * соседом обновления соседей расходятся цепочкой дальше любого запаса в блоках (форма панели, потерявшей связь;
+     * дверь рядом проверяет сигнал редстоуна и читает соседей проводящего блока; рельсы и провод — ещё дальше) и
+     * грузили бы неготовый чанк синхронно. Поэтому там блок убирается без обновлений соседей (флаги 18: клиентам
+     * и без форм соседей — у соседней панели остаётся связь), а в {@link #EDGE} блоках от неготового чанка не
+     * убирается совсем: Sable читает соседние блоки каждого изменённого.
      *
      * @return сколько блоков выбито
      */
@@ -219,6 +224,8 @@ public final class Warheads {
             for (int sz = SectionPos.blockToSectionCoord(min.getZ()); sz <= SectionPos.blockToSectionCoord(max.getZ()); sz++) {
                 LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
                 if (chunk == null) continue;
+                // соседи чанка готовы — любой его блок меняется как обычно; нет — без обновлений соседей и не у края
+                boolean edgesReady = Terrain.neighbourhoodReady(level, sx, sz);
                 for (int sy = SectionPos.blockToSectionCoord(min.getY()); sy <= SectionPos.blockToSectionCoord(max.getY()); sy++) {
                     int idx = chunk.getSectionIndexFromSectionY(sy);
                     if (idx < 0 || idx >= chunk.getSectionsCount()) continue;
@@ -233,7 +240,8 @@ public final class Warheads {
                                 // из уже взятой секции: setBlock меняет её же, так что следующие чтения верны
                                 if (section.getBlockState(x & 15, y & 15, z & 15).is(tag)) {
                                     m.set(x, y, z);
-                                    level.setBlock(m, Blocks.AIR.defaultBlockState(), 3);
+                                    if (!edgesReady && !Terrain.readyAround(level, Vec3.atCenterOf(m), EDGE)) continue;
+                                    level.setBlock(m, Blocks.AIR.defaultBlockState(), edgesReady ? Block.UPDATE_ALL : EDGE_FLAGS);
                                     broken++;
                                 }
                             }
@@ -273,15 +281,33 @@ public final class Warheads {
         p.addEffect(new MobEffectInstance(effect, seconds * 20, 0, true, false, true));
     }
 
-    /** Поджечь землю: огонь на верхнем блоке столба (как упавшие огненные шары). */
-    static void igniteGround(ServerLevel level, double x, double z) {
-        if (!AirstrikeConfig.SERVER.fire.get()) return;
+    /**
+     * Сколько блоков от изменённого блока должно быть в готовых чанках, когда он меняется без обновлений соседей
+     * ({@link #EDGE_FLAGS}): сам блок и его соседи, которые читает Sable, — с запасом в блок.
+     */
+    private static final int EDGE = 2;
+    /** Изменение у края загрузки: клиентам, без форм соседей и без их обновлений. */
+    private static final int EDGE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
+
+    /**
+     * Поджечь землю: огонь на верхнем блоке столба (как упавшие огненные шары). Только в готовых чанках: кольцо огня
+     * ракеты — в 7 блоках от точки удара, и у края загрузки оно доставало до чанка, который ещё генерируется, — чтение
+     * блока из него ({@code igniteAt}) грузило бы его прямо в тике, а у чанка, который уже грузится, высота и блок
+     * ждали бы загрузки в {@code managedBlock}.
+     */
+    public static void igniteGround(ServerLevel level, double x, double z) {
+        if (!AirstrikeConfig.SERVER.fire.get() || !Terrain.readyAround(level, new Vec3(x, 0, z), EDGE)) return;
         BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING, BlockPos.containing(x, 0, z));
         igniteAt(level, top);
     }
 
+    /**
+     * Огонь в блоке, если там воздух и огонь держится. Только когда готовы чанк блока и все его соседи: {@code setBlock}
+     * обновляет соседей (и цепочкой — их соседей: дверь рядом проверяет сигнал редстоуна), а Sable читает соседние
+     * блоки ({@code SableCommonEvents.handleBlockChange}) — у края загрузки это грузило бы чанк синхронно.
+     */
     static void igniteAt(ServerLevel level, BlockPos pos) {
-        if (!AirstrikeConfig.SERVER.fire.get()) return;
+        if (!AirstrikeConfig.SERVER.fire.get() || !Terrain.neighbourhoodReady(level, pos.getX() >> 4, pos.getZ() >> 4)) return;
         if (level.getBlockState(pos).isAir()) {
             BlockState fire = BaseFireBlock.getState(level, pos);
             if (fire.canSurvive(level, pos)) level.setBlock(pos, fire, 11);
@@ -344,9 +370,11 @@ public final class Warheads {
                 case ROCKET -> S2C.Blast.ROCKET;
                 default -> S2C.Blast.DRONE;
             };
+            // высоту поверхности клиент берёт только у бомбы (BunkerBlast, BlastEffects): здесь — точка удара, без чтения
+            // высоты, которое у неготового чанка грузило бы его или ждало загрузки
+            float surface = (float) pos.y;
             PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
-                    new S2C.Blast(kind, pos, mat.ordinal(),
-                            (float) level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(pos.x), Mth.floor(pos.z)), level.random.nextLong()));
+                    new S2C.Blast(kind, pos, mat.ordinal(), surface, level.random.nextLong()));
             explode(level, pos, power(weapon), false, direct, owner, null);
         }
 
