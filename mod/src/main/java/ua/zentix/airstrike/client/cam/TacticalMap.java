@@ -32,7 +32,7 @@ final class TacticalMap {
     private static final double FOLLOW = 0.15;
 
     private static final int BG = 0xF00A1410, GRID = 0x2860FF90, GRID_TEXT = 0x9060FF90, INK = 0xFFD8F0E0;
-    private static final int TRAIL = 0xB060C8FF, ROUTE = 0x90FF6040, TARGET = 0xFFFF3030, CRAFT = 0xFFFFD040, OTHER = 0xA0A0B0A8;
+    private static final int TRAIL = 0xF060C8FF, ROUTE = 0xF0FF8040, TARGET = 0xFFFF3030, CRAFT = 0xFFFFD040, OTHER = 0xA0A0B0A8;
     private static final int OPERATOR = 0xFFFFFFFF, VIDEO_RING = 0x8080FFA0;
     /** Рельеф под картой приглушён: поверх него читаются путь, цель и телеметрия. */
     private static final int TERRAIN_DIM = 0x900A1410;
@@ -107,28 +107,31 @@ final class TacticalMap {
         int range = videoRange(f);
         HudDraw.dottedCircle(g, map.x(me.x), map.y(me.z), range * k, VIDEO_RING);
         int[] op = map.at(me);
+        g.fill(op[0] - 3, op[1] - 3, op[0] + 4, op[1] + 4, HudDraw.HALO);
         g.fill(op[0] - 2, op[1] - 2, op[0] + 3, op[1] + 3, OPERATOR);
         label(g, font, Component.translatable("airstrike.map.you"), op[0], op[1] + 5, OPERATOR);
 
         for (ClientFlights.Tracked o : ClientFlights.all()) {
             if (o == f || o.phase() == FlightPhase.READY) continue;
             int[] p = map.at(o.position(pt));
+            g.fill(p[0] - 2, p[1] - 2, p[0] + 3, p[1] + 3, HudDraw.HALO);
             g.fill(p[0] - 1, p[1] - 1, p[0] + 2, p[1] + 2, OTHER);
         }
 
         Vec3 craft = f.position(pt);
         int[] c = map.at(craft);
         int[] t = map.at(f.target());
+        // пройденный путь — сплошной, оставшийся — штрихами; толстые и с обводкой, чтобы читались на пёстром рельефе
         int[] prev = null;
         for (Vec3 p : f.trail()) {
             int[] q = map.at(p);
-            if (prev != null) HudDraw.dotted(g, prev[0], prev[1], q[0], q[1], TRAIL);
-            g.fill(q[0], q[1], q[0] + 1, q[1] + 1, TRAIL);
+            if (prev != null) HudDraw.haloLine(g, prev[0], prev[1], q[0], q[1], 2, TRAIL);
             prev = q;
         }
-        if (prev != null) HudDraw.dotted(g, prev[0], prev[1], c[0], c[1], TRAIL);
-        HudDraw.dotted(g, c[0], c[1], t[0], t[1], ROUTE);
+        if (prev != null) HudDraw.haloLine(g, prev[0], prev[1], c[0], c[1], 2, TRAIL);
+        HudDraw.dashed(g, c[0], c[1], t[0], t[1], 2, ROUTE);
 
+        HudDraw.box(g, t[0], t[1], 7, HudDraw.HALO);
         HudDraw.box(g, t[0], t[1], 6, f.targetLost() ? OTHER : TARGET);
         g.fill(t[0], t[1], t[0] + 1, t[1] + 1, TARGET);
         Component who = f.targetLabel();

@@ -102,6 +102,7 @@ public final class ClientScenario {
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
         else if ("target-map".equals(mode)) planTargetMap();
+        else if ("salvo-map".equals(mode)) planSalvoMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
@@ -859,6 +860,59 @@ public final class ClientScenario {
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, target.getX(), target.getZ()),
                     e.getLevel().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, target.getX(), target.getZ()));
             mapImpactTick = tick;
+        });
+    }
+
+    /**
+     * Залп на карте наведения — кадры salvo-map_* (штриховые пути снарядов к целям, район разброса) и время, за которое
+     * карта открылась, в логе («Карта наведения: рельеф вида готов за …»): в пульте шесть шахедов с разбросом 40,
+     * место кликом в ~130 блоках, огонь по Enter, карта снова открыта на весь полёт. В копии мира игрока
+     * (prod_client.py --world) — там, где он стоит; карту открывают, когда DH загрузил свои LOD (как в target-map).
+     */
+    private void planSalvoMap() {
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator");
+        });
+        at(60, () -> {
+            // настройки пульта — как с его экрана: в предмет у клиента и на сервер
+            var salvo = new ua.zentix.airstrike.strike.Loadout(WeaponType.DRONE, 6, 40, ua.zentix.airstrike.strike.TargetMode.MAP, "",
+                    ua.zentix.airstrike.strike.Loadout.DEFAULT.nuke());
+            Minecraft.getInstance().player.getMainHandItem().set(ua.zentix.airstrike.registry.ModDataComponents.LOADOUT.get(), salvo);
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                    new ua.zentix.airstrike.net.C2S.SetLoadout(net.minecraft.world.InteractionHand.MAIN_HAND, salvo));
+        });
+        for (int t = 300; t <= 300 + MAP_DH_WAIT; t += 20) {
+            at(t, () -> {
+                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) salvoMapBegin(tick);
+            });
+        }
+    }
+
+    private void salvoMapBegin(int o) {
+        mapOpened = o;
+        Airstrike.LOG.info("SCENARIO salvo-map open at tick {}", o);
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.droneFlightTime.set(20);
+        Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        shot(o + 10, "salvo-map");
+        shot(o + 40, "salvo-map");
+        at(o + 60, () -> {
+            var screen = Minecraft.getInstance().screen;
+            double x = screen.width / 2.0 + 120, y = screen.height / 2.0 - 50;
+            screen.mouseClicked(x, y, 0);
+            screen.mouseReleased(x, y, 0);
+        });
+        shot(o + 70, "salvo-map");
+        at(o + 80, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
+        at(o + 100, () -> Minecraft.getInstance().setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen())));
+        for (int t = o + 120; t <= o + 520; t += 40) shot(t, "salvo-map");
+        at(o + 540, () -> {
+            logFlights();
+            Airstrike.LOG.info("SCENARIO salvo-map terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
         });
     }
 
