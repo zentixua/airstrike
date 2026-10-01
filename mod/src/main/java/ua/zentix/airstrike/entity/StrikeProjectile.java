@@ -13,6 +13,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -1080,8 +1081,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Датчик {@link Craft#lineClear}: луч по блокам до точки без последних {@code margin} блоков, только по готовым
-     * чанкам ({@link Terrain#readyUntil}); вне мира — свободна. Цена — один {@code clip} длиной до расстояния до точки.
+     * Датчик {@link Craft#lineClear}: клетки блоков на прямой до точки без последних {@code margin} блоков, только по
+     * готовым чанкам ({@link Terrain#readyUntil}); вне мира — свободна. Закрывает клетка с любой формой столкновения
+     * целиком: у тонкого (забор, мачта из заборов — столб 0,25 блока) луч по форме ({@code Level.clip}) обычно проходит
+     * мимо, а шахед своим корпусом его задевает. Цена — обход клеток по прямой ({@code BlockGetter.traverseBlocks}),
+     * до первой закрытой.
      */
     protected boolean lineClear(Level level, Vec3 to, double margin) {
         if (virtual) return true;
@@ -1089,7 +1093,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         double length = from.distanceTo(to);
         if (length <= margin) return true;
         Vec3 end = Terrain.readyUntil(level, from, from.lerp(to, (length - margin) / length));
-        return level.clip(new ClipContext(from, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this)).getType() == HitResult.Type.MISS;
+        return BlockGetter.traverseBlocks(from, end, level,
+                (l, pos) -> l.getBlockState(pos).getCollisionShape(l, pos).isEmpty() ? null : Boolean.FALSE, l -> Boolean.TRUE);
     }
 
     // ---------------------------------------------------------------- чанки
