@@ -64,6 +64,25 @@ class FarBlastsTest {
         }
     }
 
+    @Test
+    void skyGlowsAtNightNotByDay() {
+        // свет неба FarView.ambient: полдень и полночь (getSkyDarken 0,2)
+        double day = 1, night = 0.17;
+        for (FarBlasts.Look k : List.of(FarBlasts.DRONE, FarBlasts.MISSILE, FarBlasts.ROCKET, FarBlasts.BUNKER_BREACH)) {
+            double clearDay = FarBlasts.skyGlow(k.flash(), k.fireball(), Sight.CLEAR, day);
+            double clearNight = FarBlasts.skyGlow(k.flash(), k.fireball(), Sight.CLEAR, night);
+            double rainNight = FarBlasts.skyGlow(k.flash(), k.fireball(), Sight.RAIN, night);
+            assertTrue(clearDay < Sight.THRESHOLD, k + ": днём зарева не видно, " + clearDay);
+            assertTrue(clearNight > (k == FarBlasts.ROCKET ? 3 * Sight.THRESHOLD : 0.1), k + ": ночью небо над взрывом вспыхивает, " + clearNight);
+            assertTrue(rainNight > clearNight || rainNight == 1, k + ": в дождь воздух рассеивает больше, " + rainNight);
+            assertTrue(rainNight <= 1, "не ярче белого");
+        }
+        assertTrue(FarBlasts.skyGlow(FarBlasts.MISSILE.flash(), FarBlasts.MISSILE.fireball(), Sight.CLEAR, night)
+                > FarBlasts.skyGlow(FarBlasts.DRONE.flash(), FarBlasts.DRONE.fireball(), Sight.CLEAR, night), "ракета ярче шахеда");
+        assertTrue(FarBlasts.skyGlow(FarBlasts.DRONE.flash(), FarBlasts.DRONE.fireball(), Sight.CLEAR, night)
+                > FarBlasts.skyGlow(FarBlasts.ROCKET.flash(), FarBlasts.ROCKET.fireball(), Sight.CLEAR, night), "шахед ярче снаряда РСЗО");
+    }
+
     private static double top(FarBlasts.Look k) {
         return FarBlasts.height(k, 1, FarBlasts.radius(k, 1), 1);
     }

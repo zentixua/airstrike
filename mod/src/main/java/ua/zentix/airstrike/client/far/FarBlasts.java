@@ -27,7 +27,8 @@ import java.util.SplittableRandom;
  * <p>
  * Ближе 0,8 прорисовки взрыв рисуют частицы {@code BlastEffects}, дальше картинка переходит сюда ({@link FarView#farShare});
  * пакет, пришедший дальше {@link #NEAR}, ближней картинки не получает — дальняя рисуется на любой дальности. Свет
- * приходит сразу, звук — когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе —
+ * приходит сразу (и ночью зарево в небе над местом — {@link #skyGlow}, на любой дальности, кроме самой близкой), звук —
+ * когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе —
  * пояса ближней модели.
  */
 public final class FarBlasts {
@@ -49,6 +50,11 @@ public final class FarBlasts {
     static final double FADE_IN = 8;
     /** Яркость огненного шара и пожара в воронке против белого экрана; доля вспышки, что светит заревом из-за гребня. */
     static final double BALL = 8, BURN = 2, BEHIND = 0.05;
+    /**
+     * Зарево в небе — свет вспышки и шара, рассеянный воздухом над местом: радиус зарева в радиусах шара и высота его
+     * середины в радиусах зарева.
+     */
+    static final double SKY = 12, SKY_LIFT = 0.6;
 
     /** Дым: свежий чёрный и старый серый (как у столба ближней картинки), цвет пыли тянет к этому серому. */
     private static final float[] DARK = {0.18f, 0.165f, 0.15f}, AGED = {0.48f, 0.455f, 0.43f}, DUST_GREY = {0.6f, 0.57f, 0.54f};
@@ -263,9 +269,10 @@ public final class FarBlasts {
             double d = e.distanceTo(cam);
             double w = e.near ? view.farShare(d) : 1;
             e.wanted = w > 0;
+            // линия, ниже которой место взрыва закрыто рельефом, — над основанием (в прорисовке закрывает глубина)
+            double line = e.hidden > 0 && w > 0 ? LIFT + e.hidden : 0;
+            sky(e, view, out, age, bx, by, bz, d, line);
             if (w <= 0) continue;
-            // линия, ниже которой место взрыва закрыто рельефом, — над основанием
-            double line = e.hidden > 0 ? LIFT + e.hidden : 0;
             light(e, view, out, age, bx, by, bz, d, w, line);
             column(e, view, out, age, bx, by, bz, w, line);
         }
@@ -287,17 +294,55 @@ public final class FarBlasts {
         if (age < k.ballTicks()) {
             double u = age / k.ballTicks();
             double radius = r * (0.55 + 0.45 * Math.min(1, age / 3)) * (1 + 0.3 * u);
-            float[] from = u < 0.35 ? BALL_HOT : BALL_MID, to = u < 0.35 ? BALL_MID : BALL_COLD;
-            float s = (float) (u < 0.35 ? u / 0.35 : (u - 0.35) / 0.65);
-            TINT[0] = from[0] + (to[0] - from[0]) * s;
-            TINT[1] = from[1] + (to[1] - from[1]) * s;
-            TINT[2] = from[2] + (to[2] - from[2]) * s;
-            glow(view, out, bx, by, bz, r * (0.4 + 0.5 * u), radius, BALL * Math.pow(1 - u, 1.5), t, w, line, TINT);
+            glow(view, out, bx, by, bz, r * (0.4 + 0.5 * u), radius, BALL * Math.pow(1 - u, 1.5), t, w, line, tint(u));
         }
         if (age < k.burnTicks()) {
             double flicker = 0.75 + 0.25 * Math.sin(age * 1.9 + e.phase) * Math.sin(age * 0.73 + 2 * e.phase);
             glow(view, out, bx, by, bz, 0.2 * r, 0.6 * r, BURN * (1 - age / k.burnTicks()) * flicker, t, w, line, FIRE);
         }
+    }
+
+    /** Цвет остывающего шара на доле u его жизни: раскалён → оранжевый → тёмно-красный. */
+    private static float[] tint(double u) {
+        float[] from = u < 0.35 ? BALL_HOT : BALL_MID, to = u < 0.35 ? BALL_MID : BALL_COLD;
+        float s = (float) (u < 0.35 ? u / 0.35 : (u - 0.35) / 0.65);
+        TINT[0] = from[0] + (to[0] - from[0]) * s;
+        TINT[1] = from[1] + (to[1] - from[1]) * s;
+        TINT[2] = from[2] + (to[2] - from[2]) * s;
+        return TINT;
+    }
+
+    /**
+     * Зарево в небе над местом, пока светят вспышка и шар ({@link #skyGlow}): днём его не видно, ночью небо над взрывом
+     * вспыхивает, в дождь и дымку — сильнее и шире. Вблизи (ближе трёх радиусов зарева) его заменяет вспышка на экране.
+     */
+    private static void sky(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double d, double line) {
+        Look k = e.look;
+        double r = k.fireball();
+        if (r <= 0 || age >= Math.max(k.flashTicks(), k.ballTicks())) return;
+        double rs = SKY * r, share = e.near ? smoothstep(rs, 3 * rs, d) : 1;
+        double t = Sight.transmittance(d, view.range());
+        if (share <= 0 || t < Sight.THRESHOLD) return;
+        if (age < k.flashTicks()) {
+            double f = 1 - age / k.flashTicks();
+            glow(view, out, bx, by, bz, SKY_LIFT * rs, rs, skyGlow(k.flash() * f * f, r, view.range(), view.ambient()), t, share, line, FLASH);
+        }
+        if (age < k.ballTicks()) {
+            double u = age / k.ballTicks();
+            glow(view, out, bx, by, bz, SKY_LIFT * rs, rs, skyGlow(BALL * Math.pow(1 - u, 1.5), r, view.range(), view.ambient()), t, share, line, tint(u));
+        }
+    }
+
+    /**
+     * Яркость зарева против белого экрана. Воздух на пути через зарево (радиус {@link #SKY}·r) рассеивает долю
+     * 1 − e^(−σ·Rs) света источника яркости b (точка радиуса r; σ = 3,912 / дальность видимости по Кошмидеру — в дождь
+     * в разы больше); этот свет расходится по всему кругу зарева — поток тот же, яркость × (r/Rs)²; а глаз, привыкший
+     * к свету неба, видит его ярче во столько раз, во сколько небо темнее ({@link FarFlightView#adapted}). Не ярче белого.
+     */
+    static double skyGlow(double b, double r, double range, double ambient) {
+        double rs = SKY * r, k = r / rs;
+        double scatter = 1 - Math.exp(-Sight.KOSCHMIEDER / range * rs);
+        return Math.min(1, FarFlightView.adapted(b * scatter * k * k, ambient));
     }
 
     /**
