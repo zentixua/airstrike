@@ -2,11 +2,16 @@ package ua.zentix.airstrike.client.map;
 
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
+import net.neoforged.neoforge.event.level.ChunkEvent;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Рельеф из чанков, которые есть у клиента (дальность прорисовки): как ванильная карта — верхний блок по карте
@@ -18,6 +23,31 @@ final class LoadedChunksTerrain implements TerrainSource {
     /** Сколько блоков вниз искать блок с цветом под прозрачными (стекло, свет). */
     private static final int MAX_COLORLESS = 8;
 
+    /**
+     * Чанки ({@link ChunkPos#asLong}), пришедшие клиенту с прошлого тика, и мир, в который они пришли: плитка, построенная
+     * заранее, пока их не было, — с дырами, и её надо перечитать, а не ждать часов неполной плитки (после входа в мир
+     * чанки приходят секундами). Пишет и читает поток игры.
+     */
+    private static final Set<Long> arrived = new HashSet<>();
+    @Nullable
+    private static ClientLevel arrivedIn;
+
+    /** Чанк пришёл клиенту (событие NeoForge из {@code ClientChunkCache.replaceWithPacketData}). */
+    static void onChunkLoad(ChunkEvent.Load e) {
+        if (!(e.getLevel() instanceof ClientLevel level)) return;
+        if (level != arrivedIn) {
+            arrived.clear();
+            arrivedIn = level;
+        }
+        arrived.add(e.getChunk().getPos().toLong());
+    }
+
+    /** Выход из мира: не держать его. */
+    static void clearArrivals() {
+        arrived.clear();
+        arrivedIn = null;
+    }
+
     @Override
     public boolean offThread() {
         return false;
@@ -27,6 +57,20 @@ final class LoadedChunksTerrain implements TerrainSource {
     @Override
     public long refreshNanos() {
         return 30_000_000_000L;
+    }
+
+    @Override
+    public void changes(ClientLevel level, ChunkSink sink) {
+        if (arrived.isEmpty()) return;
+        if (level == arrivedIn) {
+            for (long c : arrived) sink.changed(ChunkPos.getX(c), ChunkPos.getZ(c));
+        }
+        arrived.clear();
+    }
+
+    @Override
+    public boolean arrivals() {
+        return true;
     }
 
     @Override
