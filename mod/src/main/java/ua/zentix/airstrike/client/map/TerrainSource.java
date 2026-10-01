@@ -41,6 +41,14 @@ interface TerrainSource {
     /** Раз в тик, в потоке игры: чанки мира {@code level}, которые источник обновил с прошлого раза. */
     default void changes(ClientLevel level, ChunkSink sink) {}
 
+    /**
+     * {@link #changes} сообщает о чанках, данные которых появились (пришли клиенту), а не изменились: перечитывать
+     * нужно только плитки с дырами.
+     */
+    default boolean arrivals() {
+        return false;
+    }
+
     /** Для лога: что источник отдал с начала мира (колонки, отказы и почему). */
     default String describe() {
         return "";

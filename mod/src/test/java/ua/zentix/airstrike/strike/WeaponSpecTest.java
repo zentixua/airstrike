@@ -33,6 +33,14 @@ class WeaponSpecTest {
         assertEquals(400, WeaponSpec.BUNKER.sirenLead());
     }
 
+    /** Рассеивание: у РСЗО СКО — 1 % дальности, не меньше блока; управляемые бьют в саму точку. */
+    @Test
+    void dispersionIsShareOfRange() {
+        assertEquals(6, WeaponSpec.ROCKET.route().sigma(600), 1e-9);
+        assertEquals(1, WeaponSpec.ROCKET.route().sigma(40), 1e-9);
+        for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.LOITER, WeaponSpec.BUNKER)) assertEquals(0, w.route().sigma(600));
+    }
+
     /** Тревога звучит раньше, чем снаряд выходит на последний прямой участок: у цели успевают услышать заход. */
     @Test
     void sirenBeforeFinalLeg() {

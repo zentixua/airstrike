@@ -26,9 +26,7 @@ record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warning
         List<Step> steps = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         int t = START, gate = -1;
-        for (String item : spec.split(";")) {
-            String c = item.strip();
-            if (c.isEmpty()) continue;
+        for (String c : ScenarioCommands.split(spec)) {
             // «wait:nuke» — раньше общего «wait:N»: иначе он разбирался как число и пропускался (ноутбук 30.09)
             if (c.equals("wait:nuke")) {
                 if (gate >= 0) warnings.add("второй «wait:nuke» пропущен — ждать подрыва можно один раз");
