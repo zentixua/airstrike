@@ -2,6 +2,7 @@ package ua.zentix.airstrike.gametest;
 
 import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -2775,6 +2776,47 @@ public final class StrikeGameTests {
             SalvoData.get(level).clear();
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()) || other.equals(p.ownerId()));
             onRail.discard();
+            h.succeed();
+        });
+    }
+
+    /**
+     * Залп по сущности, которая погибла: остаток бьёт по месту гибели, а не по новой сущности с тем же UUID (игрок
+     * возрождается новым {@code ServerPlayer} с прежним UUID — раньше залп переходил на место возрождения).
+     */
+    @GameTest(template = "range", timeoutTicks = 60, batch = "salvo_target_died", skyAccess = true)
+    public static void salvoKeepsLastPointOfDeadTarget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        java.util.UUID owner = java.util.UUID.randomUUID();
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER));
+        Pig pig = EntityType.PIG.create(level);
+        pig.moveTo(at.x, at.y, at.z, 0, 0);
+        pig.setNoAi(true);
+        level.addFreshEntity(pig);
+        Target.OfEntity target = new Target.OfEntity(pig.getUUID(), Vec3.ZERO);
+        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT);
+        Runnable cleanup = () -> {
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
+        };
+        h.runAfterDelay(3, () -> {
+            h.assertTrue(SalvoData.get(level).centers(owner).equals(List.of(target)), "залп не идёт за живой целью: " + SalvoData.get(level).centers(owner));
+            pig.kill();
+        });
+        h.runAfterDelay(30, () -> {
+            // «возрождение»: новая сущность с тем же UUID в стороне
+            Pig again = EntityType.PIG.create(level);
+            again.setUUID(pig.getUUID());
+            again.moveTo(at.x + 40, at.y, at.z, 0, 0);
+            again.setNoAi(true);
+            h.assertTrue(level.getEntity(pig.getUUID()) == null && level.addFreshEntity(again), "вторая сущность с тем же UUID не встала в мир");
+        });
+        h.runAfterDelay(40, () -> {
+            List<Target> centers = SalvoData.get(level).centers(owner);
+            cleanup.run();
+            level.getEntities(EntityType.PIG, h.getBounds().inflate(64), p -> p.getUUID().equals(pig.getUUID())).forEach(Entity::discard);
+            h.assertTrue(centers.size() == 1 && centers.getFirst() instanceof Target.Point p && p.pos().distanceTo(at) < 1,
+                    "залп после гибели цели идёт не по месту гибели: " + centers);
             h.succeed();
         });
     }

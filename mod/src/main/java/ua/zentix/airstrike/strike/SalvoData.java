@@ -11,6 +11,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
@@ -60,6 +62,15 @@ public final class SalvoData extends SavedData {
         return salvos.size();
     }
 
+    /** Цели залпов этого игрока (для проверок). */
+    public List<Target> centers(UUID owner) {
+        List<Target> out = new ArrayList<>();
+        for (Salvo s : salvos) {
+            if (owner.equals(s.owner)) out.add(s.center);
+        }
+        return out;
+    }
+
     /** Сколько снарядов ещё не выпущено в залпах этого игрока. */
     public int remaining(UUID owner) {
         int n = 0;
@@ -106,8 +117,16 @@ public final class SalvoData extends SavedData {
         final int total;
         int remaining;
         final int radius;
-        final Target center;
+        /** Цель залпа; погибла цель-сущность — её последняя точка ({@link #watchCenter}). */
+        Target center;
         Vec3 lastCenter;
+        /**
+         * Сущность-цель, за которой залп шёл в прошлый тик (не сохраняется: после загрузки — первая найденная). Игрок,
+         * погибший и возрождённый, — новый {@code ServerPlayer} с тем же UUID: без неё залп переходил на место
+         * возрождения и бил туда.
+         */
+        @Nullable
+        private Entity followed;
         final float yaw;
         @Nullable
         final UUID owner;
@@ -130,6 +149,7 @@ public final class SalvoData extends SavedData {
         }
 
         boolean tick(ServerLevel level) {
+            watchCenter(level);
             if (--cooldown > 0) return true;
             ServerPlayer ownerPlayer = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
             if (remaining <= 0) {
@@ -144,6 +164,30 @@ public final class SalvoData extends SavedData {
             cooldown = weapon.salvoGap(level.random);
             if (ownerPlayer != null) PacketDistributor.sendToPlayer(ownerPlayer, new S2C.SalvoStatus(weapon.id(), total - remaining, total));
             return true;
+        }
+
+        /**
+         * Каждый тик, не только к пуску: цель-сущность погибла — остаток залпа бьёт по её последней точке, а не по
+         * возродившейся или новой сущности с тем же UUID. Сущность, сменившая измерение или пропавшая из мира, не
+         * погибла: залп по-прежнему идёт за ней (а пока её нет — по последней точке).
+         */
+        private void watchCenter(ServerLevel level) {
+            if (!(center instanceof Target.OfEntity target)) return;
+            if (followed != null && died(followed)) {
+                center = new Target.Point(lastCenter);
+                followed = null;
+                Airstrike.LOG.info("Залп: {} — цель {} погибла, остаток ({}) — по её последней точке {}", weapon.getSerializedName(),
+                        target.uuid(), remaining, BlockPos.containing(lastCenter));
+                return;
+            }
+            Entity now = level.getEntity(target.uuid());
+            if (now == null) return;
+            followed = now;
+            target.resolve(level, now).ifPresent(p -> lastCenter = p);
+        }
+
+        private static boolean died(Entity e) {
+            return e instanceof LivingEntity l ? l.isDeadOrDying() : e.getRemovalReason() == Entity.RemovalReason.KILLED;
         }
 
         private void fire(ServerLevel level) {
