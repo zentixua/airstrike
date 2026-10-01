@@ -121,6 +121,8 @@ def main():
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--crf", type=int, default=16, help="качество libx264 (меньше — лучше)")
     ap.add_argument("--audio", help="файл звука, момент появления которого отметить")
+    ap.add_argument("--size", metavar="WxH", help="писать только окно этого размера (окно загрузки меньше: снимать его "
+                                                 "ffmpeg продолжал бы в старом размере)")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
@@ -140,6 +142,7 @@ def main():
     x11 = X11()
     child = subprocess.Popen(cmd)
     mark(event="command", pid=child.pid, wall=time.time())
+    want = tuple(int(v) for v in a.size.split("x")) if a.size else None
     ffmpeg, seg, size, log, audio_seen = None, 0, None, None, a.audio is None
 
     def finish():
@@ -179,7 +182,7 @@ def main():
                 if ffmpeg is not None and win is not None and win[1:] != size:
                     finish()
                     seg += 1
-                elif ffmpeg is None and win is not None:
+                elif ffmpeg is None and win is not None and (want is None or win[1:] == want):
                     size, log = win[1:], f"{base}.{seg:03d}.log"
                     with open(log, "w") as lf:
                         ffmpeg = subprocess.Popen(

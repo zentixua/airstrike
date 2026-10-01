@@ -217,7 +217,7 @@ def main():
     if a.video:
         if os.path.exists(audio):
             os.remove(audio)
-        game = f"python3 \"{os.path.join(tools, 'x11_record.py')}\" --out \"{os.path.abspath(a.video)}\" --audio \"{audio}\" -- {game}"
+        game = f"python3 \"{os.path.join(tools, 'x11_record.py')}\" --out \"{os.path.abspath(a.video)}\" --size {width}x{height} --audio \"{audio}\" -- {game}"
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec {game}'"
     # экран KWin больше окна на рамку и запас: окно с рамкой во весь экран KWin ужал бы под экран

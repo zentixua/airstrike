@@ -4,7 +4,7 @@
   python3 tools/laptop-jobs/nuke-preview-cut.py <каталог копии> <выход.mp4>
 
 В каталоге копии: take.jsonl и take.NNN.mkv (tools/x11_record.py), audio.wav, logs/latest.log. Время отрезков —
-по строкам SCENARIO в логе (часы стены, локальное время), видео и звук ложатся на них по отметкам take.jsonl.
+по строкам SCENARIO в логе (пояс часов лога — по его первой строке и запуску java), видео и звук ложатся на них по отметкам take.jsonl.
 Отрезки: пуск МБР (команда −1 … +11 с), вспышка и волна на дальней камере (подрыв −4 с … перенос камеры),
 гриб со второй камеры (перенос +2,5 с … +47,5 с, не дальше конца сценария). Рядом — <выход>.txt: что взято откуда.
 """
@@ -15,21 +15,32 @@ import re
 import subprocess
 import sys
 
-LINE = re.compile(r"^\[(\d{2}\w{3}\d{4}) (\d{2}):(\d{2}):(\d{2})\.(\d{3})\]")
+LINE = re.compile(r"^\[(\d{2}\w{3}\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\]")
 
 
-def log_time(path, needle, ref):
-    """Время первой строки лога с needle, секунды эпохи; ref — опорное время (дата)."""
+def naive(line):
+    """Время строки лога как есть (часы JVM, пояс неизвестен) — секунды, как если бы это было UTC; None — не строка лога."""
+    m = LINE.match(line)
+    if not m:
+        return None
+    t = datetime.datetime.strptime(m.group(1), "%d%b%Y %H:%M:%S.%f")
+    return t.replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
+def log_zone(path, spawned):
+    """Пояс часов лога, секунды: первая строка лога — через секунды после запуска java (отметка «command»
+    x11_record.py, часы стены), пояс кратен 15 минутам. Пояс системы не годится: у JVM на ноутбуке он другой."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        first = next(t for t in map(naive, f) if t is not None)
+    return round((first - spawned) / 900) * 900
+
+
+def log_time(path, needle, zone):
+    """Время первой строки лога с needle, секунды эпохи."""
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            if needle in line:
-                m = LINE.match(line)
-                if not m:
-                    continue
-                day = datetime.datetime.fromtimestamp(ref).replace(hour=int(m.group(2)), minute=int(m.group(3)),
-                                                                   second=int(m.group(4)), microsecond=int(m.group(5)) * 1000)
-                t = day.timestamp()
-                return t + 86400 if t < ref - 43200 else t
+            if needle in line and (t := naive(line)) is not None:
+                return t - zone
     sys.exit(f"в логе нет строки «{needle}»")
 
 
@@ -47,10 +58,9 @@ def main():
     audio = next(m["wall"] for m in marks if m["event"] == "audio")
     log = os.path.join(d, "logs", "latest.log")
     ref = segs[0][1]
-    launch = log_time(log, "SCENARIO /airstrike nuke at", ref)
-    det = log_time(log, "SCENARIO commands: подрыв пришёл", ref)
-    move = log_time(log, "SCENARIO /tp @s -1124.5", ref)
-    done = log_time(log, "SCENARIO done", ref)
+    zone = log_zone(log, next(m["wall"] for m in marks if m["event"] == "command"))
+    launch, det, move, done = (log_time(log, needle, zone) for needle in (
+        "SCENARIO /airstrike nuke at", "SCENARIO commands: подрыв пришёл", "SCENARIO /tp @s -1124.5", "SCENARIO done"))
     clips = [("пуск", launch - 1, launch + 11), ("вспышка и волна", det - 4, move - 0.2),
              ("гриб", move + 2.5, min(move + 47.5, done - 0.5))]
     inputs, chains, notes = [], [], []
@@ -77,7 +87,8 @@ def main():
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "slow", "-crf", "19", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out], check=True)
     with open(out[:-4] + ".txt", "w") as f:
-        f.write(f"куски: {[(os.path.basename(s[0]), round(s[2] - s[1], 1)) for s in segs]}\n"
+        f.write(f"пояс часов лога: UTC{zone / 3600:+.2f} ч\n"
+                f"куски: {[(os.path.basename(s[0]), round(s[2] - s[1], 1)) for s in segs]}\n"
                 f"звук начался через {audio - ref:.2f} с после начала первого куска\n"
                 f"пуск {launch - ref:.2f} с, подрыв {det - ref:.2f} с, перенос камеры {move - ref:.2f} с, конец {done - ref:.2f} с\n"
                 + "\n".join(notes) + f"\nитог: {duration(out):.2f} с\n")
