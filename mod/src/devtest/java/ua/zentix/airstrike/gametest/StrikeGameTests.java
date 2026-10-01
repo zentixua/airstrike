@@ -765,7 +765,10 @@ public final class StrikeGameTests {
      * а время до удара, названное на пусковой (HUD, сирена, «удар через ~N с»), сходится с настоящим в пределах 10 %.
      * В темпе игры: путь уходит за площадку, район цели грузится в фоне. Цель — на помосте в 48 блоках над полосой:
      * маршрут идёт над площадками соседних тестов, и ракета, которая держит высоту цели + 12, проходит над их стенами
-     * из барьеров (у «range» — 40 блоков; на бреющем она врезалась в стену соседа в 110 блоках сбоку).
+     * из барьеров (у «range» — 40 блоков; на бреющем она врезалась в стену соседа в 110 блоках сбоку). Обход — на восток:
+     * GameTest ставит площадки рядами с запада на восток, и восточнее этой, пока она идёт, площадок нет, а западнее в
+     * 5 блоках от полосы может стоять «range» — на разгоне ракета ещё в 20 блоках над землёй и врезалась в его стену
+     * (CI 01.10.2026: GameTest по частям, сосед — другой).
      */
     @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_launcher", skyAccess = true)
     public static void missileFromLauncherKeepsSpeedAndEta(GameTestHelper h) {
@@ -774,11 +777,11 @@ public final class StrikeGameTests {
         BlockPos deck = new BlockPos(RUNWAY_TARGET.getX(), 47, RUNWAY_TARGET.getZ());
         for (BlockPos b : BlockPos.betweenClosed(deck.offset(-4, -3, -4), deck.offset(4, 0, 4))) h.setBlock(b, Blocks.STONE);
         Vec3 point = Vec3.atBottomCenterOf(h.absolutePos(deck.above()));
-        // 600 блоков пути: точка обхода в ~220 блоках сбоку от полосы, вход в 150 блоках до цели; пакет, как в игре
+        // 600 блоков пути: точка обхода в ~220 блоках к востоку от полосы, вход в 150 блоках до цели; пакет, как в игре
         // (StrikeService.fromLauncher), смотрит на первую точку маршрута
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
         Vec3 approach = new Vec3(0, 0, 1);
-        Vec3 first = Route.plan(site, point, approach, 600, 150, 1).current();
+        Vec3 first = Route.plan(site, point, approach, 600, 150, -1).current();
         float yaw = ua.zentix.airstrike.guidance.FlightController.anglesTo(site, first)[0];
         LauncherEntity launcher = LauncherEntity.create(level, site, yaw, WeaponType.MISSILE, null);
         level.addFreshEntity(launcher);
@@ -786,7 +789,7 @@ public final class StrikeGameTests {
         Vec3 rail = launcher.railPoint(0);
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
         missile.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), ready, LauncherEntity.DEPLOY_TICKS, new Target.Point(point), point, null);
-        missile.setRoute(Route.plan(rail, point, approach, 600, 150, 1));
+        missile.setRoute(Route.plan(rail, point, approach, 600, 150, -1));
         int eta = missile.etaTicks();
         level.addFreshEntity(missile);
         UUID id = missile.getUUID();
