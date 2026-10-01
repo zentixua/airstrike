@@ -98,9 +98,9 @@ public final class NuclearWorld {
         return !pulses.isEmpty() || !craters.isEmpty() || scars.size() > 0 || !prep.idle() || blast.busy();
     }
 
-    /** Больше всего работ очереди руин, осмотренных за один тик (проверки бюджета). */
-    public int scarMaxInspectedPerTick() {
-        return scars.maxInspectedPerTick();
+    /** Работ очереди руин, осмотренных в последнем тике (проверки бюджета). */
+    public int scarInspectedLastTick() {
+        return scars.inspectedLastTick();
     }
 
     public int queuedChunks() {

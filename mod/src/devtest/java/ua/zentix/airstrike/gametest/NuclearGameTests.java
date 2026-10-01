@@ -1336,15 +1336,22 @@ public final class NuclearGameTests {
             NuclearWorld.useClock(level.getServer(), new WorkClock());
             NuclearStrikes.clear(level);
         });
-        // пул может вырасти (число потоков подстраивается по тику сервера): занимать каждый тик
-        RuinWorkers.fillForTest(release);
-        h.onEachTick(() -> RuinWorkers.fillForTest(release));
-        NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
         NuclearWorld w = NuclearWorld.get(level);
+        long start = level.getGameTime();
+        int[] maxInspected = {0};
+        // пул может вырасти (число потоков подстраивается по тику сервера): занимать каждый тик. Осмотренные за тик —
+        // свои, с тиков после подрыва: очередь та же у всех тестов сервера, и до этого теста в ней мог быть чужой тик
+        // на настоящих часах
+        RuinWorkers.fillForTest(release);
+        h.onEachTick(() -> {
+            RuinWorkers.fillForTest(release);
+            if (level.getGameTime() >= start + 2) maxInspected[0] = Math.max(maxInspected[0], w.scarInspectedLastTick());
+        });
+        NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 1, false, null, 0.1f);
         int budgetMs = AirstrikeConfig.SERVER.nukeTimeBudgetMs.get();
         h.runAfterDelay(200, () -> {
             h.assertTrue(w.queuedChunks() > 2 * budgetMs, "в очереди " + w.queuedChunks() + " чанков — не больше двух бюджетов, проверка ни о чём");
-            h.assertTrue(w.scarMaxInspectedPerTick() <= budgetMs + 1, "за тик осмотрено " + w.scarMaxInspectedPerTick() + " работ при бюджете " + budgetMs + " мс");
+            h.assertTrue(maxInspected[0] <= budgetMs + 1, "за тик осмотрено " + maxInspected[0] + " работ при бюджете " + budgetMs + " мс");
             h.assertTrue(clock.maxUnitsPerTick() <= budgetMs + 1, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
             h.succeed();
         });

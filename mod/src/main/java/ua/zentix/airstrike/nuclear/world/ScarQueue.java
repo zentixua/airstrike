@@ -110,8 +110,8 @@ public final class ScarQueue {
      * ядерного тика 465 и 1124 мс после паузы в игре Артёма 01.10.2026 (вывод по коду и времени, не замер).
      */
     private static final int UNIT_CHECK = 0, UNIT_RUIN = 1;
-    /** Для строки медленного ядерного тика: работ осмотрено в этом тике и сколько из них ждали; больше всего за тик (проверки). */
-    private int inspected, waitedThisTick, maxInspected;
+    /** Для строки медленного ядерного тика и проверок: работ осмотрено в этом тике и сколько из них ждали. */
+    private int inspected, waitedThisTick;
 
     /** Тикетов с соседями за отпущенные квадраты зоны ({@link #holdForTile}) сразу, не больше. */
     private static final int TILE_HOLDS = 64;
@@ -674,7 +674,7 @@ public final class ScarQueue {
                 release(level, job);
             } finally {
                 long took = clock.end(c0, kind);
-                maxInspected = Math.max(maxInspected, ++inspected);
+                inspected++;
                 if (kind == UNIT_CHECK) waitedThisTick++;
                 // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
                 if (took > 50_000_000L && now - lastSlowChunk >= 100) {
@@ -690,9 +690,9 @@ public final class ScarQueue {
         return "осмотрено " + inspected + ", ждали " + waitedThisTick;
     }
 
-    /** Больше всего работ, осмотренных за один тик (проверки). */
-    int maxInspectedPerTick() {
-        return maxInspected;
+    /** Работ, осмотренных в последнем тике (проверки). */
+    int inspectedLastTick() {
+        return inspected;
     }
 
     /**
