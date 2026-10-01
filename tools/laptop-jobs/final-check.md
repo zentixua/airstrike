@@ -304,7 +304,7 @@ for (a, b, off), (n, nd, stacks, origins, waits) in zip(gaps, stat):
           f"в DataFixerUpper {nd} — {verdict}")
     for k, c in stacks.most_common(8): print(f"{c:4d} {k}")
     print("-- откуда (первые кадры вне JDK и DataFixerUpper):")
-    for k, c in origins.most_common(8): print(f"{c:4d} {k}")
+    for k, c in origins.most_common(4): print(f"{c:4d} {k}")
     for k, (c, ms) in sorted(waits.items(), key=lambda kv: -kv[1][1])[:8]: print(f"ожидание ×{c}, {ms:.0f} мс — {k}")
 print(f"\nнеобъяснённых после JFR: {left}" + (f" (из них не разобрано {dropped})" if dropped else ""))
 EOT
