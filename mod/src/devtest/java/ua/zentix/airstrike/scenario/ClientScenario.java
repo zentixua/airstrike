@@ -492,20 +492,24 @@ public final class ClientScenario {
     private boolean fxAim(double[] p, String weapon, String label, boolean force) {
         Minecraft mc = Minecraft.getInstance();
         int cx = (int) Math.floor(p[0]), cz = (int) Math.floor(p[2]);
-        // высота без готового чанка — низ мира: зритель встал бы в постройку
+        // высота без готового чанка — низ мира: зритель встал бы в постройку, цель ушла бы на дно мира (v3: ракета 1
+        // на y −64, карта высот чанка ещё пустая) — столб у дна мира тоже «не готов»
+        int floor = mc.level.getMinBuildHeight() + 4;
         int top = Integer.MIN_VALUE;
         for (int x = cx - FX_VIEW_RADIUS; x <= cx + FX_VIEW_RADIUS; x += 4) {
             for (int z = cz - FX_VIEW_RADIUS; z <= cz + FX_VIEW_RADIUS; z += 4) {
-                if (!mc.level.hasChunk(x >> 4, z >> 4)) {
+                int h = mc.level.hasChunk(x >> 4, z >> 4) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) : Integer.MIN_VALUE;
+                if (h <= floor) {
                     if (force) {
-                        Airstrike.LOG.warn("SCENARIO {} skipped: chunks around target not loaded by client — FAIL", label);
+                        Airstrike.LOG.warn("SCENARIO {} skipped: chunks around target not loaded by client (column {} {} at {}) — FAIL", label, x, z,
+                                h == Integer.MIN_VALUE ? "no chunk" : h);
                         current = "wait";
                         at(tick + 1, this::nextFx);
                         return true;
                     }
                     return false;
                 }
-                top = Math.max(top, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z));
+                top = Math.max(top, h);
             }
         }
         int y = Double.isNaN(p[1]) ? mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, cx, cz) : (int) p[1];
@@ -1189,7 +1193,8 @@ public final class ClientScenario {
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
      * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
      * {@code имя_тик.png}, {@code hud:off}/{@code hud:on} — скрыть и вернуть интерфейс (как F1: чат с ответами команд
-     * не закрывает кадр, а в лог клиента идёт как прежде). Шаги идут друг за другом: после команды — 40 тиков, после
+     * не закрывает кадр, а в лог клиента идёт как прежде). Шаги идут друг за другом: после команды — 40 тиков
+     * ({@code airstrike.commands.gap}, от 1: счёт сущностей раз в секунду), после
      * снимка — 20, после {@code hud:} — 1 (снимок берёт уже нарисованный кадр: в тот же тик он был бы ещё с интерфейсом),
      * и {@code wait:N}
      * прибавляется к ним ({@code cmd;wait:1200;shot:x} снимает через 1240 тиков после команды). Неверный {@code wait:}
@@ -1197,6 +1202,7 @@ public final class ClientScenario {
      */
     private void planCommands() {
         int t = 100;
+        int gap = Math.max(1, Integer.getInteger("airstrike.commands.gap", 40));
         for (String c : ScenarioCommands.split(System.getProperty("airstrike.commands", ""))) {
             if (c.startsWith("wait:")) {
                 String n = c.substring("wait:".length()).strip();
@@ -1221,7 +1227,7 @@ public final class ClientScenario {
                 t += 1;
             } else {
                 at(t, () -> cmd(c));
-                t += 40;
+                t += gap;
             }
         }
         at(t + 100, () -> {
