@@ -91,8 +91,10 @@ git commit
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026); `-PwithLithium` — GameTest ещё и
 с Lithium, как у хоста (в jar и `mods.toml` его нет).
-CI (GitHub Actions, репозиторий публичный) гоняет то же (GameTest дважды: без Lithium и с ним) на каждый push
-в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
+CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
+не запускает — PR открывать сразу, черновиком); jar — артефакт `airstrike-jar`. Прогона с Lithium в CI нет: мод
+не лезет туда, что Lithium подменяет (тик блок-сущностей, цикл `Explosion.explode`), — `-PwithLithium` остаётся для
+проверки совместимости руками.
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
 с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
 вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.

@@ -50,8 +50,7 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 // ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
 def dhModPatterns = System.getenv('AIRSTRIKE_DH') ? ['DistantHorizons-*.jar'] : []
-// GameTest с Lithium, как у хоста (-PwithLithium): Lithium подменяет цикл лучей Explosion.explode (миксины mixin/explosion)
-// и PalettedContainer.count (grid.ChunkLights)
+// GameTest с Lithium, как у хоста (-PwithLithium): проверка совместимости руками, в CI её нет
 def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
 
 // каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
