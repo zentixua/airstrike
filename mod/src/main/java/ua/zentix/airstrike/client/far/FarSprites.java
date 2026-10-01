@@ -56,6 +56,11 @@ public final class FarSprites {
 
     @Nullable
     private static ShaderInstance shader;
+    /**
+     * Путь кадра пройден хоть раз с этим шейдером ({@link #warmup}): первая отрисовка грузит текстуры с диска, связывает
+     * программу и заводит буферы драйвера — на ноутбуке это 35 мс в кадре первого взрыва и по 4 мс у первого шлейфа.
+     */
+    private static boolean warmed;
     /** Свой шейдер; не загрузился — ванильный (бледное он отбрасывает, в логе ошибка). */
     private static final Supplier<ShaderInstance> SHADER = () -> shader != null ? shader : GameRenderer.getPositionTexColorShader();
 
@@ -66,7 +71,10 @@ public final class FarSprites {
     public static void registerShaders(RegisterShadersEvent e) {
         try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("far_sprite"), DefaultVertexFormat.POSITION_TEX_COLOR),
-                    s -> shader = s);
+                    s -> {
+                        shader = s;
+                        warmed = false;
+                    });
         } catch (IOException ex) {
             shader = null;
             Airstrike.LOG.error("Шейдер дальних снарядов и взрывов не загрузился: рисую ванильным, бледный дым и зарево пропадут", ex);
@@ -79,6 +87,33 @@ public final class FarSprites {
         discs.clear();
         glows.clear();
         ribbons.clear();
+    }
+
+    /** Кадр с этим шейдером ещё не рисовался: нужен {@link #warmup}. */
+    static boolean cold() {
+        return !warmed;
+    }
+
+    /**
+     * По одной записи каждого вида без света и заслона (с умноженной альфой такой спрайт не меняет ни пикселя): кадр
+     * проходит весь путь — текстуры, шейдер, буферы вершин всех четырёх вызовов, — и первый настоящий кадр вдали
+     * ничего этого уже не ждёт.
+     */
+    void warmup() {
+        for (Batch batch : new Batch[]{puffs, discs, glows}) {
+            int o = batch.add(1);
+            Arrays.fill(batch.data, o, o + BILLBOARD, 0);
+            batch.data[o + 2] = -16;
+            batch.data[o + 3] = 1;
+        }
+        int o = ribbons.add(1);
+        Arrays.fill(ribbons.data, o, o + SEGMENT, 0);
+        ribbons.data[o + 2] = -16;
+        ribbons.data[o + 3] = 1;
+        ribbons.data[o + 5] = -16;
+        ribbons.data[o + 6] = 1;
+        ribbons.data[o + 7] = 1;
+        warmed = true;
     }
 
     public boolean isEmpty() {
