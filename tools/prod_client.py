@@ -155,7 +155,7 @@ def main():
                     help="не копировать инстанс: запустить уже готовый каталог --dir (например копию для съёмки mod/run/film/instance/minecraft)")
     ap.add_argument("--user", default="Dev")
     ap.add_argument("--copy-only", action="store_true", help="только скопировать инстанс (и --world) в --dir и выйти")
-    ap.add_argument("--size", default="1280x720", metavar="WxH", help="экран вложенного KWin")
+    ap.add_argument("--size", default="1280x720", metavar="WxH", help="окно игры (экран вложенного KWin — с запасом на рамку)")
     ap.add_argument("--video", metavar="FILE.mkv",
                     help="записать окно игры в реальном времени (tools/x11_record.py: куски FILE.NNN.mkv, отметки FILE.jsonl)")
     a = ap.parse_args()
@@ -193,7 +193,11 @@ def main():
         props["airstrike.scenario"] = a.scenario
         if a.world and not a.quickplay:
             props["airstrike.world"] = world_name(a.world)
-    game_extra = ["--quickPlaySingleplayer", world_name(a.world)] if a.quickplay else []
+    # окно игры — во весь экран вложенного KWin сразу: размер по умолчанию 854×480, а переход на полный экран
+    # во вложенном KWin не срабатывал (ноутбук 01.10: весь дубль — 854×480)
+    game_extra = ["--width", width, "--height", height]
+    if a.quickplay:
+        game_extra += ["--quickPlaySingleplayer", world_name(a.world)]
 
     java = os.path.join(os.environ.get("JAVA_HOME") or paths.JAVA, "bin", "java")
     argfile = os.path.join(dest, "launch.args")
@@ -216,7 +220,9 @@ def main():
         game = f"python3 \"{os.path.join(tools, 'x11_record.py')}\" --out \"{os.path.abspath(a.video)}\" --audio \"{audio}\" -- {game}"
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec {game}'"
-    sys.exit(run_in_group([os.path.join(tools, "nested_kwin.sh"), socket, width, height, cmd],
+    # экран KWin больше окна на рамку и запас: окно с рамкой во весь экран KWin ужал бы под экран
+    screen = [str(int(width) + 128), str(int(height) + 192)]
+    sys.exit(run_in_group([os.path.join(tools, "nested_kwin.sh"), socket, *screen, cmd],
                           {**os.environ, "ALSOFT_CONF": alsoft}, a.seconds))
 
 

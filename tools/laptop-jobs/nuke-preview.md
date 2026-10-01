@@ -55,7 +55,9 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-preview" && cd "${W:?}/
 timeout -k 60 20m ./gradlew scenarioJar -q --console=plain; echo "код $?"; ls -l build/scenario-libs/
 ```
 Копия инстанса Артёма (моды, config, шейдеры, `options.txt`) и мира — в `$W/mod/run/preview`. В копии: настройки
-Distant Horizons — в сторону (DH создаст свои по умолчанию), игра — на весь экран (кадр = экран 1920×1080).
+Distant Horizons — в сторону (DH создаст свои по умолчанию); окно игры — 1920×1080 с первого кадра: `prod_client.py` передаёт
+`--width/--height` по `--size`, окно загрузки NeoForge (`fml.toml`) — тот же размер, полный экран выключен (в дубле 01.10
+он не включился, и весь дубль вышел 854×480).
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-preview" && cd "${W:?}" && \
 MC="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft" && \
@@ -64,7 +66,8 @@ if [ -d "$FILM/saves/greenfield-film" ] && [ -z "$(comm -23 <(ls "$FILM/mods" | 
 then WORLD="$FILM/saves/greenfield-film"; else WORLD="$MC/saves/Greenfield v0.5.4"; fi && echo "мир: $WORLD" && \
 python3 tools/prod_client.py --copy-only --world "$WORLD" --dir "$P" && \
 mkdir -p "$P/config-aside" && for f in "$P/config"/DistantHorizons*; do [ -e "$f" ] && mv "$f" "$P/config-aside/" && echo "в сторону: $(basename "$f")"; done; \
-sed -i -E 's/^fullscreen:.*/fullscreen:true/' "$P/options.txt" && grep -q '^fullscreen:' "$P/options.txt" || echo 'fullscreen:true' >> "$P/options.txt"; \
+sed -i -E 's/^fullscreen:.*/fullscreen:false/' "$P/options.txt"; \
+F="$P/config/fml.toml"; [ -f "$F" ] && sed -i -E 's/^(\s*earlyWindowWidth\s*=).*/\1 1920/; s/^(\s*earlyWindowHeight\s*=).*/\1 1080/' "$F" && grep -E 'earlyWindow(Width|Height)' "$F"; \
 ls "$P/saves"; grep -E '^(renderDistance|fov|fullscreen):' "$P/options.txt"; grep -E '^(shaderPack|enableShaders)=' "$P/config/iris.properties"; \
 C="$P/saves/$(basename "$WORLD")/serverconfig/airstrike-server.toml"; [ -e "$C" ] || C="$P/config/airstrike-server.toml"; \
 grep -hE '^\s*(flight_time|siren|effects_scale)\s*=' "$C" || echo "строк нет — значения по умолчанию"
@@ -91,7 +94,7 @@ code=$?; echo "код $code, конец: $(date -u +%T) UTC"; case "$code" in 12
   прогона — координатору в течение 5 мин: последние 40 строк лога, `crash-reports/`, `$P/take.jsonl`, хвост `take.*.log`.
 - Через ~3 мин после старта — один кадр из последнего куска видео (только чтение, файл пишется дальше):
   `ffmpeg -v error -sseof -3 -i "$P/take.<N>.mkv" -frames:v 1 -y "$W/mod/run/probe.jpg"` — посмотреть: должна быть
-  картинка игры (загрузка, меню или мир). Сплошь чёрный кадр — запись окна не работает: остановить задачу (только
+  картинка игры (загрузка, меню или мир). В `$P/take.jsonl` у куска с миром — `"width": 1920, "height": 1080`; другой размер — стоп так же. Сплошь чёрный кадр — запись окна не работает: остановить задачу (только
   `systemctl --user stop`), сообщить координатору с `take.jsonl` и `take.*.log`.
 
 ## 5. Монтаж и выжимка
