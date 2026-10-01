@@ -8,9 +8,10 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
 
 /**
- * Частицы эффектов. Типы нужны ради наборов текстур (assets/airstrike/particles/*.json → textures/particle, рисует
- * tools/gen_particles.py); сами частицы с настройками (размер, цвет по времени жизни, накал, всплытие) создаёт
- * клиент напрямую — {@code client/fx/particle/Fx}. Команда {@code /particle airstrike:smoke} даёт частицу по умолчанию.
+ * Частицы эффектов. Типы нужны только команде {@code /particle airstrike:smoke}: она даёт частицу по умолчанию. Сами
+ * частицы с настройками (размер, цвет по времени жизни, накал, всплытие) клиент рождает в своём пуле и рисует своим
+ * слоем — {@code client/fx/particle/Fx}, {@code client/fx/layer/FxLayer}; текстуры — {@code textures/fx/particle}
+ * ({@code tools/gen_particles.py}) на своём листе.
  */
 public final class ModParticles {
     public static final DeferredRegister<ParticleType<?>> REGISTER = DeferredRegister.create(Registries.PARTICLE_TYPE, Airstrike.MOD_ID);

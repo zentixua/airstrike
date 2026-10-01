@@ -3,26 +3,21 @@ package ua.zentix.airstrike.client.fx.particle;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.ParticleStatus;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.particle.Particle;
-import net.minecraft.client.particle.SpriteSet;
+import net.minecraft.client.particle.ParticleProvider;
 import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import com.mojang.blaze3d.systems.RenderSystem;
 import ua.zentix.airstrike.registry.ModParticles;
 
 /**
  * Частицы эффектов: {@code Fx.smoke().at(…).vel(…).size(2, 9).life(200).color(…).spawn(level, x, y, z)}.
- * Настройка — {@link Spec} (его можно копировать и спаунить много раз); частица создаётся прямо в движке частиц,
- * без пакетов и без ванильного ограничения «не дальше 32 блоков».
+ * Настройка — {@link Spec} (его можно спаунить много раз и менять между пусками: частица берёт снимок); частица
+ * рождается в своём пуле ({@link FxPool}), без пакетов и без ванильного ограничения «не дальше 32 блоков».
  */
 public final class Fx {
     /** Ветер (блоки/тик² на единицу парусности): дым и пыль сносит, столбы дыма наклоняются. */
     public static final double WIND_X = 0.0022, WIND_Z = 0.0011;
-
-    private static SpriteSet smoke, fire, spark, flash, ring;
 
     private Fx() {}
 
@@ -82,17 +77,17 @@ public final class Fx {
 
     // ---------------------------------------------------------------- регистрация
 
+    /** Шина мода: команда {@code /particle airstrike:smoke} рождает частицу с настройками по умолчанию в пуле. */
     public static void registerProviders(RegisterParticleProvidersEvent e) {
-        e.registerSpriteSet(ModParticles.SMOKE.get(), s -> provider(smoke = s, Kind.SMOKE));
-        e.registerSpriteSet(ModParticles.FIRE.get(), s -> provider(fire = s, Kind.FIRE));
-        e.registerSpriteSet(ModParticles.SPARK.get(), s -> provider(spark = s, Kind.SPARK));
-        e.registerSpriteSet(ModParticles.FLASH.get(), s -> provider(flash = s, Kind.FLASH));
-        e.registerSpriteSet(ModParticles.RING.get(), s -> provider(ring = s, Kind.RING));
+        e.registerSpecial(ModParticles.SMOKE.get(), provider(Kind.SMOKE));
+        e.registerSpecial(ModParticles.FIRE.get(), provider(Kind.FIRE));
+        e.registerSpecial(ModParticles.SPARK.get(), provider(Kind.SPARK));
+        e.registerSpecial(ModParticles.FLASH.get(), provider(Kind.FLASH));
+        e.registerSpecial(ModParticles.RING.get(), provider(Kind.RING));
         e.registerSpecial(ModParticles.NONE.get(), (type, level, x, y, z, dx, dy, dz) -> null);
     }
 
-    /** Для команды /particle: частица с настройками по умолчанию. */
-    private static net.minecraft.client.particle.ParticleProvider<SimpleParticleType> provider(SpriteSet sprites, Kind kind) {
+    private static ParticleProvider<SimpleParticleType> provider(Kind kind) {
         return (type, level, x, y, z, dx, dy, dz) -> {
             Spec s = switch (kind) {
                 case SMOKE -> smoke().size(1, 4).life(120).rise(0.004f);
@@ -101,22 +96,9 @@ public final class Fx {
                 case FLASH -> flash().size(4, 6).life(4);
                 case RING -> ring().size(1, 20).life(20);
             };
-            return s.vel(dx, dy, dz).create(level, x, y, z, sprites);
-        };
-    }
-
-    /** Добавочное смешивание слоя света не должно утечь дальше частиц. */
-    public static void afterParticles(RenderLevelStageEvent e) {
-        if (e.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) RenderSystem.defaultBlendFunc();
-    }
-
-    private static SpriteSet sprites(Kind kind) {
-        return switch (kind) {
-            case SMOKE -> smoke;
-            case FIRE -> fire;
-            case SPARK -> spark;
-            case FLASH -> flash;
-            case RING -> ring;
+            s.vel(dx, dy, dz).spawn(level, x, y, z);
+            // в ванильный движок ничего не добавляется
+            return null;
         };
     }
 
@@ -264,9 +246,8 @@ public final class Fx {
             return this;
         }
 
-        /** Чьё место занимает частица ({@link FxBudget}); группа должна быть из слоя этого вида частиц. */
+        /** Чьё место занимает частица ({@link FxBudget}). */
         public Spec budget(FxBudget b) {
-            if (b.additive != kind.additive) throw new IllegalArgumentException(b + " — не слой " + kind);
             budget = b;
             return this;
         }
@@ -277,7 +258,10 @@ public final class Fx {
             return this;
         }
 
-        /** Искра оставляет дымный хвост из таких клубов через {@code step} блоков, пока не прожила {@code until} жизни. */
+        /**
+         * Искра оставляет дымный хвост из таких клубов через {@code step} блоков, пока не прожила {@code until} жизни.
+         * Шаблон хвоста искры берут как есть (без снимка): после пуска его не менять.
+         */
         public Spec trail(Spec puff, float step, float until) {
             trail = puff;
             trailStep = step;
@@ -285,19 +269,8 @@ public final class Fx {
             return this;
         }
 
-        Particle create(ClientLevel level, double x, double y, double z, SpriteSet sprites) {
-            return switch (kind) {
-                case SPARK -> new FxSpark(level, x, y, z, this, sprites);
-                case RING -> new FxRing(level, x, y, z, this, sprites);
-                default -> new FxParticle(level, x, y, z, this, sprites);
-            };
-        }
-
         public void spawn(Level level, double x, double y, double z) {
-            SpriteSet sprites = sprites(kind);
-            if (sprites == null || !(level instanceof ClientLevel cl)) return;
-            // снимок настройки: шаблон можно менять и спаунить дальше, частица этого не заметит
-            Minecraft.getInstance().particleEngine.add(copy().create(cl, x, y, z, sprites));
+            if (level instanceof ClientLevel cl) FxPool.INSTANCE.spawn(this, cl, x, y, z, 1, 1);
         }
 
         public void spawn(Level level, Vec3 p) {

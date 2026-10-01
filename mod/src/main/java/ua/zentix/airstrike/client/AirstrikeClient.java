@@ -11,6 +11,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
@@ -24,7 +25,6 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.client.far.FarRenderer;
-import ua.zentix.airstrike.client.far.FarSprites;
 import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
@@ -32,7 +32,10 @@ import ua.zentix.airstrike.client.fx.Effects;
 import ua.zentix.airstrike.client.fx.Exhaust;
 import ua.zentix.airstrike.client.fx.Flash;
 import ua.zentix.airstrike.client.fx.GridEffects;
+import ua.zentix.airstrike.client.fx.layer.FxAtlas;
+import ua.zentix.airstrike.client.fx.layer.FxLayer;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.fx.particle.FxPool;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.ClientFlights;
 import ua.zentix.airstrike.client.hud.StrikesHud;
@@ -47,6 +50,7 @@ import ua.zentix.airstrike.client.nuclear.NukeHud;
 import ua.zentix.airstrike.client.nuclear.NukeRenderer;
 import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
+import ua.zentix.airstrike.client.render.DhDepth;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
@@ -79,9 +83,11 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
-        modBus.addListener(FarSprites::registerShaders);
+        modBus.addListener(FxLayer::registerShaders);
+        modBus.addListener(AirstrikeClient::reloadListeners);
         modBus.addListener(AirstrikeClient::blockColors);
         TerrainTiles.init();
+        DhDepth.init();
 
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::tick);
         NeoForge.EVENT_BUS.addListener(AirstrikeClient::entityTick);
@@ -99,8 +105,7 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
-        NeoForge.EVENT_BUS.addListener(FarRenderer::render);
-        NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
+        NeoForge.EVENT_BUS.addListener(FxLayer::render);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
@@ -133,6 +138,11 @@ public final class AirstrikeClient {
      */
     private static void blockColors(RegisterColorHandlersEvent.Block e) {
         e.register((state, level, pos, tint) -> UNLIT_TINT, ModBlocks.UNLIT.stream().map(p -> p.unlit().get()).toArray(Block[]::new));
+    }
+
+    /** Лист текстур слоя эффектов — заново при каждой перезагрузке ресурсов. */
+    private static void reloadListeners(RegisterClientReloadListenersEvent e) {
+        e.registerReloadListener(FxAtlas.INSTANCE);
     }
 
     private static void keys(RegisterKeyMappingsEvent e) {
@@ -176,6 +186,9 @@ public final class AirstrikeClient {
         FlightTracks.tick();
         ClientSounds.tick();
         FarRenderer.tick();
+        FxLayer.tick();
+        // частицы — после тика мира, как ванильный движок; в заморозке стоят
+        if (mc.level.tickRateManager().runsNormally()) FxPool.INSTANCE.tick(mc.level);
         Effects.tick();
         CameraShake.tick();
         Flash.tick();
@@ -201,6 +214,8 @@ public final class AirstrikeClient {
         ClientSounds.reset();
         FlightTracks.reset();
         FarRenderer.reset();
+        FxPool.INSTANCE.clear();
+        FxLayer.reset();
         Effects.clear();
         CameraShake.reset();
         Flash.reset();

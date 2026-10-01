@@ -6,11 +6,9 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Множители квадрата к радиусу круга того же светового потока сходятся с тем, сколько квадрата закрывают сами
@@ -57,16 +55,5 @@ class FarSpritesTest {
         BufferedImage glow = image("textures/far/glow.png");
         int mid = glow.getHeight() / 2;
         assertEquals(FarSprites.RIBBON, 1 / coverage(glow, mid - 1, mid), 0.03);
-    }
-
-    @Test
-    void farTexturesAreSmoothAndClamped() throws IOException {
-        for (String name : new String[]{"disc", "glow"}) {
-            try (InputStream in = FarSpritesTest.class.getResourceAsStream("/assets/airstrike/textures/far/" + name + ".png.mcmeta")) {
-                assertNotNull(in, name);
-                String meta = new String(in.readAllBytes(), StandardCharsets.UTF_8).replaceAll("\\s", "");
-                assertTrue(meta.contains("\"blur\":true") && meta.contains("\"clamp\":true"), name + ": " + meta);
-            }
-        }
     }
 }

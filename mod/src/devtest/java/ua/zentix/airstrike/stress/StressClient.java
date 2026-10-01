@@ -158,7 +158,8 @@ public final class StressClient {
         }
         Runtime rt = Runtime.getRuntime();
         log("stat t=%d fps %d | снарядов у клиента %d, в HUD %d | камера %b | частиц %s | heap %d МБ | warn %d err %d", tick, mc.getFps(), entities,
-                ClientFlights.all().size(), ProjectileCamera.isActive(), mc.particleEngine.countParticles(),
+                ClientFlights.all().size(), ProjectileCamera.isActive(),
+                mc.particleEngine.countParticles() + " + эффектов " + ua.zentix.airstrike.client.fx.particle.FxPool.INSTANCE.count(),
                 (rt.totalMemory() - rt.freeMemory()) >> 20, warnings, errors);
     }
 
