@@ -49,12 +49,12 @@ class FlightLogTest {
     @Test
     void crashedIsWarnedWithPlace() {
         FlightLog log = new FlightLog();
-        for (int i = 0; i < 30; i++) log.note(DRONE, FlightLog.Event.CRASHED, new BlockPos(-250 + i % 3, 90, -1140), false, 0);
+        for (int i = 0; i < 30; i++) log.note(DRONE, FlightLog.Event.CRASHED, new BlockPos(-250 + i % 3, 90, -1140), false, 0, "курс 90°, фаза boost");
         List<FlightLog.Line> lines = log.drain();
         assertEquals(1, lines.size(), lines.toString());
         assertEquals(Level.WARN, lines.get(0).level());
         assertTrue(lines.get(0).text().startsWith("Снаряды: 30 × "), lines.get(0).text());
-        assertTrue(lines.get(0).text().endsWith(" разбились до взведения взрывателя у -249 90 -1140 (±1)"), lines.get(0).text());
+        assertTrue(lines.get(0).text().endsWith(" разбились до взведения взрывателя у -249 90 -1140 (±1), курс 90°, фаза boost"), lines.get(0).text());
         assertEquals(30, log.total(FlightLog.Event.CRASHED));
     }
 

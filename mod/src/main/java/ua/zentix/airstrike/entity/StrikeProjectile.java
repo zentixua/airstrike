@@ -280,6 +280,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /** Маршрут до точки входа (после неё — на цель) и срок жизни по плану полёта. */
+    /** Маршрут (null — прямо на цель). */
+    @Nullable
+    public Route route() {
+        return route;
+    }
+
     public void setRoute(@Nullable Route route) {
         this.route = route;
         Vec3 aim = tracker == null ? position() : tracker.point();
@@ -746,7 +752,10 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     protected final void crashUnarmed(ServerLevel level, Vec3 point) {
         Airstrike.LOG.debug("Снаряд {} {} разбился до взведения у {} (фаза {})", getType().getDescriptionId(), getUUID(),
                 BlockPos.containing(point), flightPhase());
-        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.CRASHED, BlockPos.containing(point), targetLost(), 0);
+        // курс — по 10°: у залпа с одной пусковой он общий, строка одна
+        int course = Math.floorMod(Math.round(flight.yaw() / 10f) * 10, 360);
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.CRASHED, BlockPos.containing(point), targetLost(), 0,
+                "курс " + course + "°, фаза " + flightPhase().getSerializedName());
         crash(level, point);
     }
 
@@ -1196,7 +1205,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Снаряд убрал не мод (команда {@code /kill}, чистильщик сущностей другого мода): одна строка WARN с тем, кто убрал.
+     * Снаряд убрал не мод (команда {@code /kill}, чистильщик сущностей другого мода): строка WARN на залп ({@link FlightLog},
+     * кем — класс, позвавший удаление), цепочка вызовов — строкой DEBUG.
      * Свои концы полёта (взрыв, отбой, полёт вне мира) идут из кода мода и видны в стеке; чужое удаление иначе
      * выглядело бы как пропавший залп — без удара, ошибки и срока жизни.
      */
@@ -1210,8 +1220,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             if (i > 0) by.append(" ← ");
             by.append(f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1)).append('.').append(f.getMethodName());
         }
-        Airstrike.LOG.warn("Снаряд {} {} у {} (фаза {}) убран не модом ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
+        // кем — первый вызов не из самой сущности (discard, kill)
+        String who = frames.stream().map(StackWalker.StackFrame::getClassName).filter(c -> !c.startsWith("net.minecraft.world.entity."))
+                .findFirst().orElse("?");
+        Airstrike.LOG.debug("Снаряд {} {} у {} (фаза {}) убран не модом ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
                 flightPhase(), reason, by);
+        if (level() instanceof ServerLevel level) {
+            StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.REMOVED, blockPosition(), targetLost(), 0,
+                    who.substring(who.lastIndexOf('.') + 1) + " (" + reason + ")");
+        }
     }
 
     private void releaseTickets() {

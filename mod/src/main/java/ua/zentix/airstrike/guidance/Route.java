@@ -44,6 +44,17 @@ public final class Route {
         return next >= points.size();
     }
 
+    /**
+     * Этот маршрут (оставшиеся точки) с точкой {@code first} перед ними; первый участок начинается в {@code origin}
+     * (пуск с пусковой: сначала ровно по курсу пусковой — {@code StrikeService}).
+     */
+    public Route after(Vec3 first, Vec3 origin) {
+        List<Vec3> pts = new ArrayList<>();
+        pts.add(new Vec3(first.x, 0, first.z));
+        pts.addAll(points.subList(next, points.size()));
+        return new Route(pts, new Vec3(origin.x, 0, origin.z));
+    }
+
     /** Бросить оставшиеся точки: прямо на цель (перенацеливание из камеры). */
     public void skip() {
         next = points.size();

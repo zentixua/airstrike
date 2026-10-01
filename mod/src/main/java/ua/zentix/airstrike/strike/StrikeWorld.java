@@ -40,6 +40,8 @@ public final class StrikeWorld {
     private final UnitQueue impacts = new UnitQueue();
     /** Районы полос подлёта ({@link FlightTickets#holdApproach}): центр → снаряды, чьи полосы через него проходят. */
     private final Map<ChunkPos, Set<UUID>> approach = new HashMap<>();
+    /** Отказы в месте пусковой у игрока ({@link StrikeService}): «игрок оружие» → до какого тика не искать заново. */
+    private final Map<String, Long> noLaunchSite = new HashMap<>();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public StrikeWorld() {}
@@ -82,6 +84,17 @@ public final class StrikeWorld {
     /** Конец тика сервера для попаданий этого мира: медленный тик и долгая очередь — в лог. */
     public void endImpactTick(ServerLevel level) {
         impactCost.endTick(level, impacts);
+    }
+
+    /** Место пусковой у игрока недавно не нашлось: до тика {@code until} не искать заново (весь залп — издалека). */
+    boolean noLaunchSite(UUID player, WeaponType weapon, long now) {
+        Long until = noLaunchSite.get(player + " " + weapon.getSerializedName());
+        return until != null && now < until;
+    }
+
+    void rememberNoLaunchSite(UUID player, WeaponType weapon, long until) {
+        noLaunchSite.values().removeIf(t -> t < until - 6000);
+        noLaunchSite.put(player + " " + weapon.getSerializedName(), until);
     }
 
     /** Концы полётов не по плану за этот тик: в лог — в конце тика мира. */

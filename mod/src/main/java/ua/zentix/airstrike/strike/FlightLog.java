@@ -30,7 +30,9 @@ public final class FlightLog {
         /** Столкновение до взведения взрывателя (на старте): разбились без подрыва боевой части. */
         CRASHED(Level.WARN, "разбились до взведения взрывателя у"),
         /** Сбиты уроном до взведения (подробность — тип урона): разбились без подрыва боевой части. */
-        SHOT_DOWN(Level.WARN, "сбиты до взведения взрывателя у");
+        SHOT_DOWN(Level.WARN, "сбиты до взведения взрывателя у"),
+        /** Убраны не модом (команда, чистильщик сущностей другого мода; подробность — кем). */
+        REMOVED(Level.WARN, "убраны не модом у");
 
         private final Level level;
         private final String text;
@@ -88,7 +90,7 @@ public final class FlightLog {
         note(weapon, event, point, targetLost, seconds, "");
     }
 
-    /** То же с подробностью (тип урона у {@link Event#SHOT_DOWN}): своя строка на каждую. */
+    /** То же с подробностью (курс, тип урона, кем убран): своя строка на каждую. */
     public void note(String weapon, Event event, BlockPos point, boolean targetLost, int seconds, String detail) {
         groups.computeIfAbsent(new Key(weapon, event, targetLost, detail), k -> new Group()).add(point, seconds);
         totals[event.ordinal()]++;
@@ -106,8 +108,9 @@ public final class FlightLog {
             String tail = switch (k.event) {
                 case LOST_GONE, LOST_OUT_OF_REACH -> ", срок ≤ " + g.seconds + " с";
                 case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (потеряна)" : "";
-                case CRASHED -> "";
+                case CRASHED -> k.detail.isEmpty() ? "" : ", " + k.detail;
                 case SHOT_DOWN -> ", урон " + k.detail;
+                case REMOVED -> ", кем: " + k.detail;
             };
             lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",
                     g.count, k.weapon, k.event.text, g.where(), tail)));
