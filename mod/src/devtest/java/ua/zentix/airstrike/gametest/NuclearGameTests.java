@@ -1520,6 +1520,100 @@ public final class NuclearGameTests {
                 .thenSucceed();
     }
 
+    /**
+     * Чанк, ждущий выгрузки, ещё в памяти: тикет снят — ваниль сразу убирает держатель из видимой карты чанков
+     * ({@code processUnloads} → {@code pendingUnloads}), а сам чанк выгружает позже, когда его можно сохранить; тикет,
+     * вернувшийся за это время, возвращает тот же чанк без {@code ChunkEvent.Load}. Очередь руин теряла такой чанк
+     * навсегда: при постановке подрыва (чанк G — его не было среди видимых) и в работе (чанк F — работа снималась как
+     * с выгруженного), а готовый план держал квадрат зоны (ноутбук 01.10.2026: «не дождались 2»). Окно ожидания
+     * выгрузки задаётся здесь детерминированно: тик чанков без запаса времени ({@code ServerChunkCache.tick(() -> false,
+     * false)}) переносит снятые держатели в {@code pendingUnloads}, но не выгружает их; очередь руин зовётся в том же
+     * шаге, для F — с часами на тик после прихода волны. F и G — в 20 чанках от площадки: ближе тикеты площадки
+     * (FORCED, уровень 31, держит до 13 чанков вокруг) оставили бы их в памяти ниже полной загрузки, а не в ожидании выгрузки.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_pending_unload", skyAccess = true)
+    public static void chunkRevivedFromPendingUnloadStillScarred(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // в темпе игры: соседей F и G очередь грузит своим тикетом в фоне (как край E в chunkDroppedBelowFullLoadStillScarred)
+        StrikeGameTests.gameSpeed(h);
+        var chunks = level.getChunkSource();
+        ChunkPos f = new ChunkPos(h.absolutePos(CENTER.east(320))), g = new ChunkPos(h.absolutePos(CENTER.west(320)));
+        BlockPos[] glass = new BlockPos[2];
+        Detonation[] det = new Detonation[1];
+        chunks.addRegionTicket(HOLD, f, 0, f);
+        chunks.addRegionTicket(HOLD, g, 0, g);
+        h.startSequence()
+                // и генерация соседей их больше не держит: держатель, нужный генерации, ваниль не выгружает
+                .thenWaitUntil(() -> {
+                    for (ChunkPos p : new ChunkPos[]{f, g}) {
+                        var holder = chunks.chunkMap.getVisibleChunkIfPresent(p.toLong());
+                        h.assertTrue(chunks.getChunkNow(p.x, p.z) != null && holder.getGenerationRefCount() == 0, p + " грузится");
+                    }
+                })
+                .thenExecute(() -> {
+                    glass[0] = surface(level, f);
+                    glass[1] = surface(level, g);
+                    for (BlockPos p : glass) level.setBlock(p, Blocks.GLASS.defaultBlockState(), 3);
+                    var scars = NuclearWorld.get(level).scars();
+                    WorkClock clock = WorkClock.counting(1_000_000L);
+                    // G ждёт выгрузки при подрыве: постановка в очередь должна его увидеть
+                    toPendingUnload(h, chunks, g);
+                    det[0] = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(CENTER)), 15, true, null, 0.1f);
+                    Detonation d = det[0];
+                    double dx = f.getMiddleBlockX() + 0.5 - d.burst().x, dz = f.getMiddleBlockZ() + 0.5 - d.burst().z, dy = d.burst().y - d.groundY();
+                    double toF = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    h.assertTrue(toF + 16 < d.ruinRadius(), "F вне радиуса руин: " + toF + " из " + d.ruinRadius());
+                    long waveAtF = d.gameTime() + (long) d.arrivalTicks(toF);
+                    clock.start(10_000_000_000L);
+                    scars.work(level, level.getGameTime(), clock);
+                    h.assertTrue(scars.queued(f.toLong()), "F не в очереди руин");
+                    h.assertTrue(scars.queued(g.toLong()), "G, ждущий выгрузки, не попал в очередь руин");
+                    // F ждёт выгрузки, когда до него доходит очередь: работа должна остаться
+                    toPendingUnload(h, chunks, f);
+                    clock.start(10_000_000_000L);
+                    scars.work(level, waveAtF + 1, clock);
+                    h.assertTrue(scars.queued(f.toLong()), "работа F, ждущего выгрузки, снята");
+                    // тикеты вернулись — держатели возвращаются из pendingUnloads с теми же чанками, без ChunkEvent.Load
+                    chunks.addRegionTicket(HOLD, f, 0, f);
+                    chunks.addRegionTicket(HOLD, g, 0, g);
+                    chunks.runDistanceManagerUpdates();
+                    for (ChunkPos p : new ChunkPos[]{f, g}) {
+                        h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(p.toLong()) != null && !chunks.chunkMap.pendingUnloads.containsKey(p.toLong()),
+                                p + " не вернулся из ожидания выгрузки");
+                    }
+                })
+                .thenWaitUntil(() -> {
+                    for (int i = 0; i < 2; i++) {
+                        LevelChunk chunk = chunks.getChunkNow(glass[i].getX() >> 4, glass[i].getZ() >> 4);
+                        String name = "FG".substring(i, i + 1);
+                        h.assertTrue(chunk != null, name + " не поднялся до полной загрузки");
+                        h.assertFalse(level.getBlockState(glass[i]).is(Blocks.GLASS), "стекло в " + name + " цело");
+                        int scar = chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0);
+                        h.assertTrue(scar >= det[0].id(), name + " не помечен подрывом: " + scar);
+                    }
+                })
+                .thenExecute(() -> {
+                    for (ChunkPos p : new ChunkPos[]{f, g}) chunks.removeRegionTicket(HOLD, p, 0, p);
+                    NuclearStrikes.clear(level);
+                })
+                .thenSucceed();
+    }
+
+    /** Снять тикет чанка и довести его держатель до ожидания выгрузки: не в видимой карте, но в памяти (полный чанк). */
+    private static void toPendingUnload(GameTestHelper h, net.minecraft.server.level.ServerChunkCache chunks, ChunkPos p) {
+        chunks.removeRegionTicket(HOLD, p, 0, p);
+        // уровни тикетов, перенос снятых держателей в pendingUnloads; без запаса времени очередь выгрузки не разбирается,
+        // а переносится не больше 200 держателей за вызов (ChunkMap.processUnloads) — снятый тикет отпускает сотни
+        // вокруг чанка, и в каком порядке, решает хеш координат: зовём, пока не дойдёт до него
+        for (int i = 0; i < 16 && !chunks.chunkMap.pendingUnloads.containsKey(p.toLong()); i++) chunks.tick(() -> false, false);
+        // видимая карта — без него
+        chunks.runDistanceManagerUpdates();
+        h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(p.toLong()) == null, p + " ещё в видимой карте");
+        h.assertTrue(chunks.chunkMap.pendingUnloads.get(p.toLong()) instanceof net.minecraft.server.level.ChunkHolder holder
+                && holder.getChunkIfPresentUnchecked(net.minecraft.world.level.chunk.status.ChunkStatus.FULL) instanceof LevelChunk,
+                p + " не ждёт выгрузки с полным чанком");
+    }
+
     /** Верх земли в середине чанка (чанк загружен). */
     static BlockPos surface(ServerLevel level, ChunkPos p) {
         int x = p.getMiddleBlockX(), z = p.getMiddleBlockZ();

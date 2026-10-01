@@ -57,9 +57,10 @@ import java.util.function.LongSupplier;
  * после деления на подрыв и порции блоков одна единица «лучи и урон» всё ещё стоила до 150 мс.
  * <ol>
  *     <li>{@link Explosion} с правилами TNT, {@link EventHooks#onExplosionStart} (приваты отменяют его, как обычно),
- *     один запрос аппаратов Sable на весь охват лучей. Аппарат рядом — ванильный {@link Explosion#explode()} целиком
- *     (с уроном) в этой же единице: миксин Sable на каждом воздушном шаге луча ищет аппарат, переводит точку в плот,
- *     добавляет блоки аппарата и толкает его — это его внутренности, повторять их нельзя, и мод в этот метод не лезет. Нет аппарата — миксину Sable нечего
+ *     один запрос аппаратов Sable на весь охват лучей. Аппарат рядом — ванильный {@link Explosion#explode()} в этой же
+ *     единице: миксин Sable на каждом воздушном шаге луча ищет аппарат, переводит точку в плот, добавляет блоки аппарата
+ *     и толкает его — это его внутренности, повторять их нельзя, и мод в этот метод не лезет; урон и отбрасывание
+ *     уходят в свои единицы через {@code ExplosionEvent.Detonate} ({@link #onDetonate}). Нет аппарата — миксину Sable нечего
  *     менять, и лучи идут своим циклом (копия ванильного): здесь только событие {@code EXPLODE} и все 1352 множителя
  *     силы лучей из {@code level.random} в ванильном порядке — выборка не зависит от того, как лучи поделены.</li>
  *     <li>Лучи по {@link #RAYS_PER_UNIT} за единицу; множество выбранных копится. Внутри луча блок, в котором лежат
@@ -180,8 +181,15 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Позиции мира после раздела, до снимка ({@link #split}). */
     private List<BlockPos> picked = List.of();
     private boolean partitioned;
-    /** Взрыв шёл ванильным {@code explode()} (аппарат рядом): урон уже сделан. */
+    /** Взрыв шёл ванильным {@code explode()} (аппарат рядом). */
     private boolean vanilla;
+    /** Урон уже сделал ванильный {@code explode()}: список сущностей из {@code Detonate} к моду не попал. */
+    private boolean vanillaDamage;
+    /** Взрыв, чей ванильный {@code explode()} мод сейчас ведёт (поток сервера), и список, забранный у его {@code Detonate}. */
+    @Nullable
+    private static Explosion driving;
+    @Nullable
+    private static List<Entity> handed;
     /** Выпадение за весь взрыв (как {@code Explosion.addOrAppendStack}). */
     private final List<Pair<ItemStack, BlockPos>> drops = new ArrayList<>();
     private boolean done;
@@ -239,6 +247,11 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Шёл ванильным {@code explode()}. */
     boolean vanilla() {
         return vanilla;
+    }
+
+    /** Ванильный путь отдал урон моду ({@link #onDetonate}). */
+    boolean handedDamage() {
+        return vanilla && !vanillaDamage;
     }
 
     /** Ещё выбирает лучами или бьёт сущности (блоки не снимает). */
@@ -339,18 +352,37 @@ final class StagedExplosion implements UnitQueue.Job {
     }
 
     /**
-     * Аппарат рядом: ванильный {@code explode()} целиком (лучи с миксином Sable, сбор сущностей, {@code Detonate}, урон
-     * и отбрасывание) — одним шагом замера; блоки аппаратов — в этой же единице, снимок блоков мира — следующей. Урон здесь
-     * не порциями: делить его значило бы лезть внутрь ванильного метода, а взрыв у аппарата — редкий случай.
+     * Аппарат рядом: ванильный {@code explode()} (лучи с миксином Sable, сбор сущностей, {@code Detonate}) — одним шагом
+     * замера; блоки аппаратов — в этой же единице, снимок блоков мира — следующей. Урон и отбрасывание — порциями
+     * ({@link Phase#DAMAGE}) по списку, который обработчики {@code Detonate} оставили ({@link #onDetonate}): ванильный
+     * цикл урона в одном тике стоил у аппарата до 180 мс (финальная проверка 01.10.2026, ракета у дирижабля).
      */
     private boolean vanilla(ServerLevel level, Explosion e) {
         counts.vanilla++;
         vanilla = true;
         long t = System.nanoTime();
-        e.explode();
+        // взрыв, начатый изнутри (обработчиком события), ведёт свой: внешний — вернуть как был
+        Explosion outer = driving;
+        List<Entity> outerHanded = handed;
+        driving = e;
+        handed = null;
+        List<Entity> got;
+        try {
+            e.explode();
+        } finally {
+            got = handed;
+            handed = outerHanded;
+            driving = outer;
+        }
         time(ExplosionStage.VANILLA, t);
-        for (ServerPlayer p : level.players()) {
-            if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+        if (got != null) {
+            entities = got;
+        } else {
+            // список не забран (Detonate не пришёл): урон сделал сам explode() — его пакет игрокам, как у ванили
+            vanillaDamage = true;
+            for (ServerPlayer p : level.players()) {
+                if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+            }
         }
         partition(level);
         phase = Phase.SPLIT;
@@ -471,8 +503,7 @@ final class StagedExplosion implements UnitQueue.Job {
         toBlow = kept;
         blocksAtRays = seen;
         time(ExplosionStage.SNAPSHOT, t);
-        // урон уже сделал ванильный explode()
-        phase = vanilla ? Phase.BLOCKS : Phase.DAMAGE;
+        phase = vanillaDamage ? Phase.BLOCKS : Phase.DAMAGE;
         return phase == Phase.DAMAGE || !toBlow.isEmpty();
     }
 
@@ -518,6 +549,20 @@ final class StagedExplosion implements UnitQueue.Job {
         entities = List.of();
         phase = Phase.BLOCKS;
         return !toBlow.isEmpty();
+    }
+
+    /**
+     * {@code ExplosionEvent.Detonate} (приоритет {@code LOWEST}: все обработчики уже видели и правили список): у взрыва,
+     * чей ванильный {@code explode()} ведёт мод, — список сущностей забирается в урон мода, а сам список событию
+     * остаётся пустым, и ванильный цикл урона после события ни по кому не идёт. Список у события изменяемый — так
+     * NeoForge и задумал {@code getAffectedEntities}. Другие взрывы (и взрыв, начатый обработчиком внутри) — другие
+     * объекты, их не трогаем.
+     */
+    static void onDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
+        if (driving == null || event.getExplosion() != driving || handed != null) return;
+        List<Entity> list = event.getAffectedEntities();
+        handed = new ArrayList<>(list);
+        list.clear();
     }
 
     /** Ванильный пакет взрыва игроку: его отбрасывание, без блоков (блоки клиенты видят по мере снятия). */

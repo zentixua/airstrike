@@ -606,8 +606,9 @@ public final class WorkGameTests {
     private static final int BLAST_SLOW_LOGGED = 5;
 
     /**
-     * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}. Корова, которую
-     * обработчик убрал из списка, цела; соседняя — ранена.
+     * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}, и бьют его
+     * единицы мода (обработчик {@code Detonate} мода забирает список, ванильный цикл {@code explode()} идёт по пустому).
+     * Корова, которую обработчик убрал из списка, цела; соседняя — ранена.
      */
     @GameTest(template = "range", timeoutTicks = 300, batch = "work_handoff", skyAccess = true)
     public static void vanillaPathDamagesDetonateList(GameTestHelper h) {
@@ -627,6 +628,7 @@ public final class WorkGameTests {
             h.assertTrue(blast.done(), "взрыв не кончился");
             h.assertTrue(listed[0], "корова не попала в список Detonate — проверять нечего");
             h.assertTrue(blast.vanilla(), "взрыв шёл не ванильным путём");
+            h.assertTrue(blast.handedDamage(), "урон сделал ванильный цикл explode(), а не единицы мода");
             h.assertTrue(spared.isAlive() && spared.getHealth() == spared.getMaxHealth(), "убранная из списка ранена: " + spared.getHealth());
             h.assertTrue(!hit.isAlive() || hit.getHealth() < hit.getMaxHealth(), "корова в списке не ранена");
         });

@@ -189,8 +189,10 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   сущности: `BlastArea.peersPicking`, иначе воронка и разлёт песка зависели от скорости сервера; GameTest
   `areaExplosionsPickTogether`); аппарат Sable в охвате лучей (`Warheads.reach` = 2 × сила + 1: в воздухе луч уходит
   до ~1,73 силы; `SubLevels.mayHaveCraftNear`, GameTest `craftInRayReachGoesVanilla`) или сломанный компаньон — ванильный `Explosion.explode`
-  в первой единице целиком, с уроном (миксин Sable на каждом шаге луча в воздухе ищет и толкает аппараты; `Detonate` —
-  в нём же; в сам метод мод не лезет — урон у аппарата не порциями, это редкий случай), его блоки аппаратов — тоже в ней
+  в первой единице (миксин Sable на каждом шаге луча в воздухе ищет и толкает аппараты; `Detonate` — в нём же; в сам
+  метод мод не лезет; урон — порциями: обработчик `Detonate` мода с приоритетом `LOWEST` забирает список сущностей
+  ведомого взрыва и очищает его, ванильный цикл урона идёт по пустому — `StagedExplosion.onDetonate`; ракета у дирижабля
+  на финальной проверке 01.10.2026 — 181,6 мс в одном тике с ванильным уроном), его блоки аппаратов — тоже в ней
   (шаг «блоки аппаратов»), снимок блоков мира — следующей единицей (GameTest `vanillaPathDamagesDetonateList`,
   `craftBlockLeftByDetonateStays`); шаги взрыва для замера — `ExplosionStage`, ванильный `explode()` — одним шагом
   (GameTest `raysMatchVanilla` — свой цикл даёт те же блоки, что ваниль, при любом размере единицы; `craftBlocksGoInFirstUnit` — у аппарата
@@ -497,8 +499,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   (`ChunkMap.scheduleChunkLoad`, `mainThreadExecutor`): телепорт в плотный город стоит секунды и без мода.
 - `ChunkEvent.Load` приходит один раз за жизнь чанка в памяти: у края видимости чанк опускается ниже полной загрузки
   (`getChunkNow` — null) и поднимается обратно без выгрузки и без нового события. Очередь, которая держит чанки,
-  снимает их только по `ChunkEvent.Unload`; «чанк в памяти» — `ChunkMap.getVisibleChunkIfPresent` (AT) +
-  `getChunkIfPresentUnchecked(FULL)`. Иначе — полосы нетронутых чанков после ядерки (`ScarQueue`).
+  снимает их только по `ChunkEvent.Unload`; «чанк в памяти» — `NuclearTickets.inMemory`: держатель из
+  `ChunkMap.getVisibleChunkIfPresent` или из `pendingUnloads` (AT, только чтение) + `getChunkIfPresentUnchecked(FULL)`.
+  Держатель без тикетов ваниль убирает из видимой карты сразу, а чанк выгружает (и шлёт `Unload`), когда его можно
+  сохранить; тикет, вернувшийся до этого, возвращает тот же чанк без `ChunkEvent.Load` (GameTest
+  `chunkRevivedFromPendingUnloadStillScarred`). Иначе — полосы нетронутых чанков после ядерки (`ScarQueue`) и квадрат
+  зоны, который держал план чанка без работы.
   `ChunkEvent.Unload` приходит, только если чанк стал полным (`LevelChunk`); чанк, прочитанный с диска
   (`ChunkDataEvent.Load`), но так и оставшийся в кольце вокруг краевых (`ImposterProtoChunk`), уходит без события:
   данные по такому чанку чистить по `getVisibleChunkIfPresent(c) == null` (`BlackoutWorld`, раз в секунду).
