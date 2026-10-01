@@ -7,11 +7,13 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.server.network.PlayerChunkSender;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -24,6 +26,7 @@ import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.nuclear.NuclearWarhead;
 import ua.zentix.airstrike.nuclear.world.ChunkSendGate;
+import ua.zentix.airstrike.nuclear.world.NuclearPrep;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.RuinPlan;
 import ua.zentix.airstrike.nuclear.world.RuinPlanner;
@@ -809,5 +812,37 @@ public final class RuinBackgroundGameTests {
         h.assertFalse(q.withholds(key, late + 200), "удержание не кончилось через срок от первой просьбы");
         NuclearStrikes.clear(level);
         h.succeed();
+    }
+
+    /**
+     * Квадрат зоны за волной пропускается, только если все его чанки полностью загружены сейчас: чанк в памяти, опущенный
+     * ниже полной загрузки (край загруженного мира), квадрат не закрывает (gate 6: ряд из 11 чанков у края остался без руин).
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_tile_full", skyAccess = true)
+    public static void tileWithDemotedChunkIsNotFull(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var chunks = level.getChunkSource();
+        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        ChunkPos centre = new ChunkPos(base.x + 40, base.z);
+        ChunkPos ring = new ChunkPos(centre.x + 2, centre.z);
+        chunks.addRegionTicket(TicketType.FORCED, centre, 2, centre);
+        int[] stage = {0};
+        h.onEachTick(() -> {
+            if (stage[0] == 0 && NuclearPrep.tileFull(level, centre)) {
+                // край квадрата опускается ниже полной загрузки, но остаётся в памяти
+                chunks.addRegionTicket(TicketType.FORCED, centre, 1, centre);
+                chunks.removeRegionTicket(TicketType.FORCED, centre, 2, centre);
+                stage[0] = 1;
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(stage[0] == 1, "квадрат ещё не загрузился полностью");
+            h.assertTrue(chunks.getChunkNow(ring.x, ring.z) == null, "край квадрата ещё полностью загружен");
+            var holder = chunks.chunkMap.getVisibleChunkIfPresent(ring.toLong());
+            h.assertTrue(holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk,
+                    "край квадрата выгружен, а не опущен: не проверено");
+            h.assertFalse(NuclearPrep.tileFull(level, centre), "квадрат с опущенным ниже полной загрузки чанком считается полным");
+            chunks.removeRegionTicket(TicketType.FORCED, centre, 1, centre);
+        });
     }
 }

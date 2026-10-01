@@ -707,8 +707,17 @@ public final class NuclearPrep {
     }
 
     private static boolean allInMemory(ServerLevel level, Tile t) {
+        return tileFull(level, t.centre);
+    }
+
+    /**
+     * Все чанки квадрата с центром {@code centre} полностью загружены сейчас: их руины идут и без квадрата. Чанк в памяти,
+     * опущенный ниже полной загрузки (край загруженного мира), не в счёт: он ждёт соседей без своего тикета, и квадрат,
+     * пропущенный из-за него, оставлял его без руин (gate 6: ряд из 11 чанков у края). Открыт для проверок.
+     */
+    public static boolean tileFull(ServerLevel level, ChunkPos centre) {
         for (int dx = -TILE_RADIUS; dx <= TILE_RADIUS; dx++) {
-            for (int dz = -TILE_RADIUS; dz <= TILE_RADIUS; dz++) if (inMemory(level, ChunkPos.asLong(t.centre.x + dx, t.centre.z + dz)) == null) return false;
+            for (int dz = -TILE_RADIUS; dz <= TILE_RADIUS; dz++) if (level.getChunkSource().getChunkNow(centre.x + dx, centre.z + dz) == null) return false;
         }
         return true;
     }
