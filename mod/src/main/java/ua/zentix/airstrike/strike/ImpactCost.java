@@ -2,7 +2,7 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ServerLevel;
 import ua.zentix.airstrike.Airstrike;
-import ua.zentix.airstrike.warhead.ExplosionTimer;
+import ua.zentix.airstrike.warhead.ExplosionStage;
 import ua.zentix.airstrike.work.UnitQueue;
 
 import java.util.Arrays;
@@ -50,8 +50,8 @@ public final class ImpactCost {
 
     private final long[] nanos = new long[Kind.values().length];
     private final int[] counts = new int[Kind.values().length];
-    /** Шаги взрывов за тик ({@link ExplosionTimer.Stage}). */
-    private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
+    /** Шаги взрывов за тик ({@link ExplosionStage}). */
+    private final long[] rayStages = new long[ExplosionStage.values().length];
     private long total;
     private long lastLog = Long.MIN_VALUE / 2;
     private int slowSinceLog;
@@ -84,7 +84,7 @@ public final class ImpactCost {
         seriesStrikes++;
     }
 
-    /** Шаги взрыва за единицу, нс ({@link ExplosionTimer.Stage}). */
+    /** Шаги взрыва за единицу, нс ({@link ExplosionStage}). */
     public void addRayStages(long[] stages) {
         for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
     }
@@ -128,7 +128,7 @@ public final class ImpactCost {
                     parts.append(k.label).append(' ').append(nanos[k.ordinal()] / 1_000_000).append(" мс (").append(counts[k.ordinal()]).append(')');
                 }
                 parts.append("; шаги взрывов [");
-                for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
+                for (ExplosionStage st : ExplosionStage.values()) {
                     if (st.ordinal() > 0) parts.append(", ");
                     parts.append(st.label).append(' ').append(rayStages[st.ordinal()] / 1_000_000);
                 }

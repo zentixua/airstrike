@@ -1,10 +1,8 @@
 package ua.zentix.airstrike.nuclear.world;
 
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 /**
@@ -12,8 +10,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
  * руины уже стоят, — старые блоки мест его плана, а огонь и текущая вода, которых там не было, — воздух. Чего нет
  * (сосед не загружен) — сплошной неломаемый массив. Координаты окна: {@code wx, wz} от 0 до 47, y — мира.
  * <p>
- * Строится из снимков чанков ({@link ChunkShot}), в любом потоке: мир окно не читает. Помнит, по каким чанкам построено
- * ({@link #stamp}): {@code identityHashCode} и счётчик изменений каждого.
+ * Строится из снимков чанков ({@link ChunkShot}), в любом потоке: мир окно не читает. Помнит, по каким снимкам построено
+ * ({@link #stamp}).
  */
 final class RuinWindow {
     static final int SIDE = 48;
@@ -128,47 +126,22 @@ final class RuinWindow {
         return shots[k] != null;
     }
 
-    /** Отпечаток окна: по каким чанкам построено. */
+    /** По каким снимкам окно построено. */
     Stamp stamp() {
         return Stamp.of(shots);
     }
 
-    /**
-     * По каким чанкам окна построено (разлом, план): их {@code identityHashCode} (0 — чанка не было), счётчики изменений
-     * ({@link RuinContext#edits}) и какие уже стояли в руинах.
-     */
-    record Stamp(int[] ids, long[] edits, int ruined) {
+    /** По каким снимкам окна построено (разлом, план): их номера ({@link ChunkShot#serial}; 0 — чанка не было). */
+    record Stamp(long[] serials) {
         static Stamp of(ChunkShot[] shots) {
-            int[] ids = new int[9];
-            long[] edits = new long[9];
-            int mask = 0;
-            for (int k = 0; k < 9; k++) {
-                ChunkShot c = shots[k];
-                if (c == null) continue;
-                ids[k] = c.id;
-                edits[k] = c.edits;
-                if (c.ruined) mask |= 1 << k;
-            }
-            return new Stamp(ids, edits, mask);
+            long[] serials = new long[9];
+            for (int k = 0; k < 9; k++) if (shots[k] != null) serials[k] = shots[k].serial;
+            return new Stamp(serials);
         }
 
         /** Построено по тем же снимкам. */
         boolean same(Stamp o) {
-            return ruined == o.ruined && java.util.Arrays.equals(ids, o.ids) && java.util.Arrays.equals(edits, o.edits);
-        }
-
-        /** Окно такое же, как при построении: те же чанки, и ничего в них не меняли, кроме руин. */
-        boolean current(ServerLevel level, RuinContext ctx, ChunkPos pos) {
-            for (int k = 0; k < 9; k++) {
-                int cx = pos.x + k % 3 - 1, cz = pos.z + k / 3 - 1;
-                long key = ChunkPos.asLong(cx, cz);
-                LevelChunk c = level.getChunkSource().getChunkNow(cx, cz);
-                if (c == null ? ids[k] != 0 : System.identityHashCode(c) != ids[k] || ctx.edits(key, c) != edits[k]) return false;
-                // руины соседа встали после построения, а их старые блоки уже отпущены — исходный мир не прочитать
-                RuinContext.Applied a = ctx.applied(key);
-                if (c != null && (ruined & 1 << k) == 0 && a != null && a.plan() == null) return false;
-            }
-            return true;
+            return java.util.Arrays.equals(serials, o.serials);
         }
     }
 }

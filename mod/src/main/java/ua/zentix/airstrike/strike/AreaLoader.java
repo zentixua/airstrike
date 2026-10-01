@@ -9,6 +9,7 @@ import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -111,6 +112,19 @@ public final class AreaLoader {
         if (taken == null) return;
         if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
         if (taken < area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area);
+    }
+
+    /**
+     * Отпустить все районы (остановка сервера): тикеты районов не сохраняются, а взятые при остановке запускали бы
+     * генерацию, которую ждёт {@code util/StopDrain}. После запуска районы берут заново их владельцы.
+     */
+    public void releaseAll(ServerLevel level) {
+        for (Area area : List.copyOf(requests.keySet())) release(level, area);
+    }
+
+    /** Районов взято или растёт (проверки). */
+    public int size() {
+        return requests.size();
     }
 
     /** Сколько районов с тикетом {@code type} и ключом {@code key} взято или растёт (проверки). */

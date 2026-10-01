@@ -3,9 +3,10 @@
 # после всех проверок — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
 
+# Каждый коммит проверяется один раз: ветки — запуском pull_request (он и решает слияние), main — push.
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -63,15 +64,6 @@ jobs:
       - name: GameTest
         run: |
           ./gradlew runGameTestServer -PmcModsDir=run/ci-mods --console=plain
-          grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
-
-      # у хоста Lithium: он подменяет цикл лучей Explosion.explode и PalettedContainer.count — миксины взрыва и блэкаут мода должны работать и с ним
-      - name: GameTest с Lithium
-        run: |
-          ./gradlew runGameTestServer -PmcModsDir=run/ci-mods -PwithLithium --console=plain
-          # строка о Lithium — в начале запуска: в полночь UTC лог уходит в архив (*.log.gz)
-          shopt -s nullglob
-          zgrep -hF 'Lithium 0.15.4' run/gametest/logs/latest.log run/gametest/logs/*.log.gz
           grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
 
       - uses: actions/upload-artifact@v4

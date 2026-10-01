@@ -4,12 +4,8 @@
   "package": "ua.zentix.airstrike.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "chunk.LevelChunkEditsMixin",
-    "explosion.ExplosionHandoffMixin",
-    "explosion.ExplosionTimingMixin",
     "net.PlayerChunkSenderMixin",
-    "sable.SubLevelSplitGuardMixin",
-    "server.StopServerChunksMixin"
+    "sable.SubLevelSplitGuardMixin"
   ],
   "injectors": {
     "defaultRequire": 0

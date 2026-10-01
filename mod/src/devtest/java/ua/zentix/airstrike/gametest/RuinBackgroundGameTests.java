@@ -304,20 +304,20 @@ public final class RuinBackgroundGameTests {
     }
 
     /**
-     * Выход из мира доходит до конца, когда генерация держит держатель, уже поставленный на выгрузку (ноутбук 30.09.2026
-     * после ядерки: круги выгрузки без конца). В Незере на свежем месте: чанк A загружен и снят (он в очереди выгрузки),
-     * тикет на B рядом — генерация B берёт A обратно. Дальше — круги остановки, как у {@code stopServer}: срок тика через
-     * 1 мс, снятие тикетов, круг {@link ua.zentix.airstrike.util.StopPump#round} (тот же, что у миксина), задачи сервера
-     * (ваниль выполняет задачи чанков, только пока срок не прошёл). Карта Незера должна опустеть: {@code hasWork()} ложно
-     * (и тикетов нет — это часть {@code hasWork}). Без задач чанков в круге (прежний миксин) не пустеет: задача выгрузки A
-     * кладёт себя обратно весь предел круга, задачи чанков не идут, генерация B не кончается. Настенное время — только
-     * предел против зависания (60 с), не мера скорости.
+     * Выход из мира доходит до конца, когда тикет мода начал генерацию, а она держит держатель, уже поставленный на
+     * выгрузку (ноутбук 30.09.2026 после ядерки: выгрузка без конца). В Незере на свежем месте: чанк A загружен и снят
+     * (он в очереди выгрузки), тикет загрузки на B рядом — генерация B берёт A обратно. Дальше — как при выходе:
+     * {@code ServerStoppingEvent} — мод снимает тикет и ждёт генерацию ({@link ua.zentix.airstrike.util.StopDrain#drain});
+     * после этого ни один держатель Незера не занят генерацией, и ванильный цикл остановки как есть
+     * ({@code removeTicketsOnClosing}, {@code ServerChunkCache.tick(() -> true, false)}, задачи сервера со сроком тика
+     * через 1 мс, как {@code waitUntilNextTick}) кончается: карта Незера пустеет ({@code hasWork()} ложно, тикетов нет).
+     * Без ожидания ванильный вызов {@code tick} на этом держателе не возвращается, пока генерацию не кончит чужой поток:
+     * задача выгрузки A кладёт себя в очередь обратно, а слоям генерации нужен поток сервера. Настенное время — только
+     * пределы против зависания (вызов дольше 10 с — тест красный), не мера скорости.
      */
-    @GameTest(template = "range", timeoutTicks = 100, batch = "stop_pump", skyAccess = true)
-    public static void stopRoundsFinishWhileGenerationHoldsUnloadingChunk(GameTestHelper h) {
+    @GameTest(template = "range", timeoutTicks = 100, batch = "stop_drain", skyAccess = true)
+    public static void stopDrainLetsVanillaUnloadFinish(GameTestHelper h) {
         net.minecraft.server.MinecraftServer server = h.getLevel().getServer();
-        var methods = java.util.Arrays.stream(net.minecraft.server.MinecraftServer.class.getDeclaredMethods()).map(java.lang.reflect.Method::getName).toList();
-        h.assertTrue(methods.stream().anyMatch(m -> m.contains("stopRound")), "StopServerChunksMixin не встал: выход из мира может зависнуть в выгрузке чанков");
         ServerLevel nether = server.getLevel(net.minecraft.world.level.Level.NETHER);
         h.assertTrue(nether != null, "нет Незера");
         var cache = nether.getChunkSource();
@@ -353,30 +353,47 @@ public final class RuinBackgroundGameTests {
                     java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
                 }
                 h.assertTrue(pending.containsKey(a.toLong()) && !unloadQueue.isEmpty(), "A не встал в очередь выгрузки");
-                // тикет на B рядом: A возвращается в работу, генерация B его держит
+                // тикет загрузки на B рядом, как у районов мода: A возвращается в работу, генерация B его держит
                 ChunkPos b = new ChunkPos(a.x + 2, a.z);
                 net.minecraft.server.level.TicketType<ChunkPos> type = net.minecraft.server.level.TicketType.create("airstrike_test_stop",
                         java.util.Comparator.comparingLong(ChunkPos::toLong));
                 cache.addRegionTicket(type, b, 0, b);
                 cache.tick(() -> false, false);
-                Object holder = updating.get(a.toLong());
-                h.assertTrue(holder instanceof net.minecraft.server.level.GenerationChunkHolder g && g.getGenerationRefCount() > 0,
+                h.assertTrue(updating.get(a.toLong()) instanceof net.minecraft.server.level.GenerationChunkHolder g && g.getGenerationRefCount() > 0,
                         "генерация B не держит A — случай не воспроизведён");
-                // круги остановки
+                // ServerStoppingEvent: мод снимает свой тикет и ждёт генерацию, начатую до выхода
+                cache.removeRegionTicket(type, b, 0, b);
+                boolean drained = ua.zentix.airstrike.util.StopDrain.drain(java.util.List.of(nether),
+                        System.nanoTime() + ua.zentix.airstrike.util.StopDrain.LIMIT_NANOS);
+                int busy = ua.zentix.airstrike.util.StopDrain.inFlight(nether);
+                h.assertTrue(drained && busy == 0, "генерация не кончилась за предел ожидания: держателей занято " + busy);
+                h.assertTrue(!(updating.get(a.toLong()) instanceof net.minecraft.server.level.GenerationChunkHolder g) || g.getGenerationRefCount() == 0,
+                        "A всё ещё держит генерация");
+                // ванильный цикл остановки как есть: каждый вызов tick возвращается, карта пустеет
                 long deadline = System.nanoTime() + 60_000_000_000L;
                 int rounds = 0;
                 while (map.hasWork()) {
                     if (System.nanoTime() > deadline) {
-                        throw new net.minecraft.gametest.framework.GameTestAssertException("выход не кончился за " + rounds + " кругов: держатель A — генерация "
-                                + (updating.get(a.toLong()) instanceof net.minecraft.server.level.GenerationChunkHolder g ? g.getGenerationRefCount() : -1)
-                                + ", очередь выгрузки " + unloadQueue.size() + ", тикеты " + (map.getDistanceManager().hasTickets() ? "есть" : "нет"));
+                        throw new net.minecraft.gametest.framework.GameTestAssertException("выход не кончился за " + rounds + " кругов: очередь выгрузки "
+                                + unloadQueue.size() + ", тикеты " + (map.getDistanceManager().hasTickets() ? "есть" : "нет"));
                     }
                     next.setLong(server, net.minecraft.Util.getNanos() + 1_000_000L);
                     cache.removeTicketsOnClosing();
-                    ua.zentix.airstrike.util.StopPump.round(cache, () -> true, s -> cache.tick(s, false));
+                    long spinEnd = System.nanoTime() + 10_000_000_000L;
+                    try {
+                        cache.tick(() -> {
+                            if (System.nanoTime() > spinEnd) throw new VanillaSpin();
+                            return true;
+                        }, false);
+                    } catch (VanillaSpin e) {
+                        throw new net.minecraft.gametest.framework.GameTestAssertException("ванильный круг выгрузки не вернулся за 10 с (круг " + rounds
+                                + "): держатель A занят генерацией — " + (updating.get(a.toLong()) instanceof net.minecraft.server.level.GenerationChunkHolder g
+                                ? g.getGenerationRefCount() : -1));
+                    }
                     while (server.pollTask()) {
                         // задачи сервера, как waitUntilNextTick: задачи чанков — только пока срок не прошёл
                     }
+                    java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
                     rounds++;
                 }
                 h.assertFalse(map.getDistanceManager().hasTickets(), "после выхода остались тикеты");
@@ -388,6 +405,40 @@ public final class RuinBackgroundGameTests {
             throw new IllegalStateException(e);
         }
         h.succeed();
+    }
+
+    /**
+     * Остановка после залпа: районы мода (здесь — район цели радиуса 8 в свежем Незере, чанки не готовы) отпускаются
+     * ({@code StrikeWorld.releaseAreas}) до ожидания генерации, и {@code StopDrain} ждёт только начатое — без этого он
+     * применил бы тикеты районов и ждал генерацию всего залпа дольше своего предела. Настенное время — только предел
+     * {@code StopDrain.LIMIT_NANOS}.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "stop_drain_areas", skyAccess = true)
+    public static void stopReleasesAreasBeforeDrain(GameTestHelper h) {
+        ServerLevel nether = h.getLevel().getServer().getLevel(net.minecraft.world.level.Level.NETHER);
+        h.assertTrue(nether != null, "нет Незера");
+        ChunkPos c = new ChunkPos(-30_000 - h.getLevel().random.nextInt(4000), 20_000 + h.getLevel().random.nextInt(4000));
+        java.util.UUID flight = java.util.UUID.randomUUID();
+        ua.zentix.airstrike.strike.FlightTickets.hold(nether, c, 8, flight, true);
+        nether.getChunkSource().tick(() -> false, false);
+        h.assertTrue(ua.zentix.airstrike.util.StopDrain.inFlight(nether) > 0, "район не запустил генерацию — случай не воспроизведён");
+        ua.zentix.airstrike.strike.StrikeWorld.releaseAreas(nether);
+        h.assertTrue(ua.zentix.airstrike.strike.StrikeWorld.get(nether).areas().size() == 0, "районы не отпущены");
+        boolean drained = ua.zentix.airstrike.util.StopDrain.drain(java.util.List.of(nether),
+                System.nanoTime() + ua.zentix.airstrike.util.StopDrain.LIMIT_NANOS);
+        int busy = ua.zentix.airstrike.util.StopDrain.inFlight(nether);
+        h.assertTrue(drained && busy == 0, "генерация не кончилась за предел ожидания: держателей занято " + busy);
+        h.assertTrue(ua.zentix.airstrike.strike.FlightTickets.held(nether, flight) == 0, "тикет района остался");
+        h.succeed();
+    }
+
+    /** Выход из ванильного круга выгрузки, если он не вернулся ({@link #stopDrainLetsVanillaUnloadFinish}). */
+    private static final class VanillaSpin extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        VanillaSpin() {
+            super(null, null, false, false);
+        }
     }
 
     /**
