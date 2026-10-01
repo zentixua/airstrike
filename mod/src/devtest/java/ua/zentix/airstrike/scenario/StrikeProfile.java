@@ -4,21 +4,32 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.ExplosionEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.stress.StressDirector;
+import ua.zentix.airstrike.util.Terrain;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 /**
  * Замер потока сервера вокруг ударов на копии мира игрока ({@code tools/prod_client.py strike-profile --world …
@@ -29,7 +40,9 @@ import java.util.TreeMap;
  * тик сервера дольше 50 мс ({@code SCENARIO strike-profile tick}), промежуток между началами тиков дольше 100 мс
  * ({@code … period}: туда входят и задачи потока сервера между тиками — разбор чанков с диска, перевод в FULL — и
  * ожидание до следующего тика, поэтому порог выше) и раз в секунду средний тик, самый долгий и сколько настенного
- * времени заняли 20 тиков ({@code … second}) — с тиками сервера и настенными мс от последнего шага.
+ * времени заняли 20 тиков ({@code … second}) — с тиками сервера и настенными мс от последнего шага. На первый взрыв
+ * каждого снаряда — {@code … hit}: где он был при попадании, фаза, взведён ли, курс, точка цели и блок, в который он
+ * попал (удар далеко от точки — врезался по пути или нет).
  */
 final class StrikeProfile {
     private static final long SLOW_NANOS = 50_000_000L, SLOW_PERIOD_NANOS = 100_000_000L;
@@ -44,6 +57,8 @@ final class StrikeProfile {
     // поток сервера
     private long tickStart, secondStart, secondNanos, secondMax;
     private int secondTicks;
+    /** Снаряды, чей первый взрыв уже в логе (у боевой части несколько взрывов). */
+    private final Set<UUID> hit = new HashSet<>();
 
     StrikeProfile() {
         String spec = System.getProperty("airstrike.profile.steps", "");
@@ -55,6 +70,7 @@ final class StrikeProfile {
         NeoForge.EVENT_BUS.addListener(this::onClientTick);
         NeoForge.EVENT_BUS.addListener(this::onServerTickPre);
         NeoForge.EVENT_BUS.addListener(this::onServerTickPost);
+        NeoForge.EVENT_BUS.addListener(this::onBlast);
     }
 
     private void onClientTick(ClientTickEvent.Post e) {
@@ -128,6 +144,71 @@ final class StrikeProfile {
             secondNanos = 0;
             secondMax = 0;
             secondTicks = 0;
+        }
+    }
+
+    /**
+     * Первый взрыв снаряда: снаряд — источник урона взрыва, уже убранный из мира, с местом, фазой и курсом на тик
+     * попадания. Блок — в точке взрыва на полшага по курсу (точка столкновения лежит на грани блока).
+     */
+    private void onBlast(ExplosionEvent.Start e) {
+        if (!(e.getLevel() instanceof ServerLevel level)) return;
+        StrikeProjectile p = StressDirector.blastProjectile(e.getExplosion());
+        if (p == null || !hit.add(p.getUUID())) return;
+        try {
+            logHit(level, p, e.getExplosion().center());
+        } catch (RuntimeException x) {
+            // строка для сведения: замер не должен падать из-за неё
+            Airstrike.LOG.warn("SCENARIO strike-profile hit: строка не записана", x);
+        }
+    }
+
+    private void logHit(ServerLevel level, StrikeProjectile p, Vec3 at) {
+        Vec3 pos = p.position(), aim = p.aimPoint(), v = p.getDeltaMovement();
+        double heading = (Math.toDegrees(Math.atan2(v.x, -v.z)) + 360) % 360;
+        double pitch = Math.toDegrees(Math.atan2(v.y, v.horizontalDistance()));
+        Vec3 dir = v.lengthSqr() > 1e-6 ? v.normalize() : Vec3.ZERO;
+        Airstrike.LOG.info("SCENARIO strike-profile hit {} {} at {} (blast {}) phase {} armed {} heading {} pitch {} speed {} aim {}: {} blocks horizontal, {} above; block {} after «{}» {}",
+                p.weapon().getSerializedName(), p.getUUID().toString().substring(0, 8), xyz(pos), xyz(at), p.flightPhase(), armed(p),
+                Math.round(heading), Math.round(pitch), String.format(Locale.ROOT, "%.2f", v.length()), xyz(aim),
+                Math.round(Math.hypot(at.x - aim.x, at.z - aim.z)), Math.round(at.y - aim.y), block(level, at, dir), stepName, since(level.getServer(), System.nanoTime()));
+    }
+
+    private static String xyz(Vec3 v) {
+        return String.format(Locale.ROOT, "%.0f %.0f %.0f", v.x, v.y, v.z);
+    }
+
+    /** Блок в точке взрыва или на шаг дальше по курсу; в неготовый чанк не заглядывает. */
+    private static String block(ServerLevel level, Vec3 at, Vec3 dir) {
+        for (double d : new double[] {0.3, 1.0}) {
+            BlockPos b = BlockPos.containing(at.add(dir.scale(d)));
+            if (!Terrain.ready(level, b)) return "?";
+            BlockState s = level.getBlockState(b);
+            if (!s.isAir()) return BuiltInRegistries.BLOCK.getKey(s.getBlock()).toString();
+        }
+        return "air";
+    }
+
+    /** {@code StrikeProjectile.armed()} (защищённый); нет такого метода — в строке «armed ?», а не падение замера. */
+    private static final Method ARMED = armedMethod();
+
+    private static Method armedMethod() {
+        try {
+            Method m = StrikeProjectile.class.getDeclaredMethod("armed");
+            m.setAccessible(true);
+            return m;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Airstrike.LOG.warn("SCENARIO strike-profile: метода StrikeProjectile.armed() нет ({}) — в строках hit «armed ?»", e.toString());
+            return null;
+        }
+    }
+
+    private static String armed(StrikeProjectile p) {
+        if (ARMED == null) return "?";
+        try {
+            return (boolean) ARMED.invoke(p) ? "yes" : "no";
+        } catch (ReflectiveOperationException e) {
+            return "?";
         }
     }
 
