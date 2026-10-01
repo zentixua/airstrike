@@ -26,12 +26,19 @@ public final class DroneAutopilot {
      * блоков до цели (проверка на городе хоста 01.10.2026).
      */
     private static final double DIVE_MARGIN = 1.5;
+    /**
+     * Закрытую прямую до цели проверять снова через столько тиков: луч — до ~200 блоков, в городе залп ждёт прямой
+     * десятки тиков. За паузу шахед пролетает ~8 блоков, это покрывает {@link #DIVE_MARGIN}.
+     */
+    private static final int LINE_RECHECK = 4;
 
     private final WeaponSpec.Airframe air;
     private final Autopilot.Turn climbTurn;
     private final Autopilot.Turn cruiseTurn;
     /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
+    /** Сколько тиков ещё не проверять закрытую прямую до цели (не сохраняется: после загрузки — проверить сразу). */
+    private int lineWait;
 
     public DroneAutopilot(WeaponSpec.Airframe air) {
         this.air = air;
@@ -91,7 +98,7 @@ public final class DroneAutopilot {
         // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
         // прямая до цели — последней: луч по блокам дороже остальных условий
         if ((c.phase() == FlightPhase.CRUISE || c.phase() == FlightPhase.CLIMB) && finalLeg && b.pitch() >= DIVE_PITCH && !outOfTurn
-                && (b.distance() <= turnDistance(c, b) * DIVE_MARGIN || c.lineClear(aim, air.reachPad()))) {
+                && (b.distance() <= turnDistance(c, b) * DIVE_MARGIN || lineClear(c, aim))) {
             c.setPhase(FlightPhase.TERMINAL);
         }
 
@@ -105,6 +112,17 @@ public final class DroneAutopilot {
             c.setSpeed(Math.min(air.diveSpeed(), c.speed() + 0.04));
         }
         Autopilot.steer(c, outOfTurn, n, turn);
+    }
+
+    /** Прямая до цели свободна; закрытая проверяется снова через {@link #LINE_RECHECK} тиков. */
+    private boolean lineClear(Craft c, Vec3 aim) {
+        if (lineWait > 0) {
+            lineWait--;
+            return false;
+        }
+        if (c.lineClear(aim, air.reachPad())) return true;
+        lineWait = LINE_RECHECK - 1;
+        return false;
     }
 
     /**
