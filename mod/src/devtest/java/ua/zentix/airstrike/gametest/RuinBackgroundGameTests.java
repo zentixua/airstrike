@@ -407,6 +407,31 @@ public final class RuinBackgroundGameTests {
         h.succeed();
     }
 
+    /**
+     * Остановка после залпа: районы мода (здесь — район цели радиуса 8 в свежем Незере, чанки не готовы) отпускаются
+     * ({@code StrikeWorld.releaseAreas}) до ожидания генерации, и {@code StopDrain} ждёт только начатое — без этого он
+     * применил бы тикеты районов и ждал генерацию всего залпа дольше своего предела. Настенное время — только предел
+     * {@code StopDrain.LIMIT_NANOS}.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "stop_drain_areas", skyAccess = true)
+    public static void stopReleasesAreasBeforeDrain(GameTestHelper h) {
+        ServerLevel nether = h.getLevel().getServer().getLevel(net.minecraft.world.level.Level.NETHER);
+        h.assertTrue(nether != null, "нет Незера");
+        ChunkPos c = new ChunkPos(-30_000 - h.getLevel().random.nextInt(4000), 20_000 + h.getLevel().random.nextInt(4000));
+        java.util.UUID flight = java.util.UUID.randomUUID();
+        ua.zentix.airstrike.strike.FlightTickets.hold(nether, c, 8, flight, true);
+        nether.getChunkSource().tick(() -> false, false);
+        h.assertTrue(ua.zentix.airstrike.util.StopDrain.inFlight(nether) > 0, "район не запустил генерацию — случай не воспроизведён");
+        ua.zentix.airstrike.strike.StrikeWorld.releaseAreas(nether);
+        h.assertTrue(ua.zentix.airstrike.strike.StrikeWorld.get(nether).areas().size() == 0, "районы не отпущены");
+        boolean drained = ua.zentix.airstrike.util.StopDrain.drain(java.util.List.of(nether),
+                System.nanoTime() + ua.zentix.airstrike.util.StopDrain.LIMIT_NANOS);
+        int busy = ua.zentix.airstrike.util.StopDrain.inFlight(nether);
+        h.assertTrue(drained && busy == 0, "генерация не кончилась за предел ожидания: держателей занято " + busy);
+        h.assertTrue(ua.zentix.airstrike.strike.FlightTickets.held(nether, flight) == 0, "тикет района остался");
+        h.succeed();
+    }
+
     /** Выход из ванильного круга выгрузки, если он не вернулся ({@link #stopDrainLetsVanillaUnloadFinish}). */
     private static final class VanillaSpin extends RuntimeException {
         private static final long serialVersionUID = 1L;

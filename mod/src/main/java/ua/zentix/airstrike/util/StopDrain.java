@@ -23,7 +23,7 @@ import java.util.concurrent.locks.LockSupport;
  * 30.09.2026 после ядерки: 632 с в {@code processUnloads}). Генерацию запускают и тикеты игрока, но районы и зона мода
  * (руины, подготовка, районы целей, полосы подлёта, вход игрока) делают случай частым.
  * <p>
- * Что делает. После того как мод отпустил свои тикеты и работу (обработчики обычного приоритета), этот обработчик
+ * Что делает. После того как мод отпустил свои тикеты и работу (обработчики обычного приоритета; районы — {@code StrikeWorld.releaseAreas}), этот обработчик
  * (последним, {@code LOWEST}) выполняет задачи чанков каждого мира ({@code pollTask}: он же применяет снятые тикеты —
  * {@code runDistanceManagerUpdates} — и будит свет), пока ни один держатель карты чанков не занят генерацией
  * ({@link #inFlight}), но не дольше {@link #LIMIT_NANOS} (тогда — строка в лог, и выход идёт как у ванили). Новой
@@ -32,7 +32,9 @@ import java.util.concurrent.locks.LockSupport;
  */
 public final class StopDrain {
     /** Предел ожидания на весь сервер. */
-    public static final long LIMIT_NANOS = 10_000_000_000L;
+    public static final long LIMIT_NANOS = 30_000_000_000L;
+    /** Как часто писать, что ожидание идёт. */
+    private static final long REPORT_NANOS = 5_000_000_000L;
 
     private StopDrain() {}
 
@@ -46,7 +48,7 @@ public final class StopDrain {
             int n = inFlight(level);
             if (n > 0) s.append(' ').append(level.dimension().location()).append(" — ").append(n);
         }
-        Airstrike.LOG.warn("Остановка: генерация чанков не кончилась за {} с (держателей занято:{}), выход может зависнуть в выгрузке",
+        Airstrike.LOG.warn("Остановка: генерация чанков не кончилась за {} с, держателей занято:{} — выход, вероятно, зависнет на «Saving worlds»",
                 LIMIT_NANOS / 1_000_000_000L, s);
     }
 
@@ -57,6 +59,7 @@ public final class StopDrain {
      * @return генерации больше нет ни в одном мире
      */
     public static boolean drain(Iterable<ServerLevel> levels, long deadline) {
+        long report = System.nanoTime() + REPORT_NANOS;
         while (true) {
             boolean busy = false;
             for (ServerLevel level : levels) {
@@ -67,7 +70,14 @@ public final class StopDrain {
                 if (inFlight(level) > 0) busy = true;
             }
             if (!busy) return true;
-            if (System.nanoTime() > deadline) return false;
+            long now = System.nanoTime();
+            if (now > deadline) return false;
+            if (now >= report) {
+                report = now + REPORT_NANOS;
+                int n = 0;
+                for (ServerLevel level : levels) n += inFlight(level);
+                Airstrike.LOG.info("Остановка: жду генерацию чанков, начатую до выхода (держателей занято {})", n);
+            }
             // слои генерации идут в потоках генерации, ввода-вывода и света; задачи потоку сервера они пришлют сами
             LockSupport.parkNanos(1_000_000L);
         }
