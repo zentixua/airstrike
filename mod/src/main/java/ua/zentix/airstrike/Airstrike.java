@@ -33,7 +33,6 @@ import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.warhead.CraterFalls;
-import ua.zentix.airstrike.warhead.ExplosionHandoff;
 import ua.zentix.airstrike.work.WorkScheduler;
 
 /**
@@ -70,6 +69,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
+        // после того как мод снял свои тикеты и работу: генерация, начатая до выхода, доходит до конца (иначе цикл выгрузки висит)
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.airstrike.util.StopDrain::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
@@ -103,7 +104,6 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
-        NeoForge.EVENT_BUS.addListener(ExplosionHandoff::onDetonate);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
         // первым: чужие слушатели сохранения видят тег уже без двойников
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, ChunkSaves::onSave);

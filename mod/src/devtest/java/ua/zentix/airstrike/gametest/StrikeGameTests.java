@@ -1825,18 +1825,24 @@ public final class StrikeGameTests {
         Vec3 charge = Vec3.atCenterOf(h.absolutePos(new BlockPos(32, 8, 32)));
         // район взрыва (досягаемость силы 20 — 41 блок) — сразу: иначе подрыв ждал бы фоновой генерации за краем площадки
         generateNow(level, new ChunkPos(BlockPos.containing(charge)), 4);
+        // без огня в полости: предмет, который упал в огонь, сгорает (CI 01.10.2026: «было 7864, стало 7848» — стопка
+        // в 16 блоков), и счёт ловил бы огонь, а не осыпание
+        boolean fire = ua.zentix.airstrike.AirstrikeConfig.SERVER.fire.get();
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.fire.set(false);
+        afterTest(h, () -> ua.zentix.airstrike.AirstrikeConfig.SERVER.fire.set(fire));
         long settledBefore = CraterFalls.get(level).settled();
         Warheads.bunker(level, charge, charge.add(0, 15, 0), null, null);
+        AABB column = new AABB(box.minX, level.getMinBuildHeight(), box.minZ, box.maxX, level.getMaxBuildHeight(), box.maxZ);
+        int[] loose = {-1};
+        long[] settledShelf = {-1};
         h.onEachTick(() -> {
             int live = level.getEntitiesOfClass(FallingBlockEntity.class, box).size();
             h.assertTrue(live <= CraterFalls.LIVE_CAP, "живых падающих блоков " + live + " больше предела " + CraterFalls.LIVE_CAP);
-        });
-        // подрыв (таймлайн бомбы — 24 тика) кончился, и выброшенные им предметы упали (подброшенные вторичными подрывами
-        // летают дольше 40 тиков): счёт, потом полка — дальше песок и гравий только осыпаются; район ещё открыт (до
-        // конца подрыва + GRACE)
-        int[] loose = {-1};
-        long[] settledShelf = {-1};
-        h.runAtTickTime(120, () -> {
+            // подрыв (таймлайн бомбы — 24 тика) кончился, выброшенные им предметы упали (подброшенные вторичными
+            // подрывами летают дольше 40 тиков), и обломки выброса легли: они ложатся блоком грунта — песком, а самые
+            // высокие летят дольше 120 тиков (повтор теста: «было 7987, стало 7990»). Тогда счёт, потом полка — дальше
+            // песок и гравий только осыпаются; район ещё открыт (до конца подрыва + GRACE)
+            if (loose[0] >= 0 || h.getTick() < 120 || !level.getEntitiesOfClass(DebrisEntity.class, column).isEmpty()) return;
             loose[0] = looseCount(level, box);
             settledShelf[0] = CraterFalls.get(level).settled();
             for (BlockPos p : BlockPos.betweenClosed(shelfLo, shelfHi)) level.setBlock(h.absolutePos(p), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);

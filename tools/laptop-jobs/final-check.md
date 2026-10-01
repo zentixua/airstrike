@@ -330,21 +330,27 @@ timeout -k 60 30m tools/laptop_job.sh final-jfr -- bash -c 'set -o pipefail; "$0
 (миксин Sable толкает аппарат на каждом шаге луча). Шаг меряет, сколько стоит эта единица в сборке хоста
 (подробно — `/mnt/project-files/perf/craft-explosion-step.md`). У места ENOTzRPG строится блок досок 3×3×5 над землёй,
 собирается в аппарат (он падает и ложится на землю), игрок уходит на 200 блоков, ракета бьёт в 4–6 блоках от аппарата
-(охват лучей ракеты ~27 блоков). Прогон (тайм-аут вызова 30 мин):
+(охват лучей ракеты ~27 блоков). Рядом с аппаратом ставятся две коровы и свинья: урон ванильного пути должен
+кому-то достаться, иначе его цену не видно. Прогон (тайм-аут вызова 30 мин):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final && touch mod/run/final/.step-start && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 timeout -k 60 25m tools/laptop_job.sh final-craft -- python3 tools/prod_client.py commands --world "Greenfield v0.5.4" --seconds 900 \
-  --prop 'airstrike.commands=gamemode spectator;tp @s -272 110 -1100;wait:400;fill -268 80 -1143 -266 84 -1141 oak_planks;sable assemble area -268 80 -1143 -266 84 -1141;wait:5;tp @s -272 130 -942;wait:400;airstrike salvo missile 1 0 at -272 72 -1142;wait:4800'; echo "код $?"
+  --prop 'airstrike.commands=gamemode spectator;tp @s -272 110 -1100;wait:400;fill -268 80 -1143 -266 84 -1141 oak_planks;sable assemble area -268 80 -1143 -266 84 -1141;wait:5;summon minecraft:cow -270 76 -1139;summon minecraft:cow -274 76 -1145;summon minecraft:pig -264 76 -1140;wait:20;tp @s -272 130 -942;wait:400;airstrike salvo missile 1 0 at -272 72 -1142;wait:4800'; echo "код $?"
 ```
 Выжимка:
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/A2 && L=mod/run/final/A2/logs/full.log && \
 { echo "== шаги, чат, удар"; grep -a -E 'SCENARIO /|\[CHAT\]|Airstrike/\]: Удар|SCENARIO done' "$L" | cut -c1-300 | head -40; \
   echo "== итог удара и попадания"; grep -a -E 'Итог удара|Попадания \(|Планировщик' "$L" | cut -c1-400 | head -20; \
+  echo "== ванильный взрыв, мс (порог 50)"; grep -a -E 'Итог удара' "$L" | grep -a -o -E 'ванильный взрыв [0-9.]+' | head -5; \
+  echo "== тики попаданий от 250 мс (порог: ни одного)"; grep -a -E 'Попадания \([^)]*\): ([0-9]{4,}|2[5-9][0-9]|[3-9][0-9]{2}) мс' "$L" | cut -c1-300 | head -10; \
   echo "== отставание"; grep -a -E "Can't keep up" "$L" | cut -c1-200 | head -10; \
   echo "== logscan"; python3 tools/logscan.py "$L" --all | sed -n '1,/^== Загрузка мода/p' | head -40; } > mod/run/final/A2/results.txt; wc -lc mod/run/final/A2/results.txt
 ```
-**Замер, без провала:** команды выполнились (нет «Unknown or incomplete command», сборка аппарата без ошибки в чате);
+**Пороги (провал — FAIL с цифрой):** в строке `Итог удара (…)` у -272 72 -1142 шаг `ванильный взрыв` ≤ 50 мс; ни одного тика
+попаданий (`Попадания (…): N мс за тик`) от 250 мс; нет `Can't keep up` в ±10 с от удара (иначе разобрать по `gc.log`,
+не автосохранение ли). Нет строки `ванильный взрыв` — аппарат не попал в охват: так и написать, это сбой задания.
+**Остальное — замер:** команды выполнились (нет «Unknown or incomplete command», сборка аппарата без ошибки в чате);
 из строки `Итог удара (…)` у -272 72 -1142 выписать `ванильных взрывов N` (ожидается ≥ 1 — иначе аппарат не попал
 в охват, так и написать), `самая долгая единица X мс (вид)` и `шаги взрывов`; строку `Попадания (…)` того тика, если
 он дольше 50 мс; есть ли `Can't keep up` в ±10 с от удара. Единица ванильного пути больше 100 мс — отдельная задача

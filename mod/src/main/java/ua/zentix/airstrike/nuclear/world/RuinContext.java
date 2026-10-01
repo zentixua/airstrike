@@ -39,10 +39,10 @@ final class RuinContext {
     long used;
 
     /**
-     * Руины чанка стоят: план (старые блоки его мест; null — отпущены), счётчик изменений чанка при подмене и карта
-     * высот {@code MOTION_BLOCKING} до неё (первый воздух; по ней тень светового импульса — он шёл до волны).
+     * Руины чанка стоят: план (старые блоки его мест; null — отпущены) и карта высот {@code MOTION_BLOCKING} до подмены
+     * (первый воздух; по ней тень светового импульса — он шёл до волны).
      */
-    record Applied(@Nullable RuinPlan plan, long edits, int id, short[] motion) {}
+    record Applied(@Nullable RuinPlan plan, short[] motion) {}
 
     RuinContext(Detonation d) {
         this.d = d;
@@ -51,15 +51,6 @@ final class RuinContext {
     @Nullable
     Applied applied(long chunk) {
         return applied.get(chunk);
-    }
-
-    /**
-     * Счётчик изменений чанка для окна плана: у чанка с руинами — на момент подмены (дальше его меняют сами руины:
-     * огонь, текущая вода, брёвна), у остальных — живой.
-     */
-    long edits(long pos, LevelChunk chunk) {
-        Applied a = applied.get(pos);
-        return a != null ? a.edits : RuinPlan.edits(chunk);
     }
 
     /** Снимок чанка, если он в памяти целиком (поток сервера): из кэша, пока верен, иначе — новый. */
@@ -72,10 +63,9 @@ final class RuinContext {
             ChunkShot disk = shots.get(key);
             return disk != null && disk.fromDisk() && disk.fresh() ? disk : null;
         }
-        long edits = edits(key, c);
         Applied a = applied.get(key);
         ChunkShot s = shots.get(key);
-        if (s == null || !s.current(c, edits, a)) putShot(key, s = ChunkShot.take(c, edits, a));
+        if (s == null || !s.current(c, a)) putShot(key, s = ChunkShot.take(c, a));
         return s;
     }
 
@@ -484,16 +474,16 @@ final class RuinContext {
     }
 
     /** Руины чанка встали по плану. */
-    void applied(LevelChunk chunk, RuinPlan plan, long edits, short[] motion) {
+    void applied(LevelChunk chunk, RuinPlan plan, short[] motion) {
         ChunkPos pos = chunk.getPos();
-        applied.put(pos.toLong(), new Applied(plan, edits, System.identityHashCode(chunk), motion));
+        applied.put(pos.toLong(), new Applied(plan, motion));
         planned.add(pos.toLong());
         stood.add(pos.toLong());
         forget(pos, 1, stood, k -> blasts.remove(k));
         forget(pos, RuinPlanner.REACH, stood, this::dropShot);
         forget(pos, 2, stood, k -> {
             Applied a = applied.get(k);
-            if (a != null && a.plan != null) applied.put(k, new Applied(null, a.edits, a.id, a.motion));
+            if (a != null && a.plan != null) applied.put(k, new Applied(null, a.motion));
         });
     }
 

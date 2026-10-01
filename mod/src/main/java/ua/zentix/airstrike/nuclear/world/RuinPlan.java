@@ -47,7 +47,8 @@ import java.util.List;
  * <p>
  * План устаревает, если места плана после него меняли (игрок, взрыв, другой мод): у каждой изменённой секции — хеш
  * старых состояний в местах плана (лампа и её погашенный двойник — одно и то же). Не совпал — план строится заново
- * по чанку как есть.
+ * по чанку как есть. Блоки вне мест плана план сверяет с чанком при подмене сам — по отпечаткам секций снимка, по
+ * которому построен ({@link #sameBlocks}): изменения чанка мод не подслушивает.
  * <p>
  * Подмена повторяет то, что делает {@code LevelChunk.setBlockState} для каждого блока, один раз на чанк: места — в
  * секции на месте (как и у {@code setBlock}; секцию не заменяют чтением в неё — см. подводные камни), карты высот и
@@ -83,21 +84,11 @@ public final class RuinPlan {
     private static final BlockState[] NO_STATES = new BlockState[0];
 
     /** План без изменений: чанк, где волне нечего менять (поле, вода, чанк у края зоны). */
-    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, 0, -1, null, null, null, NO_LONGS);
+    static final RuinPlan EMPTY = new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, null, NO_LONGS);
 
     /** Нечего менять, но руины чанка «стоят»: соседи читают его исходным (он и есть исходный), счётчики — на подмене. */
-    static RuinPlan nothing(int chunkId, long edits, @Nullable RuinContext ctx) {
-        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, chunkId, edits, null, null, ctx, NO_LONGS);
-    }
-
-    /**
-     * Идёт подмена руин (поток сервера): изменения чанков в это время — сами руины и их последствия, счётчик изменений
-     * ({@link Edits}) их не считает — иначе план соседа устаревал бы от руин этого чанка.
-     */
-    private static boolean applying;
-
-    public static boolean applying() {
-        return applying;
+    static RuinPlan nothing(@Nullable RuinContext ctx) {
+        return ctx == null ? EMPTY : new RuinPlan(NONE, NO_LONGS, NO_STATES, NO_STATES, NONE, NONE, NO_LONGS, null, null, null, null, ctx, NO_LONGS);
     }
 
     /**
@@ -120,9 +111,12 @@ public final class RuinPlan {
     private final int[] heights;
     /** Места с проверкой света (кроме мест «через мир»: их свет проверяет мир), как {@link BlockPos#asLong}. */
     private final long[] lightAt;
-    /** Чанк плана ({@code identityHashCode}) и его счётчик изменений блоков ({@link Edits}) при построении плана; −1 — счётчика нет. */
-    private final int chunkId;
-    private final long edits;
+    /**
+     * Отпечатки секций снимка, по которому построен план: как есть ({@link ChunkShot#rawPrint}) и с точностью до
+     * погашенных ламп ({@link ChunkShot#normalPrint}); null — сверять не с чем (план без мест).
+     */
+    @Nullable
+    private final long[] prints, normals;
     /** Места плана по секциям (по возрастанию номера секции). */
     private final int[] cells;
     /** По номеру секции: хеш старых состояний в её местах (секции без мест — 0, не проверяются). */
@@ -141,13 +135,13 @@ public final class RuinPlan {
     private final LongArrayList outside;
     private final List<BlockState> outsideState;
 
-    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, BlockState[] olds, int[] fires, int[] heights, long[] lightAt, int chunkId, long edits,
-            LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks) {
+    RuinPlan(int[] cells, long[] oldHashes, BlockState[] states, BlockState[] olds, int[] fires, int[] heights, long[] lightAt, @Nullable long[] prints,
+            @Nullable long[] normals, LongArrayList outside, List<BlockState> outsideState, @Nullable RuinContext ctx, long[] fluidTicks) {
         this.olds = olds;
         this.ctx = ctx;
         this.fluidTicks = fluidTicks;
-        this.chunkId = chunkId;
-        this.edits = edits;
+        this.prints = prints;
+        this.normals = normals;
         this.heights = heights;
         this.lightAt = lightAt;
         this.cells = cells;
@@ -156,36 +150,6 @@ public final class RuinPlan {
         this.fires = fires;
         this.outside = outside;
         this.outsideState = outsideState;
-    }
-
-    /**
-     * Счётчик изменений блоков чанка через {@code LevelChunk.setBlockState} (миксин {@code LevelChunkEditsMixin}): чанк
-     * меняли после плана и вне мест плана (блок внутри дома) — карты высот из плана могли устареть.
-     */
-    public interface Edits {
-        long airstrike$edits();
-    }
-
-    /** Работает ли счётчик ({@link #edits}): 0 — ещё не проверяли, 1 — да, −1 — нет. На всю JVM: миксины — тоже. */
-    private static int editsWork;
-
-    /**
-     * Счётчик изменений блоков чанка; −1 — счётчика нет (миксин не встал), и подмена тогда считает столбцы плана
-     * заново всегда. Первый вызов проверяет счётчик на деле: запись в чанк того же состояния, что там уже стоит
-     * ({@code setBlockState} выходит сразу, ничего не меняя), должна его сдвинуть. Только в потоке сервера.
-     */
-    static long edits(LevelChunk chunk) {
-        if (!(chunk instanceof Edits e)) return -1;
-        if (editsWork == 0) {
-            BlockPos p = new BlockPos(chunk.getPos().getMinBlockX() + 8, chunk.getMinBuildHeight(), chunk.getPos().getMinBlockZ() + 8);
-            long before = e.airstrike$edits();
-            chunk.setBlockState(p, chunk.getBlockState(p), false);
-            editsWork = e.airstrike$edits() != before ? 1 : -1;
-            if (editsWork < 0) {
-                Airstrike.LOG.warn("Руины ядерки: счётчик изменений чанка (LevelChunkEditsMixin) не встал — карты высот столбцов руин считаются заново при каждой подмене");
-            }
-        }
-        return editsWork > 0 ? e.airstrike$edits() : -1;
     }
 
     /** Состояние для сравнения со старым: погашенная блэкаутом лампа — та же лампа. */
@@ -318,7 +282,7 @@ public final class RuinPlan {
     public long bytes() {
         if (this == EMPTY) return 0;
         return 64 + 12L * cells.length + 8L * fluidTicks.length + 8L * oldHashes.length + 8L * states.length + 4L * fires.length + 4L * heights.length
-                + 8L * lightAt.length + (outside == null ? 0 : 16L * outside.size());
+                + 8L * lightAt.length + (prints == null ? 0 : 16L * prints.length) + (outside == null ? 0 : 16L * outside.size());
     }
 
     private static int section(int cell) {
@@ -339,6 +303,21 @@ public final class RuinPlan {
                 h = mix(h, s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15));
             }
             if (h != oldHashes[i]) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Все блоки чанка те же, что в снимке плана (поток сервера): секция за секцией — отпечаток как есть, а где он
+     * разошёлся (перестроенная палитра, лампа, погашенная блэкаутом), — по местам с точностью до погашенных ламп. Тогда
+     * карты высот и источники неба из плана верны; нет — столбцы плана считаются по чанку ({@link #rescanColumns}).
+     */
+    public boolean sameBlocks(LevelChunk chunk) {
+        if (prints == null || normals == null) return false;
+        LevelChunkSection[] live = chunk.getSections();
+        if (live.length != prints.length) return false;
+        for (int i = 0; i < live.length; i++) {
+            if (ChunkShot.rawPrint(live[i]) != prints[i] && ChunkShot.normalPrint(live[i]) != normals[i]) return false;
         }
         return true;
     }
@@ -401,20 +380,18 @@ public final class RuinPlan {
         if (this == EMPTY) return true;
         long t = System.nanoTime();
         if (!current(chunk)) return false;
-        long before = edits(chunk);
         short[] motion = new short[256];
         for (int column = 0; column < 256; column++) motion[column] = (short) (chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, column & 15, column >> 4) + 1);
-        applying = true;
-        try {
-            if (cells.length > 0 || fires.length > 0 || outside != null || fluidTicks.length > 0) write(level, chunk, budget, t);
-        } finally {
-            applying = false;
+        if (cells.length > 0 || fires.length > 0 || outside != null || fluidTicks.length > 0) {
+            // блоки вне мест плана — до записи мест: после неё чанк уже другой
+            write(level, chunk, budget, t, cells.length > 0 && sameBlocks(chunk));
         }
-        if (ctx != null) ctx.applied(chunk, this, before, motion);
+        if (ctx != null) ctx.applied(chunk, this, motion);
         return true;
     }
 
-    private boolean write(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget, long t) {
+    /** @param untouched блоки чанка те же, что в снимке плана ({@link #sameBlocks}) */
+    private boolean write(ServerLevel level, LevelChunk chunk, ColumnScar.Budget budget, long t, boolean untouched) {
         PHASES[0] += System.nanoTime() - t;
         t = System.nanoTime();
         ChunkPos pos = chunk.getPos();
@@ -478,7 +455,6 @@ public final class RuinPlan {
         t = System.nanoTime();
         // карты высот и источники неба — из плана; чанк меняли после плана вне мест плана (блок внутри дома) или
         // значение «до» в столбце не то — все столбцы плана заново по чанку
-        boolean untouched = edits >= 0 && chunkId == System.identityHashCode(chunk) && edits(chunk) == edits;
         if (!untouched || !setHeights(chunk)) rescanColumns(chunk);
         if (lit > 0) {
             // огонь не воздух, но не держит движение и не закрывает небо: из карт высот он меняет только поверхность мира
@@ -682,15 +658,6 @@ public final class RuinPlan {
 
     /** Бревно поваленного ствола — на поверхность соседнего чанка (после его руин), если там не стоит постройка. */
     public static void placeLog(ServerLevel level, long at, BlockState log) {
-        applying = true;
-        try {
-            placeLogNow(level, at, log);
-        } finally {
-            applying = false;
-        }
-    }
-
-    private static void placeLogNow(ServerLevel level, long at, BlockState log) {
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos().set(at);
         if (!Terrain.ready(level, m) || !NuclearTickets.aroundLoaded(level, m)) return;
         m.setY(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, m.getX(), m.getZ()));
