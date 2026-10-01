@@ -20,7 +20,7 @@ import ua.zentix.airstrike.registry.ModParticles;
  */
 public final class Fx {
     /** Ветер (блоки/тик² на единицу парусности): дым и пыль сносит, столбы дыма наклоняются. */
-    static final double WIND_X = 0.0022, WIND_Z = 0.0011;
+    public static final double WIND_X = 0.0022, WIND_Z = 0.0011;
 
     private static SpriteSet smoke, fire, spark, flash, ring;
 
