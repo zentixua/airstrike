@@ -40,6 +40,9 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
                                            ноутбук не засыпает, по выходу гасится всё её
+    laptop-jobs/<имя>.md                 ← задания ноутбуку: координатор отправляет файл по SHA коммита, ноутбук сверяет sha256;
+                                           отработанные удаляются (история — в git)
+    logtime.py                           ← время строк лога Minecraft для выжимок заданий ноутбука
     free_port.py                         ← свободный порт на 127.0.0.1 для серверов проверок (stress.sh, mp_scenario.sh)
     rig_procs.sh                         ← процессы проверок в своих сессиях (source из stress.sh, mp_scenario.sh): выход скрипта гасит их с JVM
     test_rig_procs.sh                    ← проверка rig_procs.sh (CI): Ctrl+C, TERM, конец скрипта, чужая сессия, fd, срок RIG_GRACE — без сирот
@@ -617,7 +620,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   взрыв идёт ванильным `explode()` целиком; обёртки самого `ServerLevel.explode` (у Sable — перенос взрыва из плота) не видят его,
   поэтому взрыв в сетке плотов — целиком ванильным `level.explode`. Работа, поставленная из работы (взрыв будит
   обработчики), встаёт в конец очереди — обход `UnitQueue` по индексу.
-  Миксины сборки хоста на пути взрыва (скан jar — `/mnt/project-files/perf/laptop-explosion-mixins.sh`, повторять при
+  Миксины сборки хоста на пути взрыва (скан jar — `/mnt/project-files/reports/explosion-mixins/laptop-explosion-mixins.sh`, повторять при
   обновлении сборки; разбор — javap): amendments 2.1.10 `ExplosionMixin` — только `FireballExplosion`, не наш;
   supplementaries 3.9.9 `ExplosionMixin` — клиентский `finalizeExplosion`, приходит нашим `ClientboundExplodePacket`,
   `SelfGunpowderMixin` — `GunpowderBlock.onBlockExploded`, зовётся через `onExplosionHit`; collective 8.39 — конфиг
