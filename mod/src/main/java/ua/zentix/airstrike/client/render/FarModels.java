@@ -361,8 +361,14 @@ public final class FarModels {
         return Math.max(PAD, Math.min(ATLAS, shelfY + shelfH));
     }
 
-    /** Очистить нижние rows строк атласа (прозрачным; глубина — дальше всего). */
+    /**
+     * Очистить нижние rows строк атласа (прозрачным; глубина — дальше всего). Очистка слушается масок записи, а Iris
+     * с шейдерпаком оставляет к {@code AFTER_LEVEL} запись глубины выключенной ({@code FinalPassRenderer.renderFinalPass}):
+     * глубина атласа копилась из кадра в кадр, и модель в движении рвалась на куски.
+     */
     private static void clear(int rows) {
+        RenderSystem.colorMask(true, true, true, true);
+        RenderSystem.depthMask(true);
         RenderSystem.enableScissor(0, 0, ATLAS, rows);
         GlStateManager._clearColor(0, 0, 0, 0);
         GlStateManager._clearDepth(1);
