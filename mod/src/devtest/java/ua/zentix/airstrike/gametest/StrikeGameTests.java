@@ -2,7 +2,6 @@ package ua.zentix.airstrike.gametest;
 
 import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -15,7 +14,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -2784,7 +2785,7 @@ public final class StrikeGameTests {
      * Залп по сущности, которая погибла: остаток бьёт по месту гибели, а не по новой сущности с тем же UUID (игрок
      * возрождается новым {@code ServerPlayer} с прежним UUID — раньше залп переходил на место возрождения).
      */
-    @GameTest(template = "range", timeoutTicks = 60, batch = "salvo_target_died", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 120, batch = "salvo_target_died", skyAccess = true)
     public static void salvoKeepsLastPointOfDeadTarget(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         java.util.UUID owner = java.util.UUID.randomUUID();
@@ -2811,12 +2812,21 @@ public final class StrikeGameTests {
             again.setNoAi(true);
             h.assertTrue(level.getEntity(pig.getUUID()) == null && level.addFreshEntity(again), "вторая сущность с тем же UUID не встала в мир");
         });
-        h.runAfterDelay(40, () -> {
+        // пауза залпа шахедов 20–40 тиков: к 90-му после гибели (3-й тик) пущен хоть один снаряд остатка
+        h.runAfterDelay(90, () -> {
             List<Target> centers = SalvoData.get(level).centers(owner);
+            // снаряды остатка — с целью-точкой (до гибели — с целью-сущностью); в мире и вне его
+            List<StrikeProjectile> mine = new ArrayList<>(VirtualFlights.get(level).flights());
+            mine.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true));
+            List<Vec3> aims = mine.stream().filter(p -> owner.equals(p.ownerId()) && p.target() instanceof Target.Point)
+                    .map(p -> ((Target.Point) p.target()).pos()).toList();
             cleanup.run();
             level.getEntities(EntityType.PIG, h.getBounds().inflate(64), p -> p.getUUID().equals(pig.getUUID())).forEach(Entity::discard);
             h.assertTrue(centers.size() == 1 && centers.getFirst() instanceof Target.Point p && p.pos().distanceTo(at) < 1,
                     "залп после гибели цели идёт не по месту гибели: " + centers);
+            h.assertTrue(!aims.isEmpty(), "после гибели цели не пущено ни одного снаряда остатка");
+            h.assertTrue(aims.stream().allMatch(a -> a.distanceTo(at) < 2),
+                    "снаряды остатка летят не к месту гибели " + at + ": " + aims);
             h.succeed();
         });
     }

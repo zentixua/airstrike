@@ -25,6 +25,7 @@ import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Nbt;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -123,10 +124,10 @@ public final class SalvoData extends SavedData {
         /**
          * Сущность-цель, за которой залп шёл в прошлый тик (не сохраняется: после загрузки — первая найденная). Игрок,
          * погибший и возрождённый, — новый {@code ServerPlayer} с тем же UUID: без неё залп переходил на место
-         * возрождения и бил туда.
+         * возрождения и бил туда. Слабая ссылка, как в {@code TargetTracker}: выгруженную или ушедшую сущность залп не держит.
          */
         @Nullable
-        private Entity followed;
+        private WeakReference<Entity> followed;
         final float yaw;
         @Nullable
         final UUID owner;
@@ -173,7 +174,8 @@ public final class SalvoData extends SavedData {
          */
         private void watchCenter(ServerLevel level) {
             if (!(center instanceof Target.OfEntity target)) return;
-            if (followed != null && died(followed)) {
+            Entity last = followed == null ? null : followed.get();
+            if (last != null && died(last)) {
                 center = new Target.Point(lastCenter);
                 followed = null;
                 Airstrike.LOG.info("Залп: {} — цель {} погибла, остаток ({}) — по её последней точке {}", weapon.getSerializedName(),
@@ -182,7 +184,7 @@ public final class SalvoData extends SavedData {
             }
             Entity now = level.getEntity(target.uuid());
             if (now == null) return;
-            followed = now;
+            if (last != now) followed = new WeakReference<>(now);
             target.resolve(level, now).ifPresent(p -> lastCenter = p);
         }
 
