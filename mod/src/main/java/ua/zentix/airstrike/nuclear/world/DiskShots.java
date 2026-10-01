@@ -26,7 +26,6 @@ import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.chunk.PalettedContainerRO;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.ChunkStorage;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,16 +39,13 @@ import java.util.concurrent.CompletableFuture;
  * руин ({@link RuinWorkers#executor}), как и у ванили (она обновляет и разбирает чанки в фоновых потоках). В потоке
  * сервера остаётся только {@link ChunkShot#fromDisk}: состояния палитр — в таблицу свойств.
  * <p>
- * Берётся только полностью сгенерированный чанк ({@code Status} — {@code minecraft:full}) без незавершённой догенерации
- * под нулём ({@code below_zero_retrogen}) и с картами высот всех видов {@link RuinPlan#HEIGHTMAP_TYPES}; остальное
- * пропускается с причиной ({@link Read#skip}) — его руины строятся после волны, как раньше.
+ * Берётся только чанк, целый на диске ({@link DiskStatus#whole}), с картами высот всех видов
+ * {@link RuinPlan#HEIGHTMAP_TYPES}; остальное пропускается с причиной ({@link Read#skip}) — его руины строятся после
+ * волны, как раньше.
  */
 final class DiskShots {
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(Block.BLOCK_STATE_REGISTRY,
             BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
-    /** Самая старая версия данных, которую обновляет {@link ChunkStorage#upgradeChunkTag} без данных мира (структуры до 1.13). */
-    private static final int OLDEST = 1493;
-
     private DiskShots() {}
 
     /**
@@ -136,8 +132,9 @@ final class DiskShots {
     private record Checked(CompoundTag tag, @Nullable String skip) {}
 
     private static Checked check(Format f, CompoundTag tag) {
+        // как на диске, до обновления версии: то же правило, что у зоны за волной и LOD вдали
+        if (!DiskStatus.whole(tag)) return new Checked(tag, "не целый на диске");
         int version = ChunkStorage.getVersion(tag);
-        if (version < OLDEST) return new Checked(tag, "данные старше 1.13");
         if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
             try {
                 tag = f.storage.upgradeChunkTag(f.dimension, () -> null, tag, f.generator);
@@ -145,8 +142,6 @@ final class DiskShots {
                 return new Checked(tag, "не обновились данные версии " + version);
             }
         }
-        if (ChunkStatus.byName(tag.getString("Status")) != ChunkStatus.FULL) return new Checked(tag, "не сгенерирован до конца");
-        if (tag.contains("below_zero_retrogen", Tag.TAG_COMPOUND)) return new Checked(tag, "догенерация под нулём");
         return new Checked(tag, null);
     }
 

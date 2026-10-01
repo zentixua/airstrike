@@ -112,6 +112,11 @@ public final class NuclearWorld {
         return prep.heldTiles();
     }
 
+    /** Для проверок: руины заранее больше не строятся, как при нехватке памяти. */
+    public void stopPrepForHeap() {
+        prep.stopAllForHeap();
+    }
+
     /** По готовому плану, построенных на месте, устаревших планов. */
     public int[] ruinStats() {
         return scars.ruinStats();
