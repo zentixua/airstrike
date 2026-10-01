@@ -866,6 +866,306 @@ public final class RuinBackgroundGameTests {
     }
 
     /**
+     * Зона за волной у края исследованного мира (игра Артёма 01.10.2026, удар №2: «не дождались 453 чанков»): чанк, чьё
+     * окно руин целое на диске, получает план с диска, а квадрат зоны, где хоть один чанк окон его чанков не целый,
+     * пропускался целиком — план ждал до конца зоны и пропадал, руин на диске не было. Здесь место удара (9×9 вокруг цели,
+     * его держит район подрыва с пуска) и полоса B к востоку (6×7 чанков) сгенерированы и выгружены, вокруг — только
+     * недогенерированное кольцо. Чанки B с целым окном, которых нет в памяти, получают план с диска и руины на диске,
+     * подготовка кончается без единого оставшегося плана, а мир не догенерируется: поле {@code Status} чанков округи до
+     * и после — то же (зона не берёт чанк, который ваниль стала бы генерировать).
+     */
+    @GameTest(template = "range", timeoutTicks = 6000, batch = "nuke_zone_edge", skyAccess = true)
+    public static void zoneLoadsEveryChunkWithPlan(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var chunks = level.getChunkSource();
+        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
+        // дальше радиуса руин от площадки: её чанки в памяти, и их руины держали бы подготовку
+        ChunkPos t = new ChunkPos(pad.x + 80, pad.z);
+        LongOpenHashSet whole = new LongOpenHashSet();
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) whole.add(ChunkPos.asLong(t.x + dx, t.z + dz));
+        }
+        for (int dx = 3; dx <= 8; dx++) {
+            for (int dz = -3; dz <= 3; dz++) whole.add(ChunkPos.asLong(t.x + dx, t.z + dz));
+        }
+        for (long c : whole) level.getChunk(ChunkPos.getX(c), ChunkPos.getZ(c));
+        Vec3 target = new Vec3(t.getMiddleBlockX() + 0.5,
+                level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, t.getMiddleBlockX(), t.getMiddleBlockZ()), t.getMiddleBlockZ() + 0.5);
+        // чанки B с целым окном руин за районом подрыва: план им — только с диска
+        List<ChunkPos> far = new ArrayList<>();
+        for (int dx = 5; dx <= 6; dx++) {
+            for (int dz = -1; dz <= 1; dz++) far.add(new ChunkPos(t.x + dx, t.z + dz));
+        }
+        // округа, где зона могла бы что-то загрузить: поле Status до и после
+        List<ChunkPos> around = new ArrayList<>();
+        for (int x = t.x - 12; x <= t.x + 14; x++) {
+            for (int z = t.z - 12; z <= t.z + 12; z++) around.add(new ChunkPos(x, z));
+        }
+        java.util.Map<Long, String> before = new java.util.concurrent.ConcurrentHashMap<>(), after = new java.util.concurrent.ConcurrentHashMap<>();
+        double scale = ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.get();
+        List<String> waited = java.util.Collections.synchronizedList(new ArrayList<>());
+        boolean[] prepared = {false};
+        Runnable unwatch = NuclearGameTests.watchLog(line -> {
+            if (line.contains("не дождались")) waited.add(line);
+            if (line.startsWith("Руины удара №") && line.contains(" готовы:")) prepared[0] = true;
+        });
+        StrikeGameTests.afterTest(h, () -> {
+            unwatch.run();
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+            NuclearStrikes.clear(level);
+        });
+        NuclearWorld w = NuclearWorld.get(level);
+        ua.zentix.airstrike.nuclear.NuclearEvents events = ua.zentix.airstrike.nuclear.NuclearEvents.get(level);
+        int[] stage = {0};
+        long[] since = {0}, tickAt = {0};
+        Detonation[] det = {null};
+        LongOpenHashSet planned = new LongOpenHashSet();
+        h.onEachTick(() -> {
+            long now = level.getGameTime();
+            switch (stage[0]) {
+                case 0 -> {
+                    // сгенерированное выгрузилось и записано: заголовки с диска — те, что останутся
+                    if (!unloaded(level, around)) return;
+                    for (ChunkPos c : around) readStatus(level, c, before);
+                    stage[0] = 1;
+                }
+                case 1 -> {
+                    if (before.size() < around.size()) return;
+                    for (long c : whole) h.assertTrue("minecraft:full".equals(before.get(c)), "чанк " + new ChunkPos(c) + " не целый на диске: " + before.get(c));
+                    ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(0.25);
+                    events.schedule(new ua.zentix.airstrike.nuclear.NuclearEvents.ScheduledStrike(events.nextId(), target, 1, false, now, now + 1200, target,
+                            java.util.Optional.empty(), true));
+                    since[0] = now;
+                    stage[0] = 2;
+                }
+                case 2 -> {
+                    if (det[0] == null) {
+                        det[0] = events.detonations().stream().filter(x -> x.burst().distanceTo(target) < 20).findFirst().orElse(null);
+                        if (det[0] == null) {
+                            if (now - since[0] > 1500) h.fail("подрыва нет");
+                            // планы с диска строят фоновые потоки по настенным часам: полёт — в темпе игры, пока они не готовы
+                            if (!prepared[0]) gamePace(tickAt);
+                            return;
+                        }
+                        h.assertTrue(prepared[0], "руины заранее не готовы к подрыву за 60 с полёта");
+                        for (ChunkPos c : far) h.assertTrue(chunks.getChunkNow(c.x, c.z) == null, "чанк " + c + " в памяти при подрыве: план не с диска, случай не тот");
+                        since[0] = now;
+                    }
+                    for (ChunkPos c : far) if (w.scars().pendingPlan(det[0].id(), c.toLong())) planned.add(c.toLong());
+                    if (w.plannedChunks() > 0 || w.prepTiles() > 0) {
+                        // заголовки с диска, загрузка чанков и планы — по настенным часам: зона за волной — в темпе игры
+                        // (сервер GameTest на CI тикает без пауз, ~2000 тиков/с, и срок кончался раньше чтения с диска)
+                        gamePace(tickAt);
+                        if (now - since[0] > 2400) {
+                            StringBuilder left = new StringBuilder();
+                            for (ChunkPos c : far) {
+                                left.append(' ').append(c).append(w.scars().pendingPlan(det[0].id(), c.toLong()) ? " план ждёт" : "")
+                                        .append(chunks.getChunkNow(c.x, c.z) != null ? " в памяти" : "").append(w.scars().ruined(det[0].id(), c.toLong()) ? " руины" : "");
+                            }
+                            h.fail("подготовка не кончилась за 2400 тиков после подрыва: планов " + w.plannedChunks() + ", квадратов " + w.prepTiles() + ";" + left);
+                        }
+                        return;
+                    }
+                    h.assertTrue(planned.size() == far.size(), "план с диска построен не у всех чанков B с целым окном: " + planned.size() + " из " + far.size());
+                    for (ChunkPos c : far) {
+                        LevelChunk chunk = level.getChunk(c.x, c.z);
+                        h.assertTrue(chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == det[0].id(), "у чанка " + c + " руин нет: зона его не грузила");
+                    }
+                    for (String line : waited) {
+                        // строка «не дождались N чанков (в зоне за волной M, …)» — только если план остался
+                        h.assertFalse(line.startsWith("Руины подрыва №" + det[0].id() + ": не дождались") && !line.contains("в зоне за волной 0,"), "планы зоны пропали: " + line);
+                    }
+                    stage[0] = 3;
+                }
+                case 3 -> {
+                    if (!unloaded(level, around)) return;
+                    for (ChunkPos c : around) readStatus(level, c, after);
+                    stage[0] = 4;
+                }
+                case 4 -> {
+                    if (after.size() < around.size()) return;
+                    for (ChunkPos c : around) {
+                        h.assertTrue(before.get(c.toLong()).equals(after.get(c.toLong())), "чанк " + c + " догенерирован: " + before.get(c.toLong()) + " → " + after.get(c.toLong()));
+                    }
+                    h.succeed();
+                }
+                default -> {
+                }
+            }
+        });
+    }
+
+    /**
+     * Остановка по куче (живой объём кучи после сборок выше предела): руины заранее больше не строятся, но готовые планы
+     * не пропадают — зона за волной грузит их чанки. До этого она после остановки не грузила ничего (игра Артёма
+     * 01.10.2026: остановка с готовыми 453 планами, «не дождались»). Чанк без плана зона не грузит: полоса C к западу
+     * становится целой только после остановки, плана ей нет, и её чанки так и не загружаются полностью (полную загрузку
+     * на два чанка вокруг себя дают только тикеты очереди руин у загруженных чанков, C — дальше).
+     */
+    @GameTest(template = "range", timeoutTicks = 8000, batch = "nuke_zone_heap", skyAccess = true)
+    public static void heapStopZoneLoadsOnlyPlanned(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        var chunks = level.getChunkSource();
+        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
+        // дальше радиуса руин от площадки и в стороне от места zoneLoadsEveryChunkWithPlan: соседние тесты стоят рядом
+        ChunkPos t = new ChunkPos(pad.x, pad.z - 120);
+        LongOpenHashSet whole = new LongOpenHashSet();
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) whole.add(ChunkPos.asLong(t.x + dx, t.z + dz));
+        }
+        for (int dx = 3; dx <= 8; dx++) {
+            for (int dz = -3; dz <= 3; dz++) whole.add(ChunkPos.asLong(t.x + dx, t.z + dz));
+        }
+        for (long c : whole) level.getChunk(ChunkPos.getX(c), ChunkPos.getZ(c));
+        Vec3 target = new Vec3(t.getMiddleBlockX() + 0.5,
+                level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, t.getMiddleBlockX(), t.getMiddleBlockZ()), t.getMiddleBlockZ() + 0.5);
+        // B: окно целое на диске до подготовки — план с диска
+        List<ChunkPos> far = new ArrayList<>();
+        for (int dx = 5; dx <= 6; dx++) {
+            for (int dz = -1; dz <= 1; dz++) far.add(new ChunkPos(t.x + dx, t.z + dz));
+        }
+        // C: окно станет целым после остановки (генерируется полоса G). Полная загрузка без зоны — не дальше 6 чанков
+        // от цели (место подрыва 9×9 и тикеты очереди руин с соседями радиуса 2), поэтому чанки G от 7 и дальше
+        // загружаются полностью, только если их берёт зона
+        List<ChunkPos> west = new ArrayList<>(), strip = new ArrayList<>(), never = new ArrayList<>();
+        for (int dx = -8; dx <= -7; dx++) {
+            for (int dz = -1; dz <= 1; dz++) west.add(new ChunkPos(t.x + dx, t.z + dz));
+        }
+        for (int dx = -10; dx <= -5; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                strip.add(new ChunkPos(t.x + dx, t.z + dz));
+                if (dx <= -7) never.add(new ChunkPos(t.x + dx, t.z + dz));
+            }
+        }
+        List<ChunkPos> around = new ArrayList<>(strip);
+        for (long c : whole) around.add(new ChunkPos(c));
+        java.util.Map<Long, String> before = new java.util.concurrent.ConcurrentHashMap<>();
+        double scale = ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.get();
+        List<String> waited = java.util.Collections.synchronizedList(new ArrayList<>());
+        boolean[] prepared = {false}, stopped = {false};
+        Runnable unwatch = NuclearGameTests.watchLog(line -> {
+            if (line.contains("не дождались")) waited.add(line);
+            if (line.startsWith("Руины удара №") && line.contains(" готовы:")) prepared[0] = true;
+            if (line.contains("дальше руины заранее не строятся")) stopped[0] = true;
+        });
+        StrikeGameTests.afterTest(h, () -> {
+            unwatch.run();
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
+            NuclearStrikes.clear(level);
+        });
+        NuclearWorld w = NuclearWorld.get(level);
+        ua.zentix.airstrike.nuclear.NuclearEvents events = ua.zentix.airstrike.nuclear.NuclearEvents.get(level);
+        int[] stage = {0};
+        long[] since = {0}, tickAt = {0};
+        Detonation[] det = {null};
+        LongOpenHashSet planned = new LongOpenHashSet();
+        h.onEachTick(() -> {
+            long now = level.getGameTime();
+            switch (stage[0]) {
+                case 0 -> {
+                    if (!unloaded(level, around)) return;
+                    for (ChunkPos c : around) readStatus(level, c, before);
+                    stage[0] = 1;
+                }
+                case 1 -> {
+                    if (before.size() < around.size()) return;
+                    for (long c : whole) h.assertTrue("minecraft:full".equals(before.get(c)), "чанк " + new ChunkPos(c) + " не целый на диске: " + before.get(c));
+                    for (ChunkPos c : west) {
+                        boolean partial = false;
+                        for (int dx = -2; dx <= 2; dx++) {
+                            for (int dz = -2; dz <= 2; dz++) partial |= !"minecraft:full".equals(before.get(ChunkPos.asLong(c.x + dx, c.z + dz)));
+                        }
+                        h.assertTrue(partial, "окно чанка C " + c + " целое на диске до подготовки: план ему будет, случай не тот");
+                    }
+                    ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(0.25);
+                    events.schedule(new ua.zentix.airstrike.nuclear.NuclearEvents.ScheduledStrike(events.nextId(), target, 1, false, now, now + 2400, target,
+                            java.util.Optional.empty(), true));
+                    since[0] = now;
+                    stage[0] = 2;
+                }
+                case 2 -> {
+                    if (now - since[0] > 2300) h.fail("руины заранее не готовы за 2300 тиков полёта");
+                    // планы с диска строят фоновые потоки по настенным часам: полёт — в темпе игры, пока они не готовы
+                    if (!prepared[0]) {
+                        gamePace(tickAt);
+                        return;
+                    }
+                    h.assertTrue(w.plannedChunks() > 0, "руины заранее готовы, а планов нет");
+                    w.stopPrepForHeap();
+                    for (ChunkPos c : strip) level.getChunk(c.x, c.z);
+                    stage[0] = 3;
+                }
+                case 3 -> {
+                    // полоса G сгенерирована и больше не загружена полностью (до подрыва её держит ниже полной загрузки
+                    // район места подрыва): зона видит окна C целыми, но грузить их может только сама
+                    if (events.detonations().stream().anyMatch(x -> x.burst().distanceTo(target) < 20)) h.fail("подрыв раньше, чем полоса G опустилась ниже полной загрузки");
+                    for (ChunkPos c : strip) if (chunks.getChunkNow(c.x, c.z) != null) return;
+                    stage[0] = 4;
+                }
+                case 4 -> {
+                    if (det[0] == null) {
+                        det[0] = events.detonations().stream().filter(x -> x.burst().distanceTo(target) < 20).findFirst().orElse(null);
+                        if (det[0] == null) {
+                            if (now - since[0] > 2700) h.fail("подрыва нет");
+                            return;
+                        }
+                        h.assertTrue(stopped[0], "остановки по куче нет в логе");
+                        for (ChunkPos c : far) h.assertTrue(chunks.getChunkNow(c.x, c.z) == null, "чанк " + c + " в памяти при подрыве: план не с диска, случай не тот");
+                        since[0] = now;
+                    }
+                    for (ChunkPos c : never) h.assertTrue(chunks.getChunkNow(c.x, c.z) == null, "зона загрузила чанк " + c + " без плана после остановки по куче");
+                    for (ChunkPos c : far) if (w.scars().pendingPlan(det[0].id(), c.toLong())) planned.add(c.toLong());
+                    if (w.plannedChunks() > 0 || w.prepTiles() > 0) {
+                        gamePace(tickAt);
+                        if (now - since[0] > 2400) {
+                            StringBuilder left = new StringBuilder();
+                            for (ChunkPos c : far) {
+                                left.append(' ').append(c).append(w.scars().pendingPlan(det[0].id(), c.toLong()) ? " план ждёт" : "")
+                                        .append(chunks.getChunkNow(c.x, c.z) != null ? " в памяти" : "").append(w.scars().ruined(det[0].id(), c.toLong()) ? " руины" : "");
+                            }
+                            h.fail("после остановки по куче готовые планы не дождались зоны за 2400 тиков: планов " + w.plannedChunks() + ", квадратов " + w.prepTiles() + ";" + left);
+                        }
+                        return;
+                    }
+                    h.assertTrue(planned.size() == far.size(), "план с диска построен не у всех чанков B: " + planned.size() + " из " + far.size());
+                    for (ChunkPos c : far) {
+                        LevelChunk chunk = level.getChunk(c.x, c.z);
+                        h.assertTrue(chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == det[0].id(), "у чанка " + c + " с планом руин нет: зона его не грузила");
+                    }
+                    for (String line : waited) {
+                        h.assertFalse(line.startsWith("Руины подрыва №" + det[0].id() + ": не дождались") && !line.contains("в зоне за волной 0,"), "планы зоны пропали: " + line);
+                    }
+                    h.succeed();
+                }
+                default -> {
+                }
+            }
+        });
+    }
+
+    /** Тик не короче 50 мс, как в игре: {@code tickAt} — когда кончился прошлый такой тик. */
+    private static void gamePace(long[] tickAt) {
+        long deadline = tickAt[0] + 50_000_000L, left;
+        while ((left = deadline - System.nanoTime()) > 0) java.util.concurrent.locks.LockSupport.parkNanos(left);
+        tickAt[0] = System.nanoTime();
+    }
+
+    /** Ни одного чанка из списка нет в памяти (и в очереди выгрузки): записанное ими уже видно чтению с диска. */
+    private static boolean unloaded(ServerLevel level, List<ChunkPos> list) {
+        var map = level.getChunkSource().chunkMap;
+        for (ChunkPos c : list) if (map.getVisibleChunkIfPresent(c.toLong()) != null || map.pendingUnloads.containsKey(c.toLong())) return false;
+        return true;
+    }
+
+    /** Поле {@code Status} чанка с диска (в потоке ввода-вывода чанков); «нет» — чанка на диске нет. */
+    private static void readStatus(ServerLevel level, ChunkPos c, java.util.Map<Long, String> out) {
+        net.minecraft.nbt.visitors.CollectFields f = new net.minecraft.nbt.visitors.CollectFields(
+                new net.minecraft.nbt.visitors.FieldSelector(net.minecraft.nbt.StringTag.TYPE, "Status"));
+        level.getChunkSource().chunkMap.chunkScanner().scanChunk(c, f).whenComplete((v, e) -> out.put(c.toLong(),
+                e != null ? "ошибка " + e : f.getResult() instanceof net.minecraft.nbt.CompoundTag tag ? tag.getString("Status") : "нет"));
+    }
+
+    /**
      * Квадрат зоны за волной пропускается, только если все его чанки полностью загружены сейчас: чанк в памяти, опущенный
      * ниже полной загрузки (край загруженного мира), квадрат не закрывает (gate 6: ряд из 11 чанков у края остался без руин).
      */
