@@ -130,7 +130,9 @@ public final class FxLayer {
         FarView view = FarRenderer.view(e, mc, level);
         FRUSTUM.set(VIEW_PROJECTION.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()));
         QUADS.begin(view.left(), view.up());
+        QUADS.nearestTexels(true);
         FxPool.INSTANCE.collect(new FxFrame(view, FRUSTUM, FOG), QUADS, view.partial());
+        QUADS.nearestTexels(false);
         FarRenderer.collect(view, QUADS);
         boolean warmup = !warmed;
         if (warmup) {
@@ -180,8 +182,8 @@ public final class FxLayer {
 
     /** Время кадра слоя за прошлую секунду — для строки сценария. */
     public static String describeTiming() {
-        return String.format(Locale.ROOT, "квадратов %d, %.3f мс (самый долгий за секунду %.3f; без сборки мусора %.3f, процессор %.3f; кадров со сборкой %d)",
-                lastQuads, lastMean, lastMax, lastClean, Math.max(0, lastCleanCpu), lastCollected);
+        return String.format(Locale.ROOT, "квадратов %d, %.3f мс (самый долгий за секунду %.3f; без сборки мусора %.3f, процессор %.3f; кадров со сборкой %d), глубина: %s",
+                lastQuads, lastMean, lastMax, lastClean, Math.max(0, lastCleanCpu), lastCollected, SceneDepth.describe());
     }
 
     /** Выход из мира или смена измерения. */

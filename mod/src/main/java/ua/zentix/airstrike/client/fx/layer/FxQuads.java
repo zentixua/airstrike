@@ -17,7 +17,9 @@ import java.util.Arrays;
  * смешивается верно только в таком порядке: ближний клуб поверх дальнего, а не «кто родился позже».
  * <p>
  * Вершина — 36 байт ({@link #FORMAT}): место от камеры, место на листе, свет с умноженной альфой, мягкость края
- * у рельефа и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}), туман Minecraft ({@code Normal.x}).
+ * у рельефа и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}), туман Minecraft ({@code Normal.x}),
+ * частица — ближайшим пикселем ({@code Normal.y}, {@link #nearestTexels}) и её непрозрачность без текстуры
+ * ({@code Normal.z}, {@link #opacity}).
  */
 public final class FxQuads {
     public static final VertexFormat FORMAT = VertexFormat.builder()
@@ -40,12 +42,33 @@ public final class FxQuads {
     private final FarFirst sort = new FarFirst();
     private final ByteBufferBuilder out = new ByteBufferBuilder(QUAD * 256);
     private Vector3f left = new Vector3f(1, 0, 0), up = new Vector3f(0, 1, 0);
+    private byte nearest, opacity;
 
     /** Новый кадр: оси экрана (влево, вверх) для квадратов лицом к камере. */
     public void begin(Vector3f left, Vector3f up) {
         this.left = left;
         this.up = up;
         n = 0;
+        nearest = opacity = 0;
+    }
+
+    /**
+     * Следующие квадраты — ближайшим пикселем каждой уменьшенной копии, со смесью между копиями: так частицы
+     * рисовались из атласа Minecraft, и клуб сохраняет рисунок своей картинки 64×64 (сглаженный — мыльный). Дальнее —
+     * гладко (ореол в сотню пикселей из картинки 64×64 иначе лестницей).
+     */
+    public void nearestTexels(boolean on) {
+        nearest = (byte) (on ? 127 : 0);
+        opacity = 0;
+    }
+
+    /**
+     * Непрозрачность следующих вершин частицы без текстуры (у искр и вспышек тоже, хоть они только светят): где вместе
+     * с текстурой она меньше 0,1, частица не рисуется — как у ванильного шейдера частиц, иначе бледный ореол каждого
+     * клуба в плотном облаке складывался в мутную дымку вокруг него.
+     */
+    public void opacity(float a) {
+        opacity = (byte) Math.round(Mth.clamp(a, 0, 1) * 127);
     }
 
     public int size() {
@@ -81,8 +104,8 @@ public final class FxQuads {
         MemoryUtil.memPutShort(p + 28, (short) (light & 0xFFFF));
         MemoryUtil.memPutShort(p + 30, (short) (light >>> 16 & 0xFFFF));
         MemoryUtil.memPutByte(p + 32, (byte) Math.round(Mth.clamp(fog, 0, 1) * 127));
-        MemoryUtil.memPutByte(p + 33, (byte) 0);
-        MemoryUtil.memPutByte(p + 34, (byte) 0);
+        MemoryUtil.memPutByte(p + 33, nearest);
+        MemoryUtil.memPutByte(p + 34, opacity);
         MemoryUtil.memPutByte(p + 35, (byte) 0);
         write = p + VERTEX;
     }

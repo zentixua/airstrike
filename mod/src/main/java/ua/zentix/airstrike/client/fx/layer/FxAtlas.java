@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client.fx.layer;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.platform.TextureUtil;
+import net.minecraft.client.renderer.texture.MipmapGenerator;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -17,20 +18,22 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Все текстуры слоя эффектов на одном листе 1024×512 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
- * искра, вспышка, кольцо, дальние круг, ореол и клубы. Один лист — один вызов отрисовки на всё; уменьшенные копии —
- * чтобы клуб в десяток пикселей вдали не рябил.
+ * Все текстуры слоя эффектов на одном листе 1024×256 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
+ * искра, вспышка, кольцо, дальние круг, ореол и клубы. Один лист — одна текстура на весь отсортированный проход слоя
+ * (частицы и дальнее вперемешку); уменьшенные копии — чтобы клуб в десяток пикселей вдали не рябил. Цвет на листе
+ * умножен на непрозрачность, как и смешивание слоя.
  * <p>
- * Лист свой, а не атлас Minecraft ({@code TextureAtlas}): его уменьшение рассчитано на вырезанные текстуры (листва,
- * трава) и обнуляет прозрачность ниже 96 из 255 — у мягкого края дыма она почти вся такая, и клуб вдали «съедался».
- * Здесь копии — средние четырёх пикселей с умноженной альфой (цвет × непрозрачность), как и смешивание слоя: край тает
- * без тёмной каймы. Места на листе постоянные; картинку другого размера (пакет ресурсов) лист подгоняет под место.
+ * Частицы выглядят так же, как из атласа Minecraft: каждая картинка в своём размере (клубы 64×64), пиксель листа —
+ * пиксель картинки, рисуются ближайшим пикселем ({@link FxQuads#nearestTexels}), их копии — ванильным
+ * {@link MipmapGenerator} (там бледнее 96 из 255 — пусто: у копий клуба резкий край). Дальнее — гладкое: копии —
+ * средние четырёх пикселей с умноженной альфой, мягкий край тает без тёмной каймы. Места на листе постоянные и кратны
+ * 16 — копии соседних мест не смешиваются; картинку другого размера (пакет ресурсов) лист подгоняет под место.
  */
 public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]> {
     public static final FxAtlas INSTANCE = new FxAtlas();
 
-    private static final int CELL = 128, COLS = 8, ROWS = 4, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
-    /** Уменьшенных копий: клуб 128 → 8 пикселей. */
+    private static final int CELL = 64, COLS = 16, ROWS = 4, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    /** Уменьшенных копий: клуб 64 → 4 пикселя (все места кратны 16 — копии соседних мест не смешивают). */
     private static final int MIPS = 4;
 
     /** Место текстуры на листе (доли листа). */
@@ -41,37 +44,37 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         }
     }
 
-    private record Slot(ResourceLocation texture, int x, int y, int w, int h) {}
+    /** Место на листе; {@code particle} — копии как у атласа частиц Minecraft. */
+    private record Slot(ResourceLocation texture, int x, int y, int w, int h, boolean particle) {}
 
     private static final List<Slot> SLOTS = new ArrayList<>();
     private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8];
     private static final Sprite RING, FLASH, GLOW, DISC, SPARK;
 
     static {
-        for (int i = 0; i < SMOKE.length; i++) SMOKE[i] = slot(String.format(Locale.ROOT, "fx/particle/smoke_%02d", i), i % COLS * CELL, i / COLS * CELL, CELL, CELL);
-        for (int i = 0; i < FIRE.length; i++) FIRE[i] = slot(String.format(Locale.ROOT, "fx/particle/fire_%02d", i), i * CELL, 2 * CELL, CELL, CELL);
-        RING = slot("fx/particle/ring", 0, 3 * CELL, CELL, CELL);
+        for (int i = 0; i < SMOKE.length; i++) SMOKE[i] = slot(String.format(Locale.ROOT, "fx/particle/smoke_%02d", i), i * CELL, 0, CELL, CELL, true);
+        for (int i = 0; i < FIRE.length; i++) FIRE[i] = slot(String.format(Locale.ROOT, "fx/particle/fire_%02d", i), i * CELL, CELL, CELL, CELL, true);
+        int x = FIRE.length * CELL;
+        FLASH = slot("fx/particle/flash", x, CELL, CELL, CELL, true);
+        GLOW = slot("far/glow", x + CELL, CELL, CELL, CELL, false);
+        DISC = slot("far/disc", x + 2 * CELL, CELL, 32, 32, false);
+        SPARK = slot("fx/particle/spark", x + 2 * CELL + 32, CELL, 16, 16, true);
         // клубы дальнего дыма: 4×2 кадра на одной картинке
-        Sprite puffs = slot("nuke/puffs", CELL, 3 * CELL, 2 * CELL, CELL);
+        Sprite puffs = slot("nuke/puffs", 0, 2 * CELL, 4 * CELL, 2 * CELL, false);
         float du = (puffs.u1 - puffs.u0) / 4, dv = (puffs.v1 - puffs.v0) / 2;
         for (int i = 0; i < PUFFS.length; i++) {
             float u = puffs.u0 + i % 4 * du, v = puffs.v0 + i / 4 * dv;
             PUFFS[i] = new Sprite(u, v, u + du, v + dv);
         }
-        // мелкие — в одной клетке
-        int x = 3 * CELL, y = 3 * CELL;
-        FLASH = slot("fx/particle/flash", x, y, 64, 64);
-        GLOW = slot("far/glow", x + 64, y, 64, 64);
-        DISC = slot("far/disc", x, y + 64, 32, 32);
-        SPARK = slot("fx/particle/spark", x + 32, y + 64, 16, 16);
+        RING = slot("fx/particle/ring", 4 * CELL, 2 * CELL, 2 * CELL, 2 * CELL, true);
     }
 
     private int id = -1;
 
     private FxAtlas() {}
 
-    private static Sprite slot(String path, int x, int y, int w, int h) {
-        SLOTS.add(new Slot(Airstrike.id("textures/" + path + ".png"), x, y, w, h));
+    private static Sprite slot(String path, int x, int y, int w, int h, boolean particle) {
+        SLOTS.add(new Slot(Airstrike.id("textures/" + path + ".png"), x, y, w, h, particle));
         return new Sprite((float) x / WIDTH, (float) y / HEIGHT, (float) (x + w) / WIDTH, (float) (y + h) / HEIGHT);
     }
 
@@ -116,20 +119,14 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         return id;
     }
 
-    /** Фоновый поток: картинки на места, умноженная альфа, уменьшенные копии. */
+    /** Фоновый поток: картинки на места со своими уменьшенными копиями, умноженная альфа. */
     @Override
     protected NativeImage[] prepare(ResourceManager resources, ProfilerFiller profiler) {
-        int[] sheet = new int[WIDTH * HEIGHT];
-        for (Slot s : SLOTS) place(resources, s, sheet);
+        int[][] sheets = new int[MIPS + 1][];
+        for (int l = 0; l <= MIPS; l++) sheets[l] = new int[(WIDTH >> l) * (HEIGHT >> l)];
+        for (Slot s : SLOTS) place(resources, s, sheets);
         NativeImage[] levels = new NativeImage[MIPS + 1];
-        int w = WIDTH, h = HEIGHT;
-        for (int l = 0; ; l++) {
-            levels[l] = image(sheet, w, h);
-            if (l == MIPS) break;
-            sheet = half(sheet, w, h);
-            w >>= 1;
-            h >>= 1;
-        }
+        for (int l = 0; l <= MIPS; l++) levels[l] = image(sheets[l], WIDTH >> l, HEIGHT >> l);
         return levels;
     }
 
@@ -144,34 +141,86 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         }
     }
 
-    /** Картинка на своё место листа: цвет, умноженный на непрозрачность; другой размер — подгоняется. */
-    private static void place(ResourceManager resources, Slot s, int[] sheet) {
+    /** Картинка и её копии на свои места листа (цвет, умноженный на непрозрачность); другой размер — подгоняется. */
+    private static void place(ResourceManager resources, Slot s, int[][] sheets) {
         Optional<Resource> res = resources.getResource(s.texture);
         if (res.isEmpty()) {
             Airstrike.LOG.warn("Текстура эффектов {} не найдена: на её месте пусто", s.texture);
             return;
         }
+        int[] px;
         try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in)) {
-            int sw = img.getWidth(), sh = img.getHeight();
-            int[] src = new int[sw * sh];
-            for (int y = 0; y < sh; y++) {
-                for (int x = 0; x < sw; x++) src[y * sw + x] = premultiply(img.getPixelRGBA(x, y));
-            }
-            for (int y = 0; y < s.h; y++) {
-                for (int x = 0; x < s.w; x++) {
-                    int c = sw == s.w && sh == s.h ? src[y * sw + x] : sample(src, sw, sh, (x + 0.5f) * sw / s.w - 0.5f, (y + 0.5f) * sh / s.h - 0.5f);
-                    sheet[(s.y + y) * WIDTH + s.x + x] = c;
-                }
-            }
+            px = fit(img, s.w, s.h);
         } catch (IOException | RuntimeException e) {
             Airstrike.LOG.warn("Текстура эффектов {} не прочиталась: на её месте пусто", s.texture, e);
+            return;
         }
+        if (s.particle) {
+            NativeImage[] mips = {image(px, s.w, s.h)};
+            try {
+                mips = MipmapGenerator.generateMipLevels(mips, MIPS);
+                for (int l = 0; l <= MIPS; l++) put(sheets[l], WIDTH >> l, s, l, pixels(mips[l]), true);
+            } finally {
+                for (NativeImage m : mips) m.close();
+            }
+            return;
+        }
+        int w = s.w, h = s.h;
+        for (int i = 0; i < px.length; i++) px[i] = premultiply(px[i]);
+        for (int l = 0; ; l++) {
+            put(sheets[l], WIDTH >> l, s, l, px, false);
+            if (l == MIPS) break;
+            px = half(px, w, h);
+            w >>= 1;
+            h >>= 1;
+        }
+    }
+
+    /** Пиксели картинки (ABGR) в размере места: свой размер — как есть, другой — билинейно по умноженной альфе. */
+    private static int[] fit(NativeImage img, int w, int h) {
+        int sw = img.getWidth(), sh = img.getHeight();
+        int[] src = pixels(img);
+        if (sw == w && sh == h) return src;
+        for (int i = 0; i < src.length; i++) src[i] = premultiply(src[i]);
+        int[] out = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) out[y * w + x] = unpremultiply(sample(src, sw, sh, (x + 0.5f) * sw / w - 0.5f, (y + 0.5f) * sh / h - 0.5f));
+        }
+        return out;
+    }
+
+    /** Копия уровня l места s на лист этого уровня (ширина листа — sheetW); straight — цвет ещё не умножен. */
+    private static void put(int[] sheet, int sheetW, Slot s, int l, int[] px, boolean straight) {
+        int w = Math.max(1, s.w >> l), h = Math.max(1, s.h >> l), x0 = s.x >> l, y0 = s.y >> l;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int c = px[y * w + x];
+                sheet[(y0 + y) * sheetW + x0 + x] = straight ? premultiply(c) : c;
+            }
+        }
+    }
+
+    private static int[] pixels(NativeImage img) {
+        int w = img.getWidth(), h = img.getHeight();
+        int[] px = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) px[y * w + x] = img.getPixelRGBA(x, y);
+        }
+        return px;
     }
 
     /** ABGR → ABGR с цветом, умноженным на непрозрачность. */
     private static int premultiply(int abgr) {
         int a = abgr >>> 24;
         int r = (abgr & 0xFF) * a / 255, g = (abgr >> 8 & 0xFF) * a / 255, b = (abgr >> 16 & 0xFF) * a / 255;
+        return a << 24 | b << 16 | g << 8 | r;
+    }
+
+    /** Обратно к цвету без умножения (для подгонки размера картинки частицы). */
+    private static int unpremultiply(int abgr) {
+        int a = abgr >>> 24;
+        if (a == 0) return 0;
+        int r = Math.min(255, (abgr & 0xFF) * 255 / a), g = Math.min(255, (abgr >> 8 & 0xFF) * 255 / a), b = Math.min(255, (abgr >> 16 & 0xFF) * 255 / a);
         return a << 24 | b << 16 | g << 8 | r;
     }
 

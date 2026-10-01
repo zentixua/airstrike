@@ -226,6 +226,7 @@ public final class FxParticle {
         // свет — уже умноженный на непрозрачность; искры и вспышки только светят (свет складывается)
         float r = rCol * a, g = gCol * a, b = bCol * a, cover = kind.additive ? 0 : a;
         FxAtlas.Sprite sprite = sprite();
+        out.opacity(a);
         switch (kind) {
             case SPARK -> streak(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, light, fog);
             case RING -> ring(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, cover, light, fog);
@@ -263,6 +264,7 @@ public final class FxParticle {
         out.vertex(px - side.x, py - side.y, pz - side.z, u0, v1, r, g, b, 0, w, 1, light, fog);
         out.vertex(px + side.x, py + side.y, pz + side.z, u0, v0, r, g, b, 0, w, 1, light, fog);
         // хвост уже головы и гаснет: светящийся след
+        out.opacity(0);
         out.vertex(tx + side.x * 0.3f, ty + side.y * 0.3f, tz + side.z * 0.3f, um, v0, 0, 0, 0, 0, w, 1, light, fog);
         out.vertex(tx - side.x * 0.3f, ty - side.y * 0.3f, tz - side.z * 0.3f, um, v1, 0, 0, 0, 0, w, 1, light, fog);
     }
@@ -270,7 +272,8 @@ public final class FxParticle {
     /** Кольцо ударной волны: плоское, лежит на земле (видно и сверху, и снизу — без отсечения граней). */
     private void ring(FxQuads out, FxAtlas.Sprite sprite, float px, float py, float pz, float d, float r, float g, float b, float cover,
                       int light, float fog) {
-        float s = quadSize, soft = Math.min(4, s * FxQuads.SOFT);
+        // мягкий край — тоньше высоты над землёй (0.25–0.4): сверху кольцо от земли под ним в долях блока по лучу
+        float s = quadSize, soft = 0.125f;
         float u0 = sprite.u0(), u1 = sprite.u1(), v0 = sprite.v0(), v1 = sprite.v1();
         out.quad(d);
         out.vertex(px - s, py, pz - s, u0, v0, r, g, b, cover, soft, 1, light, fog);

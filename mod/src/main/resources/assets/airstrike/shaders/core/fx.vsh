@@ -9,7 +9,7 @@ in vec4 Color;
 in ivec2 UV1;
 // свет мира (карта освещения)
 in ivec2 UV2;
-// x: туман Minecraft 0..1
+// x: туман Minecraft 0..1; y: 1 — частица (ближайшим пикселем, как из атласа Minecraft); z: её непрозрачность без текстуры
 in vec3 Normal;
 
 uniform sampler2D Sampler2;
@@ -22,6 +22,8 @@ out vec4 vertexColor;
 out float viewDistance;
 out float softness;
 out float fog;
+out float nearest;
+out float opacity;
 
 void main() {
     vec4 view = ModelViewMat * vec4(Position, 1.0);
@@ -33,4 +35,6 @@ void main() {
     viewDistance = -view.z / max(float(UV1.y) / 32767.0, 1e-4);
     softness = float(UV1.x) / 16.0;
     fog = Normal.x;
+    nearest = Normal.y;
+    opacity = Normal.z;
 }

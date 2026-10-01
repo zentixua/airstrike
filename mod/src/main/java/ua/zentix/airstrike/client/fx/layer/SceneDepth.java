@@ -34,6 +34,8 @@ public final class SceneDepth {
     private static final DhDepth.View DH = new DhDepth.View();
     private static final Matrix4f INVERSE = new Matrix4f();
     private static final int[] VIEWPORT = new int[4];
+    /** Чем закрыт слой в последнем кадре: 0 — ничем, 1 — миром, 2 — миром и LOD DH. */
+    private static int last;
 
     private SceneDepth() {}
 
@@ -45,6 +47,7 @@ public final class SceneDepth {
         ShaderInstance s = shader;
         RenderTarget main = Minecraft.getInstance().getMainRenderTarget();
         int depth = main.getDepthTextureId();
+        last = 0;
         if (s == null || depth <= 0) return -1;
         if (!ensure(main.width, main.height)) return -1;
         int previous = GlStateManager._getInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
@@ -71,7 +74,17 @@ public final class SceneDepth {
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, previous);
         RenderSystem.viewport(VIEWPORT[0], VIEWPORT[1], VIEWPORT[2], VIEWPORT[3]);
         RenderSystem.enableDepthTest();
+        last = dh ? 2 : 1;
         return texture;
+    }
+
+    /** Чем закрыт слой в последнем кадре — для строки сценария. */
+    static String describe() {
+        return switch (last) {
+            case 2 -> "мир и DH";
+            case 1 -> "мир";
+            default -> "нет";
+        };
     }
 
     /** Своя текстура и кадр под размер кадра игры (заново при смене размера окна). */
