@@ -856,7 +856,7 @@ public final class ClientScenario {
         // одна поза — сущностью и путём по пакетам
         t = farMatch(t, row.get(0), 60);
         t = farMatch(t, row.get(1), 110);
-        t = farMatch(t, row.get(2), 170); // сущность рисуется только в пределах прорисовки (12 чанков)
+        t = farMatch(t, row.get(2), 120); // сущность видна, только если её чанк уже пришёл клиенту
         int pass = 0;
         for (String light : new String[]{"day", "night"}) {
             String time = light.equals("day") ? "time set 6000" : "time set 18000";
