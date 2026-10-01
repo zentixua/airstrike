@@ -221,6 +221,16 @@ public final class StrikeWorld {
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) {
                 p.parkForShutdown(level);
             }
+            releaseAreas(level);
         }
+    }
+
+    /**
+     * Остановка: отпустить все районы мода в мире (цели, полосы подлёта, вход игрока, подсказки карты, взрывы).
+     * Они не сохраняются — после запуска их берут заново владельцы (снаряды вне мира, игроки), — а взятые при остановке
+     * запускали бы генерацию, которую ждёт {@code util/StopDrain} (после залпа — дольше его предела).
+     */
+    public static void releaseAreas(ServerLevel level) {
+        if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).areas.releaseAll(level);
     }
 }

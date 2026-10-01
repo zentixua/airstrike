@@ -56,7 +56,7 @@ final class BlastArea {
     private long maxUnit;
     private ImpactCost.Kind maxKind = ImpactCost.Kind.RAYS;
     private final int[] done = new int[ImpactCost.Kind.values().length];
-    private final long[] rayStages = new long[ExplosionTimer.Stage.values().length];
+    private final long[] rayStages = new long[ExplosionStage.values().length];
     private final StagedExplosion.RayCounts rayCounts = new StagedExplosion.RayCounts();
     /**
      * Взрывы района, ещё не кончившиеся, с тиком постановки. Взрывы одного тика (подрывы бетонобойной бомбы) выбирают
@@ -137,7 +137,7 @@ final class BlastArea {
         lastUnitAt = level.getGameTime();
     }
 
-    /** Шаги взрыва за единицу ({@link ExplosionTimer.Stage}, нс). */
+    /** Шаги взрыва за единицу ({@link ExplosionStage}, нс). */
     void recordStages(ServerLevel level, long[] stages) {
         StrikeWorld.get(level).impactCost().addRayStages(stages);
         for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
@@ -181,7 +181,7 @@ final class BlastArea {
     /** Итоговая строка удара (для {@code tools/logscan.py}). */
     String summary(String dimension) {
         StringBuilder rays = new StringBuilder();
-        for (ExplosionTimer.Stage st : ExplosionTimer.Stage.values()) {
+        for (ExplosionStage st : ExplosionStage.values()) {
             if (rays.length() > 0) rays.append(", ");
             rays.append(st.label).append(' ').append(ms(rayStages[st.ordinal()]));
         }

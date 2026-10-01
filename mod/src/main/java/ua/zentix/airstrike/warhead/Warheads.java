@@ -161,13 +161,14 @@ public final class Warheads {
      * Проверки: взрыв без разрушений (выборку лучей видно в {@code ExplosionEvent.Detonate}) с сидом {@code seed}
      * у {@code level.random} перед лучами — ванильным {@code explode()} или своим циклом по {@code raysPerUnit} лучей.
      */
-    public static void testRays(ServerLevel level, Vec3 at, float power, @Nullable ExplosionDamageCalculator calculator, long seed,
-                                boolean vanilla, int raysPerUnit) {
+    public static Probe testRays(ServerLevel level, Vec3 at, float power, @Nullable ExplosionDamageCalculator calculator, long seed,
+                                 boolean vanilla, int raysPerUnit) {
         StagedExplosion job = new StagedExplosion(BlastArea.hold(level, at, reach(power)), List.of(), at, power, false, false, null, null, calculator);
         job.seed = seed;
         job.forceVanilla = vanilla;
         job.raysPerUnit = raysPerUnit;
         StrikeWorld.get(level).impacts().add(level, job);
+        return new Probe(job);
     }
 
     /**
@@ -184,7 +185,7 @@ public final class Warheads {
         return new Probe(job);
     }
 
-    /** Проверки: что сделал взрыв {@link #testBlast}. */
+    /** Проверки: что сделал взрыв {@link #testBlast} или {@link #testRays}. */
     public static final class Probe {
         private final StagedExplosion job;
 
@@ -194,6 +195,11 @@ public final class Warheads {
 
         public boolean done() {
             return job.done();
+        }
+
+        /** Взрыв шёл ванильным {@code explode()} (аппарат рядом или так велели). */
+        public boolean vanilla() {
+            return job.vanilla();
         }
 
         /** Порций блоков мира. */

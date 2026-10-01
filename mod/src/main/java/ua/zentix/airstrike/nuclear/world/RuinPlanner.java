@@ -402,7 +402,7 @@ public final class RuinPlanner {
                 fireStates.add(fire);
             }
             ChunkPos pos = new ChunkPos(chunkX, chunkZ);
-            if (n == 0 && fireCells.isEmpty() && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(shot.id, shot.planEdits, ctx);
+            if (n == 0 && fireCells.isEmpty() && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx);
             // верх каждого столбца после руин: ниже него убранный или новый блок меняет свет не только как источник неба
             int[] topChanged = new int[256];
             java.util.Arrays.fill(topChanged, Integer.MIN_VALUE);
@@ -455,9 +455,9 @@ public final class RuinPlanner {
                 if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + pos + ": больше " + RuinPlan.MAX_STATES + " состояний");
                 fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
             }
-            if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(shot.id, shot.planEdits, ctx);
+            if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx);
             return new RuinPlan(java.util.Arrays.copyOf(cells, kept), hashes, states.toArray(new BlockState[0]), java.util.Arrays.copyOf(olds, kept), fireOut, heights,
-                    lightAt.toLongArray(), shot.id, shot.planEdits,
+                    lightAt.toLongArray(), shot.prints.clone(), shot.normalPrints(view),
                     outside.isEmpty() ? null : outside, outside.isEmpty() ? null : outsideState, ctx, fluidTicks);
         }
 

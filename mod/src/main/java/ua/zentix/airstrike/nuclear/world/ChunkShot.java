@@ -28,18 +28,30 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * — массив свойств по номеру в палитре, место читает номер из хранилища секции, лишней памяти на место нет. Все
  * состояния палитр поток сервера заносит в таблицу ({@link Blast#ensure}), когда снимок создаётся.
  * <p>
- * По чему снят — {@code identityHashCode} чанка, счётчик изменений ({@link RuinContext#edits}) и стояли ли руины:
- * снимок верен, пока они те же и таблицу свойств не сбрасывали ({@link #current}). У снимка с диска чанка нет: номер 0,
- * счётчик −1 — подмена проверит план по хешу старых состояний и посчитает столбцы заново.
+ * По чему снят — {@code identityHashCode} чанка, его блоки ({@link #prints}: отпечатки секций) и стояли ли руины:
+ * снимок верен, пока чанк тот же, блоки в нём те же (погашенная блэкаутом лампа — та же лампа), руины те же и таблицу
+ * свойств не сбрасывали ({@link #current}). Изменения чанка мод не подслушивает: снимок сверяется с чанком сам. У снимка
+ * с диска чанка нет (номер 0): план по нему сверяется с чанком при подмене так же, по отпечаткам секций.
+ * <p>
+ * Номер снимка ({@link #serial}) — по нему разлом и план знают, по каким снимкам построены ({@link RuinWindow.Stamp}):
+ * новый снимок берётся, только когда старый неверен.
  */
 final class ChunkShot {
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
+    private static final java.util.concurrent.atomic.AtomicLong SERIALS = new java.util.concurrent.atomic.AtomicLong();
+    /** Отпечаток секции из одного воздуха (в снимке её нет). */
+    private static final long AIR_PRINT = 0x5DEECE66DL;
+
     final int x, z;
     final int id;
-    final long edits;
-    /** Счётчик изменений живого чанка при снимке ({@link RuinPlan#edits}), −1 — нет (с диска): его помнит план. */
-    final long planEdits;
+    /** Номер снимка (от 1): разлом и план построены по этому снимку ({@link RuinWindow.Stamp}). */
+    final long serial = SERIALS.incrementAndGet();
+    /**
+     * Отпечатки секций по номеру ({@link #rawPrint}): по ним снимок сверяется с живым чанком. Отпечаток, у которого
+     * блоки те же с точностью до погашенных ламп ({@link #normalPrint}), заменяется живым (поток сервера).
+     */
+    final long[] prints;
     /** Сброс таблицы свойств, после которого снят ({@link Blast#generation}). */
     private final int generation = Blast.generation;
     /** Руины чанка уже стояли: исходные блоки — старые блоки мест плана ({@link #old}), огонь и текущая вода — воздух. */
@@ -85,13 +97,11 @@ final class ChunkShot {
         }
     }
 
-    private ChunkShot(int x, int z, int id, long edits, long planEdits, @Nullable RuinPlan old, boolean ruined, int minY,
+    private ChunkShot(int x, int z, int id, @Nullable RuinPlan old, boolean ruined, int minY,
                       PalettedContainer<BlockState>[] states, int[] heights, @Nullable int[] sky) {
         this.x = x;
         this.z = z;
         this.id = id;
-        this.edits = edits;
-        this.planEdits = planEdits;
         this.ruined = ruined;
         this.old = old;
         this.minY = minY;
@@ -99,6 +109,8 @@ final class ChunkShot {
         this.sections = states.length;
         this.heights = heights;
         this.sky = sky;
+        this.prints = new long[states.length];
+        for (int i = 0; i < states.length; i++) prints[i] = rawPrint(states[i]);
         long size = 0;
         for (PalettedContainer<BlockState> c : states) {
             if (c == null) continue;
@@ -149,7 +161,7 @@ final class ChunkShot {
 
     /** Снимок чанка в памяти (поток сервера): {@code applied} — руины чанка уже стоят (их план — или null, если отпущен). */
     @SuppressWarnings("unchecked")
-    static ChunkShot take(LevelChunk chunk, long edits, @Nullable RuinContext.Applied applied) {
+    static ChunkShot take(LevelChunk chunk, @Nullable RuinContext.Applied applied) {
         LevelChunkSection[] live = chunk.getSections();
         PalettedContainer<BlockState>[] states = (PalettedContainer<BlockState>[]) new PalettedContainer<?>[live.length];
         for (int i = 0; i < live.length; i++) if (!live[i].hasOnlyAir()) states[i] = live[i].getStates().copy();
@@ -162,7 +174,7 @@ final class ChunkShot {
         var sources = chunk.getSkyLightSources();
         for (int c = 0; c < 256; c++) sky[c] = sources.get(c);
         ChunkPos pos = chunk.getPos();
-        return new ChunkShot(pos.x, pos.z, System.identityHashCode(chunk), edits, RuinPlan.edits(chunk), applied == null ? null : applied.plan(),
+        return new ChunkShot(pos.x, pos.z, System.identityHashCode(chunk), applied == null ? null : applied.plan(),
                 applied != null, chunk.getMinBuildHeight(), states, heights, sky);
     }
 
@@ -172,14 +184,94 @@ final class ChunkShot {
      * плана, как у снимка из памяти.
      */
     static ChunkShot fromDisk(DiskShots.Read read, @Nullable RuinContext.Applied applied) {
-        return new ChunkShot(read.pos().x, read.pos().z, 0, -1, -1, applied == null ? null : applied.plan(), applied != null,
+        return new ChunkShot(read.pos().x, read.pos().z, 0, applied == null ? null : applied.plan(), applied != null,
                 read.minY(), read.states(), read.heights(), null);
     }
 
-    /** Снимок по тому же чанку, счётчику изменений и руинам, что и сейчас. */
-    boolean current(LevelChunk chunk, long edits, @Nullable RuinContext.Applied applied) {
-        return System.identityHashCode(chunk) == id && this.edits == edits && fresh() && ruined == (applied != null)
-                && (applied == null || applied.plan() == old);
+    /**
+     * Снимок по тому же чанку и руинам, что и сейчас (поток сервера). У чанка без руин — и по тем же блокам; у чанка
+     * с руинами блоки дальше меняют сами руины (огонь, текущая вода, брёвна), а исходный мир его мест — из плана.
+     */
+    boolean current(LevelChunk chunk, @Nullable RuinContext.Applied applied) {
+        if (System.identityHashCode(chunk) != id || !fresh() || ruined != (applied != null)) return false;
+        return applied != null ? applied.plan() == old : sameBlocks(chunk);
+    }
+
+    /**
+     * Блоки живого чанка те же, что в снимке: отпечатки секций, а где они разошлись — блоки с точностью до погашенных
+     * ламп (блэкаут меняет их прямо в секциях); такой отпечаток заменяется живым, и следующая сверка снова дешёвая.
+     */
+    private boolean sameBlocks(LevelChunk chunk) {
+        LevelChunkSection[] live = chunk.getSections();
+        if (live.length != sections) return false;
+        for (int i = 0; i < sections; i++) {
+            long p = rawPrint(live[i]);
+            if (p == prints[i]) continue;
+            if (normalPrint(live[i]) != normalPrint(states[i], RuinPlan::normal)) return false;
+            prints[i] = p;
+        }
+        return true;
+    }
+
+    /** Отпечатки секций снимка с точностью до погашенных ламп (любой поток: состояния — через таблицу свойств). */
+    long[] normalPrints(Blast.PropsView view) {
+        long[] out = new long[sections];
+        for (int i = 0; i < sections; i++) out[i] = normalPrint(states[i], st -> view.get(st).normal());
+        return out;
+    }
+
+    /** Отпечаток секции мира как есть ({@link #rawPrint(PalettedContainer)}). */
+    static long rawPrint(LevelChunkSection s) {
+        return rawPrint(s.hasOnlyAir() ? null : s.getStates());
+    }
+
+    /**
+     * Отпечаток секции как есть: состояния палитры по номерам и хранилище номеров (сотни {@code long}, дёшево). Те же
+     * блоки дают другой отпечаток, когда палитру перестроили или лампу погасили; тогда решает {@link #normalPrint}.
+     */
+    static long rawPrint(@Nullable PalettedContainer<BlockState> c) {
+        if (c == null) return AIR_PRINT;
+        var data = c.data;
+        long h = data.storage().getBits();
+        Palette<BlockState> palette = data.palette();
+        if (!(palette instanceof GlobalPalette)) {
+            for (int k = 0; k < palette.getSize(); k++) h = mix(h, System.identityHashCode(palette.valueFor(k)));
+        }
+        for (long v : data.storage().getRaw()) h = mix(h, v);
+        return h;
+    }
+
+    /** Отпечаток секции мира по местам с точностью до погашенных ламп (поток сервера). */
+    static long normalPrint(LevelChunkSection s) {
+        return normalPrint(s.hasOnlyAir() ? null : s.getStates(), RuinPlan::normal);
+    }
+
+    /**
+     * Отпечаток секции по местам: состояние каждого места, приведённое {@code normal} (лампа и её двойник — одно).
+     * Состояние — по {@code identityHashCode} (состояния — одиночки), не {@code Block.getId}: отпечатки считают и фоновые
+     * потоки руин, а им код блоков нельзя ({@code backgroundSolversCallNoWorld}).
+     */
+    static long normalPrint(@Nullable PalettedContainer<BlockState> c, java.util.function.Function<BlockState, BlockState> normal) {
+        if (c == null) return AIR_PRINT;
+        var data = c.data;
+        Palette<BlockState> palette = data.palette();
+        BitStorage storage = data.storage();
+        long h = 0;
+        if (palette instanceof GlobalPalette) {
+            it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap seen = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+            for (int i = 0; i < storage.getSize(); i++) {
+                h = mix(h, seen.computeIfAbsent(storage.get(i), id -> System.identityHashCode(normal.apply(palette.valueFor(id)))));
+            }
+        } else {
+            int[] norm = new int[palette.getSize()];
+            for (int k = 0; k < norm.length; k++) norm[k] = System.identityHashCode(normal.apply(palette.valueFor(k)));
+            for (int i = 0; i < storage.getSize(); i++) h = mix(h, norm[storage.get(i)]);
+        }
+        return h;
+    }
+
+    private static long mix(long h, long v) {
+        return (h ^ v) * 0x9E3779B97F4A7C15L + 1;
     }
 
     /** Снимок с диска, а не из памяти. */

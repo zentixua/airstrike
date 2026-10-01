@@ -32,8 +32,6 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
-import ua.zentix.airstrike.warhead.ExplosionHandoff;
-import ua.zentix.airstrike.warhead.ExplosionTimer;
 import ua.zentix.airstrike.warhead.Warheads;
 import ua.zentix.airstrike.work.WorkScheduler;
 
@@ -362,8 +360,7 @@ public final class WorkGameTests {
     /**
      * Лучи своим циклом выбирают то же, что ванильный {@code explode()}: один сид, площадка из камня, воды, обсидиана,
      * стекла и руды, ванильный калькулятор и калькулятор бомбы (ослабленные блоки), все лучи одной единицей
-     * и по 128. Взрыв без разрушений — площадка одна на все прогоны. Ванильный путь заодно проверяет, что миксин
-     * замера встал ({@code ExplosionTimingMixin}).
+     * и по 128. Взрыв без разрушений — площадка одна на все прогоны.
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "work_rays", skyAccess = true)
     public static void raysMatchVanilla(GameTestHelper h) {
@@ -396,7 +393,7 @@ public final class WorkGameTests {
         List<Run> runs = List.of(new Run(true, 1352, false), new Run(false, 1352, false), new Run(false, 128, false),
                 new Run(true, 1352, true), new Run(false, 128, true));
         List<Set<BlockPos>> seen = new ArrayList<>();
-        int[] marks = new int[runs.size()];
+        List<Warheads.Probe> probes = new ArrayList<>();
         Consumer<ExplosionEvent.Detonate> on = e -> {
             if (e.getLevel() != level || e.getExplosion().center().distanceTo(at) > 0.01) return;
             Set<BlockPos> set = new HashSet<>();
@@ -409,10 +406,8 @@ public final class WorkGameTests {
         int[] started = {0};
         h.onEachTick(() -> {
             if (started[0] > seen.size() || started[0] >= runs.size() || !StrikeWorld.get(level).impacts().isEmpty()) return;
-            if (started[0] > 0) marks[started[0] - 1] = ExplosionTimer.lastMarks();
-            ExplosionTimer.forget();
             Run r = runs.get(started[0]++);
-            Warheads.testRays(level, at, 6, r.weak() ? bunker : null, 12345L, r.vanilla(), r.rays());
+            probes.add(Warheads.testRays(level, at, 6, r.weak() ? bunker : null, 12345L, r.vanilla(), r.rays()));
         });
         h.succeedWhen(() -> {
             h.assertTrue(seen.size() == runs.size() && StrikeWorld.get(level).impacts().isEmpty(), "взрывов " + seen.size());
@@ -420,7 +415,6 @@ public final class WorkGameTests {
             for (BlockPos p : BlockPos.betweenClosed(c.offset(-10, -1, -10), c.offset(10, 10, 10))) {
                 if (level.getBlockState(p) != before.get(i0++)) throw new GameTestAssertException("площадка изменилась у " + p.immutable() + ": прогоны сравнивали разный мир");
             }
-            marks[runs.size() - 1] = ExplosionTimer.lastMarks();
             h.assertTrue(seen.get(0).size() > 100, "лучи выбрали мало: " + seen.get(0).size());
             for (int i = 1; i < runs.size(); i++) {
                 Set<BlockPos> want = runs.get(i).weak() ? seen.get(3) : seen.get(0);
@@ -433,8 +427,9 @@ public final class WorkGameTests {
                 }
             }
             h.assertFalse(seen.get(3).equals(seen.get(0)), "калькулятор бомбы ничего не изменил — проверка пустая");
-            h.assertTrue(marks[0] == ExplosionTimer.MIXIN_MARKS, "ExplosionTimingMixin отметил " + marks[0] + " из " + ExplosionTimer.MIXIN_MARKS);
-            h.assertTrue(marks[1] == 0 && marks[2] == 0, "свой цикл ушёл в ванильный explode()");
+            for (int i = 0; i < runs.size(); i++) {
+                h.assertTrue(probes.get(i).vanilla() == runs.get(i).vanilla(), runs.get(i) + ": путь взрыва не тот, что задан");
+            }
         });
     }
 
@@ -484,16 +479,14 @@ public final class WorkGameTests {
             if (at[0] >= 0 || waited[0]++ != 5) return;
             h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
             WorkScheduler.useImpactClock(level.getServer(), WorkClock.counting(MS));
-            ExplosionTimer.forget();
             Warheads.detonate(level, WeaponType.MISSILE, c, null, null);
         });
         StrikeGameTests.afterTest(h, () -> WorkScheduler.useImpactClock(level.getServer(), WorkScheduler.newImpactClock()));
         h.succeedWhen(() -> {
             h.assertTrue(checked[0], "взрыва нет");
             h.assertFalse(plot.isEmpty(), "лучи не выбрали ни одного блока аппарата");
+            // блоки аппарата в выбранном — значит, лучи шли ванильным explode() с миксином Sable
             h.assertTrue(left.isEmpty(), "блоки аппарата не сняты в тике взрыва: " + left);
-            // аппарат рядом — ванильный explode() со всеми миксинами Sable (и нашими отметками замера)
-            h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.MIXIN_MARKS, "у аппарата не ванильный путь: отметок " + ExplosionTimer.lastMarks());
         });
     }
 
@@ -518,20 +511,16 @@ public final class WorkGameTests {
                 a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ()));
         Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
         int[] waited = {0};
-        boolean[] fired = {false};
+        Warheads.Probe[] blast = {null};
         h.onEachTick(() -> {
-            if (fired[0] || waited[0]++ != 5) return;
+            if (blast[0] != null || waited[0]++ != 5) return;
             h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
             h.assertTrue(at.distanceTo(Vec3.atLowerCornerOf(a)) > power * 1.3 + 1, "аппарат ближе старого охвата — проверять нечего");
-            ExplosionTimer.forget();
-            Warheads.testRays(level, at, power, null, 1L, false, 128);
-            fired[0] = true;
+            blast[0] = Warheads.testRays(level, at, power, null, 1L, false, 128);
         });
         h.succeedWhen(() -> {
-            h.assertTrue(fired[0] && StrikeWorld.get(level).impacts().isEmpty(), "взрыв не кончился");
-            h.assertTrue(ExplosionTimer.lastMarks() == ExplosionTimer.MIXIN_MARKS,
-                    "аппарат в охвате лучей, а путь свой: отметок " + ExplosionTimer.lastMarks());
-            h.assertTrue(ExplosionHandoff.lastHanded(), "ExplosionHandoffMixin не забрал урон у explode()");
+            h.assertTrue(blast[0] != null && blast[0].done(), "взрыв не кончился");
+            h.assertTrue(blast[0].vanilla(), "аппарат в охвате лучей, а путь свой");
         });
     }
 
@@ -617,8 +606,8 @@ public final class WorkGameTests {
     private static final int BLAST_SLOW_LOGGED = 5;
 
     /**
-     * Ванильный путь (как у аппарата): урон — порциями мода по списку сущностей после {@code ExplosionEvent.Detonate}.
-     * Корова, которую обработчик убрал из списка, цела; соседняя — ранена. Миксин передачи урона встал.
+     * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}. Корова, которую
+     * обработчик убрал из списка, цела; соседняя — ранена.
      */
     @GameTest(template = "range", timeoutTicks = 300, batch = "work_handoff", skyAccess = true)
     public static void vanillaPathDamagesDetonateList(GameTestHelper h) {
@@ -637,7 +626,7 @@ public final class WorkGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(blast.done(), "взрыв не кончился");
             h.assertTrue(listed[0], "корова не попала в список Detonate — проверять нечего");
-            h.assertTrue(ExplosionHandoff.lastHanded(), "ExplosionHandoffMixin не забрал урон у explode()");
+            h.assertTrue(blast.vanilla(), "взрыв шёл не ванильным путём");
             h.assertTrue(spared.isAlive() && spared.getHealth() == spared.getMaxHealth(), "убранная из списка ранена: " + spared.getHealth());
             h.assertTrue(!hit.isAlive() || hit.getHealth() < hit.getMaxHealth(), "корова в списке не ранена");
         });
@@ -698,7 +687,7 @@ public final class WorkGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(checked[0] && blast[0].done(), "взрыва нет");
             h.assertTrue(kept[0] != null && !plot.isEmpty(), "лучи выбрали мало блоков аппарата: " + (kept[0] == null ? 0 : 1 + plot.size()));
-            h.assertTrue(ExplosionHandoff.lastHanded(), "у аппарата не ванильный путь или миксин передачи не встал");
+            h.assertTrue(blast[0].vanilla(), "у аппарата не ванильный путь");
             h.assertTrue(wrong.isEmpty(), wrong.toString());
         });
     }
