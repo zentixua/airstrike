@@ -775,47 +775,52 @@ public final class WorkGameTests {
     /**
      * Работа, чей район не готов, ждёт и ничего не читает (иначе чанк загрузился бы в тике), а следующие за ней идут:
      * подрыв вдали от загруженного мира и подрыв на площадке — второй в тике удара, первый — когда район догружен.
+     * Как {@link #impactWithEmptyQueueRunsSameTick}: очередь прошлых партий пуста, часы считающие — иначе «в тике удара»
+     * зависит от скорости машины (CI 01.10.2026: третьей партией после старта сервера лучи шли по 57 мс за единицу).
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "work_unready", skyAccess = true)
     public static void unitSkipsUnreadyChunk(GameTestHelper h) {
-        ServerLevel level = h.getLevel();
-        Vec3 near = Vec3.atBottomCenterOf(h.absolutePos(CENTER));
-        Vec3 far = near.add(0, 0, -5200);
-        double area = 32;
-        h.assertFalse(Terrain.readyAround(level, far, area), "район вдали уже загружен");
-        int[] nearN = {0}, farN = {0};
-        Consumer<ExplosionEvent.Detonate> count = e -> {
-            if (e.getLevel() != level) return;
-            if (e.getExplosion().center().distanceTo(near) < 24) nearN[0]++;
-            if (e.getExplosion().center().distanceTo(far) < 24) farN[0]++;
-        };
-        boolean[] checked = {false};
-        Consumer<ServerTickEvent.Post> afterScheduler = e -> {
-            if (checked[0]) return;
-            checked[0] = true;
-            // в том же тике, после планировщика: ближний сделан, дальний ждёт и район не загружен синхронно
-            if (nearN[0] < 1) h.fail("подрыв на площадке не сделан в тике удара");
-            if (farN[0] != 0) h.fail("подрыв вдали сделан в неготовом районе");
-            if (Terrain.readyAround(level, far, area)) h.fail("район вдали загрузился в тике удара");
-        };
-        NeoForge.EVENT_BUS.addListener(count);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, afterScheduler);
-        StrikeGameTests.afterTest(h, () -> {
-            NeoForge.EVENT_BUS.unregister(count);
-            NeoForge.EVENT_BUS.unregister(afterScheduler);
-        });
-        Warheads.detonate(level, WeaponType.DRONE, far, null, null);
-        Warheads.detonate(level, WeaponType.DRONE, near, null, null);
-        h.runAfterDelay(3, () -> {
-            for (int cx = Mth.floor(far.x - area) >> 4; cx <= Mth.floor(far.x + area) >> 4; cx++)
-                for (int cz = Mth.floor(far.z - area) >> 4; cz <= Mth.floor(far.z + area) >> 4; cz++) level.getChunk(cx, cz);
-        });
-        h.succeedWhen(() -> {
-            h.assertTrue(checked[0], "тик планировщика не прошёл");
-            h.assertTrue(farN[0] >= 1, "подрыв вдали не сделан и после загрузки района");
-            h.assertTrue(StrikeWorld.get(level).impacts().isEmpty(), "очередь попаданий не пуста");
-            // район держали таймлайн и работы очереди: отпущен, когда отпустили все
-            h.assertTrue(blastTickets(level, far) == 0, "тикеты района вдали остались: " + blastTickets(level, far));
+        whenQueueEmpty(h, 150, () -> {
+            useCounting(h, WorkClock.counting(MS));
+            ServerLevel level = h.getLevel();
+            Vec3 near = Vec3.atBottomCenterOf(h.absolutePos(CENTER));
+            Vec3 far = near.add(0, 0, -5200);
+            double area = 32;
+            h.assertFalse(Terrain.readyAround(level, far, area), "район вдали уже загружен");
+            int[] nearN = {0}, farN = {0};
+            Consumer<ExplosionEvent.Detonate> count = e -> {
+                if (e.getLevel() != level) return;
+                if (e.getExplosion().center().distanceTo(near) < 24) nearN[0]++;
+                if (e.getExplosion().center().distanceTo(far) < 24) farN[0]++;
+            };
+            boolean[] checked = {false};
+            Consumer<ServerTickEvent.Post> afterScheduler = e -> {
+                if (checked[0]) return;
+                checked[0] = true;
+                // в том же тике, после планировщика: ближний сделан, дальний ждёт и район не загружен синхронно
+                if (nearN[0] < 1) h.fail("подрыв на площадке не сделан в тике удара");
+                if (farN[0] != 0) h.fail("подрыв вдали сделан в неготовом районе");
+                if (Terrain.readyAround(level, far, area)) h.fail("район вдали загрузился в тике удара");
+            };
+            NeoForge.EVENT_BUS.addListener(count);
+            NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, afterScheduler);
+            StrikeGameTests.afterTest(h, () -> {
+                NeoForge.EVENT_BUS.unregister(count);
+                NeoForge.EVENT_BUS.unregister(afterScheduler);
+            });
+            Warheads.detonate(level, WeaponType.DRONE, far, null, null);
+            Warheads.detonate(level, WeaponType.DRONE, near, null, null);
+            h.runAfterDelay(3, () -> {
+                for (int cx = Mth.floor(far.x - area) >> 4; cx <= Mth.floor(far.x + area) >> 4; cx++)
+                    for (int cz = Mth.floor(far.z - area) >> 4; cz <= Mth.floor(far.z + area) >> 4; cz++) level.getChunk(cx, cz);
+            });
+            h.succeedWhen(() -> {
+                h.assertTrue(checked[0], "тик планировщика не прошёл");
+                h.assertTrue(farN[0] >= 1, "подрыв вдали не сделан и после загрузки района");
+                h.assertTrue(StrikeWorld.get(level).impacts().isEmpty(), "очередь попаданий не пуста");
+                // район держали таймлайн и работы очереди: отпущен, когда отпустили все
+                h.assertTrue(blastTickets(level, far) == 0, "тикеты района вдали остались: " + blastTickets(level, far));
+            });
         });
     }
 
