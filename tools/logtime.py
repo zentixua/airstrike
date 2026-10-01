@@ -62,6 +62,9 @@ def main(argv):
     since = re.compile(argv[argv.index("--since") + 1]) if "--since" in argv else None
     rows = timeline(read(path))
     zero = next((t for t, l in rows if (since or pattern).search(l)), None)
+    if zero is None:
+        print(f"нет опорной строки: {(since or pattern).pattern}")
+        return
     for t, l in rows:
         if pattern.search(l):
             print(f"{stamp(t)} {t - zero:+.1f} {body(l)[:300]}")
