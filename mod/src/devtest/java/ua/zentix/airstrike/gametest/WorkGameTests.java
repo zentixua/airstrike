@@ -12,6 +12,7 @@ import net.minecraft.server.level.Ticket;
 import net.minecraft.util.Mth;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -28,6 +29,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
+import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -434,11 +436,11 @@ public final class WorkGameTests {
     }
 
     /**
-     * Взрыв у собранного аппарата Sable: блоки аппарата (в сетке плотов), которые выбрали лучи, сняты в тике взрыва —
-     * через тики аппарат мог уже расколоться, а его плот уйти другому.
+     * Взрыв у собранного аппарата Sable: блоки аппарата (в сетке плотов), которые выбрали лучи, сняты сразу после урона,
+     * а не порциями с блоками мира, — под считающими часами это тик взрыва.
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "work_craft", skyAccess = true)
-    public static void craftBlocksGoInFirstUnit(GameTestHelper h) {
+    public static void craftBlocksGoRightAfterDamage(GameTestHelper h) {
         if (!ModList.get().isLoaded("sable")) {
             h.succeed();
             return;
@@ -606,8 +608,9 @@ public final class WorkGameTests {
     private static final int BLAST_SLOW_LOGGED = 5;
 
     /**
-     * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}. Корова, которую
-     * обработчик убрал из списка, цела; соседняя — ранена.
+     * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}, и бьют его
+     * единицы мода (обработчик {@code Detonate} мода забирает список, ванильный цикл {@code explode()} идёт по пустому).
+     * Корова, которую обработчик убрал из списка, цела; соседняя — ранена.
      */
     @GameTest(template = "range", timeoutTicks = 300, batch = "work_handoff", skyAccess = true)
     public static void vanillaPathDamagesDetonateList(GameTestHelper h) {
@@ -627,6 +630,7 @@ public final class WorkGameTests {
             h.assertTrue(blast.done(), "взрыв не кончился");
             h.assertTrue(listed[0], "корова не попала в список Detonate — проверять нечего");
             h.assertTrue(blast.vanilla(), "взрыв шёл не ванильным путём");
+            h.assertTrue(blast.handedDamage(), "урон сделал ванильный цикл explode(), а не единицы мода");
             h.assertTrue(spared.isAlive() && spared.getHealth() == spared.getMaxHealth(), "убранная из списка ранена: " + spared.getHealth());
             h.assertTrue(!hit.isAlive() || hit.getHealth() < hit.getMaxHealth(), "корова в списке не ранена");
         });
@@ -634,7 +638,8 @@ public final class WorkGameTests {
 
     /**
      * Взрыв у аппарата Sable: блок аппарата, который обработчик {@code ExplosionEvent.Detonate} убрал из выбранного,
-     * остаётся; остальные выбранные блоки аппарата сняты в тике взрыва.
+     * остаётся; остальные выбранные блоки аппарата сняты в тике, где взрыв добил сущности (настоящие часы: единицы
+     * взрыва могут уйти и в следующие тики).
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "work_handoff_craft", skyAccess = true)
     public static void craftBlockLeftByDetonateStays(GameTestHelper h) {
@@ -652,10 +657,8 @@ public final class WorkGameTests {
         Vec3 c = Vec3.atBottomCenterOf(h.absolutePos(CENTER)).add(0, 1, 0);
         BlockPos[] kept = {null};
         List<BlockPos> plot = new ArrayList<>();
-        long[] at = {-1};
         Consumer<ExplosionEvent.Detonate> onBlast = e -> {
             if (e.getLevel() != level || e.getExplosion().center().distanceTo(c) > 0.01) return;
-            at[0] = level.getGameTime();
             for (BlockPos p : e.getAffectedBlocks()) {
                 if (!SubLevels.inPlotGrid(level, new ChunkPos(p)) || level.getBlockState(p).isAir()) continue;
                 if (kept[0] == null) kept[0] = p.immutable();
@@ -663,10 +666,11 @@ public final class WorkGameTests {
             }
             if (kept[0] != null) e.getAffectedBlocks().remove(kept[0]);
         };
+        Warheads.Probe[] blast = {null};
         List<String> wrong = new ArrayList<>();
         boolean[] checked = {false};
         Consumer<ServerTickEvent.Post> afterScheduler = e -> {
-            if (at[0] < 0 || checked[0]) return;
+            if (blast[0] == null || blast[0].picking() || checked[0]) return;
             checked[0] = true;
             if (kept[0] != null && level.getBlockState(kept[0]).isAir()) wrong.add("убранный из выбранного снят: " + kept[0]);
             for (BlockPos p : plot) if (!level.getBlockState(p).isAir()) wrong.add("не снят " + p + " " + level.getBlockState(p));
@@ -678,7 +682,6 @@ public final class WorkGameTests {
             NeoForge.EVENT_BUS.unregister(afterScheduler);
         });
         int[] waited = {0};
-        Warheads.Probe[] blast = {null};
         h.onEachTick(() -> {
             if (blast[0] != null || waited[0]++ != 5) return;
             h.assertTrue(level.getBlockState(a).isAir(), "аппарат не собран: " + level.getBlockState(a));
@@ -689,6 +692,83 @@ public final class WorkGameTests {
             h.assertTrue(kept[0] != null && !plot.isEmpty(), "лучи выбрали мало блоков аппарата: " + (kept[0] == null ? 0 : 1 + plot.size()));
             h.assertTrue(blast[0].vanilla(), "у аппарата не ванильный путь");
             h.assertTrue(wrong.isEmpty(), wrong.toString());
+        });
+    }
+
+    /**
+     * Обшивка аппарата закрывает от взрыва, как у ванили: стенка из стекла (аппарат Sable) между взрывом и коровой.
+     * Ванильный {@code level.explode} бьёт сущности до снятия блоков — корова за стенкой почти цела; у мода (ванильный
+     * путь, урон — его единицами) корова ранена не больше, хотя лучи выбрали стенку и к концу взрыва она снята.
+     * Пока блоки аппарата снимались при разделе, до урона, корова оставалась без обшивки и погибала.
+     */
+    @GameTest(template = "range", timeoutTicks = 400, batch = "work_craft_shield", skyAccess = true)
+    public static void craftHullShieldsLikeVanilla(GameTestHelper h) {
+        if (!ModList.get().isLoaded("sable")) {
+            h.succeed();
+            return;
+        }
+        ServerLevel level = h.getLevel();
+        // мод — A, ваниль — B: в 24 блоках, дальше охвата лучей и урона (2 × сила) друг друга
+        BlockPos oA = CENTER.offset(0, 0, -12), oB = CENTER.offset(0, 0, 12);
+        float power = 4;
+        net.minecraft.world.entity.animal.Cow[] cows = new net.minecraft.world.entity.animal.Cow[2];
+        BlockPos[] walls = new BlockPos[2];
+        Vec3[] centers = new Vec3[2];
+        for (int i = 0; i < 2; i++) {
+            BlockPos o = i == 0 ? oA : oB;
+            BlockPos w = o.offset(1, 0, -1);
+            for (int y = 0; y < 3; y++) for (int z = 0; z < 3; z++) h.setBlock(w.offset(0, y, z), Blocks.GLASS);
+            BlockPos a = h.absolutePos(w), b = h.absolutePos(w.offset(0, 2, 2));
+            level.getServer().getCommands().performPrefixedCommand(level.getServer().createCommandSourceStack().withLevel(level).withPermission(4)
+                    .withSuppressedOutput(), String.format(Locale.ROOT, "sable assemble area %d %d %d %d %d %d",
+                    a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ()));
+            walls[i] = a;
+            centers[i] = Vec3.atBottomCenterOf(h.absolutePos(o)).add(0, 1.5, 0);
+            cows[i] = h.spawn(net.minecraft.world.entity.EntityType.COW, o.offset(4, 0, 0));
+            cows[i].setNoAi(true);
+        }
+        List<BlockPos> plot = new ArrayList<>();
+        Consumer<ExplosionEvent.Detonate> onBlast = e -> {
+            if (e.getLevel() != level || e.getExplosion().center().distanceTo(centers[0]) > 0.01) return;
+            for (BlockPos p : e.getAffectedBlocks()) {
+                if (SubLevels.inPlotGrid(level, new ChunkPos(p)) && !level.getBlockState(p).isAir()) plot.add(p.immutable());
+            }
+        };
+        Warheads.Probe[] blast = {null};
+        float[] health = {-1, -1};
+        Consumer<ServerTickEvent.Post> afterScheduler = e -> {
+            if (blast[0] == null || blast[0].picking() || health[0] >= 0) return;
+            health[0] = cows[0].getHealth();
+            health[1] = cows[1].getHealth();
+        };
+        NeoForge.EVENT_BUS.addListener(onBlast);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, afterScheduler);
+        StrikeGameTests.afterTest(h, () -> {
+            NeoForge.EVENT_BUS.unregister(onBlast);
+            NeoForge.EVENT_BUS.unregister(afterScheduler);
+            WorkScheduler.useImpactClock(level.getServer(), WorkScheduler.newImpactClock());
+        });
+        int[] waited = {0};
+        h.onEachTick(() -> {
+            if (blast[0] != null || waited[0]++ != 5) return;
+            for (BlockPos w : walls) h.assertTrue(level.getBlockState(w).isAir(), "аппарат не собран: " + level.getBlockState(w));
+            // считающие часы: весь взрыв мода — в этом же тике, аппараты не успевают сдвинуться между лучами и уроном
+            WorkScheduler.useImpactClock(level.getServer(), WorkClock.counting(MS));
+            blast[0] = Warheads.testBlast(level, centers[0], power, true, true, System::nanoTime, 5 * MS);
+            level.explode(null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, null, null), null,
+                    centers[1].x, centers[1].y, centers[1].z, power, false, Level.ExplosionInteraction.TNT);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(health[0] >= 0 && blast[0].done(), "взрыва нет");
+            h.assertTrue(blast[0].vanilla(), "у аппарата не ванильный путь");
+            float max = cows[1].getMaxHealth();
+            // без обшивки корова в 3,5 блока от взрыва силы 4 гибнет; за ней — 1 единица урона
+            h.assertTrue(health[1] >= max - 1.5f, "ваниль: корова за обшивкой ранена " + health[1] + " из " + max + " — обшивка не закрывает, проверять нечего");
+            h.assertTrue(plot.size() >= 3, "лучи выбрали мало блоков обшивки: " + plot.size());
+            List<String> left = new ArrayList<>();
+            for (BlockPos p : plot) if (!level.getBlockState(p).isAir()) left.add(p + " " + level.getBlockState(p));
+            h.assertTrue(left.isEmpty(), "выбранная обшивка не снята: " + left);
+            h.assertTrue(health[0] >= health[1] - 0.01f, "мод: корова за обшивкой ранена сильнее ванили: " + health[0] + " против " + health[1]);
         });
     }
 

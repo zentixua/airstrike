@@ -8,7 +8,6 @@ import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.Detonation;
@@ -382,21 +381,16 @@ public final class ScarQueue {
         double radius = d.ruinRadius();
         it.unimi.dsi.fastutil.longs.LongOpenHashSet skip = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(except);
         LongArrayList in = new LongArrayList();
-        for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
+        var chunkMap = level.getChunkSource().chunkMap;
+        for (ChunkHolder holder : chunkMap.getChunks()) {
             ChunkPos p = holder.getPos();
-            if (nearest(p, d) <= radius && !skip.contains(p.toLong())) in.add(p.toLong());
+            if (nearest(p, d) <= radius && skip.add(p.toLong())) in.add(p.toLong());
+        }
+        // ждущие выгрузки — тоже в памяти: вернувшийся тикет оставит их без ChunkEvent.Load (NuclearTickets.inMemory)
+        for (long c : chunkMap.pendingUnloads.keySet()) {
+            if (nearest(new ChunkPos(c), d) <= radius && skip.add(c)) in.add(c);
         }
         return in.toLongArray();
-    }
-
-    /**
-     * Чанк в памяти: полностью загруженный или опущенный ниже (у края видимости), но не выгруженный; null — его нет
-     * в памяти или он ещё не бывал полностью загружен ({@code onChunkLoad} поставит его сам).
-     */
-    @Nullable
-    private static LevelChunk inMemory(ServerLevel level, long pos) {
-        ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(pos);
-        return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
 
     /** Поставить чанк в очередь по подрыву (если чанк в радиусе и подрыв новее отметки на чанке). */
@@ -589,7 +583,7 @@ public final class ScarQueue {
                     var memory = atDetonation.computeIfAbsent(scan.d.id(), k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet());
                     while (scan.next < end) {
                         long c = scan.chunks[scan.next++];
-                        LevelChunk chunk = inMemory(level, c);
+                        LevelChunk chunk = NuclearTickets.inMemory(level, c);
                         if (chunk == null) continue;
                         offer(chunk, scan.d);
                         if (!inRange(chunk.getPos(), scan.d) || !memory.add(c)) continue;
@@ -799,7 +793,7 @@ public final class ScarQueue {
      * фоновый план упал) — загруженное окно, соседи грузятся тикетом.
      */
     private void work(ServerLevel level, Job job, long now, WorkClock clock) {
-        if (inMemory(level, job.chunk) == null) {
+        if (NuclearTickets.inMemory(level, job.chunk) == null) {
             // выгружен (onChunkUnload уже убрал бы работу) — загрузится снова, поставит onChunkLoad
             jobs.remove(job.chunk);
             release(level, job);

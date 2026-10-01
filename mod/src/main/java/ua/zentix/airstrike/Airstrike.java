@@ -104,6 +104,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
+        // последним: обработчики других модов видят и правят список сущностей взрыва до того, как мод его заберёт
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.airstrike.warhead.Warheads::onDetonate);
         NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
         // первым: чужие слушатели сохранения видят тег уже без двойников
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, ChunkSaves::onSave);

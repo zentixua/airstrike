@@ -202,6 +202,16 @@ public final class Warheads {
             return job.vanilla();
         }
 
+        /** Ещё выбирает лучами или бьёт сущности (блоки мира не снимает). */
+        public boolean picking() {
+            return job.picking();
+        }
+
+        /** Ванильный путь отдал урон моду: сущности из {@code Detonate} били свои единицы, а не цикл {@code explode()}. */
+        public boolean handedDamage() {
+            return job.handedDamage();
+        }
+
         /** Порций блоков мира. */
         public int portions() {
             return job.portions;
@@ -216,6 +226,11 @@ public final class Warheads {
         public int slowBlocks() {
             return job.slowBlocks();
         }
+    }
+
+    /** {@code ExplosionEvent.Detonate}, приоритет {@code LOWEST}: урон ванильного взрыва у аппарата — в единицы мода. */
+    public static void onDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
+        StagedExplosion.onDetonate(event);
     }
 
     /** Кончились ли все взрывы {@code after}. */
