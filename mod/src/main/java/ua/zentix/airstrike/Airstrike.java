@@ -69,6 +69,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
+        // после того как мод снял свои тикеты и работу: генерация, начатая до выхода, доходит до конца (иначе цикл выгрузки висит)
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.airstrike.util.StopDrain::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);

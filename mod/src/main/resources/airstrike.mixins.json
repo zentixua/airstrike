@@ -5,8 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "net.PlayerChunkSenderMixin",
-    "sable.SubLevelSplitGuardMixin",
-    "server.StopServerChunksMixin"
+    "sable.SubLevelSplitGuardMixin"
   ],
   "injectors": {
     "defaultRequire": 0
