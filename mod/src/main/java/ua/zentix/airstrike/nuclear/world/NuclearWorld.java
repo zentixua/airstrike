@@ -42,7 +42,7 @@ public final class NuclearWorld {
     private final List<CraterJob> craters = new ArrayList<>();
     private final MobFallout mobFallout = new MobFallout();
     private final BlastFront blast = new BlastFront();
-    private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos;
+    private long lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastPrepNanos, lastFalloutNanos;
     /** Недорытые воронки из сохранения подхвачены (после загрузки мира). */
     private boolean restored;
     /** Игровое время мира, когда медленный тик в последний раз писался в лог. */
@@ -98,6 +98,11 @@ public final class NuclearWorld {
         return !pulses.isEmpty() || !craters.isEmpty() || scars.size() > 0 || !prep.idle() || blast.busy();
     }
 
+    /** Больше всего работ очереди руин, осмотренных за один тик (проверки бюджета). */
+    public int scarMaxInspectedPerTick() {
+        return scars.maxInspectedPerTick();
+    }
+
     public int queuedChunks() {
         return scars.size();
     }
@@ -136,9 +141,17 @@ public final class NuclearWorld {
         return pulses.size();
     }
 
-    /** Сколько заняли в последнем тике фронт по сущностям и аппаратам, свет и радиация, воронки, очередь чанков и осадки у мобов, нс. */
+    /**
+     * Сколько заняли в последнем тике фронт по сущностям и аппаратам, свет и радиация, воронки, очередь руин, руины заранее
+     * и осадки у мобов, нс.
+     */
     public long[] lastNanos() {
-        return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastFalloutNanos};
+        return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastPrepNanos, lastFalloutNanos};
+    }
+
+    /** Очередь руин в последнем тике: «осмотрено N, ждали M» (строка медленного ядерного тика). */
+    public String scarSummary() {
+        return scars.tickSummary();
     }
 
     /**
@@ -291,6 +304,8 @@ public final class NuclearWorld {
         long scarStart = System.nanoTime();
         lastCraterNanos = scarStart - craterStart;
         scars.work(level, now, clock);
+        long prepStart = System.nanoTime();
+        lastScarNanos = prepStart - scarStart;
         // руины заранее — из того, что осталось от бюджета: волна уже идущего подрыва важнее
         try {
             prep.tick(level, events, scars, clock);
@@ -299,7 +314,7 @@ public final class NuclearWorld {
             prep.clear(level, scars);
         }
         long falloutStart = System.nanoTime();
-        lastScarNanos = falloutStart - scarStart;
+        lastPrepNanos = falloutStart - prepStart;
         try {
             mobFallout.work(level, events.detonations(), clock);
         } catch (RuntimeException e) {

@@ -21,11 +21,6 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
-import java.lang.management.GarbageCollectorMXBean;
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryPoolMXBean;
-import java.lang.management.MemoryType;
-import java.lang.management.MemoryUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -101,8 +96,8 @@ public final class NuclearPrep {
     /** Доля кучи (живой объём после сборки), выше которой руины заранее больше не строятся. */
     private static final double HEAP_LIMIT = 0.75;
 
-    /** Для {@link #heapTight}: число сборок при прошлой проверке и сколько проверок подряд после сборки куча выше предела. */
-    private long lastCollections = -1;
+    /** Для {@link #heapTight}: номер прошлого замера кучи и сколько замеров подряд она выше предела. */
+    private long lastMeasured;
     private int heapStrikes;
 
     private enum TileState { SCAN, SKIP, WAIT, LOADING, READY }
@@ -932,27 +927,19 @@ public final class NuclearPrep {
     }
 
     /**
-     * Живой объём кучи выше {@link #HEAP_LIMIT} после двух сборок подряд: объём «после сборки» у старого поколения
-     * бывает с несобранным мусором, одна сборка — ещё не нехватка.
+     * Живой объём кучи выше {@link #HEAP_LIMIT} в двух замерах подряд ({@link HeapWatch}: старое поколение после
+     * сборки, которая его освободила): в нём бывает немного несобранного, один замер — ещё не нехватка.
      */
     private boolean heapTight() {
-        long collections = 0;
-        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) if (collects(gc)) collections += Math.max(0, gc.getCollectionCount());
-        if (collections != lastCollections) {
-            lastCollections = collections;
-            heapStrikes = liveHeap() > Runtime.getRuntime().maxMemory() * HEAP_LIMIT ? heapStrikes + 1 : 0;
+        HeapWatch watch = HeapWatch.get();
+        long measured = watch.measured();
+        if (measured != lastMeasured) {
+            lastMeasured = measured;
+            heapStrikes = HeapWatch.strikes(heapStrikes, watch.live(), (long) (Runtime.getRuntime().maxMemory() * HEAP_LIMIT));
+            if (NukeDiag.ON) Airstrike.LOG.info("ДИАГ куча: старое поколение после сборки {} МБ из {}, подряд выше предела {}",
+                    watch.live() >> 20, Runtime.getRuntime().maxMemory() >> 20, heapStrikes);
         }
         return heapStrikes >= 2;
-    }
-
-    /**
-     * Сборка, после которой пулы кучи знают живой объём: молодая, смешанная, полная, цикл ZGC или Shenandoah. Не паузы
-     * внутри цикла: у G1 в JDK 21 «G1 Concurrent GC» считает Remark и Cleanup (объём после них не новый — одна сборка
-     * давала бы два «подряд»), у ZGC и Shenandoah «… Pauses» повторяют их «… Cycles».
-     */
-    private static boolean collects(GarbageCollectorMXBean gc) {
-        String name = gc.getName();
-        return !name.contains("Concurrent") && !name.endsWith("Pauses");
     }
 
     /** Для проверок: все подготовки останавливаются, как при нехватке памяти. */
@@ -964,27 +951,8 @@ public final class NuclearPrep {
     private static void stopForHeap(Prep p) {
         Runtime rt = Runtime.getRuntime();
         Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся (планов {}, чанков тяжёлой зоны {})",
-                p.strike, liveHeap() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.order.length);
+                p.strike, HeapWatch.get().live() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.order.length);
         p.heapStop = true;
-    }
-
-    /**
-     * Живой объём кучи: занято после последней сборки (у ZGC и G1 — по пулам кучи); пулы без этих данных — занято
-     * сейчас (с мусором, то есть с запасом).
-     */
-    private static long liveHeap() {
-        long sum = 0;
-        boolean any = false;
-        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
-            if (pool.getType() != MemoryType.HEAP) continue;
-            MemoryUsage after = pool.getCollectionUsage();
-            if (after == null) continue;
-            sum += after.getUsed();
-            any = true;
-        }
-        if (any) return sum;
-        Runtime rt = Runtime.getRuntime();
-        return rt.totalMemory() - rt.freeMemory();
     }
 
     /** Чанк, если он и чанки в радиусе {@link RuinPlanner#REACH} готовы (руины читают их). */

@@ -90,6 +90,8 @@ final class RuinContext {
         return s != null && s.fromDisk() && s.fresh();
     }
 
+    /** Прочитанных с диска снимков в поток сервера за один {@link #requestWindow}, не больше: окно 5×5. */
+    private static final int PUTS_PER_WINDOW = (2 * RuinPlanner.REACH + 1) * (2 * RuinPlanner.REACH + 1);
     /** Соседи окна, которые читаются с диска ({@link #requestWindow}), и прочитанные, но ещё не взятые потоком сервера. */
     private final LongOpenHashSet reading = new LongOpenHashSet();
     private final java.util.concurrent.ConcurrentLinkedQueue<DiskShots.Read> reads = new java.util.concurrent.ConcurrentLinkedQueue<>();
@@ -110,7 +112,10 @@ final class RuinContext {
      * @return сколько соседей ещё читается (0 — окно полно, план можно отдавать)
      */
     int requestWindow(ServerLevel level, ChunkPos pos) {
-        for (DiskShots.Read r; (r = reads.poll()) != null; ) {
+        // прочитанные — не больше окна за раз: снимок с диска строится в потоке сервера, а пока игра на паузе, потоки
+        // чтения идут и прочитанных копится сколько угодно; остальные возьмут следующие окна
+        int put = 0;
+        for (DiskShots.Read r; put < PUTS_PER_WINDOW && (r = reads.poll()) != null; put++) {
             long key = r.pos().toLong();
             reading.remove(key);
             windowReads++;
