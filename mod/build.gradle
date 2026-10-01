@@ -141,6 +141,8 @@ neoForge {
             type = 'gameTestServer'
             gameDirectory = project.file('run/gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // своя часть партий на машине CI: -PgametestShard=i/n (devtest GameTestShards); без свойства — все тесты
+            systemProperty 'airstrike.gametest.shard', (project.findProperty('gametestShard') ?: '').toString()
         }
         // Сценарии полёта (gametest/scenario): все зёрна (-PscenarioSeeds, по умолчанию 16) без остальных GameTest —
         // шаблон сценариев в своём пространстве имён airstrike_sweep. -PscenarioOnly=<регулярное выражение> — только

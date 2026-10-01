@@ -1,6 +1,9 @@
 # Сборка, юнит-тесты и GameTest (сервер с Create, Sable, Aeronautics с Modrinth); jar — в артефактах запуска.
+# Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
+# мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком. GameTest идёт
+# частями на шести машинах сразу (devtest GameTestShards), сборка и юнит-тесты — рядом. Итог всех проверок — «Итог».
 # Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
-# после всех проверок — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
+# проверка целиком, после неё — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
 
 # Каждый коммит проверяется один раз: ветки — запуском pull_request (он и решает слияние), main — push.
@@ -20,73 +23,184 @@ concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && format('release-{0}', github.run_id) || format('build-{0}', github.ref) }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  # процессы стенда и мультиплеера гасятся целиком, без сирот (tools/rig_procs.sh), ~4 с; без Java и модов — своей задачей
-  rig:
+  # Что изменил коммит: PR — против базы (у слияния PR, которое проверяет CI, первый родитель — база), push в main —
+  # против прежнего main. Ручной запуск и неизвестная база — проверка целиком; незнакомый путь — тоже.
+  changes:
+    name: Что изменилось
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
+    outputs:
+      mod: ${{ steps.diff.outputs.mod }}
+      rig: ${{ steps.diff.outputs.rig }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Остановка проверок
-        timeout-minutes: 2
-        run: tools/test_rig_procs.sh
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base=HEAD^1 ;;
+            push) base=$BEFORE; git fetch --no-tags --depth=1 origin "$base" || base= ;;
+            *) base= ;;
+          esac
+          if [ -z "$base" ]; then
+            mod=true; rig=true
+            echo "Проверка целиком ($GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            mod=false; rig=false
+            # --no-renames: перенос из mod/ — это и удаление в mod/
+            files=$(git diff --name-only --no-renames "$base" HEAD)
+            while IFS= read -r f; do
+              case "$f" in
+                '') ;;
+                mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
+                tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
+                .github/*) mod=true; rig=true ;;
+                tools/*|docs/*|*.md|.claude/*|.gitignore) ;;
+                *) mod=true ;;
+              esac
+            done <<< "$files"
+            { echo "Мод (сборка, юнит-тесты, GameTest): $mod; остановка проверок: $rig"; echo; echo '```'; echo "$files"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "mod=$mod" >> "$GITHUB_OUTPUT"
+          echo "rig=$rig" >> "$GITHUB_OUTPUT"
 
   build:
+    name: Сборка и юнит-тесты
+    needs: changes
+    if: needs.changes.outputs.mod == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: write
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: mod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: gradle/actions/setup-gradle@v4
+      # кэш Gradle на main пишет только эта задача (части GameTest его читают): шесть копий по ~1,3 ГБ вытесняли бы
+      # друг друга из кэша репозитория
+      - uses: gradle/actions/setup-gradle@v5
 
-      - name: Моды для GameTest
-        uses: actions/cache@v4
-        with:
-          path: mod/run/ci-mods
-          key: runtime-mods-${{ hashFiles('tools/fetch_runtime_mods.py') }}
-      - run: python3 ../tools/fetch_runtime_mods.py run/ci-mods
-
+      # запуск GameTest (classpath сервера, ассеты) готовится и здесь: что задача не тронула, setup-gradle из кэша убирает
       - name: Сборка и юнит-тесты
-        run: ./gradlew build --console=plain
+        run: ./gradlew build prepareGameTestServerRun --console=plain
 
-      - name: GameTest
-        run: |
-          ./gradlew runGameTestServer -PmcModsDir=run/ci-mods --console=plain
-          grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: airstrike-jar
           path: mod/build/libs/*.jar
           if-no-files-found: error
 
-      - name: Релиз
-        if: github.event_name == 'workflow_dispatch' && inputs.release && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/release-'))
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Отчёты при падении
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: reports
+          path: mod/build/reports/
+          if-no-files-found: ignore
+
+  gametest:
+    name: GameTest ${{ matrix.part }}/${{ strategy.job-total }}
+    needs: changes
+    if: needs.changes.outputs.mod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      # упавшая часть не обрывает остальные: все падения — за один прогон
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        working-directory: mod
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: true
+
+      - name: Моды для GameTest
+        uses: actions/cache@v5
+        with:
+          path: mod/run/ci-mods
+          key: runtime-mods-${{ hashFiles('tools/fetch_runtime_mods.py') }}
+      - run: python3 ../tools/fetch_runtime_mods.py run/ci-mods
+
+      - name: GameTest
         run: |
-          v=$(sed -n 's/^mod_version=//p' gradle.properties)
-          gh release create "v$v" "build/libs/airstrike-$v.jar" --target "$GITHUB_SHA" \
-            --title "Airstrike $v" --notes-file "../docs/releases/$v.md"
+          ./gradlew runGameTestServer -PmcModsDir=run/ci-mods -PgametestShard=${{ matrix.part }}/${{ strategy.job-total }} --console=plain
+          grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
 
       - name: Логи при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: logs
-          path: |
-            mod/run/gametest/logs/
-            mod/build/reports/
+          name: logs-gametest-${{ matrix.part }}
+          path: mod/run/gametest/logs/
           if-no-files-found: ignore
+
+  # процессы стенда и мультиплеера гасятся целиком, без сирот (tools/rig_procs.sh), ~4 с; без Java и модов
+  rig:
+    name: Остановка проверок
+    needs: changes
+    if: needs.changes.outputs.rig == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Остановка проверок
+        timeout-minutes: 2
+        run: tools/test_rig_procs.sh
+
+  # одна отметка на коммит: всё, что изменение требовало, прошло; ненужное пропущено
+  ci:
+    name: Итог
+    needs: [changes, build, gametest, rig]
+    # и после упавших или пропущенных; отменённый прогон (новый пуш) отметки не ставит
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Нужные проверки прошли
+        run: |
+          echo 'что изменилось: ${{ needs.changes.result }}; сборка: ${{ needs.build.result }}; GameTest: ${{ needs.gametest.result }}; остановка проверок: ${{ needs.rig.result }}'
+          [ '${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}' = false ]
+
+  release:
+    name: Релиз
+    needs: [build, gametest, rig]
+    if: github.event_name == 'workflow_dispatch' && inputs.release && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/release-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: airstrike-jar
+          path: mod/build/libs
+      - name: Релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(sed -n 's/^mod_version=//p' mod/gradle.properties)
+          gh release create "v$v" "mod/build/libs/airstrike-$v.jar" --target "$GITHUB_SHA" \
+            --title "Airstrike $v" --notes-file "docs/releases/$v.md"
