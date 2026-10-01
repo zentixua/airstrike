@@ -143,6 +143,40 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Высокая стена на линии пике между крейсером и целью (город хоста 01.10.2026: шахеды залпа били в высотки за
+     * 54–190 блоков до цели). С 47 блоков над целью пике на 18° под горизонтом начиналось в 145 блоках от неё и шло
+     * в стену высотой 25 в 30 блоках перед целью; теперь шахед ждёт свободной прямой и взрывается у цели, стена цела.
+     */
+    @GameTest(template = "runway", timeoutTicks = 400, batch = "drone_dive_wall", skyAccess = true)
+    public static void droneDivesOverWallOnDiveLine(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        int wallZ = RUNWAY_TARGET.getZ() - 30, wallTop = RUNWAY_TARGET.getY() + 25;
+        List<BlockPos> wall = new ArrayList<>();
+        for (BlockPos p : BlockPos.betweenClosed(new BlockPos(0, RUNWAY_TARGET.getY() + 1, wallZ - 3), new BlockPos(31, wallTop, wallZ))) {
+            h.setBlock(p, Blocks.STONE);
+            wall.add(p.immutable());
+        }
+        Vec3 aim = top(h, RUNWAY_TARGET);
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        drone.launch(Vec3.atCenterOf(h.absolutePos(new BlockPos(16, 50, 4))), new Target.Point(aim), aim, null);
+        level.addFreshEntity(drone);
+        UUID id = drone.getUUID();
+        Vec3[] last = {drone.position()};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f != null) last[0] = f.position();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]));
+            long broken = wall.stream().filter(p -> !h.getBlockState(p).is(Blocks.STONE)).count();
+            h.assertTrue(broken == 0, "шахед попал в стену: выбито " + broken + " блоков, последнее место " + h.relativeVec(last[0]));
+            h.assertTrue(last[0].distanceTo(aim) < 8, "шахед взорвался в " + String.format(Locale.ROOT, "%.1f", last[0].distanceTo(aim))
+                    + " блоках от цели: " + h.relativeVec(last[0]));
+            assertCrater(h, RUNWAY_TARGET);
+        });
+    }
+
+    /**
      * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
      * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (запас хода растёт на 2000 блоков
      * погони ×1,5), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
@@ -1138,7 +1172,7 @@ public final class StrikeGameTests {
             LoiterEntity l = findLoiter(level, id);
             if (l == null) return;
             lastPos[0] = l.position();
-            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " до цели " + String.format(java.util.Locale.ROOT, "%.1f", l.position().distanceTo(stand.position()));
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " до цели " + String.format(Locale.ROOT, "%.1f", l.position().distanceTo(stand.position()));
             if (l.flightPhase() == FlightPhase.LOITER && ++loiter[0] == 60) {
                 h.assertTrue(l.retarget(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), stand.position()), "не принял цель");
             }
@@ -2493,7 +2527,7 @@ public final class StrikeGameTests {
             double rate = ((RocketEntity) p).timeRate();
             minRate[0] = Math.min(minRate[0], rate);
             speeds.add(p.velocity().length());
-            track.add(String.format(java.util.Locale.ROOT, "тик %d (вне мира %s, темп %.2f, до цели %.0f)", tick[0], p.isVirtual(), rate, p.position().distanceTo(aim)));
+            track.add(String.format(Locale.ROOT, "тик %d (вне мира %s, темп %.2f, до цели %.0f)", tick[0], p.isVirtual(), rate, p.position().distanceTo(aim)));
         });
         h.succeedWhen(() -> {
             boolean flying = level.getEntity(id) != null && !level.getEntity(id).isRemoved()
@@ -2509,7 +2543,7 @@ public final class StrikeGameTests {
                 double d = Math.abs(speeds.get(i) - speeds.get(i - 1));
                 if (d > worst) {
                     worst = d;
-                    where = String.format(java.util.Locale.ROOT, "%.2f → %.2f, %s", speeds.get(i - 1), speeds.get(i), track.get(i));
+                    where = String.format(Locale.ROOT, "%.2f → %.2f, %s", speeds.get(i - 1), speeds.get(i), track.get(i));
                 }
             }
             Airstrike.LOG.info("Замер РСЗО: наибольший скачок скорости за тик {}", where);
