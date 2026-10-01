@@ -146,6 +146,19 @@ public final class SubLevels {
         }
     }
 
+    /** Id аппарата, в плоте которого лежит чанк, или null. */
+    @Nullable
+    public static UUID containingId(Level level, net.minecraft.world.level.ChunkPos chunk) {
+        SubLevelAccess sub = containing(level, chunk);
+        if (sub == null) return null;
+        try {
+            return sub.getUniqueId();
+        } catch (RuntimeException | LinkageError e) {
+            fail(e);
+            return null;
+        }
+    }
+
     @Nullable
     public static SubLevelAccess byId(Level level, Vec3 near, UUID id) {
         for (SubLevelAccess s : near(level, near, 2048)) {

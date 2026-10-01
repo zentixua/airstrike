@@ -3,9 +3,9 @@
 Восьмой прогон (после `nuke-gate7` 01.10, ~06:20 UTC; задание gate7 — это `nuke-gate6.md` на 72b576f): папки и задача —
 `nuke-gate8`, следы прошлых (`nuke-gate*`, `nuke-diag`) не трогаются. Сторожа температуры нет (Артём, 16:47 UTC).
 
-Тред «Ядерный взрыв: ударная волна». Ветка `claude/project-thread-39w82y`, коммит **@SHA@** — полный SHA из сообщения
-координатора подставить во все блоки ниже вместо `@SHA@` (одна замена, до шага 2; строки с `@SHA@` после неё быть не
-должно). Что поменялось после gate7: клиент gate7 упал в Xaero's World Map после переноса к ruins_n
+Тред «Ядерный взрыв: ударная волна». Коммит **@SHA@** — полный SHA из сообщения координатора подставить во все блоки
+ниже вместо `@SHA@` (одна замена, до шага 2; строки с `@SHA@` после неё быть не должно). Коммит берётся по SHA: ветку
+PR после слияния удаляют, а коммит остаётся в `main` или в `pull/<n>/head`. Что поменялось после gate7: клиент gate7 упал в Xaero's World Map после переноса к ruins_n
 (`ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 2049` в `Object2IntOpenHashMap.rehash` из
 `BlockTextureColorUtils.getBlockTextureColor` xaerolib 1.7.3 — общий кэш цветов блоков без замка, в него писали два
 потока); мод теперь ставит обращения к этому кэшу под замок (клиентский миксин, строка «Xaero: кэш цветов блоков
@@ -52,7 +52,7 @@ du -sh "$FILM/saves/greenfield-film"; df -h /mnt/data/projects/airstrike/mod/run
 Состояние инстанса фильма (jar мода и строка `renderDistance`) сохраняется в `claude-work/nuke-gate8-film-state`
 и возвращается в шаге 6.
 ```sh
-cd /mnt/data/projects/airstrike && git fetch origin claude/project-thread-39w82y && \
+cd /mnt/data/projects/airstrike && git fetch origin main @SHA@ && git cat-file -e '@SHA@^{commit}' && \
 git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate8" @SHA@ && \
 W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate8" && cd "${W:?}" && mkdir -p "$W/mod/run" && \
 FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate8-film-state" && \
