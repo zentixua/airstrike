@@ -1605,7 +1605,12 @@ public final class NuclearGameTests {
         // уровни тикетов, перенос снятых держателей в pendingUnloads; без запаса времени очередь выгрузки не разбирается,
         // а переносится не больше 200 держателей за вызов (ChunkMap.processUnloads) — снятый тикет отпускает сотни
         // вокруг чанка, и в каком порядке, решает хеш координат: зовём, пока не дойдёт до него
-        for (int i = 0; i < 16 && !chunks.chunkMap.pendingUnloads.containsKey(p.toLong()); i++) chunks.tick(() -> false, false);
+        int ticks = 0;
+        while (ticks < 16 && !chunks.chunkMap.pendingUnloads.containsKey(p.toLong())) {
+            chunks.tick(() -> false, false);
+            ticks++;
+        }
+        h.assertTrue(chunks.chunkMap.pendingUnloads.containsKey(p.toLong()), p + " не ушёл в ожидание выгрузки за " + ticks + " тиков чанков");
         // видимая карта — без него
         chunks.runDistanceManagerUpdates();
         h.assertTrue(chunks.chunkMap.getVisibleChunkIfPresent(p.toLong()) == null, p + " ещё в видимой карте");

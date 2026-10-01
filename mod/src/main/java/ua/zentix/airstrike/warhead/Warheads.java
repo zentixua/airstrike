@@ -202,6 +202,11 @@ public final class Warheads {
             return job.vanilla();
         }
 
+        /** Ещё выбирает лучами или бьёт сущности (блоки мира не снимает). */
+        public boolean picking() {
+            return job.picking();
+        }
+
         /** Ванильный путь отдал урон моду: сущности из {@code Detonate} били свои единицы, а не цикл {@code explode()}. */
         public boolean handedDamage() {
             return job.handedDamage();
