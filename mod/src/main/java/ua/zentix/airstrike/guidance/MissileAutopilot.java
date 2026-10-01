@@ -21,6 +21,8 @@ public final class MissileAutopilot {
     private final WeaponSpec.Airframe air;
     private final Autopilot.Turn climbTurn;
     private final Autopilot.Turn cruiseTurn;
+    /** Рельеф впереди. */
+    private final Autopilot.ReliefSensor relief = new Autopilot.ReliefSensor();
     /** Горка перед пикированием — только при длинном заходе. */
     private boolean popUp = true;
 
@@ -69,14 +71,14 @@ public final class MissileAutopilot {
         Bearing b = Bearing.of(c.position(), aim);
         Bearing n = Bearing.of(c.position(), nav);
         FlightPhase ph = c.phase();
+        Autopilot.Turn turn = ph == FlightPhase.CLIMB ? climbTurn : cruiseTurn;
         if (ph == FlightPhase.CLIMB) {
             // турбина набирает тягу; ракета переходит с подъёма на снижение к бреющему полёту
             c.setSpeed(Math.min(air.cruiseSpeed(), c.speed() + 0.09));
-            double terrain = c.reliefAhead(30, 60, 90);
+            double terrain = relief.reliefAhead(c, nav, turn, air);
             c.holdAltitude(Math.max(terrain + CLIMB_ABOVE_RELIEF, aim.y + air.cruiseHeight()), 0.25, 4, 0.6);
             if (c.speed() >= air.cruiseSpeed() - 0.01 && c.phaseAge() > 40) c.setPhase(FlightPhase.CRUISE);
         }
-        Autopilot.Turn turn = ph == FlightPhase.CLIMB ? climbTurn : cruiseTurn;
         // цель внутри круга разворота (сместилась вбок на атаке, перенацеливание, игрок телепортировался): атака
         // отменяется, ракета уходит прямо, пока цель не выйдет из круга, и заходит снова
         boolean outOfTurn = Autopilot.outOfTurn(c, nav, n, air.attack().reattackMin(), turn.rate());
@@ -91,7 +93,7 @@ public final class MissileAutopilot {
         switch (c.phase()) {
             case CRUISE -> {
                 c.setSpeed(Math.min(air.cruiseSpeed(), c.speed() + 0.09));
-                double terrain = c.reliefAhead(30, 60, 90);
+                double terrain = relief.reliefAhead(c, nav, turn, air);
                 c.holdAltitude(Math.max(terrain + air.cruiseHeight(), aim.y + air.cruiseHeight()), 0.30, 8, 1.8);
             }
             case POP_UP -> c.flight().holdPitch(-20, 0.30, 8, 1.8);

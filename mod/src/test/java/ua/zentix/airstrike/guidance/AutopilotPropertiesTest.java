@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.SplittableRandom;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,8 +31,6 @@ class AutopilotPropertiesTest {
     private static final int SCENARIOS = 10_000;
     /** Кружение: столько градусов поворота в радиусе разворота от неподвижной точки цели — уже круги. */
     private static final double MAX_TURN = 720;
-    /** Низ мира: там, где рельеф не читается, {@link Craft#reliefAhead} отвечает им. */
-    private static final double WORLD_BOTTOM = -64;
 
     enum Weapon {
         DRONE(WeaponSpec.DRONE, 40), MISSILE(WeaponSpec.MISSILE, 120);
@@ -114,14 +113,10 @@ class AutopilotPropertiesTest {
             }
         }
 
-        /** Как {@code StrikeProjectile.terrainAhead}: по курсу, от низа мира. */
+        /** Как {@code StrikeProjectile.relief}: верх рельефа в колонке блоков — наибольший по её четырём углам. */
         @Override
-        public double reliefAhead(double... distances) {
-            double yawRad = Math.toRadians(flight.yaw());
-            double dx = -Math.sin(yawRad), dz = Math.cos(yawRad);
-            double max = WORLD_BOTTOM;
-            for (double d : distances) max = Math.max(max, ground.at(pos.x + dx * d, pos.z + dz * d));
-            return max;
+        public double relief(int x, int z) {
+            return Math.max(Math.max(ground.at(x, z), ground.at(x + 1, z)), Math.max(ground.at(x, z + 1), ground.at(x + 1, z + 1)));
         }
 
         /** Как {@code StrikeProjectile.clearAlong}: до первой точки прямой ниже рельефа, кроме последних {@code margin} блоков. */
@@ -182,6 +177,85 @@ class AutopilotPropertiesTest {
                 + String.join("\n", failures.subList(0, Math.min(15, failures.size()))));
         assertTrue(forgiven <= MAX_OCCLUDED_MISSES * SCENARIOS, "промахов, где " + KNOWN_OCCLUSION + ", " + forgiven + " — больше "
                 + Math.round(MAX_OCCLUDED_MISSES * 100) + " % сценариев (" + summary + ")");
+    }
+
+    /**
+     * Тонкая мачта (колонка 1×1, на 40 выше земли) на пути ракеты в 600 блоках: прежний датчик (три точки по курсу)
+     * колонку между точками не видел, а фильтр высоты сглаживал короткий пик, и ракета на бреющем билась в неё.
+     * Полоса рельефа видит её за {@link WeaponSpec.Airframe#reliefLookahead} блоков, и ракета успевает набрать высоту —
+     * и с бреющего, и на наборе после ускорителя.
+     */
+    @Test
+    void missileClearsMast() {
+        double ground = 64;
+        WeaponSpec.Airframe air = WeaponSpec.MISSILE.airframe();
+        List<String> failures = new ArrayList<>();
+        for (double x : new double[] {0.1, 0.5, 0.9}) {
+            for (double mastAt : new double[] {250, 600}) {
+                for (FlightPhase phase : new FlightPhase[] {FlightPhase.CLIMB, FlightPhase.CRUISE}) {
+                    int mz = (int) mastAt;
+                    Ground g = (px, pz) -> Mth.floor(px) == 0 && Mth.floor(pz) == mz ? ground + 40 : ground;
+                    Vec3 aim = new Vec3(x, ground + 0.5, 1500);
+                    MissileAutopilot missile = new MissileAutopilot(air);
+                    missile.approach(1500);
+                    Vec3 start = phase == FlightPhase.CLIMB ? new Vec3(x, ground + 2, 0) : new Vec3(x, missile.airborneAltitude(aim, ground), 0);
+                    String end = straightFlight(g, start, phase, phase == FlightPhase.CLIMB ? 1.5 : air.cruiseSpeed(), air, aim, mz + 10,
+                            c -> missile.fly(c, aim, aim, true));
+                    if (!end.equals("passed")) failures.add(String.format(Locale.ROOT, "x %.1f, мачта в %.0f, старт %s: %s", x, mastAt, phase, end));
+                }
+            }
+        }
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
+    }
+
+    /**
+     * Высокий дом (20×20 до y 135) на пути шахеда в 600 блоках, цель на 70 за ним: крейсер — цель+30, дом выше него
+     * на ~35, набор не круче 15° — нужно ~150 блоков пути, а прежний датчик видел дом за 45. Полоса с наклоном набора
+     * видит его заранее, шахед проходит над ним и попадает.
+     */
+    @Test
+    void droneClearsTallHouse() {
+        double ground = 70;
+        WeaponSpec.Airframe air = WeaponSpec.DRONE.airframe();
+        List<String> failures = new ArrayList<>();
+        for (double x : new double[] {-12, 0, 9.5}) {
+            Ground g = (px, pz) -> px >= -10 && px < 10 && pz >= 600 && pz < 620 ? 135 : ground;
+            Vec3 aim = new Vec3(x, ground + 0.5, 900);
+            DroneAutopilot drone = new DroneAutopilot(air);
+            Vec3 start = new Vec3(x, 0, 0);
+            start = new Vec3(x, drone.airborneAltitude(start, aim, ground), 0);
+            String end = straightFlight(g, start, FlightPhase.CRUISE, air.cruiseSpeed(), air, aim, Double.POSITIVE_INFINITY,
+                    c -> drone.fly(c, aim, aim, true));
+            if (!end.equals("hit")) failures.add(String.format(Locale.ROOT, "x %.1f: %s", x, end));
+        }
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
+    }
+
+    /**
+     * Полёт снаряда курсом +Z из {@code start} в фазе {@code phase} на {@code aim}: «passed» — прошёл {@code passZ},
+     * «hit» — долетел до цели, иначе где врезался.
+     */
+    static String straightFlight(Ground ground, Vec3 start, FlightPhase phase, double speed, WeaponSpec.Airframe air, Vec3 aim,
+                                 double passZ, Consumer<Model> fly) {
+        Model c = new Model(ground, start, speed);
+        c.phase = phase;
+        c.altitude.reset(start.y);
+        c.flight.set(FlightController.anglesTo(start, new Vec3(aim.x, start.y, aim.z))[0], phase == FlightPhase.CLIMB ? -14 : 0);
+        for (c.tick = 0; c.tick < 4000; c.tick++) {
+            fly.accept(c);
+            if (c.pos.distanceTo(aim) <= c.speed + air.reachPad()) return "hit";
+            Vec3 dir = c.flight.forward();
+            for (double d = 0; d <= c.speed; d += 0.25) {
+                Vec3 p = c.pos.add(dir.scale(d));
+                if (p.y < ground.at(p.x, p.z)) {
+                    if (p.distanceTo(aim) <= c.speed + air.reachPad()) return "hit";
+                    return String.format(Locale.ROOT, "врезался в (%.1f %.1f %.1f) на тике %d, фаза %s", p.x, p.y, p.z, c.tick, c.phase);
+                }
+            }
+            c.pos = c.pos.add(dir.scale(c.speed));
+            if (c.pos.z > passZ) return "passed";
+        }
+        return String.format(Locale.ROOT, "не долетел: (%.1f %.1f %.1f)", c.pos.x, c.pos.y, c.pos.z);
     }
 
     static Outcome fly(Scenario s) {

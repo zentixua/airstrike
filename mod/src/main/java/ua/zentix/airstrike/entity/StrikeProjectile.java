@@ -144,8 +144,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
 
         @Override
-        public double reliefAhead(double... distances) {
-            return terrainAhead(level(), distances);
+        public double relief(int x, int z) {
+            return StrikeProjectile.this.relief(level(), x, z);
         }
 
         @Override
@@ -613,13 +613,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         virtual = false;
         // дошедший до поверхности попадает в неё — поднимать его над рельефом незачем
         if (!flightPhase().onLauncher() && grounded == null) {
-            // рельеф под снарядом и впереди на 5 тиков полёта, каждый блок (только готовые чанки): не возникнуть
+            // рельеф под снарядом и впереди на 5 тиков полёта, каждая колонка полосы (только готовые чанки): не возникнуть
             // перед склоном или стеной, которую не успеть перепрыгнуть. Путь, который кончается у цели, — только до неё:
             // рельеф за целью поднимал ракету РСЗО, вернувшуюся в 10 блоках от цели ниже рельефа, на десятки блоков, и
             // она рвалась в воздухе или на склоне рядом с целью (стенд 29.09.2026)
-            double[] ahead = new double[(int) Math.min(Math.max(80, speed * 5), pathLeft())];
-            for (int i = 0; i < ahead.length; i++) ahead[i] = i + 1;
-            double floor = Math.max(surfaceY(level, getX(), getZ()), terrainAhead(level, ahead)) + clearance();
+            double ahead = Math.min(Math.max(80, speed * 5), pathLeft());
+            double floor = reliefStraightAhead(level, ahead) + clearance();
             if (getY() < floor) {
                 setPos(getX(), floor, getZ());
                 altitude.reset(floor);
@@ -1067,17 +1066,23 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z), Terrain.Allowed.CHUNK).y();
     }
 
-    /** Наибольшая высота рельефа на нескольких расстояниях впереди по горизонтали. */
-    protected double terrainAhead(Level level, double... distances) {
-        if (virtual) return level.getMinBuildHeight(); // вне мира рельеф не читаем
+    /**
+     * Датчик {@link Craft#relief}: высота рельефа в колонке ({@link #surfaceY}, только готовый чанк); вне мира рельеф
+     * не читаем — низ мира.
+     */
+    protected double relief(Level level, int x, int z) {
+        return virtual ? level.getMinBuildHeight() : surfaceY(level, x, z);
+    }
+
+    /**
+     * Наибольшая высота рельефа под полосой ({@link Autopilot#reliefAlong}) прямо по курсу на {@code distance} блоков
+     * по горизонтали, от колонки под снарядом.
+     */
+    protected double reliefStraightAhead(Level level, double distance) {
         Vec3 pos = position();
         double yawRad = Math.toRadians(flight.yaw());
-        double dx = -Math.sin(yawRad), dz = Math.cos(yawRad);
-        double max = level.getMinBuildHeight();
-        for (double d : distances) {
-            max = Math.max(max, surfaceY(level, pos.x + dx * d, pos.z + dz * d));
-        }
-        return max;
+        double[] track = {pos.x, pos.z, pos.x - Math.sin(yawRad) * distance, pos.z + Math.cos(yawRad) * distance};
+        return Autopilot.reliefAlong(track, (x, z) -> relief(level, x, z));
     }
 
     /**

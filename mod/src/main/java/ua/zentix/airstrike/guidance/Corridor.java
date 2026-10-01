@@ -22,15 +22,28 @@ public final class Corridor {
     }
 
     /**
-     * Высота, на которой снаряд должен быть сейчас, чтобы, набирая высоту с наклоном {@code gradient}, пройти над
-     * рельефом всей полосы: наибольшее по колонкам «рельеф − gradient × путь до колонки». С {@code gradient} 0 — просто
-     * наибольшая высота рельефа под полосой. Путь до колонки — проекция её середины на ломаную (не меньше 0).
+     * Набор высоты снаряда до колонки впереди: первые {@code reaction} блоков пути — без набора (снаряд только выходит
+     * на него), дальше — {@code gradient} блоков высоты на блок пути.
+     */
+    public record Climb(double reaction, double gradient) {
+        /** Без набора: колонка учитывается целиком, как бы далеко ни была. */
+        public static final Climb NONE = new Climb(0, 0);
+
+        /** Сколько высоты снаряд успеет набрать за {@code along} блоков пути. */
+        public double gain(double along) {
+            return gradient * Math.max(0, along - reaction);
+        }
+    }
+
+    /**
+     * Высота, на которой снаряд должен быть сейчас, чтобы, набирая высоту по {@code climb}, пройти над рельефом всей
+     * полосы: наибольшее по колонкам «рельеф − набор до колонки». С {@link Climb#NONE} — просто наибольшая высота
+     * рельефа под полосой. Путь до колонки — проекция её середины на ломаную (не меньше 0).
      *
      * @param track     путь по земле: x0, z0, x1, z1, … (одна точка — квадрат вокруг неё)
      * @param halfWidth полуширина полосы, блоков
-     * @param gradient  набор высоты на блок пути по горизонтали
      */
-    public static double highest(double[] track, double halfWidth, double gradient, Relief relief) {
+    public static double highest(double[] track, double halfWidth, Climb climb, Relief relief) {
         double[] max = {Double.NEGATIVE_INFINITY};
         int lanes = Math.max(1, (int) Math.ceil(2 * halfWidth / LANE));
         double travelled = 0;
@@ -51,7 +64,7 @@ public final class Corridor {
             double sx = ax, sz = az, base = travelled;
             GridWalk.Visitor visit = (x, z) -> {
                 double along = point ? 0 : Math.max(0, base + (x + 0.5 - sx) * ux + (z + 0.5 - sz) * uz);
-                max[0] = Math.max(max[0], relief.at(x, z) - gradient * along);
+                max[0] = Math.max(max[0], relief.at(x, z) - climb.gain(along));
                 return true;
             };
             for (int k = 0; k <= lanes; k++) {

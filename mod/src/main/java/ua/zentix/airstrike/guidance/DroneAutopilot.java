@@ -33,15 +33,18 @@ public final class DroneAutopilot {
     private static final int LINE_RECHECK = 4;
     /**
      * Пока прямая до цели закрыта, свой путь вперёд на высоте полёта проверяется на столько блоков: шахед ждёт прямой
-     * над самой высокой частью города, а рельеф впереди ({@link Craft#reliefAhead}, до 45 блоков, три точки) видит
-     * мачты и башни поздно — набор (до 15°) не успевал, и шахеды залпа били в них (город хоста 01.10.2026: 5 и 10 из 30).
-     * На 90 блоках набор успевает подняться на ~20 блоков.
+     * над самой высокой частью города, где прежний датчик рельефа (три точки до 45 блоков) видел мачты и башни поздно —
+     * набор (до 15°) не успевал, и шахеды залпа били в них (город хоста 01.10.2026: 5 и 10 из 30). Полоса рельефа
+     * ({@link Autopilot#reliefAhead}) их теперь видит; эта проверка — вдобавок по клеткам блоков на самой прямой
+     * вперёд, раз в {@link #LINE_RECHECK} тиков. На 90 блоках набор поднимает ~20 блоков.
      */
     private static final double PATH_AHEAD = 90;
 
     private final WeaponSpec.Airframe air;
     private final Autopilot.Turn climbTurn;
     private final Autopilot.Turn cruiseTurn;
+    /** Рельеф впереди. */
+    private final Autopilot.ReliefSensor relief = new Autopilot.ReliefSensor();
     /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
     /** Сколько тиков ещё не проверять закрытую прямую до цели (не сохраняется: после загрузки — проверить сразу). */
@@ -96,15 +99,15 @@ public final class DroneAutopilot {
         Bearing b = Bearing.of(c.position(), aim);
         Bearing n = Bearing.of(c.position(), nav);
         FlightPhase ph = c.phase();
+        Autopilot.Turn turn = ph == FlightPhase.CLIMB ? climbTurn : cruiseTurn;
 
         if (ph == FlightPhase.CLIMB) {
             // винт на полных оборотах, скорость после ускорителя спадает к крейсерской
             c.setSpeed(c.speed() + (air.cruiseSpeed() - c.speed()) * 0.04);
-            double terrain = c.reliefAhead(15, 30, 45);
+            double terrain = relief.reliefAhead(c, nav, turn, air);
             c.holdAltitude(Math.max(cruiseAlt, terrain + ABOVE_RELIEF), 0.10, 1.0, 0.12);
             if (c.phaseAge() > 60 && Math.abs(cruiseAlt - c.position().y) < 6) c.setPhase(FlightPhase.CRUISE);
         }
-        Autopilot.Turn turn = ph == FlightPhase.CLIMB ? climbTurn : cruiseTurn;
         // цель внутри круга разворота: пике отменяется, шахед уходит прямо, набирая высоту, и заходит снова
         boolean outOfTurn = Autopilot.outOfTurn(c, nav, n, air.attack().reattackMin(), turn.rate());
         if (outOfTurn && c.phase() == FlightPhase.TERMINAL) c.setPhase(FlightPhase.CRUISE);
@@ -118,7 +121,7 @@ public final class DroneAutopilot {
 
         if (c.phase() == FlightPhase.CRUISE) {
             c.setSpeed(c.speed() + (air.cruiseSpeed() - c.speed()) * 0.05);
-            double terrain = c.reliefAhead(15, 30, 45);
+            double terrain = relief.reliefAhead(c, nav, turn, air);
             double desired = Math.max(Math.max(Math.max(terrain, obstacleTop) + ABOVE_RELIEF, cruiseAlt), aim.y + ABOVE_TARGET);
             c.holdAltitude(desired, 0.12, 1.2, 0.15);
         } else if (c.phase() == FlightPhase.TERMINAL) {
@@ -144,7 +147,10 @@ public final class DroneAutopilot {
         Vec3 level = new Vec3(f.x, 0, f.z).normalize();
         double free = c.clearAlong(c.position().add(level.scale(PATH_AHEAD)), 0);
         // наибольший верх за ожидание: над препятствием путь снова свободен, и крейсер опускался бы на него
-        if (free != Double.POSITIVE_INFINITY) obstacleTop = Math.max(obstacleTop, c.reliefAhead(free));
+        if (free != Double.POSITIVE_INFINITY) {
+            Vec3 p = c.position(), at = p.add(level.scale(free + 1));
+            obstacleTop = Math.max(obstacleTop, Autopilot.reliefAlong(new double[]{p.x, p.z, at.x, at.z}, c::relief));
+        }
         return false;
     }
 
