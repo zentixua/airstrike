@@ -2,17 +2,23 @@ package ua.zentix.airstrike.scenario;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.strike.PickHints;
+import ua.zentix.airstrike.strike.VirtualFlights;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Замер потока сервера вокруг ударов на копии мира игрока ({@code tools/prod_client.py strike-profile --world …
@@ -115,6 +121,7 @@ final class StrikeProfile {
         }
         secondNanos += took;
         secondMax = Math.max(secondMax, took);
+        if (e.getServer().getTickCount() % 100 == 0) logFlights(e.getServer().overworld());
         if (++secondTicks == 20) {
             Airstrike.LOG.info("SCENARIO strike-profile second mspt={} max={} wall={} after «{}» {}", String.format(Locale.ROOT, "%.1f", secondNanos / 20 / 1e6),
                     secondMax / 1_000_000, (end - secondStart) / 1_000_000, stepName, since(e.getServer(), end));
@@ -122,5 +129,19 @@ final class StrikeProfile {
             secondMax = 0;
             secondTicks = 0;
         }
+    }
+
+    /**
+     * Раз в 5 с, пока летят снаряды: сколько их в мире и вне его по фазам полёта — удар без единого попадания
+     * (прогон 740eec9) иначе не отличить от снарядов, застрявших в полёте или на пусковой.
+     */
+    private void logFlights(ServerLevel level) {
+        Map<String, Integer> in = new TreeMap<>(), off = new TreeMap<>();
+        for (Entity en : level.getAllEntities()) {
+            if (en instanceof StrikeProjectile p) in.merge(p.weapon().getSerializedName() + " " + p.flightPhase(), 1, Integer::sum);
+        }
+        for (StrikeProjectile p : VirtualFlights.get(level).flights()) off.merge(p.weapon().getSerializedName() + " " + p.flightPhase(), 1, Integer::sum);
+        if (in.isEmpty() && off.isEmpty()) return;
+        Airstrike.LOG.info("SCENARIO strike-profile flights in world {} off world {} after «{}» {}", in, off, stepName, since(level.getServer(), System.nanoTime()));
     }
 }

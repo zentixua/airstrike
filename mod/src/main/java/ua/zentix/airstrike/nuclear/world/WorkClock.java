@@ -31,6 +31,8 @@ public final class WorkClock {
     /** Для проверок: время работы в этом тике и наибольшее за тик, нс. */
     private long usedThisTick, maxTickNanos;
     private long fakeNow;
+    /** Счётчик {@link #sampler} считающих часов. */
+    private long sampled;
 
     private long deadline;
     /** Оценка длительности следующей единицы, нс. */
@@ -104,6 +106,14 @@ public final class WorkClock {
 
     private double kindEstimate(int kind) {
         return kind < kindEstimate.length ? kindEstimate[kind] : 0;
+    }
+
+    /**
+     * Часы внутри единицы (порция блоков взрыва идёт, пока короче срока): настоящие часы — те же; считающие — свой
+     * счётчик, каждое чтение двигает его на цену единицы (порция из «срок / цена» шагов), время очереди он не трогает.
+     */
+    public LongSupplier sampler() {
+        return unitCost > 0 ? () -> sampled += unitCost : time;
     }
 
     /** Начало единицы работы: отметка для {@link #end}. */

@@ -14,6 +14,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.entity.BomberEntity;
@@ -59,7 +60,8 @@ public final class StrikeService {
 
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
-     * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)
+     * @param siren       первый снаряд приказа (одиночный удар или первый снаряд залпа): включить сирену у цели на подлёте
+     *                    (у залпа сирена одна на весь залп), искать место пусковой заново
      * @param nuke        мощность и подрыв ядерной боеголовки; у крылатой ракеты и бомбы — только с {@code onCarrier}
      *                    (МБР — всегда ядерная)
      */
@@ -67,6 +69,7 @@ public final class StrikeService {
                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (shooter != null && shooter.level() != level) shooter = null;
+        if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
         if (spec.launch() == WeaponSpec.Launch.ICBM) {
             // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
@@ -125,24 +128,70 @@ public final class StrikeService {
         return fromAfar(level, weapon, target, point, dir, length, entry, side, owner);
     }
 
+    /**
+     * Шахед или ракета от имени {@code shooter}, как с пульта, но без поиска игрока в списке (GameTest: стреляющий —
+     * {@code FakePlayer} NeoForge). Снаряд ещё не добавлен в мир: с пусковой — добавить, вне мира — уже летит.
+     */
+    @Nullable
+    public static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Vec3 point, float yaw, ServerPlayer shooter) {
+        StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
+        return launchGuided(level, weapon, new Target.Point(point), point, yaw, shooter.getUUID(), shooter);
+    }
+
+    /** Курс пусковой шахедов и ракет не дальше этого от направления на цель, °: иначе залп уходил бы от цели. */
+    private static final float MAX_OFF_TARGET = 90;
     @Nullable
     private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
                                                  double length, double entry, double side, ServerPlayer shooter) {
-        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon);
+        // пусковая, чей сектор пуска упирается в постройку, не годится: снаряд разбился бы о неё до взведения
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon, l -> LaunchSite.clearAhead(level, l, point));
         if (launcher == null) {
-            Vec3 site = LaunchSite.find(level, shooter);
-            if (site == null) return null;
-            // пакет смотрит на первую точку маршрута
-            Route plan = Route.plan(site, point, dir, length, entry, side);
-            Vec3 first = plan.current() == null ? point : plan.current();
-            launcher = LaunchSite.deploy(level, site, FlightController.anglesTo(site, first)[0], weapon, shooter);
+            if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
+            // пакет смотрит на первую точку маршрута — обход с одной или с другой стороны, какой свободен; иначе
+            // поворачивается (не дальше MAX_OFF_TARGET от цели), пока не найдёт свободный сектор
+            double[] sides = {side, -side};
+            LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, point, site -> {
+                float[] yaws = new float[sides.length];
+                for (int i = 0; i < sides.length; i++) {
+                    Route plan = Route.plan(site, point, dir, length, entry, sides[i]);
+                    yaws[i] = FlightController.anglesTo(site, plan.current() == null ? point : plan.current())[0];
+                }
+                return yaws;
+            }, MAX_OFF_TARGET);
+            if (pick == null) {
+                noLaunchSite(level, shooter, weapon);
+                return null;
+            }
+            if (pick.preferred() >= 0) side = sides[pick.preferred()];
+            launcher = LaunchSite.deploy(level, pick.site(), pick.yaw(), weapon, shooter);
         }
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
         Slot slot = Slot.reserve(level, launcher);
         p.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point, shooter.getUUID());
-        p.setRoute(Route.plan(slot.rail(), point, dir, length, entry, side));
+        // первая точка маршрута — на курсе пусковой в дальности взведения: до неё снаряд идёт ровно по проверенному
+        // сектору, а доворачивает на маршрут уже взведённым
+        Vec3 gate = gate(slot.rail(), launcher.getYRot());
+        Route plan = Route.plan(gate, point, dir, Math.max(0, length - ProximityFuse.ARM_DISTANCE), entry, side);
+        p.setRoute(plan.after(gate, slot.rail()));
         return p;
+    }
+
+    /** Точка маршрута на курсе пусковой {@code yaw} в дальности взведения от направляющей {@code rail}. */
+    private static Vec3 gate(Vec3 rail, float yaw) {
+        return rail.add(Local.horizontal(yaw).scale(ProximityFuse.ARM_DISTANCE));
+    }
+
+    /**
+     * Места пусковой у стреляющего нет (нет ровного места под небом или сектор пуска везде упирается в постройки):
+     * удар идёт издалека — строка ему над хотбаром и в лог, раз на приказ (залп): остаток залпа с этого чанка идёт
+     * издалека без новых поисков ({@link StrikeWorld#noLaunchSite}).
+     */
+    private static void noLaunchSite(ServerLevel level, ServerPlayer shooter, WeaponType weapon) {
+        if (!StrikeWorld.get(level).rememberNoLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return;
+        Airstrike.LOG.info("Пуск: {} — пусковую у {} негде поставить (нет места или сектор пуска упирается в постройки) у {}, заход издалека",
+                weapon.getSerializedName(), shooter.getGameProfile().getName(), shooter.blockPosition());
+        shooter.displayClientMessage(Component.translatable("airstrike.launch.no_site").withStyle(ChatFormatting.GOLD), true);
     }
 
     /**
@@ -166,13 +215,21 @@ public final class StrikeService {
      */
     @Nullable
     private static LauncherEntity aimedLauncher(ServerLevel level, ServerPlayer shooter, WeaponType weapon, Vec3 point) {
-        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon);
+        // своя — если на цель с неё свободен сектор пуска (катапульта, труба пакета): иначе снаряд разбился бы о постройку
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon,
+                l -> LaunchSite.clearAhead(level, l.position(), FlightController.anglesTo(l.position(), point)[0], weapon, point));
         if (launcher != null) {
             launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
-            return launcher;
+            if (LaunchSite.clearAhead(level, launcher, point)) return launcher;
         }
-        Vec3 site = LaunchSite.find(level, shooter);
-        return site == null ? null : LaunchSite.deploy(level, site, FlightController.anglesTo(site, point)[0], weapon, shooter);
+        if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
+        // пакет наводится на цель сам: поворачивать его нельзя, только другое место
+        LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, point, site -> new float[]{FlightController.anglesTo(site, point)[0]}, 0);
+        if (pick == null) {
+            noLaunchSite(level, shooter, weapon);
+            return null;
+        }
+        return LaunchSite.deploy(level, pick.site(), pick.yaw(), weapon, shooter);
     }
 
     /**
