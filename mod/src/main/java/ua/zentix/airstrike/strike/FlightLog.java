@@ -26,7 +26,13 @@ public final class FlightLog {
         /** Запас хода кончился в мире: самоликвидация. */
         EXPIRED(Level.INFO, "не долетели (кончился запас хода) и самоликвидировались, цель"),
         /** Запас хода кончился вне мира: снаряд убран без взрыва. */
-        EXPIRED_VIRTUAL(Level.WARN, "не долетели (кончился запас хода) вне мира и убраны, цель");
+        EXPIRED_VIRTUAL(Level.WARN, "не долетели (кончился запас хода) вне мира и убраны, цель"),
+        /** Столкновение до взведения взрывателя (на старте): разбились без подрыва боевой части. */
+        CRASHED(Level.WARN, "разбились до взведения взрывателя у"),
+        /** Сбиты уроном до взведения (подробность — тип урона): разбились без подрыва боевой части. */
+        SHOT_DOWN(Level.WARN, "сбиты до взведения взрывателя у"),
+        /** Убраны не модом (команда, чистильщик сущностей другого мода; подробность — кем). */
+        REMOVED(Level.WARN, "убраны не модом у");
 
         private final Level level;
         private final String text;
@@ -40,7 +46,7 @@ public final class FlightLog {
     /** Строка лога: уровень и текст. */
     record Line(Level level, String text) {}
 
-    private record Key(String weapon, Event event, boolean targetLost) {}
+    private record Key(String weapon, Event event, boolean targetLost, String detail) {}
 
     /** Сколько снарядов в группе, самый большой оставшийся запас хода (секунд полёта на маршевой) и рамка их точек. */
     private static final class Group {
@@ -69,6 +75,8 @@ public final class FlightLog {
     }
 
     private final Map<Key, Group> groups = new LinkedHashMap<>();
+    /** Сколько снарядов отмечено за всё время, по событиям (для проверок). */
+    private final int[] totals = new int[Event.values().length];
 
     /**
      * Отметить снаряд.
@@ -79,7 +87,18 @@ public final class FlightLog {
      * @param seconds    на сколько секунд полёта на маршевой скорости ему осталось запаса хода (для потери цели; иначе 0)
      */
     public void note(String weapon, Event event, BlockPos point, boolean targetLost, int seconds) {
-        groups.computeIfAbsent(new Key(weapon, event, targetLost), k -> new Group()).add(point, seconds);
+        note(weapon, event, point, targetLost, seconds, "");
+    }
+
+    /** То же с подробностью (курс, тип урона, кем убран): своя строка на каждую. */
+    public void note(String weapon, Event event, BlockPos point, boolean targetLost, int seconds, String detail) {
+        groups.computeIfAbsent(new Key(weapon, event, targetLost, detail), k -> new Group()).add(point, seconds);
+        totals[event.ordinal()]++;
+    }
+
+    /** Сколько снарядов отмечено событием {@code event} за жизнь мира в памяти. */
+    public int total(Event event) {
+        return totals[event.ordinal()];
     }
 
     /** Строки за тик, по одной на группу; отмеченное забывается. */
@@ -89,6 +108,9 @@ public final class FlightLog {
             String tail = switch (k.event) {
                 case LOST_GONE, LOST_OUT_OF_REACH -> ", запас хода ≤ " + g.seconds + " с";
                 case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (потеряна)" : "";
+                case CRASHED -> k.detail.isEmpty() ? "" : ", " + k.detail;
+                case SHOT_DOWN -> ", урон " + k.detail;
+                case REMOVED -> ", кем: " + k.detail;
             };
             lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",
                     g.count, k.weapon, k.event.text, g.where(), tail)));

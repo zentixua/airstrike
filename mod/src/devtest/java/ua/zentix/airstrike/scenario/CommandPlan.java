@@ -23,6 +23,11 @@ record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warning
     record Step(int tick, Kind kind, String arg) {}
 
     static CommandPlan parse(String spec) {
+        return parse(spec, 40);
+    }
+
+    /** {@code gap} — тиков после команды ({@code airstrike.commands.gap}). */
+    static CommandPlan parse(String spec, int gap) {
         List<Step> steps = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         int t = START, gate = -1;
@@ -48,7 +53,7 @@ record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warning
                 t += 1;
             } else {
                 steps.add(new Step(t, Kind.COMMAND, c));
-                t += 40;
+                t += gap;
             }
         }
         return new CommandPlan(steps, gate, t + TAIL, warnings);

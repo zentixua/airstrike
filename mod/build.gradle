@@ -76,6 +76,9 @@ neoForge {
             if (System.getenv('AIRSTRIKE_MP_PORT')) systemProperty 'airstrike.mp.port', System.getenv('AIRSTRIKE_MP_PORT')
             // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
             systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
+            // strike-profile в облаке без prod_client.py: шаги и промежуток — как --prop airstrike.profile.steps/gap
+            if (System.getenv('AIRSTRIKE_PROFILE_STEPS')) systemProperty 'airstrike.profile.steps', System.getenv('AIRSTRIKE_PROFILE_STEPS')
+            if (System.getenv('AIRSTRIKE_PROFILE_GAP')) systemProperty 'airstrike.profile.gap', System.getenv('AIRSTRIKE_PROFILE_GAP')
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
             def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
             programArguments.addAll '--width', size[0], '--height', size[1]

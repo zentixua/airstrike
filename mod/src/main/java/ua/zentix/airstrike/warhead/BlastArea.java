@@ -1,9 +1,12 @@
 package ua.zentix.airstrike.warhead;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.strike.AreaLoader;
@@ -32,6 +35,8 @@ import java.util.UUID;
  * единиц, взрывов и снятых блоков, за сколько тиков, самая долгая единица и из чего сложились лучи взрывов.
  */
 final class BlastArea {
+    /** Долгих блоков в логе за удар. */
+    static final int SLOW_BLOCKS_LOGGED = 5;
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_blast", Comparator.<UUID>naturalOrder());
 
     private final Vec3 centre;
@@ -59,6 +64,8 @@ final class BlastArea {
      * иначе лучи следующего шли то по снятому, то нет, и воронка зависела бы от того, сколько успевает поток сервера.
      */
     private final List<Queued> explosions = new ArrayList<>();
+    /** Долгие блоки удара ({@link #slowBlock}): в логе — первые {@link #SLOW_BLOCKS_LOGGED}. */
+    private int slowBlocks;
 
     private record Queued(StagedExplosion explosion, long tick) {}
 
@@ -93,6 +100,7 @@ final class BlastArea {
      * сам ждёт другие целиком (огненный шар и вторичные — главный), не в счёт: он и должен идти по снятому.
      */
     boolean peersPicking(StagedExplosion e) {
+        explosions.removeIf(q -> q.explosion().done());
         long tick = Long.MIN_VALUE;
         for (Queued q : explosions) if (q.explosion() == e) tick = q.tick();
         for (Queued q : explosions) {
@@ -135,9 +143,24 @@ final class BlastArea {
         for (int i = 0; i < stages.length; i++) rayStages[i] += stages[i];
     }
 
+    /**
+     * Блок снимался дольше {@link StagedExplosion#SLOW_BLOCK_NANOS}: строка в лог, первые {@link #SLOW_BLOCKS_LOGGED}
+     * за удар — чей блок держит порцию (у хоста порция из 16 блоков шла 65 мс).
+     */
+    void slowBlock(ServerLevel level, BlockState state, BlockPos pos, long took) {
+        if (slowBlocks++ >= SLOW_BLOCKS_LOGGED) return;
+        Airstrike.LOG.warn(String.format(Locale.ROOT, "Взрыв: блок %s снимался %.1f мс у %d %d %d (%s, блок-сущность: %s)",
+                BuiltInRegistries.BLOCK.getKey(state.getBlock()), took / 1e6, pos.getX(), pos.getY(), pos.getZ(),
+                level.dimension().location(), state.hasBlockEntity() ? "да" : "нет"));
+    }
+
     /** Счётчики лучей взрыва — в итог удара. */
     void recordCounts(StagedExplosion.RayCounts counts) {
         rayCounts.add(counts);
+    }
+
+    int slowBlocks() {
+        return slowBlocks;
     }
 
     boolean ready(ServerLevel level) {
@@ -165,11 +188,11 @@ final class BlastArea {
         return String.format(Locale.ROOT,
                 "Итог удара (%s) у %d %d %d: %d единиц, взрывов %d, снято блоков %d, стёкол %d, обломков %d, за %d тиков, всего %s мс, "
                         + "самая долгая единица %s мс (%s); шаги взрывов: %s мс; лучи: шагов %d, в воздухе %d, из кэша %d, "
-                        + "запросов аппаратов %d, ванильных взрывов %d",
+                        + "запросов аппаратов %d, ванильных взрывов %d; блоков дольше 10 мс %d",
                 dimension, Mth.floor(centre.x), Mth.floor(centre.y), Mth.floor(centre.z), units,
                 done[ImpactCost.Kind.RAYS.ordinal()], done[ImpactCost.Kind.BLOCKS.ordinal()], done[ImpactCost.Kind.GLASS.ordinal()],
                 done[ImpactCost.Kind.DEBRIS.ordinal()], lastUnitAt - heldAt + 1, ms(nanos), ms(maxUnit), maxKind.label(), rays,
-                rayCounts.steps, rayCounts.airSteps, rayCounts.cached, rayCounts.craftQueries, rayCounts.vanilla);
+                rayCounts.steps, rayCounts.airSteps, rayCounts.cached, rayCounts.craftQueries, rayCounts.vanilla, slowBlocks);
     }
 
     private static String ms(long nanos) {

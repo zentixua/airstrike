@@ -33,6 +33,7 @@
   "airstrike.target.surface": "surface",
   "airstrike.target.locked": "⌖ Target: %s — the strike will follow it",
   "airstrike.target_not_found": "No target",
+  "airstrike.launch.no_site": "No room for a launcher: buildings block the launch path. Coming in from afar.",
   "airstrike.launched.drone": "Shahed leaving the launcher. Impact in ~%s s: follow it with the camera (%2$s).",
   "airstrike.launched.missile": "Cruise missile launched. Impact in ~%s s.",
   "airstrike.launched.rocket": "MLRS: rocket away. Impact in ~%s s.",

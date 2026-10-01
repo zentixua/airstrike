@@ -147,8 +147,13 @@ public final class BlockTickingGameTests {
     /**
      * Печь на аппарате Sable горит и после сборки: держатель чанка плота ({@code PlotChunkHolder}) всегда «тикающий», и
      * условие {@link BlockTicking} его не задерживает — машины Create на аппаратах тикают, как раньше.
+     * <p>
+     * Горение меряется с тика, когда чанк плота пускает блок-сущности и по ванили ({@code LevelChunk.isTicking}):
+     * сущности чанка загружены. Sable, добавив держатель плота, просит у хранилища сущностей прочесть чанк — чтение идёт
+     * в фоне ({@code EntityStorage.loadEntities}), и до него печь не тикает и без мода. Сервер GameTest тикает без пауз:
+     * на CI после тяжёлых тестов (очередь записи сущностей) 40 тиков проходили раньше чтения — горение 1600 → 1600.
      */
-    @GameTest(template = "range", timeoutTicks = 400, batch = "block_ticking_craft", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 600, batch = "block_ticking_craft", skyAccess = true)
     public static void craftBlockEntitiesTick(GameTestHelper h) {
         if (!ModList.get().isLoaded("sable")) {
             h.succeed();
@@ -186,9 +191,20 @@ public final class BlockTickingGameTests {
                         return;
                     }
                     moved[0] = onCraft.getBlockPos();
-                    litAtFind[0] = litTime(onCraft);
                     waited[0] = 0;
                     phase[0] = 2;
+                }
+                case 2 -> {
+                    // ваниль пускает блок-сущности плота, когда хранилище сущностей прочло его чанк (чтение в фоне)
+                    if (!level.areEntitiesLoaded(ChunkPos.asLong(moved[0]))) {
+                        if (++waited[0] > 400) throw new GameTestAssertException("сущности чанка плота не загрузились за 400 тиков");
+                        return;
+                    }
+                    AbstractFurnaceBlockEntity onCraft = (AbstractFurnaceBlockEntity) level.getBlockEntity(moved[0]);
+                    litAtFind[0] = onCraft == null ? -1 : litTime(onCraft);
+                    if (waited[0] > 0) Airstrike.LOG.info("Сущности чанка плота загружены через {} тиков после сборки", waited[0]);
+                    waited[0] = 0;
+                    phase[0] = 3;
                 }
                 default -> {
                     if (++waited[0] < 40) return;

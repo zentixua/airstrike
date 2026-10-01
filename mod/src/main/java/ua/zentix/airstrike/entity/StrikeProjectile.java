@@ -13,6 +13,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -49,6 +50,7 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
 import ua.zentix.airstrike.warhead.Warheads;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -144,6 +146,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         @Override
         public double reliefAhead(double... distances) {
             return terrainAhead(level(), distances);
+        }
+
+        @Override
+        public boolean lineClear(Vec3 to, double margin) {
+            return StrikeProjectile.this.lineClear(level(), to, margin);
         }
     };
     /** Маршрут до точки входа; null — сразу на цель. */
@@ -317,6 +324,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /** Тревога у цели, когда до удара останется {@code leadTicks} (сирена — по обнаружению на подлёте). */
     public void armSiren(int leadTicks) {
         this.sirenLead = leadTicks;
+    }
+
+    /** Маршрут (null — прямо на цель). */
+    @Nullable
+    public Route route() {
+        return route;
     }
 
     /** Маршрут до точки входа (после неё — на цель) и запас хода по плану полёта. */
@@ -526,7 +539,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 Vec3 at = grounded;
                 grounded = null;
                 if (armed()) impact(level, at, null);
-                else crash(level, at);
+                else crashUnarmed(level, at);
                 return;
             }
             if (holdsChunks() && chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
@@ -766,6 +779,21 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 l -> l.explode(this, point.x, point.y, point.z, 1.5f, false, Level.ExplosionInteraction.NONE));
     }
 
+    /**
+     * Столкновение до взведения ({@link #crash}): в лог — строкой на залп ({@link FlightLog}), каждый снаряд — строкой
+     * DEBUG. Иначе такой конец полёта не виден: взрыв ванильный и без строки удара, а залп из 30 шахедов, который весь
+     * разбился о постройку у пусковой, в логе выглядел как пропавший.
+     */
+    protected final void crashUnarmed(ServerLevel level, Vec3 point) {
+        Airstrike.LOG.debug("Снаряд {} {} разбился до взведения у {} (фаза {})", getType().getDescriptionId(), getUUID(),
+                BlockPos.containing(point), flightPhase());
+        // курс — по 10°: у залпа с одной пусковой он общий, строка одна
+        int course = Math.floorMod(Math.round(flight.yaw() / 10f) * 10, 360);
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.CRASHED, BlockPos.containing(point), targetLost(), 0,
+                "курс " + course + "°, фаза " + flightPhase().getSerializedName());
+        crash(level, point);
+    }
+
     /** Слежение за целью; возвращает текущую точку прицеливания. */
     protected Vec3 updateTarget(ServerLevel level) {
         mission().chase(tracker.tick(level));
@@ -884,13 +912,13 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // нос не заглядывает в неготовый чанк (clip грузил бы его); туда снаряд и не шагнёт — уйдёт в полёт вне мира
         Vec3 noseTo = Terrain.readyUntil(level, noseFrom, pos.add(dir.scale(speed + noseLength())));
 
+        // и на разгоне: снаряд, прошедший сквозь дом на ускорителе, выходил из разгона внутри постройки и разбивался о неё
+        // в первом же тике набора — тихо и далеко от места, где встретил её
         Vec3 blockPoint = null;
-        if (!flightPhase().launching()) {
-            BlockHitResult block = level.clip(new ClipContext(noseFrom, noseTo, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, this));
-            if (block.getType() != HitResult.Type.MISS) {
-                // попадание в аппарат Sable приходит в координатах плота
-                blockPoint = SubLevels.toWorld(level, block.getLocation());
-            }
+        BlockHitResult block = level.clip(new ClipContext(noseFrom, noseTo, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, this));
+        if (block.getType() != HitResult.Type.MISS) {
+            // попадание в аппарат Sable приходит в координатах плота
+            blockPoint = SubLevels.toWorld(level, block.getLocation());
         }
         Vec3 sweepEnd = blockPoint != null ? blockPoint : noseTo;
 
@@ -905,7 +933,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
         if (blockPoint != null) {
             if (armed()) impact(level, blockPoint, null);
-            else crash(level, blockPoint);
+            else crashUnarmed(level, blockPoint);
             return false;
         }
 
@@ -1052,6 +1080,23 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return max;
     }
 
+    /**
+     * Датчик {@link Craft#lineClear}: клетки блоков на прямой до точки без последних {@code margin} блоков, только по
+     * готовым чанкам ({@link Terrain#readyUntil}); вне мира — свободна. Закрывает клетка с любой формой столкновения
+     * целиком: у тонкого (забор, мачта из заборов — столб 0,25 блока) луч по форме ({@code Level.clip}) обычно проходит
+     * мимо, а шахед своим корпусом его задевает. Цена — обход клеток по прямой ({@code BlockGetter.traverseBlocks}),
+     * до первой закрытой.
+     */
+    protected boolean lineClear(Level level, Vec3 to, double margin) {
+        if (virtual) return true;
+        Vec3 from = position();
+        double length = from.distanceTo(to);
+        if (length <= margin) return true;
+        Vec3 end = Terrain.readyUntil(level, from, from.lerp(to, (length - margin) / length));
+        return BlockGetter.traverseBlocks(from, end, level,
+                (l, pos) -> l.getBlockState(pos).getCollisionShape(l, pos).isEmpty() ? null : Boolean.FALSE, l -> Boolean.TRUE);
+    }
+
     // ---------------------------------------------------------------- чанки
 
     /**
@@ -1079,8 +1124,36 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     @Override
     public void remove(RemovalReason reason) {
+        if (reason.shouldDestroy() && !isRemoved() && !level().isClientSide()) noteForeignRemoval(reason);
         super.remove(reason);
         releaseTickets();
+    }
+
+    /**
+     * Снаряд убрал не мод (команда {@code /kill}, чистильщик сущностей другого мода): строка WARN на залп ({@link FlightLog},
+     * кем — класс, позвавший удаление), цепочка вызовов — строкой DEBUG.
+     * Свои концы полёта (взрыв, отбой, полёт вне мира) идут из кода мода и видны в стеке; чужое удаление иначе
+     * выглядело бы как пропавший залп — без удара, ошибки и срока жизни.
+     */
+    private void noteForeignRemoval(RemovalReason reason) {
+        List<StackWalker.StackFrame> frames = StackWalker.getInstance().walk(s -> s.skip(2).limit(48).toList());
+        String own = StrikeProjectile.class.getPackageName().substring(0, StrikeProjectile.class.getPackageName().lastIndexOf('.'));
+        for (StackWalker.StackFrame f : frames) if (f.getClassName().startsWith(own)) return;
+        StringBuilder by = new StringBuilder();
+        for (int i = 0; i < Math.min(6, frames.size()); i++) {
+            StackWalker.StackFrame f = frames.get(i);
+            if (i > 0) by.append(" ← ");
+            by.append(f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1)).append('.').append(f.getMethodName());
+        }
+        // кем — первый вызов не из самой сущности (discard, kill)
+        String who = frames.stream().map(StackWalker.StackFrame::getClassName).filter(c -> !c.startsWith("net.minecraft.world.entity."))
+                .findFirst().orElse("?");
+        Airstrike.LOG.debug("Снаряд {} {} у {} (фаза {}) убран не модом ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
+                flightPhase(), reason, by);
+        if (level() instanceof ServerLevel level) {
+            StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.REMOVED, blockPosition(), targetLost(), 0,
+                    who.substring(who.lastIndexOf('.') + 1) + " (" + reason + ")");
+        }
     }
 
     private void releaseTickets() {
@@ -1124,8 +1197,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Сбили: подрыв там, где настигло (на старте, пока взрыватель не взведён, — просто разбился). */
     protected void shotDown(ServerLevel level, DamageSource source) {
-        if (armed()) impact(level, position(), null);
-        else crash(level, position());
+        if (armed()) {
+            impact(level, position(), null);
+            return;
+        }
+        Airstrike.LOG.debug("Снаряд {} {} сбит до взведения у {} (фаза {}, урон {})", getType().getDescriptionId(), getUUID(),
+                blockPosition(), flightPhase(), source.getMsgId());
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.SHOT_DOWN, blockPosition(), targetLost(), 0,
+                source.getMsgId());
+        crash(level, position());
     }
 
     // ---------------------------------------------------------------- синхронизация и интерполяция

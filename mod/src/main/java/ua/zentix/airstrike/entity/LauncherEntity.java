@@ -125,10 +125,14 @@ public class LauncherEntity extends Entity {
      * Ось пакета — поперечная, в {@link #PIVOT_UP} над землёй и {@link #PIVOT_BACK} позади центра прицепа.
      */
     public Vec3 railPoint(int slot) {
-        float yaw = getYRot();
-        Vec3 pivot = Local.at(position(), yaw, 0, 0, PIVOT_UP, -PIVOT_BACK);
-        double[] at = rack().slotOffset(slot);
-        return Local.at(pivot, yaw, -elevation(), at[0], at[1], at[2]);
+        return railPoint(position(), getYRot(), weapon(), slot);
+    }
+
+    /** Центр снаряда на направляющей {@code slot} у пусковой оружия {@code weapon}, стоящей в {@code pos} с курсом {@code yaw}. */
+    public static Vec3 railPoint(Vec3 pos, float yaw, WeaponType weapon, int slot) {
+        Vec3 pivot = Local.at(pos, yaw, 0, 0, PIVOT_UP, -PIVOT_BACK);
+        double[] at = rack(weapon).slotOffset(slot);
+        return Local.at(pivot, yaw, -elevation(weapon), at[0], at[1], at[2]);
     }
 
     /** Направляющие барражирующих: три внизу, два сверху (0.83 м между осями). */

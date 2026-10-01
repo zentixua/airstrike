@@ -6,7 +6,8 @@ import ua.zentix.airstrike.strike.WeaponSpec;
 
 /**
  * Закон полёта шахеда после старта: набор высоты на винте, крейсер над рельефом и не ниже цели+30, пикирование по
- * дуге, когда на последнем участке цель уходит на 18° под горизонт, с разгоном до скорости пике. Старт с пусковой,
+ * дуге, когда на последнем участке цель уходит на 18° под горизонт и прямая до неё свободна от блоков (иначе шахед
+ * идёт дальше и пикирует круче, пока нос ещё успевает довернуть к цели), с разгоном до скорости пике. Старт с пусковой,
  * цель и шаг полёта — у сущности; здесь — только команды органам управления ({@link Craft}).
  */
 public final class DroneAutopilot {
@@ -16,12 +17,28 @@ public final class DroneAutopilot {
     private static final double ABOVE_RELIEF = 18;
     /** Пикирование — когда цель на столько градусов под горизонтом. */
     private static final double DIVE_PITCH = 18;
+    /** Пике: предельная угловая скорость тангажа, °/тик, и её предельное ускорение, °/тик². */
+    private static final double DIVE_RATE = 4.0, DIVE_ACCEL = 0.25;
+    /**
+     * Запас пути на доворот носа к цели: пике с закрытой прямой (цель под крышей, за высоткой у самой цели) начинается,
+     * когда до цели осталось столько путей доворота ({@link #turnDistance}), — позже нос не успел бы, и шахед пролетал бы
+     * цель. Пока путь длиннее, пике ждёт свободной прямой: над городом шахед врезался в высотку на линии пике за десятки
+     * блоков до цели (проверка на городе хоста 01.10.2026).
+     */
+    private static final double DIVE_MARGIN = 1.5;
+    /**
+     * Закрытую прямую до цели проверять снова через столько тиков: луч — до ~200 блоков, в городе залп ждёт прямой
+     * десятки тиков. За паузу шахед пролетает ~8 блоков, это покрывает {@link #DIVE_MARGIN}.
+     */
+    private static final int LINE_RECHECK = 4;
 
     private final WeaponSpec.Airframe air;
     private final Autopilot.Turn climbTurn;
     private final Autopilot.Turn cruiseTurn;
     /** Высота крейсера: не спускаемся ниже, даже если рельеф понижается. */
     private double cruiseAlt;
+    /** Сколько тиков ещё не проверять закрытую прямую до цели (не сохраняется: после загрузки — проверить сразу). */
+    private int lineWait;
 
     public DroneAutopilot(WeaponSpec.Airframe air) {
         this.air = air;
@@ -79,7 +96,9 @@ public final class DroneAutopilot {
         boolean outOfTurn = Autopilot.outOfTurn(c, nav, n, air.attack().reattackMin(), turn.rate());
         if (outOfTurn && c.phase() == FlightPhase.TERMINAL) c.setPhase(FlightPhase.CRUISE);
         // пикирование — как только цель под нужным углом, даже если высота ещё набирается (цель рядом, перенацеливание)
-        if ((c.phase() == FlightPhase.CRUISE || c.phase() == FlightPhase.CLIMB) && finalLeg && b.pitch() >= DIVE_PITCH && !outOfTurn) {
+        // прямая до цели — последней: луч по блокам дороже остальных условий
+        if ((c.phase() == FlightPhase.CRUISE || c.phase() == FlightPhase.CLIMB) && finalLeg && b.pitch() >= DIVE_PITCH && !outOfTurn
+                && (b.distance() <= turnDistance(c, b) * DIVE_MARGIN || lineClear(c, aim))) {
             c.setPhase(FlightPhase.TERMINAL);
         }
 
@@ -89,9 +108,32 @@ public final class DroneAutopilot {
             double desired = Math.max(Math.max(terrain + ABOVE_RELIEF, cruiseAlt), aim.y + ABOVE_TARGET);
             c.holdAltitude(desired, 0.12, 1.2, 0.15);
         } else if (c.phase() == FlightPhase.TERMINAL) {
-            c.flight().arcPitch(b.pitch(), c.speed(), b.distance(), 4.0, 0.25);
+            c.flight().arcPitch(b.pitch(), c.speed(), b.distance(), DIVE_RATE, DIVE_ACCEL);
             c.setSpeed(Math.min(air.diveSpeed(), c.speed() + 0.04));
         }
         Autopilot.steer(c, outOfTurn, n, turn);
+    }
+
+    /** Прямая до цели свободна; закрытая проверяется снова через {@link #LINE_RECHECK} тиков. */
+    private boolean lineClear(Craft c, Vec3 aim) {
+        if (lineWait > 0) {
+            lineWait--;
+            return false;
+        }
+        if (c.lineClear(aim, air.reachPad())) return true;
+        lineWait = LINE_RECHECK - 1;
+        return false;
+    }
+
+    /**
+     * Путь, за который нос доворачивает от нынешнего тангажа до линии на цель {@code b} в пределах пике
+     * ({@link #DIVE_RATE}, {@link #DIVE_ACCEL}): разгон угловой скорости и торможение, при большом угле — с полкой на пределе.
+     */
+    private static double turnDistance(Craft c, Bearing b) {
+        double turn = Math.max(0, b.pitch() - c.flight().pitch());
+        double ticks = turn <= DIVE_RATE * DIVE_RATE / DIVE_ACCEL
+                ? 2 * Math.sqrt(turn / DIVE_ACCEL)
+                : turn / DIVE_RATE + DIVE_RATE / DIVE_ACCEL;
+        return c.speed() * ticks;
     }
 }
