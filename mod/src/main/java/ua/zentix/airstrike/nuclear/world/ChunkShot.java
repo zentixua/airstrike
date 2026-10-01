@@ -4,6 +4,7 @@ import net.minecraft.util.BitStorage;
 import net.minecraft.util.ZeroBitStorage;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.BaseFireBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -235,7 +236,7 @@ final class ChunkShot {
         long h = data.storage().getBits();
         Palette<BlockState> palette = data.palette();
         if (!(palette instanceof GlobalPalette)) {
-            for (int k = 0; k < palette.getSize(); k++) h = mix(h, System.identityHashCode(palette.valueFor(k)));
+            for (int k = 0; k < palette.getSize(); k++) h = mix(h, Block.getId(palette.valueFor(k)));
         }
         for (long v : data.storage().getRaw()) h = mix(h, v);
         return h;
@@ -256,11 +257,11 @@ final class ChunkShot {
         if (palette instanceof GlobalPalette) {
             it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap seen = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
             for (int i = 0; i < storage.getSize(); i++) {
-                h = mix(h, seen.computeIfAbsent(storage.get(i), id -> System.identityHashCode(normal.apply(palette.valueFor(id)))));
+                h = mix(h, seen.computeIfAbsent(storage.get(i), id -> Block.getId(normal.apply(palette.valueFor(id)))));
             }
         } else {
             int[] norm = new int[palette.getSize()];
-            for (int k = 0; k < norm.length; k++) norm[k] = System.identityHashCode(normal.apply(palette.valueFor(k)));
+            for (int k = 0; k < norm.length; k++) norm[k] = Block.getId(normal.apply(palette.valueFor(k)));
             for (int i = 0; i < storage.getSize(); i++) h = mix(h, norm[storage.get(i)]);
         }
         return h;
