@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.material.MapColor;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
@@ -308,7 +309,8 @@ public final class TerrainTiles {
         if (current != level) switchTo(current);
         for (Layer layer : layers) {
             collect(layer);
-            layer.source.changes(current, (chunkX, chunkZ) -> changed(layer, chunkX, chunkZ));
+            if (layer.source.arrivals()) layer.source.changes(current, (chunkX, chunkZ) -> arrived(layer, chunkX, chunkZ));
+            else layer.source.changes(current, (chunkX, chunkZ) -> changed(layer, chunkX, chunkZ));
         }
         if (++ticks % PREFETCH_PERIOD == 0) {
             prefetching = prefetchWanted(AirstrikeConfig.CLIENT.mapPrefetch.get(), opened,
@@ -318,6 +320,7 @@ public final class TerrainTiles {
                 if (!prefetching) {
                     layer.prefetch = Set.of();
                     layer.prefetchOrder = List.of();
+                    dropPartial(layer);
                     continue;
                 }
                 List<Key> keys = around(player.getX(), player.getZ());
@@ -330,11 +333,12 @@ public final class TerrainTiles {
                 if (layer.source.offThread()) request(current, layer, keys, true);
             }
         }
-        // слой чанков читается только в потоке игры: каждый тик, частями, под сроком по часам
+        // слой чанков читается только в потоке игры: каждый тик, частями, под сроком по часам; без пульта и карты — ничего
+        if (!prefetching) return;
         long deadline = System.nanoTime() + PREFETCH_TICK_NS;
         for (Layer layer : layers) {
             if (layer.source.offThread() || layer.broken) continue;
-            prefetchInGameThread(layer, prefetching, () -> layer.source.open(current), System::nanoTime, deadline, b -> apply(layer, b, true));
+            prefetchInGameThread(layer, true, () -> layer.source.open(current), System::nanoTime, deadline, b -> apply(layer, b, true));
         }
     }
 
@@ -349,8 +353,8 @@ public final class TerrainTiles {
 
     /**
      * Плитка слоя, который читается только в потоке игры, построенная заранее не целиком: колонки до {@code next}
-     * (по рядам) прочитаны. Дочитывается в следующих тиках; готовая ложится в слой, только если её за это время
-     * не построила карта ({@code started}).
+     * (по рядам) прочитаны. Дочитывается в следующих тиках; пока она начата, у плитки стоит {@code buildingSince},
+     * и карта в кадре её не строит второй раз.
      */
     static final class Partial {
         final Key key;
@@ -368,15 +372,17 @@ public final class TerrainTiles {
     /**
      * Заранее, в потоке игры, — плитки слоя из {@link Layer#prefetchOrder} (ближние первыми), которых нет, которые
      * устарели или неполны по их часам, по одной колонке, пока часы {@code clock} не дошли до {@code deadline}: начатая
-     * плитка продолжается со следующего тика, готовая уходит в {@code sink}. Не нужно ({@code wanted} false) — начатая
-     * бросается, а источник и часы не трогаются: без пульта и открытой карты это ничего не стоит.
+     * плитка продолжается со следующего тика, готовая уходит в {@code sink}; начатая плитка, которая больше не нужна
+     * заранее (игрок ушёл, телепорт), бросается не дочитанной. Не нужно ({@code wanted} false) — начатая бросается,
+     * а источник и часы не трогаются.
      */
     static void prefetchInGameThread(Layer layer, boolean wanted, Supplier<TerrainSource.Reader> open, LongSupplier clock, long deadline,
                                      Consumer<Built> sink) {
         if (!wanted) {
-            layer.partial = null;
+            dropPartial(layer);
             return;
         }
+        if (layer.partial != null && !layer.prefetch.contains(layer.partial.key)) dropPartial(layer);
         if (layer.partial == null && (layer.partial = nextPartial(layer, clock.getAsLong())) == null) return;
         TerrainSource.Reader reader = open.get();
         if (reader == null) return;
@@ -400,16 +406,16 @@ public final class TerrainTiles {
                 long now = clock.getAsLong();
                 p.nanos += now - start;
                 if (late) return;
-                layer.partial = null;
                 Tile t = layer.tiles.get(p.key);
-                // за это время её построила карта (или плитку вытеснили) — эта уже не новее
+                dropPartial(layer);
+                // за это время плитку построили иначе (или её вытеснили) — эта уже не новее
                 if (t != null && t.builtAt <= p.started) sink.accept(new Built(p.key, generation, p.columns, p.nanos));
                 if (now >= deadline || (layer.partial = nextPartial(layer, now)) == null) return;
             }
         }
     }
 
-    /** Следующая плитка, которую слой строит заранее: как {@link #request} с {@code prefetch}. */
+    /** Следующая плитка, которую слой строит заранее: как {@link #request} с {@code prefetch}; отмечена «строится». */
     @Nullable
     private static Partial nextPartial(Layer layer, long now) {
         for (Key key : layer.prefetchOrder) {
@@ -418,10 +424,20 @@ public final class TerrainTiles {
             int u = urgency(false, t.builtAt, t.stale, t.columns, layer.source.refreshNanos(), now);
             if (u == 0 || u == 1 && (t.columns == null || !t.columns.complete())) {
                 t.stale = false;
+                t.buildingSince = now;
                 return new Partial(key, now);
             }
         }
         return null;
+    }
+
+    /** Начатая заранее плитка больше не строится: снять с неё отметку «строится». */
+    private static void dropPartial(Layer layer) {
+        Partial p = layer.partial;
+        if (p == null) return;
+        layer.partial = null;
+        Tile t = layer.tiles.get(p.key);
+        if (t != null && t.buildingSince == p.started) t.buildingSince = 0;
     }
 
     /** Карта наведения открыта: дальше рельеф вокруг игрока строится заранее до выхода из мира. */
@@ -500,6 +516,7 @@ public final class TerrainTiles {
         prefetching = false;
         // очередь событий DH держала бы обёртки мира, из которого вышли
         if (distantHorizons) DistantHorizonsTerrain.clearChanges();
+        LoadedChunksTerrain.clearArrivals();
         if (executor != null) {
             executor.shutdown();
             executor = null;
@@ -507,10 +524,11 @@ public final class TerrainTiles {
     }
 
     /**
-     * При запуске клиента: есть ли DH с нашей версией API, и подписка на его события. Класс DH-источника трогаем,
-     * только если DH стоит: без него ссылки на API не разрешатся.
+     * При запуске клиента: подписка на приход чанков клиенту (слой чанков), есть ли DH с нашей версией API, и подписка
+     * на его события. Класс DH-источника трогаем, только если DH стоит: без него ссылки на API не разрешатся.
      */
     public static void init() {
+        NeoForge.EVENT_BUS.addListener(LoadedChunksTerrain::onChunkLoad);
         if (!ModList.get().isLoaded("distanthorizons")) return;
         try {
             distantHorizons = DistantHorizonsTerrain.supported();
@@ -763,6 +781,18 @@ public final class TerrainTiles {
             int span = SIZE << l;
             Tile t = layer.tiles.get(new Key(l, Math.floorDiv(chunkX * 16, span), Math.floorDiv(chunkZ * 16, span)));
             if (t != null) t.stale = true;
+        }
+    }
+
+    /**
+     * Источник прислал данные чанка, которых не было (чанк пришёл клиенту): перестроятся только плитки над ним с дырами
+     * — у полной этот чанк уже был.
+     */
+    static void arrived(Layer layer, int chunkX, int chunkZ) {
+        for (int l = 0; l <= MAX_LEVEL; l++) {
+            int span = SIZE << l;
+            Tile t = layer.tiles.get(new Key(l, Math.floorDiv(chunkX * 16, span), Math.floorDiv(chunkZ * 16, span)));
+            if (t != null && t.builtAt != 0 && (t.columns == null || !t.columns.complete())) t.stale = true;
         }
     }
 

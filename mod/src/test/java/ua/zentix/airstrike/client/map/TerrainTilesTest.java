@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -338,7 +339,9 @@ class TerrainTilesTest {
         TerrainTiles.Key key = new TerrainTiles.Key(0, 0, 0);
         layer.tiles.put(key, new TerrainTiles.Tile(key));
         layer.prefetchOrder = List.of(key);
-        layer.partial = new TerrainTiles.Partial(key, 0);
+        layer.prefetch = Set.of(key);
+        layer.partial = new TerrainTiles.Partial(key, 5);
+        layer.tiles.get(key).buildingSince = 5;
         TerrainTiles.prefetchInGameThread(layer, false, () -> {
             throw new AssertionError("источник открыт");
         }, () -> {
@@ -347,13 +350,14 @@ class TerrainTilesTest {
             throw new AssertionError("плитка построена");
         });
         assertNull(layer.partial, "начатая плитка брошена");
+        assertEquals(0, layer.tiles.get(key).buildingSince, "и не числится строящейся");
     }
 
     /**
      * Слой чанков заранее — под сроком по часам, а не по числу плиток: колонки читаются, пока часы не дошли до срока
-     * (здесь каждая колонка — единица часов), начатая плитка дочитывается в следующих тиках с того же места, готовая
-     * уходит в слой, и в том же тике начинается следующая из ближних. Плитка, которую за это время построила карта,
-     * не заменяется более старой.
+     * (здесь каждая колонка — единица часов), начатая плитка дочитывается в следующих тиках с того же места (пока она
+     * начата, у неё отметка «строится» — карта в кадре не строит её второй раз), готовая уходит в слой, и в том же
+     * тике начинается следующая из ближних. Начатая, которая больше не нужна заранее (игрок ушёл), бросается.
      */
     @Test
     void gameThreadPrefetchStopsAtDeadlineAndResumes() {
@@ -365,6 +369,7 @@ class TerrainTilesTest {
         layer.tiles.get(done).columns = filled((x, z) -> 64);
         layer.tiles.get(done).builtAt = 1;
         layer.prefetchOrder = List.of(done, first, second);
+        layer.prefetch = Set.copyOf(layer.prefetchOrder);
         long[] clock = {100};
         List<int[]> reads = new ArrayList<>();
         TerrainSource.Reader reader = new TerrainSource.Reader() {
@@ -390,6 +395,7 @@ class TerrainTilesTest {
         assertEquals(1000, reads.size(), "ровно до срока");
         assertEquals(first, layer.partial.key, "ближняя недостающая — первой");
         assertEquals(1000, layer.partial.next);
+        assertTrue(layer.tiles.get(first).buildingSince != 0, "начатая — «строится»");
         assertTrue(built.isEmpty());
         assertEquals(-64, reads.get(0)[0], "колонка (−64, 128) — угол плитки (−1, 2)");
         assertEquals(128, reads.get(0)[1]);
@@ -403,15 +409,40 @@ class TerrainTilesTest {
         assertEquals(1000, reads.get(1000)[0] + 64 + (reads.get(1000)[1] - 128) * TerrainTiles.SIZE, "продолжена с колонки 1000");
         assertEquals(second, layer.partial.key, "в том же тике — следующая");
         assertEquals(1000, layer.partial.next);
+        assertEquals(0, layer.tiles.get(first).buildingSince, "готовая больше не «строится»");
 
-        // карта тем временем построила вторую сама: дочитанная заранее её не заменяет, а готовые больше не читаются
-        layer.tiles.get(second).builtAt = clock[0] + 1;
-        layer.tiles.get(second).columns = filled((x, z) -> 64);
-        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n, sink);
-        assertEquals(1, built.size(), "построенная картой не заменена");
-        assertNull(layer.partial, "больше нечего");
+        // игрок ушёл: вторая больше не нужна заранее — брошена не дочитанной, а готовые больше не читаются
+        layer.prefetchOrder = List.of(done, first);
+        layer.prefetch = Set.copyOf(layer.prefetchOrder);
         int total = reads.size();
         TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n, sink);
-        assertEquals(total, reads.size(), "всё готово — источник не читается");
+        assertEquals(total, reads.size(), "не дочитывается, и читать больше нечего");
+        assertNull(layer.partial);
+        assertEquals(0, layer.tiles.get(second).buildingSince, "брошенная не числится строящейся");
+        assertEquals(1, built.size());
+    }
+
+    /**
+     * Чанк пришёл клиенту: перечитываются только плитки над ним с дырами (на всех уровнях); полная, ещё не построенная
+     * и соседняя не трогаются.
+     */
+    @Test
+    void arrivedChunkRefreshesOnlyTilesWithHoles() {
+        TerrainTiles.Layer layer = layer(false, 30_000_000_000L);
+        TerrainTiles.Key holed = new TerrainTiles.Key(0, -1, -2), full = new TerrainTiles.Key(1, -1, -1), fresh = new TerrainTiles.Key(4, -1, -1),
+                beside = new TerrainTiles.Key(0, 0, -2);
+        for (TerrainTiles.Key k : List.of(holed, full, fresh, beside)) layer.tiles.put(k, new TerrainTiles.Tile(k));
+        layer.tiles.get(holed).columns = filled((x, z) -> x < 8 ? 64 : Integer.MIN_VALUE);
+        layer.tiles.get(holed).builtAt = 1;
+        layer.tiles.get(full).columns = filled((x, z) -> 64);
+        layer.tiles.get(full).builtAt = 1;
+        layer.tiles.get(beside).columns = new TerrainTiles.Columns();
+        layer.tiles.get(beside).builtAt = 1;
+        // чанк (−1, −5): плитка (−1, −2) уровня 0
+        TerrainTiles.arrived(layer, -1, -5);
+        assertTrue(layer.tiles.get(holed).stale, "с дырами — перечитать");
+        assertFalse(layer.tiles.get(full).stale, "полная — этот чанк у неё уже был");
+        assertFalse(layer.tiles.get(fresh).stale, "ещё не построена — и так в очереди");
+        assertFalse(layer.tiles.get(beside).stale, "соседняя");
     }
 }
