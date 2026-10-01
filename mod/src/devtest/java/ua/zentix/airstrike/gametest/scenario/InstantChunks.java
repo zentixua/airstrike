@@ -6,8 +6,10 @@ import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.storage.IOWorker;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
@@ -31,9 +33,17 @@ import java.util.List;
  * такого чанка здесь не видно. Ожидание района мода (снаряд ждёт загрузки цели, {@code AREA_WAIT_LIMIT}), уход из мира
  * на краю тикающих чанков из-за медленной генерации и возврат в мир тоже не проходят. Это проверяет прогон
  * с настоящей загрузкой ({@code -PscenarioRealChunks}, {@link ScenarioMode}): свойства те же, без эталона.
+ * <p>
+ * Запись чанков на диск. Выгруженный чанк уходит в фоновую очередь {@link IOWorker} готовым NBT, а в ней чтения
+ * (генерация сначала ищет чанк на диске) идут вперёд записей: сервер GameTest тикает без пауз, и за партией сценариев
+ * очередь не успевала — замер с Lithium: до 27,5 тыс. ждущих записи чанков, 3 млн {@code CompoundTag} и 2,5 ГБ живой
+ * кучи при 11 тыс. чанков в памяти, CI (куча 4 ГБ) падал {@code OutOfMemoryError}. Поэтому раз в {@link #WRITE_PERIOD}
+ * тиков сервер ждёт, пока очередь допишет: игровой сервер это успевает между тиками.
  */
 final class InstantChunks {
     private static final int FULL = ChunkLevel.byStatus(FullChunkStatus.FULL);
+    /** Раз во сколько тиков дождаться записи выгруженных чанков. */
+    private static final int WRITE_PERIOD = 100;
 
     private static int users;
     private static boolean registered;
@@ -55,7 +65,19 @@ final class InstantChunks {
 
     private static void onServerTick(ServerTickEvent.Post e) {
         if (users <= 0) return;
-        for (ServerLevel level : e.getServer().getAllLevels()) settle(level);
+        boolean write = e.getServer().getTickCount() % WRITE_PERIOD == 0;
+        for (ServerLevel level : e.getServer().getAllLevels()) {
+            settle(level);
+            if (write) awaitWrites(level);
+        }
+    }
+
+    /** Дождаться, пока фоновая очередь допишет выгруженные чанки (без сброса файлов на диск). */
+    private static void awaitWrites(ServerLevel level) {
+        long t0 = System.nanoTime();
+        ((IOWorker) level.getChunkSource().chunkMap.chunkScanner()).synchronize(false).join();
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+        if (ms >= 1000) Airstrike.LOG.info("SCENARIO запись чанков ({}) дождалась за {} мс", level.dimension().location(), ms);
     }
 
     /** Догрузить всё, что тикеты требуют полностью. */
