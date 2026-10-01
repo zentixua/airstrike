@@ -14,5 +14,8 @@
   ],
   "injectors": {
     "defaultRequire": 0
-  }
+  },
+  "client": [
+    "xaero.BlockTextureColorLockMixin"
+  ]
 }
