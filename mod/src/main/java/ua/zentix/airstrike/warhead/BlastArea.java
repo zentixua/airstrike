@@ -9,6 +9,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.compat.DhUpdates;
 import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.ImpactCost;
 import ua.zentix.airstrike.strike.StrikeWorld;
@@ -172,6 +173,10 @@ final class BlastArea {
         if (holders <= 0 || --holders > 0) return;
         StrikeWorld.get(level).areas().release(level, area());
         CraterFalls.get(level).close(level, key);
+        // LOD Distant Horizons: воронка — сейчас, осыпание после неё — когда район перестанет осыпаться
+        long now = level.getGameTime();
+        DhUpdates.markArea(level, centre, reach, now + DhUpdates.SETTLE);
+        DhUpdates.markArea(level, centre, reach, now + CraterFalls.GRACE);
         if (units > 0) {
             Airstrike.LOG.info(summary(level.dimension().location().toString()));
             StrikeWorld.get(level).impactCost().strikeDone();

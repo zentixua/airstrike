@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
-import ua.zentix.airstrike.compat.DhChunks;
+import ua.zentix.airstrike.compat.DhUpdates;
 import ua.zentix.airstrike.compat.SableTerrain;
 import ua.zentix.airstrike.grid.GridLights;
 import ua.zentix.airstrike.util.Terrain;
@@ -56,7 +56,7 @@ import java.util.List;
  * заново), пустота секций — движку света, проверки света (верхняя изменённая точка столбца, новые и убранные блоки под
  * уцелевшим верхом, убранные и новые источники света) — одной задачей движку света. Игроки, которые видят чанк,
  * получают изменения в том же тике пакетами секций ({@code ChunkHolder.blockChanged}, как при {@code setBlock}), LOD
- * Distant Horizons — сразу ({@link DhChunks}). Блоки с блок-сущностью и места POI так не меняются: после подмены их
+ * Distant Horizons — в том же тике в очередь ({@link DhUpdates}). Блоки с блок-сущностью и места POI так не меняются: после подмены их
  * меняет мир ({@link ColumnScar#replace}: {@code onRemove} с его последствиями, содержимое не высыпается, отложенные
  * данные снимаются). Стволы, упавшие в соседний чанк, кладёт очередь после руин соседа. Пожары ставятся вместе
  * с руинами (без {@code setBlock}: огонь у стен и деревьев не будит соседей), им только назначается тик огня.
@@ -308,6 +308,36 @@ public final class RuinPlan {
     }
 
     /**
+     * Руины в копии чанка не из мира — с диска, для LOD Distant Horizons вдали ({@link FarLods}): все места плана (и
+     * «через мир» — копии нечего будить) и, если {@code fires}, пожары без счётчика пожаров подрыва — копия его не
+     * тратит. Любой поток: зовёт
+     * только секции копии. На диске двойников ламп не бывает ({@code ChunkSaves}), поэтому хеш старых состояний —
+     * по состояниям как есть. False — места плана в копии уже не те (чанк меняли после плана): копия не годится.
+     */
+    boolean applyToCopy(LevelChunkSection[] sections, boolean fires) {
+        int k = 0;
+        while (k < cells.length) {
+            int i = section(cells[k]);
+            if (i >= sections.length) return false;
+            LevelChunkSection s = sections[i];
+            long h = 0;
+            for (; k < cells.length && section(cells[k]) == i; k++) {
+                int c = cells[k];
+                h = mixNormal(h, s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15));
+            }
+            if (h != oldHashes[i]) return false;
+        }
+        for (int c : cells) sections[section(c)].setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
+        for (int c : fires ? this.fires : NONE) {
+            LevelChunkSection s = sections[section(c)];
+            if (s.getBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15).isAir()) {
+                s.setBlockState(c & 15, (c >> 8) & 15, (c >> 4) & 15, states[(c >>> STATE_SHIFT) & STATE_MASK], false);
+            }
+        }
+        return true;
+    }
+
+    /**
      * Все блоки чанка те же, что в снимке плана (поток сервера): секция за секцией — отпечаток как есть, а где он
      * разошёлся (перестроенная палитра, лампа, погашенная блэкаутом), — по местам с точностью до погашенных ламп. Тогда
      * карты высот и источники неба из плана верны; нет — столбцы плана считаются по чанку ({@link #rescanColumns}).
@@ -523,7 +553,7 @@ public final class RuinPlan {
         }
         // LOD Distant Horizons: руины вместе с волной, а не при следующем сохранении чанка
         long dh = System.nanoTime();
-        DhChunks.changed(level, chunk);
+        DhUpdates.mark(level, pos, level.getGameTime());
         long took = System.nanoTime() - t;
         dh = System.nanoTime() - dh;
         PHASES[4] += took;

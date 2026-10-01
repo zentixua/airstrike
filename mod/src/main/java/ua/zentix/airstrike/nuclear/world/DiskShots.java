@@ -3,6 +3,9 @@ package ua.zentix.airstrike.nuclear.world;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.SharedConstants;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
@@ -16,9 +19,13 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
+import net.minecraft.world.level.chunk.PalettedContainerRO;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.ChunkStorage;
 import org.jetbrains.annotations.Nullable;
@@ -68,10 +75,11 @@ final class DiskShots {
 
     /** Что нужно разбору чанка из мира (снимается в потоке сервера: сам разбор мира не читает). */
     record Format(ChunkMap storage, ResourceKey<Level> dimension, Optional<ResourceKey<MapCodec<? extends ChunkGenerator>>> generator,
-                  int minSection, int sections, int minY, int height) {
+                  int minSection, int sections, int minY, int height, Registry<Biome> biomes) {
         static Format of(ServerLevel level) {
             return new Format(level.getChunkSource().chunkMap, level.dimension(), level.getChunkSource().getGenerator().getTypeNameForDataFixer(),
-                    level.getMinSection(), level.getSectionsCount(), level.getMinBuildHeight(), level.getHeight());
+                    level.getMinSection(), level.getSectionsCount(), level.getMinBuildHeight(), level.getHeight(),
+                    level.registryAccess().registryOrThrow(Registries.BIOME));
         }
     }
 
@@ -91,18 +99,10 @@ final class DiskShots {
     }
 
     @SuppressWarnings("unchecked")
-    static Read parse(Format f, ChunkPos pos, CompoundTag tag) {
-        int version = ChunkStorage.getVersion(tag);
-        if (version < OLDEST) return Read.skipped(pos, "данные старше 1.13");
-        if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
-            try {
-                tag = f.storage.upgradeChunkTag(f.dimension, () -> null, tag, f.generator);
-            } catch (RuntimeException e) {
-                return Read.skipped(pos, "не обновились данные версии " + version);
-            }
-        }
-        if (ChunkStatus.byName(tag.getString("Status")) != ChunkStatus.FULL) return Read.skipped(pos, "не сгенерирован до конца");
-        if (tag.contains("below_zero_retrogen", Tag.TAG_COMPOUND)) return Read.skipped(pos, "догенерация под нулём");
+    static Read parse(Format f, ChunkPos pos, CompoundTag raw) {
+        Checked checked = check(f, raw);
+        if (checked.skip != null) return Read.skipped(pos, checked.skip);
+        CompoundTag tag = checked.tag;
         // карты высот: все виды плана, в формате самой карты (биты на значение — по высоте мира)
         CompoundTag maps = tag.getCompound("Heightmaps");
         int[] heights = new int[RuinPlan.HEIGHTMAP_TYPES.length * 256];
@@ -130,5 +130,69 @@ final class DiskShots {
             if (c.maybeHas(st -> !st.isAir())) states[index] = c;
         }
         return new Read(pos, f.minY, states, heights, null);
+    }
+
+    /** Данные чанка, обновлённые до текущей версии, или почему чанк не годится ({@code skip}). */
+    private record Checked(CompoundTag tag, @Nullable String skip) {}
+
+    private static Checked check(Format f, CompoundTag tag) {
+        int version = ChunkStorage.getVersion(tag);
+        if (version < OLDEST) return new Checked(tag, "данные старше 1.13");
+        if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
+            try {
+                tag = f.storage.upgradeChunkTag(f.dimension, () -> null, tag, f.generator);
+            } catch (RuntimeException e) {
+                return new Checked(tag, "не обновились данные версии " + version);
+            }
+        }
+        if (ChunkStatus.byName(tag.getString("Status")) != ChunkStatus.FULL) return new Checked(tag, "не сгенерирован до конца");
+        if (tag.contains("below_zero_retrogen", Tag.TAG_COMPOUND)) return new Checked(tag, "догенерация под нулём");
+        return new Checked(tag, null);
+    }
+
+    /**
+     * Чанк целиком — секции с блоками и биомами, как их разбирает ваниль ({@code ChunkSerializer.read}), но без мира:
+     * без POI, света и карт высот. Для копии чанка с руинами в LOD Distant Horizons ({@link FarLods}). Чтение — поток
+     * ввода-вывода, разбор — {@link RuinWorkers}; {@code skip} — почему чанк не годится.
+     */
+    record Sections(ChunkPos pos, LevelChunkSection[] sections, @Nullable String skip) {}
+
+    static CompletableFuture<Sections> readSections(Format f, ChunkPos pos) {
+        return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseSections(f, pos, t)).orElseGet(() -> new Sections(pos, new LevelChunkSection[0], "нет на диске")),
+                RuinWorkers.executor()).exceptionally(e -> new Sections(pos, new LevelChunkSection[0], "ошибка чтения: " + e));
+    }
+
+    static Sections parseSections(Format f, ChunkPos pos, CompoundTag raw) {
+        Checked checked = check(f, raw);
+        if (checked.skip != null) return new Sections(pos, new LevelChunkSection[0], checked.skip);
+        Codec<PalettedContainerRO<Holder<Biome>>> biomeCodec = PalettedContainer.codecRO(f.biomes.asHolderIdMap(), f.biomes.holderByNameCodec(),
+                PalettedContainer.Strategy.SECTION_BIOMES, f.biomes.getHolderOrThrow(Biomes.PLAINS));
+        LevelChunkSection[] sections = new LevelChunkSection[f.sections];
+        ListTag list = checked.tag.getList("sections", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag section = list.getCompound(i);
+            int index = section.getByte("Y") - f.minSection;
+            if (index < 0 || index >= f.sections) continue;
+            PalettedContainer<BlockState> states;
+            if (section.contains("block_states", Tag.TAG_COMPOUND)) {
+                Optional<PalettedContainer<BlockState>> parsed = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, section.getCompound("block_states")).result();
+                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "секция " + index + " не разобрана");
+                states = parsed.get();
+            } else {
+                states = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(), PalettedContainer.Strategy.SECTION_STATES);
+            }
+            PalettedContainerRO<Holder<Biome>> biomes;
+            if (section.contains("biomes", Tag.TAG_COMPOUND)) {
+                Optional<PalettedContainerRO<Holder<Biome>>> parsed = biomeCodec.parse(NbtOps.INSTANCE, section.getCompound("biomes")).result();
+                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "биомы секции " + index + " не разобраны");
+                biomes = parsed.get();
+            } else {
+                biomes = new PalettedContainer<>(f.biomes.asHolderIdMap(), f.biomes.getHolderOrThrow(Biomes.PLAINS), PalettedContainer.Strategy.SECTION_BIOMES);
+            }
+            sections[index] = new LevelChunkSection(states, biomes);
+        }
+        // секций, которых нет в данных, нет и в мире: воздух с биомом по умолчанию, как у ванили
+        for (int i = 0; i < sections.length; i++) if (sections[i] == null) sections[i] = new LevelChunkSection(f.biomes);
+        return new Sections(pos, sections, null);
     }
 }

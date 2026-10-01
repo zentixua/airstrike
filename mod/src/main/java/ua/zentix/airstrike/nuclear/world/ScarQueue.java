@@ -559,7 +559,7 @@ public final class ScarQueue {
      * Когда до чанка доходит стена: по его центру, не по ближнему краю — фронт идёт 3 блока за тик, и по краю дальняя
      * сторона чанка менялась бы секунду до стены.
      */
-    private static long due(Detonation d, ChunkPos p) {
+    static long due(Detonation d, ChunkPos p) {
         double dx = p.getMiddleBlockX() + 0.5 - d.burst().x, dz = p.getMiddleBlockZ() + 0.5 - d.burst().z, dy = d.burst().y - d.groundY();
         return d.gameTime() + (long) d.arrivalTicks(Math.sqrt(dx * dx + dy * dy + dz * dz));
     }
