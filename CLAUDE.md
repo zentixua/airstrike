@@ -37,7 +37,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
-    nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus и каталоги XDG
+    nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus без запуска служб
+                                           (nested_kwin_bus.conf) и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
                                            ноутбук не засыпает, по выходу гасится всё её
     laptop-jobs/<имя>.md                 ← задания ноутбуку: координатор отправляет файл по SHA коммита, ноутбук сверяет sha256;
@@ -571,7 +572,12 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - Вложенный KWin запускать только через `tools/nested_kwin.sh` (своя шина `dbus-run-session`, свои `XDG_*_HOME`):
   на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания
   KWin у Артёма (Alt+Tab), а kwinrc писал в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
-  /component/kwin org.kde.kglobalaccel.Component isActive` — должно остаться `true`.
+  /component/kwin org.kde.kglobalaccel.Component isActive` — должно остаться `true`. Шина вложенной сессии служб
+  не запускает (`tools/nested_kwin_bus.conf`, без D-Bus-активации), а `XDG_RUNTIME_DIR` у неё общий с рабочим столом:
+  с активацией она поднимала xdg-desktop-portal и xdg-document-portal, а тот при старте снимал у хоста маунт
+  `/run/user/1000/doc` (`fusermount3 -u -z`), при выходе — свой; flatpak-приложения (Prism) не запускались
+  («bwrap: Can't find source path …/doc/by-app/…»; вернуть — `systemctl --user restart xdg-document-portal.service`).
+  Проверка: `findmnt /run/user/1000/doc` до и после — тот же маунт.
 - Вся сборка хоста (217 модов) в Gradle-запуске не стартует: Sinytra Connector требует боевую раскладку Minecraft
   («Could not determine clean minecraft artifact path»). Для проверок с полной сборкой — `tools/prod_client.py`
   (библиотеки и ForgeWrapper из каталога Prism, копия инстанса в `mod/run/prod`; инстанс Артёма не трогается).
