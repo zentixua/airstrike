@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.SlabType;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
@@ -21,37 +22,43 @@ import java.util.function.Supplier;
  * Сначала смотрим блок под точкой удара, затем сам поражённый блок — он важнее.
  */
 public enum GroundMaterial {
-    DIRT(() -> Blocks.DIRT, 0.36f, 0.27f, 0.18f,
+    DIRT(() -> Blocks.DIRT, 0.36f, 0.27f, 0.18f, 1,
             "coarse_dirt", "dirt", "coarse_dirt", "rooted_dirt", "dirt", "grass_block", "coarse_dirt", "gravel", "dirt"),
-    STONE(() -> Blocks.STONE, 0.5f, 0.5f, 0.5f,
+    STONE(() -> Blocks.STONE, 0.5f, 0.5f, 0.5f, 0,
             "cobblestone", "cobblestone", "gravel", "stone", "cobblestone_slab", "andesite", "gravel", "cobblestone", "tuff"),
-    DEEPSLATE(() -> Blocks.DEEPSLATE, 0.3f, 0.3f, 0.32f,
+    DEEPSLATE(() -> Blocks.DEEPSLATE, 0.3f, 0.3f, 0.32f, 0,
             "cobbled_deepslate", "cobbled_deepslate", "cobbled_deepslate", "deepslate", "cobbled_deepslate_slab", "gravel", "tuff", "cobbled_deepslate", "gravel"),
-    SAND(() -> Blocks.SAND, 0.85f, 0.78f, 0.58f,
+    SAND(() -> Blocks.SAND, 0.85f, 0.78f, 0.58f, 1,
             "sand", "sand", "sand", "sandstone", "sandstone", "sandstone_slab", "sand", "smooth_sandstone", "gravel"),
-    SNOW(() -> Blocks.SNOW_BLOCK, 0.95f, 0.95f, 0.97f,
+    SNOW(() -> Blocks.SNOW_BLOCK, 0.95f, 0.95f, 0.97f, 1,
             "snow_block", "snow_block", "snow_block", "packed_ice", "snow", "dirt", "coarse_dirt", "snow_block", "ice"),
-    WOOD(() -> Blocks.OAK_PLANKS, 0.45f, 0.33f, 0.2f,
+    WOOD(() -> Blocks.OAK_PLANKS, 0.45f, 0.33f, 0.2f, 0,
             "oak_planks", "spruce_planks", "stripped_dark_oak_log", "dark_oak_slab", "oak_slab", "spruce_fence", "oak_planks", "stripped_spruce_log", "dark_oak_planks"),
-    BRICK(() -> Blocks.STONE_BRICKS, 0.55f, 0.52f, 0.5f,
+    BRICK(() -> Blocks.STONE_BRICKS, 0.55f, 0.52f, 0.5f, 0,
             "cracked_stone_bricks", "cracked_stone_bricks", "stone_brick_slab", "cobblestone", "cobblestone", "stone_brick_wall", "gravel", "bricks", "cobblestone_slab"),
-    TERRACOTTA(() -> Blocks.TERRACOTTA, 0.6f, 0.38f, 0.28f,
+    TERRACOTTA(() -> Blocks.TERRACOTTA, 0.6f, 0.38f, 0.28f, 0,
             "terracotta", "terracotta", "terracotta", "clay", "brown_terracotta", "coarse_dirt", "gravel", "terracotta", "dirt"),
-    GRAVEL(() -> Blocks.GRAVEL, 0.45f, 0.42f, 0.38f,
+    GRAVEL(() -> Blocks.GRAVEL, 0.45f, 0.42f, 0.38f, 0.5f,
             "cobblestone", "gravel", "gravel", "stone", "cobblestone_slab", "andesite", "coarse_dirt", "dirt", "gravel"),
-    WATER(() -> Blocks.GRAVEL, 0.8f, 0.85f, 0.9f,
+    WATER(() -> Blocks.GRAVEL, 0.8f, 0.85f, 0.9f, 0,
             "gravel", "gravel", "gravel", "sand", "sand", "clay", "clay", "dirt", "gravel");
 
     private final Supplier<Block> particle;
     public final float r, g, b;
+    /**
+     * Пористость для звука — G по ISO 9613-2 (п. 7.3.1): 1 — рыхлое (почва с травой, песок, снег) у земли глушит верха,
+     * 0 — твёрдое (камень, кладка, дерево, вода) отражает, гравий — между.
+     */
+    public final float porosity;
     private final String[] debris;
     private List<BlockState> debrisStates;
 
-    GroundMaterial(Supplier<Block> particle, float r, float g, float b, String... debris) {
+    GroundMaterial(Supplier<Block> particle, float r, float g, float b, float porosity, String... debris) {
         this.particle = particle;
         this.r = r;
         this.g = g;
         this.b = b;
+        this.porosity = porosity;
         this.debris = debris;
     }
 
@@ -73,12 +80,13 @@ public enum GroundMaterial {
     /** Грунт в точке удара; чанк не готов — гравий: чтение из неготового чанка на сервере грузит его прямо в тике. */
     public static GroundMaterial sample(Level level, BlockPos at) {
         if (!Terrain.ready(level, at)) return GRAVEL;
-        GroundMaterial below = classify(level.getBlockState(at.below()));
-        GroundMaterial here = classify(level.getBlockState(at));
+        GroundMaterial below = of(level.getBlockState(at.below()));
+        GroundMaterial here = of(level.getBlockState(at));
         return here != null ? here : below != null ? below : GRAVEL;
     }
 
-    private static GroundMaterial classify(BlockState s) {
+    /** Из чего блок; {@code null} — ни грунт, ни постройка (воздух, трава, блоки других модов без тегов). */
+    public static @Nullable GroundMaterial of(BlockState s) {
         if (s.is(Blocks.WATER)) return WATER;
         if (s.is(BlockTags.TERRACOTTA) || s.is(Blocks.CLAY)) return TERRACOTTA;
         if (s.is(BlockTags.STONE_BRICKS) || s.is(Blocks.COBBLESTONE) || s.is(Blocks.BRICKS) || s.is(Blocks.MOSSY_COBBLESTONE)) return BRICK;
