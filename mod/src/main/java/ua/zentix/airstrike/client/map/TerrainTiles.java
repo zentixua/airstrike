@@ -786,13 +786,15 @@ public final class TerrainTiles {
 
     /**
      * Источник прислал данные чанка, которых не было (чанк пришёл клиенту): перестроятся только плитки над ним с дырами
-     * — у полной этот чанк уже был.
+     * — у полной этот чанк уже был — и строящиеся сейчас (их колонки до прихода чанка уже прочитаны пустыми; отметку
+     * готовая постройка не снимает).
      */
     static void arrived(Layer layer, int chunkX, int chunkZ) {
         for (int l = 0; l <= MAX_LEVEL; l++) {
             int span = SIZE << l;
             Tile t = layer.tiles.get(new Key(l, Math.floorDiv(chunkX * 16, span), Math.floorDiv(chunkZ * 16, span)));
-            if (t != null && t.builtAt != 0 && (t.columns == null || !t.columns.complete())) t.stale = true;
+            if (t == null) continue;
+            if (t.buildingSince != 0 || t.builtAt != 0 && (t.columns == null || !t.columns.complete())) t.stale = true;
         }
     }
 

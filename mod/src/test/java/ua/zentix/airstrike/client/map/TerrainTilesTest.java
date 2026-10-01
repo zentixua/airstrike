@@ -423,8 +423,56 @@ class TerrainTilesTest {
     }
 
     /**
-     * Чанк пришёл клиенту: перечитываются только плитки над ним с дырами (на всех уровнях); полная, ещё не построенная
-     * и соседняя не трогаются.
+     * Чанк пришёл клиенту посреди постройки плитки заранее: колонки до него уже прочитаны пустыми, поэтому дочитанная
+     * плитка ложится в слой с отметкой «устарела» и в следующем тике перечитывается целиком.
+     */
+    @Test
+    void chunkArrivingMidBuildRebuildsTile() {
+        int n = TerrainTiles.SIZE * TerrainTiles.SIZE;
+        TerrainTiles.Layer layer = layer(false, 30_000_000_000L);
+        TerrainTiles.Key key = new TerrainTiles.Key(0, 0, 0);
+        layer.tiles.put(key, new TerrainTiles.Tile(key));
+        layer.prefetchOrder = List.of(key);
+        layer.prefetch = Set.of(key);
+        long[] clock = {100};
+        boolean[] chunkHere = {false};
+        int[] reads = {0};
+        TerrainSource.Reader reader = new TerrainSource.Reader() {
+            @Nullable
+            @Override
+            public TerrainSource.Column column(int x, int z) {
+                clock[0]++;
+                reads[0]++;
+                // чанк (0, 0) — блоки 0…15: до прихода у клиента его нет
+                return x < 16 && z < 16 && !chunkHere[0] ? null : new TerrainSource.Column(64, MapColor.GRASS, 0);
+            }
+
+            @Override
+            public void close() {}
+        };
+        java.util.function.Consumer<TerrainTiles.Built> sink = b -> {
+            TerrainTiles.Tile t = layer.tiles.get(b.key());
+            t.columns = b.columns();
+            t.builtAt = clock[0];
+        };
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + 10, sink);
+        assertTrue(layer.tiles.get(key).buildingSince != 0, "начата");
+        chunkHere[0] = true;
+        TerrainTiles.arrived(layer, 0, 0);
+        // ровно до конца плитки: следующую постройку этот тик не начинает
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n - 10, sink);
+        assertFalse(layer.tiles.get(key).columns.complete(), "дочитана с дырой, прочитанной до прихода чанка");
+        assertTrue(layer.tiles.get(key).stale, "и отмечена устаревшей");
+        int before = reads[0];
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + 2L * n, sink);
+        assertEquals(before + n, reads[0], "перечитана целиком");
+        assertTrue(layer.tiles.get(key).columns.complete(), "без дыры");
+        assertFalse(layer.tiles.get(key).stale);
+    }
+
+    /**
+     * Чанк пришёл клиенту: перечитываются только плитки над ним с дырами (на всех уровнях) и строящиеся; полная, ещё
+     * не построенная и соседняя не трогаются.
      */
     @Test
     void arrivedChunkRefreshesOnlyTilesWithHoles() {
@@ -444,5 +492,9 @@ class TerrainTilesTest {
         assertFalse(layer.tiles.get(full).stale, "полная — этот чанк у неё уже был");
         assertFalse(layer.tiles.get(fresh).stale, "ещё не построена — и так в очереди");
         assertFalse(layer.tiles.get(beside).stale, "соседняя");
+        // строится впервые (готовой ещё нет): колонки до прихода чанка уже прочитаны пустыми
+        layer.tiles.get(fresh).buildingSince = 5;
+        TerrainTiles.arrived(layer, -1, -5);
+        assertTrue(layer.tiles.get(fresh).stale, "строящаяся — перечитать");
     }
 }
