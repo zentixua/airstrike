@@ -34,7 +34,7 @@ sample-type = int16
 [wave]
 file = $RUN/audio.wav
 CONF
-# первый запуск: без экрана приветствия и без паузы, когда у окна нет фокуса
+# первый запуск: без экрана приветствия и без паузы, когда у окна нет фокуса; без музыки — она в audio.wav поверх звука мода
 [ -f "$RUN/options.txt" ] || cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
@@ -43,6 +43,7 @@ simulationDistance:10
 guiScale:2
 soundCategory_master:1.0
 soundCategory_ambient:1.0
+soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
 OPT

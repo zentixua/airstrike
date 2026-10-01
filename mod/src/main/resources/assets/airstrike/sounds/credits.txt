@@ -5,6 +5,8 @@ plus synthesis. CC0 = public domain; CC BY = used with attribution, modified.
 alienistcog - "merrimack-st-demolition.aif" - CC0 1.0 - https://freesound.org/s/125937/
 bastipictures - "peal of thunder - distant" - CC0 1.0 - https://freesound.org/s/243782/
 blukotek - "two-stroke Trabant engine 01.wav" - CC0 1.0 - https://freesound.org/s/412819/
+craigsmith - "G09-18-Constant Jet Noise.wav" - CC0 1.0 - https://freesound.org/s/437910/
+craigsmith - "G10-02-Constant Jet Noise.wav" - CC0 1.0 - https://freesound.org/s/437917/
 craigsmith - "G11-25_B-52 Jet Fly By.wav" - CC0 1.0 - https://freesound.org/s/437931/
 craigsmith - "G26-27-Huge Storm Sequence.wav" - CC0 1.0 - https://freesound.org/s/438346/
 craigsmith - "G32-10-Massive Electrical Discharges.wav" - CC0 1.0 - https://freesound.org/s/438494/
@@ -15,7 +17,6 @@ craigsmith - "R01-04-Catapult Launch.wav" - CC0 1.0 - https://freesound.org/s/47
 craigsmith - "R30-12-Large Gun Shells Fly By and Explode.wav" - CC0 1.0 - https://freesound.org/s/483296/
 craigsmith - "R09-58-Large Fire with Debris.wav" - CC0 1.0 - https://freesound.org/s/483304/
 craigsmith - "R12-02-Large Explosions.wav" - CC0 1.0 - https://freesound.org/s/486018/
-craigsmith - "R18-04-Artillery Shells Fly Overhead.wav" - CC0 1.0 - https://freesound.org/s/486035/
 craigsmith - "S18-01 Incoming shells; explosions.wav" - CC0 1.0 - https://freesound.org/s/674897/
 craigsmith - "S32-27 Titan missile launch; long.wav" - CC0 1.0 - https://freesound.org/s/675750/
 craigsmith - "S10-19 Falling wooden beam; big interior crash; house collapses; long.wav" - CC0 1.0 - https://freesound.org/s/675967/
@@ -25,7 +26,6 @@ Evan Cruder - "120527 08 Dynamite 4 [double].WAV" - CC0 1.0 - https://freesound.
 felix.blume - "Dynamite explosion in the mountain" - CC0 1.0 - https://freesound.org/s/251401/
 felix.blume - "Big dynamite explosion in an open mine (Chile)" - CC0 1.0 - https://freesound.org/s/475780/
 felix.blume - "Rocket Launch Rumble at Canaveral" - CC0 1.0 - https://freesound.org/s/613855/
-Invadium - "cruise-missiles-interception-and-fly-by (Kh-101 over Kyiv)" - CC0 1.0 - https://freesound.org/s/824805/
 jensfelger - "Jacob's ladder.wav" - CC0 1.0 - https://freesound.org/s/367456/
 jessepash - "Switch.Big.Power.wav" - CC0 1.0 - https://freesound.org/s/139970/
 juskiddink - "Quarry blasting.wav" - CC BY 4.0 - https://freesound.org/s/82682/
@@ -34,7 +34,6 @@ KVV_Audio - "RAIN_Heavy Rain Outdoor 01_KVV_FREE" - CC BY 4.0 - https://freesoun
 kyles - "switch big breaker metal click on, off" - CC0 1.0 - https://freesound.org/s/451933/
 kyles - "neon tube smash explode shatter glass debris.flac" - CC0 1.0 - https://freesound.org/s/453499/
 LukaCafuka - "Glass panel shattering" - CC0 1.0 - https://freesound.org/s/758207/
-minian89 - "jet_engine.wav" - CC0 1.0 - https://freesound.org/s/152509/
 minian89 - "four_jet_engines.wav" - CC0 1.0 - https://freesound.org/s/152567/
 Nanashi - "M224 Mortar Impact Medium Distance 02" - CC BY 4.0 - https://freesound.org/s/426163/
 Nanashi - "M224 Mortar Impact Medium Distance 01" - CC BY 4.0 - https://freesound.org/s/426164/

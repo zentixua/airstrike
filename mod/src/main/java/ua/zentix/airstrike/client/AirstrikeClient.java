@@ -219,6 +219,7 @@ public final class AirstrikeClient {
     private static final class Hooks implements ClientHooks {
         @Override
         public void blast(S2C.Blast p) {
+            p.projectile().ifPresent(FlightTracks::impact);
             BlastEffects.blast(p);
         }
 

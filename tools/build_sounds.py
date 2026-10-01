@@ -40,7 +40,7 @@ from fractions import Fraction
 import numpy as np
 import soundfile as sf
 from scipy.ndimage import minimum_filter1d, uniform_filter1d
-from scipy.signal import lfilter, resample_poly
+from scipy.signal import lfilter, resample_poly, welch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import freesound  # noqa: E402
@@ -65,10 +65,9 @@ SOURCES = {
     # шахед: двухтактный мотор с толкающим винтом — ближе всего сверхлёгкий самолёт с Rotax
     695977: ("wniebelski", "taxing ultralight plane.wav", CC0, "695/695977_924574"),
     412819: ("blukotek", "two-stroke Trabant engine 01.wav", CC0, "412/412819_4451798"),
-    # крылатая ракета: турбореактивный двигатель; настоящие Х-101 над Киевом
-    152509: ("minian89", "jet_engine.wav", CC0, "152/152509_2467357"),
-    824805: ("Invadium", "cruise-missiles-interception-and-fly-by (Kh-101 over Kyiv)", CC0, "824/824805_1011221"),
-    168079: ("unfa", "Jet Flyby 1", CC0, "168/168079_1038806"),
+    # крылатая ракета: реактивный двигатель на месте — ровный вой и ровный рёв (без пролёта: тон не плывёт)
+    437910: ("craigsmith", "G09-18-Constant Jet Noise.wav", CC0, "437/437910_2524442"),
+    437917: ("craigsmith", "G10-02-Constant Jet Noise.wav", CC0, "437/437917_2524442"),
     # пуск: стартовые ускорители (записи Минобороны США), рёв ракеты
     184274: ("qubodup", "Launching Anti-Tank Missiles.flac [US DoD]", CC0, "184/184274_71257"),
     182794: ("qubodup", "Rocket Launch.flac", CC0, "182/182794_71257"),
@@ -90,7 +89,6 @@ SOURCES = {
     152567: ("minian89", "four_jet_engines.wav", CC0, "152/152567_2467357"),
     437931: ("craigsmith", "G11-25_B-52 Jet Fly By.wav", CC0, "437/437931_2524442"),
     162417: ("qubodup", "Jet Plane Wind Noise Loop of a KC-135 Stratotanker 1.flac", CC0, "162/162417_71257"),
-    486035: ("craigsmith", "R18-04-Artillery Shells Fly Overhead.wav", CC0, "486/486035_2524442"),
     483296: ("craigsmith", "R30-12-Large Gun Shells Fly By and Explode.wav", CC0, "483/483296_2524442"),
     # взрывы (раздел blasts — из оригиналов без потерь)
     251401: ("felix.blume", "Dynamite explosion in the mountain", CC0, "251/251401_1661766"),
@@ -263,18 +261,6 @@ def align(x, db=-20, pre=0.03):
     return fade(x[k:], 0.002, 0.0)
 
 
-def granular(x, seconds, grain=0.3):
-    """Ровная текстура из короткого куска: окна-«зёрна» из случайных мест внахлёст, мощность постоянна —
-    из одного пролёта снаряда получается непрерывный вой без «волн» громкости."""
-    n, g = int(seconds * SR), int(grain * SR)
-    w = np.hanning(g)
-    out = np.zeros(n + g)
-    for k in range(0, n, g // 4):
-        a = rng.integers(0, len(x) - g)
-        out[k:k + g] += x[a:a + g] * w
-    return out[:n] / np.sqrt(np.sum(w ** 2) / (g / 4))
-
-
 def sub_thump(dur, f0=48, sweep=10, tau=0.45):
     """Инфранизкий «удар в грудь» — превью записей режут низ ниже ~40 Гц."""
     t = np.arange(int(dur * SR)) / SR
@@ -391,6 +377,49 @@ def widen(x, side):
     return np.stack([m + s, m - s], axis=1)
 
 
+# ---------------------------------------------------------------- петли моторов
+
+# Громкость петель моторов, LUFS (наибольшая мгновенная, как у взрывов): тише ближнего ракурса взрыва своего снаряда
+# (NEAR_LUFS, ROCKET_LUFS) — взрыв громче снаряда, который в него влетел (петли с мягким ограничителем были громче
+# взрывов, −6…−9 LUFS). Слои одного мотора — одной громкости: клиент сводит их по мощности (EngineSound.share).
+DRONE_LUFS, MISSILE_LUFS, LOITER_LUFS, ROCKET_AIR_LUFS = -15.0, -13.0, -16.0, -20.0
+# Мгновенная громкость ровной петли ходит не больше чем на столько, дБ (СКО по окнам 400 мс): у ровных петель
+# 0,2–0,7, у склеек из пролётов (свист и гул ракеты, вой РСЗО до 01.10.2026) — 2–2,5
+STEADY_DB = 1.0
+
+
+def momentary(x):
+    """Мгновенная громкость петли по кругу (окна 400 мс через 100 мс, шов петли тоже), LUFS."""
+    w, h = int(0.4 * SR), int(0.1 * SR)
+    y = k_weight(np.concatenate([x[-SR:], x, x[:w]]))[SR:] ** 2  # фильтр разогнан хвостом петли: шов без скачка
+    c = np.concatenate([[0], np.cumsum(y)])
+    return -0.691 + 10 * np.log10(np.array([(c[i + w] - c[i]) / w for i in range(0, len(x), h)]) + 1e-15)
+
+
+def engine(x, lufs, name, steady=True):
+    """Петля мотора: громкость lufs (master — без мягкого ограничителя) и проверка ровности. Колебание громкости
+    в петле вдали слышно как дрожь и «шорох» (склейка из коротких кусков, волна полевой записи) — сборка падает.
+    steady=False — петля из пролёта, которую ещё не заменили ровной записью (барражирующий)."""
+    y = master(x, lufs, meter=lambda s: np.max(momentary(s)))
+    sd = np.std(momentary(y))
+    if steady and sd > STEADY_DB:
+        sys.exit(f"{name}: мгновенная громкость ходит на {sd:.1f} дБ (СКО), ровная петля — не больше {STEADY_DB}")
+    return y
+
+
+def noise_loop(sigs, seconds):
+    """Ровная петля со звучанием записей, в которых звук сам не ровный (пролёт снаряда: тон плывёт, громкость
+    растёт): шум с их средним спектром (Уэлч) и случайными фазами — обратное БПФ длиной петли периодично, шва нет."""
+    f, psd = None, 0
+    for s in sigs:
+        f, p = welch(s / max(rms(s), 1e-9), SR, nperseg=4096)
+        psd = psd + p / len(sigs)
+    n = int(seconds * SR)
+    mag = np.sqrt(np.interp(np.fft.rfftfreq(n, 1 / SR), f, psd))
+    mag[0] = 0
+    return np.fft.irfft(mag * np.exp(2j * np.pi * rng.random(len(mag))), n)
+
+
 # ---------------------------------------------------------------- запись
 
 EVENTS = {}  # имя события → (субтитр, [файлы])
@@ -426,39 +455,42 @@ def variants(event, subtitle, name, sigs, **kw):
 
 def drone():
     """Двухтактный мотор с винтом («мопед»): сверхлёгкий самолёт на малом газу, поднятый до оборотов шахеда
-    (~100 Гц вспышек), с зерном «Трабанта»; дальний — верха съедены воздухом, эхо от земли."""
-    ul = speed(cut(src(695977), 14, 50), 1.42)
-    tr = speed(cut(src(412819), 2, 30), 1.12)
+    (~100 Гц вспышек), с зерном «Трабанта»; дальний — он же через 400 м воздуха. Эхо в дальний не подмешано:
+    случайное эхо раскачивало громкость петли до 1,5–2 дБ."""
+    ul = speed(cut(src(695977, orig=True), 14, 50), 1.42)
+    tr = speed(cut(src(412819, orig=True), 2, 30), 1.12)
     body = mix((F(ul, lo=55, hi=7000), 1.0), (F(tr, lo=120, hi=5000), 0.35))
-    write("drone_engine", norm(loop(body, 8.0), -9.5), "drone.engine", "subtitles.airstrike.drone")
-    far = syn.reverb(F(body, lo=70, hi=900, bells=[(140, 4, 0.6)]), t60=1.8, mix=0.45)
-    write("drone_engine_far", norm(loop(far, 8.0), -10.5), "drone.engine.far", "subtitles.airstrike.drone")
+    write("drone_engine", engine(loop(body, 8.0), DRONE_LUFS, "drone_engine"), "drone.engine", "subtitles.airstrike.drone")
+    far = air(F(body, lo=60, hi=900, bells=[(140, 4, 0.6)]), 400)
+    write("drone_engine_far", engine(loop(far, 8.0), DRONE_LUFS, "drone_engine_far"), "drone.engine.far", "subtitles.airstrike.drone")
 
 
 # ================================================================ крылатая ракета
 
 def missile():
-    """Турбореактивный двигатель: спереди — вой компрессора, сзади — рёв струи; в пике — форсаж и свист;
-    вдали — настоящие Х-101 над Киевом (глухой гул с эхом от домов)."""
-    je = cut(src(152509), 12, 62)
-    front = mix((F(je, lo=900, hi=12000), 1.0), (F(je, lo=60, hi=900), 0.45))
-    write("missile_engine", norm(loop(front, 8.0), -9.5), "missile.engine", "subtitles.airstrike.missile")
-    rear = mix((F(je, lo=35, hi=2500, bells=[(160, 5, 1.0)]), 1.0), (F(je, lo=2500, hi=9000), 0.2))
-    write("missile_engine_rear", norm(loop(rear, 8.0), -9.5), "missile.engine.rear", "subtitles.airstrike.missile")
-    dive = speed(je, 1.12)
-    air = cut(src(162417), 0, 6.2)
-    dive = mix((F(dive, lo=700, hi=14000), 1.0), (F(dive, lo=50, hi=700), 0.4),
-               (pad(np.tile(air, 10), len(dive)), 0.35))
-    write("missile_dive", norm(loop(dive, 8.0), -9.5), "missile.dive", "subtitles.airstrike.missile")
-    # дальний: гул Х-101 (13..40 с записи — после перехвата, ракеты идут над городом) + наш турбореактивный глухо
-    kh = cut(src(824805), 12.5, 40)
-    kh = F(kh, lo=45, hi=1400)
-    far = mix((kh, 1.0), (syn.reverb(F(je, lo=50, hi=700), t60=2.0, mix=0.5)[:len(kh)], 0.6))
-    write("missile_engine_far", norm(loop(far, 12.0, 1.2), -10.5), "missile.engine.far", "subtitles.airstrike.missile")
-    # свист на подлёте: вой снаряда над головой, петля; тон ставит клиент
-    sh = granular(cut(src(486035), 0.9, 2.1), 10.0)
-    whistle = mix((F(sh, lo=500, hi=9000), 1.0), (syn.whistle(len(sh) / SR, 1150), 0.35))
-    write("missile_whistle", norm(loop(whistle, 6.5), -10.3), "missile.whistle", "subtitles.airstrike.missile.whistle")
+    """Турбовентиляторный двигатель (у Х-101 — ТРДД-50): спереди — вой вентилятора и компрессора, сзади — рёв струи;
+    в пике — выше тоном и с шумом обтекания; вдали — тот же двигатель через полкилометра воздуха: ровный глухой гул;
+    на подлёте — вой, который слышно издалека. Всё — из ровных записей реактивного двигателя на месте (G09-18 — вой,
+    G10-02 — рёв): в записи пролёта тон плывёт от Доплера, и петля из неё каждые несколько секунд прыгала тоном
+    обратно; Доплер клиент считает сам."""
+    whine = cut(src(437910, orig=True), 10, 100)
+    roar = cut(src(437917, orig=True), 10, 100)
+    front = mix((F(whine, lo=900, hi=12000), 1.0), (F(roar, lo=60, hi=900), 0.45))
+    write("missile_engine", engine(loop(front, 12.0), MISSILE_LUFS, "missile_engine"), "missile.engine", "subtitles.airstrike.missile")
+    rear = mix((F(roar, lo=35, hi=2500, bells=[(160, 5, 1.0)]), 1.0), (F(whine, lo=2500, hi=9000), 0.2))
+    write("missile_engine_rear", engine(loop(rear, 12.0), MISSILE_LUFS, "missile_engine_rear"), "missile.engine.rear",
+          "subtitles.airstrike.missile")
+    dive = speed(mix((whine, 1.0), (roar, 0.6)), 1.12)
+    wind = cut(src(162417, orig=True), 0, 6.2)
+    dive = mix((F(dive, lo=700, hi=14000), 1.0), (F(dive, lo=50, hi=700), 0.4), (pad(np.tile(wind, 14), len(dive)), 0.35))
+    write("missile_dive", engine(loop(dive, 12.0), MISSILE_LUFS, "missile_dive"), "missile.dive", "subtitles.airstrike.missile")
+    far = air(mix((F(roar, lo=35, hi=6000), 1.0), (F(whine, lo=400, hi=8000), 0.3)), 500)
+    write("missile_engine_far", engine(loop(far, 12.0), MISSILE_LUFS, "missile_engine_far"), "missile.engine.far",
+          "subtitles.airstrike.missile")
+    # подлёт: вой вентилятора вдвое ниже — клиент ведёт тон от 2 (вдали — как есть) до 0,6 у цели
+    whistle = speed(F(whine, lo=500, hi=12000), 0.5)
+    write("missile_whistle", engine(loop(whistle, 12.0), MISSILE_LUFS, "missile_whistle"), "missile.whistle",
+          "subtitles.airstrike.missile.whistle")
 
 
 # ================================================================ пуск
@@ -511,14 +543,12 @@ def rocket():
         sigs.append(norm(fade(speed(x, r), 0.001, 0.4), -11, 0.95))
     variants("rocket.launch", "subtitles.airstrike.rocket", "rocket_launch", sigs)
 
-    # вой на подлёте: ровная текстура из середины записей (без начала и разрыва), петля; тон ведёт Доплер
-    grains = [cut(src(241840), 0.25, 1.2), cut(src(241838), 0.35, 1.5), cut(src(241837), 0.25, 1.1),
-              cut(src(241839), 0.25, 1.15), cut(src(674897), 13.9, 15.3)]
-    tex = None
-    for g in grains:
-        part = granular(F(g, lo=250, hi=11000) / max(rms(g), 1e-9), 3.0, 0.22)[int(0.25 * SR):]
-        tex = part if tex is None else join(tex, part, 0.5)
-    write("rocket_incoming", norm(loop(tex, 7.0, 0.8), -10), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
+    # вой на подлёте: ровный шум со спектром снарядов над головой (середины записей, без начала и разрыва) — в самих
+    # записях тон плывёт от Доплера, а склейка их кусков дрожала; тон ведёт клиент
+    grains = [cut(src(g, orig=True), a, b) for g, a, b in
+              [(241840, 0.25, 1.2), (241838, 0.35, 1.5), (241837, 0.25, 1.1), (241839, 0.25, 1.15), (674897, 13.9, 15.3)]]
+    tex = noise_loop([F(g, lo=250, hi=11000) for g in grains], 10.0)
+    write("rocket_incoming", engine(tex, ROCKET_AIR_LUFS, "rocket_incoming"), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
 
 
 # ================================================================ барражирующий боеприпас
@@ -526,17 +556,18 @@ def rocket():
 def loiter():
     """«Ланцет»: электромотор с толкающим винтом — тонкий ровный вой радиоуправляемого самолёта, вдали — жужжание;
     пуск с катапульты — удар и свист без огня; в пике винт взвывает и свистит рассекаемый воздух."""
-    rc = cut(src(176973), 0.2, 4.2)
-    quad = cut(src(854352), 2.4, 4.6)
+    rc = cut(src(176973, orig=True), 0.2, 4.2)
+    quad = cut(src(854352, orig=True), 2.4, 4.6)
     body = mix((F(rc, lo=120, hi=12000), 1.0), (pad(np.tile(F(quad, lo=200, hi=9000), 3), len(rc)), 0.25))
-    write("loiter_engine", norm(loop(body, 3.6, 0.4), -10), "loiter.engine", "subtitles.airstrike.loiter")
+    write("loiter_engine", engine(loop(body, 3.6, 0.4), LOITER_LUFS, "loiter_engine", False), "loiter.engine", "subtitles.airstrike.loiter")
     far = syn.reverb(F(body, lo=160, hi=2200), t60=1.4, mix=0.4)
-    write("loiter_engine_far", norm(loop(far, 3.6, 0.4), -11), "loiter.engine.far", "subtitles.airstrike.loiter")
+    write("loiter_engine_far", engine(loop(far, 3.6, 0.4), LOITER_LUFS, "loiter_engine_far", False), "loiter.engine.far",
+          "subtitles.airstrike.loiter")
     # пике: пролёт вплотную, выше тоном, и ветер
-    fly = speed(cut(src(176973), 5.0, 8.4), 1.2)
-    air = cut(src(162417), 0, 6.2)
-    dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(air, 2), len(fly)), 0.35))
-    write("loiter_dive", norm(loop(dive, 2.4, 0.3), -9.5), "loiter.dive", "subtitles.airstrike.loiter")
+    fly = speed(cut(src(176973, orig=True), 5.0, 8.4), 1.2)
+    wind = cut(src(162417, orig=True), 0, 6.2)
+    dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(wind, 2), len(fly)), 0.35))
+    write("loiter_dive", engine(loop(dive, 2.4, 0.3), LOITER_LUFS + 1, "loiter_dive", False), "loiter.dive", "subtitles.airstrike.loiter")
     # катапульта: удар поршня, свист направляющей
     cat = src(479922)
     sigs = []

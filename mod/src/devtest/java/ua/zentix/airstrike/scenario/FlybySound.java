@@ -50,7 +50,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *       в 40 блоках от середины первого плеча, ракета идёт мимо него курсом в сторону от цели — свиста подлёта нет,
  *       только мотор и шорох воздуха рядом;</li>
  *   <li>{@code pass} — ракета идёт на цель в 700 блоках за зрителем и проходит в 60 блоках сбоку: свист на подлёте,
- *       после пролёта стихает плавно; мотор на подлёте только громче, вслед только тише;</li>
+ *       после пролёта стихает плавно; мотор на подлёте только громче, вслед только тише и звучит, пока до уха не дойдёт
+ *       взрыв;</li>
  *   <li>{@code grad} — залп РСЗО из 32 снарядов, пусковая в 300 блоках позади, цели в 300 ± 150 впереди: вой всю дугу
  *       у каждого снаряда, каналов не больше {@code VoiceBudget.CAP};</li>
  *   <li>{@code far} — ракета и шахед издалека на зрителя: сперва вне мира (путь по пакетам сервера, {@code s}), потом
@@ -114,6 +115,8 @@ final class FlybySound {
     private Map<SoundInstance, Loop> loops = new IdentityHashMap<>();
     private final List<Sample> samples = new ArrayList<>();
     private final List<String> events = new ArrayList<>();
+    /** Тики случая, когда движку велели играть взрыв. */
+    private final List<Integer> blasts = new ArrayList<>();
     private int maxLive;
 
     /** Петля мотора, пока звучит. */
@@ -210,6 +213,7 @@ final class FlybySound {
         index++;
         samples.clear();
         events.clear();
+        blasts.clear();
         loops = new IdentityHashMap<>();
         maxLive = 0;
         if (index >= cases.size()) {
@@ -447,7 +451,9 @@ final class FlybySound {
         SoundInstance s = e.getSound();
         if (s == null || stage != Stage.RUN && stage != Stage.RINGOUT || s.isLooping() || !Airstrike.MOD_ID.equals(s.getLocation().getNamespace())) return;
         Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        Airstrike.LOG.info("SCENARIO play {} {} d={} t={} ms={}", current, s.getLocation().getPath(), f0(new Vec3(s.getX(), s.getY(), s.getZ()).distanceTo(cam)),
+        String path = s.getLocation().getPath();
+        if (path.startsWith("blast.") || path.equals("rocket.blast")) blasts.add(caseTick);
+        Airstrike.LOG.info("SCENARIO play {} {} d={} t={} ms={}", current, path, f0(new Vec3(s.getX(), s.getY(), s.getZ()).distanceTo(cam)),
                 caseTick, System.currentTimeMillis());
     }
 
@@ -538,6 +544,10 @@ final class FlybySound {
             prevD = a[1];
         }
         check("engine_even", bad == 0 ? "PASS" : "FAIL", "скачков мощности мотора против расстояния: " + bad + (bad > 0 ? ", последний " + worst : ""));
+        // мотор дальней ракеты (путь по пакетам сервера) звучит, пока до уха не дойдёт взрыв: без паузы тишины перед ним
+        int blast = blasts.stream().mapToInt(Integer::intValue).min().orElse(-1);
+        int stop = events.stream().filter(ev -> ev.startsWith("stop ")).mapToInt(ev -> Integer.parseInt(ev.substring(ev.lastIndexOf(' ') + 1))).max().orElse(-1);
+        check("engine_until_blast", blast >= 0 && stop >= blast ? "PASS" : "FAIL", "мотор смолк на тике " + stop + ", взрыв — на тике " + blast);
     }
 
     private void checkGrad() {
