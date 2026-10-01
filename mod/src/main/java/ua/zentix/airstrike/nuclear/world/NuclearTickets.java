@@ -1,10 +1,15 @@
 package ua.zentix.airstrike.nuclear.world;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
@@ -48,6 +53,24 @@ public final class NuclearTickets {
             }
         }
         return true;
+    }
+
+    /**
+     * Чанк в памяти: полностью загруженный, опущенный ниже (у края видимости) или ждущий выгрузки, — пока не пришёл
+     * его {@code ChunkEvent.Unload}; null — его нет в памяти или он ещё не бывал полностью загружен ({@code ChunkEvent.Load}
+     * поставит его сам). Держатель, у которого не осталось тикетов, ваниль убирает из видимой карты чанков сразу, а сам
+     * чанк выгружает позже, когда его можно сохранить ({@code ChunkMap.processUnloads} → {@code pendingUnloads} →
+     * {@code scheduleUnload}); вернувшийся за это время тикет возвращает держатель из {@code pendingUnloads} с тем же
+     * чанком и без нового {@code ChunkEvent.Load}. Поэтому «нет в видимой карте» ещё не значит «выгружен»: очередь,
+     * которая сняла бы такой чанк, больше его не увидела бы (облако 01.10.2026: два чанка зоны остались без руин и
+     * держали квадрат зоны). AT: {@code ChunkMap.pendingUnloads}, только чтение.
+     */
+    @Nullable
+    public static LevelChunk inMemory(ServerLevel level, long pos) {
+        ChunkMap chunkMap = level.getChunkSource().chunkMap;
+        ChunkHolder holder = chunkMap.getVisibleChunkIfPresent(pos);
+        if (holder == null) holder = chunkMap.pendingUnloads.get(pos);
+        return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
 
     /** Загружены все чанки, которых касаются соседи блока (по углам — с диагональными). */

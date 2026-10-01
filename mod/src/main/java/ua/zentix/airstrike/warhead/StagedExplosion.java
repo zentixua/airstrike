@@ -3,6 +3,7 @@ package ua.zentix.airstrike.warhead;
 import com.mojang.datafixers.util.Pair;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -47,8 +48,10 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.LongSupplier;
 
 /**
@@ -57,9 +60,10 @@ import java.util.function.LongSupplier;
  * после деления на подрыв и порции блоков одна единица «лучи и урон» всё ещё стоила до 150 мс.
  * <ol>
  *     <li>{@link Explosion} с правилами TNT, {@link EventHooks#onExplosionStart} (приваты отменяют его, как обычно),
- *     один запрос аппаратов Sable на весь охват лучей. Аппарат рядом — ванильный {@link Explosion#explode()} целиком
- *     (с уроном) в этой же единице: миксин Sable на каждом воздушном шаге луча ищет аппарат, переводит точку в плот,
- *     добавляет блоки аппарата и толкает его — это его внутренности, повторять их нельзя, и мод в этот метод не лезет. Нет аппарата — миксину Sable нечего
+ *     один запрос аппаратов Sable на весь охват лучей. Аппарат рядом — ванильный {@link Explosion#explode()} в этой же
+ *     единице: миксин Sable на каждом воздушном шаге луча ищет аппарат, переводит точку в плот, добавляет блоки аппарата
+ *     и толкает его — это его внутренности, повторять их нельзя, и мод в этот метод не лезет; урон и отбрасывание
+ *     уходят в свои единицы через {@code ExplosionEvent.Detonate} ({@link #onDetonate}). Нет аппарата — миксину Sable нечего
  *     менять, и лучи идут своим циклом (копия ванильного): здесь только событие {@code EXPLODE} и все 1352 множителя
  *     силы лучей из {@code level.random} в ванильном порядке — выборка не зависит от того, как лучи поделены.</li>
  *     <li>Лучи по {@link #RAYS_PER_UNIT} за единицу; множество выбранных копится. Внутри луча блок, в котором лежат
@@ -69,11 +73,12 @@ import java.util.function.LongSupplier;
  *     <li>Разбор выбранного: воздух без огня отбрасывается, плоты аппаратов — раз на чанк, мир — от центра наружу по
  *     заранее посчитанному расстоянию.</li>
  *     <li>Урон и отбрасывание по {@link #ENTITIES_PER_UNIT} сущностей (копия ванильного цикла; живость, расстояние
- *     и видимость — на момент единицы); игроку пакет взрыва с его отбрасыванием уходит в той же единице.</li>
+ *     и видимость — на момент единицы); игроку пакет взрыва с его отбрасыванием уходит в той же единице. Потом —
+ *     блоки аппаратов, одним разом ({@link #blowCrafts}).</li>
  *     <li>Блоки мира от центра наружу порциями по времени ({@link #PORTION_NANOS}) шагами {@code Explosion.finalizeExplosion}
  *     ({@code onExplosionHit}, затем огонь). Выпадение копится за весь взрыв и выпадает в конце. Блок, который сменился
  *     с момента лучей (натекла вода, поставил игрок), не трогается; сменившиеся свойства того же блока (забор потерял
- *     соседа) — не смена. Блоки аппаратов снимаются сразу при разборе: через тики плот мог уйти другому аппарату.</li>
+ *     соседа) — не смена.</li>
  * </ol>
  * Между единицами мир может меняться (1–3 тика) — порции сверяют блок. Взрыв с центром в сетке плотов (на аппарате) —
  * одним ванильным {@code level.explode}: Sable переносит такой взрыв в мир своей обёрткой {@code ServerLevel.explode}.
@@ -179,9 +184,21 @@ final class StagedExplosion implements UnitQueue.Job {
     private final IntArrayList batch = new IntArrayList();
     /** Позиции мира после раздела, до снимка ({@link #split}). */
     private List<BlockPos> picked = List.of();
+    /** Блоки аппаратов после раздела и сами блоки на момент раздела — ждут конца урона ({@link #blowCrafts}). */
+    private List<BlockPos> crafts = List.of();
+    private List<Block> craftBlocks = List.of();
+    /** Чей плот лежал в чанке блоков аппаратов при разделе: id аппарата или null. */
+    private final Long2ObjectOpenHashMap<UUID> craftOwners = new Long2ObjectOpenHashMap<>();
     private boolean partitioned;
-    /** Взрыв шёл ванильным {@code explode()} (аппарат рядом): урон уже сделан. */
+    /** Взрыв шёл ванильным {@code explode()} (аппарат рядом). */
     private boolean vanilla;
+    /** Урон уже сделал ванильный {@code explode()}: список сущностей из {@code Detonate} к моду не попал. */
+    private boolean vanillaDamage;
+    /** Взрыв, чей ванильный {@code explode()} мод сейчас ведёт (поток сервера), и список, забранный у его {@code Detonate}. */
+    @Nullable
+    private static Explosion driving;
+    @Nullable
+    private static List<Entity> handed;
     /** Выпадение за весь взрыв (как {@code Explosion.addOrAppendStack}). */
     private final List<Pair<ItemStack, BlockPos>> drops = new ArrayList<>();
     private boolean done;
@@ -239,6 +256,11 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Шёл ванильным {@code explode()}. */
     boolean vanilla() {
         return vanilla;
+    }
+
+    /** Ванильный путь отдал урон моду ({@link #onDetonate}). */
+    boolean handedDamage() {
+        return vanilla && !vanillaDamage;
     }
 
     /** Ещё выбирает лучами или бьёт сущности (блоки не снимает). */
@@ -339,20 +361,42 @@ final class StagedExplosion implements UnitQueue.Job {
     }
 
     /**
-     * Аппарат рядом: ванильный {@code explode()} целиком (лучи с миксином Sable, сбор сущностей, {@code Detonate}, урон
-     * и отбрасывание) — одним шагом замера; блоки аппаратов — в этой же единице, снимок блоков мира — следующей. Урон здесь
-     * не порциями: делить его значило бы лезть внутрь ванильного метода, а взрыв у аппарата — редкий случай.
+     * Аппарат рядом: ванильный {@code explode()} (лучи с миксином Sable, сбор сущностей, {@code Detonate}) — одним шагом
+     * замера, снимок блоков мира — следующей единицей. Урон и отбрасывание — порциями ({@link Phase#DAMAGE}) по списку,
+     * который обработчики {@code Detonate} оставили ({@link #onDetonate}): ванильный цикл урона идёт в той же единице, что
+     * и лучи (финальная проверка 01.10.2026, ракета у дирижабля: весь {@code explode()} — 181,6 мс в одном тике). Блоки
+     * аппаратов — после урона ({@link #blowCrafts}); если урон всё же сделал сам {@code explode()} — сразу.
      */
     private boolean vanilla(ServerLevel level, Explosion e) {
         counts.vanilla++;
         vanilla = true;
         long t = System.nanoTime();
-        e.explode();
+        // взрыв, начатый изнутри (обработчиком события), ведёт свой: внешний — вернуть как был
+        Explosion outer = driving;
+        List<Entity> outerHanded = handed;
+        driving = e;
+        handed = null;
+        List<Entity> got;
+        try {
+            e.explode();
+        } finally {
+            got = handed;
+            handed = outerHanded;
+            driving = outer;
+        }
         time(ExplosionStage.VANILLA, t);
-        for (ServerPlayer p : level.players()) {
-            if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+        if (got != null) {
+            entities = got;
+        } else {
+            // список не забран (Detonate не пришёл): урон сделал сам explode() — его пакет игрокам, как у ванили
+            vanillaDamage = true;
+            for (ServerPlayer p : level.players()) {
+                if (p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, e.getHitPlayers().get(p));
+            }
         }
         partition(level);
+        // урон уже позади — блоки аппаратов сразу
+        if (vanillaDamage) blowCrafts(level);
         phase = Phase.SPLIT;
         return true;
     }
@@ -417,13 +461,14 @@ final class StagedExplosion implements UnitQueue.Job {
     }
 
     /**
-     * Раздел выбранного: плот аппарата — вопрос к Sable раз на чанк, его блоки (кроме воздуха без огня) снимаются
-     * сразу; позиции мира ждут снимка ({@link #split}).
+     * Раздел выбранного: плот аппарата — вопрос к Sable раз на чанк, его блоки (кроме воздуха без огня) ждут конца урона
+     * ({@link #blowCrafts}) вместе с тем, чей плот был в чанке; позиции мира ждут снимка ({@link #split}).
      */
     private void partition(ServerLevel level) {
         long t = System.nanoTime();
         Explosion e = explosion;
         List<BlockPos> plot = new ArrayList<>();
+        List<Block> plotBlocks = new ArrayList<>();
         List<BlockPos> world = new ArrayList<>();
         // без разрушений блоков и без огня порциям нечего делать
         if (e.interactsWithBlocks() || fire) {
@@ -431,17 +476,46 @@ final class StagedExplosion implements UnitQueue.Job {
             for (BlockPos p : e.getToBlow()) {
                 long chunk = ChunkPos.asLong(SectionPos.blockToSectionCoord(p.getX()), SectionPos.blockToSectionCoord(p.getZ()));
                 boolean inPlot = plotChunk.computeIfAbsent(chunk, c -> SubLevels.inPlotGrid(level, new ChunkPos(c)));
-                if (!inPlot) world.add(p);
-                else if (fire || !level.getBlockState(p).isAir()) plot.add(p);
+                if (!inPlot) {
+                    world.add(p);
+                    continue;
+                }
+                BlockState s = level.getBlockState(p);
+                if (!fire && s.isAir()) continue;
+                plot.add(p);
+                plotBlocks.add(s.getBlock());
+                if (!craftOwners.containsKey(chunk)) craftOwners.put(chunk, SubLevels.containingId(level, new ChunkPos(chunk)));
             }
         }
         e.clearToBlow();
         picked = world;
+        crafts = plot;
+        craftBlocks = plotBlocks;
         partitioned = true;
         time(ExplosionStage.SPLIT, t);
-        // аппараты — сейчас: их плот живёт своей жизнью
-        t = System.nanoTime();
-        blow(level, plot);
+    }
+
+    /**
+     * Блоки аппаратов — одним разом после урона, как у ванили ({@code explode()} бьёт сущности, {@code finalizeExplosion}
+     * потом снимает блоки): урон и отбрасывание видят корпус целым (луч видимости {@code getSeenPercent} Sable ведёт и
+     * через блоки аппаратов). С раздела прошло несколько тиков, и аппарат мог расколоться, а его плот уйти другому:
+     * блок, сменившийся с раздела, и чанк, чей плот теперь не у того аппарата, не трогаются.
+     */
+    private void blowCrafts(ServerLevel level) {
+        if (crafts.isEmpty()) return;
+        long t = System.nanoTime();
+        List<BlockPos> part = new ArrayList<>(crafts.size());
+        Long2BooleanOpenHashMap same = new Long2BooleanOpenHashMap();
+        for (int i = 0; i < crafts.size(); i++) {
+            BlockPos p = crafts.get(i);
+            long chunk = ChunkPos.asLong(SectionPos.blockToSectionCoord(p.getX()), SectionPos.blockToSectionCoord(p.getZ()));
+            boolean owner = same.computeIfAbsent(chunk, c -> Objects.equals(craftOwners.get(c), SubLevels.containingId(level, new ChunkPos(c))));
+            if (owner && level.getBlockState(p).is(craftBlocks.get(i))) part.add(p);
+        }
+        crafts = List.of();
+        craftBlocks = List.of();
+        craftOwners.clear();
+        blow(level, part);
         time(ExplosionStage.CRAFTS, t);
     }
 
@@ -471,8 +545,7 @@ final class StagedExplosion implements UnitQueue.Job {
         toBlow = kept;
         blocksAtRays = seen;
         time(ExplosionStage.SNAPSHOT, t);
-        // урон уже сделал ванильный explode()
-        phase = vanilla ? Phase.BLOCKS : Phase.DAMAGE;
+        phase = vanillaDamage ? Phase.BLOCKS : Phase.DAMAGE;
         return phase == Phase.DAMAGE || !toBlow.isEmpty();
     }
 
@@ -516,8 +589,24 @@ final class StagedExplosion implements UnitQueue.Job {
             if (!told.contains(p) && p.distanceToSqr(at.x, at.y, at.z) < 4096.0) tell(p, null);
         }
         entities = List.of();
+        blowCrafts(level);
         phase = Phase.BLOCKS;
         return !toBlow.isEmpty();
+    }
+
+    /**
+     * {@code ExplosionEvent.Detonate} (приоритет {@code LOWEST}: все обработчики уже видели и правили список): у взрыва,
+     * чей ванильный {@code explode()} ведёт мод, — список сущностей забирается в урон мода, а сам список событию
+     * остаётся пустым, и ванильный цикл урона после события ни по кому не идёт. Список у события изменяемый — так
+     * NeoForge и задумал {@code getAffectedEntities}. Обработчики того же приоритета, зарегистрированные позже мода,
+     * видят у этого взрыва пустой список — и только у него. Другие взрывы (и взрыв, начатый обработчиком внутри) —
+     * другие объекты, их не трогаем.
+     */
+    static void onDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
+        if (driving == null || event.getExplosion() != driving || handed != null) return;
+        List<Entity> list = event.getAffectedEntities();
+        handed = new ArrayList<>(list);
+        list.clear();
     }
 
     /** Ванильный пакет взрыва игроку: его отбрасывание, без блоков (блоки клиенты видят по мере снятия). */

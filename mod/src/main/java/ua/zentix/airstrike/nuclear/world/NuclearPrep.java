@@ -14,7 +14,6 @@ import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
@@ -350,7 +349,7 @@ public final class NuclearPrep {
         LongArrayList fresh = new LongArrayList();
         for (ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
             ChunkPos c = holder.getPos();
-            if (p.considered.contains(c.toLong()) || nearest(c, d) > radius || inMemory(level, c.toLong()) == null) continue;
+            if (p.considered.contains(c.toLong()) || nearest(c, d) > radius || NuclearTickets.inMemory(level, c.toLong()) == null) continue;
             p.considered.add(c.toLong());
             p.everInMemory.add(c.toLong());
             fresh.add(c.toLong());
@@ -653,7 +652,7 @@ public final class NuclearPrep {
         }
         while (p.nextScan < p.toScan.size() && p.scanning < SCANS) {
             long c = p.toScan.getLong(p.nextScan++);
-            if (inMemory(level, c) != null) {
+            if (NuclearTickets.inMemory(level, c) != null) {
                 answer(p, c, true);
                 continue;
             }
@@ -1025,11 +1024,5 @@ public final class NuclearPrep {
             if (p.detonation >= 0 && !p.draining) scars.dropPrepared(p.detonation);
         }
         preps.clear();
-    }
-
-    @Nullable
-    private static LevelChunk inMemory(ServerLevel level, long pos) {
-        ChunkHolder holder = level.getChunkSource().chunkMap.getVisibleChunkIfPresent(pos);
-        return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
 }
