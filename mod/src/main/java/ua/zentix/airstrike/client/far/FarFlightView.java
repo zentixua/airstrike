@@ -26,9 +26,11 @@ import java.util.Map;
  * Снаряды вдали, которых у клиента нет (сущность дальше прорисовки или летит вне мира): путь — по пакетам сервера
  * ({@link FlightTracks}), вид — из клиентского паспорта ({@link FarLook}).
  * <ul>
- * <li>Корпус — мягкая тёмная точка не меньше своего размера; мельче пикселя — точка в полтора пикселя, бледнее во
- * столько же раз: сколько неба закрывает корпус, столько и точка. Цвет — смешан с дымкой по Кошмидеру.</li>
- * <li>Факел — свет ({@link Sight#point}) позади корпуса: днём — искра, ночью глаз привык к темноте — блик на километры.</li>
+ * <li>Корпус — тёмный круг той же площади, что силуэт, настоящего углового размера; мельче пятна {@link Sight#MIN_PIXELS}
+ * — пятно, бледнее во столько же раз ({@link Sight#body}): закрыто то же небо. Свой цвет при свете неба, дымка —
+ * в непрозрачности ({@link Sight}).</li>
+ * <li>Факел — свет ({@link Sight#light}) позади корпуса: днём — искра, ночью глаз привык к темноте — блик и вуаль на
+ * километры. Маршевый турбовентиляторный двигатель ракеты и мотор шахеда ночью не светят — у них факела почти нет.</li>
  * <li>Шлейф — лента через точки пути, записанные по пакетам ({@link TrailPoints}): расплывается, сносится ветром мода
  * и тает своим сроком, поэтому висит и после того, как снаряд пролетел или взорвался. У сущности вблизи шлейф —
  * частицы {@code Exhaust}, по её тикам точек нет.</li>
@@ -38,13 +40,6 @@ import java.util.Map;
  * Кадр — O(снарядов + точек шлейфов), без выделений.
  */
 public final class FarFlightView {
-    /**
-     * Во сколько раз полуразмер мягкой точки ({@code nuke/flare.png}: ядро и ореол) больше радиуса круга, который она
-     * заменяет: текстура покрывает 0,084 своего квадрата, круг — π/4 описанного.
-     */
-    static final double SOFT_DOT = 3.05;
-    /** То же для ленты: поперёк неё середина той же текстуры покрывает 0,254 ширины. */
-    static final double SOFT_RIBBON = 3.94;
     /** Луч по рельефу у каждого снаряда — раз в столько тиков. */
     static final int SIGHT_PERIOD = 4;
     /** Рельеф закрывает источник: видимое с глаза начинается выше него на столько блоков. */
@@ -68,7 +63,7 @@ public final class FarFlightView {
     private static Sightline.Heights heights;
 
     // ---------------------------------------------------------------- кадр: числа живут между кадрами
-    private static final double[] POS = new double[3], BACK = new double[3], OUT = new double[2];
+    private static final double[] POS = new double[3], BACK = new double[3], OUT = new double[2], LIGHT = new double[5];
     /** Концы лент в кадре: где (от камеры), полуширина, непрозрачность, цвет; номер кадра, в котором посчитан. */
     private static final double[] EX = new double[HEAD + 1], EY = new double[HEAD + 1], EZ = new double[HEAD + 1], EH = new double[HEAD + 1];
     private static final float[] EA = new float[HEAD + 1], ER = new float[HEAD + 1], EG = new float[HEAD + 1], EB = new float[HEAD + 1];
@@ -240,21 +235,21 @@ public final class FarFlightView {
             }
             double tr = Sight.transmittance(d, view.range());
             float vis = Mth.lerp(view.partial(), f.visPrev, f.vis);
-            body(f.look.size(), f.look.area(), d, view.pixel(), OUT);
+            body(f.look.area(), d, view.pixel(), OUT);
             int c = f.look.color();
-            float a = (float) (OUT[1] * vis * contrast(tr));
-            out.dot(dx, dy, dz, OUT[0], view.hazed(channel(c, 0), 0, tr), view.hazed(channel(c, 1), 1, tr), view.hazed(channel(c, 2), 2, tr), a);
-            double bodyPx = 2 * OUT[0] / SOFT_DOT / (d * view.pixel());
+            float a = (float) (OUT[1] * vis * tr), lit = view.ambient();
+            out.disc(dx, dy, dz, OUT[0], channel(c, 0) * lit, channel(c, 1) * lit, channel(c, 2) * lit, a);
+            double bodyPx = 2 * OUT[0] / (d * view.pixel());
             double flamePx = 0, flameAlpha = 0;
             Flame flame = stage.flame();
             if (flame != null && vis > 0) {
                 flameAt(track, t, flame, dx, dy, dz, OUT);
-                double bd = OUT[0];
-                Sight.point(flame.radius(), adapted(flame.brightness(), view.ambient()), Sight.transmittance(bd, view.range()), bd, view.pixel(), OUT);
+                double bd = OUT[0], ft = Sight.transmittance(bd, view.range());
                 int fc = flame.color();
-                out.glow(BACK[0], BACK[1], BACK[2], OUT[0] * SOFT_DOT, channel(fc, 0), channel(fc, 1), channel(fc, 2), (float) (OUT[1] * vis));
-                flamePx = 2 * OUT[0] / (bd * view.pixel());
-                flameAlpha = OUT[1] * vis;
+                out.light(BACK[0], BACK[1], BACK[2], flame.radius(), Sight.adapted(flame.brightness(), view.ambient()) * ft, ft, view.pixel(),
+                        channel(fc, 0), channel(fc, 1), channel(fc, 2), vis, LIGHT);
+                flamePx = 2 * LIGHT[0] / (bd * view.pixel());
+                flameAlpha = Math.min(1, LIGHT[2]) * vis;
             }
             flights++;
             COUNT[track.bomber ? B2 : track.weapon.ordinal()]++;
@@ -283,7 +278,7 @@ public final class FarFlightView {
         out[0] = Math.max(1e-3, Math.sqrt(BACK[0] * BACK[0] + BACK[1] * BACK[1] + BACK[2] * BACK[2]));
     }
 
-    /** Конец ленты в кэш кадра под номером slot: где (от камеры), полуширина с полом в пиксель, непрозрачность, цвет в дымке. */
+    /** Конец ленты в кэш кадра под номером slot: где (от камеры), полуширина с полом в пиксель, непрозрачность с дымкой, цвет. */
     private static void end(FarTrail s, double age, double dx, double dy, double dz, FarView view, int slot) {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         double t = Sight.transmittance(d, view.range());
@@ -293,10 +288,11 @@ public final class FarFlightView {
         EY[slot] = dy;
         EZ[slot] = dz;
         EH[slot] = OUT[0];
-        EA[slot] = (float) (s.opacity(age) * OUT[1] * contrast(t));
-        ER[slot] = view.hazed(Mth.lerp(shade, channel(s.color0(), 0), channel(s.color1(), 0)), 0, t);
-        EG[slot] = view.hazed(Mth.lerp(shade, channel(s.color0(), 1), channel(s.color1(), 1)), 1, t);
-        EB[slot] = view.hazed(Mth.lerp(shade, channel(s.color0(), 2), channel(s.color1(), 2)), 2, t);
+        EA[slot] = (float) (s.opacity(age) * OUT[1] * t);
+        float lit = view.ambient();
+        ER[slot] = Mth.lerp(shade, channel(s.color0(), 0), channel(s.color1(), 0)) * lit;
+        EG[slot] = Mth.lerp(shade, channel(s.color0(), 1), channel(s.color1(), 1)) * lit;
+        EB[slot] = Mth.lerp(shade, channel(s.color0(), 2), channel(s.color1(), 2)) * lit;
         DRAWN[slot] = frame;
     }
 
@@ -309,15 +305,11 @@ public final class FarFlightView {
     // ---------------------------------------------------------------- чистая геометрия видимости (юнит-тесты)
 
     /**
-     * Корпус на дальности d: полуразмер мягкой точки и её непрозрачность. Тень — круг той же площади, что средний
-     * силуэт {@code area} ({@link Sight#point}: мельче пикселя — точка в полтора пикселя, бледнее), в мягкой точке
-     * с тем же покрытием; крупнее — не меньше своего размера {@code size}, с тем же покрытием (бледнее).
+     * Корпус на дальности d: радиус круга и его непрозрачность ({@link Sight#body}) — круг той же площади, что средний
+     * силуэт {@code area}.
      */
-    static void body(double size, double area, double d, double pixel, double[] out) {
-        Sight.point(Math.sqrt(area / Math.PI), 1, 1, d, pixel, out);
-        double soft = out[0] * SOFT_DOT, half = Math.max(soft, size / 2), k = soft / half;
-        out[0] = half;
-        out[1] *= k * k;
+    static void body(double area, double d, double pixel, double[] out) {
+        Sight.body(Math.sqrt(area / Math.PI), d, pixel, out);
     }
 
     /**
@@ -327,25 +319,8 @@ public final class FarFlightView {
      */
     static void ribbon(double width, double d, double pixel, double[] out) {
         double half = width / 2, floor = 0.5 * Sight.MIN_PIXELS * pixel * d;
-        out[0] = Math.max(half, floor) * SOFT_RIBBON;
+        out[0] = Math.max(half, floor) * FarSprites.RIBBON;
         out[1] = half >= floor ? 1 : half / floor;
-    }
-
-    /**
-     * Яркость факела против белого экрана: днём глаз (и экспозиция) настроены на небо, ночью — на темноту, и тот же
-     * факел во столько раз ярче, во сколько темнее свет неба ({@link FarView#ambient}, в квадрате: зрачок и экспозиция).
-     */
-    static double adapted(double brightness, double ambient) {
-        return brightness / (ambient * ambient);
-    }
-
-    /**
-     * Доля тёмного (корпус, дым), которая ещё видна сквозь дымку прозрачности t: у порога глаза ({@link Sight#THRESHOLD})
-     * — ноль, втрое дальше от него — вся. Цвет к порогу и так становится цветом дымки, но небо за снарядом бывает
-     * другого цвета, чем дымка у горизонта, — без этого там висела бы бледная тень.
-     */
-    static double contrast(double t) {
-        return Mth.clamp((t - Sight.THRESHOLD) / (3 * Sight.THRESHOLD), 0, 1);
     }
 
     private static float channel(int rgb, int channel) {

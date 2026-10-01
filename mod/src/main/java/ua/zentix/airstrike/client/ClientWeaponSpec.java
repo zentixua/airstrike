@@ -115,7 +115,7 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
     }
 
     /**
-     * Факел вдали — свет с сохранением потока ({@code client.far.Sight#point}): мельче пикселя он не пропадает, а
+     * Факел вдали — свет с сохранением потока ({@code client.far.Sight#light}): мельче пикселя он не пропадает, а
      * бледнеет; ярче белого — расплывается бликом. Ночью глаз привыкает к темноте, и тот же факел против неё ярче.
      *
      * @param radius     радиус круга той же площади, что факел сбоку (длина × поперечник струи вблизи), блоков
@@ -193,10 +193,11 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
     private static final Flame MISSILE_BOOSTER_FLAME = new Flame(0.56, 5.4, 20, FLAME_LIGHT);
     /**
      * Маршевый ТРД ракеты — тусклое свечение 1 × 0,28 от среза в 2,9 (ядро 0xFFD8A0, край 0xFF5A18); в пике — 2 × 0,36,
-     * ярче.
+     * ярче. Вдали почти не светит: выхлоп ТРД — сотни градусов, а не пламя (ночью над городом ракету слышно, а не видно);
+     * ночью глаз, привыкший к темноте, видит искру.
      */
-    private static final Flame MISSILE_SUSTAINER_FLAME = new Flame(0.21, 3.4, 1, 0xFF995C),
-            MISSILE_DIVE_FLAME = new Flame(0.34, 3.9, 3, 0xFFA970);
+    private static final Flame MISSILE_SUSTAINER_FLAME = new Flame(0.21, 3.4, 0.05, 0xFF995C),
+            MISSILE_DIVE_FLAME = new Flame(0.34, 3.9, 0.15, 0xFFA970);
     /** Двигатель реактивного снаряда: 3 × 0,3 от среза в 1,5. */
     private static final Flame ROCKET_FLAME = new Flame(0.38, 3, 20, FLAME_LIGHT);
     /** Ступень «Минитмена»: 18 × 2,2 с алмазами от среза в 9,7. */

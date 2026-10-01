@@ -186,7 +186,12 @@ public final class ClientScenario {
         if (models) mc.particleEngine.setLevel(mc.level);
         if (tick % soundEvery == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
-        if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
+        if (tick % 100 == 0) {
+            // встроенный сервер делит процессор с клиентом: его тик рядом с fps — чья это просадка
+            var server = mc.getSingleplayerServer();
+            if (server == null) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
+            else Airstrike.LOG.info("SCENARIO fps {}, сервер {} мс/тик", mc.getFps(), String.format(java.util.Locale.ROOT, "%.1f", server.getAverageTickTimeNanos() / 1e6));
+        }
         if (tick % 20 == 0) {
             String far = FarRenderer.describe();
             if (!far.isEmpty()) Airstrike.LOG.info("SCENARIO far {}", far);

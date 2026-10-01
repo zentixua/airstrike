@@ -30,38 +30,41 @@ class FarFlightViewTest {
     }
 
     @Test
-    void bodyCastsItsShadowAtAnyDistance() {
+    void bodyIsTrueSizeAndCoversTheSameSky() {
         double[] out = new double[2];
         for (WeaponType w : WeaponType.values()) {
             FarLook look = far(w);
+            double r = Math.sqrt(look.area() / Math.PI);
             for (double d : new double[]{50, 300, 1000, 4000, 8000}) {
-                FarFlightView.body(look.size(), look.area(), d, PIXEL, out);
-                double covered = Math.PI * out[1] * (out[0] / FarFlightView.SOFT_DOT) * (out[0] / FarFlightView.SOFT_DOT);
-                assertEquals(look.area(), covered, look.area() * 1e-9, w + " на " + d + ": сколько неба закрывает корпус, столько и точка");
-                assertTrue(out[0] >= look.size() / 2 - 1e-9, "не меньше своего размера");
-                assertTrue(out[1] <= 1);
+                FarFlightView.body(look.area(), d, PIXEL, out);
+                assertEquals(Math.max(r, 0.5 * Sight.MIN_PIXELS * PIXEL * d), out[0], 1e-9, w + " на " + d + ": настоящий размер или пятно");
+                assertEquals(r * r, out[1] * out[0] * out[0], 1e-9, w + " на " + d + ": закрыто то же небо");
             }
         }
     }
 
     @Test
-    void tinyBodyIsPaleDotNotNothing() {
-        // шахед за 6 км — треть пикселя: точка в полтора пикселя (её мягкий край шире), бледная
-        FarLook drone = far(WeaponType.DRONE);
+    void droneFadesWithDistanceLikeACamera() {
+        // силуэт шахеда (размах 2,5 м) — круг 1,07 м: за 1,5 км — 1,3 px, пятно в 1,5 px чуть бледнее; за 4 км — бледная точка
         double[] out = new double[2];
-        FarFlightView.body(drone.size(), drone.area(), 6000, PIXEL, out);
-        assertEquals(0.75 * PIXEL * 6000 * FarFlightView.SOFT_DOT, out[0], 1e-9);
-        assertTrue(out[1] > 0.01 && out[1] < 0.2, "непрозрачность " + out[1]);
+        FarFlightView.body(far(WeaponType.DRONE).area(), 1500, PIXEL, out);
+        assertEquals(0.5 * Sight.MIN_PIXELS * PIXEL * 1500, out[0], 1e-9);
+        assertTrue(out[1] > 0.6 && out[1] < 0.8, "за 1,5 км: " + out[1]);
+        FarFlightView.body(far(WeaponType.DRONE).area(), 4000, PIXEL, out);
+        assertTrue(out[1] > 0.05 && out[1] < 0.15, "за 4 км: " + out[1]);
+        // B-2 (размах 52 м) за 8 км — больше пятна: настоящего размера и сплошной
+        FarFlightView.body(far(WeaponType.BUNKER).area(), 8000, PIXEL, out);
+        assertEquals(1, out[1], 1e-12);
     }
 
     @Test
     void thinTrailKeepsItsCoverage() {
         double[] out = new double[2];
         FarFlightView.ribbon(4, 100, PIXEL, out);
-        assertEquals(2 * FarFlightView.SOFT_RIBBON, out[0], 1e-9, "вблизи — своей ширины");
+        assertEquals(2 * FarSprites.RIBBON, out[0], 1e-9, "вблизи — своей ширины");
         assertEquals(1, out[1], 1e-12);
         FarFlightView.ribbon(1, 5000, PIXEL, out);
-        double drawn = out[0] / FarFlightView.SOFT_RIBBON;
+        double drawn = out[0] / FarSprites.RIBBON;
         assertEquals(0.75 * PIXEL * 5000, drawn, 1e-9, "уже пикселя — полтора пикселя");
         assertEquals(1, 2 * drawn * out[1], 1e-9, "и бледнее во столько же раз");
     }
@@ -71,23 +74,26 @@ class FarFlightViewTest {
         Flame flame = far(WeaponType.ROCKET).stage(FlightPhase.BOOST).flame();
         assertNotNull(flame);
         double d = 2000, t = Sight.transmittance(d, Sight.CLEAR);
-        double[] day = new double[2], night = new double[2];
-        Sight.point(flame.radius(), FarFlightView.adapted(flame.brightness(), 1), t, d, PIXEL, day);
-        Sight.point(flame.radius(), FarFlightView.adapted(flame.brightness(), 0.12), t, d, PIXEL, night);
-        double dayPx = day[0] / d / PIXEL, nightPx = night[0] / d / PIXEL;
-        assertTrue(dayPx < 1.5 && day[1] < 1, "днём — искра: " + dayPx + " px, " + day[1]);
-        assertTrue(nightPx > 2 && night[1] > 0.999, "ночью — блик: " + nightPx + " px");
+        double[] day = new double[5], night = new double[5];
+        Sight.light(flame.radius(), Sight.adapted(flame.brightness(), 1) * t, d, PIXEL, day);
+        Sight.light(flame.radius(), Sight.adapted(flame.brightness(), 0.17) * t, d, PIXEL, night);
+        assertTrue(day[2] < 1 && day[4] == 0, "днём — искра без вуали: " + day[2]);
+        assertTrue(night[2] > 1 && night[4] / d > 0.01, "ночью — блик и вуаль: " + night[2] + ", " + Math.toDegrees(night[4] / d) + "°");
         // ночью видно и за 8 км
         double far = 8000;
-        Sight.point(flame.radius(), FarFlightView.adapted(flame.brightness(), 0.12), Sight.transmittance(far, Sight.CLEAR), far, PIXEL, night);
-        assertTrue(night[1] > 0.2, "за 8 км ночью: " + night[1]);
+        Sight.light(flame.radius(), Sight.adapted(flame.brightness(), 0.17) * Sight.transmittance(far, Sight.CLEAR), far, PIXEL, night);
+        assertTrue(night[2] > 1, "за 8 км ночью: " + night[2]);
     }
 
     @Test
-    void darkThingsFadeAtEyeThreshold() {
-        assertEquals(0, FarFlightView.contrast(Sight.THRESHOLD), 1e-12);
-        assertEquals(1, FarFlightView.contrast(4 * Sight.THRESHOLD), 1e-12);
-        assertEquals(1, FarFlightView.contrast(Sight.transmittance(8000, Sight.CLEAR)), 1e-12, "в ясную погоду на дальности far_range видно всё");
+    void cruiseMissileEngineBarelyGlowsAtNight() {
+        // выхлоп ТРД — не пламя: ночью искра, без вуали
+        Flame flame = far(WeaponType.MISSILE).stage(FlightPhase.CRUISE).flame();
+        assertNotNull(flame);
+        double d = 2000, t = Sight.transmittance(d, Sight.CLEAR);
+        double[] out = new double[5];
+        Sight.light(flame.radius(), Sight.adapted(flame.brightness(), 0.17) * t, d, PIXEL, out);
+        assertEquals(0, out[4], "без вуали");
     }
 
     // ---------------------------------------------------------------- точки шлейфа по пути

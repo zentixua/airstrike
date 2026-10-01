@@ -6,7 +6,8 @@
 
 **Что проверяем.** Со сборкой Артёма (DH, Iris с шейдерами, ~220 модов) на копии Greenfield: зритель в небе над городом
 пускает по точкам в 1,5 и 4 км к северу ракету, залп РСЗО, шахед, B-2 и залп ракет днём, ночью и в дождь. Кадры:
-снаряд в полёте дальше прорисовки (точка, факел, шлейф), вспышка, огненный шар и столб дыма вдали. В лог — строки
+снаряд в полёте дальше прорисовки (точка, факел, шлейф), вспышка, огненный шар и столб дыма вдали; всё дальнее — своим
+шейдером (`shaders/core/far_sprite`), дымка — прозрачностью, а не цветом тумана. В лог — строки
 `SCENARIO far …` (что рисуется вдали и когда пришёл звук взрыва), `SCENARIO fps …`. Плюс лёгкий шаг Б: статусы чанков
 на диске вокруг ядерных ударов в мире Артёма (копии файлов региона, только чтение).
 
@@ -76,14 +77,19 @@ done > mod/run/far/chunk-status.txt 2>&1; head -c 40000 mod/run/far/chunk-status
 ```
 
 ## A. Прогон (один; в фоне, тайм-аут вызова 45 мин)
-Зритель в спектаторе на `-272 140 -942` (город; оттуда же уходят снаряды — пусковые ставятся у игрока), взгляд на север.
-Цели — `-272 64 -2442` (1,5 км) и `-272 64 -4942` (4 км); высота 64 — у земли или воды: снаряд взрывается о первую
-поверхность. `wait:blast` — шаги ждут следующего взрыва на сервере (не дольше 3600 тиков; строки
+Зритель в спектаторе на `-272 140 -942` (город), взгляд на север. Цели — `-272 64 -2442` (1,5 км) и `-272 64 -4942`
+(4 км); высота 64 — у земли или воды: снаряд взрывается о первую поверхность. Пусковую у зрителя в воздухе не поставить,
+и удар заходит издалека по курсу взгляда стреляющего: старт — за спиной на длину маршрута от цели. С курсом на север
+ночная ракета на 4 км стартовала в 150 блоках за зрителем, на высоте маршрута над городом, и оба раза врезалась в высотку
+у `-272 107 -918`. Поэтому перед ракетами, шахедом и РСЗО зритель на миг поворачивается на курс 45° (`tp … 45 3`):
+старт — к северо-востоку от цели, за 2–8 км от зрителя и вне города, путь идёт к цели наискосок через поле зрения;
+после команды — снова на север. B-2 летит высоко, ему — прежний курс. День и погода стоят (`doDaylightCycle`,
+`doWeatherCycle` выключены). `wait:blast` — шаги ждут следующего взрыва на сервере (не дольше 3600 тиков; строки
 `SCENARIO commands: взрыв, шаги ждали N тиков` или `… взрыва нет …`). Команда ждёт 40 тиков, кадр — 20.
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" && cd "${W:?}" && touch mod/run/far/.step-start && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 echo "начало: $(date -u +%T) UTC" && timeout -k 60 40m tools/laptop_job.sh far-vis -- python3 tools/prod_client.py commands --world "Greenfield v0.5.4" --seconds 2100 \
-  --prop 'airstrike.commands=hud:off;gamemode spectator;time set 6000;weather clear;tp @s -272 140 -942 180 3;wait:600;shot:base;airstrike missile at -272 64 -2442;wait:240;shot:flight_missile;wait:blast;shot:missile_flash;wait:10;shot:missile_fireball;wait:200;shot:missile_column;wait:800;shot:missile_column_60s;airstrike salvo rocket 40 20 at -272 64 -2442;wait:blast;wait:10;shot:rocket_impacts;wait:300;shot:rocket_dust;airstrike drone at -272 64 -2442;wait:300;shot:flight_drone;wait:blast;shot:drone_flash;wait:20;shot:drone_fireball;wait:300;shot:drone_column;airstrike bunker at -272 64 -2442;wait:blast;wait:10;shot:bunker;wait:400;shot:bunker_dust;airstrike salvo missile 3 30 at -272 64 -4942;wait:400;shot:flight_far;wait:blast;shot:far4k_flash;wait:20;shot:far4k_fireball;wait:300;shot:far4k_column;time set 18000;wait:100;airstrike salvo rocket 40 20 at -272 64 -2442;wait:blast;wait:5;shot:night_impacts;wait:100;shot:night_after;airstrike missile at -272 64 -4942;wait:300;shot:night_flight;wait:blast;shot:night_flash_4k;wait:20;shot:night_fireball_4k;time set 6000;weather rain;wait:100;airstrike missile at -272 64 -2442;wait:blast;wait:20;shot:rain_fireball;wait:300;shot:rain_column;weather clear;wait:200'; \
+  --prop 'airstrike.commands=hud:off;gamemode spectator;gamerule doDaylightCycle false;gamerule doWeatherCycle false;time set 6000;weather clear;tp @s -272 140 -942 180 3;wait:600;shot:base;tp @s -272 140 -942 45 3;airstrike missile at -272 64 -2442;tp @s -272 140 -942 180 3;wait:160;shot:flight_missile;wait:blast;shot:missile_flash;wait:10;shot:missile_fireball;wait:200;shot:missile_column;wait:800;shot:missile_column_60s;tp @s -272 140 -942 45 3;airstrike salvo rocket 30 20 at -272 64 -2442;tp @s -272 140 -942 180 3;wait:blast;wait:10;shot:rocket_impacts;wait:300;shot:rocket_dust;tp @s -272 140 -942 45 3;airstrike drone at -272 64 -2442;tp @s -272 140 -942 180 3;wait:300;shot:flight_drone;wait:blast;shot:drone_flash;wait:20;shot:drone_fireball;wait:300;shot:drone_column;airstrike bunker at -272 64 -2442;wait:blast;wait:10;shot:bunker;wait:400;shot:bunker_dust;tp @s -272 140 -942 45 3;airstrike salvo missile 3 30 at -272 64 -4942;tp @s -272 140 -942 180 3;wait:400;shot:flight_far;wait:blast;shot:far4k_flash;wait:20;shot:far4k_fireball;wait:300;shot:far4k_column;time set 18000;wait:100;tp @s -272 140 -942 45 3;airstrike salvo rocket 30 20 at -272 64 -2442;tp @s -272 140 -942 180 3;wait:blast;wait:5;shot:night_impacts;wait:100;shot:night_after;tp @s -272 140 -942 45 3;airstrike missile at -272 64 -4942;tp @s -272 140 -942 180 3;wait:300;shot:night_flight;wait:blast;shot:night_flash_4k;wait:20;shot:night_fireball_4k;time set 6000;weather rain;wait:100;tp @s -272 140 -942 45 3;airstrike missile at -272 64 -2442;tp @s -272 140 -942 180 3;wait:blast;wait:20;shot:rain_fireball;wait:300;shot:rain_column;weather clear;wait:200'; \
 code=$?; echo "код $code, конец: $(date -u +%T) UTC"; case "$code" in 124|137) systemctl --user stop 'airstrike-job-far-vis-*';; esac; true
 ```
 Наблюдатель: в `$W/mod/run/prod/logs/latest.log` идут строки `SCENARIO …`, в конце `SCENARIO done`.
@@ -117,15 +123,21 @@ grep -aE 'Pause (Young|Old|Full)' "$D/logs/gc.log" 2>/dev/null | awk '{ms=$NF; s
   `SCENARIO far` есть раскат с дальностью d и задержкой ≈ d / 17,15 тика (±3); громкость у 1,5 км днём > 0
   (строка пишется раз в секунду, так что у залпа видно только последний раскат);
 - fps: в окнах залпов (строки `SCENARIO fps` после `rocket_impacts`, `night_impacts`) не ниже 90 % от fps кадра `base`;
+  в строках `SCENARIO far` время дальней отрисовки (`… мс (самый долгий за секунду …)`) — в среднем не больше 1 мс,
+  самый долгий — не больше 3 мс. Если fps ниже, а дальняя отрисовка в пределах, прислать строки `SCENARIO fps` с тиком
+  сервера (`сервер N мс/тик`) этого окна — причина не в ней;
 - logscan — без новых ошибок; исключений со `ua.zentix` в стеке нет; пауз GC > 300 мс нет;
 - кадры (критерии — для глаза, по строке на кадр):
-  - `flight_missile`, `flight_drone`, `flight_far`, `night_flight`: снаряд дальше прорисовки виден — точкой, факелом или
-    шлейфом (днём шахед и ракета — едва заметная точка, это по физике; ночью факел ракеты на разгоне — яркая искра);
-  - `*_flash`: яркая вспышка у горизонта в стороне цели; `*_fireball`: оранжевый шар; `*_column`, `*_dust`: столб дыма
-    или пыли растёт и сносится ветром, вдали бледнее (дымка); `missile_column_60s`: столб ещё стоит;
+  - `flight_missile`, `flight_drone`, `flight_far`, `night_flight`: снаряд дальше прорисовки — настоящего углового
+    размера, без наименьшего: днём шахед и ракета за 1,5 км — тёмная точка ~1,3 px, за 4 км — бледная точка, шлейф
+    ускорителя — белая лента; ночью факел ускорителя — яркая искра с ореолом, маршевый двигатель ракеты почти не светит;
+  - `*_flash`: белая вспышка у горизонта в стороне цели (держится 2–4 тика); `*_fireball`: оранжевое ядро (днём на небе
+    — цветом, ореол не шире двух ядер; ночью — белое ядро с оранжевым ореолом на градусы);
+  - `*_column`, `*_dust`: столб дыма или пыли растёт (через 2 минуты у шахеда ~220 м, у ракеты ~390), свежий — чёрный,
+    потом серо-бурый, сносится ветром, вдали бледнее (дымка); `missile_column_60s`: столб ещё стоит;
   - `rocket_impacts`/`night_impacts`: россыпь вспышек по площади; ночью вспышки ярче и заметнее, чем днём;
-  - `night_flash_4k`, `night_impacts`: над вспышкой — широкое тусклое зарево в небе (свет, рассеянный воздухом); днём
-    (`missile_flash`, `far4k_flash`) зарева нет;
+  - `night_flash_4k`, `night_impacts`: над вспышкой — зарево на облаках (пятно на их высоте, ~130 блоков над местом) и
+    широкий ореол вокруг вспышки; днём (`missile_flash`, `far4k_flash`) ни того, ни другого;
   - `bunker`, `bunker_dust`: без огненной вспышки (подземный), пыль над местом удара; если B-2 был виден — отметить;
-  - `rain_*`: дымка сильнее, чем днём в ясную погоду (дождь — видимость 3 км);
+  - `rain_*`: дым серый, не синий; дымка сильнее, чем днём в ясную погоду (дождь — видимость 3 км);
   - нет квадратных краёв у клубов, нет мигания, ничего не висит перед камерой.

@@ -79,6 +79,8 @@ neoForge {
             // strike-profile в облаке без prod_client.py: шаги и промежуток — как --prop airstrike.profile.steps/gap
             if (System.getenv('AIRSTRIKE_PROFILE_STEPS')) systemProperty 'airstrike.profile.steps', System.getenv('AIRSTRIKE_PROFILE_STEPS')
             if (System.getenv('AIRSTRIKE_PROFILE_GAP')) systemProperty 'airstrike.profile.gap', System.getenv('AIRSTRIKE_PROFILE_GAP')
+            // сценарий commands в облаке без prod_client.py: шаги через «;», как --prop airstrike.commands
+            if (System.getenv('AIRSTRIKE_COMMANDS')) systemProperty 'airstrike.commands', System.getenv('AIRSTRIKE_COMMANDS')
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
             def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
             programArguments.addAll '--width', size[0], '--height', size[1]

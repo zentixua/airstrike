@@ -17,6 +17,10 @@
   ../fx/plume, ../fx/plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
   скачков уплотнения, как у МБР и стартового ускорителя), ../fx/halo — ореол у сопла 64×64; у этих трёх цвет
   домножен на прозрачность — они рисуются сложением.
+  ../far/disc — круг с мягким краем 32×32 (корпус снаряда, огненный шар и вспышка вдали), ../far/glow — гауссов
+  ореол 64×64 (блик и вуаль вокруг вспышки и шара, зарево на облаках: широкий мягкий свет
+  без ядра; лентой шлейфа — средняя строка); белые, цвет и яркость даёт вершина; рядом .mcmeta со сглаживанием и без
+  повтора (пишутся руками, FarSpritesTest проверяет).
 Нужны Pillow и numpy.
 """
 import os
@@ -168,6 +172,21 @@ def halo(n=64):
     return np.dstack([a] * 3), a
 
 
+def far_disc(n=32):
+    """Круг: сплошной до 0,85 полуразмера, край — до 1 (сглаженный край в пиксель-другой на любом размере)."""
+    v, u = np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n), indexing="ij")
+    r = np.hypot(u, v)
+    return np.ones((n, n, 3)), smooth(0, 0.15, 1 - r)
+
+
+def far_glow(n=64):
+    """Ореол: exp(−(r/0,42)²), к краю квадрата — ноль без ступеньки."""
+    v, u = np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n), indexing="ij")
+    r = np.hypot(u, v)
+    a = np.exp(-(r / 0.42) ** 2) * smooth(0, 0.25, 1 - r)
+    return np.ones((n, n, 3)), a / a.max()
+
+
 if __name__ == "__main__":
     for i in range(4):
         for k, (rgb, a) in enumerate(smoke()):
@@ -180,4 +199,6 @@ if __name__ == "__main__":
     save(*plume(), "../fx/plume")
     save(*plume(diamonds=True), "../fx/plume_diamonds")
     save(*halo(), "../fx/halo")
+    save(*far_disc(), "../far/disc")
+    save(*far_glow(), "../far/glow")
     print("ok")

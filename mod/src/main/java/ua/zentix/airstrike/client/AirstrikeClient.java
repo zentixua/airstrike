@@ -24,6 +24,7 @@ import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.client.far.FarRenderer;
+import ua.zentix.airstrike.client.far.FarSprites;
 import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
@@ -78,6 +79,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
+        modBus.addListener(FarSprites::registerShaders);
         modBus.addListener(AirstrikeClient::blockColors);
         TerrainTiles.init();
 

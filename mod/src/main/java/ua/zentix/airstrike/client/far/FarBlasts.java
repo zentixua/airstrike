@@ -27,9 +27,13 @@ import java.util.SplittableRandom;
  * <p>
  * Ближе 0,8 прорисовки взрыв рисуют частицы {@code BlastEffects}, дальше картинка переходит сюда ({@link FarView#farShare});
  * пакет, пришедший дальше {@link #NEAR}, ближней картинки не получает — дальняя рисуется на любой дальности. Свет
- * приходит сразу (и ночью зарево в небе над местом — {@link #skyGlow}, на любой дальности, кроме самой близкой), звук —
- * когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе —
- * пояса ближней модели.
+ * приходит сразу (и ночью зарево на облаках над местом — {@link #cloudGlow}, на любой дальности, кроме самой близкой),
+ * звук — когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе — пояса ближней
+ * модели.
+ * <p>
+ * Числа — по замерам и оценкам (исследование 01.10.2026): огненный шар ВВ — диаметр 3,2–3,65·W^⅓ м (W — кг ТНТ), светит
+ * 0,2·W^0,35 с, начинает с ~2000 K и остывает; днём ярче неба лишь первую половину жизни. Столб — по Чёрчу (1969): верх
+ * облака через 2 минуты — 92,6·W^¼ м, к 30 с — половина. Дым свежий — чёрный (сажа ТНТ), за минуту — серо-бурый.
  */
 public final class FarBlasts {
     /** Край ближней картинки и ближнего звука, блоков. */
@@ -48,13 +52,18 @@ public final class FarBlasts {
     static final double OPACITY = 0.85, SPREAD = 0.4;
     /** За сколько тиков столб проступает из остывающего шара. */
     static final double FADE_IN = 8;
-    /** Яркость огненного шара и пожара в воронке против белого экрана; доля вспышки, что светит заревом из-за гребня. */
+    /**
+     * Яркость огненного шара и пожара в воронке против белого экрана днём (шар в ~2000 K — в десятки раз ярче неба;
+     * здесь меньше: экран не ярче белого, пересвет — блик и белое ядро); доля вспышки, что светит заревом из-за гребня.
+     */
     static final double BALL = 8, BURN = 2, BEHIND = 0.05;
     /**
-     * Зарево в небе — свет вспышки и шара, рассеянный воздухом над местом: радиус зарева в радиусах шара и высота его
-     * середины в радиусах зарева.
+     * Зарево на облаках: низ облаков над местом освещён шаром (освещённость E = I/h², яркость ≈ альбедо·E/π) — пятно
+     * радиуса {@link #SKY_SPREAD} высот облаков над местом (на одной высоте — треть пика, на двух — десятая); пик против
+     * белого — не больше SKY_PEAK (в дождь, облака сплошные), в ясную ночь — {@link #SKY_CLEAR} от него. Облака ниже
+     * {@link #SKY_LOW} блоков над местом — считаем на этой высоте.
      */
-    static final double SKY = 12, SKY_LIFT = 0.6;
+    static final double CLOUD_ALBEDO = 0.7, SKY_SPREAD = 1, SKY_PEAK = 0.45, SKY_CLEAR = 0.45, SKY_LOW = 40;
 
     /** Дым: свежий чёрный и старый серый (как у столба ближней картинки), цвет пыли тянет к этому серому. */
     private static final float[] DARK = {0.18f, 0.165f, 0.15f}, AGED = {0.48f, 0.455f, 0.43f}, DUST_GREY = {0.6f, 0.57f, 0.54f};
@@ -63,15 +72,16 @@ public final class FarBlasts {
             BALL_COLD = {0.6f, 0.15f, 0.04f}, FIRE = {1, 0.5f, 0.15f};
 
     /**
-     * Как выглядит и слышится взрыв вида издалека. Шар — как у {@code BlastEffects} ({@code Drone.R}, {@code Missile.R},
-     * {@code Bunker.R}; у РСЗО — как у шахеда); столб — по снимкам настоящих ударов:
-     * шахед (≈50 кг ВВ) — 100–200 м, крылатая ракета (≈450 кг) — 300–500 м, снаряд РСЗО (≈20 кг) меньше и короче,
-     * бетонобойная бомба под землёй — столб пыли без вспышки (прорвалась наружу — шар и столб, как у наземного взрыва).
+     * Как выглядит и слышится взрыв вида издалека (ТНТ-эквивалент: снаряд РСЗО ~6 кг, шахед ~30, крылатая ракета ~300):
+     * шар — радиус 1,7·W^⅓ (РСЗО 3,5, шахед 5 — как у ближней картинки {@code BlastEffects}, ракета 11), светит
+     * 0,2·W^0,35 с (8, 13 и 30 тиков); столб — верх облака по Чёрчу (центр верхнего клуба и его радиус: РСЗО ~150 м,
+     * шахед ~220, ракета ~390), растёт ~2 минуты; пожар — у шахеда горит топливо (~70 л), у ракеты — то, во что попала.
+     * Бетонобойная бомба под землёй — столб пыли без вспышки; прорвалась наружу — шар и столб ниже, чем у наземного.
      *
      * @param fireball   радиус огненного шара, блоков; 0 — ни шара, ни вспышки
      * @param flash      яркость вспышки против белого экрана
      * @param flashTicks сколько тиков вспышка
-     * @param ballTicks  за сколько тиков шар остывает
+     * @param ballTicks  сколько тиков шар светит (ночью виден весь, днём — первую половину)
      * @param burnTicks  сколько тиков горит воронка (тусклая точка у основания — видна ночью)
      * @param column     высота столба, блоков
      * @param riseTicks  за сколько тиков столб поднимается на 95 %
@@ -85,17 +95,17 @@ public final class FarBlasts {
     record Look(float fireball, double flash, int flashTicks, int ballTicks, int burnTicks, double column, int riseTicks, double base, double top,
                 int puffs, int life, float dust, double audible) {}
 
-    static final Look DRONE = new Look(5, 40, 3, 16, 220, 150, 600, 9, 26, 12, 3000, 0.25f, 20_000);
-    static final Look MISSILE = new Look(8.5f, 60, 4, 22, 320, 400, 900, 16, 50, 14, 4800, 0.2f, 40_000);
-    static final Look ROCKET = new Look(5, 30, 3, 12, 0, 70, 300, 6, 15, 10, 1200, 0.35f, 15_000);
-    static final Look BUNKER_BREACH = new Look(11, 70, 4, 26, 0, 450, 1000, 18, 58, 14, 4200, 0.45f, 30_000);
+    static final Look DRONE = new Look(5, 40, 3, 13, 1200, 150, 2400, 10, 40, 12, 3600, 0.25f, 20_000);
+    static final Look MISSILE = new Look(11, 60, 4, 30, 600, 270, 2400, 18, 70, 14, 4800, 0.2f, 40_000);
+    static final Look ROCKET = new Look(3.5f, 30, 2, 8, 0, 105, 2400, 7, 26, 10, 3000, 0.45f, 15_000);
+    static final Look BUNKER_BREACH = new Look(9, 60, 3, 20, 0, 210, 2400, 18, 55, 14, 4200, 0.5f, 30_000);
     static final Look BUNKER_DEEP = new Look(0, 0, 0, 0, 0, 110, 500, 14, 32, 12, 3000, 1, 30_000);
     /** Размер клуба — от и сколько сверху (доля номинального); разброс места клуба по высоте — доля шага. */
     static final double SIZE_MIN = 0.85, SIZE_SPAN = 0.3, JITTER = 0.3;
 
     private static final ArrayDeque<Event> EVENTS = new ArrayDeque<>();
-    /** Числа на кадр без выделения: точка {@link Sight#point} и цвет шара. */
-    private static final double[] POINT = new double[2];
+    /** Числа на кадр без выделения: точка {@link Sight#point}, свет {@link Sight#light} и цвет шара. */
+    private static final double[] POINT = new double[2], LIGHT = new double[5];
     private static final float[] TINT = new float[3];
     /** Тики клиента (не на паузе). */
     private static long clock;
@@ -278,28 +288,70 @@ public final class FarBlasts {
         }
     }
 
-    /** Вспышка, огненный шар и пожар в воронке — свет, складывается. */
+    /**
+     * Вспышка, огненный шар и пожар в воронке ({@link #lamp}): тело — круг своего света поверх неба (днём шар на светлом
+     * небе виден цветом, а не сложением света), свет вокруг — бликом и вуалью.
+     */
     private static void light(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double d, double w, double line) {
         Look k = e.look;
         double t = Sight.transmittance(d, view.range());
         if (k.fireball() <= 0 || t < Sight.THRESHOLD) return;
         double r = k.fireball();
         if (age < k.flashTicks()) {
-            double f = 1 - age / k.flashTicks();
-            double b = k.flash() * f * f;
-            double vis = glow(view, out, bx, by, bz, 0.4 * r, 3.5 * r, b, t, w, line, FLASH);
+            double vis = lamp(view, out, bx, by, bz, 0.4 * r, 0.6 * r, flash(k, age), t, w, line, FLASH);
             // за гребнем: свет вспышки рассеивает воздух над ним — слабое зарево там, откуда место было бы видно
-            if (vis < 1) glow(view, out, bx, by, bz, line, 7 * r, b * BEHIND * (1 - vis), t, w, 0, FLASH);
+            if (vis < 1) halo(view, out, bx, by, bz, line, 7 * r, flash(k, age) * BEHIND * (1 - vis), t, w, FLASH);
         }
         if (age < k.ballTicks()) {
             double u = age / k.ballTicks();
             double radius = r * (0.55 + 0.45 * Math.min(1, age / 3)) * (1 + 0.3 * u);
-            glow(view, out, bx, by, bz, r * (0.4 + 0.5 * u), radius, BALL * Math.pow(1 - u, 1.5), t, w, line, tint(u));
+            lamp(view, out, bx, by, bz, r * (0.4 + 0.5 * u), radius, ball(u), t, w, line, tint(u));
         }
         if (age < k.burnTicks()) {
             double flicker = 0.75 + 0.25 * Math.sin(age * 1.9 + e.phase) * Math.sin(age * 0.73 + 2 * e.phase);
-            glow(view, out, bx, by, bz, 0.2 * r, 0.6 * r, BURN * (1 - age / k.burnTicks()) * flicker, t, w, line, FIRE);
+            double h = 0.2 * r, rad = 0.6 * r;
+            if (visible(h, rad, line) > 0) halo(view, out, bx, by, bz, h, rad, BURN * (1 - age / k.burnTicks()) * flicker, t, w, FIRE);
         }
+    }
+
+    /**
+     * Яркость вспышки на age-м тике: держится почти всю свою длину и гаснет к концу — глаз складывает свет 50–100 мс
+     * (Блох, Брока–Зульцер), и вспышка в тик короче, чем кажется настоящая.
+     */
+    static double flash(Look k, double age) {
+        double f = age / k.flashTicks();
+        return f >= 1 ? 0 : k.flash() * (1 - f * f);
+    }
+
+    /** Яркость шара на доле u его жизни: остывает от ~2000 K; ярче дневного неба — первую половину жизни. */
+    static double ball(double u) {
+        double f = 1 - Math.min(1, u);
+        return BALL * f * f * f;
+    }
+
+    /**
+     * Светящееся тело радиуса rad и яркости b (против белого экрана при дневном небе) с центром на высоте h над
+     * основанием ({@link FarSprites#light}): ночью глаз привык к темноте — то же тело ярче ({@link Sight#adapted}), блик
+     * шире, и вокруг вуаль на градусы. Возвращает видимую над рельефом долю.
+     */
+    private static double lamp(FarView view, FarSprites out, double bx, double by, double bz, double h, double rad, double b, double t, double w,
+                               double line, float[] c) {
+        double vis = visible(h, rad, line);
+        if (vis <= 0) return 0;
+        out.light(bx, by + h, bz, rad, Sight.adapted(b, view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w, LIGHT);
+        return vis;
+    }
+
+    /**
+     * Мягкий свет без тела (пожар в воронке, зарево из-за гребня): ореол радиуса rad яркостью b с центром на высоте h
+     * над основанием; с привыканием глаза к ночи и бликом, как у {@link #lamp}; мельче точки — бледнее (поток тот же).
+     */
+    private static void halo(FarView view, FarSprites out, double bx, double by, double bz, double h, double rad, double b, double t, double w,
+                             float[] c) {
+        double gy = by + h, d = Math.sqrt(bx * bx + gy * gy + bz * bz);
+        double seen = Sight.adapted(b, view.ambient()) * t;
+        double floor = Math.max(rad, 0.5 * Sight.MIN_PIXELS * view.pixel() * d), k = rad / floor;
+        out.glow(bx, gy, bz, floor * (1 + Sight.GLARE * Math.log1p(seen)), c[0], c[1], c[2], (float) (Math.min(1, seen * k * k) * w));
     }
 
     /** Цвет остывающего шара на доле u его жизни: раскалён → оранжевый → тёмно-красный. */
@@ -313,51 +365,39 @@ public final class FarBlasts {
     }
 
     /**
-     * Зарево в небе над местом, пока светят вспышка и шар ({@link #skyGlow}): днём его не видно, ночью небо над взрывом
-     * вспыхивает, в дождь и дымку — сильнее и шире. Вблизи (ближе трёх радиусов зарева) его заменяет вспышка на экране.
+     * Зарево на облаках над местом, пока светят вспышка и шар ({@link #cloudGlow}): днём его не видно, ночью низ облаков
+     * над взрывом вспыхивает, в дождь (облака сплошные) — сильнее. Вблизи (ближе трёх радиусов пятна) его заменяет вспышка
+     * на экране; облаков у измерения нет — нет и зарева.
      */
     private static void sky(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double d, double line) {
         Look k = e.look;
         double r = k.fireball();
-        if (r <= 0 || age >= Math.max(k.flashTicks(), k.ballTicks())) return;
-        double rs = SKY * r, share = e.near ? smoothstep(rs, 3 * rs, d) : 1;
-        double t = Sight.transmittance(d, view.range());
+        if (r <= 0 || age >= Math.max(k.flashTicks(), k.ballTicks()) || Double.isNaN(view.clouds())) return;
+        double h = Math.max(SKY_LOW, view.clouds() - e.y), rs = SKY_SPREAD * h, share = e.near ? smoothstep(rs, 3 * rs, d) : 1;
+        double gy = by + h, dc = Math.sqrt(bx * bx + gy * gy + bz * bz), t = Sight.transmittance(dc, view.range());
         if (share <= 0 || t < Sight.THRESHOLD) return;
+        double vis = visible(h, rs, line);
+        if (vis <= 0) return;
+        double peak = SKY_PEAK * (SKY_CLEAR + (1 - SKY_CLEAR) * view.rain()) * t * vis * share;
         if (age < k.flashTicks()) {
-            double f = 1 - age / k.flashTicks();
-            glow(view, out, bx, by, bz, SKY_LIFT * rs, rs, skyGlow(k.flash() * f * f, r, view.range(), view.ambient()), t, share, line, FLASH);
+            out.glow(bx, gy, bz, rs, FLASH[0], FLASH[1], FLASH[2], (float) (peak * cloudGlow(flash(k, age), r, h, view.ambient())));
         }
         if (age < k.ballTicks()) {
             double u = age / k.ballTicks();
-            glow(view, out, bx, by, bz, SKY_LIFT * rs, rs, skyGlow(BALL * Math.pow(1 - u, 1.5), r, view.range(), view.ambient()), t, share, line, tint(u));
+            float[] c = tint(u);
+            out.glow(bx, gy, bz, rs, c[0], c[1], c[2], (float) (peak * cloudGlow(ball(u), r, h, view.ambient())));
         }
     }
 
     /**
-     * Яркость зарева против белого экрана. Воздух на пути через зарево (радиус {@link #SKY}·r) рассеивает долю
-     * 1 − e^(−σ·Rs) света источника яркости b (точка радиуса r; σ = 3,912 / дальность видимости по Кошмидеру — в дождь
-     * в разы больше); этот свет расходится по всему кругу зарева — поток тот же, яркость × (r/Rs)²; а глаз, привыкший
-     * к свету неба, видит его ярче во столько раз, во сколько небо темнее ({@link FarFlightView#adapted}). Не ярче белого.
+     * Яркость низа облаков на высоте h над источником яркости b радиуса r против белого экрана, с привыканием глаза
+     * ({@link Sight#adapted}), не ярче белого: шар светит силой b·r² (на единицу π), освещённость облаков — сила / h²,
+     * их яркость — {@link #CLOUD_ALBEDO}·E/π. Днём это тысячные доли неба, ночью — в сотни раз ярче него (оценка для
+     * крылатой ракеты при облаках в 1 км — 7 кд/м² против 0,006–0,06 у ночного неба над городом).
      */
-    static double skyGlow(double b, double r, double range, double ambient) {
-        double rs = SKY * r, k = r / rs;
-        double scatter = 1 - Math.exp(-Sight.KOSCHMIEDER / range * rs);
-        return Math.min(1, FarFlightView.adapted(b * scatter * k * k, ambient));
-    }
-
-    /**
-     * Светящаяся точка с центром на высоте h над основанием: видимая над линией рельефа часть её света
-     * ({@link Sight#point}). Возвращает видимую долю.
-     */
-    private static double glow(FarView view, FarSprites out, double bx, double by, double bz, double h, double radius, double brightness, double t,
-                               double w, double line, float[] c) {
-        double vis = visible(h, radius, line);
-        if (vis <= 0) return 0;
-        double gy = by + h;
-        double d = Math.sqrt(bx * bx + gy * gy + bz * bz);
-        Sight.point(radius, brightness * vis, t, d, view.pixel(), POINT);
-        out.glow(bx, gy, bz, POINT[0], c[0], c[1], c[2], (float) (POINT[1] * w));
-        return vis;
+    static double cloudGlow(double b, double r, double h, double ambient) {
+        double k = r / h;
+        return Math.min(1, Sight.adapted(CLOUD_ALBEDO * b * k * k, ambient));
     }
 
     /** Столб дыма и пыли: поднимается, расплывается, уходит по ветру; сначала тает низ. */
@@ -385,10 +425,10 @@ public final class FarBlasts {
             double t = Sight.transmittance(d, view.range());
             if (t < Sight.THRESHOLD) continue;
             Sight.point(r, 1, 1, d, view.pixel(), POINT);
-            float share = e.dust[i], shade = e.shade[i];
-            float cr = view.hazed((sr + (e.dustR - sr) * share) * shade, 0, t), cg = view.hazed((sg + (e.dustG - sg) * share) * shade, 1, t),
-                    cb = view.hazed((sb + (e.dustB - sb) * share) * shade, 2, t);
-            out.puff(px, py, pz, POINT[0], e.rot[i] + (float) (age * e.spin[i]), e.tex[i], cr, cg, cb, (float) (a * vis * POINT[1]));
+            // свой цвет при свете неба, дымка — в непрозрачности (за клубом — та же дымка, Кошмидер)
+            float share = e.dust[i], lit = e.shade[i] * view.ambient();
+            float cr = (sr + (e.dustR - sr) * share) * lit, cg = (sg + (e.dustG - sg) * share) * lit, cb = (sb + (e.dustB - sb) * share) * lit;
+            out.puff(px, py, pz, POINT[0], e.rot[i] + (float) (age * e.spin[i]), e.tex[i], cr, cg, cb, (float) (a * vis * POINT[1] * t));
         }
     }
 
