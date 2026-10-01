@@ -4,7 +4,6 @@ import net.minecraft.util.BitStorage;
 import net.minecraft.util.ZeroBitStorage;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.BaseFireBlock;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -236,7 +235,7 @@ final class ChunkShot {
         long h = data.storage().getBits();
         Palette<BlockState> palette = data.palette();
         if (!(palette instanceof GlobalPalette)) {
-            for (int k = 0; k < palette.getSize(); k++) h = mix(h, Block.getId(palette.valueFor(k)));
+            for (int k = 0; k < palette.getSize(); k++) h = mix(h, System.identityHashCode(palette.valueFor(k)));
         }
         for (long v : data.storage().getRaw()) h = mix(h, v);
         return h;
@@ -247,7 +246,11 @@ final class ChunkShot {
         return normalPrint(s.hasOnlyAir() ? null : s.getStates(), RuinPlan::normal);
     }
 
-    /** Отпечаток секции по местам: состояние каждого места, приведённое {@code normal} (лампа и её двойник — одно). */
+    /**
+     * Отпечаток секции по местам: состояние каждого места, приведённое {@code normal} (лампа и её двойник — одно).
+     * Состояние — по {@code identityHashCode} (состояния — одиночки), не {@code Block.getId}: отпечатки считают и фоновые
+     * потоки руин, а им код блоков нельзя ({@code backgroundSolversCallNoWorld}).
+     */
     static long normalPrint(@Nullable PalettedContainer<BlockState> c, java.util.function.Function<BlockState, BlockState> normal) {
         if (c == null) return AIR_PRINT;
         var data = c.data;
@@ -257,11 +260,11 @@ final class ChunkShot {
         if (palette instanceof GlobalPalette) {
             it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap seen = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
             for (int i = 0; i < storage.getSize(); i++) {
-                h = mix(h, seen.computeIfAbsent(storage.get(i), id -> Block.getId(normal.apply(palette.valueFor(id)))));
+                h = mix(h, seen.computeIfAbsent(storage.get(i), id -> System.identityHashCode(normal.apply(palette.valueFor(id)))));
             }
         } else {
             int[] norm = new int[palette.getSize()];
-            for (int k = 0; k < norm.length; k++) norm[k] = Block.getId(normal.apply(palette.valueFor(k)));
+            for (int k = 0; k < norm.length; k++) norm[k] = System.identityHashCode(normal.apply(palette.valueFor(k)));
             for (int i = 0; i < storage.getSize(); i++) h = mix(h, norm[storage.get(i)]);
         }
         return h;
