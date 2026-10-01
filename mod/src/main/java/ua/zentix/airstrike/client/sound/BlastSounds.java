@@ -2,39 +2,49 @@ package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
-import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 /**
  * Что слышно от взрыва на разном расстоянии — картинку и тряску рисует {@code client.fx.BlastEffects}, звук весь здесь.
- * Всё приходит со фронтом (band — пояс фронта: 1 — ближе 17 блоков, 2 — 17..34 …), громкость задаём сами, а не
- * ванильным затуханием. У каждого события по несколько записей — каждый взрыв звучит по-своему.
+ * Всё приходит со фронтом, громкость задаём сами, а не ванильным затуханием.
  * <ul>
- * <li>вблизи (до ~50 блоков) — хлёсткий удар с огненным шаром и «удар в грудь» снизу, потом сыплются обломки;</li>
- * <li>на средней дистанции — резкий хлопок тише, основное — тяжёлый раскат с эхом;</li>
- * <li>вдали — только дальний раскат, тише с расстоянием; воздух и холмы глушат верха ({@link SoundFilters});</li>
- * <li>дальше {@link Outdoor#NEAR} блоков — тот же раскат по модели распространения {@link Outdoor} ({@link #far}).</li>
+ * <li>ближе {@link Outdoor#NEAR} блоков — ракурсы одной записи по расстоянию ({@link BlastMix}): вблизи удар и тело
+ * взрыва с «ударом в грудь» снизу, дальше — запись с эхом от склонов и домов, вдали — раскат без верхов; эхо вокруг —
+ * стерео без места в мире; воздух и преграды глушат верха ({@link SoundFilters});</li>
+ * <li>дальше — дальний ракурс по модели распространения {@link Outdoor} ({@link #far}).</li>
  * </ul>
+ * Вариант записи выбирает зерно взрыва (пакет {@code S2C.Blast}): каждый взрыв звучит по-своему, а его ракурсы — одна
+ * запись. Моторы снарядов под громкий взрыв уходят вниз ({@link Ducking}).
  */
 public final class BlastSounds {
-    /**
-     * Громкость дальнего раската ближней модели на её краю ({@link Outdoor#NEAR}): шахед и ракета, РСЗО, бомба. С неё
-     * продолжается дальняя модель ({@link #far}) — одни и те же числа, поэтому на 640 блоках нет ступеньки.
-     */
-    static final float FAR_FLOOR = 0.35f, ROCKET_FAR_FLOOR = 0.2f, BUNKER_FAR_FLOOR = 1;
+    /** Громкость глухого удара бомбы из-под земли — и на краю ближней модели, с неё продолжается {@link #far}. */
+    static final float BUNKER_FAR_FLOOR = 1;
+    /** Соль зерна «удара в грудь» и эха: их варианты (их меньше) не привязаны к варианту ракурсов. */
+    private static final long SUB_SALT = 0x5DEECE66DL, ECHO_SALT = 0x9E3779B97F4A7C15L;
+    /** Эха звучат не больше стольких сразу: залп РСЗО — десятки разрывов, а эхо — длинное стерео на канал. */
+    static final int ECHO_CAP = 4;
+    private static final Deque<SoundInstance> ECHOES = new ArrayDeque<>();
+    /** Тише — слой не запускать. */
+    private static final float AUDIBLE = 0.005f;
 
     private BlastSounds() {}
 
     /**
-     * Взрыв дальше {@link Outdoor#NEAR}: тот же дальний раскат, что у ближней модели на её краю (у ракеты — и второй,
-     * ниже; у РСЗО — выше тоном; у бомбы — глухой удар из-под земли). Громкость и верха — {@link Outdoor}: что между
+     * Взрыв дальше {@link Outdoor#NEAR}: дальний ракурс, с той громкостью, что у ближней модели на её краю
+     * ({@link BlastMix#v640}), у бомбы — глухой удар из-под земли. Громкость и верха — {@link Outdoor}: что между
      * (кромка по лучу рельефа {@code z}), земля у взрыва и у слушателя, день или ночь, дождь.
      *
      * @param kind   вид пакета {@code S2C.Blast}
@@ -43,9 +53,10 @@ public final class BlastSounds {
      * @param ground грунт у взрыва
      * @param d      до уха, блоков
      * @param z      разность хода через кромку рельефа, блоков (0 — прямая видимость)
+     * @param seed   зерно взрыва
      * @return что дошло (для лога); {@code null} — мира нет
      */
-    public static Outdoor.@Nullable Heard far(int kind, Vec3 pos, double r0, double hs, GroundMaterial ground, double d, double z) {
+    public static Outdoor.@Nullable Heard far(int kind, Vec3 pos, double r0, double hs, GroundMaterial ground, double d, double z, long seed) {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return null;
@@ -59,62 +70,48 @@ public final class BlastSounds {
         double day = type.hasSkyLight() && !type.hasFixedTime() ? Outdoor.day(Mth.cos(level.getTimeOfDay(1) * Mth.TWO_PI)) : 0;
         Outdoor.Path path = new Outdoor.Path(d, z, hs, Math.max(1.5, ear.y - top), ground.porosity, under == null ? 0.5 : under.porosity,
                 day, level.getRainLevel(1), level.getThunderLevel(1));
-        float v640 = switch (kind) {
-            case S2C.Blast.ROCKET -> ROCKET_FAR_FLOOR;
-            case S2C.Blast.BUNKER -> BUNKER_FAR_FLOOR;
-            default -> FAR_FLOOR;
-        };
-        Outdoor.Heard heard = Outdoor.hear(r0, v640, path);
+        BlastMix.Profile mix = BlastMix.of(kind);
+        Outdoor.Heard heard = Outdoor.hear(r0, mix == null ? BUNKER_FAR_FLOOR : BlastMix.v640(mix), path);
         float v = heard.volume();
         if (v < 0.005f) return heard;
         float highs = SoundFilters.pathEffects() ? heard.highs() * ClientSounds.farAir(d) : 1;
-        switch (kind) {
-            case S2C.Blast.MISSILE -> {
-                ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, v, 0.88f, 1, highs);
-                ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, v * 0.6f, 0.8f, 1, highs);
-            }
-            case S2C.Blast.ROCKET -> ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, v, (0.93f + (float) Math.random() * 0.14f) * 1.15f, 1, highs);
-            case S2C.Blast.BUNKER -> ClientSounds.atEar(ModSounds.BOMB_DEEP.get(), pos, v, 1, 1, highs);
-            default -> ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, v, 1, 1, highs);
-        }
+        if (mix == null) ClientSounds.atEar(ModSounds.BOMB_DEEP.get(), pos, v, 1, seed, 1, highs);
+        else ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, v, BlastMix.pitch(mix, seed), seed, 1, highs);
         return heard;
     }
 
-    /** Взрыв на поверхности: шахед (big = false) или крылатая ракета — у неё тон ниже и раскат длиннее. */
-    public static void surface(Vec3 pos, int band, boolean big) {
-        float p = big ? 0.88f : 1;
-        if (band <= 3) {
-            ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, 1, p);
-            ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 1, p * 0.95f);
-            if (big) ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, 0.7f, 0.85f);
-        } else if (band <= (big ? 11 : 9)) {
-            float near = Math.max(0.3f, 0.85f - (band - 4) * 0.08f);
-            ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, near, p * 0.95f);
-            ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, 1, p);
-            if (band <= (big ? 8 : 6)) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 0.8f, p * 0.9f);
-        } else {
-            float far = Math.max(FAR_FLOOR, 1 - (band - 10) / 30f);
-            ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, far, p);
-            if (big) ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, far * 0.6f, 0.8f);
-        }
+    /** Взрыв на поверхности — фронт дошёл до уха: шахед (big = false) или крылатая ракета. */
+    public static void surface(Vec3 pos, boolean big, long seed) {
+        play(big ? BlastMix.MISSILE : BlastMix.DRONE, ModSounds.BLAST_NEAR.get(), pos, seed);
     }
 
     /**
      * Снаряд РСЗО (~20 кг ВВ): вблизи — сухой жёсткий разрыв, вдали — короткий раскат. Залп ложится очередью,
      * поэтому тон каждого разрыва чуть свой — цепочка не звучит одним и тем же звуком.
      */
-    public static void rocket(Vec3 pos, int band) {
-        float p = 0.93f + (float) Math.random() * 0.14f;
-        if (band <= 3) {
-            ClientSounds.atEar(ModSounds.ROCKET_BLAST.get(), pos, 1, p);
-            ClientSounds.atEar(ModSounds.BLAST_NEAR.get(), pos, 0.45f, p * 1.2f);
-            ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 0.5f, p * 1.15f);
-        } else if (band <= 9) {
-            ClientSounds.atEar(ModSounds.ROCKET_BLAST.get(), pos, Math.max(0.35f, 1 - (band - 3) * 0.1f), p);
-            if (band <= 6) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, 0.35f, p * 1.1f);
-        } else {
-            ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, Math.max(ROCKET_FAR_FLOOR, 0.8f - (band - 10) / 30f), p * 1.15f);
-        }
+    public static void rocket(Vec3 pos, long seed) {
+        play(BlastMix.ROCKET, ModSounds.ROCKET_BLAST.get(), pos, seed);
+    }
+
+    /** Слои взрыва по расстоянию до уха ({@link BlastMix}); near — ближний ракурс. */
+    private static void play(BlastMix.Profile mix, SoundEvent near, Vec3 pos, long seed) {
+        double d = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition().distanceTo(pos);
+        BlastMix.Layers l = BlastMix.at(mix, d);
+        float pitch = BlastMix.pitch(mix, seed);
+        ClientSounds.ducked(BlastMix.loudness(mix, d));
+        if (l.near() >= AUDIBLE) ClientSounds.atEar(near, pos, l.near(), pitch, seed);
+        if (l.mid() >= AUDIBLE) ClientSounds.atEar(ModSounds.BLAST_MID.get(), pos, l.mid(), pitch, seed);
+        if (l.far() >= AUDIBLE) ClientSounds.atEar(ModSounds.BLAST_FAR.get(), pos, l.far(), pitch, seed);
+        if (l.sub() >= AUDIBLE) ClientSounds.atEar(ModSounds.BLAST_SUB.get(), pos, l.sub(), pitch, seed ^ SUB_SALT);
+        if (l.echo() >= AUDIBLE && echoFree())
+            ECHOES.add(ClientSounds.around(ModSounds.BLAST_TAIL.get(), l.echo(), pitch, seed ^ ECHO_SALT, ClientSounds.farAir(d)));
+    }
+
+    /** Есть место ещё одному эху: смолкшие и не запущенные (движку не хватило канала) забываются. */
+    private static boolean echoFree() {
+        SoundManager manager = Minecraft.getInstance().getSoundManager();
+        ECHOES.removeIf(s -> !manager.isActive(s));
+        return ECHOES.size() < ECHO_CAP;
     }
 
     /** Бетонобойная бомба взорвалась под землёй. underground — слушатель сам под землёй (в той же толще). */

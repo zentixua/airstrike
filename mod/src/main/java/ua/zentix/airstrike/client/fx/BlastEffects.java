@@ -29,7 +29,7 @@ public final class BlastEffects {
     private BlastEffects() {}
 
     /**
-     * Пакет взрыва: ближе {@link FarBlasts#NEAR} — частицы и звук поясами здесь; картинку дальше прорисовки и звук
+     * Пакет взрыва: ближе {@link FarBlasts#NEAR} — частицы и звук здесь; картинку дальше прорисовки и звук
      * дальше {@link FarBlasts#NEAR} ведёт {@link FarBlasts} (пакеты приходят до {@code far_range}).
      */
     public static void blast(S2C.Blast p) {
@@ -52,11 +52,14 @@ public final class BlastEffects {
         final Vec3 pos;
         final GroundMaterial mat;
         final RandomSource random;
+        /** Зерно взрыва: по нему же звук выбирает вариант записи. */
+        final long seed;
         private boolean arrived;
 
         Timeline(Vec3 pos, GroundMaterial mat, long seed) {
             this.pos = pos;
             this.mat = mat;
+            this.seed = seed;
             this.random = RandomSource.create(seed);
         }
 
@@ -153,8 +156,8 @@ public final class BlastEffects {
 
         @Override
         void arrive(ClientLevel level, int band) {
-            if (rocket) BlastSounds.rocket(pos, band);
-            else BlastSounds.surface(pos, band, false);
+            if (rocket) BlastSounds.rocket(pos, seed);
+            else BlastSounds.surface(pos, false, seed);
             int shake = band == 1 ? 26 : band == 2 ? 22 : band <= 4 ? 16 : band <= 8 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }
@@ -212,7 +215,7 @@ public final class BlastEffects {
 
         @Override
         void arrive(ClientLevel level, int band) {
-            BlastSounds.surface(pos, band, true);
+            BlastSounds.surface(pos, true, seed);
             int shake = band == 1 ? 34 : band == 2 ? 30 : band == 3 ? 26 : band <= 6 ? 22 : band <= 10 ? 16 : band <= 16 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
         }

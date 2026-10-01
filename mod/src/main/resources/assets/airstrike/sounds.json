@@ -143,22 +143,28 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_near_1"
+        "name": "airstrike:blast_near_1",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_near_2"
+        "name": "airstrike:blast_near_2",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_near_3"
+        "name": "airstrike:blast_near_3",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_near_4"
+        "name": "airstrike:blast_near_4",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_near_5"
+        "name": "airstrike:blast_near_5",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_near_6"
+        "name": "airstrike:blast_near_6",
+        "preload": true
       }
     ]
   },
@@ -166,10 +172,12 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_sub_1"
+        "name": "airstrike:blast_sub_1",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_sub_2"
+        "name": "airstrike:blast_sub_2",
+        "preload": true
       }
     ]
   },
@@ -177,37 +185,81 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:blast_far_1"
+        "name": "airstrike:blast_far_1",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_2"
+        "name": "airstrike:blast_far_2",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_3"
+        "name": "airstrike:blast_far_3",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_4"
+        "name": "airstrike:blast_far_4",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_5"
+        "name": "airstrike:blast_far_5",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_6"
+        "name": "airstrike:blast_far_6",
+        "preload": true
+      }
+    ]
+  },
+  "blast.mid": {
+    "subtitle": "subtitles.airstrike.blast",
+    "sounds": [
+      {
+        "name": "airstrike:blast_mid_1",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_7"
+        "name": "airstrike:blast_mid_2",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_8"
+        "name": "airstrike:blast_mid_3",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_9"
+        "name": "airstrike:blast_mid_4",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_10"
+        "name": "airstrike:blast_mid_5",
+        "preload": true
       },
       {
-        "name": "airstrike:blast_far_11"
+        "name": "airstrike:blast_mid_6",
+        "preload": true
+      }
+    ]
+  },
+  "blast.tail": {
+    "sounds": [
+      {
+        "name": "airstrike:blast_tail_1",
+        "preload": true
+      },
+      {
+        "name": "airstrike:blast_tail_2",
+        "preload": true
+      },
+      {
+        "name": "airstrike:blast_tail_3",
+        "preload": true
+      },
+      {
+        "name": "airstrike:blast_tail_4",
+        "preload": true
+      },
+      {
+        "name": "airstrike:blast_tail_5",
+        "preload": true
       }
     ]
   },
@@ -445,19 +497,24 @@
     "subtitle": "subtitles.airstrike.blast",
     "sounds": [
       {
-        "name": "airstrike:rocket_blast_1"
+        "name": "airstrike:rocket_blast_1",
+        "preload": true
       },
       {
-        "name": "airstrike:rocket_blast_2"
+        "name": "airstrike:rocket_blast_2",
+        "preload": true
       },
       {
-        "name": "airstrike:rocket_blast_3"
+        "name": "airstrike:rocket_blast_3",
+        "preload": true
       },
       {
-        "name": "airstrike:rocket_blast_4"
+        "name": "airstrike:rocket_blast_4",
+        "preload": true
       },
       {
-        "name": "airstrike:rocket_blast_5"
+        "name": "airstrike:rocket_blast_5",
+        "preload": true
       }
     ]
   },

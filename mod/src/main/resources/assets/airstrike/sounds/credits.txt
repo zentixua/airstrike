@@ -2,6 +2,7 @@ Airstrike sounds are built from the recordings below (cut, mixed, filtered, resa
 plus synthesis. CC0 = public domain; CC BY = used with attribution, modified.
 
 221Beimesche - "Glass Shattering and Falling" - CC0 1.0 - https://freesound.org/s/336425/
+alienistcog - "merrimack-st-demolition.aif" - CC0 1.0 - https://freesound.org/s/125937/
 bastipictures - "peal of thunder - distant" - CC0 1.0 - https://freesound.org/s/243782/
 blukotek - "two-stroke Trabant engine 01.wav" - CC0 1.0 - https://freesound.org/s/412819/
 craigsmith - "G11-25_B-52 Jet Fly By.wav" - CC0 1.0 - https://freesound.org/s/437931/
@@ -16,34 +17,37 @@ craigsmith - "R09-58-Large Fire with Debris.wav" - CC0 1.0 - https://freesound.o
 craigsmith - "R12-02-Large Explosions.wav" - CC0 1.0 - https://freesound.org/s/486018/
 craigsmith - "R18-04-Artillery Shells Fly Overhead.wav" - CC0 1.0 - https://freesound.org/s/486035/
 craigsmith - "S18-01 Incoming shells; explosions.wav" - CC0 1.0 - https://freesound.org/s/674897/
-craigsmith - "S16-23 Violent explosion and debris; 2 takes.wav" - CC0 1.0 - https://freesound.org/s/674910/
 craigsmith - "S32-27 Titan missile launch; long.wav" - CC0 1.0 - https://freesound.org/s/675750/
 craigsmith - "S10-19 Falling wooden beam; big interior crash; house collapses; long.wav" - CC0 1.0 - https://freesound.org/s/675967/
 csengeri - "Close lightning strike 2018 07 07" - CC0 1.0 - https://freesound.org/s/434359/
+deleted_user_9900733 - "UAV explosion in the city" - CC0 1.0 - https://freesound.org/s/811474/
+Evan Cruder - "120527 08 Dynamite 4 [double].WAV" - CC0 1.0 - https://freesound.org/s/160794/
+felix.blume - "Dynamite explosion in the mountain" - CC0 1.0 - https://freesound.org/s/251401/
+felix.blume - "Big dynamite explosion in an open mine (Chile)" - CC0 1.0 - https://freesound.org/s/475780/
 felix.blume - "Rocket Launch Rumble at Canaveral" - CC0 1.0 - https://freesound.org/s/613855/
 Invadium - "cruise-missiles-interception-and-fly-by (Kh-101 over Kyiv)" - CC0 1.0 - https://freesound.org/s/824805/
 jensfelger - "Jacob's ladder.wav" - CC0 1.0 - https://freesound.org/s/367456/
 jessepash - "Switch.Big.Power.wav" - CC0 1.0 - https://freesound.org/s/139970/
-Kostrava - "distant explosions" - CC0 1.0 - https://freesound.org/s/320788/
-Kostrava - "distant explosion" - CC0 1.0 - https://freesound.org/s/324277/
+juskiddink - "Quarry blasting.wav" - CC BY 4.0 - https://freesound.org/s/82682/
 KVV_Audio - "ALRMMisc_Air Raid Siren In Time Of War_KVV AUDIO_FREE" - CC0 1.0 - https://freesound.org/s/727588/
 KVV_Audio - "RAIN_Heavy Rain Outdoor 01_KVV_FREE" - CC BY 4.0 - https://freesound.org/s/860133/
-KVV_Audio - "EXPLReal_Air Explosion Medium Distance_KVV AUDIO_FREE" - CC BY 4.0 - https://freesound.org/s/871382/
 kyles - "switch big breaker metal click on, off" - CC0 1.0 - https://freesound.org/s/451933/
 kyles - "neon tube smash explode shatter glass debris.flac" - CC0 1.0 - https://freesound.org/s/453499/
 LukaCafuka - "Glass panel shattering" - CC0 1.0 - https://freesound.org/s/758207/
 minian89 - "jet_engine.wav" - CC0 1.0 - https://freesound.org/s/152509/
 minian89 - "four_jet_engines.wav" - CC0 1.0 - https://freesound.org/s/152567/
+Nanashi - "M224 Mortar Impact Medium Distance 02" - CC BY 4.0 - https://freesound.org/s/426163/
+Nanashi - "M224 Mortar Impact Medium Distance 01" - CC BY 4.0 - https://freesound.org/s/426164/
+Nanashi - "M224 Mortar Impact Distant 01" - CC BY 4.0 - https://freesound.org/s/426166/
+Nanashi - "M224 Mortar Impact Distant 03" - CC BY 4.0 - https://freesound.org/s/426167/
 nicotep - "EDF_Electrical_substation" - CC0 1.0 - https://freesound.org/s/547900/
 Nox_Sound - "Foley_Stones_Falls_Debris_Stereo_DR05.wav" - CC0 1.0 - https://freesound.org/s/550342/
 OBXJohn - "Gym Lights Powering Up" - CC0 1.0 - https://freesound.org/s/262509/
 Profispiesser - "FX SaSc Glass Tiles Shatter Crash.wav" - CC0 1.0 - https://freesound.org/s/583065/
 qubodup - "Jet Plane Wind Noise Loop of a KC-135 Stratotanker 1.flac" - CC0 1.0 - https://freesound.org/s/162417/
-qubodup - "Explosion [US DoD]" - CC0 1.0 - https://freesound.org/s/182429/
 qubodup - "Explosive 1 v2 [DOD 130303].flac" - CC0 1.0 - https://freesound.org/s/182431/
 qubodup - "Rocket Launch.flac" - CC0 1.0 - https://freesound.org/s/182794/
 qubodup - "Launching Anti-Tank Missiles.flac [US DoD]" - CC0 1.0 - https://freesound.org/s/184274/
-qubodup - "Explosive.flac [US DoD]" - CC0 1.0 - https://freesound.org/s/189778/
 qubodup - "Huge Explosion" - CC0 1.0 - https://freesound.org/s/741174/
 qubodup - "Massive Explosion" - CC0 1.0 - https://freesound.org/s/741175/
 qubodup - "Quadcopter Drone Flyby" - CC0 1.0 - https://freesound.org/s/854352/
@@ -52,9 +56,10 @@ rcEyeSoar - "rc plane fly-by 2.wav" - CC0 1.0 - https://freesound.org/s/176973/
 Romaner66 - "Air raid siren in Kyiv" - CC BY 4.0 - https://freesound.org/s/676589/
 Sanderboah - "Geiger counter (dry)" - CC0 1.0 - https://freesound.org/s/674113/
 Sclolex - "highvoltagearc.wav" - CC0 1.0 - https://freesound.org/s/210878/
+sidohzen - "Explosion with debris - authentic. 4kg TNT" - CC0 1.0 - https://freesound.org/s/165808/
 Spennnyyy - "Extremely Close THUNDER! (no rain)" - CC BY 4.0 - https://freesound.org/s/350506/
-the_yura - "Destruction of the missile" - CC0 1.0 - https://freesound.org/s/741267/
 TheLittleCrow - "Rocket Launch Boost and Burning (Version B)" - CC0 1.0 - https://freesound.org/s/774270/
+tim.kahn - "EXPLReal_Centennial Mills Watertower Demolition" - CC BY 4.0 - https://freesound.org/s/866989/
 TRP - "Fridge hum whirl stops loud clunk bang" - CC0 1.0 - https://freesound.org/s/573936/
 wniebelski - "taxing ultralight plane.wav" - CC0 1.0 - https://freesound.org/s/695977/
 Yoyodaman234 - "Thunder2" - CC0 1.0 - https://freesound.org/s/267551/

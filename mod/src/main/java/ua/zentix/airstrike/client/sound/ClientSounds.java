@@ -36,6 +36,8 @@ import java.util.UUID;
 public final class ClientSounds {
     private static final Map<UUID, Tracked> TRACKS = new HashMap<>();
     private static final RandomSource RANDOM = RandomSource.create();
+    /** Моторы уходят вниз под громкий взрыв. */
+    private static final Ducking DUCK = new Ducking();
     /** Движок не дал слою канал (все заняты): через столько тиков попробовать снова. */
     private static final int RETRY = 10;
 
@@ -141,7 +143,18 @@ public final class ClientSounds {
         for (FlightTrack track : FlightTracks.all()) {
             if (!TRACKS.containsKey(track.id)) TRACKS.put(track.id, new Tracked(track, layers(track)));
         }
+        DUCK.tick();
         budget(hear(mc));
+    }
+
+    /** Громкость моторов под взрывами ({@link Ducking}). */
+    static float duck() {
+        return DUCK.factor();
+    }
+
+    /** До уха дошёл взрыв с громкостью прямого звука lufs: моторы уходят вниз ({@link Ducking}). */
+    static void ducked(double lufs) {
+        DUCK.blast(lufs);
     }
 
     /** Что слышно от каждого снаряда в этот тик: громкость каждого слоя и разовые звуки старта. */
@@ -231,6 +244,7 @@ public final class ClientSounds {
     public static void reset() {
         TRACKS.values().forEach(Tracked::kill);
         TRACKS.clear();
+        DUCK.reset();
     }
 
     /** Обычный отбой: заглушить отменённые снаряды; оставшиеся (ядерные) звучат дальше. */
@@ -261,19 +275,46 @@ public final class ClientSounds {
     }
 
     private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category) {
-        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
-        float highs = farAir(ear.distanceTo(source)) * SoundFilters.blockedHighs(open);
-        play(new Shot(event.getLocation(), category, volume, pitch, SoundInstance.Attenuation.NONE, toward(ear, source), SoundFilters.blockedGain(open), highs));
+        atEar(event, source, volume, pitch, category, RANDOM);
     }
 
     /**
-     * Как {@link #atEar(SoundEvent, Vec3, float, float)}, но фильтр пути задаёт вызывающий (дальний взрыв: что между — холм, земля, погода — уже
-     * посчитал {@link Outdoor}): без луча по блокам и без своего воздуха.
+     * Как {@link #atEar(SoundEvent, Vec3, float, float)}, но запись из вариантов события выбирает зерно: ракурсы одного
+     * взрыва с одним зерном — одна и та же запись (у событий ракурсов поровну вариантов).
      */
-    public static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, float gain, float highs) {
+    public static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, long seed) {
+        atEar(event, source, volume, pitch, SoundSource.AMBIENT, RandomSource.create(seed));
+    }
+
+    private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category, RandomSource random) {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, SoundInstance.Attenuation.NONE, toward(ear, source), gain, highs));
+        float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
+        float highs = farAir(ear.distanceTo(source)) * SoundFilters.blockedHighs(open);
+        play(new Shot(event.getLocation(), category, volume, pitch, random, SoundInstance.Attenuation.NONE, toward(ear, source), false,
+                SoundFilters.blockedGain(open), highs));
+    }
+
+    /**
+     * Как {@link #atEar(SoundEvent, Vec3, float, float, long)}, но фильтр пути задаёт вызывающий (дальний взрыв: что между — холм, земля,
+     * погода — уже посчитал {@link Outdoor}): без луча по блокам и без своего воздуха.
+     */
+    public static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, long seed, float gain, float highs) {
+        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, RandomSource.create(seed), SoundInstance.Attenuation.NONE,
+                toward(ear, source), false, gain, highs));
+    }
+
+    /**
+     * Звук без места в мире — отовсюду сразу (эхо взрыва: отражения от склонов, домов и леса приходят со всех сторон;
+     * стерео играется как есть). Вариант выбирает зерно, верха — {@code highs}.
+     *
+     * @return звук, чтобы следить, звучит ли он ещё
+     */
+    static SoundInstance around(SoundEvent event, float volume, float pitch, long seed, float highs) {
+        Shot s = new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, RandomSource.create(seed), SoundInstance.Attenuation.NONE,
+                Vec3.ZERO, true, 1, highs);
+        play(s);
+        return s;
     }
 
     /** Верха записи раската, дошедшие по воздуху: дальние записи уже глухие — воздух добавляет не больше −12 дБ. */
@@ -292,7 +333,8 @@ public final class ClientSounds {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         float open = SoundFilters.open(ear, pos.add(0, 1, 0));
         float highs = SoundFilters.air(ear.distanceTo(pos)) * SoundFilters.blockedHighs(open);
-        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, SoundInstance.Attenuation.LINEAR, pos, SoundFilters.blockedGain(open), highs));
+        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, RANDOM, SoundInstance.Attenuation.LINEAR, pos, false,
+                SoundFilters.blockedGain(open), highs));
     }
 
     private static void play(SoundInstance sound) {
@@ -303,8 +345,9 @@ public final class ClientSounds {
     private static final class Shot extends SimpleSoundInstance implements SoundFilters.Muffled {
         private final float gain, highs;
 
-        Shot(ResourceLocation id, SoundSource category, float volume, float pitch, Attenuation attenuation, Vec3 at, float gain, float highs) {
-            super(id, category, volume, pitch, RANDOM, false, 0, attenuation, at.x, at.y, at.z, false);
+        Shot(ResourceLocation id, SoundSource category, float volume, float pitch, RandomSource random, Attenuation attenuation, Vec3 at,
+             boolean relative, float gain, float highs) {
+            super(id, category, volume, pitch, random, false, 0, attenuation, at.x, at.y, at.z, relative);
             this.gain = gain;
             this.highs = highs;
         }
