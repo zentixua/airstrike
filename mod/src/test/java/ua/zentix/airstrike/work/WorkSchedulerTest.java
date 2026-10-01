@@ -24,6 +24,28 @@ class WorkSchedulerTest {
         assertEquals(0, WorkScheduler.remaining(TOTAL, 45 * MS, GRID_CAP), "полоса выше ушла за срок — не отрицательный срок");
     }
 
+    /**
+     * Волна ядерки и каскад блэкаута одновременно (считающие часы, единица 1 мс, предел ядерки 30): блэкаут получает
+     * свои 4 мс, а не одну единицу за тик; без работы у блэкаута ядерке — весь остаток.
+     */
+    @Test
+    void nuclearLeavesGridItsShareWhileGridWaits() {
+        long nukeCap = 30 * MS;
+        assertEquals(TOTAL, WorkScheduler.nuclearBudget(TOTAL, 0, nukeCap, 0));
+        assertEquals(26 * MS, WorkScheduler.nuclearBudget(TOTAL, 0, nukeCap, GRID_CAP));
+        assertEquals(0, WorkScheduler.nuclearBudget(TOTAL, 28 * MS, nukeCap, GRID_CAP), "попадания и запас блэкаута съели срок");
+        WorkClock nuclear = WorkClock.counting(MS), grid = WorkClock.counting(MS);
+        for (int tick = 0; tick < 50; tick++) {
+            nuclear.start(WorkScheduler.nuclearBudget(TOTAL, 0, nukeCap, GRID_CAP));
+            while (nuclear.canStart()) nuclear.end(nuclear.begin());
+            grid.start(WorkScheduler.remaining(TOTAL, nuclear.usedThisTickNanos(), GRID_CAP));
+            while (grid.canStart()) grid.end(grid.begin());
+            assertTrue(nuclear.usedThisTickNanos() + grid.usedThisTickNanos() <= TOTAL + 2 * MS);
+        }
+        assertTrue(grid.maxUnitsPerTick() >= 3, "блэкауту за тик " + grid.maxUnitsPerTick() + " единиц");
+        assertTrue(nuclear.maxUnitsPerTick() <= 26, "ядерке за тик " + nuclear.maxUnitsPerTick() + " единиц");
+    }
+
     /** Срок полосы уже вышел — одна единица всё равно: иначе полоса ниже вставала бы на весь залп. */
     @Test
     void laneWithNoBudgetStillDoesOneUnit() {

@@ -20,7 +20,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
     public enum Kind {
         /** Не поражается волной (воздух, жидкость, неразрушимое). */
         NONE,
-        /** Природный грунт: волна не трогает; сверху меняется только от света и в воронке. */
+        /** Грунт (земля, камень, терракота): ломается как кладка, но горы и берега толстые — волна их не ломает ({@link Blast}). */
         GROUND,
         /** Ломается в воздух. */
         BREAK,
@@ -31,7 +31,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
     }
 
     private static final BlockResponse NONE = new BlockResponse(NEVER, Kind.NONE);
-    private static final BlockResponse GROUND = new BlockResponse(NEVER, Kind.GROUND);
+    private static final BlockResponse GROUND = new BlockResponse(15f, Kind.GROUND);
     private static final Map<BlockState, BlockResponse> CACHE = new IdentityHashMap<>();
 
     public static synchronized BlockResponse of(BlockState s) {
@@ -41,6 +41,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
     /** Теги могли измениться: /reload или другой мир в одиночной игре (свои датапаки). */
     public static synchronized void clearCache() {
         CACHE.clear();
+        Blast.clearProps();
     }
 
     public static void onTagsUpdated(TagsUpdatedEvent e) {
@@ -56,6 +57,9 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
 
     private static BlockResponse classify(BlockState s) {
         if (s.isAir() || s.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock) return NONE;
+        // неразрушимое и сверхпрочное (коренная порода, барьер, обсидиан) волна не ломает, что бы ни говорили теги
+        float destroy = s.getBlock().defaultDestroyTime();
+        if (destroy < 0 || destroy >= 50) return NONE;
         if (s.is(ModTags.NUKE_GROUND)) return GROUND;
         if (s.is(ModTags.NUKE_FRAGILE)) return new BlockResponse(0.8f, Kind.BREAK);
         if (s.is(BlockTags.LEAVES)) return new BlockResponse(2f, Kind.LEAVES);

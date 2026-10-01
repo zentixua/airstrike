@@ -22,7 +22,11 @@ public record Loadout(WeaponType weapon, int count, int spread, TargetMode mode,
      * нести ли её вместо обычной ({@code onCarrier}; у МБР она всегда ядерная).
      */
     public record Nuke(int yieldKt, boolean airBurst, boolean onCarrier) {
-        public static final int MAX_YIELD = 50_000;
+        /**
+         * Наибольшая мощность, кт. Больше — тяжёлая зона (от 5 psi у земли) не помещается в память и бюджет разрушений:
+         * руины отстали бы от фронта волны. Старые пульты и сохранения с большей мощностью урезаются до неё.
+         */
+        public static final int MAX_YIELD = 15;
         public static final Nuke DEFAULT = new Nuke(15, true, false);
         public static final Codec<Nuke> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.INT.optionalFieldOf("yield", DEFAULT.yieldKt).forGetter(Nuke::yieldKt),

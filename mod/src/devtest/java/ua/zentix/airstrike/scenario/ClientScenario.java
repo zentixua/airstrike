@@ -46,6 +46,12 @@ public final class ClientScenario {
     private record Step(int at, Runnable action) {}
 
     private final List<Step> steps = new ArrayList<>();
+    /**
+     * Сценарий commands, {@code wait:nuke}: тик, с которого шаги ждут пакета подрыва ({@code -1} — не ждут), и сколько
+     * тиков они уже ждут; подрывы, которые клиент знал, когда шаги встали, — не тот подрыв.
+     */
+    private int nukeGate = -1, nukeGateWaited;
+    private final java.util.Set<Integer> nukeGateSeen = new java.util.HashSet<>();
     private boolean started;
     private int tick = -1;
     private Vec3 target = Vec3.ZERO;
@@ -163,6 +169,7 @@ public final class ClientScenario {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) return;
         tick++;
+        if (nukeGate >= 0 && tick >= nukeGate) holdForNuke();
         for (Step s : List.copyOf(steps)) {
             if (s.at == tick) s.action.run();
         }
@@ -1185,13 +1192,12 @@ public final class ClientScenario {
     private int mapOpened = -1;
     private boolean mapDone;
 
-    /** Самое долгое {@code wait:N} сценария commands — час игры, тиков. */
-    private static final int COMMANDS_MAX_WAIT = 72_000;
-
     /**
      * Команды из свойства {@code airstrike.commands} (через «;», кроме «;» в скобках и кавычках — {@link ScenarioCommands}) в открытом мире — проверить, что моды сборки отвечают
      * (например копия для съёмки: {@code /dh pregen status}, {@code /chunky}); ответы идут в чат, чат — в лог клиента.
-     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value #COMMANDS_MAX_WAIT}), {@code shot:имя} — снимок экрана
+     * Кроме команд: {@code wait:N} — ещё N тиков (0…{@value CommandPlan#MAX_WAIT}), {@code wait:nuke} — дальше шаги
+     * отсчитываются от прихода к клиенту пакета нового подрыва (один раз за сценарий; сервер может отставать от часов
+     * клиента, и снимок «через N тиков после пуска» выходил до подрыва), {@code shot:имя} — снимок экрана
      * {@code имя_тик.png}, {@code hud:off}/{@code hud:on} — скрыть и вернуть интерфейс (как F1: чат с ответами команд
      * не закрывает кадр, а в лог клиента идёт как прежде). Шаги идут друг за другом: после команды — 40 тиков
      * ({@code airstrike.commands.gap}, от 1: счёт сущностей раз в секунду), после
@@ -1201,36 +1207,21 @@ public final class ClientScenario {
      * пишется в лог и пропускается: исключение здесь остановило бы загрузку модов, и «SCENARIO done» не пришёл бы.
      */
     private void planCommands() {
-        int t = 100;
-        int gap = Math.max(1, Integer.getInteger("airstrike.commands.gap", 40));
-        for (String c : ScenarioCommands.split(System.getProperty("airstrike.commands", ""))) {
-            if (c.startsWith("wait:")) {
-                String n = c.substring("wait:".length()).strip();
-                int ticks;
-                try {
-                    ticks = Integer.parseInt(n);
-                } catch (NumberFormatException e) {
-                    ticks = -1;
+        CommandPlan plan = CommandPlan.parse(System.getProperty("airstrike.commands", ""),
+                Math.max(1, Integer.getInteger("airstrike.commands.gap", 40)));
+        for (String w : plan.warnings()) Airstrike.LOG.warn("SCENARIO commands: {}", w);
+        if (plan.nukeGate() >= 0) nukeGate = plan.nukeGate();
+        for (CommandPlan.Step step : plan.steps()) {
+            switch (step.kind()) {
+                case SHOT -> shot(step.tick(), step.arg());
+                case HUD_OFF, HUD_ON -> {
+                    boolean hide = step.kind() == CommandPlan.Kind.HUD_OFF;
+                    at(step.tick(), () -> Minecraft.getInstance().options.hideGui = hide);
                 }
-                if (ticks < 0 || ticks > COMMANDS_MAX_WAIT) {
-                    Airstrike.LOG.warn("SCENARIO commands: «{}» пропущено — нужно целое число тиков от 0 до {}", c,
-                        COMMANDS_MAX_WAIT);
-                    continue;
-                }
-                t += ticks;
-            } else if (c.startsWith("shot:")) {
-                shot(t, c.substring("shot:".length()).strip());
-                t += 20;
-            } else if (c.equals("hud:off") || c.equals("hud:on")) {
-                boolean hide = c.equals("hud:off");
-                at(t, () -> Minecraft.getInstance().options.hideGui = hide);
-                t += 1;
-            } else {
-                at(t, () -> cmd(c));
-                t += gap;
+                case COMMAND -> at(step.tick(), () -> cmd(step.arg()));
             }
         }
-        at(t + 100, () -> {
+        at(plan.end(), () -> {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
@@ -1525,6 +1516,24 @@ public final class ClientScenario {
             y = 64;
         }
         target = new Vec3(x, y, z);
+    }
+
+    /**
+     * {@code wait:nuke}: пока к клиенту не пришёл пакет нового подрыва, все шаги после этого тика сдвигаются на тик.
+     * Подрыва нет за {@value CommandPlan#MAX_WAIT} тиков — строка в лог, и шаги идут дальше.
+     */
+    private void holdForNuke() {
+        var known = ua.zentix.airstrike.client.nuclear.ClientNuclear.detonations();
+        if (tick == nukeGate) known.forEach(a -> nukeGateSeen.add(a.d.id()));
+        boolean arrived = known.stream().anyMatch(a -> !nukeGateSeen.contains(a.d.id()));
+        if (arrived || nukeGateWaited >= CommandPlan.MAX_WAIT) {
+            if (arrived) Airstrike.LOG.info("SCENARIO commands: подрыв пришёл, шаги ждали {} тиков", nukeGateWaited);
+            else Airstrike.LOG.warn("SCENARIO commands: подрыва нет за {} тиков — шаги идут дальше", nukeGateWaited);
+            nukeGate = -1;
+            return;
+        }
+        nukeGateWaited++;
+        steps.replaceAll(s -> s.at >= tick ? new Step(s.at + 1, s.action) : s);
     }
 
     private void at(int t, Runnable r) {

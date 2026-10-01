@@ -58,11 +58,24 @@ class FireballModelTest {
         int early = FireballModel.colorArgb(0, y);
         assertTrue((early & 0xFF) > ((early >> 16) & 0xFF), "сначала голубоватый");
         assertEquals(0xFFFFFFFF, FireballModel.colorArgb(0.5 * tMax, y));
-        int brown = FireballModel.colorArgb(80 * tMax, y);
+        int brown = FireballModel.colorArgb(130 * tMax, y);
         assertTrue(((brown >> 16) & 0xFF) > 2 * (brown & 0xFF), "красно-бурый");
         int grey = FireballModel.colorArgb(1e4, y);
         assertNotEquals(brown, grey);
         assertEquals(0xFF, grey >>> 24);
+    }
+
+    /** 15 кт: 1–2 с шар слепяще бело-жёлтый (синего много — не лаймовый), к 5 с — жёлто-оранжевый. */
+    @Test
+    void fireballIsWhiteYellowForTheFirstSeconds() {
+        for (double t : new double[] {1, 2}) {
+            int c = FireballModel.colorArgb(t, 15);
+            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+            assertTrue(r == 0xFF && g >= 0xE8 && b >= 0xB0, t + " с: " + Integer.toHexString(c));
+        }
+        int c = FireballModel.colorArgb(5, 15);
+        int g = (c >> 8) & 0xFF, b = c & 0xFF;
+        assertTrue(g < 0xD8 && b < 0x90, "5 с: " + Integer.toHexString(c));
     }
 
     @Test

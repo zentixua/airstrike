@@ -10,6 +10,7 @@ import ua.zentix.airstrike.nuclear.model.ArrivalTable;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
 import ua.zentix.airstrike.nuclear.model.FalloutModel;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
+import ua.zentix.airstrike.nuclear.model.FrontProfile;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
 import ua.zentix.airstrike.util.StreamCodecs;
 import ua.zentix.airstrike.util.Terrain;
@@ -19,7 +20,8 @@ import ua.zentix.airstrike.util.Terrain;
  * шар, гриб и осадки. Хранится в мире ({@link NuclearEvents}) и уходит клиентам одним пакетом.
  * <p>
  * Масштаб {@code scale}: 1 блок = 1/scale метра (1.0 — как в жизни). Расстояния модели делятся на него,
- * время фронта умножается — фронт в блоках идёт со скоростью звука при любом масштабе.
+ * время фронта умножается. Фронт в игре идёт медленнее модели — видимой стеной, за ней звук со скоростью звука
+ * ({@link FrontProfile}): {@link #arrivalTicks}, {@link #frontRadius}.
  *
  * @param id        номер подрыва в мире (растёт)
  * @param burst     точка подрыва
@@ -77,6 +79,11 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
 
     /** Порог дальней зоны: 0.5 psi (стёкла). */
     public static final double FAR_KPA = BlastModel.kpa(0.5);
+    /**
+     * Край руин: стекло (порог 0.8 psi, разброс от 0.85) лопается от отражённого давления на грани к взрыву — от 0.68 psi
+     * отражённого, то есть от ~0.34 psi падающего (у слабой волны отражённое — вдвое больше).
+     */
+    public static final double RUIN_EDGE_KPA = BlastModel.kpa(0.34);
 
     // ---------------------------------------------------------------- масштаб
 
@@ -109,19 +116,32 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         return Caches.arrival(this);
     }
 
+    /** Приход фронта в игре (кэш на подрыв): у эпицентра как у модели, дальше медленнее ({@link FrontProfile}). */
+    public FrontProfile front() {
+        return Caches.front(this);
+    }
+
     /** Через сколько тиков после подрыва фронт дойдёт до точки на расстоянии {@code blocks}. */
     public double arrivalTicks(double blocks) {
-        return arrival().arrivalSeconds(metres(blocks)) * 20 * scale;
+        return front().arrivalTicks(blocks);
     }
 
     /** Радиус фронта (блоки) через {@code ticks} после подрыва. */
     public double frontRadius(double ticks) {
-        return blocks(arrival().radiusAt(ticks / (20.0 * scale)));
+        return front().radiusAt(ticks);
     }
 
     /** Докуда что-то вообще меняется (блоки): стёкла или ожоги 1-й степени — что дальше. */
     public double radiusMax() {
         return Caches.radiusMax(this);
+    }
+
+    /**
+     * Докуда идут руины (блоки): до {@link #RUIN_EDGE_KPA}, где отражённое давление ещё бьёт стекло, и не ближе
+     * {@link #radiusMax}. Не дальше 1.5 {@link #radiusMax} (0.34 psi против 0.5) — докуда посчитан приход фронта.
+     */
+    public double ruinRadius() {
+        return Caches.ruinRadius(this);
     }
 
     // ---------------------------------------------------------------- свет и шар
@@ -184,10 +204,23 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     /** Кэши, которые дорого считать на каждый вызов (таблица прихода, наибольший радиус). */
     private static final class Caches {
         private static final java.util.Map<Detonation, ArrivalTable> ARRIVAL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+        private static final java.util.Map<Detonation, FrontProfile> FRONT = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
         private static final java.util.Map<Detonation, Double> RADIUS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+        private static final java.util.Map<Detonation, Double> RUINS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+        static double ruinRadius(Detonation d) {
+            return RUINS.computeIfAbsent(d, x -> Math.min(x.radiusMax() * 1.5,
+                    Math.max(x.radiusMax(), x.blocks(BlastModel.rangeForOverpressure(RUIN_EDGE_KPA, x.yieldKt)))));
+        }
 
         static ArrivalTable arrival(Detonation d) {
             return ARRIVAL.computeIfAbsent(d, x -> ArrivalTable.of(x.yieldKt, Math.max(1000, x.metres(x.radiusMax()) * 1.5)));
+        }
+
+        static FrontProfile front(Detonation d) {
+            // у эпицентра — как у модели: вспышка и шар не меняются; за стеной пыли (0.3 psi) — только звук
+            return FRONT.computeIfAbsent(d, x -> FrontProfile.of(x.arrival(), x.scale, FrontProfile.slowFrom(x.fireballRadius()),
+                    x.blocks(BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), x.yieldKt)), x.radiusMax() * 1.5));
         }
 
         static double radiusMax(Detonation d) {

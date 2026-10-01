@@ -88,6 +88,11 @@ final class BlastFront {
         return hits.size() + aircraft.size();
     }
 
+    /** Фронт идёт или удары фронта ждут очереди (полоса NUCLEAR общего бюджета). */
+    boolean busy() {
+        return !reached.isEmpty() || !hits.isEmpty() || !aircraft.isEmpty();
+    }
+
     /** Подрыв: запомнить, кто его запустил. */
     void onDetonation(Detonation d, @Nullable UUID owner) {
         if (owner != null) owners.put(d.id(), owner);

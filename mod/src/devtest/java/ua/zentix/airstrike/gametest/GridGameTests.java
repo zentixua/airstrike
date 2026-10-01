@@ -436,7 +436,7 @@ public final class GridGameTests {
         for (BlockPos p : lamps) h.setBlock(p, Blocks.LANTERN);
         // воздушный подрыв в стороне от подстанции (как в ядерных проверках: 15 кт, масштаб 0.1); сам подрыв здесь не нужен
         BlockPos g = h.absolutePos(CENTER.east(8));
-        Detonation d = new Detonation(2_000_000 + level.random.nextInt(1000), new Vec3(g.getX() + 0.5, g.getY() + 300, g.getZ() + 0.5), g.getY(),
+        Detonation d = new Detonation(NuclearGameTests.IDS.incrementAndGet(), new Vec3(g.getX() + 0.5, g.getY() + 300, g.getZ() + 0.5), g.getY(),
                 15, false, level.getGameTime(), 0, 0, 20_000, 7, 0.1f, false);
         h.assertTrue(d.radiusMax() > 64, "радиус подрыва " + d.radiusMax() + " не накрывает площадку");
         Blackouts.nuke(level, d);
@@ -769,7 +769,7 @@ public final class GridGameTests {
                 })
                 .thenWaitUntil(() -> {
                     assertLamps(h, level, placed, true);
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "очередь занята");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "очередь занята: " + BlackoutWorld.get(level).busyState());
                 })
                 .thenExecute(() -> {
                     LevelChunk chunk = level.getChunk(far.x, far.z);
@@ -781,7 +781,7 @@ public final class GridGameTests {
                     // копия в потоке сервера
                     LevelChunk copy = ((ImposterProtoChunk) ChunkSerializer.read(level, level.getPoiManager(), info, far, tag)).getWrapped();
                     h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.COPY) == copies + 1, "копия чанка мира не узнана");
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "копия чанка мира поставила его лампы в очередь");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "копия чанка мира поставила его лампы в очередь: " + BlackoutWorld.get(level).busyState());
                     // то же событие в чужом потоке (как у LOD)
                     Thread reader = new Thread(() -> NeoForge.EVENT_BUS.post(new ChunkDataEvent.Load(copy, tag, ChunkType.LEVELCHUNK)), "gametest-foreign-reader");
                     reader.start();
@@ -791,7 +791,7 @@ public final class GridGameTests {
                         Thread.currentThread().interrupt();
                     }
                     h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD) == offThread + 1, "чтение в чужом потоке не узнано");
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "чтение в чужом потоке поставило лампы в очередь");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "чтение в чужом потоке поставило лампы в очередь: " + BlackoutWorld.get(level).busyState());
                     assertLamps(h, level, placed, true);
                     Blackouts.restore(level, null, 0, 0);
                 })

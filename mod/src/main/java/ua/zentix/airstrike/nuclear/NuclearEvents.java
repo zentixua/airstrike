@@ -41,7 +41,9 @@ public final class NuclearEvents extends SavedData {
         public static final Codec<ScheduledStrike> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.INT.fieldOf("id").forGetter(ScheduledStrike::id),
                 Vec3.CODEC.fieldOf("target").forGetter(ScheduledStrike::target),
-                Codec.DOUBLE.fieldOf("yield").forGetter(ScheduledStrike::yieldKt),
+                // удар, запущенный до предела 15 кт (сохранение старой версии), подрывается с пределом
+                Codec.DOUBLE.fieldOf("yield").xmap(y -> Math.min(y, ua.zentix.airstrike.strike.Loadout.Nuke.MAX_YIELD), y -> y)
+                        .forGetter(ScheduledStrike::yieldKt),
                 Codec.BOOL.fieldOf("air_burst").forGetter(ScheduledStrike::airBurst),
                 Codec.LONG.fieldOf("launch_time").forGetter(ScheduledStrike::launchTime),
                 Codec.LONG.fieldOf("detonate_time").forGetter(ScheduledStrike::detonateTime),
