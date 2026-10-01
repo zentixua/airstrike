@@ -74,7 +74,7 @@ public class MapScreen extends Screen {
     private int ticks;
     /** Для лога: когда карта впервые нарисована, сколько плиток было готово сразу, записано ли время готовности. */
     private long openedNs;
-    private TerrainTiles.Progress atOpen = new TerrainTiles.Progress(0, 0);
+    private TerrainTiles.Progress atOpen = new TerrainTiles.Progress(0, 0, "");
     private boolean readyLogged;
     /** Другие игроки в этом кадре ({@link MapPlayers#marks}): картинка, клик и строка цели берут одно и то же. */
     private List<MapPlayers.Mark> marks = List.of();
@@ -278,8 +278,8 @@ public class MapScreen extends Screen {
     public void removed() {
         if (openedNs == 0 || readyLogged) return;
         TerrainTiles.Progress p = TerrainTiles.progress();
-        Airstrike.LOG.info("Карта наведения закрыта через {} мс, рельеф вида готов не весь: {} из {} плиток (сразу из памяти {}); {}",
-                (System.nanoTime() - openedNs) / 1_000_000, p.ready(), p.visible(), atOpen.ready(), TerrainTiles.stats());
+        Airstrike.LOG.info("Карта наведения закрыта через {} мс, рельеф вида готов не весь: {} из {} плиток ({}), сразу из памяти {} ({}); {}",
+                (System.nanoTime() - openedNs) / 1_000_000, p.ready(), p.visible(), p.layers(), atOpen.ready(), atOpen.layers(), TerrainTiles.stats());
     }
 
     @Override
@@ -388,8 +388,8 @@ public class MapScreen extends Screen {
         }
         if (readyLogged || !p.done()) return;
         readyLogged = true;
-        Airstrike.LOG.info("Карта наведения: рельеф вида готов за {} мс — плиток {}, сразу из памяти {}; {}",
-                (System.nanoTime() - openedNs) / 1_000_000, p.visible(), atOpen.ready(), TerrainTiles.stats());
+        Airstrike.LOG.info("Карта наведения: рельеф вида готов за {} мс — плиток {}, сразу из памяти {} ({}); {}",
+                (System.nanoTime() - openedNs) / 1_000_000, p.visible(), atOpen.ready(), atOpen.layers(), TerrainTiles.stats());
     }
 
     /** Прицел у цели: кольцо с точкой. */
