@@ -821,10 +821,16 @@ public final class RuinBackgroundGameTests {
     @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_tile_full", skyAccess = true)
     public static void tileWithDemotedChunkIsNotFull(GameTestHelper h) {
         ServerLevel level = h.getLevel();
+        // квадрат на +40 чанков генерируется в фоне: тест — в темпе игры (иначе срок кончается раньше генерации на CI)
+        StrikeGameTests.gameSpeed(h);
         var chunks = level.getChunkSource();
         ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
         ChunkPos centre = new ChunkPos(base.x + 40, base.z);
         ChunkPos ring = new ChunkPos(centre.x + 2, centre.z);
+        StrikeGameTests.afterTest(h, () -> {
+            chunks.removeRegionTicket(TicketType.FORCED, centre, 2, centre);
+            chunks.removeRegionTicket(TicketType.FORCED, centre, 1, centre);
+        });
         chunks.addRegionTicket(TicketType.FORCED, centre, 2, centre);
         int[] stage = {0};
         h.onEachTick(() -> {
@@ -842,7 +848,6 @@ public final class RuinBackgroundGameTests {
             h.assertTrue(holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk,
                     "край квадрата выгружен, а не опущен: не проверено");
             h.assertFalse(NuclearPrep.tileFull(level, centre), "квадрат с опущенным ниже полной загрузки чанком считается полным");
-            chunks.removeRegionTicket(TicketType.FORCED, centre, 1, centre);
         });
     }
 }
