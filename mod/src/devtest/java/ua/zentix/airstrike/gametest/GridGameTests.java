@@ -769,7 +769,7 @@ public final class GridGameTests {
                 })
                 .thenWaitUntil(() -> {
                     assertLamps(h, level, placed, true);
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "очередь занята");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "очередь занята: " + BlackoutWorld.get(level).busyState());
                 })
                 .thenExecute(() -> {
                     LevelChunk chunk = level.getChunk(far.x, far.z);
@@ -781,7 +781,7 @@ public final class GridGameTests {
                     // копия в потоке сервера
                     LevelChunk copy = ((ImposterProtoChunk) ChunkSerializer.read(level, level.getPoiManager(), info, far, tag)).getWrapped();
                     h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.COPY) == copies + 1, "копия чанка мира не узнана");
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "копия чанка мира поставила его лампы в очередь");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "копия чанка мира поставила его лампы в очередь: " + BlackoutWorld.get(level).busyState());
                     // то же событие в чужом потоке (как у LOD)
                     Thread reader = new Thread(() -> NeoForge.EVENT_BUS.post(new ChunkDataEvent.Load(copy, tag, ChunkType.LEVELCHUNK)), "gametest-foreign-reader");
                     reader.start();
@@ -791,7 +791,7 @@ public final class GridGameTests {
                         Thread.currentThread().interrupt();
                     }
                     h.assertTrue(ChunkSaves.foreignReads(ChunkSaves.OFF_THREAD) == offThread + 1, "чтение в чужом потоке не узнано");
-                    h.assertFalse(BlackoutWorld.get(level).busy(), "чтение в чужом потоке поставило лампы в очередь");
+                    h.assertFalse(BlackoutWorld.get(level).busy(far), "чтение в чужом потоке поставило лампы в очередь: " + BlackoutWorld.get(level).busyState());
                     assertLamps(h, level, placed, true);
                     Blackouts.restore(level, null, 0, 0);
                 })

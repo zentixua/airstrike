@@ -103,6 +103,8 @@ public final class ScarQueue {
     /** Тикетов с соседями за отпущенные квадраты зоны ({@link #holdForTile}) сразу, не больше. */
     private static final int TILE_HOLDS = 64;
     private int tileHolds;
+    /** Самое большое число {@link #tileHolds} разом (строка «ДИАГ»). */
+    private int tileHoldsPeak;
 
     /** Радиус соседей, которых ждёт подмена, вернувшая {@code WAIT} ({@link RuinPlan#waitsNeighbours}). */
     private int waitRadius;
@@ -323,6 +325,7 @@ public final class ScarQueue {
             hold(level, j, j.needs);
             j.tileHold = true;
             tileHolds++;
+            tileHoldsPeak = Math.max(tileHoldsPeak, tileHolds);
         }
         return true;
     }
@@ -332,6 +335,11 @@ public final class ScarQueue {
      * {@link RuinPlanner#REACH}), и держится он, пока соседи грузятся и руины встают, — обычно десятки тиков. Квадрат,
      * которому не хватает, ждёт, пока прежние отпустят свои.
      */
+    /** Удержаний за отпущенные квадраты сейчас и самое большее разом (строка «ДИАГ»). */
+    public String tileHoldsDiag() {
+        return "сейчас " + tileHolds + ", пик " + tileHoldsPeak + " из " + TILE_HOLDS;
+    }
+
     public int tileHoldsLeft() {
         return TILE_HOLDS - tileHolds;
     }
@@ -727,7 +735,11 @@ public final class ScarQueue {
      */
     private void waitNeighbours(ServerLevel level, Job job, long now, int radius) {
         job.needs = radius;
-        if (radius > 0 && job.held < radius && job.mayHold && !underHold.containsKey(job.chunk)) {
+        // свой тикет (обычный или за отпущенный квадрат) расширяется всегда: план устарел и ждёт r2 вместо r1, а
+        // отметка самого тикета в underHold и mayHold «под чужим тикетом» иначе оставили бы его на r1 — соседей r2
+        // никто не грузит, чанк держит себя и счёт квадратов вечно; рост ограничен REACH, новой цепочки нет
+        boolean own = job.held > 0;
+        if (radius > 0 && job.held < radius && (own || job.mayHold && !underHold.containsKey(job.chunk))) {
             unhold(level, job);
             hold(level, job, radius);
         }

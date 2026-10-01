@@ -516,7 +516,9 @@ public final class RuinBackgroundGameTests {
      * берёт), квадрат зоны держит P, а подмена P ждёт соседа R, которого никто не грузит, — и квадрат ждёт P. Здесь Q
      * и P держат тикеты-«квадраты» радиуса 0, сундуки у восточного края Q и P требуют соседей радиуса 1. Пока Q не
      * отпустил свой тикет, P ждёт; после — ждёт и дальше (200 тиков, R не грузится), а {@code holdForTile} даёт P свой
-     * тикет: R грузится, руины P встают.
+     * тикет: R грузится, руины P встают. В тот же тик сундук P заменяется блок-сущностью Create: план P устаревает,
+     * новый ждёт соседей радиуса 2 — свой тикет P (взятый за квадрат, P загружен под чужим) должен расшириться до r2,
+     * иначе P ждал бы вечно и держал удержание квадрата.
      */
     @GameTest(template = "range", timeoutTicks = 1600, batch = "nuke_tile_hold", skyAccess = true)
     public static void tileReleaseHoldsWaitingNeighbours(GameTestHelper h) {
@@ -545,7 +547,8 @@ public final class RuinBackgroundGameTests {
         int[] stage = {0};
         long[] since = {0};
         String[] waited = {""};
-        int[] applied = {0};
+        boolean[] widened = {false};
+        var depot = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.ResourceLocation.parse("create:depot"));
         Detonation[] det = {null};
         h.onEachTick(() -> {
             long now = level.getGameTime();
@@ -585,9 +588,11 @@ public final class RuinBackgroundGameTests {
                     if (now - since[0] < 200) return;
                     waited[0] = scars.diagState(p.toLong(), now);
                     h.assertTrue(scars.waitsNeighbours(p.toLong()), "P ждёт не соседей: " + waited[0]);
-                    int[] st = scars.ruinStats();
-                    applied[0] = st[0] + st[1];
                     h.assertTrue(scars.holdForTile(level, p.toLong()), "P не взял тикет с соседями");
+                    // сундук — место плана; блок-сущность не из ванили вместо него: старые состояния не те, план заново,
+                    // и новый ждёт соседей r2
+                    h.assertTrue(depot.isPresent(), "нет create:depot (Create не загружен)");
+                    level.setBlock(chests[1], depot.get().defaultBlockState(), 3);
                     areas.release(level, tile(p));
                     since[0] = now;
                     stage[0] = 5;
@@ -595,14 +600,19 @@ public final class RuinBackgroundGameTests {
                 case 5 -> {
                     // квадрат отпущен: P держит себя сам, пока его руины не встали (иначе он выгрузился бы без руин)
                     if (scars.queued(p.toLong())) {
+                        if (scars.diagState(p.toLong(), now).contains("тикет r2")) widened[0] = true;
                         h.assertTrue(level.getChunkSource().getChunkNow(p.x, p.z) != null, "P выгрузился без руин после отпуска квадрата");
                         if (now - since[0] > 600) h.fail("руины P не встали за 600 тиков после своего тикета с соседями");
                         return;
                     }
-                    // работа P кончилась руинами, а не выгрузкой (после руин P выгружается сам: сундук с диска не проверить)
-                    int[] st = scars.ruinStats();
-                    h.assertTrue(st[0] + st[1] == applied[0] + 1, "руины P не встали: подмен было " + applied[0] + ", стало " + (st[0] + st[1]) + "; P ждал: " + waited[0]
-                            + "; давление у сундука " + String.format(java.util.Locale.ROOT, "%.0f", det[0].psi(Vec3.atCenterOf(chests[1]))) + " psi");
+                    // работа P кончилась руинами, а не выгрузкой: отметка подрыва у P. Отпустив свой тикет, P выгружается
+                    // в том же тике сервера, что и руины, — тогда он читается с диска (здесь можно: проверка)
+                    boolean wasLoaded = level.getChunkSource().getChunkNow(p.x, p.z) != null;
+                    LevelChunk pc = level.getChunk(p.x, p.z);
+                    h.assertTrue(pc != null && pc.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == det[0].id(), "руины P не встали (P в памяти " + wasLoaded
+                            + ", отметка подрыва " + (pc == null ? "?" : pc.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0)) + " при подрыве " + det[0].id()
+                            + "); P ждал: " + waited[0] + "; давление у блока " + String.format(java.util.Locale.ROOT, "%.0f", det[0].psi(Vec3.atCenterOf(chests[1]))) + " psi");
+                    h.assertTrue(widened[0], "P не ждал соседей r2 своим тикетом: план с блоком Create не потребовал r2, случай не тот");
                     h.assertTrue(scars.tileHoldsLeft() == 64, "тикет P не отпущен после руин: свободно " + scars.tileHoldsLeft());
                     h.succeed();
                 }

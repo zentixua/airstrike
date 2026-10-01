@@ -166,6 +166,8 @@ public final class NuclearPrep {
          * полные → отпущен, волна → тикет.
          */
         final long[] diagStops = new long[5], diagDone = new long[8];
+        /** Сколько раз готовый квадрат не отпущен: его ждущим соседей чанкам не хватило удержаний (за весь подрыв). */
+        long diagRefused;
         long nextIoReport;
         final Long2ObjectOpenHashMap<RuinPlan> plans = new Long2ObjectOpenHashMap<>();
         /** Руины по всем чанкам (разломы соседей): переходят подрыву вместе с планами. */
@@ -745,9 +747,9 @@ public final class NuclearPrep {
         long n = Math.max(1, dn[0]);
         Airstrike.LOG.info("ДИАГ зона №{}: квадратов SCAN {}, SKIP {}, WAIT {}, LOADING {}, READY {}; заголовков прочитано {} из {} (в работе {}); "
                         + "набор стоял тиков — слоты {}, ответ с диска {}, волна {}, брать нечего {}, память {}; отпущено {}: тикет→полные в среднем {} (самое большее {}), "
-                        + "полные→отпущен {} ({}), волна→тикет {} ({})",
+                        + "полные→отпущен {} ({}), волна→тикет {} ({}); удержаний за квадраты {}, отказов в отпуске квадрата (мало удержаний) {}",
                 p.detonation, states[0], states[1], states[2], states[3], states[4], p.nextScan - p.scanning, p.toScan.size(), p.scanning,
-                s[0], s[1], s[2], s[3], s[4], dn[0], dn[1] / n, dn[2], dn[3] / n, dn[4], dn[5] / Math.max(1, dn[7]), dn[6]);
+                s[0], s[1], s[2], s[3], s[4], dn[0], dn[1] / n, dn[2], dn[3] / n, dn[4], dn[5] / Math.max(1, dn[7]), dn[6], scars.tileHoldsDiag(), p.diagRefused);
         java.util.Arrays.fill(s, 0);
         for (Tile t : p.tiles) {
             if (t.state == TileState.LOADING) {
@@ -928,7 +930,11 @@ public final class NuclearPrep {
                     if (done) waiting++;
                 }
             }
-            if (!done || waiting > scars.tileHoldsLeft()) continue;
+            if (!done) continue;
+            if (waiting > scars.tileHoldsLeft()) {
+                p.diagRefused++;
+                continue;
+            }
             long c0 = clock.begin();
             if (waiting > 0) {
                 for (int dx = -TILE_RADIUS; dx <= TILE_RADIUS; dx++) {
