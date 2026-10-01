@@ -154,7 +154,7 @@ grep 'ДИАГ' "$L" | grep -v 'ДИАГ долгий тик' > mod/run/diag-all
   { head -12 mod/run/diag-tiles.txt; sed -n "$((N/2-5)),$((N/2+6))p" mod/run/diag-tiles.txt; tail -12 mod/run/diag-tiles.txt; } | sort -un -t: -k1,1 | cut -c1-400; } > mod/run/diag-lines.txt; \
 wc -lc mod/run/diag-lines.txt; \
 awk '/ДИАГ долгий тик/{n++; keep=(n<=6)} keep && (/ДИАГ долгий тик/ || /^[[:space:]]/)' "$L" | cut -c1-220 | head -c 12000 > mod/run/diag-stacks.txt; \
-echo "долгих тиков (> 250 мс): $(grep -c 'ДИАГ долгий тик' "$L")"; grep 'ДИАГ долгий тик' "$L" | cut -c1-120 > mod/run/diag-long-ticks.txt; wc -lc mod/run/diag-stacks.txt mod/run/diag-long-ticks.txt
+echo "долгих тиков (> 250 мс): $(grep -c 'ДИАГ долгий тик' "$L")"; grep -E 'ДИАГ долгий тик|Saving sub-levels|Saving chunks for level|Saving the game|Autosav' "$L" | cut -c1-120 > mod/run/diag-long-ticks.txt; wc -lc mod/run/diag-stacks.txt mod/run/diag-long-ticks.txt
 ```
 В `diag-stacks.txt` — первые шесть долгих тиков; если среди них нет тика после подрыва дольше 500 мс, а в
 `diag-long-ticks.txt` он есть, — его блок (номер из этого файла, `n==K`) вместо последнего:
@@ -192,7 +192,9 @@ ls "$FILM/mods"/airstrike-*.jar; grep -E '^renderDistance:' "$FILM/options.txt";
 Текстом, всего ≤ 40 КБ (кадры — отдельно; JFR, `diag-all.txt` и полный лог — не присылать, остаются на ноутбуке):
 0. Код выхода прогона, время начала и конца (шаг 3), строку «выход:» (последняя в `gate-lines.txt`).
 1. `diag-lines.txt` целиком (≤ 25 КБ; если больше — строки «ДИАГ зона», «ДИАГ очередь» и «ДИАГ ввод-вывод» целиком, квадраты — сколько влезет).
-2. `diag-long-ticks.txt` (≤ 3 КБ, иначе первые 30 строк и все дольше 500 мс) и `diag-stacks.txt` (≤ 12 КБ).
+2. `diag-long-ticks.txt` (долгие тики вперемешку со строками автосохранения, ≤ 4 КБ, иначе первые 40 строк и все
+   тики дольше 500 мс) и `diag-stacks.txt` (≤ 12 КБ). Тик > 200 мс сразу после «Saving sub-levels» — автосохранение
+   (базовая линия 68986c0: 213–259 мс), его отметить отдельно от остальных.
 3. `diag-jfr-summary.txt` — строки с числом событий `jdk.ExecutionSample`, `jdk.GarbageCollection`, продолжительность
    записи; `diag-jfr-views.txt` целиком (≤ 6 КБ).
 4. Из `gate-lines.txt` дословно: `Руины подрыва №M (…): отставание …`, `… ушло игроку до руин …`, `… не дождались …`,
