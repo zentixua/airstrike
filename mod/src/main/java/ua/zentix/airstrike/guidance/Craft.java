@@ -5,7 +5,7 @@ import ua.zentix.airstrike.entity.FlightPhase;
 
 /**
  * Управляемый летательный аппарат, каким его видит автопилот ({@link Autopilot}): датчики (место, скорость, фаза,
- * рельеф впереди) и органы управления (ориентация, скорость, фаза). Без мира Minecraft: у снаряда — сама сущность,
+ * рельеф) и органы управления (ориентация, скорость, фаза). Без мира Minecraft: у снаряда — сама сущность,
  * в юнит-тестах — модель на модели рельефа.
  */
 public interface Craft {
@@ -28,10 +28,10 @@ public interface Craft {
     void setPhase(FlightPhase phase);
 
     /**
-     * Наибольшая высота рельефа на этих расстояниях впереди по курсу, по горизонтали. Где рельеф не читается (полёт вне
-     * мира, неготовый чанк), — низ мира.
+     * Высота рельефа (первый воздух над препятствиями) в колонке блоков ({@link Corridor.Relief}). Где рельеф не
+     * читается (полёт вне мира, неготовый чанк), — низ мира.
      */
-    double reliefAhead(double... distances);
+    double relief(int x, int z);
 
     /** Держать высоту {@code desired} ({@link AltitudeHold}). */
     default void holdAltitude(double desired, double gain, double maxRate, double maxAccel) {

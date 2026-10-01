@@ -20,6 +20,14 @@ public final class FlightController {
         this.pitch = pitch;
     }
 
+    /** Копия с теми же углами и угловыми скоростями: проиграть поворот вперёд, не трогая снаряд. */
+    public FlightController copy() {
+        FlightController c = new FlightController(yaw, pitch);
+        c.yawRate = yawRate;
+        c.pitchRate = pitchRate;
+        return c;
+    }
+
     public float yaw() {
         return yaw;
     }
