@@ -5,8 +5,6 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "chunk.LevelChunkEditsMixin",
-    "explosion.ExplosionHandoffMixin",
-    "explosion.ExplosionTimingMixin",
     "net.PlayerChunkSenderMixin",
     "sable.SubLevelSplitGuardMixin",
     "server.StopServerChunksMixin"

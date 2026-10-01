@@ -90,8 +90,7 @@ git commit
 Моды для запусков (`run/*/mods`) копируются из инстанса задачами `copyRuntimeMods_*`; путь — `MC_DIR` или по умолчанию.
 Без инстанса (облачная сессия, CI): `python3 tools/fetch_runtime_mods.py` → `./gradlew runGameTestServer -PmcModsDir=run/ci-mods`
 (Java 21 в облаке есть, сеть к NeoForge/Mojang/Parchment/Modrinth открыта с 28.09.2026); `-PwithLithium` — GameTest ещё и
-с Lithium, как у хоста (он подменяет цикл лучей `Explosion.explode` и `PalettedContainer.count`, на которые опираются
-миксины взрыва и `ChunkLights`; в jar и `mods.toml` его нет).
+с Lithium, как у хоста (в jar и `mods.toml` его нет).
 CI (GitHub Actions, репозиторий публичный) гоняет то же (GameTest дважды: без Lithium и с ним) на каждый push
 в `main`/`claude/**` и PR; jar — артефакт `airstrike-jar`.
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
@@ -183,14 +182,11 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   сущности: `BlastArea.peersPicking`, иначе воронка и разлёт песка зависели от скорости сервера; GameTest
   `areaExplosionsPickTogether`); аппарат Sable в охвате лучей (`Warheads.reach` = 2 × сила + 1: в воздухе луч уходит
   до ~1,73 силы; `SubLevels.mayHaveCraftNear`, GameTest `craftInRayReachGoesVanilla`) или сломанный компаньон — ванильный `Explosion.explode`
-  в первой единице (миксин Sable на каждом шаге луча в воздухе ищет и толкает аппараты; `Detonate` — в нём же), его блоки
-  аппаратов — тоже в ней (шаг «блоки аппаратов»), а урон — порциями мода по списку после `Detonate`: цикл урона
-  `explode()` пропускает только у нашего взрыва миксин `mixin/explosion/ExplosionHandoffMixin` (`ExplosionHandoff`; не
-  встал — урон ванильный, строка в лог; GameTest `vanillaPathDamagesDetonateList`, `craftBlockLeftByDetonateStays`),
-  снимок блоков мира — следующей единицей;
-  шаги ванильного пути (событие, лучи, сбор сущностей, `Detonate`, урон) меряет `ExplosionTimer` по отметкам
-  `mixin/explosion/ExplosionTimingMixin` (только наши взрывы; GameTest `raysMatchVanilla` — свой цикл даёт те же блоки,
-  что ваниль, при любом размере единицы, и на ванильном пути встали все отметки; `craftBlocksGoInFirstUnit` — у аппарата
+  в первой единице целиком, с уроном (миксин Sable на каждом шаге луча в воздухе ищет и толкает аппараты; `Detonate` —
+  в нём же; в сам метод мод не лезет — урон у аппарата не порциями, это редкий случай), его блоки аппаратов — тоже в ней
+  (шаг «блоки аппаратов»), снимок блоков мира — следующей единицей (GameTest `vanillaPathDamagesDetonateList`,
+  `craftBlockLeftByDetonateStays`); шаги взрыва для замера — `ExplosionStage`, ванильный `explode()` — одним шагом
+  (GameTest `raysMatchVanilla` — свой цикл даёт те же блоки, что ваниль, при любом размере единицы; `craftBlocksGoInFirstUnit` — у аппарата
   путь ванильный); взрыв с центром на аппарате — целиком `level.explode`; со своим DamageSource и беззвучным звуком, подземный взрыв бомбы
   с ослабленным набором блоков, выбитые стёкла по палитрам секций, толчки), `DebrisSpawner`, `GroundMaterial`,
   `CraterFalls` (осыпание в районе взрыва, пока его держит `BlastArea`, и 10 с после: не больше `LIVE_CAP` живых падающих
@@ -278,7 +274,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
 - `command/AirstrikeCommand` — `/airstrike` (то же, что пульт, плюс ядерка, радиация, выдача); `item/` — пульт
   (`DesignatorItem`: бинокль, экран) и счётчик Гейгера; `util/` — `Local` (локальные координаты «^ ^ ^»),
   `Particles` (разброс частиц как у команды `particle`), `Terrain` (готовность чанка и высота без ожидания загрузки; «где земля» — только `Terrain.estimate`: высота и источник `CHUNK`/`CEILING`/`CLIENT_MAP`/`GENERATOR`/`SEA`/`UNKNOWN`, вызывающий выбирает допустимые — `Allowed.CHUNK` в мире, `FLIGHT` вне мира, `ORDER` для приказа; прямых `getBaseHeight`/`getSeaLevel` вне `Terrain` нет; `Terrain.height` — источник `CHUNK` без выбора для кода, который сам знает, что чанк готов: `LaunchSite`, взрывы `Warheads`, `nuclear/world`, площадка МБР за игроком в `NuclearStrikes`), `Nbt` (векторы в NBT); миксины (см. подводные камни):
-  `mixin/sable/`, `mixin/chunk/` (`LevelChunkEditsMixin` — счётчик изменений блоков чанка для планов руин), `mixin/explosion/` (замер шагов взрыва) и `mixin/server/` (`StopServerChunksMixin` — предел круга выгрузки при остановке).
+  `mixin/sable/`, `mixin/chunk/` (`LevelChunkEditsMixin` — счётчик изменений блоков чанка для планов руин), `mixin/server/` (`StopServerChunksMixin` — предел круга выгрузки при остановке).
 - Состояние сервера, которое не сохраняется, — несохраняемые attachments NeoForge (мира: `StrikeWorld`, `NuclearWorld`, `CraterFalls`; игрока:
   пауза между пусками, «HUD полётов показан»), а не статические карты: статика переживает смену мира в одиночной игре.
 - `client/` (`@Mod(dist = CLIENT)`) — `render/` (`WeaponModels` — модели снарядов из OBJ и их анимации
@@ -608,7 +604,7 @@ CI (GitHub Actions, репозиторий публичный) гоняет то
   силы 12–20 в городе 559 мс в одном тике, после разбиения на лучи/урон/блоки — единица до 150 мс (лучи 73 мс), поэтому
   лучи и урон идут своим циклом порциями. События NeoForge (`ExplosionEvent.Start`/`Detonate`) и `onExplosionHit` блоков
   работают как обычно; миксины на `Explosion.explode` на своём цикле не срабатывают — поэтому у аппарата Sable рядом
-  взрыв идёт ванильным `explode()` (кроме цикла урона — его делает мод порциями); обёртки самого `ServerLevel.explode` (у Sable — перенос взрыва из плота) не видят его,
+  взрыв идёт ванильным `explode()` целиком; обёртки самого `ServerLevel.explode` (у Sable — перенос взрыва из плота) не видят его,
   поэтому взрыв в сетке плотов — целиком ванильным `level.explode`. Работа, поставленная из работы (взрыв будит
   обработчики), встаёт в конец очереди — обход `UnitQueue` по индексу.
   Миксины сборки хоста на пути взрыва (скан jar — `/mnt/project-files/perf/laptop-explosion-mixins.sh`, повторять при
