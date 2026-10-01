@@ -8,7 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Далёкий взрыв под открытым небом по ISO 9613-2: кромка, земля, зона тени днём, дождь, громкость в игре. */
 class OutdoorTest {
     /** Докуда слышно и громкость ближней модели на её краю: шахед, крылатая ракета, РСЗО, бомба. */
-    private static final double[][] KINDS = {{20_000, 0.35}, {40_000, 0.35}, {15_000, 0.2}, {30_000, 1}};
+    private static final double[][] KINDS = {{20_000, BlastMix.v640(BlastMix.DRONE)}, {40_000, BlastMix.v640(BlastMix.MISSILE)},
+            {15_000, BlastMix.v640(BlastMix.ROCKET)}, {30_000, BlastSounds.BUNKER_FAR_FLOOR}};
 
     /** Источник на 2 м, ухо на 1,7 м, одна земля у обоих, сухо. */
     private static Outdoor.Path path(double d, double z, double g, double day) {

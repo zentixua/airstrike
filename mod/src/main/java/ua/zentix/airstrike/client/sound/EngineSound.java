@@ -243,8 +243,8 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
             smoothVolume *= 0.5f;
             this.volume = smoothVolume;
         } else {
-            // сглаживание: смена слоёв и ракурса, запуск и отпускание слоя — без щелчков
-            double gain = released ? 0 : tone.gain();
+            // сглаживание: смена слоёв и ракурса, запуск и отпускание слоя, приглушение под взрыв — без щелчков
+            double gain = released ? 0 : tone.gain() * ClientSounds.duck();
             smoothVolume += (float) ((gain - smoothVolume) * 0.35);
             this.volume = smoothVolume;
             this.pitch = (float) tone.pitch();
