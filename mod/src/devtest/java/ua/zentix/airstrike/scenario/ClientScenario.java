@@ -21,6 +21,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.client.far.FarRenderer;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -186,6 +187,10 @@ public final class ClientScenario {
         if (tick % soundEvery == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
         if (tick % 100 == 0) Airstrike.LOG.info("SCENARIO fps {}", mc.getFps());
+        if (tick % 20 == 0) {
+            String far = FarRenderer.describe();
+            if (!far.isEmpty()) Airstrike.LOG.info("SCENARIO far {}", far);
+        }
     }
 
     private void plan() {

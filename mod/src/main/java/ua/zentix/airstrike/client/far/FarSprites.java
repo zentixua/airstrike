@@ -41,6 +41,14 @@ public final class FarSprites {
         return puffs.n == 0 && dots.n == 0 && glows.n == 0 && ribbons.n == 0;
     }
 
+    /** Сколько чего в кадре (клубы, точки, свет, ленты) — в out, без выделения памяти. */
+    void counts(int[] out) {
+        out[0] = puffs.n;
+        out[1] = dots.n;
+        out[2] = glows.n;
+        out[3] = ribbons.n;
+    }
+
     /** Клуб дыма или пыли (атлас 4×2 {@code nuke/puffs.png}, кадр tex) с центром (dx, dy, dz) от камеры. */
     public void puff(double dx, double dy, double dz, double half, float rot, int tex, float r, float g, float b, float a) {
         billboard(puffs, dx, dy, dz, half, rot, tex, r, g, b, a);

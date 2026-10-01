@@ -18,4 +18,9 @@ public final class FarBlasts {
     }
 
     static void reset() {}
+
+    /** Сколько взрывов вдали и последний раскат — для строки сценария; пусто — ничего. */
+    public static String describe() {
+        return "";
+    }
 }

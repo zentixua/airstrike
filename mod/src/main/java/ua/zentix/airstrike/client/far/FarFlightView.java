@@ -13,4 +13,9 @@ public final class FarFlightView {
     }
 
     static void reset() {}
+
+    /** Сколько снарядов вдали и ближний из них — для строки сценария; пусто — ничего. */
+    public static String describe() {
+        return "";
+    }
 }
