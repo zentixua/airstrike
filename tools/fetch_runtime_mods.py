@@ -2,7 +2,7 @@
 
 Версии совпадают со сборкой «All of Create Aeronautics»; файлы проверяются по sha512 из Modrinth.
 Потом: ./gradlew runGameTestServer -PmcModsDir=<папка> [-PwithLithium]
-(Lithium идёт в запуск только с -PwithLithium: он меняет тик блок-сущностей, GameTest гоняется и с ним, и без него.)
+(Lithium идёт в запуск только с -PwithLithium: он подменяет цикл лучей взрыва и подсчёт палитры, GameTest гоняется и с ним, и без него.)
 
     python3 tools/fetch_runtime_mods.py [папка]   (по умолчанию mod/run/ci-mods)
 """
