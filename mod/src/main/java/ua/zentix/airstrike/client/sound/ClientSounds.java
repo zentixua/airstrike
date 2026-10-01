@@ -40,6 +40,12 @@ public final class ClientSounds {
     private static final Ducking DUCK = new Ducking();
     /** Движок не дал слою канал (все заняты): через столько тиков попробовать снова. */
     private static final int RETRY = 10;
+    /**
+     * Мотор снаряда стихает столько тиков после того, как до уха дошёл конец полёта (слой без данных — вдвое тише
+     * за тик), и только потом глушится: оборванный на полной громкости, он щёлкал бы, а оборванный на тик раньше
+     * фронта взрыва — оставлял бы перед ним паузу тишины.
+     */
+    private static final int FADE = 4;
 
     private ClientSounds() {}
 
@@ -166,8 +172,8 @@ public final class ClientSounds {
         for (Tracked t : TRACKS.values()) {
             FlightTrack track = t.track;
             double te = Acoustics.emissionTime(track, tick, ear.x, ear.y, ear.z);
-            if (track.isDead() && te >= track.deathTick()) {
-                // фронт взрыва дошёл: дальше слушатель слышит уже сам взрыв
+            if (track.isDead() && te >= track.deathTick() + FADE) {
+                // фронт взрыва дошёл и мотор стих: дальше слушатель слышит уже сам взрыв
                 t.kill();
                 continue;
             }

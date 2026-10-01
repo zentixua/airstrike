@@ -12,19 +12,25 @@ import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Сервер → клиент: только события; всё, что видно и слышно, клиент строит сам (частицы, звук с задержкой, тряска). */
 public final class S2C {
     private S2C() {}
 
-    /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид. */
-    public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed) implements CustomPacketPayload {
+    /**
+     * Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид
+     * и снаряд, который взорвался: его путь у клиента кончается в этот тик, и мотор звучит, пока до уха не дойдёт фронт
+     * взрыва, а не стихает раньше.
+     */
+    public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed, Optional<UUID> projectile) implements CustomPacketPayload {
         public static final int DRONE = 0, MISSILE = 1, BUNKER = 2, ROCKET = 3;
         public static final Type<Blast> TYPE = new Type<>(Airstrike.id("blast"));
         public static final StreamCodec<ByteBuf, Blast> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, Blast::kind, StreamCodecs.VEC3, Blast::pos, ByteBufCodecs.VAR_INT, Blast::material,
-                ByteBufCodecs.FLOAT, Blast::surfaceY, ByteBufCodecs.VAR_LONG, Blast::seed, Blast::new);
+                ByteBufCodecs.FLOAT, Blast::surfaceY, ByteBufCodecs.VAR_LONG, Blast::seed,
+                ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC), Blast::projectile, Blast::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

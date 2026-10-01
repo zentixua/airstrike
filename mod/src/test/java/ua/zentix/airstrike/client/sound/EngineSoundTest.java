@@ -161,10 +161,35 @@ class EngineSoundTest {
     }
 
     @Test
-    void towardAimMeansHeadingForItHorizontally() {
-        assertTrue(Emission.toward(10, 0, 500, 100), "курс 11° от цели");
-        assertTrue(!Emission.toward(10, 0, 500, 500), "курс 45° от цели — обход");
-        assertTrue(!Emission.toward(-10, 0, 500, 0), "от цели");
-        assertTrue(Emission.toward(0, 0, 0.5, 0), "над самой целью");
+    void towardAimIsAShareOfTheHeading() {
+        assertEquals(1, Emission.toward(10, 0, 500, 70), 1e-12, "курс 8° от цели");
+        assertEquals(0, Emission.toward(10, 0, 500, 420), 1e-12, "курс 40° от цели — плечо обхода");
+        assertEquals(0, Emission.toward(-10, 0, 500, 0), 1e-12, "от цели");
+        assertEquals(1, Emission.toward(0, 0, 0.5, 0), 1e-12, "над самой целью");
+        // поворот маршрута: доля убывает плавно, на градус курса — не больше чем на десятую
+        double prev = 1;
+        for (int deg = 0; deg <= 90; deg++) {
+            double a = Math.toRadians(deg), w = Emission.toward(Math.cos(a), Math.sin(a), 500, 0);
+            assertTrue(w <= prev + 1e-12 && prev - w < 0.1, deg + "°: " + prev + " → " + w);
+            prev = w;
+        }
+    }
+
+    @Test
+    void whistleFadesThroughThePassInsteadOfCuttingOff() {
+        // ракета идёт на цель за слушателем и проходит в 60 блоках сбоку: свист подлёта стихает за пролёт, а не обрывается
+        // в ближайшей точке (раньше — с полной громкости до шума обтекания за тик)
+        Vec3 ear = new Vec3(0, 12, 60);
+        FlightTrack t = missile(600, new Vec3(-700, 0, 0), 300);
+        double prev = -1, peak = 0, worst = 0;
+        for (double now = 40; now <= 220; now += 1) {
+            double te = Acoustics.emissionTime(t, now, ear.x, ear.y, ear.z);
+            double g = EngineSound.Layer.MISSILE_WHISTLE.tone(t, Emission.at(t, te, ear, false)).gain();
+            if (prev >= 0) worst = Math.max(worst, Math.abs(g - prev));
+            peak = Math.max(peak, g);
+            prev = g;
+        }
+        assertTrue(peak > 0.5, "свист на подлёте " + peak);
+        assertTrue(worst < 0.15 * peak, "скачок громкости свиста за тик " + worst + " при пике " + peak);
     }
 }

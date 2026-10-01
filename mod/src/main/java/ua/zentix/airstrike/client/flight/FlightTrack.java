@@ -126,9 +126,22 @@ public final class FlightTrack implements Acoustics.Path {
         servers[i] = s.server;
     }
 
-    /** Звук из момента t ещё есть чем вести (данные дошли не позже, чем на {@link #slack} тиков раньше). */
+    /**
+     * Звук из момента t ещё есть чем вести: данные дошли не позже, чем на {@link #slack} тиков раньше; у кончившегося
+     * полёта — до его конца ({@link #impact}).
+     */
     public boolean covers(double t) {
-        return t <= last + slack;
+        return t <= (isDead() ? Math.min(death, last + MAX_GAP) : last + slack);
+    }
+
+    /**
+     * Снаряд взорвался: пакет взрыва пришёл в тик {@code tick}, и полёт кончился тогда же. Пакеты о дальнем снаряде идут
+     * раз в 2–4 тика и доходят неровно, так что последняя запись бывает на несколько тиков раньше взрыва: до взрыва путь
+     * тянется с неё ({@link #at}), и мотор стихает, когда до уха доходит фронт самого взрыва, а не раньше — с паузой
+     * тишины перед ним.
+     */
+    public void impact(long tick) {
+        if (last >= 0 && !isDead()) death = Math.max(last, tick);
     }
 
     /** Путь сейчас идёт по пакетам сервера (сущности у клиента нет). */
@@ -162,9 +175,14 @@ public final class FlightTrack implements Acoustics.Path {
         return Math.max(first, last - CAPACITY + 1);
     }
 
+    /** Где снаряд в момент t: между записями — по прямой, после последней — по её скорости, не мимо цели. */
     @Override
     public void at(double t, double[] out) {
-        double s = Math.max(start(), Math.min(last, t));
+        if (last >= 0 && t > last) {
+            ahead(t - last, out);
+            return;
+        }
+        double s = Math.max(start(), t);
         long a = (long) Math.floor(s);
         long b = Math.min(last, a + 1);
         double f = s - a;
@@ -176,17 +194,19 @@ public final class FlightTrack implements Acoustics.Path {
 
     /**
      * Где снаряд в момент t, который может быть позже последней записи (следующий пакет ещё в пути): от последней точки
-     * по её скорости, но не дальше {@link #slack} тиков и не мимо цели — снаряд, который в этот тик попал, сквозь неё
-     * не летит. False — данных на этот момент нет.
+     * по её скорости ({@link #at}), пока есть данные ({@link #covers}), и не мимо цели — снаряд, который в этот тик
+     * попал, сквозь неё не летит. False — данных на этот момент нет.
      */
     public boolean predict(double t, double[] out) {
         if (last < 0 || !covers(t)) return false;
-        if (t <= last) {
-            at(t, out);
-            return true;
-        }
+        at(t, out);
+        return true;
+    }
+
+    /** От последней записи по её скорости на dt тиков (не дальше {@link #MAX_GAP}), но не мимо цели. */
+    private void ahead(double dt, double[] out) {
         int i = (int) (last % CAPACITY);
-        double vx = vxs[i], vy = vys[i], vz = vzs[i], ahead = t - last;
+        double vx = vxs[i], vy = vys[i], vz = vzs[i], ahead = Math.min(dt, MAX_GAP);
         double v2 = vx * vx + vy * vy + vz * vz;
         if (v2 > 1e-9) {
             // ближе всего к цели на этой прямой снаряд через dot(aim − p, v)/|v|² тиков: дальше не тянуть
@@ -196,7 +216,6 @@ public final class FlightTrack implements Acoustics.Path {
         out[0] = xs[i] + vx * ahead;
         out[1] = ys[i] + vy * ahead;
         out[2] = zs[i] + vz * ahead;
-        return true;
     }
 
     /** Точка момента t (целый тик в пределах истории) записана по пакетам сервера, а не по сущности. */

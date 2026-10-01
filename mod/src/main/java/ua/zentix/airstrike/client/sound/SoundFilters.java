@@ -3,10 +3,16 @@ package ua.zentix.airstrike.client.sound;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.client.sounds.ChannelAccess;
+import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.sound.PlaySoundSourceEvent;
 import net.neoforged.neoforge.client.event.sound.PlayStreamingSourceEvent;
@@ -56,15 +62,28 @@ public final class SoundFilters {
     }
 
     /**
-     * Есть ли между ухом и точкой непрозрачные блоки (холм, дом): 1 — прямой путь, 0 — закрыто.
-     * Клиентский мир: незагруженные чанки пусты, ничего не грузится.
+     * Есть ли между ухом и точкой твёрдые блоки (холм, дом): 1 — прямой путь, 0 — закрыто. Листва — не преграда: звук
+     * она почти не держит (ISO 9613-2, прил. A: ~1 дБ на 10–20 м густой кроны), а кроны на пути к низко летящему снаряду
+     * то закрывали, то открывали его, и мотор вдали дрожал громкостью. Клиентский мир: незагруженные чанки пусты,
+     * ничего не грузится.
      */
     static float open(Vec3 from, Vec3 to) {
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
         if (!pathEffects() || mc.level == null || player == null) return 1;
-        return mc.level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
-                .getType() == HitResult.Type.MISS ? 1 : 0;
+        return mc.level.clip(new ThroughLeaves(from, to, player)).getType() == HitResult.Type.MISS ? 1 : 0;
+    }
+
+    /** Луч по твёрдым блокам, сквозь листву. */
+    private static final class ThroughLeaves extends ClipContext {
+        ThroughLeaves(Vec3 from, Vec3 to, Player player) {
+            super(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player);
+        }
+
+        @Override
+        public VoxelShape getBlockShape(BlockState state, BlockGetter level, BlockPos pos) {
+            return state.is(BlockTags.LEAVES) ? Shapes.empty() : super.getBlockShape(state, level, pos);
+        }
     }
 
     /** Громкость и верха за преградой: закрытый путь — тише на 4 дБ и глухо (обход по дифракции). */

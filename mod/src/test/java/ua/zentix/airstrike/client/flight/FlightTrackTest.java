@@ -122,6 +122,39 @@ class FlightTrackTest {
     }
 
     @Test
+    void blastEndsTheFlightWhenItHappened() {
+        // последний пакет о дальней ракете дошёл за 6 тиков до пакета взрыва (дольше ожидания следующего пакета): звук
+        // тянется до самого взрыва по скорости, а не стихает раньше — иначе перед взрывом пауза тишины
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        t.record(14, at(46, 104));
+        assertFalse(t.covers(19), "без пакета взрыва — данных нет");
+        t.impact(20);
+        assertTrue(t.covers(19.5));
+        assertTrue(t.covers(20));
+        assertFalse(t.covers(20.5), "после взрыва мотора нет");
+        assertEquals(46 + 11.5 * 6, x(t, 20), 1e-9, "до взрыва — по скорости последней записи");
+    }
+
+    @Test
+    void lateBlastDoesNotStretchAnOldPath() {
+        // пакетов давно нет (ушёл из слуха, сервер встал): взрыв не тянет звук дальше разрыва, после которого путь — заново
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        t.impact(60);
+        assertTrue(t.covers(20));
+        assertFalse(t.covers(20.5));
+        // конец полёта по тишине (взрыва не было) — сразу после последней записи
+        FlightTrack s = new FlightTrack(ID, WeaponType.MISSILE, false);
+        s.record(10, at(0, 100));
+        s.die(60);
+        assertTrue(s.covers(11));
+        assertFalse(s.covers(11.5));
+    }
+
+    @Test
     void trailIsDrawnOnlyOverServerSamples() {
         // точки по пакетам — для шлейфа вдали; сущность у клиента рисует свой шлейф частицами
         FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
