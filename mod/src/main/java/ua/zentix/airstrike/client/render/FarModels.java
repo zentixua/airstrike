@@ -3,23 +3,22 @@ package ua.zentix.airstrike.client.render;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -43,9 +42,12 @@ import java.util.List;
  * плитки, как и остальное дальнее, переносятся ближе дальней плоскости с тем же угловым размером. Мельче
  * {@link #COARSE_BELOW} пикселей — упрощённые копии деталей ({@link WeaponModels.Mesh#lod}).
  * <p>
- * Атлас рисуется своим шейдером ({@code shaders/core/far_model}) в {@code AFTER_LEVEL}: Iris заменяет чужие шейдеры
- * только пока рисует мир. Плитки, буферы и атлас живут между кадрами; на кадр — только мелкие короткоживущие объекты
- * движка (построитель вершин одноразовый) и анимаций моделей.
+ * Сетки деталей лежат в видеопамяти ({@link VertexBuffer}, как небо и чанки у ванили): каждая собирается и грузится
+ * один раз (при входе в мир — {@link #warmup}, заново — после перезагрузки ресурсов), а кадр на деталь только ставит
+ * её положение (матрицы шейдера) и зовёт отрисовку. Вершины на процессоре каждый кадр стоили на ноутбуке до 1 мс на
+ * полный B-2 и росли с числом моделей. Атлас рисуется своим шейдером ({@code shaders/core/far_model}) в
+ * {@code AFTER_LEVEL}: Iris заменяет чужие шейдеры только пока рисует мир. Плитки, детали, сетки и атлас живут между
+ * кадрами; на кадр — только мелкие короткоживущие объекты анимаций моделей.
  */
 public final class FarModels {
     /** Модель в любом повороте и с любыми раскрытыми деталями — в шаре такого радиуса на её размер ({@code FarModelsTest}). */
@@ -75,39 +77,76 @@ public final class FarModels {
     static final int MIP_LEVELS = 2, PAD = 1 << MIP_LEVELS;
     /** Что {@link #add} пишет о плитке: вправо и вверх (оси квадрата), полуразмер, u0, v0, u1, v1. */
     public static final int RIGHT = 0, UP = 3, HALF = 6, U0 = 7, V0 = 8, U1 = 9, V1 = 10, OUT = 11;
+    private static final WeaponModels.Mesh[] MESHES = WeaponModels.Mesh.values();
+    private static final Matrix4f IDENTITY = new Matrix4f();
 
     @Nullable
     private static ShaderInstance shader;
 
     @Nullable
     private TextureTarget atlas;
-    @Nullable
-    private ByteBufferBuilder solidBytes, glassBytes;
+    /** Сетки деталей в видеопамяти: по две на деталь (полная, упрощённая) и сетка, из которой собрана каждая. */
+    private final VertexBuffer[] meshes = new VertexBuffer[2 * MESHES.length];
+    private final QuadMesh[] uploaded = new QuadMesh[2 * MESHES.length];
     private final List<Tile> tiles = new ArrayList<>();
     private int count;
     /** Полка, которую заполняем: левый край свободного места, её низ и высота. */
     private int shelfX, shelfY, shelfH;
+    /** Детали моделей кадра. */
+    private final List<Part> parts = new ArrayList<>();
+    private int partCount;
+    /** Плитка, детали которой сейчас записываются. */
+    @Nullable
+    private Tile current;
+    private final WeaponModels.Parts record = this::record;
     private final PoseStack poses = new PoseStack();
     private final Quaternionf rotation = new Quaternionf();
-    private final Projector solid = new Projector(), glass = new Projector();
-    private final MultiBufferSource buffers = type -> type == WeaponModels.TRANSLUCENT ? glass : solid;
     private final int[] viewport = new int[4];
-    private final Runnable clear = this::clearUsed, clearAndDraw = () -> {
-        clearUsed();
+    private final Runnable clearAndDraw = () -> {
+        clear(rowsUsed());
         draw();
+    }, warm = () -> {
+        clear(ATLAS);
+        draw();
+        clear(ATLAS);
     };
 
     /** Одна модель кадра и её плитка. */
-    private static final class Tile {
+    static final class Tile {
         final ProjectilePose pose = new ProjectilePose();
         @Nullable
         WeaponModels.Look look;
         /** Модель → оси взгляда на неё: вправо, вверх, к ней (камера в начале координат). */
         final Matrix4f view = new Matrix4f();
-        /** Дальность до центра модели, радиус её шара, тангенс половины угла плитки. */
-        float d, h, tan;
+        /** Оси взгляда → плитка атласа: перспектива из глаза, углы плитки — ±tan, глубина — шар модели. */
+        final Matrix4f projection = new Matrix4f();
         /** Середина плитки в атласе, текселей, и её сторона. */
         int x, y, size;
+
+        /**
+         * Плитка с серединой (x, y) и стороной size для шара радиуса h на дальности d (виден под углом с тангенсом tan).
+         * Перспектива: x/z, y/z в тангенсах — в квадрат плитки; глубина от d − h до d + h — на всю глубину атласа.
+         */
+        void place(int x, int y, int size, float d, float h, float tan) {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+            float a = (float) size / ATLAS / tan, cx = 2f * x / ATLAS - 1, cy = 2f * y / ATLAS - 1, near = d - h, far = d + h;
+            projection.set(a, 0, 0, 0, 0, a, 0, 0, cx, cy, (far + near) / (far - near), 1, 0, 0, -2 * far * near / (far - near), 0);
+        }
+    }
+
+    /** Деталь кадра: какая сетка, в какой плитке, где (в осях взгляда), как повёрнута её нормаль (в осях мира), прозрачность. */
+    private static final class Part {
+        @Nullable
+        WeaponModels.Mesh mesh;
+        @Nullable
+        VertexBuffer buffer;
+        @Nullable
+        Tile tile;
+        final Matrix4f pose = new Matrix4f();
+        final Matrix3f normal = new Matrix3f();
+        float alpha;
     }
 
     /** Шина мода: шейдер атласа (и заново при перезагрузке ресурсов). */
@@ -162,16 +201,10 @@ public final class FarModels {
             shelfX = shelfH = 0;
         }
         if (shelfY + slot > ATLAS) return false;
-        if (count == tiles.size()) tiles.add(new Tile());
-        Tile t = tiles.get(count++);
+        Tile t = tile();
         t.look = look;
         t.pose.copy(pose);
-        t.d = (float) d;
-        t.h = (float) h;
-        t.tan = (float) tan;
-        t.size = side;
-        t.x = shelfX + PAD + side / 2;
-        t.y = shelfY + PAD + side / 2;
+        t.place(shelfX + PAD + side / 2, shelfY + PAD + side / 2, side, (float) d, (float) h, (float) tan);
         shelfX += slot;
         shelfH = Math.max(shelfH, slot);
         t.view.set((float) rx, (float) ux, (float) fx, 0, (float) ry, (float) uy, (float) fy, 0, (float) rz, (float) uz, (float) fz, 0,
@@ -190,6 +223,11 @@ public final class FarModels {
         return true;
     }
 
+    private Tile tile() {
+        if (count == tiles.size()) tiles.add(new Tile());
+        return tiles.get(count++);
+    }
+
     /**
      * Сторона плитки, текселей: {@link #SUPERSAMPLE} текселей на пиксель угла плитки (2·tan/pixel пикселей), кратно 4
      * (мип-уровень 2 не делит тексель между плитками), от {@link #MIN_TILE} до {@link #MAX_TILE}.
@@ -204,9 +242,27 @@ public final class FarModels {
         return atlas == null ? 0 : atlas.getColorTextureId();
     }
 
-    /** Атлас и буферы заранее (первый кадр с моделью вдали не ждёт выделения памяти видеокарты). */
+    /**
+     * Всё заранее, при входе в мир и после перезагрузки ресурсов: атлас, сетки всех деталей (обе копии) в видеопамяти
+     * и по одной отрисовке каждой — драйвер собирает программу и массивы вершин здесь, а не в кадре, где снаряд вдали
+     * появился впервые (на ноутбуке такой кадр стоил 5 мс процессора).
+     */
     public void warmup() {
-        withAtlasBound(clear);
+        if (shader == null) return;
+        begin();
+        Tile t = tile();
+        t.place(PAD + MIN_TILE / 2, PAD + MIN_TILE / 2, MIN_TILE, 10, 1, 0.1f);
+        t.view.identity().setTranslation(0, 0, 10);
+        current = t;
+        poses.last().pose().set(t.view);
+        poses.last().normal().identity();
+        for (WeaponModels.Mesh m : MESHES) {
+            record(m, poses, false, 1);
+            if (m.lod) record(m, poses, true, 1);
+        }
+        current = null;
+        count = 0;
+        withAtlasBound(warm);
     }
 
     /**
@@ -215,7 +271,61 @@ public final class FarModels {
      */
     public void render() {
         if (count == 0 || shader == null) return;
+        for (int i = 0; i < count; i++) {
+            Tile t = tiles.get(i);
+            current = t;
+            PoseStack.Pose root = poses.last();
+            root.pose().set(t.view);
+            root.normal().identity();
+            // нормали — в осях мира: в них светят направленные света Lighting, как у сущностей вблизи
+            poses.pushPose();
+            poses.mulPose(t.pose.rotation(rotation));
+            t.look.render(t.pose, poses, record);
+            poses.popPose();
+            t.look = null;
+        }
+        current = null;
         withAtlasBound(clearAndDraw);
+    }
+
+    /** Деталь модели плитки {@link #current} в текущем положении pose (сетка — в видеопамять, если её там ещё нет). */
+    private void record(WeaponModels.Mesh mesh, PoseStack pose, boolean coarse, float alpha) {
+        VertexBuffer buffer = buffer(mesh, coarse);
+        if (buffer == null) return;
+        if (partCount == parts.size()) parts.add(new Part());
+        Part p = parts.get(partCount++);
+        p.mesh = mesh;
+        p.buffer = buffer;
+        p.tile = current;
+        p.pose.set(pose.last().pose());
+        p.normal.set(pose.last().normal());
+        p.alpha = alpha;
+    }
+
+    /**
+     * Сетка детали в видеопамяти: собирается при первой отрисовке и заново, когда сетка детали собрана заново
+     * (перезагрузка ресурсов); свет — свет неба, ярче — запечённый ({@code glow}). {@code null} — сетка пуста.
+     */
+    @Nullable
+    private VertexBuffer buffer(WeaponModels.Mesh mesh, boolean coarse) {
+        int i = 2 * mesh.ordinal() + (coarse && mesh.lod ? 1 : 0);
+        QuadMesh source = mesh.mesh(coarse);
+        if (uploaded[i] != source) {
+            uploaded[i] = source;
+            try (ByteBufferBuilder bytes = new ByteBufferBuilder(Math.max(256, source.bakedBytes()))) {
+                MeshData data = source.bake(bytes, LightTexture.FULL_SKY);
+                if (data == null) {
+                    if (meshes[i] != null) meshes[i].close();
+                    meshes[i] = null;
+                } else {
+                    if (meshes[i] == null) meshes[i] = new VertexBuffer(VertexBuffer.Usage.STATIC);
+                    meshes[i].bind();
+                    meshes[i].upload(data);
+                    VertexBuffer.unbind();
+                }
+            }
+        }
+        return meshes[i];
     }
 
     private void withAtlasBound(Runnable work) {
@@ -230,6 +340,7 @@ public final class FarModels {
             RenderSystem.bindTexture(atlas.getColorTextureId());
             GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
         } finally {
+            partCount = 0;
             GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, readFbo);
             GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, drawFbo);
             GlStateManager._viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
@@ -243,122 +354,82 @@ public final class FarModels {
         GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
         GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_MAX_LEVEL, MIP_LEVELS);
         atlas = t;
-        solidBytes = new ByteBufferBuilder(1 << 18);
-        glassBytes = new ByteBufferBuilder(1 << 14);
     }
 
-    /** Очистить занятые полки (прозрачным; глубина — дальше всего). */
-    private void clearUsed() {
-        int used = Math.max(PAD, Math.min(ATLAS, shelfY + shelfH));
-        RenderSystem.enableScissor(0, 0, ATLAS, used);
+    /** Строк атласа, занятых плитками кадра. */
+    private int rowsUsed() {
+        return Math.max(PAD, Math.min(ATLAS, shelfY + shelfH));
+    }
+
+    /** Очистить нижние rows строк атласа (прозрачным; глубина — дальше всего). */
+    private static void clear(int rows) {
+        RenderSystem.enableScissor(0, 0, ATLAS, rows);
         GlStateManager._clearColor(0, 0, 0, 0);
         GlStateManager._clearDepth(1);
         GlStateManager._clear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.disableScissor();
     }
 
+    /** Детали кадра — в атлас: сперва непрозрачные с глубиной, потом размытые диски винтов поверх, с умноженной альфой. */
     private void draw() {
-        BufferBuilder solidOut = new BufferBuilder(solidBytes, VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
-        BufferBuilder glassOut = new BufferBuilder(glassBytes, VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
-        solid.out = solidOut;
-        glass.out = glassOut;
-        for (int i = 0; i < count; i++) {
-            Tile t = tiles.get(i);
-            solid.aim(t);
-            glass.aim(t);
-            PoseStack.Pose root = poses.last();
-            root.pose().set(t.view);
-            root.normal().identity();
-            // нормали — в осях мира: в них светят направленные света Lighting, как у сущностей вблизи
-            poses.pushPose();
-            poses.mulPose(t.pose.rotation(rotation));
-            t.look.render(t.pose, poses, buffers, LightTexture.FULL_SKY);
-            poses.popPose();
-            t.look = null;
-        }
+        ShaderInstance s = shader;
+        if (s == null || partCount == 0) return;
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level != null && level.effects().constantAmbientLight()) Lighting.setupNetherLevel();
         else Lighting.setupLevel();
         mc.gameRenderer.lightTexture().turnOnLightLayer();
-        RenderSystem.setShader(() -> shader);
         RenderSystem.setShaderTexture(0, InventoryMenu.BLOCK_ATLAS);
         RenderSystem.disableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.depthFunc(GL11.GL_LEQUAL);
-        // непрозрачное — с глубиной; размытые диски винтов — поверх, с умноженной альфой, как и весь атлас
         RenderSystem.disableBlend();
         RenderSystem.depthMask(true);
-        upload(solidOut);
+        // как ванильные чанки: программа и текстуры — один раз, на деталь — её матрицы и вызов отрисовки
+        s.setDefaultUniforms(VertexFormat.Mode.QUADS, IDENTITY, IDENTITY, mc.getWindow());
+        s.apply();
+        Uniform normal = s.getUniform("NormalMat");
+        pass(s, normal, false);
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                 GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
         RenderSystem.depthMask(false);
-        upload(glassOut);
+        pass(s, normal, true);
+        s.clear();
+        VertexBuffer.unbind();
         RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
         RenderSystem.enableCull();
         mc.gameRenderer.lightTexture().turnOffLightLayer();
-        solid.out = glass.out = null;
     }
 
-    private static void upload(BufferBuilder b) {
-        MeshData mesh = b.build();
-        if (mesh != null) BufferUploader.drawWithShader(mesh);
+    private void pass(ShaderInstance s, @Nullable Uniform normal, boolean translucent) {
+        Tile tile = null;
+        for (int i = 0; i < partCount; i++) {
+            Part p = parts.get(i);
+            if (p.mesh.translucent != translucent) continue;
+            if (p.tile != tile) {
+                tile = p.tile;
+                uniform(s.PROJECTION_MATRIX, tile.projection);
+            }
+            uniform(s.MODEL_VIEW_MATRIX, p.pose);
+            if (normal != null) {
+                normal.set(p.normal);
+                normal.upload();
+            }
+            if (s.COLOR_MODULATOR != null) {
+                s.COLOR_MODULATOR.set(1, 1, 1, p.alpha);
+                s.COLOR_MODULATOR.upload();
+            }
+            p.buffer.bind();
+            p.buffer.draw();
+        }
     }
 
-    /**
-     * Вершины модели в оси взгляда на неё → место в плитке атласа: перспективой из глаза (x/z, y/z в тангенсах угла
-     * плитки), глубина — по шару модели. Остальное (цвет, развёртка, свет, нормаль) — как есть.
-     */
-    private static final class Projector implements VertexConsumer {
-        @Nullable
-        BufferBuilder out;
-        private float cx, cy, scale, d, invTan, invH;
-
-        void aim(Tile t) {
-            cx = 2f * t.x / ATLAS - 1;
-            cy = 2f * t.y / ATLAS - 1;
-            scale = (float) t.size / ATLAS;
-            d = t.d;
-            invTan = 1 / t.tan;
-            invH = 1 / t.h;
-        }
-
-        @Override
-        public VertexConsumer addVertex(float x, float y, float z) {
-            return out.addVertex(cx + scale * invTan * x / z, cy + scale * invTan * y / z, (z - d) * invH);
-        }
-
-        @Override
-        public void addVertex(float x, float y, float z, int color, float u, float v, int overlay, int light, float nx, float ny, float nz) {
-            out.addVertex(cx + scale * invTan * x / z, cy + scale * invTan * y / z, (z - d) * invH, color, u, v, overlay, light, nx, ny, nz);
-        }
-
-        @Override
-        public VertexConsumer setColor(int red, int green, int blue, int alpha) {
-            return out.setColor(red, green, blue, alpha);
-        }
-
-        @Override
-        public VertexConsumer setUv(float u, float v) {
-            return out.setUv(u, v);
-        }
-
-        @Override
-        public VertexConsumer setUv1(int u, int v) {
-            return out.setUv1(u, v);
-        }
-
-        @Override
-        public VertexConsumer setUv2(int u, int v) {
-            return out.setUv2(u, v);
-        }
-
-        @Override
-        public VertexConsumer setNormal(float x, float y, float z) {
-            return out.setNormal(x, y, z);
-        }
+    private static void uniform(@Nullable Uniform u, Matrix4f m) {
+        if (u == null) return;
+        u.set(m);
+        u.upload();
     }
 }

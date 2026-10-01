@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.render;
 
+import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -134,5 +135,28 @@ class FarModelsTest {
         // кайма — целые мип-тексели, четыре самые крупные плитки с каймой входят в атлас
         assertEquals(0, FarModels.PAD % 4);
         assertTrue(2 * (FarModels.MAX_TILE + 2 * FarModels.PAD) <= FarModels.ATLAS);
+    }
+
+    @Test
+    void tileProjectionPutsTheModelSphereOnTheTile() {
+        // шар радиуса h на дальности d виден под углом с тангенсом tan: лучи с этим тангенсом — края плитки на любой
+        // глубине, ближняя и дальняя точки шара — края глубины атласа
+        float d = 500, h = 12, tan = (float) (h / Math.sqrt(d * d - h * h));
+        int x = 100, y = 300, size = 64;
+        FarModels.Tile t = new FarModels.Tile();
+        t.place(x, y, size, d, h, tan);
+        Vector4f p = new Vector4f();
+        for (float z : new float[]{d - h, d, d + h}) {
+            t.projection.transform(p.set(tan * z, -tan * z, z, 1));
+            assertEquals(2.0 * (x + size / 2) / FarModels.ATLAS - 1, p.x / p.w, 1e-5);
+            assertEquals(2.0 * (y - size / 2) / FarModels.ATLAS - 1, p.y / p.w, 1e-5);
+            t.projection.transform(p.set(0, 0, z, 1));
+            assertEquals(2.0 * x / FarModels.ATLAS - 1, p.x / p.w, 1e-5);
+            assertEquals(2.0 * y / FarModels.ATLAS - 1, p.y / p.w, 1e-5);
+        }
+        t.projection.transform(p.set(0, 0, d - h, 1));
+        assertEquals(-1, p.z / p.w, 1e-4);
+        t.projection.transform(p.set(0, 0, d + h, 1));
+        assertEquals(1, p.z / p.w, 1e-4);
     }
 }

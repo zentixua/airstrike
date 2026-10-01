@@ -91,7 +91,7 @@ public final class FarRenderer {
 
     /**
      * Первый кадр в мире (и после перезагрузки ресурсов): невидимый кадр всех видов, чтобы текстуры, шейдеры, атлас
-     * моделей и буферы были готовы до первого снаряда и взрыва вдали ({@link FarSprites#warmup}).
+     * моделей, их сетки в видеопамяти и буферы были готовы до первого снаряда и взрыва вдали ({@link FarSprites#warmup}).
      */
     private static void warmup(RenderLevelStageEvent e, FarView view) {
         long start = System.nanoTime();
