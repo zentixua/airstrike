@@ -193,6 +193,8 @@ public final class NuclearPrep {
         /** Чанки, чей план по снимкам с диска строят фоновые потоки. */
         final LongArrayList farRunning = new LongArrayList();
         int farPlans, diskShots, farSkipped;
+        /** Курсор по {@link #order}: докуда волна дошла и чанки отданы в LOD вдали ({@link FarLods}). */
+        int nextLod;
         /** Чанки тяжёлой зоны не в памяти при подрыве: для строки «дальние кольца». */
         @Nullable
         long[] farAtDetonation;
@@ -274,6 +276,7 @@ public final class NuclearPrep {
                     Detonation d = events.detonations().stream().filter(x -> x.id() == p.detonation).findFirst().orElse(null);
                     behindWave(level, p, scars, d, now, shared);
                     if (d != null && p.ruins != null) far(level, p, shared);
+                    if (d != null) farLods(level, p, d, now);
                     boolean zoneDone = p.tiles.stream().noneMatch(t -> t.state != TileState.SKIP);
                     if (zoneDone && !scars.hasPrepared(p.detonation) || now - p.handedOff > ZONE_HOLD) {
                         zoneReport(p, scars, d, now);
@@ -530,6 +533,32 @@ public final class NuclearPrep {
                 clock.record(shared.end(c0));
             }
         }
+    }
+
+    /**
+     * Чанки зоны, до которых дошла волна, — в LOD Distant Horizons вдали ({@link FarLods}): копия с диска с руинами по
+     * готовому плану (план, который ещё строится, она ждёт). Загруженные чанки получают руины и LOD своим путём.
+     */
+    private static void farLods(ServerLevel level, Prep p, Detonation d, long now) {
+        for (; p.nextLod < p.order.length; p.nextLod++) {
+            long c = p.order[p.nextLod];
+            if (ScarQueue.due(d, new ChunkPos(c)) > now) break;
+            FarLods.request(level, c, true);
+        }
+    }
+
+    /** Готовый план руин чанка, до которого уже дошла волна своего подрыва; null — нет такого. */
+    @Nullable
+    RuinPlan arrivedPlan(ServerLevel level, NuclearEvents events, long chunk, long now) {
+        for (Prep p : preps) {
+            if (p.detonation < 0 || p.draining) continue;
+            RuinPlan plan = p.plans.get(chunk);
+            if (plan == null) continue;
+            for (Detonation d : events.detonations()) {
+                if (d.id() == p.detonation && ScarQueue.due(d, new ChunkPos(chunk)) <= now) return plan;
+            }
+        }
+        return null;
     }
 
     /** Чанки по порядку — фоновым потокам (снимки — единицей работы), пока у подрыва есть место под задачи. */

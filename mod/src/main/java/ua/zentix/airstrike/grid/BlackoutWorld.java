@@ -25,8 +25,10 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.compat.DhUpdates;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.world.FarLods;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
@@ -662,6 +664,8 @@ public final class BlackoutWorld {
                     for (int i = 0; i < chunks.size(); i++) {
                         long c = chunks.getLong(i);
                         if (inMemory(level, c) != null) enqueue(c);
+                        // не в памяти: переведётся при загрузке, а LOD Distant Horizons вдали — копией с диска
+                        else FarLods.request(level, c, false);
                     }
                 }
                 s.cursor++;
@@ -759,7 +763,11 @@ public final class BlackoutWorld {
         note(Work.LAMPS, changed, 0);
         note(Work.REVERTED, pass.reverted(), 0);
         note(!needed ? Work.IDLE : edge ? Work.EDGE : pass.done() ? Work.PASS_DONE : Work.PASS_MORE, 1, System.nanoTime() - t0);
-        if (changed > 0) districtSound(level, chunk, dark, now);
+        if (changed > 0) {
+            districtSound(level, chunk, dark, now);
+            // LOD Distant Horizons: квартал гаснет (и зажигается) и вдали, а не при сохранении чанка
+            DhUpdates.mark(level, pos, level.getGameTime() + DhUpdates.SETTLE);
+        }
         // проход секций по блокам (4096 блоков — как много ламп) — тоже работа, даже если ламп в них уже нет
         int work = changed * cost + resignalled * WORLD_LAMP + (needed ? SCAN_COST : 0);
         if (!pass.done()) {

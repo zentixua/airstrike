@@ -1,7 +1,8 @@
-package ua.zentix.airstrike.client.sound;
+package ua.zentix.airstrike.client.flight;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.airstrike.client.sound.Acoustics;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -13,19 +14,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Путь снаряда по пакетам сервера: между пакетами — по прямой, разрыв — заново, без данных — молчать. */
-class SourceTrackTest {
+class FlightTrackTest {
     private static final UUID ID = UUID.randomUUID();
 
-    private static S2C.HeardFlight at(double x, int phaseAge) {
+    private static S2C.FarFlight at(double x, int phaseAge) {
         return at(x, 11.5, phaseAge);
     }
 
-    private static S2C.HeardFlight at(double x, double vx, int phaseAge) {
-        return new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0,
+    private static S2C.FarFlight at(double x, double vx, int phaseAge) {
+        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0,
                 FlightPhase.CRUISE.ordinal(), phaseAge, new Vec3(500, 80, 0));
     }
 
-    private static double x(SourceTrack t, double time) {
+    private static double x(FlightTrack t, double time) {
         double[] p = new double[3];
         t.at(time, p);
         return p[0];
@@ -33,7 +34,7 @@ class SourceTrackTest {
 
     @Test
     void ticksBetweenPacketsFollowStraightLine() {
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         t.record(10, at(0, 100));
         t.record(12, at(23, 102));
         t.record(14, at(46, 104));
@@ -47,7 +48,7 @@ class SourceTrackTest {
     @Test
     void velocityIsWhatServerReportedNotUnevenArrival() {
         // пакет тика сервера 11 опоздал на тик клиента: положение стоит, потом прыгает на два шага — скорость ровная
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         t.record(10, at(0, 100));
         t.record(11, at(0, 100));
         t.record(12, at(23, 102));
@@ -56,7 +57,7 @@ class SourceTrackTest {
 
     @Test
     void velocityBetweenTicksIsInterpolated() {
-        SourceTrack t = new SourceTrack(ID, WeaponType.ROCKET, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.ROCKET, false);
         t.record(10, at(0, 4, 100));
         t.record(12, at(9, 5, 102));
         assertEquals(4.5, t.velocity(11).x, 1e-9);
@@ -67,7 +68,7 @@ class SourceTrackTest {
     @Test
     void laterPacketOfTheSameTickWins() {
         // сеть прислала два пакета в один тик: верен последний
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         t.record(10, at(0, 100));
         t.record(12, at(23, 102));
         t.record(12, at(25, 104));
@@ -78,7 +79,7 @@ class SourceTrackTest {
     @Test
     void longGapStartsHistoryOver() {
         // снаряд ушёл из слуха и вернулся: между этими точками он не летел по прямой
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         t.record(10, at(0, 100));
         t.record(40, at(300, 130));
         assertEquals(40, t.start(), 1e-9);
@@ -88,20 +89,47 @@ class SourceTrackTest {
     @Test
     void silentWhenNothingIsKnownForThatMoment() {
         // по пакетам — ждём следующего (период и тик на неровную доставку), дальше слушать нечего
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         t.record(10, at(0, 100));
         t.record(12, at(23, 102));
-        assertTrue(t.covers(12 + S2C.Heard.PERIOD + 2));
-        assertFalse(t.covers(12 + S2C.Heard.PERIOD + 2.5));
+        assertTrue(t.covers(12 + S2C.FarFlights.PERIOD + 2));
+        assertFalse(t.covers(12 + S2C.FarFlights.PERIOD + 2.5));
     }
 
     @Test
     void emissionTimeFollowsPacketPath() {
         // ракета 11.5 блока/тик по пакетам на слушателя в начале координат: |p(te)| = c·(now − te)
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
-        for (int k = 0; k <= 40; k += S2C.Heard.PERIOD) t.record(k, at(600 - 11.5 * k, k));
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        for (int k = 0; k <= 40; k += S2C.FarFlights.PERIOD) t.record(k, at(600 - 11.5 * k, k));
         double now = 40;
         double te = Acoustics.emissionTime(t, now, 0, 80, 0);
         assertEquals(Acoustics.SPEED * (now - te), Math.abs(x(t, te)), 1e-4);
+    }
+
+    @Test
+    void predictionRunsAheadByLastVelocityButNotPastTheAim() {
+        // следующий пакет ещё в пути: снаряд вдали идёт дальше по скорости, но сквозь цель (x = 500) не летит
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        double[] p = new double[3];
+        assertTrue(t.predict(13.5, p));
+        assertEquals(23 + 11.5 * 1.5, p[0], 1e-9);
+        t.record(14, at(490, 104));
+        assertTrue(t.predict(16, p));
+        assertEquals(500, p[0], 1e-9);
+        assertFalse(t.predict(14 + S2C.FarFlights.PERIOD + 3, p), "дальше срока пакета данных нет");
+    }
+
+    @Test
+    void trailIsDrawnOnlyOverServerSamples() {
+        // точки по пакетам — для шлейфа вдали; сущность у клиента рисует свой шлейф частицами
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        assertTrue(t.fromServer(11));
+        assertTrue(t.fromServer(12));
+        assertFalse(t.fromServer(13));
+        assertFalse(t.fromServer(9));
     }
 }

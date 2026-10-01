@@ -56,6 +56,11 @@ public final class NuclearWorld {
         return scars;
     }
 
+    /** Руины заранее: их готовые планы нужны и LOD вдали ({@link FarLods}). */
+    NuclearPrep prep() {
+        return prep;
+    }
+
     public static NuclearWorld get(ServerLevel level) {
         return level.getData(ModAttachments.NUCLEAR_WORLD);
     }
@@ -229,6 +234,7 @@ public final class NuclearWorld {
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
+        FarLods.get(level).clear(level);
         prep.clear(level, scars);
         scars.clear(level);
         ruins.values().forEach(RuinContext::cancelTasks);

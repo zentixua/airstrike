@@ -6,16 +6,21 @@ import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import ua.zentix.airstrike.Airstrike;
 
 /**
- * Чанк, изменённый мимо {@code setBlock} (руины ядерки прямо в секциях), — в LOD Distant Horizons сразу, а не при
- * следующем сохранении чанка: {@code DhApi.Delayed.terrainRepo.overwriteChunkDataAsync} кладёт чанк в очередь
- * обновлений DH (та же, что у его собственных обновлений чанков; разбор — в потоках DH). Без DH или с другой мажорной
- * версией API ничего не делает; классы API трогает только вложенный {@link Api}, и только если DH стоит.
+ * Вызов API Distant Horizons: чанк — в LOD сразу, а не при следующем сохранении чанка (DH сам видит изменения блоков
+ * только по сохранению чанка: у свободного сервера через ~10 с, у занятого — автосохранением раз в 5 минут).
+ * {@code DhApi.Delayed.terrainRepo.overwriteChunkDataAsync} кладёт чанк в очередь обновлений DH (та же, что у его
+ * собственных обновлений; разбор — в потоках DH не раньше чем через 250 мс, по живой ссылке на чанк, без копии), DH
+ * пишет LOD в свою базу и рассылает его игрокам с DH (одиночная игра, хост с DH, сервер с DH: «real-time updates»).
+ * Принимает любой {@link ChunkAccess} с миром — и загруженный чанк, и собранный модом чанк не из мира
+ * ({@link DhUpdates#offer}). Темп и повторы — {@link DhUpdates}: позицию, которая уже в очереди DH, он молча
+ * пропускает. Без DH или с другой мажорной версией API ничего не делает; классы API трогает только вложенный
+ * {@link Api}, и только если DH стоит.
  */
 public final class DhChunks {
     /** Мажорная версия API, против которой собран мод (7.2.0, DH 3.3.x). */
@@ -35,16 +40,21 @@ public final class DhChunks {
         refused = false;
     }
 
-    /** Чанк мира сервера изменён целиком: DH перестроит его LOD. */
-    public static void changed(ServerLevel level, LevelChunk chunk) {
+    /** Distant Horizons стоит, и его API — то, под которое собран мод. */
+    public static boolean available() {
         if (state == 0) state = ModList.get().isLoaded("distanthorizons") && supported() ? 1 : -1;
-        if (state < 0) return;
+        return state > 0;
+    }
+
+    /** Чанк мира {@code level} (загруженный или собранный модом): DH перестроит по нему LOD. Поток сервера. */
+    static void overwrite(ServerLevel level, ChunkAccess chunk) {
+        if (!available()) return;
         try {
             Api.overwrite(level, chunk);
         } catch (LinkageError e) {
             // API не то, под которое собран мод: до конца игры не трогаем
             state = -1;
-            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — LOD руин обновится при сохранении чанка", e);
+            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — LOD изменённых чанков обновится при их сохранении", e);
         } catch (RuntimeException e) {
             // разовый отказ (мир DH ещё не готов и т. п.): этот чанк — при сохранении, следующие — снова через API
             if (!logged) {
@@ -67,7 +77,7 @@ public final class DhChunks {
             return DhApi.getApiMajorVersion();
         }
 
-        static void overwrite(ServerLevel level, LevelChunk chunk) {
+        static void overwrite(ServerLevel level, ChunkAccess chunk) {
             IDhApiWorldProxy world = DhApi.Delayed.worldProxy;
             IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
             if (world == null || repo == null || !world.worldLoaded()) return;

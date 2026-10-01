@@ -10,6 +10,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.client.far.FarBlasts;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.client.sound.BlastSounds;
@@ -27,14 +28,21 @@ import ua.zentix.airstrike.warhead.Warheads;
 public final class BlastEffects {
     private BlastEffects() {}
 
+    /**
+     * Пакет взрыва: ближе {@link FarBlasts#NEAR} — частицы и звук поясами здесь; картинку дальше прорисовки и звук
+     * дальше {@link FarBlasts#NEAR} ведёт {@link FarBlasts} (пакеты приходят до {@code far_range}).
+     */
     public static void blast(S2C.Blast p) {
-        GroundMaterial mat = GroundMaterial.byId(p.material());
-        switch (p.kind()) {
-            case S2C.Blast.MISSILE -> Effects.add(new Missile(p.pos(), mat, p.seed()));
-            case S2C.Blast.BUNKER -> Effects.add(new Bunker(p.pos(), mat, p.surfaceY(), p.seed()));
-            case S2C.Blast.ROCKET -> Effects.add(new Drone(p.pos(), mat, p.seed(), true));
-            default -> Effects.add(new Drone(p.pos(), mat, p.seed(), false));
+        if (FarBlasts.near(p.pos())) {
+            GroundMaterial mat = GroundMaterial.byId(p.material());
+            switch (p.kind()) {
+                case S2C.Blast.MISSILE -> Effects.add(new Missile(p.pos(), mat, p.seed()));
+                case S2C.Blast.BUNKER -> Effects.add(new Bunker(p.pos(), mat, p.surfaceY(), p.seed()));
+                case S2C.Blast.ROCKET -> Effects.add(new Drone(p.pos(), mat, p.seed(), true));
+                default -> Effects.add(new Drone(p.pos(), mat, p.seed(), false));
+            }
         }
+        FarBlasts.add(p);
     }
 
     // ---------------------------------------------------------------- общее

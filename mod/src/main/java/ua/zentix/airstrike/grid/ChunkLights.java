@@ -196,6 +196,27 @@ public final class ChunkLights {
         return new Pass(changed, done, next, 0);
     }
 
+    /**
+     * Лампы копии чанка не из мира (LOD Distant Horizons вдали) — к состоянию сети: {@code dark} — погасить, иначе
+     * зажечь. Прямо в секциях копии, без света и соседей. Поток сервера.
+     *
+     * @return сколько ламп переведено
+     */
+    public static int applyToCopy(LevelChunkSection[] sections, boolean dark) {
+        int changed = 0;
+        for (LevelChunkSection section : sections) {
+            if (section == null || !needs(section, dark)) continue;
+            for (int b = 0; b < 4096; b++) {
+                int x = b & 15, z = b >> 4 & 15, y = b >> 8;
+                BlockState to = GridLights.toward(section.getBlockState(x, y, z), dark);
+                if (to == null) continue;
+                section.setBlockState(x, y, z, to, false);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
     /** Один двойник — снова лампа (тиком двойника: поршень, аппарат). */
     public static void relight(ServerLevel level, BlockPos pos, BlockState twin) {
         BlockState lit = GridLights.lit(twin);

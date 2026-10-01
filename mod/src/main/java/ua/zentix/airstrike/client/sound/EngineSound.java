@@ -8,6 +8,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
+import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.Hearing;
@@ -58,7 +59,7 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
         }
 
         /** Громкость и тон слоя для того, что слушатель слышит сейчас (до сглаживания). */
-        Tone tone(SourceTrack track, Emission e) {
+        Tone tone(FlightTrack track, Emission e) {
             double d = e.distance(), dop = e.doppler(), age = e.phaseAge();
             int phase = e.phase();
             Vec3 v = e.velocity();
@@ -119,10 +120,10 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
                 case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * share(near(d, 120, 260));
                 case BOMBER_FAR -> gain = Math.max(Acoustics.gain(d, 120, 0.12, Hearing.BOMBER), Acoustics.gain(d, 120, 0, Hearing.JET))
                         * share(1 - near(d, 120, 260));
-                case BOMB_NEAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(near(d, 45, 140));
-                case BOMB_FAR -> gain = track.drilling ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(1 - near(d, 45, 140));
+                case BOMB_NEAR -> gain = track.drilling() ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(near(d, 45, 140));
+                case BOMB_FAR -> gain = track.drilling() ? 0 : Acoustics.gain(d, 40, 0.12, Hearing.ENGINE) * share(1 - near(d, 45, 140));
                 case BOMB_DRILL -> {
-                    gain = track.drilling ? Math.max(0, 1 - d / 96) : 0;
+                    gain = track.drilling() ? Math.max(0, 1 - d / 96) : 0;
                     pitch = 0.85;
                 }
                 case BOOSTER -> {
@@ -177,7 +178,8 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
     /** Громкость и тон слоя в этот тик. */
     record Tone(double gain, double pitch) {}
 
-    private final SourceTrack track;
+    private final FlightTrack track;
+    private final Occlusion occlusion;
     private final Layer layer;
     private float smoothVolume;
     private float filterGain = 1, filterHighs = 1;
@@ -187,9 +189,10 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
     /** Отпущен ({@link VoiceBudget}): стихает и останавливается. */
     private boolean released;
 
-    EngineSound(SourceTrack track, Layer layer) {
+    EngineSound(FlightTrack track, Occlusion occlusion, Layer layer) {
         super(layer.event.get(), SoundSource.AMBIENT, RandomSource.create());
         this.track = track;
+        this.occlusion = occlusion;
         this.layer = layer;
         this.looping = true;
         this.delay = 0;
@@ -250,7 +253,7 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
             this.z = heard.z();
             if (smoothVolume > VoiceBudget.AUDIBLE) {
                 Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-                float open = track.open(ClientSounds.now(), ear, heard.position());
+                float open = occlusion.open(ClientSounds.now(), ear, heard.position());
                 filterGain = SoundFilters.blockedGain(open);
                 filterHighs = SoundFilters.air(heard.distance()) * SoundFilters.blockedHighs(open);
                 SoundFilters.update(this, filterGain, filterHighs);
@@ -265,7 +268,7 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
      * катапульта. Зовётся, когда слушатель услышал смену фазы: {@code prev} — прошлая услышанная, −1 — ещё никакой.
      * У МБР свой звук пуска ({@code NukeSounds}).
      */
-    static void launchEvents(SourceTrack track, Emission e, int prev) {
+    static void launchEvents(FlightTrack track, Emission e, int prev) {
         ClientWeaponSpec spec = ClientWeaponSpec.of(track.weapon);
         if (spec.launch() == ClientWeaponSpec.LaunchCue.NONE) return;
         FlightPhase ph = FlightPhase.byId(e.phase());

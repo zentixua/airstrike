@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.net.S2C;
@@ -22,22 +23,22 @@ class EngineSoundTest {
     private static final double V = WeaponSpec.MISSILE.airframe().cruiseSpeed();
 
     /** Крылатая ракета с {@code from} блоков прямо на слушателя; цель — {@code aim}. */
-    private static SourceTrack missile(double from, Vec3 aim) {
+    private static FlightTrack missile(double from, Vec3 aim) {
         return missile(from, aim, 100);
     }
 
     /** То же, {@code ticks} тиков полёта на маршевой скорости (дальше v·ticks − from блоков она уходит за слушателя). */
-    private static SourceTrack missile(double from, Vec3 aim, int ticks) {
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+    private static FlightTrack missile(double from, Vec3 aim, int ticks) {
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         for (int k = 0; k <= ticks; k++) {
             double x = from - V * k;
-            t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0,
                     FlightPhase.CRUISE.ordinal(), 200 + k, aim));
         }
         return t;
     }
 
-    private static EngineSound.Tone heard(EngineSound.Layer layer, SourceTrack t, double now) {
+    private static EngineSound.Tone heard(EngineSound.Layer layer, FlightTrack t, double now) {
         double te = Acoustics.emissionTime(t, now, EAR.x, EAR.y, EAR.z);
         return layer.tone(t, Emission.at(t, te, EAR, false));
     }
@@ -50,7 +51,7 @@ class EngineSoundTest {
     @Test
     void missileWhistlesTheWholeApproachFromAfar() {
         // ракета на последнем участке, слушатель у цели: свист слышно с 850 блоков (раньше — только с 260), и он нарастает
-        SourceTrack t = missile(1200, EAR, 300);
+        FlightTrack t = missile(1200, EAR, 300);
         double te = Acoustics.emissionTime(t, heardFrom(1200, 850), EAR.x, EAR.y, EAR.z);
         Emission e = Emission.at(t, te, EAR, false);
         double far = EngineSound.Layer.MISSILE_WHISTLE.tone(t, e).gain();
@@ -64,12 +65,12 @@ class EngineSoundTest {
         // до прихода ракеты почти на d·(1/v − 1/c) (≈ 575 тиков), и история пути не теряет слышимую точку
         double from = Hearing.WHISTLE + Hearing.FADE, v = V;
         int arrival = (int) (from / v);
-        SourceTrack t = new SourceTrack(ID, WeaponType.MISSILE, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         int first = -1;
         double firstDistance = 0;
         for (int k = 0; k <= arrival; k++) {
             if (k % 2 == 0) {
-                t.record(k, new S2C.HeardFlight(ID, WeaponType.MISSILE.id(), false, false, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0,
+                t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0,
                         FlightPhase.CRUISE.ordinal(), 200 + k, EAR));
             }
             double te = Acoustics.emissionTime(t, k, EAR.x, EAR.y, EAR.z);
@@ -89,7 +90,7 @@ class EngineSoundTest {
     @Test
     void missileOnDetourDoesNotWhistle() {
         // тот же пролёт над слушателем, но цель в стороне (ракета идёт по обходу маршрута): свиста подлёта нет
-        SourceTrack t = missile(1200, new Vec3(-300, 0, 800), 300);
+        FlightTrack t = missile(1200, new Vec3(-300, 0, 800), 300);
         assertEquals(0, heard(EngineSound.Layer.MISSILE_WHISTLE, t, heardFrom(1200, 450)).gain(), 1e-12);
     }
 
@@ -98,7 +99,7 @@ class EngineSoundTest {
         // ракета проходит в 12 блоках над головой и уходит дальше (цель далеко за слушателем): мощность мотора (все его
         // слои: спереди, сзади, в пике, вдали — разные записи, складываются по мощности) на подлёте только растёт,
         // вслед только падает — без провала над головой и на смене ближнего гула дальним
-        SourceTrack t = missile(200, new Vec3(-3000, 0, 0), 110);
+        FlightTrack t = missile(200, new Vec3(-3000, 0, 0), 110);
         EngineSound.Layer[] engine = {EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
                 EngineSound.Layer.MISSILE_FAR};
         double prev = -1;
@@ -136,11 +137,11 @@ class EngineSoundTest {
         double range = 1200;
         int ticks = Ballistics.ticksFor(Vec3.ZERO, new Vec3(range, 0, 0), 50, 50);
         Vec3 v0 = Ballistics.launchVelocity(Vec3.ZERO, new Vec3(range, 0, 0), ticks);
-        SourceTrack t = new SourceTrack(ID, WeaponType.ROCKET, false);
+        FlightTrack t = new FlightTrack(ID, WeaponType.ROCKET, false);
         for (int k = 0; k <= ticks; k++) {
             Vec3 p = Ballistics.at(Vec3.ZERO, v0, k), v = Ballistics.at(Vec3.ZERO, v0, k + 1).subtract(p);
             FlightPhase ph = k < 40 ? FlightPhase.BOOST : v.y < 0 ? FlightPhase.TERMINAL : FlightPhase.CRUISE;
-            t.record(k, new S2C.HeardFlight(ID, WeaponType.ROCKET.id(), false, false, p, v, 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.ROCKET.id(), false, false, true, p, v, 90, 0,
                     ph.ordinal(), k, new Vec3(range, 0, 0)));
         }
         int heard = 0;

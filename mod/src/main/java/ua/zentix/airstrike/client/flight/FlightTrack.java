@@ -1,6 +1,7 @@
-package ua.zentix.airstrike.client.sound;
+package ua.zentix.airstrike.client.flight;
 
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.client.sound.Acoustics;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.S2C;
@@ -9,14 +10,15 @@ import ua.zentix.airstrike.strike.WeaponType;
 import java.util.UUID;
 
 /**
- * История полёта снаряда на клиенте (по тикам): из неё звук берёт «запаздывающее» положение и скорость. Скорость —
- * та, что сообщил сервер ({@link StrikeProjectile#velocity()}), а не разность положений по тикам клиента: пакеты
- * одного тика сервера доходят то в один тик клиента, то в соседний, и такая разность то падала до нуля, то удваивалась.
- * Пишется по сущности, пока она есть у клиента, а без неё — по пакетам сервера ({@link S2C.Heard}, раз в
- * {@link S2C.Heard#PERIOD} тика; промежуточные тики — по прямой между ними). Живёт дольше сущности: после взрыва
- * дальние слушатели ещё какое-то время слышат мотор.
+ * История полёта снаряда на клиенте (по тикам) — одна на звук и на картинку вдали. Звук берёт из неё «запаздывающее»
+ * положение и скорость, картинка вдали ({@code client.far.FarFlightRenderer}) — нынешнее положение и путь для шлейфа.
+ * Скорость — та, что сообщил сервер ({@link StrikeProjectile#velocity()}), а не разность положений по тикам клиента:
+ * пакеты одного тика сервера доходят то в один тик клиента, то в соседний, и такая разность то падала до нуля, то
+ * удваивалась. Пишется по сущности, пока она есть у клиента, а без неё — по пакетам сервера ({@link S2C.FarFlights};
+ * промежуточные тики — по прямой между ними). Живёт дольше сущности: после взрыва дальние слушатели ещё какое-то время
+ * слышат мотор, а шлейф висит.
  */
-final class SourceTrack implements Acoustics.Path {
+public final class FlightTrack implements Acoustics.Path {
     /**
      * Тиков истории: звук с самого дальнего слышимого снаряда (свист крылатой ракеты, {@link ua.zentix.airstrike.strike.Hearing#WHISTLE} + FADE =
      * 3080 блоков) идёт до уха ~180 тиков.
@@ -25,15 +27,17 @@ final class SourceTrack implements Acoustics.Path {
     /** Разрыв в данных длиннее — это уже другой полёт в поле слуха: история начинается заново. */
     private static final int MAX_GAP = 8;
 
-    final UUID id;
-    final WeaponType weapon;
-    /** B-2 (у его бомбы то же оружие, звук другой). */
-    final boolean bomber;
+    public final UUID id;
+    public final WeaponType weapon;
+    /** B-2 (у его бомбы то же оружие, звук и вид другие). */
+    public final boolean bomber;
     private final double[] xs = new double[CAPACITY], ys = new double[CAPACITY], zs = new double[CAPACITY];
     private final double[] vxs = new double[CAPACITY], vys = new double[CAPACITY], vzs = new double[CAPACITY];
     private final int[] phases = new int[CAPACITY], phaseAges = new int[CAPACITY];
     private final double[] axs = new double[CAPACITY], ays = new double[CAPACITY], azs = new double[CAPACITY];
     private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
+    /** Точка записана по пакетам сервера (сущности у клиента не было): шлейф вдали рисуется только по таким. */
+    private final boolean[] servers = new boolean[CAPACITY];
     private long first = -1, last = -1;
     /** Точка пути перед последней (от неё строится прямая до последней). */
     private long previous = -1;
@@ -46,21 +50,18 @@ final class SourceTrack implements Acoustics.Path {
     private int slack = 1;
     /** Последняя запись — по сущности. */
     private boolean fromEntity;
-    /** Открыт ли путь звука к уху (1) или за холмом/домом (0), сглажено; считается раз в тик на все слои. */
-    private float open = 1;
-    private long openTick = -1;
-    /** Бомба бурит (для звука бурения). */
-    boolean drilling;
+    /** Бомба бурит. */
+    private boolean drilling;
 
-    SourceTrack(UUID id, WeaponType weapon, boolean bomber) {
+    public FlightTrack(UUID id, WeaponType weapon, boolean bomber) {
         this.id = id;
         this.weapon = weapon;
         this.bomber = bomber;
     }
 
     /** Запись по сущности у клиента. */
-    void record(long tick, StrikeProjectile p) {
-        append(tick, new Sample(p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint()));
+    public void record(long tick, StrikeProjectile p) {
+        append(tick, new Sample(p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint(), false));
         fromEntity = true;
         slack = 1;
         drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
@@ -70,11 +71,11 @@ final class SourceTrack implements Acoustics.Path {
      * Запись по пакету сервера. Два пакета в один тик (сеть прислала пачкой) — верен последний; на тик, записанный
      * по сущности, пакет не нужен.
      */
-    void record(long tick, S2C.HeardFlight f) {
+    public void record(long tick, S2C.FarFlight f) {
         if (tick < last || tick == last && fromEntity) return;
-        append(tick, new Sample(f.pos(), f.velocity(), f.yaw(), f.pitch(), f.phase(), f.phaseAge(), f.aim()));
+        append(tick, new Sample(f.pos(), f.velocity(), f.yaw(), f.pitch(), f.phase(), f.phaseAge(), f.aim(), true));
         fromEntity = false;
-        slack = S2C.Heard.PERIOD + 2;
+        slack = f.period() + 2;
         drilling = f.drilling();
     }
 
@@ -92,7 +93,7 @@ final class SourceTrack implements Acoustics.Path {
             Vec3 p0 = new Vec3(xs[i0], ys[i0], zs[i0]), v0 = new Vec3(vxs[i0], vys[i0], vzs[i0]);
             for (long t = from + 1; t < tick; t++) {
                 double k = (double) (t - from) / (tick - from);
-                put(t, new Sample(p0.lerp(s.pos, k), v0.lerp(s.vel, k), s.yaw, s.pitch, s.phase, s.phaseAge - (int) (tick - t), s.aim));
+                put(t, new Sample(p0.lerp(s.pos, k), v0.lerp(s.vel, k), s.yaw, s.pitch, s.phase, s.phaseAge - (int) (tick - t), s.aim, s.server));
             }
         }
         put(tick, s);
@@ -115,31 +116,37 @@ final class SourceTrack implements Acoustics.Path {
         pitches[i] = s.pitch;
         phases[i] = s.phase;
         phaseAges[i] = Math.max(0, s.phaseAge);
+        servers[i] = s.server;
     }
 
     /** Звук из момента t ещё есть чем вести (данные дошли не позже, чем на {@link #slack} тиков раньше). */
-    boolean covers(double t) {
+    public boolean covers(double t) {
         return t <= last + slack;
     }
 
     /** Путь сейчас идёт по пакетам сервера (сущности у клиента нет). */
-    boolean fromServer() {
+    public boolean fromServer() {
         return !fromEntity;
     }
 
-    void die(long tick) {
+    /** Бомба бурит. */
+    public boolean drilling() {
+        return drilling;
+    }
+
+    public void die(long tick) {
         if (death == Long.MAX_VALUE) death = Math.max(last, Math.min(tick, last + 1));
     }
 
-    boolean isDead() {
+    public boolean isDead() {
         return death != Long.MAX_VALUE;
     }
 
-    long deathTick() {
+    public long deathTick() {
         return death;
     }
 
-    long lastTick() {
+    public long lastTick() {
         return last;
     }
 
@@ -160,8 +167,38 @@ final class SourceTrack implements Acoustics.Path {
         out[2] = zs[ia] + (zs[ib] - zs[ia]) * f;
     }
 
+    /**
+     * Где снаряд в момент t, который может быть позже последней записи (следующий пакет ещё в пути): от последней точки
+     * по её скорости, но не дальше {@link #slack} тиков и не мимо цели — снаряд, который в этот тик попал, сквозь неё
+     * не летит. False — данных на этот момент нет.
+     */
+    public boolean predict(double t, double[] out) {
+        if (last < 0 || !covers(t)) return false;
+        if (t <= last) {
+            at(t, out);
+            return true;
+        }
+        int i = (int) (last % CAPACITY);
+        double vx = vxs[i], vy = vys[i], vz = vzs[i], ahead = t - last;
+        double v2 = vx * vx + vy * vy + vz * vz;
+        if (v2 > 1e-9) {
+            // ближе всего к цели на этой прямой снаряд через dot(aim − p, v)/|v|² тиков: дальше не тянуть
+            double toAim = ((axs[i] - xs[i]) * vx + (ays[i] - ys[i]) * vy + (azs[i] - zs[i]) * vz) / v2;
+            if (toAim >= 0) ahead = Math.min(ahead, toAim);
+        }
+        out[0] = xs[i] + vx * ahead;
+        out[1] = ys[i] + vy * ahead;
+        out[2] = zs[i] + vz * ahead;
+        return true;
+    }
+
+    /** Точка момента t (целый тик в пределах истории) записана по пакетам сервера, а не по сущности. */
+    public boolean fromServer(long t) {
+        return t >= start() && t <= last && servers[(int) (t % CAPACITY)];
+    }
+
     /** Скорость в момент t, блоков/тик (между тиками — по прямой). */
-    Vec3 velocity(double t) {
+    public Vec3 velocity(double t) {
         double s = Math.max(start(), Math.min(last, t));
         long a = (long) Math.floor(s);
         long b = Math.min(last, a + 1);
@@ -170,41 +207,34 @@ final class SourceTrack implements Acoustics.Path {
         return new Vec3(vxs[ia] + (vxs[ib] - vxs[ia]) * f, vys[ia] + (vys[ib] - vys[ia]) * f, vzs[ia] + (vzs[ib] - vzs[ia]) * f);
     }
 
-    int phase(double t) {
+    public int phase(double t) {
         long a = (long) Math.max(start(), Math.min(last, Math.floor(t)));
         return phases[(int) (a % CAPACITY)];
     }
 
     /** Куда снаряд летел в момент t (точка цели; перенацеливание — с того тика, как о нём стало известно). */
-    Vec3 aim(double t) {
+    public Vec3 aim(double t) {
         int i = (int) ((long) Math.max(start(), Math.min(last, Math.floor(t))) % CAPACITY);
         return new Vec3(axs[i], ays[i], azs[i]);
     }
 
     /** Сколько тиков шла фаза полёта к моменту t (дробно — для плавной раскрутки мотора). */
-    double phaseAge(double t) {
+    public double phaseAge(double t) {
         double s = Math.max(start(), Math.min(last, t));
         long a = (long) Math.floor(s);
         return phaseAges[(int) (a % CAPACITY)] + (s - a);
     }
 
-    /** Путь от «запаздывающего» положения до уха открыт (1) или закрыт (0); плавно, без щелчков. */
-    float open(double now, Vec3 ear, Vec3 at) {
-        long tick = (long) now;
-        if (tick != openTick) {
-            openTick = tick;
-            open += (SoundFilters.open(ear, at) - open) * 0.3f;
-        }
-        return open;
-    }
-
     /** Направление носа в момент t (для «спереди свист, сзади рёв»). */
-    Vec3 forward(double t) {
+    public Vec3 forward(double t) {
         long a = (long) Math.max(start(), Math.min(last, Math.floor(t)));
         int i = (int) (a % CAPACITY);
         return Vec3.directionFromRotation(pitches[i], yaws[i]);
     }
 
-    /** Одна запись пути: где снаряд, его сдвиг за тик, нос, фаза и сколько она идёт, куда он летит. */
-    private record Sample(Vec3 pos, Vec3 vel, float yaw, float pitch, int phase, int phaseAge, Vec3 aim) {}
+    /**
+     * Одна запись пути: где снаряд, его сдвиг за тик, нос, фаза и сколько она идёт, куда он летит, по пакету ли
+     * сервера она.
+     */
+    private record Sample(Vec3 pos, Vec3 vel, float yaw, float pitch, int phase, int phaseAge, Vec3 aim, boolean server) {}
 }

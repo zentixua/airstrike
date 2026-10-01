@@ -10,7 +10,7 @@ import ua.zentix.airstrike.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class AirstrikeNetwork {
-    public static final String PROTOCOL = "9";
+    public static final String PROTOCOL = "10";
 
     private AirstrikeNetwork() {}
 
@@ -32,7 +32,7 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.NukeSync.TYPE, S2C.NukeSync.CODEC, (p, ctx) -> ClientHooks.get().nukeSync(p));
         r.playToClient(S2C.Radiation.TYPE, S2C.Radiation.CODEC, (p, ctx) -> ClientHooks.get().radiation(p));
         r.playToClient(S2C.Flights.TYPE, S2C.Flights.CODEC, (p, ctx) -> ClientHooks.get().flights(p));
-        r.playToClient(S2C.Heard.TYPE, S2C.Heard.CODEC, (p, ctx) -> ClientHooks.get().heard(p));
+        r.playToClient(S2C.FarFlights.TYPE, S2C.FarFlights.CODEC, (p, ctx) -> ClientHooks.get().farFlights(p));
         r.playToClient(S2C.MapPlayers.TYPE, S2C.MapPlayers.CODEC, (p, ctx) -> ClientHooks.get().mapPlayers(p));
         r.playToClient(S2C.OpenRemote.TYPE, S2C.OpenRemote.CODEC, (p, ctx) -> ClientHooks.get().openRemote());
 

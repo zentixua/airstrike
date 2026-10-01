@@ -56,6 +56,7 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.PickHints;
@@ -1016,12 +1017,13 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Звук снаряда вне мира: снаряд РСЗО летит «виртуально» в 600 блоках от цели — слушатель в 150 блоках от него
-     * получает его путь (фаза, где он, скорость — его сдвиг за тик, куда он летит), в 1000 блоках — нет: снаряд
-     * вне загруженного мира слышно так же, как в мире, и не дальше, чем его слышно.
+     * Снаряд вне мира у дальних игроков: снаряд РСЗО летит «виртуально» в 600 блоках от цели — слушатель в 150 блоках
+     * от него получает его путь (фаза, где он, скорость — его сдвиг за тик, куда он летит) с каждым пакетом слышимых,
+     * в 1000 блоках его не слышно, но видно — путь уходит только с пакетом видимых, без отметки «слышно»; дальше
+     * {@code far_range} — никак.
      */
     @GameTest(template = "runway", timeoutTicks = 100, batch = "heard", skyAccess = true)
-    public static void virtualFlightIsHeardOnlyInRange(GameTestHelper h) {
+    public static void virtualFlightReachesOnlyThoseWhoHearOrSeeIt(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
         RocketEntity r = ModEntities.ROCKET.get().create(level);
@@ -1030,17 +1032,20 @@ public final class StrikeGameTests {
         Vec3[] before = new Vec3[1];
         h.runAfterDelay(9, () -> before[0] = r.position());
         h.runAfterDelay(10, () -> {
-            var flights = ua.zentix.airstrike.strike.FlightSounds.flights(level);
+            var flights = FarFlights.flights(level);
             h.assertTrue(flights.stream().anyMatch(f -> f.getUUID().equals(r.getUUID()) && f.isVirtual()), "снаряда нет среди летящих вне мира");
             Vec3 at = r.position();
-            var near = ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(150, 0, 0), null);
-            h.assertTrue(near.size() == 1 && near.getFirst().id().equals(r.getUUID()), "в 150 блоках не слышно: " + near);
+            var near = FarFlights.sample(level, flights, at.add(150, 0, 0), null, false);
+            h.assertTrue(near.size() == 1 && near.getFirst().id().equals(r.getUUID()) && near.getFirst().audible(), "в 150 блоках не слышно: " + near);
             var f = near.getFirst();
             h.assertTrue(f.pos().distanceTo(at) < 1.0e-6 && f.weapon() == WeaponType.ROCKET.id() && !f.bomber(), "не тот путь: " + f);
             h.assertTrue(f.aim().distanceTo(r.aimPoint()) < 1.0e-6, "цель: " + f.aim());
             Vec3 step = at.subtract(before[0]);
             h.assertTrue(step.length() > 1 && f.velocity().distanceTo(step) < 1.0e-6, "скорость " + f.velocity() + ", а сдвиг за тик " + step);
-            h.assertTrue(ua.zentix.airstrike.strike.FlightSounds.heard(level, flights, at.add(1000, 0, 0), null).isEmpty(), "слышно за 1000 блоков");
+            h.assertTrue(FarFlights.sample(level, flights, at.add(1000, 0, 0), null, false).isEmpty(), "слышно за 1000 блоков");
+            var seen = FarFlights.sample(level, flights, at.add(1000, 0, 0), null, true);
+            h.assertTrue(seen.size() == 1 && !seen.getFirst().audible(), "в 1000 блоках не видно или слышно: " + seen);
+            h.assertTrue(FarFlights.sample(level, flights, at.add(FarFlights.range() + 100, 0, 0), null, true).isEmpty(), "видно дальше far_range");
             // не долетать: в партии теста больше никого, а снаряд, упавший после конца теста, упал бы на чужую площадку
             VirtualFlights.get(level).clear(level, p -> true);
             h.succeed();

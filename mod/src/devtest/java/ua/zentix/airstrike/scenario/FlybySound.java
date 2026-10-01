@@ -14,6 +14,7 @@ import net.neoforged.neoforge.client.event.sound.PlaySoundEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -24,7 +25,6 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.util.Local;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -409,10 +409,10 @@ final class FlybySound {
             Loop loop = loops.get(s);
             boolean fromServer;
             try {
-                Object track = TRACK.get(s);
-                if (loop == null) loop = new Loop((UUID) TRACK_ID.get(track), TRACK_WEAPON.get(track).toString().toLowerCase(Locale.ROOT),
+                FlightTrack track = (FlightTrack) TRACK.get(s);
+                if (loop == null) loop = new Loop(track.id, track.weapon.toString().toLowerCase(Locale.ROOT),
                         LAYER.get(s).toString().toLowerCase(Locale.ROOT), caseTick);
-                fromServer = (boolean) FROM_SERVER.invoke(track);
+                fromServer = track.fromServer();
             } catch (ReflectiveOperationException ex) {
                 throw new IllegalStateException("SCENARIO flyby: поля звука мода изменились", ex);
             }
@@ -652,22 +652,16 @@ final class FlybySound {
         return String.format(Locale.ROOT, "%.3f", v);
     }
 
-    // звук мода закрыт для сценария (пакет client.sound): слой и снаряд петли — через отражение
+    // слой и путь петли закрыты в звуке мода (пакет client.sound) — через отражение
     private static final Class<?> ENGINE;
-    private static final Field TRACK, LAYER, TRACK_ID, TRACK_WEAPON, FLIGHT;
-    private static final Method FROM_SERVER;
+    private static final Field TRACK, LAYER, FLIGHT;
 
     static {
         try {
             ENGINE = Class.forName("ua.zentix.airstrike.client.sound.EngineSound");
-            Class<?> track = Class.forName("ua.zentix.airstrike.client.sound.SourceTrack");
             TRACK = open(ENGINE.getDeclaredField("track"));
             LAYER = open(ENGINE.getDeclaredField("layer"));
-            TRACK_ID = open(track.getDeclaredField("id"));
-            TRACK_WEAPON = open(track.getDeclaredField("weapon"));
             FLIGHT = open(StrikeProjectile.class.getDeclaredField("flight"));
-            FROM_SERVER = track.getDeclaredMethod("fromServer");
-            FROM_SERVER.setAccessible(true);
         } catch (ReflectiveOperationException e) {
             throw new ExceptionInInitializerError(e);
         }
