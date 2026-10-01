@@ -306,12 +306,16 @@ public final class RuinBackgroundGameTests {
     /**
      * Выход из мира доходит до конца, когда генерация держит держатель, уже поставленный на выгрузку (ноутбук 30.09.2026
      * после ядерки: круги выгрузки без конца). В Незере на свежем месте: чанк A загружен и снят (он в очереди выгрузки),
-     * тикет на B рядом — генерация B берёт A обратно. Дальше — круги остановки, как у {@code stopServer}: срок тика через
-     * 1 мс, снятие тикетов, круг {@link ua.zentix.airstrike.util.StopPump#round} (тот же, что у миксина), задачи сервера
-     * (ваниль выполняет задачи чанков, только пока срок не прошёл). Карта Незера должна опустеть: {@code hasWork()} ложно
-     * (и тикетов нет — это часть {@code hasWork}). Без задач чанков в круге (прежний миксин) не пустеет: задача выгрузки A
-     * кладёт себя обратно весь предел круга, задачи чанков не идут, генерация B не кончается. Настенное время — только
-     * предел против зависания (60 с), не мера скорости.
+     * тикет на B рядом — генерация B берёт A обратно. Тикет — обычный ванильный, как у игрока, который вернулся к
+     * краю видимости: мод здесь ни при чём.
+     * <p>
+     * Сперва — ванильный круг остановки как есть ({@code ServerChunkCache.tick(() -> true, false)}): он не кончается
+     * (задача выгрузки A кладёт себя обратно, а генерации B нужен поток сервера), и проверка выходит из него сама через
+     * 3 с. Кончился сам — ваниль это починила, и миксин {@code StopServerChunksMixin} больше не нужен: тест падает,
+     * чтобы его убрали. Дальше — круги остановки, как у {@code stopServer}: срок тика через 1 мс, снятие тикетов, круг
+     * {@link ua.zentix.airstrike.util.StopPump#round} (тот же, что у миксина), задачи сервера (ваниль выполняет задачи
+     * чанков, только пока срок не прошёл). Карта Незера должна опустеть: {@code hasWork()} ложно (и тикетов нет — это
+     * часть {@code hasWork}). Настенное время — только предел против зависания, не мера скорости.
      */
     @GameTest(template = "range", timeoutTicks = 100, batch = "stop_pump", skyAccess = true)
     public static void stopRoundsFinishWhileGenerationHoldsUnloadingChunk(GameTestHelper h) {
@@ -362,6 +366,19 @@ public final class RuinBackgroundGameTests {
                 Object holder = updating.get(a.toLong());
                 h.assertTrue(holder instanceof net.minecraft.server.level.GenerationChunkHolder g && g.getGenerationRefCount() > 0,
                         "генерация B не держит A — случай не воспроизведён");
+                // ванильный круг остановки: без предела времени он остаётся в очереди выгрузки
+                cache.removeTicketsOnClosing();
+                long spinEnd = System.nanoTime() + 3_000_000_000L;
+                boolean spun = false;
+                try {
+                    cache.tick(() -> {
+                        if (System.nanoTime() > spinEnd) throw new VanillaSpin();
+                        return true;
+                    }, false);
+                } catch (VanillaSpin e) {
+                    spun = true;
+                }
+                h.assertTrue(spun, "ванильный круг выгрузки кончился сам: зависания у ванили нет, миксин StopServerChunksMixin можно убрать");
                 // круги остановки
                 long deadline = System.nanoTime() + 60_000_000_000L;
                 int rounds = 0;
@@ -388,6 +405,15 @@ public final class RuinBackgroundGameTests {
             throw new IllegalStateException(e);
         }
         h.succeed();
+    }
+
+    /** Выход из ванильного круга выгрузки, который сам не кончается ({@link #stopRoundsFinishWhileGenerationHoldsUnloadingChunk}). */
+    private static final class VanillaSpin extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        VanillaSpin() {
+            super(null, null, false, false);
+        }
     }
 
     /**

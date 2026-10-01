@@ -12,9 +12,12 @@ import java.util.function.BooleanSupplier;
 
 /**
  * Выход из мира не зависает в выгрузке чанков: каждый круг цикла выгрузки в {@code MinecraftServer.stopServer} —
- * {@link StopPump#round} (прокачка с пределом, затем задачи чанков мира). Почему — там. Проверка — GameTest
- * {@code stopRoundsFinishWhileGenerationHoldsUnloadingChunk}: тот же круг на держателе, которого генерация вернула из
- * выгрузки.
+ * {@link StopPump#round} (прокачка с пределом, затем задачи чанков мира). Зависание ванильное — почему, там; мод его
+ * только делает частым (после ядерки тикеты районов и зоны то и дело возвращают чанки из выгрузки). Свои тикеты и
+ * работу мод отпускает раньше, в {@code ServerStoppingEvent}, но генерацию, уже начатую до выхода, это не останавливает,
+ * а другого входа в этот цикл у NeoForge нет. Миксин действует только при остановке сервера. Проверка — GameTest
+ * {@code stopRoundsFinishWhileGenerationHoldsUnloadingChunk}: ванильный круг на держателе, которого генерация вернула из
+ * выгрузки, не кончается (иначе тест просит убрать миксин), а круг {@link StopPump#round} — кончается.
  */
 @Mixin(MinecraftServer.class)
 public abstract class StopServerChunksMixin {

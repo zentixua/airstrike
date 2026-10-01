@@ -869,8 +869,9 @@ public final class NuclearGameTests {
 
     /**
      * Блок, поставленный после плана внутри дома (не место плана: воздух там был и остаётся), держит карты высот
-     * столбца, хотя по плану крыша и стены падают до земли: подмена видит изменение чанка (счётчик
-     * {@code LevelChunkEditsMixin}) и ищет верх этих столбцов заново. Без этого карта высот столбца легла бы на землю.
+     * столбца, хотя по плану крыша и стены падают до земли: подмена сверяет блоки чанка со снимком плана
+     * ({@code RuinPlan.sameBlocks}) и ищет верх этих столбцов заново. Без этого карта высот столбца легла бы на землю.
+     * Лампа, погашенная блэкаутом прямо в секции (двойник вместо лампы), блоки для плана не меняет.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins_edit", skyAccess = true)
     public static void blockPlacedAfterPlanKeepsHeights(GameTestHelper h) {
@@ -880,12 +881,21 @@ public final class NuclearGameTests {
             boolean wall = Math.abs(p.getX() - house.getX()) == 2 || Math.abs(p.getZ() - house.getZ()) == 2 || p.getY() == house.getY() + 4;
             if (wall) h.setBlock(p, Blocks.OAK_PLANKS);
         }
+        BlockPos lamp = house.offset(1, 1, 1);
+        h.setBlock(lamp, Blocks.GLOWSTONE);
         LevelChunk chunk = level.getChunkAt(h.absolutePos(house));
-        h.assertTrue(chunk instanceof RuinPlan.Edits, "счётчик изменений чанка не встал (миксин LevelChunkEditsMixin)");
         int[] before = heights(chunk, true);
         RuinPlan plan = RuinPlanner.plan(level, detonation(h, CENTER, 0, 15, 0.025f), chunk);
+        h.assertTrue(plan.changedBlocks() > 0 && plan.sameBlocks(chunk), "чанк сразу после плана не совпал со снимком плана");
+        // блэкаут: двойник лампы прямо в секции, как ChunkLights.applyInPlace
+        BlockPos lampAt = h.absolutePos(lamp);
+        var twin = ua.zentix.airstrike.grid.GridLights.unlit(Blocks.GLOWSTONE.defaultBlockState());
+        h.assertTrue(twin != null, "у светокамня нет двойника");
+        chunk.getSection(chunk.getSectionIndex(lampAt.getY())).setBlockState(lampAt.getX() & 15, lampAt.getY() & 15, lampAt.getZ() & 15, twin);
+        h.assertTrue(plan.sameBlocks(chunk), "погашенная лампа сочтена изменением чанка");
         BlockPos inside = house.above(3);
         h.setBlock(inside, Blocks.STONE);
+        h.assertFalse(plan.sameBlocks(chunk), "блок внутри дома не сочтён изменением чанка");
         h.assertTrue(plan.apply(level, chunk, new ColumnScar.Budget(false)), "план устарел: место внутри дома стало местом плана");
         h.assertBlockPresent(Blocks.STONE, inside);
         h.assertBlockNotPresent(Blocks.OAK_PLANKS, house.above(4));
