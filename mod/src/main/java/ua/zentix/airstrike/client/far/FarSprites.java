@@ -119,8 +119,8 @@ public final class FarSprites {
 
     /**
      * По одной записи каждого вида без света и заслона (с умноженной альфой такой спрайт не меняет ни пикселя): кадр
-     * проходит весь путь — текстуры, шейдер, буферы вершин всех четырёх вызовов, — и первый настоящий кадр вдали
-     * ничего этого уже не ждёт.
+     * проходит весь путь — текстуры, шейдеры, атлас моделей, буферы вершин всех проходов, — и первый настоящий кадр
+     * вдали ничего этого уже не ждёт. Плитки моделей — только со своим шейдером: без него моделей вдали нет (точки).
      */
     void warmup() {
         for (Batch batch : new Batch[]{puffs, discs, glows}) {
@@ -129,13 +129,15 @@ public final class FarSprites {
             batch.data[o + 2] = -16;
             batch.data[o + 3] = 1;
         }
-        int m = impostors.add(1);
-        Arrays.fill(impostors.data, m, m + IMPOSTOR, 0);
-        impostors.data[m + 2] = -16;
-        impostors.data[m + 3] = 1;
-        impostors.data[m + 7] = 1;
-        impostors.data[m + 9] = 1;
-        models.warmup();
+        if (impostorShader != null) {
+            int m = impostors.add(1);
+            Arrays.fill(impostors.data, m, m + IMPOSTOR, 0);
+            impostors.data[m + 2] = -16;
+            impostors.data[m + 3] = 1;
+            impostors.data[m + 7] = 1;
+            impostors.data[m + 9] = 1;
+            models.warmup();
+        }
         int o = ribbons.add(1);
         Arrays.fill(ribbons.data, o, o + SEGMENT, 0);
         ribbons.data[o + 2] = -16;

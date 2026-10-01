@@ -10,7 +10,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
  * Всё, что нужно модели снаряда на кадр ({@link WeaponModels}): где он, как повёрнут, фаза полёта и её время, куда
  * летит. Заполняется по сущности, пока она есть у клиента, а без неё — по пути из пакетов сервера
  * ({@code client.far.FarFlightView}): модель и её анимации — один код вблизи и вдали. Тот же шаг, что у Mojang
- * в 1.21.2 ({@code EntityRenderState}). Объект живёт между кадрами: кадр ничего не выделяет.
+ * в 1.21.2 ({@code EntityRenderState}). Объект живёт между кадрами: новая поза на кадр не нужна.
  */
 public final class ProjectilePose {
     /** Где, блоков. */

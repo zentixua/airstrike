@@ -44,7 +44,8 @@ import java.util.List;
  * {@link #COARSE_BELOW} пикселей — упрощённые копии деталей ({@link WeaponModels.Mesh#lod}).
  * <p>
  * Атлас рисуется своим шейдером ({@code shaders/core/far_model}) в {@code AFTER_LEVEL}: Iris заменяет чужие шейдеры
- * только пока рисует мир. Кадр ничего не выделяет, кроме плиток сверх прежнего наибольшего числа.
+ * только пока рисует мир. Плитки, буферы и атлас живут между кадрами; на кадр — только мелкие короткоживущие объекты
+ * движка (построитель вершин одноразовый) и анимаций моделей.
  */
 public final class FarModels {
     /** Модель в любом повороте и с любыми раскрытыми деталями — в шаре такого радиуса на её размер ({@code FarModelsTest}). */
@@ -59,10 +60,17 @@ public final class FarModels {
      * пикселя), длиннее {@link #FULL_ABOVE} — полные сетки; между — какие были (без дрожания на границе).
      */
     public static final double COARSE_BELOW = 40, FULL_ABOVE = 48;
-    /** Сторона атласа, текселей. */
-    static final int ATLAS = 2048;
-    /** Текселей на пиксель экрана; плитка — от {@link #MIN_TILE} до {@link #MAX_TILE} (дальше крупная модель мягче). */
-    static final int SUPERSAMPLE = 4, MIN_TILE = 8, MAX_TILE = 512;
+    /**
+     * Сторона атласа, текселей: ~9 МБ видеопамяти с мип-уровнями и глубиной, мип-уровни всего атласа — на каждый кадр
+     * с моделями вдали. Полный атлас — остальные модели кадра точками.
+     */
+    static final int ATLAS = 1024;
+    /**
+     * Текселей на пиксель экрана; плитка — от {@link #MIN_TILE} до {@link #MAX_TILE}: самая крупная с каймой — ровно
+     * полстороны атласа, четыре таких входят (плитка шире 126 px экрана — меньше 4 текселей на пиксель: крупной
+     * модели сглаживание почти не нужно).
+     */
+    static final int SUPERSAMPLE = 4, MIN_TILE = 8, MAX_TILE = 504;
     /** Мип-уровней сверх основного (4 текселя на пиксель — уровень 2); пустая кайма вокруг плитки — чтобы они не брали соседа. */
     static final int MIP_LEVELS = 2, PAD = 1 << MIP_LEVELS;
     /** Что {@link #add} пишет о плитке: вправо и вверх (оси квадрата), полуразмер, u0, v0, u1, v1. */
@@ -84,6 +92,10 @@ public final class FarModels {
     private final Projector solid = new Projector(), glass = new Projector();
     private final MultiBufferSource buffers = type -> type == WeaponModels.TRANSLUCENT ? glass : solid;
     private final int[] viewport = new int[4];
+    private final Runnable clear = this::clearUsed, clearAndDraw = () -> {
+        clearUsed();
+        draw();
+    };
 
     /** Одна модель кадра и её плитка. */
     private static final class Tile {
@@ -194,7 +206,7 @@ public final class FarModels {
 
     /** Атлас и буферы заранее (первый кадр с моделью вдали не ждёт выделения памяти видеокарты). */
     public void warmup() {
-        withAtlasBound(this::clearUsed);
+        withAtlasBound(clear);
     }
 
     /**
@@ -203,10 +215,7 @@ public final class FarModels {
      */
     public void render() {
         if (count == 0 || shader == null) return;
-        withAtlasBound(() -> {
-            clearUsed();
-            draw();
-        });
+        withAtlasBound(clearAndDraw);
     }
 
     private void withAtlasBound(Runnable work) {

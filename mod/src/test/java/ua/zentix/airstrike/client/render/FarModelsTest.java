@@ -131,5 +131,8 @@ class FarModelsTest {
                 assertTrue(side >= FarModels.SUPERSAMPLE * px && side < FarModels.SUPERSAMPLE * px + 5, px + " px: " + side);
             }
         }
+        // кайма — целые мип-тексели, четыре самые крупные плитки с каймой входят в атлас
+        assertEquals(0, FarModels.PAD % 4);
+        assertTrue(2 * (FarModels.MAX_TILE + 2 * FarModels.PAD) <= FarModels.ATLAS);
     }
 }
