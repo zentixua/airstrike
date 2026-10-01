@@ -40,7 +40,11 @@ public final class StrikeWorld {
     private final UnitQueue impacts = new UnitQueue();
     /** Районы полос подлёта ({@link FlightTickets#holdApproach}): центр → снаряды, чьи полосы через него проходят. */
     private final Map<ChunkPos, Set<UUID>> approach = new HashMap<>();
-    /** Отказы в месте пусковой у игрока ({@link StrikeService}): «игрок оружие» → до какого тика не искать заново. */
+    /**
+     * Отказы в месте пусковой у игрока в нынешнем приказе ({@link StrikeService}): «игрок оружие» → чанк, где места
+     * не нашлось. Новый приказ (одиночный удар, первый снаряд залпа) ищет заново, ушедший с того чанка — тоже; строка
+     * игроку — раз на приказ.
+     */
     private final Map<String, Long> noLaunchSite = new HashMap<>();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
@@ -86,15 +90,24 @@ public final class StrikeWorld {
         impactCost.endTick(level, impacts);
     }
 
-    /** Место пусковой у игрока недавно не нашлось: до тика {@code until} не искать заново (весь залп — издалека). */
-    boolean noLaunchSite(UUID player, WeaponType weapon, long now) {
-        Long until = noLaunchSite.get(player + " " + weapon.getSerializedName());
-        return until != null && now < until;
+    /** Место пусковой у игрока в этом приказе на этом чанке уже не нашлось: остаток приказа — издалека. */
+    boolean noLaunchSite(UUID player, WeaponType weapon, ChunkPos at) {
+        Long chunk = noLaunchSite.get(noSiteKey(player, weapon));
+        return chunk != null && chunk == at.toLong();
     }
 
-    void rememberNoLaunchSite(UUID player, WeaponType weapon, long until) {
-        noLaunchSite.values().removeIf(t -> t < until - 6000);
-        noLaunchSite.put(player + " " + weapon.getSerializedName(), until);
+    /** Места пусковой нет; true — впервые в этом приказе (строка игроку). */
+    boolean rememberNoLaunchSite(UUID player, WeaponType weapon, ChunkPos at) {
+        return noLaunchSite.put(noSiteKey(player, weapon), at.toLong()) == null;
+    }
+
+    /** Новый приказ игрока этим оружием: место пусковой ищется заново. */
+    void newOrder(UUID player, WeaponType weapon) {
+        noLaunchSite.remove(noSiteKey(player, weapon));
+    }
+
+    private static String noSiteKey(UUID player, WeaponType weapon) {
+        return player + " " + weapon.getSerializedName();
     }
 
     /** Концы полётов не по плану за этот тик: в лог — в конце тика мира. */

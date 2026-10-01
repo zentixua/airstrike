@@ -397,7 +397,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 40; y++) h.setBlock(new BlockPos(x, y, 40), Blocks.STONE);
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
-        h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon), "стена по курсу не видна");
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon, top(h, RUNWAY_TARGET)), "стена по курсу не видна");
         LauncherEntity launcher = LauncherEntity.create(level, site, 0, weapon, null);
         level.addFreshEntity(launcher);
         Vec3 point = top(h, RUNWAY_TARGET);
@@ -432,20 +432,21 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
         float[] sides = {0, 180};
-        LaunchSite.Pick free = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, 0, 90);
+        Vec3 far = site.add(0, 0, 400);
+        LaunchSite.Pick free = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(free != null && free.preferred() == 0, "без домов — первый курс: " + free);
         // дом в 30 блоках по первому курсу (+Z), выше набора шахеда до взведения
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 150), Blocks.STONE);
-        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.DRONE), "дом по курсу не виден");
-        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.MISSILE), "дом по курсу ракеты не виден");
-        LaunchSite.Pick other = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, 0, 90);
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.DRONE, far), "дом по курсу не виден");
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.MISSILE, far), "дом по курсу ракеты не виден");
+        LaunchSite.Pick other = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(other != null && other.preferred() == 1 && other.yaw() == 180, "курс не сменился на свободный: " + other);
         // и по второму (−Z): пакет поворачивается от первого курса, пока сектор не освободится, — не дальше 90° от цели
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 90), Blocks.STONE);
-        LaunchSite.Pick turned = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, 0, 90);
+        LaunchSite.Pick turned = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(turned != null && turned.preferred() == -1 && Math.abs(turned.yaw()) >= 30 && Math.abs(turned.yaw()) <= 90
-                && LaunchSite.clearAhead(level, site, turned.yaw(), WeaponType.DRONE), "курс в дом или от цели: " + turned);
-        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, 0, 0) == null, "пакет повернулся, хотя поворачивать нельзя");
+                && LaunchSite.clearAhead(level, site, turned.yaw(), WeaponType.DRONE, far), "курс в дом или от цели: " + turned);
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 0) == null, "пакет повернулся, хотя поворачивать нельзя");
         h.succeed();
     }
 
@@ -458,15 +459,41 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
         float[] ahead = {0};
-        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.LOITER, ahead, 0, 0) != null, "катапульте мешает пустая полоса");
-        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, 0, 0) != null, "пакету РСЗО мешает пустая полоса");
+        Vec3 far = site.add(0, 0, 400);
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.LOITER, ahead, far, 0) != null, "катапульте мешает пустая полоса");
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, far, 0) != null, "пакету РСЗО мешает пустая полоса");
         // навес над пакетом
         for (int x = 8; x <= 24; x++) for (int z = 104; z <= 140; z++) h.setBlock(new BlockPos(x, 12, z), Blocks.STONE);
-        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, 0, 0) == null, "РСЗО под навесом: сектор свободен");
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, far, 0) == null, "РСЗО под навесом: сектор свободен");
         for (int x = 8; x <= 24; x++) for (int z = 104; z <= 140; z++) h.setBlock(new BlockPos(x, 12, z), Blocks.AIR);
         // стена в 20 блоках перед катапультой
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 40; y++) h.setBlock(new BlockPos(x, y, 140), Blocks.STONE);
-        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.LOITER, ahead, 0, 0) == null, "катапульта смотрит в стену");
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.LOITER, ahead, far, 0) == null, "катапульта смотрит в стену");
+        h.succeed();
+    }
+
+    /**
+     * Дуга РСЗО на близкую цель ниже, чем на дальнюю (скорость задаёт дальность): башня в 20 блоках по курсу высотой
+     * между ними (по дуге: ≈16 блоков над трубой при цели в 60 блоках, ≈22 при цели в 400) закрывает сектор только
+     * близкой цели. Прямая на маршевой скорости, которой сектор проверялся раньше (≈23 блока на 20 блоках), шла над
+     * башней и пропускала пакет, а ракета врезалась в неё невзведённой.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_sector_tubes", skyAccess = true)
+    public static void rocketSectorFollowsArc(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 40)));
+        Vec3 rail = LauncherEntity.railPoint(site, 0, WeaponType.ROCKET, 0);
+        Vec3 near = new Vec3(site.x, site.y, rail.z + 60);
+        Vec3 far = site.add(0, 0, 400);
+        float[] ahead = {0};
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, near, 0) != null, "пакету РСЗО мешает пустая полоса");
+        int towerZ = Mth.floor(rail.z + 20);
+        int towerTop = Mth.floor(rail.y + 19);
+        for (int x = -12; x <= 12; x++) for (int y = Mth.floor(site.y); y <= towerTop; y++) {
+            level.setBlock(new BlockPos(Mth.floor(site.x) + x, y, towerZ), Blocks.STONE.defaultBlockState(), 2);
+        }
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, near, 0) == null, "дуга на близкую цель прошла сквозь башню");
+        h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.ROCKET, ahead, far, 0) != null, "дуга на дальнюю цель задела башню");
         h.succeed();
     }
 
@@ -508,7 +535,7 @@ public final class StrikeGameTests {
         StrikeGameTests.afterTest(h, () -> launchers.forEach(Entity::discard));
         h.assertTrue(p != null && !p.isVirtual() && launchers.size() == 1, "шахед не с пусковой: " + p + ", пусковых " + launchers.size());
         LauncherEntity launcher = launchers.getFirst();
-        h.assertTrue(LaunchSite.clearAhead(level, launcher), "пусковая смотрит в занятый сектор");
+        h.assertTrue(LaunchSite.clearAhead(level, launcher, point), "пусковая смотрит в занятый сектор");
         Vec3 gate = launcher.railPoint(0).add(Local.horizontal(launcher.getYRot()).scale(StrikeProjectile.ARM_DISTANCE));
         Vec3 first = p.route().points().getFirst();
         h.assertTrue(Math.abs(first.x - gate.x) < 1.5 && Math.abs(first.z - gate.z) < 1.5, "первая точка не на курсе пусковой: " + first + " против " + gate);

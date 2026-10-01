@@ -59,7 +59,8 @@ public final class StrikeService {
 
     /**
      * @param approachYaw курс захода (обычно — курс взгляда игрока): снаряд приходит «из-за спины» стреляющего
-     * @param siren       включить сирену у цели на подлёте (у залпа сирена одна на весь залп)
+     * @param siren       первый снаряд приказа (одиночный удар или первый снаряд залпа): включить сирену у цели на подлёте
+     *                    (у залпа сирена одна на весь залп), искать место пусковой заново
      * @param nuke        мощность и подрыв ядерной боеголовки; у крылатой ракеты и бомбы — только с {@code onCarrier}
      *                    (МБР — всегда ядерная)
      */
@@ -67,6 +68,7 @@ public final class StrikeService {
                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (shooter != null && shooter.level() != level) shooter = null;
+        if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
         if (spec.launch() == WeaponSpec.Launch.ICBM) {
             // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
@@ -131,21 +133,19 @@ public final class StrikeService {
      */
     @Nullable
     public static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Vec3 point, float yaw, ServerPlayer shooter) {
+        StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         return launchGuided(level, weapon, new Target.Point(point), point, yaw, shooter.getUUID(), shooter);
     }
 
     /** Курс пусковой шахедов и ракет не дальше этого от направления на цель, °: иначе залп уходил бы от цели. */
     private static final float MAX_OFF_TARGET = 90;
-    /** Не нашлось места пусковой — столько тиков не искать заново: остаток залпа идёт издалека без новых поисков. */
-    private static final int NO_SITE_TICKS = 200;
-
     @Nullable
     private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
                                                  double length, double entry, double side, ServerPlayer shooter) {
         // пусковая, чей сектор пуска упирается в постройку, не годится: снаряд разбился бы о неё до взведения
-        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon, l -> LaunchSite.clearAhead(level, l));
+        LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon, l -> LaunchSite.clearAhead(level, l, point));
         if (launcher == null) {
-            if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, level.getGameTime())) return null;
+            if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
             // пакет смотрит на первую точку маршрута — обход с одной или с другой стороны, какой свободен; иначе
             // поворачивается (не дальше MAX_OFF_TARGET от цели), пока не найдёт свободный сектор
             double[] sides = {side, -side};
@@ -183,10 +183,11 @@ public final class StrikeService {
 
     /**
      * Места пусковой у стреляющего нет (нет ровного места под небом или сектор пуска везде упирается в постройки):
-     * удар идёт издалека — строка ему над хотбаром и в лог, раз на залп ({@link #NO_SITE_TICKS}).
+     * удар идёт издалека — строка ему над хотбаром и в лог, раз на приказ (залп): остаток залпа с этого чанка идёт
+     * издалека без новых поисков ({@link StrikeWorld#noLaunchSite}).
      */
     private static void noLaunchSite(ServerLevel level, ServerPlayer shooter, WeaponType weapon) {
-        StrikeWorld.get(level).rememberNoLaunchSite(shooter.getUUID(), weapon, level.getGameTime() + NO_SITE_TICKS);
+        if (!StrikeWorld.get(level).rememberNoLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return;
         Airstrike.LOG.info("Пуск: {} — пусковую у {} негде поставить (нет места или сектор пуска упирается в постройки) у {}, заход издалека",
                 weapon.getSerializedName(), shooter.getGameProfile().getName(), shooter.blockPosition());
         shooter.displayClientMessage(Component.translatable("airstrike.launch.no_site").withStyle(ChatFormatting.GOLD), true);
@@ -215,12 +216,12 @@ public final class StrikeService {
     private static LauncherEntity aimedLauncher(ServerLevel level, ServerPlayer shooter, WeaponType weapon, Vec3 point) {
         // своя — если на цель с неё свободен сектор пуска (катапульта, труба пакета): иначе снаряд разбился бы о постройку
         LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon,
-                l -> LaunchSite.clearAhead(level, l.position(), FlightController.anglesTo(l.position(), point)[0], weapon));
+                l -> LaunchSite.clearAhead(level, l.position(), FlightController.anglesTo(l.position(), point)[0], weapon, point));
         if (launcher != null) {
             launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
-            if (LaunchSite.clearAhead(level, launcher)) return launcher;
+            if (LaunchSite.clearAhead(level, launcher, point)) return launcher;
         }
-        if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, level.getGameTime())) return null;
+        if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
         // пакет наводится на цель сам: поворачивать его нельзя, только другое место
         LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, point, site -> new float[]{FlightController.anglesTo(site, point)[0]}, 0);
         if (pick == null) {

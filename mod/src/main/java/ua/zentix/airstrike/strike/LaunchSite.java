@@ -14,6 +14,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.guidance.FlightController;
@@ -74,6 +75,10 @@ public final class LaunchSite {
 
     /** Повороты от первого предложенного курса, если ни один предложенный не свободен, °. */
     private static final float[] TURNS = {30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180};
+    /** Шаг ломаной по дуге РСЗО, тиков: 2 тика — до ~10 блоков на ускорителе. */
+    private static final int ARC_STEP = 2;
+    /** Ближе к цели по горизонтали дуга РСЗО не проверяется: крыша самой цели не закрывает сектор, блоков. */
+    private static final double NEAR_AIM = 8;
 
     /**
      * Место под новую пусковую с свободным сектором пуска: на каждом месте по порядку ({@link #find}) — предложенные
@@ -89,7 +94,7 @@ public final class LaunchSite {
             Vec3 p = player.position().add(off);
             Vec3 site = check(level, Mth.floor(p.x), Mth.floor(p.z));
             if (site == null || taken(level, site)) continue;
-            Pick pick = pickOn(level, site, weapon, yaws.apply(site), FlightController.anglesTo(site, target)[0], maxOff);
+            Pick pick = pickOn(level, site, weapon, yaws.apply(site), target, maxOff);
             if (pick != null) return pick;
         }
         return null;
@@ -97,54 +102,70 @@ public final class LaunchSite {
 
     /**
      * Курс на месте {@code site}: первый свободный из предложенных {@code want}, потом повороты от первого не дальше
-     * {@code maxOff}° от курса на цель {@code toTarget}; null — все заняты.
+     * {@code maxOff}° от курса на цель {@code target}; null — все заняты.
      */
     @Nullable
-    public static Pick pickOn(ServerLevel level, Vec3 site, WeaponType weapon, float[] want, float toTarget, float maxOff) {
+    public static Pick pickOn(ServerLevel level, Vec3 site, WeaponType weapon, float[] want, Vec3 target, float maxOff) {
+        float toTarget = FlightController.anglesTo(site, target)[0];
         for (int i = 0; i < want.length; i++) {
-            if (clearAhead(level, site, want[i], weapon)) return new Pick(site, want[i], i);
+            if (clearAhead(level, site, want[i], weapon, target)) return new Pick(site, want[i], i);
         }
         for (float t : TURNS) {
             float yaw = Mth.wrapDegrees(want[0] + t);
             if (Math.abs(Mth.wrapDegrees(yaw - toTarget)) > maxOff) continue;
-            if (clearAhead(level, site, yaw, weapon)) return new Pick(site, yaw, -1);
+            if (clearAhead(level, site, yaw, weapon, target)) return new Pick(site, yaw, -1);
         }
         return null;
     }
 
-    /** Сектор пуска стоящей пусковой (с её нынешним курсом) свободен. */
-    public static boolean clearAhead(ServerLevel level, LauncherEntity launcher) {
-        return clearAhead(level, launcher.position(), launcher.getYRot(), launcher.weapon());
+    /** Сектор пуска стоящей пусковой (с её нынешним курсом) по цели {@code target} свободен. */
+    public static boolean clearAhead(ServerLevel level, LauncherEntity launcher, Vec3 target) {
+        return clearAhead(level, launcher.position(), launcher.getYRot(), launcher.weapon(), target);
     }
 
     /**
      * Путь снаряда от нижней направляющей пусковой, стоящей в {@code site} с курсом {@code yaw}, до взведения взрывателя
-     * ({@link StrikeProjectile#ARM_DISTANCE} по горизонтали) не упирается в блоки: луч под углом набора на разгоне —
-     * меньшим из угла направляющей и тангажа к концу разгона (паспорт, {@code LaunchProfile#boostEndPitch}); у снаряда
-     * без разгона (РСЗО) — угол трубы, конец луча опущен на падение по баллистике на маршевой скорости ({@link Ballistics#GRAVITY}).
-     * Два луча: ось и на блок ниже (корпус). Неготовые чанки не читаются: путь по ним считается свободным (там снаряд
-     * уйдёт в полёт вне мира).
+     * ({@link StrikeProjectile#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном (паспорт,
+     * {@code LaunchProfile}) — луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
+     * ({@code boostEndPitch}). У РСЗО — его настоящая дуга из трубы на цель {@code target} (скорость задаёт дальность,
+     * {@link RocketEntity}): до конца работы двигателя (дальше он взведён) и не ближе {@link #NEAR_AIM} к цели — у самой
+     * цели блоки — это цель. Два луча: ось и на блок ниже (корпус). Неготовые чанки не читаются: путь по ним считается
+     * свободным (там снаряд уйдёт в полёт вне мира).
      */
-    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon) {
+    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target) {
         Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, 0);
         float elevation = LauncherEntity.elevation(weapon);
-        WeaponSpec.Airframe air = weapon.spec().airframe();
-        WeaponSpec.LaunchProfile lp = air.launchProfile();
-        double climb = Math.toRadians(lp == null ? elevation : Math.min(elevation, -lp.boostEndPitch()));
-        double reach = StrikeProjectile.ARM_DISTANCE;
-        double drop = 0;
-        if (lp == null) {
-            double t = reach / (air.cruiseSpeed() * Math.cos(climb));
-            drop = Ballistics.GRAVITY * t * t / 2;
+        WeaponSpec.LaunchProfile lp = weapon.spec().airframe().launchProfile();
+        List<Vec3> path = new ArrayList<>();
+        path.add(rail);
+        if (lp != null) {
+            double climb = Math.toRadians(Math.min(elevation, -lp.boostEndPitch()));
+            double reach = StrikeProjectile.ARM_DISTANCE;
+            path.add(rail.add(Local.horizontal(yaw).scale(reach)).add(0, reach * Math.tan(climb), 0));
+        } else {
+            Vec3 v0 = Ballistics.launchVelocity(rail, target, Ballistics.ticksFor(rail, target, elevation, RocketEntity.MIN_FLIGHT));
+            double reach = Math.min(StrikeProjectile.ARM_DISTANCE, horizontal(rail, target) - NEAR_AIM);
+            for (int k = ARC_STEP; k <= RocketEntity.BURN_TICKS; k += ARC_STEP) {
+                Vec3 at = Ballistics.at(rail, v0, k);
+                if (horizontal(rail, at) > reach) break;
+                path.add(at);
+            }
         }
-        Vec3 path = Local.horizontal(yaw).scale(reach).add(0, reach * Math.tan(climb) - drop, 0);
         for (double below : new double[]{0, 1}) {
-            Vec3 from = rail.subtract(0, below, 0);
-            Vec3 to = Terrain.readyUntil(level, from, from.add(path));
-            if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
-                    .getType() != HitResult.Type.MISS) return false;
+            for (int i = 1; i < path.size(); i++) {
+                Vec3 from = path.get(i - 1).subtract(0, below, 0), end = path.get(i).subtract(0, below, 0);
+                Vec3 to = Terrain.readyUntil(level, from, end);
+                if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
+                        .getType() != HitResult.Type.MISS) return false;
+                if (to.distanceToSqr(end) > 1e-6) break;
+            }
         }
         return true;
+    }
+
+    private static double horizontal(Vec3 a, Vec3 b) {
+        double dx = b.x - a.x, dz = b.z - a.z;
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     /** Место под новую пусковую или null (игрок в воде, в пещере без неба над ним поблизости, мир не готов). */

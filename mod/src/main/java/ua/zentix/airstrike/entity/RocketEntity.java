@@ -35,7 +35,7 @@ public class RocketEntity extends StrikeProjectile {
     /** Поджиг в трубе до схода. */
     public static final int IGNITION_TICKS = 3;
     /** Ближе этого времени полёта не стреляет: круче задираем трубы (миномётная траектория). */
-    private static final int MIN_FLIGHT = 50;
+    public static final int MIN_FLIGHT = 50;
     /** Вне мира, пока район цели не готов, замедляются последние столько тиков траектории (5 с, дольше загрузки района). */
     public static final double STRETCH_TICKS = 100;
     /** Темп полёта вне мира меняется не быстрее этого за тик. */
