@@ -504,6 +504,114 @@ public final class RuinBackgroundGameTests {
         h.succeed();
     }
 
+    private static final net.minecraft.server.level.TicketType<java.util.UUID> TEST_TILE =
+            net.minecraft.server.level.TicketType.create("airstrike_test_tile", java.util.Comparator.<java.util.UUID>naturalOrder());
+
+    private static ua.zentix.airstrike.strike.AreaLoader.Area tile(ChunkPos c) {
+        return new ua.zentix.airstrike.strike.AreaLoader.Area(TEST_TILE, c, 0, new java.util.UUID(7L, c.toLong()), false);
+    }
+
+    /**
+     * Тупик зоны за волной (диагностика 01.10.2026): чанк P загружен под тикетом с соседями чанка Q (свой тикет он не
+     * берёт), квадрат зоны держит P, а подмена P ждёт соседа R, которого никто не грузит, — и квадрат ждёт P. Здесь Q
+     * и P держат тикеты-«квадраты» радиуса 0, сундуки у восточного края Q и P требуют соседей радиуса 1. Пока Q не
+     * отпустил свой тикет, P ждёт; после — ждёт и дальше (200 тиков, R не грузится), а {@code holdForTile} даёт P свой
+     * тикет: R грузится, руины P встают.
+     */
+    @GameTest(template = "range", timeoutTicks = 1600, batch = "nuke_tile_hold", skyAccess = true)
+    public static void tileReleaseHoldsWaitingNeighbours(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.gameSpeed(h);
+        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
+        ChunkPos q = new ChunkPos(pad.x + 40, pad.z), p = new ChunkPos(q.x + 1, q.z), r = new ChunkPos(q.x + 2, q.z);
+        var areas = ua.zentix.airstrike.strike.StrikeWorld.get(level).areas();
+        var scars = NuclearWorld.get(level).scars();
+        StrikeGameTests.afterTest(h, () -> {
+            areas.release(level, tile(q));
+            areas.release(level, tile(p));
+            NuclearStrikes.clear(level);
+        });
+        // всё вокруг — на диске целым; сундуки у восточного края Q и P (места через мир у края — соседи радиуса 1)
+        BlockPos[] chests = new BlockPos[2];
+        for (int x = q.x - 2; x <= r.x + 2; x++) {
+            for (int z = q.z - 2; z <= q.z + 2; z++) level.getChunk(x, z);
+        }
+        int i = 0;
+        for (ChunkPos c : new ChunkPos[]{q, p}) {
+            int x = c.getMinBlockX() + 15, z = c.getMinBlockZ() + 8;
+            chests[i] = new BlockPos(x, level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, x, z), z);
+            level.setBlock(chests[i++], Blocks.CHEST.defaultBlockState(), 3);
+        }
+        int[] stage = {0};
+        long[] since = {0};
+        String[] waited = {""};
+        int[] applied = {0};
+        Detonation[] det = {null};
+        h.onEachTick(() -> {
+            long now = level.getGameTime();
+            switch (stage[0]) {
+                case 0 -> {
+                    // ждём, пока сгенерированное выгрузится: Q, P и R загрузит только сам сценарий
+                    if (level.getChunkSource().getChunkNow(q.x, q.z) != null || level.getChunkSource().getChunkNow(p.x, p.z) != null
+                            || level.getChunkSource().getChunkNow(r.x, r.z) != null) return;
+                    areas.hold(level, tile(q));
+                    stage[0] = 1;
+                }
+                case 1 -> {
+                    if (level.getChunkSource().getChunkNow(q.x, q.z) == null) return;
+                    det[0] = NuclearWarhead.detonate(level, new Vec3(p.getMinBlockX(), chests[1].getY(), p.getMinBlockZ() + 8.5), 1, false, null, 0.1f);
+                    since[0] = now;
+                    stage[0] = 2;
+                }
+                case 2 -> {
+                    // Q ждёт соседей своим тикетом — он грузит P; P встаёт в очередь под чужим тикетом
+                    if (!scars.queued(p.toLong())) {
+                        if (now - since[0] > 600) h.fail("P не встал в очередь: Q " + (scars.queued(q.toLong()) ? "в очереди" : "готов") + " — тикета с соседями у Q не было");
+                        return;
+                    }
+                    areas.hold(level, tile(p));
+                    stage[0] = 3;
+                }
+                case 3 -> {
+                    if (scars.queued(q.toLong())) return;
+                    h.assertFalse(level.getBlockState(chests[0]).is(Blocks.CHEST), "сундук в Q цел: случай не тот");
+                    since[0] = now;
+                    stage[0] = 4;
+                }
+                case 4 -> {
+                    // тикет Q отпущен: P ждёт R, а R никто не грузит (так стояли квадраты зоны)
+                    h.assertTrue(scars.queued(p.toLong()), "руины P встали без соседа R: тупика нет, случай не тот");
+                    h.assertTrue(level.getChunkSource().getChunkNow(r.x, r.z) == null, "R загружен");
+                    if (now - since[0] < 200) return;
+                    waited[0] = scars.diagState(p.toLong(), now);
+                    h.assertTrue(scars.waitsNeighbours(p.toLong()), "P ждёт не соседей: " + waited[0]);
+                    int[] st = scars.ruinStats();
+                    applied[0] = st[0] + st[1];
+                    h.assertTrue(scars.holdForTile(level, p.toLong()), "P не взял тикет с соседями");
+                    areas.release(level, tile(p));
+                    since[0] = now;
+                    stage[0] = 5;
+                }
+                case 5 -> {
+                    // квадрат отпущен: P держит себя сам, пока его руины не встали (иначе он выгрузился бы без руин)
+                    if (scars.queued(p.toLong())) {
+                        h.assertTrue(level.getChunkSource().getChunkNow(p.x, p.z) != null, "P выгрузился без руин после отпуска квадрата");
+                        if (now - since[0] > 600) h.fail("руины P не встали за 600 тиков после своего тикета с соседями");
+                        return;
+                    }
+                    // работа P кончилась руинами, а не выгрузкой (после руин P выгружается сам: сундук с диска не проверить)
+                    int[] st = scars.ruinStats();
+                    h.assertTrue(st[0] + st[1] == applied[0] + 1, "руины P не встали: подмен было " + applied[0] + ", стало " + (st[0] + st[1]) + "; P ждал: " + waited[0]
+                            + "; давление у сундука " + String.format(java.util.Locale.ROOT, "%.0f", det[0].psi(Vec3.atCenterOf(chests[1]))) + " psi");
+                    h.assertTrue(scars.tileHoldsLeft() == 64, "тикет P не отпущен после руин: свободно " + scars.tileHoldsLeft());
+                    h.succeed();
+                }
+                default -> {
+                }
+            }
+        });
+    }
+
     private static boolean sable() {
         return net.neoforged.fml.ModList.get().isLoaded("sable");
     }

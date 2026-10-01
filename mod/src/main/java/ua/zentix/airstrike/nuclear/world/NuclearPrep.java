@@ -743,7 +743,7 @@ public final class NuclearPrep {
         for (Tile t : p.tiles) states[t.state.ordinal()]++;
         long[] s = p.diagStops, dn = p.diagDone;
         long n = Math.max(1, dn[0]);
-        Airstrike.LOG.info("ДИАГ зона №{}: квадратов SCAN {}, WAIT {}, LOADING {}, READY {}, SKIP {}; заголовков прочитано {} из {} (в работе {}); "
+        Airstrike.LOG.info("ДИАГ зона №{}: квадратов SCAN {}, SKIP {}, WAIT {}, LOADING {}, READY {}; заголовков прочитано {} из {} (в работе {}); "
                         + "набор стоял тиков — слоты {}, ответ с диска {}, волна {}, брать нечего {}, память {}; отпущено {}: тикет→полные в среднем {} (самое большее {}), "
                         + "полные→отпущен {} ({}), волна→тикет {} ({})",
                 p.detonation, states[0], states[1], states[2], states[3], states[4], p.nextScan - p.scanning, p.toScan.size(), p.scanning,
@@ -917,15 +917,24 @@ public final class NuclearPrep {
         for (Tile t : p.tiles) {
             if (released >= RELEASE_PER_TICK || !clock.canStart()) return;
             if (t.state != TileState.READY) continue;
+            // руины всех чанков стоят — или оставшиеся ждут только соседей: тогда их держат свои тикеты
             boolean done = true;
+            int waiting = 0;
             for (int dx = -TILE_RADIUS; done && dx <= TILE_RADIUS; dx++) {
                 for (int dz = -TILE_RADIUS; done && dz <= TILE_RADIUS; dz++) {
                     long c = ChunkPos.asLong(t.centre.x + dx, t.centre.z + dz);
-                    done = !scars.pendingPlan(p.detonation, c) && !scars.queued(c);
+                    if (!scars.pendingPlan(p.detonation, c) && !scars.queued(c)) continue;
+                    done = scars.waitsNeighbours(c);
+                    if (done) waiting++;
                 }
             }
-            if (!done) continue;
+            if (!done || waiting > scars.tileHoldsLeft()) continue;
             long c0 = clock.begin();
+            if (waiting > 0) {
+                for (int dx = -TILE_RADIUS; dx <= TILE_RADIUS; dx++) {
+                    for (int dz = -TILE_RADIUS; dz <= TILE_RADIUS; dz++) scars.holdForTile(level, ChunkPos.asLong(t.centre.x + dx, t.centre.z + dz));
+                }
+            }
             StrikeWorld.get(level).areas().release(level, t.area(p.strike));
             clock.end(c0);
             t.state = TileState.SKIP;

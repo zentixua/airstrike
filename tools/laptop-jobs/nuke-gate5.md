@@ -1,14 +1,15 @@
 # Ноутбук: ядерка со всей сборкой — числа и кадры (одна задача)
 
-Четвёртый прогон (после `nuke-gate3` 30.09, 20:27 UTC): папки и задача — `nuke-gate4`, следы прошлых (`nuke-gate*`)
-не трогаются. Сторожа температуры нет (Артём, 16:47 UTC).
+Пятый прогон (после `nuke-gate4` 30.09, 23:40 UTC, и диагностики `nuke-diag` 01.10, 00:38 UTC): папки и задача —
+`nuke-gate5`, следы прошлых (`nuke-gate*`, `nuke-diag`) не трогаются. Сторожа температуры нет (Артём, 16:47 UTC).
 
 Тред «Ядерный взрыв: ударная волна». Ветка `claude/project-thread-39w82y`, коммит **@SHA@** — полный SHA из сообщения
 координатора подставить во все блоки ниже вместо `@SHA@` (одна замена, до шага 2; строки с `@SHA@` после неё быть не
-должно). Что поменялось после gate3: выход из мира после ядерки (задачи чанков в каждом круге выгрузки), доля руин по
-готовому плану считается по одному множеству (в gate3 вышло 122 %), подстройка фоновых потоков не считает свои полосы
-мода, чанки у края видимости не ждут соседей (окно плана — с диска), зона за волной грузит квадраты 5×5 без полей,
-строка «Работа мода за 30 с» (раз в 30 с: тик сервера, полосы мода, остальное).
+должно). Что поменялось после gate4: зона за волной больше не стоит в тупике — готовый квадрат отпускается, когда
+оставшиеся его чанки ждут только соседей, и такие чанки держат соседей своим тикетом (диагностика: шесть готовых
+квадратов стояли по 500–7000 тиков, 463 ждали); камеры руин смотрят вниз (+30, близкая +10); строка «выход:» берёт время
+из строки лога с датой. Диагностика включена (`airstrike.nukeDiag=true`: строки «ДИАГ», поведение то же) — если гейт
+не пройдёт, данные уже будут.
 Здесь и сборка Артёма целиком (prod_client: лаг, память, тики, ошибки), и картинка (башни, рельеф, висящие блоки,
 свечение).
 
@@ -19,10 +20,10 @@
 
 **Каждый блок ниже — одним вызовом, как написан**: состояние оболочки между вызовами не сохраняется. Блоки с шага 2
 начинаются с `W=… && cd "${W:?}"`; блок 1 работает до появления папки и пишет полные пути. Папка worktree — ровно
-`/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4` (новая; если она уже есть — остановиться и сообщить
+`/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5` (новая; если она уже есть — остановиться и сообщить
 координатору, ничего не удалять и не перезаписывать).
 
-**Остановить задачу — только** `systemctl --user stop 'airstrike-job-nuke-gate4-*'`. Никаких `pkill`/`killall`/`kill`
+**Остановить задачу — только** `systemctl --user stop 'airstrike-job-nuke-gate5-*'`. Никаких `pkill`/`killall`/`kill`
 по имени, никакого `./gradlew --stop`, никаких `-f`/`--force`.
 
 ## 1. Проверка перед запуском
@@ -31,25 +32,25 @@
 pgrep -a -x java | grep -Ei 'neoforge|minecraft'
 pgrep -a -x prismlauncher
 systemctl --user list-units 'airstrike-job-*' --state=active --no-legend
-test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && echo "папка /mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4 уже есть — стоп"
+test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && echo "папка /mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5 уже есть — стоп"
 FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft"
 test -d "$FILM/saves/greenfield-film" && echo "мир фильма есть" || echo "мира фильма нет"
 test -e "$FILM/saves/greenfield-gate" && echo "копия greenfield-gate уже есть — стоп"
-test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-world" && echo "nuke-gate4-world уже есть — стоп"
-test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-film-state" && echo "nuke-gate4-film-state уже есть — стоп"
+test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-world" && echo "nuke-gate5-world уже есть — стоп"
+test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-film-state" && echo "nuke-gate5-film-state уже есть — стоп"
 ls "$FILM/mods"/airstrike-*.jar; grep -E '^renderDistance:' "$FILM/options.txt"
 du -sh "$FILM/saves/greenfield-film"; df -h /mnt/data/projects/airstrike/mod/run    # свободно ≥ размер мира + 5 ГБ
 ```
 
 ## 2. Подготовка: worktree, копия мира, сохранить состояние инстанса фильма
 `mod/run/` в .gitignore, в свежем worktree его нет — создаётся сразу после `worktree add`.
-Состояние инстанса фильма (jar мода и строка `renderDistance`) сохраняется в `claude-work/nuke-gate4-film-state`
+Состояние инстанса фильма (jar мода и строка `renderDistance`) сохраняется в `claude-work/nuke-gate5-film-state`
 и возвращается в шаге 6.
 ```sh
 cd /mnt/data/projects/airstrike && git fetch origin claude/project-thread-39w82y && \
-git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" @SHA@ && \
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && mkdir -p "$W/mod/run" && \
-FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-film-state" && \
+git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" @SHA@ && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && mkdir -p "$W/mod/run" && \
+FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-film-state" && \
 mkdir -p "$S/mods" && cp -a "$FILM/mods"/airstrike-*.jar "$S/mods/" && grep -E '^renderDistance:' "$FILM/options.txt" > "$S/renderDistance.txt" && \
 cp -a "$FILM/saves/greenfield-film" "$FILM/saves/greenfield-gate" && \
 T="$FILM/saves/greenfield-gate/serverconfig/airstrike-server.toml" && C="$FILM/config/airstrike-server.toml" && \
@@ -70,7 +71,7 @@ git log --oneline -1 && ls "$S/mods" && cat "$S/renderDistance.txt" && grep -E '
 `defaultconfigs/`.
 Сборка jar сценария — отдельно, до задачи (в фоне, тайм-аут вызова не меньше 25 мин); код не 0 — сообщить:
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}/mod" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}/mod" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 timeout -k 60 20m ./gradlew scenarioJar -q --console=plain; echo "код $?"; ls -l build/scenario-libs/
 ```
 (prod_client.py внутри задачи ещё раз зовёт `scenarioJar` — после этого шага это проверка «всё собрано», секунды.)
@@ -81,10 +82,10 @@ timeout -k 60 20m ./gradlew scenarioJar -q --console=plain; echo "код $?"; ls
 взгляд на 30° вниз, как `ruins_orbit` трейлера: берега, вода, рельеф). Камера в спектаторе, стены её не держат;
 если кадр всё же упрётся в постройку — это видно на кадре, прогон не повторять, написать об этом в строке кадра.
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
-echo "начало: $(date -u +%T) UTC" && timeout -k 60 45m tools/laptop_job.sh nuke-gate4 -- python3 tools/prod_client.py commands --no-copy --dir "/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" --world greenfield-gate --seconds 2400 \
-  --prop "airstrike.commands=hud:off;gamemode spectator;tp @s -863.5 130 -496.4 -90 -10;wait:600;airstrike nuke at 136.5 69 -495.5 15 air;wait:nuke;wait:10;shot:flash;wait:40;shot:fireball;wait:30;shot:wave;tp @s -3803 120 -499 -90 -5;wait:260;shot:far_dh;tp @s -3803 120 -499 -90 -30;wait:1020;shot:glow70;tp @s -863.5 130 -496.4 -90 -10;wait:4380;time set 6000;tp @s -863.5 130 -496.4 -90 10;shot:close_ruins;tp @s 456.5 220 -495.5 90 30;wait:160;shot:ruins_e;tp @s 136.5 220 -175.5 180 30;wait:160;shot:ruins_s;tp @s -183.5 220 -495.5 -90 30;wait:160;shot:ruins_w;tp @s 136.5 220 -815.5 0 30;wait:160;shot:ruins_n;wait:200"; code=$?; echo "код $code, конец: $(date -u +%T) UTC"; \
-case "$code" in 124|137) systemctl --user stop 'airstrike-job-nuke-gate4-*';; esac; true
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
+echo "начало: $(date -u +%T) UTC" && timeout -k 60 45m tools/laptop_job.sh nuke-gate5 -- python3 tools/prod_client.py commands --no-copy --dir "/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" --world greenfield-gate --seconds 2400 \
+  --prop airstrike.nukeDiag=true --prop "airstrike.commands=hud:off;gamemode spectator;tp @s -863.5 130 -496.4 -90 -10;wait:600;airstrike nuke at 136.5 69 -495.5 15 air;wait:nuke;wait:10;shot:flash;wait:40;shot:fireball;wait:30;shot:wave;tp @s -3803 120 -499 -90 -5;wait:260;shot:far_dh;tp @s -3803 120 -499 -90 -30;wait:1020;shot:glow70;tp @s -863.5 130 -496.4 -90 -10;wait:4380;time set 6000;tp @s -863.5 130 -496.4 -90 10;shot:close_ruins;tp @s 456.5 220 -495.5 90 30;wait:160;shot:ruins_e;tp @s 136.5 220 -175.5 180 30;wait:160;shot:ruins_s;tp @s -183.5 220 -495.5 -90 30;wait:160;shot:ruins_w;tp @s 136.5 220 -815.5 0 30;wait:160;shot:ruins_n;wait:200"; code=$?; echo "код $code, конец: $(date -u +%T) UTC"; \
+case "$code" in 124|137) systemctl --user stop 'airstrike-job-nuke-gate5-*';; esac; true
 ```
 Перед `close_ruins` — `time set 6000` (полдень: кадры руин — днём, при любом времени мира) и поворот ближней камеры на
 10° вниз; каждая команда ждёт свои 40 тиков. В Minecraft положительный наклон — вниз: камеры руин +30 (в прогоне gate4
@@ -108,7 +109,7 @@ Java прогона ищется по рабочему каталогу (`/proc/
 `cd "<--dir>" && exec java @launch.args`): имени мира в её командной строке нет (в gate3 `grep greenfield-gate` не нашёл процесс). Зависание выхода: если `SCENARIO done` в логе уже есть, а через 3 мин после него java прогона ещё жива — один раз
 (только чтение, процесс не трогается):
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && mkdir -p mod/run && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && mkdir -p mod/run && \
 FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && \
 R=$(realpath "$FILM") && PID=$(for p in $(pgrep -x java); do [ "$(readlink "/proc/$p/cwd")" = "$R" ] && echo "$p"; done | head -1) && [ -n "$PID" ] && echo "java прогона: $PID" && \
 timeout 60 "$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta/bin/jstack" "$PID" > mod/run/gate-jstack.txt; \
@@ -121,7 +122,7 @@ echo "код $?"; wc -lc mod/run/gate-jstack.txt
 ## 5. Кадры и выжимка
 Кадры — `$FILM/screenshots/<имя>_<тик>.png` (у каждого имени — самый новый файл). JPEG q85 — в `$W/mod/run/gate-frames/`:
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && mkdir -p mod/run/gate-frames && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && mkdir -p mod/run/gate-frames && \
 FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && \
 for n in flash fireball wave close_ruins far_dh glow70 ruins_e ruins_s ruins_w ruins_n; do \
   f=$(ls -t "$FILM/screenshots/${n}"_[0-9]*.png 2>/dev/null | head -1); \
@@ -130,9 +131,11 @@ done; ls -l mod/run/gate-frames
 ```
 Лог и куча:
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && \
 python3 tools/logscan.py "$FILM/logs/latest.log" --all > mod/run/gate-logscan.txt; wc -lc mod/run/gate-logscan.txt; \
-grep -E 'Руины удара №|Подрыв №|Руины подрыва №|зона за волной|дальние кольца|Руины: |фоновый план чанка|POI data mismatch|Ядерный тик|Can.t keep up|дальше руины заранее не строятся|Distant Horizons|LevelChunkEditsMixin|Блэкаут|SCENARIO|Работа мода за 30 с|Stopping server|All dimensions are saved' "$FILM/logs/latest.log" | grep -v 'POI data mismatch' | cut -c1-400 > mod/run/gate-lines.txt; \
+grep -E 'Руины удара №|Подрыв №|Руины подрыва №|зона за волной|дальние кольца|Руины: |фоновый план чанка|POI data mismatch|Ядерный тик|Can.t keep up|дальше руины заранее не строятся|Distant Horizons|LevelChunkEditsMixin|Блэкаут|SCENARIO|Работа мода за 30 с|Stopping server|All dimensions are saved' "$FILM/logs/latest.log" | grep -v 'POI data mismatch' | grep -v 'ДИАГ' | cut -c1-400 > mod/run/gate-lines.txt; \
+grep -E 'ДИАГ (зона|очередь)' "$FILM/logs/latest.log" | sed 's/.*ДИАГ/ДИАГ/' | cut -c1-500 > mod/run/gate-diag.txt; wc -lc mod/run/gate-diag.txt; \
+grep -E 'ДИАГ долгий тик|Saving sub-levels' "$FILM/logs/latest.log" | cut -c1-120 > mod/run/gate-long-ticks.txt; wc -lc mod/run/gate-long-ticks.txt; \
 echo "POI data mismatch: $(grep -c 'POI data mismatch' "$FILM/logs/latest.log")" >> mod/run/gate-lines.txt; wc -lc mod/run/gate-lines.txt; \
 L="$FILM/logs/latest.log" && hms() { grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}' | head -1; } && \
 { echo "выход: SCENARIO done $(grep -m1 'SCENARIO done' "$L" | hms), Stopping server $(grep -m1 'Stopping server' "$L" | hms), All dimensions are saved $(grep -m1 'All dimensions are saved' "$L" | hms), последняя строка $(tail -1 "$L" | hms)"; } >> mod/run/gate-lines.txt; tail -1 mod/run/gate-lines.txt; \
@@ -145,23 +148,23 @@ Jar мода и `renderDistance` — как до прогона; копия ми
 по слову Артёма в треде «Ноутбук»).
 Выжимки — каждый файл, только если он есть (без `&&` между ними):
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4" && cd "${W:?}" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-film-state" && mkdir -p "$S" && \
-for f in gate-frames gate-logscan.txt gate-lines.txt gate-gc.txt gate-gc-pauses.txt gate-jstack.txt; do [ -e "$W/mod/run/$f" ] && cp -a "$W/mod/run/$f" "$S/" && echo "скопировано $f"; done; ls "$S"
+W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5" && cd "${W:?}" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-film-state" && mkdir -p "$S" && \
+for f in gate-frames gate-logscan.txt gate-lines.txt gate-gc.txt gate-gc-pauses.txt gate-jstack.txt gate-diag.txt gate-long-ticks.txt; do [ -e "$W/mod/run/$f" ] && cp -a "$W/mod/run/$f" "$S/" && echo "скопировано $f"; done; ls "$S"
 ```
 Откат инстанса фильма — не зависит от прогона, повтор безвреден (jar, которые лежат в `mods/` сейчас, — в
 `$S/removed/`, jar фильма — обратно из `$S/mods/`; если шаг 2 не успел сохранить jar — `mods/` не трогается):
 ```sh
-FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-film-state" && G="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-world" && \
+FILM="/mnt/data/projects/airstrike/mod/run/film/instance/minecraft" && S="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-film-state" && G="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-world" && \
 if ls "$S/mods"/airstrike-*.jar >/dev/null 2>&1; then mkdir -p "$S/removed" && for j in "$FILM/mods"/airstrike-*.jar; do [ -e "$j" ] && mv "$j" "$S/removed/"; done; \
 cp -a "$S/mods"/airstrike-*.jar "$FILM/mods/"; else echo "jar фильма не сохранён — mods/ не трогаю"; fi; RD=$(cat "$S/renderDistance.txt") && [ -n "$RD" ] && sed -i -E "s/^renderDistance:.*/${RD}/" "$FILM/options.txt"; \
 [ -d "$FILM/saves/greenfield-gate" ] && [ ! -e "$G" ] && mv "$FILM/saves/greenfield-gate" "$G"; \
 ls "$FILM/mods"/airstrike-*.jar; grep -E '^renderDistance:' "$FILM/options.txt"; ls "$FILM/saves"; ls -d "$G"
 ```
 Должно быть: в `mods/` — тот же jar, что в шаге 1; `renderDistance` — как в шаге 1; в `saves/` нет `greenfield-gate`.
-Выжимки и кадры — в `/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate4-film-state/` (и в worktree).
+Выжимки и кадры — в `/mnt/data/projects/airstrike/mod/run/claude-work/nuke-gate5-film-state/` (и в worktree).
 
 ## 7. Сравнение с видео Silo — только на ноутбуке
-Десять кадров (`nuke-gate4-film-state/gate-frames/*.jpg`) сравнить с видео Silo **здесь, на ноутбуке**: вспышка, шар,
+Десять кадров (`nuke-gate5-film-state/gate-frames/*.jpg`) сравнить с видео Silo **здесь, на ноутбуке**: вспышка, шар,
 стена пыли, руины, свечение гриба — похоже / чем отличается. Видео Silo и любые кадры из него **никуда не уходят**
 (ни в /mnt/project-files, ни в сообщения) — наружу только текст сравнения, по строке на кадр.
 
@@ -186,8 +189,11 @@ ls "$FILM/mods"/airstrike-*.jar; grep -E '^renderDistance:' "$FILM/options.txt";
    `Distant Horizons …`, `… счётчик изменений чанка (LevelChunkEditsMixin) не встал …` — дословно или «нет».
 4. logscan: ошибки/исключения/`Mixin`/`AccessTransformer`/`DUMMY` — или «ноль».
 5. `gate-gc-pauses.txt` (паузы GC дольше 500 мс) целиком; вывод двух блоков шага 6.
+5а. `gate-diag.txt` (строки «ДИАГ зона» и «ДИАГ очередь», ≤ 12 КБ, иначе первые и последние 8 строк) и
+   `gate-long-ticks.txt` (долгие тики со стеком — только первые строки, рядом «Saving sub-levels»: тик сразу после неё —
+   автосохранение, 213–259 мс на базовой линии 68986c0).
 6. По строке о каждом из 10 кадров по критериям ниже и строку сравнения с Silo (шаг 7).
-Кадры — только наши, 10 JPEG из `gate-frames` (не из видео Silo): загрузить в `/mnt/project-files/nuke/gate4/` (SendUserFile).
+Кадры — только наши, 10 JPEG из `gate-frames` (не из видео Silo): загрузить в `/mnt/project-files/nuke/gate5/` (SendUserFile).
 
 ## Проходит, если
 Критерии — координатор, 30.09 20:48 UTC.

@@ -61,6 +61,10 @@ public final class ScarQueue {
         boolean ready;
         /** Ждёт соседей (край загруженного мира): работы у подрыва от него может не быть никогда. */
         boolean waitsNeighbours;
+        /** Какой радиус соседей ждёт ({@link #waitNeighbours}; 0 — сам ниже полной загрузки). */
+        int needs;
+        /** Тикет с соседями взят за отпущенный квадрат зоны ({@link #holdForTile}): в счёте {@link #tileHolds}. */
+        boolean tileHold;
 
         Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
@@ -95,6 +99,10 @@ public final class ScarQueue {
     private static final int NEIGHBOUR_RETRY = 10;
     /** Итог единицы {@link #ruin}: руины стоят; ещё единица (посчитан разлом соседа, план устарел); ждать соседей ({@link #waitRadius}). */
     private static final int RUINED = 0, AGAIN = 1, WAIT = 2;
+
+    /** Тикетов с соседями за отпущенные квадраты зоны ({@link #holdForTile}) сразу, не больше. */
+    private static final int TILE_HOLDS = 64;
+    private int tileHolds;
 
     /** Радиус соседей, которых ждёт подмена, вернувшая {@code WAIT} ({@link RuinPlan#waitsNeighbours}). */
     private int waitRadius;
@@ -288,7 +296,7 @@ public final class ScarQueue {
 
     /** Для {@link NukeDiag}: что сейчас с работой чанка в очереди (null — работы нет). */
     @Nullable
-    String diagState(long chunk, long now) {
+    public String diagState(long chunk, long now) {
         Job j = jobs.get(chunk);
         if (j == null) return null;
         if (background.contains(j)) return "план в фоне";
@@ -296,6 +304,42 @@ public final class ScarQueue {
         if (j.waitsNeighbours) return "ждёт соседей, свой тикет r" + j.held + (j.mayHold ? "" : " (под чужим тикетом)");
         if (j.ready) return "в очереди готовых";
         return j.due > now ? "срок через " + (j.due - now) : "срок пришёл";
+    }
+
+    /**
+     * Квадрат зоны за волной ({@link NuclearPrep}) отпускает свой тикет, а чанк в нём ещё ждёт соседей: дальше он держит
+     * себя и соседей сам — тикетом радиуса, которого ждёт, — пока его руины не встанут. Иначе чанк, загруженный под
+     * чужим тикетом с соседями ({@link Job#mayHold} — нет), ждал соседей, которых никто не грузит, а квадрат ждал его:
+     * все слоты зоны стояли (диагностика 01.10.2026: шесть готовых квадратов по 500–7000 тиков, остальные 463 ждали).
+     *
+     * @return чанк ждёт соседей и держит их сам (или ему нечего ждать); false — ждёт другого (план, срок, свою загрузку)
+     */
+    public boolean holdForTile(ServerLevel level, long chunk) {
+        Job j = jobs.get(chunk);
+        if (j == null) return true;
+        if (!j.waitsNeighbours || j.needs <= 0) return false;
+        if (j.held < j.needs) {
+            unhold(level, j);
+            hold(level, j, j.needs);
+            j.tileHold = true;
+            tileHolds++;
+        }
+        return true;
+    }
+
+    /**
+     * Сколько ещё тикетов {@link #holdForTile} можно взять: у каждого до 25 чанков в памяти (радиус до
+     * {@link RuinPlanner#REACH}), и держится он, пока соседи грузятся и руины встают, — обычно десятки тиков. Квадрат,
+     * которому не хватает, ждёт, пока прежние отпустят свои.
+     */
+    public int tileHoldsLeft() {
+        return TILE_HOLDS - tileHolds;
+    }
+
+    /** Ждёт ли работа чанка соседей ({@link #holdForTile} может отпустить его квадрат). */
+    public boolean waitsNeighbours(long chunk) {
+        Job j = jobs.get(chunk);
+        return j != null && j.waitsNeighbours && j.needs > 0;
     }
 
     /** Не поставленные ещё готовые руины подрыва: есть ли план у чанка. */
@@ -399,6 +443,10 @@ public final class ScarQueue {
     }
 
     private void unhold(ServerLevel level, Job job) {
+        if (job.tileHold) {
+            job.tileHold = false;
+            tileHolds--;
+        }
         if (job.held == 0) return;
         NuclearTickets.holdForScar(level, new ChunkPos(job.chunk), false, job.held);
         mark(job.chunk, -1, job.held);
@@ -451,6 +499,7 @@ public final class ScarQueue {
     public void clear(ServerLevel level) {
         jobs.values().forEach(j -> release(level, j));
         underHold.clear();
+        tileHolds = 0;
         scans.clear();
         prepared.clear();
         preparedStats.clear();
@@ -677,6 +726,7 @@ public final class ScarQueue {
      * берёт: он и так стоит в загруженном квадрате, а свой растянул бы загрузку.
      */
     private void waitNeighbours(ServerLevel level, Job job, long now, int radius) {
+        job.needs = radius;
         if (radius > 0 && job.held < radius && job.mayHold && !underHold.containsKey(job.chunk)) {
             unhold(level, job);
             hold(level, job, radius);

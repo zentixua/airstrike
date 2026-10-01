@@ -51,6 +51,11 @@ public final class NuclearWorld {
     /** Для {@link ModAttachments#NUCLEAR_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public NuclearWorld() {}
 
+    /** Очередь руин (проверки). */
+    public ScarQueue scars() {
+        return scars;
+    }
+
     public static NuclearWorld get(ServerLevel level) {
         return level.getData(ModAttachments.NUCLEAR_WORLD);
     }
