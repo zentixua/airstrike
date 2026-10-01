@@ -4,16 +4,18 @@
   tools/x11_record.py --out <файл>.mkv [--title Minecraft] [--fps 60] [--crf 16] [--audio <файл>] -- <команда …>
 
 Запускается внутри сессии вложенного KWin (там есть DISPLAY его Xwayland): запускает команду, ждёт её окно
-(по имени, `xwininfo -root -tree`) и пишет его ffmpeg (`x11grab -window_id`) в <файл>.000.mkv. Окно KWin в Xwayland
+(по имени, обход дерева окон через libX11) и пишет его ffmpeg (`x11grab -window_id`) в <файл>.000.mkv. Окно KWin в Xwayland
 перенаправлено в свой буфер, поэтому снимается именно окно, а не корень (корень без окон — чёрный). Сменился размер
 окна (загрузка, полный экран) — запись этого куска кончается, следующий кусок — <файл>.001.mkv и т. д.
 
 Время: ffmpeg ставит кадрам часы стены (`-use_wallclock_as_timestamps`), начало куска (секунды эпохи) — строка
 «start:» в его журнале <кусок>.log; оно же — в <файл>.jsonl. С --audio туда же пишется, когда появился этот файл
 (драйвер OpenAL Soft «wave» создаёт его при открытии звука и дальше пишет в реальном времени), — по этим двум
-отметкам звук ложится на видео. Код выхода — код команды. Нужны ffmpeg и xwininfo.
+отметкам звук ложится на видео. Код выхода — код команды. Нужен ffmpeg с x11grab.
 """
 import argparse
+import ctypes
+import ctypes.util
 import json
 import os
 import re
@@ -22,36 +24,86 @@ import subprocess
 import sys
 import time
 
-# 0x1a00007 "Minecraft* 1.21.1": ("Minecraft* 1.21.1" "Minecraft* 1.21.1")  1920x1080+0+0  +0+0
-WINDOW = re.compile(r'^\s*(0x[0-9a-f]+) "(.*)":.*?\s(\d+)x(\d+)[+-]\d+[+-]\d+\s+[+-]\d+[+-]\d+\s*$')
-START = re.compile(r"start: (\d+\.\d+)")
 # окно, которое ffmpeg не может снять, дало бы по куску в секунду
 MAX_SEGMENTS = 50
+START = re.compile(r"start: (\d+\.\d+)")
+IS_VIEWABLE = 2
 
 
-def find_window(title):
-    """Самое большое окно, в имени которого есть title: (id, ширина, высота) или None."""
-    try:
-        out = subprocess.run(["xwininfo", "-root", "-tree"], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    best = None
-    for line in out.splitlines():
-        m = WINDOW.match(line)
-        if m and title in m.group(2) and viewable(m.group(1)):
-            w, h = int(m.group(3)), int(m.group(4))
-            if w > 1 and h > 1 and (best is None or w * h > best[1] * best[2]):
-                best = (m.group(1), w, h)
-    return best
+class XWindowAttributes(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("width", ctypes.c_int), ("height", ctypes.c_int),
+                ("border_width", ctypes.c_int), ("depth", ctypes.c_int), ("visual", ctypes.c_void_p),
+                ("root", ctypes.c_ulong), ("class_", ctypes.c_int), ("bit_gravity", ctypes.c_int),
+                ("win_gravity", ctypes.c_int), ("backing_store", ctypes.c_int), ("backing_planes", ctypes.c_ulong),
+                ("backing_pixel", ctypes.c_ulong), ("save_under", ctypes.c_int), ("colormap", ctypes.c_ulong),
+                ("map_installed", ctypes.c_int), ("map_state", ctypes.c_int), ("all_event_masks", ctypes.c_long),
+                ("your_event_mask", ctypes.c_long), ("do_not_propagate_mask", ctypes.c_long),
+                ("override_redirect", ctypes.c_int), ("screen", ctypes.c_void_p)]
 
 
-def viewable(window):
-    """Окно показано: снимок с неотображённого окна ffmpeg не берёт (BadMatch)."""
-    try:
-        out = subprocess.run(["xwininfo", "-id", window], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return "Map State: IsViewable" in out
+# ошибка X (окно исчезло между запросами) — не выход из процесса, как у обработчика Xlib по умолчанию
+_X_ERROR = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)(lambda display, event: 0)
+
+
+class X11:
+    """Окна Xwayland вложенного KWin через libX11 (ctypes): та же библиотека, что у Xwayland-клиентов, ставить нечего."""
+
+    def __init__(self):
+        lib = ctypes.util.find_library("X11")
+        if lib is None:
+            sys.exit("нет libX11")
+        x = self.x = ctypes.CDLL(lib)
+        x.XOpenDisplay.restype = ctypes.c_void_p
+        x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x.XDefaultRootWindow.restype = ctypes.c_ulong
+        x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                 ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+                                 ctypes.POINTER(ctypes.c_uint)]
+        x.XFetchName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_void_p)]
+        x.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(XWindowAttributes)]
+        x.XFree.argtypes = [ctypes.c_void_p]
+        x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        x.XSetErrorHandler(_X_ERROR)
+        self.display = x.XOpenDisplay(None)
+        if not self.display:
+            sys.exit(f"не открыть DISPLAY {os.environ.get('DISPLAY')}")
+        self.root = x.XDefaultRootWindow(self.display)
+
+    def _children(self, w):
+        root, parent, n = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_uint()
+        kids = ctypes.POINTER(ctypes.c_ulong)()
+        if not self.x.XQueryTree(self.display, w, ctypes.byref(root), ctypes.byref(parent), ctypes.byref(kids), ctypes.byref(n)):
+            return []
+        out = [kids[i] for i in range(n.value)]
+        if kids:
+            self.x.XFree(kids)
+        return out
+
+    def _name(self, w):
+        p = ctypes.c_void_p()
+        if not self.x.XFetchName(self.display, w, ctypes.byref(p)) or not p.value:
+            return ""
+        name = ctypes.string_at(p.value).decode("latin-1")
+        self.x.XFree(p)
+        return name
+
+    def find(self, title):
+        """Самое большое показанное окно, в имени которого есть title: (id, ширина, высота) или None."""
+        best, stack = None, [self.root]
+        while stack:
+            w = stack.pop()
+            kids = self._children(w)
+            stack += kids
+            if w == self.root or title not in self._name(w):
+                continue
+            a = XWindowAttributes()
+            # неотображённое окно ffmpeg не снимет (BadMatch)
+            if self.x.XGetWindowAttributes(self.display, w, ctypes.byref(a)) and a.map_state == IS_VIEWABLE \
+                    and a.width > 1 and a.height > 1 and (best is None or a.width * a.height > best[1] * best[2]):
+                best = (w, a.width, a.height)
+        self.x.XSync(self.display, 0)
+        return best
 
 
 class Stop(Exception):
@@ -85,6 +137,7 @@ def main():
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, _stop)
+    x11 = X11()
     child = subprocess.Popen(cmd)
     mark(event="command", pid=child.pid, wall=time.time())
     ffmpeg, seg, size, log, audio_seen = None, 0, None, None, a.audio is None
@@ -122,7 +175,7 @@ def main():
             now = time.monotonic()
             if now >= next_check and seg < MAX_SEGMENTS:
                 next_check = now + 1
-                win = find_window(a.title)
+                win = x11.find(a.title)
                 if ffmpeg is not None and win is not None and win[1:] != size:
                     finish()
                     seg += 1
@@ -132,7 +185,7 @@ def main():
                         ffmpeg = subprocess.Popen(
                             ["ffmpeg", "-hide_banner", "-nostats", "-loglevel", "info", "-y",
                              "-use_wallclock_as_timestamps", "1", "-f", "x11grab", "-framerate", str(a.fps),
-                             "-draw_mouse", "0", "-window_id", str(int(win[0], 16)), "-i", os.environ["DISPLAY"],
+                             "-draw_mouse", "0", "-window_id", str(win[0]), "-i", os.environ["DISPLAY"],
                              "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(a.crf), "-pix_fmt", "yuv420p",
                              f"{base}.{seg:03d}.mkv"],
                             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=lf)

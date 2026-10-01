@@ -6,7 +6,7 @@
 
 Ветка `claude/nuke-preview-capture-9iq1ma`, коммит **@SHA@** — полный SHA из сообщения координатора подставить во все
 блоки вместо `@SHA@` (одна замена, до шага 2). В коммите: `tools/prod_client.py --video` пишет окно игры в реальном
-времени (`tools/x11_record.py`: ffmpeg `x11grab` окна во вложенном KWin, звук игры — `audio.wav` 48 кГц), монтаж —
+времени (`tools/x11_record.py`: ffmpeg `x11grab` окна во вложенном KWin, окно ищется через libX11 без внешних программ, звук игры — `audio.wav` 48 кГц), монтаж —
 `tools/laptop-jobs/nuke-preview-cut.py`.
 
 Условия: Артём не играет; одна тяжёлая задача на машине; только `tools/laptop_job.sh`; клиент только через
@@ -28,7 +28,7 @@ pgrep -a -x prismlauncher
 systemctl --user list-units 'airstrike-job-*' --state=active --no-legend
 SHA=@SHA@; [ ${#SHA} = 40 ] || echo "стоп: SHA не вписан"
 test -e "/mnt/data/projects/airstrike/mod/run/claude-work/nuke-preview" && echo "стоп: папка nuke-preview уже есть"
-command -v ffmpeg ffprobe xwininfo || echo "стоп: нужны ffmpeg, ffprobe и xwininfo"
+for t in ffmpeg ffprobe; do command -v "$t" >/dev/null || echo "стоп: нет $t"; done
 ffmpeg -hide_banner -h demuxer=x11grab 2>&1 | grep -q window_id || echo "стоп: ffmpeg без x11grab -window_id"
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264 || echo "стоп: ffmpeg без libx264"
 MC="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
