@@ -600,7 +600,11 @@ public final class RuinBackgroundGameTests {
                 case 5 -> {
                     // квадрат отпущен: P держит себя сам, пока его руины не встали (иначе он выгрузился бы без руин)
                     if (scars.queued(p.toLong())) {
-                        if (scars.diagState(p.toLong(), now).contains("тикет r2")) widened[0] = true;
+                        if (scars.diagState(p.toLong(), now).contains("тикет r2")) {
+                            widened[0] = true;
+                            // расширенный тикет за квадрат — всё ещё в счёте удержаний
+                            h.assertTrue(scars.tileHoldsLeft() == 63, "тикет P r2 вне счёта удержаний: свободно " + scars.tileHoldsLeft());
+                        }
                         h.assertTrue(level.getChunkSource().getChunkNow(p.x, p.z) != null, "P выгрузился без руин после отпуска квадрата");
                         if (now - since[0] > 600) h.fail("руины P не встали за 600 тиков после своего тикета с соседями");
                         return;

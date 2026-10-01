@@ -330,16 +330,16 @@ public final class ScarQueue {
         return true;
     }
 
-    /**
-     * Сколько ещё тикетов {@link #holdForTile} можно взять: у каждого до 25 чанков в памяти (радиус до
-     * {@link RuinPlanner#REACH}), и держится он, пока соседи грузятся и руины встают, — обычно десятки тиков. Квадрат,
-     * которому не хватает, ждёт, пока прежние отпустят свои.
-     */
     /** Удержаний за отпущенные квадраты сейчас и самое большее разом (строка «ДИАГ»). */
     public String tileHoldsDiag() {
         return "сейчас " + tileHolds + ", пик " + tileHoldsPeak + " из " + TILE_HOLDS;
     }
 
+    /**
+     * Сколько ещё тикетов {@link #holdForTile} можно взять: у каждого до 25 чанков в памяти (радиус до
+     * {@link RuinPlanner#REACH}), и держится он, пока соседи грузятся и руины встают, — обычно десятки тиков. Квадрат,
+     * которому не хватает, ждёт, пока прежние отпустят свои.
+     */
     public int tileHoldsLeft() {
         return TILE_HOLDS - tileHolds;
     }
@@ -508,6 +508,7 @@ public final class ScarQueue {
         jobs.values().forEach(j -> release(level, j));
         underHold.clear();
         tileHolds = 0;
+        tileHoldsPeak = 0;
         scans.clear();
         prepared.clear();
         preparedStats.clear();
@@ -740,8 +741,15 @@ public final class ScarQueue {
         // никто не грузит, чанк держит себя и счёт квадратов вечно; рост ограничен REACH, новой цепочки нет
         boolean own = job.held > 0;
         if (radius > 0 && job.held < radius && (own || job.mayHold && !underHold.containsKey(job.chunk))) {
+            // тикет за квадрат и после расширения в счёте удержаний (unhold его снимает)
+            boolean tile = job.tileHold;
             unhold(level, job);
             hold(level, job, radius);
+            if (tile) {
+                job.tileHold = true;
+                tileHolds++;
+                tileHoldsPeak = Math.max(tileHoldsPeak, tileHolds);
+            }
         }
         job.waitsNeighbours = true;
         job.due = now + NEIGHBOUR_RETRY;
