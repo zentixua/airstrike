@@ -1,6 +1,6 @@
 package ua.zentix.airstrike.nuclear.world;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
@@ -10,8 +10,10 @@ import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,41 +21,50 @@ import java.util.UUID;
  * Зона за волной, которой нет на диске целой, — в мир ради LOD Distant Horizons вдали ({@link FarLods}). Копию с руинами
  * с диска можно собрать только для чанка, сгенерированного до конца ({@code Status} — {@code minecraft:full}) и с таким
  * же окном 5×5 вокруг (план руин читает соседей): у края исследованного мира на диске лежат лишь недогенерированные
- * чанки (кольцо 1 — до света, 2 — до пещер, 3 — биомы без рельефа, дальше — начала структур) или их нет вовсе, и LOD
- * таких мест DH строит своим генератором — целыми. Так же не годятся чанки, которые ваниль обновляет только при загрузке
- * (формат до 1.18, догенерация под нулём у мира, поднятого с 1.17). Игра Артёма 01.10.2026 (15 кт у земли): из 14323
- * чанков тяжёлой зоны не в памяти 6273 сами не годились для копии.
+ * чанки (кольцо 1 — до света, 2 — до пещер, 3 — биомы без рельефа, дальше — начала структур, обычно без блоков) или их
+ * нет вовсе, и LOD таких мест DH строит своим генератором — целыми. Так же не годятся чанки, которые ваниль обновляет
+ * только при загрузке (формат до 1.18, догенерация под нулём у мира, поднятого с 1.17). Игра Артёма 01.10.2026 (15 кт
+ * у земли): из 14323 чанков тяжёлой зоны не в памяти 6273 сами не годились для копии; копии его мира: у удара №5 из
+ * 21025 чанков квадрата 7901 нет на диске и 2282 — недогенерированные без блоков. Всё это для зоны одно и то же
+ * ({@link FarLods#wholeOnDisk}).
  * <p>
  * Такой чанк, до которого дошла волна, берётся в мир квадратом 5×5 (те же квадраты, что у зоны за волной
  * {@link NuclearPrep}; вместе с квадратами, которые задевает его окно руин {@link RuinPlanner#REACH}: их чанки, целые
  * на диске, плана с диска не получили и подготовкой не грузятся) тикетом загрузки без тика ({@link AreaLoader},
- * {@code ticks = false}): ваниль догенерирует его в фоне. Руины встают обычным путём загрузки — {@code ChunkEvent.Load},
- * очередь руин ({@link ScarQueue}: отметки {@code chunk_scar} нет), запись плана ({@link RuinPlan#apply}) и его отметка
- * в {@link DhUpdates}; квадрат отпускается, когда руины всех его чанков стоят (или ждут только соседей — тогда их держат
- * свои тикеты, {@link ScarQueue#holdForTile}) и DH их уже получил. Мир генерируется так же, как если бы игрок дошёл
- * туда сам, — только раньше: чанк, загруженный потом, руины уже несёт.
+ * {@code ticks = false}): ваниль догенерирует его в фоне, синхронно ничего не грузится. Руины встают обычным путём
+ * загрузки — {@code ChunkEvent.Load}, очередь руин ({@link ScarQueue}: отметки {@code chunk_scar} нет), запись плана
+ * ({@link RuinPlan#apply}) и его отметка в {@link DhUpdates}; квадрат отпускается, когда руины всех его чанков стоят
+ * (или ждут только соседей — тогда их держат свои тикеты, {@link ScarQueue#holdForTile}) и DH их уже получил. Мир
+ * генерируется так же, как если бы игрок дошёл туда сам, — только раньше: чанк, загруженный потом, руины уже несёт.
  * <p>
  * Только при DH и только у игроков (дальность DH {@link FarLods#FAR_CHUNKS}): без них LOD никто не увидит, а
- * генерировать мир незачем; настройка мира {@code nuclear.far_zone} выключает это совсем. Не больше {@link #LOADING} квадратов в загрузке и {@link #HELD} всего, отпускается не больше
- * {@link #RELEASE_PER_TICK} за тик (выгрузка пишет чанки на диск в тике сервера). Состояние не сохраняется; остановка
- * сервера и «Отбой» отпускают все квадраты ({@link #clear}) до {@code util/StopDrain}.
+ * генерировать мир незачем; настройка мира {@code nuclear.far_zone} выключает это совсем. Не больше {@link #LOADING}
+ * квадратов в генерации и {@link #HELD} всего; квадрат, который не сгенерировался за {@link #LOAD_LIMIT} тиков (чанк
+ * так и не стал полным) или не отпущен за {@link #HOLD_LIMIT}, отпускается без руин — зона идёт дальше. Отпускается не
+ * больше {@link #RELEASE_PER_TICK} за тик (выгрузка пишет чанки на диск в тике сервера), из очереди за тик
+ * просматривается не больше {@link #START_VISITS} квадратов: работа тика не зависит от размера зоны. Состояние не
+ * сохраняется; остановка сервера, «Отбой», уход DH и выключенная настройка отпускают все квадраты ({@link #clear}) —
+ * остановка до {@code util/StopDrain}.
  */
 final class FarZone {
     private static final TicketType<UUID> TYPE = TicketType.create("airstrike_far_zone", Comparator.<UUID>naturalOrder());
     /** Квадраты — как у зоны за волной ({@link NuclearPrep}): 5×5 чанков, тикет — сам квадрат. */
     static final int TILE_RADIUS = 2, TILE = TILE_RADIUS * 2 + 1;
-    /** Квадратов в загрузке (генерации) сразу и всего взятых (в загрузке и с руинами в очереди). */
+    /** Квадратов в генерации сразу и всего взятых (в генерации и с руинами в очереди). */
     static final int LOADING = 2, HELD = 4;
     /** Сколько квадратов отпускать за тик: каждый — до 25 выгрузок чанков с записью на диск в этом тике сервера. */
     private static final int RELEASE_PER_TICK = 2;
-    /** Квадрат держится не дольше, тиков: генерация или руины, которые не встают, не держат слот вечно. */
+    /** Квадратов из очереди за тик просматривается, не больше (брошенные без игроков — тоже). */
+    static final int START_VISITS = 64;
+    /** Генерация квадрата — не дольше, тиков: чанк, который так и не стал полным, не держит слот. */
+    static final int LOAD_LIMIT = 2400;
+    /** Квадрат держится всего не дольше, тиков: руины, которые не встают, не держат слот вечно. */
     static final int HOLD_LIMIT = 6000;
-
-    private enum State { WAIT, LOADING, READY }
 
     private static final class Tile {
         final ChunkPos centre;
-        State state = State.WAIT;
+        /** Все 25 чанков полные (генерация кончилась). */
+        boolean ready;
         long heldAt;
 
         Tile(ChunkPos centre) {
@@ -65,11 +76,19 @@ final class FarZone {
         }
     }
 
-    /** Квадраты по порядку постановки (по порядку волны): ждут, грузятся, ждут руин. */
-    private final Long2ObjectLinkedOpenHashMap<Tile> tiles = new Long2ObjectLinkedOpenHashMap<>();
+    /** Середины всех квадратов, ждущих и взятых: квадрат в очередь дважды не встаёт. */
+    private final LongOpenHashSet known = new LongOpenHashSet();
+    /** Ждут слота — по порядку постановки (по порядку волны). */
+    private final ArrayDeque<Tile> waiting = new ArrayDeque<>();
+    /** Взяты: генерируются или ждут руин; не больше {@link #HELD}. */
+    private final List<Tile> held = new ArrayList<>(HELD);
+    /** Срок генерации (проверки ставят меньше). */
+    private int loadLimit = LOAD_LIMIT;
     /** Для строки в лог и проверок: квадратов взято, отпущено, отпущено по сроку, брошено (игроки ушли). */
     private long taken, released, expired, dropped;
-    /** Самое большее квадратов в загрузке разом (проверки). */
+    /** Тиков генерации у сгенерированных квадратов и от взятия до отпуска у отпущенных — всего (средние в строку). */
+    private long loadTicks, loaded, holdTicks;
+    /** Самое большее квадратов в генерации разом (проверки). */
     private int loadingPeak;
 
     /** Центр квадрата 5×5, в который входит чанк. */
@@ -84,62 +103,69 @@ final class FarZone {
     void offer(long chunk) {
         int x = ChunkPos.getX(chunk), z = ChunkPos.getZ(chunk);
         // окно не шире квадрата: его углы задевают все квадраты, которые задевает оно (свой — первым)
-        ChunkPos own = tileOf(x, z);
-        if (!tiles.containsKey(own.toLong())) tiles.put(own.toLong(), new Tile(own));
+        add(tileOf(x, z));
         for (int dx : new int[]{-RuinPlanner.REACH, RuinPlanner.REACH}) {
-            for (int dz : new int[]{-RuinPlanner.REACH, RuinPlanner.REACH}) {
-                ChunkPos c = tileOf(x + dx, z + dz);
-                if (!tiles.containsKey(c.toLong())) tiles.put(c.toLong(), new Tile(c));
-            }
+            for (int dz : new int[]{-RuinPlanner.REACH, RuinPlanner.REACH}) add(tileOf(x + dx, z + dz));
         }
+    }
+
+    private void add(ChunkPos centre) {
+        if (known.add(centre.toLong())) waiting.add(new Tile(centre));
     }
 
     boolean busy() {
-        return !tiles.isEmpty();
+        return !held.isEmpty() || !waiting.isEmpty();
     }
 
-    /** Поток сервера, после {@link FarLods} (его отметки — раньше). */
+    void loadLimit(int ticks) {
+        loadLimit = ticks;
+    }
+
+    /** Поток сервера, после {@link FarLods} (его отметки — раньше). Работа — по взятым квадратам и не больше {@link #START_VISITS} ждущих. */
     void tick(ServerLevel level) {
-        if (tiles.isEmpty()) return;
+        if (held.isEmpty() && waiting.isEmpty()) return;
         long now = level.getGameTime();
         ScarQueue scars = NuclearWorld.get(level).scars();
-        int loading = 0, held = 0, releasedNow = 0;
-        List<Tile> done = new ArrayList<>();
-        for (Tile t : tiles.values()) {
-            if (t.state == State.WAIT) continue;
-            if (now - t.heldAt > HOLD_LIMIT) {
-                Airstrike.LOG.warn("LOD вдали: квадрат {} держался {} тиков ({}) — отпущен без руин всех чанков", t.centre, now - t.heldAt,
-                        t.state == State.LOADING ? "генерация не кончилась" : "руины не встали");
+        int loading = 0, releasedNow = 0;
+        for (Iterator<Tile> it = held.iterator(); it.hasNext(); ) {
+            Tile t = it.next();
+            long age = now - t.heldAt;
+            if (!t.ready && age > loadLimit || age > HOLD_LIMIT) {
+                Airstrike.LOG.warn("LOD вдали: квадрат {} держался {} тиков ({}) — отпущен без руин всех чанков", t.centre, age,
+                        t.ready ? "руины не встали" : "генерация не кончилась");
                 expired++;
-                done.add(t);
+                it.remove();
+                release(level, t);
                 continue;
             }
-            if (t.state == State.LOADING && ready(level, t)) t.state = State.READY;
-            if (t.state == State.READY && releasedNow < RELEASE_PER_TICK && finished(level, scars, t)) {
+            if (!t.ready && ready(level, t)) {
+                t.ready = true;
+                loadTicks += age;
+                loaded++;
+            }
+            if (t.ready && releasedNow < RELEASE_PER_TICK && finished(level, scars, t)) {
                 releasedNow++;
                 released++;
-                done.add(t);
+                holdTicks += age;
+                it.remove();
+                release(level, t);
                 continue;
             }
-            held++;
-            if (t.state == State.LOADING) loading++;
+            if (!t.ready) loading++;
         }
-        for (Tile t : done) release(level, t);
         // новые — по порядку, пока есть слоты; квадрат, от которого ушли игроки, не нужен
-        for (var it = tiles.values().iterator(); it.hasNext() && loading < LOADING && held < HELD; ) {
-            Tile t = it.next();
-            if (t.state != State.WAIT) continue;
+        for (int n = 0; n < START_VISITS && !waiting.isEmpty() && loading < LOADING && held.size() < HELD; n++) {
+            Tile t = waiting.poll();
             if (!FarLods.nearPlayer(level, t.centre.toLong())) {
-                it.remove();
+                known.remove(t.centre.toLong());
                 dropped++;
                 continue;
             }
             StrikeWorld.get(level).areas().hold(level, t.area());
-            t.state = State.LOADING;
             t.heldAt = now;
+            held.add(t);
             taken++;
             loading++;
-            held++;
         }
         loadingPeak = Math.max(loadingPeak, loading);
     }
@@ -179,25 +205,26 @@ final class FarZone {
 
     private void release(ServerLevel level, Tile t) {
         StrikeWorld.get(level).areas().release(level, t.area());
-        tiles.remove(t.centre.toLong());
+        known.remove(t.centre.toLong());
     }
 
-    /** «Отбой», DH ушёл или остановка сервера: все квадраты отпущены, очередь пуста. */
+    /** «Отбой», DH ушёл, настройка выключена или остановка сервера: все квадраты отпущены, очередь пуста. */
     void clear(ServerLevel level) {
-        for (Tile t : tiles.values()) if (t.state != State.WAIT) StrikeWorld.get(level).areas().release(level, t.area());
-        tiles.clear();
+        for (Tile t : held) StrikeWorld.get(level).areas().release(level, t.area());
+        held.clear();
+        waiting.clear();
+        known.clear();
     }
 
-    /** Для строки в лог: квадратов ждёт, держится, взято, отпущено, по сроку, брошено. */
+    /** Для строки в лог: квадратов ждёт, держится, взято, отпущено, по сроку, брошено; средние тики генерации и до отпуска. */
     String summary() {
-        long held = tiles.values().stream().filter(t -> t.state != State.WAIT).count();
-        return "квадратов ждёт " + (tiles.size() - held) + ", держится " + held + ", взято " + taken + ", отпущено " + released + " (по сроку " + expired
-                + "), брошено без игроков " + dropped;
+        return "квадратов ждёт " + waiting.size() + ", держится " + held.size() + ", взято " + taken + ", отпущено " + released + " (по сроку " + expired
+                + "), брошено без игроков " + dropped + "; генерация в среднем " + (loaded == 0 ? 0 : loadTicks / loaded) + " тиков, до отпуска "
+                + (released == 0 ? 0 : holdTicks / released);
     }
 
-    /** Для проверок: ждут, держатся, взято, отпущено, по сроку, брошено, самое большее в загрузке разом. */
+    /** Для проверок: ждут, держатся, взято, отпущено, по сроку, брошено, самое большее в генерации разом. */
     long[] stats() {
-        long held = tiles.values().stream().filter(t -> t.state != State.WAIT).count();
-        return new long[] {tiles.size() - held, held, taken, released, expired, dropped, loadingPeak};
+        return new long[] {waiting.size(), held.size(), taken, released, expired, dropped, loadingPeak};
     }
 }

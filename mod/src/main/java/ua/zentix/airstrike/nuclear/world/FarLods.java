@@ -41,9 +41,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * лампы своим путём. Копия без изменений против диска в DH не уходит — его LOD по этим же блокам уже есть.
  * <p>
  * Чанк за волной без готового плана проверяется на диске (поле {@code Status} — чтением заголовка в фоне, как у зоны за
- * волной): целый — ждёт плана ({@link #PLAN_WAIT}); не целый или его нет (край исследованного мира: копию не собрать, а
- * LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}): ваниль догенерирует его, руины
- * встанут путём загрузки, LOD уйдёт в DH с их отметкой.
+ * волной, {@link #wholeOnDisk}): целый — ждёт плана ({@link #PLAN_WAIT}); не целый или его нет (край исследованного
+ * мира: копию не собрать, а LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}):
+ * ваниль догенерирует его, руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
  * <p>
  * Только при DH ({@link DhUpdates#room}) и только чанки не дальше {@link #FAR_CHUNKS} от игрока: дальше DH по умолчанию
  * не рассылает обновления, а чтения с диска делят поток ввода-вывода с загрузкой мира игрокам — их не больше
@@ -57,8 +57,11 @@ public final class FarLods {
     static final int READS = 16, PER_TICK = 8;
     /** Сколько тиков чанк за волной ждёт готового плана (строится в фоне); дальше — без LOD вдали. */
     static final int PLAN_WAIT = 1200;
-    /** Запросов из очереди за тик, не больше (остальные — в следующих тиках по кругу). */
-    static final int VISITS = 1024;
+    /**
+     * Запросов из очереди за тик, не больше (остальные — в следующих тиках по кругу): у тяжёлой зоны их десятки тысяч
+     * (15278 у Артёма), почти все ждут плана до {@link #PLAN_WAIT}, и каждый — поиск держателя чанка и готового плана.
+     */
+    public static final int VISITS = 256;
     /** Чтений заголовков чанков с диска в работе сразу. */
     static final int SCANS = 32;
     /** Что на диске у чанка за волной без плана: заголовок читается, целый (план ещё может прийти), не целый или нет. */
@@ -91,6 +94,8 @@ public final class FarLods {
      * не целые на диске.
      */
     private long sent, sentRuins, unchanged, stale, unread, noPlan, partial;
+    /** Для проверок: больше всего запросов, просмотренных за один тик. */
+    private int visitsMax;
     private long nextReport;
     /** Проверки: место, которое считается игроком ({@link #nearPlayer}), — игроков у GameTest нет. */
     @Nullable
@@ -152,9 +157,10 @@ public final class FarLods {
         int room = DhUpdates.room(level) - reading.size();
         NuclearWorld nuclear = NuclearWorld.get(level);
         NuclearEvents events = NuclearEvents.get(level);
-        int started = 0;
+        int started = 0, visits = 0;
         for (int n = Math.min(queue.size(), VISITS); n > 0 && started < PER_TICK && reading.size() < READS && room > 0; n--) {
             Request r = queue.poll();
+            visits++;
             ChunkPos pos = new ChunkPos(r.chunk);
             if (inWorld(level, r.chunk)) {
                 // загружен: руины и лампы ему ставит мир, а LOD — их отметка (DhUpdates.mark)
@@ -191,6 +197,7 @@ public final class FarLods {
             DiskShots.readSections(f, pos).thenApply(s -> build(f, s, plan, fires, !r.ruins)).exceptionally(e -> new Built(r.chunk, null, false, false, "ошибка: " + e))
                     .thenAccept(built::add);
         }
+        visitsMax = Math.max(visitsMax, visits);
         // настройку выключили посреди зоны: квадраты больше не держатся
         if (AirstrikeConfig.SERVER.nukeFarZone.get()) zone.tick(level);
         else zone.clear(level);
@@ -208,20 +215,28 @@ public final class FarLods {
         if (disk.get(chunk) != SCANNING) disk.remove(chunk);
     }
 
-    /**
-     * Целый ли чанк на диске так, как его берёт {@link DiskShots} ({@code Status} — {@code minecraft:full}, без догенерации
-     * под нулём): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}.
-     */
+    /** Заголовок чанка с диска ({@link #wholeOnDisk}): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}. */
     private void scan(ServerLevel level, long chunk) {
         CollectFields fields = new CollectFields(new FieldSelector(StringTag.TYPE, "Status"), new FieldSelector(CompoundTag.TYPE, "below_zero_retrogen"));
         disk.put(chunk, SCANNING);
         scanning++;
         ConcurrentLinkedQueue<long[]> out = scanned;
         level.getChunkSource().chunkMap.chunkScanner().scanChunk(new ChunkPos(chunk), fields).whenComplete((v, e) -> {
-            boolean whole = e == null && fields.getResult() instanceof CompoundTag tag && "minecraft:full".equals(tag.getString("Status"))
-                    && !tag.contains("below_zero_retrogen");
+            boolean whole = e == null && wholeOnDisk(fields.getResult() instanceof CompoundTag tag ? tag : null);
             out.add(new long[]{chunk, whole ? 1 : 0});
         });
+    }
+
+    /**
+     * Целый ли чанк на диске по полям его заголовка ({@code Status}, {@code below_zero_retrogen}; null — чанка на диске
+     * нет): {@code Status} ровно {@code minecraft:full}, как у зоны за волной ({@link NuclearPrep}: такой чанк она берёт
+     * в мир сама, а его план с диска строит подготовка), и без догенерации под нулём (её {@link DiskShots} не берёт).
+     * Остальное — нет на диске, недогенерированный чанк (с блоками или без: кольца у края исследованного мира, начала
+     * структур), формат до 1.18 ({@code Status} внутри {@code Level}), {@code Status} без пространства имён (сохранён
+     * старой версией: зона за волной его не берёт), — одинаково: в мир через {@link FarZone}.
+     */
+    public static boolean wholeOnDisk(@Nullable CompoundTag fields) {
+        return fields != null && "minecraft:full".equals(fields.getString("Status")) && !fields.contains("below_zero_retrogen");
     }
 
     /** Копия чанка с руинами (фоновый поток): секции с диска, места плана. */
@@ -297,6 +312,16 @@ public final class FarLods {
     /** Проверки: чанки у {@code at} — как у игрока (в дальности DH); null — снова только игроки. */
     public static void testViewer(ServerLevel level, @Nullable ChunkPos at) {
         get(level).viewer = at;
+    }
+
+    /** Проверки: срок генерации квадрата {@link FarZone} в тиках; меньше нуля — снова {@link FarZone#LOAD_LIMIT}. */
+    public static void testZoneLoadLimit(ServerLevel level, int ticks) {
+        get(level).zone.loadLimit(ticks >= 0 ? ticks : FarZone.LOAD_LIMIT);
+    }
+
+    /** Для проверок: больше всего запросов, просмотренных за один тик ({@link #VISITS}). */
+    public int visitsMax() {
+        return visitsMax;
     }
 
     /**
