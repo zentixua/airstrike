@@ -874,7 +874,7 @@ public final class RuinBackgroundGameTests {
      * подготовка кончается без единого оставшегося плана, а мир не догенерируется: поле {@code Status} чанков округи до
      * и после — то же (зона не берёт чанк, который ваниль стала бы генерировать).
      */
-    @GameTest(template = "range", timeoutTicks = 3000, batch = "nuke_zone_edge", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 6000, batch = "nuke_zone_edge", skyAccess = true)
     public static void zoneLoadsEveryChunkWithPlan(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         var chunks = level.getChunkSource();
@@ -944,11 +944,7 @@ public final class RuinBackgroundGameTests {
                         if (det[0] == null) {
                             if (now - since[0] > 1500) h.fail("подрыва нет");
                             // планы с диска строят фоновые потоки по настенным часам: полёт — в темпе игры, пока они не готовы
-                            if (!prepared[0]) {
-                                long deadline = tickAt[0] + 50_000_000L, left;
-                                while ((left = deadline - System.nanoTime()) > 0) java.util.concurrent.locks.LockSupport.parkNanos(left);
-                            }
-                            tickAt[0] = System.nanoTime();
+                            if (!prepared[0]) gamePace(tickAt);
                             return;
                         }
                         h.assertTrue(prepared[0], "руины заранее не готовы к подрыву за 60 с полёта");
@@ -957,6 +953,9 @@ public final class RuinBackgroundGameTests {
                     }
                     for (ChunkPos c : far) if (w.scars().pendingPlan(det[0].id(), c.toLong())) planned.add(c.toLong());
                     if (w.plannedChunks() > 0 || w.prepTiles() > 0) {
+                        // заголовки с диска, загрузка чанков и планы — по настенным часам: зона за волной — в темпе игры
+                        // (сервер GameTest на CI тикает без пауз, ~2000 тиков/с, и срок кончался раньше чтения с диска)
+                        gamePace(tickAt);
                         if (now - since[0] > 2400) {
                             StringBuilder left = new StringBuilder();
                             for (ChunkPos c : far) {
@@ -994,6 +993,13 @@ public final class RuinBackgroundGameTests {
                 }
             }
         });
+    }
+
+    /** Тик не короче 50 мс, как в игре: {@code tickAt} — когда кончился прошлый такой тик. */
+    private static void gamePace(long[] tickAt) {
+        long deadline = tickAt[0] + 50_000_000L, left;
+        while ((left = deadline - System.nanoTime()) > 0) java.util.concurrent.locks.LockSupport.parkNanos(left);
+        tickAt[0] = System.nanoTime();
     }
 
     /** Ни одного чанка из списка нет в памяти (и в очереди выгрузки): записанное ими уже видно чтению с диска. */

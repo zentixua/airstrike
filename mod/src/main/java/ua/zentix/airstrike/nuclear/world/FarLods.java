@@ -202,8 +202,8 @@ public final class FarLods {
         if (now >= nextReport && sent + unchanged + stale + unread + noPlan + partial > 0) {
             nextReport = now + 600;
             Airstrike.LOG.info("LOD Distant Horizons вдали ({}): ушло {} чанков (с руинами {}), без изменений {}, план устарел {}, не прочитаны {}, "
-                            + "не дождались плана {}, не целые на диске {} (в мир: {}); в очереди {}, читаются {}", level.dimension().location(), sent,
-                    sentRuins, unchanged, stale, unread, noPlan, partial, zone.summary(), queued.size(), reading.size());
+                            + "не дождались плана {}, не целые на диске {} (в мир: {}); в очереди {} (руины {}), читаются {}", level.dimension().location(), sent,
+                    sentRuins, unchanged, stale, unread, noPlan, partial, zone.summary(), queued.size(), ruinQueue.size(), reading.size());
         }
     }
 
