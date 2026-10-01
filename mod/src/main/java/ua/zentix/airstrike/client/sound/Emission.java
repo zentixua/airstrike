@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.client.sound;
 
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.client.flight.FlightTrack;
 
 /**
  * Что слушатель слышит от снаряда в этот тик: «запаздывающий» момент излучения {@code time} и всё, что из него
@@ -22,8 +23,8 @@ record Emission(double time, double x, double y, double z, double distance, doub
     private static final double TOWARD_AIM_COS = Math.cos(Math.toRadians(TOWARD_AIM_DEG));
 
 
-    /** Слышимое из момента te: его данные о снаряде должны быть ({@link SourceTrack#covers}). */
-    static Emission at(SourceTrack track, double te, Vec3 ear, boolean onboard) {
+    /** Слышимое из момента te: его данные о снаряде должны быть ({@link FlightTrack#covers}). */
+    static Emission at(FlightTrack track, double te, Vec3 ear, boolean onboard) {
         double[] p = new double[3];
         track.at(te, p);
         double dx = ear.x - p[0], dy = ear.y - p[1], dz = ear.z - p[2];

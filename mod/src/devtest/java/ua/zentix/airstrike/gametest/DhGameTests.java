@@ -147,7 +147,7 @@ public final class DhGameTests {
                     }
                 }
                 BlockPos mid = c.getMiddleBlockPosition(CENTER.getY());
-                h.assertTrue(copy.getNoiseBiome(mid.getX() >> 2, mid.getY() >> 2, mid.getZ() >> 2).is(chunk.getNoiseBiome(mid.getX() >> 2, mid.getY() >> 2, mid.getZ() >> 2)),
+                h.assertTrue(copy.getNoiseBiome(mid.getX() >> 2, mid.getY() >> 2, mid.getZ() >> 2).value() == chunk.getNoiseBiome(mid.getX() >> 2, mid.getY() >> 2, mid.getZ() >> 2).value(),
                         "биом копии не тот");
                 compared++;
                 cells += plan.changedBlocks();

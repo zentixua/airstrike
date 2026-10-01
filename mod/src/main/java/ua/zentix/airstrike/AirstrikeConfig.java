@@ -81,6 +81,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue gridTimeBudgetMs;
         public final ModConfigSpec.IntValue workBudgetMs;
 
+        public final ModConfigSpec.IntValue farRange;
+
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
             dronePower = b.comment("Сила взрыва шахеда (TNT = 4). Больше 60 вешает сервер.")
@@ -217,6 +219,13 @@ public final class AirstrikeConfig {
                             "своего ms_per_tick). Больше — разрушения залпа и руины ядерки появляются быстрее ценой TPS;",
                             "меньше — ровнее тик, воронки залпа и руины достраиваются дольше.")
                     .translation("airstrike.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
+            b.pop();
+
+            b.translation("airstrike.config.visibility").push("visibility");
+            farRange = b.comment("Докуда игрокам видно и слышно снаряды в полёте и взрывы обычного оружия, блоков: дальше прорисовки —",
+                            "точкой, факелом, шлейфом, огненным шаром и столбом дыма, звук — с задержкой по скорости звука. Дальше",
+                            "всё равно съедает дымка, а раскат тонет в тишине; меньше — меньше пакетов игрокам.")
+                    .translation("airstrike.config.far_range").defineInRange("far_range", 8000, 640, 32_000);
             b.pop();
         }
     }

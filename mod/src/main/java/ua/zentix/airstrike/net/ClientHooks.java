@@ -37,7 +37,7 @@ public interface ClientHooks {
 
     default void flights(S2C.Flights p) {}
 
-    default void heard(S2C.Heard p) {}
+    default void farFlights(S2C.FarFlights p) {}
 
     default void mapPlayers(S2C.MapPlayers p) {}
 
