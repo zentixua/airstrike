@@ -203,13 +203,17 @@ D=mod/run/final/A && L=$D/logs/full.log && python3 $D/results.py "$L" $D/logs/gc
 python3 tools/logscan.py "$L" --all > $D/logscan.txt; wc -lc $D/*.txt
 ```
 Только если в `results.txt` есть «НЕ ОБЪЯСНЁН» (`gaps.txt` не пуст): что делал поток сервера в этих
-промежутках, по JFR (в фоне, тайм-аут вызова 20 мин; код не 0 — сбой, сообщить). Часы JFR — UTC, сдвиг к часам лога
+промежутках (до 8 самых долгих), по JFR — задачей `final-jfr`, куча `jfr` до 2 ГБ (в фоне, тайм-аут вызова 25 мин;
+код не 0 — сбой, сообщить). Часы JFR — UTC, сдвиг к часам лога
 берётся из `gc.log`:
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && D=mod/run/final/A && cat > $D/jfrwin.py <<'EOT'
 # Поток «Server thread» в необъяснённых разрывах: stdin — `jfr print --json`, аргументы — gaps.txt и gc.log (сдвиг часов).
 import collections, json, re, sys
 gaps = [tuple(map(float, l.split())) for l in open(sys.argv[1]) if l.strip()]
+# не больше 8 самых долгих разрывов: выжимка остаётся короткой
+dropped = max(0, len(gaps) - 8)
+gaps = sorted(sorted(gaps, key=lambda g: g[0] - g[1])[:8])
 off = next((m[1] for l in open(sys.argv[2], errors="replace") if (m := re.match(r"\[[^\]]*([+-]\d{4})\]", l))), "+0000")
 shift = (1 if off[0] == "+" else -1) * (int(off[1:3]) * 3600 + int(off[3:5]) * 60)
 def sec(ts):  # "2026-10-01T01:22:03.123456789Z" (UTC) -> секунды суток по часам лога
@@ -246,15 +250,17 @@ for line in sys.stdin:
         buf = ["{"]
     else:
         buf.append(line)
+print(f"разрывов: {len(gaps) + dropped}, разобраны {len(gaps)} самых долгих, отброшено {dropped}")
 for (a, b), (n, stacks, waits) in zip(gaps, stat):
     print(f"\n=== разрыв {hms(a)}–{hms(b)} ({(b - a) * 1000:.0f} мс): выборок потока сервера {n}")
     for k, c in stacks.most_common(8): print(f"{c:4d} {k}")
     for k, (c, ms) in sorted(waits.items(), key=lambda kv: -kv[1][1])[:8]: print(f"ожидание ×{c}, {ms:.0f} мс — {k}")
 EOT
 J="$JAVA_HOME/bin/jfr"; [ -x "$J" ] || J="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta/bin/jfr"; \
-set -o pipefail; timeout -k 60 18m "$J" print --json --stack-depth 12 --events jdk.ExecutionSample,jdk.ThreadPark,jdk.JavaMonitorEnter,jdk.ThreadSleep,jdk.FileRead,jdk.FileWrite,jdk.SafepointBegin $D/A.jfr \
-  | python3 $D/jfrwin.py $D/gaps.txt $D/logs/gc.log > $D/jfrwin.txt; echo "код $?"; wc -lc $D/jfrwin.txt
+timeout -k 60 20m tools/laptop_job.sh final-jfr -- bash -c 'set -o pipefail; "$0" -J-Xmx2g print --json --stack-depth 12 --events jdk.ExecutionSample,jdk.ThreadPark,jdk.JavaMonitorEnter,jdk.ThreadSleep,jdk.FileRead,jdk.FileWrite,jdk.SafepointBegin "$1" | python3 "$2" "$3" "$4" > "$5"' \
+  "$J" $D/A.jfr $D/jfrwin.py $D/gaps.txt $D/logs/gc.log $D/jfrwin.txt; echo "код $?"; wc -lc $D/jfrwin.txt
 ```
+Остановить — только `systemctl --user stop 'airstrike-job-final-jfr-*'`.
 **Проходит, если:** 4 строки `step` и `SCENARIO done`; в окнах ракеты и шахедов нет **необъяснённых** разрывов (тики
 при входе в мир до первого шага и 5 с после `tp` не считаются); автосохранение (`/mnt/project-files/tick-baseline-68986c0.txt`:
 у базовой линии без ударов тот же тик 213 мс) и разрывы, объяснённые GC, — в итог отдельной строкой для сведения;

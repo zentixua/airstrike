@@ -189,18 +189,22 @@ final class StrikeProfile {
         return "air";
     }
 
-    private static final Method ARMED;
+    /** {@code StrikeProjectile.armed()} (защищённый); нет такого метода — в строке «armed ?», а не падение замера. */
+    private static final Method ARMED = armedMethod();
 
-    static {
+    private static Method armedMethod() {
         try {
-            ARMED = StrikeProjectile.class.getDeclaredMethod("armed");
-            ARMED.setAccessible(true);
-        } catch (NoSuchMethodException e) {
-            throw new IllegalStateException(e);
+            Method m = StrikeProjectile.class.getDeclaredMethod("armed");
+            m.setAccessible(true);
+            return m;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Airstrike.LOG.warn("SCENARIO strike-profile: метода StrikeProjectile.armed() нет ({}) — в строках hit «armed ?»", e.toString());
+            return null;
         }
     }
 
     private static String armed(StrikeProjectile p) {
+        if (ARMED == null) return "?";
         try {
             return (boolean) ARMED.invoke(p) ? "yes" : "no";
         } catch (ReflectiveOperationException e) {
