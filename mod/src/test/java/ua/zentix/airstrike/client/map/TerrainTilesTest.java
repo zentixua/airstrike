@@ -5,6 +5,7 @@ import net.minecraft.world.level.material.MapColor;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -230,15 +231,19 @@ class TerrainTilesTest {
     }
 
     private static TerrainTiles.Layer layer() {
+        return layer(true, Long.MAX_VALUE);
+    }
+
+    private static TerrainTiles.Layer layer(boolean offThread, long refreshNanos) {
         return new TerrainTiles.Layer("test", new TerrainSource() {
             @Override
             public boolean offThread() {
-                return true;
+                return offThread;
             }
 
             @Override
             public long refreshNanos() {
-                return Long.MAX_VALUE;
+                return refreshNanos;
             }
 
             @Nullable
@@ -306,5 +311,107 @@ class TerrainTilesTest {
         assertEquals(7, b.generation());
         assertNull(b.columns(), "без колонок — спросят снова");
         assertTrue(closed[0], "читатель закрыт");
+    }
+
+    /**
+     * Рельеф заранее — только тем, кому карта нужна: выключено в настройках — никому; карту в этом мире открывали —
+     * без пульта; иначе — с пультом в инвентаре. Инвентарь смотрится, только если первые два условия не решили.
+     */
+    @Test
+    void prefetchOnlyForMapUsers() {
+        int[] asked = {0};
+        java.util.function.BooleanSupplier has = () -> ++asked[0] > 0;
+        java.util.function.BooleanSupplier hasNot = () -> ++asked[0] < 0;
+        assertFalse(TerrainTiles.prefetchWanted(false, true, has), "выключено в настройках");
+        assertEquals(0, asked[0], "выключено — инвентарь не смотрится");
+        assertTrue(TerrainTiles.prefetchWanted(true, true, hasNot), "карту открывали");
+        assertEquals(0, asked[0], "открывали — инвентарь не смотрится");
+        assertTrue(TerrainTiles.prefetchWanted(true, false, has), "пульт в инвентаре");
+        assertFalse(TerrainTiles.prefetchWanted(true, false, hasNot), "без пульта и карты");
+        assertEquals(2, asked[0]);
+    }
+
+    /** Без пульта и открытой карты слой чанков заранее не стоит ничего: ни источника, ни часов; начатая плитка брошена. */
+    @Test
+    void gameThreadPrefetchCostsNothingWhenNotWanted() {
+        TerrainTiles.Layer layer = layer(false, 30_000_000_000L);
+        TerrainTiles.Key key = new TerrainTiles.Key(0, 0, 0);
+        layer.tiles.put(key, new TerrainTiles.Tile(key));
+        layer.prefetchOrder = List.of(key);
+        layer.partial = new TerrainTiles.Partial(key, 0);
+        TerrainTiles.prefetchInGameThread(layer, false, () -> {
+            throw new AssertionError("источник открыт");
+        }, () -> {
+            throw new AssertionError("часы спрошены");
+        }, 0, b -> {
+            throw new AssertionError("плитка построена");
+        });
+        assertNull(layer.partial, "начатая плитка брошена");
+    }
+
+    /**
+     * Слой чанков заранее — под сроком по часам, а не по числу плиток: колонки читаются, пока часы не дошли до срока
+     * (здесь каждая колонка — единица часов), начатая плитка дочитывается в следующих тиках с того же места, готовая
+     * уходит в слой, и в том же тике начинается следующая из ближних. Плитка, которую за это время построила карта,
+     * не заменяется более старой.
+     */
+    @Test
+    void gameThreadPrefetchStopsAtDeadlineAndResumes() {
+        int n = TerrainTiles.SIZE * TerrainTiles.SIZE;
+        TerrainTiles.Layer layer = layer(false, 30_000_000_000L);
+        TerrainTiles.Key first = new TerrainTiles.Key(0, -1, 2), second = new TerrainTiles.Key(0, 0, 2), done = new TerrainTiles.Key(0, 1, 2);
+        for (TerrainTiles.Key k : List.of(first, second, done)) layer.tiles.put(k, new TerrainTiles.Tile(k));
+        // готовая полная плитка заранее не перечитывается
+        layer.tiles.get(done).columns = filled((x, z) -> 64);
+        layer.tiles.get(done).builtAt = 1;
+        layer.prefetchOrder = List.of(done, first, second);
+        long[] clock = {100};
+        List<int[]> reads = new ArrayList<>();
+        TerrainSource.Reader reader = new TerrainSource.Reader() {
+            @Override
+            public TerrainSource.Column column(int x, int z) {
+                clock[0]++;
+                reads.add(new int[] {x, z});
+                return new TerrainSource.Column(70, MapColor.STONE, 0);
+            }
+
+            @Override
+            public void close() {}
+        };
+        List<TerrainTiles.Built> built = new ArrayList<>();
+        java.util.function.Consumer<TerrainTiles.Built> sink = b -> {
+            built.add(b);
+            TerrainTiles.Tile t = layer.tiles.get(b.key());
+            t.columns = b.columns();
+            t.builtAt = clock[0];
+        };
+
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + 1000, sink);
+        assertEquals(1000, reads.size(), "ровно до срока");
+        assertEquals(first, layer.partial.key, "ближняя недостающая — первой");
+        assertEquals(1000, layer.partial.next);
+        assertTrue(built.isEmpty());
+        assertEquals(-64, reads.get(0)[0], "колонка (−64, 128) — угол плитки (−1, 2)");
+        assertEquals(128, reads.get(0)[1]);
+
+        // следующий тик: плитка дочитана с того же места и ушла в слой, следующая начата
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n, sink);
+        assertEquals(1000 + n, reads.size());
+        assertEquals(1, built.size());
+        assertEquals(first, built.get(0).key());
+        assertTrue(built.get(0).columns().complete());
+        assertEquals(1000, reads.get(1000)[0] + 64 + (reads.get(1000)[1] - 128) * TerrainTiles.SIZE, "продолжена с колонки 1000");
+        assertEquals(second, layer.partial.key, "в том же тике — следующая");
+        assertEquals(1000, layer.partial.next);
+
+        // карта тем временем построила вторую сама: дочитанная заранее её не заменяет, а готовые больше не читаются
+        layer.tiles.get(second).builtAt = clock[0] + 1;
+        layer.tiles.get(second).columns = filled((x, z) -> 64);
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n, sink);
+        assertEquals(1, built.size(), "построенная картой не заменена");
+        assertNull(layer.partial, "больше нечего");
+        int total = reads.size();
+        TerrainTiles.prefetchInGameThread(layer, true, () -> reader, () -> clock[0], clock[0] + n, sink);
+        assertEquals(total, reads.size(), "всё готово — источник не читается");
     }
 }

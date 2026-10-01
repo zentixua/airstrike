@@ -27,6 +27,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -47,10 +50,10 @@ import java.util.concurrent.Executors;
  * <p>
  * Каждое чтение DH — участок его базы 64×64 блока (распаковка, в очереди его потоков файлов), поэтому рельеф из DH
  * читается по возможности один раз: плитка крупнее собирается из четырёх готовых плиток уровнем ниже ({@link #compose}),
- * подробные плитки вокруг игрока строятся заранее, пока карта закрыта ({@link #tick}), — карта открывается на игроке
- * сразу; готовая плитка DH перестраивается по его событию изменения чанка, а не по часам, и перестроенная мелкая
- * плитка сразу копируется в свою четверть крупных. Плитки живут, пока открыт
- * мир, самые давние по показу вытесняются.
+ * подробные плитки вокруг игрока строятся заранее, пока карта закрыта ({@link #tick}): из DH — в фоне, из чанков
+ * клиента — в тике по частям под сроком {@link #PREFETCH_TICK_NS}, — карта открывается на игроке сразу; готовая
+ * плитка DH перестраивается по его событию изменения чанка, а не по часам, и перестроенная мелкая плитка сразу
+ * копируется в свою четверть крупных. Плитки живут, пока открыт мир, самые давние по показу вытесняются.
  */
 public final class TerrainTiles {
     static final int SIZE = 64;
@@ -72,6 +75,11 @@ public final class TerrainTiles {
     static final int PREFETCH_RADIUS = 7;
     /** Раз в столько тиков — какие плитки нужны заранее (игрок сместился). */
     private static final int PREFETCH_PERIOD = 10;
+    /**
+     * Сколько тик клиента строит заранее плитки слоя, который читается только в потоке игры (чанки клиента), — по
+     * часам, плитка читается частями между тиками ({@link Partial}): срок проверяется перед каждой колонкой.
+     */
+    static final long PREFETCH_TICK_NS = 2_000_000L;
     /** Нет данных о высоте (северная соседка вне плитки и без оценки). */
     private static final int NO_HEIGHT = Integer.MIN_VALUE;
 
@@ -189,6 +197,11 @@ public final class TerrainTiles {
         final Queue<Built> done = new ConcurrentLinkedQueue<>();
         /** Плитки, которые строятся заранее вокруг игрока: не вытесняются. */
         Set<Key> prefetch = Set.of();
+        /** Они же, ближние первыми. */
+        List<Key> prefetchOrder = List.of();
+        /** Плитка, которую слой в потоке игры строит заранее по частям; null — сейчас никакая. */
+        @Nullable
+        Partial partial;
         int jobs;
         boolean stallLogged, firstLogged;
         /** Источник сломался (другая версия API DH): слой больше не строится до смены мира. Пишет фоновый поток. */
@@ -203,8 +216,11 @@ public final class TerrainTiles {
         }
     }
 
-    /** Сколько плиток нужного масштаба видно и сколько из них уже построено — для лога времени открытия карты. */
-    public record Progress(int visible, int ready) {
+    /**
+     * Сколько плиток нужного масштаба видно и сколько из них уже построено — для лога времени открытия карты;
+     * {@code layers} — то же по слоям («dh 32/32, chunks 0/32»): видно, какой слой отстаёт.
+     */
+    public record Progress(int visible, int ready, String layers) {
         public boolean done() {
             return ready >= visible;
         }
@@ -226,7 +242,9 @@ public final class TerrainTiles {
     /** Счётчик кадров карты (для вытеснения только невидимых плиток). */
     private static long frame;
     private static int ticks;
-    private static Progress progress = new Progress(0, 0);
+    private static Progress progress = new Progress(0, 0, "");
+    /** Рельеф вокруг игрока строится заранее ({@link #prefetchWanted}); проверяется раз в {@link #PREFETCH_PERIOD}. */
+    private static boolean prefetching;
     /** Карту в этом мире уже открывали: рельеф вокруг игрока строится заранее и без пульта в руках. */
     private static boolean opened;
 
@@ -248,6 +266,7 @@ public final class TerrainTiles {
         boolean build = map.k() * (2 << MAX_LEVEL) >= 1;
         double cx = map.worldX((left + right) / 2.0), cz = map.worldZ((top + bottom) / 2.0);
         int visible = 0, ready = 0;
+        StringBuilder byLayer = new StringBuilder();
         g.enableScissor(left, top, right, bottom);
         for (Layer layer : layers) {
             collect(layer);
@@ -266,14 +285,18 @@ public final class TerrainTiles {
             if (layer.broken) continue;
             keys.sort(Comparator.comparingDouble(k -> Mth.square((k.tx + 0.5) * k.span() - cx) + Mth.square((k.tz + 0.5) * k.span() - cz)));
             request(current, layer, keys, false);
-            visible += keys.size();
+            int built = 0;
             for (Key k : keys) {
                 Tile t = layer.tiles.get(k);
-                if (t != null && t.builtAt != 0) ready++;
+                if (t != null && t.builtAt != 0) built++;
             }
+            visible += keys.size();
+            ready += built;
+            if (!byLayer.isEmpty()) byLayer.append(", ");
+            byLayer.append(layer.name).append(' ').append(built).append('/').append(keys.size());
         }
         g.disableScissor();
-        progress = new Progress(visible, ready);
+        progress = new Progress(visible, ready, byLayer.toString());
     }
 
     /** Раз в тик клиента: плитки из фона — в текстуры, изменения рельефа от источников, заранее — плитки вокруг игрока. */
@@ -287,30 +310,118 @@ public final class TerrainTiles {
             collect(layer);
             layer.source.changes(current, (chunkX, chunkZ) -> changed(layer, chunkX, chunkZ));
         }
-        if (++ticks % PREFETCH_PERIOD != 0) return;
-        boolean wanted = prefetchWanted(player);
-        for (Layer layer : layers) {
-            // заранее — только из фона: слой чанков строится в кадре и быстро, а чанки у игрока и так под рукой
-            if (!layer.source.offThread() || layer.broken) continue;
-            if (!wanted) {
-                layer.prefetch = Set.of();
-                continue;
+        if (++ticks % PREFETCH_PERIOD == 0) {
+            prefetching = prefetchWanted(AirstrikeConfig.CLIENT.mapPrefetch.get(), opened,
+                    () -> player.getInventory().contains(s -> s.is(ModItems.DESIGNATOR.get())));
+            for (Layer layer : layers) {
+                if (layer.broken) continue;
+                if (!prefetching) {
+                    layer.prefetch = Set.of();
+                    layer.prefetchOrder = List.of();
+                    continue;
+                }
+                List<Key> keys = around(player.getX(), player.getZ());
+                // слой чанков — только там, где у клиента есть чанки
+                if (!layer.source.offThread()) keys.removeIf(k -> !nearPlayer(k));
+                layer.prefetch = new HashSet<>(keys);
+                layer.prefetchOrder = keys;
+                for (Key k : keys) layer.tiles.computeIfAbsent(k, Tile::new);
+                evict(layer);
+                if (layer.source.offThread()) request(current, layer, keys, true);
             }
-            List<Key> keys = around(player.getX(), player.getZ());
-            layer.prefetch = new HashSet<>(keys);
-            for (Key k : keys) layer.tiles.computeIfAbsent(k, Tile::new);
-            evict(layer);
-            request(current, layer, keys, true);
+        }
+        // слой чанков читается только в потоке игры: каждый тик, частями, под сроком по часам
+        long deadline = System.nanoTime() + PREFETCH_TICK_NS;
+        for (Layer layer : layers) {
+            if (layer.source.offThread() || layer.broken) continue;
+            prefetchInGameThread(layer, prefetching, () -> layer.source.open(current), System::nanoTime, deadline, b -> apply(layer, b, true));
         }
     }
 
     /**
      * Рельеф заранее — только тем, кому карта нужна: включено в настройках клиента, и пульт в инвентаре или карту
-     * в этом мире уже открывали. Иначе DH читал бы свою базу у каждого игрока со сборкой всю игру.
+     * в этом мире уже открывали. Иначе DH читал бы свою базу у каждого игрока со сборкой всю игру, а тик клиента
+     * строил бы плитки чанков. Инвентарь смотрится, только если первые два условия не решили.
      */
-    private static boolean prefetchWanted(LocalPlayer player) {
-        if (!AirstrikeConfig.CLIENT.mapPrefetch.get()) return false;
-        return opened || player.getInventory().contains(s -> s.is(ModItems.DESIGNATOR.get()));
+    static boolean prefetchWanted(boolean enabled, boolean opened, BooleanSupplier hasDesignator) {
+        return enabled && (opened || hasDesignator.getAsBoolean());
+    }
+
+    /**
+     * Плитка слоя, который читается только в потоке игры, построенная заранее не целиком: колонки до {@code next}
+     * (по рядам) прочитаны. Дочитывается в следующих тиках; готовая ложится в слой, только если её за это время
+     * не построила карта ({@code started}).
+     */
+    static final class Partial {
+        final Key key;
+        final long started;
+        final Columns columns = new Columns();
+        int next;
+        long nanos;
+
+        Partial(Key key, long started) {
+            this.key = key;
+            this.started = started;
+        }
+    }
+
+    /**
+     * Заранее, в потоке игры, — плитки слоя из {@link Layer#prefetchOrder} (ближние первыми), которых нет, которые
+     * устарели или неполны по их часам, по одной колонке, пока часы {@code clock} не дошли до {@code deadline}: начатая
+     * плитка продолжается со следующего тика, готовая уходит в {@code sink}. Не нужно ({@code wanted} false) — начатая
+     * бросается, а источник и часы не трогаются: без пульта и открытой карты это ничего не стоит.
+     */
+    static void prefetchInGameThread(Layer layer, boolean wanted, Supplier<TerrainSource.Reader> open, LongSupplier clock, long deadline,
+                                     Consumer<Built> sink) {
+        if (!wanted) {
+            layer.partial = null;
+            return;
+        }
+        if (layer.partial == null && (layer.partial = nextPartial(layer, clock.getAsLong())) == null) return;
+        TerrainSource.Reader reader = open.get();
+        if (reader == null) return;
+        try (reader) {
+            while (layer.partial != null) {
+                Partial p = layer.partial;
+                long start = clock.getAsLong();
+                // подробная плитка: колонка — каждый блок
+                int x0 = p.key.tx * SIZE, z0 = p.key.tz * SIZE;
+                boolean late = false;
+                while (p.next < SIZE * SIZE) {
+                    if (clock.getAsLong() >= deadline) {
+                        late = true;
+                        break;
+                    }
+                    int x = p.next % SIZE, z = p.next / SIZE;
+                    TerrainSource.Column col = reader.column(x0 + x, z0 + z);
+                    if (col != null) p.columns.set(p.next, col);
+                    p.next++;
+                }
+                long now = clock.getAsLong();
+                p.nanos += now - start;
+                if (late) return;
+                layer.partial = null;
+                Tile t = layer.tiles.get(p.key);
+                // за это время её построила карта (или плитку вытеснили) — эта уже не новее
+                if (t != null && t.builtAt <= p.started) sink.accept(new Built(p.key, generation, p.columns, p.nanos));
+                if (now >= deadline || (layer.partial = nextPartial(layer, now)) == null) return;
+            }
+        }
+    }
+
+    /** Следующая плитка, которую слой строит заранее: как {@link #request} с {@code prefetch}. */
+    @Nullable
+    private static Partial nextPartial(Layer layer, long now) {
+        for (Key key : layer.prefetchOrder) {
+            Tile t = layer.tiles.get(key);
+            if (t == null || t.buildingSince != 0) continue;
+            int u = urgency(false, t.builtAt, t.stale, t.columns, layer.source.refreshNanos(), now);
+            if (u == 0 || u == 1 && (t.columns == null || !t.columns.complete())) {
+                t.stale = false;
+                return new Partial(key, now);
+            }
+        }
+        return null;
     }
 
     /** Карта наведения открыта: дальше рельеф вокруг игрока строится заранее до выхода из мира. */
@@ -384,8 +495,9 @@ public final class TerrainTiles {
         layers = List.of();
         level = null;
         generation++;
-        progress = new Progress(0, 0);
+        progress = new Progress(0, 0, "");
         opened = false;
+        prefetching = false;
         // очередь событий DH держала бы обёртки мира, из которого вышли
         if (distantHorizons) DistantHorizonsTerrain.clearChanges();
         if (executor != null) {
