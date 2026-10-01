@@ -6,6 +6,9 @@
 # Изолирован от рабочего стола:
 #   - своя сессионная шина D-Bus (dbus-run-session): на общей шине вложенный KWin цеплялся к kglobalaccel хоста
 #     под тем же именем компонента «kwin» и при выходе выключал все его сочетания (Alt+Tab и т.д.);
+#   - эта шина служб не запускает (nested_kwin_bus.conf — без D-Bus-активации): XDG_RUNTIME_DIR общий с рабочим
+#     столом, и поднятый ею xdg-document-portal снимал у хоста маунт $XDG_RUNTIME_DIR/doc — flatpak-приложения
+#     (Prism) не запускались. Сама сессия кладёт туда только свои сокеты с уникальными именами (wayland-airstrike-…);
 #   - свои каталоги XDG (config, data, cache, state) в mod/run/kwin/<сокет>: KConfig читает и пишет kwinrc
 #     и прочее по спецификации XDG Base Directory, так что настройки рабочего стола не трогаются;
 #   - без окна на рабочем столе: бэкенд --virtual рисует во внеэкранный буфер (на видеокарте, через EGL), окна
@@ -25,5 +28,6 @@ exec env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
     XDG_CONFIG_HOME="$HOME_DIR/config" XDG_DATA_HOME="$HOME_DIR/data" \
     XDG_CACHE_HOME="$HOME_DIR/cache" XDG_STATE_HOME="$HOME_DIR/state" \
     PIPEWIRE_REMOTE="$HOME_DIR/no-audio-server" PULSE_SERVER="unix:$HOME_DIR/no-audio-server" \
-    dbus-run-session -- kwin_wayland --virtual --xwayland --socket "$SOCKET" \
-    --width "$WIDTH" --height "$HEIGHT" --exit-with-session "$COMMAND"
+    dbus-run-session --config-file="$ROOT/tools/nested_kwin_bus.conf" -- \
+    kwin_wayland --virtual --xwayland --socket "$SOCKET" --width "$WIDTH" --height "$HEIGHT" \
+    --exit-with-session "$COMMAND"
