@@ -1,4 +1,4 @@
-# Ноутбук: финальная проверка кандидата перед выпуском (одна, полная сборка), версия 4
+# Ноутбук: финальная проверка кандидата перед выпуском (одна, полная сборка), версия 5
 
 Из заданий потоков PR: `perf/impact-profile-job.md` (#146), `nuke/laptop-gate.md` (#138), `map/laptop-map-check.md`
 (#150), `drones/laptop-drones.md` (#148), `crater/laptop-crater.md` (#147), `missile/laptop-visible-missile.md` (#149),
@@ -63,10 +63,10 @@ cd /mnt/data/projects/airstrike && git fetch origin main && \
 git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" <SHA> && \
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p "$W/mod/run/final" && \
 git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && test -f tools/logtime.py && echo "logtime.py есть" && \
-grep -q 'strike-profile hit' mod/src/devtest/java/ua/zentix/airstrike/scenario/StrikeProfile.java && grep -q 'airstrike.commands.gap' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java && echo "сценарии v4" && \
+grep -q 'strike-profile hit' mod/src/devtest/java/ua/zentix/airstrike/scenario/StrikeProfile.java && grep -q 'strike-profile clock utc' mod/src/devtest/java/ua/zentix/airstrike/scenario/StrikeProfile.java && grep -q 'airstrike.commands.gap' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java && echo "сценарии v5" && \
 grep -hoE '"(strike-profile|commands|fx|salvo-map|target-map)"' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java | sort -u
 ```
-Должно быть «коммит верный», «logtime.py есть», «сценарии v4» и пять имён сценариев: `commands`, `fx`, `salvo-map`, `strike-profile`, `target-map`.
+Должно быть «коммит верный», «logtime.py есть», «сценарии v5» и пять имён сценариев: `commands`, `fx`, `salvo-map`, `strike-profile`, `target-map`.
 Не хватает — стоп, прислать вывод.
 
 Сборка тестового jar (в фоне, тайм-аут вызова 25 мин; код не 0 — стоп, сообщить):
@@ -120,8 +120,11 @@ timeout -k 60 40m tools/laptop_job.sh final-salvo -- python3 tools/prod_client.p
 на окно; разрывы ≥ 250 мс — с паузами GC из `gc.log` и автосохранением; попадания снарядов; до 40 строк `Попадания (`).
 **Разрыв** — строка `tick` (тик сервера) или `period` (от начала тика до начала следующего: туда входят и задачи потока
 сервера между тиками, и всё, что поток не работал) от 250 мс. Объяснён, если это автосохранение мира (кончился не позже
-1 с после строки «Saving sub-levels») или без пауз GC, попавших в его промежуток, он короче 250 мс. Необъяснённые
-промежутки `results.py` пишет в `gaps.txt` для разбора JFR (блок ниже):
+1 с после строки «Saving sub-levels») или без пауз GC, попавших в его промежуток, он короче 250 мс. Часы лога, `gc.log`
+и JFR у клиента бывают в разных поясах (v4: лог +3, `gc.log` +2) — всё сравнивается в UTC: сдвиг лога — из строки
+`strike-profile clock utc …`, у паузы GC — из её метки (заголовок раздела разрывов показывает оба). Нет строки `clock` —
+`results.py` выходит с кодом 3 (сбой задания, сообщить). Необъяснённые промежутки `results.py` пишет в `gaps.txt` для
+разбора JFR (блок ниже):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/A && cat > mod/run/final/A/results.py <<'EOT'
 import re, sys
@@ -138,21 +141,37 @@ steps = [(t, l) for t, l in rows if "SCENARIO strike-profile step" in l]
 # автосохранение мира (Sable пишет «Saving sub-levels»): тик, кончившийся в 1 с после строки, — не мода
 saves = [t for t, l in rows if "Saving sub-levels" in l]
 def autosave(t): return any(s <= t <= s + 1 for s in saves)
-# паузы GC: «[2026-10-01T04:14:19.100+0300][123.456s] GC(12) Pause Young … 23.456ms» — время строки = конец паузы,
-# часы те же, что у лога (один процесс); в секунды суток по логу
-pauses, offset = [], None
+# Часы: лог, gc.log и JFR одного клиента бывают в разных поясах (ноутбук хоста: лог +3, gc.log +2, `jfr print` +3),
+# поэтому всё сравнивается в UTC (секунды суток). Сдвиг лога — из строки «strike-profile clock utc …» (настоящее время
+# рядом с временем строки), у каждой строки gc.log — свой сдвиг в её метке.
+def utc_sec(hh, mm, ss, frac, off):
+    s = int(hh) * 3600 + int(mm) * 60 + int(ss) + float("0." + (frac or "0"))
+    if off and off != "Z":
+        o = off.replace(":", ""); s -= (1 if o[0] == "+" else -1) * (int(o[1:3]) * 3600 + int(o[3:5]) * 60)
+    return s
+log_off = None
+for t, l in rows:
+    if m := re.search(r"strike-profile clock utc \d{4}-\d\d-\d\dT(\d\d):(\d\d):(\d\d)(?:\.(\d+))?Z", l):
+        d = (t - utc_sec(*m.groups(), None)) % 86400
+        log_off = round((d if d < 50400 else d - 86400) / 900) * 900  # пояса кратны 15 мин
+        break
+def utc(t): return t - log_off
+# паузы GC: «[2026-10-01T04:14:19.100+0200][123.456s] GC(12) Pause Young … 23.456ms» — время строки = конец паузы
+pauses, gc_offs, gc_bad = [], set(), 0
 try:
     for g in open(gc_path, encoding="utf-8", errors="replace"):
-        m = re.match(r"\[\d{4}-\d\d-\d\dT(\d\d):(\d\d):(\d\d)\.(\d+)([+-]\d{4})?\]", g)
+        m = re.match(r"\[\d{4}-\d\d-\d\dT(\d\d):(\d\d):(\d\d)\.(\d+)([+-]\d{4}|Z)?\]", g)
         d = re.search(r"Pause.*?(\d+(?:\.\d+)?)ms\s*$", g)
         if not m or not d: continue
-        offset = offset or m[5]
-        end = int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) + float("0." + m[4])
+        if not m[5]: gc_bad += 1; continue  # без пояса в метке время не сопоставить
+        gc_offs.add(m[5])
+        end = utc_sec(*m.groups())
         pauses.append((end - float(d[1]) / 1000, end, float(d[1])))
 except FileNotFoundError:
     print(f"!! нет {gc_path}: паузы GC не сопоставлены")
+if gc_bad: print(f"!! строк пауз GC без пояса в метке: {gc_bad} — не сопоставлены")
 def gc_in(a, b):
-    """Сколько мс пауз GC внутри [a, b] (секунды по логу; сутки — по модулю)."""
+    """Сколько мс пауз GC внутри [a, b] (секунды суток UTC; сутки — по модулю)."""
     s = 0.0
     for p0, p1, _ in pauses:
         k = round((a - p0) / 86400)  # тот же день, что у промежутка
@@ -170,7 +189,9 @@ for s, l in steps:
     slow = sorted((r for r in near if ms(r[1]) >= 100 and r[0] >= first), key=lambda r: -ms(r[1]))
     print(f"-- tick/period от 100 мс за [−10, +60 с], с первого шага: {len(slow)} (до 15 самых долгих)")
     for t, x in slow[:15]: print(short(t, x) + ("  [автосохранение]" if autosave(t) else ""))
-print(f"\n== разрывы от 250 мс с первого шага (GC-пауз в логе: {len(pauses)}, часы GC {offset or '?'})")
+def zone(o): return "?" if o is None else f"{'+' if o >= 0 else '-'}{abs(o) // 3600:02d}{abs(o) % 3600 // 60:02d}"
+print(f"\n== разрывы от 250 мс с первого шага (GC-пауз в логе: {len(pauses)}; часы: лог {zone(log_off)}, GC {' '.join(sorted(gc_offs)) or '?'})")
+if log_off is None: print("!! нет строки «strike-profile clock utc» — часы лога неизвестны, паузы GC и окна JFR не сопоставить")
 tps = [t for t, l in steps if "step «tp " in l]
 ticks = [(t, ms(l)) for t, l in rows if "strike-profile tick " in l]
 bad = []
@@ -180,16 +201,19 @@ for t, l in rows:
     # period, в который входит уже показанный долгий тик (тот же разрыв), — не второй раз
     if "period" in l and any(t - 0.1 <= u <= t and m >= n - 50 for u, m in ticks): continue
     a, b = t - n / 1000, t
-    g = gc_in(a, b)
+    g = None if log_off is None else gc_in(utc(a), utc(b))
+    gs = "?" if g is None else f"{g:.0f}"
     if autosave(t): why = "автосохранение"
     elif any(p <= t <= p + 5 for p in tps): why = "5 с после tp"
-    elif n - g < 250: why = f"GC {g:.0f} мс"
+    elif g is not None and n - g < 250: why = f"GC {gs} мс"
     else:
-        why = f"НЕ ОБЪЯСНЁН (GC {g:.0f} мс)"; bad.append((a, b))
+        why = f"НЕ ОБЪЯСНЁН (GC {gs} мс)"; bad.append((a, b))
     print(f"{short(t, l)}  — {why}")
 if not bad: print("необъяснённых нет")
-with open(gaps_path, "w") as f:
-    for a, b in bad: f.write(f"{a:.3f} {b:.3f}\n")
+# gaps.txt: начало и конец в UTC (секунды суток), как и время JFR после разбора его метки, и сдвиг лога (для строк по логу)
+if log_off is not None:
+    with open(gaps_path, "w") as f:
+        for a, b in bad: f.write(f"{utc(a) % 86400:.3f} {utc(a) % 86400 + (b - a):.3f} {log_off}\n")
 print(f"необъяснённых: {len(bad)}")
 hits = [(t, l) for t, l in rows if "SCENARIO strike-profile hit " in l]
 far = [(t, l) for t, l in hits if (m := re.search(r": (\d+) blocks horizontal, (-?\d+) above", l)) and (int(m[1]) > 10 or abs(int(m[2])) > 10)]
@@ -198,47 +222,65 @@ for t, l in hits: print(short(t, l))
 hl = [(t, l) for t, l in rows if ("Попадания (" in l or "Планировщик" in l or "WorkScheduler" in l) and "[CHAT]" not in l]
 print(f"\n== Попадания / планировщик: {len(hl)} (первые 40)")
 for t, l in hl[:40]: print(short(t, l))
+if log_off is None: sys.exit(3)  # сбой задания: без часов лога разрывы не разобрать
 EOT
-D=mod/run/final/A && L=$D/logs/full.log && python3 $D/results.py "$L" $D/logs/gc.log $D/gaps.txt > $D/results.txt; \
+D=mod/run/final/A && L=$D/logs/full.log && python3 $D/results.py "$L" $D/logs/gc.log $D/gaps.txt > $D/results.txt; echo "results.py: код $?"; \
 python3 tools/logscan.py "$L" --all > $D/logscan.txt; wc -lc $D/*.txt
 ```
 Только если в `results.txt` есть «НЕ ОБЪЯСНЁН» (`gaps.txt` не пуст): что делал поток сервера в этих
-промежутках (до 8 самых долгих), по JFR — задачей `final-jfr`, куча `jfr` до 2 ГБ (в фоне, тайм-аут вызова 25 мин;
-код не 0 — сбой, сообщить). Часы JFR — UTC, сдвиг к часам лога
-берётся из `gc.log`:
+промежутках (до 8 самых долгих), по JFR — задачей `final-jfr`, куча `jfr` до 2 ГБ, стек до 64 кадров (в фоне, тайм-аут
+вызова 35 мин; код не 0 — сбой, сообщить). Время события JFR переводится в UTC по поясу в его же метке (`jfr print`
+пишет «+03:00» или «Z»), промежутки в `gaps.txt` — уже в UTC. Разрыв, у которого больше половины выборок потока
+сервера (и не меньше 5) — внутри DataFixerUpper (`com.mojang.datafixers`, `net.minecraft.util.datafix`), — **объяснён:
+ванильное обновление мира** (сервер переводит старые данные чанков и сущностей мира в формат 1.21.1; мод DataFixerUpper
+не зовёт). Выжимка пишет у каждого разрыва долю таких выборок, вердикт, самые частые стеки, первые кадры вне JDK
+и DataFixerUpper (откуда работа) и ожидания; в конце — «необъяснённых после JFR: K»:
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && D=mod/run/final/A && cat > $D/jfrwin.py <<'EOT'
-# Поток «Server thread» в необъяснённых разрывах: stdin — `jfr print --json`, аргументы — gaps.txt и gc.log (сдвиг часов).
+# Поток «Server thread» в необъяснённых разрывах: stdin — `jfr print --json`, аргумент — gaps.txt (начало, конец — UTC,
+# секунды суток; сдвиг часов лога в секундах).
 import collections, json, re, sys
 gaps = [tuple(map(float, l.split())) for l in open(sys.argv[1]) if l.strip()]
 # не больше 8 самых долгих разрывов: выжимка остаётся короткой
 dropped = max(0, len(gaps) - 8)
 gaps = sorted(sorted(gaps, key=lambda g: g[0] - g[1])[:8])
-off = next((m[1] for l in open(sys.argv[2], errors="replace") if (m := re.match(r"\[[^\]]*([+-]\d{4})\]", l))), "+0000")
-shift = (1 if off[0] == "+" else -1) * (int(off[1:3]) * 3600 + int(off[3:5]) * 60)
-def sec(ts):  # "2026-10-01T01:22:03.123456789Z" (UTC) -> секунды суток по часам лога
-    m = re.search(r"T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?", ts)
-    return (int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) + float("0." + (m[4] or "0")) + shift) % 86400
+no_zone = 0
+def sec(ts):  # "2026-10-01T07:22:03.123456789+03:00" или "…Z" -> секунды суток UTC по поясу самой метки
+    global no_zone
+    m = re.search(r"T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d:?\d\d)?", ts)
+    s = int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) + float("0." + (m[4] or "0"))
+    if not m[5]: no_zone += 1
+    elif m[5] != "Z":
+        o = m[5].replace(":", ""); s -= (1 if o[0] == "+" else -1) * (int(o[1:3]) * 3600 + int(o[3:5]) * 60)
+    return s % 86400
 def dur(v):
     d = v.get("duration")
     if isinstance(d, (int, float)): return d / 1e6
     m = re.match(r"PT(?:(\d+)M)?([\d.]+)S", str(d or ""))
     return (int(m[1] or 0) * 60 + float(m[2])) * 1000 if m else 0.0
-def frame(f):
-    return f["method"]["type"]["name"].replace("/", ".") + "." + f["method"]["name"] + ":" + str(f.get("lineNumber", ""))
-stat = [[0, collections.Counter(), {}] for _ in gaps]
-def hms(t): t %= 86400; return f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{t % 60:06.3f}"
+def name(f): return f["method"]["type"]["name"].replace("/", ".")
+def frame(f): return name(f) + "." + f["method"]["name"] + ":" + str(f.get("lineNumber", ""))
+DFU = ("com.mojang.datafixers.", "net.minecraft.util.datafix.")
+NOISE = ("java.", "jdk.", "sun.", "com.google.common.", "it.unimi.") + DFU
+def dfu(fr): return any(name(f).startswith(DFU) for f in fr)
+def origin(fr):  # первые кадры вне JDK, библиотек и DataFixerUpper: чья это работа
+    own = [f for f in fr if not name(f).startswith(NOISE) and "LambdaForm" not in name(f) and "$$Lambda" not in name(f)]
+    return " <- ".join(frame(f) for f in own[:4])[:300] if own else "— (все кадры в JDK/DataFixerUpper)"
+# [выборок, из них в DataFixerUpper, стеки, откуда, ожидания]
+stat = [[0, 0, collections.Counter(), collections.Counter(), {}] for _ in gaps]
 def event(e):
     v = e["values"]
     if (v.get("sampledThread") or v.get("eventThread") or {}).get("javaName") != "Server thread": return
     t0 = sec(v["startTime"]); fr = (v.get("stackTrace") or {}).get("frames") or []
-    for i, (a, b) in enumerate(gaps):
+    for i, (a, b, _) in enumerate(gaps):
         k = round((a - t0) / 86400) * 86400
         if e["type"] == "jdk.ExecutionSample":
-            if a <= t0 + k <= b and fr: stat[i][0] += 1; stat[i][1][" <- ".join(frame(f) for f in fr[:6])[:300]] += 1
+            if a <= t0 + k <= b and fr:
+                st = stat[i]; st[0] += 1; st[1] += dfu(fr)
+                st[2][" <- ".join(frame(f) for f in fr[:6])[:300]] += 1; st[3][origin(fr)] += 1
         elif t0 + k < b and t0 + k + dur(v) / 1000 > a:
-            w = stat[i][2]; k = f"{e['type'][4:]}: " + (" <- ".join(frame(f) for f in fr[:6])[:300] if fr else "—")
-            w[k] = (w.get(k, (0, 0.0))[0] + 1, w.get(k, (0, 0.0))[1] + dur(v))
+            w = stat[i][4]; key = f"{e['type'][4:]}: " + (" <- ".join(frame(f) for f in fr[:6])[:300] if fr else "—")
+            w[key] = (w.get(key, (0, 0.0))[0] + 1, w.get(key, (0, 0.0))[1] + dur(v))
 buf, inside = [], False
 for line in sys.stdin:
     if not inside:
@@ -250,22 +292,34 @@ for line in sys.stdin:
         buf = ["{"]
     else:
         buf.append(line)
+def hms(t): t %= 86400; return f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{t % 60:06.3f}"
 print(f"разрывов: {len(gaps) + dropped}, разобраны {len(gaps)} самых долгих, отброшено {dropped}")
-for (a, b), (n, stacks, waits) in zip(gaps, stat):
-    print(f"\n=== разрыв {hms(a)}–{hms(b)} ({(b - a) * 1000:.0f} мс): выборок потока сервера {n}")
+if no_zone: print(f"!! событий JFR без пояса в метке: {no_zone} — считаны как UTC")
+left = dropped
+for (a, b, off), (n, nd, stacks, origins, waits) in zip(gaps, stat):
+    upgrade = n >= 5 and nd * 2 > n
+    left += not upgrade
+    verdict = "объяснён: ванильное обновление мира" if upgrade else "НЕ ОБЪЯСНЁН"
+    print(f"\n=== разрыв {hms(a + off)}–{hms(b + off)} по логу ({hms(a)} UTC, {(b - a) * 1000:.0f} мс): выборок потока сервера {n}, "
+          f"в DataFixerUpper {nd} — {verdict}")
     for k, c in stacks.most_common(8): print(f"{c:4d} {k}")
+    print("-- откуда (первые кадры вне JDK и DataFixerUpper):")
+    for k, c in origins.most_common(4): print(f"{c:4d} {k}")
     for k, (c, ms) in sorted(waits.items(), key=lambda kv: -kv[1][1])[:8]: print(f"ожидание ×{c}, {ms:.0f} мс — {k}")
+print(f"\nнеобъяснённых после JFR: {left}" + (f" (из них не разобрано {dropped})" if dropped else ""))
 EOT
 J="$JAVA_HOME/bin/jfr"; [ -x "$J" ] || J="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta/bin/jfr"; \
-timeout -k 60 20m tools/laptop_job.sh final-jfr -- bash -c 'set -o pipefail; "$0" -J-Xmx2g print --json --stack-depth 12 --events jdk.ExecutionSample,jdk.ThreadPark,jdk.JavaMonitorEnter,jdk.ThreadSleep,jdk.FileRead,jdk.FileWrite,jdk.SafepointBegin "$1" | python3 "$2" "$3" "$4" > "$5"' \
-  "$J" $D/A.jfr $D/jfrwin.py $D/gaps.txt $D/logs/gc.log $D/jfrwin.txt; echo "код $?"; wc -lc $D/jfrwin.txt
+timeout -k 60 30m tools/laptop_job.sh final-jfr -- bash -c 'set -o pipefail; "$0" -J-Xmx2g print --json --stack-depth 64 --events jdk.ExecutionSample,jdk.ThreadPark,jdk.JavaMonitorEnter,jdk.ThreadSleep,jdk.FileRead,jdk.FileWrite,jdk.SafepointBegin "$1" | python3 "$2" "$3" > "$4"' \
+  "$J" $D/A.jfr $D/jfrwin.py $D/gaps.txt $D/jfrwin.txt; echo "код $?"; wc -lc $D/jfrwin.txt
 ```
 Остановить — только `systemctl --user stop 'airstrike-job-final-jfr-*'`.
 **Проходит, если:** 4 строки `step` и `SCENARIO done`; в окнах ракеты и шахедов нет **необъяснённых** разрывов (тики
 при входе в мир до первого шага и 5 с после `tp` не считаются); автосохранение (`/mnt/project-files/tick-baseline-68986c0.txt`:
 у базовой линии без ударов тот же тик 213 мс) и разрывы, объяснённые GC, — в итог отдельной строкой для сведения;
 строк о медленном тике попаданий нет или каждая короче тика (50 мс) — готовность корня 1; logscan — без ошибок мода.
-Необъяснённый разрыв — FAIL шага: прислать и `jfrwin.txt`, решение — у координатора.
+Разрыв, который `jfrwin.txt` объяснил ванильным обновлением мира, — не провал, в итог для сведения (мир Greenfield
+заранее не обновляется, эталон тот же). Необъяснённый и после JFR (или не разобранный сверх 8) — FAIL шага: прислать
+и `jfrwin.txt`, решение — у координатора.
 **Попадания снарядов** (для сведения, не критерий): по строке `hit` на снаряд — где он был при первом взрыве, фаза,
 взведён ли, курс, своя точка цели, расстояние до неё и блок, в который попал; «дальше 10 блоков от своей точки» —
 врезался по пути. Прислать: `results.txt` целиком, `jfrwin.txt` (если был), из `logscan.txt` разделы «Ошибки»
@@ -300,7 +354,9 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" &
 Корова с постоянным UUID висит над местом ENOTzRPG; залп 30 шахедов с разбросом 50; корова дважды сдвигается на
 60 блоков, погибает; через 47 с — когда весь залп уже пущен (30 пусков через 20–40 тиков — до 58 с от приказа,
 `/kill` — через ~31 с) — на 150 блоков восточнее появляется корова с тем же UUID: шахеды в полёте не должны взять
-её заново. Шахед, пущенный после `/kill`, цели уже не находит и сразу её теряет — он в той же сумме. «;» внутри `[I;…]` сценарий
+её заново. Залп следит за целью каждый тик (#163, `SalvoData.Salvo.watchCenter`): корова погибла — остаток залпа
+(ещё не пущенные шахеды) идёт в точку, где её видели последний раз, строка «Залп: drone — цель … погибла, остаток (R) — по её
+последней точке …», и поздние пуски цели-сущности уже не имеют (строк о потере не пишут) — они в той же сумме. «;» внутри `[I;…]` сценарий
 `commands` не режет (`ScenarioCommands`: разделитель — только «;» вне скобок и кавычек). Прогон (тайм-аут 30 мин):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final && touch mod/run/final/.step-start && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
@@ -310,15 +366,16 @@ timeout -k 60 25m tools/laptop_job.sh final-drones -- python3 tools/prod_client.
 Выжимка:
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/B && L=mod/run/final/B/logs/full.log && \
-{ echo "== шаги, чат, удары, снаряды"; grep -a -E 'SCENARIO /|\[CHAT\]|Airstrike/\]: (Удар|Снаряды):|SCENARIO done' "$L" | cut -c1-300 | head -80; \
-  echo "== по времени"; python3 tools/logtime.py "$L" 'SCENARIO /(kill|summon)|потеряли цель|Итог удара' --since 'SCENARIO /airstrike salvo' | cut -c1-260; \
+{ echo "== шаги, чат, удары, снаряды"; grep -a -E 'SCENARIO /|\[CHAT\]|Airstrike/\]: (Удар|Снаряды|Залп):|SCENARIO done' "$L" | cut -c1-300 | head -80; \
+  echo "== по времени"; python3 tools/logtime.py "$L" 'SCENARIO /(kill|summon)|потеряли цель|погибла, остаток|Итог удара' --since 'SCENARIO /airstrike salvo' | cut -c1-260; \
   echo "== logscan"; python3 tools/logscan.py "$L" --all | sed -n '1,/^== Загрузка мода/p' | head -40; } > mod/run/final/B/results.txt; wc -lc mod/run/final/B/results.txt
 ```
 **Проходит, если:** команды выполнились (нет «Unknown or incomplete command» / «do not have permission»); строка
-«Удар: drone ×30 разброс 50 … (сущность minecraft:cow)»; между `/kill` и `/summon … respawned` — строки «Снаряды:
-N × … потеряли цель (пропала) …» (первая — через 1–2 с после `/kill`, потом по одной на поздний пуск), в сумме
-N плюс строки «Итог удара» до `/kill` (любой удар залпа до `/kill` — у коровы или по пути: в v3 единственный такой шахед
-врезался в постройку в ~170 блоках от коровы) = 30, срок ≤ ~100 с; ни одной
+«Удар: drone ×30 разброс 50 … (сущность minecraft:cow)»; через 0–2 с после `/kill` — одна строка «Залп: drone — цель …
+погибла, остаток (R) — по её последней точке» и строка «Снаряды: N × … потеряли цель (пропала) …» (шахеды в полёте; до
+`/summon … respawned` других строк о потере нет); N + R + строки «Итог удара» до `/kill` (любой удар залпа до `/kill` —
+у коровы или по пути: в v3 единственный такой шахед врезался в постройку в ~170 блоках от коровы) = 30; поздние пуски
+(R) — строки «Итог удара» у последней точки коровы (около -272 110 -1142, разброс 50), срок ≤ ~100 с; ни одной
 строки о потере цели после появления второй коровы;
 `airstrike clear` — «total: 0» (или «0» по-русски); `execute if entity @e[tag=respawned]` — «Test passed»; logscan без
 ошибок мода. Прислать `results.txt`.
