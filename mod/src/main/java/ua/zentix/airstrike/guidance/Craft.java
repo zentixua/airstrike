@@ -34,10 +34,11 @@ public interface Craft {
     double relief(int x, int z);
 
     /**
-     * Прямая до точки {@code to} свободна от блоков, кроме последних {@code margin} блоков у самой точки (там цель
-     * достаёт взрыватель). Где мир не читается (полёт вне мира, неготовый чанк на пути), — свободна: датчик молчит.
+     * Сколько блоков прямой до точки {@code to} свободно от блоков: расстояние до первой закрытой клетки или
+     * {@link Double#POSITIVE_INFINITY}, если свободна вся прямая, кроме последних {@code margin} блоков у самой точки
+     * (там цель достаёт взрыватель). Где мир не читается (полёт вне мира, неготовый чанк на пути), — свободна: датчик молчит.
      */
-    boolean lineClear(Vec3 to, double margin);
+    double clearAlong(Vec3 to, double margin);
 
     /** Держать высоту {@code desired} ({@link AltitudeHold}). */
     default void holdAltitude(double desired, double gain, double maxRate, double maxAccel) {

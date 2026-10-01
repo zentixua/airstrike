@@ -149,8 +149,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         }
 
         @Override
-        public boolean lineClear(Vec3 to, double margin) {
-            return StrikeProjectile.this.lineClear(level(), to, margin);
+        public double clearAlong(Vec3 to, double margin) {
+            return StrikeProjectile.this.clearAlong(level(), to, margin);
         }
     };
     /** Маршрут до точки входа; null — сразу на цель. */
@@ -1081,20 +1081,21 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Датчик {@link Craft#lineClear}: клетки блоков на прямой до точки без последних {@code margin} блоков, только по
+     * Датчик {@link Craft#clearAlong}: клетки блоков на прямой до точки без последних {@code margin} блоков, только по
      * готовым чанкам ({@link Terrain#readyUntil}); вне мира — свободна. Закрывает клетка с любой формой столкновения
      * целиком: у тонкого (забор, мачта из заборов — столб 0,25 блока) луч по форме ({@code Level.clip}) обычно проходит
      * мимо, а шахед своим корпусом его задевает. Цена — обход клеток по прямой ({@code BlockGetter.traverseBlocks}),
      * до первой закрытой.
      */
-    protected boolean lineClear(Level level, Vec3 to, double margin) {
-        if (virtual) return true;
+    protected double clearAlong(Level level, Vec3 to, double margin) {
+        if (virtual) return Double.POSITIVE_INFINITY;
         Vec3 from = position();
         double length = from.distanceTo(to);
-        if (length <= margin) return true;
+        if (length <= margin) return Double.POSITIVE_INFINITY;
         Vec3 end = Terrain.readyUntil(level, from, from.lerp(to, (length - margin) / length));
-        return BlockGetter.traverseBlocks(from, end, level,
-                (l, pos) -> l.getBlockState(pos).getCollisionShape(l, pos).isEmpty() ? null : Boolean.FALSE, l -> Boolean.TRUE);
+        BlockPos blocked = BlockGetter.traverseBlocks(from, end, level,
+                (l, pos) -> l.getBlockState(pos).getCollisionShape(l, pos).isEmpty() ? null : pos.immutable(), l -> null);
+        return blocked == null ? Double.POSITIVE_INFINITY : from.distanceTo(Vec3.atCenterOf(blocked));
     }
 
     // ---------------------------------------------------------------- чанки

@@ -124,10 +124,10 @@ class AutopilotPropertiesTest {
             return max;
         }
 
-        /** Как {@code StrikeProjectile.lineClear}: рельеф не выше прямой до точки, кроме последних {@code margin} блоков. */
+        /** Как {@code StrikeProjectile.clearAlong}: до первой точки прямой ниже рельефа, кроме последних {@code margin} блоков. */
         @Override
-        public boolean lineClear(Vec3 to, double margin) {
-            return !blocked(ground, pos, to, margin);
+        public double clearAlong(Vec3 to, double margin) {
+            return blockedAt(ground, pos, to, margin);
         }
     }
 
@@ -146,7 +146,7 @@ class AutopilotPropertiesTest {
 
     /**
      * Известный изъян законов атаки, а не общей миссии: горка ракеты (до цели+32) считается от высоты цели, а рельеф
-     * между ракетой и целью не видит; пике шахеда ждёт свободной прямой до цели ({@link Craft#lineClear}), но не дольше,
+     * между ракетой и целью не видит; пике шахеда ждёт свободной прямой до цели ({@link Craft#clearAlong}), но не дольше,
      * чем нос успевает довернуть ({@code DroneAutopilot.turnDistance}). Цель на дне глубокого карьера,
      * за холмом после перенацеливания, идущая вверх по склону чаши — снаряд на атаке задевает склон или край, не долетев
      * (десятки блоков). Для таких полётов обязательны только конец полёта и отсутствие кружения; исправление — отдельным
@@ -297,12 +297,17 @@ class AutopilotPropertiesTest {
 
     /** Рельеф выше линии визирования {@code from → to} (кроме последних {@code margin} блоков у самой цели). */
     static boolean blocked(Ground ground, Vec3 from, Vec3 to, double margin) {
+        return blockedAt(ground, from, to, margin) != Double.POSITIVE_INFINITY;
+    }
+
+    /** Где прямая {@code from → to} впервые уходит под рельеф (кроме последних {@code margin} блоков); нигде — бесконечность. */
+    static double blockedAt(Ground ground, Vec3 from, Vec3 to, double margin) {
         double length = from.distanceTo(to);
         for (double d = 0; d < length - margin; d += 1) {
             Vec3 p = from.lerp(to, d / length);
-            if (ground.at(p.x, p.z) > p.y) return true;
+            if (ground.at(p.x, p.z) > p.y) return d;
         }
-        return false;
+        return Double.POSITIVE_INFINITY;
     }
 
     /** Рельеф: равнина, пологие холмы (уклон не круче ~15°) или цель на дне карьера-чаши. */
