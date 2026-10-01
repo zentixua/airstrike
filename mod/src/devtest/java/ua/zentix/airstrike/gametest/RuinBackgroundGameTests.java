@@ -267,7 +267,7 @@ public final class RuinBackgroundGameTests {
             boolean stopped = NuclearWorld.onServerStopping(level.getServer());
             ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeEffectsScale.set(scale);
             int held = ruinTickets(level);
-            long threads = Thread.getAllStackTraces().keySet().stream().filter(t -> t.isAlive() && t.getName().startsWith("Airstrike ruins")).count();
+            long threads = ruinThreadsLeft();
             String left = "квадратов " + w.prepTiles() + ", в подготовке " + w.plannedChunks() + ", в очереди " + w.queuedChunks()
                     + ", тикетов руин " + held + ", потоков руин " + threads;
             NuclearStrikes.clear(level);
@@ -276,6 +276,26 @@ public final class RuinBackgroundGameTests {
             h.assertTrue(w.prepTiles() == 0 && w.plannedChunks() == 0 && w.queuedChunks() == 0 && held == 0, "после остановки осталась работа: " + left);
             h.succeed();
         });
+    }
+
+    /**
+     * Живые потоки руин после остановки пула. Пул объявляет остановку, когда счёт его потоков дошёл до нуля, а поток,
+     * уже вышедший из цикла пула, ещё доходит до конца {@code run()}: на CI 01.10.2026 «потоков руин 1» — в той же
+     * миллисекунде, что строка «фоновые потоки остановлены». Поэтому каждый ждётся, не дольше секунды: зависший так
+     * и остаётся в счёте.
+     */
+    private static long ruinThreadsLeft() {
+        long n = 0;
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (!t.getName().startsWith("Airstrike ruins")) continue;
+            try {
+                t.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (t.isAlive()) n++;
+        }
+        return n;
     }
 
     /** Тикеты ядерки на карте расстояний мира: свои и загрузки районов, чей район — ядерный (подготовка, зона). */
