@@ -10,6 +10,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import ua.zentix.airstrike.command.AirstrikeCommand;
+import ua.zentix.airstrike.compat.DhChunks;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.legacy.LegacyMigration;
@@ -69,9 +70,11 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);
+        NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
         NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogin);
@@ -85,9 +88,9 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
         NeoForge.EVENT_BUS.addListener(CraterFalls::onEntityJoin);
 
-        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onServerTick);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkSent);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
         NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);
@@ -95,6 +98,11 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
 
         NeoForge.EVENT_BUS.addListener(WorkScheduler::onServerTick);
+        if (ua.zentix.airstrike.nuclear.world.NukeDiag.ON) {
+            // диагностика прогонов (-Dairstrike.nukeDiag=true): стеки долгих тиков; без свойства — ни слушателей, ни потока
+            NeoForge.EVENT_BUS.addListener(ua.zentix.airstrike.nuclear.world.NukeDiag::onTickPre);
+            NeoForge.EVENT_BUS.addListener(ua.zentix.airstrike.nuclear.world.NukeDiag::onTickPost);
+        }
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
         NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);

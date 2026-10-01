@@ -470,6 +470,19 @@ public final class BlackoutWorld {
         return !idle() || !staleLight.isEmpty() || !resignal.isEmpty();
     }
 
+    /**
+     * Очередь занята, а у чанка {@code chunk} ждёт свет с диска или сверка сигнала (проверки). Ждущие сверки других
+     * чанков не в счёт: краевой чанк чужой проверки с лампой от сигнала ждёт соседей, пока не выгрузится.
+     */
+    public boolean busy(ChunkPos chunk) {
+        return !idle() || staleLight.containsKey(chunk.toLong()) || resignal.containsKey(chunk.toLong());
+    }
+
+    /** Чем занята очередь (проверки). */
+    public String busyState() {
+        return "очередь " + (idle() ? "пуста" : "не пуста") + ", свет с диска ждут " + staleLight.size() + " чанков, сверку сигнала — " + resignal.size();
+    }
+
     // ---------------------------------------------------------------- тик
 
     /** @param clock бюджет тика сервера для блэкаута, общий для всех измерений (уже запущен) */

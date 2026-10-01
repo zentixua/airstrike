@@ -164,18 +164,20 @@ public final class NuclearStrikes {
     // ---------------------------------------------------------------- события мира
 
     /**
-     * Ядерная часть всех измерений — после тика миров, под одним бюджетом на тик сервера ({@code destruction_ms_per_tick}).
-     * Каждый тик первым идёт следующее измерение: первому достаётся весь бюджет (и одна единица работы — всегда),
-     * так что очередь одного измерения не держит работу другого вечно.
+     * Ядерная часть всех измерений — полоса NUCLEAR общего бюджета ({@code WorkScheduler}): после попаданий, срок —
+     * что оставили они, не больше {@code destruction_ms_per_tick}; часы уже запущены. Миры — по кругу, как у полосы
+     * (первому достаётся весь срок и одна единица работы — всегда). Фоновый пул руин ({@code RuinWorkers}) — вне часов.
      */
-    public static void onServerTick(ServerTickEvent.Post e) {
-        MinecraftServer server = e.getServer();
-        WorkClock clock = NuclearWorld.clock(server);
-        clock.start(AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L);
-        List<ServerLevel> levels = new ArrayList<>();
-        server.getAllLevels().forEach(levels::add);
-        Collections.rotate(levels, -(server.getTickCount() % levels.size()));
+    public static void work(List<ServerLevel> levels, WorkClock clock) {
         for (ServerLevel level : levels) tick(level, clock);
+    }
+
+    /** Есть ли у очередей ядерки работа потока сервера (в любом измерении). */
+    public static boolean pending(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.hasData(ua.zentix.airstrike.registry.ModAttachments.NUCLEAR_WORLD) && NuclearWorld.get(level).busy()) return true;
+        }
+        return false;
     }
 
     private static void tick(ServerLevel level, WorkClock clock) {
@@ -193,7 +195,7 @@ public final class NuclearStrikes {
         for (NuclearEvents.ScheduledStrike s : due) {
             events.unschedule(s);
             holdGround(level, s, false);
-            Vec3 at = s.surface() ? surface(level, s.target()) : s.target();
+            Vec3 at = s.surface() ? NuclearWarhead.surfaceAt(level, s.target()) : s.target();
             NuclearWarhead.detonate(level, at, s.yieldKt(), s.airBurst(), s.owner().orElse(null));
         }
         if (now % 1200 == 0) events.prune(now);
@@ -221,8 +223,13 @@ public final class NuclearStrikes {
 
     public static void onChunkUnload(ChunkEvent.Unload e) {
         if (e.getLevel() instanceof ServerLevel level && e.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk) {
-            NuclearWorld.get(level).onChunkUnload(chunk);
+            NuclearWorld.get(level).onChunkUnload(level, chunk);
         }
+    }
+
+    /** Чанк ушёл игроку: руины, которые должны уже стоять, а не стоят, — в сводку подрыва. */
+    public static void onChunkSent(net.neoforged.neoforge.event.level.ChunkWatchEvent.Sent e) {
+        NuclearWorld.get(e.getLevel()).onChunkSent(e.getLevel(), e.getChunk());
     }
 
     /** Вход и смена измерения: действующие подрывы и летящие ракеты этого измерения. */
@@ -263,11 +270,6 @@ public final class NuclearStrikes {
     }
 
     /** Точка на поверхности в месте цели, выше она или ниже оценки (цель с карты); чанк не готов — оценка. */
-    private static Vec3 surface(ServerLevel level, Vec3 at) {
-        BlockPos p = BlockPos.containing(at);
-        if (!Terrain.ready(level, p)) return at;
-        return new Vec3(at.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), at.z);
-    }
 
     /** Точка на земле под целью (для пуска по игроку или сущности — по их позиции). */
     public static Vec3 ground(ServerLevel level, Vec3 at) {

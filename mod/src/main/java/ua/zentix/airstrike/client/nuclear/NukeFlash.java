@@ -1,9 +1,11 @@
 package ua.zentix.airstrike.client.nuclear;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -18,9 +20,11 @@ import ua.zentix.airstrike.nuclear.model.FireballModel;
 import ua.zentix.airstrike.nuclear.model.ThermalModel;
 
 /**
- * Вспышка ядерного взрыва на экране (DESIGN-nuke §6): белый экран по двойному импульсу яркости шара, медленно
- * отпускающий глаз, затем — тёмно-оранжевое «пятно» послеобраза там, где был шар, если игрок на него смотрел.
- * Сила — по световому импульсу у игрока: прямая видимость и шар в поле зрения — полная, иначе треть (засветка неба).
+ * Вспышка ядерного взрыва на экране (DESIGN-nuke §6): белый экран, пока идёт световой импульс (~10·t_max: 15 кт —
+ * 1.2 с, 1 кт — 0.3 с), и глаз, который отпускает за 2–4 с (чем сильнее импульс, тем дольше), затем — тёмно-оранжевое
+ * «пятно» послеобраза там, где был шар, если игрок на него смотрел. Весь мир в это время освещён, как молнией: ночь
+ * на миг становится днём. Сила — по световому импульсу у игрока: прямая видимость и шар в поле зрения — полная, иначе
+ * треть (засветка неба).
  */
 public final class NukeFlash {
     private static final ResourceLocation FLARE = Airstrike.id("textures/nuke/flare.png");
@@ -29,9 +33,13 @@ public final class NukeFlash {
     private static ClientNuclear.Active current;
     /** Сила вспышки 0..1 для этого игрока. */
     private static float strength;
+    /** Сколько секунд глаз отпускает после импульса. */
+    private static double recovery;
     /** Послеобраз: сколько тиков ещё и сколько было всего. */
     private static int afterLeft, afterTotal;
-    private static long ticks, startTick;
+    private static long ticks, endTick;
+    /** Предел силы вспышки на экране при «без вспышек молний». */
+    private static final float CALM_FLASH = 0.4f;
 
     private NukeFlash() {}
 
@@ -45,16 +53,21 @@ public final class NukeFlash {
         double q = d.fluence(eye);
         double distM = d.metres(eye.distanceTo(d.burst()));
         // кроме настоящего светового импульса — ослеплённое небо: у 15 кт видно за сотни километров
-        double s = Math.min(1, q / 2 + 0.6 * Math.exp(-distM / d.visibility()));
+        double sky = Math.min(1, q / 2 + 0.6 * Math.exp(-distM / d.visibility()));
+        lightUpWorld(mc.level, d, sky);
+        double s = sky;
         Vec3 look = p.getViewVector(1);
         double angle = Math.toDegrees(Math.acos(Mth.clamp(look.dot(d.burst().subtract(eye).normalize()), -1, 1)));
         boolean inView = sees && angle < 60;
         s *= inView ? 1 : sees ? 0.45 : 0.3;
         s *= AirstrikeConfig.CLIENT.flash.get();
+        // «без вспышек молний»: без засветки мира, белый экран — неполный
+        if (calmFlash()) s = Math.min(s, CALM_FLASH);
         if (s <= strength && current != null) return;
         current = a;
         strength = (float) s;
-        startTick = ticks;
+        recovery = Mth.clamp(2 + 0.6 * Math.log1p(q), 2, 4);
+        endTick = ticks + (long) Math.ceil(pulseSeconds(d.yieldKt()) * 20 * d.scale() + recovery * 20);
         if (inView && q >= 0.05) {
             // 5–30 с по световому импульсу (кал/см²)
             afterTotal = afterLeft = (int) (20 * Mth.clamp(5 + q * 2.5, 5, 30));
@@ -62,10 +75,31 @@ public final class NukeFlash {
         if (sees && q >= ThermalModel.BURN_1) ua.zentix.airstrike.client.fx.CameraShake.blast(6);
     }
 
+    /**
+     * Мир освещён вспышкой, как молнией: ванильная вспышка неба (свет неба у всех блоков — полный, как днём) на
+     * 1.5–3 с × ∛(Y/15), у всех, кому видно засвеченное небо (ясно — до ~50 км). Выключенная вспышка в настройках
+     * или ванильное «без вспышек молний» ({@link #calmFlash}) — без неё.
+     */
+    private static void lightUpWorld(ClientLevel level, Detonation d, double sky) {
+        if (sky < 0.05 || AirstrikeConfig.CLIENT.flash.get() <= 0 || calmFlash()) return;
+        int flash = (int) (20 * (1.5 + 1.5 * sky) * Math.cbrt(d.yieldKt() / 15));
+        level.setSkyFlashTime(Math.max(level.getSkyFlashTime(), flash));
+    }
+
+    /** Включено ванильное «без вспышек молний» (доступность): вспышка не слепит. */
+    private static boolean calmFlash() {
+        return Minecraft.getInstance().options.hideLightningFlash().get();
+    }
+
+    /** Световой импульс, с модели: за 10·t_max излучается ~80% энергии второго импульса. */
+    static double pulseSeconds(double yieldKt) {
+        return 10 * FireballModel.secondMaximumSeconds(yieldKt);
+    }
+
     static void tick() {
         ticks++;
         if (afterLeft > 0) afterLeft--;
-        if (current != null && ticks - startTick > 200 && afterLeft <= 0) {
+        if (current != null && ticks > endTick && afterLeft <= 0) {
             current = null;
             strength = 0;
         }
@@ -81,10 +115,10 @@ public final class NukeFlash {
     public static float whiteness(float partialTick) {
         ClientNuclear.Active a = current;
         if (a == null || strength <= 0) return 0;
-        double t = Math.max(a.seconds(partialTick), 1e-4);
-        // яркость шара (двойной импульс) и «ослеплённый» глаз, который отпускает за ~1.5 с
-        double eye = Math.exp(-(ticks - startTick + partialTick) / 18.0);
-        return (float) (strength * Math.min(1, Math.max(FireballModel.brightness(t, a.d.yieldKt()) * 1.5, eye)));
+        // пока идёт импульс — белый экран, потом глаз отпускает (к концу recovery — 5%)
+        double after = a.seconds(partialTick) - pulseSeconds(a.d.yieldKt());
+        if (after <= 0) return strength;
+        return (float) (strength * Math.exp(-3 * after * a.d.scale() / recovery));
     }
 
     public static void render(GuiGraphics g, DeltaTracker delta) {
@@ -102,7 +136,11 @@ public final class NukeFlash {
         }
     }
 
-    /** Тёмно-оранжевое пятно на месте шара, медленно гаснет; двигается вместе со взглядом, как настоящий послеобраз. */
+    /**
+     * Послеобраз — оранжевое пятно на месте шара, медленно гаснет; двигается вместе со взглядом, как настоящий.
+     * Складывается со светом: обычным смешиванием тёмное ядро пятна ложилось поверх ещё светящегося шара тёмной
+     * точкой (шар всплывает, а пятно остаётся там, где была вспышка).
+     */
     private static void afterimage(GuiGraphics g, Detonation d, float partial, int w, int h) {
         float[] s = ScreenProjection.project(d.burst());
         if (s == null) return;
@@ -110,16 +148,17 @@ public final class NukeFlash {
         // пятно больше видимого шара: глаз «размазывает» засветку
         float px = Mth.clamp((float) (r * ScreenProjection.verticalScale() / s[2] * h * 2.2), 14, 400);
         float life = (afterLeft - partial) / afterTotal;
-        float a = Mth.clamp(life * 1.3f, 0, 0.85f) * Math.min(1, strength * 1.5f);
+        float a = Mth.clamp(life * 1.3f, 0, 0.6f) * Math.min(1, strength * 1.5f);
         if (a <= 0.01f) return;
         int x = (int) (s[0] * w), y = (int) (s[1] * h), size = (int) px;
         RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        g.setColor(0.55f, 0.22f, 0.05f, a);
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        g.setColor(0.55f, 0.24f, 0.08f, a);
         g.blit(FLARE, x - size, y - size, 2 * size, 2 * size, 0, 0, 64, 64, 64, 64);
-        g.setColor(0.15f, 0.05f, 0.02f, a * 0.7f);
+        g.setColor(0.6f, 0.4f, 0.2f, a * 0.5f);
         g.blit(FLARE, x - size / 3, y - size / 3, 2 * (size / 3), 2 * (size / 3), 0, 0, 64, 64, 64, 64);
         g.setColor(1, 1, 1, 1);
+        RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
     }
 }

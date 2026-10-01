@@ -36,9 +36,10 @@ public final class NukeHud {
         }
 
         for (S2C.NukeWarning w : ClientNuclear.warnings()) {
-            double left = (w.detonateTime() - now) / 20.0;
-            if (left < 0) {
-                // отсчёт дошёл до нуля, а подрыва нет: сервер догружает место удара — не держать «0 с» молча
+            double left = Math.max(0, (w.detonateTime() - now) / 20.0);
+            if (ClientNuclear.detonationOverdue(w, now)) {
+                // срок прошёл с запасом на отставание часов, а подрыва нет: сервер догружает место удара —
+                // не держать «0 с» молча (до запаса — «0 с»: часы клиента бывают впереди сервера)
                 if (w.alarm() || w.mine()) {
                     Component c = Component.translatable("airstrike.nuke.delayed").withStyle(ChatFormatting.GOLD);
                     g.drawString(font, c, cx - font.width(c) / 2, y, alpha(pulse) | 0xFFFFFF);
