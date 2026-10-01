@@ -22,6 +22,7 @@ import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
@@ -29,6 +30,7 @@ import org.lwjgl.opengl.GL30;
 import ua.zentix.airstrike.Airstrike;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -102,6 +104,7 @@ public final class FarModels {
     private final PoseStack poses = new PoseStack();
     private final Quaternionf rotation = new Quaternionf();
     private final int[] viewport = new int[4];
+    private final ByteBuffer colorWrite = BufferUtils.createByteBuffer(4);
     private final Runnable clearAndDraw = () -> {
         clear(rowsUsed());
         draw();
@@ -331,6 +334,9 @@ public final class FarModels {
     private void withAtlasBound(Runnable work) {
         int drawFbo = GlStateManager.getBoundFramebuffer(), readFbo = GlStateManager._getInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
         GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
+        // маски записи — какими их оставил тот, кто рисовал до нас: очистка атласа включает обе (clear)
+        boolean depthWrite = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        GL11.glGetBooleanv(GL11.GL_COLOR_WRITEMASK, colorWrite);
         try {
             if (atlas == null) create();
             atlas.bindWrite(false);
@@ -341,6 +347,8 @@ public final class FarModels {
             GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
         } finally {
             partCount = 0;
+            RenderSystem.depthMask(depthWrite);
+            RenderSystem.colorMask(colorWrite.get(0) != 0, colorWrite.get(1) != 0, colorWrite.get(2) != 0, colorWrite.get(3) != 0);
             GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, readFbo);
             GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, drawFbo);
             GlStateManager._viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
@@ -403,7 +411,6 @@ public final class FarModels {
         pass(s, normal, true);
         s.clear();
         VertexBuffer.unbind();
-        RenderSystem.depthMask(true);
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
         RenderSystem.enableCull();

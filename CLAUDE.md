@@ -475,7 +475,8 @@ GameTest идёт частями на шести машинах (`-PgametestShar
   туман на дальности прорисовки съедает дальнее; ядерная картинка рисуется в `AFTER_LEVEL` — проверено
   `tools/client_scenario.sh nuke shaders` (берёт Sodium, Iris и шейдерпак из инстанса). К `AFTER_LEVEL` Iris
   с шейдерпаком оставляет запись глубины выключенной (`FinalPassRenderer`), а очистка буфера слушается масок записи:
-  свой буфер чистить, сперва включив маски (`FarModels.clear`; без этого глубина атласа копилась, и модели вдали рвались).
+  свой буфер чистить, сперва включив маски, а прежние потом вернуть (`FarModels`; без этого глубина атласа копилась, и модели
+  вдали рвались).
 - Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой; `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
   профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`; для сервера стенда — `AIRSTRIKE_JFR=1 tools/stress.sh`
   → `mod/run/stress/server/stress.jfr`.
