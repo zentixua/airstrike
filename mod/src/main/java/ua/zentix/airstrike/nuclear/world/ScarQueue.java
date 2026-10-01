@@ -104,12 +104,15 @@ public final class ScarQueue {
     /** Итог единицы {@link #ruin}: руины стоят; ещё единица (посчитан разлом соседа, план устарел); ждать соседей ({@link #waitRadius}). */
     private static final int RUINED = 0, AGAIN = 1, WAIT = 2;
     /**
-     * Виды единиц очереди готовых ({@link WorkClock#canStart(int)}): осмотр работы, которая ждёт (соседей, чтения окна,
-     * фонового плана), и руины или снимки окна. Осмотр — тоже единица: иначе тик, где все осмотренные ждали, не записывал
-     * ни одной, часы до первой записанной единицы пускают всегда, и очередь выгребалась за тик. Вероятно, это «чанки»
-     * ядерного тика 465 и 1124 мс после паузы в игре Артёма 01.10.2026 (вывод по коду и времени, не замер).
+     * Итог осмотра работы очереди готовых ({@link #work(ServerLevel, Job, long)}): ждёт, ничего не сделав (соседей,
+     * чтения окна, места в пуле, фонового плана); ждёт соседей после плана на месте; сделана единица (руины, разлом
+     * соседа, снимки окна). Осмотр без работы — не единица часов ({@link WorkClock#spent}): на считающих часах проверок
+     * он стоил бы целую единицу и отнимал бюджет у руин. Но тик, где все осмотренные ждали, не записывает ни одной
+     * единицы, а часы до первой пускают всегда, — и очередь выгребалась за тик: осмотры идут, только пока не вышел срок
+     * ({@link WorkClock#overdue}). Вероятно, это «чанки» ядерного тика 465 и 1124 мс после паузы в игре Артёма 01.10.2026
+     * (вывод по коду и времени, не замер).
      */
-    private static final int UNIT_CHECK = 0, UNIT_RUIN = 1;
+    private static final int LOOKED = 0, PLANNED_WAITS = 1, WORKED = 2;
     /** Для строки медленного ядерного тика и проверок: работ осмотрено в этом тике и сколько из них ждали. */
     private int inspected, waitedThisTick;
 
@@ -658,24 +661,25 @@ public final class ScarQueue {
             (chunkMap.getPlayers(new ChunkPos(job.chunk), false).isEmpty() ? readyUnseen : readySeen).add(job);
         }
         inspected = waitedThisTick = 0;
-        while (clock.canStart(UNIT_RUIN)) {
+        while (clock.canStart()) {
+            if (inspected > 0 && clock.overdue()) return;
             Job job = !readySeen.isEmpty() ? readySeen.poll() : readyUnseen.poll();
             if (job == null) return;
             job.ready = false;
             if (jobs.get(job.chunk) != job) continue; // выгружен или снят
             long c0 = clock.begin();
-            int kind = UNIT_RUIN;
+            int result = WORKED;
             try {
-                kind = work(level, job, now);
+                result = work(level, job, now);
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Повреждения чанка {} упали с ошибкой; чанк снят с очереди", new ChunkPos(job.chunk), e);
                 jobs.remove(job.chunk);
                 logs.remove(job.chunk);
                 release(level, job);
             } finally {
-                long took = clock.end(c0, kind);
+                long took = result == LOOKED ? clock.spent(c0) : clock.end(c0);
                 inspected++;
-                if (kind == UNIT_CHECK) waitedThisTick++;
+                if (result != WORKED) waitedThisTick++;
                 // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
                 if (took > 50_000_000L && now - lastSlowChunk >= 100) {
                     lastSlowChunk = now;
@@ -833,7 +837,8 @@ public final class ScarQueue {
      * (не сгенерирован) — в окне он сплошной массив, как край мира; плану в потоке сервера (разрушения выключены или
      * фоновый план упал) — загруженное окно, соседи грузятся тикетом.
      *
-     * @return вид единицы: {@link #UNIT_CHECK} — работа ждёт, {@link #UNIT_RUIN} — руины, разлом соседа или снимки окна
+     * @return {@link #LOOKED} — ждёт, ничего не сделав; {@link #PLANNED_WAITS} — план на месте посчитан, подмена ждёт
+     *     соседей; {@link #WORKED} — руины, разлом соседа или снимки окна
      */
     private int work(ServerLevel level, Job job, long now) {
         if (NuclearTickets.inMemory(level, job.chunk) == null) {
@@ -841,7 +846,7 @@ public final class ScarQueue {
             jobs.remove(job.chunk);
             release(level, job);
             logs.remove(job.chunk);
-            return UNIT_CHECK;
+            return LOOKED;
         }
         ChunkPos pos = new ChunkPos(job.chunk);
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
@@ -852,20 +857,20 @@ public final class ScarQueue {
             // сам ниже полной загрузки (край видимости): разрушим, когда поднимется
             NukeDiag.waited(NukeDiag.Wait.BELOW_FULL);
             waitNeighbours(level, job, now, 0);
-            return UNIT_CHECK;
+            return LOOKED;
         }
         if (!ready && !background && !NuclearTickets.neighbourhoodLoaded(level, pos, RuinPlanner.REACH)) {
             // план в потоке сервера читает мир окна: соседи грузятся тикетом
             NukeDiag.waited(NukeDiag.Wait.SERVER_PLAN);
             waitNeighbours(level, job, now, RuinPlanner.REACH);
-            return UNIT_CHECK;
+            return LOOKED;
         }
         job.waitsNeighbours = false;
         boolean submit = !ready && background && !ctx.running(job.chunk);
         if (!ready && background && ctx.running(job.chunk) && !ctx.done(job.chunk)) {
             NukeDiag.waited(NukeDiag.Wait.BACKGROUND);
             this.background.add(job);
-            return UNIT_CHECK;
+            return LOOKED;
         }
         int reading = submit ? ctx.requestWindow(level, pos) : 0;
         long[] st = preparedStats.get(d.id());
@@ -878,7 +883,7 @@ public final class ScarQueue {
             NukeDiag.waited(reading > 0 ? NukeDiag.Wait.WINDOW : NukeDiag.Wait.ADMIT);
             job.due = now + 1;
             byDue.add(job);
-            return UNIT_CHECK;
+            return LOOKED;
         }
         // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
@@ -891,7 +896,7 @@ public final class ScarQueue {
                 job.due = now + 1;
                 byDue.add(job);
             }
-            return UNIT_RUIN;
+            return WORKED;
         }
         int r = ruin(level, d, chunk, budget, Math.max(0, now - job.wave), seen);
         if (r == AGAIN) {
@@ -899,12 +904,12 @@ public final class ScarQueue {
             NukeDiag.waited(NukeDiag.Wait.AGAIN);
             job.ready = true;
             (seen ? readySeen : readyUnseen).addFirst(job);
-            return UNIT_RUIN;
+            return WORKED;
         }
         if (r == WAIT) {
             NukeDiag.waited(waitRadius > 1 ? NukeDiag.Wait.PLAN_R2 : NukeDiag.Wait.PLAN_R1);
             waitNeighbours(level, job, now, waitRadius);
-            return UNIT_CHECK;
+            return PLANNED_WAITS;
         }
         chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
         chunk.setUnsaved(true);
@@ -925,6 +930,6 @@ public final class ScarQueue {
             job.due = job.wave = due(job.events.get(job.event), chunk.getPos());
             byDue.add(job);
         }
-        return UNIT_RUIN;
+        return WORKED;
     }
 }

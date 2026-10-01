@@ -1317,9 +1317,10 @@ public final class NuclearGameTests {
     /**
      * Очередь руин держит бюджет и тогда, когда все осмотренные работы ждут: фоновый пул руин занят задачами, которые
      * ждут защёлку, и каждый чанк, до которого дошла волна, ждёт места в пуле (или чтения окна) — его осматривают каждый
-     * тик. Осмотр — тоже единица часов: за тик осмотрено не больше бюджета (считающие часы, единица — 1 мс) и одной
-     * сверх него. Раньше ждущий осмотр единицей не считался, часы до первой записанной единицы пускают всегда, и за тик
-     * осматривалась вся очередь. Чанков в очереди — квадрат 9×9 вокруг площадки, больше бюджета.
+     * тик. Осмотр — не единица, но идёт, пока не вышел срок: за тик осмотрено не больше бюджета и одной работы сверх
+     * него. Часы — настоящие на своём времени, где каждое чтение часов стоит 1 мс (на считающих осмотр бесплатен).
+     * Раньше срок осмотры не проверяли, часы до первой записанной единицы пускают всегда, и за тик осматривалась вся
+     * очередь. Чанков в очереди — квадрат 9×9 вокруг площадки, больше бюджета.
      */
     @GameTest(template = "range", timeoutTicks = 400, batch = "nuke_waits_budget", skyAccess = true)
     public static void waitingRuinsStayInBudget(GameTestHelper h) {
@@ -1328,7 +1329,8 @@ public final class NuclearGameTests {
         for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++) level.getChunk(mid.x + dx, mid.z + dz);
         level.getChunkSource().addRegionTicket(HOLD, mid, 4, mid);
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
-        WorkClock clock = WorkClock.counting(1_000_000L);
+        long[] time = {0};
+        WorkClock clock = WorkClock.decaying(() -> time[0] += 1_000_000L, 1);
         NuclearWorld.useClock(level.getServer(), clock);
         StrikeGameTests.afterTest(h, () -> {
             release.countDown();
@@ -1351,8 +1353,8 @@ public final class NuclearGameTests {
         int budgetMs = AirstrikeConfig.SERVER.nukeTimeBudgetMs.get();
         h.runAfterDelay(200, () -> {
             h.assertTrue(w.queuedChunks() > 2 * budgetMs, "в очереди " + w.queuedChunks() + " чанков — не больше двух бюджетов, проверка ни о чём");
+            h.assertTrue(maxInspected[0] > 0, "очередь руин ничего не осматривала — проверка ни о чём");
             h.assertTrue(maxInspected[0] <= budgetMs + 1, "за тик осмотрено " + maxInspected[0] + " работ при бюджете " + budgetMs + " мс");
-            h.assertTrue(clock.maxUnitsPerTick() <= budgetMs + 1, "за тик " + clock.maxUnitsPerTick() + " единиц по 1 мс при бюджете " + budgetMs + " мс");
             h.succeed();
         });
     }

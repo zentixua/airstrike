@@ -137,6 +137,26 @@ public final class WorkClock {
         return took;
     }
 
+    /**
+     * Срок тика вышел. Для работы, которая не единица ({@link #spent}): {@link #canStart} до первой единицы тика
+     * пускает всегда, и очередь, где все только ждут, выгребалась бы за тик.
+     */
+    public boolean overdue() {
+        return time.getAsLong() >= deadline;
+    }
+
+    /**
+     * Работа, начатая в {@code began}, — не единица (осмотр работы, которая ждёт): её время — в счёт тика
+     * ({@link #usedThisTickNanos}), но не в оценку и не в число единиц. Считающие часы ею не двигаются — у них время
+     * идёт только единицами. Возвращает длительность, нс.
+     */
+    public long spent(long began) {
+        long took = time.getAsLong() - began;
+        usedThisTick += took;
+        maxTickNanos = Math.max(maxTickNanos, usedThisTick);
+        return took;
+    }
+
     /** Единица работы заняла {@code nanos}. */
     public void record(long nanos) {
         estimate = Math.max(nanos, estimate * DECAY);

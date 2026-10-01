@@ -93,9 +93,6 @@ public final class NuclearPrep {
     /** Насколько место подрыва может отличаться от места плана, блоки. */
     private static final double SAME_PLACE = 8;
 
-    /** Доля кучи (живой объём после сборки), выше которой руины заранее больше не строятся. */
-    private static final double HEAP_LIMIT = 0.75;
-
     /** Для {@link #heapTight}: номер прошлого замера кучи и сколько замеров подряд она выше предела. */
     private long lastMeasured;
     private int heapStrikes;
@@ -927,17 +924,18 @@ public final class NuclearPrep {
     }
 
     /**
-     * Живой объём кучи выше {@link #HEAP_LIMIT} в двух замерах подряд ({@link HeapWatch}: старое поколение после
-     * сборки, которая его освободила): в нём бывает немного несобранного, один замер — ещё не нехватка.
+     * Живой объём кучи выше {@link HeapWatch#LIMIT} в двух замерах подряд ({@link HeapWatch}: старое поколение после
+     * сборки, которая видит его живой объём): в нём бывает немного несобранного, один замер — ещё не нехватка.
      */
     private boolean heapTight() {
         HeapWatch watch = HeapWatch.get();
         long measured = watch.measured();
         if (measured != lastMeasured) {
             lastMeasured = measured;
-            heapStrikes = HeapWatch.strikes(heapStrikes, watch.live(), (long) (Runtime.getRuntime().maxMemory() * HEAP_LIMIT));
-            if (NukeDiag.ON) Airstrike.LOG.info("ДИАГ куча: старое поколение после сборки {} МБ из {}, подряд выше предела {}",
-                    watch.live() >> 20, Runtime.getRuntime().maxMemory() >> 20, heapStrikes);
+            long live = watch.live();
+            heapStrikes = HeapWatch.strikes(heapStrikes, live, watch.limit());
+            if (NukeDiag.ON) Airstrike.LOG.info("ДИАГ куча: {} после сборки {} МБ из {}, подряд выше предела {}",
+                    watch.available() ? "старое поколение" : "куча", live >> 20, Runtime.getRuntime().maxMemory() >> 20, heapStrikes);
         }
         return heapStrikes >= 2;
     }
