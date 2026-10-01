@@ -39,6 +39,7 @@ import ua.zentix.airstrike.registry.ModDamageTypes;
 import ua.zentix.airstrike.registry.ModParticles;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ImpactCost;
+import ua.zentix.airstrike.util.PoiRecords;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.work.UnitQueue;
 import ua.zentix.airstrike.work.WorkScheduler;
@@ -643,7 +644,10 @@ final class StagedExplosion implements UnitQueue.Job {
             if (!Terrain.ready(level, p)) continue;
             BlockState s = level.getBlockState(p);
             if (!s.is(blocksAtRays.get(i))) continue;
-            if (e.interactsWithBlocks()) s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
+            if (e.interactsWithBlocks()) {
+                PoiRecords.recordIfMissing(level, p, s);
+                s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
+            }
             hit.add(p);
             long now = clock.getAsLong();
             if (now - last > SLOW_BLOCK_NANOS) area.slowBlock(level, s, p, now - last);
@@ -666,7 +670,11 @@ final class StagedExplosion implements UnitQueue.Job {
         if (part.isEmpty() || e == null) return;
         if (e.interactsWithBlocks()) {
             Util.shuffle(part, level.random);
-            for (BlockPos p : part) level.getBlockState(p).onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
+            for (BlockPos p : part) {
+                BlockState s = level.getBlockState(p);
+                PoiRecords.recordIfMissing(level, p, s);
+                s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
+            }
         }
         if (fire) burn(level, part);
     }
