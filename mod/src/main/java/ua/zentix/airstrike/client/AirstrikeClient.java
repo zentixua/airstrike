@@ -23,6 +23,9 @@ import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
+import ua.zentix.airstrike.client.far.FarRenderer;
+import ua.zentix.airstrike.client.far.FarSprites;
+import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.fx.Effects;
@@ -76,6 +79,7 @@ public final class AirstrikeClient {
         modBus.addListener(AirstrikeClient::layers);
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
+        modBus.addListener(FarSprites::registerShaders);
         modBus.addListener(AirstrikeClient::blockColors);
         TerrainTiles.init();
 
@@ -95,6 +99,7 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
+        NeoForge.EVENT_BUS.addListener(FarRenderer::render);
         NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
@@ -168,7 +173,9 @@ public final class AirstrikeClient {
         ClientFlights.tick();
         TerrainTiles.tick();
         ProjectileCamera.tick();
+        FlightTracks.tick();
         ClientSounds.tick();
+        FarRenderer.tick();
         Effects.tick();
         CameraShake.tick();
         Flash.tick();
@@ -192,6 +199,8 @@ public final class AirstrikeClient {
 
     private static void logout(ClientPlayerNetworkEvent.LoggingOut e) {
         ClientSounds.reset();
+        FlightTracks.reset();
+        FarRenderer.reset();
         Effects.clear();
         CameraShake.reset();
         Flash.reset();
@@ -254,11 +263,13 @@ public final class AirstrikeClient {
             Alerts.reset();
             if (p.nuclear()) {
                 ClientSounds.reset();
+                FlightTracks.reset();
                 ProjectileCamera.reset();
                 NukeArming.cancel();
             } else {
                 // обычный отбой: ядерные снаряды летят дальше — их звук, камера и двухшаговый пуск МБР остаются
                 ClientSounds.cancelled(p.projectiles());
+                FlightTracks.cancelled(p.projectiles());
                 ProjectileCamera.cancelled(p.projectiles());
             }
         }
@@ -289,8 +300,8 @@ public final class AirstrikeClient {
         }
 
         @Override
-        public void heard(S2C.Heard p) {
-            ClientSounds.heard(p);
+        public void farFlights(S2C.FarFlights p) {
+            FlightTracks.received(p);
         }
 
         @Override

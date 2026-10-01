@@ -36,4 +36,14 @@ class CommandPlanTest {
         assertTrue(p.steps().isEmpty());
         assertEquals(CommandPlan.START + CommandPlan.TAIL, p.end());
     }
+
+    @Test
+    void waitBlastGatesEveryTime() {
+        CommandPlan p = CommandPlan.parse("airstrike missile at 0 64 0;wait:blast;shot:flash;airstrike drone at 0 64 0;wait:blast;wait:20;shot:column");
+        // команда — 100 (+40), wait:blast — 140, снимок 140 (+20), команда 160 (+40), wait:blast — 200, снимок на 220
+        assertEquals(java.util.List.of(140, 200), p.blastGates());
+        assertEquals(-1, p.nukeGate());
+        assertTrue(p.warnings().isEmpty(), p.warnings().toString());
+        assertEquals(220, p.steps().get(3).tick());
+    }
 }

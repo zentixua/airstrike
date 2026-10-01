@@ -74,8 +74,6 @@ import java.util.function.ToIntFunction;
 public final class Warheads {
     /** Фронт звука и ударной волны: 343 м/с = 17.15 блока за тик. */
     public static final double FRONT_SPEED = BlastModel.SOUND_SPEED / 20;
-    /** Кому отправлять события взрыва: звук и дым видны и слышны далеко. */
-    public static final double FX_RANGE = 640;
 
     private Warheads() {}
 
@@ -623,7 +621,7 @@ public final class Warheads {
             // высоту поверхности клиент берёт только у бомбы (BunkerBlast, BlastEffects): здесь — точка удара, без чтения
             // высоты, которое у неготового чанка грузило бы его или ждало загрузки
             float surface = (float) pos.y;
-            PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
+            PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, AirstrikeConfig.SERVER.farRange.get(),
                     new S2C.Blast(kind, pos, mat.ordinal(), surface, level.random.nextLong()));
             main = List.of(explode(level, area, List.of(), pos, power(weapon), false, direct, owner, null));
         }
@@ -739,7 +737,7 @@ public final class Warheads {
             // клиенту — верх над зарядом без скважины: по нему прорыв наружу, вспучивание грунта и курящийся провал
             int cover = surfaceAbove(level, c);
 
-            PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, FX_RANGE,
+            PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, AirstrikeConfig.SERVER.farRange.get(),
                     new S2C.Blast(S2C.Blast.BUNKER, pos, mat.ordinal(), cover, level.random.nextLong()));
 
             // каверна: порода вокруг заряда в неровных комьях «ослаблена» — взрыв выгрызает полость рваной формы

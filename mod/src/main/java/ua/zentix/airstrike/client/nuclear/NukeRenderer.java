@@ -1,11 +1,8 @@
 package ua.zentix.airstrike.client.nuclear;
 
-import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Camera;
@@ -18,9 +15,9 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import org.joml.Matrix4fStack;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.client.render.FarDraw;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.FireballModel;
@@ -65,11 +62,7 @@ public final class NukeRenderer {
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
         float far = mc.gameRenderer.getDepthFar() * 0.97f;
 
-        Matrix4fStack mv = RenderSystem.getModelViewStack();
-        mv.pushMatrix();
-        mv.identity();
-        mv.mul(e.getModelViewMatrix());
-        RenderSystem.applyModelViewMatrix();
+        FarDraw.begin(e);
         try {
             collect(level, camera, partial, far);
             drawSkyGlow(camera, partial, far);
@@ -79,14 +72,7 @@ public final class NukeRenderer {
             drawReentry(level, camera, partial, far);
             drawBlackRain(level, camera, partial);
         } finally {
-            mv.popMatrix();
-            RenderSystem.applyModelViewMatrix();
-            RenderSystem.depthMask(true);
-            RenderSystem.enableDepthTest();
-            RenderSystem.enableCull();
-            RenderSystem.defaultBlendFunc();
-            RenderSystem.disableBlend();
-            RenderSystem.setShaderColor(1, 1, 1, 1);
+            FarDraw.end();
         }
     }
 
@@ -118,28 +104,28 @@ public final class NukeRenderer {
 
     private static void drawQuads(Camera camera, List<Quad> quads) {
         if (quads.isEmpty()) return;
-        setup(PUFFS, false);
+        FarDraw.setup(PUFFS, false);
         Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (Quad q : quads) {
             float u0 = (q.tex() % 4) * 0.25f, v0 = (q.tex() / 4) * 0.5f;
-            billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.r(), q.g(), q.b(), q.a());
+            FarDraw.billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.r(), q.g(), q.b(), q.a());
         }
-        draw(b);
+        FarDraw.draw(b);
     }
 
     /** Накал гриба и стены изнутри: те же клубы вторым проходом, свет складывается — порядок не важен. */
     private static void drawGlow(Camera camera, List<Quad> quads) {
         if (quads.isEmpty()) return;
-        setup(PUFFS, true);
+        FarDraw.setup(PUFFS, true);
         Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (Quad q : quads) {
             if (q.ga() < 0.004f) continue;
             float u0 = (q.tex() % 4) * 0.25f, v0 = (q.tex() / 4) * 0.5f;
-            billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.gr(), q.gg(), q.gb(), q.ga());
+            FarDraw.billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.gr(), q.gg(), q.gb(), q.ga());
         }
-        draw(b);
+        FarDraw.draw(b);
     }
 
     // ---------------------------------------------------------------- небо
@@ -155,14 +141,14 @@ public final class NukeRenderer {
             if (amber <= 0.004f) continue;
             Vec3 dir = a.d.burst().subtract(cam).normalize();
             RenderSystem.setShader(GameRenderer::getPositionColorShader);
-            blend(false);
+            FarDraw.blend(false);
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
             for (float[] v : ICOSPHERE) {
                 double toward = Math.max(0, v[0] * dir.x + v[1] * dir.y + v[2] * dir.z);
                 float alpha = amber * (0.2f + 0.5f * (float) (toward * toward * toward));
                 b.addVertex(v[0] * far, v[1] * far, v[2] * far).setColor(1f, 0.55f, 0.22f, alpha);
             }
-            draw(b);
+            FarDraw.draw(b);
         }
     }
 
@@ -200,15 +186,15 @@ public final class NukeRenderer {
             float white = (float) (1 - CloudPuffs.smooth(20, 60, t / FireballModel.secondMaximumSeconds(d.yieldKt())));
             float scroll = (float) (t * 0.04);
             disc((float) dx, (float) dy, (float) dz, (float) r, cr, cg, cb, white, fade);
-            setup(PLASMA, true);
+            FarDraw.setup(PLASMA, true);
             sphere((float) dx, (float) dy, (float) dz, (float) r, scroll, cr, cg, cb, glow);
             sphere((float) dx, (float) dy, (float) dz, (float) (r * 1.18), -scroll * 0.7f, cr, cg * 0.85f, cb * 0.6f, glow * 0.35f);
             // ореол: плоское свечение к камере, в 4 раза шире шара, тёплое (не нейтральное: поверх неба — не зелень)
-            setup(FLARE, true);
+            FarDraw.setup(FLARE, true);
             Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-            billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
-            draw(b);
+            FarDraw.billboard(b, left, up, (float) dx, (float) dy, (float) dz, (float) (r * 4), 0, 0, 0, 1, 1, cr, cg * 0.72f, cb * 0.45f, glow * 0.6f);
+            FarDraw.draw(b);
         }
     }
 
@@ -223,7 +209,7 @@ public final class NukeRenderer {
         // к камере от центра шара
         float vx = -x / len, vy = -y / len, vz = -z / len;
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        blend(false);
+        FarDraw.blend(false);
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
         for (float[] v : ICOSPHERE) {
             float mu = v[0] * vx + v[1] * vy + v[2] * vz;
@@ -234,7 +220,7 @@ public final class NukeRenderer {
                     b0 = Mth.lerp(hot, cb * (0.55f + 0.45f * m), 0.86f) * limb;
             b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setColor(r0, g0, b0, mu > 0 ? alpha : 0f);
         }
-        draw(b);
+        FarDraw.draw(b);
     }
 
     private static void sphere(float x, float y, float z, float r, float scroll, float cr, float cg, float cb, float a) {
@@ -243,7 +229,7 @@ public final class NukeRenderer {
             // v: нормаль (x, y, z) и u, v развёртки; к краю диска шар прозрачнее — мягкий край
             b.addVertex(x + v[0] * r, y + v[1] * r, z + v[2] * r).setUv(v[3] + scroll, v[4]).setColor(cr, cg, cb, a);
         }
-        draw(b);
+        FarDraw.draw(b);
     }
 
     // ---------------------------------------------------------------- вход боеголовки
@@ -262,7 +248,7 @@ public final class NukeRenderer {
             double path = 60_000 * w.scale();
             Vec3 head = end.add(dir.scale(-path * f));
             Vec3 tail = head.add(dir.scale(-Math.min(path * 0.25, path * (1 - f) + 2000 * w.scale())));
-            setup(FLARE, true);
+            FarDraw.setup(FLARE, true);
             Vector3f l = camera.getLeftVector(), up = camera.getUpVector();
             BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
             int steps = 24;
@@ -273,9 +259,9 @@ public final class NukeRenderer {
                 // угловой размер: голова-звезда ~2°, хвост сужается; раскалённая плазма — от белого к оранжевому
                 float size = (float) (dist * k * (i == 0 ? 0.035 : 0.012 * (1 - 0.7 * i / (double) steps)));
                 float a = (float) (i == 0 ? 1 : 0.8 * (1 - i / (double) steps));
-                billboard(b, l, up, (float) (p.x * k), (float) (p.y * k), (float) (p.z * k), size, 0, 0, 0, 1, 1, 1f, 0.9f - 0.4f * i / steps, 0.7f - 0.5f * i / steps, a);
+                FarDraw.billboard(b, l, up, (float) (p.x * k), (float) (p.y * k), (float) (p.z * k), size, 0, 0, 0, 1, 1, 1f, 0.9f - 0.4f * i / steps, 0.7f - 0.5f * i / steps, a);
             }
-            draw(b);
+            FarDraw.draw(b);
         }
     }
 
@@ -297,7 +283,7 @@ public final class NukeRenderer {
         int cx = Mth.floor(cam.x), cz = Mth.floor(cam.z);
         int radius = 10;
         float time = (level.getGameTime() % 100_000) + partial;
-        setup(RAIN, false);
+        FarDraw.setup(RAIN, false);
         BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
@@ -321,47 +307,10 @@ public final class NukeRenderer {
                 b.addVertex(px - nx, y0, pz - nz).setUv(0, v1).setColor(0.12f, 0.11f, 0.10f, a);
             }
         }
-        draw(b);
+        FarDraw.draw(b);
     }
 
     // ---------------------------------------------------------------- общее
-
-    /** Своя текстура и смешивание. */
-    private static void setup(ResourceLocation texture, boolean additive) {
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-        RenderSystem.setShaderTexture(0, texture);
-        blend(additive);
-    }
-
-    /** Обычное смешивание или сложение света; глубина проверяется, но не пишется (прозрачное поверх мира). */
-    private static void blend(boolean additive) {
-        RenderSystem.enableBlend();
-        if (additive) {
-            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-        } else {
-            RenderSystem.defaultBlendFunc();
-        }
-        RenderSystem.depthMask(false);
-        RenderSystem.enableDepthTest();
-        RenderSystem.disableCull();
-    }
-
-    private static void billboard(BufferBuilder b, Vector3f left, Vector3f up, float x, float y, float z, float half, float rot,
-                                  float u0, float v0, float u1, float v1, float r, float g, float bl, float a) {
-        float c = Mth.cos(rot) * half, s = Mth.sin(rot) * half;
-        // оси квадрата в плоскости экрана, повёрнутые на rot
-        float ax = left.x() * c + up.x() * s, ay = left.y() * c + up.y() * s, az = left.z() * c + up.z() * s;
-        float bx = -left.x() * s + up.x() * c, by = -left.y() * s + up.y() * c, bz = -left.z() * s + up.z() * c;
-        b.addVertex(x - ax - bx, y - ay - by, z - az - bz).setUv(u1, v1).setColor(r, g, bl, a);
-        b.addVertex(x - ax + bx, y - ay + by, z - az + bz).setUv(u1, v0).setColor(r, g, bl, a);
-        b.addVertex(x + ax + bx, y + ay + by, z + az + bz).setUv(u0, v0).setColor(r, g, bl, a);
-        b.addVertex(x + ax - bx, y + ay - by, z + az - bz).setUv(u0, v1).setColor(r, g, bl, a);
-    }
-
-    private static void draw(BufferBuilder b) {
-        MeshData mesh = b.build();
-        if (mesh != null) BufferUploader.drawWithShader(mesh);
-    }
 
     /** Икосфера: список вершин треугольников {x, y, z, u, v} на единичной сфере, шов развёртки без растяжки. */
     static final class Icosphere {

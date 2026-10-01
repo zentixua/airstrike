@@ -67,6 +67,7 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue nukeFlightTime;
         public final ModConfigSpec.IntValue nukeTimeBudgetMs;
         public final ModConfigSpec.IntValue nukePrepMsPerTick;
+        public final ModConfigSpec.BooleanValue nukeFarZone;
         public final ModConfigSpec.IntValue nukeRuinThreads;
         public final ModConfigSpec.IntValue nukeMaxFires;
         public final ModConfigSpec.IntValue nukeWarningRadius;
@@ -80,6 +81,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.BooleanValue gridNuke;
         public final ModConfigSpec.IntValue gridTimeBudgetMs;
         public final ModConfigSpec.IntValue workBudgetMs;
+
+        public final ModConfigSpec.IntValue farRange;
 
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
@@ -179,6 +182,10 @@ public final class AirstrikeConfig {
             nukePrepMsPerTick = b.comment("Сколько миллисекунд тика, пока летит МБР, сервер тратит на руины заранее (0–20).",
                             "Руины ближней зоны строятся во время полёта и ставятся вместе с фронтом волны.")
                     .translation("airstrike.config.nuke_prep_budget").defineInRange("prep_ms_per_tick", 8, 0, 20);
+            nukeFarZone = b.comment("С Distant Horizons у игроков: тяжёлая зона, которой нет на диске сгенерированной до конца (край исследованного",
+                            "мира), генерируется в фоне вслед за волной (не больше двух квадратов 5×5 сразу), чтобы руины были видны",
+                            "вдали сразу. Выключено — там руины встанут, только когда игрок дойдёт туда сам.")
+                    .translation("airstrike.config.nuke_far_zone").define("far_zone", true);
             nukeRuinThreads = b.comment("Сколько фоновых потоков строят планы руин (разломы, обрушение и достройка по снимкам чанков, разбор чанков",
                             "с диска), 0 — сами: все ядра, кроме трёх (поток сервера, отрисовка своей игры, ввод-вывод и генерация", "мира; на выделенном сервере — кроме двух), не меньше одного. Сколько из них работает, мод подстраивает",
                             "под тик сервера. Поток сервера только снимает чанки и ставит готовые руины.")
@@ -217,6 +224,13 @@ public final class AirstrikeConfig {
                             "своего ms_per_tick). Больше — разрушения залпа и руины ядерки появляются быстрее ценой TPS;",
                             "меньше — ровнее тик, воронки залпа и руины достраиваются дольше.")
                     .translation("airstrike.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
+            b.pop();
+
+            b.translation("airstrike.config.visibility").push("visibility");
+            farRange = b.comment("Докуда игрокам видно и слышно снаряды в полёте и взрывы обычного оружия, блоков: дальше прорисовки —",
+                            "точкой, факелом, шлейфом, огненным шаром и столбом дыма, звук — с задержкой по скорости звука. Дальше",
+                            "всё равно съедает дымка, а раскат тонет в тишине; меньше — меньше пакетов игрокам.")
+                    .translation("airstrike.config.far_range").defineInRange("far_range", 8000, 640, 32_000);
             b.pop();
         }
     }

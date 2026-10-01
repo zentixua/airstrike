@@ -187,13 +187,15 @@ public final class S2C {
 
     /**
      * Снаряды, которых у клиента нет (дальше, чем ему выдаёт сущности ваниль, или в полёте вне мира), но которые он
-     * уже может слышать ({@link ua.zentix.airstrike.strike.Hearing}): раз в {@link #PERIOD} тиков, по ним клиент ведёт
-     * тот же звук с задержкой и Доплером, что и по сущности.
+     * уже может слышать ({@link ua.zentix.airstrike.strike.Hearing}) или видеть ({@code visibility.far_range}): по ним
+     * клиент ведёт тот же звук с задержкой и Доплером, что и по сущности, и рисует снаряд вдали. Слышимые — раз
+     * в {@link #PERIOD} тика (звук тянется по прямой между пакетами), только видимые — раз в {@link #FAR_PERIOD}: вдали
+     * снаряд за тик сдвигается на экране на доли пикселя, а залп в 40 снарядов — это 40 записей в каждом пакете.
      */
-    public record Heard(List<HeardFlight> flights) implements CustomPacketPayload {
-        public static final int PERIOD = 2;
-        public static final Type<Heard> TYPE = new Type<>(Airstrike.id("heard"));
-        public static final StreamCodec<ByteBuf, Heard> CODEC = HeardFlight.CODEC.apply(ByteBufCodecs.list()).map(Heard::new, Heard::flights);
+    public record FarFlights(List<FarFlight> flights) implements CustomPacketPayload {
+        public static final int PERIOD = 2, FAR_PERIOD = 4;
+        public static final Type<FarFlights> TYPE = new Type<>(Airstrike.id("far_flights"));
+        public static final StreamCodec<ByteBuf, FarFlights> CODEC = FarFlight.CODEC.apply(ByteBufCodecs.list()).map(FarFlights::new, FarFlights::flights);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -202,28 +204,36 @@ public final class S2C {
     }
 
     /**
-     * Один слышимый снаряд: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
-     * оружие), бурит ли бомба, где он, сдвиг за последний тик ({@code StrikeProjectile.velocity}) и куда смотрит нос,
-     * фаза полёта и сколько она идёт, куда он летит (точка цели).
+     * Один снаряд вдали: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
+     * оружие), бурит ли бомба, слышно ли его (тогда пакеты чаще), где он, сдвиг за последний тик
+     * ({@code StrikeProjectile.velocity}; float — точнее миллиметра) и куда смотрит нос, фаза полёта и сколько она идёт,
+     * куда он летит (точка цели).
      */
-    public record HeardFlight(UUID id, int weapon, boolean bomber, boolean drilling, Vec3 pos, Vec3 velocity, float yaw, float pitch,
-                              int phase, int phaseAge, Vec3 aim) {
-        public static final StreamCodec<ByteBuf, HeardFlight> CODEC = new StreamCodec<>() {
+    public record FarFlight(UUID id, int weapon, boolean bomber, boolean drilling, boolean audible, Vec3 pos, Vec3 velocity, float yaw,
+                            float pitch, int phase, int phaseAge, Vec3 aim) {
+        private static final int BOMBER = 1, DRILLING = 2, AUDIBLE = 4;
+
+        public static final StreamCodec<ByteBuf, FarFlight> CODEC = new StreamCodec<>() {
             @Override
-            public HeardFlight decode(ByteBuf b) {
-                return new HeardFlight(UUIDUtil.STREAM_CODEC.decode(b), ByteBufCodecs.VAR_INT.decode(b), b.readBoolean(), b.readBoolean(),
-                        StreamCodecs.VEC3.decode(b), StreamCodecs.VEC3.decode(b), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
-                        StreamCodecs.VEC3.decode(b));
+            public FarFlight decode(ByteBuf b) {
+                UUID id = UUIDUtil.STREAM_CODEC.decode(b);
+                int weapon = ByteBufCodecs.VAR_INT.decode(b);
+                int flags = b.readByte();
+                Vec3 pos = StreamCodecs.VEC3.decode(b);
+                Vec3 velocity = new Vec3(b.readFloat(), b.readFloat(), b.readFloat());
+                return new FarFlight(id, weapon, (flags & BOMBER) != 0, (flags & DRILLING) != 0, (flags & AUDIBLE) != 0, pos, velocity,
+                        b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b));
             }
 
             @Override
-            public void encode(ByteBuf b, HeardFlight f) {
+            public void encode(ByteBuf b, FarFlight f) {
                 UUIDUtil.STREAM_CODEC.encode(b, f.id);
                 ByteBufCodecs.VAR_INT.encode(b, f.weapon);
-                b.writeBoolean(f.bomber);
-                b.writeBoolean(f.drilling);
+                b.writeByte((f.bomber ? BOMBER : 0) | (f.drilling ? DRILLING : 0) | (f.audible ? AUDIBLE : 0));
                 StreamCodecs.VEC3.encode(b, f.pos);
-                StreamCodecs.VEC3.encode(b, f.velocity);
+                b.writeFloat((float) f.velocity.x);
+                b.writeFloat((float) f.velocity.y);
+                b.writeFloat((float) f.velocity.z);
                 b.writeFloat(f.yaw);
                 b.writeFloat(f.pitch);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
@@ -231,6 +241,11 @@ public final class S2C {
                 StreamCodecs.VEC3.encode(b, f.aim);
             }
         };
+
+        /** Через сколько тиков придёт следующий пакет об этом снаряде. */
+        public int period() {
+            return audible ? FarFlights.PERIOD : FarFlights.FAR_PERIOD;
+        }
     }
 
     /**
