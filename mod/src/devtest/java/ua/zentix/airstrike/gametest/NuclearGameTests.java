@@ -1048,6 +1048,9 @@ public final class NuclearGameTests {
         ServerLevel level = h.getLevel();
         // диагностика зоны за волной без -Dairstrike.nukeDiag=true молчит: ни строки «ДИАГ», ни потока снимков стека
         h.assertFalse(ua.zentix.airstrike.nuclear.world.NukeDiag.ON, "диагностика включена в GameTest");
+        // очередь ввода-вывода диагностика читает отражением: поля IOWorker на месте (имена Mojang, как в игре)
+        String io = ua.zentix.airstrike.nuclear.world.NukeDiag.io(level);
+        h.assertFalse(io.contains("не прочитана"), "диагностика ввода-вывода: " + io);
         java.util.List<String> diag = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         Runnable unwatch = watchLog(line -> {
             if (line.startsWith("ДИАГ")) diag.add(line);

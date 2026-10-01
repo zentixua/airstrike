@@ -82,6 +82,28 @@ public final class NukeDiag {
                 + max / 1_000_000 + " мс, в работе " + READS_IN_FLIGHT.get() + ", в пуле фона задач " + RuinWorkers.inFlight() + " из " + RuinWorkers.capacity() + ")";
     }
 
+    /**
+     * Очередь потока ввода-вывода чанков мира: записи, ждущие диска ({@code IOWorker.pendingWrites} — выгруженные чанки
+     * с данными NBT в памяти), и задачи почтового ящика (чтения впереди записей); куча сейчас. Поля читаются отражением
+     * и без синхронизации — число для отчёта, не для решений.
+     */
+    public static String io(net.minecraft.server.level.ServerLevel level) {
+        String queue;
+        try {
+            Object worker = level.getChunkSource().chunkMap.chunkScanner();
+            Class<?> type = net.minecraft.world.level.chunk.storage.IOWorker.class;
+            java.lang.reflect.Field writes = type.getDeclaredField("pendingWrites"), mailbox = type.getDeclaredField("mailbox");
+            writes.setAccessible(true);
+            mailbox.setAccessible(true);
+            queue = "записей ждёт " + ((Map<?, ?>) writes.get(worker)).size() + ", задач в очереди "
+                    + ((net.minecraft.util.thread.ProcessorMailbox<?>) mailbox.get(worker)).size();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            queue = "очередь не прочитана (" + e + ")";
+        }
+        Runtime rt = Runtime.getRuntime();
+        return queue + "; чтений мода в работе " + READS_IN_FLIGHT.get() + "; куча " + ((rt.totalMemory() - rt.freeMemory()) >> 20) + " из " + (rt.maxMemory() >> 20) + " МБ";
+    }
+
     // ---------------------------------------------------------------- долгий тик: стеки потока сервера
 
     public static void onTickPre(ServerTickEvent.Pre e) {

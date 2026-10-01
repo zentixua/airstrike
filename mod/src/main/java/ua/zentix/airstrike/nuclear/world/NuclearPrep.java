@@ -166,6 +166,7 @@ public final class NuclearPrep {
          * полные → отпущен, волна → тикет.
          */
         final long[] diagStops = new long[5], diagDone = new long[8];
+        long nextIoReport;
         final Long2ObjectOpenHashMap<RuinPlan> plans = new Long2ObjectOpenHashMap<>();
         /** Руины по всем чанкам (разломы соседей): переходят подрыву вместе с планами. */
         @Nullable
@@ -721,6 +722,10 @@ public final class NuclearPrep {
             p.diagStops[4]++;
         }
         releaseDone(level, p, scars, clock);
+        if (NukeDiag.ON && now >= p.nextIoReport) {
+            p.nextIoReport = now + 200;
+            Airstrike.LOG.info("ДИАГ ввод-вывод №{}: {}", p.detonation, NukeDiag.io(level));
+        }
         if (now >= p.nextZoneReport) {
             p.nextZoneReport = now + ZONE_REPORT;
             zoneReport(p, scars, d, now);
