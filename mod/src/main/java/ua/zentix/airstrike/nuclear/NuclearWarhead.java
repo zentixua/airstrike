@@ -76,8 +76,8 @@ public final class NuclearWarhead {
      * По нему же строятся руины заранее ({@link ua.zentix.airstrike.nuclear.world.NuclearPrep}) — они совпадут с подрывом.
      */
     public static Detonation geometry(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, float scale) {
-        int groundY = Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(target.x), Mth.floor(target.z));
-        double ground = Terrain.ready(level, Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) ? Math.min(groundY, target.y) : target.y;
+        Terrain.Surface under = ground(level, Mth.floor(target.x), Mth.floor(target.z));
+        double ground = under != null ? Math.min(under.y(), target.y) : target.y;
         if (ground <= level.getMinBuildHeight()) ground = target.y;
         double hob = airBurst ? Yield.optimalBurstHeight(yieldKt) * scale : 0;
         boolean surface = hob / scale < FireballModel.maxRadius(yieldKt, true);
@@ -88,8 +88,14 @@ public final class NuclearWarhead {
     /** Точка на поверхности над целью (удар «по поверхности»: цель — место на карте). */
     public static Vec3 surfaceAt(ServerLevel level, Vec3 at) {
         BlockPos p = BlockPos.containing(at);
-        if (!Terrain.ready(level, p)) return at;
-        return new Vec3(at.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.getX(), p.getZ()), at.z);
+        Terrain.Surface under = ground(level, p.getX(), p.getZ());
+        return under == null ? at : new Vec3(at.x, under.y(), at.z);
+    }
+
+    /** Земля в колонке по готовому чанку; потолок Незера — не земля; чанк не готов — null (точка остаётся целью). */
+    private static Terrain.@Nullable Surface ground(ServerLevel level, int x, int z) {
+        Terrain.Surface s = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
+        return s.source() == Terrain.Source.CHUNK ? s : null;
     }
 
     /** Дальше этого (блоки) ни свет, ни проникающая радиация сущностей не трогают: ожоги 1-й степени или 50 бэр. */
