@@ -2,7 +2,9 @@
 """Какие чанки мира на диске сгенерированы до конца: гистограмма поля Status в квадрате вокруг точки.
 
 Только читает файлы региона (region/r.X.Z.mca), мир не меняет; запускать можно и на копии, и при открытой игре.
-Для чанков не FULL — сколько в них непустых блоков (есть ли там постройки) и какие карты высот записаны.
+Для чанков не FULL — сколько в них непустых блоков (есть ли там постройки) и какие карты высот записаны; формат до 1.18
+и FULL с догенерацией под нулём — отдельно (копию с диска мод из них не строит); не FULL — по расстоянию до ближайшего
+FULL: кольца у края исследованного мира или места, где мир не генерировался вовсе.
 
     python3 tools/chunk_status.py <папка мира> <x блока> <z блока> <радиус в чанках> [измерение: overworld|nether|end]
 """
@@ -87,17 +89,32 @@ def main():
     region = os.path.join(world, {'overworld': 'region', 'nether': 'DIM-1/region', 'end': 'DIM1/region'}[dim])
     cx0, cz0 = bx >> 4, bz >> 4
     cache, status, blocks, maps, samples = {}, Counter(), defaultdict(list), Counter(), defaultdict(list)
+    # для копии с руинами с диска (мод: DiskShots) годится только FULL нового формата без догенерации под нулём
+    full, partial, versions, retrogen = set(), {}, Counter(), 0
     for cx in range(cx0 - r, cx0 + r + 1):
         for cz in range(cz0 - r, cz0 + r + 1):
             c = chunk(region, cx, cz, cache)
             if c is None:
                 status['нет на диске'] += 1
+                partial[(cx, cz)] = 'нет на диске'
                 continue
             if isinstance(c, str):
                 status[c] += 1
                 continue
-            s = c.get('Status', '?')
+            versions[c.get('DataVersion', '?')] += 1
+            s = c.get('Status')
+            if s is None and isinstance(c.get('Level'), dict):
+                # формат до 1.18: всё внутри Level — мод его не читает, ваниль обновит при загрузке
+                s = 'до 1.18: ' + str(c['Level'].get('Status', '?'))
+            s = s or '?'
+            if s == 'minecraft:full' and 'below_zero_retrogen' in c:
+                retrogen += 1
+                s = 'minecraft:full + догенерация под нулём'
             status[s] += 1
+            if s == 'minecraft:full':
+                full.add((cx, cz))
+            else:
+                partial[(cx, cz)] = s
             if s != 'minecraft:full':
                 solid = 0
                 for sec in c.get('sections', []):
@@ -118,6 +135,19 @@ def main():
         print(line)
     for (s, keys), n in maps.most_common():
         print('  карты высот у %s: %s — %d' % (s, ', '.join(keys) or 'нет', n))
+    print('версии данных (DataVersion): %s' % ', '.join('%s — %d' % (v, n) for v, n in versions.most_common(6)))
+    if retrogen:
+        print('FULL с догенерацией под нулём (мир поднят с 1.17 и чанк с тех пор не грузился): %d' % retrogen)
+    # кольца вокруг исследованного: у края FULL лежат недогенерированные чанки — 1: свет (блоки и свои детали есть),
+    # 2: пещеры (без деревьев), 3: биомы (без рельефа), дальше — начала структур или ничего
+    rings = defaultdict(Counter)
+    for (cx, cz), s in partial.items():
+        d = next((k for k in range(1, 9) if any((cx + i, cz + j) in full for i in range(-k, k + 1) for j in (-k, k))
+                  or any((cx + i, cz + j) in full for j in range(-k + 1, k) for i in (-k, k))), None)
+        rings['дальше 8' if d is None else d][s] += 1
+    print('не FULL по расстоянию до ближайшего FULL (чанков):')
+    for d in sorted(rings, key=lambda k: (isinstance(k, str), k)):
+        print('  %-9s %s' % (d, ', '.join('%s — %d' % (s, n) for s, n in rings[d].most_common())))
 
 
 if __name__ == '__main__':

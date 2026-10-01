@@ -28,8 +28,9 @@ import java.util.ArrayDeque;
  * <li>Чанки не в мире, собранные модом с изменениями (руины ядерки вдали — с диска и по готовому плану), —
  * {@link #offer}: их ссылку DH держит, пока не разберёт; сколько ещё ждут отправки — {@link #room}.</li>
  * </ul>
- * За тик — не больше {@link #PER_TICK} вызовов: очередь DH на мир — от 1000 позиций на поток его разбора, переполненная
- * выкидывает дальние (на выделенном сервере — дальние от 0 0) с одной строкой «overloaded» в лог DH раз в 30 с.
+ * За тик — не больше {@link #PER_TICK} вызовов (и {@link #SCAN} просмотренных отметок): очередь DH на мир — от 1000
+ * позиций на поток его разбора, переполненная выкидывает дальние (на выделенном сервере — дальние от 0 0) с одной
+ * строкой «overloaded» в лог DH раз в 30 с.
  * Без DH ничего не копится. Несохраняемый attachment мира ({@link ModAttachments#DH_UPDATES}): перезапуск теряет
  * очередь, а чанки, ушедшие в DH, он помнит в своей базе.
  */
@@ -42,6 +43,11 @@ public final class DhUpdates {
     public static final int SETTLE = 10;
     /** Собранных чанков не в мире ждут отправки, не больше: за ними — память (секции целиком). */
     static final int OFFER_LIMIT = 512;
+    /**
+     * Отметок за тик просматривается, не больше: не наступившие встают в конец (по кругу) — очередь (руины ядерки —
+     * тысячи чанков) не обходится вся каждый тик, а наступившая за ними ждёт не дольше нескольких тиков.
+     */
+    static final int SCAN = 256;
 
     /** Чанк → тик, не раньше которого его отправить; по порядку отметок. */
     private final Long2LongLinkedOpenHashMap due = new Long2LongLinkedOpenHashMap();
@@ -51,6 +57,8 @@ public final class DhUpdates {
     private final Long2LongOpenHashMap sent = new Long2LongOpenHashMap();
     private final ArrayDeque<ChunkAccess> offered = new ArrayDeque<>();
     private long sentTotal, offeredTotal;
+    /** Для проверок: больше всего отметок, просмотренных за один тик. */
+    private int scannedMax;
     /** Куда уходят чанки: в игре — {@link DhChunks}; проверки подставляют свой приёмник ({@link #testSink}). */
     private Sink sink = DhChunks::overwrite;
     private boolean test;
@@ -106,6 +114,12 @@ public final class DhUpdates {
         for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++) mark(level, new ChunkPos(x, z), at);
     }
 
+    /** Отметка загруженного чанка ещё ждёт отправки в DH ({@link #mark}). Поток сервера. */
+    public static boolean pending(ServerLevel level, long chunk) {
+        DhUpdates u = active(level);
+        return u != null && u.due.containsKey(chunk);
+    }
+
     /** Есть куда отдавать: DH стоит (или проверка подставила приёмник). */
     public static boolean enabled(ServerLevel level) {
         return active(level) != null;
@@ -138,15 +152,20 @@ public final class DhUpdates {
         int budget = PER_TICK;
         // собранные чанки — первыми: отметки чанков в мире подождут тик, а собранные держат память
         for (ChunkAccess c; budget > 0 && (c = offered.poll()) != null; budget--) sink.overwrite(level, c);
+        // отправленных за RESEND тиков — не больше PER_TICK × RESEND
         sent.long2LongEntrySet().removeIf(e -> now - e.getLongValue() >= RESEND);
         Pending pending = new Pending();
+        LongArrayList notYet = new LongArrayList();
         ObjectIterator<Long2LongMap.Entry> it = due.long2LongEntrySet().fastIterator();
-        while (budget > 0 && it.hasNext()) {
+        int scanned = 0;
+        while (budget > 0 && scanned < SCAN && it.hasNext()) {
             Long2LongMap.Entry e = it.next();
+            scanned++;
             long key = e.getLongKey();
             long at = Math.max(e.getLongValue(), sent.containsKey(key) ? sent.get(key) + RESEND : Long.MIN_VALUE);
             if (at > now) {
                 e.setValue(at);
+                notYet.add(key);
                 continue;
             }
             it.remove();
@@ -161,6 +180,9 @@ public final class DhUpdates {
             sentTotal++;
             budget--;
         }
+        scannedMax = Math.max(scannedMax, scanned);
+        // обошли не всё: не наступившие — в конец, следующий тик смотрит дальше
+        if (it.hasNext()) for (int i = 0; i < notYet.size(); i++) due.getAndMoveToLast(notYet.getLong(i));
         for (int i = 0; i < pending.keys.size(); i++) due.put(pending.keys.getLong(i), pending.ats.getLong(i));
     }
 
@@ -174,9 +196,12 @@ public final class DhUpdates {
         }
     }
 
-    /** Для проверок: ждут отправки (чанки мира, собранные), отправлено с запуска мира (чанки мира, собранные). */
+    /**
+     * Для проверок: ждут отправки (чанки мира, собранные), отправлено с запуска мира (чанки мира, собранные), больше
+     * всего отметок, просмотренных за тик.
+     */
     public static long[] stats(ServerLevel level) {
         DhUpdates u = level.getData(ModAttachments.DH_UPDATES);
-        return new long[] {u.due.size(), u.offered.size(), u.sentTotal, u.offeredTotal - u.offered.size()};
+        return new long[] {u.due.size(), u.offered.size(), u.sentTotal, u.offeredTotal - u.offered.size(), u.scannedMax};
     }
 }
