@@ -12,10 +12,14 @@
       --prop "airstrike.commands=dh pregen status;chunky"   (готовая копия без перекопирования: проверить моды командами)
       в airstrike.commands через «;»: команды без «/», wait:N — ещё N тиков, 0…72000 (к паузе 40 после команды и 20
       после снимка; другое N — строка в лог и шаг пропущен), shot:имя — снимок screenshots/имя_тик.png; в конце «SCENARIO done» и выход
+  tools/prod_client.py --world /путь/к/миру --dir D --copy-only   (только копия: поправить её настройки до запуска --no-copy)
+  tools/prod_client.py commands --no-copy --dir D --world мир --size 1920x1080 --video D/take.mkv --prop "airstrike.commands=…"
+      (окно игры — в видео в реальном времени, tools/x11_record.py; звук — D/audio.wav, 48 кГц)
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
 Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
-в свойстве airstrike.world и открывает его вместо нового.
+в свойстве airstrike.world и открывает его вместо нового. --world — имя мира игрока или путь к каталогу мира (копируется
+под своим именем каталога).
 """
 import argparse
 import glob
@@ -81,7 +85,13 @@ def copy_instance(dest, world):
     with open(os.path.join(dest, "options.txt"), "w") as f:
         f.write("\n".join(lines + [f"{k}:{v}" for k, v in override.items()]) + "\n")
     if world:
-        shutil.copytree(os.path.join(mc, "saves", world), os.path.join(dest, "saves", world))
+        src = world if os.sep in world else os.path.join(mc, "saves", world)
+        shutil.copytree(src, os.path.join(dest, "saves", world_name(world)))
+
+
+def world_name(world):
+    """Имя мира в копии: --world — имя мира игрока или путь к каталогу мира."""
+    return os.path.basename(os.path.normpath(world))
 
 
 def launch_args(dest, props, username, game_extra, extra_jvm=()):
@@ -144,11 +154,20 @@ def main():
     ap.add_argument("--no-copy", action="store_true",
                     help="не копировать инстанс: запустить уже готовый каталог --dir (например копию для съёмки mod/run/film/instance/minecraft)")
     ap.add_argument("--user", default="Dev")
+    ap.add_argument("--copy-only", action="store_true", help="только скопировать инстанс (и --world) в --dir и выйти")
+    ap.add_argument("--size", default="1280x720", metavar="WxH", help="экран вложенного KWin")
+    ap.add_argument("--video", metavar="FILE.mkv",
+                    help="записать окно игры в реальном времени (tools/x11_record.py: куски FILE.NNN.mkv, отметки FILE.jsonl)")
     a = ap.parse_args()
     if (a.without_airstrike or a.airstrike_jar) and a.scenario:
         ap.error("сценарии идут из тестовой сборки Airstrike: без неё сценария нет")
     if a.quickplay and not a.world:
         ap.error("--quickplay нужен --world")
+    if a.copy_only and a.no_copy:
+        ap.error("--copy-only и --no-copy вместе не имеют смысла")
+    width, _, height = a.size.partition("x")
+    if not (width.isdigit() and height.isdigit()):
+        ap.error("--size: ширина x высота, например 1920x1080")
     dest = os.path.abspath(a.dir)
 
     if a.no_copy:
@@ -159,6 +178,8 @@ def main():
             os.remove(old)
     else:
         copy_instance(dest, a.world)
+        if a.copy_only:
+            return
     if a.airstrike_jar:
         shutil.copy2(a.airstrike_jar, os.path.join(dest, "mods"))
     elif not a.without_airstrike:
@@ -171,8 +192,8 @@ def main():
     if a.scenario:
         props["airstrike.scenario"] = a.scenario
         if a.world and not a.quickplay:
-            props["airstrike.world"] = a.world
-    game_extra = ["--quickPlaySingleplayer", a.world] if a.quickplay else []
+            props["airstrike.world"] = world_name(a.world)
+    game_extra = ["--quickPlaySingleplayer", world_name(a.world)] if a.quickplay else []
 
     java = os.path.join(os.environ.get("JAVA_HOME") or paths.JAVA, "bin", "java")
     argfile = os.path.join(dest, "launch.args")
@@ -181,13 +202,21 @@ def main():
             f.write('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"\n')
     # звук — как у client_scenario.sh: драйвер OpenAL Soft «wave» пишет всё, что слышит клиент, в <dest>/audio.wav
     # (звуковой сервер хоста клиенту закрыт nested_kwin.sh, так что только в файл)
+    # для видео — 48 кГц и без прошлого audio.wav: x11_record.py отмечает, когда файл появился
+    audio = os.path.join(dest, "audio.wav")
     alsoft = os.path.join(dest, "alsoft.conf")
     with open(alsoft, "w") as f:
-        f.write("[general]\ndrivers = wave\nfrequency = 22050\nchannels = stereo\nsample-type = int16\n"
-                f"[wave]\nfile = {os.path.join(dest, 'audio.wav')}\n")
+        f.write(f"[general]\ndrivers = wave\nfrequency = {48000 if a.video else 22050}\nchannels = stereo\nsample-type = int16\n"
+                f"[wave]\nfile = {audio}\n")
+    tools = os.path.dirname(os.path.abspath(__file__))
+    game = f"\"{java}\" @\"{argfile}\""
+    if a.video:
+        if os.path.exists(audio):
+            os.remove(audio)
+        game = f"python3 \"{os.path.join(tools, 'x11_record.py')}\" --out \"{os.path.abspath(a.video)}\" --audio \"{audio}\" -- {game}"
     socket = "wayland-airstrike-prod-" + os.path.basename(dest)
-    cmd = f"sh -c 'cd \"{dest}\" && exec \"{java}\" @\"{argfile}\"'"
-    sys.exit(run_in_group([os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested_kwin.sh"), socket, "1280", "720", cmd],
+    cmd = f"sh -c 'cd \"{dest}\" && exec {game}'"
+    sys.exit(run_in_group([os.path.join(tools, "nested_kwin.sh"), socket, width, height, cmd],
                           {**os.environ, "ALSOFT_CONF": alsoft}, a.seconds))
 
 
