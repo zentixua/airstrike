@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
  * Чанк, до которого волна уже дошла, а руины ещё не встали (загружен после подрыва: за волной или игроком), игроку
  * не уходит целым: пока идёт отбор чанков для игрока ({@code PlayerChunkSender.sendNextChunks}), такие чанки убраны из
  * его очереди и возвращаются в неё сразу после ({@code mixin/net/PlayerChunkSenderMixin}). Держится не дольше
- * {@code ScarQueue.WITHHOLD_LIMIT} тиков после волны; ушедшие до руин считает сводка подрыва.
+ * {@code ScarQueue.WITHHOLD_LIMIT} тиков от первой просьбы чанка после волны; ушедшие до руин считает сводка подрыва.
  */
 public final class ChunkSendGate {
     /** Метка миксина: {@code PlayerChunkSender} с ним (проверка, что миксин встал). */

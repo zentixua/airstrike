@@ -65,6 +65,11 @@ public final class ScarQueue {
         int needs;
         /** Тикет с соседями взят за отпущенный квадрат зоны ({@link #holdForTile}): в счёте {@link #tileHolds}. */
         boolean tileHold;
+        /**
+         * Когда чанк без руин впервые попросился к игроку после волны ({@link #withholds}; {@link Long#MIN_VALUE} — не
+         * просился): от этого — срок удержания и сколько игрок ждал руин.
+         */
+        long asked = Long.MIN_VALUE;
 
         Job(long chunk, boolean mayHold) {
             this.chunk = chunk;
@@ -148,10 +153,11 @@ public final class ScarQueue {
      * [16] загруженных после подрыва с готовым планом (с диска), [17] и [18] их отставание всего и наибольшее, [19] чанков
      * в памяти при подрыве, которые видел игрок, без загруженных соседей (плана заранее нет — окно не снять), [20] чанков
      * с загруженными соседями ([10]) по готовому плану — доля [20]/[10] из одного множества ([11] — из всех [9]),
-     * [21] соседей окон очереди, прочитанных с диска ({@link RuinContext#requestWindow}), [22] из них нет на диске целыми.
+     * [21] соседей окон очереди, прочитанных с диска ({@link RuinContext#requestWindow}), [22] из них нет на диске целыми,
+     * [23] наибольшее ожидание игрока: от первой просьбы чанка к игроку после волны ({@link #withholds}) до его руин (тики).
      */
     private final Map<Integer, long[]> preparedStats = new HashMap<>();
-    private static final int STATS = 23;
+    private static final int STATS = 24;
     /**
      * Чанки в памяти при подрыве, чьи руины ещё не встали (по номеру подрыва): когда пусто — строки критериев в лог сразу,
      * не дожидаясь, пока очередь разойдётся вся (сценарий проверки мог кончиться раньше).
@@ -168,7 +174,8 @@ public final class ScarQueue {
     /** Работа, чей план строят фоновые потоки ({@link RuinContext#submit}): в очередь готовых — когда план готов. */
     private final List<Job> background = new ArrayList<>();
     /**
-     * Сколько тиков после прихода волны чанк без руин не уходит игроку ({@link #withholds}): дольше — уходит как есть
+     * Сколько тиков от первой просьбы чанка к игроку после прихода волны чанк без руин не уходит игроку ({@link #withholds}):
+     * дольше — уходит как есть
      * (и считается в сводке «ушло игроку до руин»), чтобы у игрока не оставалось дыр, если руины не встают.
      */
     private static final int WITHHOLD_LIMIT = 200;
@@ -213,6 +220,11 @@ public final class ScarQueue {
             Airstrike.LOG.info("Руины подрыва №{}: план и подмена на месте — в среднем {} мс, самые долгие {} мс", detonation, ms(st[7] / st[6]), ms(st[8]));
         }
         criteria(detonation, st, "всё");
+        // строка «встали руины всех чанков, бывших в памяти» после сводки уже не пишется: её счётчики сняты вместе со сводкой
+        var unplaced = awaitingMemory.remove(detonation);
+        if (unplaced != null && !unplaced.isEmpty()) {
+            Airstrike.LOG.info("Руины подрыва №{}: из чанков в памяти при подрыве руин ещё нет у {} (ждут соседей у края загруженного мира)", detonation, unplaced.size());
+        }
         sentEarly.remove(detonation);
         atDetonation.remove(detonation);
         withNeighbours.remove(detonation);
@@ -251,7 +263,8 @@ public final class ScarQueue {
      * Б: ушло игроку до руин): когда встали руины всех чанков, бывших в памяти при подрыве, и в конце.
      */
     private static void criteria(int detonation, long[] st, String when) {
-        Airstrike.LOG.info("Руины подрыва №{} ({}): отставание от волны у игроков до {} тиков, у остальных до {}; план устарел {}", detonation, when, st[2], st[5], st[1]);
+        Airstrike.LOG.info("Руины подрыва №{} ({}): отставание от волны у игроков до {} тиков, у остальных до {}; план устарел {}; "
+                + "игрок ждал руин чанка до {} тиков (от первой просьбы чанка после волны)", detonation, when, st[2], st[5], st[1], st[23]);
         Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, "
                         + "{} % из чанков с соседями); на экране игрока без соседей {}",
                 detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[20], st[10]), st[19]);
@@ -413,11 +426,15 @@ public final class ScarQueue {
 
     /**
      * Не отдавать чанк игроку: волна до него дошла, а руин ещё нет (поток сервера, {@code PlayerChunkSenderMixin}).
-     * Не дольше {@link #WITHHOLD_LIMIT} тиков после волны: руины, которые не встают, не оставляют у игрока дыру.
+     * Не дольше {@link #WITHHOLD_LIMIT} тиков от первой просьбы после волны (не от самой волны: чанк, до которого зона
+     * за волной ещё не дошла, игрок загружает и через тысячи тиков после неё): руины, которые не встают, не оставляют
+     * у игрока дыру.
      */
     public boolean withholds(long chunk, long now) {
         Job job = jobs.get(chunk);
-        return job != null && job.event < job.events.size() && job.wave <= now && now - job.wave < WITHHOLD_LIMIT;
+        if (job == null || job.event >= job.events.size() || job.wave > now) return false;
+        if (job.asked == Long.MIN_VALUE) job.asked = now;
+        return now - job.asked < WITHHOLD_LIMIT;
     }
 
     /** Есть ли чанки, которые, может быть, нельзя отдавать игрокам (быстрая проверка перед перебором). */
@@ -864,6 +881,11 @@ public final class ScarQueue {
         }
         chunk.setData(ModAttachments.CHUNK_SCAR, d.id());
         chunk.setUnsaved(true);
+        if (job.asked != Long.MIN_VALUE) {
+            long[] waited = preparedStats.computeIfAbsent(d.id(), k -> new long[STATS]);
+            waited[23] = Math.max(waited[23], now - job.asked);
+            job.asked = Long.MIN_VALUE;
+        }
         placedFromMemory(d.id(), job.chunk);
         if (prepared.containsKey(d.id())) ruinedBy.computeIfAbsent(d.id(), k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet()).add(job.chunk);
         List<Log> fallen = logs.remove(job.chunk);

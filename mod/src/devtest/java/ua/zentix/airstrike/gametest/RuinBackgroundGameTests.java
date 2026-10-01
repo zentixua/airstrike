@@ -27,6 +27,7 @@ import ua.zentix.airstrike.nuclear.world.ChunkSendGate;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.RuinPlan;
 import ua.zentix.airstrike.nuclear.world.RuinPlanner;
+import ua.zentix.airstrike.nuclear.world.ScarQueue;
 import ua.zentix.airstrike.registry.ModAttachments;
 
 import java.io.IOException;
@@ -787,5 +788,26 @@ public final class RuinBackgroundGameTests {
             h.assertTrue(held[0], "чанк ни разу не ждал руин: не проверено");
             NuclearStrikes.clear(level);
         });
+    }
+
+    /**
+     * Срок удержания чанка без руин считается от первой просьбы игрока, а не от волны: чанк, загруженный через тысячи
+     * тиков после волны (зона за волной до него не дошла, игрок перенёсся), сперва ждёт руин, а не уходит сразу
+     * (gate 5: 587 чанков ушло игроку до руин).
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_send_ask", skyAccess = true)
+    public static void withholdCountsFromFirstAsk(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Detonation d = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(NuclearGameTests.CENTER)), 1, false, null, 0.1f);
+        LevelChunk chunk = level.getChunkAt(h.absolutePos(NuclearGameTests.CENTER.west(16)));
+        long key = chunk.getPos().toLong();
+        ScarQueue q = new ScarQueue();
+        q.offer(chunk, d);
+        long late = d.gameTime() + 100_000;
+        h.assertTrue(q.withholds(key, late), "чанк, впервые попросившийся к игроку долго после волны, ушёл без руин сразу");
+        h.assertTrue(q.withholds(key, late + 199), "удержание кончилось раньше срока от первой просьбы");
+        h.assertFalse(q.withholds(key, late + 200), "удержание не кончилось через срок от первой просьбы");
+        NuclearStrikes.clear(level);
+        h.succeed();
     }
 }
