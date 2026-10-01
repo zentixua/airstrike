@@ -23,6 +23,7 @@ import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
+import ua.zentix.airstrike.client.far.FarRenderer;
 import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.BlastEffects;
 import ua.zentix.airstrike.client.fx.CameraShake;
@@ -96,6 +97,7 @@ public final class AirstrikeClient {
         NeoForge.EVENT_BUS.addListener(ProjectileCamera::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
+        NeoForge.EVENT_BUS.addListener(FarRenderer::render);
         NeoForge.EVENT_BUS.addListener(Fx::afterParticles);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
@@ -171,6 +173,7 @@ public final class AirstrikeClient {
         ProjectileCamera.tick();
         FlightTracks.tick();
         ClientSounds.tick();
+        FarRenderer.tick();
         Effects.tick();
         CameraShake.tick();
         Flash.tick();
@@ -195,6 +198,7 @@ public final class AirstrikeClient {
     private static void logout(ClientPlayerNetworkEvent.LoggingOut e) {
         ClientSounds.reset();
         FlightTracks.reset();
+        FarRenderer.reset();
         Effects.clear();
         CameraShake.reset();
         Flash.reset();
