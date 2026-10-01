@@ -881,7 +881,9 @@ public final class NuclearGameTests {
             boolean wall = Math.abs(p.getX() - house.getX()) == 2 || Math.abs(p.getZ() - house.getZ()) == 2 || p.getY() == house.getY() + 4;
             if (wall) h.setBlock(p, Blocks.OAK_PLANKS);
         }
-        BlockPos lamp = house.offset(1, 1, 1);
+        // лампа — в столбце дома: соседний столбец бывает уже в соседнем чанке (CI: x или z дома на краю чанка), а
+        // двойник ниже пишется в секцию чанка дома
+        BlockPos lamp = house.above(1);
         h.setBlock(lamp, Blocks.GLOWSTONE);
         LevelChunk chunk = level.getChunkAt(h.absolutePos(house));
         int[] before = heights(chunk, true);
@@ -889,6 +891,7 @@ public final class NuclearGameTests {
         h.assertTrue(plan.changedBlocks() > 0 && plan.sameBlocks(chunk), "чанк сразу после плана не совпал со снимком плана");
         // блэкаут: двойник лампы прямо в секции, как ChunkLights.applyInPlace
         BlockPos lampAt = h.absolutePos(lamp);
+        h.assertTrue(level.getChunkAt(lampAt) == chunk, "лампа не в чанке плана");
         var twin = ua.zentix.airstrike.grid.GridLights.unlit(Blocks.GLOWSTONE.defaultBlockState());
         h.assertTrue(twin != null, "у светокамня нет двойника");
         chunk.getSection(chunk.getSectionIndex(lampAt.getY())).setBlockState(lampAt.getX() & 15, lampAt.getY() & 15, lampAt.getZ() & 15, twin);
