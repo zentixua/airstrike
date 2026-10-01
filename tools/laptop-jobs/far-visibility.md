@@ -34,6 +34,7 @@ pgrep -a -x java | grep -Ei 'neoforge|minecraft'
 pgrep -a -x prismlauncher
 systemctl --user list-units 'airstrike-job-*' --state=active --no-legend
 SHA=<SHA>; [ ${#SHA} = 40 ] || echo "стоп: SHA не вписан"
+echo "маунт doc: $(findmnt -n -o ID "/run/user/$(id -u)/doc" || echo "стоп: маунта /run/user/$(id -u)/doc нет")"
 test -e "/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" && echo "стоп: папка far-vis-SHA7 уже есть"
 MC="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
 ls "$MC/saves"        # есть «Greenfield v0.5.4»; для шага Б — «Newisle 2.3.0» и/или «Newisle 2.3.0 exper»
@@ -46,12 +47,13 @@ grep -E '^(renderDistance|graphicsMode):' "$MC/options.txt"; ls "$MC/shaderpacks
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" && R=/mnt/data/projects/airstrike && cd "${R:?}" && \
 git fetch origin claude/project-thread-o3dgvv && git worktree add "$W" <SHA> && cd "${W:?}" && mkdir -p "$W/mod/run/far" && \
+findmnt -n -o ID "/run/user/$(id -u)/doc" > "$W/mod/run/far/doc-mount.before" && echo "маунт doc записан" && \
 git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && \
 grep -q 'wait:blast' mod/src/devtest/java/ua/zentix/airstrike/scenario/CommandPlan.java && \
 grep -q 'SCENARIO far' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java && \
 test -f mod/src/main/java/ua/zentix/airstrike/client/far/FarRenderer.java && echo "сценарий на месте"
 ```
-Должно быть «коммит верный» и «сценарий на месте». Нет — стоп, прислать вывод.
+Должно быть «маунт doc записан», «коммит верный» и «сценарий на месте». Нет — стоп, прислать вывод.
 
 Сборка тестового jar (в фоне, тайм-аут вызова 25 мин; код не 0 — стоп, сообщить):
 ```sh
@@ -108,7 +110,8 @@ for f in $(find "$P/screenshots" -maxdepth 1 -name '*.png' -newer "$D/.step-star
 ls "$D/frames"; grep -a -c 'SCENARIO done' "$D/logs/full.log"; \
 python3 tools/logscan.py "$D/logs/full.log" --all > "$D/logscan.txt"; wc -lc "$D/logscan.txt"; \
 grep -aE 'SCENARIO (commands|far|fps|/airstrike)|Удар: |has crashed|emergencySaveAndCrash|Unreported exception|Distant Horizons' "$D/logs/full.log" | cut -c1-400 > "$D/lines.txt"; wc -lc "$D/lines.txt"; \
-grep -aE 'Pause (Young|Old|Full)' "$D/logs/gc.log" 2>/dev/null | awk '{ms=$NF; sub(/ms$/,"",ms); if (ms+0>300) print}' > "$D/gc-pauses.txt"; echo "пауз GC > 300 мс: $(wc -l < "$D/gc-pauses.txt")"
+grep -aE 'Pause (Young|Old|Full)' "$D/logs/gc.log" 2>/dev/null | awk '{ms=$NF; sub(/ms$/,"",ms); if (ms+0>300) print}' > "$D/gc-pauses.txt"; echo "пауз GC > 300 мс: $(wc -l < "$D/gc-pauses.txt")"; \
+now=$(findmnt -n -o ID "/run/user/$(id -u)/doc"); [ -n "$now" ] && [ "$now" = "$(cat "$D/doc-mount.before")" ] && echo "маунт doc цел: $now" || { echo "ПРОВАЛ: маунт /run/user/$(id -u)/doc пропал или сменился (был $(cat "$D/doc-mount.before"), стал ${now:-нет})"; false; }
 ```
 
 ## Что прислать координатору
@@ -122,6 +125,8 @@ grep -aE 'Pause (Young|Old|Full)' "$D/logs/gc.log" 2>/dev/null | awk '{ms=$NF; s
 
 ## Проходит, если
 - прогон кончается сам с **кодом 0**, `SCENARIO done` есть, нет `has crashed`/`emergencySaveAndCrash`/`Unreported exception`;
+- маунт порталов flatpak `/run/user/<uid>/doc` цел: шаг В пишет «маунт doc цел» с тем же ID, что в шаге 2 (вложенный
+  KWin не должен его трогать — иначе у Артёма не открываются flatpak-приложения); «ПРОВАЛ» — задание не прошло;
 - каждое `wait:blast` дождалось взрыва (нет строк `взрыва нет`);
 - звук: после одиночных ударов (ракета, шахед, B-2, ракеты на 4 км, ночная ракета, ракета в дождь) в строках
   `SCENARIO far` есть раскат с дальностью d и задержкой ≈ d / 17,15 тика (±3); громкость у 1,5 км днём > 0
