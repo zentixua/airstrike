@@ -371,8 +371,10 @@ public final class DhGameTests {
 
     /**
      * Запросов LOD вдали много (у тяжёлой зоны — десятки тысяч): за тик просматривается не больше
-     * {@link FarLods#VISITS}, остальные — по кругу, и проходит вся очередь. Чанков нет на диске; настройка
-     * {@code far_zone} выключена — мир не трогается. Сервер идёт в темпе игры: заголовки читает поток ввода-вывода.
+     * {@link FarLods#VISITS}, остальные — по кругу, и проходит вся очередь. Блэкаут просит те же чанки раньше руин (как
+     * в игре Артёма 01.10.2026): запрос руин не теряется, и каждый чанк проходит как чанк с руинами — не целый на диске,
+     * а не «не прочитан». Чанков нет на диске; настройка {@code far_zone} выключена — мир не трогается. Сервер идёт в
+     * темпе игры: заголовки читает поток ввода-вывода.
      */
     @GameTest(template = "range", timeoutTicks = 1200, batch = "dh_far_visits", skyAccess = true)
     public static void farLodsVisitBoundedPerTick(GameTestHelper h) {
@@ -392,13 +394,14 @@ public final class DhGameTests {
             NuclearStrikes.clear(level);
         });
         int n = 2000;
+        for (int i = 0; i < n; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 50 - 25, at.z + i / 50 - 20), false);
         for (int i = 0; i < n; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 50 - 25, at.z + i / 50 - 20), true);
         h.assertTrue(FarLods.get(level).stats()[7] - lods0[7] == n, "в очереди " + (FarLods.get(level).stats()[7] - lods0[7]) + " из " + n);
         h.succeedWhen(() -> {
             long[] s = FarLods.get(level).stats();
             // очередь длиннее предела: предел и работал
             h.assertTrue(FarLods.get(level).visitsMax() == FarLods.VISITS, "за тик просмотрено до " + FarLods.get(level).visitsMax() + " запросов");
-            h.assertTrue(s[6] - lods0[6] == n, "не целых на диске " + (s[6] - lods0[6]) + " из " + n);
+            h.assertTrue(s[6] - lods0[6] == n, "не целых на диске " + (s[6] - lods0[6]) + " из " + n + ", не прочитаны " + (s[4] - lods0[4]));
             h.assertTrue(s[7] == 0, "в очереди " + s[7]);
             h.assertTrue(FarLods.get(level).zoneStats()[2] == taken0, "квадрат взят при выключенной настройке");
         });
