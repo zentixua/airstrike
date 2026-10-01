@@ -9,11 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BlastMixTest {
     private static final BlastMix.Profile[] PROFILES = {BlastMix.DRONE, BlastMix.MISSILE, BlastMix.ROCKET};
 
-    /** Ракурсы — одна запись (один вариант), поэтому складываются по амплитуде; громкость суммы, LUFS. */
+    /**
+     * Громкость прямого звука, LUFS. Ракурсы одной записи (один вариант) складываются по амплитуде; у РСЗО своя запись
+     * вблизи и дальний ракурс — разные записи, они складываются по мощности.
+     */
     private static double direct(BlastMix.Profile p, BlastMix.Layers l) {
-        double a = l.near() * Math.pow(10, p.lufs() / 20) + l.mid() * Math.pow(10, BlastMix.MID_LUFS / 20)
-                + l.far() * Math.pow(10, BlastMix.FAR_LUFS / 20);
-        return 20 * Math.log10(a);
+        double near = l.near() * Math.pow(10, p.lufs() / 20), far = l.far() * Math.pow(10, BlastMix.FAR_LUFS / 20);
+        if (!p.mid()) return 10 * Math.log10(near * near + far * far);
+        return 20 * Math.log10(near + l.mid() * Math.pow(10, BlastMix.MID_LUFS / 20) + far);
     }
 
     @Test

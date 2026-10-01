@@ -3,7 +3,6 @@ package ua.zentix.airstrike.client.sound;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.resources.sounds.SoundInstance;
-import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.Mth;
@@ -107,10 +106,13 @@ public final class BlastSounds {
             ECHOES.add(ClientSounds.around(ModSounds.BLAST_TAIL.get(), l.echo(), pitch, seed ^ ECHO_SALT, ClientSounds.farAir(d)));
     }
 
-    /** Есть место ещё одному эху: смолкшие и не запущенные (движку не хватило канала) забываются. */
+    /**
+     * Есть место ещё одному эху: смолкшие и не запущенные (движку не хватило канала) забываются. Звучит — значит держит
+     * канал: {@code SoundManager.isActive} остаётся true у звука, которого движок лишился при громкости категории 0.
+     */
     private static boolean echoFree() {
-        SoundManager manager = Minecraft.getInstance().getSoundManager();
-        ECHOES.removeIf(s -> !manager.isActive(s));
+        var channels = Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel;
+        ECHOES.removeIf(s -> !channels.containsKey(s));
         return ECHOES.size() < ECHO_CAP;
     }
 

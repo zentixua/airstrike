@@ -10,7 +10,8 @@ import java.util.SplittableRandom;
  * У взрыва три ракурса одной и той же записи ({@code tools/build_sounds.py}, раздел blasts): вблизи — удар и тело
  * взрыва, на средней дистанции — запись целиком с эхом от склонов и домов, вдали — она же через километр воздуха,
  * без верхов. Вариант у всех ракурсов один (его выбирает зерно взрыва), поэтому в переходе по расстоянию ракурсы
- * складываются как одна запись: веса по амплитуде, в сумме 1. Под ними — «удар в грудь» снизу (вблизи) и эхо вокруг
+ * складываются как одна запись: веса по амплитуде, в сумме 1. У РСЗО вблизи своя короткая запись, другая, чем дальний
+ * ракурс, — их переход по мощности (сумма квадратов весов 1). Под ними — «удар в грудь» снизу (вблизи) и эхо вокруг
  * (стерео, без места в мире: отражения приходят со всех сторон).
  * <p>
  * Громкость: до {@link Profile#flat} блоков полная, дальше −3 дБ на удвоение расстояния — тот же закон, что у дальней
@@ -81,8 +82,9 @@ public final class BlastMix {
     public static Layers at(Profile p, double d) {
         double s = p.scale, l = loudness(p, d);
         double far = smoothstep(200 * s, Math.min(500 * s, 600), d);
-        double near = p.mid ? 1 - smoothstep(30 * s, 120 * s, d) : 1 - far;
+        double near = p.mid ? 1 - smoothstep(30 * s, 120 * s, d) : Math.sqrt(1 - far);
         double mid = p.mid ? 1 - near - far : 0;
+        if (!p.mid) far = Math.sqrt(far);
         double sub = p.sub * (1 - smoothstep(15 * s, 100 * s, d));
         double echo = ECHO_CLOSE + (ECHO_FAR - ECHO_CLOSE) * clamp(log2(d / (ECHO_FROM * s)) / log2(ECHO_OPEN / ECHO_FROM), 0, 1);
         double echoFade = 1 - smoothstep(300 * s, 600, d);

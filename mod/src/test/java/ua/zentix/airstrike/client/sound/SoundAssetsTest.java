@@ -57,6 +57,9 @@ class SoundAssetsTest {
         assertEquals(registered, json.keySet(), "события ModSounds и sounds.json");
         for (String p : PERSPECTIVES) {
             assertEquals(variants(json, PERSPECTIVES.get(0)), variants(json, p), "вариантов у ракурсов поровну: " + p);
+            for (JsonElement s : json.getAsJsonObject(p).getAsJsonArray("sounds")) {
+                assertTrue(!s.isJsonObject() || !s.getAsJsonObject().has("weight"), p + ": веса равные — иначе зерно выберет разные записи");
+            }
         }
         for (String p : PRELOAD) {
             for (JsonElement s : json.getAsJsonObject(p).getAsJsonArray("sounds")) {

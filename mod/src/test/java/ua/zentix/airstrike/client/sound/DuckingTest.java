@@ -39,8 +39,16 @@ class DuckingTest {
         d.blast(BlastMix.NEAR_LUFS);
         for (int i = 0; i < 10; i++) d.tick();
         float before = d.factor();
-        d.blast(BlastMix.loudness(BlastMix.DRONE, 500));
+        double quieter = BlastMix.loudness(BlastMix.DRONE, 150);
+        Ducking alone = new Ducking();
+        alone.blast(quieter);
+        assertTrue(alone.factor() < 0.9 && alone.factor() > before, "сам по себе он приглушает, но меньше");
+        // взрыв тише, но всё же приглушающий: глубина и отпускание прежние, без новой выдержки
+        assertTrue(Math.pow(10, -Ducking.DEPTH / 20) < before && before < 0.99);
+        d.blast(quieter);
         assertEquals(before, d.factor(), 1e-6);
+        d.tick();
+        assertEquals(Ducking.RELEASE, 20 * Math.log10(d.factor() / before), 1e-4, "отпускает дальше, а не держит");
         d.blast(BlastMix.NEAR_LUFS);
         assertEquals(Math.pow(10, -Ducking.DEPTH / 20), d.factor(), 1e-6, "новый близкий взрыв — снова вся глубина");
     }
