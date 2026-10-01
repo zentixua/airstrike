@@ -3,9 +3,6 @@ package ua.zentix.airstrike.nuclear.world;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.StringTag;
-import net.minecraft.nbt.visitors.CollectFields;
-import net.minecraft.nbt.visitors.FieldSelector;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,7 +38,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * лампы своим путём. Копия без изменений против диска в DH не уходит — его LOD по этим же блокам уже есть.
  * <p>
  * Чанк за волной без готового плана проверяется на диске (поле {@code Status} — чтением заголовка в фоне, как у зоны за
- * волной, {@link #wholeOnDisk}): целый — ждёт плана ({@link #PLAN_WAIT}); не целый или его нет (край исследованного
+ * волной, {@link DiskStatus#whole}): целый — ждёт плана ({@link #PLAN_WAIT}); не целый или его нет (край исследованного
  * мира: копию не собрать, а LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}):
  * ваниль догенерирует его, руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
  * <p>
@@ -215,28 +212,12 @@ public final class FarLods {
         if (disk.get(chunk) != SCANNING) disk.remove(chunk);
     }
 
-    /** Заголовок чанка с диска ({@link #wholeOnDisk}): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}. */
+    /** Заголовок чанка с диска ({@link DiskStatus#whole}): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}. */
     private void scan(ServerLevel level, long chunk) {
-        CollectFields fields = new CollectFields(new FieldSelector(StringTag.TYPE, "Status"), new FieldSelector(CompoundTag.TYPE, "below_zero_retrogen"));
         disk.put(chunk, SCANNING);
         scanning++;
         ConcurrentLinkedQueue<long[]> out = scanned;
-        level.getChunkSource().chunkMap.chunkScanner().scanChunk(new ChunkPos(chunk), fields).whenComplete((v, e) -> {
-            boolean whole = e == null && wholeOnDisk(fields.getResult() instanceof CompoundTag tag ? tag : null);
-            out.add(new long[]{chunk, whole ? 1 : 0});
-        });
-    }
-
-    /**
-     * Целый ли чанк на диске по полям его заголовка ({@code Status}, {@code below_zero_retrogen}; null — чанка на диске
-     * нет): {@code Status} ровно {@code minecraft:full}, как у зоны за волной ({@link NuclearPrep}: такой чанк она берёт
-     * в мир сама, а его план с диска строит подготовка), и без догенерации под нулём (её {@link DiskShots} не берёт).
-     * Остальное — нет на диске, недогенерированный чанк (с блоками или без: кольца у края исследованного мира, начала
-     * структур), формат до 1.18 ({@code Status} внутри {@code Level}), {@code Status} без пространства имён (сохранён
-     * старой версией: зона за волной его не берёт), — одинаково: в мир через {@link FarZone}.
-     */
-    public static boolean wholeOnDisk(@Nullable CompoundTag fields) {
-        return fields != null && "minecraft:full".equals(fields.getString("Status")) && !fields.contains("below_zero_retrogen");
+        DiskStatus.scan(level, new ChunkPos(chunk)).thenAccept(whole -> out.add(new long[]{chunk, whole ? 1 : 0}));
     }
 
     /** Копия чанка с руинами (фоновый поток): секции с диска, места плана. */

@@ -206,8 +206,14 @@ public final class ScarQueue {
         return plans != null && !plans.isEmpty();
     }
 
-    /** Руины подрыва больше не нужны (их чанки отпущены); сводка — в лог. */
-    public void dropPrepared(int detonation) {
+    /**
+     * Руины подрыва больше не нужны (их чанки отпущены); сводка — в лог.
+     *
+     * @param zone чанки зоны за волной ({@link NuclearPrep}): чанки с планом она грузит сама, и план остаётся, только если
+     *             зона кончилась раньше (срок, память); за её краем — чанк, бывший в памяти при подготовке и выгруженный
+     *             до волны: его руины встанут при загрузке
+     */
+    public void dropPrepared(int detonation, java.util.function.LongPredicate zone) {
         Long2ObjectOpenHashMap<RuinPlan> left = prepared.remove(detonation);
         long[] st = preparedStats.remove(detonation);
         if (st == null) st = new long[STATS];
@@ -231,13 +237,17 @@ public final class ScarQueue {
         if (left != null && !left.isEmpty()) {
             // почему не дождались: чанк так и стоял в очереди (соседи не загрузились) или в очередь не попал (выгружен)
             StringBuilder some = new StringBuilder();
-            int queued = 0, shown = 0;
+            int queued = 0, inZone = 0, shown = 0;
             for (long c : left.keySet()) {
                 boolean inQueue = jobs.containsKey(c);
                 if (inQueue) queued++;
+                if (!zone.test(c)) continue;
+                inZone++;
+                // примеры — из зоны за волной: за её краем чанки ждут загрузки по замыслу
                 if (shown++ < 5) some.append(shown > 1 ? ", " : "").append(new ChunkPos(c)).append(inQueue ? " в очереди" : "");
             }
-            Airstrike.LOG.info("Руины подрыва №{}: не дождались {} чанков, из них в очереди {}: {}", detonation, left.size(), queued, some);
+            Airstrike.LOG.info("Руины подрыва №{}: не дождались {} чанков (в зоне за волной {}, за её краем {}), из них в очереди {}{}", detonation,
+                    left.size(), inZone, left.size() - inZone, queued, inZone == 0 ? "" : "; в зоне: " + some);
         }
         long[] ph = RuinPlan.PHASES;
         Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
