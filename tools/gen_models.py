@@ -15,6 +15,9 @@
 Геометрия и развёртка строятся вместе, поэтому текстура всегда совпадает с сеткой. Единицы — блоки (= метры),
 нос по +Z, верх +Y, +X — левый борт (как у моделей в client/render). Каждая подвижная деталь — свой OBJ:
 её поворачивает рендерер вокруг шарнира (координаты шарниров — в WeaponModels.java, они же здесь в комментариях).
+К каждой детали с гладкими поверхностями пишется упрощённая копия <модель>_<деталь>_lod1 (дальние модели, FarModels):
+те же поверхности с прореженными рядами сетки — выброшенные точки лежат ближе LOD_TOL размера модели к оставшимся,
+нормали — от полной сетки, развёртка та же.
 
 Модели:
   drone   — «Шахед-136» (×2): фюзеляж с тупым носом, обрезанное дельта-крыло, законцовки-кили, толкающий винт
@@ -41,6 +44,9 @@ ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstr
 MODELS = os.path.join(ASSETS, "models", "weapon")
 TEXTURES = os.path.join(ASSETS, "textures", "block", "weapon")
 rng = np.random.default_rng(1945)
+# Упрощённая копия: насколько (доля наибольшего размера модели) выброшенные точки сетки могут отходить от оставшейся
+# поверхности. Дальняя модель берёт копию, пока она мельче FarModels.COARSE_BELOW пикселей: 0,5 % — меньше четверти пикселя.
+LOD_TOL = 0.005
 
 
 def v3(x, y, z):
@@ -216,21 +222,96 @@ FONT = {
 
 # ============================================================================ сетка
 
+def face(pts, uvs, normals, material):
+    return material, [np.asarray(p, float) for p in pts], list(uvs), [unit(np.asarray(n, float)) for n in normals]
+
+
+def quads(P, UV, N, material, smooth):
+    """Грани сетки P[i][j] с UV[i][j] и нормалями N[i][j]: обход — наружу, по нормалям точек."""
+    out = []
+    n_i, n_j = P.shape[0], P.shape[1]
+    for i in range(n_i - 1):
+        for j in range(n_j - 1):
+            idx = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+            pts = [P[a, b] for a, b in idx]
+            fn = np.cross(pts[1] - pts[0], pts[3] - pts[0]) + np.cross(pts[3] - pts[2], pts[1] - pts[2])
+            if np.linalg.norm(fn) < 1e-9:
+                fn = np.cross(pts[2] - pts[0], pts[3] - pts[1])
+            if np.linalg.norm(fn) < 1e-12:
+                continue
+            avg = sum(N[a, b] for a, b in idx)
+            if np.dot(fn, avg) < 0:
+                idx.reverse()
+                pts.reverse()
+                fn = -fn
+            norms = [N[a, b] for a, b in idx] if smooth else [unit(fn)] * 4
+            out.append(face(pts, [UV[a][b] for a, b in idx], norms, material))
+    return out
+
+
+def keep_rows(P, tol):
+    """
+    Какие ряды сетки P (по первому индексу) оставить: Рамер — Дуглас — Пекер по всем столбцам сразу — выброшенный ряд
+    лежит ближе tol к отрезкам между соседними оставленными в каждом столбце. Крайние ряды остаются всегда.
+    """
+    n = P.shape[0]
+    keep = {0, n - 1}
+    stack = [(0, n - 1)]
+    while stack:
+        a, b = stack.pop()
+        if b - a < 2:
+            continue
+        A, AB = P[a], P[b] - P[a]
+        L2 = np.maximum((AB * AB).sum(-1), 1e-18)
+        worst, at = -1.0, -1
+        for i in range(a + 1, b):
+            AP = P[i] - A
+            t = np.clip((AP * AB).sum(-1) / L2, 0, 1)
+            d = float(np.linalg.norm(AP - t[:, None] * AB, axis=-1).max())
+            if d > worst:
+                worst, at = d, i
+        if worst > tol:
+            keep.add(at)
+            stack += [(a, at), (at, b)]
+    return sorted(keep)
+
+
+class Grid:
+    """Гладкая поверхность детали, как её дала Model.grid: для упрощённой копии."""
+
+    def __init__(self, P, UV, N, material, smooth):
+        self.P, self.UV, self.N, self.material, self.smooth = P, UV, N, material, smooth
+
+    def coarse(self, tol):
+        """Грани той же поверхности с прореженными рядами по обоим индексам (по половине допуска на каждый)."""
+        ki, kj = keep_rows(self.P, tol / 2), keep_rows(np.swapaxes(self.P, 0, 1), tol / 2)
+        UV = [[self.UV[i][j] for j in kj] for i in ki]
+        return quads(self.P[np.ix_(ki, kj)], UV, self.N[np.ix_(ki, kj)], self.material, self.smooth)
+
+
 class Model:
     """Модель: детали (каждая — свой OBJ), грани с позициями, UV и нормалями."""
 
-    def __init__(self, name, tex_w, tex_h, scale=1.0):
-        """scale — во сколько уменьшить при записи: геометрия ниже задана в «старых» единицах, в OBJ — метры."""
+    def __init__(self, name, tex_w, tex_h, scale=1.0, lod=True):
+        """
+        scale — во сколько уменьшить при записи: геометрия ниже задана в «старых» единицах, в OBJ — метры;
+        lod — писать упрощённые копии деталей (у пакета РСЗО их нет: он стоит у игрока, вдали его не рисуют).
+        """
         self.name = name
         self.scale = scale
         self.cv = Canvas(tex_w, tex_h)
         self.parts = {}
+        # деталь → её поверхности по порядку: Grid или готовая грань (упрощённая копия их не трогает)
+        self.lod = {} if lod else None
 
     def faces(self, part):
         return self.parts.setdefault(part, [])
 
     def add_face(self, part, pts, uvs, normals, material="paint"):
-        self.faces(part).append((material, [np.asarray(p, float) for p in pts], list(uvs), [unit(np.asarray(n, float)) for n in normals]))
+        f = face(pts, uvs, normals, material)
+        self.faces(part).append(f)
+        if self.lod is not None:
+            self.lod.setdefault(part, []).append(f)
 
     # ---------------------------------------------------------------- поверхности
 
@@ -253,22 +334,9 @@ class Model:
                 elif np.dot(n, h) < 0:
                     n = -n
                 N[i, j] = unit(n)
-        for i in range(n_i - 1):
-            for j in range(n_j - 1):
-                idx = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
-                pts = [P[a, b] for a, b in idx]
-                fn = np.cross(pts[1] - pts[0], pts[3] - pts[0]) + np.cross(pts[3] - pts[2], pts[1] - pts[2])
-                if np.linalg.norm(fn) < 1e-9:
-                    fn = np.cross(pts[2] - pts[0], pts[3] - pts[1])
-                if np.linalg.norm(fn) < 1e-12:
-                    continue
-                avg = sum(N[a, b] for a, b in idx)
-                if np.dot(fn, avg) < 0:
-                    idx.reverse()
-                    pts.reverse()
-                    fn = -fn
-                norms = [N[a, b] for a, b in idx] if smooth else [unit(fn)] * 4
-                self.add_face(part, pts, [UV[a][b] for a, b in idx], norms, material)
+        self.faces(part).extend(quads(P, UV, N, material, smooth))
+        if self.lod is not None:
+            self.lod.setdefault(part, []).append(Grid(P, UV, N, material, smooth))
 
     def lathe(self, part, profile, region, seg=32, center=(0.0, 0.0), material="paint", roll=0.0):
         """
@@ -352,36 +420,47 @@ class Model:
             f.write(f"newmtl glow\nKd 1 1 1 1\nKa 1 1 1 1\nmap_Kd {tex}\n")
         stats = []
         for part, faces in self.parts.items():
-            lines = [f"# {self.name}/{part} — сгенерировано tools/gen_models.py, не править руками", f"mtllib {self.name}.mtl"]
-            vs, vts, vns, fs = [], [], [], []
-            cur = None
-            for mat, pts, uvs, ns in faces:
-                if mat != cur:
-                    fs.append(f"usemtl {mat}")
-                    cur = mat
-                ids = []
-                for p, t, n in zip(pts, uvs, ns):
-                    vs.append(p)
-                    vts.append(t)
-                    vns.append(n)
-                    k = len(vs)
-                    ids.append(f"{k}/{k}/{k}")
-                fs.append("f " + " ".join(ids))
-            lines += [f"v {p[0] * self.scale:.4f} {p[1] * self.scale:.4f} {p[2] * self.scale:.4f}" for p in vs]
-            lines += [f"vt {t[0]:.5f} {t[1]:.5f}" for t in vts]
-            lines += [f"vn {n[0]:.4f} {n[1]:.4f} {n[2]:.4f}" for n in vns]
-            lines += fs
-            name = f"{self.name}_{part}"
-            with open(os.path.join(MODELS, name + ".obj"), "w") as f:
-                f.write("\n".join(lines) + "\n")
-            with open(os.path.join(MODELS, name + ".json"), "w") as f:
-                json.dump({"loader": "neoforge:obj", "model": f"airstrike:models/weapon/{name}.obj", "flip_v": False,
-                           "emissive_ambient": True, "automatic_culling": False,
-                           "textures": {"particle": tex}}, f, indent=2)
-                f.write("\n")
+            self.write_obj(f"{self.name}_{part}", f"{self.name}/{part}", faces, tex)
             stats.append(f"{part} {len(faces)}")
+        if self.lod is not None:
+            pts = np.array([p for faces in self.parts.values() for _, ps, _, _ in faces for p in ps])
+            tol = LOD_TOL * float((pts.max(0) - pts.min(0)).max())
+            for part, surfaces in self.lod.items():
+                if not any(isinstance(s, Grid) for s in surfaces):
+                    continue
+                faces = [f for s in surfaces for f in (s.coarse(tol) if isinstance(s, Grid) else [s])]
+                self.write_obj(f"{self.name}_{part}_lod1", f"{self.name}/{part}, упрощённая копия", faces, tex)
+                stats.append(f"{part}_lod1 {len(faces)}")
         self.cv.save(os.path.join(TEXTURES, f"{self.name}.png"))
         print(f"{self.name}: {', '.join(stats)} граней; текстура {self.cv.w}×{self.cv.h}")
+
+    def write_obj(self, name, title, faces, tex):
+        lines = [f"# {title} — сгенерировано tools/gen_models.py, не править руками", f"mtllib {self.name}.mtl"]
+        vs, vts, vns, fs = [], [], [], []
+        cur = None
+        for mat, pts, uvs, ns in faces:
+            if mat != cur:
+                fs.append(f"usemtl {mat}")
+                cur = mat
+            ids = []
+            for p, t, n in zip(pts, uvs, ns):
+                vs.append(p)
+                vts.append(t)
+                vns.append(n)
+                k = len(vs)
+                ids.append(f"{k}/{k}/{k}")
+            fs.append("f " + " ".join(ids))
+        lines += [f"v {p[0] * self.scale:.4f} {p[1] * self.scale:.4f} {p[2] * self.scale:.4f}" for p in vs]
+        lines += [f"vt {t[0]:.5f} {t[1]:.5f}" for t in vts]
+        lines += [f"vn {n[0]:.4f} {n[1]:.4f} {n[2]:.4f}" for n in vns]
+        lines += fs
+        with open(os.path.join(MODELS, name + ".obj"), "w") as f:
+            f.write("\n".join(lines) + "\n")
+        with open(os.path.join(MODELS, name + ".json"), "w") as f:
+            json.dump({"loader": "neoforge:obj", "model": f"airstrike:models/weapon/{name}.obj", "flip_v": False,
+                       "emissive_ambient": True, "automatic_culling": False,
+                       "textures": {"particle": tex}}, f, indent=2)
+            f.write("\n")
 
 
 # ============================================================================ общие приёмы окраски
@@ -796,7 +875,7 @@ RACK_COLS, RACK_ROWS, TUBE_PITCH, TUBE_LENGTH = 10, 4, 0.3, 3.2
 
 def rocket_rack():
     """Пакет из 40 труб: открытые стволы (внутри — тёмный зев), стяжки и рама. Нос снарядов — по +Z."""
-    m = Model("rocket_rack", 512, 512)
+    m = Model("rocket_rack", 512, 512, lod=False)
     tube = m.cv.alloc(96, 256)
     bore = m.cv.alloc(32, 128)
     frame = m.cv.alloc(128, 64)

@@ -1,11 +1,18 @@
 package ua.zentix.airstrike.client.render;
 
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.block.model.BakedQuad;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.Vec3i;
 import net.minecraft.util.FastColor;
 import net.neoforged.neoforge.client.model.IQuadTransformer;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -56,6 +63,22 @@ final class QuadMesh {
             int c = tint == null ? color : FastColor.ARGB32.multiply(color, 0xFF000000 | tint[k]);
             vc.addVertex(p.x, p.y, p.z, c, v[i + 3], v[i + 4], overlay, l, n.x, n.y, n.z);
         }
+    }
+
+    /**
+     * Вершины сетки как есть (без поворота, белые, свет — ярче из light и запечённого) — для буфера видеокарты,
+     * в который она ложится один раз ({@link FarModels}); {@code null} — сетка пуста.
+     */
+    @Nullable
+    MeshData bake(ByteBufferBuilder bytes, int light) {
+        BufferBuilder b = new BufferBuilder(bytes, VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+        draw(new PoseStack().last(), b, white(1), light, OverlayTexture.NO_OVERLAY);
+        return b.build();
+    }
+
+    /** Байт на вершины {@link #bake}. */
+    int bakedBytes() {
+        return vertices.length / STRIDE * DefaultVertexFormat.NEW_ENTITY.getVertexSize();
     }
 
     static int white(float alpha) {

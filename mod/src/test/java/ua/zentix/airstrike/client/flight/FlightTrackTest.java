@@ -22,7 +22,7 @@ class FlightTrackTest {
     }
 
     private static S2C.FarFlight at(double x, double vx, int phaseAge) {
-        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0,
+        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0, 0,
                 FlightPhase.CRUISE.ordinal(), phaseAge, new Vec3(500, 80, 0));
     }
 
@@ -131,5 +131,40 @@ class FlightTrackTest {
         assertTrue(t.fromServer(12));
         assertFalse(t.fromServer(13));
         assertFalse(t.fromServer(9));
+    }
+
+    private static S2C.FarFlight turned(float yaw, float pitch, float roll) {
+        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(0, 80, 0), new Vec3(4, 0, 0), yaw, pitch, roll,
+                FlightPhase.CRUISE.ordinal(), 100, new Vec3(500, 80, 0));
+    }
+
+    @Test
+    void anglesTurnTheShortWayBetweenTicks() {
+        // модель вдали поворачивается и кренится между пакетами, а не прыгает; через ±180° — коротким путём
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, turned(170, -4, 20));
+        t.record(11, turned(-170, 4, -20));
+        float[] a = new float[3];
+        t.angles(10.5, a);
+        assertEquals(180, a[0], 1e-4);
+        assertEquals(0, a[1], 1e-4);
+        assertEquals(0, a[2], 1e-4);
+        t.angles(15, a);
+        assertEquals(-170, a[0], 1e-4, "за последним пакетом — последние углы");
+        assertEquals(-20, a[2], 1e-4);
+        // пропущенный тик между пакетами — середина поворота и крена
+        t.record(13, turned(-150, 4, 20));
+        t.angles(12, a);
+        assertEquals(-160, a[0], 1e-4);
+        assertEquals(0, a[2], 1e-4);
+    }
+
+    @Test
+    void ageCountsFromTheFirstPacketOfTheHistory() {
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        assertEquals(4.5, t.age(14.5), 1e-9);
+        assertEquals(0, t.age(5), 1e-9);
     }
 }
