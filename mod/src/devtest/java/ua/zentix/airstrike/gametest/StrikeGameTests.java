@@ -14,7 +14,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -2775,6 +2777,56 @@ public final class StrikeGameTests {
             SalvoData.get(level).clear();
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()) || other.equals(p.ownerId()));
             onRail.discard();
+            h.succeed();
+        });
+    }
+
+    /**
+     * Залп по сущности, которая погибла: остаток бьёт по месту гибели, а не по новой сущности с тем же UUID (игрок
+     * возрождается новым {@code ServerPlayer} с прежним UUID — раньше залп переходил на место возрождения).
+     */
+    @GameTest(template = "range", timeoutTicks = 120, batch = "salvo_target_died", skyAccess = true)
+    public static void salvoKeepsLastPointOfDeadTarget(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        java.util.UUID owner = java.util.UUID.randomUUID();
+        Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER));
+        Pig pig = EntityType.PIG.create(level);
+        pig.moveTo(at.x, at.y, at.z, 0, 0);
+        pig.setNoAi(true);
+        level.addFreshEntity(pig);
+        Target.OfEntity target = new Target.OfEntity(pig.getUUID(), Vec3.ZERO);
+        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT);
+        Runnable cleanup = () -> {
+            SalvoData.get(level).clear();
+            VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
+        };
+        h.runAfterDelay(3, () -> {
+            h.assertTrue(SalvoData.get(level).centers(owner).equals(List.of(target)), "залп не идёт за живой целью: " + SalvoData.get(level).centers(owner));
+            pig.kill();
+        });
+        h.runAfterDelay(30, () -> {
+            // «возрождение»: новая сущность с тем же UUID в стороне
+            Pig again = EntityType.PIG.create(level);
+            again.setUUID(pig.getUUID());
+            again.moveTo(at.x + 40, at.y, at.z, 0, 0);
+            again.setNoAi(true);
+            h.assertTrue(level.getEntity(pig.getUUID()) == null && level.addFreshEntity(again), "вторая сущность с тем же UUID не встала в мир");
+        });
+        // пауза залпа шахедов 20–40 тиков: к 90-му после гибели (3-й тик) пущен хоть один снаряд остатка
+        h.runAfterDelay(90, () -> {
+            List<Target> centers = SalvoData.get(level).centers(owner);
+            // снаряды остатка — с целью-точкой (до гибели — с целью-сущностью); в мире и вне его
+            List<StrikeProjectile> mine = new ArrayList<>(VirtualFlights.get(level).flights());
+            mine.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true));
+            List<Vec3> aims = mine.stream().filter(p -> owner.equals(p.ownerId()) && p.target() instanceof Target.Point)
+                    .map(p -> ((Target.Point) p.target()).pos()).toList();
+            cleanup.run();
+            level.getEntities(EntityType.PIG, h.getBounds().inflate(64), p -> p.getUUID().equals(pig.getUUID())).forEach(Entity::discard);
+            h.assertTrue(centers.size() == 1 && centers.getFirst() instanceof Target.Point p && p.pos().distanceTo(at) < 1,
+                    "залп после гибели цели идёт не по месту гибели: " + centers);
+            h.assertTrue(!aims.isEmpty(), "после гибели цели не пущено ни одного снаряда остатка");
+            h.assertTrue(aims.stream().allMatch(a -> a.distanceTo(at) < 2),
+                    "снаряды остатка летят не к месту гибели " + at + ": " + aims);
             h.succeed();
         });
     }

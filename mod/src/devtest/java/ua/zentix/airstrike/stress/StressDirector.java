@@ -1054,13 +1054,20 @@ public final class StressDirector {
      */
     @Nullable
     public static UUID blastBy(Explosion x) {
+        StrikeProjectile p = blastProjectile(x);
+        return p == null ? null : p.getUUID();
+    }
+
+    /** Снаряд, чей это взрыв ({@link #blastBy}): сам объект — уже убранный из мира, с местом и фазой на момент попадания. */
+    @Nullable
+    public static StrikeProjectile blastProjectile(Explosion x) {
         DamageSource source;
         try {
             source = (DamageSource) ExplosionSource.FIELD.get(x);
         } catch (IllegalAccessException e) {
             throw new IllegalStateException(e);
         }
-        return source != null && source.getDirectEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
+        return source != null && source.getDirectEntity() instanceof StrikeProjectile p ? p : null;
     }
 
     /** {@code Explosion.damageSource}: ищется при запуске стенда ({@link #init}) или при первом вопросе теста, чей взрыв. */
