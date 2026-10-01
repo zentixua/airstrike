@@ -43,9 +43,8 @@ grep -E '^(renderDistance|graphicsMode):' "$MC/options.txt"; ls "$MC/shaderpacks
 
 ## 2. Подготовка: worktree, сборка, сценарий на месте
 ```sh
-cd /mnt/data/projects/airstrike && git fetch origin claude/project-thread-o3dgvv && \
-git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" <SHA> && \
-W="/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" && cd "${W:?}" && mkdir -p "$W/mod/run/far" && \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/far-vis-SHA7" && R=/mnt/data/projects/airstrike && cd "${R:?}" && \
+git fetch origin claude/project-thread-o3dgvv && git worktree add "$W" <SHA> && cd "${W:?}" && mkdir -p "$W/mod/run/far" && \
 git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && \
 grep -q 'wait:blast' mod/src/devtest/java/ua/zentix/airstrike/scenario/CommandPlan.java && \
 grep -q 'SCENARIO far' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java && \
@@ -73,7 +72,7 @@ for world in "Newisle 2.3.0" "Newisle 2.3.0 exper"; do \
   echo "== $world: файлов $(ls "$D/region" | wc -l), $(du -sh "$D" | cut -f1)"; \
   echo "-- №5 (294 -686, радиус 72 чанка)"; timeout 600 python3 tools/chunk_status.py "$D" 294 -686 72; \
   echo "-- №2 (-217 13, радиус 58 чанков)"; timeout 600 python3 tools/chunk_status.py "$D" -217 13 58; \
-done 2>&1 | tee mod/run/far/chunk-status.txt | head -120
+done > mod/run/far/chunk-status.txt 2>&1; head -c 40000 mod/run/far/chunk-status.txt
 ```
 
 ## A. Прогон (один; в фоне, тайм-аут вызова 45 мин)
