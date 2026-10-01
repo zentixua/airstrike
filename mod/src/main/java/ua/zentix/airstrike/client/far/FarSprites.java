@@ -134,7 +134,7 @@ public final class FarSprites {
         float a = (float) (out[1] * t * Math.min(1, 4 * s) * w);
         billboard(discs, dx, dy, dz, out[0] * DISC, 0, 0, (float) ((r + (1 - r) * white) * k), (float) ((g + (1 - g) * white) * k),
                 (float) ((b + (1 - b) * white) * k), a);
-        glow(dx, dy, dz, out[3], r, g, b, (float) (Sight.HALO * Math.min(1, seen) * w));
+        glow(dx, dy, dz, out[3], r, g, b, (float) (Math.min(Sight.HALO, Sight.SCATTER * seen) * w));
         if (out[4] > 0) glow(dx, dy, dz, out[4], r, g, b, (float) (Sight.VEIL_PEAK * w));
     }
 

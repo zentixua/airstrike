@@ -59,6 +59,9 @@ class SightTest {
         assertEquals(0, out[4], "днём вуали нет");
         assertTrue(out[2] > 1, "днём шар ярче неба: " + out[2]);
         assertTrue(out[3] / out[0] < 2.5, "блик днём — не шире двух с половиной ядер: " + out[3] / out[0]);
+        // ореол складывается с небом: днём шар остаётся оранжевым телом, а не белым пятном; ночью блик в полную силу
+        assertTrue(Sight.SCATTER * Sight.adapted(b, DAY) * t < 0.1, "днём ореола почти нет");
+        assertTrue(Sight.SCATTER * Sight.adapted(b, NIGHT) * t >= Sight.HALO, "ночью блик в полную силу");
         for (double d : new double[]{2000, 8000}) {
             Sight.light(5, Sight.adapted(b, NIGHT) * Sight.transmittance(d, Sight.CLEAR), d, PIXEL, out);
             double deg = Math.toDegrees(out[4] / d);

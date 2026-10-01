@@ -12,6 +12,7 @@ import ua.zentix.airstrike.warhead.BunkerCover;
 import ua.zentix.airstrike.warhead.GroundMaterial;
 
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.SplittableRandom;
@@ -106,6 +107,8 @@ public final class FarBlasts {
     private static final ArrayDeque<Event> EVENTS = new ArrayDeque<>();
     /** Числа на кадр без выделения: точка {@link Sight#point}, свет {@link Sight#light} и цвет шара. */
     private static final double[] POINT = new double[2], LIGHT = new double[5];
+    /** Самое яркое тело последнего кадра (для лога): ядро, блик и вуаль в пикселях, пересвет, доля над рельефом. */
+    private static final double[] BRIGHTEST = new double[5];
     private static final float[] TINT = new float[3];
     /** Тики клиента (не на паузе). */
     private static long clock;
@@ -271,6 +274,7 @@ public final class FarBlasts {
         ClientLevel level = Minecraft.getInstance().level;
         Vec3 cam = view.camera();
         double now = clock + view.partial();
+        Arrays.fill(BRIGHTEST, 0);
         for (Event e : EVENTS) {
             if (e.level != level) continue;
             double age = Math.max(0, now - e.born);
@@ -309,8 +313,7 @@ public final class FarBlasts {
         }
         if (age < k.burnTicks()) {
             double flicker = 0.75 + 0.25 * Math.sin(age * 1.9 + e.phase) * Math.sin(age * 0.73 + 2 * e.phase);
-            double h = 0.2 * r, rad = 0.6 * r;
-            if (visible(h, rad, line) > 0) halo(view, out, bx, by, bz, h, rad, BURN * (1 - age / k.burnTicks()) * flicker, t, w, FIRE);
+            lamp(view, out, bx, by, bz, 0.2 * r, 0.6 * r, BURN * (1 - age / k.burnTicks()) * flicker, t, w, line, FIRE);
         }
     }
 
@@ -339,12 +342,20 @@ public final class FarBlasts {
         double vis = visible(h, rad, line);
         if (vis <= 0) return 0;
         out.light(bx, by + h, bz, rad, Sight.adapted(b, view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w, LIGHT);
+        if (LIGHT[2] * vis * w > BRIGHTEST[3] * BRIGHTEST[4]) {
+            double px = Math.sqrt(bx * bx + (by + h) * (by + h) + bz * bz) * view.pixel();
+            BRIGHTEST[0] = LIGHT[0] / px;
+            BRIGHTEST[1] = LIGHT[3] / px;
+            BRIGHTEST[2] = LIGHT[4] / px;
+            BRIGHTEST[3] = LIGHT[2];
+            BRIGHTEST[4] = vis * w;
+        }
         return vis;
     }
 
     /**
-     * Мягкий свет без тела (пожар в воронке, зарево из-за гребня): ореол радиуса rad яркостью b с центром на высоте h
-     * над основанием; с привыканием глаза к ночи и бликом, как у {@link #lamp}; мельче точки — бледнее (поток тот же).
+     * Мягкий свет без тела (зарево из-за гребня): ореол радиуса rad яркостью b с центром на высоте h над основанием;
+     * с привыканием глаза к ночи и бликом, как у {@link #lamp}; мельче точки — бледнее (поток тот же).
      */
     private static void halo(FarView view, FarSprites out, double bx, double by, double bz, double h, double rad, double b, double t, double w,
                              float[] c) {
@@ -482,12 +493,14 @@ public final class FarBlasts {
      * тень, дождь), насколько верха глуше низов и сколько из этого от земли. Ничего дальнего ещё не было — пустая строка.
      */
     public static String describe() {
-        if (lastHeard == null) return EVENTS.isEmpty() ? "" : "взрывов " + EVENTS.size();
+        String light = BRIGHTEST[4] <= 0 ? "" : String.format(Locale.ROOT, "; ярче всех: ядро %.1f px, пересвет %.0f, блик %.1f px, вуаль %.1f px, "
+                + "видно %.2f", BRIGHTEST[0], BRIGHTEST[3], BRIGHTEST[1], BRIGHTEST[2], BRIGHTEST[4]);
+        if (lastHeard == null) return EVENTS.isEmpty() ? "" : "взрывов " + EVENTS.size() + light;
         Outdoor.Heard h = lastHeard;
         return String.format(Locale.ROOT, "взрывов %d; звук: %.0f бл, задержка %d т (фронт %.1f т), громкость %.3f, запас %.1f дБ, преграда %.1f дБ, "
                         + "тень %.1f дБ, дождь %.1f дБ, верха %.1f дБ, из них земля %.1f дБ", EVENTS.size(), lastDistance, lastDelay,
                 lastDistance / Acoustics.SPEED, h.volume(), h.margin(), h.barrier(), h.shadow(), h.masking(), 20 * Math.log10(Math.max(1e-6, h.highs())),
-                -h.ground());
+                -h.ground()) + light;
     }
 
     private static Vec3 camera() {
