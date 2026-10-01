@@ -177,6 +177,99 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Шахед ждёт свободной прямой над низкой стеной у цели (как в {@link #droneDivesOverWallOnDiveLine}), а на его курсе
+     * в 100 блоках до цели — мачта из забора на 6 блоков выше крейсера. Прежний датчик (три точки до 45 блоков) видел
+     * её поздно: набор не круче 15° не успевал, шахеды залпа били в мачты и башни (город хоста 01.10.2026). Теперь
+     * шахед проходит над ней, мачта цела, удар — у цели.
+     */
+    @GameTest(template = "runway", timeoutTicks = 400, batch = "drone_dive_mast", skyAccess = true)
+    public static void droneWaitingForLineClimbsOverMast(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        int wallZ = RUNWAY_TARGET.getZ() - 30, wallTop = RUNWAY_TARGET.getY() + 25;
+        for (BlockPos p : BlockPos.betweenClosed(new BlockPos(0, RUNWAY_TARGET.getY() + 1, wallZ - 3), new BlockPos(31, wallTop, wallZ))) {
+            h.setBlock(p, Blocks.STONE);
+        }
+        BlockPos start = new BlockPos(16, 50, 4);
+        List<BlockPos> mast = fenceMast(h, new BlockPos(16, RUNWAY_TARGET.getY() + 1, RUNWAY_TARGET.getZ() - 100), start.getY() + 6);
+        Vec3 aim = top(h, RUNWAY_TARGET);
+        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        drone.launch(Vec3.atCenterOf(h.absolutePos(start)), new Target.Point(aim), aim, null);
+        level.addFreshEntity(drone);
+        UUID id = drone.getUUID();
+        Vec3[] last = {drone.position()};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f != null) last[0] = f.position();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(flight(level, id) == null, "шахед ещё летит: " + h.relativeVec(last[0]));
+            assertMastStands(h, mast, last[0]);
+            h.assertTrue(last[0].distanceTo(aim) < 8, "шахед взорвался в " + String.format(Locale.ROOT, "%.1f", last[0].distanceTo(aim))
+                    + " блоках от цели: " + h.relativeVec(last[0]));
+            assertCrater(h, RUNWAY_TARGET);
+        });
+    }
+
+    /**
+     * Ракета с пусковой, на пути набора высоты — мачта из забора 1×1 выше и бреющего полёта, и набора над рельефом.
+     * Прежний датчик (три точки по курсу) тонкую колонку между точками не видел, а фильтр высоты сглаживал короткий пик:
+     * ракета на маршруте билась в мачту. Теперь она проходит над ней: мачта цела, ракета не разбилась. Цель — далеко
+     * за площадкой (её чанк сгенерирован сразу); пройдя мачту, ракета убирается.
+     */
+    @GameTest(template = "runway", timeoutTicks = 400, batch = "missile_mast", skyAccess = true)
+    public static void missileClimbsOverFenceMast(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos mastBase = new BlockPos(16, 4, 230);
+        List<BlockPos> mast = fenceMast(h, mastBase, 40);
+        Vec3 point = top(h, new BlockPos(16, 3, 700));
+        level.getChunk(Mth.floor(point.x) >> 4, Mth.floor(point.z) >> 4);
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
+        LauncherEntity launcher = LauncherEntity.create(level, site, 0, WeaponType.MISSILE, null);
+        level.addFreshEntity(launcher);
+        int ready = LauncherEntity.DEPLOY_TICKS + 10;
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.placeOnLauncher(launcher.railPoint(0), launcher.getYRot(), launcher.elevation(), ready, LauncherEntity.DEPLOY_TICKS,
+                new Target.Point(point), point, null);
+        level.addFreshEntity(missile);
+        UUID id = missile.getUUID();
+        FlightLog log = StrikeWorld.get(level).flightLog();
+        int crashed = log.total(FlightLog.Event.CRASHED);
+        double passZ = h.absolutePos(mastBase).getZ() + 10;
+        Vec3[] last = {missile.position()};
+        String[] state = {""};
+        h.onEachTick(() -> {
+            StrikeProjectile f = flight(level, id);
+            if (f == null) return;
+            last[0] = f.position();
+            state[0] = f.flightPhase() + " " + h.relativeVec(f.position()) + " v=" + f.speed();
+        });
+        h.succeedWhen(() -> {
+            assertMastStands(h, mast, last[0]);
+            h.assertTrue(log.total(FlightLog.Event.CRASHED) == crashed, "ракета разбилась: " + state[0]);
+            h.assertTrue(last[0].z > passZ, "ракета не прошла мачту: " + state[0]);
+            StrikeProjectile f = flight(level, id);
+            h.assertTrue(f != null, "ракета пропала до мачты: " + state[0]);
+            if (!f.isVirtual()) f.discard();
+        });
+    }
+
+    /** Мачта из дубового забора от {@code base} (относительно площадки) до {@code top} включительно. */
+    private static List<BlockPos> fenceMast(GameTestHelper h, BlockPos base, int top) {
+        List<BlockPos> mast = new ArrayList<>();
+        for (int y = base.getY(); y <= top; y++) {
+            BlockPos p = new BlockPos(base.getX(), y, base.getZ());
+            h.setBlock(p, Blocks.OAK_FENCE);
+            mast.add(p);
+        }
+        return mast;
+    }
+
+    private static void assertMastStands(GameTestHelper h, List<BlockPos> mast, Vec3 last) {
+        long broken = mast.stream().filter(p -> !h.getBlockState(p).is(Blocks.OAK_FENCE)).count();
+        h.assertTrue(broken == 0, "снаряд попал в мачту: выбито " + broken + " блоков, последнее место " + h.relativeVec(last));
+    }
+
+    /**
      * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
      * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (запас хода растёт на 2000 блоков
      * погони ×1,5), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же

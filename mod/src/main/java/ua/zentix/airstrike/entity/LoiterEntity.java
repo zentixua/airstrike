@@ -172,7 +172,7 @@ public class LoiterEntity extends StrikeProjectile {
 
         Bearing b = bearingTo(aim);
         FlightPhase ph = flightPhase();
-        double terrain = terrainAhead(level, 10, 20, 35);
+        double terrain = reliefStraightAhead(level, AIR.reliefLookahead());
         double floor = terrain + 15;
 
         if (ph == FlightPhase.CLIMB) {

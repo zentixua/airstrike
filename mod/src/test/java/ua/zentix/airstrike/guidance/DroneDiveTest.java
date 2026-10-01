@@ -40,16 +40,49 @@ class DroneDiveTest {
         assertTrue(misses.isEmpty(), String.join("\n", misses));
     }
 
+    /**
+     * Шахед ждёт свободной прямой над домом у цели и идёт курсом на мачту выше крейсера: пока прямая закрыта, он
+     * проверяет свой путь впереди и набирает высоту над мачтой заранее, а потом пикирует на цель.
+     */
+    @Test
+    void climbsOverMastWhileWaitingForLine() {
+        List<String> misses = new ArrayList<>();
+        for (double above : new double[] {3, 6, 10}) {
+            for (double before : new double[] {70, 100, 130}) {
+                double cruise = cruiseOver(GROUND + 30);
+                AutopilotPropertiesTest.Ground ground = (x, z) -> {
+                    if (Math.abs(x) <= 20 && z <= -30 && z >= -60) return GROUND + 30;
+                    if (Math.abs(x) <= 1.5 && z <= -before && z >= -before - 3) return cruise + above;
+                    return GROUND;
+                };
+                String end = strike(ground, GROUND + 30);
+                if (!end.startsWith("hit")) {
+                    misses.add(String.format(Locale.ROOT, "мачта на %.0f выше крейсера в %.0f блоках до цели: %s", above, before, end));
+                }
+            }
+        }
+        assertTrue(misses.isEmpty(), String.join("\n", misses));
+    }
+
     /** Шахед с 800 блоков над городом высотой {@code height} на цель за домом шириной 40 и толщиной 30; что вышло. */
     private static String strike(double height, double before) {
-        // крейсер над плотной застройкой: старт на высоте дома + 20, как над городом
-        AutopilotPropertiesTest.Ground ground = (x, z) ->
-                Math.abs(x) <= 20 && z <= -before && z >= -before - 30 ? GROUND + height : GROUND;
+        return strike((x, z) -> Math.abs(x) <= 20 && z <= -before && z >= -before - 30 ? GROUND + height : GROUND, GROUND + height);
+    }
+
+    /** Высота крейсера шахеда, стартующего над городом высотой {@code city}. */
+    private static double cruiseOver(double city) {
+        DroneAutopilot drone = new DroneAutopilot(WeaponSpec.DRONE.airframe());
+        return drone.airborneAltitude(new Vec3(0, 0, -800), new Vec3(0, GROUND + 0.5, 0), city);
+    }
+
+    /** Шахед с 800 блоков над городом с верхом {@code city} на цель в начале координат по рельефу {@code ground}; что вышло. */
+    private static String strike(AutopilotPropertiesTest.Ground ground, double city) {
+        // крейсер над плотной застройкой: старт на высоте города + 20, как над городом
         WeaponSpec.Airframe air = WeaponSpec.DRONE.airframe();
         DroneAutopilot drone = new DroneAutopilot(air);
         Vec3 aim = new Vec3(0, GROUND + 0.5, 0);
         Vec3 start = new Vec3(0, 0, -800);
-        start = new Vec3(start.x, drone.airborneAltitude(start, aim, GROUND + height), start.z);
+        start = new Vec3(start.x, drone.airborneAltitude(start, aim, city), start.z);
         AutopilotPropertiesTest.Model c = new AutopilotPropertiesTest.Model(ground, start, air.cruiseSpeed());
         c.altitude.reset(start.y);
         c.flight.set(FlightController.anglesTo(start, new Vec3(aim.x, start.y, aim.z))[0], 0);

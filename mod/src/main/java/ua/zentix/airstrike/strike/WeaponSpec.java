@@ -137,6 +137,8 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * @param cruiseHeight  высота крейсера (над стартом и целью у шахеда, над целью у «Ланцета» — круг, над рельефом
      *                      у ракеты — бреющий полёт, над точкой сброса у B-2)
      * @param clearance     наименьший запас высоты над рельефом, с которым снаряд возвращается в мир из полёта вне мира
+     * @param reliefLookahead на сколько блоков пути вперёд автопилот смотрит рельеф полосой ({@code guidance.Autopilot.reliefAhead}
+     *                      у шахеда и ракеты — с наклоном набора, у «Ланцета» — прямо по курсу без наклона); 0 — не смотрит
      * @param noseLength    полудлина корпуса: от центра до носа, блоков
      * @param health        сколько урона выдержит, прежде чем его собьют; 0 — сбить нельзя
      * @param range         запас хода, блоков, если его не задаёт план полёта ({@code guidance.Mission}): столько, сколько
@@ -149,7 +151,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * @param audible       докуда слышно снаряд в этой фазе, блоков, без затухания {@link Hearing#FADE} (0 — не слышно)
      */
     public record Airframe(Supplier<EntityType<? extends StrikeProjectile>> entity, double cruiseSpeed, double diveSpeed,
-                           double turnRate, double climbTurnRate, double cruiseHeight, double clearance, double noseLength,
+                           double turnRate, double climbTurnRate, double cruiseHeight, double clearance, double reliefLookahead, double noseLength,
                            float health, double range, double reachPad, @Nullable LaunchProfile launchProfile, double visibleLeg,
                            Attack attack, ToDoubleFunction<FlightPhase> audible) {
         /** Радиус разворота на скорости {@code speed} с пределом поворота на маршруте ({@link #turnRadius(double, double)}). */
@@ -214,7 +216,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec DRONE = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 25, Salvo.gaps(20, 40), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.dronePower, Launch.GUIDED,
             new Route(() -> AirstrikeConfig.SERVER.droneFlightTime, 300, 0, 0), LauncherRack.DRONE, Blast.DRONE, false, 0.6f,
-            new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 1.83, 12, 900 * 2.1, 4.3,
+            new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 256, 1.83, 12, 900 * 2.1, 4.3,
                     new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE),
             null);
@@ -228,7 +230,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec MISSILE = new WeaponSpec(WeaponType.SirenKind.MISSILE, 15, Salvo.gaps(15, 30), new Warhead(false, true, true),
             () -> AirstrikeConfig.SERVER.missilePower, Launch.GUIDED,
             new Route(() -> AirstrikeConfig.SERVER.missileFlightTime, 500, 0, 0), LauncherRack.MISSILE, Blast.MISSILE, false, 0.5f,
-            new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 2.96, 8, 700 * 4.0, 6.5,
+            new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 256, 2.96, 8, 700 * 4.0, 6.5,
                     new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE),
             null);
@@ -240,9 +242,9 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec BUNKER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(60, 80), new Warhead(false, true, false),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.BOMBER,
             new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0, 0), null, Blast.NONE, true, 0.5f,
-            new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 8.5, 0, 120 * 12, 0, null, 0, Attack.NONE,
+            new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 0, 8.5, 0, 120 * 12, 0, null, 0, Attack.NONE,
                     ph -> Hearing.JET),
-            new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
+            new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, 0, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
                     BombDrop.REACH_PAD, null, 0, Attack.NONE,
                     ph -> Hearing.ENGINE));
 
@@ -254,7 +256,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec NUKE = new WeaponSpec(WeaponType.SirenKind.NUCLEAR, 0, Salvo.gaps(200, 300), new Warhead(true, false, true),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.ICBM,
             new Route(null, 0, 0, 0), null, Blast.NONE, false, 0.5f,
-            new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
+            new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0),
             null);
 
@@ -266,7 +268,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec ROCKET = new WeaponSpec(WeaponType.SirenKind.MISSILE, 8, new Salvo(8, 12, 12, 15), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.rocketPower, Launch.ROCKET,
             new Route(null, 0, 600, 0.01), LauncherRack.ROCKET, Blast.ROCKET, false, 0.5f,
-            new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
+            new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 0, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
                     ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR),
             null);
 
@@ -277,7 +279,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     public static final WeaponSpec LOITER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(40, 60), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.loiterPower, Launch.LOITER,
             new Route(null, 0, 500, 0), LauncherRack.LOITER, Blast.DRONE, false, 0.5f,
-            new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 1.3, 4, 2400 * 1.6, 3.0,
+            new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 35, 1.3, 4, 2400 * 1.6, 3.0,
                     new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
                     ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE),
             null);
