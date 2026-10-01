@@ -262,12 +262,29 @@ public final class ClientSounds {
 
     private static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, SoundSource category) {
         Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        Vec3 dir = source.subtract(ear);
-        Vec3 at = dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
         float open = SoundFilters.open(ear, source.add(0, 1.5, 0));
-        // дальние записи уже глухие — воздух добавляет не больше −12 дБ
-        float highs = Math.max(0.25f, SoundFilters.air(dir.length())) * SoundFilters.blockedHighs(open);
-        play(new Shot(event.getLocation(), category, volume, pitch, SoundInstance.Attenuation.NONE, at, SoundFilters.blockedGain(open), highs));
+        float highs = farAir(ear.distanceTo(source)) * SoundFilters.blockedHighs(open);
+        play(new Shot(event.getLocation(), category, volume, pitch, SoundInstance.Attenuation.NONE, toward(ear, source), SoundFilters.blockedGain(open), highs));
+    }
+
+    /**
+     * Как {@link #atEar(SoundEvent, Vec3, float, float)}, но фильтр пути задаёт вызывающий (дальний взрыв: что между — холм, земля, погода — уже
+     * посчитал {@link Outdoor}): без луча по блокам и без своего воздуха.
+     */
+    public static void atEar(SoundEvent event, Vec3 source, float volume, float pitch, float gain, float highs) {
+        Vec3 ear = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        play(new Shot(event.getLocation(), SoundSource.AMBIENT, volume, pitch, SoundInstance.Attenuation.NONE, toward(ear, source), gain, highs));
+    }
+
+    /** Верха записи раската, дошедшие по воздуху: дальние записи уже глухие — воздух добавляет не больше −12 дБ. */
+    static float farAir(double d) {
+        return Math.max(0.25f, SoundFilters.air(d));
+    }
+
+    /** Точка в 3 блоках от уха в сторону источника (ближе — сам источник). */
+    private static Vec3 toward(Vec3 ear, Vec3 source) {
+        Vec3 dir = source.subtract(ear);
+        return dir.lengthSqr() < 9 ? source : ear.add(dir.normalize().scale(3));
     }
 
     /** Обычный позиционный звук с ванильным затуханием (громкость > 1 — дальше слышно: 16 блоков на единицу). */
