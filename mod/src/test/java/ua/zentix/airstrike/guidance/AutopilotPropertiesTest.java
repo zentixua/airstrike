@@ -123,6 +123,12 @@ class AutopilotPropertiesTest {
             for (double d : distances) max = Math.max(max, ground.at(pos.x + dx * d, pos.z + dz * d));
             return max;
         }
+
+        /** Как {@code StrikeProjectile.lineClear}: рельеф не выше прямой до точки, кроме последних {@code margin} блоков. */
+        @Override
+        public boolean lineClear(Vec3 to, double margin) {
+            return !blocked(ground, pos, to, margin);
+        }
     }
 
     record Scenario(long seed, Weapon weapon, Relief relief, Aim aim, boolean routed) {
@@ -249,7 +255,7 @@ class AutopilotPropertiesTest {
             if (drone != null) drone.fly(c, aim, nav, finalLeg);
             else missile.fly(c, aim, nav, finalLeg);
 
-            if (c.phase == FlightPhase.TERMINAL || c.phase == FlightPhase.POP_UP) occluded |= blocked(ground, c.pos, aim);
+            if (c.phase == FlightPhase.TERMINAL || c.phase == FlightPhase.POP_UP) occluded |= blocked(ground, c.pos, aim, 3);
 
             // шаг полёта, как у снаряда в мире
             if (finalLeg && c.pos.distanceTo(aim) <= c.speed + air.reachPad()) {
@@ -288,10 +294,10 @@ class AutopilotPropertiesTest {
         return new Outcome("forever", c.tick, c.pos.distanceTo(aim), turn, clearance, c.pos, occluded);
     }
 
-    /** Рельеф выше линии визирования {@code from → to} (кроме последних блоков у самой цели). */
-    private static boolean blocked(Ground ground, Vec3 from, Vec3 to) {
+    /** Рельеф выше линии визирования {@code from → to} (кроме последних {@code margin} блоков у самой цели). */
+    static boolean blocked(Ground ground, Vec3 from, Vec3 to, double margin) {
         double length = from.distanceTo(to);
-        for (double d = 0; d < length - 3; d += 1) {
+        for (double d = 0; d < length - margin; d += 1) {
             Vec3 p = from.lerp(to, d / length);
             if (ground.at(p.x, p.z) > p.y) return true;
         }

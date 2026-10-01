@@ -146,6 +146,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         public double reliefAhead(double... distances) {
             return terrainAhead(level(), distances);
         }
+
+        @Override
+        public boolean lineClear(Vec3 to, double margin) {
+            return StrikeProjectile.this.lineClear(level(), to, margin);
+        }
     };
     /** Маршрут до точки входа; null — сразу на цель. */
     @Nullable
@@ -1072,6 +1077,19 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             max = Math.max(max, surfaceY(level, pos.x + dx * d, pos.z + dz * d));
         }
         return max;
+    }
+
+    /**
+     * Датчик {@link Craft#lineClear}: луч по блокам до точки без последних {@code margin} блоков, только по готовым
+     * чанкам ({@link Terrain#readyUntil}); вне мира — свободна. Цена — один {@code clip} длиной до расстояния до точки.
+     */
+    protected boolean lineClear(Level level, Vec3 to, double margin) {
+        if (virtual) return true;
+        Vec3 from = position();
+        double length = from.distanceTo(to);
+        if (length <= margin) return true;
+        Vec3 end = Terrain.readyUntil(level, from, from.lerp(to, (length - margin) / length));
+        return level.clip(new ClipContext(from, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this)).getType() == HitResult.Type.MISS;
     }
 
     // ---------------------------------------------------------------- чанки
