@@ -592,22 +592,28 @@ public final class NuclearGameTests {
     /**
      * Руины чанка по плану заранее и по плану на месте, когда руины соседнего чанка уже стоят, — одни и те же, вплоть до
      * мест пожаров: план читает соседа исходным (старые блоки мест его плана, карта высот до руин — для тени светового
-     * импульса). Кирпичный дом в два этажа поперёк угла четырёх чанков при ~4 psi; окна — только в западной половине:
-     * давление в восточную половину дома приходит через западные чанки, а их руины к плану восточных уже стоят. За
-     * домом — дёрн, который поджигает свет, в тени дома — нет.
+     * импульса). Кирпичный дом в два этажа поперёк угла четырёх чанков при ~4 psi; окна — только в половине к взрыву:
+     * давление в дальнюю половину дома приходит через ближние чанки. За домом — дёрн, который поджигает свет, в тени
+     * дома — нет. Взрыв — в 28 блоках от угла, всегда на площадке: угол чанков бывает в 17–47 блоках от её края, и взрыв
+     * всегда с запада уходил за стену из барьеров, которая закрывала свет всему дёрну (CI 30.09: «ни одного пожара»,
+     * подрыв в 11 блоках за западным краем площадки).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_fresh", skyAccess = true)
     public static void freshPlanNextToRuinsMatchesPrepared(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos c = chunkCorner(h);
+        // взрыв с той стороны, где до края площадки (0 и 63) больше 28 блоков
+        int side = c.getX() >= 32 ? -1 : 1;
         for (BlockPos p : BlockPos.betweenClosed(c.offset(-4, 0, -4), c.offset(4, 8, 4))) {
             int dx = p.getX() - c.getX(), dz = p.getZ() - c.getZ(), y = p.getY() - c.getY();
             boolean wall = Math.abs(dx) == 4 || Math.abs(dz) == 4, slab = (y == 4 || y == 8) && !wall;
             if (!wall && !slab && y != 8) continue;
-            boolean window = wall && y < 8 && dx < 0 && (y % 4 == 1 || y % 4 == 2) && Math.floorMod(dx + dz, 3) == 1;
+            boolean window = wall && y < 8 && dx * side > 0 && (y % 4 == 1 || y % 4 == 2) && Math.floorMod(dx + dz, 3) == 1;
             h.setBlock(p, window ? Blocks.GLASS : Blocks.BRICKS);
         }
-        Detonation d = atPsi(h, c.west(28), false, c.above(4), 4);
+        BlockPos burstAt = c.offset(28 * side, 0, 0);
+        h.assertTrue(burstAt.getX() >= 2 && burstAt.getX() <= 61, "взрыв за краем площадки: " + burstAt.toShortString());
+        Detonation d = atPsi(h, burstAt, false, c.above(4), 4);
         List<LevelChunk> chunks = chunks(h);
         List<RuinPlan> ahead = new java.util.ArrayList<>();
         for (LevelChunk chunk : chunks) ahead.add(RuinPlanner.plan(level, d, chunk));
