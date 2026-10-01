@@ -88,12 +88,15 @@ public final class Warheads {
         world.impactCost().step(System.nanoTime() - t0);
     }
 
+    /** Сила взрыва входа бетонобойной бомбы в грунт (заряд бомбы сильнее). */
+    public static final float BUNKER_ENTRY_POWER = 4;
+
     /** Бетонобойная бомба вошла в грунт: небольшой кратер, кинетический удар, звуковой удар и тупой удар о землю. */
     public static void bunkerEntry(ServerLevel level, Vec3 point, @Nullable Entity bomb, @Nullable UUID owner) {
         long t0 = System.nanoTime();
         Entity ownerEntity = owner == null ? null : level.getPlayerByUUID(owner);
         GroundMaterial mat = GroundMaterial.sample(level, BlockPos.containing(point.add(0, 1, 0)));
-        explode(level, null, List.of(), point.add(0, 1, 0), 4, false, bomb, ownerEntity, null);
+        explode(level, null, List.of(), point.add(0, 1, 0), BUNKER_ENTRY_POWER, false, bomb, ownerEntity, null);
         // кинетический удар: рядом с точкой попадания — смертельно
         hurtAround(level, point, 14, bomb, ownerEntity, ModDamageTypes.KINETIC, d -> d <= 4.5 ? 60 : d <= 9 ? 22 : 7);
         PacketDistributor.sendToPlayersNear(level, null, point.x, point.y, point.z, 320, new S2C.BunkerImpact(point, mat.ordinal()));

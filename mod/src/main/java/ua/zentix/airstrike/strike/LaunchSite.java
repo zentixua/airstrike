@@ -13,6 +13,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -125,7 +126,7 @@ public final class LaunchSite {
 
     /**
      * Путь снаряда от нижней направляющей пусковой, стоящей в {@code site} с курсом {@code yaw}, до взведения взрывателя
-     * ({@link StrikeProjectile#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном (паспорт,
+     * ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном (паспорт,
      * {@code LaunchProfile}) — луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
      * ({@code boostEndPitch}). У РСЗО — его настоящая дуга из трубы на цель {@code target} (скорость задаёт дальность,
      * {@link RocketEntity}): до конца работы двигателя (дальше он взведён) и не ближе {@link #NEAR_AIM} к цели — у самой
@@ -140,11 +141,11 @@ public final class LaunchSite {
         path.add(rail);
         if (lp != null) {
             double climb = Math.toRadians(Math.min(elevation, -lp.boostEndPitch()));
-            double reach = StrikeProjectile.ARM_DISTANCE;
+            double reach = ProximityFuse.ARM_DISTANCE;
             path.add(rail.add(Local.horizontal(yaw).scale(reach)).add(0, reach * Math.tan(climb), 0));
         } else {
             Vec3 v0 = Ballistics.launchVelocity(rail, target, Ballistics.ticksFor(rail, target, elevation, RocketEntity.MIN_FLIGHT));
-            double reach = Math.min(StrikeProjectile.ARM_DISTANCE, horizontal(rail, target) - NEAR_AIM);
+            double reach = Math.min(ProximityFuse.ARM_DISTANCE, horizontal(rail, target) - NEAR_AIM);
             for (int k = ARC_STEP; k <= RocketEntity.BURN_TICKS; k += ARC_STEP) {
                 Vec3 at = Ballistics.at(rail, v0, k);
                 if (horizontal(rail, at) > reach) break;

@@ -1,7 +1,6 @@
 package ua.zentix.airstrike.gametest;
 
 import com.mojang.authlib.GameProfile;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
@@ -11,13 +10,9 @@ import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.server.level.ChunkMap;
-import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
-import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -38,6 +33,7 @@ import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.SplitGuard;
 import ua.zentix.airstrike.entity.BomberEntity;
@@ -53,6 +49,7 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.BombDrop;
+import ua.zentix.airstrike.guidance.Mission;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModEntities;
@@ -80,7 +77,6 @@ import ua.zentix.airstrike.entity.IcbmEntity;
 import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.warhead.Warheads;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -146,9 +142,9 @@ public final class StrikeGameTests {
 
     /**
      * Цель умерла посреди полёта (игра 30.09.2026: друг, по которому шёл залп, умирал раз за разом, а шахеды с «цель
-     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (погоня набирает срок жизни на 2000
-     * блоков), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
-     * UUID в начале полосы. Шахед за ней не идёт: срок после потери — только на полёт до точки смерти, и бьёт он туда.
+     * потеряна» летали минутами). Сначала цель уходит туда-обратно на 100 блоков (запас хода растёт на 2000 блоков
+     * погони ×1,5), потом умирает в воздухе, лежит мёртвой, как игрок на экране смерти, и «возрождается» — сущность с тем же
+     * UUID в начале полосы. Шахед за ней не идёт: запас хода после потери — только на полёт до точки смерти, и бьёт он туда.
      */
     @GameTest(template = "runway", timeoutTicks = 600, batch = "drone_lost", skyAccess = true)
     public static void droneStrikesWhereTargetDied(GameTestHelper h) {
@@ -194,11 +190,11 @@ public final class StrikeGameTests {
             last[0] = f.position();
             if (lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = t;
-                // срок — полёт до точки с запасом ×1.5 и 10 с (здесь с допуском на тики между потерей и проверкой);
-                // без ограничения — ещё полторы тысячи тиков погони
+                // запас хода — полёт до точки с запасом ×1.5 и 10 с на маршевой (здесь с допуском на тики между потерей и
+                // проверкой); в тиках — на нынешней скорости, как время до удара; без ограничения — ещё полторы тысячи тиков погони
                 bound[0] = 2 * f.etaTicks() + 200;
-                int left = f.lifetimeLeft();
-                h.assertTrue(left <= bound[0], "после потери цели срок жизни " + left + " тиков, а полёт до точки — " + f.etaTicks());
+                int left = (int) (f.rangeLeft() / Math.max(f.cruiseSpeed(), f.speed()));
+                h.assertTrue(left <= bound[0], "после потери цели запас хода на " + left + " тиков, а полёт до точки — " + f.etaTicks());
             }
         });
         h.succeedWhen(() -> {
@@ -289,8 +285,8 @@ public final class StrikeGameTests {
             }
             if (targetDies && lostAt[0] < 0 && f.targetLost()) {
                 lostAt[0] = tick[0];
-                bound[0] = f.lifetimeLeft();
-                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели срок " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
+                bound[0] = (int) (f.rangeLeft() / Math.max(f.cruiseSpeed(), f.speed()));
+                h.assertTrue(bound[0] <= 2 * f.etaTicks() + 200, "после потери цели запас хода на " + bound[0] + " тиков, полёт до точки — " + f.etaTicks());
             }
         });
         h.succeedWhen(() -> {
@@ -536,7 +532,7 @@ public final class StrikeGameTests {
         h.assertTrue(p != null && !p.isVirtual() && launchers.size() == 1, "шахед не с пусковой: " + p + ", пусковых " + launchers.size());
         LauncherEntity launcher = launchers.getFirst();
         h.assertTrue(LaunchSite.clearAhead(level, launcher, point), "пусковая смотрит в занятый сектор");
-        Vec3 gate = launcher.railPoint(0).add(Local.horizontal(launcher.getYRot()).scale(StrikeProjectile.ARM_DISTANCE));
+        Vec3 gate = launcher.railPoint(0).add(Local.horizontal(launcher.getYRot()).scale(ProximityFuse.ARM_DISTANCE));
         Vec3 first = p.route().points().getFirst();
         h.assertTrue(Math.abs(first.x - gate.x) < 1.5 && Math.abs(first.z - gate.z) < 1.5, "первая точка не на курсе пусковой: " + first + " против " + gate);
         launcher.discard();
@@ -554,29 +550,82 @@ public final class StrikeGameTests {
     }
 
     /**
-     * Ракета, сохранённая в полёте версией 2.3.0 (без ключа {@code cruise_speed}, 11.5 блока/тик, на горке): после загрузки
-     * летит с новой маршевой, а остаток срока жизни растянут на неё. Сохранённая новой версией — без изменений.
+     * Снаряд, сохранённый в полёте со сроком жизни (2.3.0 и раньше, ключа {@code mission} нет): остаток срока (ожидание
+     * района цели в нём не считалось) и дробные тики погони становятся запасом хода на маршевой скорости сохранения, флаг
+     * «урезан после потери цели» переносится. Ракета 2.3.0 (без ключа {@code cruise_speed}, 11.5 блока/тик, на горке)
+     * летит с новой маршевой, а её запас — 11.5 блока на тик остатка: путь от скорости не зависит. Сохранённая новой
+     * версией — без изменений.
      */
     @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
-    public static void legacyMissileSlowsDownOnLoad(GameTestHelper h) {
+    public static void legacyFlightKeepsRange(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 aim = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
         CruiseMissileEntity m = ModEntities.CRUISE_MISSILE.get().create(level);
         m.launch(aim.add(0, 40, -300), new Target.Point(aim), aim, null);
+        m.setRoute(Route.direct());
         CompoundTag tag = m.saveWithoutId(new CompoundTag());
-        tag.putInt("age", 100);
-        tag.putInt("lifetime", 400);
         tag.putString("flight_phase", FlightPhase.POP_UP.getSerializedName());
+        tag.getCompound("mission").putDouble("range", 1234.5);
         CruiseMissileEntity fresh = ModEntities.CRUISE_MISSILE.get().create(level);
         fresh.load(tag);
-        h.assertTrue(fresh.lifetimeLeft() == 300, "сохранённая новой версией: срок " + fresh.lifetimeLeft() + " вместо 300");
+        h.assertTrue(fresh.rangeLeft() == 1234.5, "сохранённая новой версией: запас " + fresh.rangeLeft() + " вместо 1234.5");
+
+        // 2.3.x: срок 400 при возрасте 100, из них 20 тиков ждала район цели, полтика погони в запасе
+        tag.remove("mission");
+        tag.putInt("age", 100);
+        tag.putInt("area_wait", 20);
+        tag.putInt("lifetime", 400);
+        tag.putDouble("lifetime_credit", 0.5);
+        tag.putBoolean("lost_capped", true);
+        double cruise = WeaponSpec.MISSILE.airframe().cruiseSpeed();
+        CruiseMissileEntity saved = ModEntities.CRUISE_MISSILE.get().create(level);
+        saved.load(tag);
+        h.assertTrue(Math.abs(saved.rangeLeft() - 320.5 * cruise) < 1e-9, "срок 2.3.x: запас " + saved.rangeLeft() + " вместо " + 320.5 * cruise);
+        // урезанный после потери цели запас не урежется снова, а погоня его больше не растит: флаг перенесён
+        h.assertTrue(saved.saveWithoutId(new CompoundTag()).getCompound("mission").getBoolean("lost_capped"), "флаг «урезан» не перенесён");
+
         tag.remove("cruise_speed");
         tag.putDouble("speed", 11.5);
         CruiseMissileEntity old = ModEntities.CRUISE_MISSILE.get().create(level);
         old.load(tag);
-        h.assertTrue(old.speed() <= WeaponSpec.MISSILE.airframe().cruiseSpeed(), "старая ракета летит " + old.speed() + " блока/тик");
-        int stretched = (int) Math.ceil(300 * 11.5 / WeaponSpec.MISSILE.airframe().cruiseSpeed());
-        h.assertTrue(old.lifetimeLeft() == stretched, "старая ракета: срок " + old.lifetimeLeft() + " вместо " + stretched);
+        h.assertTrue(old.speed() <= cruise, "старая ракета летит " + old.speed() + " блока/тик");
+        h.assertTrue(Math.abs(old.rangeLeft() - 320.5 * 11.5) < 1e-9, "ракета 2.3.0: запас " + old.rangeLeft() + " вместо " + 320.5 * 11.5);
+        h.succeed();
+    }
+
+    /**
+     * РСЗО на 5 км, сохранённая в начале дуги по-старому (2.3.x: срок жизни — тики траектории + 200, ключа
+     * {@code mission} нет): на дальней дуге снаряд быстрее маршевой (здесь ≈ 11 блоков/тик), и остаток срока × маршевая
+     * кончался на полпути. После загрузки запас — остаток дуги от сохранённого времени и перелёт; расход — пройденный
+     * путь, так что его хватает до точки падения. Без переноса по дуге запас меньше дуги (проверено ниже).
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void legacyRocketKeepsArc(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER));
+        RocketEntity r = ModEntities.ROCKET.get().create(level);
+        r.launchFrom(point.add(0, 0, -5000), new Target.Point(point), point, null);
+        CompoundTag tag = r.saveWithoutId(new CompoundTag());
+        int flightTicks = tag.getInt("flight_ticks");
+        double t = 10.5;
+        tag.putDouble("t", t);
+        tag.remove("mission");
+        tag.putInt("age", 10);
+        tag.putInt("lifetime", flightTicks + 200);
+        RocketEntity saved = ModEntities.ROCKET.get().create(level);
+        saved.load(tag);
+
+        Vec3 start = ua.zentix.airstrike.util.Nbt.getVec(tag, "start"), v0 = ua.zentix.airstrike.util.Nbt.getVec(tag, "v0");
+        double arc = ua.zentix.airstrike.guidance.Ballistics.at(start, v0, 11).distanceTo(ua.zentix.airstrike.guidance.Ballistics.at(start, v0, t));
+        for (int k = 11; k < flightTicks; k++) {
+            arc += ua.zentix.airstrike.guidance.Ballistics.at(start, v0, k + 1).distanceTo(ua.zentix.airstrike.guidance.Ballistics.at(start, v0, k));
+        }
+        double cruise = WeaponSpec.ROCKET.airframe().cruiseSpeed();
+        double old = (flightTicks + 200 - 10) * cruise;
+        h.assertTrue(old < arc, "на 5 км старый перенос (" + Math.round(old) + ") уже покрывал дугу " + Math.round(arc) + " — тест ничего не ловит");
+        double expected = arc + 200 * cruise;
+        h.assertTrue(Math.abs(saved.rangeLeft() - expected) < 1e-6 * expected,
+                "РСЗО 2.3.x: запас " + Math.round(saved.rangeLeft()) + " вместо дуги " + Math.round(arc) + " + перелёт");
         h.succeed();
     }
 
@@ -888,7 +937,7 @@ public final class StrikeGameTests {
         tag.getCompound("flight").putFloat("yaw", -90);
         tag.getCompound("flight").putFloat("pitch", 0);
         tag.putString("flight_phase", FlightPhase.TERMINAL.getSerializedName());
-        tag.putInt("lifetime", m.age() + 300);
+        tag.getCompound("mission").putDouble("range", 300 * m.cruiseSpeed());
         m.load(tag);
         VirtualFlights.launch(level, m);
         java.util.UUID id = m.getUUID();
@@ -971,6 +1020,57 @@ public final class StrikeGameTests {
             h.assertTrue(Math.abs(drift[0]) <= ua.zentix.airstrike.guidance.Orbit.TOLERANCE, "ушёл с круга радиусом " + drift[1] + " на " + drift[0]);
             h.assertTrue(dived[0], "не пикировал: " + last[0]);
             h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
+        });
+    }
+
+    /**
+     * Запас хода «Ланцета» на самый долгий круг (барраж из настроек +20 %): план — путь до цели × 1.5, круг на маршевой
+     * и пике на своей скорости ({@code LoiterEntity.extraRange}) — покрывает весь полёт, резерв сверх плана
+     * ({@link Mission#RESERVE_TICKS}) остаётся нетронутым к подрыву. Пике быстрее круга (4 блока/тик против 1.6):
+     * в тиках плана на маршевой его не хватало бы — это проверяется по самому пике, без слабины пути до круга: пике
+     * расходует больше {@code DIVE_TICKS} × маршевая и не больше {@code DIVE_TICKS} × скорость пике, заложенных в план.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1600, batch = "loiter_range", skyAccess = true)
+    public static void loiterFullCircleWithinRange(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = airTarget(h);
+        LoiterEntity e = ModEntities.LOITER.get().create(level);
+        e.launch(point.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), -150), new Target.Point(point), point, null);
+        int longest = (int) (ua.zentix.airstrike.AirstrikeConfig.SERVER.loiterTime.get() * 20 * 1.2);
+        CompoundTag tag = e.saveWithoutId(new CompoundTag());
+        tag.putInt("loiter_ticks", longest);
+        e.load(tag);
+        e.setRoute(null);
+        level.addFreshEntity(e);
+        java.util.UUID id = e.getUUID();
+        double reserve = Mission.RESERVE_TICKS * WeaponSpec.LOITER.airframe().cruiseSpeed();
+        int[] loiter = {0};
+        double[] left = {Double.NaN};
+        double[] beforeDive = {Double.NaN};
+        Vec3[] lastPos = {null};
+        String[] last = {""};
+        h.onEachTick(() -> {
+            LoiterEntity l = findLoiter(level, id);
+            if (l == null) return;
+            lastPos[0] = l.position();
+            left[0] = l.rangeLeft();
+            if (l.flightPhase() != FlightPhase.TERMINAL) beforeDive[0] = l.rangeLeft();
+            last[0] = l.flightPhase() + " " + h.relativeVec(l.position()) + " запас " + Math.round(l.rangeLeft());
+            // по часам фазы самого снаряда, а не по тикам теста: пока он уходит из мира или возвращается, тест его
+            // не находит (на CI так пропало 6 тиков круга)
+            if (l.flightPhase() == FlightPhase.LOITER) loiter[0] = Math.max(loiter[0], l.phaseAge() + 1);
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findLoiter(level, id) == null, "барражирующий ещё летит: " + last[0]);
+            h.assertTrue(loiter[0] >= longest, "кружил " + loiter[0] + " тиков, а должен " + longest);
+            h.assertTrue(lastPos[0].distanceTo(point) < 8, "подрыв не у цели: " + last[0]);
+            h.assertTrue(left[0] >= reserve, "план не покрыл полёт: к подрыву осталось " + Math.round(left[0]) + " блоков из резерва " + Math.round(reserve));
+            WeaponSpec.Airframe air = WeaponSpec.LOITER.airframe();
+            double dive = beforeDive[0] - left[0];
+            h.assertTrue(dive > LoiterEntity.DIVE_TICKS * air.cruiseSpeed(),
+                    "пике " + Math.round(dive) + " блоков укладывается в тики на маршевой — тест не отличает план пике от плана круга");
+            h.assertTrue(dive <= LoiterEntity.DIVE_TICKS * air.diveSpeed(),
+                    "пике " + Math.round(dive) + " блоков больше заложенных " + Math.round(LoiterEntity.DIVE_TICKS * air.diveSpeed()));
         });
     }
 
@@ -1859,7 +1959,7 @@ public final class StrikeGameTests {
         // свой владелец — считать только свою бомбу
         UUID owner = UUID.randomUUID();
         bomber.launch(from, aim, null, owner);
-        // срок жизни по плану полёта, как у боевого пуска (StrikeService.launchBomber)
+        // запас хода по плану полёта, как у боевого пуска (StrikeService.launchBomber)
         bomber.setRoute(null);
         if (retarget != null) h.assertTrue(bomber.retarget(new Target.Point(retarget), retarget), "бомбардировщик не принял перенацеливание");
         // как боевой пуск: начало полёта — вне мира, в загруженном месте он вернётся в мир в ближайшем тике (пуск
@@ -2180,9 +2280,9 @@ public final class StrikeGameTests {
 
     /**
      * Уборка после теста — и когда он прошёл, и когда упал или вышел по сроку (в {@code succeedWhen} она шла бы только
-     * после успеха). Видна пакету: ею пользуются и другие классы тестов.
+     * после успеха). Открыта: ею пользуются и другие классы тестов, и сценарии полёта.
      */
-    static void afterTest(GameTestHelper h, Runnable cleanup) {
+    public static void afterTest(GameTestHelper h, Runnable cleanup) {
         h.testInfo.addListener(new GameTestListener() {
             @Override
             public void testStructureLoaded(GameTestInfo info) {
@@ -2593,36 +2693,12 @@ public final class StrikeGameTests {
 
     /** Тикеты подсказки карты с ключом {@code who} во всём мире (из очереди тикетов ванили). */
     private static int pickTickets(ServerLevel level, UUID who) {
-        return tickets(level, who, PickHints::isPickTicket);
+        return TicketProbe.count(level, PickHints::isPickTicket, who);
     }
 
     /** Тикеты загрузки района ({@code AreaLoader}) с ключом {@code who}. */
     private static int loadTickets(ServerLevel level, UUID who) {
-        return tickets(level, who, t -> t.toString().equals("airstrike_area_load"));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static int tickets(ServerLevel level, UUID who, java.util.function.Predicate<TicketType<?>> type) {
-        try {
-            Field dm = ChunkMap.class.getDeclaredField("distanceManager");
-            dm.setAccessible(true);
-            DistanceManager d = (DistanceManager) dm.get(level.getChunkSource().chunkMap);
-            Field tf = DistanceManager.class.getDeclaredField("tickets");
-            tf.setAccessible(true);
-            Field key = Ticket.class.getDeclaredField("key");
-            key.setAccessible(true);
-            int n = 0;
-            for (SortedArraySet<Ticket<?>> set : ((Long2ObjectMap<SortedArraySet<Ticket<?>>>) tf.get(d)).values()) {
-                for (Ticket<?> t : set) {
-                    // у тикета загрузки AreaLoader значение — сам район
-                    Object k = key.get(t);
-                    if (type.test(t.getType()) && who.equals(k instanceof AreaLoader.Area a ? a.key() : k)) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException ex) {
-            throw new GameTestAssertException("очередь тикетов не читается: " + ex);
-        }
+        return TicketProbe.count(level, "airstrike_area_load", who);
     }
 
     @GameTest(template = "runway", timeoutTicks = 2400, batch = "salvo", skyAccess = true)

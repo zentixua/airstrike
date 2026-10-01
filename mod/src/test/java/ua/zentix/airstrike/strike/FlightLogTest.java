@@ -27,7 +27,7 @@ class FlightLogTest {
         assertEquals(Level.INFO, lines.getFirst().level());
         String text = lines.getFirst().text();
         assertTrue(text.startsWith("Снаряды: 30 × " + DRONE + " потеряли цель (пропала)"), text);
-        assertTrue(text.endsWith(" -271 70 85 (±29), срок ≤ 12 с"), text);
+        assertTrue(text.endsWith(" -271 70 85 (±29), запас хода ≤ 12 с"), text);
         assertTrue(log.drain().isEmpty(), "строки за тик не забыты");
     }
 
@@ -40,7 +40,7 @@ class FlightLogTest {
         log.note("entity.airstrike.cruise_missile", FlightLog.Event.LOST_GONE, new BlockPos(0, 64, 0), true, 3);
         List<FlightLog.Line> lines = log.drain();
         assertEquals(3, lines.size(), lines.toString());
-        assertTrue(lines.get(0).text().endsWith(" 0 64 0, срок ≤ 5 с"), lines.get(0).text());
+        assertTrue(lines.get(0).text().endsWith(" 0 64 0, запас хода ≤ 5 с"), lines.get(0).text());
         assertEquals(Level.WARN, lines.get(1).level());
         assertTrue(lines.get(1).text().endsWith(" 10 64 10 (потеряна)"), lines.get(1).text());
     }
