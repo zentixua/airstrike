@@ -32,7 +32,6 @@ import ua.zentix.airstrike.strike.FlightSounds;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
-import ua.zentix.airstrike.util.BlockTicking;
 import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.warhead.ExplosionHandoff;
 import ua.zentix.airstrike.work.WorkScheduler;
@@ -73,9 +72,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlightSounds::onServerTick);
-        NeoForge.EVENT_BUS.addListener(BlockTicking::onServerStarting);
         NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
-        NeoForge.EVENT_BUS.addListener(BlockTicking::onServerTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogin);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onChangeDimension);

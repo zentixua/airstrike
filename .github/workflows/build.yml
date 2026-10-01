@@ -65,7 +65,7 @@ jobs:
           ./gradlew runGameTestServer -PmcModsDir=run/ci-mods --console=plain
           grep -E 'All [0-9]+ required tests passed' run/gametest/logs/latest.log
 
-      # у хоста Lithium: он заменяет вызовы в тике блок-сущностей, миксины мода должны работать и с ним
+      # у хоста Lithium: он подменяет цикл лучей Explosion.explode и PalettedContainer.count — миксины взрыва и блэкаут мода должны работать и с ним
       - name: GameTest с Lithium
         run: |
           ./gradlew runGameTestServer -PmcModsDir=run/ci-mods -PwithLithium --console=plain
