@@ -99,6 +99,8 @@ code=$?; echo "код $code, конец: $(date -u +%T) UTC"; case "$code" in 12
 W="/mnt/data/projects/airstrike/mod/run/claude-work/nuke-preview" && cd "${W:?}" && P="$W/mod/run/preview" && \
 timeout -k 30 20m tools/laptop_job.sh nuke-preview-cut -- python3 tools/laptop-jobs/nuke-preview-cut.py "$P" "$P/nuke-preview.mp4"; echo "код $?"; \
 ls -l "$P"/take.* "$P/audio.wav" "$P"/nuke-preview.*; cat "$P/take.jsonl"; \
+if [ "$(stat -c %s "$P/nuke-preview.mp4")" -gt 200000000 ]; then ffmpeg -hide_banner -loglevel error -y -i "$P/nuke-preview.mp4" \
+  -vf scale=1600:900 -c:v libx264 -preset slow -crf 23 -c:a copy -movflags +faststart "$P/nuke-preview-small.mp4"; ls -l "$P/nuke-preview-small.mp4"; fi; \
 grep -E 'SCENARIO|МБР №|Подрыв №|Руины удара №|has crashed|emergencySaveAndCrash|Unreported exception|Distant Horizons' "$P/logs/latest.log" | cut -c1-300 | head -60; \
 python3 tools/logscan.py "$P/logs/latest.log" --all | head -80
 ```
@@ -106,5 +108,5 @@ python3 tools/logscan.py "$P/logs/latest.log" --all | head -80
 ## Что прислать координатору
 1. Вывод шагов 1 и 2 (настройки копии, мир, строки «в сторону»), код и время дубля (шаг 3), вывод шага 5 целиком
    (≤ 40 КБ).
-2. Файлы (SendUserFile): `$P/nuke-preview.mp4` и `$P/nuke-preview.txt`. Сырые куски `take.*.mkv` и копия остаются в
+2. Файлы (SendUserFile): `$P/nuke-preview.mp4` (больше 200 МБ — вместо него `$P/nuke-preview-small.mp4`) и `$P/nuke-preview.txt`. Сырые куски `take.*.mkv` и копия остаются в
    `$W` (уборка — по слову Артёма в треде «Ноутбук»).

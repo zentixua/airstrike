@@ -74,6 +74,9 @@ def main():
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
     if not cmd:
         ap.error("нет команды")
+    # только внутри вложенного KWin (nested_kwin.sh, сокет wayland-airstrike-…): снять экран рабочего стола нельзя
+    if not os.environ.get("DISPLAY") or not os.environ.get("WAYLAND_DISPLAY", "").startswith("wayland-airstrike-"):
+        ap.error("нужна сессия вложенного KWin (tools/nested_kwin.sh): DISPLAY и WAYLAND_DISPLAY=wayland-airstrike-…")
     base = a.out[:-4] if a.out.endswith(".mkv") else a.out
     marks = open(base + ".jsonl", "a", buffering=1)
 
@@ -129,7 +132,7 @@ def main():
                         ffmpeg = subprocess.Popen(
                             ["ffmpeg", "-hide_banner", "-nostats", "-loglevel", "info", "-y",
                              "-use_wallclock_as_timestamps", "1", "-f", "x11grab", "-framerate", str(a.fps),
-                             "-draw_mouse", "0", "-window_id", str(int(win[0], 16)), "-i", os.environ.get("DISPLAY", ":0"),
+                             "-draw_mouse", "0", "-window_id", str(int(win[0], 16)), "-i", os.environ["DISPLAY"],
                              "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(a.crf), "-pix_fmt", "yuv420p",
                              f"{base}.{seg:03d}.mkv"],
                             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=lf)
