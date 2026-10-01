@@ -14,14 +14,18 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.render.FarDraw;
+import ua.zentix.airstrike.client.render.FarModels;
+import ua.zentix.airstrike.client.render.ProjectilePose;
+import ua.zentix.airstrike.client.render.WeaponModels;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.function.Supplier;
 
 /**
- * Всё дальнее за кадр — четырьмя вызовами отрисовки: шлейфы (лентой), клубы дыма (по дальности, от дальних к ближним),
- * тела — круги (корпуса снарядов, огненные шары, ядра вспышек; так же), свет — ореолы (блик и вуаль вокруг вспышек,
+ * Всё дальнее за кадр — четыре прохода, проход — вызов отрисовки: шлейфы (лентой), клубы дыма и модели снарядов (плитки
+ * атласа {@link FarModels}; вместе, по дальности, от дальних к ближним — вызов на каждую смену одного на другое), тела — круги
+ * (корпуса снарядов мельче модели, огненные шары, ядра вспышек; так же), свет — ореолы (блик и вуаль вокруг вспышек,
  * шаров и факелов, зарево; складываются, порядок не важен). Числа копятся в массивах, которые живут между кадрами: кадр
  * ничего не выделяет. Координаты — относительно камеры; дальше дальней плоскости точка переносится ближе с тем же
  * угловым размером.
@@ -51,11 +55,13 @@ public final class FarSprites {
 
     /** Квадраты лицом к камере: x, y, z, полуразмер, поворот, кадр атласа клубов, r, g, b, a (свет умножен на a). */
     private static final int BILLBOARD = 10;
+    /** Плитка модели: x, y, z, вправо и вверх (оси квадрата), полуразмер, u0, v0, u1, v1, доля (закрывает и светит). */
+    private static final int IMPOSTOR = 15;
     /** Отрезок ленты: два конца (x, y, z), полуширины, r, g, b, непрозрачности концов. */
     private static final int SEGMENT = 13;
 
     @Nullable
-    private static ShaderInstance shader;
+    private static ShaderInstance shader, impostorShader;
     /**
      * Путь кадра пройден хоть раз с этим шейдером ({@link #warmup}): первая отрисовка грузит текстуры с диска, связывает
      * программу и заводит буферы драйвера — на ноутбуке это 35 мс в кадре первого взрыва и по 4 мс у первого шлейфа.
@@ -63,11 +69,16 @@ public final class FarSprites {
     private static boolean warmed;
     /** Свой шейдер; не загрузился — ванильный (бледное он отбрасывает, в логе ошибка). */
     private static final Supplier<ShaderInstance> SHADER = () -> shader != null ? shader : GameRenderer.getPositionTexColorShader();
+    private static final Supplier<ShaderInstance> IMPOSTOR_SHADER = () -> impostorShader;
 
-    final Batch puffs = new Batch(BILLBOARD), discs = new Batch(BILLBOARD), glows = new Batch(BILLBOARD), ribbons = new Batch(SEGMENT);
+    final Batch puffs = new Batch(BILLBOARD), discs = new Batch(BILLBOARD), glows = new Batch(BILLBOARD), ribbons = new Batch(SEGMENT),
+            impostors = new Batch(IMPOSTOR);
+    /** Модели кадра в атласе. */
+    final FarModels models = new FarModels();
+    private final float[] tile = new float[FarModels.OUT];
     private double far;
 
-    /** Шина мода: свой шейдер дальних спрайтов (и заново при перезагрузке ресурсов). */
+    /** Шина мода: свои шейдеры дальних спрайтов и плиток моделей (и заново при перезагрузке ресурсов). */
     public static void registerShaders(RegisterShadersEvent e) {
         try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("far_sprite"), DefaultVertexFormat.POSITION_TEX_COLOR),
@@ -79,6 +90,16 @@ public final class FarSprites {
             shader = null;
             Airstrike.LOG.error("Шейдер дальних снарядов и взрывов не загрузился: рисую ванильным, бледный дым и зарево пропадут", ex);
         }
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("far_impostor"), DefaultVertexFormat.POSITION_TEX_COLOR),
+                    s -> {
+                        impostorShader = s;
+                        warmed = false;
+                    });
+        } catch (IOException ex) {
+            impostorShader = null;
+            Airstrike.LOG.error("Шейдер плиток дальних моделей не загрузился: снаряды вдали будут точками", ex);
+        }
     }
 
     void begin(FarView view) {
@@ -87,6 +108,8 @@ public final class FarSprites {
         discs.clear();
         glows.clear();
         ribbons.clear();
+        impostors.clear();
+        models.begin();
     }
 
     /** Кадр с этим шейдером ещё не рисовался: нужен {@link #warmup}. */
@@ -96,8 +119,8 @@ public final class FarSprites {
 
     /**
      * По одной записи каждого вида без света и заслона (с умноженной альфой такой спрайт не меняет ни пикселя): кадр
-     * проходит весь путь — текстуры, шейдер, буферы вершин всех четырёх вызовов, — и первый настоящий кадр вдали
-     * ничего этого уже не ждёт.
+     * проходит весь путь — текстуры, шейдеры, атлас моделей, буферы вершин всех проходов, — и первый настоящий кадр
+     * вдали ничего этого уже не ждёт. Плитки моделей — только со своим шейдером: без него моделей вдали нет (точки).
      */
     void warmup() {
         for (Batch batch : new Batch[]{puffs, discs, glows}) {
@@ -105,6 +128,15 @@ public final class FarSprites {
             Arrays.fill(batch.data, o, o + BILLBOARD, 0);
             batch.data[o + 2] = -16;
             batch.data[o + 3] = 1;
+        }
+        if (impostorShader != null) {
+            int m = impostors.add(1);
+            Arrays.fill(impostors.data, m, m + IMPOSTOR, 0);
+            impostors.data[m + 2] = -16;
+            impostors.data[m + 3] = 1;
+            impostors.data[m + 7] = 1;
+            impostors.data[m + 9] = 1;
+            models.warmup();
         }
         int o = ribbons.add(1);
         Arrays.fill(ribbons.data, o, o + SEGMENT, 0);
@@ -117,15 +149,16 @@ public final class FarSprites {
     }
 
     public boolean isEmpty() {
-        return puffs.n == 0 && discs.n == 0 && glows.n == 0 && ribbons.n == 0;
+        return puffs.n == 0 && discs.n == 0 && glows.n == 0 && ribbons.n == 0 && impostors.n == 0;
     }
 
-    /** Сколько чего в кадре (клубы, круги, свет, ленты) — в out, без выделения памяти. */
+    /** Сколько чего в кадре (клубы, круги, свет, ленты, модели) — в out, без выделения памяти. */
     void counts(int[] out) {
         out[0] = puffs.n;
         out[1] = discs.n;
         out[2] = glows.n;
         out[3] = ribbons.n;
+        out[4] = impostors.n;
     }
 
     /**
@@ -134,6 +167,30 @@ public final class FarSprites {
      */
     public void puff(double dx, double dy, double dz, double half, float rot, int tex, float r, float g, float b, float a) {
         billboard(puffs, dx, dy, dz, half, rot, tex, r * a, g * a, b * a, a);
+    }
+
+    /**
+     * Модель снаряда в позе pose с центром (dx, dy, dz) от камеры: плитка атласа {@link FarModels} квадратом лицом к камере
+     * (поперёк луча на неё), закрывает и светит долю a (дымка воздуха, видимость над рельефом, переход от точки).
+     *
+     * @param size  размер модели ({@code FarLook.size})
+     * @param camUp верх экрана: плитка повёрнута, как экран
+     * @return false — модели нет (атлас полон, модель вплотную к камере): нужна точка
+     */
+    public boolean model(WeaponModels.Look look, ProjectilePose pose, double dx, double dy, double dz, double size, double pixel, Vector3f camUp,
+                         float a) {
+        if (impostorShader == null || !models.add(look, pose, dx, dy, dz, size, pixel, camUp, tile)) return false;
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz), k = FarDraw.fold(d, far);
+        int o = impostors.add(d);
+        float[] s = impostors.data;
+        s[o] = (float) (dx * k);
+        s[o + 1] = (float) (dy * k);
+        s[o + 2] = (float) (dz * k);
+        System.arraycopy(tile, FarModels.RIGHT, s, o + 3, 6);
+        s[o + 9] = (float) (tile[FarModels.HALF] * k);
+        System.arraycopy(tile, FarModels.U0, s, o + 10, 4);
+        s[o + 14] = Math.min(1, a);
+        return true;
     }
 
     /**
@@ -228,15 +285,67 @@ public final class FarSprites {
             for (int i = 0; i < ribbons.n; i++) segment(b, ribbons.data, ribbons.at(i));
             FarDraw.draw(b);
         }
-        billboards(puffs, PUFFS, true, left, up, true);
-        billboards(discs, DISC_TEXTURE, true, left, up, false);
-        billboards(glows, GLOW_TEXTURE, false, left, up, false);
+        puffsAndModels(left, up);
+        billboards(discs, DISC_TEXTURE, true, left, up);
+        billboards(glows, GLOW_TEXTURE, false, left, up);
+    }
+
+    /**
+     * Клубы и модели — одной последовательностью от дальних к ближним: модель за облаком пыли им закрыта, перед ним —
+     * закрывает его. Вызов отрисовки — на каждую смену клубов моделями и обратно.
+     */
+    private void puffsAndModels(Vector3f left, Vector3f up) {
+        if (puffs.n == 0 && impostors.n == 0) return;
+        puffs.sortFarFirst();
+        impostors.sortFarFirst();
+        BufferBuilder b = null;
+        boolean drawingModels = false;
+        for (int i = 0, j = 0; i < puffs.n || j < impostors.n; ) {
+            boolean model = j < impostors.n && (i == puffs.n || impostors.distance(j) >= puffs.distance(i));
+            if (b == null || model != drawingModels) {
+                if (b != null) FarDraw.draw(b);
+                if (model) {
+                    setup(IMPOSTOR_SHADER);
+                    RenderSystem.setShaderTexture(0, models.texture());
+                } else {
+                    setup(PUFFS);
+                }
+                b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+                drawingModels = model;
+            }
+            if (model) {
+                impostor(b, impostors.data, impostors.at(j++));
+            } else {
+                int o = puffs.at(i++);
+                float[] s = puffs.data;
+                int tex = (int) s[o + 5];
+                float u0 = (tex % 4) * 0.25f, v0 = (tex / 4) * 0.5f;
+                FarDraw.billboard(b, left, up, s[o], s[o + 1], s[o + 2], s[o + 3], s[o + 4], u0, v0, u0 + 0.25f, v0 + 0.5f,
+                        s[o + 6], s[o + 7], s[o + 8], s[o + 9]);
+            }
+        }
+        FarDraw.draw(b);
+    }
+
+    /** Плитка модели: квадрат поперёк луча на неё, нижний левый угол — (u0, v0) атласа (низ атласа — низ плитки). */
+    private static void impostor(BufferBuilder b, float[] s, int o) {
+        float x = s[o], y = s[o + 1], z = s[o + 2], h = s[o + 9];
+        float rx = s[o + 3] * h, ry = s[o + 4] * h, rz = s[o + 5] * h, ux = s[o + 6] * h, uy = s[o + 7] * h, uz = s[o + 8] * h;
+        float u0 = s[o + 10], v0 = s[o + 11], u1 = s[o + 12], v1 = s[o + 13], a = s[o + 14];
+        b.addVertex(x - rx - ux, y - ry - uy, z - rz - uz).setUv(u0, v0).setColor(a, a, a, a);
+        b.addVertex(x + rx - ux, y + ry - uy, z + rz - uz).setUv(u1, v0).setColor(a, a, a, a);
+        b.addVertex(x + rx + ux, y + ry + uy, z + rz + uz).setUv(u1, v1).setColor(a, a, a, a);
+        b.addVertex(x - rx + ux, y - ry + uy, z - rz + uz).setUv(u0, v1).setColor(a, a, a, a);
     }
 
     /** Свой шейдер и смешивание с умноженной альфой; глубина проверяется, но не пишется (прозрачное поверх мира). */
     private static void setup(ResourceLocation texture) {
-        RenderSystem.setShader(SHADER);
+        setup(SHADER);
         RenderSystem.setShaderTexture(0, texture);
+    }
+
+    private static void setup(Supplier<ShaderInstance> program) {
+        RenderSystem.setShader(program);
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                 GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
@@ -245,7 +354,7 @@ public final class FarSprites {
         RenderSystem.disableCull();
     }
 
-    private static void billboards(Batch batch, ResourceLocation texture, boolean sorted, Vector3f left, Vector3f up, boolean atlas) {
+    private static void billboards(Batch batch, ResourceLocation texture, boolean sorted, Vector3f left, Vector3f up) {
         if (batch.n == 0) return;
         if (sorted) batch.sortFarFirst();
         setup(texture);
@@ -253,15 +362,7 @@ public final class FarSprites {
         float[] s = batch.data;
         for (int i = 0; i < batch.n; i++) {
             int o = batch.at(i);
-            float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-            if (atlas) {
-                int tex = (int) s[o + 5];
-                u0 = (tex % 4) * 0.25f;
-                v0 = (tex / 4) * 0.5f;
-                u1 = u0 + 0.25f;
-                v1 = v0 + 0.5f;
-            }
-            FarDraw.billboard(b, left, up, s[o], s[o + 1], s[o + 2], s[o + 3], s[o + 4], u0, v0, u1, v1, s[o + 6], s[o + 7], s[o + 8], s[o + 9]);
+            FarDraw.billboard(b, left, up, s[o], s[o + 1], s[o + 2], s[o + 3], s[o + 4], 0, 0, 1, 1, s[o + 6], s[o + 7], s[o + 8], s[o + 9]);
         }
         FarDraw.draw(b);
     }
@@ -311,6 +412,11 @@ public final class FarSprites {
             }
             keys[n] = ((long) Float.floatToIntBits((float) d) << 32) | n;
             return stride * n++;
+        }
+
+        /** Дальность i-й записи (после сортировки — в её порядке). */
+        double distance(int i) {
+            return Float.intBitsToFloat((int) (keys[i] >>> 32));
         }
 
         /** От дальних к ближним (прозрачное поверх мира). */

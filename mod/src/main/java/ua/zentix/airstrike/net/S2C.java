@@ -212,11 +212,12 @@ public final class S2C {
     /**
      * Один снаряд вдали: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
      * оружие), бурит ли бомба, слышно ли его (тогда пакеты чаще), где он, сдвиг за последний тик
-     * ({@code StrikeProjectile.velocity}; float — точнее миллиметра) и куда смотрит нос, фаза полёта и сколько она идёт,
+     * ({@code StrikeProjectile.velocity}; float — точнее миллиметра), куда смотрит нос и крен (модель вдали кренится
+     * в развороте, как вблизи), фаза полёта и сколько она идёт,
      * куда он летит (точка цели).
      */
     public record FarFlight(UUID id, int weapon, boolean bomber, boolean drilling, boolean audible, Vec3 pos, Vec3 velocity, float yaw,
-                            float pitch, int phase, int phaseAge, Vec3 aim) {
+                            float pitch, float roll, int phase, int phaseAge, Vec3 aim) {
         private static final int BOMBER = 1, DRILLING = 2, AUDIBLE = 4;
 
         public static final StreamCodec<ByteBuf, FarFlight> CODEC = new StreamCodec<>() {
@@ -228,7 +229,8 @@ public final class S2C {
                 Vec3 pos = StreamCodecs.VEC3.decode(b);
                 Vec3 velocity = new Vec3(b.readFloat(), b.readFloat(), b.readFloat());
                 return new FarFlight(id, weapon, (flags & BOMBER) != 0, (flags & DRILLING) != 0, (flags & AUDIBLE) != 0, pos, velocity,
-                        b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b));
+                        b.readFloat(), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
+                        StreamCodecs.VEC3.decode(b));
             }
 
             @Override
@@ -242,6 +244,7 @@ public final class S2C {
                 b.writeFloat((float) f.velocity.z);
                 b.writeFloat(f.yaw);
                 b.writeFloat(f.pitch);
+                b.writeFloat(f.roll);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
                 ByteBufCodecs.VAR_INT.encode(b, f.phaseAge);
                 StreamCodecs.VEC3.encode(b, f.aim);
