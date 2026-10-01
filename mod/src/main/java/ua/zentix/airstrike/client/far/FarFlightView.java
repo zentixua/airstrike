@@ -5,13 +5,18 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3f;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
+import ua.zentix.airstrike.client.ClientWeaponSpec.ClientAirframe;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarLook;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
 import ua.zentix.airstrike.client.ClientWeaponSpec.Flame;
 import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.particle.Fx;
+import ua.zentix.airstrike.client.render.FarModels;
+import ua.zentix.airstrike.client.render.ProjectilePose;
+import ua.zentix.airstrike.client.render.WeaponModels;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.strike.WeaponType;
 
@@ -26,9 +31,10 @@ import java.util.Map;
  * Снаряды вдали, которых у клиента нет (сущность дальше прорисовки или летит вне мира): путь — по пакетам сервера
  * ({@link FlightTracks}), вид — из клиентского паспорта ({@link FarLook}).
  * <ul>
- * <li>Корпус — тёмный круг той же площади, что силуэт, настоящего углового размера; мельче пятна {@link Sight#MIN_PIXELS}
- * — пятно, бледнее во столько же раз ({@link Sight#body}): закрыто то же небо. Свой цвет при свете неба, дымка —
- * в непрозрачности ({@link Sight}).</li>
+ * <li>Корпус — настоящая модель ({@link FarModels}: та же, что у сущности вблизи, с теми же анимациями, по позе из пути),
+ * пока она на экране длиннее {@link FarModels#MODEL_FROM} пикселей; мельче — круг той же площади, что силуэт, настоящего
+ * углового размера, а мельче пятна {@link Sight#MIN_PIXELS} — пятно, бледнее во столько же раз ({@link Sight#body}):
+ * закрыто то же небо; между — плавный переход. Свой цвет при свете неба, дымка — в непрозрачности ({@link Sight}).</li>
  * <li>Факел — свет ({@link Sight#light}) позади корпуса: днём — искра, ночью глаз привык к темноте — блик и вуаль на
  * километры. Маршевый турбовентиляторный двигатель ракеты и мотор шахеда ночью не светят — у них факела почти нет.</li>
  * <li>Шлейф — лента через точки пути, записанные по пакетам ({@link TrailPoints}): расплывается, сносится ветром мода
@@ -63,7 +69,9 @@ public final class FarFlightView {
     private static Sightline.Heights heights;
 
     // ---------------------------------------------------------------- кадр: числа живут между кадрами
-    private static final double[] POS = new double[3], BACK = new double[3], OUT = new double[2], LIGHT = new double[5];
+    private static final double[] POS = new double[3], BACK = new double[3], OUT = new double[2], LIGHT = new double[5], AIM = new double[3];
+    private static final float[] ANGLES = new float[3];
+    private static final ProjectilePose POSE = new ProjectilePose();
     /** Концы лент в кадре: где (от камеры), полуширина, непрозрачность, цвет; номер кадра, в котором посчитан. */
     private static final double[] EX = new double[HEAD + 1], EY = new double[HEAD + 1], EZ = new double[HEAD + 1], EH = new double[HEAD + 1];
     private static final float[] EA = new float[HEAD + 1], ER = new float[HEAD + 1], EG = new float[HEAD + 1], EB = new float[HEAD + 1];
@@ -77,7 +85,8 @@ public final class FarFlightView {
     private static int flights, points;
     @Nullable
     private static Far nearest;
-    private static double nearD, nearT, nearBody, nearBodyAlpha, nearFlame, nearFlameAlpha;
+    private static double nearD, nearT, nearBody, nearBodyAlpha, nearFlame, nearFlameAlpha, nearModel;
+    private static boolean nearCoarse;
 
     private FarFlightView() {}
 
@@ -85,6 +94,7 @@ public final class FarFlightView {
     static final class Far {
         final FlightTrack track;
         final FarLook look;
+        final WeaponModels.Look model;
         /** Чьи точки в {@link TrailPoints}. */
         final int owner;
         long seen;
@@ -98,11 +108,15 @@ public final class FarFlightView {
         /** Не закрыт рельефом: 1 — виден; прошлый тик, нынешний и куда идёт. */
         float visPrev = 1, vis = 1, visTarget = 1;
         boolean sighted;
+        /** Модель — упрощёнными копиями деталей (мелкая на экране; с запасом против дрожания на границе). */
+        boolean coarse = true;
 
         Far(FlightTrack track, int owner) {
             this.track = track;
             this.owner = owner;
-            this.look = ClientWeaponSpec.of(track.weapon).airframe(!track.bomber).far();
+            ClientAirframe airframe = ClientWeaponSpec.of(track.weapon).airframe(!track.bomber);
+            this.look = airframe.far();
+            this.model = airframe.model();
         }
     }
 
@@ -235,9 +249,18 @@ public final class FarFlightView {
             }
             double tr = Sight.transmittance(d, view.range());
             float vis = Mth.lerp(view.partial(), f.visPrev, f.vis);
+            double length = f.look.size() / (d * view.pixel());
+            double model = modelShare(length);
+            if (model > 0 && vis > 0 && inFrame(view, dx, dy, dz, d, FarModels.TILE_RADIUS * f.look.size())) {
+                f.coarse = f.coarse ? length < FarModels.FULL_ABOVE : length < FarModels.COARSE_BELOW;
+                pose(track, t, f.coarse);
+                if (!out.model(f.model, POSE, dx, dy, dz, f.look.size(), view.pixel(), view.up(), (float) (model * vis * tr))) model = 0;
+            } else {
+                model = 0;
+            }
             body(f.look.area(), d, view.pixel(), OUT);
             int c = f.look.color();
-            float a = (float) (OUT[1] * vis * tr), lit = view.ambient();
+            float a = (float) (OUT[1] * vis * tr * (1 - model)), lit = view.ambient();
             out.disc(dx, dy, dz, OUT[0], channel(c, 0) * lit, channel(c, 1) * lit, channel(c, 2) * lit, a);
             double bodyPx = 2 * OUT[0] / (d * view.pixel());
             double flamePx = 0, flameAlpha = 0;
@@ -261,8 +284,38 @@ public final class FarFlightView {
                 nearBodyAlpha = a;
                 nearFlame = flamePx;
                 nearFlameAlpha = flameAlpha;
+                nearModel = model > 0 ? length : 0;
+                nearCoarse = f.coarse;
             }
         }
+    }
+
+    /** Поза модели в момент t по пути (место — уже в {@link #POS}). */
+    private static void pose(FlightTrack track, double t, boolean coarse) {
+        ProjectilePose p = POSE;
+        p.x = POS[0];
+        p.y = POS[1];
+        p.z = POS[2];
+        track.angles(t, ANGLES);
+        p.yaw = ANGLES[0];
+        p.pitch = ANGLES[1];
+        p.roll = ANGLES[2];
+        p.phase = FlightPhase.byId(track.phase(t));
+        p.phaseAge = (float) track.phaseAge(t);
+        p.age = (float) track.age(t);
+        track.aim(t, AIM);
+        p.aimX = AIM[0];
+        p.aimY = AIM[1];
+        p.aimZ = AIM[2];
+        p.coarse = coarse;
+    }
+
+    /** Шар радиуса r с центром (dx, dy, dz) на дальности d хоть краем в кадре (конус до угла экрана). */
+    static boolean inFrame(FarView view, double dx, double dy, double dz, double d, double r) {
+        double angle = view.edge() + Math.asin(Math.min(1, r / d));
+        if (angle >= Math.PI) return true;
+        Vector3f f = view.forward();
+        return (dx * f.x() + dy * f.y() + dz * f.z()) / d >= Math.cos(angle);
     }
 
     /** Середина факела — позади корпуса по ходу ({@link #BACK}, от камеры); out[0] — её дальность. */
@@ -305,6 +358,16 @@ public final class FarFlightView {
     // ---------------------------------------------------------------- чистая геометрия видимости (юнит-тесты)
 
     /**
+     * Доля модели в виде корпуса при длине length пикселей: до {@link FarModels#DOT_BELOW} — 0 (точка), от
+     * {@link FarModels#MODEL_FROM} — 1 (модель), между — плавно; остальное — точка.
+     */
+    static double modelShare(double length) {
+        double k = (length - FarModels.DOT_BELOW) / (FarModels.MODEL_FROM - FarModels.DOT_BELOW);
+        k = Math.max(0, Math.min(1, k));
+        return k * k * (3 - 2 * k);
+    }
+
+    /**
      * Корпус на дальности d: радиус круга и его непрозрачность ({@link Sight#body}) — круг той же площади, что средний
      * силуэт {@code area}.
      */
@@ -335,7 +398,8 @@ public final class FarFlightView {
 
     /**
      * Сводка для лога сценария (раз в секунду): сколько снарядов рисуется вдали и каких, у ближнего — дальность,
-     * прозрачность воздуха, корпус и факел в пикселях с непрозрачностью, закрыт ли рельефом; точек шлейфов в кадре.
+     * прозрачность воздуха, корпус (точка) и факел в пикселях с непрозрачностью, модель — её длина в пикселях и копия,
+     * закрыт ли рельефом; точек шлейфов в кадре.
      * Пусто — вдали ничего нет.
      */
     public static String describe() {
@@ -355,6 +419,7 @@ public final class FarFlightView {
         if (f != null) {
             sb.append(String.format(Locale.ROOT, "; ближний %s: %.0f бл, t %.2f, корпус %.1f px α %.2f",
                     f.track.bomber ? "b2" : f.track.weapon.getSerializedName(), nearD, nearT, nearBody, nearBodyAlpha));
+            if (nearModel > 0) sb.append(String.format(Locale.ROOT, ", модель %.1f px (%s)", nearModel, nearCoarse ? "упрощённая" : "полная"));
             if (nearFlame > 0) sb.append(String.format(Locale.ROOT, ", факел %.1f px α %.2f", nearFlame, nearFlameAlpha));
             if (f.visTarget < 1) sb.append(", за рельефом");
         }

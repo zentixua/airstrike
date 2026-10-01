@@ -17,12 +17,12 @@ import java.util.Locale;
 /**
  * Снаряды и взрывы вдали — после мира ({@code AFTER_LEVEL}, как ядерный удар): дальше прорисовки частиц и сущностей
  * нет, а под шейдерами Iris виден только этот этап. Кадр: что видно из {@link FarBlasts} и {@link FarFlightView}
- * собирается в {@link FarSprites} и рисуется четырьмя вызовами.
+ * собирается в {@link FarSprites}, модели снарядов рисуются в свой атлас ({@code FarModels}), потом всё — в кадр.
  */
 public final class FarRenderer {
     private static final FarSprites SPRITES = new FarSprites();
-    /** Сколько клубов, точек, света и лент было в последнем кадре (для строки сценария). */
-    private static final int[] LAST_FRAME = new int[4];
+    /** Сколько клубов, точек, света, лент и моделей было в последнем кадре (для строки сценария). */
+    private static final int[] LAST_FRAME = new int[5];
     /**
      * Время кадра в потоке отрисовки (сбор и отправка вершин) за секунду: сумма, самый долгий; самый долгий из кадров,
      * в которые сборка мусора не останавливала JVM, и время процессора потока в нём; кадров со сборкой; прошлая секунда, мс.
@@ -68,6 +68,7 @@ public final class FarRenderer {
         FarBlasts.collect(view, SPRITES);
         FarFlightView.collect(view, SPRITES);
         SPRITES.counts(LAST_FRAME);
+        SPRITES.models.render();
         if (!SPRITES.isEmpty()) {
             FarDraw.begin(e);
             try {
@@ -89,8 +90,8 @@ public final class FarRenderer {
     }
 
     /**
-     * Первый кадр в мире (и после перезагрузки ресурсов): невидимый кадр всех четырёх видов, чтобы текстуры, шейдер
-     * и буферы были готовы до первого снаряда и взрыва вдали ({@link FarSprites#warmup}).
+     * Первый кадр в мире (и после перезагрузки ресурсов): невидимый кадр всех видов, чтобы текстуры, шейдеры, атлас
+     * моделей и буферы были готовы до первого снаряда и взрыва вдали ({@link FarSprites#warmup}).
      */
     private static void warmup(RenderLevelStageEvent e, FarView view) {
         long start = System.nanoTime();
@@ -122,9 +123,10 @@ public final class FarRenderer {
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
         // проекция: m11 = 1 / tan(fovY / 2) — угол пикселя по вертикали
         double pixel = 2 / (e.getProjectionMatrix().m11() * Math.max(1, mc.getWindow().getHeight()));
+        double edge = Math.atan(0.5 * pixel * Math.hypot(mc.getWindow().getWidth(), mc.getWindow().getHeight()));
         float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
-        return new FarView(camera.getPosition(), camera.getLeftVector(), camera.getUpVector(), partial, mc.gameRenderer.getDepthFar() * 0.97,
-                pixel, ambient, Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial)),
+        return new FarView(camera.getPosition(), camera.getLookVector(), camera.getLeftVector(), camera.getUpVector(), partial,
+                mc.gameRenderer.getDepthFar() * 0.97, pixel, edge, ambient, Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial)),
                 mc.options.getEffectiveRenderDistance() * 16.0, level.effects().getCloudHeight(), level.getRainLevel(partial));
     }
 
@@ -135,7 +137,7 @@ public final class FarRenderer {
     public static String describe() {
         if (FarBlasts.isEmpty() && FarFlightView.isEmpty()) return "";
         return "взрывы: " + FarBlasts.describe() + "; снаряды: " + FarFlightView.describe() + "; кадр: клубов " + LAST_FRAME[0] + ", точек "
-                + LAST_FRAME[1] + ", света " + LAST_FRAME[2] + ", лент " + LAST_FRAME[3]
+                + LAST_FRAME[1] + ", света " + LAST_FRAME[2] + ", лент " + LAST_FRAME[3] + ", моделей " + LAST_FRAME[4]
                 + String.format(Locale.ROOT, ", %.3f мс (самый долгий за секунду %.3f; без сборки мусора %.3f, процессор %.3f; кадров со сборкой %d)",
                 lastMean, lastMax, lastClean, Math.max(0, lastCleanCpu), lastCollected);
     }

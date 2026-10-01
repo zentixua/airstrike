@@ -94,6 +94,8 @@ public final class ClientScenario {
     private int lensMax;
     /** Сценарий моделей: частицы не нужны. */
     private boolean models;
+    /** Зритель висит в воздухе (far-models): после телепорта сервер присылает способности, и полёт сбрасывается. */
+    private boolean hover;
     /** Раз в сколько тиков звук в лог. */
     private int soundEvery = 10;
 
@@ -127,6 +129,7 @@ public final class ClientScenario {
         else if ("rocket".equals(mode)) planRocket();
         else if ("loiter".equals(mode)) planLoiter();
         else if ("models".equals(mode)) planModels();
+        else if ("far-models".equals(mode)) planFarModels();
         else if ("hud".equals(mode)) planHud();
         else if ("map".equals(mode)) planMap();
         else if ("target-map".equals(mode)) planTargetMap();
@@ -184,6 +187,7 @@ public final class ClientScenario {
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
         if (models) mc.particleEngine.setLevel(mc.level);
+        if (hover) p.getAbilities().flying = true;
         if (tick % soundEvery == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
         if (tick % 100 == 0) {
@@ -804,6 +808,176 @@ public final class ClientScenario {
             var am = (net.minecraft.network.syncher.EntityDataAccessor<org.joml.Vector3f>) aimField.get(null);
             e.getEntityData().set(ph, (byte) phase.ordinal());
             e.getEntityData().set(am, new org.joml.Vector3f((float) aim.x, (float) aim.y, (float) aim.z));
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    /** Снаряд сценария far-models: оружие, B-2 ли это, фаза, тангаж и крен (градусы), скорость (блоков за тик). */
+    private record FarShow(String name, WeaponType weapon, boolean bomber, ua.zentix.airstrike.entity.FlightPhase phase,
+                           float pitch, float roll, double speed) {}
+
+    /**
+     * Глаз зрителя far-models: висит в {@code airstrike.far.eye} («x,y,z» ног; по умолчанию 0,220,0 — в мире сценария)
+     * и смотрит на север.
+     */
+    private static final Vec3 FAR_EYE = farEye(System.getProperty("airstrike.far.eye", "0,220,0"));
+    /** Снаряды far-models летят на восток и к зрителю (курс −60°): видны три четверти. */
+    private static final float FAR_YAW = -60;
+
+    /**
+     * Модели вдали ({@code client.far.FarFlightView}, {@code client.render.FarModels}): зритель в небе смотрит на север,
+     * снаряды — пути по пакетам, как от сервера (сущностей у клиента нет). Сначала пары кадров на одной позе — сущность
+     * ({@code match_*_entity}) и путь по пакетам ({@code match_*_far}): вблизи и вдали та же модель. Потом ряд всех снарядов
+     * на 300, 800 и 1500 блоках днём и ночью ({@code far_day_*}, {@code far_night_*}) и в бинокль на 800, 1500 и 3000
+     * ({@code far_scope_*}); у каждого кадра в лог — строка {@code SCENARIO far-models}. Облака выключены: фон — чистое небо.
+     */
+    private void planFarModels() {
+        List<FarShow> row = List.of(
+                new FarShow("drone", WeaponType.DRONE, false, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 0, 0, 2.1),
+                new FarShow("missile", WeaponType.MISSILE, false, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 0, 25, 4),
+                new FarShow("b2", WeaponType.BUNKER, true, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 0, 20, 12),
+                new FarShow("bomb", WeaponType.BUNKER, false, ua.zentix.airstrike.entity.FlightPhase.TERMINAL, 60, 0, 4),
+                new FarShow("icbm", WeaponType.NUKE, false, ua.zentix.airstrike.entity.FlightPhase.BOOST, -70, 0, 6),
+                new FarShow("rocket", WeaponType.ROCKET, false, ua.zentix.airstrike.entity.FlightPhase.BOOST, -40, 0, 6),
+                new FarShow("loiter", WeaponType.LOITER, false, ua.zentix.airstrike.entity.FlightPhase.CRUISE, 0, 15, 1.6));
+        at(40, () -> {
+            // мир игрока (prod_client.py --world): летать и держать бинокль может только творческий режим
+            cmd("gamemode creative");
+            cmd("gamerule doDaylightCycle false");
+            cmd("gamerule doWeatherCycle false");
+            cmd("time set 6000");
+            cmd("weather clear");
+            Minecraft.getInstance().options.hideGui = true;
+            Minecraft.getInstance().options.cloudStatus().set(net.minecraft.client.CloudStatus.OFF);
+            hover = true;
+        });
+        int t = 300;
+        // одна поза — сущностью и путём по пакетам
+        t = farMatch(t, row.get(0), 60);
+        t = farMatch(t, row.get(1), 110);
+        t = farMatch(t, row.get(2), 170); // сущность рисуется только в пределах прорисовки (12 чанков)
+        int pass = 0;
+        for (String light : new String[]{"day", "night"}) {
+            String time = light.equals("day") ? "time set 6000" : "time set 18000";
+            at(t, () -> cmd(time));
+            for (int d : new int[]{300, 800, 1500}) {
+                farRow(t + 10, "far_" + light + "_" + d, row, ++pass, d, 36, 4);
+                t += 90;
+            }
+        }
+        at(t, () -> {
+            cmd("time set 6000");
+            cmd("give @s airstrike:strike_designator");
+            Minecraft.getInstance().options.keyUse.setDown(true);
+        });
+        t += 40;
+        for (int d : new int[]{800, 1500, 3000}) {
+            farRow(t, "far_scope_" + d, row, ++pass, d, 7, 1.5);
+            t += 90;
+        }
+        at(t, () -> {
+            Minecraft.getInstance().options.keyUse.setDown(false);
+            Airstrike.LOG.info("SCENARIO done");
+            Minecraft.getInstance().stop();
+        });
+    }
+
+    /**
+     * Ряд снарядов на дальности d: веером по горизонтали ±spread градусов, на elev градусов выше глаза; пакеты — раз
+     * в {@link ua.zentix.airstrike.net.S2C.FarFlights#PERIOD} тика с тика start, кадр name — через 60 тиков, тогда же
+     * каждый на своём месте. После кадра полёты отбиваются: шлейфы не переходят в следующий ряд.
+     */
+    private void farRow(int start, String name, List<FarShow> row, int pass, double d, double spread, double elev) {
+        int shotAt = start + 60, n = row.size();
+        farStand(start - 6);
+        List<java.util.UUID> ids = new ArrayList<>();
+        for (int i = 0; i < n; i++) ids.add(new java.util.UUID(0xFA2L, pass * 16L + i));
+        for (int k = start; k <= shotAt + 4; k += ua.zentix.airstrike.net.S2C.FarFlights.PERIOD) {
+            int tk = k;
+            at(tk, () -> {
+                List<ua.zentix.airstrike.net.S2C.FarFlight> list = new ArrayList<>();
+                for (int i = 0; i < n; i++) {
+                    double side = Math.toRadians(-spread + 2 * spread * i / (n - 1)), up = Math.toRadians(elev);
+                    Vec3 at = FAR_EYE.add(d * Math.sin(side) * Math.cos(up), d * Math.sin(up), -d * Math.cos(side) * Math.cos(up));
+                    list.add(farFlight(ids.get(i), row.get(i), at, tk - shotAt, tk - start + 40));
+                }
+                ua.zentix.airstrike.client.flight.FlightTracks.received(new ua.zentix.airstrike.net.S2C.FarFlights(list));
+            });
+        }
+        at(shotAt - 1, () -> Airstrike.LOG.info("SCENARIO far-models {}: {}", name, FarRenderer.describe()));
+        shot(shotAt, name);
+        at(shotAt + 6, () -> ua.zentix.airstrike.client.flight.FlightTracks.cancelled(ids));
+    }
+
+    /**
+     * Пакет снаряда s, который в тике кадра (dt = 0) стоит в at: место — по курсу {@link #FAR_YAW}, тангажу и скорости,
+     * цель — в 5 км впереди.
+     */
+    private static ua.zentix.airstrike.net.S2C.FarFlight farFlight(java.util.UUID id, FarShow s, Vec3 at, int dt, int phaseAge) {
+        Vec3 dir = Vec3.directionFromRotation(s.pitch(), FAR_YAW);
+        Vec3 v = dir.scale(s.speed());
+        return new ua.zentix.airstrike.net.S2C.FarFlight(id, s.weapon().id(), s.bomber(), false, false, at.add(v.scale(dt)), v,
+                FAR_YAW, s.pitch(), s.roll(), s.phase().ordinal(), phaseAge, at.add(dir.scale(5000)));
+    }
+
+    /**
+     * Пара кадров одной позы на дальности d прямо впереди: клиентская копия сущности ({@code match_<s>_entity}),
+     * потом путь по пакетам без скорости ({@code match_<s>_far}). Возвращает тик после пары.
+     */
+    private int farMatch(int t, FarShow s, double d) {
+        Vec3 at = FAR_EYE.add(0, d * Math.sin(Math.toRadians(4)), -d);
+        Vec3 aim = at.add(Vec3.directionFromRotation(s.pitch(), FAR_YAW).scale(5000));
+        StrikeProjectile[] shown = new StrikeProjectile[1];
+        farStand(t - 6);
+        at(t, () -> {
+            Minecraft mc = Minecraft.getInstance();
+            var type = switch (s.weapon()) {
+                case MISSILE -> ua.zentix.airstrike.registry.ModEntities.CRUISE_MISSILE.get();
+                case BUNKER -> ua.zentix.airstrike.registry.ModEntities.BOMBER.get();
+                default -> ua.zentix.airstrike.registry.ModEntities.DRONE.get();
+            };
+            StrikeProjectile e = type.create(mc.level);
+            e.moveTo(at.x, at.y, at.z, FAR_YAW, s.pitch());
+            e.yRotO = FAR_YAW;
+            e.xRotO = s.pitch();
+            showPhase(e, s.phase(), aim);
+            showRoll(e, s.roll());
+            mc.level.addEntity(e);
+            shown[0] = e;
+        });
+        shot(t + 40, "match_" + s.name() + "_entity");
+        at(t + 45, () -> shown[0].discard());
+        java.util.UUID id = new java.util.UUID(0xFA1L, s.weapon().id() * 2L + (s.bomber() ? 1 : 0));
+        for (int k = t + 46; k <= t + 96; k += ua.zentix.airstrike.net.S2C.FarFlights.PERIOD) {
+            int tk = k;
+            at(tk, () -> ua.zentix.airstrike.client.flight.FlightTracks.received(new ua.zentix.airstrike.net.S2C.FarFlights(List.of(
+                    farFlight(id, new FarShow(s.name(), s.weapon(), s.bomber(), s.phase(), s.pitch(), s.roll(), 0), at, 0, tk - t)))));
+        }
+        at(t + 89, () -> Airstrike.LOG.info("SCENARIO far-models match_{}: {}", s.name(), FarRenderer.describe()));
+        shot(t + 90, "match_" + s.name() + "_far");
+        at(t + 100, () -> ua.zentix.airstrike.client.flight.FlightTracks.cancelled(List.of(id)));
+        return t + 110;
+    }
+
+    private static Vec3 farEye(String feet) {
+        String[] c = feet.split(",");
+        return new Vec3(Double.parseDouble(c[0].trim()), Double.parseDouble(c[1].trim()) + 1.62, Double.parseDouble(c[2].trim()));
+    }
+
+    /** Зритель — на место {@link #FAR_EYE}, взгляд на север: каждый ряд заново (полёт мог чуть сдвинуть его). */
+    private void farStand(int t) {
+        at(t, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.2f %.1f 180 0", FAR_EYE.x, FAR_EYE.y - 1.62, FAR_EYE.z)));
+    }
+
+    /** Крен у клиентской копии снаряда (синхронное поле — только через отражение). */
+    private static void showRoll(StrikeProjectile e, float roll) {
+        try {
+            var field = StrikeProjectile.class.getDeclaredField("DATA_ROLL");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var a = (net.minecraft.network.syncher.EntityDataAccessor<Float>) field.get(null);
+            e.getEntityData().set(a, roll);
         } catch (ReflectiveOperationException ex) {
             throw new IllegalStateException(ex);
         }

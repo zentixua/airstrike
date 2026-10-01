@@ -32,7 +32,7 @@ class EngineSoundTest {
         FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         for (int k = 0; k <= ticks; k++) {
             double x = from - V * k;
-            t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0, 0,
                     FlightPhase.CRUISE.ordinal(), 200 + k, aim));
         }
         return t;
@@ -70,7 +70,7 @@ class EngineSoundTest {
         double firstDistance = 0;
         for (int k = 0; k <= arrival; k++) {
             if (k % 2 == 0) {
-                t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0,
+                t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0, 0,
                         FlightPhase.CRUISE.ordinal(), 200 + k, EAR));
             }
             double te = Acoustics.emissionTime(t, k, EAR.x, EAR.y, EAR.z);
@@ -141,7 +141,7 @@ class EngineSoundTest {
         for (int k = 0; k <= ticks; k++) {
             Vec3 p = Ballistics.at(Vec3.ZERO, v0, k), v = Ballistics.at(Vec3.ZERO, v0, k + 1).subtract(p);
             FlightPhase ph = k < 40 ? FlightPhase.BOOST : v.y < 0 ? FlightPhase.TERMINAL : FlightPhase.CRUISE;
-            t.record(k, new S2C.FarFlight(ID, WeaponType.ROCKET.id(), false, false, true, p, v, 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.ROCKET.id(), false, false, true, p, v, 90, 0, 0,
                     ph.ordinal(), k, new Vec3(range, 0, 0)));
         }
         int heard = 0;

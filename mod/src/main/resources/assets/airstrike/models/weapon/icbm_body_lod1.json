@@ -1,0 +1,10 @@
+{
+  "loader": "neoforge:obj",
+  "model": "airstrike:models/weapon/icbm_body_lod1.obj",
+  "flip_v": false,
+  "emissive_ambient": true,
+  "automatic_culling": false,
+  "textures": {
+    "particle": "airstrike:block/weapon/icbm"
+  }
+}

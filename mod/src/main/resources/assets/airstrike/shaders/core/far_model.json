@@ -1,0 +1,12 @@
+{
+    "vertex": "airstrike:far_model",
+    "fragment": "airstrike:far_model",
+    "samplers": [
+        { "name": "Sampler0" },
+        { "name": "Sampler2" }
+    ],
+    "uniforms": [
+        { "name": "Light0_Direction", "type": "float", "count": 3, "values": [ 0.0, 0.0, 0.0 ] },
+        { "name": "Light1_Direction", "type": "float", "count": 3, "values": [ 0.0, 0.0, 0.0 ] }
+    ]
+}
