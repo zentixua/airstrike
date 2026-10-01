@@ -234,7 +234,7 @@ public final class NuclearWorld {
 
     /** Отбой: очереди остановлены (разрушенное не возвращается). */
     public void clear(ServerLevel level) {
-        FarLods.get(level).clear();
+        FarLods.get(level).clear(level);
         prep.clear(level, scars);
         scars.clear(level);
         ruins.values().forEach(RuinContext::cancelTasks);

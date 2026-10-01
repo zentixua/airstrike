@@ -106,6 +106,12 @@ public final class DhUpdates {
         for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++) mark(level, new ChunkPos(x, z), at);
     }
 
+    /** Отметка загруженного чанка ещё ждёт отправки в DH ({@link #mark}). Поток сервера. */
+    public static boolean pending(ServerLevel level, long chunk) {
+        DhUpdates u = active(level);
+        return u != null && u.due.containsKey(chunk);
+    }
+
     /** Есть куда отдавать: DH стоит (или проверка подставила приёмник). */
     public static boolean enabled(ServerLevel level) {
         return active(level) != null;
