@@ -384,14 +384,26 @@ public final class StrikeGameTests {
      */
     @GameTest(template = "runway", timeoutTicks = 300, batch = "launcher_wall", skyAccess = true)
     public static void droneCrashIntoWallIsLogged(GameTestHelper h) {
+        crashIntoWallIsLogged(h, WeaponType.DRONE);
+    }
+
+    /** То же у ракеты: у неё круче направляющая и короче разгон (ноутбук: ракета пропадала на наборе высоты). */
+    @GameTest(template = "runway", timeoutTicks = 300, batch = "launcher_wall_missile", skyAccess = true)
+    public static void missileCrashIntoWallIsLogged(GameTestHelper h) {
+        crashIntoWallIsLogged(h, WeaponType.MISSILE);
+    }
+
+    private static void crashIntoWallIsLogged(GameTestHelper h, WeaponType weapon) {
         ServerLevel level = h.getLevel();
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 40; y++) h.setBlock(new BlockPos(x, y, 40), Blocks.STONE);
-        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.DRONE, null);
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon), "стена по курсу не видна");
+        LauncherEntity launcher = LauncherEntity.create(level, site, 0, weapon, null);
         level.addFreshEntity(launcher);
         Vec3 point = top(h, RUNWAY_TARGET);
         int ready = LauncherEntity.DEPLOY_TICKS + 10;
         Vec3 rail = launcher.railPoint(0);
-        DroneEntity drone = ModEntities.DRONE.get().create(level);
+        StrikeProjectile drone = weapon.spec().airframe().entity().get().create(level);
         drone.placeOnLauncher(rail, 0, launcher.elevation(), ready, LauncherEntity.DEPLOY_TICKS, new Target.Point(point), point, null);
         drone.setRoute(Route.plan(rail, point, new Vec3(0, 0, 1), 0, 120, 1));
         level.addFreshEntity(drone);
@@ -399,11 +411,11 @@ public final class StrikeGameTests {
         int before = log.total(FlightLog.Event.CRASHED);
         String[] last = {""};
         h.onEachTick(() -> {
-            if (level.getEntity(drone.getUUID()) instanceof DroneEntity d) last[0] = d.flightPhase() + " " + h.relativeVec(d.position()) + " v=" + d.speed();
+            if (level.getEntity(drone.getUUID()) instanceof StrikeProjectile d) last[0] = d.flightPhase() + " " + h.relativeVec(d.position()) + " v=" + d.speed();
         });
         h.succeedWhen(() -> {
-            h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), "шахед ещё летит: " + last[0]);
-            h.assertTrue(log.total(FlightLog.Event.CRASHED) == before + 1, "разбившийся о стену шахед не попал в лог; последний раз: " + last[0]
+            h.assertTrue(level.getEntity(drone.getUUID()) == null && VirtualFlights.get(level).flights().isEmpty(), weapon + " ещё летит: " + last[0]);
+            h.assertTrue(log.total(FlightLog.Event.CRASHED) == before + 1, "разбившийся о стену снаряд не попал в лог; последний раз: " + last[0]
                     + ", ударов " + StrikeWorld.get(level).impacts().size());
             h.assertTrue(StrikeWorld.get(level).impacts().isEmpty(), "разбился, а боевая часть сработала");
         });
