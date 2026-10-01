@@ -22,6 +22,7 @@ import ua.zentix.airstrike.stress.StressDirector;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -42,7 +43,9 @@ import java.util.UUID;
  * ожидание до следующего тика, поэтому порог выше) и раз в секунду средний тик, самый долгий и сколько настенного
  * времени заняли 20 тиков ({@code … second}) — с тиками сервера и настенными мс от последнего шага. На первый взрыв
  * каждого снаряда — {@code … hit}: где он был при попадании, фаза, взведён ли, курс, точка цели и блок, в который он
- * попал (удар далеко от точки — врезался по пути или нет).
+ * попал (удар далеко от точки — врезался по пути или нет). Первой строкой — {@code … clock utc …}: настоящее время
+ * в UTC рядом с временем строки лога. Часы лога, GC-лога и JFR у одного клиента бывают в разных поясах (ноутбук хоста:
+ * лог +3, gc.log +2); выжимка сопоставляет их в UTC, а сдвиг лога берёт из этой строки.
  */
 final class StrikeProfile {
     private static final long SLOW_NANOS = 50_000_000L, SLOW_PERIOD_NANOS = 100_000_000L;
@@ -61,6 +64,7 @@ final class StrikeProfile {
     private final Set<UUID> hit = new HashSet<>();
 
     StrikeProfile() {
+        Airstrike.LOG.info("SCENARIO strike-profile clock utc {}", Instant.now());
         String spec = System.getProperty("airstrike.profile.steps", "");
         for (String s : spec.split(";")) {
             String[] a = s.strip().split("\\s+");
