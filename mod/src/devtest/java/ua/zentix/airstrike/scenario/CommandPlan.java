@@ -8,11 +8,12 @@ import java.util.List;
  * Minecraft, чтобы проверять юнит-тестом ({@code CommandPlanTest}). Что значат шаги — {@code ClientScenario.planCommands}.
  *
  * @param steps    шаги по порядку
- * @param nukeGate тик {@code wait:nuke} (с него шаги ждут пакета подрыва), −1 — нет
- * @param end      тик «SCENARIO done»
- * @param warnings пропущенные шаги — в лог
+ * @param nukeGate   тик {@code wait:nuke} (с него шаги ждут пакета подрыва), −1 — нет
+ * @param blastGates тики {@code wait:blast} по порядку (с каждого шаги ждут следующего взрыва на сервере)
+ * @param end        тик «SCENARIO done»
+ * @param warnings   пропущенные шаги — в лог
  */
-record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warnings) {
+record CommandPlan(List<Step> steps, int nukeGate, List<Integer> blastGates, int end, List<String> warnings) {
     /** Самое долгое {@code wait:N} — час игры, тиков. */
     static final int MAX_WAIT = 72_000;
     /** С какого тика начинаются шаги и сколько после последнего ждать до «SCENARIO done». */
@@ -30,12 +31,15 @@ record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warning
     static CommandPlan parse(String spec, int gap) {
         List<Step> steps = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        List<Integer> blasts = new ArrayList<>();
         int t = START, gate = -1;
         for (String c : ScenarioCommands.split(spec)) {
             // «wait:nuke» — раньше общего «wait:N»: иначе он разбирался как число и пропускался (ноутбук 30.09)
             if (c.equals("wait:nuke")) {
                 if (gate >= 0) warnings.add("второй «wait:nuke» пропущен — ждать подрыва можно один раз");
                 else gate = t;
+            } else if (c.equals("wait:blast")) {
+                blasts.add(t);
             } else if (c.startsWith("wait:")) {
                 int ticks;
                 try {
@@ -56,6 +60,6 @@ record CommandPlan(List<Step> steps, int nukeGate, int end, List<String> warning
                 t += gap;
             }
         }
-        return new CommandPlan(steps, gate, t + TAIL, warnings);
+        return new CommandPlan(steps, gate, List.copyOf(blasts), t + TAIL, warnings);
     }
 }

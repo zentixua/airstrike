@@ -51,6 +51,10 @@ public final class ClientScenario {
      * тиков они уже ждут; подрывы, которые клиент знал, когда шаги встали, — не тот подрыв.
      */
     private int nukeGate = -1, nukeGateWaited;
+    /** {@code wait:blast}: тики, с которых шаги ждут следующего взрыва на встроенном сервере; взрывов с запуска. */
+    private final java.util.ArrayDeque<Integer> blastGates = new java.util.ArrayDeque<>();
+    private final java.util.concurrent.atomic.AtomicInteger serverBlasts = new java.util.concurrent.atomic.AtomicInteger();
+    private int blastGateSeen = -1, blastGateWaited;
     private final java.util.Set<Integer> nukeGateSeen = new java.util.HashSet<>();
     private boolean started;
     private int tick = -1;
@@ -170,6 +174,7 @@ public final class ClientScenario {
         if (p == null || mc.level == null) return;
         tick++;
         if (nukeGate >= 0 && tick >= nukeGate) holdForNuke();
+        if (!blastGates.isEmpty() && tick >= blastGates.getFirst()) holdForBlast();
         for (Step s : List.copyOf(steps)) {
             if (s.at == tick) s.action.run();
         }
@@ -1211,6 +1216,12 @@ public final class ClientScenario {
                 Math.max(1, Integer.getInteger("airstrike.commands.gap", 40)));
         for (String w : plan.warnings()) Airstrike.LOG.warn("SCENARIO commands: {}", w);
         if (plan.nukeGate() >= 0) nukeGate = plan.nukeGate();
+        blastGates.addAll(plan.blastGates());
+        if (!blastGates.isEmpty()) {
+            NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Start e) -> {
+                if (!e.getLevel().isClientSide()) serverBlasts.incrementAndGet();
+            });
+        }
         for (CommandPlan.Step step : plan.steps()) {
             switch (step.kind()) {
                 case SHOT -> shot(step.tick(), step.arg());
@@ -1535,6 +1546,35 @@ public final class ClientScenario {
         nukeGateWaited++;
         steps.replaceAll(s -> s.at >= tick ? new Step(s.at + 1, s.action) : s);
     }
+
+    /**
+     * {@code wait:blast}: пока на встроенном сервере не начался новый взрыв, все шаги после этого тика (и следующие точки
+     * ожидания) сдвигаются на тик; свет взрыва доходит до клиента со следующим пакетом. Взрыва нет за
+     * {@link #BLAST_WAIT} тиков — строка в лог, и шаги идут дальше.
+     */
+    private void holdForBlast() {
+        int now = serverBlasts.get();
+        if (blastGateSeen < 0) blastGateSeen = now;
+        boolean arrived = now > blastGateSeen;
+        if (arrived || blastGateWaited >= BLAST_WAIT) {
+            if (arrived) Airstrike.LOG.info("SCENARIO commands: взрыв, шаги ждали {} тиков", blastGateWaited);
+            else Airstrike.LOG.warn("SCENARIO commands: взрыва нет за {} тиков — шаги идут дальше", blastGateWaited);
+            blastGates.removeFirst();
+            blastGateSeen = -1;
+            blastGateWaited = 0;
+            return;
+        }
+        blastGateWaited++;
+        steps.replaceAll(s -> s.at >= tick ? new Step(s.at + 1, s.action) : s);
+        int first = blastGates.removeFirst();
+        java.util.List<Integer> rest = new ArrayList<>(blastGates);
+        blastGates.clear();
+        blastGates.add(first);
+        for (int g : rest) blastGates.add(g + 1);
+    }
+
+    /** Самое долгое ожидание взрыва ({@code wait:blast}): полёт шахеда на 5 км, тиков. */
+    private static final int BLAST_WAIT = 3600;
 
     private void at(int t, Runnable r) {
         steps.add(new Step(t, r));
