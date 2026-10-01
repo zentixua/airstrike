@@ -417,6 +417,8 @@ public final class ClientScenario {
             fxTargets.add(p);
         }
         at(40, () -> {
+            // в мире игрока режим выживания: полёт клиента сервер не разрешает, и зритель падал к цели
+            cmd("gamemode spectator");
             cmd(night ? "time set 18000" : "time set 6000");
             cmd("weather clear");
             Minecraft.getInstance().options.hideGui = true;
@@ -544,7 +546,7 @@ public final class ClientScenario {
         StrikeWatch w = strike;
         if (w == null || e.getLevel().isClientSide()) return;
         Vec3 at = e.getExplosion().center();
-        if (w.onBlast(ua.zentix.airstrike.stress.StressDirector.blastBy(e.getExplosion()), at, tick)) {
+        if (w.onBlast(ua.zentix.airstrike.stress.StressDirector.blastBy(e.getExplosion()), at, tick, e.getLevel().getGameTime())) {
             Airstrike.LOG.info("SCENARIO {} blast at {} ({} blocks from target)", current, at, Math.round(at.distanceTo(target)));
         }
     }
@@ -559,7 +561,7 @@ public final class ClientScenario {
             strike = null;
             current = "wait";
             int at = w.impactTick();
-            Airstrike.LOG.info("SCENARIO {} impact at tick {}", name, at);
+            Airstrike.LOG.info("SCENARIO {} impact at tick {} (server {})", name, at, w.impactGameTime());
             for (int dt : new int[]{1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 240, 320}) shot(Math.max(tick + 1, at + dt), name);
             at(Math.max(tick + 1, at + 340), this::nextFx);
             return;
@@ -579,7 +581,9 @@ public final class ClientScenario {
             }
             if (watched != null && !reached) {
                 reached = true;
-                Airstrike.LOG.info("SCENARIO {} reached client at tick {}, {} blocks from viewer, {} from target", name, tick,
+                // время мира сервера: до удара — его тики, часы клиента их не повторяют (догоняют сервер рывками)
+                Airstrike.LOG.info("SCENARIO {} reached client at tick {} (server {}), {} blocks from viewer, {} from target", name, tick,
+                        mc.getSingleplayerServer().overworld().getGameTime(),
                         Math.round(watched.distanceTo(mc.player)), Math.round(watched.position().distanceTo(target)));
             }
         }
@@ -1091,7 +1095,13 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO map-target terrain {}", ua.zentix.airstrike.client.map.TerrainTiles.stats());
         });
         shot(o + 130, "target-map");
-        at(o + 140, () -> Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0));
+        at(o + 140, () -> {
+            // высота с карты, которую увезёт приказ (C2S.AimHint.mapSurface): плитка у места могла достроиться после выбора
+            Vec3 aim = mapTarget;
+            Airstrike.LOG.info("SCENARIO map-target order terrain height {}", aim == null ? "—"
+                    : ua.zentix.airstrike.client.map.TerrainTiles.height((int) Math.floor(aim.x), (int) Math.floor(aim.z)));
+            Minecraft.getInstance().screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0);
+        });
         at(o + 200, () -> {
             for (var f : ua.zentix.airstrike.client.hud.ClientFlights.all()) {
                 Airstrike.LOG.info("SCENARIO map-target flight {} target {}", f.weapon(), f.target());
