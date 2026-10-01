@@ -20,6 +20,8 @@ public final class StrikeWatch {
     @Nullable
     private volatile UUID projectile;
     private volatile int impactTick = -1;
+    /** Время мира сервера у взрыва: часы клиента отстают от сервера и догоняют его рывками. */
+    private volatile long impactGameTime = -1;
     @Nullable
     private volatile Vec3 impactAt;
 
@@ -45,10 +47,11 @@ public final class StrikeWatch {
     }
 
     /** Взрыв, чей источник — снаряд {@code by} (null — не снаряд). {@code true} — это удар нашего снаряда, первый. */
-    public boolean onBlast(@Nullable UUID by, Vec3 at, int tick) {
+    public boolean onBlast(@Nullable UUID by, Vec3 at, int tick, long gameTime) {
         UUID mine = projectile;
         if (mine == null || !mine.equals(by) || impactTick >= 0) return false;
         impactAt = at;
+        impactGameTime = gameTime;
         impactTick = tick;
         return true;
     }
@@ -61,6 +64,11 @@ public final class StrikeWatch {
     /** Тик удара (часы, которые передал {@link #onBlast}), −1 — удара ещё не было. */
     public int impactTick() {
         return impactTick;
+    }
+
+    /** Время мира сервера у удара, −1 — удара ещё не было. */
+    public long impactGameTime() {
+        return impactGameTime;
     }
 
     @Nullable

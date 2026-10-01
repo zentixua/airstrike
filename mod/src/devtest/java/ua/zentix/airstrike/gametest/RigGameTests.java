@@ -94,15 +94,16 @@ public final class RigGameTests {
         StrikeWatch w = new StrikeWatch();
         h.assertTrue(w.launched(Set.of(old), Set.of(old, mine)), "пуск не найден");
         h.assertTrue(mine.equals(w.projectile()), "не тот снаряд: " + w.projectile());
-        h.assertFalse(w.onBlast(other, at, 5), "чужой взрыв засчитан");
-        h.assertFalse(w.onBlast(null, at, 6), "взрыв без снаряда засчитан");
+        h.assertFalse(w.onBlast(other, at, 5, 105), "чужой взрыв засчитан");
+        h.assertFalse(w.onBlast(null, at, 6, 106), "взрыв без снаряда засчитан");
         h.assertTrue(w.impactTick() < 0, "удар до своего взрыва");
-        h.assertTrue(w.onBlast(mine, at, 7), "свой взрыв не засчитан");
-        h.assertFalse(w.onBlast(mine, at.add(3, 0, 0), 9), "вторичный подрыв засчитан ударом");
-        h.assertTrue(w.impactTick() == 7 && at.equals(w.impactAt()), "удар: " + w.impactTick() + " у " + w.impactAt());
+        h.assertTrue(w.onBlast(mine, at, 7, 107), "свой взрыв не засчитан");
+        h.assertFalse(w.onBlast(mine, at.add(3, 0, 0), 9, 109), "вторичный подрыв засчитан ударом");
+        h.assertTrue(w.impactTick() == 7 && w.impactGameTime() == 107 && at.equals(w.impactAt()),
+                "удар: " + w.impactTick() + " (сервер " + w.impactGameTime() + ") у " + w.impactAt());
         StrikeWatch two = new StrikeWatch();
         h.assertFalse(two.launched(Set.of(), Set.of(mine, other)), "два новых снаряда — пуск засчитан");
-        h.assertFalse(two.onBlast(mine, at, 1), "без пуска засчитан удар");
+        h.assertFalse(two.onBlast(mine, at, 1, 101), "без пуска засчитан удар");
         StrikeWatch none = new StrikeWatch();
         h.assertFalse(none.launched(Set.of(old), Set.of(old)), "нового снаряда нет — пуск засчитан");
         h.succeed();

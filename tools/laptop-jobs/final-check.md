@@ -1,4 +1,4 @@
-# Ноутбук: финальная проверка кандидата перед выпуском (одна, полная сборка), версия 2
+# Ноутбук: финальная проверка кандидата перед выпуском (одна, полная сборка), версия 3
 
 Из заданий потоков PR: `perf/impact-profile-job.md` (#146), `nuke/laptop-gate.md` (#138), `map/laptop-map-check.md`
 (#150), `drones/laptop-drones.md` (#148), `crater/laptop-crater.md` (#147), `missile/laptop-visible-missile.md` (#149),
@@ -62,10 +62,10 @@ grep -hE '^\s*(bomber_flight_time|flight_time|destruction_ms_per_tick)\s*=' "$C"
 cd /mnt/data/projects/airstrike && git fetch origin main && \
 git worktree add "/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" <SHA> && \
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p "$W/mod/run/final" && \
-git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && \
+git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && test -f tools/logtime.py && echo "logtime.py есть" && \
 grep -hoE '"(strike-profile|commands|fx|salvo-map|target-map)"' mod/src/devtest/java/ua/zentix/airstrike/scenario/ClientScenario.java | sort -u
 ```
-Должно быть «коммит верный» и пять имён сценариев: `commands`, `fx`, `salvo-map`, `strike-profile`, `target-map`.
+Должно быть «коммит верный», «logtime.py есть» и пять имён сценариев: `commands`, `fx`, `salvo-map`, `strike-profile`, `target-map`.
 Не хватает — стоп, прислать вывод.
 
 Сборка тестового jar (в фоне, тайм-аут вызова 25 мин; код не 0 — стоп, сообщить):
@@ -97,6 +97,12 @@ echo "архивов: $(echo $G | wc -w), кадров: $(ls "$D/screenshots" | 
 ```
 Должно быть `SCENARIO done` ≥ 1 (у прогона, убитого тайм-аутом, — 0: так и прислать).
 
+**Время строк лога** во всех выжимках разбирает один `tools/logtime.py` из worktree кандидата: строка начинается
+с `[ЧЧ:ММ:СС]`, `[ЧЧ:ММ:СС.ммм]` или (боевой клиент) `[01Oct2026 ЧЧ:ММ:СС.ммм]`, через полночь время идёт дальше.
+Из оболочки — `python3 tools/logtime.py ЛОГ РЕГВЫР [--since РЕГВЫР]`: строки с РЕГВЫР как «ЧЧ:ММ:СС.ммм +С.с текст»
+(+С.с — секунды от первой строки с `--since`); скрипты выжимок берут его модулем. `sed`/`cut` по началу строки
+для времени не годятся.
+
 ## A. Залп: ракета и 30 шахедов, тики в окне удара (#146, корень 1)
 Шаги повторяют игру 30.09: встать у ZentixUA, ракета по 250 63 -147, перенос к месту ENOTzRPG, 30 шахедов
 с разбросом 50. Прогон (тайм-аут вызова 45 мин):
@@ -110,47 +116,40 @@ timeout -k 60 40m tools/laptop_job.sh final-salvo -- python3 tools/prod_client.p
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/A && cat > mod/run/final/A/results.py <<'EOT'
 import re, sys
-lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
-def sec(l):
-    m = re.search(r"(\d\d):(\d\d):(\d\d)\.(\d+)\]", l)
-    return int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) + float("0." + m[4]) if m else None
-def short(l):
-    m = re.search(r"(\d\d:\d\d:\d\d\.\d+)\]", l)
-    body = re.sub(r"^.*?\]: ", "", l).replace("SCENARIO strike-profile ", "")
-    return ((m[1] + " ") if m else "") + re.sub(r" after «[^»]*»", "", body)[:200]
-steps, day, prev = [], 0, None
-for l in lines:
-    if "SCENARIO strike-profile step" in l:
-        s = sec(l)
-        if prev is not None and s + day < prev: day += 86400
-        prev = s + day; steps.append((s + day, l))
-def when(l, ref):
-    s = sec(l)
-    if s is None: return None
-    d0 = ref - ref % 86400
-    return min((s + d for d in (d0 - 86400, d0, d0 + 86400)), key=lambda x: abs(x - ref))
+sys.path.insert(0, "tools"); import logtime
+rows = logtime.timeline(logtime.read(sys.argv[1]))
+def short(t, l):
+    body = logtime.body(l).replace("SCENARIO strike-profile ", "")
+    return logtime.stamp(t) + " " + re.sub(r" after «[^»]*»", "", body)[:200]
 def ms(l):
     m = re.search(r"strike-profile (tick|period) (\d+) ms", l)
     return int(m[2]) if m else 0
+steps = [(t, l) for t, l in rows if "SCENARIO strike-profile step" in l]
+# автосохранение мира (Sable пишет «Saving sub-levels»): тик, кончившийся в 1 с после строки, — не мода
+saves = [t for t, l in rows if "Saving sub-levels" in l]
+def autosave(t): return any(s <= t <= s + 1 for s in saves)
+first = steps[0][0] if steps else 0
 print("== шаги")
-for _, l in steps: print(short(l))
+for t, l in steps: print(short(t, l))
 for s, l in steps:
-    near = [x for x in lines if "SCENARIO strike-profile" in x and (w := when(x, s)) is not None and s - 10 <= w < s + 60]
-    print(f"\n== окно: {short(l)}")
-    for x in near:
-        if "strike-profile second" in x and s - 5 <= when(x, s) < s + 30: print(short(x))
-    slow = sorted((x for x in near if ms(x) >= 100), key=lambda x: -ms(x))
-    print(f"-- tick/period от 100 мс за [−10, +60 с]: {len(slow)} (до 15 самых долгих)")
-    for x in slow[:15]: print(short(x))
-hits = [l for l in lines if ("Попадания (" in l or "Планировщик" in l or "WorkScheduler" in l) and "[CHAT]" not in l]
+    near = [(t, x) for t, x in rows if "SCENARIO strike-profile" in x and s - 10 <= t < s + 60]
+    print(f"\n== окно: {short(s, l)}")
+    for t, x in near:
+        if "strike-profile second" in x and s - 5 <= t < s + 30: print(short(t, x))
+    slow = sorted((r for r in near if ms(r[1]) >= 100 and r[0] >= first), key=lambda r: -ms(r[1]))
+    print(f"-- tick/period от 100 мс за [−10, +60 с], с первого шага: {len(slow)} (до 15 самых долгих; «автосохранение» — не в критерии)")
+    for t, x in slow[:15]: print(short(t, x) + ("  [автосохранение]" if autosave(t) else ""))
+hits = [(t, l) for t, l in rows if ("Попадания (" in l or "Планировщик" in l or "WorkScheduler" in l) and "[CHAT]" not in l]
 print(f"\n== Попадания / планировщик: {len(hits)} (первые 40)")
-for l in hits[:40]: print(short(l))
+for t, l in hits[:40]: print(short(t, l))
 EOT
 L=mod/run/final/A/logs/full.log && python3 mod/run/final/A/results.py "$L" > mod/run/final/A/results.txt; \
 python3 tools/logscan.py "$L" --all > mod/run/final/A/logscan.txt; wc -lc mod/run/final/A/*.txt
 ```
 **Проходит, если:** 4 строки `step` и `SCENARIO done`; в окнах ракеты и шахедов нет tick/period ≥ 250 мс, кроме 5 с после
-`tp`; строк о медленном тике попаданий нет или каждая короче тика (50 мс) — готовность корня 1; logscan — без ошибок
+`tp` и тика автосохранения мира (`[автосохранение]`: кончился не позже 1 с после строки «Saving sub-levels» — запись
+мира, у базовой линии без ударов (`/mnt/project-files/tick-baseline-68986c0.txt`) тот же тик 213 мс; его — в итог отдельной строкой
+для сведения); тики при входе в мир до первого шага не считаются; строк о медленном тике попаданий нет или каждая короче тика (50 мс) — готовность корня 1; logscan — без ошибок
 мода. Прислать: `results.txt` целиком, из `logscan.txt` разделы «Ошибки» и «Отставание сервера».
 
 ## A2. Взрыв рядом с аппаратом Sable (корень 1, замер)
@@ -180,29 +179,35 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" &
 
 ## B. Шахеды после потери цели (#148)
 Корова с постоянным UUID висит над местом ENOTzRPG; залп 30 шахедов с разбросом 50; корова дважды сдвигается на
-60 блоков, погибает; через 3 с на 150 блоков восточнее появляется корова с тем же UUID. «;» внутри `[I;…]` сценарий
+60 блоков, погибает; через 47 с — когда весь залп уже пущен (30 пусков через 20–40 тиков — до 58 с от приказа,
+`/kill` — через ~31 с) — на 150 блоков восточнее появляется корова с тем же UUID: шахеды в полёте не должны взять
+её заново. Шахед, пущенный после `/kill`, цели уже не находит и сразу её теряет — он в той же сумме. «;» внутри `[I;…]` сценарий
 `commands` не режет (`ScenarioCommands`: разделитель — только «;» вне скобок и кавычек). Прогон (тайм-аут 30 мин):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final && touch mod/run/final/.step-start && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 timeout -k 60 25m tools/laptop_job.sh final-drones -- python3 tools/prod_client.py commands --world "Greenfield v0.5.4" --seconds 900 \
-  --prop 'airstrike.commands=gamemode spectator;tp @s -271 130 -1141;wait:200;summon cow -272 110 -1142 {NoAI:1b,NoGravity:1b,PersistenceRequired:1b,UUID:[I;7001,7002,7003,7004],Tags:["drone_target"]};airstrike salvo drone 30 50 @e[tag=drone_target,limit=1];wait:200;tp @e[tag=drone_target] -212 110 -1142;wait:100;tp @e[tag=drone_target] -272 110 -1142;wait:200;kill @e[tag=drone_target];wait:60;summon cow -122 110 -1142 {NoAI:1b,NoGravity:1b,PersistenceRequired:1b,UUID:[I;7001,7002,7003,7004],Tags:["respawned"]};wait:2400;airstrike clear;execute if entity @e[tag=respawned]'; echo "код $?"
+  --prop 'airstrike.commands=gamemode spectator;tp @s -271 130 -1141;wait:200;summon cow -272 110 -1142 {NoAI:1b,NoGravity:1b,PersistenceRequired:1b,UUID:[I;7001,7002,7003,7004],Tags:["drone_target"]};airstrike salvo drone 30 50 @e[tag=drone_target,limit=1];wait:200;tp @e[tag=drone_target] -212 110 -1142;wait:100;tp @e[tag=drone_target] -272 110 -1142;wait:200;kill @e[tag=drone_target];wait:900;summon cow -122 110 -1142 {NoAI:1b,NoGravity:1b,PersistenceRequired:1b,UUID:[I;7001,7002,7003,7004],Tags:["respawned"]};wait:2400;airstrike clear;execute if entity @e[tag=respawned]'; echo "код $?"
 ```
 Выжимка:
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/B && L=mod/run/final/B/logs/full.log && \
 { echo "== шаги, чат, удары, снаряды"; grep -a -E 'SCENARIO /|\[CHAT\]|Airstrike/\]: (Удар|Снаряды):|SCENARIO done' "$L" | cut -c1-300 | head -80; \
+  echo "== по времени"; python3 tools/logtime.py "$L" 'SCENARIO /(kill|summon)|потеряли цель|Итог удара' --since 'SCENARIO /airstrike salvo' | cut -c1-260; \
   echo "== logscan"; python3 tools/logscan.py "$L" --all | sed -n '1,/^== Загрузка мода/p' | head -40; } > mod/run/final/B/results.txt; wc -lc mod/run/final/B/results.txt
 ```
 **Проходит, если:** команды выполнились (нет «Unknown or incomplete command» / «do not have permission»); строка
-«Удар: drone ×30 разброс 50 … (сущность minecraft:cow)»; через 1–2 с после `/kill` — строки «Снаряды: N × … потеряли
-цель (пропала) …», в сумме N = 30, срок ≤ ~100 с; ни одной строки о потере цели после появления второй коровы;
+«Удар: drone ×30 разброс 50 … (сущность minecraft:cow)»; между `/kill` и `/summon … respawned` — строки «Снаряды:
+N × … потеряли цель (пропала) …» (первая — через 1–2 с после `/kill`, потом по одной на поздний пуск), в сумме
+N плюс строки «Итог удара» до `/kill` (шахед, успевший взорваться у коровы) = 30, срок ≤ ~100 с; ни одной
+строки о потере цели после появления второй коровы;
 `airstrike clear` — «total: 0» (или «0» по-русски); `execute if entity @e[tag=respawned]` — «Test passed»; logscan без
 ошибок мода. Прислать `results.txt`.
 
 ## C. Видимость ракеты на подлёте (#149)
 Сценарий `fx`, режим подлёта: ракета пускается от консоли встроенного сервера (стреляющего нет — заход прямой с севера,
 последние 500 блоков); зритель в 40 блоках к востоку от цели, на 35 блоков выше самого высокого столба (крыши, кроны)
-в 64 блоках от неё, ставится только над готовыми чанками клиента. Снаряд у клиента ищется по UUID (и заново после ухода
+в 64 блоках от неё, ставится только над готовыми чанками клиента; режим наблюдателя (в мире игрока — выживание,
+и зритель без него падал к цели: v2 сняла кадры `_flight` с земли). Снаряд у клиента ищется по UUID (и заново после ухода
 в полёт вне мира), удар — первый взрыв с этим снарядом в источнике, следующая цель — после удара. Кадры
 `missile-N_flight_*` каждые 8 тиков до взрыва. Прогон (тайм-аут 45 мин):
 ```sh
@@ -220,13 +225,19 @@ for f in mod/run/final/C/screenshots/missile-*.png; do [ -e "$f" ] && ffmpeg -lo
 ls mod/run/final/C/frames | wc -l; cat mod/run/final/C/results.txt
 ```
 **Проходит, если:** у каждой из 3 ракет в `fx target … viewer … (Block{minecraft:air} at eye)` — воздух у глаза;
-`reached client at tick T1 … R from target`, `blast at … (D blocks from target)` с D ≤ 10 и `impact at tick T2`,
-T2 − T1 ≥ 40, R — около прорисовки (~190), не 128; нет `no impact` и `skipped`; на кадрах корпус хотя бы в 1 `_flight` или шлейф хотя бы в 3, взрыв есть; нет
-ERROR/исключений мода, есть `SCENARIO done`. Прислать строки T1, T2, R и контакт-лист (SendUserFile).
+`reached client at tick T1 (server S1) … R from target`, `blast at … (D blocks from target)` с D ≤ 10 и
+`impact at tick T2 (server S2)`, S2 − S1 ≥ 36 (тики сервера: R ≈ 190 при скорости ракеты не больше 5 блоков/тик —
+от 38; часы клиента догоняют сервер рывками, и T2 − T1 бывало меньше возможного — 32 при R 191), R — около
+прорисовки (~190), не 128; нет `no impact` и `skipped`; на кадрах корпус хотя бы в 1 `_flight` или шлейф хотя бы в 3, взрыв есть; нет
+ERROR/исключений мода, есть `SCENARIO done`. Прислать строки T1/S1, T2/S2, R и контакт-лист (SendUserFile).
 
 ## D. Воронки: осыпание (#147)
 (A) одна бомба в насыпную площадку 40×34×40 из камня, песка и гравия; (B) 3 бомбы с разбросом 100 там, где у хоста
-30.09 Leaky писал «Detected large amount of entities». Команды — генератором; `F` — `bomber_flight_time` из шага 1
+30.09 Leaky писал «Detected large amount of entities». Предел живых падающих блоков (`CraterFalls`) — 48 на район
+взрыва и 96 на мир; у бомбы два района на одном месте (взрыв входа в грунт и подземный подрыв), поэтому у одной
+бомбы предел — 96, как у мира. Сущности района (все, кроме игроков) считаются до удара (за 5 с до расчётного
+попадания) и после: Leaky видит и сущности самого мира (в v2 — 151 у места (B) за 13 с до удара), поэтому критерий —
+рост над замером до удара. Команды — генератором; `F` — `bomber_flight_time` из шага 1
 (по умолчанию 40). Генератор (сценарий `commands` сам ждёт 40 тиков после команды и 20 после снимка):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && mkdir -p mod/run/final/D && F=40 && cat > mod/run/final/D/gen.py <<'EOT'
@@ -239,23 +250,29 @@ def wait(n):
     global t; cmds.append(f"wait:{n}"); t += n
 def shot(name):
     global t; cmds.append(f"shot:{name}"); t += 20
-def window(tag, count, launch, dense, sparse):
+def window(tag, count, area, launch, dense, sparse):
     wait(max(0, launch + (F - 5) * 20 - t))
+    ents = f"execute if entity @e[type=!player,{area}]"
+    cmd(ents)                                   # до удара: сущности самого мира
+    marks = [launch + (F + 10) * 20, launch + (F + 30) * 20]
     end = t + dense * 20
     while t < end:
+        if marks and t >= marks[0]: marks.pop(0); cmd(ents)
         cmd(count); shot(f"crater_{tag}_{(t - launch) // 20:03d}s")
     end = t + sparse * 20; i = 0
     while t < end:
         if i % 5 == 0: shot(f"crater_{tag}_{(t - launch) // 20:03d}s")
         cmd(count); i += 1
+    cmd(ents); cmd(f"execute if entity @e[type=item,{area}]")
 cmd("gamemode spectator"); cmd("tp @s 2640 225 1051 facing 2600 212 1051"); wait(300)
 cmd("fill 2580 180 1031 2619 199 1070 stone"); cmd("fill 2580 200 1031 2619 209 1070 sand")
 cmd("fill 2580 210 1031 2619 213 1070 gravel"); wait(40)
 launch = t; cmd("airstrike salvo bunker 1 0 at 2600 214 1051")
-window("a", "execute if entity @e[type=falling_block,x=2560,y=-64,z=1011,dx=80,dy=400,dz=80]", launch, 45, 30)
+A = "x=2560,y=-64,z=1011,dx=80,dy=400,dz=80"
+window("a", f"execute if entity @e[type=falling_block,{A}]", A, launch, 45, 30)
 cmd("tp @s -400 140 -1745 facing -450 60 -1745"); wait(300)
 launch = t; cmd("airstrike salvo bunker 3 100 at -450 60 -1745")
-window("b", "execute if entity @e[type=falling_block]", launch, 60, 40)
+window("b", "execute if entity @e[type=falling_block]", "x=-590,y=-64,z=-1885,dx=280,dy=400,dz=280", launch, 60, 40)
 wait(200)
 open("mod/run/final/D/commands.txt", "w").write(";".join(cmds))
 print(f"команд {len(cmds)}, тиков сценария {t + 100} (≈{(t + 100) // 20} с)")
@@ -268,17 +285,55 @@ W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" &
 timeout -k 60 25m tools/laptop_job.sh final-crater -- python3 tools/prod_client.py commands --world "Greenfield v0.5.4" --seconds 1200 \
   --prop "airstrike.commands=$(cat mod/run/final/D/commands.txt)"; echo "код $?"
 ```
-Выжимка:
+Выжимка (`d.py` — счёт после каждой команды `execute if entity`: строка `SCENARIO /<команда>`, затем ответ
+«Test passed, count: N» / «Test failed» = 0; секунды — от строки «Удар» своего окна):
 ```sh
-W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && L=mod/run/final/D/logs/full.log && \
-{ echo "== удары и Leaky"; grep -a -E 'Airstrike/\]: Удар|Detected large amount of entities|SCENARIO done' "$L" | cut -c1-300 | head -40; \
-  echo "== падающие блоки (время и счёт)"; grep -a -E 'Test passed, count|Test failed|Проверка пройдена|Проверка не пройдена' "$L" | sed -E 's/^\[([0-9:]+)\].*[^0-9]([0-9]+)$/\1 \2/; s/^\[([0-9:]+)\].*(failed|не пройдена).*/\1 0/' | tr '\n' ' '; echo; \
+W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && L=mod/run/final/D/logs/full.log && cat > mod/run/final/D/d.py <<'EOT'
+import re, sys
+sys.path.insert(0, "tools"); import logtime
+rows = logtime.timeline(logtime.read(sys.argv[1]))
+strikes = [(t, "a" if "×1" in l else "b") for t, l in rows if re.search(r"Airstrike/\]: Удар: bunker ×[13] ", l)]
+def window(t):
+    w = [s for s in strikes if s[0] <= t + 10]
+    return w[-1] if w else None
+res = {"a": {"falling": [], "ents": [], "item": []}, "b": {"falling": [], "ents": [], "item": []}}
+asked = None
+for t, l in rows:
+    m = re.search(r"SCENARIO /execute if entity @e\[type=([^,\]]+)", l)
+    if m:
+        asked = {"falling_block": "falling", "!player": "ents", "item": "item"}.get(m[1]); continue
+    m = re.search(r"Test passed, count: (\d+)|Проверка пройдена.*?(\d+)\s*$|(Test failed|Проверка не пройдена)", l)
+    if m and asked:
+        n = int(m[1] or m[2] or 0); w = window(t)
+        if w: res[w[1]][asked].append((round(t - w[0]), n))
+        asked = None
+for t, tag in strikes: print(f"Удар ({tag}) в {logtime.stamp(t)}")
+for tag in "ab":
+    r = res[tag]
+    f = [n for _, n in r["falling"]]
+    print(f"== ({tag}) падающие блоки: max {max(f) if f else '—'}, ненулевые: " + " ".join(f"+{s}с:{n}" for s, n in r["falling"] if n))
+    e = r["ents"]
+    if e:
+        print(f"== ({tag}) сущности района: до удара {e[0][1]}; " + " ".join(f"+{s}с:{n}" for s, n in e[1:])
+              + f"; рост: пик {max(n for _, n in e) - e[0][1]}, в конце {e[-1][1] - e[0][1]}")
+    print(f"== ({tag}) предметы в конце: {r['item'][-1][1] if r['item'] else '—'}")
+print("== Leaky (секунды от «Удар» окна; до первого удара — от первого)")
+first = strikes[0][0] if strikes else 0
+for t, l in rows:
+    if "Detected large amount of entities" in l:
+        w = window(t); ref = w[0] if w else first
+        print(f"{logtime.stamp(t)} {'(' + w[1] + ') ' if w else ''}{t - ref:+.0f}с {logtime.body(l)[:220]}")
+EOT
+{ python3 mod/run/final/D/d.py "$L"; \
   echo "== ошибки команд"; grep -a -E 'Unknown or incomplete command|do not have permission|That position is not loaded|Неизвестная|Недостаточно прав|не загружен' "$L" | head -5; \
   echo "== logscan"; python3 tools/logscan.py "$L" --all | sed -n '1,/^== Загрузка мода/p' | head -40; } > mod/run/final/D/results.txt; \
 ls mod/run/final/D/screenshots/ | grep -c crater_; wc -lc mod/run/final/D/results.txt
 ```
-**Проходит, если:** «Удар: bunker ×1 …» и «Удар: bunker ×3 …»; в (A) счёт хоть раз > 0 и ни разу > 48; в (B) ни разу
-> 96; строк Leaky — 0; кадры: на 2 и 5 с у стенок падающие блоки, на 10 с стенки осели; logscan без ошибок мода.
+**Проходит, если:** «Удар: bunker ×1 …» и «Удар: bunker ×3 …»; падающих блоков в (A) хоть раз > 0 и ни разу > 96,
+в (B) ни разу > 96; рост сущностей района над замером до удара: пик — в (A) не больше 150, в (B) не больше 300
+(падающие блоки, обломки — по 35 на бомбу, живут до приземления, предметы), в конце окна — только предметы (рост
+не больше их числа + 10); Leaky после удара — только у мест, где он писал и до удара (сущности мира), и с числом
+не больше, чем до удара, плюс пик роста; кадры: на 2 и 5 с у стенок падающие блоки, на 10 с стенки осели; logscan без ошибок мода.
 Прислать `results.txt` и по кадру на ~2, ~5, ~10 с после первого ненулевого счёта в (A) и в (B)
 (секунда — время строки минус время строки «Удар» окна; кадр `crater_<a|b>_NNNs_…` с ближайшей секундой).
 
@@ -323,16 +378,19 @@ timeout -k 60 25m tools/laptop_job.sh final-far3 -- python3 tools/prod_client.py
 Выжимка после каждого (`N` — 1, 2 или 3):
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/final-SHA7" && cd "${W:?}" && N=1 && mkdir -p "mod/run/final/F$N/frames" && L="mod/run/final/F$N/logs/full.log" && \
-{ grep -a -E 'SCENARIO map-target (selected|flight|impact|no impact)|Airstrike/\]: Удар|SCENARIO done' "$L" | cut -c1-400; \
+{ grep -a -E 'SCENARIO map-target (selected|order|flight|impact|no impact)|Airstrike/\]: Удар|SCENARIO done' "$L" | cut -c1-400; \
   echo "== logscan"; python3 tools/logscan.py "$L" --all | sed -n '1,/^== Загрузка мода/p' | head -30; } > "mod/run/final/F$N/results.txt"; \
 for f in $(ls -t "mod/run/final/F$N/screenshots"/target-map_*.png 2>/dev/null | head -2); do ffmpeg -loglevel error -y -i "$f" -q:v 3 "mod/run/final/F$N/frames/$(basename "${f%.png}").jpg"; done; \
 wc -lc "mod/run/final/F$N/results.txt"; ls "mod/run/final/F$N/frames"
 ```
-**Проходит, если:** в 1–2 `distance` > 400 и `terrain height` есть; в 1 Y в `Удар:` = высота карты − 0,5 (≈106,5 у крыши
-107), не 63, взрыв на крыше (Y в пределах 2 блоков от «земли под взрывом», промах ≤ 2); в 2 РСЗО рвётся на крыше
+**Проходит, если:** в 1–2 `distance` > 400 и `order terrain height H` есть (высота с карты в момент приказа — её и увозит
+приказ; `selected … terrain height` снята раньше, когда плитка у места ещё могла строиться, — только для сведения);
+в 1 Y в `Удар:` = H − 0,5 (H — верх рельефа по карте: у DH это LOD, он бывает ниже крыши на несколько блоков — в v2
+у F2 карта 98, крыша 102), не 62–63, взрыв на крыше (Y взрыва в пределах 2 блоков от «земли под взрывом», промах ≤ 2:
+сервер уточняет высоту по готовому чанку); в 2 РСЗО рвётся на крыше
 (Y в пределах 2; строка `impact … miss M (допуск T) — OK`: допуск РСЗО — 2 блока и три СКО её рассеивания из паспорта,
 1 % дальности от пакета у игрока); в 3 Y в `Удар:` не ниже 62 (уровень моря − 1: при пустой карте клиента приказ берёт
-первый воздух 63, точка — середина верхнего блока, лог пишет его Y), взрыв на поверхности, `impact … — OK`; logscan без ошибок мода. Прислать строки 1–4 из `results.txt` каждого прогона, logscan и 2 кадра каждого.
+первый воздух 63, точка — середина верхнего блока, лог пишет его Y; `order terrain height` там может быть пустым — в v2 было пустым), взрыв на поверхности, `impact … — OK`; logscan без ошибок мода. Прислать строки до `== logscan` из `results.txt` каждого прогона, logscan и 2 кадра каждого.
 
 ## G. Ядерка 15 кт в воздухе (#138, корень 1)
 **Ждёт задание nuke-gate4** (тред «Ядерный взрыв: ударная волна»): его критерии и камеры заменят этот шаг; до его
