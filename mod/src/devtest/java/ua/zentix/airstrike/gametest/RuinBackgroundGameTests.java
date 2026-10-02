@@ -1164,7 +1164,7 @@ public final class RuinBackgroundGameTests {
     }
 
     /** Тик не короче 50 мс, как в игре: {@code tickAt} — когда кончился прошлый такой тик. */
-    private static void gamePace(long[] tickAt) {
+    static void gamePace(long[] tickAt) {
         long deadline = tickAt[0] + 50_000_000L, left;
         while ((left = deadline - System.nanoTime()) > 0) java.util.concurrent.locks.LockSupport.parkNanos(left);
         tickAt[0] = System.nanoTime();

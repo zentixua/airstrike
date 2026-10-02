@@ -119,6 +119,32 @@ class WorkClockTest {
         assertEquals(UNIT, clock.largestRecentNanos());
     }
 
+    /**
+     * Осмотр того, что ждёт, — не единица: время — в счёт тика, оценка и число единиц не меняются, первая единица тика
+     * по-прежнему пускается; срок ({@link WorkClock#overdue}) — по настоящему времени. Считающие часы осмотр не двигает.
+     */
+    @Test
+    void spentWorkCountsTimeNotUnits() {
+        WorkClock clock = WorkClock.decaying(() -> now[0], 1);
+        clock.start(BUDGET);
+        long began = clock.begin();
+        now[0] += 3 * MS;
+        assertEquals(3 * MS, clock.spent(began));
+        assertEquals(3 * MS, clock.usedThisTickNanos());
+        assertFalse(clock.workedThisTick());
+        assertEquals(0, clock.estimateNanos());
+        assertTrue(clock.canStart(), "после осмотров первая единица тика не пускается");
+        assertFalse(clock.overdue());
+        now[0] += MS;
+        assertTrue(clock.overdue(), "срок вышел, а часы его не видят");
+
+        WorkClock counting = WorkClock.counting(MS);
+        counting.start(BUDGET);
+        for (int i = 0; i < 10; i++) counting.spent(counting.begin());
+        assertFalse(counting.overdue(), "осмотры двинули считающие часы");
+        assertEquals(0, counting.usedThisTickNanos());
+    }
+
     @Test
     void tickDecayOutOfRangeIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> WorkClock.decaying(0));

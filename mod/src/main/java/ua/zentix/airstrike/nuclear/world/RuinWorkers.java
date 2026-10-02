@@ -123,6 +123,18 @@ public final class RuinWorkers {
         return p == null ? 0 : p.getActiveCount() + p.getQueue().size();
     }
 
+    /**
+     * Для проверок: занять пул задачами, которые ждут {@code release}, пока он не перестанет брать новые ({@link #admit}).
+     */
+    public static void fillForTest(java.util.concurrent.CountDownLatch release) {
+        while (admit()) {
+            submit(() -> {
+                release.await();
+                return null;
+            });
+        }
+    }
+
     /** Задача в пул (поток сервера). */
     static <T> Future<T> submit(Callable<T> task) {
         return pool().submit(() -> {

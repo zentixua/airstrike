@@ -486,9 +486,12 @@ public final class RuinGameTests {
      * Руины заранее на границе квадратов подготовки (каждый 5-й чанк): глухая стена из терракоты в последнем столбце
      * чанка одного квадрата, дом с перекрытиями — в соседнем квадрате (15 кт в воздухе, 1 блок = 20 м). Квадраты
      * готовятся порознь, а руины у их границы — те же, что и в середине: стена рушится с домом. Если на площадке нет
-     * границы квадратов (1 раз из 25 по её месту), стена стоит на обычной границе чанков.
+     * границы квадратов (1 раз из 25 по её месту), стена стоит на обычной границе чанков. Когда чанки зоны уже на диске
+     * (их выгрузили тесты до этого), после подрыва работает зона за волной: заголовки и чанки с диска и планы — по
+     * настенным часам, поэтому ожидание руин идёт в темпе игры (на CI сервер GameTest тикает без пауз, ~2000 тиков/с, и
+     * 850 тиков после подрыва кончались раньше, чем зона отпускала квадраты).
      */
-    @GameTest(template = "range", timeoutTicks = 1200, batch = "nuke_prep_border", skyAccess = true)
+    @GameTest(template = "range", timeoutTicks = 3000, batch = "nuke_prep_border", skyAccess = true)
     public static void wallOnPrepTileBorderFalls(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         // граница квадратов по x: чанк cx ≡ 0 (mod 5), дом — в нём, стена — в последнем столбце чанка cx − 1
@@ -536,6 +539,7 @@ public final class RuinGameTests {
             NuclearWorld.useClock(level.getServer(), new WorkClock());
             NuclearStrikes.clear(level);
         };
+        long[] tickAt = {System.nanoTime()};
         h.onEachTick(() -> {
             Detonation d = events.detonations().stream().filter(e -> e.burst().distanceTo(target) < 400).findFirst().orElse(null);
             String failure = null;
@@ -549,8 +553,9 @@ public final class RuinGameTests {
                             && house.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) >= d.id();
                 }
                 if (!scarred || w.plannedChunks() > 0 || w.prepTiles() > 0) {
-                    if (level.getGameTime() < now + 1150) return;
-                    failure = "руины у стены не встали: осталось " + w.plannedChunks() + ", квадратов " + w.prepTiles();
+                    RuinBackgroundGameTests.gamePace(tickAt);
+                    if (level.getGameTime() < d.gameTime() + 2400) return;
+                    failure = "руины у стены не встали за 2400 тиков после подрыва: осталось " + w.plannedChunks() + ", квадратов " + w.prepTiles();
                 } else if (w.ruinStats()[0] == 0) {
                     failure = "ни один чанк не встал по готовому плану";
                 } else {
