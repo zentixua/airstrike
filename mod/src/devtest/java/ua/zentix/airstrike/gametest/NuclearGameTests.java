@@ -916,6 +916,41 @@ public final class NuclearGameTests {
     }
 
     /**
+     * Блок-сущность в руинах чанка, который ещё не тикал: свежая генерация оставляет у сундука сооружения (кровати,
+     * улья) и живую сущность, и заглушку «DUMMY» на том же месте ({@code WorldGenRegion.setBlock}). Руины снимают обе:
+     * после них заглушки в отложенных данных чанка нет, и его сохранение не поднимает её над воздухом (игра 02.10.2026:
+     * «Tried to load a DUMMY block entity … found air» у 21 места в зоне за волной 15 кт).
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "nuke_ruins_dummy", skyAccess = true)
+    public static void dummyStubGoesWithBlockEntityInRuins(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        List<BlockPos> chests = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            BlockPos p = CENTER.west(8).south(i * 2 - 5).above(1);
+            h.setBlock(p.below(), Blocks.OAK_PLANKS);
+            h.setBlock(p, Blocks.CHEST);
+            BlockPos abs = h.absolutePos(p);
+            net.minecraft.nbt.CompoundTag stub = new net.minecraft.nbt.CompoundTag();
+            stub.putInt("x", abs.getX());
+            stub.putInt("y", abs.getY());
+            stub.putInt("z", abs.getZ());
+            stub.putString("id", "DUMMY");
+            level.getChunkAt(abs).setBlockEntityNbt(stub);
+            h.assertTrue(level.getBlockEntity(abs) != null && level.getChunkAt(abs).getBlockEntityNbt(abs) != null, "подготовка: нет сундука с заглушкой");
+            chests.add(abs);
+        }
+        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        int ruined = 0;
+        for (BlockPos abs : chests) {
+            if (level.getBlockState(abs).is(Blocks.CHEST)) continue;
+            ruined++;
+            h.assertTrue(level.getChunkAt(abs).getBlockEntityNbt(abs) == null, "заглушка осталась у " + abs.toShortString() + " (" + level.getBlockState(abs) + ")");
+        }
+        h.assertTrue(ruined >= 3, "волна почти не тронула сундуки: снято " + ruined);
+        h.succeed();
+    }
+
+    /**
      * Места POI в руинах (кровать, компостер, картографический стол, колокол, лекторий): и записанные в данные POI мира,
      * и вставленные мимо них (как постройки карт, собранные WorldEdit), — ни одной ошибки PoiSection «never
      * registered», данные POI после руин сходятся с блоками.
@@ -1897,7 +1932,18 @@ public final class NuclearGameTests {
         level.addFreshEntity(missileLauncher);
         level.addFreshEntity(droneLauncher);
 
-        ServerActions.clearAll(level.getServer(), false);
+        // кто и что снял — строкой в лог (игра 02.10.2026: МБР, снятая «Отбоем» другого игрока, пропала из лога без следа)
+        List<String> lines = new java.util.concurrent.CopyOnWriteArrayList<>();
+        Runnable unwatch = watchLog(line -> {
+            if (line.startsWith("Отбой")) lines.add(line);
+        });
+        StrikeGameTests.afterTest(h, unwatch);
+        int icbmId = NuclearEvents.get(level).scheduled().getFirst().id();
+
+        ServerActions.clearAll(level.getServer(), false, "проверка");
+        // числа — не точно: отбой снимает всё в мире, а в нём бывают снаряды и пусковые прежних партий
+        h.assertTrue(lines.size() == 1 && lines.getFirst().startsWith("Отбой — проверка: снарядов ") && lines.getFirst().contains(", пусковых ")
+                && !lines.getFirst().contains("МБР"), "строка обычного отбоя: " + lines);
         h.assertFalse(missileLauncher.isRemoved(), "обычный отбой убрал пусковую из-под ракеты с ядерной БЧ");
         h.assertTrue(droneLauncher.isRemoved(), "обычный отбой не убрал пустую пусковую");
         h.assertTrue(!icbm.isRemoved() && NuclearEvents.get(level).scheduled().size() == 1, "обычный отбой отменил МБР");
@@ -1906,7 +1952,9 @@ public final class NuclearGameTests {
         h.assertTrue(conventionalOnRail.isRemoved() && conventionalVirtual.isRemoved()
                 && !VirtualFlights.get(level).flights().contains(conventionalVirtual), "обычный отбой не убрал обычные ракеты");
 
-        ServerActions.clearAll(level.getServer(), true);
+        ServerActions.clearAll(level.getServer(), true, "проверка");
+        h.assertTrue(lines.size() == 2 && lines.get(1).startsWith("Отбой с ядерными — проверка: снарядов ")
+                && lines.get(1).contains("МБР №" + icbmId + " (15 кт по "), "строка ядерного отбоя: " + lines);
         h.assertTrue(icbm.isRemoved() && NuclearEvents.get(level).scheduled().isEmpty(), "ядерный отбой не отменил МБР");
         h.assertTrue(nuclearOnRail.isRemoved() && nuclearVirtual.isRemoved() && VirtualFlights.get(level).flights().isEmpty(),
                 "ядерный отбой не убрал ракеты с ядерной БЧ");

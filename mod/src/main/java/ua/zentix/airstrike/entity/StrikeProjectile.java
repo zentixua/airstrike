@@ -250,11 +250,6 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         return airframe().health();
     }
 
-    /** Держать ли тикеты чанков по курсу (бомбардировщику после сброса не нужно: улетает и исчезает). */
-    protected boolean holdsChunks() {
-        return true;
-    }
-
     /** Может ли продолжать полёт вне загруженного мира (иначе на краю исчезает). */
     protected boolean fliesVirtually() {
         return true;
@@ -542,7 +537,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 else crashUnarmed(level, at);
                 return;
             }
-            if (holdsChunks() && chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
+            if (chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
             serverTick(level);
             // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
             if (isRemoved()) return;
@@ -633,7 +628,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         xRotO = getXRot();
         // свои тикеты — до входа в мир: чанк мог тикать лишь по чужому тикету (соседний снаряд), и если тот его
         // отпустит до первого тика, снаряд застынет в нетикающем чанке — ни полёта, ни ухода вне мира, ни расхода хода
-        if (holdsChunks()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
+        chunks.update(level, getUUID(), position(), flight.forward(), speed);
     }
 
     /**
@@ -1055,7 +1050,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         setXRot(flight.pitch());
         float roll = flight.bankAngle(speed);
         if (Math.abs(roll - entityData.get(DATA_ROLL)) > 0.2f) entityData.set(DATA_ROLL, roll);
-        if (holdsChunks() && !virtual) chunks.update(level, getUUID(), next, dir, speed);
+        if (!virtual) chunks.update(level, getUUID(), next, dir, speed);
     }
 
     /**
