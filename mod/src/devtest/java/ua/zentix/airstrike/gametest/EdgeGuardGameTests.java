@@ -10,14 +10,17 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CrossCollisionBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.nuclear.world.RuinPlan;
 import ua.zentix.airstrike.registry.ModTags;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.util.Terrain;
@@ -25,11 +28,12 @@ import ua.zentix.airstrike.warhead.GroundMaterial;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.Comparator;
+import java.util.List;
 
 /**
- * Взрыв у края загрузки не грузит чанки синхронно: грунт и поверхность точки удара, кольцо огня ракеты и выбитые стёкла
- * читают и меняют только готовые чанки. Проверка — на свежем чанке без тикета: чтение неготового чанка на сервере
- * грузит его прямо в вызове, и чанк после вызова оказался бы готов.
+ * Взрыв у края загрузки не грузит чанки синхронно: грунт и поверхность точки удара, кольцо огня ракеты, выбитые стёкла
+ * и бревна стволов, поваленных ядерным взрывом, читают и меняют только готовые чанки. Проверка — на свежем чанке без
+ * тикета: чтение неготового чанка на сервере грузит его прямо в вызове, и чанк после вызова оказался бы готов.
  */
 @GameTestHolder(Airstrike.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -157,6 +161,41 @@ public final class EdgeGuardGameTests {
             h.assertTrue(section.getBlockState(signal.getX() & 15, y & 15, signal.getZ() & 15).isAir(), "панель у двери не выбита");
             h.assertTrue(section.getBlockState(inner.getX() & 15, y & 15, inner.getZ() & 15).isAir(), "стекло внутри чанка не выбито");
             h.assertTrue(broken == 2, "выбито " + broken + " (ждём 2: стекло внутри и панель у двери)");
+        } finally {
+            level.getChunkSource().removeRegionTicket(HOLD, c, 0, c);
+        }
+        h.succeed();
+    }
+
+    /**
+     * Бревно поваленного ствола во втором блоке от неготового соседа не ставится: на смену блока Sable читает соседей
+     * места, у твёрдых — и их соседей, и загрузил бы соседа прямо в вызове. Бревно в середине чанка ставится.
+     */
+    @GameTest(template = "range", batch = "edge_guard_log")
+    public static void fallenLogNextToUnreadyChunkLoadsNothing(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        ChunkPos c = fresh(h, 65, -45);
+        ChunkPos east = new ChunkPos(c.x + 1, c.z);
+        // уровень 33: чанк загружен целиком, соседи — ниже полной загрузки
+        level.getChunkSource().addRegionTicket(HOLD, c, 0, c);
+        try {
+            LevelChunk chunk = level.getChunk(c.x, c.z);
+            h.assertFalse(Terrain.ready(level, east.x, east.z), "сосед " + east + " готов — проверка ничего не проверит");
+            // камень выше рельефа — опора бревна с воздухом над ней и, у края, стенка рядом с бревном: соседей твёрдого
+            // блока Sable читает, воздуха — нет. Прямо в секцию и карту высот: setBlock у края сам прочитал бы соседа
+            int y = level.getMaxBuildHeight() - 8;
+            BlockPos edge = new BlockPos(c.getMaxBlockX() - 1, y, c.getMiddleBlockZ());
+            BlockPos inner = new BlockPos(c.getMiddleBlockX(), y, c.getMiddleBlockZ());
+            for (BlockPos p : List.of(edge, edge.offset(1, 1, 0), inner)) {
+                chunk.getSection(chunk.getSectionIndex(p.getY())).setBlockState(p.getX() & 15, p.getY() & 15, p.getZ() & 15, Blocks.STONE.defaultBlockState());
+                chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES).update(p.getX() & 15, p.getY(), p.getZ() & 15, Blocks.STONE.defaultBlockState());
+            }
+            BlockState log = Blocks.OAK_LOG.defaultBlockState();
+            RuinPlan.placeLog(level, edge.asLong(), log);
+            h.assertFalse(Terrain.ready(level, east.x, east.z), "бревно во втором блоке от края загрузило соседний чанк " + east);
+            h.assertTrue(chunk.getBlockState(edge.above()).isAir(), "бревно у неготового соседа поставлено");
+            RuinPlan.placeLog(level, inner.asLong(), log);
+            h.assertTrue(chunk.getBlockState(inner.above()).is(Blocks.OAK_LOG), "бревно в середине чанка не поставлено");
         } finally {
             level.getChunkSource().removeRegionTicket(HOLD, c, 0, c);
         }

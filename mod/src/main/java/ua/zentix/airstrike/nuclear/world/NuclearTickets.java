@@ -73,10 +73,24 @@ public final class NuclearTickets {
         return holder != null && holder.getChunkIfPresentUnchecked(ChunkStatus.FULL) instanceof LevelChunk chunk ? chunk : null;
     }
 
-    /** Загружены все чанки, которых касаются соседи блока (по углам — с диагональными). */
+    /**
+     * Сколько блоков от меняемого места читает Sable: на смену блока ({@code LevelChunk.setBlockState}) — соседей места,
+     * а у твёрдого соседа — и его соседей ({@code VoxelNeighborhoodState}).
+     */
+    public static final int SABLE_REACH = 2;
+
+    /**
+     * Загружены все чанки в {@link #SABLE_REACH} блоках от места (по углам — с диагональными): неготовый чанк Sable
+     * грузил бы прямо в вызове (ноутбук 01.10.2026: тик 3,5 с в очереди руин, поток сервера ждал чанк в
+     * {@code ColumnScar.replace}; GameTest {@code fallenLogNextToUnreadyChunkLoadsNothing}).
+     */
     public static boolean aroundLoaded(Level level, BlockPos pos) {
-        return Terrain.ready(level, pos.offset(-1, 0, -1)) && Terrain.ready(level, pos.offset(1, 0, -1))
-                && Terrain.ready(level, pos.offset(-1, 0, 1)) && Terrain.ready(level, pos.offset(1, 0, 1));
+        for (int cx = (pos.getX() - SABLE_REACH) >> 4; cx <= (pos.getX() + SABLE_REACH) >> 4; cx++) {
+            for (int cz = (pos.getZ() - SABLE_REACH) >> 4; cz <= (pos.getZ() + SABLE_REACH) >> 4; cz++) {
+                if (!Terrain.ready(level, cx, cz)) return false;
+            }
+        }
+        return true;
     }
 
     public static void hold(ServerLevel level, ChunkPos pos, boolean hold) {

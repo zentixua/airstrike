@@ -437,8 +437,9 @@ GameTest идёт частями на шести машинах (`-PgametestShar
   в этом плоте находит удалённый аппарат. Миксин `mixin/sable/SubLevelSplitGuardMixin` (`airstrike.mixins.json`,
   `required: false`: не вставший миксин — только предупреждение в логе, поэтому каждый проверяет свой GameTest) оборачивает `SubLevelHeatMapManager.split` и глотает только это
   исключение (`compat/SplitGuard`); GameTest `sableSplitGuardApplied` проверяет, что он встал.
-- Sable на каждое изменение блока читает соседние блоки (физика аппаратов): менять блоки только там, где готовы и
-  соседние чанки (`NuclearTickets.neighbourhoodLoaded`), иначе он синхронно грузит соседа.
+- Sable на каждое изменение блока читает соседние блоки (физика аппаратов), у твёрдого соседа — и его соседей, до 2 блоков
+  (`NuclearTickets.SABLE_REACH`): менять блоки только там, где готовы и соседние чанки (`NuclearTickets.neighbourhoodLoaded`,
+  `aroundLoaded`), иначе он синхронно грузит соседа.
 - Руины ядерки встают записью мест плана прямо в секции (`RuinPlan`), мимо `setBlock`: ни `onRemove`, ни POI, ни Sable,
   ни событий блоков для них нет. Sable держит коллайдеры рельефа (воксели секций в Rapier) только у секций рядом с
   аппаратами и обновляет их из своего миксина на `LevelChunk.setBlockState`: в чанках у аппаратов (`compat/SableTerrain`)
