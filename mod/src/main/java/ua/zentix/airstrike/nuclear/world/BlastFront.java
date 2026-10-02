@@ -223,14 +223,15 @@ final class BlastFront {
 
     /**
      * Взрыв по аппарату. Без {@code block_damage} — без разрушений ({@code NONE}): Sable всё равно толкает аппарат
-     * по лучам взрыва. Лучи ванильного взрыва читают блоки — только по готовым чанкам.
+     * по лучам взрыва. Лучи ванильного взрыва читают блоки — только по готовым чанкам. Выпадение — с затуханием, как
+     * у взрывов боевых частей ({@code BLOCK}: правило {@code blockExplosionDropDecay}).
      */
     private static void blast(ServerLevel level, AircraftHit a) {
         boolean blocks = AirstrikeConfig.SERVER.nukeBlockDamage.get();
         Warheads.whenReady(level, a.at(), Warheads.reach(a.power()), l -> l.explode(null,
                 ModDamageTypes.source(l, ModDamageTypes.NUCLEAR_BLAST, null, null), new AircraftOnly(l),
                 a.at().x, a.at().y, a.at().z, a.power(), false,
-                blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE,
+                blocks ? Level.ExplosionInteraction.BLOCK : Level.ExplosionInteraction.NONE,
                 ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT));
     }
 

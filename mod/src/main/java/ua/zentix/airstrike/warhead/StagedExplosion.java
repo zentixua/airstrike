@@ -22,7 +22,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
-import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
@@ -327,17 +326,17 @@ final class StagedExplosion implements UnitQueue.Job {
     /** Первая единица; {@code true} — есть ещё единицы. */
     private boolean start(ServerLevel level) {
         long t = System.nanoTime();
-        Level.ExplosionInteraction interaction = blocks ? Level.ExplosionInteraction.TNT : Level.ExplosionInteraction.NONE;
+        // выпадение с затуханием, как у крипера: снятый блок выпадает с вероятностью 1/сила (у TNT по умолчанию выпадает
+        // всё, и после залпов по 30 тик тысяч предметов занимал две трети потока сервера). Level.explode берёт его из
+        // правила: BLOCK — blockExplosionDropDecay, по умолчанию включено
+        Level.ExplosionInteraction interaction = blocks ? Level.ExplosionInteraction.BLOCK : Level.ExplosionInteraction.NONE;
         if (SubLevels.inPlotGrid(level, new ChunkPos(BlockPos.containing(at)))) {
             counts.vanilla++;
             explosion = level.explode(null, ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner), calculator,
                     at.x, at.y, at.z, power, fire, interaction, ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
             return false;
         }
-        // Level.explode: правила TNT (без обломков, если выключено выпадение из взрывов TNT)
-        Explosion.BlockInteraction destroy = !blocks ? Explosion.BlockInteraction.KEEP
-                : level.getGameRules().getBoolean(GameRules.RULE_TNT_EXPLOSION_DROP_DECAY)
-                ? Explosion.BlockInteraction.DESTROY_WITH_DECAY : Explosion.BlockInteraction.DESTROY;
+        Explosion.BlockInteraction destroy = blocks ? Explosion.BlockInteraction.DESTROY_WITH_DECAY : Explosion.BlockInteraction.KEEP;
         source = ModDamageTypes.source(level, ModDamageTypes.STRIKE, direct, owner);
         Explosion e = new Explosion(level, null, source, calculator,
                 at.x, at.y, at.z, power, fire, destroy, ModParticles.NONE.get(), ModParticles.NONE.get(), ModSounds.SILENT);
