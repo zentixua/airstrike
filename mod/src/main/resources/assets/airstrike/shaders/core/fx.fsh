@@ -7,6 +7,8 @@
 uniform sampler2D Sampler0;
 // расстояние до мира за пикселем (SceneDepth)
 uniform sampler2D Sampler1;
+// атлас дальних моделей (client/render/FarModels), с умноженной альфой и уменьшенными копиями
+uniform sampler2D Sampler3;
 
 uniform vec4 ColorModulator;
 uniform vec2 ScreenSize;
@@ -42,7 +44,8 @@ void main() {
     // производные — до ветвления (вне его они определены у всех пикселей)
     vec2 dx = dFdx(texCoord0), dy = dFdy(texCoord0);
     float lod = 0.0;
-    vec4 tex = nearest > 0.5 ? particle(texCoord0, dx, dy, lod) : textureGrad(Sampler0, texCoord0, dx, dy);
+    vec4 tex = nearest > 0.5 ? particle(texCoord0, dx, dy, lod)
+            : nearest < -0.5 ? textureGrad(Sampler3, texCoord0, dx, dy) : textureGrad(Sampler0, texCoord0, dx, dy);
     // частица вблизи бледнее 0,1 не рисуется, как у ванильного шейдера частиц: иначе бледные ореолы клубов складываются
     // в мутную дымку вокруг облака. Вдали (клуб мельче 16 пикселей) — без среза: дальний дым и так бледный
     if (nearest > 0.5 && tex.a * opacity < 0.1 * clamp(2.0 - lod, 0.0, 1.0)) discard;

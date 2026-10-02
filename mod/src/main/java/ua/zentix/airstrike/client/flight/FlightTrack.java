@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.flight;
 
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.sound.Acoustics;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
@@ -11,7 +12,8 @@ import java.util.UUID;
 
 /**
  * История полёта снаряда на клиенте (по тикам) — одна на звук и на картинку вдали. Звук берёт из неё «запаздывающее»
- * положение и скорость, картинка вдали ({@code client.far.FarFlightRenderer}) — нынешнее положение и путь для шлейфа.
+ * положение и скорость, картинка вдали ({@code client.far.FarFlightView}) — нынешнее положение, поворот модели и путь
+ * для шлейфа.
  * Скорость — та, что сообщил сервер ({@link StrikeProjectile#velocity()}), а не разность положений по тикам клиента:
  * пакеты одного тика сервера доходят то в один тик клиента, то в соседний, и такая разность то падала до нуля, то
  * удваивалась. Пишется по сущности, пока она есть у клиента, а без неё — по пакетам сервера ({@link S2C.FarFlights};
@@ -35,7 +37,7 @@ public final class FlightTrack implements Acoustics.Path {
     private final double[] vxs = new double[CAPACITY], vys = new double[CAPACITY], vzs = new double[CAPACITY];
     private final int[] phases = new int[CAPACITY], phaseAges = new int[CAPACITY];
     private final double[] axs = new double[CAPACITY], ays = new double[CAPACITY], azs = new double[CAPACITY];
-    private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY];
+    private final float[] yaws = new float[CAPACITY], pitches = new float[CAPACITY], rolls = new float[CAPACITY];
     /** Точка записана по пакетам сервера (сущности у клиента не было): шлейф вдали рисуется только по таким. */
     private final boolean[] servers = new boolean[CAPACITY];
     private long first = -1, last = -1;
@@ -61,7 +63,8 @@ public final class FlightTrack implements Acoustics.Path {
 
     /** Запись по сущности у клиента. */
     public void record(long tick, StrikeProjectile p) {
-        append(tick, new Sample(p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint(), false));
+        append(tick, new Sample(p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.roll(), p.flightPhase().ordinal(), p.phaseAge(),
+                p.aimPoint(), false));
         fromEntity = true;
         slack = 1;
         drilling = p instanceof BunkerBusterEntity b && b.isDrilling();
@@ -73,15 +76,15 @@ public final class FlightTrack implements Acoustics.Path {
      */
     public void record(long tick, S2C.FarFlight f) {
         if (tick < last || tick == last && fromEntity) return;
-        append(tick, new Sample(f.pos(), f.velocity(), f.yaw(), f.pitch(), f.phase(), f.phaseAge(), f.aim(), true));
+        append(tick, new Sample(f.pos(), f.velocity(), f.yaw(), f.pitch(), f.roll(), f.phase(), f.phaseAge(), f.aim(), true));
         fromEntity = false;
         slack = f.period() + 2;
         drilling = f.drilling();
     }
 
     /**
-     * Новая точка пути; пропущенные тики до неё — по прямой, долгий разрыв — история заново. Точка того же тика
-     * поправляет последнюю: прямая строится заново от предыдущей.
+     * Новая точка пути; пропущенные тики до неё — по прямой (углы — по кратчайшему повороту), долгий разрыв — история
+     * заново. Точка того же тика поправляет последнюю: прямая строится заново от предыдущей.
      */
     private void append(long tick, Sample s) {
         if (tick < last) return;
@@ -91,9 +94,12 @@ public final class FlightTrack implements Acoustics.Path {
         else if (from >= 0 && tick - from > 1) {
             int i0 = (int) (from % CAPACITY);
             Vec3 p0 = new Vec3(xs[i0], ys[i0], zs[i0]), v0 = new Vec3(vxs[i0], vys[i0], vzs[i0]);
+            float yaw0 = yaws[i0], pitch0 = pitches[i0], roll0 = rolls[i0];
             for (long t = from + 1; t < tick; t++) {
                 double k = (double) (t - from) / (tick - from);
-                put(t, new Sample(p0.lerp(s.pos, k), v0.lerp(s.vel, k), s.yaw, s.pitch, s.phase, s.phaseAge - (int) (tick - t), s.aim, s.server));
+                float f = (float) k;
+                put(t, new Sample(p0.lerp(s.pos, k), v0.lerp(s.vel, k), Mth.rotLerp(f, yaw0, s.yaw), Mth.lerp(f, pitch0, s.pitch),
+                        Mth.rotLerp(f, roll0, s.roll), s.phase, s.phaseAge - (int) (tick - t), s.aim, s.server));
             }
         }
         put(tick, s);
@@ -114,14 +120,28 @@ public final class FlightTrack implements Acoustics.Path {
         azs[i] = s.aim.z;
         yaws[i] = s.yaw;
         pitches[i] = s.pitch;
+        rolls[i] = s.roll;
         phases[i] = s.phase;
         phaseAges[i] = Math.max(0, s.phaseAge);
         servers[i] = s.server;
     }
 
-    /** Звук из момента t ещё есть чем вести (данные дошли не позже, чем на {@link #slack} тиков раньше). */
+    /**
+     * Звук из момента t ещё есть чем вести: данные дошли не позже, чем на {@link #slack} тиков раньше; у кончившегося
+     * полёта — до его конца ({@link #impact}).
+     */
     public boolean covers(double t) {
-        return t <= last + slack;
+        return t <= (isDead() ? Math.min(death, last + MAX_GAP) : last + slack);
+    }
+
+    /**
+     * Снаряд взорвался: пакет взрыва пришёл в тик {@code tick}, и полёт кончился тогда же. Пакеты о дальнем снаряде идут
+     * раз в 2–4 тика и доходят неровно, так что последняя запись бывает на несколько тиков раньше взрыва: до взрыва путь
+     * тянется с неё ({@link #at}), и мотор стихает, когда до уха доходит фронт самого взрыва, а не раньше — с паузой
+     * тишины перед ним.
+     */
+    public void impact(long tick) {
+        if (last >= 0 && !isDead()) death = Math.max(last, tick);
     }
 
     /** Путь сейчас идёт по пакетам сервера (сущности у клиента нет). */
@@ -155,9 +175,14 @@ public final class FlightTrack implements Acoustics.Path {
         return Math.max(first, last - CAPACITY + 1);
     }
 
+    /** Где снаряд в момент t: между записями — по прямой, после последней — по её скорости, не мимо цели. */
     @Override
     public void at(double t, double[] out) {
-        double s = Math.max(start(), Math.min(last, t));
+        if (last >= 0 && t > last) {
+            ahead(t - last, out);
+            return;
+        }
+        double s = Math.max(start(), t);
         long a = (long) Math.floor(s);
         long b = Math.min(last, a + 1);
         double f = s - a;
@@ -169,17 +194,19 @@ public final class FlightTrack implements Acoustics.Path {
 
     /**
      * Где снаряд в момент t, который может быть позже последней записи (следующий пакет ещё в пути): от последней точки
-     * по её скорости, но не дальше {@link #slack} тиков и не мимо цели — снаряд, который в этот тик попал, сквозь неё
-     * не летит. False — данных на этот момент нет.
+     * по её скорости ({@link #at}), пока есть данные ({@link #covers}), и не мимо цели — снаряд, который в этот тик
+     * попал, сквозь неё не летит. False — данных на этот момент нет.
      */
     public boolean predict(double t, double[] out) {
         if (last < 0 || !covers(t)) return false;
-        if (t <= last) {
-            at(t, out);
-            return true;
-        }
+        at(t, out);
+        return true;
+    }
+
+    /** От последней записи по её скорости на dt тиков (не дальше {@link #MAX_GAP}), но не мимо цели. */
+    private void ahead(double dt, double[] out) {
         int i = (int) (last % CAPACITY);
-        double vx = vxs[i], vy = vys[i], vz = vzs[i], ahead = t - last;
+        double vx = vxs[i], vy = vys[i], vz = vzs[i], ahead = Math.min(dt, MAX_GAP);
         double v2 = vx * vx + vy * vy + vz * vz;
         if (v2 > 1e-9) {
             // ближе всего к цели на этой прямой снаряд через dot(aim − p, v)/|v|² тиков: дальше не тянуть
@@ -189,7 +216,6 @@ public final class FlightTrack implements Acoustics.Path {
         out[0] = xs[i] + vx * ahead;
         out[1] = ys[i] + vy * ahead;
         out[2] = zs[i] + vz * ahead;
-        return true;
     }
 
     /** Точка момента t (целый тик в пределах истории) записана по пакетам сервера, а не по сущности. */
@@ -218,6 +244,34 @@ public final class FlightTrack implements Acoustics.Path {
         return new Vec3(axs[i], ays[i], azs[i]);
     }
 
+    /** То же в out (x, y, z) — без выделения памяти, для кадра. */
+    public void aim(double t, double[] out) {
+        int i = (int) ((long) Math.max(start(), Math.min(last, Math.floor(t))) % CAPACITY);
+        out[0] = axs[i];
+        out[1] = ays[i];
+        out[2] = azs[i];
+    }
+
+    /**
+     * Курс, тангаж и крен в момент t (градусы, в out): между тиками — по кратчайшему повороту, за последней записью —
+     * последние.
+     */
+    public void angles(double t, float[] out) {
+        double s = Math.max(start(), Math.min(last, t));
+        long a = (long) Math.floor(s);
+        long b = Math.min(last, a + 1);
+        float f = (float) (s - a);
+        int ia = (int) (a % CAPACITY), ib = (int) (b % CAPACITY);
+        out[0] = Mth.rotLerp(f, yaws[ia], yaws[ib]);
+        out[1] = Mth.lerp(f, pitches[ia], pitches[ib]);
+        out[2] = Mth.rotLerp(f, rolls[ia], rolls[ib]);
+    }
+
+    /** Сколько тиков снаряд в этой истории к моменту t (для вращения винта и снаряда у модели вдали). */
+    public double age(double t) {
+        return Math.max(0, t - first);
+    }
+
     /** Сколько тиков шла фаза полёта к моменту t (дробно — для плавной раскрутки мотора). */
     public double phaseAge(double t) {
         double s = Math.max(start(), Math.min(last, t));
@@ -233,8 +287,8 @@ public final class FlightTrack implements Acoustics.Path {
     }
 
     /**
-     * Одна запись пути: где снаряд, его сдвиг за тик, нос, фаза и сколько она идёт, куда он летит, по пакету ли
-     * сервера она.
+     * Одна запись пути: где снаряд, его сдвиг за тик, нос и крен, фаза и сколько она идёт, куда он летит, по пакету
+     * ли сервера она.
      */
-    private record Sample(Vec3 pos, Vec3 vel, float yaw, float pitch, int phase, int phaseAge, Vec3 aim, boolean server) {}
+    private record Sample(Vec3 pos, Vec3 vel, float yaw, float pitch, float roll, int phase, int phaseAge, Vec3 aim, boolean server) {}
 }

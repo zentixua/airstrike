@@ -93,6 +93,6 @@ public final class FarFlights {
 
     private static S2C.FarFlight sample(StrikeProjectile p, boolean audible) {
         return new S2C.FarFlight(p.getUUID(), p.weapon().id(), p instanceof BomberEntity, p instanceof BunkerBusterEntity b && b.isDrilling(),
-                audible, p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint());
+                audible, p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.roll(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint());
     }
 }

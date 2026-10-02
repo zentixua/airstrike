@@ -18,8 +18,9 @@ import java.util.Arrays;
  * <p>
  * Вершина — 36 байт ({@link #FORMAT}): место от камеры, место на листе, свет с умноженной альфой, мягкость края
  * у рельефа и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}), туман Minecraft ({@code Normal.x}),
- * частица — ближайшим пикселем ({@code Normal.y}, {@link #nearestTexels}) и её непрозрачность без текстуры
- * ({@code Normal.z}, {@link #opacity}).
+ * чем брать текстуру ({@code Normal.y}: 1 — частица ближайшим пикселем, {@link #nearestTexels}; −1 — плитка атласа
+ * дальних моделей, {@link #modelTiles}; 0 — лист слоя гладко) и непрозрачность частицы без текстуры ({@code Normal.z},
+ * {@link #opacity}).
  */
 public final class FxQuads {
     public static final VertexFormat FORMAT = VertexFormat.builder()
@@ -59,6 +60,15 @@ public final class FxQuads {
      */
     public void nearestTexels(boolean on) {
         nearest = (byte) (on ? 127 : 0);
+        opacity = 0;
+    }
+
+    /**
+     * Следующие квадраты — плитки атласа дальних моделей ({@code FarModels}): текстура — его, свет в нём уже есть
+     * (карта освещения не умножается).
+     */
+    public void modelTiles(boolean on) {
+        nearest = (byte) (on ? -127 : 0);
         opacity = 0;
     }
 

@@ -23,6 +23,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.DhUpdates;
 import ua.zentix.airstrike.grid.ChunkLights;
 import ua.zentix.airstrike.grid.GridLights;
+import ua.zentix.airstrike.grid.PowerGrid;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -371,8 +372,10 @@ public final class DhGameTests {
 
     /**
      * Запросов LOD вдали много (у тяжёлой зоны — десятки тысяч): за тик просматривается не больше
-     * {@link FarLods#VISITS}, остальные — по кругу, и проходит вся очередь. Чанков нет на диске; настройка
-     * {@code far_zone} выключена — мир не трогается. Сервер идёт в темпе игры: заголовки читает поток ввода-вывода.
+     * {@link FarLods#VISITS}, остальные — по кругу, и проходит вся очередь. Блэкаут просит те же чанки раньше руин (как
+     * в игре Артёма 01.10.2026): запрос руин не теряется, и каждый чанк проходит как чанк с руинами — не целый на диске,
+     * а не «не прочитан». Чанков нет на диске; настройка {@code far_zone} выключена — мир не трогается. Сервер идёт в
+     * темпе игры: заголовки читает поток ввода-вывода.
      */
     @GameTest(template = "range", timeoutTicks = 1200, batch = "dh_far_visits", skyAccess = true)
     public static void farLodsVisitBoundedPerTick(GameTestHelper h) {
@@ -392,15 +395,49 @@ public final class DhGameTests {
             NuclearStrikes.clear(level);
         });
         int n = 2000;
+        for (int i = 0; i < n; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 50 - 25, at.z + i / 50 - 20), false);
         for (int i = 0; i < n; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 50 - 25, at.z + i / 50 - 20), true);
         h.assertTrue(FarLods.get(level).stats()[7] - lods0[7] == n, "в очереди " + (FarLods.get(level).stats()[7] - lods0[7]) + " из " + n);
         h.succeedWhen(() -> {
             long[] s = FarLods.get(level).stats();
             // очередь длиннее предела: предел и работал
             h.assertTrue(FarLods.get(level).visitsMax() == FarLods.VISITS, "за тик просмотрено до " + FarLods.get(level).visitsMax() + " запросов");
-            h.assertTrue(s[6] - lods0[6] == n, "не целых на диске " + (s[6] - lods0[6]) + " из " + n);
+            h.assertTrue(s[6] - lods0[6] == n, "не целых на диске " + (s[6] - lods0[6]) + " из " + n + ", не прочитаны " + (s[4] - lods0[4]));
             h.assertTrue(s[7] == 0, "в очереди " + s[7]);
             h.assertTrue(FarLods.get(level).zoneStats()[2] == taken0, "квадрат взят при выключенной настройке");
+        });
+    }
+
+    /**
+     * Блэкаут ставит запросы света всего своего радиуса сразу (в игре Артёма 01.10.2026 — 159 тыс. за 5 с), а запросы руин
+     * приходят следом, за волной: они проходят раньше света, а не ждут его весь. Чанков нет на диске: запрос руин
+     * кончается «не целый на диске» (настройка {@code far_zone} выключена — мир не трогается), запрос света — «не
+     * прочитан» ({@link FarLods#VISITS} просмотров, 8 чтений за тик). Все запросы руин кончаются, пока свет не прошёл и
+     * половины. Сервер идёт в темпе игры: заголовки читает поток ввода-вывода.
+     */
+    @GameTest(template = "range", timeoutTicks = 1200, batch = "dh_far_order", skyAccess = true)
+    public static void farRuinsGoAheadOfBlackout(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        StrikeGameTests.gameSpeed(h);
+        ChunkPos at = farTile(h, 0, -12000);
+        long[] lods0 = FarLods.get(level).stats();
+        boolean was = AirstrikeConfig.SERVER.nukeFarZone.get();
+        AirstrikeConfig.SERVER.nukeFarZone.set(false);
+        DhUpdates.testSink(level, (l, chunk) -> {});
+        FarLods.testViewer(level, at);
+        StrikeGameTests.afterTest(h, () -> {
+            AirstrikeConfig.SERVER.nukeFarZone.set(was);
+            DhUpdates.testSink(level, null);
+            FarLods.testViewer(level, null);
+            NuclearStrikes.clear(level);
+        });
+        int lights = 2000, ruins = 64;
+        for (int i = 0; i < lights; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 50 - 25, at.z + i / 50 - 20), false);
+        for (int i = 0; i < ruins; i++) FarLods.request(level, ChunkPos.asLong(at.x + i % 8 - 4, at.z + 30 + i / 8), true);
+        h.succeedWhen(() -> {
+            long[] s = FarLods.get(level).stats();
+            long partial = s[6] - lods0[6], unread = s[4] - lods0[4];
+            h.assertTrue(partial == ruins && unread < lights / 2, "руин прошло " + partial + " из " + ruins + ", света — " + unread + " из " + lights);
         });
     }
 
@@ -448,8 +485,11 @@ public final class DhGameTests {
         LevelChunk chunk = level.getChunkAt(lamp);
         ProtoChunk copy = FarLods.testCopy(level, chunk, null, false);
         h.assertTrue(copy != null, "копии нет");
+        // партии GameTest ставятся на одно место: квартал мог погасить ядерный тест раньше (блэкаут на 15 мин), и тогда
+        // лампы в копии уже погасила сама копия
+        boolean dark = PowerGrid.get(level).dark(chunk.getPos().x, chunk.getPos().z, level.getGameTime());
         int n = ChunkLights.applyToCopy(copy.getSections(), true);
-        h.assertTrue(n >= 2, "погашено ламп " + n);
+        h.assertTrue(dark ? n == 0 : n >= 2, "погашено ламп " + n + (dark ? " (квартал уже тёмный)" : ""));
         h.assertTrue(copy.getBlockState(lamp) == GridLights.unlit(Blocks.GLOWSTONE.defaultBlockState()), "светокамень: " + copy.getBlockState(lamp));
         h.assertTrue(copy.getBlockState(sea) == GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState()), "морской фонарь: " + copy.getBlockState(sea));
         h.assertTrue(copy.getBlockState(lamp.below()) == chunk.getBlockState(lamp.below()), "тронут блок не лампа");

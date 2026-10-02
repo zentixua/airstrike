@@ -32,8 +32,9 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
     public record At(double x, double y, double z) {}
 
     /**
-     * Сопла и звук одной сущности полёта.
+     * Модель, сопла и звук одной сущности полёта.
      *
+     * @param model         модель ({@link WeaponModels}): вблизи её рисует рендерер сущности, вдали — {@code FarModels}
      * @param layers        слои звука мотора
      * @param engines       сопла маршевого двигателя (у B-2 — четыре инверсионных следа, у бомбы — срыв потока с хвоста)
      * @param boosterNozzle срез сопла ускорителя; null — ускорителя нет
@@ -42,7 +43,7 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
      * @param enginePlume   начало факела маршевого двигателя (или ступени МБР, двигателя РСЗО); null — факела нет
      * @param far           как сущность выглядит вдали, где её у клиента нет
      */
-    public record ClientAirframe(List<EngineSound.Layer> layers, List<At> engines, @Nullable At boosterNozzle, float boosterSmoke,
+    public record ClientAirframe(WeaponModels.Look model, List<EngineSound.Layer> layers, List<At> engines, @Nullable At boosterNozzle, float boosterSmoke,
                                  @Nullable At boosterPlume, @Nullable At enginePlume, FarLook far) {
         /** Сопло маршевого двигателя — только у оружия с соплами ({@link #engines} не пуст; у «Ланцета» их нет). */
         public At engine() {
@@ -88,11 +89,14 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
     public record SpentBooster(Supplier<WeaponModels.Mesh> mesh, float lift, float dy, float dz) {}
 
     /**
-     * Сущность полёта вдали, где её у клиента нет ({@code client.far.FarFlightView}): корпус — мягкая тёмная точка,
-     * факел — свет, шлейф — лента по точкам пути. Вблизи то же рисуют модель, {@code PlumeRenderer} и частицы
-     * {@code Exhaust}: числа сняты с них, и в каких фазах огонь и дым — тоже как там.
+     * Сущность полёта вдали, где её у клиента нет ({@code client.far.FarFlightView}): корпус — та же модель, что вблизи
+     * ({@code client.render.FarModels}), мельче пары пикселей — мягкая тёмная точка; факел — свет, шлейф — лента по
+     * точкам пути. Вблизи то же рисуют модель, {@code PlumeRenderer} и частицы {@code Exhaust}: числа сняты с них,
+     * и в каких фазах огонь и дым — тоже как там.
      *
-     * @param size     наибольший размер корпуса (размах или длина модели), блоков: крупнее пикселя точка не меньше его
+     * @param size     наибольший размер корпуса (размах или длина модели), блоков: длина модели на экране (переход
+     *                 точка → модель, упрощённые копии) и шар её плитки ({@code FarModels.TILE_RADIUS} × size — модель
+     *                 в любой позе внутри него, {@code FarModelsTest}); крупнее пикселя точка не меньше его
      * @param area     средняя площадь силуэта, м² (по Коши — четверть поверхности: корпус πDL/4, крыло — половина
      *                 площади в плане): сколько неба корпус закрывает, когда он мельче пикселя
      * @param color    цвет корпуса на свету (вдали — смешан с дымкой)
@@ -244,39 +248,39 @@ public record ClientWeaponSpec(ClientAirframe airframe, @Nullable ClientAirframe
     private static final FarLook LOITER_FAR = new FarLook(2.5, 1.4, 0x6A7066, Stage.NONE, Stage.NONE, null);
 
     public static final ClientWeaponSpec DRONE = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR, EngineSound.Layer.BOOSTER),
+            new ClientAirframe(WeaponModels::drone, List.of(EngineSound.Layer.DRONE_NEAR, EngineSound.Layer.DRONE_FAR, EngineSound.Layer.BOOSTER),
                     List.of(new At(0, 0.03, -1.95)), new At(0, -0.29, -1.95), 0.55f, new At(0, -0.29, -1.93), null, DRONE_FAR),
             null, BoosterVoice.SOLID, LaunchCue.BOOSTER, true,
             new SpentBooster(() -> WeaponModels.Mesh.DRONE_BOOSTER, 0.1f, 0.29f, 1.22f));
 
     public static final ClientWeaponSpec MISSILE = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
+            new ClientAirframe(WeaponModels::missile, List.of(EngineSound.Layer.MISSILE_FRONT, EngineSound.Layer.MISSILE_REAR, EngineSound.Layer.MISSILE_DIVE,
                     EngineSound.Layer.MISSILE_FAR, EngineSound.Layer.MISSILE_WHISTLE, EngineSound.Layer.BOOSTER),
                     List.of(new At(0, 0, -3.2)), new At(0, 0, -3.45), 0.8f, new At(0, 0, -3.44), new At(0, 0, -2.88), MISSILE_FAR),
             null, BoosterVoice.SOLID_LOW, LaunchCue.BOOSTER_LOW, true,
             new SpentBooster(() -> WeaponModels.Mesh.MISSILE_BOOSTER, 0.24f, 0, 3.15f));
 
     public static final ClientWeaponSpec BUNKER = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR),
+            new ClientAirframe(WeaponModels::bomber, List.of(EngineSound.Layer.BOMBER_NEAR, EngineSound.Layer.BOMBER_FAR),
                     List.of(new At(3.2, 0.3, -9.5), new At(1.9, 0.3, -9.3), new At(-1.9, 0.3, -9.3), new At(-3.2, 0.3, -9.5)),
                     null, 0, null, null, BOMBER_FAR),
-            new ClientAirframe(List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL),
+            new ClientAirframe(WeaponModels::bomb, List.of(EngineSound.Layer.BOMB_NEAR, EngineSound.Layer.BOMB_FAR, EngineSound.Layer.BOMB_DRILL),
                     List.of(new At(0, 0, -5.2)), null, 0, null, null, BOMB_FAR),
             BoosterVoice.SOLID, LaunchCue.BOOSTER, true, null);
 
     public static final ClientWeaponSpec NUKE = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.BOOSTER), List.of(new At(0, 0, -10)), null, 0, null, new At(0, 0, -9.7), ICBM_FAR),
+            new ClientAirframe(WeaponModels::icbm, List.of(EngineSound.Layer.BOOSTER), List.of(new At(0, 0, -10)), null, 0, null, new At(0, 0, -9.7), ICBM_FAR),
             null, BoosterVoice.ICBM, LaunchCue.NONE, false, null);
 
     /** РСЗО: рёв двигателя, пока горит; дальше снаряд летит по инерции и воет рассекаемым воздухом. */
     public static final ClientWeaponSpec ROCKET = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_AIR), List.of(new At(0, 0, -1.5)),
+            new ClientAirframe(WeaponModels::rocket, List.of(EngineSound.Layer.BOOSTER, EngineSound.Layer.ROCKET_AIR), List.of(new At(0, 0, -1.5)),
                     null, 0, null, new At(0, 0, -1.5), ROCKET_FAR),
             null, BoosterVoice.ROCKET, LaunchCue.ROCKET_TUBE, true, null);
 
     /** Барражирующий: тот же винт, но маленький электромотор — выше и тише (см. {@code EngineSound}). */
     public static final ClientWeaponSpec LOITER = new ClientWeaponSpec(
-            new ClientAirframe(List.of(EngineSound.Layer.LOITER_NEAR, EngineSound.Layer.LOITER_FAR, EngineSound.Layer.LOITER_DIVE,
+            new ClientAirframe(WeaponModels::loiter, List.of(EngineSound.Layer.LOITER_NEAR, EngineSound.Layer.LOITER_FAR, EngineSound.Layer.LOITER_DIVE,
                     EngineSound.Layer.BOOSTER), List.of(), null, 0, null, null, LOITER_FAR),
             null, BoosterVoice.NONE, LaunchCue.CATAPULT, false, null);
 

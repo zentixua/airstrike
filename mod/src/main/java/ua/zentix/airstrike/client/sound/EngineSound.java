@@ -63,7 +63,6 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
             double d = e.distance(), dop = e.doppler(), age = e.phaseAge();
             int phase = e.phase();
             Vec3 v = e.velocity();
-            boolean approaching = e.approaching();
             double gain;
             double pitch = dop;
             switch (this) {
@@ -71,16 +70,18 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
                     double w = near(d, 60, 160);
                     gain = Acoustics.gain(d, 60, 0.12, Hearing.ENGINE) * share(this == DRONE_NEAR ? w : 1 - w) * spool(phase, age, true);
                     pitch *= spoolPitch(phase, age, true);
-                    if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1.12;
+                    // в пике мотор выходит на полный газ — тон растёт за полсекунды, а не скачком
+                    if (phase == FlightPhase.TERMINAL.ordinal()) pitch *= 1 + 0.12 * Math.min(1, age / REV);
                 }
                 case LOITER_NEAR, LOITER_FAR -> {
                     // маленький электромотор: тонкий вой, слышно ближе шахеда; в пике винт на полном газу — выше тоном,
                     // а громче всего воздух (слой LOITER_DIVE)
                     double w = near(d, 35, 110);
                     boolean dive = phase == FlightPhase.TERMINAL.ordinal();
+                    double rev = dive ? Math.min(1, age / REV) : 0;
                     gain = Acoustics.gain(d, 35, 0.12, Hearing.LOITER) * share(this == LOITER_NEAR ? w : 1 - w) * spool(phase, age, true)
-                            * (dive ? 0.6 : 1);
-                    pitch *= spoolPitch(phase, age, true) * (dive ? 1.15 : 1);
+                            * (1 - 0.4 * rev);
+                    pitch *= spoolPitch(phase, age, true) * (1 + 0.15 * rev);
                 }
                 case LOITER_DIVE -> {
                     boolean dive = phase == FlightPhase.TERMINAL.ordinal();
@@ -111,11 +112,14 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
                     // WHISTLE_DROP блоках до цели; кроме того рвёт воздух над тем, мимо кого она проходит: слышно, пока
                     // идёт на слушателя, и тон падает при пролёте
                     double wd = e.aimDistance();
-                    double attack = launched(phase) && e.towardAim() && approaching ? Acoustics.gain(d, 110, 0, Hearing.WHISTLE) : 0;
+                    // курс на цель и на слушателя — доли (Emission): на поворотах маршрута и на пролёте свист нарастает
+                    // и стихает, а не включается и не обрывается
+                    double attack = launched(phase) ? Acoustics.gain(d, 110, 0, Hearing.WHISTLE) * e.towardAim() * e.ahead() : 0;
                     double flyby = launched(phase) ? Acoustics.airflow(d, v.length(), e.radial(), 40, 4, Hearing.AIRFLOW) * 0.6 : 0;
                     gain = Math.max(attack, flyby);
                     double attackPitch = (0.6 + 1.4 * Math.min(1, wd / WHISTLE_DROP)) * Math.sqrt(dop);
-                    pitch = gain > 0 ? (attack * attackPitch + flyby * 0.8 * Math.sqrt(dop)) / (attack + flyby) : attackPitch;
+                    // файл — вой вентилятора вдвое ниже настоящего (tools/build_sounds.py): тон 2 — как есть
+                    pitch = gain > 0 ? (attack * attackPitch + flyby * 1.6 * Math.sqrt(dop)) / (attack + flyby) : attackPitch;
                 }
                 case BOMBER_NEAR -> gain = Acoustics.gain(d, 120, 0.12, Hearing.BOMBER) * share(near(d, 120, 260));
                 case BOMBER_FAR -> gain = Math.max(Acoustics.gain(d, 120, 0.12, Hearing.BOMBER), Acoustics.gain(d, 120, 0, Hearing.JET))
@@ -159,8 +163,9 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
                     FlightPhase ph = FlightPhase.byId(phase);
                     boolean coasting = ph == FlightPhase.CRUISE || ph == FlightPhase.TERMINAL;
                     double wd = e.aimDistance();
-                    double incoming = ph == FlightPhase.TERMINAL && wd <= 220 && approaching
-                            ? Acoustics.gain(d, 70, 0.1, Hearing.ROCKET_AIR) * (0.35 + 0.65 * (1 - wd / 220)) : 0;
+                    double incoming = ph == FlightPhase.TERMINAL
+                            ? Acoustics.gain(d, 70, 0.1, Hearing.ROCKET_AIR) * (0.35 + 0.65 * Math.max(0, 1 - wd / INCOMING))
+                            * (1 - Acoustics.smoothstep(0.75 * INCOMING, INCOMING, wd)) * e.ahead() : 0;
                     gain = coasting ? Math.max(incoming, Acoustics.airflow(d, v.length(), e.radial(), 50, 2, Hearing.ROCKET_AIR)) : 0;
                     pitch = Math.sqrt(dop);
                 }
@@ -174,6 +179,10 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
 
     /** Тон свиста крылатой ракеты падает на стольких последних блоках до цели. */
     private static final double WHISTLE_DROP = 260;
+    /** Снаряд РСЗО воет громче к земле на стольких последних блоках до точки падения (нарастает с этого края плавно). */
+    private static final double INCOMING = 220;
+    /** Мотор шахеда и барражирующего выходит на полный газ в пике за столько тиков. */
+    private static final double REV = 10;
 
     /** Громкость и тон слоя в этот тик. */
     record Tone(double gain, double pitch) {}
@@ -243,8 +252,8 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
             smoothVolume *= 0.5f;
             this.volume = smoothVolume;
         } else {
-            // сглаживание: смена слоёв и ракурса, запуск и отпускание слоя — без щелчков
-            double gain = released ? 0 : tone.gain();
+            // сглаживание: смена слоёв и ракурса, запуск и отпускание слоя, приглушение под взрыв — без щелчков
+            double gain = released ? 0 : tone.gain() * ClientSounds.duck();
             smoothVolume += (float) ((gain - smoothVolume) * 0.35);
             this.volume = smoothVolume;
             this.pitch = (float) tone.pitch();

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Клиент мода без окна: виртуальный дисплей KWin + Xwayland (tools/nested_kwin.sh — своя шина D-Bus и настройки), звук пишется в WAV (OpenAL Soft «wave»).
 # Сценарий (mod/src/devtest/.../ClientScenario) пускает все виды оружия и снимает кадры.
-#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
+#   tools/client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (N) до удара;
 #   rocket — залп РСЗО: камера у пакета на очереди, дуги над головой, разрывы по площади;
@@ -12,6 +12,8 @@
 #   nuke — МБР и ядерный удар 15 кт с 2 км, чёрный дождь;
 #   fx, fx-night — эффекты крупным планом (взрывы шахеда, ракеты, бомбы и старт МБР; днём и ночью);
 #   models — модели снарядов крупным планом с трёх сторон (на пусковой, в полёте, B-2 с открытым бомболюком);
+#   far-models — снаряды вдали по пакетам, как от сервера: пары «сущность / путь по пакетам» на одной позе, ряд всех
+#     снарядов на 300, 800 и 1500 блоках днём и ночью и в бинокль на 800–3000 (кадры far_*, match_*);
 #   occlusion — большие залпы за каменной стеной, потом камера водит взглядом; в лог — частицы по группам слоя эффектов;
 #   onboard — видео с борта ракеты (N) при наводчике на суше и под водой: кадры onboard-dry_*, onboard-wet_*;
 #   flyby — зритель на земле на пути снарядов издалека (залп РСЗО, ракета, шахед): звук подлёта и пролёта в лог и audio.wav;
@@ -34,7 +36,7 @@ sample-type = int16
 [wave]
 file = $RUN/audio.wav
 CONF
-# первый запуск: без экрана приветствия и без паузы, когда у окна нет фокуса
+# первый запуск: без экрана приветствия и без паузы, когда у окна нет фокуса; без музыки — она в audio.wav поверх звука мода
 [ -f "$RUN/options.txt" ] || cat > "$RUN/options.txt" <<OPT
 onboardAccessibility:false
 pauseOnLostFocus:false
@@ -43,6 +45,7 @@ simulationDistance:10
 guiScale:2
 soundCategory_master:1.0
 soundCategory_ambient:1.0
+soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
 OPT

@@ -4,6 +4,11 @@ import net.minecraft.world.phys.Vec3;
 
 /** Открыт ли путь звука снаряда к уху (1) или за холмом/домом (0), сглажено; считается раз в тик на все слои снаряда. */
 final class Occlusion {
+    /**
+     * Доля пути к новому значению за тик: снаряд уходит за гребень и выходит из-за него за ~5 тиков (зона Френеля
+     * у кромки — десятки метров на сотнях), а не щелчком.
+     */
+    static final float SMOOTH = 0.2f;
     private float open = 1;
     private long tick = -1;
 
@@ -12,7 +17,7 @@ final class Occlusion {
         long t = (long) now;
         if (t != tick) {
             tick = t;
-            open += (SoundFilters.open(ear, at) - open) * 0.3f;
+            open += (SoundFilters.open(ear, at) - open) * SMOOTH;
         }
         return open;
     }

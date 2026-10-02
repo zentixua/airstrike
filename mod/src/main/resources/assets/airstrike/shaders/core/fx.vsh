@@ -9,7 +9,8 @@ in vec4 Color;
 in ivec2 UV1;
 // свет мира (карта освещения)
 in ivec2 UV2;
-// x: туман Minecraft 0..1; y: 1 — частица (ближайшим пикселем, как из атласа Minecraft); z: её непрозрачность без текстуры
+// x: туман Minecraft 0..1; y: 1 — частица (ближайшим пикселем, как из атласа Minecraft), −1 — плитка атласа дальних
+// моделей (свет в ней уже есть); z: непрозрачность частицы без текстуры
 in vec3 Normal;
 
 uniform sampler2D Sampler2;
@@ -29,7 +30,7 @@ void main() {
     vec4 view = ModelViewMat * vec4(Position, 1.0);
     gl_Position = ProjMat * view;
     texCoord0 = UV0;
-    vec4 light = texelFetch(Sampler2, UV2 / 16, 0);
+    vec4 light = Normal.y < -0.5 ? vec4(1.0) : texelFetch(Sampler2, UV2 / 16, 0);
     vertexColor = vec4(Color.rgb * light.rgb, Color.a);
     // настоящее расстояние по оси взгляда: перенесённую ближе точку — обратно
     viewDistance = -view.z / max(float(UV1.y) / 32767.0, 1e-4);

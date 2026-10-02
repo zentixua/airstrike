@@ -26,7 +26,8 @@ import java.lang.management.ThreadMXBean;
 import java.util.Locale;
 
 /**
- * Слой эффектов: дым, пыль, пламя, искры, вспышки ({@link FxPool}) и всё дальнее ({@link FarRenderer}) — одним
+ * Слой эффектов: дым, пыль, пламя, искры, вспышки ({@link FxPool}) и всё дальнее ({@link FarRenderer}, с плитками
+ * дальних моделей) — одним
  * проходом после мира ({@code AFTER_LEVEL}), квадратами, отсортированными от дальних к ближним по настоящему
  * расстоянию ({@link FxQuads}). Ванильный движок частиц так не умеет: в слое одна очередь без сортировки, кто родился
  * позже — тот поверх (дым пусковой в 10 блоках оказывался за столбами попаданий в сотнях блоков), а дальняя картинка
@@ -128,13 +129,15 @@ public final class FxLayer {
         if (level == null || s == null || atlas < 0) return;
         long start = System.nanoTime(), cpu = cpuNanos(), pauses = pauses();
         FarView view = FarRenderer.view(e, mc, level);
+        boolean warmup = !warmed;
+        // атлас дальних моделей со всеми сетками в видеопамяти — до сбора кадра (прогрев начинает атлас заново)
+        if (warmup) FarRenderer.warmup();
         FRUSTUM.set(VIEW_PROJECTION.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()));
         QUADS.begin(view.left(), view.up());
         QUADS.nearestTexels(true);
         FxPool.INSTANCE.collect(new FxFrame(view, FRUSTUM, FOG), QUADS, view.partial());
         QUADS.nearestTexels(false);
         FarRenderer.collect(view, QUADS);
-        boolean warmup = !warmed;
         if (warmup) {
             // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего
             QUADS.quad(16);
@@ -142,6 +145,7 @@ public final class FxLayer {
         }
         lastQuads = QUADS.size();
         if (QUADS.size() == 0) return;
+        int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e);
@@ -149,6 +153,7 @@ public final class FxLayer {
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);
+            RenderSystem.setShaderTexture(3, models > 0 ? models : atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);

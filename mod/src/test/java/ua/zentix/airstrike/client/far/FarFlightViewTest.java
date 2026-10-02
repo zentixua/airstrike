@@ -1,12 +1,14 @@
 package ua.zentix.airstrike.client.far;
 
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarLook;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
 import ua.zentix.airstrike.client.ClientWeaponSpec.Flame;
 import ua.zentix.airstrike.client.flight.FlightTrack;
+import ua.zentix.airstrike.client.render.FarModels;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -99,7 +102,7 @@ class FarFlightViewTest {
     // ---------------------------------------------------------------- точки шлейфа по пути
 
     private static S2C.FarFlight packet(WeaponType weapon, long tick, FlightPhase phase) {
-        return new S2C.FarFlight(ID, weapon.id(), false, false, true, new Vec3(tick * 3.0, 80 + tick, 0), new Vec3(3, 1, 0), 0, 0,
+        return new S2C.FarFlight(ID, weapon.id(), false, false, true, new Vec3(tick * 3.0, 80 + tick, 0), new Vec3(3, 1, 0), 0, 0, 0,
                 phase.ordinal(), 0, new Vec3(9000, 80, 0));
     }
 
@@ -170,5 +173,40 @@ class FarFlightViewTest {
         for (long h = 0; h <= 200; h += 3) FarFlightView.sample(f, h, steps);
         FarFlightView.sample(f, 200, steps);
         assertEquals(points(once), points(steps));
+    }
+
+    @Test
+    void modelReplacesTheDotBetweenTwoAndThreePixels() {
+        assertEquals(0, FarFlightView.modelShare(0.5));
+        assertEquals(0, FarFlightView.modelShare(FarModels.DOT_BELOW));
+        assertEquals(0.5, FarFlightView.modelShare((FarModels.DOT_BELOW + FarModels.MODEL_FROM) / 2), 1e-12);
+        assertEquals(1, FarFlightView.modelShare(FarModels.MODEL_FROM));
+        assertEquals(1, FarFlightView.modelShare(300));
+        double prev = 0;
+        for (double px = FarModels.DOT_BELOW; px <= FarModels.MODEL_FROM; px += 0.01) {
+            double k = FarFlightView.modelShare(px);
+            assertTrue(k >= prev, "переход без скачков назад: " + px);
+            prev = k;
+        }
+        // упрощённые копии — с запасом против дрожания на границе
+        assertTrue(FarModels.COARSE_BELOW < FarModels.FULL_ABOVE);
+        assertTrue(FarModels.MODEL_FROM < FarModels.COARSE_BELOW);
+    }
+
+    @Test
+    void modelOutsideTheScreenIsNotDrawn() {
+        // экран — конус в 30° от середины до угла, взгляд на север (−Z)
+        FarView view = new FarView(Vec3.ZERO, new Vector3f(0, 0, -1), new Vector3f(-1, 0, 0), new Vector3f(0, 1, 0), 0, 1000, PIXEL,
+                Math.toRadians(30), 1, 20000, 192, 192, 0);
+        assertTrue(FarFlightView.inFrame(view, 0, 0, -500, 500, 2));
+        assertTrue(FarFlightView.inFrame(view, at(29)[0], 0, at(29)[1], 500, 2));
+        assertFalse(FarFlightView.inFrame(view, at(35)[0], 0, at(35)[1], 500, 2), "в 35° мелкая модель за краем");
+        assertTrue(FarFlightView.inFrame(view, at(35)[0], 0, at(35)[1], 500, 60), "крыло B-2 в 60 блоков заходит в кадр краем");
+        assertFalse(FarFlightView.inFrame(view, 0, 0, 500, 500, 2), "за спиной");
+    }
+
+    /** Точка в 500 блоках под углом deg от взгляда на север: x и z. */
+    private static double[] at(double deg) {
+        return new double[]{500 * Math.sin(Math.toRadians(deg)), -500 * Math.cos(Math.toRadians(deg))};
     }
 }

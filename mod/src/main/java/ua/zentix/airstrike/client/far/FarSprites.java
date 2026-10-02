@@ -1,17 +1,22 @@
 package ua.zentix.airstrike.client.far;
 
 import net.minecraft.client.renderer.LightTexture;
+import org.joml.Vector3f;
 import ua.zentix.airstrike.client.fx.layer.FxAtlas;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
 import ua.zentix.airstrike.client.render.FarDraw;
+import ua.zentix.airstrike.client.render.FarModels;
+import ua.zentix.airstrike.client.render.ProjectilePose;
+import ua.zentix.airstrike.client.render.WeaponModels;
 
 import java.util.Arrays;
 
 /**
- * Всё дальнее — квадратами в общий кадр слоя эффектов ({@link FxQuads}): шлейфы (лентой), клубы дыма, тела — круги
- * (корпуса снарядов, огненные шары, ядра вспышек), свет — ореолы (блик и вуаль вокруг вспышек, шаров и факелов,
- * зарево). Слой сортирует их вместе с ближними частицами от дальних к ближним по настоящему расстоянию, поэтому
- * огненный шар за ближним столбом дыма закрыт дымом, а пусковая в десятке блоков — впереди дальних столбов.
+ * Всё дальнее — квадратами в общий кадр слоя эффектов ({@link FxQuads}): шлейфы (лентой), клубы дыма, модели снарядов
+ * (плитки атласа {@link FarModels}), тела — круги (корпуса снарядов мельче модели, огненные шары, ядра вспышек), свет —
+ * ореолы (блик и вуаль вокруг вспышек, шаров и факелов, зарево). Слой сортирует их вместе с ближними частицами от
+ * дальних к ближним по настоящему расстоянию, поэтому огненный шар и модель за ближним столбом дыма закрыты дымом,
+ * а пусковая в десятке блоков — впереди дальних столбов.
  * Координаты — относительно камеры; дальше дальней плоскости точка переносится ближе с тем же угловым размером,
  * а слою передаётся, во сколько раз (по настоящему расстоянию он прячет дальнее за рельефом и LOD Distant Horizons).
  * <p>
@@ -35,25 +40,29 @@ public final class FarSprites {
     /** Мягкость края у рельефа: клуб — {@link FxQuads#SOFT} полуразмера, тело — четверть радиуса. */
     private static final float BODY_SOFT = 0.25f;
 
+    /** Модели кадра в атласе. */
+    final FarModels models = new FarModels();
+    private final float[] tile = new float[FarModels.OUT];
     private FxQuads out;
     private double far;
-    /** Сколько клубов, кругов, света и лент записано в этом кадре. */
-    private final int[] counts = new int[4];
+    /** Сколько клубов, кругов, света, лент и моделей записано в этом кадре. */
+    private final int[] counts = new int[5];
 
     /** Новый кадр: писать в out. */
     void begin(FarView view, FxQuads out) {
         this.out = out;
         far = view.far();
         Arrays.fill(counts, 0);
+        models.begin();
     }
 
     public boolean isEmpty() {
-        return counts[0] + counts[1] + counts[2] + counts[3] == 0;
+        return counts[0] + counts[1] + counts[2] + counts[3] + counts[4] == 0;
     }
 
-    /** Сколько чего в кадре (клубы, круги, свет, ленты) — в out, без выделения памяти. */
+    /** Сколько чего в кадре (клубы, круги, свет, ленты, модели) — в out, без выделения памяти. */
     void counts(int[] into) {
-        System.arraycopy(counts, 0, into, 0, 4);
+        System.arraycopy(counts, 0, into, 0, counts.length);
     }
 
     /**
@@ -62,6 +71,36 @@ public final class FarSprites {
      */
     public void puff(double dx, double dy, double dz, double half, float rot, int tex, float r, float g, float b, float a) {
         if (billboard(dx, dy, dz, half, rot, FxAtlas.puff(tex), r * a, g * a, b * a, a, (float) half * FxQuads.SOFT)) counts[0]++;
+    }
+
+    /**
+     * Модель снаряда в позе pose с центром (dx, dy, dz) от камеры: плитка атласа {@link FarModels} квадратом поперёк луча
+     * на неё, закрывает и светит долю a (дымка воздуха, видимость над рельефом, переход от точки).
+     *
+     * @param size  размер модели ({@code FarLook.size})
+     * @param camUp верх экрана: плитка повёрнута, как экран
+     * @return false — модели нет (атлас полон, модель вплотную к камере): нужна точка
+     */
+    public boolean model(WeaponModels.Look look, ProjectilePose pose, double dx, double dy, double dz, double size, double pixel, Vector3f camUp,
+                         float a) {
+        if (!models.add(look, pose, dx, dy, dz, size, pixel, camUp, tile)) return false;
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz), k = FarDraw.fold(d, far);
+        float x = (float) (dx * k), y = (float) (dy * k), z = (float) (dz * k), h = (float) (tile[FarModels.HALF] * k);
+        float rx = tile[FarModels.RIGHT] * h, ry = tile[FarModels.RIGHT + 1] * h, rz = tile[FarModels.RIGHT + 2] * h;
+        float ux = tile[FarModels.UP] * h, uy = tile[FarModels.UP + 1] * h, uz = tile[FarModels.UP + 2] * h;
+        float u0 = tile[FarModels.U0], v0 = tile[FarModels.V0], u1 = tile[FarModels.U1], v1 = tile[FarModels.V1];
+        float c = Math.min(1, a), soft = tile[FarModels.HALF] * BODY_SOFT, unfold = (float) k;
+        int light = LightTexture.FULL_BRIGHT;
+        // нижний левый угол — (u0, v0) атласа: низ атласа — низ плитки
+        out.modelTiles(true);
+        out.quad((float) d);
+        out.vertex(x - rx - ux, y - ry - uy, z - rz - uz, u0, v0, c, c, c, c, soft, unfold, light, 0);
+        out.vertex(x + rx - ux, y + ry - uy, z + rz - uz, u1, v0, c, c, c, c, soft, unfold, light, 0);
+        out.vertex(x + rx + ux, y + ry + uy, z + rz + uz, u1, v1, c, c, c, c, soft, unfold, light, 0);
+        out.vertex(x - rx + ux, y - ry + uy, z - rz + uz, u0, v1, c, c, c, c, soft, unfold, light, 0);
+        out.modelTiles(false);
+        counts[4]++;
+        return true;
     }
 
     /**

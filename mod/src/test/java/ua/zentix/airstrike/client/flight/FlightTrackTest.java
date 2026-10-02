@@ -22,7 +22,7 @@ class FlightTrackTest {
     }
 
     private static S2C.FarFlight at(double x, double vx, int phaseAge) {
-        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0,
+        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 80, 0), new Vec3(vx, 0, 0), 0, 0, 0,
                 FlightPhase.CRUISE.ordinal(), phaseAge, new Vec3(500, 80, 0));
     }
 
@@ -122,6 +122,39 @@ class FlightTrackTest {
     }
 
     @Test
+    void blastEndsTheFlightWhenItHappened() {
+        // последний пакет о дальней ракете дошёл за 6 тиков до пакета взрыва (дольше ожидания следующего пакета): звук
+        // тянется до самого взрыва по скорости, а не стихает раньше — иначе перед взрывом пауза тишины
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        t.record(14, at(46, 104));
+        assertFalse(t.covers(19), "без пакета взрыва — данных нет");
+        t.impact(20);
+        assertTrue(t.covers(19.5));
+        assertTrue(t.covers(20));
+        assertFalse(t.covers(20.5), "после взрыва мотора нет");
+        assertEquals(46 + 11.5 * 6, x(t, 20), 1e-9, "до взрыва — по скорости последней записи");
+    }
+
+    @Test
+    void lateBlastDoesNotStretchAnOldPath() {
+        // пакетов давно нет (ушёл из слуха, сервер встал): взрыв не тянет звук дальше разрыва, после которого путь — заново
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        t.impact(60);
+        assertTrue(t.covers(20));
+        assertFalse(t.covers(20.5));
+        // конец полёта по тишине (взрыва не было) — сразу после последней записи
+        FlightTrack s = new FlightTrack(ID, WeaponType.MISSILE, false);
+        s.record(10, at(0, 100));
+        s.die(60);
+        assertTrue(s.covers(11));
+        assertFalse(s.covers(11.5));
+    }
+
+    @Test
     void trailIsDrawnOnlyOverServerSamples() {
         // точки по пакетам — для шлейфа вдали; сущность у клиента рисует свой шлейф частицами
         FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
@@ -131,5 +164,40 @@ class FlightTrackTest {
         assertTrue(t.fromServer(12));
         assertFalse(t.fromServer(13));
         assertFalse(t.fromServer(9));
+    }
+
+    private static S2C.FarFlight turned(float yaw, float pitch, float roll) {
+        return new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(0, 80, 0), new Vec3(4, 0, 0), yaw, pitch, roll,
+                FlightPhase.CRUISE.ordinal(), 100, new Vec3(500, 80, 0));
+    }
+
+    @Test
+    void anglesTurnTheShortWayBetweenTicks() {
+        // модель вдали поворачивается и кренится между пакетами, а не прыгает; через ±180° — коротким путём
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, turned(170, -4, 20));
+        t.record(11, turned(-170, 4, -20));
+        float[] a = new float[3];
+        t.angles(10.5, a);
+        assertEquals(180, a[0], 1e-4);
+        assertEquals(0, a[1], 1e-4);
+        assertEquals(0, a[2], 1e-4);
+        t.angles(15, a);
+        assertEquals(-170, a[0], 1e-4, "за последним пакетом — последние углы");
+        assertEquals(-20, a[2], 1e-4);
+        // пропущенный тик между пакетами — середина поворота и крена
+        t.record(13, turned(-150, 4, 20));
+        t.angles(12, a);
+        assertEquals(-160, a[0], 1e-4);
+        assertEquals(0, a[2], 1e-4);
+    }
+
+    @Test
+    void ageCountsFromTheFirstPacketOfTheHistory() {
+        FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
+        t.record(10, at(0, 100));
+        t.record(12, at(23, 102));
+        assertEquals(4.5, t.age(14.5), 1e-9);
+        assertEquals(0, t.age(5), 1e-9);
     }
 }

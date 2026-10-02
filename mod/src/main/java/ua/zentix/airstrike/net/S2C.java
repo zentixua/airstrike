@@ -12,19 +12,25 @@ import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Сервер → клиент: только события; всё, что видно и слышно, клиент строит сам (частицы, звук с задержкой, тряска). */
 public final class S2C {
     private S2C() {}
 
-    /** Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид. */
-    public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed) implements CustomPacketPayload {
+    /**
+     * Взрыв: вид (0 — шахед, 1 — ракета, 2 — бомба под землёй, 3 — снаряд РСЗО), грунт, высота поверхности над точкой, сид
+     * и снаряд, который взорвался: его путь у клиента кончается в этот тик, и мотор звучит, пока до уха не дойдёт фронт
+     * взрыва, а не стихает раньше.
+     */
+    public record Blast(int kind, Vec3 pos, int material, float surfaceY, long seed, Optional<UUID> projectile) implements CustomPacketPayload {
         public static final int DRONE = 0, MISSILE = 1, BUNKER = 2, ROCKET = 3;
         public static final Type<Blast> TYPE = new Type<>(Airstrike.id("blast"));
         public static final StreamCodec<ByteBuf, Blast> CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, Blast::kind, StreamCodecs.VEC3, Blast::pos, ByteBufCodecs.VAR_INT, Blast::material,
-                ByteBufCodecs.FLOAT, Blast::surfaceY, ByteBufCodecs.VAR_LONG, Blast::seed, Blast::new);
+                ByteBufCodecs.FLOAT, Blast::surfaceY, ByteBufCodecs.VAR_LONG, Blast::seed,
+                ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC), Blast::projectile, Blast::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -206,11 +212,12 @@ public final class S2C {
     /**
      * Один снаряд вдали: UUID (тот же у сущности, когда она появится у клиента), оружие, B-2 ли это (у бомбы то же
      * оружие), бурит ли бомба, слышно ли его (тогда пакеты чаще), где он, сдвиг за последний тик
-     * ({@code StrikeProjectile.velocity}; float — точнее миллиметра) и куда смотрит нос, фаза полёта и сколько она идёт,
+     * ({@code StrikeProjectile.velocity}; float — точнее миллиметра), куда смотрит нос и крен (модель вдали кренится
+     * в развороте, как вблизи), фаза полёта и сколько она идёт,
      * куда он летит (точка цели).
      */
     public record FarFlight(UUID id, int weapon, boolean bomber, boolean drilling, boolean audible, Vec3 pos, Vec3 velocity, float yaw,
-                            float pitch, int phase, int phaseAge, Vec3 aim) {
+                            float pitch, float roll, int phase, int phaseAge, Vec3 aim) {
         private static final int BOMBER = 1, DRILLING = 2, AUDIBLE = 4;
 
         public static final StreamCodec<ByteBuf, FarFlight> CODEC = new StreamCodec<>() {
@@ -222,7 +229,8 @@ public final class S2C {
                 Vec3 pos = StreamCodecs.VEC3.decode(b);
                 Vec3 velocity = new Vec3(b.readFloat(), b.readFloat(), b.readFloat());
                 return new FarFlight(id, weapon, (flags & BOMBER) != 0, (flags & DRILLING) != 0, (flags & AUDIBLE) != 0, pos, velocity,
-                        b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b), StreamCodecs.VEC3.decode(b));
+                        b.readFloat(), b.readFloat(), b.readFloat(), ByteBufCodecs.VAR_INT.decode(b), ByteBufCodecs.VAR_INT.decode(b),
+                        StreamCodecs.VEC3.decode(b));
             }
 
             @Override
@@ -236,6 +244,7 @@ public final class S2C {
                 b.writeFloat((float) f.velocity.z);
                 b.writeFloat(f.yaw);
                 b.writeFloat(f.pitch);
+                b.writeFloat(f.roll);
                 ByteBufCodecs.VAR_INT.encode(b, f.phase);
                 ByteBufCodecs.VAR_INT.encode(b, f.phaseAge);
                 StreamCodecs.VEC3.encode(b, f.aim);

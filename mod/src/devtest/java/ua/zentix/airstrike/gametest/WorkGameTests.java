@@ -11,11 +11,13 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.Ticket;
 import net.minecraft.util.Mth;
 import net.minecraft.util.SortedArraySet;
+import net.minecraft.world.entity.ai.village.poi.PoiSection;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.fml.ModList;
@@ -601,6 +603,64 @@ public final class WorkGameTests {
             h.assertTrue(quick.slowBlocks() == 0, "долгих блоков при 1 мс: " + quick.slowBlocks());
             h.assertTrue(heavy.largestPortion() == 1, "порция по 11 мс на блок: " + heavy.largestPortion() + " блоков");
             h.assertTrue(heavy.slowBlocks() > BLAST_SLOW_LOGGED, "долгих блоков " + heavy.slowBlocks());
+        });
+    }
+
+    /**
+     * Места POI, которых нет в данных POI мира (город карты вставлен мимо {@code setBlock}), взрыв мода снимает без
+     * ошибок PoiSection «never registered», и в данных после него не остаётся записей на месте снятых блоков. Рабочие
+     * места жителей стоят парами в одной секции: одно ставится через мир (в данных), другое — прямо в секцию (мимо
+     * данных). Ошибку ваниль пишет, только если у секции данные POI уже есть: секцию без данных она при загрузке
+     * чанка проходит сама и вносит всё, а снятие из секции без данных молчит.
+     */
+    @GameTest(template = "range", timeoutTicks = 300, batch = "work_poi_blast", skyAccess = true)
+    public static void poiInBlastStaysConsistent(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = CENTER.above(2);
+        BlockState[] poi = {Blocks.COMPOSTER.defaultBlockState(), Blocks.CARTOGRAPHY_TABLE.defaultBlockState(),
+                Blocks.SMITHING_TABLE.defaultBlockState(), Blocks.LOOM.defaultBlockState(), Blocks.FLETCHING_TABLE.defaultBlockState()};
+        List<BlockPos> registered = new ArrayList<>(), bare = new ArrayList<>();
+        for (int i = 0; i < poi.length; i++) {
+            BlockPos b = h.absolutePos(c.offset(i - 2, 0, 1)), r = (b.getY() & 15) < 15 ? b.above() : b.below();
+            level.setBlock(r, poi[i], 3);
+            LevelChunk chunk = level.getChunkAt(b);
+            chunk.getSection(chunk.getSectionIndex(b.getY())).setBlockState(b.getX() & 15, b.getY() & 15, b.getZ() & 15, poi[i], false);
+            registered.add(r);
+            bare.add(b);
+        }
+        int[] errors = {0};
+        var logger = (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getLogger(PoiSection.class.getName());
+        var counter = new org.apache.logging.log4j.core.appender.AbstractAppender("airstrike-poi-blast-errors", null, null, true,
+                org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+            @Override
+            public void append(org.apache.logging.log4j.core.LogEvent e) {
+                if (e.getLevel().isMoreSpecificThan(org.apache.logging.log4j.Level.ERROR)) errors[0]++;
+            }
+        };
+        counter.start();
+        logger.addAppender(counter);
+        StrikeGameTests.afterTest(h, () -> {
+            logger.removeAppender(counter);
+            counter.stop();
+        });
+        h.runAfterDelay(2, () -> {
+            // добавления POI через мир идут задачей сервера — к этому тику они в данных
+            for (BlockPos p : registered) h.assertTrue(level.getPoiManager().getType(p).isPresent(), "подготовка: нет в данных " + p.toShortString());
+            for (BlockPos p : bare) h.assertTrue(level.getPoiManager().getType(p).isEmpty(), "подготовка: в данных " + p.toShortString());
+            long[] t = {0};
+            Warheads.Probe probe = Warheads.testBlast(level, Vec3.atCenterOf(h.absolutePos(c)), 6, true, false, () -> t[0] += MS, 5 * MS);
+            long[] doneAt = {-1};
+            h.succeedWhen(() -> {
+                h.assertTrue(probe.done(), "взрыв идёт");
+                if (doneAt[0] < 0) doneAt[0] = level.getGameTime();
+                // снятие из данных POI — задачей сервера после смены блока
+                h.assertTrue(level.getGameTime() >= doneAt[0] + 2, "ждём задачи сервера");
+                h.assertTrue(errors[0] == 0, "ошибки PoiSection: " + errors[0]);
+                for (BlockPos p : bare) h.assertTrue(gone(level.getBlockState(p)), "не снесён " + p.toShortString());
+                for (BlockPos p : registered) h.assertTrue(gone(level.getBlockState(p)), "не снесён " + p.toShortString());
+                for (BlockPos p : bare) h.assertTrue(level.getPoiManager().getType(p).isEmpty(), "запись POI осталась " + p.toShortString());
+                for (BlockPos p : registered) h.assertTrue(level.getPoiManager().getType(p).isEmpty(), "запись POI осталась " + p.toShortString());
+            });
         });
     }
 

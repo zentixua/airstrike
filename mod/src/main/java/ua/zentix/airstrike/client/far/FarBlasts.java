@@ -29,8 +29,8 @@ import java.util.SplittableRandom;
  * Ближе 0,8 прорисовки взрыв рисуют частицы {@code BlastEffects}, дальше картинка переходит сюда ({@link FarView#farShare});
  * пакет, пришедший дальше {@link #NEAR}, ближней картинки не получает — дальняя рисуется на любой дальности. Свет
  * приходит сразу (и ночью зарево на облаках над местом — {@link #cloudGlow}, на любой дальности, кроме самой близкой),
- * звук — когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе — пояса ближней
- * модели.
+ * звук — когда до уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе — ракурсы ближней
+ * модели ({@code BlastMix}).
  * <p>
  * Числа — по замерам и оценкам (исследование 01.10.2026): огненный шар ВВ — диаметр 3,2–3,65·W^⅓ м (W — кг ТНТ), светит
  * 0,2·W^0,35 с, начинает с ~2000 K и остывает; днём ярче неба лишь первую половину жизни. Столб — по Чёрчу (1969): верх
@@ -127,6 +127,8 @@ public final class FarBlasts {
         /** Основание: точка удара, у бомбы — поверхность над зарядом. */
         final double x, y, z;
         final GroundMaterial ground;
+        /** Зерно взрыва: столб и вариант записи звука. */
+        final long seed;
         final long born;
         /** Пакет пришёл ближе {@link #NEAR}: ближняя картинка и звук есть. */
         final boolean near;
@@ -149,6 +151,7 @@ public final class FarBlasts {
             this.y = y;
             this.z = z;
             this.ground = ground;
+            this.seed = seed;
             this.born = clock;
             this.near = near;
             this.soundPending = !near;
@@ -254,7 +257,7 @@ public final class FarBlasts {
 
     private static void hear(Event e, double d, long age) {
         Outdoor.Heard heard = BlastSounds.far(e.kind, new Vec3(e.x, e.y + LIFT, e.z), e.look.audible(), Math.max(1, 0.4 * e.look.fireball()),
-                e.ground, d, e.path);
+                e.ground, d, e.path, e.seed);
         if (heard == null) return;
         lastHeard = heard;
         lastDistance = d;

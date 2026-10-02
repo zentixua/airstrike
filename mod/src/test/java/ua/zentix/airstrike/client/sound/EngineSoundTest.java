@@ -32,7 +32,7 @@ class EngineSoundTest {
         FlightTrack t = new FlightTrack(ID, WeaponType.MISSILE, false);
         for (int k = 0; k <= ticks; k++) {
             double x = from - V * k;
-            t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(x, 12, 0), new Vec3(-V, 0, 0), 90, 0, 0,
                     FlightPhase.CRUISE.ordinal(), 200 + k, aim));
         }
         return t;
@@ -70,7 +70,7 @@ class EngineSoundTest {
         double firstDistance = 0;
         for (int k = 0; k <= arrival; k++) {
             if (k % 2 == 0) {
-                t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0,
+                t.record(k, new S2C.FarFlight(ID, WeaponType.MISSILE.id(), false, false, true, new Vec3(from - v * k, 12, 0), new Vec3(-v, 0, 0), 90, 0, 0,
                         FlightPhase.CRUISE.ordinal(), 200 + k, EAR));
             }
             double te = Acoustics.emissionTime(t, k, EAR.x, EAR.y, EAR.z);
@@ -141,7 +141,7 @@ class EngineSoundTest {
         for (int k = 0; k <= ticks; k++) {
             Vec3 p = Ballistics.at(Vec3.ZERO, v0, k), v = Ballistics.at(Vec3.ZERO, v0, k + 1).subtract(p);
             FlightPhase ph = k < 40 ? FlightPhase.BOOST : v.y < 0 ? FlightPhase.TERMINAL : FlightPhase.CRUISE;
-            t.record(k, new S2C.FarFlight(ID, WeaponType.ROCKET.id(), false, false, true, p, v, 90, 0,
+            t.record(k, new S2C.FarFlight(ID, WeaponType.ROCKET.id(), false, false, true, p, v, 90, 0, 0,
                     ph.ordinal(), k, new Vec3(range, 0, 0)));
         }
         int heard = 0;
@@ -161,10 +161,35 @@ class EngineSoundTest {
     }
 
     @Test
-    void towardAimMeansHeadingForItHorizontally() {
-        assertTrue(Emission.toward(10, 0, 500, 100), "курс 11° от цели");
-        assertTrue(!Emission.toward(10, 0, 500, 500), "курс 45° от цели — обход");
-        assertTrue(!Emission.toward(-10, 0, 500, 0), "от цели");
-        assertTrue(Emission.toward(0, 0, 0.5, 0), "над самой целью");
+    void towardAimIsAShareOfTheHeading() {
+        assertEquals(1, Emission.toward(10, 0, 500, 70), 1e-12, "курс 8° от цели");
+        assertEquals(0, Emission.toward(10, 0, 500, 420), 1e-12, "курс 40° от цели — плечо обхода");
+        assertEquals(0, Emission.toward(-10, 0, 500, 0), 1e-12, "от цели");
+        assertEquals(1, Emission.toward(0, 0, 0.5, 0), 1e-12, "над самой целью");
+        // поворот маршрута: доля убывает плавно, на градус курса — не больше чем на десятую
+        double prev = 1;
+        for (int deg = 0; deg <= 90; deg++) {
+            double a = Math.toRadians(deg), w = Emission.toward(Math.cos(a), Math.sin(a), 500, 0);
+            assertTrue(w <= prev + 1e-12 && prev - w < 0.1, deg + "°: " + prev + " → " + w);
+            prev = w;
+        }
+    }
+
+    @Test
+    void whistleFadesThroughThePassInsteadOfCuttingOff() {
+        // ракета идёт на цель за слушателем и проходит в 60 блоках сбоку: свист подлёта стихает за пролёт, а не обрывается
+        // в ближайшей точке (раньше — с полной громкости до шума обтекания за тик)
+        Vec3 ear = new Vec3(0, 12, 60);
+        FlightTrack t = missile(600, new Vec3(-700, 0, 0), 300);
+        double prev = -1, peak = 0, worst = 0;
+        for (double now = 40; now <= 220; now += 1) {
+            double te = Acoustics.emissionTime(t, now, ear.x, ear.y, ear.z);
+            double g = EngineSound.Layer.MISSILE_WHISTLE.tone(t, Emission.at(t, te, ear, false)).gain();
+            if (prev >= 0) worst = Math.max(worst, Math.abs(g - prev));
+            peak = Math.max(peak, g);
+            prev = g;
+        }
+        assertTrue(peak > 0.5, "свист на подлёте " + peak);
+        assertTrue(worst < 0.15 * peak, "скачок громкости свиста за тик " + worst + " при пике " + peak);
     }
 }

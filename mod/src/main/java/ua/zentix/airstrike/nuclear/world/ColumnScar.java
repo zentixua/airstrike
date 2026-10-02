@@ -5,12 +5,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Clearable;
 import net.minecraft.world.RandomizableContainer;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.nuclear.Detonation;
+import ua.zentix.airstrike.util.PoiRecords;
 
 /**
  * Общее для разрушений ядерного удара: замена блока через мир (блок-сущности, воронка), счётчик пожаров подрыва,
@@ -59,13 +59,7 @@ public final class ColumnScar {
             if (be instanceof RandomizableContainer loot) loot.setLootTable(null);
             Clearable.tryClear(be);
         }
-        // место POI, которого нет в данных POI мира (постройка вставлена мимо setBlock: WorldEdit, схемы карт), —
-        // сперва в данные: иначе снятие блока пишет в лог ошибку PoiSection «never registered» на каждый такой блок
-        if (!old.is(with.getBlock())) {
-            PoiTypes.forState(old).ifPresent(type -> {
-                if (level.getPoiManager().getType(pos).isEmpty()) level.getPoiManager().add(pos, type);
-            });
-        }
+        if (!old.is(with.getBlock())) PoiRecords.recordIfMissing(level, pos, old);
         level.setBlock(pos, with, FLAGS);
     }
 
