@@ -42,7 +42,9 @@ public final class PlumeRenderer {
         strip(vc, pose, cam, p.z(), p.length(), p.radius() * 2.6f, p.outer(), p.intensity() * 0.75f);
         strip(vc, pose, cam, p.z(), p.length() * 0.6f, p.radius(), p.core(), p.intensity());
 
-        Vector3f left = camera.getLeftVector().rotate(inv), up = camera.getUpVector().rotate(inv);
+        // в копии: векторы камеры — её живые поля, rotate без dest поворачивал их самих до следующего кадра, и всё, что
+        // после снарядов ставит квадраты лицом к камере (дым слоя эффектов, дальнее), ложилось боком плоскими блинами
+        Vector3f left = camera.getLeftVector().rotate(inv, new Vector3f()), up = camera.getUpVector().rotate(inv, new Vector3f());
         VertexConsumer halo = buffers.getBuffer(RenderType.eyes(HALO));
         float s = p.radius() * 4.5f;
         billboard(halo, pose, new Vector3f(0, 0, p.z() - p.radius() * 0.5f), left, up, s, p.outer(), p.intensity() * 0.8f);
