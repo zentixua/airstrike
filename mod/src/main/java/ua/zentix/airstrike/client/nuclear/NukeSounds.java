@@ -3,6 +3,7 @@ package ua.zentix.airstrike.client.nuclear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -11,10 +12,13 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.sound.ClientSounds;
+import ua.zentix.airstrike.client.sound.SirenSound;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.registry.ModSounds;
 
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Звук ядерного удара (DESIGN-nuke §5). Свет приходит сразу, звук — с фронтом ударной волны: каждый тик клиент
@@ -25,37 +29,67 @@ import ua.zentix.airstrike.registry.ModSounds;
 public final class NukeSounds {
     /** Вход боеголовки виден последние 3 с — беззвучно: на 7 км/с её звук придёт уже после взрыва. */
     static final int REENTRY_TICKS = 60;
+    /** Движок не запустил сирены (звука нет, канала не дали): через столько тиков попробовать снова. */
+    private static final int SIREN_RETRY = 20;
 
     @Nullable
     private static RainLoop rainLoop;
+    /** Сирены, пока у слушателя тревога; пусто — не звучат (выключенные сбегают сами). */
+    private static final List<SirenSound> SIRENS = new ArrayList<>();
+    private static int sirenWait;
 
     private NukeSounds() {}
 
-    /** Пуск МБР: у запустившего — рёв двигателя со стола, у тех, кого касается, — сирена гражданской обороны. */
+    /** Пуск МБР: у запустившего — рёв двигателя со стола. Сирена гражданской обороны — {@link #sirens}. */
     static void warning(S2C.NukeWarning w) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
         long now = mc.level.getGameTime();
         if (w.mine() && now - w.launchTime() < 40) ClientSounds.at(ModSounds.NUKE_LAUNCH.get(), w.launchPos(), 24, 1);
-        if (w.alarm() && now < w.detonateTime()) {
-            // две сирены по разные стороны от игрока — как на улицах города
-            Vec3 c = mc.player.position();
-            ClientSounds.at(ModSounds.NUKE_ALARM.get(), c.add(140, 25, -90), 20, 1.0f);
-            ClientSounds.at(ModSounds.NUKE_ALARM.get(), c.add(-120, 25, 130), 20, 0.98f);
-        }
     }
 
-    /** Петля чёрного дождя — после {@link NukeSky#tick}, который решает, идёт ли он у камеры. */
+    /** Петля чёрного дождя — после {@link NukeSky#tick}, который решает, идёт ли он у камеры; сирены. */
     static void tick() {
         if (NukeSky.inBlackRain() && (rainLoop == null || rainLoop.isStopped())) {
             rainLoop = new RainLoop();
             Minecraft.getInstance().getSoundManager().play(rainLoop);
         }
+        sirens();
+    }
+
+    /**
+     * Сирены гражданской обороны воют, пока летит хоть одна МБР, о которой слушателю объявлена тревога: до подрыва
+     * (пакет подрыва снимает предупреждение), отбоя (сервер присылает предупреждения заново) или конца ожидания места
+     * удара; потом сбегают. Две сирены по разные стороны от места, где слушателя застала тревога, — как на улицах
+     * города. Сирены, которые бросил движок (перезапуск звука, смена измерения), запускаются снова.
+     */
+    private static void sirens() {
+        Minecraft mc = Minecraft.getInstance();
+        SoundManager manager = mc.getSoundManager();
+        if (sirenWait > 0) sirenWait--;
+        boolean alarm = false;
+        for (S2C.NukeWarning w : ClientNuclear.warnings()) alarm |= w.alarm();
+        if (!alarm) {
+            SIRENS.forEach(SirenSound::off);
+            SIRENS.clear();
+            return;
+        }
+        if ((!SIRENS.isEmpty() && SIRENS.stream().allMatch(manager::isActive)) || sirenWait > 0 || mc.player == null) return;
+        SIRENS.forEach(SirenSound::kill);
+        SIRENS.clear();
+        Vec3 c = mc.player.position();
+        SIRENS.add(new SirenSound(ModSounds.NUKE_ALARM.get(), c.add(140, 25, -90), 1.0f));
+        SIRENS.add(new SirenSound(ModSounds.NUKE_ALARM.get(), c.add(-120, 25, 130), 0.98f));
+        SIRENS.forEach(manager::play);
+        sirenWait = SIREN_RETRY;
     }
 
     static void reset() {
         if (rainLoop != null) rainLoop.end();
         rainLoop = null;
+        SIRENS.forEach(SirenSound::kill);
+        SIRENS.clear();
+        sirenWait = 0;
     }
 
     /** Звуки одного подрыва у этого слушателя. */
