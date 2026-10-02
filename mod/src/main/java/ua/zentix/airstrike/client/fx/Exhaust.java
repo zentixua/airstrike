@@ -351,7 +351,9 @@ public final class Exhaust {
      * перекрывают соседей ({@link Fx.Spec#chain}): сбоку, где лента и так во всю ширину, молодые клубы мельче пути за тик
      * читались цепочкой точек. С борта камера стоит между прошлым и нынешним положением снаряда, и клуб последнего
      * отрезка (на быстром снаряде — десяток блоков и больше) оказывался вплотную перед объективом (размытое пятно на весь
-     * кадр). Поэтому, пока камера на снаряде, отрезок берётся тиком позже — уже за камерой.
+     * кадр). Поэтому, пока камера на снаряде, отрезок берётся тиком позже — уже за камерой. Снаряд на клиенте сдвигается
+     * пакетом сервера, и в тик без пакета отрезка нет — нет и клуба: у клуба без пути не было бы шага цепочки, и он
+     * оставался виден всегда (светлые точки и овалы на ленте); следующий отрезок длиннее, и шаг его клуба — весь отрезок.
      */
     private static void volume(ClientLevel level, State s, Vec3 nozzle, Fx.Spec puff, RandomSource r) {
         Vec3 held = s.heldNozzle;
@@ -360,6 +362,7 @@ public final class Exhaust {
         if (to == null) return;
         Vec3 from = s.lastNozzle == null || s.lastNozzle.distanceToSqr(to) > 80 * 80 ? to : s.lastNozzle;
         s.lastNozzle = to;
+        if (from.distanceToSqr(to) < 1e-6) return;
         puff.budget(FxBudget.TRAIL).smooth().chain(to.x - from.x, to.y - from.y, to.z - from.z, from.distanceTo(to) / VOLUME_PUFFS_PER_TICK);
         for (int i = 0; i < VOLUME_PUFFS_PER_TICK; i++) {
             double k = (i + r.nextDouble()) / VOLUME_PUFFS_PER_TICK;
