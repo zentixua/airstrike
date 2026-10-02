@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client.flight;
 
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.client.sound.Acoustics;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -277,6 +278,24 @@ public final class FlightTrack implements Acoustics.Path {
         double s = Math.max(start(), Math.min(last, t));
         long a = (long) Math.floor(s);
         return phaseAges[(int) (a % CAPACITY)] + (s - a);
+    }
+
+    /**
+     * Прибавить к out точку в осях снаряда (вправо-влево, вверх, вдоль; нос по +Z) с поворотом носа в момент t — как
+     * {@code Local.offset}, без выделений: сопло от центра корпуса.
+     */
+    public void offset(double t, ClientWeaponSpec.At p, double[] out) {
+        int i = (int) ((long) Math.max(start(), Math.min(last, Math.floor(t))) % CAPACITY);
+        float yaw = yaws[i], pitch = pitches[i];
+        double f = Mth.cos((yaw + 90) * Mth.DEG_TO_RAD), f1 = Mth.sin((yaw + 90) * Mth.DEG_TO_RAD);
+        double f2 = Mth.cos(-pitch * Mth.DEG_TO_RAD), f3 = Mth.sin(-pitch * Mth.DEG_TO_RAD);
+        double f4 = Mth.cos((-pitch + 90) * Mth.DEG_TO_RAD), f5 = Mth.sin((-pitch + 90) * Mth.DEG_TO_RAD);
+        double fx = f * f2, fy = f3, fz = f1 * f2, ux = f * f4, uy = f5, uz = f1 * f4;
+        // влево — минус (вперёд × вверх)
+        double lx = fz * uy - fy * uz, ly = fx * uz - fz * ux, lz = fy * ux - fx * uy;
+        out[0] += fx * p.z() + ux * p.y() + lx * p.x();
+        out[1] += fy * p.z() + uy * p.y() + ly * p.x();
+        out[2] += fz * p.z() + uz * p.y() + lz * p.x();
     }
 
     /** Направление носа в момент t (для «спереди свист, сзади рёв»). */
