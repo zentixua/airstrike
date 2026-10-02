@@ -1,162 +1,155 @@
 package ua.zentix.airstrike.client.replay;
 
+import it.unimi.dsi.fastutil.booleans.BooleanConsumer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.server.IntegratedServer;
-import net.neoforged.fml.ModList;
-import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.compat.FlashbackReplay;
 
-import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Повтор Flashback и его перемотка. Перематывая, сервер повтора Flashback в одном своём тике ставит снимок куска
- * записи и читает пакеты от его начала до нужного места, а пакеты модов отдаёт клиенту сразу, как прочёл
- * ({@code ReplayServer.handleGamePacket}); Flashback NeoForge Fixed ещё и кладёт в каждый снимок последний пакет
- * каждого вида. Клиент принимал их как живые — и взрывы и подрывы с начала куска повторялись разом, со вспышкой
- * и звуком. Теперь событие из перемотки — прошлое: картинки и звука удара нет, ядерный подрыв виден в своём возрасте.
+ * Повтор Flashback и его перемотка. Перематывая, сервер повтора в одном своём тике ставит снимок куска записи и читает
+ * пакеты от его начала до нужного места, а пакеты модов отдаёт клиенту сразу, как прочёл; Flashback NeoForge Fixed ещё
+ * и кладёт в каждый снимок последний пакет каждого вида. Клиент принимал их как живые — и взрывы и подрывы с начала
+ * куска повторялись разом, со вспышкой и звуком. Теперь событие из перемотки — прошлое: картинки и звука удара нет,
+ * ядерный подрыв виден в своём возрасте.
  * <p>
- * Перемотку видно по двум счётчикам сервера повтора: место в записи ({@code getReplayTick}) и тики самого сервера
- * ({@link net.minecraft.server.MinecraftServer#getTickCount}). Повтор идёт — за тик сервера место сдвигается на тик,
- * стоит — не сдвигается; перемотка назад сдвигает его назад, вперёд — дальше, чем прошло тиков (снимок и чтение до
- * места — один тик, потом до 20 тиков по одному). Пока сервер перематывает, он не даёт клиенту рисовать и тикать
- * ({@code doClientRendering}), поэтому пакеты перемотки клиент разбирает раньше своего следующего тика — и сверяет
- * счётчики прямо в разборе пакета с замером своего прошлого тика.
+ * В повторе событие ждёт метки конца тика сервера повтора ({@link FlashbackReplay}): пакеты одного соединения клиент
+ * разбирает по порядку, и всё, что пришло до метки, прочитано в этом тике. Живое оно, если и этот тик, и прошлый —
+ * ход повтора: без перемотки и место сдвинулось вперёд не больше чем на {@link Markers#STEP} (вывод видео с ускорением
+ * шагает и на несколько тиков). Решение — в разборе метки, а не по тикам клиента: клиент тикает и посреди перемотки
+ * (Flashback не даёт ему только рисовать), а при выводе видео сервер стоит между шагами.
  * <p>
- * API для модов у Flashback нет, мод необязательный: открытые методы сервера повтора — через отражение. Без Flashback,
- * не в повторе или без этих методов — всё вживую, как раньше.
+ * Не в повторе, без Flashback или без меток — всё вживую, сразу, как раньше.
  */
 public final class Replay {
-    private static final Seeks SEEKS = new Seeks();
-    /** Мир, в котором сделан прошлый замер: новый мир повтора (открытие, смена измерения) — замеры заново. */
-    @Nullable
-    private static ClientLevel level;
-    private static boolean looked;
-    @Nullable
-    private static Class<?> serverClass;
-    @Nullable
-    private static Method place, rendering;
+    /** Тики клиента без единой метки, после которых ждущие события идут вживую: метки не приходят совсем. */
+    private static final int NO_MARKERS = 600;
+    private static final Markers MARKERS = new Markers();
+    private static final List<Pending> PENDING = new ArrayList<>();
+    /** Сколько событий каждого вида прошло живыми и прошлым (для сценария повтора). */
+    private static final Map<String, int[]> COUNTS = new LinkedHashMap<>();
+    private static int waited;
+    private static boolean warned;
+
+    private record Pending(String kind, BooleanConsumer action) {}
 
     private Replay() {}
 
-    /** Тик клиента (и на паузе): замер счётчиков. {@code true} — повтор перемотан (или только открыт) с прошлого тика. */
-    public static boolean tick() {
-        Minecraft mc = Minecraft.getInstance();
-        IntegratedServer s = server();
-        if (s == null || mc.level == null) {
-            reset();
-            return false;
+    /**
+     * Событие от сервера ({@code kind} — вид для счёта): {@code action} получает, живое ли оно. Не в повторе — сразу
+     * и живое; в повторе — с меткой конца этого тика сервера повтора.
+     */
+    public static void event(String kind, BooleanConsumer action) {
+        if (!active()) {
+            action.accept(true);
+            return;
         }
-        if (mc.level != level) {
-            reset();
-            level = mc.level;
-        }
-        Sample now = sample(s);
-        return now != null && SEEKS.sample(now.place, now.ticks, now.seeking);
+        PENDING.add(new Pending(kind, action));
     }
 
     /**
-     * Событие от сервера сейчас — живое: не из перемотки повтора. Не в повторе — всегда. В повторе — не в первый тик
-     * после открытия или перемотки и не посреди перемотки.
+     * Метка конца тика сервера повтора: события, пришедшие до неё, — живые или прошлое; первая метка хода повтора
+     * после перемотки сперва зовёт {@code rewound} (всё, что шло до перемотки, — с другого места записи).
      */
-    public static boolean live() {
-        IntegratedServer s = server();
-        if (s == null) return true;
-        if (Minecraft.getInstance().level != level) return false;
-        Sample now = sample(s);
-        return now == null || SEEKS.live(now.place, now.ticks, now.seeking);
+    public static void marker(int place, boolean seeking, Runnable rewound) {
+        Markers.Verdict v = MARKERS.next(place, seeking);
+        if (v == Markers.Verdict.SETTLED) rewound.run();
+        flush(v == Markers.Verdict.LIVE);
     }
 
-    /** Выход из мира: мир прошлого замера не держать. */
+    /** Тик клиента: ждущие события, если повтор закрыт или метки не приходят совсем, — вживую. */
+    public static void tick() {
+        if (PENDING.isEmpty()) return;
+        if (!active()) {
+            flush(true);
+        } else if (MARKERS.count == 0 && ++waited > NO_MARKERS) {
+            if (!warned) {
+                warned = true;
+                Airstrike.LOG.warn("Flashback: метки сервера повтора не приходят {} тиков — события повтора идут как живые", NO_MARKERS);
+            }
+            flush(true);
+        }
+    }
+
+    /** Выход из мира: ждущие события и метки прошлого повтора не держать. */
     public static void reset() {
-        level = null;
-        SEEKS.reset();
+        PENDING.clear();
+        MARKERS.reset();
+        waited = 0;
     }
 
     /** Клиент смотрит повтор Flashback. */
     public static boolean active() {
-        return server() != null;
+        return FlashbackReplay.isReplay(Minecraft.getInstance().getSingleplayerServer());
     }
 
-    /** Сервер повтора Flashback, если клиент сейчас смотрит повтор. */
-    @Nullable
-    private static IntegratedServer server() {
-        IntegratedServer s = Minecraft.getInstance().getSingleplayerServer();
-        if (s == null) return null;
-        if (!looked) find();
-        return serverClass != null && serverClass.isInstance(s) ? s : null;
+    /** Меток с открытия повтора. */
+    public static long markers() {
+        return MARKERS.count;
     }
 
-    private static void find() {
-        looked = true;
-        if (!ModList.get().isLoaded("flashback")) return;
-        try {
-            // без инициализации класса: в обычной игре сервера повтора нет
-            Class<?> c = Class.forName("com.moulberry.flashback.playback.ReplayServer", false, Replay.class.getClassLoader());
-            place = c.getMethod("getReplayTick");
-            rendering = c.getMethod("doClientRendering");
-            serverClass = c;
-        } catch (ReflectiveOperationException | LinkageError e) {
-            off(e);
+    /** Повтор идёт или стоит без перемотки: события следующего тика сервера будут живыми, если и он — ход. */
+    public static boolean steady() {
+        return MARKERS.clean;
+    }
+
+    /** Копия счёта событий: вид → {живые, прошлое}. */
+    public static Map<String, int[]> counts() {
+        Map<String, int[]> copy = new LinkedHashMap<>();
+        COUNTS.forEach((k, v) -> copy.put(k, v.clone()));
+        return copy;
+    }
+
+    private static void flush(boolean live) {
+        waited = 0;
+        if (PENDING.isEmpty()) return;
+        List<Pending> all = new ArrayList<>(PENDING);
+        PENDING.clear();
+        for (Pending p : all) {
+            COUNTS.computeIfAbsent(p.kind, k -> new int[2])[live ? 0 : 1]++;
+            p.action.accept(live);
         }
     }
 
-    @Nullable
-    private static Sample sample(IntegratedServer s) {
-        try {
-            // место — первым: поле volatile, счётчик тиков сервера после него не старее
-            int at = (int) place.invoke(s);
-            int ticks = s.getTickCount();
-            return new Sample(at, ticks, !(boolean) rendering.invoke(s));
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            off(e);
-            return null;
-        }
-    }
-
-    private static void off(Throwable e) {
-        serverClass = null;
-        Airstrike.LOG.warn("Flashback: не читаются getReplayTick/doClientRendering сервера повтора ({}) — перемотку повтора мод не узнает, события в нём идут как живые", e.toString());
-    }
-
-    private record Sample(int place, int ticks, boolean seeking) {}
-
-    /** Перемотка по замерам счётчиков; без Minecraft — для проверок. */
-    static final class Seeks {
+    /** Метки сервера повтора по порядку; без Minecraft — для проверок. */
+    static final class Markers {
         /**
-         * На сколько место в записи и тики сервера могут разойтись между замерами без перемотки: они читаются без замка
-         * в потоке клиента, и сервер между ними может сделать тик. Перемотка вперёд на меньшее (до 20 + запас тиков
-         * сервер проходит по тику) — не перемотка: события этих тиков идут как живые.
+         * На сколько тиков место может уйти вперёд за тик сервера в ходе повтора: при выводе видео с ускорением сервер
+         * шагает по нескольку тиков за кадр. Так Flashback отличает перемотку и сам: последние 20 тиков до места он
+         * проходит по тику.
          */
-        static final int SLACK = 5;
-        private boolean sampled, steady;
-        private int place, ticks;
+        static final int STEP = 20;
 
-        /** Замер в тике клиента; {@code true} — перемотали с прошлого замера (первый замер — тоже). */
-        boolean sample(int place, int ticks, boolean seeking) {
-            boolean jump = !sampled || jumped(place, ticks, seeking);
-            steady = !jump;
-            sampled = true;
+        enum Verdict {
+            /** События этого тика — живые. */
+            LIVE,
+            /** Прошлое: перемотка, первый тик после неё или первая метка повтора. */
+            PAST,
+            /** Прошлое, и это первый тик хода повтора после перемотки. */
+            SETTLED
+        }
+
+        private boolean clean;
+        private int place;
+        long count;
+
+        Verdict next(int place, boolean seeking) {
+            int moved = place - this.place;
+            boolean now = count > 0 && !seeking && moved >= 0 && moved <= STEP;
+            Verdict v = !now ? Verdict.PAST : clean ? Verdict.LIVE : Verdict.SETTLED;
+            clean = now;
             this.place = place;
-            this.ticks = ticks;
-            return jump;
-        }
-
-        /** Пакет сейчас — живой: прошлый замер чистый, и с него не перематывали. */
-        boolean live(int place, int ticks, boolean seeking) {
-            return steady && !jumped(place, ticks, seeking);
-        }
-
-        private boolean jumped(int place, int ticks, boolean seeking) {
-            int moved = place - this.place, ran = ticks - this.ticks;
-            // назад; вперёд дальше, чем шёл сервер; или сервер шёл дольше, чем сдвинулось место, а место не стояло:
-            // перемотка на тик-другой назад, после которой повтор успел пройти дальше прошлого замера
-            return seeking || moved < 0 || moved - ran > SLACK || moved > 0 && ran - moved > SLACK;
+            count++;
+            return v;
         }
 
         void reset() {
-            sampled = false;
-            steady = false;
+            clean = false;
+            count = 0;
         }
     }
 }

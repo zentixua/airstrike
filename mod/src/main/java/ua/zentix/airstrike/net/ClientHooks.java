@@ -41,6 +41,8 @@ public interface ClientHooks {
 
     default void mapPlayers(S2C.MapPlayers p) {}
 
+    default void replayTick(S2C.ReplayTick p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {

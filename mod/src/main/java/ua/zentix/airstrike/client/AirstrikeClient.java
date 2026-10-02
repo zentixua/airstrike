@@ -182,7 +182,7 @@ public final class AirstrikeClient {
         while (Keys.MAP.consumeClick()) mc.setScreen(new MapScreen(new RemoteScreen()));
         while (Keys.FIRE.consumeClick()) Designator.fire();
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
-        if (Replay.tick()) rewound();
+        Replay.tick();
         if (mc.isPaused()) return;
         Designator.tick();
         ClientFlights.tick();
@@ -255,41 +255,53 @@ public final class AirstrikeClient {
 
     /**
      * Пакеты сервера. Разовое событие (взрыв, тряска, сирена, звук) из перемотки повтора Flashback — прошлое, его нет
-     * ({@link Replay#live}); состояние (свои снаряды, ядерка, радиация) принимается всегда, пути дальних снарядов — только живые.
+     * ({@link Replay#event}); состояние (свои снаряды, ядерка, радиация) принимается всегда, пути дальних снарядов — только живые.
      */
     private static final class Hooks implements ClientHooks {
         @Override
         public void blast(S2C.Blast p) {
-            if (!Replay.live()) return;
-            p.projectile().ifPresent(FlightTracks::impact);
-            BlastEffects.blast(p);
+            Replay.event("blast", live -> {
+                if (!live) return;
+                p.projectile().ifPresent(FlightTracks::impact);
+                BlastEffects.blast(p);
+            });
         }
 
         @Override
         public void bunkerImpact(S2C.BunkerImpact p) {
-            if (Replay.live()) BlastEffects.bunkerImpact(p);
+            Replay.event("bunker", live -> {
+                if (live) BlastEffects.bunkerImpact(p);
+            });
         }
 
         @Override
         public void vent(S2C.Vent p) {
-            if (Replay.live()) BlastEffects.vent(p);
+            Replay.event("vent", live -> {
+                if (live) BlastEffects.vent(p);
+            });
         }
 
         @Override
         public void collapse(S2C.Collapse p) {
-            if (Replay.live()) BlastEffects.collapse(p);
+            Replay.event("collapse", live -> {
+                if (live) BlastEffects.collapse(p);
+            });
         }
 
         @Override
         public void quake(S2C.Quake p) {
-            if (!Replay.live()) return;
-            CameraShake.quake(p.ticks());
-            if (p.rumble()) BlastSounds.quake();
+            Replay.event("quake", live -> {
+                if (!live) return;
+                CameraShake.quake(p.ticks());
+                if (p.rumble()) BlastSounds.quake();
+            });
         }
 
         @Override
         public void siren(S2C.Siren p) {
-            if (Replay.live()) Alerts.siren(p);
+            Replay.event("siren", live -> {
+                if (live) Alerts.siren(p);
+            });
         }
 
         @Override
@@ -321,12 +333,12 @@ public final class AirstrikeClient {
 
         @Override
         public void nukeWarning(S2C.NukeWarning p) {
-            ClientNuclear.warning(p, Replay.live());
+            Replay.event("warning", live -> ClientNuclear.warning(p, live));
         }
 
         @Override
         public void nukeDetonation(S2C.NukeDetonation p) {
-            ClientNuclear.detonation(p, Replay.live());
+            Replay.event("nuke", live -> ClientNuclear.detonation(p, live));
         }
 
         @Override
@@ -347,7 +359,9 @@ public final class AirstrikeClient {
         @Override
         public void farFlights(S2C.FarFlights p) {
             // пакеты перемотки пришли бы разом, точками пути одного тика
-            if (Replay.live()) FlightTracks.received(p);
+            Replay.event("far", live -> {
+                if (live) FlightTracks.received(p);
+            });
         }
 
         @Override
@@ -357,12 +371,21 @@ public final class AirstrikeClient {
 
         @Override
         public void gridFailure(S2C.GridFailure p) {
-            if (Replay.live()) GridEffects.failure(p);
+            Replay.event("grid", live -> {
+                if (live) GridEffects.failure(p);
+            });
         }
 
         @Override
         public void gridDistrict(S2C.GridDistrict p) {
-            if (Replay.live()) GridEffects.district(p);
+            Replay.event("district", live -> {
+                if (live) GridEffects.district(p);
+            });
+        }
+
+        @Override
+        public void replayTick(S2C.ReplayTick p) {
+            Replay.marker(p.place(), p.seeking(), AirstrikeClient::rewound);
         }
     }
 }

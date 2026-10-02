@@ -7,10 +7,11 @@
 **Что проверяем.** Сценарий `replay` в своей сборке (pack/, моды записи включены, `quicksave`) записывает игру:
 шахед, ракета и ещё ядерка 1 кт в 700 блоках за спиной, — выходит, открывает повтор и перематывает. Сразу после открытия
 повтор перематывается вперёд за все удары (`open`), потом проигрывается с места до первого пуска до конца (кадры
-`replay_flight*`, `replay_gone*`), потом перемотки назад к концу (`back`), к началу проигрывания (`before`) и снова
-вперёд (`forward`). На каждой — строка `SCENARIO replay seek …` и кадр `replay_seek_<имя>.png`: частиц взрывов нет,
-вспышки нет, живых подрывов нет, подрыв до места — в своём возрасте по часам мира, до подрыва — его нет. Итог —
-`SCENARIO replay seeks ok` или `… FAIL: <что>`. При проигрывании взрывы и подрыв должны быть живыми (это тоже в итоге).
+`replay_flight*`, `replay_gone*`), потом перемотки назад к концу (`back`), к началу проигрывания (`before`), на два тика
+после подрыва (`after`) и снова вперёд (`forward`). На каждой — строка `SCENARIO replay seek …` и кадр
+`replay_seek_<имя>.png`: ни одного живого события мода (счёт по видам — в строке), вспышки нет, живых подрывов нет,
+подрыв до места — в своём возрасте по часам мира, до подрыва — его нет. Итог — `SCENARIO replay seeks ok` или
+`… FAIL: <что>`. При проигрывании взрывы и подрыв должны быть живыми (это тоже в итоге).
 
 ## Правила (для каждого блока)
 - Каждый блок — **одним вызовом, как написан**; состояние оболочки между вызовами не сохраняется. Блоки с шага 2
@@ -48,7 +49,7 @@ git fetch origin claude/project-thread-kl5u8a && git worktree add "$W" <SHA> && 
 findmnt -n -o ID "/run/user/$(id -u)/doc" > "$W/mod/run/rs/doc-mount.before" && echo "маунт doc записан" && \
 git log --oneline -1 && [ "$(git rev-parse HEAD)" = <SHA> ] && echo "коммит верный" && \
 grep -q 'replay_seek_' mod/src/devtest/java/ua/zentix/airstrike/scenario/ReplayCheck.java && \
-test -f mod/src/main/java/ua/zentix/airstrike/client/replay/Replay.java && echo "сценарий на месте"
+test -f mod/src/main/java/ua/zentix/airstrike/compat/FlashbackReplay.java && echo "сценарий на месте"
 ```
 Должно быть «маунт doc записан», «коммит верный» и «сценарий на месте». Нет — стоп, прислать вывод.
 
@@ -95,7 +96,7 @@ else echo "стоп: запуск уже был ($O или $D/logs есть)"; f
 ```sh
 W="/mnt/data/projects/airstrike/mod/run/claude-work/replay-seek-SHA7" && cd "${W:?}/mod/run/rs/out/run" && L=logs/latest.log && \
 echo "код: $(cat code)"; grep -ac 'SCENARIO done' "$L"; \
-grep -aE 'SCENARIO replay (saved|opened|play from|nuke at|played|seek|seeks|failed)|Flashback: не читаются' "$L" | sed 's/^.*\]: //' | cut -c1-400; \
+grep -aE 'SCENARIO replay (saved|opened|play from|nuke at|played|seek|seeks|failed)|Flashback: (не читаются|метки)' "$L" | sed 's/^.*\]: //' | cut -c1-700; \
 echo "== строки play (каждая пятая):"; grep -a 'SCENARIO replay play tick=' "$L" | sed 's/^.*\]: //' | awk 'NR%5==1' | cut -c1-300 | head -30; \
 echo "== подрыв на сервере записи:"; grep -aE 'Ядерный|ядерн|NUKE|detonat' "$L" | grep -av SCENARIO | sed 's/^.*\]: //' | cut -c1-250 | head -8; \
 echo "== ошибки мода и падения:"; grep -aE 'ua\.zentix.*(Exception|Error)|has crashed|emergencySaveAndCrash|Unreported exception|\[airstrike/ERROR\]' "$L" | cut -c1-300 | head -12; \
@@ -104,7 +105,7 @@ mkdir -p ../frames && for f in screenshots/replay_seek_*.png screenshots/replay_
 now=$(findmnt -n -o ID "/run/user/$(id -u)/doc"); [ -n "$now" ] && [ "$now" = "$(cat ../../doc-mount.before)" ] && echo "маунт doc цел: $now" || echo "ПРОВАЛ: маунт /run/user/$(id -u)/doc пропал или сменился"
 ```
 Прислать координатору весь вывод и кадры `replay_seek_open`, `replay_seek_back`, `replay_seek_before`,
-`replay_seek_forward` и два `replay_gone*_30` (JPEG из `$W/mod/run/rs/out/frames`).
+`replay_seek_after`, `replay_seek_forward` и два `replay_gone*_30` (JPEG из `$W/mod/run/rs/out/frames`).
 
-**Решение.** Годен: код 0, `SCENARIO done`, четыре строки `SCENARIO replay seek … ok`, `SCENARIO replay nuke at … live=true`,
+**Решение.** Годен: код 0, `SCENARIO done`, пять строк `SCENARIO replay seek … ok`, `SCENARIO replay nuke at … live=true`,
 `SCENARIO replay seeks ok`, ошибок мода и падений нет. Иначе — что не так, по строкам.

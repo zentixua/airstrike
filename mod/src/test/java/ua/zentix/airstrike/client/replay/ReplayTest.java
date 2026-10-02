@@ -10,77 +10,91 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Перемотка повтора Flashback по счётчикам сервера повтора. Сервер — модель {@code ReplayServer.tickServer}
- * и {@code handleActions} Flashback 0.39.10: место в записи, тики сервера, перемотка — снимок куска записи (назад
- * или дальше куска вперёд) и чтение до места за один тик, последние 20 тиков — по одному, пока не дойдёт.
- * Пакет события в записи отдаётся клиенту в тот тик сервера, когда прочитан.
+ * Живые события повтора Flashback по меткам сервера повтора. Сервер — модель {@code ReplayServer.tickServer},
+ * {@code runUpdates} и {@code handleActions} Flashback 0.39.10: место в записи ({@code targetTick}) и прочитанное
+ * ({@code currentTick}); перемотка назад или вперёд дальше длины куска в другой кусок — снимок куска (с последним пакетом
+ * каждого вида, Flashback NeoForge Fixed) и чтение от его начала; до места дальше 20 тиков — чтение разом до места − 20,
+ * последние — по тику с {@code fastForwarding}; при выводе видео — одно чтение на шаг. Каждое чтение кончается тиком
+ * сервера — меткой: перемотка, если был снимок или досмотр по тику ({@code doClientRendering}), при выводе видео — только
+ * досмотр. Клиент разбирает пакеты одного соединения по порядку: события тика, потом его метка; когда — не важно.
  */
 class ReplayTest {
     /** Кусок записи — 5 минут (снимки — в начале каждого). */
     private static final int CHUNK = 6000;
+    /** Событие снимка: последний пакет вида, а не место записи. */
+    private static final int SNAPSHOT = -1;
 
-    /** Пакет, который клиент разобрал: место записи, где событие было, и живое ли оно для клиента. */
+    /** Событие, которое клиент принял: место записи, где оно было, и живое ли. */
     private record Event(int recorded, boolean live) {}
 
-    /**
-     * Сервер повтора и клиент. Клиент разбирает пакеты после тика сервера (или прямо по ходу его, {@code eager}) и
-     * тикает сам, если сервер не перематывает (Flashback тогда не даёт ему тикать).
-     */
     private static final class Rig {
-        final Replay.Seeks seeks = new Replay.Seeks();
+        final Replay.Markers markers = new Replay.Markers();
+        final List<Integer> pending = new ArrayList<>();
         final List<Event> events = new ArrayList<>();
-        int place, current, ticks;
-        boolean seeking, paused;
-        boolean eager;
-        int jumps;
+        /** Куски, в начале которых снимок ставится и при чтении подряд (стык склеенных записей). */
+        final List<Integer> forced = new ArrayList<>();
+        int target, current;
+        boolean paused = true, export, seeking;
+        int rewinds;
 
-        /** Тик сервера: повтор идёт или стоит; клиент разбирает пакеты и делает свой тик. */
-        void tick() {
-            ticks++;
-            if (!paused) read(place + 1);
-            clientTick();
-        }
-
-        /** Перемотка на место {@code to} (как {@code goToReplayTick}): один тик сервера. */
-        void seek(int to) {
-            if (to != current) {
-                int start;
-                if (to < current || to > current + CHUNK) {
-                    current = to / CHUNK * CHUNK; // снимок куска
-                    start = Math.max(current + 1, to - 20);
-                } else {
-                    start = Math.max(current + 1, to - 20);
-                }
-                for (int t = start; t <= to; t++) {
-                    seeking = t < to;
-                    ticks++;
-                    read(t);
-                }
-                seeking = false;
+        /** Тик сервера: шаг повтора, перемотка на {@code jump} или стоим. */
+        void tick(Integer jump) {
+            boolean normal = false;
+            if (jump != null) {
+                target = jump;
+            } else if (!paused) {
+                target++;
+                normal = true;
             }
-            clientTick();
+            if (export || target == current || normal) {
+                runUpdates();
+                return;
+            }
+            int real = target;
+            target = target < current ? Math.max(real / CHUNK * CHUNK + 1, real - 20) : Math.max(current + 1, real - 20);
+            if (target >= real) {
+                target = real;
+                runUpdates();
+                return;
+            }
+            while (true) {
+                seeking = target < real;
+                runUpdates();
+                if (target == real) break;
+                target++;
+            }
+            seeking = false;
         }
 
-        /** Сервер дочитывает запись до места {@code to}; события — по одному на каждое место записи. */
-        private void read(int to) {
-            place = to;
-            List<Integer> sent = new ArrayList<>();
-            for (int t = current + 1; t <= to; t++) sent.add(t);
-            current = to;
-            if (eager) for (int t : sent) handle(t);
-            else pending.addAll(sent);
+        void tick() {
+            tick(null);
         }
 
-        private final List<Integer> pending = new ArrayList<>();
-
-        private void handle(int recorded) {
-            events.add(new Event(recorded, seeks.live(place, ticks, seeking)));
+        void seek(int to) {
+            tick(to);
         }
 
-        private void clientTick() {
-            for (int t : pending) handle(t);
+        /** Чтение до места и тик сервера (метка в его конце). */
+        private void runUpdates() {
+            boolean snapshot = false;
+            if (target != current) {
+                if (target < current || target > current + CHUNK && target / CHUNK != current / CHUNK) {
+                    pending.add(SNAPSHOT);
+                    snapshot = true;
+                    current = target / CHUNK * CHUNK;
+                }
+                while (current < target) {
+                    pending.add(++current);
+                    if (forced.contains(current)) {
+                        pending.add(SNAPSHOT);
+                        snapshot = true;
+                    }
+                }
+            }
+            Replay.Markers.Verdict v = markers.next(target, export ? seeking : seeking || snapshot);
+            if (v == Replay.Markers.Verdict.SETTLED) rewinds++;
+            for (int t : pending) events.add(new Event(t, v == Replay.Markers.Verdict.LIVE));
             pending.clear();
-            if (seeks.sample(place, ticks, seeking)) jumps++;
         }
 
         List<Event> take() {
@@ -90,13 +104,13 @@ class ReplayTest {
         }
     }
 
-    private static Rig playing(int from) {
+    /** Повтор открыт (снимок первого куска), стоит на {@code at}, ещё три тика — и метки устоялись. */
+    private static Rig at(int at) {
         Rig r = new Rig();
-        r.seek(from);
-        r.tick();
-        r.tick();
+        r.seek(at);
+        for (int i = 0; i < 3; i++) r.tick();
         r.take();
-        r.jumps = 0;
+        r.rewinds = 0;
         return r;
     }
 
@@ -104,115 +118,157 @@ class ReplayTest {
         return events.stream().filter(Event::live).count();
     }
 
-    /** Повтор идёт: каждое событие — живое, перемоток нет; стоит — тоже. */
+    /** Повтор идёт: каждое событие — живое, перемоток нет; стоит и снова идёт — тоже. */
     @Test
     void playbackIsLive() {
-        for (boolean eager : new boolean[] {false, true}) {
-            Rig r = playing(1000);
-            r.eager = eager;
-            for (int i = 0; i < 400; i++) r.tick();
-            List<Event> e = r.take();
-            assertEquals(400, e.size());
-            assertEquals(400, live(e), "живые события");
-            r.paused = true;
-            for (int i = 0; i < 200; i++) r.tick();
-            r.paused = false;
-            for (int i = 0; i < 50; i++) r.tick();
-            assertEquals(50, live(r.take()));
-            assertEquals(0, r.jumps, "перемоток не было");
-        }
+        Rig r = at(1000);
+        r.paused = false;
+        for (int i = 0; i < 400; i++) r.tick();
+        List<Event> e = r.take();
+        assertEquals(400, e.size());
+        assertEquals(400, live(e));
+        r.paused = true;
+        for (int i = 0; i < 200; i++) r.tick();
+        r.paused = false;
+        for (int i = 0; i < 50; i++) r.tick();
+        assertEquals(50, live(r.take()));
+        assertEquals(0, r.rewinds);
     }
 
-    /** Открытие повтора: снимок первого куска — прошлое; через тик клиента после него события живые. */
+    /** Открытие повтора: снимок первого куска и первый тик — прошлое; дальше повтор живой. */
     @Test
     void openingIsPast() {
         Rig r = new Rig();
-        r.seek(0);
-        r.read(0);
-        r.pending.add(-1); // пакеты снимка (последний пакет каждого вида у Flashback NeoForge Fixed)
-        r.clientTick();
+        r.pending.add(SNAPSHOT); // пакеты снимка при входе — до первой метки
+        r.tick();
         assertEquals(0, live(r.take()));
+        r.paused = false;
+        r.tick();
+        assertEquals(0, live(r.take()), "первый тик хода — после первой метки, ещё прошлое");
         r.tick();
         r.tick();
-        assertTrue(r.take().stream().skip(1).allMatch(Event::live));
+        assertEquals(2, live(r.take()));
+        assertEquals(1, r.rewinds);
     }
 
     /**
-     * Перемотка назад (на сколько угодно, в том же куске и в прошлый) и вперёд дальше 26 тиков (повтор до неё прошёл
-     * ещё два тика с 9000): всё прочитанное — прошлое.
+     * Перемотка назад (на тик, в том же куске, в начало куска, в прошлый) и вперёд (на 2–3 тика, на 20, на 21, дальше,
+     * в другой кусок): всё прочитанное — прошлое, одна перемотка; на паузе и на ходу; потом повтор снова живой (после
+     * перемотки одним чтением — в начало куска — первый тик хода ещё прошлое).
      */
     @Test
     void seekEventsArePast() {
-        int[][] seeks = {{9000, 6500}, {9000, 8990}, {9000, 8999}, {9000, 3000}, {9000, 9100}, {9000, 16000}, {9000, 9030}, {9000, 6001}};
-        for (boolean eager : new boolean[] {false, true}) {
-            for (int[] s : seeks) {
-                Rig r = playing(s[0]);
-                r.eager = eager;
-                r.paused = s[0] % 2 == 0;
-                r.seek(s[1]);
+        int[] targets = {8999, 8990, 6500, 6001, 6000, 3000, 9003, 9020, 9021, 9030, 9100, 11000, 14000, 16000};
+        for (boolean playing : new boolean[] {false, true}) {
+            for (int to : targets) {
+                Rig r = at(9000);
+                r.paused = !playing;
+                if (playing) r.tick();
+                r.take();
+                r.seek(to);
                 List<Event> e = r.take();
-                assertFalse(e.isEmpty());
-                assertEquals(0, live(e), s[0] + " → " + s[1] + (eager ? " по ходу" : ""));
-                assertEquals(1, r.jumps);
-                // после перемотки: первый тик клиента — ещё перемотка, дальше живое
+                assertFalse(e.isEmpty(), "→ " + to);
+                assertEquals(0, live(e), "→ " + to + (playing ? " на ходу" : " на паузе"));
                 r.paused = false;
                 r.tick();
                 r.tick();
-                List<Event> after = r.take();
-                assertTrue(after.get(after.size() - 1).live(), s[0] + " → " + s[1] + ": после перемотки повтор снова живой");
-                assertEquals(1, r.jumps);
+                List<Event> next = r.take();
+                assertEquals(2, next.size());
+                assertTrue(next.get(1).live(), "→ " + to + ": после перемотки повтор снова живой");
+                assertEquals(1, r.rewinds, "→ " + to);
             }
         }
     }
 
-    /** Шаг вперёд до 20 тиков сервер проходит по тику — это не перемотка: события этих тиков живые. */
+    /** На паузе шаг на один тик вперёд — ход повтора: его события живые. */
     @Test
-    void shortStepForwardIsLive() {
-        Rig r = playing(9000);
-        r.paused = true;
-        r.seek(r.place + 15);
+    void singleStepIsLive() {
+        Rig r = at(9000);
+        r.seek(9001);
         List<Event> e = r.take();
-        assertEquals(15, e.size());
-        assertEquals(15, live(e));
-        assertEquals(0, r.jumps);
+        assertEquals(1, e.size());
+        assertEquals(1, live(e));
+        assertEquals(0, r.rewinds);
     }
 
     /**
-     * Перемотка на тик назад, а клиент разобрал её пакеты только через три тика сервера (кадр затянулся): место уже
-     * дальше прошлого замера, но тиков сервера прошло на перемотку больше — тоже перемотка.
+     * Вывод видео: сервер стоит между шагами (клиент тикает сам), каждый шаг — одно чтение. Сперва перемотка на 40 тиков
+     * до начала — прошлое; шаги по тику и с ускорением (до 20 тиков за кадр) — живые; дальше шаг — прошлое.
      */
     @Test
-    void tinySeekBackSeenLate() {
-        Replay.Seeks s = new Replay.Seeks();
-        s.sample(1000, 50_000, false);
-        s.sample(1001, 50_001, false);
-        // перемотка на 1000 (21 тик сервера: досмотр последних 20 по одному), потом ещё три тика повтора
-        assertFalse(s.live(1003, 50_001 + 21 + 3, false));
-        // тот же сдвиг места, когда повтор просто шёл
-        assertTrue(s.live(1004, 50_004, false));
+    void exportStepsAreLive() {
+        Rig r = at(9000);
+        r.export = true;
+        r.seek(2960);
+        assertEquals(0, live(r.take()), "перемотка к началу видео");
+        for (int t = 2961; t <= 3000; t++) r.seek(t);
+        List<Event> warm = r.take();
+        assertEquals(40, warm.size());
+        assertEquals(39, live(warm), "первый шаг после перемотки — ещё прошлое");
+        for (int i = 0; i < 100; i++) r.tick(); // сервер ждёт шага
+        for (int t = 3001; t <= 3200; t++) r.seek(t);
+        assertEquals(200, live(r.take()));
+        for (int t = 3220; t <= 3600; t += 20) r.seek(t);
+        assertEquals(400, live(r.take()), "ускорение: по 20 тиков за шаг");
+        r.seek(3700);
+        assertEquals(0, live(r.take()));
+        assertEquals(1, r.rewinds);
     }
 
-    /** Счётчики читаются без замка: сервер между ними сделал тик — это не перемотка. */
+    /** Повтор ускорен, кадры клиента редки: метки идут по одной на тик сервера, события живые. */
     @Test
-    void readRaceIsNotASeek() {
-        Replay.Seeks s = new Replay.Seeks();
-        s.sample(1000, 50_000, false);
-        s.sample(1001, 50_001, false);
-        assertTrue(s.live(1002, 50_001, false));
-        assertFalse(s.sample(1002, 50_001, false));
-        assertFalse(s.sample(1003, 50_003, false));
-        assertTrue(s.live(1003, 50_003, false));
+    void fastPlaybackIsLive() {
+        Rig r = at(1000);
+        r.paused = false;
+        for (int i = 0; i < 2000; i++) r.tick();
+        assertEquals(2000, live(r.take()));
     }
 
-    /** Повтор ускорен, клиент отстал (кадр в полсекунды): место и тики сервера сдвинулись вместе — не перемотка. */
+    /** Повтор дошёл до конца куска: следующий кусок читается подряд, без снимка, — живой. */
     @Test
-    void fastPlaybackWithLagIsNotASeek() {
-        Replay.Seeks s = new Replay.Seeks();
-        s.sample(1000, 50_000, false);
-        s.sample(1001, 50_001, false);
-        assertTrue(s.live(1201, 50_201, false));
-        assertFalse(s.sample(1201, 50_201, false));
-        // повтор на паузе, а клиент отстал: тики сервера идут, место стоит
-        assertTrue(s.live(1201, 50_401, false));
+    void chunkBoundaryIsLive() {
+        Rig r = at(CHUNK - 5);
+        r.paused = false;
+        for (int i = 0; i < 10; i++) r.tick();
+        List<Event> e = r.take();
+        assertEquals(10, live(e));
+        assertTrue(e.stream().noneMatch(ev -> ev.recorded() == SNAPSHOT));
+    }
+
+    /**
+     * Стык склеенных записей: снимок посреди хода повтора — его тик прошлое (в снимке последние пакеты прошлой записи),
+     * следующий — первый тик хода, дальше живое.
+     */
+    @Test
+    void forcedSnapshotIsPast() {
+        Rig r = at(CHUNK - 5);
+        r.forced.add(CHUNK);
+        r.paused = false;
+        for (int i = 0; i < 4; i++) r.tick();
+        assertEquals(4, live(r.take()));
+        r.tick();
+        assertEquals(0, live(r.take()), "тик со снимком");
+        r.tick();
+        assertEquals(0, live(r.take()));
+        r.tick();
+        assertEquals(1, live(r.take()));
+        assertEquals(1, r.rewinds);
+    }
+
+    /** Место назад или вперёд дальше {@link Replay.Markers#STEP} без флага перемотки — тоже прошлое. */
+    @Test
+    void jumpWithoutFlagIsPast() {
+        Replay.Markers m = new Replay.Markers();
+        m.next(100, false);
+        m.next(101, false);
+        assertEquals(Replay.Markers.Verdict.LIVE, m.next(102, false));
+        assertEquals(Replay.Markers.Verdict.PAST, m.next(101, false));
+        assertEquals(Replay.Markers.Verdict.SETTLED, m.next(102, false));
+        assertEquals(Replay.Markers.Verdict.PAST, m.next(102 + Replay.Markers.STEP + 1, false));
+        assertEquals(Replay.Markers.Verdict.SETTLED, m.next(123 + Replay.Markers.STEP, false));
+        assertEquals(Replay.Markers.Verdict.LIVE, m.next(123 + Replay.Markers.STEP, false));
+        assertEquals(Replay.Markers.Verdict.PAST, m.next(200, true));
+        m.reset();
+        assertEquals(Replay.Markers.Verdict.PAST, m.next(200, false), "после выхода из мира — первая метка");
     }
 }

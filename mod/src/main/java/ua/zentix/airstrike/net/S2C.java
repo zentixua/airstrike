@@ -389,4 +389,19 @@ public final class S2C {
             return TYPE;
         }
     }
+
+    /**
+     * Конец тика сервера повтора Flashback ({@link ua.zentix.airstrike.compat.FlashbackReplay}): место в записи и идёт ли
+     * перемотка. Пакеты, пришедшие до метки, прочитаны в этом тике; только повтор, в игре её нет.
+     */
+    public record ReplayTick(int place, boolean seeking) implements CustomPacketPayload {
+        public static final Type<ReplayTick> TYPE = new Type<>(Airstrike.id("replay_tick"));
+        public static final StreamCodec<ByteBuf, ReplayTick> CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, ReplayTick::place, ByteBufCodecs.BOOL, ReplayTick::seeking, ReplayTick::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
 }

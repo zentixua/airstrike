@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import ua.zentix.airstrike.command.AirstrikeCommand;
 import ua.zentix.airstrike.compat.DhChunks;
 import ua.zentix.airstrike.compat.DhUpdates;
+import ua.zentix.airstrike.compat.FlashbackReplay;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.legacy.LegacyMigration;
@@ -75,6 +76,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.airstrike.util.StopDrain::onServerStopping);
         NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
         NeoForge.EVENT_BUS.addListener(FarFlights::onServerTick);
+        NeoForge.EVENT_BUS.addListener(FlashbackReplay::onServerTick);
         NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
         NeoForge.EVENT_BUS.addListener(DhUpdates::onLevelTick);
         NeoForge.EVENT_BUS.addListener(FarLods::onLevelTick);

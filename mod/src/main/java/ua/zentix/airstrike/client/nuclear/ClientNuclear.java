@@ -115,7 +115,7 @@ public final class ClientNuclear {
 
     // ---------------------------------------------------------------- пакеты
 
-    /** Пуск МБР; {@code live} — не из перемотки повтора ({@link ua.zentix.airstrike.client.replay.Replay#live}): рёв пуска только вживую. */
+    /** Пуск МБР; {@code live} — не из перемотки повтора ({@link ua.zentix.airstrike.client.replay.Replay#event}): рёв пуска только вживую. */
     public static void warning(S2C.NukeWarning w, boolean live) {
         boolean fresh = !WARNINGS.containsKey(w.strikeId());
         WARNINGS.put(w.strikeId(), w);
