@@ -167,9 +167,10 @@ public final class FxParticle {
     private int light(ClientLevel level) {
         if (!kind.lit) return LightTexture.FULL_BRIGHT;
         BlockPos pos = BlockPos.containing(x, y, z);
-        // как у ванильной частицы: чанка нет — темно
+        // чанка у клиента нет (дальше прорисовки: дым залпа, от которого зритель ушёл) — открытое небо, как у ленты
+        // шлейфа ({@code FarFlightView}); у ванильной частицы там темно, и клубы на светлой ленте выходили чёрными бусинами
         return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()))
-                ? LevelRenderer.getLightColor(level, pos) : 0;
+                ? LevelRenderer.getLightColor(level, pos) : LightTexture.FULL_SKY;
     }
 
     /** Накал 0..1: гаснет экспоненциально за {@code glowTicks}. */
