@@ -40,10 +40,10 @@ repositories {
     mavenCentral()
 }
 
-// Моды сборки «All of Create Aeronautics» для запусков из Gradle (Create, Sable, Aeronautics).
+// Моды из инстанса хоста (сборка «Airstrike Pack») для запусков из Gradle (Create, Sable, Aeronautics).
 // NeoForge 1.21.1 работает на mojmap-именах, поэтому jar из mods/ подходят без ремаппинга.
 // Путь переопределяется: -PmcModsDir=... или переменная MC_DIR (как в tools/paths.py).
-def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/All of Create Aeronautics/minecraft"
+def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/Airstrike Pack/minecraft"
 def mcModsDir = file(project.findProperty('mcModsDir') ?: "${mcDir}/mods")
 def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 'create-aeronautics-bundled-1.21.1-*.jar']
 // сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
