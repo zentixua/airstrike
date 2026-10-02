@@ -47,3 +47,10 @@ Prism Launcher: «Добавить экземпляр» → «Импорт» →
   версия), потом `packwiz refresh`. CI проверяет, что `index.toml` свежий.
 - Новый выпуск Airstrike: `packwiz url add Airstrike https://github.com/zentixua/airstrike/releases/download/v<версия>/airstrike-<версия>.jar --meta-name airstrike`.
 - Версию сборки (`version` в `pack.toml`) поднимать при каждом изменении состава: у всех игроков должен быть один набор.
+
+## Версии
+
+| версия | Airstrike | что изменилось |
+|---|---|---|
+| 0.1.1 | 2.6.0 | Airstrike 2.6.0 ([заметки](../docs/releases/2.6.0.md)); остальные моды и настройки те же |
+| 0.1.0 | 2.5.0 | первая версия |
