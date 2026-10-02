@@ -1081,10 +1081,14 @@ public final class NuclearGameTests {
         Vec3 target = Vec3.atBottomCenterOf(h.absolutePos(CENTER));
         events.schedule(new NuclearEvents.ScheduledStrike(events.nextId(), target, 15, true, now, now + 300, target, java.util.Optional.empty(), false));
         int[] plannedBefore = {-1};
-        long[] glassGone = {-1};
+        long[] glassGone = {-1}, tickAt = {0};
         h.onEachTick(() -> {
             String failure = null;
             if (!events.scheduled().isEmpty()) plannedBefore[0] = w.plannedChunks();
+            // после подрыва — в темпе игры: квадраты подготовки отпускаются по чтениям с диска и фоновым планам, а они идут
+            // по часам; без темпа 850 тиков сервера GameTest кончались раньше, чем квадраты успевали отпуститься
+            else if (tickAt[0] == 0) tickAt[0] = System.nanoTime();
+            else RuinBackgroundGameTests.gamePace(tickAt);
             if (glassGone[0] < 0 && !h.getBlockState(glass).is(Blocks.GLASS)) glassGone[0] = level.getGameTime(); // на месте стекла бывает и пожар
             Detonation d = events.detonations().stream().filter(x -> x.burst().distanceTo(target) < 20).findFirst().orElse(null);
             if (d != null && glassGone[0] >= 0) {
@@ -1096,8 +1100,10 @@ public final class NuclearGameTests {
                 if (plannedBefore[0] <= 0) failure = "руины не готовились во время полёта";
                 else if (w.ruinStats()[0] == 0) failure = "ни один чанк не встал по готовому плану";
                 else if (glassGone[0] > due + 2) failure = "руины отстали от фронта: стекло выбито через " + (glassGone[0] - due) + " тиков после прихода волны";
-                else if (w.plannedChunks() > 0 || w.prepTiles() > 0) return; // ждём, пока подготовка отпустит тикеты
-                else {
+                else if (w.plannedChunks() > 0 || w.prepTiles() > 0) {
+                    // ждём, пока подготовка отпустит тикеты; к сроку не отпустила — провал с её счётом ниже, а не тайм-аут
+                    if (level.getGameTime() <= now + 850) return;
+                } else {
                     unwatch.run();
                     h.assertTrue(clock.maxUnitsPerTick() <= AirstrikeConfig.SERVER.nukeTimeBudgetMs.get(), "за тик " + clock.maxUnitsPerTick() + " единиц");
                     h.assertTrue(diag.isEmpty(), "строки диагностики без свойства: " + diag);

@@ -806,14 +806,18 @@ public final class GridGameTests {
     /**
      * Чанки без ламп не тормозят очередь: пачкой за единицу работы, а не по одному (каждый ждал бы оценки тяжёлого
      * чанка с лампами). 144 загруженных чанка района при бюджете 4 мс (считающие часы: 3 единицы по 1 мс за тик) по
-     * одному — 48 тиков одной очереди, пачками — несколько тиков на весь каскад.
+     * одному — 48 тиков одной очереди, пачками — несколько тиков на весь каскад. Район — своё место вдали: партии GameTest
+     * идут на одних и тех же местах площадок, и город {@link #cityQueueRunsManyChunksPerTick} оставлял лампы в каждом
+     * чанке вокруг площадки — пустых чанков не было, когда его партия шла раньше.
      */
     @GameTest(template = "range", timeoutTicks = 600, batch = "grid_settle", skyAccess = true)
     public static void emptyChunksSettleInBatches(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         quiet(level);
         var chunks = level.getChunkSource();
-        ChunkPos mid = new ChunkPos(h.absolutePos(CENTER));
+        // места вдали других проверок — до 6000 блоков по диагонали и 12000 по осям
+        BlockPos centre = h.absolutePos(CENTER).offset(9000, 0, -9000);
+        ChunkPos mid = new ChunkPos(centre);
         List<ChunkPos> held = new ArrayList<>();
         for (int dx = -6; dx < 6; dx++) {
             for (int dz = -6; dz < 6; dz++) {
@@ -823,8 +827,8 @@ public final class GridGameTests {
                 held.add(p);
             }
         }
-        BlockPos lamp = new BlockPos(18, 12, 18);
-        h.setBlock(lamp, Blocks.LANTERN);
+        BlockPos lamp = centre.offset(-14, 0, -14).atY(level.getHeight(Heightmap.Types.MOTION_BLOCKING, centre.getX() - 14, centre.getZ() - 14));
+        level.setBlock(lamp, Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
         WorkClock clock = WorkClock.counting(1_000_000L);
         int budget = AirstrikeConfig.SERVER.gridTimeBudgetMs.get();
         long[] start = {0};
@@ -835,11 +839,11 @@ public final class GridGameTests {
                 .thenExecute(() -> {
                     Blackouts.useClock(level.getServer(), clock);
                     start[0] = level.getGameTime();
-                    Blackouts.blackout(level, Vec3.atCenterOf(h.absolutePos(CENTER)), 150, 1000, -1);
+                    Blackouts.blackout(level, Vec3.atCenterOf(centre), 150, 1000, -1);
                 })
                 .thenWaitUntil(() -> {
                     BlackoutWorld world = BlackoutWorld.get(level);
-                    h.assertTrue(world.idle() && GridLights.isUnlit(h.getBlockState(lamp)), "каскад идёт");
+                    h.assertTrue(world.idle() && GridLights.isUnlit(level.getBlockState(lamp)), "каскад идёт");
                     took[0] = level.getGameTime() - start[0];
                 })
                 .thenExecute(() -> {

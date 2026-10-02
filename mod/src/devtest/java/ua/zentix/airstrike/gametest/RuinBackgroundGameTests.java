@@ -598,12 +598,17 @@ public final class RuinBackgroundGameTests {
     @GameTest(template = "range", timeoutTicks = 1600, batch = "nuke_tile_hold", skyAccess = true)
     public static void tileReleaseHoldsWaitingNeighbours(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        StrikeGameTests.gameSpeed(h);
         ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
         ChunkPos q = new ChunkPos(pad.x + 40, pad.z), p = new ChunkPos(q.x + 1, q.z), r = new ChunkPos(q.x + 2, q.z);
         var areas = ua.zentix.airstrike.strike.StrikeWorld.get(level).areas();
         var scars = NuclearWorld.get(level).scars();
+        // наземный подрыв у западного края P без воронки: воронка держит свои чанки с соседями (NuclearTickets) и
+        // загрузила бы R сразу после подрыва — руины P встали бы, не дождавшись тупика, смотря что раньше: план P или
+        // выгрузка R после воронки
+        boolean crater = ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeCrater.get();
+        ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeCrater.set(false);
         StrikeGameTests.afterTest(h, () -> {
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.nukeCrater.set(crater);
             areas.release(level, tile(q));
             areas.release(level, tile(p));
             NuclearStrikes.clear(level);
@@ -625,14 +630,20 @@ public final class RuinBackgroundGameTests {
         boolean[] widened = {false};
         var depot = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.ResourceLocation.parse("create:depot"));
         Detonation[] det = {null};
+        long[] tickAt = {0};
         h.onEachTick(() -> {
+            // после подготовки — в темпе игры: ожидания ниже в тиках, а загрузка чанков и фоновые планы идут по часам
+            if (stage[0] > 0) gamePace(tickAt);
             long now = level.getGameTime();
             switch (stage[0]) {
                 case 0 -> {
-                    // ждём, пока сгенерированное выгрузится: Q, P и R загрузит только сам сценарий
-                    if (level.getChunkSource().getChunkNow(q.x, q.z) != null || level.getChunkSource().getChunkNow(p.x, p.z) != null
-                            || level.getChunkSource().getChunkNow(r.x, r.z) != null) return;
+                    // ждём, пока сгенерированное выгрузится: Q, P и R загрузит только сам сценарий. Выгрузится совсем, а не
+                    // только уйдёт из видимой карты: чанк, ждущий выгрузки, подрыв ставит в очередь сразу, и P, ещё не
+                    // под тикетом Q, брал бы свой тикет с соседями — R загружался, руины P вставали без тупика. Пока
+                    // без темпа игры: отстающий сервер ждущие выгрузки не выгружает (ваниль — только пока есть время в тике)
+                    if (!unloaded(level, List.of(q, p, r))) return;
                     areas.hold(level, tile(q));
+                    tickAt[0] = System.nanoTime();
                     stage[0] = 1;
                 }
                 case 1 -> {
@@ -1026,9 +1037,10 @@ public final class RuinBackgroundGameTests {
     public static void heapStopZoneLoadsOnlyPlanned(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         var chunks = level.getChunkSource();
-        ChunkPos pad = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER));
-        // дальше радиуса руин от площадки и в стороне от места zoneLoadsEveryChunkWithPlan: соседние тесты стоят рядом
-        ChunkPos t = new ChunkPos(pad.x, pad.z - 120);
+        // своё место вдали, куда не ходит ни одна проверка: партии GameTest идут на одних и тех же местах площадок, и чанки
+        // в 120 чанках от площадки загружали полностью прошлые партии полного прогона — окна полосы C бывали целыми на
+        // диске до подготовки (места вдали других проверок — до 6000 блоков по диагонали и 12000 по осям)
+        ChunkPos t = new ChunkPos(h.absolutePos(NuclearGameTests.CENTER).offset(-9000, 0, -9000));
         LongOpenHashSet whole = new LongOpenHashSet();
         for (int dx = -4; dx <= 4; dx++) {
             for (int dz = -4; dz <= 4; dz++) whole.add(ChunkPos.asLong(t.x + dx, t.z + dz));
