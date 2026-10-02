@@ -12,12 +12,16 @@ import net.minecraft.server.level.Ticket;
 import net.minecraft.util.Mth;
 import net.minecraft.util.SortedArraySet;
 import net.minecraft.world.entity.ai.village.poi.PoiSection;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.fml.ModList;
@@ -666,6 +670,46 @@ public final class WorkGameTests {
 
     /** Строк «блок снимался» за удар (как {@code BlastArea.SLOW_BLOCKS_LOGGED}). */
     private static final int BLAST_SLOW_LOGGED = 5;
+
+    /**
+     * Взрыв мода — выпадение с затуханием ({@code DESTROY_WITH_DECAY}, как у крипера): снятый блок выпадает с вероятностью
+     * 1/сила, и правило {@code tntExplosionDropDecay} (по умолчанию выключено) этого не меняет. Без затухания выпадало всё
+     * снятое: после залпов по 30 в мире лежали тысячи предметов, и их тик занимал две трети потока сервера (замер
+     * 01.10.2026). Куб земли 15×8×15 и взрыв силы 16 в нём; снятые блоки — по всей коробке взрыва, с полом площадки.
+     */
+    @GameTest(template = "range", timeoutTicks = 300, batch = "work_drop_decay", skyAccess = true)
+    public static void blastDropsDecay(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        GameRules.BooleanValue rule = level.getGameRules().getRule(GameRules.RULE_TNT_EXPLOSION_DROP_DECAY);
+        boolean was = rule.get();
+        rule.set(false, level.getServer());
+        StrikeGameTests.afterTest(h, () -> rule.set(was, level.getServer()));
+        for (BlockPos p : BlockPos.betweenClosed(CENTER.offset(-7, 1, -7), CENTER.offset(7, 8, 7))) {
+            level.setBlock(h.absolutePos(p), Blocks.DIRT.defaultBlockState(), Block.UPDATE_CLIENTS);
+        }
+        BlockPos lo = h.absolutePos(CENTER.offset(-24, -11, -24)), hi = h.absolutePos(CENTER.offset(24, 24, 24));
+        int before = solid(level, lo, hi);
+        Warheads.Probe blast = Warheads.testBlast(level, Vec3.atCenterOf(h.absolutePos(CENTER.above(4))), 16, true, false, System::nanoTime, 5 * MS);
+        boolean[] logged = {false};
+        h.succeedWhen(() -> {
+            h.assertTrue(blast.done(), "взрыв идёт");
+            int removed = before - solid(level, lo, hi), items = 0;
+            for (ItemEntity e : level.getEntitiesOfClass(ItemEntity.class, new AABB(Vec3.atLowerCornerOf(lo), Vec3.atLowerCornerOf(hi.offset(1, 1, 1))).inflate(8))) {
+                items += e.getItem().getCount();
+            }
+            if (!logged[0]) Airstrike.LOG.info("BLASTDROPS взрыв силы 16: снято {} блоков, выпало {} предметов", removed, items);
+            logged[0] = true;
+            h.assertTrue(removed >= 1000, "взрыв снял мало: " + removed);
+            // 1/16 — около 6 %, с запасом на разброс — не больше шестой части
+            h.assertTrue(items * 6 <= removed, "выпало " + items + " предметов на " + removed + " снятых блоков");
+        });
+    }
+
+    private static int solid(ServerLevel level, BlockPos lo, BlockPos hi) {
+        int n = 0;
+        for (BlockPos p : BlockPos.betweenClosed(lo, hi)) if (!level.getBlockState(p).isAir()) n++;
+        return n;
+    }
 
     /**
      * Ванильный путь (как у аппарата): урон — по списку сущностей после {@code ExplosionEvent.Detonate}, и бьют его
