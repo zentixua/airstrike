@@ -1,6 +1,10 @@
 hash-format = "sha256"
 
 [[files]]
+file = "config/aero_cam_sync-client.toml"
+hash = "43c766c084c6919984fbc5975c47e8565297781dd7f661503f59829cd3fc00fb"
+
+[[files]]
 file = "config/entityculling.json"
 hash = "f08640a62bef05a21e0e4560175e45842d398af147ac9ef8864977f5933e0604"
 
