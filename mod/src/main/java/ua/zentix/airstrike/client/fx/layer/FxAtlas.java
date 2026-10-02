@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.client.fx.layer;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonParser;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.platform.TextureUtil;
 import net.minecraft.resources.ResourceLocation;
@@ -11,14 +13,18 @@ import ua.zentix.airstrike.Airstrike;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Все текстуры слоя эффектов на одном листе 1024×256 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
- * искра, вспышка, кольцо, дальние круг, ореол и клубы. Один лист — одна текстура на весь отсортированный проход слоя
+ * Все текстуры слоя эффектов на одном листе 1024×512 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
+ * искра, вспышка, кольцо, кадры огненного шара (128×128), дальние круг, ореол и клубы. Один лист — одна текстура на весь отсортированный проход слоя
  * (частицы и дальнее вперемешку); уменьшенные копии — чтобы клуб в десяток пикселей вдали не рябил. Цвет на листе
  * умножен на непрозрачность, как и смешивание слоя.
  * <p>
@@ -32,7 +38,10 @@ import java.util.Optional;
 public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]> {
     public static final FxAtlas INSTANCE = new FxAtlas();
 
-    private static final int CELL = 64, COLS = 16, ROWS = 4, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    private static final int CELL = 64, COLS = 16, ROWS = 8, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    /** Кадров огненного шара ({@code fx/particle/fireball_00…15}, 128×128): от вспышки до чёрного дыма. */
+    public static final int FIREBALL_FRAMES = 16;
+    private static final int FIREBALL_SIZE = 2 * CELL;
     /** Уменьшенных копий: клуб 64 → 4 пикселя (все места кратны 16 — копии соседних мест не смешивают). */
     private static final int MIPS = 4;
 
@@ -47,8 +56,11 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
     private record Slot(ResourceLocation texture, int x, int y, int w, int h) {}
 
     private static final List<Slot> SLOTS = new ArrayList<>();
-    private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8];
+    private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8], FIREBALL = new Sprite[FIREBALL_FRAMES];
     private static final Sprite RING, FLASH, GLOW, DISC, SPARK;
+    private static final ResourceLocation FIREBALL_LIGHT = Airstrike.id("textures/fx/particle/fireball.json");
+    /** Огонь кадров шара на экране ({@link #fireLight}); пока не прочитан — без предела. */
+    private static volatile float[] fireShown = full();
 
     static {
         for (int i = 0; i < SMOKE.length; i++) SMOKE[i] = slot(String.format(Locale.ROOT, "fx/particle/smoke_%02d", i), i * CELL, 0, CELL, CELL);
@@ -66,6 +78,11 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
             PUFFS[i] = new Sprite(u, v, u + du, v + dv);
         }
         RING = slot("fx/particle/ring", 4 * CELL, 2 * CELL, 2 * CELL, 2 * CELL);
+        // огненный шар: два ряда по 8 кадров под всем остальным
+        for (int i = 0; i < FIREBALL_FRAMES; i++) {
+            FIREBALL[i] = slot(String.format(Locale.ROOT, "fx/particle/fireball_%02d", i), i % 8 * FIREBALL_SIZE, 4 * CELL + i / 8 * FIREBALL_SIZE,
+                    FIREBALL_SIZE, FIREBALL_SIZE);
+        }
     }
 
     private int id = -1;
@@ -98,6 +115,35 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         return RING;
     }
 
+    /** Кадр огненного шара на доле жизни f (0..1): шар — 0,7 полуразмера кадра. */
+    public static Sprite fireball(float f) {
+        return FIREBALL[Math.clamp((int) (f * FIREBALL_FRAMES), 0, FIREBALL_FRAMES - 1)];
+    }
+
+    /**
+     * Огонь шара на экране в кадре доли жизни f (0..1): среднее по кругу шара без сажи, в долях белого (тот же кадр,
+     * что {@link #fireball}; {@code tools/gen_particles.py} пишет его в {@code fireball.json}). Свет шара вокруг — на дыме
+     * и пыли, блик, вуаль, зарево — не ярче: остывший в сажу шар больше ничего не освещает.
+     */
+    public static float fireLight(float f) {
+        return fireShown[Math.clamp((int) (f * FIREBALL_FRAMES), 0, FIREBALL_FRAMES - 1)];
+    }
+
+    /** Огонь кадров из {@code fireball.json}: {@code {"fire": [16 чисел]}}. */
+    static float[] parseFire(Reader in) {
+        JsonArray a = JsonParser.parseReader(in).getAsJsonObject().getAsJsonArray("fire");
+        if (a.size() != FIREBALL_FRAMES) throw new IllegalArgumentException("кадров " + a.size() + ", а не " + FIREBALL_FRAMES);
+        float[] out = new float[FIREBALL_FRAMES];
+        for (int i = 0; i < out.length; i++) out[i] = a.get(i).getAsFloat();
+        return out;
+    }
+
+    private static float[] full() {
+        float[] out = new float[FIREBALL_FRAMES];
+        Arrays.fill(out, 1);
+        return out;
+    }
+
     /** Кадр дальнего клуба (4×2, {@code nuke/puffs}). */
     public static Sprite puff(int i) {
         return PUFFS[i];
@@ -124,6 +170,7 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
         int[][] sheets = new int[MIPS + 1][];
         for (int l = 0; l <= MIPS; l++) sheets[l] = new int[(WIDTH >> l) * (HEIGHT >> l)];
         for (Slot s : SLOTS) place(resources, s, sheets);
+        fireShown = readFire(resources);
         NativeImage[] levels = new NativeImage[MIPS + 1];
         for (int l = 0; l <= MIPS; l++) levels[l] = image(sheets[l], WIDTH >> l, HEIGHT >> l);
         return levels;
@@ -138,6 +185,20 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
             NativeImage img = levels[l];
             img.upload(l, 0, 0, 0, 0, img.getWidth(), img.getHeight(), true, true, true, true);
         }
+    }
+
+    private static float[] readFire(ResourceManager resources) {
+        Optional<Resource> res = resources.getResource(FIREBALL_LIGHT);
+        if (res.isPresent()) {
+            try (Reader in = new InputStreamReader(res.get().open(), StandardCharsets.UTF_8)) {
+                return parseFire(in);
+            } catch (IOException | RuntimeException e) {
+                Airstrike.LOG.warn("{} не прочитался: свет шара — без предела по кадру", FIREBALL_LIGHT, e);
+                return full();
+            }
+        }
+        Airstrike.LOG.warn("{} не найден: свет шара — без предела по кадру", FIREBALL_LIGHT);
+        return full();
     }
 
     /** Картинка и её копии на свои места листа (цвет, умноженный на непрозрачность); другой размер — подгоняется. */

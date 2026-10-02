@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.client.fx;
 
+import ua.zentix.airstrike.client.far.Sight;
+
 /**
  * Сила вспышки взрыва на экране (0..1) — как её видит глаз, без Minecraft, чтобы кривую можно было проверить тестом.
  * <ul>
@@ -13,6 +15,8 @@ package ua.zentix.airstrike.client.fx;
  *       и слабее ({@link #OCCLUDED}).</li>
  *   <li>Ближе {@code near} взрыв заполняет поле зрения, и угол к нему перестаёт значить.</li>
  *   <li>К {@code range} сила плавно доходит до нуля, без скачка на краю.</li>
+ *   <li>Засветка — свет шара против света вокруг ({@link #daylight}): днём шар освещает окрестность на проценты
+ *       от солнца, и экран едва светлеет; в сумерках и ночью — вспышка.</li>
  * </ul>
  * Ядерная вспышка — отдельная ({@code client/nuclear/NukeFlash}): она и должна ослеплять.
  */
@@ -23,8 +27,22 @@ public final class FlashFalloff {
     static final float AMBIENT = 0.5f;
     /** Доля силы от взрыва за преградой. */
     static final float OCCLUDED = 0.35f;
+    /**
+     * Свет огненного шара вблизи против дневного: 4–11 % от солнца (оценка по спектру чёрного тела в ~2000 K и размеру
+     * шара), поэтому днём засветки почти нет.
+     */
+    static final double DAYLIGHT = 0.08;
 
     private FlashFalloff() {}
+
+    /**
+     * Доля засветки при свете вокруг глаза ambient ({@code FarView#adaptation}: 1 днём под небом, 0,17 ночью, 0,12
+     * в темноте): днём — {@link #DAYLIGHT}, к сумеркам, в пещере и доме свет вокруг падает на порядки (глаз привыкает —
+     * {@link Sight#adapted}), и засветка полная.
+     */
+    public static float daylight(double ambient) {
+        return (float) Math.min(1, DAYLIGHT * Sight.adapted(1, ambient));
+    }
 
     /**
      * @param d       расстояние от глаз до взрыва, блоки

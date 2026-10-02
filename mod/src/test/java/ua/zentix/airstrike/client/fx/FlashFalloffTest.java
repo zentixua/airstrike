@@ -37,6 +37,20 @@ class FlashFalloffTest {
         assertTrue(FlashFalloff.strength(200, DRONE_NEAR, DRONE_RANGE, 1, true) <= 0.05f);
     }
 
+    /** Днём шар освещает окрестность на проценты от солнца — экран едва светлеет; в сумерках и ночью — вспышка. */
+    @Test
+    void daylightTamesTheScreenFlash() {
+        assertTrue(FlashFalloff.daylight(1) <= 0.1f, "днём " + FlashFalloff.daylight(1));
+        assertEquals(1f, FlashFalloff.daylight(0.5), 1e-6f, "сумерки");
+        assertEquals(1f, FlashFalloff.daylight(0.17), 1e-6f, "ночь");
+        float prev = 0;
+        for (double a = 1; a >= 0.12; a -= 0.01) {
+            float k = FlashFalloff.daylight(a);
+            assertTrue(k >= prev, "свет неба " + a);
+            prev = k;
+        }
+    }
+
     /** Спадает с расстоянием монотонно и доходит до нуля к краю без скачка. */
     @Test
     void monotonicAndContinuousAtRange() {

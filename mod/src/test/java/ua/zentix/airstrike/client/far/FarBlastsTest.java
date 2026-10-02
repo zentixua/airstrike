@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.far;
 
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -55,6 +56,20 @@ class FarBlastsTest {
         for (double u = 0; u < 1; u += 0.001) if (FarBlasts.ball(u) * t > 1) day += 0.001;
         assertTrue(day > 0.3 && day < 0.55, "днём виден " + day + " жизни");
         assertTrue(Sight.adapted(FarBlasts.ball(0.85), 0.17) * Sight.transmittance(4000, Sight.CLEAR) > 1, "ночью — почти до конца");
+    }
+
+    @Test
+    void smokeWaitsForTheBallToFade() {
+        // пока шар светит целиком, дым столба его не закрывает (раньше десяток клубов за 8 тиков делал из шара бурый ком)
+        for (FarBlasts.Look k : LOOKS) {
+            int from = FarBlasts.smokeFrom(k);
+            for (double age = 0; age < k.ballTicks(); age += 0.25) {
+                if (FarBlasts.fade(age / k.ballTicks()) >= 1) assertEquals(0, FarBlasts.emerge(k, age), 1e-12, k + ": на " + age + " тике шар ещё целый");
+            }
+            assertTrue(from >= FarBlasts.BALL_FADE * k.ballTicks() && (k.ballTicks() == 0 || from < k.ballTicks()), k + ": с " + from);
+            assertEquals(1, FarBlasts.emerge(k, Math.max(k.ballTicks(), from + FarBlasts.FADE_IN)), 1e-12, k + ": к концу шара столб весь");
+        }
+        assertEquals(0, FarBlasts.smokeFrom(FarBlasts.BUNKER_DEEP), "без шара — столб сразу");
     }
 
     @Test
@@ -116,6 +131,36 @@ class FarBlastsTest {
                 "ракета ярче шахеда");
         assertTrue(FarBlasts.cloudGlow(8, FarBlasts.DRONE.fireball(), h, dusk) > FarBlasts.cloudGlow(8, FarBlasts.ROCKET.fireball(), h, dusk),
                 "шахед ярче снаряда РСЗО");
+    }
+
+    @Test
+    void hiddenBallGlowsNoBrighterThanItsVeil() {
+        double day = 1, night = 0.17;
+        for (FarBlasts.Look k : List.of(FarBlasts.DRONE, FarBlasts.MISSILE, FarBlasts.ROCKET, FarBlasts.BUNKER_BREACH)) {
+            double peak = k.flash() + FarBlasts.ball(0);
+            assertTrue(FarBlasts.behind(peak, day, 1) < 0.1, k + ": днём зарево из-за края едва видно");
+            assertEquals(Sight.VEIL_PEAK, FarBlasts.behind(peak, night, 1), 1e-9, k + ": ночью — в силу вуали, не ярче её");
+            assertTrue(FarBlasts.behind(FarBlasts.ball(0.5), night, 1) > Sight.THRESHOLD, k + ": ночью светит, пока светит шар");
+        }
+        assertTrue(Sight.VEIL_PEAK < Sight.HALO, "закрытый шар светит слабее блика открытого");
+        assertTrue(FarBlasts.behind(8, night, 0.01) < FarBlasts.behind(8, night, 1), "дымка гасит зарево");
+    }
+
+    @Test
+    void raysCoverTheBallDiscFacingTheEye() {
+        // глаз сверху и сбоку, как с высотки: точки кольца — на радиусе от середины, поперёк луча, и одна — сбоку по горизонтали
+        Vec3 eye = new Vec3(-30, 126, 60);
+        double[] p = new double[3];
+        for (int i = 0; i <= FarBlasts.RING_RAYS; i++) {
+            FarBlasts.disc(eye, 0, 0, 0, 7, i, p);
+            double off = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            assertEquals(i == 0 ? 0 : 7, off, 1e-9, "точка " + i);
+            assertEquals(0, p[0] * -eye.x + p[1] * -eye.y + p[2] * -eye.z, 1e-6, "точка " + i + " поперёк луча");
+        }
+        FarBlasts.disc(eye, 0, 0, 0, 7, 1, p);
+        assertEquals(0, p[1], 1e-9, "первая — сбоку, на высоте середины");
+        FarBlasts.disc(new Vec3(0, 100, 0), 0, 0, 0, 7, 2, p);
+        assertTrue(Double.isFinite(p[0] + p[1] + p[2]), "глаз прямо над шаром");
     }
 
     /** Верх облака: верх верхнего клуба поднявшегося столба. */

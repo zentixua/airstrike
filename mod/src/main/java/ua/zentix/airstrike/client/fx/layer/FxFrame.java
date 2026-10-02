@@ -7,10 +7,14 @@ import org.joml.FrustumIntersection;
 import ua.zentix.airstrike.client.far.FarView;
 import ua.zentix.airstrike.client.far.Sight;
 
-/** Что нужно частицам на кадр: камера, пирамида видимости (координаты — от камеры), дымка воздуха и туман Minecraft. */
+/**
+ * Что нужно частицам на кадр: камера, пирамида видимости (координаты — от камеры), дымка воздуха, край прорисовки и туман
+ * Minecraft.
+ */
 public final class FxFrame {
     public final Vec3 cam;
     public final FrustumIntersection frustum;
+    private final FarView view;
     private final double range;
     private final float fogStart, fogEnd;
     private final boolean cylinder;
@@ -18,6 +22,7 @@ public final class FxFrame {
     FxFrame(FarView view, FrustumIntersection frustum, Fog fog) {
         this.cam = view.camera();
         this.frustum = frustum;
+        this.view = view;
         this.range = view.range();
         this.fogStart = fog.start;
         this.fogEnd = fog.end;
@@ -27,6 +32,15 @@ public final class FxFrame {
     /** Сколько света частицы доходит через воздух ({@link Sight#transmittance}): та же дымка, что у дальней картинки. */
     public float haze(double d) {
         return (float) Sight.transmittance(d, range);
+    }
+
+    /**
+     * Доля частицы на расстоянии d: дальше 0,8 прорисовки её сменяет дальняя картинка ({@link FarView#farShare}), к краю
+     * частицы нет. Не туманом Minecraft: с Distant Horizons его нет, и частицы взрыва в 400 блоках рисовались вместе
+     * с дальней картинкой того же взрыва — дым частиц закрывал её шар.
+     */
+    public float near(double d) {
+        return (float) (1 - view.farShare(d));
     }
 
     /** Туман Minecraft в точке (от камеры), 0..1 — как у ванильных шейдеров (вода, лава, Незер, слепота, пепел ядерки). */

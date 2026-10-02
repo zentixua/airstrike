@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
+import ua.zentix.airstrike.client.far.FarSprites;
 import ua.zentix.airstrike.client.fx.layer.FxAtlas;
 import ua.zentix.airstrike.client.fx.layer.FxFrame;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
@@ -38,7 +39,7 @@ public final class FxParticle {
     private boolean growFast;
     private int life;
     private float r0, g0, b0, r1, g1, b1, colorCurve, alpha;
-    private int fadeIn;
+    private int fadeIn, fadeAfter;
     private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind;
     private boolean collide, smooth;
     /** Цепочка клубов ({@link Fx.Spec#chain}): направление пути и шаг между клубами; шаг 0 — не цепочка. */
@@ -79,6 +80,7 @@ public final class FxParticle {
         colorCurve = s.colorCurve;
         alpha = s.alpha;
         fadeIn = s.fadeIn;
+        fadeAfter = s.fadeAfter;
         fadeFrom = s.fadeFrom;
         glow = s.glow;
         glowTicks = s.glowTicks;
@@ -203,7 +205,8 @@ public final class FxParticle {
         rCol = r;
         gCol = g;
         bCol = b;
-        float in = fadeIn <= 0 ? 1 : Mth.clamp((age + partial) / fadeIn, 0, 1);
+        float since = age + partial - fadeAfter;
+        float in = since < 0 ? 0 : fadeIn <= 0 ? 1 : Mth.clamp(since / fadeIn, 0, 1);
         float out = f < fadeFrom ? 1 : 1 - (f - fadeFrom) / (1 - fadeFrom);
         aCol = alpha * in * Math.max(0, out);
     }
@@ -243,8 +246,9 @@ public final class FxParticle {
         if (aCol <= 0.004f) return;
         double px = Mth.lerp(partial, xo, x) - frame.cam.x, py = Mth.lerp(partial, yo, y) - frame.cam.y, pz = Mth.lerp(partial, zo, z) - frame.cam.z;
         double d = Math.sqrt(px * px + py * py + pz * pz);
-        // дымка воздуха — та же, что у дальней картинки; к краю прорисовки частицу гасит туман Minecraft
-        float a = aCol * frame.haze(d);
+        // дымка воздуха — та же, что у дальней картинки; к краю прорисовки частицу сменяет дальняя картинка
+        float a = aCol * frame.haze(d) * frame.near(d);
+        if (a <= 0.004f) return;
         if (chainGap > 0) {
             double cos = d < 1e-6 ? 1 : (px * chainX + py * chainY + pz * chainZ) / d;
             a *= chainShare(2 * DENSE * quadSize, chainGap, (float) Math.sqrt(Math.max(0, 1 - cos * cos)));
@@ -254,18 +258,22 @@ public final class FxParticle {
         float fog = frame.fog(px, py, pz);
         // свет — уже умноженный на непрозрачность; искры и вспышки только светят (свет складывается)
         float r = rCol * a, g = gCol * a, b = bCol * a, cover = kind.additive ? 0 : a;
-        FxAtlas.Sprite sprite = sprite();
+        FxAtlas.Sprite sprite = sprite(partial);
         out.nearestTexels(!smooth);
         out.opacity(a);
         switch (kind) {
             case SPARK -> streak(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, light, fog);
             case RING -> ring(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, cover, light, fog);
-            default -> out.billboard((float) px, (float) py, (float) pz, (float) d, quadSize, Mth.lerp(partial, oRoll, roll), sprite, r, g, b, cover,
-                    quadSize * FxQuads.SOFT, 1, light, fog);
+            default -> {
+                // огненный шар — объём: квадрат у передней половины, как и вдали (FarSprites.BALL_FRONT)
+                float k = kind == Fx.Kind.FIREBALL ? (float) FarSprites.front(d, FarSprites.BALL_FRONT * quadSize / FarSprites.FIREBALL) : 1;
+                out.billboard((float) px * k, (float) py * k, (float) pz * k, (float) d, quadSize * k, Mth.lerp(partial, oRoll, roll), sprite, r, g, b, cover,
+                        quadSize * FxQuads.SOFT, 1, light, fog);
+            }
         }
     }
 
-    private FxAtlas.Sprite sprite() {
+    private FxAtlas.Sprite sprite(float partial) {
         return switch (kind) {
             // стадия рассеивания: клуб «тает» во второй половине жизни
             case SMOKE -> FxAtlas.smoke(variant * 4 + Mth.clamp((int) ((((float) age / life) - 0.35f) / 0.65f * 4), 0, 3));
@@ -273,6 +281,7 @@ public final class FxParticle {
             case SPARK -> FxAtlas.spark();
             case FLASH -> FxAtlas.flash();
             case RING -> FxAtlas.ring();
+            case FIREBALL -> FxAtlas.fireball((age + partial) / life);
         };
     }
 

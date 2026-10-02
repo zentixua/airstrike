@@ -8,7 +8,10 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
@@ -143,6 +146,11 @@ public final class FarFlightView {
         boolean booster;
         /** Не закрыт рельефом: 1 — виден; прошлый тик, нынешний и куда идёт. */
         float visPrev = 1, vis = 1, visTarget = 1;
+        /**
+         * В прорисовке не закрыт блоками (луч по блокам от глаза): корпус и факел там закрывает глубина, а блик у глаза
+         * ({@link FarSprites#light}) — нет; дальше прорисовки — 1.
+         */
+        float openPrev = 1, open = 1, openTarget = 1;
         boolean sighted;
         /** Модель — упрощёнными копиями деталей (мелкая на экране; с запасом против дрожания на границе). */
         boolean coarse = true;
@@ -302,22 +310,39 @@ public final class FarFlightView {
         return LevelRenderer.getLightColor(lv, PROBE);
     }
 
-    /** Закрыт ли снаряд рельефом: луч раз в {@link #SIGHT_PERIOD} тика, только дальше прорисовки; видимость — плавно. */
+    /**
+     * Закрыт ли снаряд: луч раз в {@link #SIGHT_PERIOD} тика — дальше прорисовки по рельефу, в ней по блокам (для блика);
+     * видимость — плавно.
+     */
     private static void sight(Far f, long now, Vec3 eye, double world) {
         f.visPrev = f.vis;
+        f.openPrev = f.open;
         FlightTrack track = f.track;
         if (!track.fromServer() || track.isDead()) return;
         if (f.sighted && (now + f.owner) % SIGHT_PERIOD != 0 || !track.predict(now - 1, POS)) {
             f.vis += Mth.clamp(f.visTarget - f.vis, -FADE, FADE);
+            f.open += Mth.clamp(f.openTarget - f.open, -FADE, FADE);
             return;
         }
         double dx = POS[0] - eye.x, dz = POS[2] - eye.z;
-        boolean hidden = heights != null && dx * dx + dz * dz > world * world
-                && Sightline.trace(heights, POS[0], POS[1], POS[2], eye.x, eye.y, eye.z).hidden() > HIDDEN;
+        boolean inWorld = dx * dx + dz * dz <= world * world;
+        boolean hidden = heights != null && !inWorld && Sightline.trace(heights, POS[0], POS[1], POS[2], eye.x, eye.y, eye.z).hidden() > HIDDEN;
         f.visTarget = hidden ? 0 : 1;
-        if (!f.sighted) f.vis = f.visPrev = f.visTarget;
+        f.openTarget = inWorld && blocked(eye, POS[0], POS[1], POS[2]) ? 0 : 1;
+        if (!f.sighted) {
+            f.vis = f.visPrev = f.visTarget;
+            f.open = f.openPrev = f.openTarget;
+        }
         f.sighted = true;
         f.vis += Mth.clamp(f.visTarget - f.vis, -FADE, FADE);
+        f.open += Mth.clamp(f.openTarget - f.open, -FADE, FADE);
+    }
+
+    /** Блоки мира клиента закрывают точку от глаза (луч до первого блока с формой для взгляда). */
+    static boolean blocked(Vec3 eye, double x, double y, double z) {
+        ClientLevel level = Minecraft.getInstance().level;
+        return level != null && level.clip(new ClipContext(eye, new Vec3(x, y, z), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+                CollisionContext.empty())).getType() != HitResult.Type.MISS;
     }
 
     /** Шлейфы, корпуса и факелы в кадр. */
@@ -386,8 +411,9 @@ public final class FarFlightView {
                 flameAt(track, t, flame, dx, dy, dz, OUT);
                 double bd = OUT[0], ft = Sight.transmittance(bd, view.range());
                 int fc = flame.color();
+                float open = Mth.lerp(view.partial(), f.openPrev, f.open);
                 out.light(BACK[0], BACK[1], BACK[2], flame.radius(), Sight.adapted(flame.brightness(), view.ambient()) * ft, ft, view.pixel(),
-                        channel(fc, 0), channel(fc, 1), channel(fc, 2), vis, LIGHT);
+                        channel(fc, 0), channel(fc, 1), channel(fc, 2), vis, vis * open, LIGHT);
                 flamePx = 2 * LIGHT[0] / (bd * view.pixel());
                 flameAlpha = Math.min(1, LIGHT[2]) * vis;
             }

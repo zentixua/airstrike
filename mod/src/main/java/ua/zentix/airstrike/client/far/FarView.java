@@ -1,5 +1,9 @@
 package ua.zentix.airstrike.client.far;
 
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 
@@ -15,7 +19,7 @@ import org.joml.Vector3f;
  * @param far     дальше — переносить ближе с тем же угловым размером ({@link ua.zentix.airstrike.client.render.FarDraw#fold})
  * @param pixel   угол одного пикселя, рад
  * @param edge    угол от середины экрана до угла, рад: дальше — не в кадре
- * @param ambient свет неба 0.12..1: ночью дым и корпус темнее
+ * @param ambient свет неба 0.12..1 ({@link #ambient(ClientLevel, float)}): ночью дым и корпус темнее, свет вспышек ярче
  * @param range   дальность видимости, блоков ({@link Sight#range})
  * @param world   докуда мир рисует сам (дальность прорисовки, блоков): ближе дальняя картинка уступает частицам
  * @param clouds  высота облаков измерения, блоков ({@code NaN} — облаков нет: Незер, Энд)
@@ -23,6 +27,20 @@ import org.joml.Vector3f;
  */
 public record FarView(Vec3 camera, Vector3f forward, Vector3f left, Vector3f up, float partial, double far, double pixel, double edge,
                       float ambient, double range, double world, double clouds, float rain) {
+    /** Свет неба мира 0,12..1: днём 1, ночью 0,17, ночью в грозу 0,12. */
+    public static float ambient(ClientLevel level, float partial) {
+        return Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
+    }
+
+    /**
+     * Свет, к которому привык глаз, 0,12..1: под открытым небом — свет неба ({@link #ambient}), в пещере, доме и полости
+     * бункера — темнота, по свету неба у глаза; в измерении без неба — темнота.
+     */
+    public static float adaptation(ClientLevel level, Vec3 eye, float partial) {
+        float sky = level.getBrightness(LightLayer.SKY, BlockPos.containing(eye)) / 15f;
+        return Mth.lerp(sky, 0.12f, ambient(level, partial));
+    }
+
     /**
      * Доля дальней картинки взрыва на дальности d: ближе 0,8 прорисовки её нет (там частицы), к краю прорисовки, где
      * туман съедает частицы, — вся.
