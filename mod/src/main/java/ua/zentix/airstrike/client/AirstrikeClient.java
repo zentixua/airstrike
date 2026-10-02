@@ -47,6 +47,7 @@ import ua.zentix.airstrike.client.nuclear.NukeHud;
 import ua.zentix.airstrike.client.nuclear.NukeRenderer;
 import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
+import ua.zentix.airstrike.client.render.FarModels;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
@@ -80,6 +81,7 @@ public final class AirstrikeClient {
         modBus.addListener(SoundFilters::onEngineLoad);
         modBus.addListener(Fx::registerProviders);
         modBus.addListener(FarSprites::registerShaders);
+        modBus.addListener(FarModels::registerShaders);
         modBus.addListener(AirstrikeClient::blockColors);
         TerrainTiles.init();
 
@@ -115,13 +117,14 @@ public final class AirstrikeClient {
     }
 
     private static void renderers(EntityRenderersEvent.RegisterRenderers e) {
-        e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::drone));
-        e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::missile));
-        e.registerEntityRenderer(ModEntities.ROCKET.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::rocket));
-        e.registerEntityRenderer(ModEntities.LOITER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::loiter));
-        e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomber));
-        e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::bomb));
-        e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, WeaponModels::icbm));
+        // модель — из клиентского паспорта: её же рисует снаряд вдали (FarModels)
+        e.registerEntityRenderer(ModEntities.DRONE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.DRONE.airframe().model()));
+        e.registerEntityRenderer(ModEntities.CRUISE_MISSILE.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.MISSILE.airframe().model()));
+        e.registerEntityRenderer(ModEntities.ROCKET.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.ROCKET.airframe().model()));
+        e.registerEntityRenderer(ModEntities.LOITER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.LOITER.airframe().model()));
+        e.registerEntityRenderer(ModEntities.BOMBER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.BUNKER.airframe().model()));
+        e.registerEntityRenderer(ModEntities.BUNKER_BUSTER.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.BUNKER.airframe(true).model()));
+        e.registerEntityRenderer(ModEntities.ICBM.get(), ctx -> new StrikeProjectileRenderer<>(ctx, ClientWeaponSpec.NUKE.airframe().model()));
         e.registerEntityRenderer(ModEntities.DEBRIS.get(), DebrisRenderer::new);
         e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
@@ -219,6 +222,7 @@ public final class AirstrikeClient {
     private static final class Hooks implements ClientHooks {
         @Override
         public void blast(S2C.Blast p) {
+            p.projectile().ifPresent(FlightTracks::impact);
             BlastEffects.blast(p);
         }
 

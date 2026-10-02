@@ -84,6 +84,12 @@ public final class FlightTracks {
         return Collections.unmodifiableCollection(TRACKS.values());
     }
 
+    /** Снаряд взорвался (пакет взрыва): его полёт кончился в этот тик ({@link FlightTrack#impact}). */
+    public static void impact(UUID id) {
+        FlightTrack t = TRACKS.get(id);
+        if (t != null) t.impact(tick);
+    }
+
     /** Обычный отбой: эти полёты кончились сразу (без взрыва — и без шлейфа, который тает). */
     public static void cancelled(Collection<UUID> projectiles) {
         projectiles.forEach(TRACKS::remove);

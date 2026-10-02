@@ -9,32 +9,41 @@
 # ///
 """Сборка всех звуков мода Airstrike из настоящих записей и синтеза (numpy + scipy + soundfile).
 
-  uv run tools/build_sounds.py      → mod/src/main/resources/assets/airstrike/sounds/*.ogg,
-                                        assets/airstrike/sounds.json, SOUND-CREDITS.md
+  uv run tools/build_sounds.py           → mod/src/main/resources/assets/airstrike/sounds/*.ogg,
+                                            assets/airstrike/sounds.json, SOUND-CREDITS.md
+  uv run tools/build_sounds.py blasts    → пересобрать файлы только этих разделов (остальные файлы не трогаются;
+                                            sounds.json и авторы — по всем разделам)
 
 Записи — только с лицензией, разрешающей распространение: CC0 (общественное достояние) и CC BY (с указанием
-автора: SOUND-CREDITS.md в корне и credits.txt рядом со звуками в jar). Список — SOURCES ниже; файлы скачиваются
-с Freesound (превью высокого качества, ogg) в tools/.sound-cache/ и дальше берутся оттуда.
+автора: SOUND-CREDITS.md в корне и credits.txt рядом со звуками в jar). Список — SOURCES ниже. Записи берутся
+с Freesound: превью (ogg с потерями) — в tools/.sound-cache/, оригиналы без потерь (src(…, orig=True); нужен вход
+в Freesound, см. tools/freesound.py) — в tools/.sound-cache/orig/.
 
 Как собран каждый звук:
 - петли моторов (шахед, ракета, B-2, свист бомбы, ветер, дождь) — стационарный кусок записи без шва (хвост плавно
   вклеен в начало): клиент крутит их бесконечно и сам ставит громкость, тон и Доплер;
-- взрывы — по несколько вариантов из разных дублей (sounds.json: игра выбирает случайно), ближние с «низом» от
-  синтеза (превью записей режут инфрабас), дальние — настоящие дальние подрывы с эхом от рельефа и домов;
+- взрывы (раздел blasts) — из оригиналов, по ракурсам: вблизи, на средней дистанции, вдали, удар низа и эхо вокруг
+  (стерео); клиент сводит их по расстоянию (client/sound/BlastMix). Без мягкого ограничителя: громкость — мгновенная
+  громкость EBU R128 (master), пики — прозрачный ограничитель не глубже 6 дБ; удар — с первого отсчёта файла;
 - то, чего не записать (бурение бетонобойной бомбы, звон в ушах, захват цели), — синтез из synth_mod_sounds.py.
-Все звуки моно: Minecraft размещает в пространстве только моно.
+Звуки моно (Minecraft размещает в пространстве только моно), кроме эха взрывов: оно звучит вокруг слушателя, а не
+из точки, и играется без места в мире.
+У каждого раздела свой генератор случайных чисел (от имени раздела): правка одного раздела не меняет другие.
 """
 import json
 import os
 import sys
 import urllib.request
+import zlib
 from fractions import Fraction
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import resample_poly
+from scipy.ndimage import minimum_filter1d, uniform_filter1d
+from scipy.signal import lfilter, resample_poly, welch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import freesound  # noqa: E402
 import synth_mod_sounds as syn  # noqa: E402
 
 SR = 44100
@@ -56,10 +65,9 @@ SOURCES = {
     # шахед: двухтактный мотор с толкающим винтом — ближе всего сверхлёгкий самолёт с Rotax
     695977: ("wniebelski", "taxing ultralight plane.wav", CC0, "695/695977_924574"),
     412819: ("blukotek", "two-stroke Trabant engine 01.wav", CC0, "412/412819_4451798"),
-    # крылатая ракета: турбореактивный двигатель; настоящие Х-101 над Киевом
-    152509: ("minian89", "jet_engine.wav", CC0, "152/152509_2467357"),
-    824805: ("Invadium", "cruise-missiles-interception-and-fly-by (Kh-101 over Kyiv)", CC0, "824/824805_1011221"),
-    168079: ("unfa", "Jet Flyby 1", CC0, "168/168079_1038806"),
+    # крылатая ракета: реактивный двигатель на месте — ровный вой и ровный рёв (без пролёта: тон не плывёт)
+    437910: ("craigsmith", "G09-18-Constant Jet Noise.wav", CC0, "437/437910_2524442"),
+    437917: ("craigsmith", "G10-02-Constant Jet Noise.wav", CC0, "437/437917_2524442"),
     # пуск: стартовые ускорители (записи Минобороны США), рёв ракеты
     184274: ("qubodup", "Launching Anti-Tank Missiles.flac [US DoD]", CC0, "184/184274_71257"),
     182794: ("qubodup", "Rocket Launch.flac", CC0, "182/182794_71257"),
@@ -81,22 +89,26 @@ SOURCES = {
     152567: ("minian89", "four_jet_engines.wav", CC0, "152/152567_2467357"),
     437931: ("craigsmith", "G11-25_B-52 Jet Fly By.wav", CC0, "437/437931_2524442"),
     162417: ("qubodup", "Jet Plane Wind Noise Loop of a KC-135 Stratotanker 1.flac", CC0, "162/162417_71257"),
-    486035: ("craigsmith", "R18-04-Artillery Shells Fly Overhead.wav", CC0, "486/486035_2524442"),
     483296: ("craigsmith", "R30-12-Large Gun Shells Fly By and Explode.wav", CC0, "483/483296_2524442"),
-    # взрывы
-    189778: ("qubodup", "Explosive.flac [US DoD]", CC0, "189/189778_71257"),
-    182429: ("qubodup", "Explosion [US DoD]", CC0, "182/182429_71257"),
+    # взрывы (раздел blasts — из оригиналов без потерь)
+    251401: ("felix.blume", "Dynamite explosion in the mountain", CC0, "251/251401_1661766"),
+    475780: ("felix.blume", "Big dynamite explosion in an open mine (Chile)", CC0, "475/475780_1661766"),
+    165808: ("sidohzen", "Explosion with debris - authentic. 4kg TNT", CC0, "165/165808_2872744"),
+    811474: ("deleted_user_9900733", "UAV explosion in the city", CC0, "811/811474_9900733"),
+    125937: ("alienistcog", "merrimack-st-demolition.aif", CC0, "125/125937_296888"),
+    160794: ("Evan Cruder", "120527 08 Dynamite 4 [double].WAV", CC0, "160/160794_1241124"),
+    82682: ("juskiddink", "Quarry blasting.wav", BY4, "82/82682_649468"),
+    866989: ("tim.kahn", "EXPLReal_Centennial Mills Watertower Demolition", BY4, "866/866989_7037"),
+    426163: ("Nanashi", "M224 Mortar Impact Medium Distance 02", BY4, "426/426163_61794"),
+    426164: ("Nanashi", "M224 Mortar Impact Medium Distance 01", BY4, "426/426164_61794"),
+    426166: ("Nanashi", "M224 Mortar Impact Distant 01", BY4, "426/426166_61794"),
+    426167: ("Nanashi", "M224 Mortar Impact Distant 03", BY4, "426/426167_61794"),
     182431: ("qubodup", "Explosive 1 v2 [DOD 130303].flac", CC0, "182/182431_71257"),
-    674910: ("craigsmith", "S16-23 Violent explosion and debris; 2 takes.wav", CC0, "674/674910_2524442"),
     741174: ("qubodup", "Huge Explosion", CC0, "741/741174_71257"),
     741175: ("qubodup", "Massive Explosion", CC0, "741/741175_71257"),
     486018: ("craigsmith", "R12-02-Large Explosions.wav", CC0, "486/486018_2524442"),
     438693: ("craigsmith", "G43-14-25 Distant Explosions.wav", CC0, "438/438693_2524442"),
     438538: ("craigsmith", "G33-32-Distant Bomb Explosion.wav", CC0, "438/438538_2524442"),
-    320788: ("Kostrava", "distant explosions", CC0, "320/320788_1134415"),
-    741267: ("the_yura", "Destruction of the missile", CC0, "741/741267_2451161"),
-    871382: ("KVV_Audio", "EXPLReal_Air Explosion Medium Distance_KVV AUDIO_FREE", BY4, "871/871382_12846320"),
-    324277: ("Kostrava", "distant explosion", CC0, "324/324277_1134415"),
     550342: ("Nox_Sound", "Foley_Stones_Falls_Debris_Stereo_DR05.wav", CC0, "550/550342_9250976"),
     483304: ("craigsmith", "R09-58-Large Fire with Debris.wav", CC0, "483/483304_2524442"),
     675967: ("craigsmith", "S10-19 Falling wooden beam; big interior crash; house collapses; long.wav", CC0, "675/675967_2524442"),
@@ -129,22 +141,26 @@ SOURCES = {
 USED = set()
 
 
-def src(fid):
-    """Запись моно в SR, float64; кэш — tools/.sound-cache."""
+def src(fid, orig=False, stereo=False):
+    """Запись в SR, float64: моно, а stereo — два канала (n×2). orig — оригинал без потерь (tools/freesound.py),
+    иначе превью Freesound (ogg); кэш — tools/.sound-cache."""
     USED.add(fid)
-    os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, f"{fid}.ogg")
-    if not os.path.exists(path):
-        url = f"https://cdn.freesound.org/previews/{SOURCES[fid][3]}-hq.ogg"
-        print("  скачиваю", url)
-        urllib.request.urlretrieve(url, path + ".part")
-        os.replace(path + ".part", path)
+    if orig:
+        path = freesound.original(fid)
+    else:
+        os.makedirs(CACHE, exist_ok=True)
+        path = os.path.join(CACHE, f"{fid}.ogg")
+        if not os.path.exists(path):
+            url = f"https://cdn.freesound.org/previews/{SOURCES[fid][3]}-hq.ogg"
+            print("  скачиваю", url)
+            urllib.request.urlretrieve(url, path + ".part")
+            os.replace(path + ".part", path)
     x, sr = sf.read(path, always_2d=True)
-    m = x.mean(axis=1)
+    x = (np.repeat(x[:, :1], 2, axis=1) if x.shape[1] == 1 else x[:, :2]) if stereo else x.mean(axis=1)
     if sr != SR:
         fr = Fraction(SR, sr).limit_denominator(1000)
-        m = resample_poly(m, fr.numerator, fr.denominator)
-    return m - np.mean(m)
+        x = resample_poly(x, fr.numerator, fr.denominator, axis=0)
+    return x - np.mean(x, axis=0)
 
 
 # ---------------------------------------------------------------- инструменты
@@ -245,86 +261,236 @@ def align(x, db=-20, pre=0.03):
     return fade(x[k:], 0.002, 0.0)
 
 
-def granular(x, seconds, grain=0.3):
-    """Ровная текстура из короткого куска: окна-«зёрна» из случайных мест внахлёст, мощность постоянна —
-    из одного пролёта снаряда получается непрерывный вой без «волн» громкости."""
-    n, g = int(seconds * SR), int(grain * SR)
-    w = np.hanning(g)
-    out = np.zeros(n + g)
-    for k in range(0, n, g // 4):
-        a = rng.integers(0, len(x) - g)
-        out[k:k + g] += x[a:a + g] * w
-    return out[:n] / np.sqrt(np.sum(w ** 2) / (g / 4))
-
-
 def sub_thump(dur, f0=48, sweep=10, tau=0.45):
     """Инфранизкий «удар в грудь» — превью записей режут низ ниже ~40 Гц."""
     t = np.arange(int(dur * SR)) / SR
     return np.sin(2 * np.pi * (f0 * t - sweep * t * t)) * np.exp(-t / tau) * np.minimum(1, t / 0.003)
 
 
+# ---------------------------------------------------------------- громкость без искажений (взрывы)
+
+def k_weight(x):
+    """К-взвешивание ITU-R BS.1770: полка +4 дБ выше ~1,7 кГц и срез ниже ~38 Гц — как слух оценивает громкость."""
+    G, Q, fc = 3.99984385397, 0.7071752369554193, 1681.9744509555319
+    K, Vh = np.tan(np.pi * fc / SR), 10 ** (G / 20)
+    Vb = Vh ** 0.499666774155
+    a0 = 1 + K / Q + K * K
+    y = lfilter([(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0],
+                [1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0], x, axis=0)
+    Q, fc = 0.5003270373253953, 38.13547087613982
+    K = np.tan(np.pi * fc / SR)
+    a0 = 1 + K / Q + K * K
+    return lfilter([1, -2, 1], [1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0], y, axis=0)
+
+
+def loudness(x):
+    """Наибольшая мгновенная громкость (окно 400 мс, шаг 100 мс; EBU R128), LUFS; стерео — сумма каналов."""
+    y = k_weight(x) ** 2
+    y = y if y.ndim == 1 else y.sum(axis=1)
+    w, h = int(0.4 * SR), int(0.1 * SR)
+    c = np.concatenate([[0], np.cumsum(y)])
+    ms = [(c[i + w] - c[i]) / w for i in range(0, max(1, len(y) - w), h)]
+    return -0.691 + 10 * np.log10(max(ms) + 1e-15)
+
+
+def low_level(x):
+    """Громкость низа (удар земли): наибольший средний квадрат за 400 мс без К-взвешивания, дБ — К-фильтр срезает
+    как раз то, что слышно грудью."""
+    y = x ** 2 if x.ndim == 1 else (x ** 2).sum(axis=1)
+    w = int(0.4 * SR)
+    c = np.concatenate([[0], np.cumsum(y)])
+    return 10 * np.log10(max((c[i + w] - c[i]) / w for i in range(0, max(1, len(y) - w), int(0.1 * SR))) + 1e-15)
+
+
+def limit(x, thr, attack=0.002, release=0.08):
+    """Ограничитель пиков с упреждением: усиление падает плавно за attack до пика и возвращается за release —
+    без искажений формы, в отличие от мягкого насыщения (tanh)."""
+    a = np.abs(x) if x.ndim == 1 else np.max(np.abs(x), axis=1)
+    r = np.minimum(1, thr / np.maximum(a, 1e-12))
+    w = 2 * int(attack * SR) + 1
+    s = uniform_filter1d(minimum_filter1d(r, w), w)  # у пика не больше нужного: окно среднего — внутри окна минимума
+    k = 1 - np.exp(-1 / (release * SR))
+    g = np.empty_like(s)
+    cur = 1.0
+    for i, v in enumerate(s):
+        cur = v if v < cur else cur + (v - cur) * k
+        g[i] = cur
+    return x * (g if x.ndim == 1 else g[:, None])
+
+
+def master(x, lufs, peak_db=-1.0, max_gr=6.0, meter=None):
+    """Громкость взрыва без искажений: мгновенная громкость — lufs, пики выше peak_db — прозрачный ограничитель,
+    но не глубже max_gr дБ (не хватает — тише целиком). Ограничитель сам немного убавляет громкость — усиление
+    подбирается за несколько проходов."""
+    meter = meter or loudness
+    thr = 10 ** (peak_db / 20)
+    top = thr * 10 ** (max_gr / 20) / np.max(np.abs(x))
+    g = min(top, 10 ** ((lufs - meter(x)) / 20))
+    for _ in range(4):
+        y = limit(x * g, thr * 0.995)
+        g = min(top, g * 10 ** ((lufs - meter(y)) / 20))
+    return limit(x * g, thr * 0.995)
+
+
+def onset(x, db=-26, pre=0.0005):
+    """Начало файла — удар: первый отсчёт громче пика − 26 дБ, за pre секунд до него (клиент играет взрыв в тик
+    прихода фронта; тишина в начале файла — пауза между подлётом и взрывом)."""
+    m = np.abs(x if x.ndim == 1 else x.mean(axis=1))
+    k = max(0, int(np.argmax(m > m.max() * 10 ** (db / 20))) - int(pre * SR))
+    y = x[k:].copy()
+    n = int(pre * SR)
+    if n:
+        ramp = np.linspace(0, 1, n)
+        y[:n] *= ramp if y.ndim == 1 else ramp[:, None]
+    return y
+
+
+def chans(fn, x, *a, **kw):
+    """Обработка моно-функцией каждого канала стерео."""
+    return fn(x, *a, **kw) if x.ndim == 1 else np.stack([fn(x[:, c], *a, **kw) for c in range(x.shape[1])], axis=1)
+
+
+# Поглощение звука воздухом, дБ/км, ISO 9613-1 (20 °C, влажность 70 %), октавы 63 Гц … 8 кГц
+AIR_F = [63, 125, 250, 500, 1000, 2000, 4000, 8000]
+AIR_DB_KM = [0.1, 0.3, 1.1, 2.8, 5.0, 9.0, 22.9, 76.6]
+
+
+def air(x, metres):
+    """Воздух на пути в metres метров: верха гаснут по ISO 9613-1 (дальняя перспектива из ближней записи)."""
+    X = np.fft.rfft(x, axis=0)
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+    db = np.interp(np.log2(np.maximum(f, 1)), np.log2(AIR_F), AIR_DB_KM) * metres / 1000
+    H = 10 ** (-db / 20)
+    return np.fft.irfft(X * (H if x.ndim == 1 else H[:, None]), len(x), axis=0)
+
+
+def friedlander(dur, positive, b=1.2):
+    """Давление ударной волны в точке (форма Фридлендера): мгновенный скачок, спад через ноль за positive секунд
+    и разрежение — то, что делает удар близкого взрыва; записи издалека его теряют."""
+    t = np.arange(int(dur * SR)) / SR
+    return (1 - t / positive) * np.exp(-b * t / positive)
+
+
+def widen(x, side):
+    """Ширина стерео: боковой сигнал (L − R) × side — эхо от домов и склонов приходит со всех сторон."""
+    m, s = (x[:, 0] + x[:, 1]) / 2, (x[:, 0] - x[:, 1]) / 2 * side
+    return np.stack([m + s, m - s], axis=1)
+
+
+# ---------------------------------------------------------------- петли моторов
+
+# Громкость петель моторов, LUFS (наибольшая мгновенная, как у взрывов): тише ближнего ракурса взрыва своего снаряда
+# (NEAR_LUFS, ROCKET_LUFS) — взрыв громче снаряда, который в него влетел (петли с мягким ограничителем были громче
+# взрывов, −6…−9 LUFS). Слои одного мотора — одной громкости: клиент сводит их по мощности (EngineSound.share).
+DRONE_LUFS, MISSILE_LUFS, LOITER_LUFS, ROCKET_AIR_LUFS = -15.0, -13.0, -16.0, -20.0
+# Мгновенная громкость ровной петли ходит не больше чем на столько, дБ (СКО по окнам 400 мс): у ровных петель
+# 0,2–0,7, у склеек из пролётов (свист и гул ракеты, вой РСЗО до 01.10.2026) — 2–2,5
+STEADY_DB = 1.0
+
+
+def momentary(x):
+    """Мгновенная громкость петли по кругу (окна 400 мс через 100 мс, шов петли тоже), LUFS."""
+    w, h = int(0.4 * SR), int(0.1 * SR)
+    y = k_weight(np.concatenate([x[-SR:], x, x[:w]]))[SR:] ** 2  # фильтр разогнан хвостом петли: шов без скачка
+    c = np.concatenate([[0], np.cumsum(y)])
+    return -0.691 + 10 * np.log10(np.array([(c[i + w] - c[i]) / w for i in range(0, len(x), h)]) + 1e-15)
+
+
+def engine(x, lufs, name, steady=True):
+    """Петля мотора: громкость lufs (master — без мягкого ограничителя) и проверка ровности. Колебание громкости
+    в петле вдали слышно как дрожь и «шорох» (склейка из коротких кусков, волна полевой записи) — сборка падает.
+    steady=False — петля из пролёта, которую ещё не заменили ровной записью (барражирующий)."""
+    y = master(x, lufs, meter=lambda s: np.max(momentary(s)))
+    sd = np.std(momentary(y))
+    if steady and sd > STEADY_DB:
+        sys.exit(f"{name}: мгновенная громкость ходит на {sd:.1f} дБ (СКО), ровная петля — не больше {STEADY_DB}")
+    return y
+
+
+def noise_loop(sigs, seconds):
+    """Ровная петля со звучанием записей, в которых звук сам не ровный (пролёт снаряда: тон плывёт, громкость
+    растёт): шум с их средним спектром (Уэлч) и случайными фазами — обратное БПФ длиной петли периодично, шва нет."""
+    f, psd = None, 0
+    for s in sigs:
+        f, p = welch(s / max(rms(s), 1e-9), SR, nperseg=4096)
+        psd = psd + p / len(sigs)
+    n = int(seconds * SR)
+    mag = np.sqrt(np.interp(np.fft.rfftfreq(n, 1 / SR), f, psd))
+    mag[0] = 0
+    return np.fft.irfft(mag * np.exp(2j * np.pi * rng.random(len(mag))), n)
+
+
 # ---------------------------------------------------------------- запись
 
 EVENTS = {}  # имя события → (субтитр, [файлы])
+PRELOAD = set()  # события, которые игра декодирует при загрузке ресурсов, а не при первом звуке
+WRITING = True  # пишутся ли файлы текущего раздела (python3 build_sounds.py <разделы> — только этих)
 
 
-def write(name, x, event=None, subtitle=None):
-    """Файл sounds/<name>.ogg; event — событие sounds.json, в которое он входит вариантом."""
-    os.makedirs(OUT, exist_ok=True)
+def write(name, x, event=None, subtitle=None, level=0.35):
+    """Файл sounds/<name>.ogg (моно — вектор, стерео — n×2); event — событие sounds.json, в которое он входит
+    вариантом; level — сжатие Vorbis libsndfile (0 — лучшее качество, 0,35 ≈ q6,5)."""
     x = np.clip(x, -1, 1).astype(np.float32)
-    # кусками: libsndfile падает, если отдать Vorbis длинный файл одним блоком
-    with sf.SoundFile(os.path.join(OUT, name + ".ogg"), "w", SR, 1, format="OGG", subtype="VORBIS",
-                      compression_level=0.35) as fh:
-        for i in range(0, len(x), 8192):
-            fh.write(x[i:i + 8192])
     if event:
         sub, files = EVENTS.setdefault(event, (subtitle, []))
         files.append(name)
-    print(f"  {name:26} {len(x) / SR:5.1f} с  RMS {20 * np.log10(rms(x) + 1e-9):6.1f} дБ")
+    if not WRITING:
+        return
+    os.makedirs(OUT, exist_ok=True)
+    channels = 1 if x.ndim == 1 else x.shape[1]
+    # кусками: libsndfile падает, если отдать Vorbis длинный файл одним блоком
+    with sf.SoundFile(os.path.join(OUT, name + ".ogg"), "w", SR, channels, format="OGG", subtype="VORBIS",
+                      compression_level=level) as fh:
+        for i in range(0, len(x), 8192):
+            fh.write(x[i:i + 8192])
+    print(f"  {name:26} {len(x) / SR:5.1f} с  RMS {20 * np.log10(rms(x) + 1e-9):6.1f} дБ  {channels} кан.")
 
 
-def variants(event, subtitle, name, sigs):
+def variants(event, subtitle, name, sigs, **kw):
     for i, s in enumerate(sigs, 1):
-        write(f"{name}_{i}" if len(sigs) > 1 else name, s, event, subtitle)
+        write(f"{name}_{i}" if len(sigs) > 1 else name, s, event, subtitle, **kw)
 
 
 # ================================================================ шахед
 
 def drone():
     """Двухтактный мотор с винтом («мопед»): сверхлёгкий самолёт на малом газу, поднятый до оборотов шахеда
-    (~100 Гц вспышек), с зерном «Трабанта»; дальний — верха съедены воздухом, эхо от земли."""
-    ul = speed(cut(src(695977), 14, 50), 1.42)
-    tr = speed(cut(src(412819), 2, 30), 1.12)
+    (~100 Гц вспышек), с зерном «Трабанта»; дальний — он же через 400 м воздуха. Эхо в дальний не подмешано:
+    случайное эхо раскачивало громкость петли до 1,5–2 дБ."""
+    ul = speed(cut(src(695977, orig=True), 14, 50), 1.42)
+    tr = speed(cut(src(412819, orig=True), 2, 30), 1.12)
     body = mix((F(ul, lo=55, hi=7000), 1.0), (F(tr, lo=120, hi=5000), 0.35))
-    write("drone_engine", norm(loop(body, 8.0), -9.5), "drone.engine", "subtitles.airstrike.drone")
-    far = syn.reverb(F(body, lo=70, hi=900, bells=[(140, 4, 0.6)]), t60=1.8, mix=0.45)
-    write("drone_engine_far", norm(loop(far, 8.0), -10.5), "drone.engine.far", "subtitles.airstrike.drone")
+    write("drone_engine", engine(loop(body, 8.0), DRONE_LUFS, "drone_engine"), "drone.engine", "subtitles.airstrike.drone")
+    far = air(F(body, lo=60, hi=900, bells=[(140, 4, 0.6)]), 400)
+    write("drone_engine_far", engine(loop(far, 8.0), DRONE_LUFS, "drone_engine_far"), "drone.engine.far", "subtitles.airstrike.drone")
 
 
 # ================================================================ крылатая ракета
 
 def missile():
-    """Турбореактивный двигатель: спереди — вой компрессора, сзади — рёв струи; в пике — форсаж и свист;
-    вдали — настоящие Х-101 над Киевом (глухой гул с эхом от домов)."""
-    je = cut(src(152509), 12, 62)
-    front = mix((F(je, lo=900, hi=12000), 1.0), (F(je, lo=60, hi=900), 0.45))
-    write("missile_engine", norm(loop(front, 8.0), -9.5), "missile.engine", "subtitles.airstrike.missile")
-    rear = mix((F(je, lo=35, hi=2500, bells=[(160, 5, 1.0)]), 1.0), (F(je, lo=2500, hi=9000), 0.2))
-    write("missile_engine_rear", norm(loop(rear, 8.0), -9.5), "missile.engine.rear", "subtitles.airstrike.missile")
-    dive = speed(je, 1.12)
-    air = cut(src(162417), 0, 6.2)
-    dive = mix((F(dive, lo=700, hi=14000), 1.0), (F(dive, lo=50, hi=700), 0.4),
-               (pad(np.tile(air, 10), len(dive)), 0.35))
-    write("missile_dive", norm(loop(dive, 8.0), -9.5), "missile.dive", "subtitles.airstrike.missile")
-    # дальний: гул Х-101 (13..40 с записи — после перехвата, ракеты идут над городом) + наш турбореактивный глухо
-    kh = cut(src(824805), 12.5, 40)
-    kh = F(kh, lo=45, hi=1400)
-    far = mix((kh, 1.0), (syn.reverb(F(je, lo=50, hi=700), t60=2.0, mix=0.5)[:len(kh)], 0.6))
-    write("missile_engine_far", norm(loop(far, 12.0, 1.2), -10.5), "missile.engine.far", "subtitles.airstrike.missile")
-    # свист на подлёте: вой снаряда над головой, петля; тон ставит клиент
-    sh = granular(cut(src(486035), 0.9, 2.1), 10.0)
-    whistle = mix((F(sh, lo=500, hi=9000), 1.0), (syn.whistle(len(sh) / SR, 1150), 0.35))
-    write("missile_whistle", norm(loop(whistle, 6.5), -10.3), "missile.whistle", "subtitles.airstrike.missile.whistle")
+    """Турбовентиляторный двигатель (у Х-101 — ТРДД-50): спереди — вой вентилятора и компрессора, сзади — рёв струи;
+    в пике — выше тоном и с шумом обтекания; вдали — тот же двигатель через полкилометра воздуха: ровный глухой гул;
+    на подлёте — вой, который слышно издалека. Всё — из ровных записей реактивного двигателя на месте (G09-18 — вой,
+    G10-02 — рёв): в записи пролёта тон плывёт от Доплера, и петля из неё каждые несколько секунд прыгала тоном
+    обратно; Доплер клиент считает сам."""
+    whine = cut(src(437910, orig=True), 10, 100)
+    roar = cut(src(437917, orig=True), 10, 100)
+    front = mix((F(whine, lo=900, hi=12000), 1.0), (F(roar, lo=60, hi=900), 0.45))
+    write("missile_engine", engine(loop(front, 12.0), MISSILE_LUFS, "missile_engine"), "missile.engine", "subtitles.airstrike.missile")
+    rear = mix((F(roar, lo=35, hi=2500, bells=[(160, 5, 1.0)]), 1.0), (F(whine, lo=2500, hi=9000), 0.2))
+    write("missile_engine_rear", engine(loop(rear, 12.0), MISSILE_LUFS, "missile_engine_rear"), "missile.engine.rear",
+          "subtitles.airstrike.missile")
+    dive = speed(mix((whine, 1.0), (roar, 0.6)), 1.12)
+    wind = cut(src(162417, orig=True), 0, 6.2)
+    dive = mix((F(dive, lo=700, hi=14000), 1.0), (F(dive, lo=50, hi=700), 0.4), (pad(np.tile(wind, 14), len(dive)), 0.35))
+    write("missile_dive", engine(loop(dive, 12.0), MISSILE_LUFS, "missile_dive"), "missile.dive", "subtitles.airstrike.missile")
+    far = air(mix((F(roar, lo=35, hi=6000), 1.0), (F(whine, lo=400, hi=8000), 0.3)), 500)
+    write("missile_engine_far", engine(loop(far, 12.0), MISSILE_LUFS, "missile_engine_far"), "missile.engine.far",
+          "subtitles.airstrike.missile")
+    # подлёт: вой вентилятора вдвое ниже — клиент ведёт тон от 2 (вдали — как есть) до 0,6 у цели
+    whistle = speed(F(whine, lo=500, hi=12000), 0.5)
+    write("missile_whistle", engine(loop(whistle, 12.0), MISSILE_LUFS, "missile_whistle"), "missile.whistle",
+          "subtitles.airstrike.missile.whistle")
 
 
 # ================================================================ пуск
@@ -363,7 +529,7 @@ def launch():
 def rocket():
     """Реактивная система залпового огня: каждый снаряд сходит с трубы резким «фш-ш» с треском (пуск HIMARS,
     выше тоном и короче — калибр 122 мм меньше), очередь по полсекунды складывается в сплошной рёв; на подлёте
-    снаряды воют (миномётные мины и снаряды над головой), разрывы — жёсткие и сухие, один за другим."""
+    снаряды воют (миномётные мины и снаряды над головой). Разрывы — в разделе blasts."""
     hm = src(854476)
     decay = cut(hm, 4.1, 5.85)
     sigs = []
@@ -377,26 +543,12 @@ def rocket():
         sigs.append(norm(fade(speed(x, r), 0.001, 0.4), -11, 0.95))
     variants("rocket.launch", "subtitles.airstrike.rocket", "rocket_launch", sigs)
 
-    # вой на подлёте: ровная текстура из середины записей (без начала и разрыва), петля; тон ведёт Доплер
-    grains = [cut(src(241840), 0.25, 1.2), cut(src(241838), 0.35, 1.5), cut(src(241837), 0.25, 1.1),
-              cut(src(241839), 0.25, 1.15), cut(src(674897), 13.9, 15.3)]
-    tex = None
-    for g in grains:
-        part = granular(F(g, lo=250, hi=11000) / max(rms(g), 1e-9), 3.0, 0.22)[int(0.25 * SR):]
-        tex = part if tex is None else join(tex, part, 0.5)
-    write("rocket_incoming", norm(loop(tex, 7.0, 0.8), -10), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
-
-    # разрывы: сухой удар и короткий раскат (снаряды рвутся на поверхности), без долгого эха
-    shells = src(674897)
-    blasts = []
-    for a, b in [(4.05, 8.4), (11.1, 13.75), (15.33, 19.1), (19.15, 23.3), (26.25, 31.4)]:
-        x = align(cut(shells, a, b), -18, 0.01)
-        x = mix((x, 1.0), (pad(sub_thump(0.8, 55, 12, 0.18), len(x)), 0.4))
-        # запись — издали, раскат ровный; снаряд рвётся ближе: после удара раскат спадает (−18 дБ за 2 с)
-        tt = np.arange(len(x)) / SR
-        x = x * 10 ** (-18 * np.clip(tt - 0.12, 0, None) / 2 / 20)
-        blasts.append(norm(punch(trim_tail(gate_hiss(x), -46, 0.4), 7, 0.03), -11, 0.95))
-    variants("rocket.blast", "subtitles.airstrike.blast", "rocket_blast", blasts)
+    # вой на подлёте: ровный шум со спектром снарядов над головой (середины записей, без начала и разрыва) — в самих
+    # записях тон плывёт от Доплера, а склейка их кусков дрожала; тон ведёт клиент
+    grains = [cut(src(g, orig=True), a, b) for g, a, b in
+              [(241840, 0.25, 1.2), (241838, 0.35, 1.5), (241837, 0.25, 1.1), (241839, 0.25, 1.15), (674897, 13.9, 15.3)]]
+    tex = noise_loop([F(g, lo=250, hi=11000) for g in grains], 10.0)
+    write("rocket_incoming", engine(tex, ROCKET_AIR_LUFS, "rocket_incoming"), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
 
 
 # ================================================================ барражирующий боеприпас
@@ -404,17 +556,18 @@ def rocket():
 def loiter():
     """«Ланцет»: электромотор с толкающим винтом — тонкий ровный вой радиоуправляемого самолёта, вдали — жужжание;
     пуск с катапульты — удар и свист без огня; в пике винт взвывает и свистит рассекаемый воздух."""
-    rc = cut(src(176973), 0.2, 4.2)
-    quad = cut(src(854352), 2.4, 4.6)
+    rc = cut(src(176973, orig=True), 0.2, 4.2)
+    quad = cut(src(854352, orig=True), 2.4, 4.6)
     body = mix((F(rc, lo=120, hi=12000), 1.0), (pad(np.tile(F(quad, lo=200, hi=9000), 3), len(rc)), 0.25))
-    write("loiter_engine", norm(loop(body, 3.6, 0.4), -10), "loiter.engine", "subtitles.airstrike.loiter")
+    write("loiter_engine", engine(loop(body, 3.6, 0.4), LOITER_LUFS, "loiter_engine", False), "loiter.engine", "subtitles.airstrike.loiter")
     far = syn.reverb(F(body, lo=160, hi=2200), t60=1.4, mix=0.4)
-    write("loiter_engine_far", norm(loop(far, 3.6, 0.4), -11), "loiter.engine.far", "subtitles.airstrike.loiter")
+    write("loiter_engine_far", engine(loop(far, 3.6, 0.4), LOITER_LUFS, "loiter_engine_far", False), "loiter.engine.far",
+          "subtitles.airstrike.loiter")
     # пике: пролёт вплотную, выше тоном, и ветер
-    fly = speed(cut(src(176973), 5.0, 8.4), 1.2)
-    air = cut(src(162417), 0, 6.2)
-    dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(air, 2), len(fly)), 0.35))
-    write("loiter_dive", norm(loop(dive, 2.4, 0.3), -9.5), "loiter.dive", "subtitles.airstrike.loiter")
+    fly = speed(cut(src(176973, orig=True), 5.0, 8.4), 1.2)
+    wind = cut(src(162417, orig=True), 0, 6.2)
+    dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(wind, 2), len(fly)), 0.35))
+    write("loiter_dive", engine(loop(dive, 2.4, 0.3), LOITER_LUFS + 1, "loiter_dive", False), "loiter.dive", "subtitles.airstrike.loiter")
     # катапульта: удар поршня, свист направляющей
     cat = src(479922)
     sigs = []
@@ -453,37 +606,88 @@ def bomber():
 
 # ================================================================ взрывы
 
+# Громкость ракурсов взрыва, LUFS (наибольшая мгновенная, EBU R128; у удара низа — без взвешивания, дБ): каждый вариант
+# сведён ровно на неё (level), клиент сводит ракурсы по расстоянию с этими же числами (client/sound/BlastMix).
+NEAR_LUFS, MID_LUFS, FAR_LUFS, TAIL_LUFS, ROCKET_LUFS, SUB_DB = -13.5, -13.5, -15.0, -15.0, -16.0, -10.0
+
+# Записи взрывов: (id, начало, конец, канал) — из каждой три ракурса одного и того же взрыва: вблизи, на средней
+# дистанции и вдали. Ракурсы одного варианта клиент выбирает одним зерном (одинаковое число вариантов), поэтому
+# там, где ракурсы звучат вместе (переход по расстоянию), это один взрыв, а не два вразнобой. Канал 1 — только правый
+# (у 475780 левый перегружен на ударе).
+BLASTS = [(251401, 0.0, 9.5, None), (165808, 2.1, 4.6, None), (811474, 5.1, 15.0, None), (125937, 10.0, 18.0, None),
+          (866989, 181.0, 189.0, None), (475780, 0.1, 14.0, 1)]
+
+
+def level(sigs, lufs, meter=None):
+    """Все варианты ракурса одной громкости: клиент сводит ракурсы по расстоянию (BlastMix), считая каждый ровным.
+    Вариант, который не дотянул (ограничитель не глубже 6 дБ), — ошибка сборки: взять другую запись или убавить ракурс."""
+    for i, x in enumerate(sigs, 1):
+        got = (meter or loudness)(x)
+        if abs(got - lufs) > 0.3:
+            sys.exit(f"вариант {i}: {got:.1f} LUFS, а у ракурса {lufs} LUFS")
+    return sigs
+
+
 def blasts():
-    """Взрывы по дальности. Ближний: хлёсткий удар, огненный шар, падающие обломки; «низ» — синтез.
-    Дальний: настоящие дальние подрывы с раскатами эха; разные варианты на каждый взрыв."""
-    near = []
-    for fid, a, b in [(189778, 0.0, 1.95), (189778, 1.98, 4.05), (189778, 4.09, 8.4), (182429, 0, None),
-                      (674910, 0.5, 12.5), (182431, 0, None)]:
-        s = cut(src(fid), a, b)
-        s = trim_tail(s, -55, 0.4)
-        s = pad(s, max(len(s), int(3.2 * SR)))
-        body = syn.reverb(s, t60=1.8, mix=0.25)
-        s = mix((body, 1.0), (pad(sub_thump(2.5, 46, 9, 0.4), len(body)), 0.55))
-        near.append(norm(punch(fade(s, 0.001, 0.4), 4), -10.5, 0.97))
-    variants("blast.near", "subtitles.airstrike.blast", "blast_near", near)
+    """Взрывы по ракурсам — из оригиналов без потерь, без перегруженных записей. Клиент сводит ракурсы по расстоянию
+    (BlastMix): вблизи — удар и тело взрыва, ниже — «удар в грудь», вокруг — эхо (стерео); дальше — средний ракурс
+    с эхом от склонов и домов, вдали — раскат без верхов. Вариант выбирает зерно взрыва."""
+    PRELOAD.update(["blast.near", "blast.mid", "blast.far", "blast.sub", "blast.tail", "rocket.blast"])
+    near, mid, far = [], [], []
+    for fid, a, b, ch in BLASTS:
+        x = src(fid, orig=True) if ch is None else src(fid, orig=True, stereo=True)[:, ch]
+        x = F(onset(cut(x, a, b), -30), lo=35)
+        t = np.arange(len(x)) / SR
+        # вблизи: удар и тело взрыва, эхо на 10 дБ за секунду тише (его даёт blast.tail); ударная волна — форма
+        # Фридлендера, которую записи издалека теряют (положительная фаза ~8 мс — заряд ~50 кг в двух десятках метров)
+        n = x[:int(4.2 * SR)] * 10 ** (-10 * np.clip(t[:int(4.2 * SR)] - 0.35, 0, None) / 20)
+        shock = F(friedlander(0.15, 0.008), hi=9000)
+        n[:len(shock)] += shock * 0.4 * np.max(np.abs(n)) / np.max(np.abs(shock))
+        # низ ниже 60 Гц вблизи даёт blast.sub — без него у ближнего ракурса запас по пикам на сам удар
+        near.append(master(fade(F(n, lo=60), 0, 0.5), NEAR_LUFS))
+        # средняя дистанция (сотни метров): запись как есть — удар и эхо от склонов, домов, леса
+        mid.append(master(trim_tail(gate_hiss(x), -50, 0.6), MID_LUFS))
+        # вдали (с километр): тот же взрыв через воздух — верха гаснут по ISO 9613-1
+        far.append(master(trim_tail(gate_hiss(air(x, 1000)), -50, 0.8), FAR_LUFS))
+    variants("blast.near", "subtitles.airstrike.blast", "blast_near", level(near, NEAR_LUFS), level=0.2)
+    variants("blast.mid", "subtitles.airstrike.blast", "blast_mid", level(mid, MID_LUFS), level=0.2)
+    variants("blast.far", "subtitles.airstrike.blast", "blast_far", level(far, FAR_LUFS), level=0.2)
 
-    # «под ногами»: низкий удар земли — синтез + огромный взрыв ниже на октаву
+    # «под ногами»: удар земли и воздуха ниже 200 Гц — низ настоящих больших подрывов (70 т в карьере, скальный
+    # подрыв в карьере на октаву ниже) и синтез: затухающий тон 50 → 35 Гц и низкий рокот
     subs = []
-    for fid, r in [(741174, 0.55), (741175, 0.5)]:
-        s = F(speed(cut(src(fid), 0, 6), r), lo=20, hi=260)
+    for fid, a, b, ch, r in [(475780, 0.1, 6.0, 1, 1.0), (82682, 6.9, 10.4, None, 0.6)]:
+        x = src(fid, orig=True) if ch is None else src(fid, orig=True, stereo=True)[:, ch]
+        s = F(speed(onset(cut(x, a, b), -30), r), lo=20, hi=200)
         n = len(s)
-        subs.append(norm(fade(mix((s, 1.0), (pad(syn.blast_sub(n / SR), n), 0.9)), 0.001, 1.0), -10.7, 0.97))
-    variants("blast.sub", "subtitles.airstrike.blast", "blast_sub", subs)
+        t = np.arange(n) / SR
+        thump = np.sin(2 * np.pi * (50 * t - 3.75 * t * t)) * np.exp(-t / 0.4) * np.minimum(1, t / 0.002)
+        rumble = F(rng.standard_normal(n), lo=20, hi=160) * np.exp(-t / 1.2)
+        x = mix((s, 1.0), (thump, 0.8), (rumble, 0.4))
+        subs.append(master(fade(x, 0, 1.0), SUB_DB, meter=low_level))
+    variants("blast.sub", "subtitles.airstrike.blast", "blast_sub", level(subs, SUB_DB, low_level), level=0.2)
 
-    # дальний: удар и раскаты эха
-    far = []
-    for fid, a, b in [(438693, 5.93, 13.9), (438693, 14.09, 19.0), (438693, 68.94, 72.3), (438538, 15.4, 25.5),
-                      (438538, 47.81, 59.3), (320788, 30.0, 41.9), (320788, 42.02, 51.2), (741267, 4.4, 15.5),
-                      (824805, 0.2, 7.0), (871382, 0, None), (324277, 0, None)]:
-        s = trim_tail(gate_hiss(cut(src(fid), a, b)), -50, 0.8)
-        s = F(s, lo=25, hi=5000)
-        far.append(norm(fade(s, 0.003, 0.8), -12.5, 0.95))
-    variants("blast.far", "subtitles.airstrike.blast", "blast_far", far)
+    # эхо вокруг: те же записи после удара — отражения от склонов, домов и леса, стерео шире; играется без места
+    # в мире (прямой звук идёт из точки взрыва, эхо приходит со всех сторон)
+    tails = []
+    for fid, a, b, side, hi in [(866989, 181.0, 189.0, 1.0, None), (251401, 0.0, 9.5, 1.6, None),
+                                (811474, 5.1, 15.0, 2.0, None), (125937, 10.0, 18.0, 1.4, None),
+                                (160794, 4.95, 13.0, 1.6, 6000)]:
+        x = onset(cut(src(fid, stereo=True, orig=True), a, b), -30)
+        t = np.arange(len(x)) / SR
+        rise = np.clip((t - 0.08) / 0.32, 0, 1)
+        x = chans(F, x * (rise * rise * (3 - 2 * rise))[:, None], lo=60, hi=hi)  # прямой звук убран, низ — у blast.sub
+        x = widen(chans(gate_hiss, x), side)
+        tails.append(master(chans(trim_tail, x, -50, 0.8), TAIL_LUFS))
+    variants("blast.tail", None, "blast_tail", level(tails, TAIL_LUFS), level=0.2)
+
+    # разрывы РСЗО (122 мм): миномётные мины в 600–900 м — сухой удар и короткий раскат
+    rockets = []
+    for fid, a, b in [(426164, 0.0, 1.6), (426163, 0.0, 1.9), (426167, 0.0, 1.05), (426167, 1.05, 2.0),
+                      (426166, 0.0, 1.1)]:
+        x = F(onset(cut(src(fid, orig=True), a, b)), lo=30)
+        rockets.append(master(fade(x, 0, 0.15), ROCKET_LUFS))
+    variants("rocket.blast", "subtitles.airstrike.blast", "rocket_blast", level(rockets, ROCKET_LUFS), level=0.2)
 
     # обломки: камни и земля падают на рядом стоящих
     deb = []
@@ -698,7 +902,7 @@ def grid():
 ORDER = ["drone.engine", "drone.engine.far", "launch.booster", "booster.engine", "booster.separate", "missile.engine",
          "missile.engine.rear", "missile.dive", "missile.engine.far", "missile.whistle", "bomber.engine",
          "bomber.engine.far", "bomb.fall", "bomb.fall.far", "bomb.drill", "siren", "blast.near", "blast.sub",
-         "blast.far", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
+         "blast.far", "blast.mid", "blast.tail", "debris.fall", "blast.fire", "bomb.crack", "bomb.impact", "bomb.quake", "bomb.deep", "bomb.vent", "bomb.cave",
          "designator.lock", "silent", "nuke.alarm", "nuke.launch", "nuke.crack", "nuke.boom_far", "nuke.roar",
          "nuke.wind", "nuke.rumble", "nuke.glass", "nuke.tinnitus", "nuke.rain", "geiger.click", "rocket.launch",
          "rocket.incoming", "rocket.blast", "loiter.engine",
@@ -712,7 +916,8 @@ def write_json():
     for ev in ORDER:
         sub, files = EVENTS[ev]
         entry = {"subtitle": sub} if sub else {}
-        entry["sounds"] = [{"name": f"airstrike:{f}"} for f in files]
+        entry["sounds"] = [{"name": f"airstrike:{f}", "preload": True} if ev in PRELOAD else {"name": f"airstrike:{f}"}
+                           for f in files]
         data[ev] = entry
     with open(os.path.join(ASSETS, "sounds.json"), "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -742,14 +947,22 @@ def write_credits():
 
 
 if __name__ == "__main__":
-    os.makedirs(OUT, exist_ok=True)
-    for f in os.listdir(OUT):  # прежние файлы, которых больше нет в сборке
-        if f.endswith(".ogg"):
-            os.remove(os.path.join(OUT, f))
-    # новые разделы — в конец: генератор случайных чисел общий, так прежние звуки не меняются
-    for part in (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter, grid):
-        print(part.__name__)
+    PARTS = (drone, missile, launch, bomber, blasts, bunker, sirens, nuke, misc, rocket, loiter, grid)
+    only = set(sys.argv[1:])
+    unknown = only - {p.__name__ for p in PARTS}
+    if unknown:
+        sys.exit(f"нет таких разделов: {', '.join(sorted(unknown))}; есть: {', '.join(p.__name__ for p in PARTS)}")
+    for part in PARTS:
+        print(part.__name__ + ("" if not only or part.__name__ in only else " (файлы не пишутся)"))
+        WRITING = not only or part.__name__ in only
+        # свой генератор у каждого раздела: правка одного раздела не сдвигает случайные числа другим
+        rng = np.random.default_rng(zlib.crc32(part.__name__.encode()))
+        syn.rng = np.random.default_rng(zlib.crc32(("syn." + part.__name__).encode()))
         part()
     write_json()
     write_credits()
+    used = {f + ".ogg" for _, files in EVENTS.values() for f in files}
+    for f in os.listdir(OUT):  # прежние файлы, которых больше нет в сборке
+        if f.endswith(".ogg") and f not in used:
+            os.remove(os.path.join(OUT, f))
     print("готово:", len(EVENTS), "событий")

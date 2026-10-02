@@ -8,19 +8,21 @@ import org.joml.Vector3f;
  * дальность видимости по погоде. Цвета дымки нет: она — в непрозрачности ({@link Sight}).
  *
  * @param camera  глаз
+ * @param forward куда смотрит
  * @param left    влево по экрану
  * @param up      вверх по экрану
  * @param partial доля тика
  * @param far     дальше — переносить ближе с тем же угловым размером ({@link ua.zentix.airstrike.client.render.FarDraw#fold})
  * @param pixel   угол одного пикселя, рад
+ * @param edge    угол от середины экрана до угла, рад: дальше — не в кадре
  * @param ambient свет неба 0.12..1: ночью дым и корпус темнее
  * @param range   дальность видимости, блоков ({@link Sight#range})
  * @param world   докуда мир рисует сам (дальность прорисовки, блоков): ближе дальняя картинка уступает частицам
  * @param clouds  высота облаков измерения, блоков ({@code NaN} — облаков нет: Незер, Энд)
  * @param rain    дождь 0..1: облака сплошные
  */
-public record FarView(Vec3 camera, Vector3f left, Vector3f up, float partial, double far, double pixel, float ambient,
-                      double range, double world, double clouds, float rain) {
+public record FarView(Vec3 camera, Vector3f forward, Vector3f left, Vector3f up, float partial, double far, double pixel, double edge,
+                      float ambient, double range, double world, double clouds, float rain) {
     /**
      * Доля дальней картинки взрыва на дальности d: ближе 0,8 прорисовки её нет (там частицы), к краю прорисовки, где
      * туман съедает частицы, — вся.

@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,11 +23,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Звуки, собранные tools/build_sounds.py, сходятся с кодом: каждое событие ModSounds есть в sounds.json, каждый
- * файл есть и он моно (Minecraft размещает в пространстве только моно — стерео звучал бы «в голове»),
- * авторы записей лежат рядом со звуками.
+ * файл есть и он моно (Minecraft размещает в пространстве только моно — стерео звучал бы «в голове»; стерео — только
+ * эхо взрыва, которое и играется без места), авторы записей лежат рядом со звуками.
  */
 class SoundAssetsTest {
     private static final String ASSETS = "/assets/airstrike/";
+    /** Звуки без места в мире ({@code ClientSounds.around}) — стерео. */
+    private static final Set<String> STEREO = Set.of("blast.tail");
+    /** Ракурсы одного взрыва: вариант выбирает одно зерно, поэтому вариантов поровну. */
+    private static final List<String> PERSPECTIVES = List.of("blast.near", "blast.mid", "blast.far");
+    /** Взрывы играются в тик прихода фронта: файлы разобраны заранее, без задержки на первом звуке. */
+    private static final List<String> PRELOAD = List.of("blast.near", "blast.mid", "blast.far", "blast.sub", "blast.tail", "rocket.blast");
 
     @Test
     void everyEventHasMonoFiles() throws IOException {
@@ -38,7 +45,7 @@ class SoundAssetsTest {
                 String name = s.isJsonObject() ? s.getAsJsonObject().get("name").getAsString() : s.getAsString();
                 String file = ASSETS + "sounds/" + name.substring("airstrike:".length()) + ".ogg";
                 try (InputStream in = open(file)) {
-                    assertEquals(1, vorbisChannels(in.readNBytes(4096)), file + " должен быть моно");
+                    assertEquals(STEREO.contains(e.getKey()) ? 2 : 1, vorbisChannels(in.readNBytes(4096)), file + ": каналы");
                 }
             }
         }
@@ -48,9 +55,24 @@ class SoundAssetsTest {
         while (m.find()) registered.add(m.group(1));
         assertTrue(registered.size() > 30);
         assertEquals(registered, json.keySet(), "события ModSounds и sounds.json");
+        for (String p : PERSPECTIVES) {
+            assertEquals(variants(json, PERSPECTIVES.get(0)), variants(json, p), "вариантов у ракурсов поровну: " + p);
+            for (JsonElement s : json.getAsJsonObject(p).getAsJsonArray("sounds")) {
+                assertTrue(!s.isJsonObject() || !s.getAsJsonObject().has("weight"), p + ": веса равные — иначе зерно выберет разные записи");
+            }
+        }
+        for (String p : PRELOAD) {
+            for (JsonElement s : json.getAsJsonObject(p).getAsJsonArray("sounds")) {
+                assertTrue(s.isJsonObject() && s.getAsJsonObject().has("preload") && s.getAsJsonObject().get("preload").getAsBoolean(), p + ": preload");
+            }
+        }
         try (InputStream in = open(ASSETS + "sounds/credits.txt")) {
             assertTrue(new String(in.readAllBytes(), StandardCharsets.UTF_8).contains("freesound.org"));
         }
+    }
+
+    private static int variants(JsonObject json, String event) {
+        return json.getAsJsonObject(event).getAsJsonArray("sounds").size();
     }
 
     private static InputStream open(String path) {
