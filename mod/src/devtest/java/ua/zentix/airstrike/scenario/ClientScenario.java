@@ -529,6 +529,8 @@ public final class ClientScenario {
             }
             return;
         }
+        // цель одна, а столб прежнего снаряда стоит минуты и виден вблизи: в кадрах каждого — только его взрыв
+        FarRenderer.reset();
         mc.player.getAbilities().flying = true;
         view();
         if (current.equals("icbm")) {

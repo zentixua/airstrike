@@ -37,7 +37,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     pack_dir.py <каталог> [--optional]   ← каталог игры из pack/ (моды по хешам, config/) — для prod_client.py --no-copy
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|far-models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus без запуска служб
                                            (nested_kwin_bus.conf) и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
@@ -709,8 +709,10 @@ GameTest идёт частями на шести машинах (`-PgametestShar
 - Трейлер: звук собирается из журнала (`Recorder`), а движок сообщает о звуке только при запуске — петли, начатые
   до плана (мотор снаряда с пуска), `Recorder.start` дописывает в журнал сам; без этого планы погони шли без мотора.
 - Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
-  когда снаряд пропал (взрыв), в конце — старт МБР. В облаке (без KWin) клиент идёт под `xvfb-run` с llvmpipe
-  (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен jar sable-companion.
+  когда снаряд пропал (взрыв), в конце — старт МБР; столбы прежних ударов перед следующим снимаются (`FarRenderer.reset`).
+  `fx-late` — шахед и ракета и их столб через 45 с с половины прорисовки и из-за её края. В облаке (без KWin) клиент
+  идёт под `xvfb-run` с llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен
+  jar sable-companion.
 - Свои частицы (`client/fx/particle`) — не ванильный движок, а свой пул (`FxPool`) и свой слой после мира
   (`fx/layer/FxLayer`): у ванильного в слое одна очередь без сортировки (кто родился позже — тот поверх: дым пусковой
   в 10 блоках ложился за столбы попаданий в сотнях блоков), переполненная очередь молча вытесняла старые облака, а дальняя

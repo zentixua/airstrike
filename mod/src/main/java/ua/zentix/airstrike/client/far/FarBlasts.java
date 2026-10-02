@@ -97,7 +97,7 @@ public final class FarBlasts {
      */
     static final double CLOUD_ALBEDO = 0.7, SKY_SPREAD = 1, SKY_PEAK = 0.45, SKY_CLEAR = 0.45, SKY_LOW = 40;
 
-    /** Дым: свежий чёрный и старый серый (как у столба ближней картинки), цвет пыли тянет к этому серому. */
+    /** Дым: свежий чёрный и старый серый, цвет пыли тянет к этому серому. */
     private static final float[] DARK = {0.18f, 0.165f, 0.15f}, AGED = {0.48f, 0.455f, 0.43f}, DUST_GREY = {0.6f, 0.57f, 0.54f};
     /** Свет вспышки, шара (раскалён → оранжевый → тёмно-красный), пожара: цвет блика и вуали и далёкой точки. */
     private static final float[] FLASH = {1, 0.95f, 0.82f}, BALL_HOT = {1, 0.9f, 0.7f}, BALL_MID = {1, 0.5f, 0.15f},
@@ -168,6 +168,11 @@ public final class FarBlasts {
         final float[] f, ox, oz, size, rot, spin, shade, dust;
         final byte[] tex;
         boolean soundPending;
+        /**
+         * Шар светит или пожар рисуется здесь (в прошлом кадре): лучи по блокам к шару ({@link #clear}) стоит обновлять.
+         * Столбу они не нужны, а лучей до 7 на взрыв, и столб в прорисовке живёт минуты.
+         */
+        boolean glows = true;
         long traced;
         /** По последнему лучу: на сколько блоков выше источника его видно; разность хода через кромку. */
         double hidden, path;
@@ -282,7 +287,7 @@ public final class FarBlasts {
             }
             if (clock - e.traced >= RETRACE && traces < TRACES_PER_TICK) {
                 trace(e, heights, ear);
-                clear(e, ear);
+                if (e.glows) clear(e, ear);
                 traces++;
             } else if (age < e.look.ballTicks() && clears < CLEARS_PER_TICK) {
                 clear(e, ear);
@@ -376,6 +381,7 @@ public final class FarBlasts {
             double d = e.distanceTo(cam);
             // доля тела шара и пожара: вблизи их рисуют частицы
             double w = e.near ? view.farShare(d) : 1;
+            e.glows = age < e.look.ballTicks() || w > 0 && age < e.look.burnTicks();
             // линия, ниже которой место взрыва закрыто рельефом, — над основанием (тела в прорисовке закрывает и глубина)
             double line = e.hidden > 0 ? LIFT + e.hidden : 0;
             sky(e, view, out, age, bx, by, bz, d, line);
@@ -573,11 +579,15 @@ public final class FarBlasts {
             double d = Math.sqrt(px * px + py * py + pz * pz);
             double t = Sight.transmittance(d, view.range());
             if (t < Sight.THRESHOLD) continue;
+            // глаз входит в клуб — клуб тает: квадрат клуба в десятки блоков у самой камеры закрывал весь экран и гас
+            // рывком, когда глаз проходил его середину
+            double outside = smoothstep(0.5 * r, r, d);
+            if (outside <= 0) continue;
             Sight.point(r, 1, 1, d, view.pixel(), POINT);
             // свой цвет при свете неба, дымка — в непрозрачности (за клубом — та же дымка, Кошмидер)
             float share = e.dust[i], lit = e.shade[i] * view.ambient();
             float cr = (sr + (e.dustR - sr) * share) * lit, cg = (sg + (e.dustG - sg) * share) * lit, cb = (sb + (e.dustB - sb) * share) * lit;
-            out.puff(px, py, pz, POINT[0], e.rot[i] + (float) (age * e.spin[i]), e.tex[i], cr, cg, cb, (float) (a * vis * POINT[1] * t));
+            out.puff(px, py, pz, POINT[0], e.rot[i] + (float) (age * e.spin[i]), e.tex[i], cr, cg, cb, (float) (a * vis * POINT[1] * t * outside));
         }
     }
 
