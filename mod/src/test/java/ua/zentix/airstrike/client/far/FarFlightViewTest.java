@@ -5,7 +5,7 @@ import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarLook;
-import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
+import ua.zentix.airstrike.client.ClientWeaponSpec.Trail;
 import ua.zentix.airstrike.client.ClientWeaponSpec.Flame;
 import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.client.render.FarModels;
@@ -113,13 +113,13 @@ class FarFlightViewTest {
         return t;
     }
 
-    private record Point(long serial, long tick, FarTrail style, long prev, double x) {}
+    private record Point(long serial, long tick, Trail style, long prev, double x, boolean last) {}
 
     private static List<Point> points(TrailPoints p) {
         List<Point> out = new ArrayList<>();
         for (long s = p.first(); s < p.end(); s++) {
             int i = TrailPoints.index(s);
-            out.add(new Point(s, p.birth[i], p.style[i], p.prev[i], p.x[i]));
+            out.add(new Point(s, p.birth[i], p.style[i], p.prev[i], p.x[i], p.last[i]));
         }
         return out;
     }
@@ -127,7 +127,7 @@ class FarFlightViewTest {
     @Test
     void rocketTrailRunsWhileMotorBurnsAndEndsAtBurnout() {
         FarLook look = far(WeaponType.ROCKET);
-        FarTrail trail = look.stage(FlightPhase.BOOST).trail();
+        Trail trail = look.stage(FlightPhase.BOOST).trail();
         FlightTrack t = track(WeaponType.ROCKET, 10, 90, tick -> tick <= 50 ? FlightPhase.BOOST : FlightPhase.CRUISE);
         TrailPoints p = new TrailPoints();
         FarFlightView.sample(new FarFlightView.Far(t, 1), 90, p);
@@ -140,6 +140,7 @@ class FarFlightViewTest {
             assertEquals(i == 21 ? 51 : 10 + 2 * i, pt.tick);
             assertEquals(pt.tick * 3.0, pt.x, 1e-9, "место — по пути");
             assertEquals(i == 0 ? TrailPoints.NONE : pts.get(i - 1).serial, pt.prev, "одна лента");
+            assertEquals(i == 21, pt.last, "лента сходит на нет в точке выгорания, и только там");
         }
     }
 
@@ -150,7 +151,7 @@ class FarFlightViewTest {
         TrailPoints p = new TrailPoints();
         FarFlightView.sample(new FarFlightView.Far(t, 1), 40, p);
         List<Point> pts = points(p);
-        FarTrail booster = look.stage(FlightPhase.BOOST).trail(), exhaust = look.stage(FlightPhase.CRUISE).trail();
+        Trail booster = look.stage(FlightPhase.BOOST).trail(), exhaust = look.stage(FlightPhase.CRUISE).trail();
         int switched = 0;
         for (int i = 1; i < pts.size(); i++) {
             Point a = pts.get(i - 1), b = pts.get(i);
@@ -158,10 +159,79 @@ class FarFlightViewTest {
                 switched++;
                 assertEquals(a.tick, b.tick, "лента ускорителя кончается там, где начинается выхлоп");
                 assertEquals(TrailPoints.NONE, b.prev, "это другая лента");
+                assertTrue(a.last, "лента ускорителя там сходит на нет");
+                assertTrue(!b.last, "а выхлоп только начинается");
             }
         }
         assertEquals(1, switched);
         assertSame(exhaust, pts.getLast().style);
+    }
+
+    @Test
+    void ribbonToneMatchesSmokeTextures() throws java.io.IOException {
+        // клубы объёма лежат на ленте: с тем же средним тоном они её неровности, а не тёмные бусины
+        double light = 0, cover = 0;
+        for (int k = 0; k < 16; k++) {
+            String path = String.format(java.util.Locale.ROOT, "/assets/airstrike/textures/fx/particle/smoke_%02d.png", k);
+            try (java.io.InputStream in = FarFlightViewTest.class.getResourceAsStream(path)) {
+                assertNotNull(in, path);
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(in);
+                for (int y = 0; y < img.getHeight(); y++) {
+                    for (int x = 0; x < img.getWidth(); x++) {
+                        int argb = img.getRGB(x, y);
+                        double a = (argb >>> 24) / 255.0;
+                        light += a * ((argb >> 16 & 255) + (argb >> 8 & 255) + (argb & 255)) / (3 * 255.0);
+                        cover += a;
+                    }
+                }
+            }
+        }
+        assertEquals(FarFlightView.TONE, light / cover, 0.03);
+    }
+
+    @Test
+    void everyTrailNozzleFitsTheFrameCache() {
+        for (WeaponType w : WeaponType.values()) {
+            for (boolean payload : new boolean[]{false, true}) {
+                ClientWeaponSpec.ClientAirframe a = ClientWeaponSpec.of(w).airframe(payload);
+                for (boolean booster : new boolean[]{false, true}) {
+                    assertTrue(a.trailNozzles(booster).size() <= FarFlightView.MAX_NOZZLES, w + " " + payload + " " + booster);
+                }
+            }
+        }
+    }
+
+    @Test
+    void rocketTrailStartsAtTheMuzzleNotInTheTube() {
+        // поджиг — в трубе: огонь без следа (лента шире трубы торчала бы из неё), след — с первого тика разгона
+        FlightTrack t = track(WeaponType.ROCKET, 0, 20, tick -> tick < 6 ? FlightPhase.IGNITION : FlightPhase.BOOST);
+        TrailPoints p = new TrailPoints();
+        FarFlightView.sample(new FarFlightView.Far(t, 1), 20, p);
+        List<Point> pts = points(p);
+        long boost = 0;
+        while (t.phase(boost) != FlightPhase.BOOST.ordinal()) boost++;
+        assertEquals(boost, pts.getFirst().tick);
+        assertEquals(TrailPoints.NONE, pts.getFirst().prev);
+    }
+
+    @Test
+    void bomberLeavesAContrailFromEachEngine() {
+        FlightTrack t = new FlightTrack(ID, WeaponType.BUNKER, true);
+        for (long tick = 0; tick <= 40; tick += 2) {
+            t.record(tick, new S2C.FarFlight(ID, WeaponType.BUNKER.id(), true, false, true, new Vec3(0, 300, tick * 12.0), new Vec3(0, 0, 12), 0, 0, 0,
+                    FlightPhase.CRUISE.ordinal(), 0, new Vec3(0, 60, 9000)));
+        }
+        TrailPoints p = new TrailPoints();
+        FarFlightView.sample(new FarFlightView.Far(t, 1), 40, p);
+        List<ClientWeaponSpec.At> engines = ClientWeaponSpec.of(WeaponType.BUNKER).airframe(false).engines();
+        List<Point> pts = points(p);
+        assertEquals(engines.size() * 11, pts.size(), "у каждого сопла точка раз в 4 тика");
+        for (int i = 0; i < pts.size(); i++) {
+            Point pt = pts.get(i);
+            // нос по +Z (рысканье 0): влево — по +X
+            assertEquals(engines.get(i % engines.size()).x(), pt.x, 1e-4, "лента от своего сопла");
+            assertEquals(i < engines.size() ? TrailPoints.NONE : pts.get(i - engines.size()).serial, pt.prev, "и своя");
+        }
     }
 
     @Test

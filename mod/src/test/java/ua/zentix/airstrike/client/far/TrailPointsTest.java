@@ -2,7 +2,7 @@ package ua.zentix.airstrike.client.far;
 
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
-import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
+import ua.zentix.airstrike.client.ClientWeaponSpec.Trail;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
@@ -16,15 +16,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Общий круговой буфер точек шлейфов: тают своим сроком, полный буфер затирает старые, отбой снимает шлейф сразу. */
 class TrailPointsTest {
-    private static final FarTrail SHORT = new FarTrail(2, 40, 1, 2, 0xFFFFFF, 0xFFFFFF, 1, 1, 0.5f, 1);
-    private static final FarTrail LONG = new FarTrail(4, 1000, 1, 2, 0xFFFFFF, 0xFFFFFF, 1, 1, 0.5f, 1);
+    private static final Trail SHORT = new Trail(2, 40, 1, 2, 0xFFFFFF, 0xFFFFFF, 1, 1, 0.5f, 1, 0);
+    private static final Trail LONG = new Trail(4, 1000, 1, 2, 0xFFFFFF, 0xFFFFFF, 1, 1, 0.5f, 1, 0);
 
     @Test
     void pointsMeltByTheirOwnLifetime() {
         TrailPoints p = new TrailPoints();
-        long a = p.add(0, 0, 0, 100, SHORT, 1, TrailPoints.NONE);
-        long b = p.add(1, 0, 0, 100, LONG, 2, TrailPoints.NONE);
-        long c = p.add(2, 0, 0, 101, SHORT, 1, a);
+        long a = p.add(0, 0, 0, 100, SHORT, 0, 1, TrailPoints.NONE);
+        long b = p.add(1, 0, 0, 100, LONG, 0, 2, TrailPoints.NONE);
+        long c = p.add(2, 0, 0, 101, SHORT, 0, 1, a);
         p.expire(139);
         assertTrue(p.holds(a) && p.holds(c), "короткий ещё жив");
         p.expire(140);
@@ -37,11 +37,38 @@ class TrailPointsTest {
     }
 
     @Test
+    void frozenWorldStopsAgeing() {
+        // /tick freeze на 30 тиков: точка 100-го тика тает к 170-му, а не к 140-му
+        TrailPoints p = new TrailPoints();
+        long a = p.add(0, 0, 0, 100, SHORT, 0, 1, TrailPoints.NONE);
+        for (int i = 0; i < 30; i++) p.hold();
+        p.expire(169);
+        assertTrue(p.holds(a), "в заморозке не стареет");
+        p.expire(170);
+        assertFalse(p.holds(a));
+    }
+
+    @Test
+    void finishedRibbonEndsUntilThePathResumes() {
+        TrailPoints p = new TrailPoints();
+        long a = p.add(0, 0, 0, 0, LONG, 0, 1, TrailPoints.NONE);
+        long b = p.add(1, 0, 0, 4, LONG, 0, 1, a);
+        p.finish(b);
+        assertTrue(p.last[TrailPoints.index(b)], "лента кончилась: там сходит на нет");
+        assertFalse(p.last[TrailPoints.index(a)]);
+        // путь снова есть — лента продолжилась, прошлый конец больше не конец
+        long c = p.add(2, 0, 0, 8, LONG, 0, 1, b);
+        assertFalse(p.last[TrailPoints.index(b)]);
+        assertFalse(p.last[TrailPoints.index(c)]);
+        p.finish(TrailPoints.NONE);
+    }
+
+    @Test
     void fullBufferOverwritesOldestAndBreaksLinksToIt() {
         TrailPoints p = new TrailPoints();
         long prev = TrailPoints.NONE, firstLink = TrailPoints.NONE;
         for (int i = 0; i < TrailPoints.CAPACITY + 10; i++) {
-            prev = p.add(i, 0, 0, i, LONG, 1, prev);
+            prev = p.add(i, 0, 0, i, LONG, 0, 1, prev);
             if (i == 10) firstLink = prev;
         }
         assertEquals(10, p.first(), "затёрты десять самых старых");
@@ -55,8 +82,8 @@ class TrailPointsTest {
     @Test
     void cancelledFlightTrailVanishesAtOnce() {
         TrailPoints p = new TrailPoints();
-        long a = p.add(0, 0, 0, 0, LONG, 7, TrailPoints.NONE);
-        long b = p.add(0, 0, 0, 0, LONG, 8, TrailPoints.NONE);
+        long a = p.add(0, 0, 0, 0, LONG, 0, 7, TrailPoints.NONE);
+        long b = p.add(0, 0, 0, 0, LONG, 0, 8, TrailPoints.NONE);
         p.kill(7);
         assertNull(p.style[TrailPoints.index(a)]);
         assertNotNull(p.style[TrailPoints.index(b)], "чужой шлейф остаётся");
@@ -68,7 +95,7 @@ class TrailPointsTest {
     @Test
     void wholeRocketPackFitsQuarterOfBuffer() {
         // пакет «Града» — 40 снарядов: точка раз в шаг, пока горит двигатель, и точка выгорания
-        FarTrail trail = ClientWeaponSpec.of(WeaponType.ROCKET).airframe(false).far().stage(FlightPhase.BOOST).trail();
+        Trail trail = ClientWeaponSpec.of(WeaponType.ROCKET).airframe(false).far().stage(FlightPhase.BOOST).trail();
         assertNotNull(trail);
         int pack = LauncherEntity.ROCKET_COLUMNS * LauncherEntity.ROCKET_ROWS;
         int perRocket = RocketEntity.BURN_TICKS / trail.step() + 2;

@@ -57,6 +57,8 @@ void main() {
     }
     // у самой камеры квадрат не режет экран краем ближней плоскости
     color *= clamp((viewDistance - 0.3) / 1.2, 0.0, 1.0);
-    color.rgb = mix(color.rgb, FxFogColor.rgb * color.a, fog * FxFogColor.a);
+    // туман Minecraft гасит частицу, а не красит её в свой цвет: за ней и так мир в тумане, а непрозрачное пятно цвета
+    // тумана у края прорисовки закрывало ленты шлейфов и дальнюю картинку взрывов, которые сменяют частицы там
+    color *= 1.0 - fog * FxFogColor.a;
     fragColor = color * ColorModulator;
 }

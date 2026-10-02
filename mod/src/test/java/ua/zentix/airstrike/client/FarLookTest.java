@@ -2,7 +2,7 @@ package ua.zentix.airstrike.client;
 
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarLook;
-import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
+import ua.zentix.airstrike.client.ClientWeaponSpec.Trail;
 import ua.zentix.airstrike.client.ClientWeaponSpec.Stage;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.strike.WeaponType;
@@ -42,10 +42,9 @@ class FarLookTest {
     @Test
     void rocketBurnsOnlyWhileMotorIsLit() {
         FarLook rocket = far(WeaponType.ROCKET);
-        for (FlightPhase ph : List.of(FlightPhase.IGNITION, FlightPhase.BOOST)) {
-            assertNotNull(rocket.stage(ph).flame());
-            assertNotNull(rocket.stage(ph).trail());
-        }
+        for (FlightPhase ph : List.of(FlightPhase.IGNITION, FlightPhase.BOOST)) assertNotNull(rocket.stage(ph).flame());
+        assertNull(rocket.stage(FlightPhase.IGNITION).trail(), "поджиг в трубе — след с переднего среза");
+        assertNotNull(rocket.stage(FlightPhase.BOOST).trail());
         assertSame(Stage.NONE, rocket.stage(FlightPhase.CRUISE), "выгорел — летит по инерции без следа");
         assertSame(Stage.NONE, rocket.stage(FlightPhase.TERMINAL));
     }
@@ -99,7 +98,7 @@ class FarLookTest {
     void trailsGrowFadeAndDriftLikeNearPuffs() {
         for (FarLook look : all()) {
             for (FlightPhase ph : FlightPhase.values()) {
-                FarTrail s = look.stage(ph).trail();
+                Trail s = look.stage(ph).trail();
                 if (s == null) continue;
                 assertEquals(s.width0(), s.width(0), 1e-9);
                 assertEquals(s.width1(), s.width(s.life()), 1e-9);
@@ -112,6 +111,8 @@ class FarLookTest {
                 assertTrue(s.opacity(late + 1) > s.opacity((late + s.life()) / 2), "тает");
                 assertEquals(0, s.drift(0), 1e-12);
                 assertEquals(s.wind() * 9.0 * 100, s.drift(200) - s.drift(100), 1e-6, "снос — установившейся скоростью клуба");
+                assertEquals(0, s.lift(0), 1e-12);
+                assertTrue(s.lift(s.life()) >= s.lift(s.life() / 2.0) && s.lift(s.life()) < 4, "тёплый дым поднимается на блоки, не больше");
                 assertTrue(s.step() >= 1 && s.step() <= 4);
             }
         }

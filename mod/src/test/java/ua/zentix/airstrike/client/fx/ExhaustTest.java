@@ -9,13 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExhaustTest {
     /**
-     * Следы всего пакета РСЗО, пока горят двигатели, помещаются в группу шлейфов: иначе группа полна после первой
-     * дюжины ракет, и у остальных след не рождается.
+     * Клубы объёма трёх полных пакетов РСЗО, пока горят двигатели, помещаются в группу шлейфов. Сам след — лента, мест
+     * не занимает: и в залпе больше клубы пропадут, а след останется сплошным.
      */
     @Test
-    void rocketPackTrailsFitTrailGroup() {
+    void volumePuffsOfThreeRocketPacksFitTrailGroup() {
         int pack = LauncherEntity.ROCKET_COLUMNS * LauncherEntity.ROCKET_ROWS;
-        int puffs = pack * (RocketEntity.BURN_TICKS + 1) * Exhaust.ROCKET_PUFFS_PER_TICK;
+        int puffs = 3 * pack * (RocketEntity.BURN_TICKS + 1) * Exhaust.VOLUME_PUFFS_PER_TICK;
         assertTrue(puffs <= FxBudget.TRAIL.limit(), puffs + " > " + FxBudget.TRAIL.limit());
     }
 }
