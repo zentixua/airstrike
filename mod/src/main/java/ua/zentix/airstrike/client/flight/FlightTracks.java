@@ -102,8 +102,17 @@ public final class FlightTracks {
         projectiles.forEach(TRACKS::remove);
     }
 
-    /** Отбой с ядерными или выход из мира. */
+    /** Отбой с ядерными. */
     public static void reset() {
         TRACKS.clear();
+    }
+
+    /**
+     * Выход из мира: и ссылка на его клиентский мир — без мира {@link #tick} не идёт, и она держала бы старый мир
+     * с чанками и сущностями в меню до входа в следующий.
+     */
+    public static void logout() {
+        reset();
+        world = null;
     }
 }

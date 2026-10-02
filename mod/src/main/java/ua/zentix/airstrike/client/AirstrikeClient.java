@@ -215,7 +215,7 @@ public final class AirstrikeClient {
 
     private static void logout(ClientPlayerNetworkEvent.LoggingOut e) {
         ClientSounds.reset();
-        FlightTracks.reset();
+        FlightTracks.logout();
         FarRenderer.reset();
         FxPool.INSTANCE.clear();
         FxLayer.reset();

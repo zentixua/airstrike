@@ -644,7 +644,7 @@ final class StagedExplosion implements UnitQueue.Job {
             BlockState s = level.getBlockState(p);
             if (!s.is(blocksAtRays.get(i))) continue;
             if (e.interactsWithBlocks()) {
-                PoiRecords.recordIfMissing(level, p, s);
+                PoiRecords.recordWithNeighbours(level, p, s);
                 s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
             }
             hit.add(p);
@@ -671,7 +671,7 @@ final class StagedExplosion implements UnitQueue.Job {
             Util.shuffle(part, level.random);
             for (BlockPos p : part) {
                 BlockState s = level.getBlockState(p);
-                PoiRecords.recordIfMissing(level, p, s);
+                PoiRecords.recordWithNeighbours(level, p, s);
                 s.onExplosionHit(level, p, e, (stack, at) -> addOrAppend(stack, at));
             }
         }

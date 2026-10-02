@@ -56,6 +56,7 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.AreaLoader;
+import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
@@ -2113,6 +2114,33 @@ public final class StrikeGameTests {
                 for (ChunkPos c : forced) level.setChunkForced(c.x, c.z, false);
                 forced.clear();
             }
+        });
+    }
+
+    /**
+     * B-2 после сброса держит свой чанк, пока уходит. Без своего тикета он входил в чанк, который тикал по тикету
+     * встречного B-2 залпа, тот уходил — и B-2 замирал в чанке без тика («в полёте выгружен вместе с чанком» дважды
+     * в одной точке, игра 02.10.2026, залпы B-2 ×30). Проверка — в двух чанках от места сброса и дальше: чанк впереди
+     * по курсу, взятый в тике сброса, держался и прежде.
+     */
+    @GameTest(template = "runway", timeoutTicks = 200, batch = "bomber_egress", skyAccess = true)
+    public static void bomberHoldsChunkAfterRelease(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BomberEntity bomber = ModEntities.BOMBER.get().create(level);
+        bomber.launch(top(h, new BlockPos(16, 3, 20)), top(h, RUNWAY_TARGET), null, UUID.randomUUID());
+        bomber.setRoute(null);
+        level.addFreshEntity(bomber);
+        UUID id = bomber.getUUID();
+        ChunkPos[] release = {null};
+        h.succeedWhen(() -> {
+            h.assertTrue(level.getEntity(id) instanceof BomberEntity b && !b.isRemoved(), "B-2 убран"
+                    + (release[0] == null ? " до сброса" : " у " + bomber.blockPosition().toShortString() + ", сброс в чанке " + release[0]));
+            BomberEntity b = (BomberEntity) level.getEntity(id);
+            h.assertTrue(b.hasReleased(), "B-2 ещё не сбросил бомбу");
+            ChunkPos here = b.chunkPosition();
+            if (release[0] == null) release[0] = here;
+            h.assertTrue(here.getChessboardDistance(release[0]) >= 2, "B-2 ещё у места сброса");
+            h.assertTrue(ChunkTickets.holds(level, id, here.toLong()), "B-2 после сброса не держит свой чанк " + here);
         });
     }
 

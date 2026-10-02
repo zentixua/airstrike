@@ -127,6 +127,11 @@ public final class AreaLoader {
         return requests.size();
     }
 
+    /** Взят ли район или растёт (проверки). */
+    public boolean holds(Area area) {
+        return requests.containsKey(area);
+    }
+
     /** Сколько районов с тикетом {@code type} и ключом {@code key} взято или растёт (проверки). */
     public int count(TicketType<?> type, UUID key) {
         return (int) requests.keySet().stream().filter(a -> a.type() == type && a.key().equals(key)).count();

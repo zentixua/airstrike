@@ -29,4 +29,9 @@ public final class ChunkTickets {
         if (hold) StrikeWorld.get(level).areas().hold(level, area);
         else StrikeWorld.get(level).areas().release(level, area);
     }
+
+    /** Держит ли снаряд {@code owner} чанк {@code chunk} (проверки). */
+    public static boolean holds(ServerLevel level, UUID owner, long chunk) {
+        return StrikeWorld.get(level).areas().holds(new AreaLoader.Area(TYPE, new ChunkPos(chunk), DISTANCE, owner));
+    }
 }
