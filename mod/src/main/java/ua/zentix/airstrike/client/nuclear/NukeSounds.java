@@ -3,6 +3,7 @@ package ua.zentix.airstrike.client.nuclear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -11,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.fx.CameraShake;
 import ua.zentix.airstrike.client.sound.ClientSounds;
+import ua.zentix.airstrike.client.sound.SirenSound;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.registry.ModSounds;
@@ -25,37 +27,86 @@ import ua.zentix.airstrike.registry.ModSounds;
 public final class NukeSounds {
     /** Вход боеголовки виден последние 3 с — беззвучно: на 7 км/с её звук придёт уже после взрыва. */
     static final int REENTRY_TICKS = 60;
+    /** Сирены по разные стороны от места, где слушателя застала тревога, — как на улицах города, и их тон на полной скорости. */
+    private static final Vec3[] SIREN_AT = {new Vec3(140, 25, -90), new Vec3(-120, 25, 130)};
+    private static final float[] SIREN_TONE = {1.0f, 0.98f};
+    /** Движок не дал сирене канал (звука нет, каналы заняты): через столько тиков попробовать снова. */
+    private static final int SIREN_RETRY = 20;
 
     @Nullable
     private static RainLoop rainLoop;
+    /** Сирены, пока у слушателя тревога; {@code null} — эта не звучит (выключенные сбегают сами). */
+    private static final SirenSound[] SIRENS = new SirenSound[SIREN_AT.length];
+    /** Где слушателя застала тревога, в каком мире; {@code null} — тревоги нет. */
+    @Nullable
+    private static Vec3 sirenOrigin;
+    @Nullable
+    private static ClientLevel sirenLevel;
+    private static int sirenWait;
 
     private NukeSounds() {}
 
-    /** Пуск МБР: у запустившего — рёв двигателя со стола, у тех, кого касается, — сирена гражданской обороны. */
+    /** Пуск МБР: у запустившего — рёв двигателя со стола. Сирена гражданской обороны — {@link #sirens}. */
     static void warning(S2C.NukeWarning w) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
         long now = mc.level.getGameTime();
         if (w.mine() && now - w.launchTime() < 40) ClientSounds.at(ModSounds.NUKE_LAUNCH.get(), w.launchPos(), 24, 1);
-        if (w.alarm() && now < w.detonateTime()) {
-            // две сирены по разные стороны от игрока — как на улицах города
-            Vec3 c = mc.player.position();
-            ClientSounds.at(ModSounds.NUKE_ALARM.get(), c.add(140, 25, -90), 20, 1.0f);
-            ClientSounds.at(ModSounds.NUKE_ALARM.get(), c.add(-120, 25, 130), 20, 0.98f);
-        }
     }
 
-    /** Петля чёрного дождя — после {@link NukeSky#tick}, который решает, идёт ли он у камеры. */
+    /** Петля чёрного дождя — после {@link NukeSky#tick}, который решает, идёт ли он у камеры; сирены. */
     static void tick() {
         if (NukeSky.inBlackRain() && (rainLoop == null || rainLoop.isStopped())) {
             rainLoop = new RainLoop();
             Minecraft.getInstance().getSoundManager().play(rainLoop);
+        }
+        sirens();
+    }
+
+    /**
+     * Сирены гражданской обороны воют, пока летит хоть одна МБР, о которой слушателю объявлена тревога: до подрыва
+     * (пакет подрыва снимает предупреждение), отбоя (сервер присылает предупреждения заново) или конца ожидания места
+     * удара; потом сбегают. Сирену, которую движок не держит (перезапуск звука, смена измерения, ползунок «Окружение»
+     * был в нуле), — запустить снова на её месте; пока ползунок в нуле — не запускать: снятый им звук движок не убирает.
+     */
+    private static void sirens() {
+        Minecraft mc = Minecraft.getInstance();
+        if (sirenWait > 0) sirenWait--;
+        boolean alarm = false;
+        for (S2C.NukeWarning w : ClientNuclear.warnings()) alarm |= w.alarm();
+        if (!alarm || mc.level != sirenLevel) {
+            for (int i = 0; i < SIRENS.length; i++) {
+                if (SIRENS[i] != null) SIRENS[i].off();
+                SIRENS[i] = null;
+            }
+            sirenOrigin = null;
+            sirenLevel = null;
+            if (!alarm) return;
+        }
+        if (sirenWait > 0 || mc.player == null || mc.options.getSoundSourceVolume(SoundSource.AMBIENT) <= 0) return;
+        if (sirenOrigin == null) {
+            sirenOrigin = mc.player.position();
+            sirenLevel = mc.level;
+        }
+        for (int i = 0; i < SIRENS.length; i++) {
+            if (SIRENS[i] != null && SIRENS[i].playing()) continue;
+            if (SIRENS[i] != null) SIRENS[i].kill();
+            SIRENS[i] = new SirenSound(ModSounds.NUKE_ALARM.get(), sirenOrigin.add(SIREN_AT[i]), SIREN_TONE[i]);
+            mc.getSoundManager().play(SIRENS[i]);
+            sirenWait = SIREN_RETRY;
         }
     }
 
     static void reset() {
         if (rainLoop != null) rainLoop.end();
         rainLoop = null;
+        for (int i = 0; i < SIRENS.length; i++) {
+            if (SIRENS[i] != null) SIRENS[i].kill();
+            SIRENS[i] = null;
+        }
+        sirenOrigin = null;
+        sirenLevel = null;
+        sirenWait = 0;
     }
 
     /** Звуки одного подрыва у этого слушателя. */
