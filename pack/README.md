@@ -16,7 +16,8 @@ cd pack && packwiz mr export      # → Airstrike Pack-<версия>.mrpack
 
 Prism Launcher: «Добавить экземпляр» → «Импорт» → файл `.mrpack`. Prism покажет окно необязательных модов: запись
 (Flashback, Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает;
-не выбранные моды ставятся выключенными, их можно включить потом во вкладке модов.
+не выбранные моды ставятся выключенными, их можно включить потом во вкладке модов. Если Prism попросит подтвердить
+загрузку не с Modrinth — это jar Airstrike из выпуска на GitHub.
 
 ## Что внутри
 

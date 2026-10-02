@@ -12,9 +12,10 @@ DH, Sodium, шейдер, пакеты ресурсов — копии его н
 
 Пять запусков по очереди, каждый своей задачей:
 - `A-menu`, `B-menu` — клиент до главного меню, через 30 с после «Game took …» (строка ModernFix) — полная сборка
-  мусора (`jcmd GC.run`): живая куча в меню; закрывается сам по сроку 240 с (код 143 — это норма);
+  мусора (`jcmd GC.run`): живая куча в меню; закрывается сам по сроку 420 с (код 143 — это норма);
 - `A-bench`, `B-bench` — сценарий `salvo-bench`: новый мир, 30 РСЗО и 30 шахедов в 500 блоках, кадры в
-  `logs/frametimes.txt`, тик сервера раз в секунду; на тике ~5700 — полная сборка мусора: живая куча после залпов;
+  `logs/frametimes.txt`, тик сервера раз в секунду; на тике ~5700 — полная сборка мусора: живая куча после залпов
+  (кадры и тик сервера в сводке — только до тика 5600, пауза этой сборки в них не входит);
 - `B-rec` — новая сборка с включёнными модами записи и автозаписью Flashback (`config/flashback/flashback.json`),
   сценарий `launch`: моды записи грузятся, запись идёт, файл повтора появляется.
 
@@ -52,7 +53,9 @@ grep -E '^(enableShaders|shaderPack)=' "$MC/config/iris.properties"; ls "$MC/sha
 grep -E '^(renderDistance|simulationDistance|maxFps|enableVsync|graphicsMode|resourcePacks):' "$MC/options.txt"
 du -sh "$MC/mods" "$MC/config" "$MC/resourcepacks" "$MC/shaderpacks"; df -h /mnt/data/projects/airstrike/mod/run
 ```
-Свободно — не меньше mods + config + resourcepacks + shaderpacks + 5 ГБ.
+Свободно — не меньше mods + config + resourcepacks + shaderpacks + 5 ГБ. Версии `net.neoforged` и `org.lwjgl3` из
+`mmc-pack.json` — те, на которых пойдут оба запуска (`prod_client.py` берёт их из инстанса Артёма); NeoForge не
+21.1.250 — не стоп, но указать в отчёте.
 
 ## 2. Подготовка: worktree, сборка мода, каталоги A и B
 ```sh
@@ -115,9 +118,9 @@ for d in A B; do echo "== $d"; grep -E '^(enableShaders|shaderPack)=' "mod/run/a
 
 | N | D | ARGS |
 |---|---|---|
-| `a-menu` | `mod/run/ab/A` | `--seconds 240` |
+| `a-menu` | `mod/run/ab/A` | `--seconds 420` |
 | `a-bench` | `mod/run/ab/A` | `salvo-bench --prop airstrike.frametimes=true --seconds 1200` |
-| `b-menu` | `mod/run/ab/B` | `--seconds 240` |
+| `b-menu` | `mod/run/ab/B` | `--seconds 420` |
 | `b-bench` | `mod/run/ab/B` | `salvo-bench --prop airstrike.frametimes=true --seconds 1200` |
 | `b-rec` | `mod/run/ab/B` | `launch --seconds 900` |
 
@@ -130,25 +133,26 @@ mkdir -p config/flashback && printf '%s\n' '{"configVersion": 2, "recordingContr
 
 Блок запуска (вписать N, D, ARGS из строки таблицы):
 ```sh
-N=a-menu; D=mod/run/ab/A; ARGS="--seconds 240"; \
+N=a-menu; D=mod/run/ab/A; ARGS="--seconds 420"; \
 W="/mnt/data/projects/airstrike/mod/run/claude-work/pack-ab-SHA7" && cd "${W:?}" && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 O="mod/run/ab/out/$N" && L="$D/logs/latest.log" && \
 if mkdir "$O" && test ! -e "$D/logs"; then \
   echo "начало: $(date -u +%T) UTC"; \
   { timeout -k 60 22m tools/laptop_job.sh "pack-ab-$N" -- python3 tools/prod_client.py --no-copy --dir "$D" $ARGS; echo $? > "$O/code"; } & \
-  sleep 20; \
+  sleep 20; GO=""; \
   case "$N" in \
-    *-menu) for i in $(seq 36); do grep -aq 'Game took' "$L" 2>/dev/null && break; [ -s "$O/code" ] && break; sleep 5; done; sleep 30;; \
-    *-bench) for i in $(seq 240); do [ "$(grep -ac 'SCENARIO salvo-bench mspt' "$L" 2>/dev/null)" -ge 285 ] && break; [ -s "$O/code" ] && break; sleep 5; done;; \
+    *-menu) for i in $(seq 72); do grep -aq 'Game took' "$L" 2>/dev/null && { GO=1; sleep 30; break; }; [ -s "$O/code" ] && break; sleep 5; done;; \
+    *-bench) for i in $(seq 240); do [ "$(grep -ac 'SCENARIO salvo-bench mspt' "$L" 2>/dev/null)" -ge 285 ] && { GO=1; break; }; [ -s "$O/code" ] && break; sleep 5; done;; \
   esac; \
-  case "$N" in *-menu|*-bench) J=""; for p in $(pgrep -f -- "/$D/launch.args"); do [ "$(cat /proc/$p/comm 2>/dev/null)" = java ] && J=$p; done; \
-    echo "java: ${J:-нет}"; [ -n "$J" ] && "$JAVA_HOME/bin/jcmd" "$J" GC.run;; esac; \
+  J=""; [ -n "$GO" ] && [ ! -s "$O/code" ] && for p in $(pgrep -f -- "/$D/launch.args"); do [ "$(cat /proc/$p/comm 2>/dev/null)" = java ] && J=$p; done; \
+  case "$N" in *-menu|*-bench) if [ -n "$J" ]; then echo "сборка мусора: java $J"; "$JAVA_HOME/bin/jcmd" "$J" GC.run; \
+    else echo "сборка мусора: не делаю (нет строки, процесса или запуск кончился)"; fi;; esac; \
   wait; echo "код $(cat "$O/code"), конец: $(date -u +%T) UTC"; case "$(cat "$O/code")" in 124|137) systemctl --user stop "airstrike-job-pack-ab-$N-*";; esac; \
   mv "$D/logs" "$O/logs" && for d in crash-reports screenshots; do [ -d "$D/$d" ] && mv "$D/$d" "$O/$d"; done; ls "$O" "$O/logs"; \
 else echo "стоп: запуск $N уже был ($O или $D/logs есть)"; fi
 ```
 «стоп: запуск … уже был» — ничего не запускалось, сообщить координатору. `a-menu` и `b-menu` кончаются
-кодом 143 (срок), `*-bench` и `b-rec` — кодом 0.
+кодом 143 (срок 420 с), `*-bench` и `b-rec` — кодом 0.
 
 После `b-rec` — что записал Flashback:
 ```sh
@@ -164,9 +168,7 @@ TS = re.compile(r"^\[(\d\d)\w+(\d{4}) (\d\d):(\d\d):(\d\d)\.(\d+)\]")
 def secs(line):
     m = TS.match(line)
     return int(m[3]) * 3600 + int(m[4]) * 60 + int(m[5]) + int(m[6]) / 1000 if m else None
-for n in ("a-menu", "a-bench", "b-menu", "b-bench", "b-rec"):
-    if not os.path.isdir(n):
-        print(f"== {n}: не запускался"); continue
+def run(n):
     log = open(f"{n}/logs/latest.log", errors="replace").read().splitlines()
     t0 = next(s for s in map(secs, log) if s is not None)
     def at(pat):
@@ -179,7 +181,7 @@ for n in ("a-menu", "a-bench", "b-menu", "b-bench", "b-rec"):
     print("шейдер:", "; ".join(sorted({l.split("]: ")[-1][:160] for l in log
                                         if re.search(r"Using shaderpack|Shaders are disabled|Falling back to normal rendering", l)})) or "строк Iris нет")
     gc = open(f"{n}/logs/gc.log", errors="replace").read().splitlines()
-    full = [re.search(r"(\d+)M->(\d+)M\((\d+)M\)", l) for l in gc if "System.gc()" in l]
+    full = [re.search(r"(\d+)M->(\d+)M\((\d+)M\)", l) for l in gc if "Pause Full" in l]  # jcmd GC.run: «Diagnostic Command»
     print("живая куча после jcmd GC.run:", ", ".join(f"{m[2]} МБ (до {m[1]})" for m in full if m) or "нет")
     pauses = [float(m[1]) for l in gc for m in [re.search(r"Pause .* (\d+\.\d+)ms$", l)] if m]
     peak = max((int(m[1]) for l in gc for m in [re.search(r"(\d+)M->(\d+)M", l)] if m), default=0)
@@ -187,13 +189,13 @@ for n in ("a-menu", "a-bench", "b-menu", "b-bench", "b-rec"):
         print(f"паузы GC: {len(pauses)}, сумма {sum(pauses):.0f} мс, самая долгая {max(pauses):.0f} мс; наибольшая куча перед сборкой {peak} МБ")
     ft = f"{n}/logs/frametimes.txt"
     if os.path.isfile(ft):
-        ms = [float(l.split()[1]) for l in open(ft) if len(l.split()) == 2]
+        ms = [float(l.split()[1]) for l in open(ft) if len(l.split()) == 2 and int(l.split()[0]) < 5600]
         if ms:
             q = sorted(ms)
             worst = q[-max(1, len(q) // 100):]
             print(f"кадры: {len(ms)}, средний FPS {1000 / statistics.mean(ms):.1f}, медиана кадра {statistics.median(ms):.1f} мс, "
                   f"1% худших — {1000 / statistics.mean(worst):.1f} FPS, худший кадр {q[-1]:.0f} мс")
-    mspt = [float(m[1]) for l in log for m in [re.search(r"salvo-bench mspt=([\d.]+)", l)] if m]
+    mspt = [float(m[1]) for l in log for m in [re.search(r"salvo-bench mspt=([\d.]+)", l)] if m][:280]  # до тика 5600
     if mspt:
         print(f"тик сервера: среднее {statistics.mean(mspt):.1f} мс, медиана {statistics.median(mspt):.1f}, наибольшее {max(mspt):.1f} (по секундам)")
     errs = collections.Counter(re.sub(r"^\[[^]]*\] \[[^]]*/ERROR\] \[([^]/]*).*", r"\1", l) for l in log if "/ERROR]" in l)
@@ -203,6 +205,13 @@ for n in ("a-menu", "a-bench", "b-menu", "b-bench", "b-rec"):
     keep = [l.split("]: ")[-1][:200] for l in log if re.search(r"(?i)flashback|connector", l) and "/DEBUG]" not in l]
     if n == "b-rec":
         print("Flashback/Connector:", *keep[:25], sep="\n  ")
+for n in ("a-menu", "a-bench", "b-menu", "b-bench", "b-rec"):
+    if not os.path.isdir(n):
+        print(f"== {n}: не запускался"); continue
+    try:
+        run(n)
+    except Exception as e:
+        print(f"== {n}: сводка не собралась: {e!r}")
 EOF
 now=$(findmnt -n -o ID "/run/user/$(id -u)/doc"); [ -n "$now" ] && [ "$now" = "$(cat ../doc-mount.before)" ] && echo "маунт doc цел: $now" || echo "ПРОВАЛ: маунт /run/user/$(id -u)/doc пропал или сменился (был $(cat ../doc-mount.before), стал ${now:-нет})"
 ```

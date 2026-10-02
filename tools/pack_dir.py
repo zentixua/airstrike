@@ -13,6 +13,7 @@
 """
 import argparse
 import hashlib
+import http.client
 import os
 import shutil
 import sys
@@ -56,7 +57,7 @@ def fetch(name, download, cache):
             with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as out:
                 shutil.copyfileobj(r, out)
             break
-        except OSError as e:
+        except (OSError, http.client.HTTPException) as e:  # обрыв посреди файла — IncompleteRead
             error = e
             if attempt < 3:
                 time.sleep(2 << attempt)

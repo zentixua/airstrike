@@ -8,4 +8,5 @@ mod/run/
 mod/runs/
 tools/.sound-cache/
 tools/.trailer-cache/
+pack/*.mrpack
 mod/logs/
