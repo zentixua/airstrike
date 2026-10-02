@@ -402,8 +402,8 @@ public final class FarBlasts {
             double u = age / k.ballTicks(), fl = flash(k, age), h = r * (BALL_LIFT + BALL_RISE * u);
             double vis = visible(h, r, line), hidden = 1 - vis * e.open;
             float[] c = glare(fl, u);
-            // шар светит и на дым, пыль и шлейфы вокруг — закрыт он от глаза или нет
-            lights.add(bx, by + h, bz, r * growth(u), Sight.adapted(fl + ball(u), view.ambient()), c[0], c[1], c[2]);
+            // шар светит и на дым, пыль и шлейфы вокруг — закрыт он от глаза или нет; тающий — своей светящейся долей
+            lights.add(bx, by + h, bz, r * growth(u), Sight.adapted(fl + ball(u), view.ambient()) * fade(u), c[0], c[1], c[2]);
             if (vis > 0) {
                 out.shaped(bx, by + h, bz, r * growth(u), FxAtlas.fireball((float) u), r * FarSprites.FIREBALL, e.phase,
                         Sight.adapted(fl + ball(u), view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w * fade(u), vis * e.open, LIGHT);
