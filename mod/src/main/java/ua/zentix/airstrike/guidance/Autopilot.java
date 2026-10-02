@@ -108,8 +108,16 @@ public final class Autopilot {
      * дом между ними, а фильтр высоты сглаживал короткий пик: ракета на бреющем и шахеды залпа бились в них.
      */
     public static double reliefAhead(Craft c, Vec3 nav, Turn turn, WeaponSpec.Airframe air) {
-        double[] track = track(c, nav, turn, air.attack().reattackMin(), air.reliefLookahead());
-        return Corridor.highest(track, CORRIDOR_HALF_WIDTH, climb(c.speed()), c::relief);
+        return climbOver(track(c, nav, turn, air.attack().reattackMin(), air.reliefLookahead()), c.speed(), c::relief);
+    }
+
+    /**
+     * Высота, с которой снаряд на скорости {@code speed}, набирая высоту по {@link #climb}, пройдёт над рельефом полосы
+     * ({@link #CORRIDOR_HALF_WIDTH}) над путём {@code track} — то же, что {@link #reliefAhead}, по заданному пути: место
+     * пусковой ({@code LaunchSite}) проверяет им, что подъём после взведения автопилоту по силам.
+     */
+    public static double climbOver(double[] track, double speed, Corridor.Relief relief) {
+        return Corridor.highest(track, CORRIDOR_HALF_WIDTH, climb(speed), relief);
     }
 
     /** Набор высоты снаряда на скорости {@code speed}: {@link #REACTION_TICKS} тиков пути без набора, потом {@link #CLIMB_GRADIENT}. */
