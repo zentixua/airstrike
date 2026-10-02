@@ -5,10 +5,12 @@ import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiWorldProxy;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
+import com.seibel.distanthorizons.coreapi.DependencyInjection.WorldGeneratorInjector;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import ua.zentix.airstrike.Airstrike;
 
 /**
@@ -38,6 +40,27 @@ public final class DhChunks {
         state = 0;
         logged = false;
         refused = false;
+    }
+
+    /**
+     * Сервер остановлен (в одиночной игре — выход из мира): забыть генераторы DH по мирам. DH 3.3.3 заводит генератор
+     * каждому миру сервера в статической карте {@code WorldGeneratorInjector} (ключ — обёртка мира с самим
+     * {@code ServerLevel}) и не убирает его никогда, так что все миры, открытые за запуск игры, оставались в памяти
+     * целиком с чанками (ноутбук 02.10.2026, сценарий leak: в меню 1,3 ГБ до мира, 2,4 ГБ после двух; держатель —
+     * эта карта, без e4all так же). После остановки миров в ней нет живых: DH заводит генератор заново при загрузке
+     * мира, а чужой генератор регистрируется на обёртку загруженного мира — у следующего мира обёртки новые. Метод
+     * очистки — публичный и в jar API DH.
+     * Прошлый мир DH держит ещё в {@code ThreadWorldGenParams} (статическое поле и поля потоков генерации) до генерации
+     * в следующем мире — мод туда не лезет.
+     */
+    public static void onServerStopped(ServerStoppedEvent e) {
+        if (!available()) return;
+        try {
+            Api.forgetGenerators();
+        } catch (LinkageError ex) {
+            state = -1;
+            Airstrike.LOG.warn("Distant Horizons: не удалось забыть генераторы прошлых миров — они останутся в памяти до выхода из игры", ex);
+        }
     }
 
     /** Distant Horizons стоит, и его API — то, под которое собран мод. */
@@ -75,6 +98,10 @@ public final class DhChunks {
     private static final class Api {
         static int major() {
             return DhApi.getApiMajorVersion();
+        }
+
+        static void forgetGenerators() {
+            WorldGeneratorInjector.INSTANCE.clear();
         }
 
         static void overwrite(ServerLevel level, ChunkAccess chunk) {

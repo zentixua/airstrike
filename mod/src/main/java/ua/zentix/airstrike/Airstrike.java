@@ -78,6 +78,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(FarFlights::onServerTick);
         NeoForge.EVENT_BUS.addListener(FlashbackReplay::onServerTick);
         NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
+        NeoForge.EVENT_BUS.addListener(DhChunks::onServerStopped);
         NeoForge.EVENT_BUS.addListener(DhUpdates::onLevelTick);
         NeoForge.EVENT_BUS.addListener(FarLods::onLevelTick);
         NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
