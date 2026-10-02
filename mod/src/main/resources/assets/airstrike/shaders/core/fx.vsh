@@ -18,7 +18,7 @@ uniform sampler2D Sampler2;
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
 // огненные шары (FxLights), по столбцу на шар: центр от камеры и радиус (0 — шара нет); освещённость у его поверхности
-// против света вокруг глаза, с цветом
+// против света вокруг глаза, с цветом, и его огонь на экране (w)
 uniform mat4 FxBalls;
 uniform mat4 FxBallLight;
 
@@ -35,15 +35,17 @@ const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 // ложился бы и на дым за холмом
 const float BALL_REACH = 16.0;
 
-// освещённость точки p (от камеры) огненными шарами против света вокруг глаза: у поверхности шара — его, дальше — как (r/d)²
-vec3 balls(vec3 p) {
+// свет точки p (от камеры) огненными шарами на экране (gain — свет неба на экране): у поверхности шара — его освещённость,
+// дальше — как (r/d)²; с колена — не ярче огня самого шара на экране: освещённое не бывает ярче источника
+vec3 balls(vec3 p, float gain) {
     vec3 sum = vec3(0.0);
     for (int i = 0; i < 4; i++) {
         float r = FxBalls[i].w;
         if (r <= 0.0) continue;
         vec3 v = FxBalls[i].xyz - p;
         float d2 = max(dot(v, v), r * r), reach = BALL_REACH * r * BALL_REACH * r;
-        sum += FxBallLight[i].rgb * (r * r / d2) * (1.0 - smoothstep(0.25 * reach, reach, d2));
+        vec3 add = gain * FxBallLight[i].rgb * (r * r / d2) * (1.0 - smoothstep(0.25 * reach, reach, d2));
+        sum += add / (1.0 + dot(add, LUMA) / max(FxBallLight[i].w, 1e-4));
     }
     return sum;
 }
@@ -55,10 +57,10 @@ void main() {
     float unfold = max(float(UV1.y) / 32767.0, 1e-4);
     vec4 light = Normal.y < -0.5 ? vec4(1.0) : texelFetch(Sampler2, UV2 / 16, 0);
     if (Normal.y > -0.5 && any(lessThan(UV2, ivec2(240)))) {
-        // свет шаров — к карте освещения: в долях света неба на экране (карта при открытом небе без блоков) и не ярче
-        // света дня — экран больше не покажет; светящееся своим светом (FULL_BRIGHT) его не берёт
-        vec3 add = dot(texelFetch(Sampler2, ivec2(0, 15), 0).rgb, LUMA) * balls(Position / unfold);
-        light.rgb += add / (1.0 + dot(add, LUMA));
+        // свет шаров — к карте освещения: в долях света неба на экране (карта при открытом небе без блоков) и вместе не
+        // ярче света дня — экран больше не покажет; светящееся своим светом (FULL_BRIGHT) его не берёт
+        vec3 add = balls(Position / unfold, dot(texelFetch(Sampler2, ivec2(0, 15), 0).rgb, LUMA));
+        light.rgb += add / max(1.0, dot(add, LUMA));
     }
     vertexColor = vec4(Color.rgb * light.rgb, Color.a);
     // настоящее расстояние по оси взгляда: перенесённую ближе точку — обратно

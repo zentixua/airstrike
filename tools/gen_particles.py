@@ -19,6 +19,8 @@
                 у дальней картинки (вспышка, затем остывание (1 − u)³), цвет — по температуре чёрного тела (Планк × CIE 1931,
                 в линейном sRGB), где остыло ниже ~1450 K и у края — сажа; тон — по каналам 1 − e⁻ˣ, ярче белого —
                 с примесью белого (CROSS: глаз насыщается по всем каналам, вспышка белёсая, а не лимонная), гамма sRGB. Радиус шара — 0,7 полуразмера кадра (client/far/FarSprites.FIREBALL); свой сид.
+  fireball.json — огонь каждого кадра на экране (среднее по кругу шара, без сажи): свет шара вокруг не ярче него
+                (client/fx/layer/FxAtlas.fireLight).
   ../plume, ../plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
   скачков уплотнения, как у МБР и стартового ускорителя), ../halo — ореол у сопла 64×64; у этих трёх цвет
   домножен на прозрачность — они рисуются сложением.
@@ -29,6 +31,7 @@
 (client/fx/layer/FxAtlas).
 Нужны Pillow и numpy.
 """
+import json
 import os
 
 import numpy as np
@@ -270,6 +273,7 @@ def fireball(u, vol, n=128, steps=96, cross=CROSS):
     dz = zs[1] - zs[0]
     yy, xx = np.meshgrid(-lin, lin, indexing="ij")
     light = np.zeros((n, n, 3))
+    fire = np.zeros((n, n, 3))
     clear = np.ones((n, n))
     q = 1 / radius
     for z in zs:
@@ -292,8 +296,10 @@ def fireball(u, vol, n=128, steps=96, cross=CROSS):
         # дым светит только своим цветом (свет сверху, выпуклое светлее): шар рисуется без света мира
         shade = np.clip(0.75 + 0.3 * np.clip(yy * q, -1, 1) + 0.35 * np.tanh(big - 0.6 * fine), 0.25, 1.4)
         w = np.where(total > 0, gas / np.maximum(total, 1e-9), 0)[..., None]
-        src = glow_rgb(heat * (1 - soot)) * w + np.array([0.055, 0.05, 0.046]) * shade[..., None] * (1 - w)
+        glow = glow_rgb(heat * (1 - soot)) * w
+        src = glow + np.array([0.055, 0.05, 0.046]) * shade[..., None] * (1 - w)
         light += (clear * a)[..., None] * src
+        fire += (clear * a)[..., None] * glow
         clear *= 1 - a
     alpha = 1 - clear
     # цвет без непрозрачности — средний свет по лучу; тон по каналам 1 − e⁻ˣ, гамма sRGB. Ярче белого — с примесью
@@ -303,7 +309,12 @@ def fireball(u, vol, n=128, steps=96, cross=CROSS):
     lin = lin + cross * np.maximum(0, lin @ LUMA - 1)[..., None]
     tone = 1 - np.exp(-lin)
     srgb = np.where(tone <= 0.0031308, 12.92 * tone, 1.055 * np.power(tone, 1 / 2.4) - 0.055)
-    return np.where(alpha[..., None] > 1e-4, srgb, 0), alpha
+    srgb = np.where(alpha[..., None] > 1e-4, srgb, 0)
+    # огонь шара на экране: доля огня в свете пикселя × пиксель (с непрозрачностью), среднее по кругу радиуса шара —
+    # сажа своим цветом только кажется (шар рисуется без света мира), она ничего не освещает
+    share = (fire @ LUMA) / np.maximum(light @ LUMA, 1e-9)
+    shown = float(((srgb @ LUMA) * alpha * share).sum() / (np.pi * (radius * n / 2) ** 2))
+    return srgb, alpha, shown
 
 
 if __name__ == "__main__":
@@ -321,6 +332,12 @@ if __name__ == "__main__":
     save(*far_disc(), "../../far/disc")
     save(*far_glow(), "../../far/glow")
     volume = noise_volume(64, 1945)
+    shown = []
     for i in range(16):
-        save(*fireball((i + 0.5) / 16, volume), f"fireball_{i:02d}")
+        rgb, a, f = fireball((i + 0.5) / 16, volume)
+        save(rgb, a, f"fireball_{i:02d}")
+        shown.append(round(f, 4))
+    with open(os.path.join(OUT, "fireball.json"), "w", encoding="utf-8") as out:
+        json.dump({"fire": shown}, out)
+        out.write("\n")
     print("ok")

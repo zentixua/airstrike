@@ -402,16 +402,19 @@ public final class FarBlasts {
             double u = age / k.ballTicks(), fl = flash(k, age), h = r * (BALL_LIFT + BALL_RISE * u);
             double vis = visible(h, r, line), hidden = 1 - vis * e.open;
             float[] c = glare(fl, u);
+            // огонь шара на экране — в его кадре; свет вокруг (на дыме, блик, вуаль, зарево) не ярче: ночью свет ×1200
+            // держал пыль под уже чёрным от сажи шаром оранжевым кольцом и небо над ним — заревом
+            double fire = FxAtlas.fireLight((float) u) * fade(u);
             // шар светит и на дым, пыль и шлейфы вокруг — закрыт он от глаза или нет; тающий — своей светящейся долей
-            lights.add(bx, by + h, bz, r * growth(u), Sight.adapted(fl + ball(u), view.ambient()) * fade(u), c[0], c[1], c[2]);
+            lights.add(bx, by + h, bz, r * growth(u), Sight.adapted(fl + ball(u), view.ambient()) * fade(u), fire, c[0], c[1], c[2]);
             if (vis > 0) {
                 out.shaped(bx, by + h, bz, r * growth(u), FxAtlas.fireball((float) u), r * FarSprites.FIREBALL, e.phase,
-                        Sight.adapted(fl + ball(u), view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w * fade(u), vis * e.open, LIGHT);
+                        Sight.adapted(fl + ball(u), view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w * fade(u), vis * e.open, fire, LIGHT);
                 brightest(view, bx, by + h, bz, vis);
             }
             // шар закрыт гребнем или постройкой: его свет рассеивает воздух над краем — зарево там, откуда место было бы
             // видно, пока шар светит; на любой дальности, как блик (вблизи за домом одной вспышки на экране не хватало)
-            if (hidden > 0) halo(view, out, bx, by + Math.max(line, h), bz, HALO_SIZE * r, (fl + ball(u)) * hidden, t, c);
+            if (hidden > 0) halo(view, out, bx, by + Math.max(line, h), bz, HALO_SIZE * r, (fl + ball(u)) * hidden, fire, t, c);
         }
         if (w > 0 && age < k.burnTicks()) {
             double flicker = 0.75 + 0.25 * Math.sin(age * 1.9 + e.phase) * Math.sin(age * 0.73 + 2 * e.phase);
@@ -420,7 +423,7 @@ public final class FarBlasts {
             // языки пламени меняются: клуб — новый кадр раз в 3 тика
             FxAtlas.Sprite flame = FxAtlas.fire((int) ((age / 3 + (e.seed & 7)) % 8));
             out.shaped(bx, by + h, bz, rad, flame, rad * FarSprites.FIRE, e.phase, Sight.adapted(BURN * (1 - age / k.burnTicks()) * flicker, view.ambient()) * t,
-                    t, view.pixel(), FIRE[0], FIRE[1], FIRE[2], vis * w, vis * w * e.open, LIGHT);
+                    t, view.pixel(), FIRE[0], FIRE[1], FIRE[2], vis * w, vis * w * e.open, 1, LIGHT);
             brightest(view, bx, by + h, bz, vis * w);
         }
     }
@@ -472,11 +475,12 @@ public final class FarBlasts {
      * {@link #behind}.
      *
      * @param light яркость шара и вспышки против белого экрана, без привыкания глаза
+     * @param fire  огонь шара на экране ({@link FxAtlas#fireLight}): зарево не ярче
      */
-    private static void halo(FarView view, FarSprites out, double gx, double gy, double gz, double rad, double light, double t, float[] c) {
+    private static void halo(FarView view, FarSprites out, double gx, double gy, double gz, double rad, double light, double fire, double t, float[] c) {
         double d = Math.sqrt(gx * gx + gy * gy + gz * gz);
         double floor = Math.max(rad, 0.5 * Sight.MIN_PIXELS * view.pixel() * d), k = rad / floor;
-        out.glow(gx, gy, gz, floor, rad, c[0], c[1], c[2], (float) (behind(light, view.ambient(), t) * k * k));
+        out.glow(gx, gy, gz, floor, rad, c[0], c[1], c[2], (float) (Math.min(behind(light, view.ambient(), t), fire) * k * k));
     }
 
     /**

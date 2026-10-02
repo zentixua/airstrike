@@ -9,14 +9,16 @@ import java.util.Arrays;
  * Огненные шары кадра как источники света для частиц и лент шлейфов: шейдер слоя ({@code fx.vsh}) добавляет их свет
  * к карте освещения. Без него пыль и дым у шара ночью освещала только луна, синим, и полупрозрачные клубы поверх
  * жёлтого шара выходили лиловыми. Ламбертов шар яркости b (против белого днём) освещает свою поверхность как b солнц,
- * дальше — как (r/d)². Шаров — не больше {@link #MAX}, самые заметные: поток света шара на квадрат расстояния до глаза.
+ * дальше — как (r/d)²; на экране освещённое им не ярче его огня на экране ({@link FxAtlas#fireLight}): ночью свет ×1200
+ * держал пыль под уже чёрным от сажи шаром оранжевым кольцом. Шаров — не больше {@link #MAX}, самые заметные: свет шара
+ * на экране на квадрат расстояния до глаза.
  * Светящееся (шар, искры, вспышки, своё — {@code FULL_BRIGHT}) света шаров не берёт.
  */
 public final class FxLights {
     public static final int MAX = 4;
     /** Столбец i: центр шара i от камеры (xyz), радиус (w; 0 — шара нет). */
     final Matrix4f balls = new Matrix4f().zero();
-    /** Столбец i: освещённость у поверхности шара i против света вокруг глаза, с цветом (rgb). */
+    /** Столбец i: освещённость у поверхности шара i против света вокруг глаза, с цветом (rgb); его огонь на экране (w). */
     final Matrix4f light = new Matrix4f().zero();
     private final double[] weight = new double[MAX];
     private final Vector4f column = new Vector4f();
@@ -30,17 +32,17 @@ public final class FxLights {
 
     /**
      * Шар с центром (x, y, z) от камеры, радиуса r, яркости b против белого экрана днём с привыканием глаза
-     * ({@code Sight#adapted}), цвета (cr, cg, cb).
+     * ({@code Sight#adapted}), с огнём на экране fire (доля белого), цвета (cr, cg, cb).
      */
-    public void add(double x, double y, double z, double r, double b, float cr, float cg, float cb) {
-        if (r <= 0 || b <= 0) return;
-        double w = b * r * r / Math.max(x * x + y * y + z * z, r * r);
+    public void add(double x, double y, double z, double r, double b, double fire, float cr, float cg, float cb) {
+        if (r <= 0 || b <= 0 || fire <= 0) return;
+        double w = b / (1 + b / fire) * r * r / Math.max(x * x + y * y + z * z, r * r);
         int slot = 0;
         for (int i = 1; i < MAX; i++) if (weight[i] < weight[slot]) slot = i;
         if (w <= weight[slot]) return;
         weight[slot] = w;
         balls.setColumn(slot, column.set((float) x, (float) y, (float) z, (float) r));
-        light.setColumn(slot, column.set((float) (b * cr), (float) (b * cg), (float) (b * cb), 0));
+        light.setColumn(slot, column.set((float) (b * cr), (float) (b * cg), (float) (b * cb), (float) fire));
     }
 
     /** Радиус шара в столбце i (0 — пусто), для проверок. */

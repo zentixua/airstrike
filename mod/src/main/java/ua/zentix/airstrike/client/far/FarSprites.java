@@ -183,7 +183,7 @@ public final class FarSprites {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         Sight.light(radius, seen, d, pixel, out);
         core(dx, dy, dz, out, t, r, g, b, w);
-        glare(dx, dy, dz, out, seen, r, g, b, glare);
+        glare(dx, dy, dz, out, seen, r, g, b, glare, 1);
     }
 
     /**
@@ -195,16 +195,17 @@ public final class FarSprites {
      * @param half   полуразмер картинки, блоков (растёт ли тело — в её кадрах)
      * @param body   доля тела (видимое над рельефом, переход к частицам, таяние)
      * @param glare  доля блика и вуали
+     * @param shown  тело на экране в картинке (доля белого): блик и вуаль не ярче — остывший в сажу шар не слепит
      */
     public void shaped(double dx, double dy, double dz, double radius, FxAtlas.Sprite sprite, double half, float rot, double seen, double t, double pixel,
-                       float r, float g, float b, double body, double glare, double[] out) {
+                       float r, float g, float b, double body, double glare, double shown, double[] out) {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         Sight.light(radius, seen, d, pixel, out);
         double shape = smoothstep(SHAPE_FROM, SHAPE_FULL, radius / Math.max(d * pixel, 1e-12));
         if (shape < 1) core(dx, dy, dz, out, t, r, g, b, body * (1 - shape));
         float a = (float) (t * body * shape);
         if (shape > 0 && billboard(dx, dy, dz, half, rot, sprite, a, a, a, a, (float) (radius * BODY_SOFT), BALL_FRONT * radius)) counts[1]++;
-        glare(dx, dy, dz, out, seen, r, g, b, glare);
+        glare(dx, dy, dz, out, seen, r, g, b, glare, shown);
     }
 
     /** Ядро {@link #light} кругом: свой свет поверх того, что за ним; пересвет — к белому, тусклее белого — тает. */
@@ -215,11 +216,14 @@ public final class FarSprites {
                 (float) ((b + (1 - b) * white) * k), a, (float) (o[0] * BODY_SOFT))) counts[1]++;
     }
 
-    /** Блик и вуаль {@link #light} ореолами цвета тела у самого глаза ({@link #EYE}); видно ли тело — решает вызывающий. */
-    private void glare(double dx, double dy, double dz, double[] o, double seen, float r, float g, float b, double w) {
+    /**
+     * Блик и вуаль {@link #light} ореолами цвета тела у самого глаза ({@link #EYE}), не ярче тела на экране shown; видно ли
+     * тело — решает вызывающий.
+     */
+    private void glare(double dx, double dy, double dz, double[] o, double seen, float r, float g, float b, double w, double shown) {
         if (w <= 0) return;
-        eye(dx, dy, dz, o[3], r, g, b, (float) (Math.min(Sight.HALO, Sight.SCATTER * seen) * w));
-        if (o[4] > 0) eye(dx, dy, dz, o[4], r, g, b, (float) (Sight.VEIL_PEAK * w));
+        eye(dx, dy, dz, o[3], r, g, b, (float) (Math.min(Math.min(Sight.HALO, Sight.SCATTER * seen), shown) * w));
+        if (o[4] > 0) eye(dx, dy, dz, o[4], r, g, b, (float) (Math.min(Sight.VEIL_PEAK, shown) * w));
     }
 
     /**
