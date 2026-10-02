@@ -700,6 +700,7 @@ public final class WorkGameTests {
             if (!logged[0]) Airstrike.LOG.info("BLASTDROPS взрыв силы 16: снято {} блоков, выпало {} предметов", removed, items);
             logged[0] = true;
             h.assertTrue(removed >= 1000, "взрыв снял мало: " + removed);
+            h.assertTrue(items > 0, "не выпало ничего: затухание — не отмена выпадения");
             // 1/16 — около 6 %, с запасом на разброс — не больше шестой части
             h.assertTrue(items * 6 <= removed, "выпало " + items + " предметов на " + removed + " снятых блоков");
         });
