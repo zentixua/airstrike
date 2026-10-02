@@ -2,7 +2,7 @@ package ua.zentix.airstrike.nuclear.model;
 
 /**
  * Ударная волна: избыточное давление по Кинни–Грэхему, скоростной напор, скорость фронта.
- * Дальность наклонная, в метрах (= блоках); мощность в килотоннах.
+ * Дальность наклонная, в метрах (= блоках); мощность ядерного подрыва в килотоннах, обычного заряда — в кг ТНТ.
  */
 public final class BlastModel {
     /** Атмосферное давление, кПа. */
@@ -26,7 +26,26 @@ public final class BlastModel {
 
     /** Избыточное давление на наклонной дальности R, кПа. */
     public static double overpressureKpa(double slantRangeM, double yieldKt) {
-        double z = Math.max(0, slantRangeM) / Math.cbrt(chargeKg(yieldKt));
+        return kinneyGraham(slantRangeM, chargeKg(yieldKt));
+    }
+
+    /**
+     * Избыточное давление наземного взрыва обычного заряда {@code tntKg} кг ТНТ на наклонной дальности R, кПа: волна
+     * от земли отражается, как у ядерного подрыва ({@link #GROUND_REFLECTION}).
+     */
+    public static double surfaceOverpressureKpa(double slantRangeM, double tntKg) {
+        return kinneyGraham(slantRangeM, tntKg * GROUND_REFLECTION);
+    }
+
+    /** Дальность, где давление наземного взрыва заряда {@code tntKg} падает до {@code kpa} (0 — нет заряда или давления). */
+    public static double rangeForSurfaceOverpressure(double kpa, double tntKg) {
+        if (tntKg <= 0 || kpa >= surfaceOverpressureKpa(0, tntKg)) return 0;
+        return Solve.decreasingRoot(r -> surfaceOverpressureKpa(r, tntKg), kpa, 1e-3, 1e8);
+    }
+
+    /** Кинни–Грэхем: давление на дальности R от заряда W кг ТНТ в свободном воздухе, кПа (масштаб Z = R / ∛W). */
+    private static double kinneyGraham(double rangeM, double chargeKg) {
+        double z = Math.max(0, rangeM) / Math.cbrt(chargeKg);
         double a = z / 4.5, b = z / 0.048, c = z / 0.32, d = z / 1.35;
         return P0 * 808 * (1 + a * a) / Math.sqrt((1 + b * b) * (1 + c * c) * (1 + d * d));
     }
