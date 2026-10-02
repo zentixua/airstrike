@@ -21,14 +21,14 @@ import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.util.Local;
 
-import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
  * Двигатели в полёте: факел (его рисует {@link ua.zentix.airstrike.client.render.StrikeProjectileRenderer} по
- * {@link #plume}), дымный шлейф, облако пуска, инверсионные следы. Шлейф кладётся по всему пути за тик — на скорости
- * B-2 и МБР (12–25 блоков за тик) без этого он рвётся на отдельные клубы.
+ * {@link #plume}), облако пуска, огонь у сопла, клубы объёма у густых шлейфов. Сам шлейф и инверсионные следы —
+ * лента по точкам пути ({@code client.far.FarFlightView}, вид — {@code ClientWeaponSpec.Trail}): мест частиц она не
+ * занимает, поэтому залп в сотни ракет не рвёт следы на отдельные клубы.
  */
 public final class Exhaust {
     /** Факел в системе снаряда: срез сопла в (0, {@code y}, {@code z}) (нос по +Z), длина и радиус в блоках, яркость, «алмазы». */
@@ -36,14 +36,13 @@ public final class Exhaust {
 
     private static final class State {
         Vec3 lastNozzle;
-        /** Сопло на прошлом тике: с борта шлейф кладётся с отставанием на тик (см. {@link #trail}). */
+        /** Сопло на прошлом тике: с борта клубы кладутся с отставанием на тик (см. {@link #volume}). */
         Vec3 heldNozzle;
         /** Камера игрока — на этом снаряде (видео с борта). */
         boolean onboard;
         Vec3 pad;
         /** Передний срез трубы РСЗО, из которой сошёл снаряд. */
         Vec3 muzzle;
-        final Vec3[] lastContrail = new Vec3[4];
     }
 
     private static final Map<StrikeProjectile, State> STATES = new WeakHashMap<>();
@@ -60,7 +59,6 @@ public final class Exhaust {
             case CruiseMissileEntity m -> missile(level, m, s);
             case DroneEntity d -> drone(level, d, s);
             case RocketEntity rk -> rocket(level, rk, s);
-            case BomberEntity b -> bomber(level, b, s);
             case BunkerBusterEntity b -> bomb(level, b, s);
             default -> {}
         }
@@ -110,14 +108,9 @@ public final class Exhaust {
 
     // ---------------------------------------------------------------- шахед
 
-    /** Поршневой мотор: тонкий сизый выхлоп за винтом; в пике — гуще (мотор на полном газу). */
+    /** Старт на ускорителе; дальше тонкий сизый выхлоп поршневого мотора — только лентой. */
     private static void drone(ClientLevel level, DroneEntity e, State s) {
-        if (booster(level, e, s)) return;
-        Vec3 nozzle = at(e, nozzles(e).engine());
-        boolean dive = e.flightPhase() == FlightPhase.TERMINAL;
-        Fx.Spec puff = Fx.smoke().size(0.3f, dive ? 1.6f : 1.2f).life(dive ? 60 : 40).color(0x6A6C72, 0xB6B8BE)
-                .alpha(dive ? 0.3f : 0.18f).drag(0.9f).rise(0.002f).fadeIn(2).fadeFrom(0.2f);
-        trail(level, s, nozzle, puff, 0.6, e.level().random);
+        booster(level, e, s);
     }
 
     // ---------------------------------------------------------------- РСЗО
@@ -128,10 +121,10 @@ public final class Exhaust {
      * серо-белый след, который висит дугой над позицией; очередь из 40 труб оставляет веер таких дуг и облако
      * у пусковой. После выгорания снаряд летит по инерции без следа.
      */
-    /** Шаг клубов следа РСЗО на медленном участке (блоки) и их ширина при рождении в долях шага. */
-    static final double ROCKET_PUFF_STEP = 0.35, ROCKET_PUFF_OVERLAP = 1.3;
-    /** Клубов следа РСЗО за тик: весь пакет, пока горят двигатели, укладывается в группу шлейфов (ExhaustTest). */
-    static final int ROCKET_PUFFS_PER_TICK = 3;
+    /** Клубов объёма за тик у густого шлейфа (РСЗО, ускоритель, МБР): три полных пакета РСЗО помещаются в группу (ExhaustTest). */
+    static final int VOLUME_PUFFS_PER_TICK = 1;
+    /** Непрозрачность клуба объёма: под ним лента, плотнее — и клубы читались тёмными бусинами на ней. */
+    private static final float VOLUME_ALPHA = 0.45f;
 
     private static void rocket(ClientLevel level, RocketEntity e, State s) {
         FlightPhase ph = e.flightPhase();
@@ -169,14 +162,11 @@ public final class Exhaust {
         if (age < 6) backblast(level, s.pad, back, 2, r);
         // языки огня летят вместе со снарядом и чуть отстают — иначе за ним остаются огненные бусины
         Vec3 motion = s.lastNozzle == null ? Vec3.ZERO : nozzle.subtract(s.lastNozzle);
-        // плотный след: у сопла подсвечен, дальше серо-белый, висит полминуты. Клубов за тик не больше
-        // ROCKET_PUFFS_PER_TICK, иначе полный пакет не влезает в группу шлейфов и у последних ракет след не рождается;
-        // на быстром участке клубы реже, но шире — след остаётся сплошным
-        double step = Math.max(ROCKET_PUFF_STEP, motion.length() / ROCKET_PUFFS_PER_TICK);
-        float width = (float) (step * ROCKET_PUFF_OVERLAP);
-        Fx.Spec puff = Fx.smoke().size(width, Math.max(2.6f, width * 2)).life(420 + r.nextInt(200)).color(0xEDEAE4, 0xB2AEA8)
-                .colorCurve(0.6f).alpha(0.78f).drag(0.9f).glow(0.85f, 4).rise(0.0012f).fadeIn(2).fadeFrom(0.55f).spin(0.012f);
-        trail(level, s, nozzle, puff, step, r);
+        // плотный след (лента): у сопла подсвечен, дальше серо-белый, висит полминуты; клубы чуть шире ленты и бледнее
+        // её — неровный край и плотность, а не бусины поверх
+        Fx.Spec puff = Fx.smoke().size(0.7f, 3.6f).life(420 + r.nextInt(200)).color(0xEDEAE4, 0xB2AEA8)
+                .colorCurve(0.6f).alpha(VOLUME_ALPHA).drag(0.9f).glow(0.85f, 4).rise(0.0012f).fadeIn(2).fadeFrom(0.55f).spin(0.012f);
+        volume(level, s, nozzle, puff, r);
         for (int i = 0; i < 2; i++) {
             Fx.fire().vel(motion.scale(0.85).add(back.scale(0.2 + r.nextDouble() * 0.3)).add(r.nextGaussian() * 0.04, r.nextGaussian() * 0.04, r.nextGaussian() * 0.04))
                     .size(0.25f, 0.7f).life(2 + r.nextInt(2)).alpha(0.85f).drag(0.95f).spawn(level, nozzle);
@@ -197,14 +187,11 @@ public final class Exhaust {
 
     // ---------------------------------------------------------------- крылатая ракета
 
-    /** Горячий след ТРД; в пике — ещё и пар на корпусе (конденсация на околозвуке). */
+    /** Горячий след ТРД — лентой; в пике — ещё и пар на корпусе (конденсация на околозвуке). */
     private static void missile(ClientLevel level, CruiseMissileEntity e, State s) {
         if (!e.isActive() || booster(level, e, s)) return;
         RandomSource r = level.random;
         Vec3 nozzle = at(e, nozzles(e).engine());
-        Fx.Spec haze = Fx.smoke().size(0.2f, 1.4f).life(60).color(0xB8B4AE, 0xDADAD8).alpha(0.16f).drag(0.94f)
-                .fadeIn(2).fadeFrom(0.25f).rise(0.001f);
-        trail(level, s, nozzle, haze, 2.5, r);
         // «воротник» пара вокруг корпуса виден только снаружи; с борта он у самого объектива
         if (e.flightPhase() == FlightPhase.TERMINAL && !s.onboard) {
             for (int i = 0; i < 3; i++) {
@@ -226,7 +213,7 @@ public final class Exhaust {
      * Шахед и ракета на пусковой и на ускорителе: на направляющей — ничего; поджиг — огонь и клубы дыма, которые
      * бьют в пусковую и растекаются вокруг неё; разгон — плотный белый шлейф твердотопливного ускорителя, который
      * висит в воздухе дугой старта. После отделения — обычный выхлоп (вернёт false). Срез сопла ускорителя и размер
-     * дыма (шахед меньше ракеты) — из клиентского паспорта.
+     * дыма (шахед меньше ракеты) — из клиентского паспорта. Шлейф ускорителя — лента и клубы объёма.
      */
     private static boolean booster(ClientLevel level, StrikeProjectile e, State s) {
         FlightPhase ph = e.flightPhase();
@@ -238,9 +225,9 @@ public final class Exhaust {
         Vec3 nozzle = at(e, nozzles.boosterNozzle());
         Vec3 back = Local.offset(e.getYRot(), e.getXRot(), 0, 0, -1);
         if (s.pad == null) s.pad = nozzle;
-        Fx.Spec trail = Fx.smoke().size(0.5f * scale, 3.5f * scale).life(260 + r.nextInt(120)).color(0xF2EFEA, 0xC4C0BA).colorCurve(0.6f)
-                .alpha(0.8f).drag(0.9f).glow(0.8f, 5).rise(0.0015f).fadeIn(2).fadeFrom(0.5f).spin(0.01f);
-        trail(level, s, nozzle, trail, 0.7 * scale, r);
+        Fx.Spec puff = Fx.smoke().size(0.5f * scale, 3.5f * scale).life(260 + r.nextInt(120)).color(0xF2EFEA, 0xC4C0BA).colorCurve(0.6f)
+                .alpha(VOLUME_ALPHA).drag(0.9f).glow(0.8f, 5).rise(0.0015f).fadeIn(2).fadeFrom(0.5f).spin(0.01f);
+        volume(level, s, nozzle, puff, r);
         for (int i = 0; i < 2; i++) {
             Fx.fire().vel(back.scale(0.4 + r.nextDouble() * 0.4).add(r.nextGaussian() * 0.05, r.nextGaussian() * 0.05, r.nextGaussian() * 0.05))
                     .size(0.4f * scale, 1.2f * scale).life(3 + r.nextInt(3)).alpha(0.85f).drag(0.7f).spawn(level, nozzle);
@@ -263,17 +250,18 @@ public final class Exhaust {
     // ---------------------------------------------------------------- МБР
 
     /**
-     * Твердотопливный первый ступень: густой белый шлейф, который висит минутами и сносится ветром; у сопла он
-     * подсвечен факелом. На старте из шахты — клубы, растекающиеся по земле во все стороны, и огонь у оголовка.
+     * Твердотопливная первая ступень: густой белый шлейф (лента и клубы объёма), который висит минутами и сносится
+     * ветром; у сопла он подсвечен факелом. На старте из шахты — клубы, растекающиеся по земле во все стороны, и огонь
+     * у оголовка.
      */
     private static void icbm(ClientLevel level, IcbmEntity e, State s) {
         RandomSource r = level.random;
         Vec3 nozzle = at(e, nozzles(e).engine());
         // скорость ракеты за тик: языки огня летят вместе с ней и отстают, а не висят в воздухе
         Vec3 motion = s.lastNozzle == null ? Vec3.ZERO : nozzle.subtract(s.lastNozzle);
-        Fx.Spec trail = Fx.smoke().size(1.8f, 8).life(900 + r.nextInt(300)).color(0xF2EFEA, 0xBDBAB6).colorCurve(0.6f)
-                .alpha(0.85f).drag(0.9f).glow(0.9f, 6).rise(0.0015f).fadeIn(2).fadeFrom(0.55f).spin(0.01f);
-        trail(level, s, nozzle, trail, 1.6, r);
+        Fx.Spec puff = Fx.smoke().size(1.8f, 8).life(900 + r.nextInt(300)).color(0xF2EFEA, 0xBDBAB6).colorCurve(0.6f)
+                .alpha(VOLUME_ALPHA).drag(0.9f).glow(0.9f, 6).rise(0.0015f).fadeIn(2).fadeFrom(0.55f).spin(0.01f);
+        volume(level, s, nozzle, puff, r);
         // языки огня и искры из сопла
         Vec3 back = Local.offset(e.getYRot(), e.getXRot(), 0, 0, -1);
         for (int i = 0; i < 3; i++) {
@@ -310,20 +298,9 @@ public final class Exhaust {
         }
     }
 
-    // ---------------------------------------------------------------- B-2 и бомба
+    // ---------------------------------------------------------------- бомба (инверсионные следы B-2 — лентой)
 
-    /** Инверсионные следы четырёх двигателей: белые, долгие, расплываются. */
-    private static void bomber(ClientLevel level, BomberEntity e, State s) {
-        List<ClientWeaponSpec.At> engines = nozzles(e).engines();
-        for (int i = 0; i < engines.size(); i++) {
-            Vec3 p = at(e, engines.get(i));
-            Fx.Spec puff = Fx.smoke().size(0.35f, 2.8f).life(500).color(0xFFFFFF, 0xE6EAF0).alpha(0.65f).drag(0.9f).fadeIn(8)
-                    .fadeFrom(0.4f).wind(0.6f).spin(0.004f).budget(FxBudget.TRAIL);
-            s.lastContrail[i] = segment(level, s.lastContrail[i], p, puff, 3, level.random);
-        }
-    }
-
-    /** Бомба: срыв потока с хвоста; у звукового барьера — «воротник» пара; при бурении — пыль у входа. */
+    /** Бомба: срыв потока с хвоста (лентой); у звукового барьера — «воротник» пара; при бурении — пыль у входа. */
     private static void bomb(ClientLevel level, BunkerBusterEntity e, State s) {
         RandomSource r = level.random;
         if (e.isDrilling()) {
@@ -332,9 +309,6 @@ public final class Exhaust {
                     .color(0x7A7066, 0xA49A90).alpha(0.6f).rise(0.002f).budget(FxBudget.GROUND).spawn(level, in.x + r.nextGaussian() * 0.4, in.y + 0.4, in.z + r.nextGaussian() * 0.4);
             return;
         }
-        Vec3 tail = at(e, nozzles(e).engine());
-        Fx.Spec wake = Fx.smoke().size(0.2f, 0.9f).life(24).color(0xDADCE0, 0xF2F2F2).alpha(0.3f).drag(0.85f).fadeIn(1).fadeFrom(0.2f);
-        trail(level, s, tail, wake, 2, r);
         if (e.speed() >= 8) {
             for (int i = 0; i < 4; i++) {
                 double a = r.nextDouble() * Mth.TWO_PI;
@@ -370,16 +344,25 @@ public final class Exhaust {
     // ---------------------------------------------------------------- общее
 
     /**
-     * Шлейф снаряда: клубы от прошлого положения сопла до нынешнего, в группе шлейфов. С борта камера стоит между
-     * прошлым и нынешним положением снаряда, и клубы последнего отрезка (на быстром снаряде — десяток блоков и больше) оказывались
-     * вплотную перед объективом (размытые пятна на весь кадр). Поэтому, пока камера на снаряде, отрезок
-     * кладётся тиком позже — уже за камерой; след остаётся непрерывным.
+     * Клубы объёма поверх ленты шлейфа: {@link #VOLUME_PUFFS_PER_TICK} за тик в случайных местах пути сопла за тик,
+     * в группе шлейфов (полная группа клубов не примет, а лента останется). Лента сплошная, но лицом к камере и
+     * гладкая: клубы дают ей неровный край и плотность, когда смотришь вдоль следа. С борта камера стоит между прошлым
+     * и нынешним положением снаряда, и клуб последнего отрезка (на быстром снаряде — десяток блоков и больше)
+     * оказывался вплотную перед объективом (размытое пятно на весь кадр). Поэтому, пока камера на снаряде, отрезок
+     * берётся тиком позже — уже за камерой.
      */
-    private static void trail(ClientLevel level, State s, Vec3 nozzle, Fx.Spec puff, double step, RandomSource r) {
+    private static void volume(ClientLevel level, State s, Vec3 nozzle, Fx.Spec puff, RandomSource r) {
         Vec3 held = s.heldNozzle;
         s.heldNozzle = nozzle;
         Vec3 to = s.onboard ? held : nozzle;
-        if (to != null) s.lastNozzle = segment(level, s.lastNozzle, to, puff.budget(FxBudget.TRAIL), step, r);
+        if (to == null) return;
+        Vec3 from = s.lastNozzle == null || s.lastNozzle.distanceToSqr(to) > 80 * 80 ? to : s.lastNozzle;
+        s.lastNozzle = to;
+        puff.budget(FxBudget.TRAIL);
+        for (int i = 0; i < VOLUME_PUFFS_PER_TICK; i++) {
+            double k = (i + r.nextDouble()) / VOLUME_PUFFS_PER_TICK;
+            puff.spawn(level, Mth.lerp(k, from.x, to.x), Mth.lerp(k, from.y, to.y), Mth.lerp(k, from.z, to.z));
+        }
     }
 
     /** Клубы по отрезку от прошлого положения сопла до нынешнего через {@code step} блоков (со случайным сдвигом). */

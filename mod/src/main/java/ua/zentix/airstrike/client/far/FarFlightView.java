@@ -2,15 +2,20 @@ package ua.zentix.airstrike.client.far;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
+import ua.zentix.airstrike.client.ClientWeaponSpec.At;
 import ua.zentix.airstrike.client.ClientWeaponSpec.ClientAirframe;
 import ua.zentix.airstrike.client.ClientWeaponSpec.FarLook;
-import ua.zentix.airstrike.client.ClientWeaponSpec.FarTrail;
 import ua.zentix.airstrike.client.ClientWeaponSpec.Flame;
+import ua.zentix.airstrike.client.ClientWeaponSpec.Trail;
 import ua.zentix.airstrike.client.flight.FlightTrack;
 import ua.zentix.airstrike.client.flight.FlightTracks;
 import ua.zentix.airstrike.client.fx.particle.Fx;
@@ -28,8 +33,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Снаряды вдали, которых у клиента нет (сущность дальше прорисовки или летит вне мира): путь — по пакетам сервера
- * ({@link FlightTracks}), вид — из клиентского паспорта ({@link FarLook}).
+ * Шлейфы всех снарядов и снаряды вдали, которых у клиента нет (сущность дальше прорисовки или летит вне мира): путь —
+ * по сущности или по пакетам сервера ({@link FlightTracks}), вид — из клиентского паспорта ({@link FarLook}).
  * <ul>
  * <li>Корпус — настоящая модель ({@link FarModels}: та же, что у сущности вблизи, с теми же анимациями, по позе из пути),
  * пока она на экране длиннее {@link FarModels#MODEL_FROM} пикселей; мельче — круг той же площади, что силуэт, настоящего
@@ -37,9 +42,10 @@ import java.util.Map;
  * закрыто то же небо; между — плавный переход. Свой цвет при свете неба, дымка — в непрозрачности ({@link Sight}).</li>
  * <li>Факел — свет ({@link Sight#light}) позади корпуса: днём — искра, ночью глаз привык к темноте — блик и вуаль на
  * километры. Маршевый турбовентиляторный двигатель ракеты и мотор шахеда ночью не светят — у них факела почти нет.</li>
- * <li>Шлейф — лента через точки пути, записанные по пакетам ({@link TrailPoints}): расплывается, сносится ветром мода
- * и тает своим сроком, поэтому висит и после того, как снаряд пролетел или взорвался. У сущности вблизи шлейф —
- * частицы {@code Exhaust}, по её тикам точек нет.</li>
+ * <li>Шлейф — лента через точки пути от сопел ({@link TrailPoints}), одна вблизи и вдали, от пуска до конца следа (там
+ * сходит на нет): расплывается, сносится ветром мода, поднимается и тает своим сроком, поэтому висит и после того, как снаряд пролетел или
+ * взорвался. Мест частиц она не занимает: залп в сотни ракет не рвёт следы. Свет — карта освещения мира в точке
+ * (вне загруженного мира — открытое небо). Вблизи поверх густых шлейфов — редкие клубы {@code Exhaust} для объёма.</li>
  * <li>За рельефом дальше прорисовки (ближе закрывает глубина) — луч {@link Sightline} раз в {@link #SIGHT_PERIOD}
  * тика: корпус и факел плавно гаснут.</li>
  * </ul>
@@ -52,8 +58,18 @@ public final class FarFlightView {
     static final double HIDDEN = 0.5;
     /** Видимость за рельефом меняется за тик не больше, чем на столько. */
     private static final float FADE = 0.25f;
-    /** Место конца ленты у корпуса в кэше кадра (после мест точек). */
+    /**
+     * Тон ленты против её цвета: клуб дыма вблизи ({@code fx/particle/smoke_*}) светит в среднем 0,76 своего цвета —
+     * в картинке тень внутри клуба, — а середина ореола ленты — 1. С тем же тоном клубы объёма лежат на ленте как её
+     * неровности, а не тёмными бусинами ({@code FarFlightViewTest}).
+     */
+    static final float TONE = 0.76f;
+    /** Сопел со шлейфом у сущности полёта, не больше (у B-2 — четыре). */
+    static final int MAX_NOZZLES = 4;
+    /** Места концов лент у сопел в кэше кадра (после мест точек). */
     private static final int HEAD = TrailPoints.CAPACITY;
+    /** Свет точки вне загруженного мира — открытое небо. */
+    private static final Light SKY = (x, y, z) -> LightTexture.FULL_SKY;
 
     private static final List<Far> FARS = new ArrayList<>();
     private static final Map<FlightTrack, Far> BY_TRACK = new IdentityHashMap<>();
@@ -69,13 +85,21 @@ public final class FarFlightView {
     private static Sightline.Heights heights;
 
     // ---------------------------------------------------------------- кадр: числа живут между кадрами
-    private static final double[] POS = new double[3], BACK = new double[3], OUT = new double[2], LIGHT = new double[5], AIM = new double[3];
+    private static final double[] POS = new double[3], NOZZLE = new double[3], BACK = new double[3], OUT = new double[2], LIGHT = new double[5],
+            AIM = new double[3];
     private static final float[] ANGLES = new float[3];
     private static final ProjectilePose POSE = new ProjectilePose();
-    /** Концы лент в кадре: где (от камеры), полуширина, непрозрачность, цвет; номер кадра, в котором посчитан. */
-    private static final double[] EX = new double[HEAD + 1], EY = new double[HEAD + 1], EZ = new double[HEAD + 1], EH = new double[HEAD + 1];
-    private static final float[] EA = new float[HEAD + 1], ER = new float[HEAD + 1], EG = new float[HEAD + 1], EB = new float[HEAD + 1];
-    private static final int[] DRAWN = new int[HEAD + 1];
+    private static final BlockPos.MutableBlockPos PROBE = new BlockPos.MutableBlockPos();
+    /**
+     * Концы лент в кадре: где (от камеры), полуширина, непрозрачность, цвет, свет мира; поперёк ленты (общий у стыка
+     * отрезков); номера кадра, в котором посчитаны конец и поперечник.
+     */
+    private static final int ENDS = HEAD + MAX_NOZZLES;
+    private static final double[] EX = new double[ENDS], EY = new double[ENDS], EZ = new double[ENDS], EH = new double[ENDS];
+    private static final float[] EA = new float[ENDS], ER = new float[ENDS], EG = new float[ENDS], EB = new float[ENDS];
+    private static final float[] NX = new float[ENDS], NY = new float[ENDS], NZ = new float[ENDS];
+    private static final int[] EL = new int[ENDS], DRAWN = new int[ENDS], ACROSS = new int[ENDS];
+    private static final float[] JOINT = new float[3];
     private static int frame;
 
     // ---------------------------------------------------------------- сводка последнего кадра (describe)
@@ -90,9 +114,16 @@ public final class FarFlightView {
 
     private FarFlightView() {}
 
-    /** Один путь снаряда: точки его шлейфа, видимость за рельефом. */
+    /** Свет мира в точке, упакованный ({@code LevelRenderer#getLightColor}). */
+    @FunctionalInterface
+    interface Light {
+        int at(double x, double y, double z);
+    }
+
+    /** Один путь снаряда: точки его шлейфов, видимость за рельефом. */
     static final class Far {
         final FlightTrack track;
+        final ClientAirframe airframe;
         final FarLook look;
         final WeaponModels.Look model;
         /** Чьи точки в {@link TrailPoints}. */
@@ -100,11 +131,15 @@ public final class FarFlightView {
         long seen;
         /** До какого тика пути точки уже поставлены. */
         long cursor = -1;
-        /** Последняя точка нынешней ленты или {@link TrailPoints#NONE}; её тик и вид. */
-        long chain = TrailPoints.NONE;
+        /** Нынешние ленты начаты (у каждого сопла — своя); их последние точки, тик последних точек и вид. */
+        boolean started;
+        final long[] chain = new long[MAX_NOZZLES];
         long chainTick;
         @Nullable
-        FarTrail style;
+        Trail style;
+        /** Сопла нынешних лент; от ускорителя ли они. */
+        List<At> nozzles = List.of();
+        boolean booster;
         /** Не закрыт рельефом: 1 — виден; прошлый тик, нынешний и куда идёт. */
         float visPrev = 1, vis = 1, visTarget = 1;
         boolean sighted;
@@ -114,9 +149,16 @@ public final class FarFlightView {
         Far(FlightTrack track, int owner) {
             this.track = track;
             this.owner = owner;
-            ClientAirframe airframe = ClientWeaponSpec.of(track.weapon).airframe(!track.bomber);
+            this.airframe = ClientWeaponSpec.of(track.weapon).airframe(!track.bomber);
             this.look = airframe.far();
             this.model = airframe.model();
+            Arrays.fill(chain, TrailPoints.NONE);
+        }
+
+        /** Ленты кончились: следующая точка начнёт новые. */
+        void restart() {
+            started = false;
+            Arrays.fill(chain, TrailPoints.NONE);
         }
     }
 
@@ -157,42 +199,86 @@ public final class FarFlightView {
                 FARS.removeLast();
                 continue;
             }
-            sample(f, Math.min(f.track.lastTick(), now - 1), POINTS);
+            sample(f, Math.min(f.track.lastTick(), now - 1), POINTS, FarFlightView::light);
+            close(f, now);
             sight(f, now, eye, world);
             if (f.track.fromServer() && !f.track.isDead()) active++;
         }
         POINTS.expire(now - 1);
     }
 
-    /**
-     * Точки шлейфа по пути до тика horizon включительно (дальше путь ещё может поправить пакет этого тика): только тики,
-     * записанные по пакетам сервера, раз в шаг вида шлейфа своей фазы. Вид сменился (ускоритель догорел, сущность
-     * появилась у клиента) — лента этого вида кончается точкой в тике смены, новая начинается там же; разрыв в пути
-     * (история начата заново) — лента рвётся.
-     */
+    /** Точки шлейфов без света мира (юнит-тесты): открытое небо. */
     static void sample(Far f, long horizon, TrailPoints points) {
+        sample(f, horizon, points, SKY);
+    }
+
+    /**
+     * Точки шлейфов по пути до тика horizon включительно (дальше путь ещё может поправить пакет этого тика), по сущности
+     * и по пакетам сервера одинаково: у каждого сопла своей фазы ({@link ClientAirframe#trailNozzles}) — раз в шаг вида
+     * шлейфа. Вид или сопла сменились (ускоритель догорел) — ленты кончаются точками в тике смены, новые начинаются там
+     * же; разрыв в пути (история начата заново) — ленты рвутся.
+     */
+    static void sample(Far f, long horizon, TrailPoints points, Light light) {
         FlightTrack track = f.track;
         long t = f.cursor + 1, start = (long) Math.ceil(track.start());
         if (start > t) {
             t = start;
-            f.chain = TrailPoints.NONE;
+            f.restart();
         }
         for (; t <= horizon; t++) {
-            FarTrail style = track.fromServer(t) ? f.look.stage(FlightPhase.byId(track.phase(t))).trail() : null;
-            if (style != f.style) {
-                if (f.style != null && f.chain != TrailPoints.NONE && t > f.chainTick) put(f, points, t, f.style);
+            FlightPhase phase = FlightPhase.byId(track.phase(t));
+            Trail style = f.look.stage(phase).trail();
+            boolean booster = phase.boosterLit() && f.airframe.boosterNozzle() != null;
+            if (style != f.style || style != null && booster != f.booster) {
+                if (f.style != null && f.started) {
+                    if (t > f.chainTick) put(f, points, t, f.style, light);
+                    finish(f, points);
+                }
                 f.style = style;
-                f.chain = TrailPoints.NONE;
+                f.booster = booster;
+                f.nozzles = style == null ? List.of() : f.airframe.trailNozzles(phase.boosterLit());
+                f.restart();
             }
-            if (style != null && (f.chain == TrailPoints.NONE || t - f.chainTick >= style.step())) put(f, points, t, style);
+            if (style != null && (!f.started || t - f.chainTick >= style.step())) put(f, points, t, style, light);
         }
         f.cursor = Math.max(f.cursor, horizon);
     }
 
-    private static void put(Far f, TrailPoints points, long t, FarTrail style) {
-        f.track.at(t, POS);
-        f.chain = points.add(POS[0], POS[1], POS[2], t, style, f.owner, f.chain);
+    /**
+     * Путь кончился (снаряд взорвался или ушёл из вида) — ленты доходят до последней его точки и там сходят на нет:
+     * иначе конец следа отскакивал назад на шаг точек (у B-2 — на 48 блоков). Путь продолжится — продолжатся и ленты.
+     */
+    private static void close(Far f, long now) {
+        FlightTrack track = f.track;
+        long last = track.lastTick();
+        if (!f.started || f.style == null || track.covers(now - 1) || last > f.cursor) return;
+        if (last > f.chainTick) put(f, POINTS, last, f.style, FarFlightView::light);
+        finish(f, POINTS);
+    }
+
+    /** Нынешние ленты кончаются своими последними точками. */
+    private static void finish(Far f, TrailPoints points) {
+        for (long c : f.chain) points.finish(c);
+    }
+
+    /** Точки лент у всех сопел в тике t. */
+    private static void put(Far f, TrailPoints points, long t, Trail style, Light light) {
+        for (int k = 0, n = Math.min(MAX_NOZZLES, f.nozzles.size()); k < n; k++) {
+            f.track.at(t, POS);
+            f.track.offset(t, f.nozzles.get(k), POS);
+            f.chain[k] = points.add(POS[0], POS[1], POS[2], t, style, light.at(POS[0], POS[1], POS[2]), f.owner, f.chain[k]);
+        }
         f.chainTick = t;
+        f.started = true;
+    }
+
+    /** Свет мира в точке: чанк есть у клиента — как у частицы, нет — открытое небо. */
+    private static int light(double x, double y, double z) {
+        ClientLevel lv = level;
+        if (lv == null) return LightTexture.FULL_SKY;
+        PROBE.set(x, y, z);
+        return lv.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(PROBE.getX()), SectionPos.blockToSectionCoord(PROBE.getZ()))
+                ? LevelRenderer.getLightColor(lv, PROBE) : LightTexture.FULL_SKY;
     }
 
     /** Закрыт ли снаряд рельефом: луч раз в {@link #SIGHT_PERIOD} тика, только дальше прорисовки; видимость — плавно. */
@@ -224,12 +310,14 @@ public final class FarFlightView {
         Vec3 cam = view.camera();
         for (long s = POINTS.first(), end = POINTS.end(); s < end; s++) {
             int i = TrailPoints.index(s);
-            FarTrail style = POINTS.style[i];
+            Trail style = POINTS.style[i];
             if (style == null) continue;
             double age = Math.max(0, t - POINTS.birth[i]);
             if (style.expired(age)) continue;
             double drift = style.drift(age);
-            end(style, age, POINTS.x[i] + Fx.WIND_X * drift - cam.x, POINTS.y[i] - cam.y, POINTS.z[i] + Fx.WIND_Z * drift - cam.z, view, i);
+            end(style, age, POINTS.x[i] + Fx.WIND_X * drift - cam.x, POINTS.y[i] + style.lift(age) - cam.y, POINTS.z[i] + Fx.WIND_Z * drift - cam.z,
+                    POINTS.light[i], view, i);
+            if (POINTS.last[i]) EA[i] = 0;
             points++;
             long p = POINTS.prev[i];
             if (POINTS.holds(p) && DRAWN[TrailPoints.index(p)] == frame) segment(out, TrailPoints.index(p), i);
@@ -237,16 +325,24 @@ public final class FarFlightView {
         for (int k = 0, n = FARS.size(); k < n; k++) {
             Far f = FARS.get(k);
             FlightTrack track = f.track;
-            if (!track.fromServer() || track.isDead() && t >= track.deathTick() || track.drilling() || !track.predict(t, POS)) continue;
+            if (track.isDead() && t >= track.deathTick() || track.drilling() || !track.predict(t, POS)) continue;
+            ClientWeaponSpec.Stage stage = f.look.stage(FlightPhase.byId(track.phase(t)));
+            Trail trail = stage.trail();
+            if (trail != null && trail == f.style && f.started) {
+                // ленты доходят до сопел: там они ещё не проявились
+                for (int j = 0, m = Math.min(MAX_NOZZLES, f.nozzles.size()); j < m; j++) {
+                    long c = f.chain[j];
+                    if (!POINTS.holds(c) || DRAWN[TrailPoints.index(c)] != frame || POINTS.last[TrailPoints.index(c)]) continue;
+                    System.arraycopy(POS, 0, NOZZLE, 0, 3);
+                    track.offset(t, f.nozzles.get(j), NOZZLE);
+                    end(trail, 0, NOZZLE[0] - cam.x, NOZZLE[1] - cam.y, NOZZLE[2] - cam.z, POINTS.light[TrailPoints.index(c)], view, HEAD + j);
+                    segment(out, TrailPoints.index(c), HEAD + j);
+                }
+            }
+            // корпус и факел вблизи рисуют модель и PlumeRenderer
+            if (!track.fromServer()) continue;
             double dx = POS[0] - cam.x, dy = POS[1] - cam.y, dz = POS[2] - cam.z;
             double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            ClientWeaponSpec.Stage stage = f.look.stage(FlightPhase.byId(track.phase(t)));
-            FarTrail trail = stage.trail();
-            if (trail != null && trail == f.style && POINTS.holds(f.chain) && DRAWN[TrailPoints.index(f.chain)] == frame) {
-                // лента доходит до корпуса: у сопла она ещё не проявилась
-                end(trail, 0, dx, dy, dz, view, HEAD);
-                segment(out, TrailPoints.index(f.chain), HEAD);
-            }
             double tr = Sight.transmittance(d, view.range());
             float vis = Mth.lerp(view.partial(), f.visPrev, f.vis);
             double length = f.look.size() / (d * view.pixel());
@@ -331,8 +427,11 @@ public final class FarFlightView {
         out[0] = Math.max(1e-3, Math.sqrt(BACK[0] * BACK[0] + BACK[1] * BACK[1] + BACK[2] * BACK[2]));
     }
 
-    /** Конец ленты в кэш кадра под номером slot: где (от камеры), полуширина с полом в пиксель, непрозрачность с дымкой, цвет. */
-    private static void end(FarTrail s, double age, double dx, double dy, double dz, FarView view, int slot) {
+    /**
+     * Конец ленты в кэш кадра под номером slot: где (от камеры), полуширина с полом в пиксель, непрозрачность с дымкой,
+     * цвет, свет мира.
+     */
+    private static void end(Trail s, double age, double dx, double dy, double dz, int light, FarView view, int slot) {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         double t = Sight.transmittance(d, view.range());
         ribbon(s.width(age), d, view.pixel(), OUT);
@@ -342,17 +441,27 @@ public final class FarFlightView {
         EZ[slot] = dz;
         EH[slot] = OUT[0];
         EA[slot] = (float) (s.opacity(age) * OUT[1] * t);
-        float lit = view.ambient();
-        ER[slot] = Mth.lerp(shade, channel(s.color0(), 0), channel(s.color1(), 0)) * lit;
-        EG[slot] = Mth.lerp(shade, channel(s.color0(), 1), channel(s.color1(), 1)) * lit;
-        EB[slot] = Mth.lerp(shade, channel(s.color0(), 2), channel(s.color1(), 2)) * lit;
+        ER[slot] = Mth.lerp(shade, channel(s.color0(), 0), channel(s.color1(), 0)) * TONE;
+        EG[slot] = Mth.lerp(shade, channel(s.color0(), 1), channel(s.color1(), 1)) * TONE;
+        EB[slot] = Mth.lerp(shade, channel(s.color0(), 2), channel(s.color1(), 2)) * TONE;
+        EL[slot] = light;
         DRAWN[slot] = frame;
     }
 
-    /** Отрезок ленты между концами a и b из кэша кадра; цвет — середина между их цветами. */
+    /**
+     * Отрезок ленты между концами a и b из кэша кадра; цвет — середина между их цветами. Поперёк у конца a — тот же, что
+     * у прошлого отрезка этой ленты (стык без щели на изгибе), у b — запоминается для следующего.
+     */
     private static void segment(FarSprites out, int a, int b) {
-        out.ribbon(EX[a], EY[a], EZ[a], EH[a], EA[a], EX[b], EY[b], EZ[b], EH[b], EA[b],
-                (ER[a] + ER[b]) * 0.5f, (EG[a] + EG[b]) * 0.5f, (EB[a] + EB[b]) * 0.5f);
+        JOINT[0] = ACROSS[a] == frame ? NX[a] : Float.NaN;
+        JOINT[1] = NY[a];
+        JOINT[2] = NZ[a];
+        if (!out.ribbon(EX[a], EY[a], EZ[a], EH[a], EA[a], EL[a], EX[b], EY[b], EZ[b], EH[b], EA[b], EL[b],
+                (ER[a] + ER[b]) * 0.5f, (EG[a] + EG[b]) * 0.5f, (EB[a] + EB[b]) * 0.5f, JOINT)) return;
+        NX[b] = JOINT[0];
+        NY[b] = JOINT[1];
+        NZ[b] = JOINT[2];
+        ACROSS[b] = frame;
     }
 
     // ---------------------------------------------------------------- чистая геометрия видимости (юнит-тесты)

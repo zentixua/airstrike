@@ -142,37 +142,49 @@ public final class FarSprites {
     }
 
     /**
-     * Отрезок шлейфа лентой лицом к камере: от (ax..) до (bx..), полуширины (уже с {@link #RIBBON}) и непрозрачности
-     * концов, свой цвет.
+     * Отрезок шлейфа лентой лицом к камере: от (ax..) до (bx..), полуширины (уже с {@link #RIBBON}), непрозрачности и
+     * свет мира концов (упакованный, для карты освещения), свой цвет. Поперёк ленты — перпендикуляр к отрезку и к лучу
+     * зрения (на любую его точку — тот же); joint на входе — поперёк у конца a, общий с прошлым отрезком той же ленты
+     * (NaN в [0] — нет: по этому отрезку), на выходе — поперёк у конца b.
+     *
+     * @return отрезок записан (joint — новый)
      */
-    public void ribbon(double ax, double ay, double az, double halfA, float alphaA, double bx, double by, double bz, double halfB, float alphaB,
-                       float r, float g, float b) {
-        if (alphaA < 0.002f && alphaB < 0.002f) return;
+    public boolean ribbon(double ax, double ay, double az, double halfA, float alphaA, int lightA, double bx, double by, double bz, double halfB,
+                          float alphaB, int lightB, float r, float g, float b, float[] joint) {
+        if (alphaA < 0.002f && alphaB < 0.002f) return false;
         double da = Math.sqrt(ax * ax + ay * ay + az * az), db = Math.sqrt(bx * bx + by * by + bz * bz);
         double ka = FarDraw.fold(da, far), kb = FarDraw.fold(db, far);
         float x0 = (float) (ax * ka), y0 = (float) (ay * ka), z0 = (float) (az * ka);
         float x1 = (float) (bx * kb), y1 = (float) (by * kb), z1 = (float) (bz * kb);
         float tx = x1 - x0, ty = y1 - y0, tz = z1 - z0;
         float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f, mz = (z0 + z1) * 0.5f;
-        // поперёк ленты: перпендикуляр к отрезку и к лучу зрения
         float nx = ty * mz - tz * my, ny = tz * mx - tx * mz, nz = tx * my - ty * mx;
         float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-6f) return;
+        if (len < 1e-6f) return false;
         nx /= len;
         ny /= len;
         nz /= len;
+        float px = nx, py = ny, pz = nz;
+        if (!Float.isNaN(joint[0]) && joint[0] * nx + joint[1] * ny + joint[2] * nz > 0) {
+            px = joint[0];
+            py = joint[1];
+            pz = joint[2];
+        }
         float ha = (float) (halfA * ka), hb = (float) (halfB * kb);
         float aa = Math.min(1, alphaA), ab = Math.min(1, alphaB), cr = Math.min(1, r), cg = Math.min(1, g), cb = Math.min(1, b);
         float soft = (float) Math.max(halfA, halfB), ua = (float) ka, ub = (float) kb;
         FxAtlas.Sprite s = FxAtlas.glow();
         float v = s.vMid();
-        int light = LightTexture.FULL_BRIGHT;
         out.quad((float) Math.max(da, db));
-        out.vertex(x0 - nx * ha, y0 - ny * ha, z0 - nz * ha, s.u0(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, light, 0);
-        out.vertex(x0 + nx * ha, y0 + ny * ha, z0 + nz * ha, s.u1(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, light, 0);
-        out.vertex(x1 + nx * hb, y1 + ny * hb, z1 + nz * hb, s.u1(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, light, 0);
-        out.vertex(x1 - nx * hb, y1 - ny * hb, z1 - nz * hb, s.u0(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, light, 0);
+        out.vertex(x0 - px * ha, y0 - py * ha, z0 - pz * ha, s.u0(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, lightA, 0);
+        out.vertex(x0 + px * ha, y0 + py * ha, z0 + pz * ha, s.u1(), v, cr * aa, cg * aa, cb * aa, aa, soft, ua, lightA, 0);
+        out.vertex(x1 + nx * hb, y1 + ny * hb, z1 + nz * hb, s.u1(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, lightB, 0);
+        out.vertex(x1 - nx * hb, y1 - ny * hb, z1 - nz * hb, s.u0(), v, cr * ab, cg * ab, cb * ab, ab, soft, ub, lightB, 0);
         counts[3]++;
+        joint[0] = nx;
+        joint[1] = ny;
+        joint[2] = nz;
+        return true;
     }
 
     /** Квадрат: свет (r, g, b) уже умножен на непрозрачность a; ни света, ни заслона — не пишется. */
