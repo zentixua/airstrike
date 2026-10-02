@@ -3,7 +3,6 @@ package ua.zentix.airstrike.client.far;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.util.Mth;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import ua.zentix.airstrike.client.fx.layer.FxLayer;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
@@ -62,7 +61,7 @@ public final class FarRenderer {
         // проекция: m11 = 1 / tan(fovY / 2) — угол пикселя по вертикали
         double pixel = 2 / (e.getProjectionMatrix().m11() * Math.max(1, mc.getWindow().getHeight()));
         double edge = Math.atan(0.5 * pixel * Math.hypot(mc.getWindow().getWidth(), mc.getWindow().getHeight()));
-        float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
+        float ambient = FarView.ambient(level, partial);
         return new FarView(camera.getPosition(), camera.getLookVector(), camera.getLeftVector(), camera.getUpVector(), partial,
                 mc.gameRenderer.getDepthFar() * 0.97, pixel, edge, ambient, Sight.range(level.getRainLevel(partial), level.getThunderLevel(partial)),
                 mc.options.getEffectiveRenderDistance() * 16.0, level.effects().getCloudHeight(), level.getRainLevel(partial));

@@ -11,6 +11,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.far.FarBlasts;
+import ua.zentix.airstrike.client.far.FarView;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.client.sound.BlastSounds;
@@ -83,7 +84,8 @@ public final class BlastEffects {
 
         /**
          * Вспышка на экране: свет мгновенный, сила — {@link FlashFalloff} по расстоянию, взгляду и прямой видимости
-         * от камеры (с борта снаряда и в камере наблюдения — оттуда, куда смотрит игрок, а не от его тела).
+         * от камеры (с борта снаряда и в камере наблюдения — оттуда, куда смотрит игрок, а не от его тела) и по свету
+         * вокруг глаза: днём под небом экран едва светлеет ({@link FlashFalloff#daylight}), ночью и в укрытии — вспышка.
          *
          * @param near ближе этого — полная сила, блоки
          */
@@ -98,6 +100,8 @@ public final class BlastEffects {
             if (player == null) return;
             Camera camera = mc.gameRenderer.getMainCamera();
             Vec3 eye = camera.getPosition();
+            float daylight = FlashFalloff.daylight(FarView.adaptation(level, eye, 1));
+            if (daylight <= 0) return;
             Vec3 light = at.add(0, 1.5, 0);
             Vec3 to = light.subtract(eye);
             double d = to.length();
@@ -105,7 +109,7 @@ public final class BlastEffects {
             boolean visible = level.clip(new ClipContext(eye, light, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player))
                     .getType() == HitResult.Type.MISS;
             double cos = d < 1e-6 ? 1 : new Vec3(camera.getLookVector()).dot(to) / d;
-            float s = FlashFalloff.strength(d, near, range, cos, visible);
+            float s = FlashFalloff.strength(d, near, range, cos, visible) * daylight;
             if (s > 0) Flash.trigger(s, decay, 0xFFF1C8);
         }
 
@@ -143,7 +147,7 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 flash(level, FLASH_NEAR, FLASH_RANGE, 0.72f);
-                Explosions.burst(level, pos, R, mat, random);
+                Explosions.burst(level, pos, R, rocket ? FarBlasts.ROCKET : FarBlasts.DRONE, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 2, 1, 2, 0, 30);
                 return true;
             }
@@ -181,7 +185,7 @@ public final class BlastEffects {
         boolean run(ClientLevel level, int t) {
             if (t == 0) {
                 flash(level, FLASH_NEAR, FLASH_RANGE, 0.8f);
-                Explosions.burst(level, pos, R, mat, random);
+                Explosions.burst(level, pos, R, FarBlasts.MISSILE, mat, random);
                 Particles.burst(level, ParticleTypes.LAVA, pos.add(0, 1, 0), 4, 2, 4, 0, 80);
                 return true;
             }
@@ -245,7 +249,7 @@ public final class BlastEffects {
                 if (breach) {
                     // газы и огонь вырываются над зарядом: шар, дым, вал пыли и вспышка — на поверхности, а не в толще грунта
                     flash(level, surface, 3 * R, 400, 0.8f);
-                    Explosions.burst(level, surface, R, mat, random);
+                    Explosions.burst(level, surface, R, FarBlasts.BUNKER_BREACH, mat, random);
                 } else {
                     // под землёй вспышку видно только в самой полости и рядом
                     flash(level, 8, 70, 0.8f);

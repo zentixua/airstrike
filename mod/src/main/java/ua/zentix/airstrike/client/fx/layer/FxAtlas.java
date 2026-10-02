@@ -17,8 +17,8 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Все текстуры слоя эффектов на одном листе 1024×256 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
- * искра, вспышка, кольцо, дальние круг, ореол и клубы. Один лист — одна текстура на весь отсортированный проход слоя
+ * Все текстуры слоя эффектов на одном листе 1024×512 с уменьшенными копиями (mip-уровнями): клубы дыма и пламени,
+ * искра, вспышка, кольцо, кадры огненного шара (128×128), дальние круг, ореол и клубы. Один лист — одна текстура на весь отсортированный проход слоя
  * (частицы и дальнее вперемешку); уменьшенные копии — чтобы клуб в десяток пикселей вдали не рябил. Цвет на листе
  * умножен на непрозрачность, как и смешивание слоя.
  * <p>
@@ -32,7 +32,10 @@ import java.util.Optional;
 public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]> {
     public static final FxAtlas INSTANCE = new FxAtlas();
 
-    private static final int CELL = 64, COLS = 16, ROWS = 4, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    private static final int CELL = 64, COLS = 16, ROWS = 8, WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+    /** Кадров огненного шара ({@code fx/particle/fireball_00…15}, 128×128): от вспышки до чёрного дыма. */
+    public static final int FIREBALL_FRAMES = 16;
+    private static final int FIREBALL_SIZE = 2 * CELL;
     /** Уменьшенных копий: клуб 64 → 4 пикселя (все места кратны 16 — копии соседних мест не смешивают). */
     private static final int MIPS = 4;
 
@@ -47,7 +50,7 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
     private record Slot(ResourceLocation texture, int x, int y, int w, int h) {}
 
     private static final List<Slot> SLOTS = new ArrayList<>();
-    private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8];
+    private static final Sprite[] SMOKE = new Sprite[16], FIRE = new Sprite[8], PUFFS = new Sprite[8], FIREBALL = new Sprite[FIREBALL_FRAMES];
     private static final Sprite RING, FLASH, GLOW, DISC, SPARK;
 
     static {
@@ -66,6 +69,11 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
             PUFFS[i] = new Sprite(u, v, u + du, v + dv);
         }
         RING = slot("fx/particle/ring", 4 * CELL, 2 * CELL, 2 * CELL, 2 * CELL);
+        // огненный шар: два ряда по 8 кадров под всем остальным
+        for (int i = 0; i < FIREBALL_FRAMES; i++) {
+            FIREBALL[i] = slot(String.format(Locale.ROOT, "fx/particle/fireball_%02d", i), i % 8 * FIREBALL_SIZE, 4 * CELL + i / 8 * FIREBALL_SIZE,
+                    FIREBALL_SIZE, FIREBALL_SIZE);
+        }
     }
 
     private int id = -1;
@@ -96,6 +104,11 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
 
     public static Sprite ring() {
         return RING;
+    }
+
+    /** Кадр огненного шара на доле жизни f (0..1): шар — 0,7 полуразмера кадра. */
+    public static Sprite fireball(float f) {
+        return FIREBALL[Math.clamp((int) (f * FIREBALL_FRAMES), 0, FIREBALL_FRAMES - 1)];
     }
 
     /** Кадр дальнего клуба (4×2, {@code nuke/puffs}). */

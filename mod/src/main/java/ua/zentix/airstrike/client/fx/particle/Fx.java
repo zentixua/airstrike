@@ -23,7 +23,7 @@ public final class Fx {
 
     public enum Kind {
         SMOKE(true, false, FxBudget.CLOUD), FIRE(false, false, FxBudget.CLOUD), SPARK(false, true, FxBudget.SPARK),
-        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.GROUND);
+        FLASH(false, true, FxBudget.FLASH), RING(true, false, FxBudget.GROUND), FIREBALL(false, false, FxBudget.CLOUD);
 
         /** Освещается миром (дым, пыль) или светится сам (огонь, искры). */
         final boolean lit;
@@ -57,6 +57,14 @@ public final class Fx {
 
     public static Spec ring() {
         return new Spec(Kind.RING).color(0xE0DCD6, 0xC8C0B6).fadeFrom(0.35f).alpha(0.55f).drag(1);
+    }
+
+    /**
+     * Огненный шар: кадры анимации за жизнь частицы, от вспышки до сажи ({@code FxAtlas#fireball}); цвет — в кадрах,
+     * размер — полуразмер кадра (шар — 0,7 его). Тает со второй половины жизни: дым дальше — клубы, освещённые миром.
+     */
+    public static Spec fireball() {
+        return new Spec(Kind.FIREBALL).alpha(1).fadeIn(0).fadeFrom(0.55f).drag(0.94f).wind(0.3f).spin(0.006f);
     }
 
     /**
@@ -95,6 +103,7 @@ public final class Fx {
                 case SPARK -> spark().life(30).gravity(0.04f);
                 case FLASH -> flash().size(4, 6).life(4);
                 case RING -> ring().size(1, 20).life(20);
+                case FIREBALL -> fireball().size(5, 5.5f).life(16);
             };
             s.vel(dx, dy, dz).spawn(level, x, y, z);
             // в ванильный движок ничего не добавляется

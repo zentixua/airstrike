@@ -13,8 +13,9 @@ import java.util.Arrays;
 
 /**
  * Всё дальнее — квадратами в общий кадр слоя эффектов ({@link FxQuads}): шлейфы (лентой), клубы дыма, модели снарядов
- * (плитки атласа {@link FarModels}), тела — круги (корпуса снарядов мельче модели, огненные шары, ядра вспышек), свет —
- * ореолы (блик и вуаль вокруг вспышек, шаров и факелов, зарево). Слой сортирует их вместе с ближними частицами от
+ * (плитки атласа {@link FarModels}), огненные шары и пожары — кадрами анимации и клубами пламени, тела мельче
+ * нескольких пикселей — круги (корпуса снарядов мельче модели, далёкие шары и факелы), свет — ореолы (блик и вуаль
+ * вокруг вспышек, шаров и факелов, зарево). Слой сортирует их вместе с ближними частицами от
  * дальних к ближним по настоящему расстоянию, поэтому огненный шар и модель за ближним столбом дыма закрыты дымом,
  * а пусковая в десятке блоков — впереди дальних столбов.
  * Координаты — относительно камеры; дальше дальней плоскости точка переносится ближе с тем же угловым размером,
@@ -25,8 +26,9 @@ import java.util.Arrays;
  * воздуха — в непрозрачности ({@link Sight}: L = L₀·t + небо·(1 − t)).
  * <p>
  * Текстуры ({@code tools/gen_particles.py}, на листе слоя): круг {@code far/disc} — сплошной, край сглажен; ореол
- * {@code far/glow} — гауссов, без ядра; ленты — его средняя строка. Сколько квадрата закрывает текстура, столько
- * света она и несёт — множители {@link #DISC}, {@link #GLOW} переводят радиус круга того же светового потока
+ * {@code far/glow} — гауссов, без ядра; ленты — его средняя строка; огненный шар — кадры {@code fx/particle/fireball},
+ * пламя — {@code fx/particle/fire}. Сколько квадрата закрывает текстура, столько света она и несёт — множители
+ * {@link #DISC}, {@link #GLOW}, {@link #FIREBALL}, {@link #FIRE} переводят радиус круга того же светового потока
  * в полуразмер квадрата ({@code FarSpritesTest}).
  */
 public final class FarSprites {
@@ -35,6 +37,24 @@ public final class FarSprites {
      * ореол {@code far/glow} — 0,133 (пик в середине — 1).
      */
     public static final double DISC = 1.115, GLOW = 2.43;
+    /**
+     * Полуразмер кадра огненного шара на его радиус: светящийся шар в кадре — 0,72–0,79 полуразмера (к концу бугры
+     * дыма шире); вблизи частицы берут тот же размер ({@code Explosions#fireball}). Клуб пламени закрывает 0,27 квадрата.
+     */
+    public static final double FIREBALL = 1.3, FIRE = 1.7;
+    /** Тело мельче стольких пикселей (радиус) — круг: формы не видно, а свет точки верен; крупнее — кадр анимации. */
+    private static final double SHAPE_FROM = 2, SHAPE_FULL = 4;
+    /**
+     * Блик и вуаль — свет, рассеянный в самом глазу: их квадрат переносится к глазу на столько блоков с тем же угловым
+     * размером, и ближние рельеф и постройки его не режут (у края загруженного мира ореол обрывался прямой линией).
+     * Закрыто ли само тело, решает вызывающий: дальше прорисовки — луч по рельефу, в ней — луч по блокам.
+     */
+    static final double EYE = 0.25;
+    /**
+     * Ореол у глаза — в плоскости экрана на глубине {@link #EYE}·cos θ; сбоку (θ больше ~78°) это ближе ближней плоскости
+     * Minecraft (0,05), и квадрат срезало бы целиком. Глубина — не меньше этой.
+     */
+    static final double EYE_DEPTH = 0.1;
     /** Полуширина ленты на половину следа: середина {@code far/glow} поперёк закрывает 0,365 ширины. */
     public static final double RIBBON = 2.74;
     /** Мягкость края у рельефа: клуб — {@link FxQuads#SOFT} полуразмера, тело — четверть радиуса. */
@@ -45,6 +65,8 @@ public final class FarSprites {
     private final float[] tile = new float[FarModels.OUT];
     private FxQuads out;
     private double far;
+    /** Куда смотрит камера (для глубины ореола у глаза). */
+    private float fx, fy, fz;
     /** Сколько клубов, кругов, света, лент и моделей записано в этом кадре. */
     private final int[] counts = new int[5];
 
@@ -52,6 +74,9 @@ public final class FarSprites {
     void begin(FarView view, FxQuads out) {
         this.out = out;
         far = view.far();
+        fx = view.forward().x();
+        fy = view.forward().y();
+        fz = view.forward().z();
         Arrays.fill(counts, 0);
         models.begin();
     }
@@ -112,9 +137,8 @@ public final class FarSprites {
     }
 
     /**
-     * Ореол, который несёт свет круга радиуса radius яркостью a (пик в середине — a): складывается с тем, что за ним —
-     * блик и вуаль вокруг вспышки, шара и факела, зарево, пожар. Блик и вуаль — в глазу, а не в воздухе: мягкого
-     * края у рельефа нет (видно ли само тело, решает вызывающий).
+     * Ореол в воздухе, который несёт свет круга радиуса radius яркостью a (пик в середине — a): складывается с тем, что
+     * за ним — зарево из-за гребня и на облаках. Мягкого края у рельефа нет. Блик и вуаль — в глазу ({@link #EYE}).
      */
     public void glow(double dx, double dy, double dz, double radius, float r, float g, float b, float a) {
         if (billboard(dx, dy, dz, radius * GLOW, 0, FxAtlas.glow(), r * a, g * a, b * a, 0, 0)) counts[2]++;
@@ -125,20 +149,76 @@ public final class FarSprites {
      * и воздухом), цвета (r, g, b) ({@link Sight#light}): ядро — свой свет поверх того, что за ним (пересвет — к белому,
      * тусклее белого — гаснет и тает: остывший шар уже стал дымом), блик и вуаль — ореолами того же цвета.
      *
-     * @param t   доля света, дошедшая через воздух: насколько тело закрывает то, что за ним
-     * @param w   общая доля (видимая над рельефом, переход к ближней картинке)
-     * @param out числа {@link Sight#light} (5) — для лога
+     * @param t     доля света, дошедшая через воздух: насколько тело закрывает то, что за ним
+     * @param w     доля ядра (видимое над рельефом, переход к ближней картинке)
+     * @param glare доля блика и вуали: их глубина не режет, поэтому закрытое блоками в прорисовке — здесь
+     * @param out   числа {@link Sight#light} (5) — для лога
      */
     public void light(double dx, double dy, double dz, double radius, double seen, double t, double pixel, float r, float g, float b, double w,
-                      double[] out) {
+                      double glare, double[] out) {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         Sight.light(radius, seen, d, pixel, out);
-        double s = out[2], k = Math.min(1, s) * w, white = s > 1 ? Math.min(1, Math.log(s) / Math.log(Sight.WHITE)) : 0;
-        float a = (float) (out[1] * t * Math.min(1, 4 * s) * w);
-        if (billboard(dx, dy, dz, out[0] * DISC, 0, FxAtlas.disc(), (float) ((r + (1 - r) * white) * k), (float) ((g + (1 - g) * white) * k),
-                (float) ((b + (1 - b) * white) * k), a, (float) (out[0] * BODY_SOFT))) counts[1]++;
-        glow(dx, dy, dz, out[3], r, g, b, (float) (Math.min(Sight.HALO, Sight.SCATTER * seen) * w));
-        if (out[4] > 0) glow(dx, dy, dz, out[4], r, g, b, (float) (Sight.VEIL_PEAK * w));
+        core(dx, dy, dz, out, t, r, g, b, w);
+        glare(dx, dy, dz, out, seen, r, g, b, glare);
+    }
+
+    /**
+     * Яркое тело с формой, как {@link #light}: крупнее {@link #SHAPE_FULL} пикселей — картинкой полуразмера half (кадр
+     * огненного шара, клуб пламени: цвет — в ней), мельче {@link #SHAPE_FROM} — кругом с тем же светом, между ними —
+     * смесь. Тело и свет в глазу — каждый своей долей: вблизи тело рисуют частицы, а блик и вуаль — здесь.
+     *
+     * @param radius радиус светящегося тела сейчас (свет, блик, вуаль, точка), блоков
+     * @param half   полуразмер картинки, блоков (растёт ли тело — в её кадрах)
+     * @param body   доля тела (видимое над рельефом, переход к частицам, таяние)
+     * @param glare  доля блика и вуали
+     */
+    public void shaped(double dx, double dy, double dz, double radius, FxAtlas.Sprite sprite, double half, float rot, double seen, double t, double pixel,
+                       float r, float g, float b, double body, double glare, double[] out) {
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        Sight.light(radius, seen, d, pixel, out);
+        double shape = smoothstep(SHAPE_FROM, SHAPE_FULL, radius / Math.max(d * pixel, 1e-12));
+        if (shape < 1) core(dx, dy, dz, out, t, r, g, b, body * (1 - shape));
+        float a = (float) (t * body * shape);
+        if (shape > 0 && billboard(dx, dy, dz, half, rot, sprite, a, a, a, a, (float) (radius * BODY_SOFT))) counts[1]++;
+        glare(dx, dy, dz, out, seen, r, g, b, glare);
+    }
+
+    /** Ядро {@link #light} кругом: свой свет поверх того, что за ним; пересвет — к белому, тусклее белого — тает. */
+    private void core(double dx, double dy, double dz, double[] o, double t, float r, float g, float b, double w) {
+        double s = o[2], k = Math.min(1, s) * w, white = s > 1 ? Math.min(1, Math.log(s) / Math.log(Sight.WHITE)) : 0;
+        float a = (float) (o[1] * t * Math.min(1, 4 * s) * w);
+        if (billboard(dx, dy, dz, o[0] * DISC, 0, FxAtlas.disc(), (float) ((r + (1 - r) * white) * k), (float) ((g + (1 - g) * white) * k),
+                (float) ((b + (1 - b) * white) * k), a, (float) (o[0] * BODY_SOFT))) counts[1]++;
+    }
+
+    /** Блик и вуаль {@link #light} ореолами цвета тела у самого глаза ({@link #EYE}); видно ли тело — решает вызывающий. */
+    private void glare(double dx, double dy, double dz, double[] o, double seen, float r, float g, float b, double w) {
+        if (w <= 0) return;
+        eye(dx, dy, dz, o[3], r, g, b, (float) (Math.min(Sight.HALO, Sight.SCATTER * seen) * w));
+        if (o[4] > 0) eye(dx, dy, dz, o[4], r, g, b, (float) (Sight.VEIL_PEAK * w));
+    }
+
+    /**
+     * Ореол {@link #glow}, перенесённый к глазу: те же лучи от глаза, сортировка — по настоящему расстоянию; глубина —
+     * не меньше {@link #EYE_DEPTH} (сбоку — дальше от глаза).
+     */
+    private void eye(double dx, double dy, double dz, double radius, float r, float g, float b, float a) {
+        if (r * a + g * a + b * a < 0.006f) return;
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double cos = (dx * fx + dy * fy + dz * fz) / Math.max(d, 1e-9);
+        double k = Math.max(EYE, EYE_DEPTH / Math.max(cos, 1e-3)) / Math.max(d, 1e-9);
+        if (k >= 1) {
+            glow(dx, dy, dz, radius, r, g, b, a);
+            return;
+        }
+        out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
+                Math.min(1, g * a), Math.min(1, b * a), 0, 0, (float) k, LightTexture.FULL_BRIGHT, 0);
+        counts[2]++;
+    }
+
+    private static double smoothstep(double a, double b, double x) {
+        double t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+        return t * t * (3 - 2 * t);
     }
 
     /**

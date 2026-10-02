@@ -254,7 +254,7 @@ public final class FxParticle {
         float fog = frame.fog(px, py, pz);
         // свет — уже умноженный на непрозрачность; искры и вспышки только светят (свет складывается)
         float r = rCol * a, g = gCol * a, b = bCol * a, cover = kind.additive ? 0 : a;
-        FxAtlas.Sprite sprite = sprite();
+        FxAtlas.Sprite sprite = sprite(partial);
         out.nearestTexels(!smooth);
         out.opacity(a);
         switch (kind) {
@@ -265,7 +265,7 @@ public final class FxParticle {
         }
     }
 
-    private FxAtlas.Sprite sprite() {
+    private FxAtlas.Sprite sprite(float partial) {
         return switch (kind) {
             // стадия рассеивания: клуб «тает» во второй половине жизни
             case SMOKE -> FxAtlas.smoke(variant * 4 + Mth.clamp((int) ((((float) age / life) - 0.35f) / 0.65f * 4), 0, 3));
@@ -273,6 +273,7 @@ public final class FxParticle {
             case SPARK -> FxAtlas.spark();
             case FLASH -> FxAtlas.flash();
             case RING -> FxAtlas.ring();
+            case FIREBALL -> FxAtlas.fireball((age + partial) / life);
         };
     }
 
