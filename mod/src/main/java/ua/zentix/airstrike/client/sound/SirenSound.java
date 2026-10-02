@@ -53,7 +53,7 @@ public final class SirenSound extends AbstractTickableSoundInstance implements S
         on = false;
     }
 
-    /** Замолчать сразу (выход из мира, движок бросил звук). */
+    /** Замолчать сразу (выход из мира, движок снял канал). */
     public void kill() {
         stop();
     }
@@ -74,8 +74,19 @@ public final class SirenSound extends AbstractTickableSoundInstance implements S
         return filterHighs;
     }
 
+    /**
+     * Движок держит канал сирены. Не {@code SoundManager.isActive}: ползунок категории в 0 снимает канал
+     * ({@code SoundEngine.tickNonPaused}), а {@code isActive} по записи о запуске и дальше отвечает «звучит».
+     */
+    public boolean playing() {
+        return Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel.containsKey(this);
+    }
+
     @Override
     public void tick() {
+        // движок тикает и остановленный звук, пока не снимет его, а тот, чей канал снял ползунок категории, — до остановки
+        // всех звуков (выход из мира, смена измерения)
+        if (isStopped()) return;
         speed = on ? speed + (1 - speed) * SPIN_UP : speed * (1 - SPIN_DOWN);
         float power = speed * speed;
         if (!on && power <= VoiceBudget.AUDIBLE) {
@@ -87,9 +98,11 @@ public final class SirenSound extends AbstractTickableSoundInstance implements S
         this.volume = (float) (power * Math.max(0, 1 - d / RANGE));
         // ваниль не играет ниже половины тона: на нём ротор и смолкает
         this.pitch = tone * (0.5f + 0.5f * speed);
-        float open = occlusion.open(ClientSounds.now(), ear, at);
-        filterGain = SoundFilters.blockedGain(open);
-        filterHighs = SoundFilters.air(d) * SoundFilters.blockedHighs(open);
-        SoundFilters.update(this, filterGain, filterHighs);
+        if (volume > VoiceBudget.AUDIBLE) {
+            float open = occlusion.open(ClientSounds.now(), ear, at);
+            filterGain = SoundFilters.blockedGain(open);
+            filterHighs = SoundFilters.air(d) * SoundFilters.blockedHighs(open);
+            SoundFilters.update(this, filterGain, filterHighs);
+        }
     }
 }
