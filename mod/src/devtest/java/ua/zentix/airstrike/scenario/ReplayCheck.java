@@ -4,36 +4,67 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.GenericMessageScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.client.fx.particle.FxBudget;
+import ua.zentix.airstrike.client.fx.particle.FxPool;
+import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
  * Повтор Flashback (сценарий {@code replay}: пуск, как в {@code launch}, с модами записи сборки pack/ и
  * {@code recordingControls.quicksave} в настройках Flashback): клиент выходит из мира, как кнопка «Сохранить и выйти»,
- * Flashback на выходе дописывает запись в zip в своей папке повторов; сценарий открывает этот повтор, ждёт мира
- * повтора, снимает кадры ({@code replay_NNNN.png}) и закрывает игру. Flashback — мод Fabric (через Sinytra Connector),
- * в сборке мода его нет: его методы — отражением. Строки лога: {@code SCENARIO replay saved|opened|frame|failed},
- * в конце {@code SCENARIO done}.
+ * Flashback на выходе дописывает запись в zip в своей папке повторов; сценарий открывает этот повтор, переходит
+ * к моменту до первого пуска и проигрывает запись до конца. Камера (свой игрок повтора — зритель) идёт сбоку от снаряда;
+ * кадры {@code replay_<имя>.png}: снаряд в полёте (через {@link #FLIGHT} тиков после появления) и взрыв (через
+ * {@link #BLAST} тиков после пропажи). Flashback — мод Fabric (через Sinytra Connector), в сборке мода его нет: его
+ * методы — отражением. Строки лога: {@code SCENARIO replay saved|opened|play|frame|failed}, в конце {@code SCENARIO done}.
  */
 final class ReplayCheck {
     /** Столько тиков ждать файла повтора после выхода и мира повтора после открытия. */
     private static final int SAVE_WAIT = 1200, OPEN_WAIT = 2400;
-    /** Кадры повтора: первый — через столько тиков после открытия, дальше с шагом, всего столько. */
-    private static final int FIRST_FRAME = 200, FRAME_STEP = 60, FRAMES = 3;
+    /**
+     * Проигрывание — с этого места до конца записи (тиков до конца): запись кончается выходом на тике 1520 сценария
+     * {@code launch}, первый пуск — на тике 230. Тиков после открытия до перехода и после перехода до пуска проигрывания.
+     */
+    private static final int PLAY_BACK = 1320, SEEK_AT = 20, PLAY_AT = 60;
+    /** Кадры: снаряд в полёте — через столько тиков после его появления, взрыв — после его пропажи. */
+    private static final int[] FLIGHT = {60, 160}, BLAST = {4, 30};
+    private static final int MAX_FRAMES = 10;
 
     private Class<?> flashback;
-    private int ticks, openedAt = -1, frames;
+    private Object server;
+    private int ticks, openedAt = -1, frames, total, playFrom, playTicks = -1;
     private Path saved;
     private boolean finished;
+    /** Снаряды повтора, видные в прошлом тике; номера и последние места всех, что появлялись. */
+    private final Set<UUID> live = new HashSet<>();
+    private final Map<UUID, Integer> number = new HashMap<>();
+    private final Map<UUID, Vec3> last = new HashMap<>();
+    /** Кадры в очереди: тик проигрывания, имя, снаряд — камера сбоку от него, пока он есть, потом у его последнего места. */
+    private final List<Shot> shots = new ArrayList<>();
+
+    private record Shot(int due, String name, UUID of, boolean flight) {}
 
     ReplayCheck() {
         try {
@@ -87,7 +118,7 @@ final class ReplayCheck {
                     int all = 0, ours = 0;
                     for (var en : mc.level.entitiesForRendering()) {
                         all++;
-                        if (net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(en.getType()).getNamespace().equals(Airstrike.MOD_ID)) ours++;
+                        if (BuiltInRegistries.ENTITY_TYPE.getKey(en.getType()).getNamespace().equals(Airstrike.MOD_ID)) ours++;
                     }
                     Airstrike.LOG.info("SCENARIO replay opened after {} ticks: {} at {}, entities {} (airstrike {})", ticks,
                             mc.level.dimension().location(), mc.player.blockPosition().toShortString(), all, ours);
@@ -97,15 +128,96 @@ final class ReplayCheck {
                 return;
             }
             int since = ticks - openedAt;
-            if (since >= FIRST_FRAME && (since - FIRST_FRAME) % FRAME_STEP == 0) {
-                Screenshot.grab(mc.gameDirectory, String.format("replay_%04d.png", since), mc.getMainRenderTarget(), c -> {});
-                Airstrike.LOG.info("SCENARIO replay frame {} fps={} screen={}", since, mc.getFps(), mc.screen == null ? "-" : mc.screen.getClass().getSimpleName());
-                if (++frames == FRAMES) finish();
+            if (since == SEEK_AT) {
+                server = flashback.getMethod("getReplayServer").invoke(null);
+                if (server == null) {
+                    fail("нет сервера повтора (Flashback.getReplayServer)");
+                    return;
+                }
+                total = (int) server.getClass().getMethod("getTotalReplayTicks").invoke(server);
+                playFrom = Math.max(0, total - PLAY_BACK);
+                server.getClass().getMethod("goToReplayTick", int.class).invoke(server, playFrom);
+                mc.options.hideGui = true;
+                Airstrike.LOG.info("SCENARIO replay play from {} of {} ticks", playFrom, total);
+            } else if (since == PLAY_AT) {
+                server.getClass().getField("replayPaused").setBoolean(server, false);
+                playTicks = 0;
+            } else if (playTicks >= 0) {
+                if (mc.level == null || mc.player == null) {
+                    fail("мир повтора закрылся посреди проигрывания");
+                    return;
+                }
+                play(mc);
+                playTicks++;
             }
         } catch (ReflectiveOperationException | IOException ex) {
             Airstrike.LOG.error("SCENARIO replay failed", ex);
             finish();
         }
+    }
+
+    /** Тик проигрывания: снаряды появились и пропали — кадры в очередь; камера — сбоку от снаряда; кадры по сроку. */
+    private void play(Minecraft mc) throws ReflectiveOperationException {
+        int tick = (int) server.getClass().getMethod("getReplayTick").invoke(server);
+        Map<UUID, Vec3> now = new HashMap<>();
+        Map<String, Integer> ours = new TreeMap<>();
+        for (Entity en : mc.level.entitiesForRendering()) {
+            var key = BuiltInRegistries.ENTITY_TYPE.getKey(en.getType());
+            if (key.getNamespace().equals(Airstrike.MOD_ID)) ours.merge(key.getPath(), 1, Integer::sum);
+            if (en instanceof StrikeProjectile) now.put(en.getUUID(), en.position());
+        }
+        last.putAll(now);
+        for (UUID id : now.keySet()) {
+            if (number.putIfAbsent(id, number.size() + 1) == null) {
+                for (int d : FLIGHT) shots.add(new Shot(playTicks + d, "flight" + number.get(id) + "_" + d, id, true));
+            }
+        }
+        for (UUID id : live) {
+            if (!now.containsKey(id)) {
+                for (int d : BLAST) shots.add(new Shot(playTicks + d, "blast" + number.get(id) + "_" + d, id, false));
+            }
+        }
+        live.clear();
+        live.addAll(now.keySet());
+        int fx = 0;
+        for (FxBudget b : FxBudget.values()) fx += FxPool.INSTANCE.live(b);
+        if (playTicks % 20 == 0) {
+            Airstrike.LOG.info("SCENARIO replay play tick={} airstrike={} fx={}", tick, ours, fx);
+        }
+        shots.sort(Comparator.comparingInt(Shot::due));
+        if (!shots.isEmpty()) {
+            Shot next = shots.get(0);
+            Vec3 at = last.get(next.of);
+            // снаряд — в 16 блоках сбоку и чуть сзади, взрыв — в 40: виден огненный шар и дым
+            look(mc, at, next.flight && now.containsKey(next.of) ? new Vec3(14, 4, -8) : new Vec3(32, 14, -22));
+            if (playTicks >= next.due) {
+                shots.remove(0);
+                Screenshot.grab(mc.gameDirectory, "replay_" + next.name + ".png", mc.getMainRenderTarget(), c -> {});
+                var cam = mc.getCameraEntity();
+                Airstrike.LOG.info("SCENARIO replay frame {} tick={} at {} camera {} {} airstrike={} fx={} fps={}", next.name, tick,
+                        BlockPos.containing(at).toShortString(), cam == null ? "-" : cam.getClass().getSimpleName(),
+                        cam == null ? "-" : cam.blockPosition().toShortString(), ours, fx, mc.getFps());
+                if (++frames == MAX_FRAMES) {
+                    finish();
+                    return;
+                }
+            }
+        }
+        if (shots.isEmpty() && (tick >= total - 2 || playTicks > total - playFrom + 400)) {
+            Airstrike.LOG.info("SCENARIO replay played to tick {} of {}: projectiles {}, frames {}", tick, total, number.size(), frames);
+            finish();
+        }
+    }
+
+    /** Зритель повтора — в {@code offset} от точки, лицом к ней. */
+    private static void look(Minecraft mc, Vec3 at, Vec3 offset) {
+        Vec3 eye = at.add(offset);
+        Vec3 d = at.subtract(eye);
+        float yaw = (float) (Mth.atan2(d.z, d.x) * Mth.RAD_TO_DEG) - 90f;
+        float pitch = (float) -(Mth.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)) * Mth.RAD_TO_DEG);
+        mc.player.moveTo(eye.x, eye.y - mc.player.getEyeHeight(), eye.z, yaw, pitch);
+        mc.player.setDeltaMovement(Vec3.ZERO);
+        if (mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
     }
 
     private Path replayFolder() throws ReflectiveOperationException {
