@@ -2,6 +2,7 @@ package ua.zentix.airstrike.scenario;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.Difficulty;
@@ -42,7 +43,7 @@ import java.util.stream.Stream;
  */
 @Mod(value = Airstrike.MOD_ID, dist = Dist.CLIENT)
 public final class ClientScenario {
-    private static final String WORLD = "airstrike_scenario";
+    static final String WORLD = "airstrike_scenario";
 
     private record Step(int at, Runnable action) {}
 
@@ -120,6 +121,10 @@ public final class ClientScenario {
             new MultiplayerScenario("mp-a".equals(scenario)); // свой сервер, без мира сценария (tools/mp_scenario.sh)
             return;
         }
+        if ("leak".equals(scenario)) {
+            new LeakCheck(); // заходы в мир и замеры памяти в меню — свои (LeakCheck), мир открывает он сам на каждый заход
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         if ("trailer".equals(scenario)) {
             new ua.zentix.airstrike.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)
@@ -170,6 +175,12 @@ public final class ClientScenario {
             mc.createWorldOpenFlows().openWorld(world, () -> Airstrike.LOG.error("SCENARIO не открылся мир {}", world));
             return;
         }
+        createWorld(e.getScreen());
+    }
+
+    /** Мир сценария заново (прежний удаляется); {@code parent} — экран, куда вернуться, если мир не создастся. */
+    static void createWorld(Screen parent) {
+        Minecraft mc = Minecraft.getInstance();
         deleteOldWorld(mc.gameDirectory.toPath().resolve("saves").resolve(WORLD));
         GameRules rules = new GameRules();
         rules.getRule(GameRules.RULE_DAYLIGHT).set(false, null);
@@ -177,7 +188,7 @@ public final class ClientScenario {
         rules.getRule(GameRules.RULE_DOMOBSPAWNING).set(false, null);
         LevelSettings settings = new LevelSettings(WORLD, GameType.CREATIVE, false, Difficulty.PEACEFUL, true, rules, WorldDataConfiguration.DEFAULT);
         mc.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(20260927L, "trailer".equals(System.getProperty("airstrike.scenario")), false),
-                WorldPresets::createNormalWorldDimensions, e.getScreen());
+                WorldPresets::createNormalWorldDimensions, parent);
     }
 
     private static void deleteOldWorld(Path dir) {
