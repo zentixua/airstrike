@@ -17,6 +17,7 @@ import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.guidance.Autopilot;
 import ua.zentix.airstrike.guidance.Ballistics;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.util.Terrain;
@@ -37,7 +38,9 @@ import java.util.function.Predicate;
  * <p>
  * Пакет шахедов и ракет ставится только туда и так, чтобы сектор пуска был свободен ({@link #clearAhead}): на разгоне и
  * наборе до взведения взрывателя снаряд, встретив дом, разбивается без подрыва — в городе весь залп с пусковой, смотрящей
- * в дом, пропадал молча (ноутбук 30.09.2026, Greenfield: 0 ударов из 30, каждый второй прогон).
+ * в дом, пропадал молча (ноутбук 30.09.2026, Greenfield: 0 ударов из 30, каждый второй прогон). И не между высотками,
+ * выше которых снаряд после взведения набрать не успевает: место без такого подъёма не годится, берётся другое
+ * или заход издалека.
  */
 public final class LaunchSite {
     public static final double REUSE_RADIUS = 96;
@@ -80,6 +83,8 @@ public final class LaunchSite {
     private static final int ARC_STEP = 2;
     /** Ближе к цели по горизонтали дуга РСЗО не проверяется: крыша самой цели не закрывает сектор, блоков. */
     private static final double NEAR_AIM = 8;
+    /** Корпус снаряда ниже оси на столько блоков: над блоками должен пройти и он. */
+    private static final double HULL = 1;
 
     /**
      * Место под новую пусковую с свободным сектором пуска: на каждом месте по порядку ({@link #find}) — предложенные
@@ -125,13 +130,14 @@ public final class LaunchSite {
     }
 
     /**
-     * Путь снаряда от нижней направляющей пусковой, стоящей в {@code site} с курсом {@code yaw}, до взведения взрывателя
-     * ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном (паспорт,
-     * {@code LaunchProfile}) — луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
+     * Сектор пуска пусковой, стоящей в {@code site} с курсом {@code yaw}, свободен. Путь снаряда от нижней направляющей до
+     * взведения взрывателя ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном
+     * (паспорт, {@code LaunchProfile}) — луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
      * ({@code boostEndPitch}). У РСЗО — его настоящая дуга из трубы на цель {@code target} (скорость задаёт дальность,
      * {@link RocketEntity}): до конца работы двигателя (дальше он взведён) и не ближе {@link #NEAR_AIM} к цели — у самой
-     * цели блоки — это цель. Два луча: ось и на блок ниже (корпус). Неготовые чанки не читаются: путь по ним считается
-     * свободным (там снаряд уйдёт в полёт вне мира).
+     * цели блоки — это цель. Два луча: ось и на {@link #HULL} ниже (корпус). У шахеда и ракеты ещё и подъём после
+     * взведения по силам их автопилоту ({@link #climbOut}). Неготовые чанки не читаются: путь по ним считается свободным
+     * (там снаряд уйдёт в полёт вне мира).
      */
     public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target) {
         Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, 0);
@@ -152,7 +158,7 @@ public final class LaunchSite {
                 path.add(at);
             }
         }
-        for (double below : new double[]{0, 1}) {
+        for (double below : new double[]{0, HULL}) {
             for (int i = 1; i < path.size(); i++) {
                 Vec3 from = path.get(i - 1).subtract(0, below, 0), end = path.get(i).subtract(0, below, 0);
                 Vec3 to = Terrain.readyUntil(level, from, end);
@@ -161,7 +167,22 @@ public final class LaunchSite {
                 if (to.distanceToSqr(end) > 1e-6) break;
             }
         }
-        return true;
+        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, path.getLast(), yaw, weapon.spec().airframe());
+    }
+
+    /**
+     * Подъём после взведения по силам автопилоту шахеда и ракеты: прямо по курсу пусковой от точки взведения {@code gate}
+     * (конец проверенного луча — снаряд не ниже неё) на {@link WeaponSpec.Airframe#reliefLookahead} блоков — столько
+     * впереди видит его датчик рельефа — снаряд, набирая высоту по закону автопилота ({@link Autopilot#climbOver}) на
+     * маршевой скорости, проходит корпусом над рельефом полосы. Дальше рельеф ведёт сам автопилот, но только с места,
+     * откуда набор успевает: пусковая на улице между высотками проходила проверку до взведения, а шахед в 40 блоках после
+     * неё врезался в башню выше своего набора (ноутбук, город Greenfield, 01.10.2026).
+     */
+    private static boolean climbOut(ServerLevel level, Vec3 gate, float yaw, WeaponSpec.Airframe air) {
+        Vec3 end = gate.add(Local.horizontal(yaw).scale(air.reliefLookahead()));
+        double over = Autopilot.climbOver(new double[]{gate.x, gate.z, end.x, end.z}, air.cruiseSpeed(),
+                (x, z) -> StrikeProjectile.surfaceY(level, x, z));
+        return over + HULL <= gate.y;
     }
 
     private static double horizontal(Vec3 a, Vec3 b) {

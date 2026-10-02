@@ -106,6 +106,13 @@ import java.util.concurrent.locks.LockSupport;
 public final class StrikeGameTests {
     /** Цель на полосе: дёрн в 200 блоках от начала (дальше рельеф «видит» стену полигона). */
     private static final BlockPos RUNWAY_TARGET = new BlockPos(16, 3, 200);
+    /**
+     * Места пуска в проверках сектора с курсами назад и вбок — на столько блоков выше площадки. Подъём после взведения
+     * ({@code LaunchSite.clearAhead}: 96 + 256 блоков по курсу) уходит за площадку к площадкам прежних партий: сетка
+     * GameTest ставит их по 8 в ряд через 5–6 блоков и не убирает, а их стены и постройки — до ~70 блоков над площадкой.
+     * К +Z и +X площадок ещё нет: следующие партии ставятся позже.
+     */
+    private static final int ABOVE_GRID = 100;
     /** Середина площадки «range». */
     private static final BlockPos RANGE_CENTER = new BlockPos(32, 11, 32);
 
@@ -556,24 +563,63 @@ public final class StrikeGameTests {
     @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_sector", skyAccess = true)
     public static void launchSectorAvoidsHouse(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
+        // курсы во все стороны: подъём после взведения уходит к площадкам прежних партий — место выше них
+        int y0 = 4 + ABOVE_GRID;
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, y0, 120)));
         float[] sides = {0, 180};
         Vec3 far = site.add(0, 0, 400);
         LaunchSite.Pick free = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(free != null && free.preferred() == 0, "без домов — первый курс: " + free);
         // дом в 30 блоках по первому курсу (+Z), выше набора шахеда до взведения
-        for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 150), Blocks.STONE);
+        afterTest(h, () -> {
+            for (int z : new int[]{90, 150}) for (int x = 4; x <= 28; x++) for (int y = y0; y <= y0 + 46; y++) h.setBlock(new BlockPos(x, y, z), Blocks.AIR);
+        });
+        for (int x = 4; x <= 28; x++) for (int y = y0; y <= y0 + 46; y++) h.setBlock(new BlockPos(x, y, 150), Blocks.STONE);
         h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.DRONE, far), "дом по курсу не виден");
         h.assertFalse(LaunchSite.clearAhead(level, site, 0, WeaponType.MISSILE, far), "дом по курсу ракеты не виден");
         LaunchSite.Pick other = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(other != null && other.preferred() == 1 && other.yaw() == 180, "курс не сменился на свободный: " + other);
         // и по второму (−Z): пакет поворачивается от первого курса, пока сектор не освободится, — не дальше 90° от цели
-        for (int x = 4; x <= 28; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, 90), Blocks.STONE);
+        for (int x = 4; x <= 28; x++) for (int y = y0; y <= y0 + 46; y++) h.setBlock(new BlockPos(x, y, 90), Blocks.STONE);
         LaunchSite.Pick turned = LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 90);
         h.assertTrue(turned != null && turned.preferred() == -1 && Math.abs(turned.yaw()) >= 30 && Math.abs(turned.yaw()) <= 90
                 && LaunchSite.clearAhead(level, site, turned.yaw(), WeaponType.DRONE, far), "курс в дом или от цели: " + turned);
         h.assertTrue(LaunchSite.pickOn(level, site, WeaponType.DRONE, sides, far, 0) == null, "пакет повернулся, хотя поворачивать нельзя");
         h.succeed();
+    }
+
+    /**
+     * Подъём после взведения: башня за точкой взведения, выше, чем шахед и ракета успевают набрать по закону автопилота,
+     * закрывает сектор пуска, хотя путь до взведения свободен (ноутбук 01.10.2026, Greenfield: пусковая на улице, шахед
+     * через 40 блоков после взведения — в башню). Дом ниже набора сектор не закрывает. Курс — на +Z: там площадок ещё
+     * нет (партия из одной проверки, следующие ставятся позже), и подъём читает только свою полосу и плоский мир.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_climb_out", skyAccess = true)
+    public static void launchSectorNeedsClimbOut(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 8)));
+        Vec3 far = site.add(0, 0, 1000);
+        float[] ahead = {0};
+        for (WeaponType weapon : new WeaponType[]{WeaponType.DRONE, WeaponType.MISSILE}) {
+            h.assertTrue(LaunchSite.clearAhead(level, site, 0, weapon, far), weapon + ": пустая полоса закрыта");
+            // к точке взведения шахед поднимается на ~15 блоков над направляющей, ракета — на ~24
+            Vec3 rail = LauncherEntity.railPoint(site, 0, weapon, 0);
+            BlockPos house = BlockPos.containing(rail.x, site.y, rail.z + ProximityFuse.ARM_DISTANCE + 40);
+            build(level, house, Mth.floor(rail.y) + 6, Blocks.STONE);
+            h.assertTrue(LaunchSite.clearAhead(level, site, 0, weapon, far), weapon + ": дом ниже набора закрыл сектор");
+            build(level, house, Mth.floor(rail.y) + 40, Blocks.STONE);
+            h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon, far), weapon + ": башня выше набора после взведения не видна");
+            h.assertTrue(LaunchSite.pickOn(level, site, weapon, ahead, far, 0) == null, weapon + ": пусковая встала перед башней");
+            build(level, house, Mth.floor(rail.y) + 40, Blocks.AIR);
+        }
+        h.succeed();
+    }
+
+    /** Стенка поперёк полосы (13 блоков шириной, 2 в толщину) от земли {@code base} до высоты {@code top} включительно. */
+    private static void build(ServerLevel level, BlockPos base, int top, Block block) {
+        for (int x = -6; x <= 6; x++) for (int z = 0; z <= 1; z++) for (int y = base.getY(); y <= top; y++) {
+            level.setBlock(new BlockPos(base.getX() + x, y, base.getZ() + z), block.defaultBlockState(), 2);
+        }
     }
 
     /**
