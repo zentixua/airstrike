@@ -56,5 +56,28 @@ class BlastModelTest {
     @Test
     void noSuchPressureGivesZeroRange() {
         assertEquals(0, BlastModel.rangeForOverpressure(1e9, 15), 0);
+        assertEquals(0, BlastModel.rangeForSurfaceOverpressure(1e9, 50), 0);
+        assertEquals(0, BlastModel.rangeForSurfaceOverpressure(BlastModel.kpa(1), 0), 0);
+    }
+
+    /** Обычный заряд у земли — та же волна, что у подрыва с тем же эквивалентом: W кг ТНТ = W / (0,5·10⁶) кт. */
+    @Test
+    void surfaceChargeIsNuclearEquivalent() {
+        for (double kg : new double[]{3, 50, 450}) {
+            for (double r : new double[]{5, 30, 150}) {
+                double nuclear = BlastModel.overpressureKpa(r, kg / 5e5);
+                assertEquals(nuclear, BlastModel.surfaceOverpressureKpa(r, kg), nuclear * 1e-9, () -> kg + " кг, " + r + " м");
+            }
+        }
+    }
+
+    /** Стекло (0,8 psi) у наземного взрыва шахеда (50 кг) вылетает до ~73 м, ракеты (450 кг) — до ~150 м. */
+    @Test
+    void surfaceRangeForGlass() {
+        double kpa = BlastModel.kpa(0.8);
+        double drone = BlastModel.rangeForSurfaceOverpressure(kpa, 50);
+        assertEquals(73, drone, 2);
+        assertEquals(0.8, BlastModel.psi(BlastModel.surfaceOverpressureKpa(drone, 50)), 1e-6);
+        assertEquals(152, BlastModel.rangeForSurfaceOverpressure(kpa, 450), 3);
     }
 }

@@ -54,6 +54,8 @@ import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.guidance.Mission;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.net.C2S;
+import ua.zentix.airstrike.nuclear.model.BlastModel;
+import ua.zentix.airstrike.nuclear.world.BlockResponse;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.AreaLoader;
 import ua.zentix.airstrike.strike.ChunkTickets;
@@ -3079,6 +3081,84 @@ public final class StrikeGameTests {
         h.assertTrue(Warheads.shatter(level, centre, r, 3, 5, net.minecraft.tags.BlockTags.LEAVES) == 1 && level.getBlockState(leaves).isAir(),
                 "листва не выбита");
         h.assertTrue(level.getBlockState(stone).is(Blocks.STONE), "волна по листве тронула камень");
+        h.succeed();
+    }
+
+    /**
+     * Волна наземного взрыва выбивает стёкла по давлению, шаром во все стороны: цветные, тонированное и панели — как
+     * прозрачные. Ближе дальности, где давление выше порога стекла при любом разбросе, — все, к которым подходит воздух
+     * с улицы (и на дне ямы ниже точки взрыва, куда коробка не доставала), стекло в грунте без воздуха рядом — цело,
+     * дальше шара — ни одного, и ничего, кроме стёкол.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void shockwaveBreaksGlassByPressure(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER.above(8));
+        Vec3 centre = Vec3.atCenterOf(c);
+        double kg = 0.3;
+        // ~11,8 и ~15,3 блока: шар держится в чанках площадки, чьи соседи тоже на ней
+        double sure = BlastModel.rangeForSurfaceOverpressure(BlastModel.kpa(BlockResponse.FRAGILE_PSI * BlockResponse.JITTER_MAX), kg);
+        double reach = Warheads.glassReach(kg);
+        h.assertTrue(sure > 11 && reach < 16, "дальности волны " + sure + " и " + reach + " не по площадке");
+        List<BlockState> kinds = List.of(Blocks.RED_STAINED_GLASS.defaultBlockState(), Blocks.LIGHT_BLUE_STAINED_GLASS_PANE.defaultBlockState(),
+                Blocks.TINTED_GLASS.defaultBlockState(), Blocks.GLASS.defaultBlockState(), Blocks.BLACK_STAINED_GLASS.defaultBlockState(),
+                Blocks.GLASS_PANE.defaultBlockState());
+        List<BlockPos> inside = List.of(c.below(10), c.above(10), c.east(10), c.offset(-7, 0, 7), c.offset(0, -7, -7), c.offset(6, 6, 6));
+        int out = Mth.ceil(reach) + 1;
+        List<BlockPos> outside = List.of(c.west(out), c.north(out), c.below(out), c.offset(12, 0, -12));
+        // ниже точки взрыва — в грунте на дне ямы до неба; рядом, в 3 блоках, — такое же стекло в грунте без ямы
+        BlockPos sealed = c.offset(3, -10, 0);
+        h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(sealed))) < sure && !level.getBlockState(sealed.above()).isAir(),
+                "стекло в грунте не ближе верной дальности или не под грунтом");
+        for (BlockPos p = c.below(9); !level.getBlockState(p).isAir(); p = p.above()) level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
+        level.setBlock(sealed, Blocks.RED_STAINED_GLASS.defaultBlockState(), 3);
+        for (int i = 0; i < inside.size(); i++) {
+            h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(inside.get(i)))) < sure, "стекло " + i + " не ближе верной дальности");
+            level.setBlock(inside.get(i), kinds.get(i % kinds.size()), 3);
+        }
+        for (int i = 0; i < outside.size(); i++) {
+            h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(outside.get(i)))) > reach, "стекло " + i + " не дальше шара");
+            level.setBlock(outside.get(i), kinds.get(i % kinds.size()), 3);
+        }
+        BlockPos stone = c.offset(2, 1, -2);
+        level.setBlock(stone, Blocks.STONE.defaultBlockState(), 3);
+        int glass = Warheads.shatterGlass(level, centre, kg);
+        h.assertTrue(glass == inside.size(), "выбито стёкол " + glass + " из " + inside.size());
+        for (BlockPos p : inside) h.assertTrue(level.getBlockState(p).isAir(), "стекло осталось в " + h.relativePos(p));
+        for (int i = 0; i < outside.size(); i++) {
+            h.assertTrue(level.getBlockState(outside.get(i)) == kinds.get(i % kinds.size()), "выбито стекло за шаром в " + h.relativePos(outside.get(i)));
+        }
+        h.assertTrue(level.getBlockState(stone).is(Blocks.STONE), "волна по стёклам тронула камень");
+        h.assertTrue(level.getBlockState(sealed).is(Blocks.RED_STAINED_GLASS), "выбито стекло в грунте, к которому не подходит воздух");
+        h.succeed();
+    }
+
+    /**
+     * Стеклянные стены 14×14 через блок у взрыва: в секциях сотни стёкол, больше порции работы, — порции продолжаются
+     * с места, где кончилась прошлая, и выбивают всё, ни одного дважды и ни одного мимо.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, skyAccess = true)
+    public static void shockwaveBreaksGlassCubeInPortions(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos c = h.absolutePos(RANGE_CENTER.above(10));
+        Vec3 centre = Vec3.atCenterOf(c);
+        double kg = 2;
+        int half = 7;
+        // дальний угол стен — ~12 блоков, ближе верной дальности (~22); стёкол 7 × 14 × 14
+        h.assertTrue(BlastModel.rangeForSurfaceOverpressure(BlastModel.kpa(BlockResponse.FRAGILE_PSI * BlockResponse.JITTER_MAX), kg) > half * Math.sqrt(3) + 1,
+                "стены не ближе верной дальности");
+        // стены поперёк X через блок: у каждого стекла сбоку — воздух с улицы
+        int placed = 0;
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-half, -half, -half), c.offset(half - 1, half - 1, half - 1))) {
+            if (((p.getX() - c.getX()) & 1) != 0) continue;
+            level.setBlock(p, ((p.getY() + p.getZ()) % 2 == 0 ? Blocks.RED_STAINED_GLASS : Blocks.LIGHT_BLUE_STAINED_GLASS).defaultBlockState(), 2);
+            placed++;
+        }
+        int glass = Warheads.shatterGlass(level, centre, kg);
+        h.assertTrue(glass == placed, "выбито стёкол " + glass + " из " + placed);
+        for (BlockPos p : BlockPos.betweenClosed(c.offset(-half, -half, -half), c.offset(half - 1, half - 1, half - 1))) {
+            h.assertTrue(level.getBlockState(p).isAir(), "стекло осталось в " + h.relativePos(p));
+        }
         h.succeed();
     }
 

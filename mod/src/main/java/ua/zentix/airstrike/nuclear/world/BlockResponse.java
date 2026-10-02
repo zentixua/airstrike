@@ -16,6 +16,11 @@ import java.util.Map;
  */
 public record BlockResponse(float thresholdPsi, Kind kind) {
     public static final float NEVER = Float.MAX_VALUE;
+    /** Порог хрупкого ({@code airstrike:nuke_fragile}: стекло, панели, цветы, факелы), psi — самый низкий из всех. */
+    public static final float FRAGILE_PSI = 0.8f;
+    private static final float JITTER_SPAN = 0.3f;
+    /** Разброс порога в {@link #breaksAt}: блок ломается от давления между порог × {@code JITTER_MIN} и порог × {@code JITTER_MAX}. */
+    public static final float JITTER_MIN = 0.85f, JITTER_MAX = JITTER_MIN + JITTER_SPAN;
 
     public enum Kind {
         /** Не поражается волной (воздух, жидкость, неразрушимое). */
@@ -51,7 +56,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
     public boolean breaksAt(double psi, int jitterSeed) {
         if (thresholdPsi == NEVER) return false;
         // ±15%: соседние одинаковые блоки ломаются не по линейке
-        float j = 0.85f + 0.3f * ((jitterSeed * 0x9E3779B9 >>> 8) & 0xFFFF) / 65535f;
+        float j = JITTER_MIN + JITTER_SPAN * ((jitterSeed * 0x9E3779B9 >>> 8) & 0xFFFF) / 65535f;
         return psi >= thresholdPsi * j;
     }
 
@@ -61,7 +66,7 @@ public record BlockResponse(float thresholdPsi, Kind kind) {
         float destroy = s.getBlock().defaultDestroyTime();
         if (destroy < 0 || destroy >= 50) return NONE;
         if (s.is(ModTags.NUKE_GROUND)) return GROUND;
-        if (s.is(ModTags.NUKE_FRAGILE)) return new BlockResponse(0.8f, Kind.BREAK);
+        if (s.is(ModTags.NUKE_FRAGILE)) return new BlockResponse(FRAGILE_PSI, Kind.BREAK);
         if (s.is(BlockTags.LEAVES)) return new BlockResponse(2f, Kind.LEAVES);
         if (s.is(BlockTags.LOGS)) return new BlockResponse(5f, Kind.LOG);
         if (s.is(ModTags.NUKE_LIGHT)) return new BlockResponse(4f, Kind.BREAK);
