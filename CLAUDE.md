@@ -73,8 +73,10 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
+  pack/                                  ← своя сборка «Airstrike Pack» (packwiz: pack.toml, mods/*.pw.toml, config/);
+                                           .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
+  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar и .mrpack в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
@@ -107,7 +109,8 @@ git commit
 CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
 не запускает — PR открывать сразу, черновиком); jar — артефакт `airstrike-jar`. Проверяется то, что изменилось
 (задача «Что изменилось»): правка только `tools/` (кроме `fetch_runtime_mods.py`, `paths.py`), `docs/`, `*.md` мод не
-собирает и GameTest не гоняет; `mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
+собирает и GameTest не гоняет; `pack/` — только задача «Сборка модов» (индекс packwiz свежий, `.mrpack` собирается);
+`mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
 GameTest идёт частями на шести машинах (`-PgametestShard=i/n`, `GameTestShards`: партия целиком в одной части, части
 равняются по `gametest-durations.json`; таблицу освежает `tools/gametest_durations.py` по логам частей, когда части
 заметно разошлись по времени). Слияние решает задача «Итог»: падает, если упала или отменена любая нужная проверка.

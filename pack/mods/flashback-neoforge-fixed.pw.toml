@@ -1,0 +1,18 @@
+name = "Flashback Neoforge Fixed"
+filename = "flashback_neoforge_fixed-1.0.13.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/QaOcZcLU/versions/UnmUYYwv/flashback_neoforge_fixed-1.0.13.jar"
+hash-format = "sha512"
+hash = "bb2ab99422b78bf7b5f444e5a7da174e5a7d21928f1c9a60d37caa8a40f3ca4b01b197112f6e5a30c0941d75677807d287ba3a5ecad1861ee68a8a9e3094f06a"
+
+[update]
+[update.modrinth]
+mod-id = "QaOcZcLU"
+version = "UnmUYYwv"
+
+[option]
+optional = true
+default = false
+description = "Запись и повтор (Flashback): нужно только тем, кто снимает"

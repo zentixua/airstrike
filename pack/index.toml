@@ -1,0 +1,260 @@
+hash-format = "sha256"
+
+[[files]]
+file = "config/entityculling.json"
+hash = "f08640a62bef05a21e0e4560175e45842d398af147ac9ef8864977f5933e0604"
+
+[[files]]
+file = "mods/3dskinlayers.pw.toml"
+hash = "b3b67f83faf9dcc4985b7a13fa8affb71062461d271f80cc0958652df9f3126b"
+metafile = true
+
+[[files]]
+file = "mods/aero_cam_sync.pw.toml"
+hash = "d7282de7bcc9e010dd13a6b57764f9a57d5ca0de737863a55d24a25a904e9f8d"
+metafile = true
+
+[[files]]
+file = "mods/aeronautics-hot-air-fix.pw.toml"
+hash = "55c8aefec97caf982304d74c1e7b5e0bc45b34da5be45afe9a1c9e23cfd144b3"
+metafile = true
+
+[[files]]
+file = "mods/airstrike.pw.toml"
+hash = "f9269b66906da04433ef29c007a30d57e41320ca9fdff65e60a24c57d5882377"
+metafile = true
+
+[[files]]
+file = "mods/colorwheel.pw.toml"
+hash = "6867922a8ccface85edc8df2268e4996c6ab6867b9da34258b6bf6efc0bc2efa"
+metafile = true
+
+[[files]]
+file = "mods/connector.pw.toml"
+hash = "01d6ccac84f3bbe094c455c4fc0ceaa1b22de3e6212d1588a3e5a768f6b4ebd6"
+metafile = true
+
+[[files]]
+file = "mods/create-aeronautics.pw.toml"
+hash = "3b8895369640b2a52d3e05f7186185ba6798e44d513f11c5427a0fe9c16769e9"
+metafile = true
+
+[[files]]
+file = "mods/create-aeroworks.pw.toml"
+hash = "210419599e24212d879f58d0b3bacb74dec6d64703f49f1c547440bf7705e942"
+metafile = true
+
+[[files]]
+file = "mods/create-big-cannons.pw.toml"
+hash = "a0e9ff95570cd9af3374ca8b44aa095447baf94e565f46ae99819d52a9b48dc1"
+metafile = true
+
+[[files]]
+file = "mods/create-connected.pw.toml"
+hash = "6ac362d60bc8b13e03a5b6b9cdf9c7676f65d3e89e87c66f18514e7ee164cdb0"
+metafile = true
+
+[[files]]
+file = "mods/create-deco.pw.toml"
+hash = "67a405e6307f900d168deaa954a4309c3b44a6025e4efd7b8e774b6f9d3a69cd"
+metafile = true
+
+[[files]]
+file = "mods/create-diesel-generators.pw.toml"
+hash = "456f66abd180b3f5765473cda5e8acb1a6ea8b15b7ee34442be9a7af414cfc63"
+metafile = true
+
+[[files]]
+file = "mods/create-propulsion-simulated.pw.toml"
+hash = "f82cdd570cb4f6bd9b87a6a30c5e5ecc23125dfcecc715d4950a17301de8c58a"
+metafile = true
+
+[[files]]
+file = "mods/create-tweaked-controllers.pw.toml"
+hash = "2c72104b4cf249d4f096f673293a41c199d611dc9b99a9055d463fa5cd90c7cd"
+metafile = true
+
+[[files]]
+file = "mods/create-xaeros-map.pw.toml"
+hash = "ce4f3b213b52415cecadc297652ba0f1c506e4f987a7ae2bfda437f3bd405d5b"
+metafile = true
+
+[[files]]
+file = "mods/create.pw.toml"
+hash = "dcaf5f2e28db0b9a127d0167456832341045ddc9aec058c3d9fcf53f618d2404"
+metafile = true
+
+[[files]]
+file = "mods/distanthorizons.pw.toml"
+hash = "0c20fea3407ed0db85b4b171f1820a24987f2659946fadd30bae044205041b09"
+metafile = true
+
+[[files]]
+file = "mods/dynamic-fps.pw.toml"
+hash = "ae6fd52d8bdcbeca5bbe6db840f22f92c1928fe0fda22017b19612b9b00a245a"
+metafile = true
+
+[[files]]
+file = "mods/entityculling.pw.toml"
+hash = "30d6875d934c57d5827f29f35ca77efc72a21df361ad3d578b93e7e137a39654"
+metafile = true
+
+[[files]]
+file = "mods/essential.pw.toml"
+hash = "258cd42d5de6e6000aea40333085992d7dce0730d122f82c444de17857920ddd"
+metafile = true
+
+[[files]]
+file = "mods/euphoria-patches.pw.toml"
+hash = "a245469cf91e7f3c8aec3b0f5ad3d79b1846ac0696543f892b426faea5f91cab"
+metafile = true
+
+[[files]]
+file = "mods/ferrite-core.pw.toml"
+hash = "73360e397134d238ee8fd21d33fd7f9275e9441f74f8f1b6ed92278877c0b9f1"
+metafile = true
+
+[[files]]
+file = "mods/flashback-neoforge-fixed.pw.toml"
+hash = "63625f7e0ddd07b49a688cbcba024e469f81725d0e6fafdab22fafc2cf8ac0aa"
+metafile = true
+
+[[files]]
+file = "mods/flashback.pw.toml"
+hash = "06e85d1980fab81ff312d584a68e6374061c21961b9de7dcce54dff414bcff4b"
+metafile = true
+
+[[files]]
+file = "mods/forgified-fabric-api.pw.toml"
+hash = "25a556023b4d7e138e11f788afa93ce550de2c77b7d1eeb0b7828caf5fa49642"
+metafile = true
+
+[[files]]
+file = "mods/geckolib.pw.toml"
+hash = "35779b39ddc06059ec483b33de2ecfdc3adb95c0a49e69b6701fb0024827e2f5"
+metafile = true
+
+[[files]]
+file = "mods/gravestone-and-sable-compatibility-patch.pw.toml"
+hash = "6baec0ac505606e2066b5a00a5873cc6895f0ca639a0bfabd74bf408dcf25749"
+metafile = true
+
+[[files]]
+file = "mods/gravestone-mod.pw.toml"
+hash = "d18f1ea4c6c1c2f99f18a8725d11e14c93abd29988df24c967794fc52e9c969c"
+metafile = true
+
+[[files]]
+file = "mods/immediatelyfast.pw.toml"
+hash = "2863a3b187723e1f69ed2ad2b2c3d834e8442468a1347c80df5b310e243c8753"
+metafile = true
+
+[[files]]
+file = "mods/immersive-aircraft.pw.toml"
+hash = "e612f6a7f4d6101651ec929647a42d18a6b321d596e29e2b7821ced0bbccdff9"
+metafile = true
+
+[[files]]
+file = "mods/iris.pw.toml"
+hash = "db1c1e6382878b78e994dba1b9026935f8d1c5ca685c89d2437858e0a0dcab58"
+metafile = true
+
+[[files]]
+file = "mods/jade-sable-compat.pw.toml"
+hash = "673bc79f4d42c7de3343a8e2933a3fbd355ba34e8a7ca06ffdae659bd57a8231"
+metafile = true
+
+[[files]]
+file = "mods/jade.pw.toml"
+hash = "4de3e4a1a49e332c1ad313283e0403c4273b628d634c17a9ff0c9da3d6b67f9a"
+metafile = true
+
+[[files]]
+file = "mods/jei.pw.toml"
+hash = "c911d03476ac0e535c3c601ad98a725ce685e063032474abbf2a2fb9bf23f786"
+metafile = true
+
+[[files]]
+file = "mods/lithium.pw.toml"
+hash = "51e129832b04acd57da470fc41725bad5e101b6a6b1d4901fd8ea7a92b14e13d"
+metafile = true
+
+[[files]]
+file = "mods/man-of-many-planes.pw.toml"
+hash = "fd4893ff877df14bb9b01a058743144b93b2c84d2c38c106d20af429c546046a"
+metafile = true
+
+[[files]]
+file = "mods/mezzconfig.pw.toml"
+hash = "12c6e23ca90b3dc4df9f51c445d944e7cd298186dec5aeff65b66e54343f3272"
+metafile = true
+
+[[files]]
+file = "mods/modernfix.pw.toml"
+hash = "c84140c66f233909b392bd7253ca33c59903ffda51beff558d9a2a4a8c6bc269"
+metafile = true
+
+[[files]]
+file = "mods/mouse-tweaks.pw.toml"
+hash = "6bc414cc0f2d4c078fe83f384d786343f701f371d657c5279b5b0df1595804bd"
+metafile = true
+
+[[files]]
+file = "mods/no-chat-reports.pw.toml"
+hash = "5da18814472be5dc93a21886983646da3a7236413800075ac75229be82d114fa"
+metafile = true
+
+[[files]]
+file = "mods/not-enough-animations.pw.toml"
+hash = "e0f1cef5482844e62c6fc3c7771fc9ef8385c47092248f76aa1fa271220b24e8"
+metafile = true
+
+[[files]]
+file = "mods/point-blank-aeronautics-compat.pw.toml"
+hash = "10d147e95742260b2e7229936ea83c7a1163f11ebd4cda87e0ccecc40b31aa91"
+metafile = true
+
+[[files]]
+file = "mods/reeses-sodium-options.pw.toml"
+hash = "8690379014fbba53059759936c7deb4d62aabc7a2006da3d45929dc582b119b7"
+metafile = true
+
+[[files]]
+file = "mods/rpl.pw.toml"
+hash = "7815e5a589de0c02a62ae83590e1f75f4d0c269e48f2435ce2ac448976ddf49f"
+metafile = true
+
+[[files]]
+file = "mods/sable.pw.toml"
+hash = "a1fa121ed5d0207e4cdd3f545d043f68f9a4bb38dcb21278b968fad5e4cefe4a"
+metafile = true
+
+[[files]]
+file = "mods/sodium-extra.pw.toml"
+hash = "6ab228a1fa98348b7444c0715e4db592414d2102e441671ac5e79066596a912c"
+metafile = true
+
+[[files]]
+file = "mods/sodium.pw.toml"
+hash = "2a001cdb3d5ac4970d422914083c27380eba8ebd40dfd435754fe6566ba78beb"
+metafile = true
+
+[[files]]
+file = "mods/vics-point-blank.pw.toml"
+hash = "4b11f8fdedd3b99842f6d9d99334955c2aafebe6a8d7f4d4e2521b74c07e01d9"
+metafile = true
+
+[[files]]
+file = "mods/xaeros-minimap.pw.toml"
+hash = "8ed3e895470dd147a57481100de34488b57a12d777a3ac0441e5d8d902d4b50c"
+metafile = true
+
+[[files]]
+file = "mods/xaeros-world-map.pw.toml"
+hash = "f139ff8d596a050f140c50a54866bbbd454833e4014227986a716c39a7dbe535"
+metafile = true
+
+[[files]]
+file = "shaderpacks/complementary-reimagined.pw.toml"
+hash = "75d1d2488a0c332a9a58af7e57f980a1b006c02b3a1c580fbd50443088e4eab0"
+metafile = true
