@@ -43,6 +43,10 @@ public final class ColumnScar {
      * данные с {@code keepPacked}. {@code onRemove} старого блока снимает только живую блок-сущность, отложенные
      * данные остаются при воздухе или воде, и при первом тике или сохранении чанка ваниль пишет «Tried to load
      * a DUMMY block entity … found air». Запрос поднимает их в живую блок-сущность, и замена её снимает.
+     * У блок-сущности сооружения или улья свежая генерация оставляет и живую сущность, и заглушку на том же месте
+     * ({@code ProtoChunk.setBlockEntity} заглушку не снимает, ваниль чистит их первым тиком чанка или сохранением, а зона
+     * за волной грузит чанки без тика): запрос отдаёт живую, и заглушка снимается рядом с ней — иначе сохранение
+     * чанка подняло бы её над воздухом (игра 02.10.2026: 21 место в 600–840 блоках от подрыва 15 кт).
      * <p>
      * {@code UPDATE_SUPPRESS_DROPS} не спасает от содержимого контейнеров: сундук, бочка, печь высыпают его
      * в {@code onRemove} — в деревне это тысячи предметов на земле, которые потом тикают. Как {@code /setblock}
@@ -58,6 +62,7 @@ public final class ColumnScar {
             BlockEntity be = level.getBlockEntity(pos);
             if (be instanceof RandomizableContainer loot) loot.setLootTable(null);
             Clearable.tryClear(be);
+            level.getChunkAt(pos).pendingBlockEntities.remove(pos);
         }
         if (!old.is(with.getBlock())) PoiRecords.recordIfMissing(level, pos, old);
         level.setBlock(pos, with, FLAGS);

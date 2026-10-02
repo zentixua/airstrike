@@ -2,6 +2,7 @@ package ua.zentix.airstrike.gametest;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -17,9 +18,11 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseFireBlock;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -632,6 +635,21 @@ public final class WorkGameTests {
             registered.add(r);
             bare.add(b);
         }
+        // кровати обеими половинами мимо данных POI: изножье, снятое взрывом, уводит изголовье (место POI) обновлением
+        // формы — мимо того, кто снимал блок (игра 02.10.2026: пары соседних мест по этажам домов Newisle). Порядок
+        // снятия случаен, у шести кроватей хоть одно изножье уходит раньше изголовья почти всегда (1 − 1/64)
+        List<BlockPos> heads = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            BlockPos foot = h.absolutePos(c.offset(i - 3, 0, -2)), head = foot.south();
+            for (BlockPos p : List.of(foot, head)) {
+                BlockState bed = Blocks.RED_BED.defaultBlockState().setValue(BedBlock.FACING, Direction.SOUTH)
+                        .setValue(BedBlock.PART, p == head ? BedPart.HEAD : BedPart.FOOT);
+                LevelChunk chunk = level.getChunkAt(p);
+                chunk.getSection(chunk.getSectionIndex(p.getY())).setBlockState(p.getX() & 15, p.getY() & 15, p.getZ() & 15, bed, false);
+            }
+            heads.add(head);
+            bare.add(head);
+        }
         int[] errors = {0};
         var logger = (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getLogger(PoiSection.class.getName());
         var counter = new org.apache.logging.log4j.core.appender.AbstractAppender("airstrike-poi-blast-errors", null, null, true,
@@ -660,7 +678,8 @@ public final class WorkGameTests {
                 // снятие из данных POI — задачей сервера после смены блока
                 h.assertTrue(level.getGameTime() >= doneAt[0] + 2, "ждём задачи сервера");
                 h.assertTrue(errors[0] == 0, "ошибки PoiSection: " + errors[0]);
-                for (BlockPos p : bare) h.assertTrue(gone(level.getBlockState(p)), "не снесён " + p.toShortString());
+                for (BlockPos p : bare) h.assertTrue(gone(level.getBlockState(p)), "не снесён " + p.toShortString() + " " + level.getBlockState(p));
+                for (BlockPos p : heads) h.assertTrue(gone(level.getBlockState(p.north())), "не снесено изножье " + p.north().toShortString());
                 for (BlockPos p : registered) h.assertTrue(gone(level.getBlockState(p)), "не снесён " + p.toShortString());
                 for (BlockPos p : bare) h.assertTrue(level.getPoiManager().getType(p).isEmpty(), "запись POI осталась " + p.toShortString());
                 for (BlockPos p : registered) h.assertTrue(level.getPoiManager().getType(p).isEmpty(), "запись POI осталась " + p.toShortString());

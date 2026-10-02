@@ -27,6 +27,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModDataComponents;
@@ -126,7 +127,7 @@ public final class ServerActions {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
         boolean nuclear = mayUseNuke(player);
-        int n = clearAll(player.server, nuclear);
+        int n = clearAll(player.server, nuclear, player.getGameProfile().getName());
         player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
     }
 
@@ -376,15 +377,22 @@ public final class ServerActions {
      * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета
      * и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая ракета, остаётся до её пуска.
      *
+     * Что и кем снято — строкой в лог: отбой снимает и чужие удары, а нажавший видит только итог в чате (игра 02.10.2026:
+     * МБР №3 пропала из лога без следа — её снял «Отбоем» другой игрок).
+     *
      * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
+     * @param who     кто дал отбой — для лога
      */
-    public static int clearAll(MinecraftServer server, boolean nuclear) {
+    public static int clearAll(MinecraftServer server, boolean nuclear, String who) {
         Predicate<StrikeProjectile> cancelled = p -> nuclear || !p.isNuclear();
         // отменённые снаряды: клиенты глушат их звук и камеру, а оставшиеся ядерные летят со своим
         List<UUID> projectiles = new ArrayList<>();
-        int n = 0;
+        int n = 0, virtual = 0, launchersRemoved = 0, salvos = 0, detonations = 0;
+        List<String> strikes = new ArrayList<>();
         for (ServerLevel level : server.getAllLevels()) {
-            projectiles.addAll(VirtualFlights.get(level).clear(level, cancelled));
+            List<UUID> outside = VirtualFlights.get(level).clear(level, cancelled);
+            virtual += outside.size();
+            projectiles.addAll(outside);
             List<Entity> kill = new ArrayList<>();
             List<LauncherEntity> launchers = new ArrayList<>();
             // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
@@ -407,13 +415,26 @@ public final class ServerActions {
             }
             for (Entity e : kill) {
                 if (e instanceof StrikeProjectile) projectiles.add(e.getUUID());
+                else if (e instanceof LauncherEntity) launchersRemoved++;
                 e.discard();
             }
             // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
+            salvos += SalvoData.get(level).size();
             StrikeWorld.clearSalvos(level);
-            if (nuclear) n += NuclearStrikes.clear(level);
+            if (nuclear) {
+                NuclearEvents events = NuclearEvents.get(level);
+                for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
+                    strikes.add("МБР №" + s.id() + " (" + Math.round(s.yieldKt()) + " кт по " + Mth.floor(s.target().x) + " "
+                            + Mth.floor(s.target().y) + " " + Mth.floor(s.target().z) + ")");
+                }
+                detonations += events.detonations().size();
+                n += NuclearStrikes.clear(level);
+            }
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear, projectiles));
+        Airstrike.LOG.info("Отбой{} — {}: снарядов {} (вне мира {}), пусковых {}, залпов {}{}{}", nuclear ? " с ядерными" : "", who,
+                projectiles.size(), virtual, launchersRemoved, salvos, strikes.isEmpty() ? "" : "; " + String.join(", ", strikes),
+                detonations == 0 ? "" : "; забыто подрывов " + detonations);
         return n + projectiles.size();
     }
 

@@ -73,6 +73,7 @@ import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModBlocks;
+import ua.zentix.airstrike.util.Palettes;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -1220,7 +1221,7 @@ public final class GridGameTests {
      * мира. Копия {@code PalettedContainer.copy()} любой палитры, кроме глобальной, держит обработчик роста живой секции
      * (палитра из одного значения — и вовсе та же), и замена в копии расширяла секцию мира, а запись падала — чанк
      * уходил на диск с двойниками. Секции: вся из двойника (одно значение), полная линейная палитра (16 состояний)
-     * и глобальная (больше 256 состояний) с двойником и без него — поиск ламп по ней считает блоки ({@link ChunkLights#contains}).
+     * и глобальная (больше 256 состояний) с двойником и без него — поиск ламп по ней считает блоки ({@link Palettes#contains}).
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "grid_save_tags", skyAccess = true)
     public static void saveLeavesFullPaletteSectionsAlone(GameTestHelper h) {
@@ -1284,25 +1285,25 @@ public final class GridGameTests {
         BlockState twin = GridLights.unlit(Blocks.SEA_LANTERN.defaultBlockState());
         PalettedContainer<BlockState> global = globalWithoutLamps();
         h.assertTrue(global.maybeHas(GridLights::isUnlit), "палитра отвечает «нет» сама — проверять нечего");
-        h.assertFalse(ChunkLights.contains(global, GridLights::isUnlit), "в глобальной палитре без двойников найден двойник");
+        h.assertFalse(Palettes.contains(global, GridLights::isUnlit), "в глобальной палитре без двойников найден двойник");
         global.set(7, 7, 7, twin);
-        h.assertTrue(ChunkLights.contains(global, GridLights::isUnlit), "двойник в глобальной палитре не найден");
+        h.assertTrue(Palettes.contains(global, GridLights::isUnlit), "двойник в глобальной палитре не найден");
 
         PalettedContainer<BlockState> stale = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(),
                 PalettedContainer.Strategy.SECTION_STATES);
         stale.set(1, 2, 3, twin);
         stale.set(1, 2, 3, Blocks.STONE.defaultBlockState());
         h.assertTrue(stale.maybeHas(GridLights::isUnlit), "малая палитра забыла ушедший двойник — проверять нечего");
-        h.assertFalse(ChunkLights.contains(stale, GridLights::isUnlit), "ушедший из секции двойник найден по палитре");
+        h.assertFalse(Palettes.contains(stale, GridLights::isUnlit), "ушедший из секции двойник найден по палитре");
 
         // 100 разных состояний — палитра-хеш-таблица, тоже помнит ушедший двойник
         PalettedContainer<BlockState> hashed = withoutLamps(100);
         hashed.set(15, 15, 15, twin);
         hashed.set(15, 15, 15, Blocks.STONE.defaultBlockState());
         h.assertTrue(hashed.maybeHas(GridLights::isUnlit), "палитра-хеш-таблица забыла ушедший двойник — проверять нечего");
-        h.assertFalse(ChunkLights.contains(hashed, GridLights::isUnlit), "ушедший двойник найден по палитре-хеш-таблице");
+        h.assertFalse(Palettes.contains(hashed, GridLights::isUnlit), "ушедший двойник найден по палитре-хеш-таблице");
         hashed.set(15, 15, 15, twin);
-        h.assertTrue(ChunkLights.contains(hashed, GridLights::isUnlit), "двойник в палитре-хеш-таблице не найден");
+        h.assertTrue(Palettes.contains(hashed, GridLights::isUnlit), "двойник в палитре-хеш-таблице не найден");
         h.succeed();
     }
 
