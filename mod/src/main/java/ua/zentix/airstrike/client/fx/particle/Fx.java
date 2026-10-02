@@ -120,6 +120,7 @@ public final class Fx {
         float drag = 0.96f;
         float rise, gravity, wind = 1, spin = 0.03f;
         boolean collide, smooth;
+        float chainX, chainY, chainZ, chainGap;
         float streak;
         Spec trail;
         float trailStep = 0.8f, trailUntil = 0.7f;
@@ -252,6 +253,25 @@ public final class Fx {
          */
         public Spec smooth() {
             smooth = true;
+            return this;
+        }
+
+        /**
+         * Клуб из цепочки клубов через {@code gap} блоков вдоль пути {@code (dx, dy, dz)} (клубы объёма шлейфа: клуб на путь
+         * сопла за тик). Виден, только когда на экране перекрывает соседей — когда смотришь вдоль следа; сбоку между
+         * клубами на экране просвет, клуб тает, и остаётся одна лента ({@link FxParticle#chainShare}). Иначе молодые клубы,
+         * мельче пути за тик, читались на тонкой ленте цепочкой светлых точек. Шаг 0 — правило выключено.
+         */
+        public Spec chain(double dx, double dy, double dz, double gap) {
+            double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (len < 1e-6 || gap <= 0) {
+                chainGap = 0;
+                return this;
+            }
+            chainX = (float) (dx / len);
+            chainY = (float) (dy / len);
+            chainZ = (float) (dz / len);
+            chainGap = (float) gap;
             return this;
         }
 

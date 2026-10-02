@@ -41,6 +41,8 @@ public final class FxParticle {
     private int fadeIn;
     private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind;
     private boolean collide, smooth;
+    /** Цепочка клубов ({@link Fx.Spec#chain}): направление пути и шаг между клубами; шаг 0 — не цепочка. */
+    private float chainX, chainY, chainZ, chainGap;
     private float streak;
     /** Шаблон хвоста искры: общий у всех искр залпа, после пуска не меняется. */
     private Fx.Spec trail;
@@ -86,6 +88,10 @@ public final class FxParticle {
         wind = s.wind;
         collide = s.collide;
         smooth = s.smooth;
+        chainX = s.chainX;
+        chainY = s.chainY;
+        chainZ = s.chainZ;
+        chainGap = s.chainGap;
         streak = s.streak;
         trail = s.trail;
         trailStep = s.trailStep;
@@ -215,6 +221,22 @@ public final class FxParticle {
         return Math.max(size0, size1) + v * (1 + streak);
     }
 
+    /** Плотная часть клуба — около 0,7 его квадрата (мягкая текстура дыма). */
+    static final float DENSE = 0.7f;
+
+    /**
+     * Доля непрозрачности клуба из цепочки ({@link Fx.Spec#chain}). На экране соседние клубы — через {@code gap · sin θ}
+     * (θ — угол между путём и лучом зрения; расстояние до глаза сокращается), плотная часть клуба — {@code width}.
+     * Между клубами просвет (ширина не больше шага) — клуба нет: цепочка точек; к ширине в два шага, где каждое место
+     * накрыто двумя клубами, — виден целиком.
+     */
+    static float chainShare(float width, float gap, float sin) {
+        float step = gap * sin;
+        if (step <= 1e-6f) return 1;
+        float t = Mth.clamp(width / step - 1, 0, 1);
+        return t * t * (3 - 2 * t);
+    }
+
     /** Свой квадрат в кадр (координаты — от камеры); прозрачный — не пишется. */
     void emit(FxFrame frame, FxQuads out, float partial) {
         update(partial);
@@ -223,6 +245,11 @@ public final class FxParticle {
         double d = Math.sqrt(px * px + py * py + pz * pz);
         // дымка воздуха — та же, что у дальней картинки; к краю прорисовки частицу гасит туман Minecraft
         float a = aCol * frame.haze(d);
+        if (chainGap > 0) {
+            double cos = d < 1e-6 ? 1 : (px * chainX + py * chainY + pz * chainZ) / d;
+            a *= chainShare(2 * DENSE * quadSize, chainGap, (float) Math.sqrt(Math.max(0, 1 - cos * cos)));
+            if (a <= 0.004f) return;
+        }
         int light = lightColor(partial);
         float fog = frame.fog(px, py, pz);
         // свет — уже умноженный на непрозрачность; искры и вспышки только светят (свет складывается)
