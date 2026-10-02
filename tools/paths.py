@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOD = os.path.join(ROOT, "mod")
 DIST = os.path.join(ROOT, "dist")
 
-INSTANCE = "All of Create Aeronautics"
+INSTANCE = "Airstrike Pack"
 PRISM = os.path.expanduser(os.environ.get("PRISM_DIR", "~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher"))
 MC = os.environ.get("MC_DIR", os.path.join(PRISM, "instances", INSTANCE, "minecraft"))
 MODS = os.path.join(MC, "mods")

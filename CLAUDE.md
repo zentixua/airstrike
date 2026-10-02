@@ -85,7 +85,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
-  instances/All of Create Aeronautics/minecraft/                  ← .minecraft инстанса (MC)
+  instances/Airstrike Pack/minecraft/                             ← .minecraft инстанса (MC): сборка pack/, в ней играет Артём
     mods/                              ← моды; отсюда же build.gradle берёт Create/Sable/Aeronautics для запусков
     logs/latest.log                    ← лог клиента и встроенного сервера
     airstrike-backup/                  ← что deploy.sh убрал в сторону (старые jar, датапак, пакет звуков)
@@ -872,10 +872,12 @@ GameTest идёт частями на шести машинах (`-PgametestShar
   `SCENARIO replay seek`), модель сервера повтора — `ReplayTest`.
 
 ## Окружение
-- NeoForge 21.1.250, Minecraft 1.21.1, ~217 модов. Мультиплеер: хост открывает мир через e4mc/Essential;
+- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 50 модов), прежний
+  инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям;
   jar мода нужен всем (сервер и клиенты).
 - Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.5** (аппараты — «sub-levels», блоки живут
-  в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Essential, e4mc.
+  в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Distant Horizons,
+  Flashback, Essential.
 
 ## Не сделано / идеи
 - Барражирующий сам ищет цель на круге (сейчас её выбирает оператор из камеры).
