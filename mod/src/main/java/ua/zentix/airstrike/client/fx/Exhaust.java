@@ -346,7 +346,8 @@ public final class Exhaust {
     /**
      * Клубы объёма поверх ленты шлейфа: {@link #VOLUME_PUFFS_PER_TICK} за тик в случайных местах пути сопла за тик,
      * в группе шлейфов (полная группа клубов не примет, а лента останется). Лента сплошная, но лицом к камере и
-     * гладкая: клубы дают ей неровный край и плотность, когда смотришь вдоль следа. С борта камера стоит между прошлым
+     * гладкая: клубы дают ей неровный край и плотность, когда смотришь вдоль следа; сами они тоже гладкие и без среза
+     * бледного края ({@link Fx.Spec#smooth}), иначе ложатся на ленту белыми хлопьями. С борта камера стоит между прошлым
      * и нынешним положением снаряда, и клуб последнего отрезка (на быстром снаряде — десяток блоков и больше)
      * оказывался вплотную перед объективом (размытое пятно на весь кадр). Поэтому, пока камера на снаряде, отрезок
      * берётся тиком позже — уже за камерой.
@@ -358,7 +359,7 @@ public final class Exhaust {
         if (to == null) return;
         Vec3 from = s.lastNozzle == null || s.lastNozzle.distanceToSqr(to) > 80 * 80 ? to : s.lastNozzle;
         s.lastNozzle = to;
-        puff.budget(FxBudget.TRAIL);
+        puff.budget(FxBudget.TRAIL).smooth();
         for (int i = 0; i < VOLUME_PUFFS_PER_TICK; i++) {
             double k = (i + r.nextDouble()) / VOLUME_PUFFS_PER_TICK;
             puff.spawn(level, Mth.lerp(k, from.x, to.x), Mth.lerp(k, from.y, to.y), Mth.lerp(k, from.z, to.z));

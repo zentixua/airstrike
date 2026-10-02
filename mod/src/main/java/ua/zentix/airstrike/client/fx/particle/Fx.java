@@ -119,7 +119,7 @@ public final class Fx {
         float glow, glowTicks = 10;
         float drag = 0.96f;
         float rise, gravity, wind = 1, spin = 0.03f;
-        boolean collide;
+        boolean collide, smooth;
         float streak;
         Spec trail;
         float trailStep = 0.8f, trailUntil = 0.7f;
@@ -243,6 +243,15 @@ public final class Fx {
         /** Сталкивается с блоками (стелется по земле, не проходит сквозь стены). */
         public Spec collide() {
             collide = true;
+            return this;
+        }
+
+        /**
+         * Вблизи тоже гладко и без бледного края: клуб — часть гладкой ленты шлейфа, а не отдельное облако. Ближайшим
+         * пикселем со срезом бледнее 0,1 от бледного клуба оставалась яркая середина с жёстким краем — белые хлопья на ленте.
+         */
+        public Spec smooth() {
+            smooth = true;
             return this;
         }
 

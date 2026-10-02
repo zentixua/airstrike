@@ -40,7 +40,7 @@ public final class FxParticle {
     private float r0, g0, b0, r1, g1, b1, colorCurve, alpha;
     private int fadeIn;
     private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind;
-    private boolean collide;
+    private boolean collide, smooth;
     private float streak;
     /** Шаблон хвоста искры: общий у всех искр залпа, после пуска не меняется. */
     private Fx.Spec trail;
@@ -85,6 +85,7 @@ public final class FxParticle {
         gravity = s.gravity;
         wind = s.wind;
         collide = s.collide;
+        smooth = s.smooth;
         streak = s.streak;
         trail = s.trail;
         trailStep = s.trailStep;
@@ -227,6 +228,7 @@ public final class FxParticle {
         // свет — уже умноженный на непрозрачность; искры и вспышки только светят (свет складывается)
         float r = rCol * a, g = gCol * a, b = bCol * a, cover = kind.additive ? 0 : a;
         FxAtlas.Sprite sprite = sprite();
+        out.nearestTexels(!smooth);
         out.opacity(a);
         switch (kind) {
             case SPARK -> streak(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, light, fog);
