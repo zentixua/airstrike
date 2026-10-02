@@ -36,9 +36,11 @@ import java.util.stream.Stream;
  * {@code recordingControls.quicksave} в настройках Flashback): клиент выходит из мира, как кнопка «Сохранить и выйти»,
  * Flashback на выходе дописывает запись в zip в своей папке повторов; сценарий открывает этот повтор, переходит
  * к моменту до первого пуска и проигрывает запись до конца. Камера (свой игрок повтора — зритель) идёт сбоку от снаряда;
- * кадры {@code replay_<имя>.png}: снаряд в полёте (через {@link #FLIGHT} тиков после появления) и взрыв (через
- * {@link #BLAST} тиков после пропажи). Flashback — мод Fabric (через Sinytra Connector), в сборке мода его нет: его
- * методы — отражением. Строки лога: {@code SCENARIO replay saved|opened|play|frame|failed}, в конце {@code SCENARIO done}.
+ * кадры {@code replay_<имя>.png}: снаряд в полёте (через {@link #FLIGHT} тиков после появления) и место, где он пропал
+ * (через {@link #GONE} тиков): взрыв или уход из того, что видел записывавший игрок. Flashback — мод Fabric (через
+ * Sinytra Connector), в сборке мода его нет: его методы — отражением. Строки лога: {@code SCENARIO replay
+ * saved|opened|play|frame|failed}, в конце {@code SCENARIO done}; в строках play и frame — блок пола площадки сценария
+ * {@code launch} ({@link #FLOOR}, гладкий камень): повтор показывает те же блоки, что были в игре.
  */
 final class ReplayCheck {
     /** Столько тиков ждать файла повтора после выхода и мира повтора после открытия. */
@@ -48,9 +50,11 @@ final class ReplayCheck {
      * {@code launch}, первый пуск — на тике 230. Тиков после открытия до перехода и после перехода до пуска проигрывания.
      */
     private static final int PLAY_BACK = 1320, SEEK_AT = 20, PLAY_AT = 60;
-    /** Кадры: снаряд в полёте — через столько тиков после его появления, взрыв — после его пропажи. */
-    private static final int[] FLIGHT = {60, 160}, BLAST = {4, 30};
-    private static final int MAX_FRAMES = 10;
+    /** Кадры: снаряд в полёте — через столько тиков после его появления, место пропажи — после неё. */
+    private static final int[] FLIGHT = {60, 160}, GONE = {4, 30};
+    private static final int MAX_FRAMES = 14;
+    /** Пол площадки сценария {@code launch} (fill … smooth_stone на y 199) под серединой пути к цели. */
+    private static final BlockPos FLOOR = new BlockPos(0, 199, 60);
 
     private Class<?> flashback;
     private Object server;
@@ -174,29 +178,32 @@ final class ReplayCheck {
         }
         for (UUID id : live) {
             if (!now.containsKey(id)) {
-                for (int d : BLAST) shots.add(new Shot(playTicks + d, "blast" + number.get(id) + "_" + d, id, false));
+                for (int d : GONE) shots.add(new Shot(playTicks + d, "gone" + number.get(id) + "_" + d, id, false));
             }
         }
         live.clear();
         live.addAll(now.keySet());
         int fx = 0;
         for (FxBudget b : FxBudget.values()) fx += FxPool.INSTANCE.live(b);
+        String floor = BuiltInRegistries.BLOCK.getKey(mc.level.getBlockState(FLOOR).getBlock()).toString();
         if (playTicks % 20 == 0) {
-            Airstrike.LOG.info("SCENARIO replay play tick={} airstrike={} fx={}", tick, ours, fx);
+            Airstrike.LOG.info("SCENARIO replay play tick={} airstrike={} fx={} floor={}", tick, ours, fx, floor);
         }
         shots.sort(Comparator.comparingInt(Shot::due));
         if (!shots.isEmpty()) {
             Shot next = shots.get(0);
             Vec3 at = last.get(next.of);
-            // снаряд — в 16 блоках сбоку и чуть сзади, взрыв — в 40: виден огненный шар и дым
+            // снаряд — в 16 блоках сбоку и чуть сзади, место пропажи — в 40: виден огненный шар и дым, если это взрыв
             look(mc, at, next.flight && now.containsKey(next.of) ? new Vec3(14, 4, -8) : new Vec3(32, 14, -22));
             if (playTicks >= next.due) {
                 shots.remove(0);
                 Screenshot.grab(mc.gameDirectory, "replay_" + next.name + ".png", mc.getMainRenderTarget(), c -> {});
                 var cam = mc.getCameraEntity();
-                Airstrike.LOG.info("SCENARIO replay frame {} tick={} at {} camera {} {} airstrike={} fx={} fps={}", next.name, tick,
+                BlockPos under = BlockPos.containing(at.x, FLOOR.getY(), at.z);
+                Airstrike.LOG.info("SCENARIO replay frame {} tick={} at {} camera {} {} airstrike={} fx={} fps={} floor={} under={}", next.name, tick,
                         BlockPos.containing(at).toShortString(), cam == null ? "-" : cam.getClass().getSimpleName(),
-                        cam == null ? "-" : cam.blockPosition().toShortString(), ours, fx, mc.getFps());
+                        cam == null ? "-" : cam.blockPosition().toShortString(), ours, fx, mc.getFps(), floor,
+                        BuiltInRegistries.BLOCK.getKey(mc.level.getBlockState(under).getBlock()));
                 if (++frames == MAX_FRAMES) {
                     finish();
                     return;

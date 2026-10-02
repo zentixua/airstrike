@@ -54,7 +54,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
                                            ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва;
                                            strike-profile — тики сервера вокруг ударов и телепортов (--prop airstrike.profile.steps=…);
-                                           replay — повтор Flashback в каталоге pack_dir.py с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и взрыва
+                                           replay — повтор Flashback в каталоге pack_dir.py с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал
     x11_record.py                        ← окно клиента во вложенном KWin — в видео в реальном времени (ffmpeg x11grab) с отметками
                                            времени для звука audio.wav (prod_client.py --video, --size)
     stress.sh                            ← стенд нагрузки (облако, xvfb): выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока

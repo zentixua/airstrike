@@ -14,9 +14,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Поток сервера в записях JFR двух запусков salvo-bench: на что уходит тик — по частям тика ванили, по владельцам кода
+ * Поток сервера в записях JFR запусков salvo-bench: на что уходит тик — по частям тика ванили, по владельцам кода
  * (пакет или мод миксина) и по горячим методам; мс на тик = доля образцов в тике × средний тик из строк лога.
- * Задание pack-d (удаляется вместе с ним). Запуск: java pack-d-jfr.java ИМЯ ЛОГ JFR [ИМЯ ЛОГ JFR …]
+ * Задание pack-e (удаляется вместе с ним). Запуск: java pack-e-jfr.java ИМЯ ЛОГ JFR [ИМЯ ЛОГ JFR …]; разница —
+ * каждого следующего запуска с предыдущим, порядок строк — по первой разнице.
  */
 public class JfrServer {
     static final Pattern MSPT = Pattern.compile("^\\[(\\d{2}\\w{3}\\d{4} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\].*salvo-bench mspt=([\\d.]+)");
@@ -30,7 +31,9 @@ public class JfrServer {
             {"сущности", "net.minecraft.server.level.ServerLevel.tickNonPassenger", "net.minecraft.server.level.ServerLevel.tickPassenger"},
             {"блок-сущности", "net.minecraft.world.level.Level.tickBlockEntities"},
             {"тики блоков и жидкостей", "net.minecraft.world.ticks.LevelTicks.tick"},
-            {"тик чанков (случайные тики, спавн)", "net.minecraft.server.level.ServerChunkCache.tickChunks"},
+            {"спавн мобов", "net.minecraft.world.level.NaturalSpawner.spawnForChunk", "net.minecraft.world.level.NaturalSpawner.createState"},
+            {"случайные тики и погода", "net.minecraft.server.level.ServerLevel.tickChunk"},
+            {"тик чанков: остальное (обход)", "net.minecraft.server.level.ServerChunkCache.tickChunks"},
             {"события блоков", "net.minecraft.server.level.ServerLevel.runBlockEvents"},
             {"отправка сущностей игрокам", "net.minecraft.server.level.ChunkMap.tick()V"},
             {"выгрузка и сохранение чанков", "net.minecraft.server.level.ChunkMap.tick(Ljava/util/function/BooleanSupplier;)V"},
@@ -71,11 +74,14 @@ public class JfrServer {
     interface Pick { Map<String, Integer> get(Run r); }
 
     static void table(String title, List<Run> runs, Pick pick, int top, boolean byDiff) {
-        System.out.println("-- " + title + (runs.size() == 2 ? " (" + runs.get(0).name + " | " + runs.get(1).name + " | разница)" : ""));
+        StringBuilder head = new StringBuilder();
+        for (Run r : runs) head.append(head.length() == 0 ? "" : " | ").append(r.name);
+        for (int i = 1; i < runs.size(); i++) head.append(" | ").append(runs.get(i).name).append("−").append(runs.get(i - 1).name);
+        System.out.println("-- " + title + " (" + head + ")");
         Set<String> keys = new LinkedHashSet<>();
         for (Run r : runs) keys.addAll(pick.get(r).keySet());
         List<String> order = new ArrayList<>(keys);
-        Comparator<String> cmp = runs.size() == 2
+        Comparator<String> cmp = runs.size() >= 2
                 ? Comparator.comparingDouble(k -> -Math.abs(ms(runs.get(1), pick, k) - ms(runs.get(0), pick, k)))
                 : Comparator.comparingDouble(k -> -runs.stream().mapToDouble(r -> ms(r, pick, k)).max().orElse(0));
         order.sort(byDiff ? cmp : Comparator.comparingInt(JfrServer::partIndex));
@@ -84,7 +90,7 @@ public class JfrServer {
             if (n++ >= top) break;
             StringBuilder sb = new StringBuilder("   ");
             for (Run r : runs) sb.append(String.format(Locale.ROOT, "%6.2f | ", ms(r, pick, k)));
-            if (runs.size() == 2) sb.append(String.format(Locale.ROOT, "%+6.2f  ", ms(runs.get(1), pick, k) - ms(runs.get(0), pick, k)));
+            for (int i = 1; i < runs.size(); i++) sb.append(String.format(Locale.ROOT, "%+6.2f | ", ms(runs.get(i), pick, k) - ms(runs.get(i - 1), pick, k)));
             sb.append(k.length() > 150 ? k.substring(0, 150) : k);
             System.out.println(sb);
         }
