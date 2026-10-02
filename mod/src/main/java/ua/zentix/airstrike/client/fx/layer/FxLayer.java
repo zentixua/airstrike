@@ -37,10 +37,12 @@ import java.util.Locale;
  * Глубина: аппаратная проверка (рельеф ближе закрывает, запись выключена — прозрачное), и ещё расстояние до мира за
  * пикселем ({@link SceneDepth}, с глубиной Distant Horizons): клуб мягко тает, входя в землю, и пропадает за LOD DH.
  * Смешивание одно — с умноженной альфой ({@code ONE, ONE_MINUS_SRC_ALPHA}): дым закрывает и светит, искры и ореолы
- * только светят. Свет мира — картой освещения, туман Minecraft — снятый до конца кадра (к нему ваниль туман гасит).
+ * только светят. Свет мира — картой освещения и светом огненных шаров ({@link FxLights}), туман Minecraft — снятый
+ * до конца кадра (к нему ваниль туман гасит).
  */
 public final class FxLayer {
     private static final FxQuads QUADS = new FxQuads();
+    private static final FxLights LIGHTS = new FxLights();
     private static final FxFrame.Fog FOG = new FxFrame.Fog();
     private static final Matrix4f VIEW_PROJECTION = new Matrix4f();
     private static final FrustumIntersection FRUSTUM = new FrustumIntersection();
@@ -134,10 +136,11 @@ public final class FxLayer {
         if (warmup) FarRenderer.warmup();
         FRUSTUM.set(VIEW_PROJECTION.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()));
         QUADS.begin(view.left(), view.up());
+        LIGHTS.begin();
         QUADS.nearestTexels(true);
         FxPool.INSTANCE.collect(new FxFrame(view, FRUSTUM, FOG), QUADS, view.partial());
         QUADS.nearestTexels(false);
-        FarRenderer.collect(view, QUADS);
+        FarRenderer.collect(view, QUADS, LIGHTS);
         if (warmup) {
             // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего
             QUADS.quad(16);
@@ -157,6 +160,8 @@ public final class FxLayer {
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
+            s.safeGetUniform("FxBalls").set(LIGHTS.balls);
+            s.safeGetUniform("FxBallLight").set(LIGHTS.light);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);

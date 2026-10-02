@@ -12,8 +12,15 @@
 
   smoke_00…15 — 4 клуба дыма × 4 стадии рассеивания (клуб «тает» по краям), почти белые: цвет даёт частица;
   fire_00…07  — клубы пламени: белое ядро, жёлтое и оранжевое тело, тёмно-красные языки по краю;
-  spark       — точка света 16×16 (искра, тянется вдоль скорости), flash — вспышка с лучами 64×64,
-  ring        — кольцо ударной волны 128×128 (пыльная полоса, края рваные);
+  spark       — точка света 16×16 (искра, тянется вдоль скорости), flash — мягкая вспышка 64×64 (ядро и ореол, без лучей:
+                лучи — изъян объектива, глаз их не видит), ring — кольцо ударной волны 128×128 (пыльная полоса, края рваные);
+  fireball_00…15 — огненный шар 128×128 по кадрам жизни: от вспышки (маленький белый шар) через оранжевый с сажей
+                до чёрного дыма с углями. Объёмный рендер: шар с буграми из периодического шума, яркость ядра — как
+                у дальней картинки (вспышка, затем остывание (1 − u)³), цвет — по температуре чёрного тела (Планк × CIE 1931,
+                в линейном sRGB), где остыло ниже ~1450 K и у края — сажа; тон — по каналам 1 − e⁻ˣ, ярче белого —
+                с примесью белого (CROSS: глаз насыщается по всем каналам, вспышка белёсая, а не лимонная), гамма sRGB. Радиус шара — 0,7 полуразмера кадра (client/far/FarSprites.FIREBALL); свой сид.
+  fireball.json — огонь каждого кадра на экране (среднее по кругу шара, без сажи): свет шара вокруг не ярче него
+                (client/fx/layer/FxAtlas.fireLight).
   ../plume, ../plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
   скачков уплотнения, как у МБР и стартового ускорителя), ../halo — ореол у сопла 64×64; у этих трёх цвет
   домножен на прозрачность — они рисуются сложением.
@@ -24,6 +31,7 @@
 (client/fx/layer/FxAtlas).
 Нужны Pillow и numpy.
 """
+import json
 import os
 
 import numpy as np
@@ -127,13 +135,10 @@ def spark(n=16):
 
 
 def flash(n=64):
-    """Вспышка: слепящее ядро, ореол и шесть тонких лучей."""
+    """Вспышка: слепящее ядро и ореол, к краю — ноль без ступеньки."""
     v, u = np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n), indexing="ij")
     r = np.hypot(u, v)
-    ang = np.arctan2(v, u)
-    rays = np.abs(np.cos(3 * ang)) ** 40 * np.exp(-(r / 0.8) ** 2) * 0.5
-    a = 0.75 * np.exp(-(r / 0.12) ** 2) + 0.45 * np.exp(-(r / 0.45) ** 2) + rays
-    a *= smooth(0, 0.2, 1 - r)
+    a = (0.75 * np.exp(-(r / 0.12) ** 2) + 0.45 * np.exp(-(r / 0.45) ** 2)) * smooth(0, 0.2, 1 - r)
     return np.ones((n, n, 3)), np.clip(a / a.max(), 0, 1)
 
 
@@ -188,6 +193,130 @@ def far_glow(n=64):
     return np.ones((n, n, 3)), a / a.max()
 
 
+# ---------------------------------------------------------------- огненный шар
+
+def _cmf(x, mu, s1, s2):
+    s = np.where(x < mu, s1, s2)
+    return np.exp(-0.5 * ((x - mu) / s) ** 2)
+
+
+def blackbody():
+    """Чёрное тело 700–4000 K: температуры, ln яркости против 2000 K, цвет в линейном sRGB на единицу яркости.
+    Функции сложения цветов CIE 1931 — многолепестковое приближение Wyman, Sloan, Shirley (2013)."""
+    lam = np.arange(380, 781, 2.0)
+    xb = 1.056 * _cmf(lam, 599.8, 37.9, 31.0) + 0.362 * _cmf(lam, 442.0, 16.0, 26.7) - 0.065 * _cmf(lam, 501.1, 20.4, 26.2)
+    yb = 0.821 * _cmf(lam, 568.8, 46.9, 40.5) + 0.286 * _cmf(lam, 530.9, 16.3, 31.1)
+    zb = 1.217 * _cmf(lam, 437.0, 11.8, 36.0) + 0.681 * _cmf(lam, 459.0, 26.0, 13.8)
+    to_rgb = np.array([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]])
+    temps = np.linspace(700, 4000, 331)
+    lum, rgb = [], []
+    for t in temps:
+        b = 1 / ((lam * 1e-9) ** 5 * np.expm1(1.4388e-2 / (lam * 1e-9 * t)))
+        xyz = np.array([(b * xb).sum(), (b * yb).sum(), (b * zb).sum()])
+        lum.append(xyz[1])
+        rgb.append(np.clip(to_rgb @ xyz, 0, None) / xyz[1])
+    lum = np.array(lum)
+    return temps, np.log(lum / np.interp(2000, temps, lum)), np.array(rgb)
+
+
+BB_T, BB_LOG, BB_RGB = blackbody()
+# яркость шара в 2000 K против белого экрана днём (как у дальней картинки: в десятки раз ярче неба)
+BB_DAY = 30.0
+# яркость линейного sRGB (Rec. 709); примесь белого на единицу яркости сверх белой — к белому ярче белого (fireball)
+LUMA = np.array([0.2126, 0.7152, 0.0722])
+CROSS = 0.15
+
+
+def glow_rgb(e):
+    """Линейный цвет раскалённого газа яркости e (против белого экрана): температура по яркости, цвет — чёрного тела."""
+    t = np.interp(np.log(np.maximum(e, 1e-9) / BB_DAY), BB_LOG, BB_T)
+    c = np.stack([np.interp(t, BB_T, BB_RGB[:, i]) for i in range(3)], -1)
+    y = c @ LUMA
+    return c * (e / np.maximum(y, 1e-12))[..., None]
+
+
+def noise_volume(n, seed, beta=3.6):
+    """Периодический шум n³ спектром k^(−β/2), без самых мелких волн: клубы без швов при сдвиге."""
+    w = np.random.default_rng(seed).standard_normal((n, n, n))
+    f = np.fft.fftfreq(n)
+    kx, ky, kz = np.meshgrid(f, f, f, indexing="ij")
+    k = np.sqrt(kx ** 2 + ky ** 2 + kz ** 2)
+    k[0, 0, 0] = 1
+    amp = k ** (-beta / 2) * (k < 0.45)
+    amp[0, 0, 0] = 0
+    v = np.real(np.fft.ifftn(np.fft.fftn(w) * amp))
+    return (v - v.mean()) / v.std()
+
+
+def trilinear(vol, x, y, z):
+    """Шум в точках (доли периода), трилинейно, с повтором."""
+    n = vol.shape[0]
+    x, y, z = x * n, y * n, z * n
+    x0, y0, z0 = np.floor(x).astype(int), np.floor(y).astype(int), np.floor(z).astype(int)
+    fx, fy, fz = x - x0, y - y0, z - z0
+    out = 0
+    for xi, wx in ((x0, 1 - fx), (x0 + 1, fx)):
+        for yi, wy in ((y0, 1 - fy), (y0 + 1, fy)):
+            for zi, wz in ((z0, 1 - fz), (z0 + 1, fz)):
+                out = out + vol[xi % n, yi % n, zi % n] * wx * wy * wz
+    return out
+
+
+def fireball(u, vol, n=128, steps=96, cross=CROSS):
+    """Кадр шара на доле жизни u: луч вдоль взгляда через объём, излучение и поглощение (газ и сажа)."""
+    # радиус в долях полуразмера кадра: за первые проценты жизни — почти весь, потом медленно растёт
+    radius = 0.70 * (0.30 + 0.70 * (1 - np.exp(-u / 0.05))) * (1 + 0.06 * u)
+    # яркость ядра против белого экрана: вспышка, потом остывание
+    core = 60 * max(0.0, 1 - (u / 0.14) ** 2) + 16 * (1 - u) ** 3 + 0.02
+    lin = np.linspace(-1 + 1 / n, 1 - 1 / n, n)
+    zs = np.linspace(-1, 1, steps)
+    dz = zs[1] - zs[0]
+    yy, xx = np.meshgrid(-lin, lin, indexing="ij")
+    light = np.zeros((n, n, 3))
+    fire = np.zeros((n, n, 3))
+    clear = np.ones((n, n))
+    q = 1 / radius
+    for z in zs:
+        r = np.sqrt(xx ** 2 + yy ** 2 + z ** 2)
+        # бугры растут вместе с шаром (шум по точке, нормированной на радиус) и кипят со временем
+        big = trilinear(vol, xx * q * 0.17, yy * q * 0.17, z * q * 0.17 + 0.3 * u)
+        fine = trilinear(vol, xx * q * 0.55 + 0.5, yy * q * 0.55 + 0.3, z * q * 0.55 + 0.9 * u)
+        edge = radius * (1 + (0.16 + 0.14 * u) * np.tanh(0.6 * big + 0.3 * fine))
+        soft = 0.03 + 0.09 * u * u
+        dens = smooth(-soft, soft, edge - r) * (1 - 0.45 * u * u * smooth(0.6, 1.0, r / edge))
+        if not dens.any():
+            continue
+        x = np.clip(r / edge, 0, 1)
+        heat = core * (1 - 0.9 * x ** 2) * np.exp(0.7 * np.clip(fine, -2, 2) - 0.25 * big) * (1 - 0.35 * u * x)
+        # сажа: где остыло (яркость < ~0,5 — ниже ~1450 K) и у края, раньше всего остывающего
+        soot = np.maximum(smooth(0.5, 0.05, heat), 0.8 * smooth(0.82, 1.0, x) * smooth(0.08, 0.35, u)) * (0.3 + 0.7 * smooth(0.1, 0.6, u))
+        gas, smoke = 22.0 * dens, 40.0 * dens * soot
+        total = gas + smoke
+        a = 1 - np.exp(-total * dz)
+        # дым светит только своим цветом (свет сверху, выпуклое светлее): шар рисуется без света мира
+        shade = np.clip(0.75 + 0.3 * np.clip(yy * q, -1, 1) + 0.35 * np.tanh(big - 0.6 * fine), 0.25, 1.4)
+        w = np.where(total > 0, gas / np.maximum(total, 1e-9), 0)[..., None]
+        glow = glow_rgb(heat * (1 - soot)) * w
+        src = glow + np.array([0.055, 0.05, 0.046]) * shade[..., None] * (1 - w)
+        light += (clear * a)[..., None] * src
+        fire += (clear * a)[..., None] * glow
+        clear *= 1 - a
+    alpha = 1 - clear
+    # цвет без непрозрачности — средний свет по лучу; тон по каналам 1 − e⁻ˣ, гамма sRGB. Ярче белого — с примесью
+    # белого (cross): глаз и плёнка насыщаются по всем каналам, и очень яркое любого цвета видно белым; без неё синий
+    # канал 2000 K (ноль) так и оставался нулём, и вспышка выходила чисто лимонной
+    lin = light / np.maximum(alpha[..., None], 1e-4)
+    lin = lin + cross * np.maximum(0, lin @ LUMA - 1)[..., None]
+    tone = 1 - np.exp(-lin)
+    srgb = np.where(tone <= 0.0031308, 12.92 * tone, 1.055 * np.power(tone, 1 / 2.4) - 0.055)
+    srgb = np.where(alpha[..., None] > 1e-4, srgb, 0)
+    # огонь шара на экране: доля огня в свете пикселя × пиксель (с непрозрачностью), среднее по кругу радиуса шара —
+    # сажа своим цветом только кажется (шар рисуется без света мира), она ничего не освещает
+    share = (fire @ LUMA) / np.maximum(light @ LUMA, 1e-9)
+    shown = float(((srgb @ LUMA) * alpha * share).sum() / (np.pi * (radius * n / 2) ** 2))
+    return srgb, alpha, shown
+
+
 if __name__ == "__main__":
     for i in range(4):
         for k, (rgb, a) in enumerate(smoke()):
@@ -202,4 +331,13 @@ if __name__ == "__main__":
     save(*halo(), "../halo")
     save(*far_disc(), "../../far/disc")
     save(*far_glow(), "../../far/glow")
+    volume = noise_volume(64, 1945)
+    shown = []
+    for i in range(16):
+        rgb, a, f = fireball((i + 0.5) / 16, volume)
+        save(rgb, a, f"fireball_{i:02d}")
+        shown.append(round(f, 4))
+    with open(os.path.join(OUT, "fireball.json"), "w", encoding="utf-8") as out:
+        json.dump({"fire": shown}, out)
+        out.write("\n")
     print("ok")

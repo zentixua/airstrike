@@ -76,6 +76,11 @@ public final class ClientScenario {
      */
     private final boolean approach = Boolean.getBoolean("airstrike.fx.approach");
     /**
+     * Где зритель эффектов от цели ({@code airstrike.fx.eye=вверх,назад}, блоки; без него — сбоку и чуть сверху): например,
+     * {@code 70,45} — сверху, как с дирижабля.
+     */
+    private static final double[] FX_EYE = fxEye(System.getProperty("airstrike.fx.eye"));
+    /**
      * Удар по заданной точке ({@link #fxTargets}): пуск от консоли встроенного сервера и взрыв своего снаряда. Снаряд у
      * клиента ищется по UUID и заново после ухода в полёт вне мира; следующая цель — только после взрыва (или срока).
      */
@@ -352,7 +357,7 @@ public final class ClientScenario {
         at(240, () -> {
             quickFlights();
             aimAhead(90);
-            eye = new Vec3(target.x + 0.5, target.y + 18, target.z - 50);
+            eye = new Vec3(target.x + 0.5, target.y + (FX_EYE == null ? 18 : FX_EYE[0]), target.z - (FX_EYE == null ? 50 : FX_EYE[1]));
             Minecraft.getInstance().player.getAbilities().flying = true;
             view();
         });
@@ -457,6 +462,12 @@ public final class ClientScenario {
         at(100, this::nextFx);
     }
 
+    private static double[] fxEye(String spec) {
+        if (spec == null || spec.isBlank()) return null;
+        String[] a = spec.split(",");
+        return new double[]{Double.parseDouble(a[0].strip()), Double.parseDouble(a[1].strip())};
+    }
+
     private void view() {
         cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", eye.x, eye.y, eye.z, target.x, target.y + 8, target.z));
     }
@@ -552,7 +563,7 @@ public final class ClientScenario {
             // курс захода: yaw 0 — на юг, снаряд приходит с севера
             command = "execute rotated 0 0 run " + command;
         } else {
-            eye = target.add(0, 25, -60);
+            eye = FX_EYE == null ? target.add(0, 25, -60) : target.add(0, FX_EYE[0], -FX_EYE[1]);
             view();
         }
         BlockPos eyeBlock = BlockPos.containing(eye);
