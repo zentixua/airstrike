@@ -8,19 +8,20 @@
 # ///
 """Текстуры частиц эффектов (дым, огонь, искры, вспышка, ударное кольцо), нарисованные кодом; сид фиксированный.
 
-  uv run tools/gen_particles.py   → mod/src/main/resources/assets/airstrike/textures/particle/…
+  uv run tools/gen_particles.py   → mod/src/main/resources/assets/airstrike/textures/fx/particle/…
 
   smoke_00…15 — 4 клуба дыма × 4 стадии рассеивания (клуб «тает» по краям), почти белые: цвет даёт частица;
   fire_00…07  — клубы пламени: белое ядро, жёлтое и оранжевое тело, тёмно-красные языки по краю;
   spark       — точка света 16×16 (искра, тянется вдоль скорости), flash — вспышка с лучами 64×64,
   ring        — кольцо ударной волны 128×128 (пыльная полоса, края рваные);
-  ../fx/plume, ../fx/plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
-  скачков уплотнения, как у МБР и стартового ускорителя), ../fx/halo — ореол у сопла 64×64; у этих трёх цвет
+  ../plume, ../plume_diamonds — факел двигателя 64×256 (сопло сверху, хвост внизу; второй — с «алмазами»
+  скачков уплотнения, как у МБР и стартового ускорителя), ../halo — ореол у сопла 64×64; у этих трёх цвет
   домножен на прозрачность — они рисуются сложением.
-  ../far/disc — круг с мягким краем 32×32 (корпус снаряда, огненный шар и вспышка вдали), ../far/glow — гауссов
+  ../../far/disc — круг с мягким краем 32×32 (корпус снаряда, огненный шар и вспышка вдали), ../../far/glow — гауссов
   ореол 64×64 (блик и вуаль вокруг вспышки и шара, зарево на облаках: широкий мягкий свет
-  без ядра; лентой шлейфа — средняя строка); белые, цвет и яркость даёт вершина; рядом .mcmeta со сглаживанием и без
-  повтора (пишутся руками, FarSpritesTest проверяет).
+  без ядра; лентой шлейфа — средняя строка); белые, цвет и яркость даёт вершина.
+Частицы, круг, ореол и клубы nuke/puffs слой эффектов кладёт на свой лист со сглаживанием и уменьшенными копиями
+(client/fx/layer/FxAtlas).
 Нужны Pillow и numpy.
 """
 import os
@@ -29,7 +30,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "textures", "particle")
+OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "textures", "fx", "particle")
 rng = np.random.default_rng(1945)
 
 
@@ -196,9 +197,9 @@ if __name__ == "__main__":
     save(*spark(), "spark")
     save(*flash(), "flash")
     save(*ring(), "ring")
-    save(*plume(), "../fx/plume")
-    save(*plume(diamonds=True), "../fx/plume_diamonds")
-    save(*halo(), "../fx/halo")
-    save(*far_disc(), "../far/disc")
-    save(*far_glow(), "../far/glow")
+    save(*plume(), "../plume")
+    save(*plume(diamonds=True), "../plume_diamonds")
+    save(*halo(), "../halo")
+    save(*far_disc(), "../../far/disc")
+    save(*far_glow(), "../../far/glow")
     print("ok")

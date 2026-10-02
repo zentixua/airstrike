@@ -186,7 +186,10 @@ public final class ClientScenario {
         if (fx != null) fxEvents();
         if (onboard != null) onboardEvents();
         // модели крупным планом: дым выхлопа и шлейфы закрыли бы их
-        if (models) mc.particleEngine.setLevel(mc.level);
+        if (models) {
+            mc.particleEngine.setLevel(mc.level);
+            ua.zentix.airstrike.client.fx.particle.FxPool.INSTANCE.clear();
+        }
         if (hover) p.getAbilities().flying = true;
         if (tick % soundEvery == 0) logSound();
         if (tick % 10 == 0 && (!ua.zentix.airstrike.client.hud.ClientFlights.all().isEmpty() || ua.zentix.airstrike.client.cam.ProjectileCamera.isActive())) logFlights();
@@ -1640,57 +1643,25 @@ public final class ClientScenario {
         }
     }
 
-    /** Частицы перед объективом: ближе 12 блоков и в конусе 40° вокруг взгляда — такие закрывают собой весь кадр. */
+    /** Частицы эффектов перед объективом: ближе 12 блоков и в конусе 40° вокруг взгляда — такие закрывают собой весь кадр. */
     private static int particlesAtLens(net.minecraft.client.Camera camera) {
-        try {
-            var f = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("particles");
-            f.setAccessible(true);
-            var map = (java.util.Map<?, ?>) f.get(Minecraft.getInstance().particleEngine);
-            var eye = camera.getPosition();
-            var look = new net.minecraft.world.phys.Vec3(camera.getLookVector());
-            int n = 0;
-            for (var q : map.values()) {
-                for (var o : (java.util.Collection<?>) q) {
-                    var d = ((net.minecraft.client.particle.Particle) o).getBoundingBox().getCenter().subtract(eye);
-                    double len = d.length();
-                    if (len < 12 && d.dot(look) > len * 0.766) n++;
-                }
-            }
-            return n;
-        } catch (ReflectiveOperationException e) {
-            return -1;
-        }
+        var eye = camera.getPosition();
+        var look = camera.getLookVector();
+        return ua.zentix.airstrike.client.fx.particle.FxPool.INSTANCE.near(eye.x, eye.y, eye.z, look.x(), look.y(), look.z(), 12, 0.766);
     }
 
     /**
-     * Частицы по слоям движка (очередь слоя — не больше 16384, лишние вытесняют самые старые) и по группам эффектов:
-     * {@code cloud=счётчик/живых} — расходятся, если кто-то убирает частицы мимо счётчика движка.
+     * Частицы: ванильные по слоям движка, частицы эффектов по группам пула — {@code cloud=живых/мест, отказано N}
+     * (сколько частиц группе не досталось места с запуска).
      */
     private static String particleLayers() {
-        try {
-            var f = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("particles");
-            f.setAccessible(true);
-            var map = (java.util.Map<?, ?>) f.get(Minecraft.getInstance().particleEngine);
-            StringBuilder sb = new StringBuilder();
-            map.forEach((type, q) -> sb.append(type).append('=').append(((java.util.Collection<?>) q).size()).append(' '));
-            // группы эффектов: счётчик движка (по нему предел и прореживание) и сколько частиц группы живёт на деле
-            var group = ua.zentix.airstrike.client.fx.particle.FxBudget.class.getDeclaredField("group");
-            group.setAccessible(true);
-            var tracked = net.minecraft.client.particle.ParticleEngine.class.getDeclaredField("trackedParticleCounts");
-            tracked.setAccessible(true);
-            var counts = (it.unimi.dsi.fastutil.objects.Object2IntMap<?>) tracked.get(Minecraft.getInstance().particleEngine);
-            java.util.Map<Object, Integer> live = new java.util.HashMap<>();
-            map.values().forEach(q -> ((java.util.Collection<?>) q).forEach(o -> ((net.minecraft.client.particle.Particle) o)
-                    .getParticleGroup().ifPresent(g -> live.merge(g, 1, Integer::sum))));
-            for (var b : ua.zentix.airstrike.client.fx.particle.FxBudget.values()) {
-                var g = ((java.util.Optional<?>) group.get(b)).orElseThrow();
-                sb.append(b.name().toLowerCase(java.util.Locale.ROOT)).append('=').append(counts.getInt(g)).append('/')
-                        .append(live.getOrDefault(g, 0)).append(' ');
-            }
-            return sb.toString();
-        } catch (ReflectiveOperationException e) {
-            return e.toString();
+        StringBuilder sb = new StringBuilder("ваниль ").append(Minecraft.getInstance().particleEngine.countParticles()).append(';');
+        var pool = ua.zentix.airstrike.client.fx.particle.FxPool.INSTANCE;
+        for (var b : ua.zentix.airstrike.client.fx.particle.FxBudget.values()) {
+            sb.append(' ').append(b.name().toLowerCase(java.util.Locale.ROOT)).append('=').append(pool.live(b)).append('/').append(b.limit())
+                    .append(", отказано ").append(pool.refused(b)).append(';');
         }
+        return sb.toString();
     }
 
     /** Пуск по точке на земле впереди и кадры каждые 10 тиков, пока летит и горит. */
