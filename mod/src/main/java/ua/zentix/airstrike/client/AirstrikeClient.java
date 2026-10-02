@@ -57,6 +57,7 @@ import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
 import ua.zentix.airstrike.client.render.StrikeProjectileRenderer;
 import ua.zentix.airstrike.client.render.WeaponModels;
+import ua.zentix.airstrike.client.replay.Replay;
 import ua.zentix.airstrike.client.screen.MapScreen;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.BlastSounds;
@@ -181,6 +182,7 @@ public final class AirstrikeClient {
         while (Keys.MAP.consumeClick()) mc.setScreen(new MapScreen(new RemoteScreen()));
         while (Keys.FIRE.consumeClick()) Designator.fire();
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
+        if (Replay.tick()) rewound();
         if (mc.isPaused()) return;
         Designator.tick();
         ClientFlights.tick();
@@ -198,6 +200,22 @@ public final class AirstrikeClient {
         Alerts.tick();
         NukeArming.tick();
         ClientNuclear.tick();
+    }
+
+    /**
+     * Повтор Flashback перемотан: взрывы, тряска, звуки и пути снарядов, которые шли до перемотки, — с другого места
+     * записи; ядерные подрывы остаются в своём возрасте ({@link ClientNuclear#rewound}).
+     */
+    private static void rewound() {
+        ClientSounds.reset();
+        FlightTracks.reset();
+        FarRenderer.reset();
+        FxPool.INSTANCE.clear();
+        Effects.clear();
+        CameraShake.reset();
+        Flash.reset();
+        Alerts.reset();
+        ClientNuclear.rewound();
     }
 
     /** Колесо мыши в бинокле — выбор оружия, а не слота хотбара. */
@@ -232,39 +250,46 @@ public final class AirstrikeClient {
         MapPlayers.reset();
         MapScreen.reset();
         TerrainTiles.reset();
+        Replay.reset();
     }
 
+    /**
+     * Пакеты сервера. Разовое событие (взрыв, тряска, сирена, звук) из перемотки повтора Flashback — прошлое, его нет
+     * ({@link Replay#live}); состояние (свои снаряды, ядерка, радиация) принимается всегда, пути дальних снарядов — только живые.
+     */
     private static final class Hooks implements ClientHooks {
         @Override
         public void blast(S2C.Blast p) {
+            if (!Replay.live()) return;
             p.projectile().ifPresent(FlightTracks::impact);
             BlastEffects.blast(p);
         }
 
         @Override
         public void bunkerImpact(S2C.BunkerImpact p) {
-            BlastEffects.bunkerImpact(p);
+            if (Replay.live()) BlastEffects.bunkerImpact(p);
         }
 
         @Override
         public void vent(S2C.Vent p) {
-            BlastEffects.vent(p);
+            if (Replay.live()) BlastEffects.vent(p);
         }
 
         @Override
         public void collapse(S2C.Collapse p) {
-            BlastEffects.collapse(p);
+            if (Replay.live()) BlastEffects.collapse(p);
         }
 
         @Override
         public void quake(S2C.Quake p) {
+            if (!Replay.live()) return;
             CameraShake.quake(p.ticks());
             if (p.rumble()) BlastSounds.quake();
         }
 
         @Override
         public void siren(S2C.Siren p) {
-            Alerts.siren(p);
+            if (Replay.live()) Alerts.siren(p);
         }
 
         @Override
@@ -274,7 +299,8 @@ public final class AirstrikeClient {
 
         @Override
         public void openRemote() {
-            Minecraft.getInstance().setScreen(new RemoteScreen());
+            // пульт открывал игрок записи, а не зритель повтора
+            if (!Replay.active()) Minecraft.getInstance().setScreen(new RemoteScreen());
         }
 
         @Override
@@ -295,12 +321,12 @@ public final class AirstrikeClient {
 
         @Override
         public void nukeWarning(S2C.NukeWarning p) {
-            ClientNuclear.warning(p);
+            ClientNuclear.warning(p, Replay.live());
         }
 
         @Override
         public void nukeDetonation(S2C.NukeDetonation p) {
-            ClientNuclear.detonation(p);
+            ClientNuclear.detonation(p, Replay.live());
         }
 
         @Override
@@ -320,7 +346,8 @@ public final class AirstrikeClient {
 
         @Override
         public void farFlights(S2C.FarFlights p) {
-            FlightTracks.received(p);
+            // пакеты перемотки пришли бы разом, точками пути одного тика
+            if (Replay.live()) FlightTracks.received(p);
         }
 
         @Override
@@ -330,12 +357,12 @@ public final class AirstrikeClient {
 
         @Override
         public void gridFailure(S2C.GridFailure p) {
-            GridEffects.failure(p);
+            if (Replay.live()) GridEffects.failure(p);
         }
 
         @Override
         public void gridDistrict(S2C.GridDistrict p) {
-            GridEffects.district(p);
+            if (Replay.live()) GridEffects.district(p);
         }
     }
 }

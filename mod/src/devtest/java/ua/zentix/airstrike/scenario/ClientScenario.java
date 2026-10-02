@@ -1091,6 +1091,8 @@ public final class ClientScenario {
             });
         }
         for (int t = 240; t <= 1000; t += 8) shot(t, "drone");
+        // повтор: ещё ядерный подрыв в записи (1 кт, за спиной в 700 блоках), его перемотку проверяет ReplayCheck
+        if (replay) at(1004, () -> cmd("airstrike nuke now at 500 100 -500 1 air"));
         at(1010, () -> {
             ua.zentix.airstrike.client.cam.ProjectileCamera.exit();
             cmd(String.format(java.util.Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", target.x, target.y, target.z));

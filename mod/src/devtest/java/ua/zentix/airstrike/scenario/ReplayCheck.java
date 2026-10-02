@@ -15,6 +15,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.fx.particle.FxBudget;
 import ua.zentix.airstrike.client.fx.particle.FxPool;
+import ua.zentix.airstrike.client.nuclear.ClientNuclear;
+import ua.zentix.airstrike.client.nuclear.NukeFlash;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 
 import java.io.IOException;
@@ -41,6 +43,13 @@ import java.util.stream.Stream;
  * Sinytra Connector), в сборке мода его нет: его методы — отражением. Строки лога: {@code SCENARIO replay
  * saved|opened|play|frame|failed}, в конце {@code SCENARIO done}; в строках play и frame — блок пола площадки сценария
  * {@code launch} ({@link #FLOOR}, гладкий камень): повтор показывает те же блоки, что были в игре.
+ * <p>
+ * Перемотка ({@link #seek}): в записи ещё ядерный подрыв (1 кт за спиной, {@code ClientScenario.planLaunch}). Сразу после
+ * открытия повтор перематывается вперёд за все удары, после проигрывания — назад к концу, к началу проигрывания и снова
+ * вперёд; на каждой — строка {@code SCENARIO replay seek}: ни частиц взрывов, ни вспышки, ни живого подрыва (Flashback
+ * отдаёт пакеты перемотки разом, Flashback NeoForge Fixed кладёт последние в снимок — это прошлое), подрыв до места —
+ * в своём возрасте по часам мира, после места — не виден. Во время проигрывания взрывы и подрыв — живые. Итог —
+ * {@code SCENARIO replay seeks ok|FAIL}.
  */
 final class ReplayCheck {
     /** Столько тиков ждать файла повтора после выхода и мира повтора после открытия. */
@@ -55,6 +64,12 @@ final class ReplayCheck {
     private static final int MAX_FRAMES = 14;
     /** Пол площадки сценария {@code launch} (fill … smooth_stone на y 199) под серединой пути к цели. */
     private static final BlockPos FLOOR = new BlockPos(0, 199, 60);
+    /**
+     * Перемотка «за все удары» — на столько тиков до конца записи; окно после перемотки до итога (тики клиента: пока
+     * сервер повтора перематывает, клиент не тикает); на сколько тиков возраст подрыва может разойтись с часами мира
+     * (часы клиента в повторе — по пакету времени раз в секунду, и окно).
+     */
+    private static final int END_BACK = 30, SEEK_WINDOW = 20, AGE_SLACK = 40;
 
     private Class<?> flashback;
     private Object server;
@@ -69,6 +84,21 @@ final class ReplayCheck {
     private final List<Shot> shots = new ArrayList<>();
 
     private record Shot(int due, String name, UUID of, boolean flight) {}
+
+    /** Перемотка под проверкой: куда, тик сценария, когда начата, должен ли быть подрыв ({@code null} — не известно), что дальше. */
+    private record Seek(String name, int to, int started, Boolean nuke, Step then) {}
+
+    private interface Step {
+        void run() throws ReflectiveOperationException;
+    }
+
+    private Seek seek;
+    /** Наибольшая белизна вспышки за окно перемотки. */
+    private float seekFlash;
+    /** Место записи, где подрыв появился на клиенте при проигрывании, и был ли он живым; частицы при проигрывании. */
+    private int nukeTick = -1, playFx, openNukes;
+    private boolean nukeLive;
+    private final List<String> seekFails = new ArrayList<>();
 
     ReplayCheck() {
         try {
@@ -132,7 +162,9 @@ final class ReplayCheck {
                 return;
             }
             int since = ticks - openedAt;
-            if (since == SEEK_AT) {
+            if (seek != null) {
+                watchSeek(mc);
+            } else if (since == SEEK_AT) {
                 server = flashback.getMethod("getReplayServer").invoke(null);
                 if (server == null) {
                     fail("нет сервера повтора (Flashback.getReplayServer)");
@@ -140,10 +172,14 @@ final class ReplayCheck {
                 }
                 total = (int) server.getClass().getMethod("getTotalReplayTicks").invoke(server);
                 playFrom = Math.max(0, total - PLAY_BACK);
-                server.getClass().getMethod("goToReplayTick", int.class).invoke(server, playFrom);
                 mc.options.hideGui = true;
-                Airstrike.LOG.info("SCENARIO replay play from {} of {} ticks", playFrom, total);
-            } else if (since == PLAY_AT) {
+                // первый взгляд: сразу за все удары — их пакеты приходят разом
+                seek("open", total - END_BACK, null, () -> {
+                    server.getClass().getMethod("goToReplayTick", int.class).invoke(server, playFrom);
+                    openedAt = ticks - SEEK_AT; // до пуска проигрывания — как без перемотки
+                    Airstrike.LOG.info("SCENARIO replay play from {} of {} ticks", playFrom, total);
+                });
+            } else if (since == PLAY_AT && playTicks < 0) {
                 server.getClass().getField("replayPaused").setBoolean(server, false);
                 playTicks = 0;
             } else if (playTicks >= 0) {
@@ -183,8 +219,13 @@ final class ReplayCheck {
         }
         live.clear();
         live.addAll(now.keySet());
-        int fx = 0;
-        for (FxBudget b : FxBudget.values()) fx += FxPool.INSTANCE.live(b);
+        int fx = fx();
+        playFx = Math.max(playFx, fx);
+        if (nukeTick < 0 && !ClientNuclear.detonations().isEmpty()) {
+            nukeTick = tick;
+            nukeLive = ClientNuclear.detonations().get(0).live;
+            Airstrike.LOG.info("SCENARIO replay nuke at {} live={}", tick, nukeLive);
+        }
         String floor = BuiltInRegistries.BLOCK.getKey(mc.level.getBlockState(FLOOR).getBlock()).toString();
         if (playTicks % 20 == 0) {
             Airstrike.LOG.info("SCENARIO replay play tick={} airstrike={} fx={} floor={}", tick, ours, fx, floor);
@@ -211,9 +252,72 @@ final class ReplayCheck {
             }
         }
         if (shots.isEmpty() && (tick >= total - 2 || playTicks > total - playFrom + 400)) {
-            Airstrike.LOG.info("SCENARIO replay played to tick {} of {}: projectiles {}, frames {}", tick, total, number.size(), frames);
-            finish();
+            Airstrike.LOG.info("SCENARIO replay played to tick {} of {}: projectiles {}, frames {}, fx up to {}", tick, total, number.size(), frames, playFx);
+            playTicks = -1;
+            int end = total - END_BACK;
+            boolean nukeBefore = nukeTick >= 0 && nukeTick <= end;
+            seek("back", end, nukeBefore, () -> seek("before", playFrom, nukeTick >= 0 ? false : null,
+                    () -> seek("forward", end, nukeBefore, this::seekVerdict)));
         }
+    }
+
+    private static int fx() {
+        int fx = 0;
+        for (FxBudget b : FxBudget.values()) fx += FxPool.INSTANCE.live(b);
+        return fx;
+    }
+
+    /** Перемотка на место {@code to} на паузе; итог — через {@link #SEEK_WINDOW} тиков ({@link #watchSeek}). */
+    private void seek(String name, int to, Boolean nuke, Step then) throws ReflectiveOperationException {
+        server.getClass().getField("replayPaused").setBoolean(server, true);
+        server.getClass().getMethod("goToReplayTick", int.class).invoke(server, to);
+        seek = new Seek(name, to, ticks, nuke, then);
+        seekFlash = 0;
+    }
+
+    /**
+     * Окно после перемотки: вспышка — наибольшая за окно, в конце — частицы (Flashback на паузе: живые частицы не
+     * тают и не рождаются), подрывы: живых нет, подрыв до места — в возрасте по часам мира, после места — не виден.
+     */
+    private void watchSeek(Minecraft mc) throws ReflectiveOperationException {
+        seekFlash = Math.max(seekFlash, NukeFlash.whiteness(0));
+        if (ticks - seek.started < SEEK_WINDOW) return;
+        int at = (int) server.getClass().getMethod("getReplayTick").invoke(server);
+        int fx = fx();
+        List<ClientNuclear.Active> nukes = ClientNuclear.detonations();
+        long live = nukes.stream().filter(a -> a.live).count();
+        long clock = mc.level.getGameTime();
+        StringBuilder ages = new StringBuilder();
+        boolean agesOk = true;
+        for (ClientNuclear.Active a : nukes) {
+            long expected = clock - a.d.gameTime();
+            agesOk &= Math.abs(a.ticks(0) - expected) <= AGE_SLACK;
+            ages.append(String.format(java.util.Locale.ROOT, " %.0f/%d", a.ticks(0), expected));
+        }
+        List<String> why = new ArrayList<>();
+        if (at != seek.to) why.add("место " + at);
+        if (fx > 0) why.add("частицы " + fx);
+        if (seekFlash > 0) why.add("вспышка");
+        if (live > 0) why.add("живых подрывов " + live);
+        if (!agesOk) why.add("возраст");
+        if (seek.nuke != null && seek.nuke != !nukes.isEmpty()) why.add(seek.nuke ? "нет подрыва" : "подрыв раньше времени");
+        if ("open".equals(seek.name)) openNukes = nukes.size();
+        Airstrike.LOG.info("SCENARIO replay seek {} to {}: at {} fx={} flash={} nukes={} live={} age/expected{} {}", seek.name, seek.to, at, fx,
+                String.format(java.util.Locale.ROOT, "%.2f", seekFlash), nukes.size(), live, ages, why.isEmpty() ? "ok" : "FAIL " + String.join(", ", why));
+        if (!why.isEmpty()) seekFails.add(seek.name + ": " + String.join(", ", why));
+        Step then = seek.then;
+        seek = null;
+        then.run();
+    }
+
+    /** Итог перемоток: и при проигрывании взрывы и подрыв были живыми (исправление не глушит живое). */
+    private void seekVerdict() {
+        if (playFx == 0) seekFails.add("при проигрывании нет частиц взрывов");
+        if (nukeTick < 0) seekFails.add("подрыва нет в записи");
+        else if (!nukeLive) seekFails.add("подрыв при проигрывании не живой");
+        else if (openNukes == 0) seekFails.add("open: подрыв не виден после перемотки за него");
+        Airstrike.LOG.info("SCENARIO replay seeks {}", seekFails.isEmpty() ? "ok" : "FAIL: " + String.join("; ", seekFails));
+        finish();
     }
 
     /** Зритель повтора — в {@code offset} от точки, лицом к ней. */
