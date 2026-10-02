@@ -99,6 +99,8 @@ public final class ClientScenario {
     private int lensMax;
     /** Сценарий моделей: частицы не нужны. */
     private boolean models;
+    /** Сценарий replay: пуск, как launch, потом проверка повтора Flashback ({@link ReplayCheck}). */
+    private boolean replay;
     /** Зритель висит в воздухе (far-models): после телепорта сервер присылает способности, и полёт сбрасывается. */
     private boolean hover;
     /** Раз в сколько тиков звук в лог. */
@@ -131,6 +133,10 @@ public final class ClientScenario {
         if ("nuke".equals(mode)) planNuke();
         else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
+        else if ("replay".equals(mode)) {
+            replay = true;
+            planLaunch();
+        }
         else if ("rocket".equals(mode)) planRocket();
         else if ("loiter".equals(mode)) planLoiter();
         else if ("models".equals(mode)) planModels();
@@ -415,8 +421,20 @@ public final class ClientScenario {
         for (int t = 20; t <= 6000; t += 20) {
             at(t, () -> {
                 var server = Minecraft.getInstance().getSingleplayerServer();
-                Airstrike.LOG.info("SCENARIO salvo-bench mspt={} fps={}", String.format(java.util.Locale.ROOT, "%.1f", server.getAverageTickTimeNanos() / 1e6),
-                        Minecraft.getInstance().getFps());
+                int fps = Minecraft.getInstance().getFps();
+                // сущности, предметы и чанки — в потоке сервера: чем занят его тик (залпы роняют блоки предметами)
+                server.execute(() -> {
+                    int entities = 0, items = 0, chunks = 0;
+                    for (var level : server.getAllLevels()) {
+                        chunks += level.getChunkSource().getLoadedChunksCount();
+                        for (var e : level.getAllEntities()) {
+                            entities++;
+                            if (e instanceof net.minecraft.world.entity.item.ItemEntity) items++;
+                        }
+                    }
+                    Airstrike.LOG.info("SCENARIO salvo-bench mspt={} fps={} entities={} items={} chunks={}",
+                            String.format(java.util.Locale.ROOT, "%.1f", server.getAverageTickTimeNanos() / 1e6), fps, entities, items, chunks);
+                });
             });
         }
         at(6000, () -> {
@@ -1081,6 +1099,10 @@ public final class ClientScenario {
         for (int t = 1020; t <= 1500; t += 6) shot(t, "missile");
         at(1510, ua.zentix.airstrike.client.cam.ProjectileCamera::exit);
         at(1520, () -> {
+            if (replay) {
+                new ReplayCheck(); // выход из мира, повтор Flashback сохраняется и открывается — дальше ReplayCheck
+                return;
+            }
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });

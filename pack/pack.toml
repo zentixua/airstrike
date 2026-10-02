@@ -1,0 +1,16 @@
+name = "Airstrike Pack"
+author = "zentixua"
+version = "0.1.0"
+pack-format = "packwiz:1.1.0"
+
+[index]
+file = "index.toml"
+hash-format = "sha256"
+hash = "55d7fd9452d2314f11d001c9daee940afcad1a5ebcca881d81aefdc35f9acd02"
+
+[versions]
+minecraft = "1.21.1"
+neoforge = "21.1.250"
+
+[options]
+acceptable-game-versions = ["1.21"]

@@ -34,6 +34,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   tools/
     paths.py                             ← все пути к игре (единственное место)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
+    pack_dir.py <каталог> [--optional]   ← каталог игры из pack/ (моды по хешам, config/) — для prod_client.py --no-copy
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|models|far-models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
@@ -52,7 +53,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
     prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
                                            ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва;
-                                           strike-profile — тики сервера вокруг ударов и телепортов (--prop airstrike.profile.steps=…)
+                                           strike-profile — тики сервера вокруг ударов и телепортов (--prop airstrike.profile.steps=…);
+                                           replay — повтор Flashback в каталоге pack_dir.py с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал
     x11_record.py                        ← окно клиента во вложенном KWin — в видео в реальном времени (ffmpeg x11grab) с отметками
                                            времени для звука audio.wav (prod_client.py --video, --size)
     stress.sh                            ← стенд нагрузки (облако, xvfb): выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока
@@ -73,8 +75,10 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
+  pack/                                  ← своя сборка «Airstrike Pack» (packwiz: pack.toml, mods/*.pw.toml, config/);
+                                           .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
+  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar и .mrpack в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
@@ -107,7 +111,8 @@ git commit
 CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
 не запускает — PR открывать сразу, черновиком); jar — артефакт `airstrike-jar`. Проверяется то, что изменилось
 (задача «Что изменилось»): правка только `tools/` (кроме `fetch_runtime_mods.py`, `paths.py`), `docs/`, `*.md` мод не
-собирает и GameTest не гоняет; `mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
+собирает и GameTest не гоняет; `pack/` — только задача «Сборка модов» (индекс packwiz свежий, `.mrpack` собирается);
+`mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
 GameTest идёт частями на шести машинах (`-PgametestShard=i/n`, `GameTestShards`: партия целиком в одной части, части
 равняются по `gametest-durations.json`; таблицу освежает `tools/gametest_durations.py` по логам частей, когда части
 заметно разошлись по времени). Слияние решает задача «Итог»: падает, если упала или отменена любая нужная проверка.
