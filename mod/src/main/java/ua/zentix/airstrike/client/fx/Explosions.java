@@ -14,8 +14,9 @@ import ua.zentix.airstrike.warhead.GroundMaterial;
  * Картинка обычного взрыва из частиц {@link Fx}, по кадрам как на съёмках: огненный шар — анимация от вспышки
  * до сажи размером и временем по заряду ({@link FarBlasts.Look}, как вдали), который «остывает» в чёрный клубящийся
  * дым и всплывает; раскалённые осколки с дымными хвостами; пыль цвета грунта, которую волна гонит по земле
- * (самой волны днём не видно — кольца нет); столб дыма, который тянет вверх и сносит ветром; догорание в воронке. Свет вспышки и шара (блик, вуаль,
- * зарево) рисует {@link FarBlasts} на любой дальности. Размер дыма задаёт {@code r} (блоки).
+ * (самой волны днём не видно — кольца нет); догорание в воронке. Свет вспышки и шара (блик, вуаль, зарево) и столб дыма,
+ * который тянет вверх и сносит ветром, рисует {@link FarBlasts} на любой дальности: столб стоит минуты, частицы — полминуты.
+ * Размер дыма задаёт {@code r} (блоки).
  */
 final class Explosions {
     private Explosions() {}
@@ -94,23 +95,15 @@ final class Explosions {
     }
 
     /**
-     * Столб: дым тянется за шаром вверх (ножка), в воронке догорает (группа клубов у земли), изредка стреляют угли. Клуб ножки — один за тик:
-     * он поднимается на 0,2–0,4 блока за тик и рождается шириной почти в полшара, так что ножка и без того сплошная
-     * и непрозрачная, а место в группе облаков нужно дыму всех взрывов залпа ({@code ExplosionsTest}).
+     * Догорание в воронке: языки пламени с дымком (группа клубов у земли), изредка стреляют угли. Столб дыма над ним —
+     * {@link FarBlasts}: ножка из частиц (клуб за тик, полминуты) вблизи была вторым, низким столбом, который у края
+     * прорисовки сменялся настоящим.
      *
-     * @param t    тик после взрыва (≥ 1)
-     * @param from с какого тика ножка видна ({@link FarBlasts#smokeFrom}): клубы, рождённые раньше, проступают тогда,
-     *             из тающего шара
+     * @param t         тик после взрыва (≥ 1)
+     * @param fireTicks сколько тиков горит
      */
-    static void column(ClientLevel level, Vec3 c, float r, int t, int from, int columnTicks, int fireTicks, RandomSource rnd) {
+    static void burn(ClientLevel level, Vec3 c, float r, int t, int fireTicks, RandomSource rnd) {
         float k = Fx.density(c);
-        if (t <= columnTicks) {
-            float f = (float) t / columnTicks;
-            Fx.smoke().vel(rnd.nextGaussian() * 0.04, 0.22 + 0.2 * rnd.nextDouble() * (1 - f), rnd.nextGaussian() * 0.04)
-                    .size(r * 0.45f, r * (1.1f + 0.4f * rnd.nextFloat())).life(360 + rnd.nextInt(200))
-                    .color(0x2E2A26, 0x7A746E).alpha(0.85f * (1 - 0.5f * f)).glow(t < 10 ? 0.5f : 0, 8).drag(0.95f).rise(0.006f)
-                    .fadeIn(4, from - t).fadeFrom(0.5f).spin(0.01f).spawn(level, c.x + rnd.nextGaussian() * r * 0.35, c.y + 0.5, c.z + rnd.nextGaussian() * r * 0.35);
-        }
         if (t <= fireTicks) {
             float f = (float) t / fireTicks;
             if (rnd.nextFloat() < (1 - f) * k * 1.5f) {
