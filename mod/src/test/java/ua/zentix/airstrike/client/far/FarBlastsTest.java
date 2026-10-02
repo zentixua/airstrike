@@ -58,6 +58,20 @@ class FarBlastsTest {
     }
 
     @Test
+    void smokeWaitsForTheBallToFade() {
+        // пока шар светит целиком, дым столба его не закрывает (раньше десяток клубов за 8 тиков делал из шара бурый ком)
+        for (FarBlasts.Look k : LOOKS) {
+            int from = FarBlasts.smokeFrom(k);
+            for (double age = 0; age < k.ballTicks(); age += 0.25) {
+                if (FarBlasts.fade(age / k.ballTicks()) >= 1) assertEquals(0, FarBlasts.emerge(k, age), 1e-12, k + ": на " + age + " тике шар ещё целый");
+            }
+            assertTrue(from >= FarBlasts.BALL_FADE * k.ballTicks() && (k.ballTicks() == 0 || from < k.ballTicks()), k + ": с " + from);
+            assertEquals(1, FarBlasts.emerge(k, Math.max(k.ballTicks(), from + FarBlasts.FADE_IN)), 1e-12, k + ": к концу шара столб весь");
+        }
+        assertEquals(0, FarBlasts.smokeFrom(FarBlasts.BUNKER_DEEP), "без шара — столб сразу");
+    }
+
+    @Test
     void flashHoldsThenFades() {
         FarBlasts.Look k = FarBlasts.MISSILE;
         assertEquals(k.flash(), FarBlasts.flash(k, 0), 1e-12);

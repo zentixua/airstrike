@@ -58,13 +58,20 @@ public final class FarBlasts {
     static final double DRIFT = 1 / (1 - 0.95);
     /** Плотность клуба; разброс клубов от оси столба, радиусов. */
     static final double OPACITY = 0.85, SPREAD = 0.4;
-    /** За сколько тиков столб проступает из остывающего шара. */
+    /**
+     * Столб проступает из шара, пока тот тает ({@link #smokeFrom}), но не быстрее стольких тиков. Проступавший с первого
+     * тика, он за 8 тиков закрывал яркий шар десятком клубов: вдали вместо шара было бурое пятно, ночью — кольцо
+     * зарева с чёрной серединой.
+     */
     static final double FADE_IN = 8;
     /**
      * Яркость огненного шара и пожара в воронке против белого экрана днём (шар в ~2000 K — в десятки раз ярче неба;
-     * здесь меньше: экран не ярче белого, пересвет — блик и белое ядро); доля вспышки, что светит заревом из-за гребня.
+     * здесь меньше: экран не ярче белого, пересвет — блик и белое ядро); доля вспышки, что светит заревом из-за гребня:
+     * воздух над гребнем рассеивает свет шара радиуса R на расстоянии r — яркость σ·ℓ·R²/(4r²) от яркости шара (σ ясного
+     * воздуха ~2·10⁻⁴ на метр, путь ℓ ~100 м, r — 2–3 R), тысячная. Днём это едва видно, ночью — зарево в полнеба;
+     * при 0,05 днём за краем площадки вставало белое пятно в пол-экрана.
      */
-    static final double BALL = 8, BURN = 2, BEHIND = 0.05;
+    static final double BALL = 8, BURN = 2, BEHIND = 0.001;
     /**
      * Центр огненного шара над точкой взрыва (радиусов): наземный шар — полусфера, низ в земле; за жизнь он всплывает ещё
      * на {@link #BALL_RISE} (как частицы вблизи: скорость 0,012 радиуса за тик, сопротивление 0,94). Пожар в воронке —
@@ -72,7 +79,7 @@ public final class FarBlasts {
      */
     public static final double BALL_LIFT = 0.45, BALL_RISE = 0.2, BURN_SIZE = 0.3;
     /** С какой доли жизни шар тает (дальше — дым столба; так же у частиц вблизи — {@code Fx#fireball}). */
-    static final double BALL_FADE = 0.55;
+    public static final double BALL_FADE = 0.55;
     /**
      * Зарево на облаках: низ облаков над местом освещён шаром (освещённость E = I/h², яркость ≈ альбедо·E/π) — пятно
      * радиуса {@link #SKY_SPREAD} высот облаков над местом (на одной высоте — треть пика, на двух — десятая); пик против
@@ -413,13 +420,14 @@ public final class FarBlasts {
     /**
      * Мягкий свет без тела (зарево из-за гребня): ореол радиуса rad яркостью b с центром на высоте h над основанием;
      * с привыканием глаза к ночи и бликом, как у шара ({@link FarSprites#shaped}); мельче точки — бледнее (поток тот же).
+     * Светится воздух на rad перед местом: что ближе, зарево закрывает ({@link FarSprites#glow}).
      */
     private static void halo(FarView view, FarSprites out, double bx, double by, double bz, double h, double rad, double b, double t, double w,
                              float[] c) {
         double gy = by + h, d = Math.sqrt(bx * bx + gy * gy + bz * bz);
         double seen = Sight.adapted(b, view.ambient()) * t;
         double floor = Math.max(rad, 0.5 * Sight.MIN_PIXELS * view.pixel() * d), k = rad / floor;
-        out.glow(bx, gy, bz, floor * (1 + Sight.GLARE * Math.log1p(seen)), c[0], c[1], c[2], (float) (Math.min(1, seen * k * k) * w));
+        out.glow(bx, gy, bz, floor * (1 + Sight.GLARE * Math.log1p(seen)), rad, c[0], c[1], c[2], (float) (Math.min(1, seen * k * k) * w));
     }
 
     /** Цвет света шара и вспышки: пока вспышка ярче остывающего шара — её почти белый, потом — шара ({@link #tint}). */
@@ -456,12 +464,12 @@ public final class FarBlasts {
         if (vis <= 0) return;
         double peak = SKY_PEAK * (SKY_CLEAR + (1 - SKY_CLEAR) * view.rain()) * t * vis * share;
         if (age < k.flashTicks()) {
-            out.glow(bx, gy, bz, rs, FLASH[0], FLASH[1], FLASH[2], (float) (peak * cloudGlow(flash(k, age), r, h, view.ambient())));
+            out.glow(bx, gy, bz, rs, rs, FLASH[0], FLASH[1], FLASH[2], (float) (peak * cloudGlow(flash(k, age), r, h, view.ambient())));
         }
         if (age < k.ballTicks()) {
             double u = age / k.ballTicks();
             float[] c = tint(u);
-            out.glow(bx, gy, bz, rs, c[0], c[1], c[2], (float) (peak * cloudGlow(ball(u), r, h, view.ambient())));
+            out.glow(bx, gy, bz, rs, rs, c[0], c[1], c[2], (float) (peak * cloudGlow(ball(u), r, h, view.ambient())));
         }
     }
 
@@ -483,7 +491,7 @@ public final class FarBlasts {
         double grey = smoothstep(0, 0.5 * k.life(), age);
         float sr = (float) (DARK[0] + (AGED[0] - DARK[0]) * grey), sg = (float) (DARK[1] + (AGED[1] - DARK[1]) * grey),
                 sb = (float) (DARK[2] + (AGED[2] - DARK[2]) * grey);
-        double opacity = OPACITY * smoothstep(0, FADE_IN, age) * w;
+        double opacity = OPACITY * emerge(k, age) * w;
         double windX = Fx.WIND_X * DRIFT * age, windZ = Fx.WIND_Z * DRIFT * age;
         double spread = 1 + 0.5 * age / k.life(), grow = 0.35 + 0.65 * rise;
         for (int i = 0; i < e.f.length; i++) {
@@ -506,6 +514,20 @@ public final class FarBlasts {
             float cr = (sr + (e.dustR - sr) * share) * lit, cg = (sg + (e.dustG - sg) * share) * lit, cb = (sb + (e.dustB - sb) * share) * lit;
             out.puff(px, py, pz, POINT[0], e.rot[i] + (float) (age * e.spin[i]), e.tex[i], cr, cg, cb, (float) (a * vis * POINT[1] * t));
         }
+    }
+
+    /**
+     * С какого тика дым шара и столба проступает: шар тает со второй половины жизни ({@link #BALL_FADE}), и дым — это он
+     * же, остывший; раньше он закрыл бы яркий шар. Так же и вблизи ({@code Explosions}).
+     */
+    public static int smokeFrom(Look k) {
+        return (int) Math.ceil(BALL_FADE * k.ballTicks());
+    }
+
+    /** Доля столба на age-м тике: проступает, пока тает шар ({@link #smokeFrom}), не быстрее {@link #FADE_IN} тиков. */
+    static double emerge(Look k, double age) {
+        double from = smokeFrom(k);
+        return smoothstep(from, Math.max(from + FADE_IN, k.ballTicks()), age);
     }
 
     /** Доля высоты, на которую столб поднялся за age тиков: быстро вначале, к riseTicks — 95 %. */

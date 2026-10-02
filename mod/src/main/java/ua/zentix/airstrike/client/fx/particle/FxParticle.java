@@ -38,7 +38,7 @@ public final class FxParticle {
     private boolean growFast;
     private int life;
     private float r0, g0, b0, r1, g1, b1, colorCurve, alpha;
-    private int fadeIn;
+    private int fadeIn, fadeAfter;
     private float fadeFrom, glow, glowTicks, drag, rise, gravity, wind;
     private boolean collide, smooth;
     /** Цепочка клубов ({@link Fx.Spec#chain}): направление пути и шаг между клубами; шаг 0 — не цепочка. */
@@ -79,6 +79,7 @@ public final class FxParticle {
         colorCurve = s.colorCurve;
         alpha = s.alpha;
         fadeIn = s.fadeIn;
+        fadeAfter = s.fadeAfter;
         fadeFrom = s.fadeFrom;
         glow = s.glow;
         glowTicks = s.glowTicks;
@@ -203,7 +204,8 @@ public final class FxParticle {
         rCol = r;
         gCol = g;
         bCol = b;
-        float in = fadeIn <= 0 ? 1 : Mth.clamp((age + partial) / fadeIn, 0, 1);
+        float since = age + partial - fadeAfter;
+        float in = since < 0 ? 0 : fadeIn <= 0 ? 1 : Mth.clamp(since / fadeIn, 0, 1);
         float out = f < fadeFrom ? 1 : 1 - (f - fadeFrom) / (1 - fadeFrom);
         aCol = alpha * in * Math.max(0, out);
     }
@@ -243,8 +245,9 @@ public final class FxParticle {
         if (aCol <= 0.004f) return;
         double px = Mth.lerp(partial, xo, x) - frame.cam.x, py = Mth.lerp(partial, yo, y) - frame.cam.y, pz = Mth.lerp(partial, zo, z) - frame.cam.z;
         double d = Math.sqrt(px * px + py * py + pz * pz);
-        // дымка воздуха — та же, что у дальней картинки; к краю прорисовки частицу гасит туман Minecraft
-        float a = aCol * frame.haze(d);
+        // дымка воздуха — та же, что у дальней картинки; к краю прорисовки частицу сменяет дальняя картинка
+        float a = aCol * frame.haze(d) * frame.near(d);
+        if (a <= 0.004f) return;
         if (chainGap > 0) {
             double cos = d < 1e-6 ? 1 : (px * chainX + py * chainY + pz * chainZ) / d;
             a *= chainShare(2 * DENSE * quadSize, chainGap, (float) Math.sqrt(Math.max(0, 1 - cos * cos)));

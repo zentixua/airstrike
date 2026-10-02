@@ -123,7 +123,7 @@ public final class Fx {
         float r0 = 1, g0 = 1, b0 = 1, r1 = 1, g1 = 1, b1 = 1;
         float colorCurve = 1;
         float alpha = 0.8f;
-        int fadeIn = 3;
+        int fadeIn = 3, fadeAfter;
         float fadeFrom = 0.55f;
         float glow, glowTicks = 10;
         float drag = 0.96f;
@@ -207,6 +207,14 @@ public final class Fx {
 
         public Spec fadeIn(int ticks) {
             fadeIn = ticks;
+            fadeAfter = 0;
+            return this;
+        }
+
+        /** Не виден первые {@code after} тиков, потом проступает за {@code ticks} (дым, что проступает из огненного шара). */
+        public Spec fadeIn(int ticks, int after) {
+            fadeIn = ticks;
+            fadeAfter = Math.max(0, after);
             return this;
         }
 

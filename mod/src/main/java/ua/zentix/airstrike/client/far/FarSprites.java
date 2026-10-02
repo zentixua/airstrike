@@ -55,6 +55,8 @@ public final class FarSprites {
      * Minecraft (0,05), и квадрат срезало бы целиком. Глубина — не меньше этой.
      */
     static final double EYE_DEPTH = 0.1;
+    /** Ореол в воздухе ({@link #glow}) — не ближе стольких блоков по оси взгляда. */
+    static final double AIR_NEAR = 1.5;
     /** Полуширина ленты на половину следа: середина {@code far/glow} поперёк закрывает 0,365 ширины. */
     public static final double RIBBON = 2.74;
     /** Мягкость края у рельефа: клуб — {@link FxQuads#SOFT} полуразмера, тело — четверть радиуса. */
@@ -138,10 +140,26 @@ public final class FarSprites {
 
     /**
      * Ореол в воздухе, который несёт свет круга радиуса radius яркостью a (пик в середине — a): складывается с тем, что
-     * за ним — зарево из-за гребня и на облаках. Мягкого края у рельефа нет. Блик и вуаль — в глазу ({@link #EYE}).
+     * за ним — зарево из-за гребня и на облаках. Светится воздух глубиной deep перед (dx, dy, dz): квадрат стоит там, где
+     * этот воздух начинается, — что ближе, его закрывает, а что внутри — закрывает плавно (мягкий край по расстоянию до
+     * мира, с LOD DH). На месте источника квадрат резал бы прямо по себе постройки на том же расстоянии: ночью зарево
+     * из-за гребня шириной в экран ложилось на дома пятнами и полосами, а на LOD DH, которых аппаратная глубина не видит, —
+     * поверх. Блик и вуаль — в глазу ({@link #EYE}).
      */
-    public void glow(double dx, double dy, double dz, double radius, float r, float g, float b, float a) {
-        if (billboard(dx, dy, dz, radius * GLOW, 0, FxAtlas.glow(), r * a, g * a, b * a, 0, 0)) counts[2]++;
+    public void glow(double dx, double dy, double dz, double radius, double deep, float r, float g, float b, float a) {
+        if (r * a + g * a + b * a < 0.006f) return;
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double cos = (dx * fx + dy * fy + dz * fz) / Math.max(d, 1e-9);
+        // не ближе, чем у камеры гаснет любой квадрат слоя (fx.fsh: полностью виден с 1,5 блока по оси взгляда)
+        double front = Math.max(d - deep, AIR_NEAR / Math.max(cos, 0.1));
+        if (front >= d) {
+            if (billboard(dx, dy, dz, radius * GLOW, 0, FxAtlas.glow(), r * a, g * a, b * a, 0, 0)) counts[2]++;
+            return;
+        }
+        double unfold = FarDraw.fold(front, far), k = front / d * unfold;
+        out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
+                Math.min(1, g * a), Math.min(1, b * a), 0, (float) (d - front), (float) unfold, LightTexture.FULL_BRIGHT, 0);
+        counts[2]++;
     }
 
     /**
@@ -208,7 +226,7 @@ public final class FarSprites {
         double cos = (dx * fx + dy * fy + dz * fz) / Math.max(d, 1e-9);
         double k = Math.max(EYE, EYE_DEPTH / Math.max(cos, 1e-3)) / Math.max(d, 1e-9);
         if (k >= 1) {
-            glow(dx, dy, dz, radius, r, g, b, a);
+            glow(dx, dy, dz, radius, 0, r, g, b, a);
             return;
         }
         out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),

@@ -27,16 +27,17 @@ final class Explosions {
     static void burst(ClientLevel level, Vec3 c, float r, FarBlasts.Look look, GroundMaterial mat, RandomSource rnd) {
         float k = Fx.density(c);
         fireball(level, c, look.fireball(), look.ballTicks(), rnd);
-        // тот же шар, остывающий в дым: клубы проступают, пока шар гаснет (накал — его, в кадрах анимации), и тают
-        // в чёрные; их свет изнутри гаснет вместе с шаром, иначе остывший шар ещё секунду висел ровным оранжевым пятном
-        int ball = Math.max(1, look.ballTicks());
+        // тот же шар, остывающий в дым: клубы проступают, пока шар тает (до того они закрыли бы его — бурый ком вместо
+        // шара), и тают в чёрные; их свет изнутри гаснет вместе с шаром, иначе остывший шар ещё секунду висел ровным
+        // оранжевым пятном
+        int ball = Math.max(1, look.ballTicks()), from = FarBlasts.smokeFrom(look);
         int n = ballSmoke(r, k);
         for (int i = 0; i < n; i++) {
             Vec3 d = dir(rnd, 0.1);
             Fx.smoke().vel(d.scale(r * (0.05 + 0.06 * rnd.nextDouble())).add(0, 0.08 + 0.06 * rnd.nextDouble(), 0))
                     .size(r * 0.55f, r * (1.6f + 0.7f * rnd.nextFloat())).growFast().life(420 + rnd.nextInt(300))
                     .color(0x24201D, 0x6E6862).colorCurve(0.7f).alpha(0.92f).glow(0.8f, ball * (0.25f + 0.15f * rnd.nextFloat())).drag(0.9f)
-                    .rise(0.011f).fadeIn(Math.max(1, ball / 3)).fadeFrom(0.45f).spin(0.012f).spawn(level, c.add(d.scale(r * 0.3)).add(0, r * 0.35, 0));
+                    .rise(0.011f).fadeIn(Math.max(1, ball - from), from).fadeFrom(0.45f).spin(0.012f).spawn(level, c.add(d.scale(r * 0.3)).add(0, r * 0.35, 0));
         }
         // раскалённые осколки с дымными хвостами — «щупальца» взрыва
         Fx.Spec tail = Fx.smoke().size(r * 0.12f, r * 0.55f).life(140).color(0x3A3430, 0x8A8279).alpha(0.55f).glow(0.6f, 5).drag(0.93f)
@@ -97,16 +98,18 @@ final class Explosions {
      * он поднимается на 0,2–0,4 блока за тик и рождается шириной почти в полшара, так что ножка и без того сплошная
      * и непрозрачная, а место в группе облаков нужно дыму всех взрывов залпа ({@code ExplosionsTest}).
      *
-     * @param t тик после взрыва (≥ 1)
+     * @param t    тик после взрыва (≥ 1)
+     * @param from с какого тика ножка видна ({@link FarBlasts#smokeFrom}): клубы, рождённые раньше, проступают тогда,
+     *             из тающего шара
      */
-    static void column(ClientLevel level, Vec3 c, float r, int t, int columnTicks, int fireTicks, RandomSource rnd) {
+    static void column(ClientLevel level, Vec3 c, float r, int t, int from, int columnTicks, int fireTicks, RandomSource rnd) {
         float k = Fx.density(c);
         if (t <= columnTicks) {
             float f = (float) t / columnTicks;
             Fx.smoke().vel(rnd.nextGaussian() * 0.04, 0.22 + 0.2 * rnd.nextDouble() * (1 - f), rnd.nextGaussian() * 0.04)
                     .size(r * 0.45f, r * (1.1f + 0.4f * rnd.nextFloat())).life(360 + rnd.nextInt(200))
                     .color(0x2E2A26, 0x7A746E).alpha(0.85f * (1 - 0.5f * f)).glow(t < 10 ? 0.5f : 0, 8).drag(0.95f).rise(0.006f)
-                    .fadeIn(4).fadeFrom(0.5f).spin(0.01f).spawn(level, c.x + rnd.nextGaussian() * r * 0.35, c.y + 0.5, c.z + rnd.nextGaussian() * r * 0.35);
+                    .fadeIn(4, from - t).fadeFrom(0.5f).spin(0.01f).spawn(level, c.x + rnd.nextGaussian() * r * 0.35, c.y + 0.5, c.z + rnd.nextGaussian() * r * 0.35);
         }
         if (t <= fireTicks) {
             float f = (float) t / fireTicks;

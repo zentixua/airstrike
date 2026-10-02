@@ -152,7 +152,7 @@ public final class BlastEffects {
                 return true;
             }
             if (t == 1) spray(level, 1);
-            Explosions.column(level, pos, R, t, COLUMN_TICKS, 220, random);
+            Explosions.column(level, pos, R, t, FarBlasts.smokeFrom(rocket ? FarBlasts.ROCKET : FarBlasts.DRONE), COLUMN_TICKS, 220, random);
             if (t == 8 && !rocket) BlastSounds.fire(pos, 1.1f);
             if (t == 20) BlastSounds.debris(pos, rocket ? 40 : 60, rocket ? 1.25f : 1.1f);
             return t < 240;
@@ -193,7 +193,7 @@ public final class BlastEffects {
                 spray(level, 2);
                 Explosions.condensation(level, pos.add(0, 2, 0), 30, random);
             }
-            Explosions.column(level, pos, R, t, COLUMN_TICKS, 320, random);
+            Explosions.column(level, pos, R, t, FarBlasts.smokeFrom(FarBlasts.MISSILE), COLUMN_TICKS, 320, random);
             for (Warheads.Secondary s : Warheads.MISSILE_SECONDARIES) {
                 // вторичные подрывы сервера (ванильных клубов у них нет): огонь, дым и искры там же и тогда же
                 if (s.tick() == t) Explosions.cookoff(level, pos.add(s.dx(), s.dy(), s.dz()), s.power(), random);
