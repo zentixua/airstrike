@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import ua.zentix.airstrike.client.fx.layer.FxLayer;
+import ua.zentix.airstrike.client.fx.layer.FxLights;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
 
 import java.util.Arrays;
@@ -28,11 +29,11 @@ public final class FarRenderer {
         FarFlightView.tick();
     }
 
-    /** Дальнее в кадр слоя эффектов. */
-    public static void collect(FarView view, FxQuads out) {
+    /** Дальнее в кадр слоя эффектов; огненные шары — ещё и светом частиц кадра ({@code lights}). */
+    public static void collect(FarView view, FxQuads out, FxLights lights) {
         SPRITES.begin(view, out);
         if (!FarBlasts.isEmpty() || !FarFlightView.isEmpty()) {
-            FarBlasts.collect(view, SPRITES);
+            FarBlasts.collect(view, SPRITES, lights);
             FarFlightView.collect(view, SPRITES);
         }
         SPRITES.counts(LAST_FRAME);

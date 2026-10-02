@@ -26,6 +26,14 @@
 через середину сверху уходила низом шара в землю), ближние удары — по своей площадке на высоте 170 к северо-западу
 (сбоку и сверху, ничем не закрыты), удар за краем площадки — к востоку, на линии шахеда и дальней ракеты других ударов нет.
 
+Четвёртый прогон. В третьем (95f3c29) ближний шар днём и сверху виден целиком, вдали и за краем всё прошло, но у
+высотки ночью виден только жёлтый край шара у угла, без блика и зарева, ночью клубы пыли у шара лиловые, а полоса пыли
+под ним тёмно-синяя, и вспышка днём — ровный лимонно-жёлтый шар. Причины: блик шёл по двум лучам к оси шара (у угла оба
+закрыты — блика нет, хотя полшара видно), пыль у шара освещала только луна (синим, и поверх жёлтого шара она лиловая),
+у кадров шара в 2000 K синий канал был нулём, и яркое оставалось чисто жёлтым. Теперь блик — по доле открытого диска
+(7 лучей), шар освещает дым, пыль и шлейфы вокруг (свет в шейдере слоя), яркое уходит к белому. Сверху днём кадр — на
+9-м тике (оранжевый шар), а не на 3-м (вспышка).
+
 ## Правила (для каждого блока)
 - Каждый блок — **одним вызовом, как написан**; состояние оболочки между вызовами не сохраняется. Блоки с шага 2
   начинаются с `W=… && cd "${W:?}"`.
@@ -68,6 +76,8 @@ grep -q 'FIREBALL_FRAMES' mod/src/main/java/ua/zentix/airstrike/client/fx/layer/
 grep -q 'smokeFrom' mod/src/main/java/ua/zentix/airstrike/client/far/FarBlasts.java && \
 grep -q 'static double behind' mod/src/main/java/ua/zentix/airstrike/client/far/FarBlasts.java && \
 grep -q 'BALL_FRONT' mod/src/main/java/ua/zentix/airstrike/client/far/FarSprites.java && \
+grep -q 'RING_RAYS' mod/src/main/java/ua/zentix/airstrike/client/far/FarBlasts.java && \
+grep -q 'FxBallLight' mod/src/main/resources/assets/airstrike/shaders/core/fx.vsh && \
 test -f mod/src/main/resources/assets/airstrike/textures/fx/particle/fireball_15.png && echo "шар на месте"
 ```
 Должно быть «маунт doc записан», «коммит верный» и «шар на месте». Нет — стоп, прислать вывод.
@@ -83,7 +93,7 @@ timeout -k 60 20m ../tools/laptop_job.sh fireball-build -- ./gradlew scenarioJar
 зритель в спектаторе пускает с `-272 150 -950`, на миг глядя на юг. Для ближних ударов — вторая площадка на высоте 170
 к северо-западу (`-400..-340`, `-1090..-1030`, тоже только в копии мира): днём ракета в `-355 171 -1070`, зритель сбоку
 с `-290 190 -1005` (`135 12`, ~95 блоков, `_near`), потом в `-385 171 -1070`, зритель сверху с `-385 240 -1020`
-(`180 54`, ~85 блоков, `_top`); ночью — в `-355 171 -1045` сбоку с `-290 190 -980`. Ночью ещё ракета в `-242 64 -1100`
+(`180 54`, ~85 блоков, `_top`, кадры на 9-м и 29-м тике); ночью — в `-355 171 -1045` сбоку с `-290 190 -980`. Ночью ещё ракета в `-242 64 -1100`
 среди высоток, зритель сверху с `-272 190 -1040` (`207 48`, `_tower`): шар за высоткой, видно зарево. За краем
 площадки (`_hidden`) — ракета в `-192 64 -1100` днём и в `-212 64 -1100` ночью, зритель с `-272 165 -950` на север
 (`180 10`). Шахед `-272 64 -1350` днём и `-302 64 -1350` ночью (400 блоков) и ракета `-272`/`-242 64 -2442` (1,5 км) —
@@ -95,7 +105,7 @@ timeout -k 60 20m ../tools/laptop_job.sh fireball-build -- ./gradlew scenarioJar
 W="/mnt/data/projects/airstrike/mod/run/claude-work/fireball-SHA7" && cd "${W:?}" && touch mod/run/fbl/.step-start && export JAVA_HOME="$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta" && \
 echo "начало: $(date -u +%T) UTC" && timeout -k 60 25m tools/laptop_job.sh fireball -- python3 tools/prod_client.py commands --world "Greenfield v0.5.4" --seconds 1400 \
   --size 1920x1080 \
-  --prop 'airstrike.commands=hud:off;gamemode spectator;gamerule doDaylightCycle false;gamerule doWeatherCycle false;time set 6000;weather clear;tp @s -272 150 -950 180 6;fill -312 149 -990 -232 149 -930 minecraft:smooth_stone;tp @s -272 165 -950 180 10;wait:600;fill -400 170 -1090 -340 170 -1030 minecraft:smooth_stone;wait:20;shot:base;tp @s -272 150 -950 0 6;airstrike missile at -355 171 -1070;tp @s -290 190 -1005 135 12;wait:blast;wait:3;shot:day_near_3;shot:day_near_23;wait:40;shot:day_near_100;tp @s -272 150 -950 0 6;airstrike missile at -385 171 -1070;tp @s -385 240 -1020 180 54;wait:blast;wait:3;shot:day_top_3;shot:day_top_23;tp @s -272 150 -950 0 6;airstrike missile at -192 64 -1100;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:day_hidden_3;tp @s -272 150 -950 0 6;airstrike drone at -272 64 -1350;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:day_mid_3;shot:day_mid_23;tp @s -272 150 -950 0 6;airstrike missile at -272 64 -2442;tp @s -272 165 -950 180 3;wait:blast;wait:3;shot:day_far_3;shot:day_far_23;time set 18000;wait:200;shot:night_base;tp @s -272 150 -950 0 6;airstrike missile at -355 171 -1045;tp @s -290 190 -980 135 12;wait:blast;wait:3;shot:night_near_3;shot:night_near_23;wait:40;shot:night_near_100;tp @s -272 150 -950 0 6;airstrike missile at -242 64 -1100;tp @s -272 190 -1040 207 48;wait:blast;wait:3;shot:night_tower_3;shot:night_tower_23;tp @s -272 150 -950 0 6;airstrike missile at -212 64 -1100;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:night_hidden_3;tp @s -272 150 -950 0 6;airstrike drone at -302 64 -1350;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:night_mid_3;shot:night_mid_23;tp @s -272 150 -950 0 6;airstrike missile at -242 64 -2442;tp @s -272 165 -950 180 3;wait:blast;wait:3;shot:night_far_3;shot:night_far_23;wait:100'; \
+  --prop 'airstrike.commands=hud:off;gamemode spectator;gamerule doDaylightCycle false;gamerule doWeatherCycle false;time set 6000;weather clear;tp @s -272 150 -950 180 6;fill -312 149 -990 -232 149 -930 minecraft:smooth_stone;tp @s -272 165 -950 180 10;wait:600;fill -400 170 -1090 -340 170 -1030 minecraft:smooth_stone;wait:20;shot:base;tp @s -272 150 -950 0 6;airstrike missile at -355 171 -1070;tp @s -290 190 -1005 135 12;wait:blast;wait:3;shot:day_near_3;shot:day_near_23;wait:40;shot:day_near_100;tp @s -272 150 -950 0 6;airstrike missile at -385 171 -1070;tp @s -385 240 -1020 180 54;wait:blast;wait:9;shot:day_top_9;shot:day_top_29;tp @s -272 150 -950 0 6;airstrike missile at -192 64 -1100;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:day_hidden_3;tp @s -272 150 -950 0 6;airstrike drone at -272 64 -1350;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:day_mid_3;shot:day_mid_23;tp @s -272 150 -950 0 6;airstrike missile at -272 64 -2442;tp @s -272 165 -950 180 3;wait:blast;wait:3;shot:day_far_3;shot:day_far_23;time set 18000;wait:200;shot:night_base;tp @s -272 150 -950 0 6;airstrike missile at -355 171 -1045;tp @s -290 190 -980 135 12;wait:blast;wait:3;shot:night_near_3;shot:night_near_23;wait:40;shot:night_near_100;tp @s -272 150 -950 0 6;airstrike missile at -242 64 -1100;tp @s -272 190 -1040 207 48;wait:blast;wait:3;shot:night_tower_3;shot:night_tower_23;tp @s -272 150 -950 0 6;airstrike missile at -212 64 -1100;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:night_hidden_3;tp @s -272 150 -950 0 6;airstrike drone at -302 64 -1350;tp @s -272 165 -950 180 10;wait:blast;wait:3;shot:night_mid_3;shot:night_mid_23;tp @s -272 150 -950 0 6;airstrike missile at -242 64 -2442;tp @s -272 165 -950 180 3;wait:blast;wait:3;shot:night_far_3;shot:night_far_23;wait:100'; \
 code=$?; echo "код $code, конец: $(date -u +%T) UTC"; case "$code" in 124|137) systemctl --user stop 'airstrike-job-fireball-*';; esac; true
 ```
 Наблюдатель: в `$W/mod/run/prod/logs/latest.log` идут строки `SCENARIO …`, в конце `SCENARIO done`.
@@ -129,17 +139,19 @@ now=$(findmnt -n -o ID "/run/user/$(id -u)/doc"); [ -n "$now" ] && [ "$now" = "$
 - строка «Слой эффектов: прогрев N мс» — один раз; строк «Шейдер … не загрузился», «Текстура эффектов … не найдена/не
   прочиталась» нет;
 - logscan — без новых ошибок; исключений со `ua.zentix` в стеке нет;
-- кадры днём: `day_near_3` (сбоку) и `day_top_3` (сверху) — шар на площадке **виден целиком** (сверху — купол, низ
-  не срезан площадкой), клубами, белёсо-жёлтое ядро и оранжево-красный край, **ни колец, ни ровных кругов** (ни белого,
-  ни оранжевого кольца вокруг, ни кольца пыли по земле), бурых клубов поверх шара нет, экран не залит белым;
-  `day_near_23`, `day_top_23` — шар догорает в чёрный дым, ровного оранжевого пятна нет; `day_near_100` — столб дыма,
+- кадры днём: `day_near_3` (сбоку, вспышка) — шар на площадке **виден целиком**, белёсо-кремовый с жёлтым, **не ровный
+  лимонно-жёлтый**; `day_top_9` (сверху) — купол целиком, низ не срезан площадкой, оранжевый с белёсо-жёлтым ядром
+  и оранжево-красным краем; оба — клубами, **ни колец, ни ровных кругов** (ни белого, ни оранжевого кольца вокруг,
+  ни кольца пыли по земле), бурых клубов поверх шара нет, экран не залит белым; пыль и дым у шара не серо-синие, а
+  тёплые от его света; `day_near_23`, `day_top_29` — шар догорает в чёрный дым, ровного оранжевого пятна нет; `day_near_100` — столб дыма,
   без колец; `day_hidden_3` — место за краем площадки: над краем самое большее слабое зарево, **белого пятна нет**;
   `day_mid_3`, `day_far_3` — маленький **яркий оранжево-жёлтый шар** (не бурый ком) с мягким бликом, блик круглый,
   **не срезан прямой** по рельефу, горизонту или LOD, светлого пятна цвета неба или тумана поверх шара нет, белых точек
   искр вокруг нет, дыма других ударов на месте нет; `_23` — шар погас или гаснет, дым;
 - кадры ночью: `night_near_3`, `night_mid_3`, `night_far_3` — шар и зарево вокруг него, ни колец, ни кругов, **тёмной
-  середины в зареве нет**; `night_tower_3` — шар за высоткой: над ней и вокруг **тёплое зарево**, дома не в точках
-  и полосах; `night_hidden_3` — зарево над краем площадки **не шире и не ярче блика открытого шара** (`night_near_3`,
+  середины в зареве нет**; у `night_near_3` клубы пыли у шара и полоса пыли под ним **освещены шаром — тёплые, не
+  лиловые и не тёмно-синие**; `night_tower_3` — видимая у угла высотки часть шара **с бликом**: вокруг тёплый свет,
+  кадр не тёмный, дома не в точках и полосах; `night_hidden_3` — зарево над краем площадки **не шире и не ярче блика открытого шара** (`night_near_3`,
   `night_mid_3`), не заливает кремовым пол-кадра, дома и LOD за краем без точек и полос; `night_*_23` — темнеет
   обратно, без светлого пятна, висящего на месте шара; `night_base` — ночь без следов прошлых вспышек; у места дальнего
   дневного удара (1,5 км, кадр через ~290 тиков после него) может догорать воронка — оранжевая точка с ореолом, она

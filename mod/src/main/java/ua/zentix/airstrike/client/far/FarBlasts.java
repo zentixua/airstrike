@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.client.fx.layer.FxAtlas;
+import ua.zentix.airstrike.client.fx.layer.FxLights;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.sound.Acoustics;
 import ua.zentix.airstrike.client.sound.BlastSounds;
@@ -46,10 +47,14 @@ public final class FarBlasts {
     /** Луч по рельефу — не чаще раза в столько тиков на событие; лучей за тик — не больше (кроме лучей новых). */
     static final int RETRACE = 20, TRACES_PER_TICK = 16;
     /**
-     * Лучей по блокам к шарам в прорисовке за тик сверх лучей по рельефу, не больше: пока шар светит — каждый тик по
-     * очереди, потом — с лучом по рельефу.
+     * Шаров в прорисовке, к которым за тик идут лучи по блокам ({@link #clear}), сверх лучей по рельефу, не больше: пока
+     * шар светит — каждый тик по очереди, потом — с лучом по рельефу.
      */
     static final int CLEARS_PER_TICK = 8;
+    /** Лучей к шару по кругу вокруг середины ({@link #clear}) и радиус круга, радиусов шара. */
+    static final int RING_RAYS = 6;
+    static final double RING = 0.7;
+    private static final double[] DISC = new double[3];
     /** Звук, до уха которого фронт так и не дошёл (слушатель уходит быстрее звука), дольше не ждём, тиков. */
     static final int SOUND_WAIT = 2400;
     /** Источник для луча и звука — над точкой удара, блоков (как вспышка ближней картинки). */
@@ -296,8 +301,10 @@ public final class FarBlasts {
     }
 
     /**
-     * Шар в прорисовке закрывают блоки (дом, стена, свод пещеры), а блик и вуаль у глаза глубина не режет: два луча по
-     * блокам — к середине шара и к его верху. Дальше прорисовки шар закрывает рельеф ({@link #trace}).
+     * Шар в прорисовке закрывают блоки (дом, стена, свод пещеры), а блик и вуаль у глаза глубина не режет: лучи по
+     * блокам к середине шара и к кольцу вокруг неё ({@link #disc}), открытая доля — доля блика. Два луча к оси шара
+     * у угла высотки оба упирались в угол, и видимая половина шара светила без блика. Часть диска в земле закрыта
+     * всем и в счёт не идёт. Дальше прорисовки шар закрывает рельеф ({@link #trace}).
      */
     private static void clear(Event e, Vec3 eye) {
         double r = e.look.fireball();
@@ -307,7 +314,44 @@ public final class FarBlasts {
             return;
         }
         double mid = e.y + r * (BALL_LIFT + 0.5 * BALL_RISE);
-        e.open = ((FarFlightView.blocked(eye, e.x, mid, e.z) ? 0 : 1) + (FarFlightView.blocked(eye, e.x, mid + 0.8 * r, e.z) ? 0 : 1)) / 2f;
+        int seen = 0, counted = 0;
+        for (int i = 0; i <= RING_RAYS; i++) {
+            disc(eye, e.x, mid, e.z, RING * r, i, DISC);
+            if (i > 0 && DISC[1] < e.y + 0.5) continue;
+            counted++;
+            if (!FarFlightView.blocked(eye, DISC[0], DISC[1], DISC[2])) seen++;
+        }
+        e.open = seen / (float) counted;
+    }
+
+    /**
+     * Точка i диска шара с центром (cx, cy, cz), каким его видит глаз: 0 — центр, 1…{@link #RING_RAYS} — по кругу
+     * радиуса ring в плоскости поперёк луча зрения, первая — сбоку, по кругу вверх.
+     */
+    static void disc(Vec3 eye, double cx, double cy, double cz, double ring, int i, double[] out) {
+        out[0] = cx;
+        out[1] = cy;
+        out[2] = cz;
+        if (i == 0) return;
+        double dx = cx - eye.x, dy = cy - eye.y, dz = cz - eye.z, len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-9) return;
+        dx /= len;
+        dy /= len;
+        dz /= len;
+        // вбок — поперёк луча по горизонтали (луч отвесный — вдоль x), вверх по диску — бок × луч
+        double sx = -dz, sz = dx, s = Math.sqrt(sx * sx + sz * sz);
+        if (s < 1e-9) {
+            sx = 1;
+            sz = 0;
+        } else {
+            sx /= s;
+            sz /= s;
+        }
+        double ux = -sz * dy, uy = sz * dx - sx * dz, uz = sx * dy;
+        double a = 2 * Math.PI * (i - 1) / RING_RAYS, c = Math.cos(a) * ring, n = Math.sin(a) * ring;
+        out[0] += sx * c + ux * n;
+        out[1] += uy * n;
+        out[2] += sz * c + uz * n;
     }
 
     private static void trace(Event e, Sightline.Heights heights, Vec3 eye) {
@@ -319,7 +363,7 @@ public final class FarBlasts {
 
     // ---------------------------------------------------------------- кадр
 
-    static void collect(FarView view, FarSprites out) {
+    static void collect(FarView view, FarSprites out, FxLights lights) {
         ClientLevel level = Minecraft.getInstance().level;
         Vec3 cam = view.camera();
         double now = clock + view.partial();
@@ -336,7 +380,7 @@ public final class FarBlasts {
             // линия, ниже которой место взрыва закрыто рельефом, — над основанием (тела в прорисовке закрывает и глубина)
             double line = e.hidden > 0 ? LIFT + e.hidden : 0;
             sky(e, view, out, age, bx, by, bz, d, line);
-            light(e, view, out, age, bx, by, bz, d, w, line);
+            light(e, view, out, lights, age, bx, by, bz, d, w, line);
             if (w <= 0) continue;
             column(e, view, out, age, bx, by, bz, w, line);
         }
@@ -348,7 +392,8 @@ public final class FarBlasts {
      * своего света ({@link FarSprites#shaped}); свет вокруг — бликом и вуалью. Тело вблизи (доля 1 − w) рисуют частицы,
      * блик и вуаль шара — здесь на любой дальности; пожар вблизи — только частицы.
      */
-    private static void light(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double d, double w, double line) {
+    private static void light(Event e, FarView view, FarSprites out, FxLights lights, double age, double bx, double by, double bz, double d, double w,
+                              double line) {
         Look k = e.look;
         double t = Sight.transmittance(d, view.range());
         if (k.fireball() <= 0 || t < Sight.THRESHOLD) return;
@@ -357,6 +402,8 @@ public final class FarBlasts {
             double u = age / k.ballTicks(), fl = flash(k, age), h = r * (BALL_LIFT + BALL_RISE * u);
             double vis = visible(h, r, line), hidden = 1 - vis * e.open;
             float[] c = glare(fl, u);
+            // шар светит и на дым, пыль и шлейфы вокруг — закрыт он от глаза или нет
+            lights.add(bx, by + h, bz, r * growth(u), Sight.adapted(fl + ball(u), view.ambient()), c[0], c[1], c[2]);
             if (vis > 0) {
                 out.shaped(bx, by + h, bz, r * growth(u), FxAtlas.fireball((float) u), r * FarSprites.FIREBALL, e.phase,
                         Sight.adapted(fl + ball(u), view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w * fade(u), vis * e.open, LIGHT);

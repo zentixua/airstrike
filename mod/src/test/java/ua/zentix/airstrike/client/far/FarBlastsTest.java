@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.client.far;
 
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -143,6 +144,23 @@ class FarBlastsTest {
         }
         assertTrue(Sight.VEIL_PEAK < Sight.HALO, "закрытый шар светит слабее блика открытого");
         assertTrue(FarBlasts.behind(8, night, 0.01) < FarBlasts.behind(8, night, 1), "дымка гасит зарево");
+    }
+
+    @Test
+    void raysCoverTheBallDiscFacingTheEye() {
+        // глаз сверху и сбоку, как с высотки: точки кольца — на радиусе от середины, поперёк луча, и одна — сбоку по горизонтали
+        Vec3 eye = new Vec3(-30, 126, 60);
+        double[] p = new double[3];
+        for (int i = 0; i <= FarBlasts.RING_RAYS; i++) {
+            FarBlasts.disc(eye, 0, 0, 0, 7, i, p);
+            double off = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            assertEquals(i == 0 ? 0 : 7, off, 1e-9, "точка " + i);
+            assertEquals(0, p[0] * -eye.x + p[1] * -eye.y + p[2] * -eye.z, 1e-6, "точка " + i + " поперёк луча");
+        }
+        FarBlasts.disc(eye, 0, 0, 0, 7, 1, p);
+        assertEquals(0, p[1], 1e-9, "первая — сбоку, на высоте середины");
+        FarBlasts.disc(new Vec3(0, 100, 0), 0, 0, 0, 7, 2, p);
+        assertTrue(Double.isFinite(p[0] + p[1] + p[2]), "глаз прямо над шаром");
     }
 
     /** Верх облака: верх верхнего клуба поднявшегося столба. */
