@@ -66,6 +66,12 @@ public final class ClientScenario {
     private java.util.ArrayDeque<String> fx;
     /** Эффекты по заданным точкам ({@code airstrike.fx.targets}): точка удара на каждый пункт {@link #fx}. */
     private java.util.ArrayDeque<double[]> fxTargets;
+    /**
+     * Столб после взрыва ({@code fx-late}): через столько тиков после взрыва — кадры с половины прорисовки и из-за её края.
+     * Частиц взрыва к этому времени уже нет (дым шара живёт до 36 с), столб стоит минуты.
+     */
+    private static final int FX_LATE = 900;
+    private boolean fxLate;
     private Vec3 eye = Vec3.ZERO;
     private StrikeProjectile watched;
     private String current;
@@ -131,7 +137,7 @@ public final class ClientScenario {
         NeoForge.EVENT_BUS.addListener(this::onRenderLevel);
         String mode = scenario;
         if ("nuke".equals(mode)) planNuke();
-        else if ("fx".equals(mode) || "fx-night".equals(mode)) planFx("fx-night".equals(mode));
+        else if ("fx".equals(mode) || "fx-night".equals(mode) || "fx-late".equals(mode)) planFx("fx-night".equals(mode), "fx-late".equals(mode));
         else if ("launch".equals(mode)) planLaunch();
         else if ("replay".equals(mode)) {
             replay = true;
@@ -339,14 +345,16 @@ public final class ClientScenario {
      * Эффекты крупным планом: зритель висит в воздухе в 70 блоках от цели и в 25 над ней (полёт в творческом режиме,
      * взрыв его не сдувает), по очереди шахед, ракета, бомба; кадры — от настоящего взрыва (снаряд пропал), а не
      * по счётчику. В конце — старт МБР в 80 блоках: факел, шлейф, облако у стола. {@code fx-night} — то же ночью.
+     * {@code fx-late} — шахед и ракета, и у каждого ещё столб после взрыва вблизи и издалека ({@link #lateFrames}).
      */
-    private void planFx(boolean night) {
+    private void planFx(boolean night, boolean late) {
         String spec = System.getProperty("airstrike.fx.targets");
         if (spec != null) {
             planFxAt(spec, night);
             return;
         }
-        fx = new java.util.ArrayDeque<>(List.of("drone", "missile", "bunker", "icbm"));
+        fxLate = late;
+        fx = new java.util.ArrayDeque<>(late ? List.of("drone", "missile") : List.of("drone", "missile", "bunker", "icbm"));
         at(40, () -> {
             cmd(night ? "time set 18000" : "time set 6000");
             cmd("weather clear");
@@ -686,7 +694,31 @@ public final class ClientScenario {
         current = "wait";
         Airstrike.LOG.info("SCENARIO {} impact at tick {}", name, tick);
         for (int dt : new int[]{1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 240, 320}) shot(tick + dt, name);
-        at(tick + 340, this::nextFx);
+        if (fxLate) lateFrames(name, tick);
+        else at(tick + 340, this::nextFx);
+    }
+
+    /**
+     * Столб после взрыва ({@code fx-late}): через {@link #FX_LATE} тиков зритель по той же линии от цели — на половине
+     * прорисовки (огненный шар и частицы там рисуются вблизи, дальней картинки взрыва ещё нет) и на 1,1 прорисовки (за её
+     * краем — только дальняя); столб на обоих кадрах тот же. Сколько клубов столба в кадре — строки {@code SCENARIO far}.
+     */
+    private void lateFrames(String name, int impact) {
+        double world = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16.0;
+        int t = impact + FX_LATE;
+        for (double share : new double[]{0.5, 1.1}) {
+            String label = String.format(java.util.Locale.ROOT, "%s_late%d", name, Math.round(share * 100));
+            at(t, () -> {
+                // вдоль земли от цели к зрителю, на его высоте; взгляд — на столб, а не на воронку
+                double dx = eye.x - target.x, dz = eye.z - target.z, len = Math.max(1e-6, Math.hypot(dx, dz)), d = share * world;
+                double x = target.x + dx / len * d, z = target.z + dz / len * d;
+                cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f %.1f %.1f facing %.1f %.1f %.1f", x, eye.y, z, target.x, target.y + 60, target.z));
+                Airstrike.LOG.info("SCENARIO {}: зритель в {} блоках от цели ({} прорисовки)", label, Math.round(d), share);
+            });
+            shot(t + 40, label);
+            t += 60;
+        }
+        at(t, this::nextFx);
     }
 
     /**

@@ -29,7 +29,9 @@ import java.util.SplittableRandom;
  * в одной таблице {@link Look}.
  * <p>
  * Ближе 0,8 прорисовки взрыв рисуют частицы {@code BlastEffects}, дальше картинка переходит сюда ({@link FarView#farShare});
- * пакет, пришедший дальше {@link #NEAR}, ближней картинки не получает — дальняя рисуется на любой дальности. Свет
+ * пакет, пришедший дальше {@link #NEAR}, ближней картинки не получает — дальняя рисуется на любой дальности. Столб дыма
+ * и пыли — только здесь и на любой дальности ({@link #column}): частицы живут полминуты, а столб стоит минуты, и вблизи
+ * он пропадал — подлетишь, и дым рассеялся, отлетишь за 0,8 прорисовки — снова столб. Свет
  * приходит сразу: блик и вуаль вокруг вспышки и шара — здесь на любой дальности, и рядом (они в глазу, а не в воздухе;
  * ночью ещё зарево на облаках над местом — {@link #cloudGlow}, на любой дальности, кроме самой близкой); звук — когда до
  * уха дойдёт фронт; дальше {@link #NEAR} он здесь ({@link BlastSounds#far}), ближе — ракурсы ближней модели
@@ -166,8 +168,6 @@ public final class FarBlasts {
         final float[] f, ox, oz, size, rot, spin, shade, dust;
         final byte[] tex;
         boolean soundPending;
-        /** Рисовался в прошлом кадре: луч стоит обновлять. */
-        boolean wanted = true;
         long traced;
         /** По последнему лучу: на сколько блоков выше источника его видно; разность хода через кромку. */
         double hidden, path;
@@ -280,7 +280,7 @@ public final class FarBlasts {
                     e.soundPending = false;
                 }
             }
-            if (e.wanted && clock - e.traced >= RETRACE && traces < TRACES_PER_TICK) {
+            if (clock - e.traced >= RETRACE && traces < TRACES_PER_TICK) {
                 trace(e, heights, ear);
                 clear(e, ear);
                 traces++;
@@ -374,15 +374,13 @@ public final class FarBlasts {
             // основание относительно камеры
             double bx = e.x - cam.x, by = e.y - cam.y, bz = e.z - cam.z;
             double d = e.distanceTo(cam);
+            // доля тела шара и пожара: вблизи их рисуют частицы
             double w = e.near ? view.farShare(d) : 1;
-            // луч нужен и рядом, пока светит шар: блик и вуаль рисуются здесь на любой дальности
-            e.wanted = w > 0 || age < e.look.ballTicks();
             // линия, ниже которой место взрыва закрыто рельефом, — над основанием (тела в прорисовке закрывает и глубина)
             double line = e.hidden > 0 ? LIFT + e.hidden : 0;
             sky(e, view, out, age, bx, by, bz, d, line);
             light(e, view, out, lights, age, bx, by, bz, d, w, line);
-            if (w <= 0) continue;
-            column(e, view, out, age, bx, by, bz, w, line);
+            column(e, view, out, age, bx, by, bz, line);
         }
     }
 
@@ -547,14 +545,18 @@ public final class FarBlasts {
         return Math.min(1, Sight.adapted(CLOUD_ALBEDO * b * k * k, ambient));
     }
 
-    /** Столб дыма и пыли: поднимается, расплывается, уходит по ветру; сначала тает низ. */
-    private static void column(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double w, double line) {
+    /**
+     * Столб дыма и пыли: поднимается, расплывается, уходит по ветру; сначала тает низ. Один и тот же на любой дальности,
+     * и вблизи: частицы взрыва ({@code Explosions}) дают только дым самого шара и то, чего вдали не видно, и живут
+     * полминуты, а столб — минуты ({@link Look#life}).
+     */
+    private static void column(Event e, FarView view, FarSprites out, double age, double bx, double by, double bz, double line) {
         Look k = e.look;
         double rise = rise(age, k.riseTicks());
         double grey = smoothstep(0, 0.5 * k.life(), age);
         float sr = (float) (DARK[0] + (AGED[0] - DARK[0]) * grey), sg = (float) (DARK[1] + (AGED[1] - DARK[1]) * grey),
                 sb = (float) (DARK[2] + (AGED[2] - DARK[2]) * grey);
-        double opacity = OPACITY * emerge(k, age) * w;
+        double opacity = OPACITY * emerge(k, age);
         double windX = Fx.WIND_X * DRIFT * age, windZ = Fx.WIND_Z * DRIFT * age;
         double spread = 1 + 0.5 * age / k.life(), grow = 0.35 + 0.65 * rise;
         for (int i = 0; i < e.f.length; i++) {
