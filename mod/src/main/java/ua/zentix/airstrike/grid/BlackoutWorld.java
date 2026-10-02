@@ -32,6 +32,7 @@ import ua.zentix.airstrike.nuclear.world.FarLods;
 import ua.zentix.airstrike.nuclear.world.NuclearTickets;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.util.Palettes;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
@@ -413,7 +414,7 @@ public final class BlackoutWorld {
                     LevelChunkSection[] sections = chunk.getSections();
                     for (int i = 0; i < sections.length; i++) {
                         LevelChunkSection section = sections[i];
-                        if (section.hasOnlyAir() || !ChunkLights.contains(section.getStates(), GridLights::isUnlit)) continue;
+                        if (section.hasOnlyAir() || !Palettes.contains(section.getStates(), GridLights::isUnlit)) continue;
                         int y0 = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
                         for (int y = 0; y < 16; y++) {
                             for (int z = 0; z < 16; z++) {

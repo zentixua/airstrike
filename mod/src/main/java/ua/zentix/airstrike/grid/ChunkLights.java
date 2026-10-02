@@ -13,14 +13,16 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
 
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.util.Palettes;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
 
 /**
  * Перевод ламп чанка к состоянию сети: погасить (лампы → двойники) или зажечь (двойники → лампы). Секции без
- * нужных блоков пропускаются по палитре, а глобальная палитра — по точному подсчёту ({@link #contains}).
+ * нужных блоков пропускаются по палитре, а глобальная палитра — по точному подсчёту ({@link Palettes#contains}): без
+ * него каждая загрузка и сохранение городского чанка проходили все блоки таких секций в потоке сервера и ставили чанк
+ * в очередь блэкаута, хотя ни ламп сети, ни отключений в нём нет.
  */
 public final class ChunkLights {
     /**
@@ -49,25 +51,9 @@ public final class ChunkLights {
         void accept(int x, int y, int z, BlockState to);
     }
 
-    /** Есть ли в секции, что переводить ({@link #contains}). */
+    /** Есть ли в секции, что переводить ({@link Palettes#contains}). */
     static boolean needs(LevelChunkSection section, boolean dark) {
-        return !section.hasOnlyAir() && contains(section.getStates(), s -> GridLights.needs(s, dark));
-    }
-
-    /**
-     * Есть ли в блоках {@code states} состояние по {@code filter}. Сперва отвечает палитра ({@code maybeHas}): у малых
-     * палитр «нет» точно. Глобальная палитра (больше 256 разных состояний в секции — обычное дело в детальном городе)
-     * отвечает «может быть» всегда ({@code GlobalPalette.maybeHas}), а малая помнит и ушедшие состояния, — тогда
-     * точный подсчёт по блокам, как у ванили ({@code LevelChunkSection.recalcBlockCounts}). Без него каждая загрузка
-     * и сохранение городского чанка проходили все блоки таких секций в потоке сервера и ставили чанк в очередь
-     * блэкаута, хотя ни ламп сети, ни отключений в нём нет. Подсчёт может назвать и состояние с нулём блоков (Lithium
-     * считает по записям палитры) — такое не в счёт.
-     */
-    public static boolean contains(PalettedContainer<BlockState> states, Predicate<BlockState> filter) {
-        if (!states.maybeHas(filter)) return false;
-        boolean[] found = {false};
-        states.count((state, n) -> found[0] |= n > 0 && filter.test(state));
-        return found[0];
+        return !section.hasOnlyAir() && Palettes.contains(section.getStates(), s -> GridLights.needs(s, dark));
     }
 
     /** Есть ли в чанке, что переводить (по палитрам секций). */
@@ -241,14 +227,14 @@ public final class ChunkLights {
     /** В секциях есть погашенные лампы (по палитрам). */
     static boolean anyUnlit(LevelChunkSection[] sections) {
         for (LevelChunkSection section : sections) {
-            if (section != null && !section.hasOnlyAir() && contains(section.getStates(), GridLights::isUnlit)) return true;
+            if (section != null && !section.hasOnlyAir() && Palettes.contains(section.getStates(), GridLights::isUnlit)) return true;
         }
         return false;
     }
 
     /** Блоки секции вне чанка (копия для сохранения): меняются прямо в палитре. Возвращает, сколько ламп переведено. */
     static int apply(PalettedContainer<BlockState> states, boolean dark) {
-        if (!contains(states, s -> GridLights.needs(s, dark))) return 0;
+        if (!Palettes.contains(states, s -> GridLights.needs(s, dark))) return 0;
         int changed = 0;
         for (int y = 0; y < 16; y++) {
             for (int z = 0; z < 16; z++) {

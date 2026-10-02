@@ -2,7 +2,6 @@ package ua.zentix.airstrike.warhead;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
-import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -30,8 +29,6 @@ import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
@@ -350,141 +347,28 @@ public final class Warheads {
     }
 
     /**
-     * Ударная волна выбивает стёкла (и листву — только у ракеты). Сканируем лишь секции чанков, где такие блоки
-     * вообще есть, поэтому даже куб 53×31×53 обходится дёшево. Незагруженные чанки пропускаются. У чанка с неготовым
-     * соседом обновления соседей расходятся цепочкой дальше любого запаса в блоках (форма панели, потерявшей связь;
-     * дверь рядом проверяет сигнал редстоуна и читает соседей проводящего блока; рельсы и провод — ещё дальше) и
-     * грузили бы неготовый чанк синхронно. Поэтому там блок убирается без обновлений соседей (флаги 18: клиентам
-     * и без форм соседей — у соседней панели остаётся связь), а в {@link #EDGE} блоках от неготового чанка не
-     * убирается совсем: Sable читает соседние блоки каждого изменённого.
+     * Выбить всё из тега {@code tag} в коробке вокруг {@code center} сразу, без очереди ({@link Shatter}: только готовые
+     * чанки, у края загрузки — без обновлений соседей). Проверки.
      *
      * @return сколько блоков выбито
      */
     public static int shatter(ServerLevel level, Vec3 center, int radius, int below, int above, TagKey<Block> tag) {
-        Shatter job = new Shatter(null, List.of(), center, radius, below, above, tag, (l, n) -> {});
-        int broken = 0;
-        while (job.hasNext()) broken += job.nextSection(level);
-        return broken;
+        return Shatter.now(level, center, Shatter.Box.around(center, radius, below, above, tag));
     }
 
     /**
-     * Выбить стёкла (или листву) единицами в очереди попаданий: секция 16³, где они есть, — одна единица.
+     * Выбить стёкла волной наземного взрыва заряда {@code tntKg} кг ТНТ сразу, без очереди ({@link Shatter.Wave}).
+     * Проверки.
      *
-     * @param first звук и частицы — с первой секцией, где что-то выбито (сколько выбито в ней)
+     * @return сколько стёкол выбито
      */
-    static void shatterUnits(ServerLevel level, BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
-                             BiConsumer<ServerLevel, Integer> first) {
-        StrikeWorld.get(level).impacts().add(level, new Shatter(area.retain(), after, center, radius, below, above, tag, first));
+    public static int shatterGlass(ServerLevel level, Vec3 center, double tntKg) {
+        return Shatter.now(level, center, Shatter.Wave.of(center, tntKg));
     }
 
-    /** {@link #shatter} по секциям: секции без таких блоков пропускаются в той же единице, работа — одна секция. */
-    private static final class Shatter implements UnitQueue.Job {
-        @Nullable
-        private final BlastArea area;
-        private final List<StagedExplosion> after;
-        private final Vec3 center;
-        private final TagKey<Block> tag;
-        private final BiConsumer<ServerLevel, Integer> first;
-        private final BlockPos min, max;
-        private final int sx0, sy0, sz0, nx, ny, nz;
-        private int index;
-        private boolean broke;
-
-        Shatter(@Nullable BlastArea area, List<StagedExplosion> after, Vec3 center, int radius, int below, int above, TagKey<Block> tag,
-                BiConsumer<ServerLevel, Integer> first) {
-            this.area = area;
-            this.after = after;
-            this.center = center;
-            this.tag = tag;
-            this.first = first;
-            BlockPos c = BlockPos.containing(center);
-            min = c.offset(-radius, -below, -radius);
-            max = c.offset(radius, above, radius);
-            sx0 = SectionPos.blockToSectionCoord(min.getX());
-            sy0 = SectionPos.blockToSectionCoord(min.getY());
-            sz0 = SectionPos.blockToSectionCoord(min.getZ());
-            nx = SectionPos.blockToSectionCoord(max.getX()) - sx0 + 1;
-            ny = SectionPos.blockToSectionCoord(max.getY()) - sy0 + 1;
-            nz = SectionPos.blockToSectionCoord(max.getZ()) - sz0 + 1;
-        }
-
-        boolean hasNext() {
-            return index < nx * ny * nz;
-        }
-
-        /** Следующая секция по порядку; сколько блоков в ней выбито (0 — нечего или чанк не готов). */
-        int nextSection(ServerLevel level) {
-            int i = index++;
-            int sx = sx0 + i / (ny * nz), sz = sz0 + i / ny % nz, sy = sy0 + i % ny;
-            LevelChunk chunk = level.getChunkSource().getChunkNow(sx, sz);
-            if (chunk == null) return 0;
-            int idx = chunk.getSectionIndexFromSectionY(sy);
-            if (idx < 0 || idx >= chunk.getSectionsCount()) return 0;
-            LevelChunkSection section = chunk.getSection(idx);
-            if (section.hasOnlyAir() || !section.maybeHas(st -> st.is(tag))) return 0;
-            // соседи чанка готовы — любой его блок меняется как обычно; нет — без обновлений соседей и не у края
-            boolean edgesReady = Terrain.neighbourhoodReady(level, sx, sz);
-            int x0 = Math.max(min.getX(), SectionPos.sectionToBlockCoord(sx)), x1 = Math.min(max.getX(), SectionPos.sectionToBlockCoord(sx) + 15);
-            int y0 = Math.max(min.getY(), SectionPos.sectionToBlockCoord(sy)), y1 = Math.min(max.getY(), SectionPos.sectionToBlockCoord(sy) + 15);
-            int z0 = Math.max(min.getZ(), SectionPos.sectionToBlockCoord(sz)), z1 = Math.min(max.getZ(), SectionPos.sectionToBlockCoord(sz) + 15);
-            int broken = 0;
-            BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-            for (int x = x0; x <= x1; x++) {
-                for (int y = y0; y <= y1; y++) {
-                    for (int z = z0; z <= z1; z++) {
-                        // из уже взятой секции: setBlock меняет её же, так что следующие чтения верны
-                        if (section.getBlockState(x & 15, y & 15, z & 15).is(tag)) {
-                            m.set(x, y, z);
-                            if (!edgesReady && !Terrain.readyAround(level, Vec3.atCenterOf(m), EDGE)) continue;
-                            level.setBlock(m, Blocks.AIR.defaultBlockState(), edgesReady ? Block.UPDATE_ALL : EDGE_FLAGS);
-                            broken++;
-                        }
-                    }
-                }
-            }
-            return broken;
-        }
-
-        @Override
-        public boolean ready(ServerLevel level) {
-            return area == null || area.ready(level);
-        }
-
-        @Override
-        public boolean blocked() {
-            return pending(after);
-        }
-
-        @Override
-        public int unitKind() {
-            return ImpactCost.Kind.GLASS.ordinal();
-        }
-
-        @Override
-        public boolean step(ServerLevel level) {
-            long t0 = System.nanoTime();
-            int broken = 0;
-            // секции без таких блоков — в той же единице: работа — одна секция, где они есть
-            while (hasNext() && broken == 0) broken += nextSection(level);
-            if (broken > 0 && !broke) {
-                broke = true;
-                first.accept(level, broken);
-            }
-            long took = System.nanoTime() - t0;
-            if (area != null) area.record(level, ImpactCost.Kind.GLASS, took, broken);
-            else StrikeWorld.get(level).impactCost().add(ImpactCost.Kind.GLASS, took, broken);
-            return hasNext();
-        }
-
-        @Override
-        public void end(ServerLevel level) {
-            if (area != null) area.release(level);
-        }
-
-        @Override
-        public String describe() {
-            return "Стёкла у " + Mth.floor(center.x) + " " + Mth.floor(center.y) + " " + Mth.floor(center.z);
-        }
+    /** Докуда волна заряда {@code tntKg} кг ТНТ может выбить стекло, блоков. */
+    public static double glassReach(double tntKg) {
+        return Shatter.Wave.of(Vec3.ZERO, tntKg).radius();
     }
 
     /**
@@ -519,9 +403,9 @@ public final class Warheads {
      * Сколько блоков от изменённого блока должно быть в готовых чанках, когда он меняется без обновлений соседей
      * ({@link #EDGE_FLAGS}): сам блок и его соседи, которые читает Sable, — с запасом в блок.
      */
-    private static final int EDGE = 2;
+    static final int EDGE = 2;
     /** Изменение у края загрузки: клиентам, без форм соседей и без их обновлений. */
-    private static final int EDGE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
+    static final int EDGE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
 
     /**
      * Поджечь землю: огонь на верхнем блоке столба (как упавшие огненные шары). Только в готовых чанках: кольцо огня
@@ -682,9 +566,17 @@ public final class Warheads {
             area.release(level);
         }
 
-        /** Стёкла (и листва у ракеты) — единицами по секциям; звук и частицы — с первой секцией, где что-то выбито. */
+        /**
+         * Стёкла — по давлению волны заряда боевой части (у ракеты ещё листва в коробке) — единицами по секциям; звук
+         * и частицы — с первой секцией, где что-то выбито.
+         */
         private void shatterGlass(ServerLevel level, boolean missile) {
-            shatterUnits(level, area, main, pos, missile ? 26 : 16, missile ? 8 : 6, missile ? 22 : 12, ModTags.SHATTERS, (l, n) -> {
+            // листва у ракеты — рядом, до шара стёкол: в очереди не ждёт, пока он выбьет все свои секции
+            if (missile) {
+                Shatter.queue(level, area, main, pos, Shatter.Box.around(pos, 11, 3, 16, BlockTags.LEAVES),
+                        (l, n) -> l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f));
+            }
+            Shatter.queue(level, area, main, pos, Shatter.Wave.of(pos, weapon.spec().charge()), (l, n) -> {
                 float vol = missile ? 6 : 4;
                 l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 0.7f : 0.8f);
                 l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GLASS_BREAK, SoundSource.BLOCKS, vol, missile ? 1.0f : 1.2f);
@@ -692,10 +584,6 @@ public final class Warheads {
                 forced(l, new BlockParticleOption(ParticleTypes.BLOCK, Blocks.GLASS.defaultBlockState()), pos.add(0, missile ? 4 : 3, 0),
                         missile ? 500 : 250, missile ? 16 : 10, missile ? 6 : 5, missile ? 16 : 10, 0, 256);
             });
-            if (missile) {
-                shatterUnits(level, area, main, pos, 11, 3, 16, BlockTags.LEAVES,
-                        (l, n) -> l.playSound(null, pos.x, pos.y, pos.z, SoundEvents.GRASS_BREAK, SoundSource.BLOCKS, 4, 0.6f));
-            }
         }
     }
 

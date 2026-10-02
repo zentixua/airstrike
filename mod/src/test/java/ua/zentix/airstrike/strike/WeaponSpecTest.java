@@ -2,6 +2,8 @@ package ua.zentix.airstrike.strike;
 
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.entity.LauncherRack;
+import ua.zentix.airstrike.nuclear.model.BlastModel;
+import ua.zentix.airstrike.nuclear.world.BlockResponse;
 
 import java.util.List;
 
@@ -31,6 +33,25 @@ class WeaponSpecTest {
         assertEquals(160, WeaponSpec.ROCKET.sirenLead());
         assertEquals(400, WeaponSpec.LOITER.sirenLead());
         assertEquals(400, WeaponSpec.BUNKER.sirenLead());
+    }
+
+    /**
+     * Заряд боевой части есть у того, у кого есть наземный взрыв, и стёкла (порог хрупкого) он выбивает до дальности
+     * из описания оружия.
+     */
+    @Test
+    void chargeBreaksGlassAsDescribed() {
+        for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.ROCKET, WeaponSpec.LOITER, WeaponSpec.BUNKER, WeaponSpec.NUKE)) {
+            assertEquals(w.blast() == WeaponSpec.Blast.NONE, w.charge() == 0, () -> w.blast() + ": заряд " + w.charge());
+        }
+        assertEquals(70, glassRange(WeaponSpec.DRONE), 7);
+        assertEquals(150, glassRange(WeaponSpec.MISSILE), 15);
+        assertEquals(37, glassRange(WeaponSpec.ROCKET), 4);
+        assertEquals(29, glassRange(WeaponSpec.LOITER), 3);
+    }
+
+    private static double glassRange(WeaponSpec w) {
+        return BlastModel.rangeForSurfaceOverpressure(BlastModel.kpa(BlockResponse.FRAGILE_PSI), w.charge());
     }
 
     /** Рассеивание: у РСЗО СКО — 1 % дальности, не меньше блока; управляемые бьют в саму точку. */
