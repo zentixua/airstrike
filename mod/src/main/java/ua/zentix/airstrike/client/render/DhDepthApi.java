@@ -1,7 +1,9 @@
 package ua.zentix.airstrike.client.render;
 
 import com.seibel.distanthorizons.api.DhApi;
+import com.seibel.distanthorizons.api.enums.config.EDhApiDepthDirection;
 import com.seibel.distanthorizons.api.enums.config.EDhApiDepthRange;
+import com.seibel.distanthorizons.api.interfaces.override.rendering.IDhApiFramebuffer;
 import com.seibel.distanthorizons.api.interfaces.render.IDhApiRenderProxy;
 import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeRenderEvent;
@@ -13,17 +15,19 @@ import org.joml.Matrix4f;
 import ua.zentix.airstrike.Airstrike;
 
 /**
- * Связь {@link DhDepth} с API Distant Horizons; класс грузится, только если DH стоит. Проекция — из события
- * {@code DhApiBeforeRenderEvent} этого кадра (последнего с перспективой: под Iris DH рисует ещё и тени, своей
- * проекцией без перспективы), текстура и диапазон глубины — из {@code renderProxy} (API 7.2: диапазон и направление
- * глубины).
+ * Связь {@link DhDepth} с API Distant Horizons; класс грузится, только если DH стоит. Проекция и плоскости отсечения —
+ * из события {@code DhApiBeforeRenderEvent} этого кадра (последнего с перспективой: под Iris DH рисует ещё и тени, своей
+ * проекцией без перспективы), там же — рисует ли LOD чужая программа в свой кадр (подмена {@code IDhApiFramebuffer}:
+ * её ставит Iris перед каждым проходом, когда LOD рисует шейдерпак); текстура, диапазон и направление глубины — из
+ * {@code renderProxy} (API 7.2).
  */
 final class DhDepthApi {
     /** Мажорная версия API, против которой собран мод; 7.2 — с диапазоном и направлением глубины. */
     private static final int API_MAJOR = 7, API_MINOR = 2;
     private static final float[] ROWS = new float[16];
     private static final Matrix4f PROJECTION = new Matrix4f();
-    private static boolean captured;
+    private static float near, far;
+    private static boolean captured, foreign;
 
     private DhDepthApi() {}
 
@@ -45,6 +49,9 @@ final class DhDepthApi {
                 m.putValuesInArray(ROWS);
                 // DH отдаёт по строкам, JOML читает по столбцам
                 PROJECTION.set(ROWS).transpose();
+                near = event.value.nearClipPlane;
+                far = event.value.farClipPlane;
+                foreign = DhApi.overrides.get(IDhApiFramebuffer.class) != null;
                 captured = true;
             }
         });
@@ -59,12 +66,17 @@ final class DhDepthApi {
             if (!texture.success || texture.payload == null || texture.payload <= 0) return false;
             out.texture = texture.payload;
             out.negativeOneToOne = proxy.getDepthRange() == EDhApiDepthRange.NEG_ONE_TO_POS_ONE;
-            out.empty = proxy.getDepthDirection().farDepth;
+            EDhApiDepthDirection direction = proxy.getDepthDirection();
+            out.forward = direction == EDhApiDepthDirection.FORWARD_Z;
+            out.empty = direction.farDepth;
         } catch (IllegalStateException e) {
             // рендерер DH ещё не создан
             return false;
         }
-        PROJECTION.invert(out.inverseProjection);
+        out.projection.set(PROJECTION);
+        out.near = near;
+        out.far = far;
+        out.foreign = foreign;
         return true;
     }
 
