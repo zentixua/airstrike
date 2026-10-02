@@ -23,9 +23,9 @@ import java.util.Map;
  */
 public final class ClientNuclear {
     /**
-     * Подрыв на клиенте. «Вживую» (не при входе в мир) — со вспышкой, звуком и тряской. Время картинки считают свои
-     * тики клиента от прихода пакета, а не игровые часы: те прыгают назад, когда сервер догоняет отставание,
-     * а шар и двойная вспышка длятся доли секунды — их нельзя ни проскочить, ни повторить.
+     * Подрыв на клиенте. «Вживую» (не при входе в мир и не из перемотки повтора Flashback) — со вспышкой, звуком
+     * и тряской. Время картинки считают свои тики клиента от прихода пакета, а не игровые часы: те прыгают назад, когда
+     * сервер догоняет отставание, а шар и двойная вспышка длятся доли секунды — их нельзя ни проскочить, ни повторить.
      */
     public static final class Active {
         public final Detonation d;
@@ -37,10 +37,19 @@ public final class ClientNuclear {
         final NukeSounds.Schedule sounds;
 
         Active(Detonation d, boolean live, long clientNow) {
+            this(d, live, clientNow, new CloudPuffs(d));
+        }
+
+        /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
+        Active(Active a, long clientNow) {
+            this(a.d, false, clientNow, a.puffs);
+        }
+
+        private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs) {
             this.d = d;
             this.live = live;
             this.before = live ? 0 : Math.max(0, clientNow - d.gameTime());
-            this.puffs = new CloudPuffs(d);
+            this.puffs = puffs;
             this.sounds = new NukeSounds.Schedule(this);
         }
 
@@ -93,6 +102,9 @@ public final class ClientNuclear {
      */
     static final int DELAY_GRACE_TICKS = 50;
 
+    /** Раз в сколько тиков сервер присылает игровое время (в повторе — так же, из записи). */
+    static final int TIME_SYNC_TICKS = 20;
+
     private static final ClockLead CLOCK = new ClockLead();
     private static final Map<Integer, Active> DETONATIONS = new LinkedHashMap<>();
     private static final Map<Integer, S2C.NukeWarning> WARNINGS = new LinkedHashMap<>();
@@ -103,13 +115,19 @@ public final class ClientNuclear {
 
     // ---------------------------------------------------------------- пакеты
 
-    public static void warning(S2C.NukeWarning w) {
+    /** Пуск МБР; {@code live} — не из перемотки повтора ({@link ua.zentix.airstrike.client.replay.Replay#event}): рёв пуска только вживую. */
+    public static void warning(S2C.NukeWarning w, boolean live) {
         boolean fresh = !WARNINGS.containsKey(w.strikeId());
         WARNINGS.put(w.strikeId(), w);
-        if (fresh) NukeSounds.warning(w);
+        if (fresh && live) NukeSounds.warning(w);
     }
 
-    public static void detonation(S2C.NukeDetonation p) {
+    /**
+     * Подрыв; {@code live} — не из перемотки повтора: вспышка, звук и тряска только вживую, подрыв из перемотки виден
+     * в своём возрасте. Живой пакет подрыва, который уже показан как прошлый (повтор перемотали на миг до него), —
+     * показывается заново вживую.
+     */
+    public static void detonation(S2C.NukeDetonation p, boolean live) {
         Detonation d = p.detonation();
         // подрыв бывает и позже отсчёта: сервер ждёт, пока догрузится место (NuclearStrikes.GIVE_UP_TICKS). Подрыв
         // номера удара не несёт — снимается одно предупреждение: из подходящих по месту и сроку — с самым ранним
@@ -119,10 +137,11 @@ public final class ClientNuclear {
                 .min(Comparator.comparingLong(S2C.NukeWarning::detonateTime).thenComparingInt(S2C.NukeWarning::strikeId))
                 .ifPresent(w -> WARNINGS.remove(w.strikeId()));
         ClientLevel level = Minecraft.getInstance().level;
-        if (DETONATIONS.containsKey(d.id()) || level == null) return;
-        Active a = new Active(d, true, level.getGameTime());
+        Active known = DETONATIONS.get(d.id());
+        if ((known != null && (known.live || !live)) || level == null) return;
+        Active a = new Active(d, live, level.getGameTime());
         DETONATIONS.put(d.id(), a);
-        NukeFlash.detonation(a);
+        if (live) NukeFlash.detonation(a);
     }
 
     /** Вход в мир или смена измерения: всё, что уже есть, без вспышки и удара (они уже прошли). */
@@ -133,6 +152,25 @@ public final class ClientNuclear {
         long now = level == null ? 0 : level.getGameTime();
         for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
+    }
+
+    /**
+     * Повтор Flashback перемотан: всё, что было до этого места записи, — прошлое, без вспышки, звука и оглушения,
+     * в своём возрасте по часам мира; подрывы и пуски позже него убираются (дойдёт повтор — придут снова). Часы клиента
+     * в повторе — по последнему пакету времени записи, а он раз в секунду: подрыв в пределах секунды после часов
+     * остаётся (ему возраст 0).
+     */
+    public static void rewound() {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) return;
+        long now = level.getGameTime();
+        DETONATIONS.values().removeIf(a -> a.d.gameTime() > now + TIME_SYNC_TICKS);
+        DETONATIONS.replaceAll((id, a) -> new Active(a, now));
+        WARNINGS.values().removeIf(w -> w.launchTime() > now + TIME_SYNC_TICKS);
+        CLOCK.reset();
+        NukeFlash.reset();
+        Deafness.reset();
+        NukeDust.reset();
     }
 
     public static void radiation(S2C.Radiation p) {
