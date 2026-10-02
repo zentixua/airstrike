@@ -42,6 +42,12 @@ public final class FarSprites {
      * дыма шире); вблизи частицы берут тот же размер ({@code Explosions#fireball}). Клуб пламени закрывает 0,27 квадрата.
      */
     public static final double FIREBALL = 1.3, FIRE = 1.7;
+    /**
+     * Огненный шар — объём: его кадр стоит на столько радиусов ближе середины, у передней половины ({@link #front}).
+     * Плоскостью через середину он сверху уходил ближней к глазу половиной в землю под собой (наземный шар — полусфера,
+     * середина на 0,45 радиуса над землёй: с 54° срезало треть шара), а настоящий купол сверху виден целиком.
+     */
+    public static final double BALL_FRONT = 0.5;
     /** Тело мельче стольких пикселей (радиус) — круг: формы не видно, а свет точки верен; крупнее — кадр анимации. */
     private static final double SHAPE_FROM = 2, SHAPE_FULL = 4;
     /**
@@ -197,7 +203,7 @@ public final class FarSprites {
         double shape = smoothstep(SHAPE_FROM, SHAPE_FULL, radius / Math.max(d * pixel, 1e-12));
         if (shape < 1) core(dx, dy, dz, out, t, r, g, b, body * (1 - shape));
         float a = (float) (t * body * shape);
-        if (shape > 0 && billboard(dx, dy, dz, half, rot, sprite, a, a, a, a, (float) (radius * BODY_SOFT))) counts[1]++;
+        if (shape > 0 && billboard(dx, dy, dz, half, rot, sprite, a, a, a, a, (float) (radius * BODY_SOFT), BALL_FRONT * radius)) counts[1]++;
         glare(dx, dy, dz, out, seen, r, g, b, glare);
     }
 
@@ -288,11 +294,26 @@ public final class FarSprites {
     /** Квадрат: свет (r, g, b) уже умножен на непрозрачность a; ни света, ни заслона — не пишется. */
     private boolean billboard(double dx, double dy, double dz, double half, float rot, FxAtlas.Sprite sprite, float r, float g, float b, float a,
                               float soft) {
+        return billboard(dx, dy, dz, half, rot, sprite, r, g, b, a, soft, 0);
+    }
+
+    /** Квадрат с тем же угловым размером, перенесённый на {@code ahead} блоков ближе к глазу ({@link #front}). */
+    private boolean billboard(double dx, double dy, double dz, double half, float rot, FxAtlas.Sprite sprite, float r, float g, float b, float a,
+                              float soft, double ahead) {
         if (a < 0.002f && r + g + b < 0.006f) return false;
-        double d = Math.sqrt(dx * dx + dy * dy + dz * dz), k = FarDraw.fold(d, far);
+        double d = Math.sqrt(dx * dx + dy * dy + dz * dz), shift = front(d, ahead), unfold = FarDraw.fold(d * shift, far), k = shift * unfold;
         // цвет вершины — байт: больше 1 переполнился бы
         out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (half * k), rot, sprite, Math.min(1, r), Math.min(1, g),
-                Math.min(1, b), Math.min(1, a), soft, (float) k, LightTexture.FULL_BRIGHT, 0);
+                Math.min(1, b), Math.min(1, a), soft, (float) unfold, LightTexture.FULL_BRIGHT, 0);
         return true;
+    }
+
+    /**
+     * Во сколько раз ближе к глазу поставить квадрат на расстоянии d, чтобы он стоял на ahead блоков ближе, с тем же
+     * угловым размером (размер × то же число); не ближе {@link #AIR_NEAR}, у самого глаза — на месте.
+     */
+    public static double front(double d, double ahead) {
+        if (ahead <= 0 || d <= AIR_NEAR) return 1;
+        return Math.max(d - ahead, AIR_NEAR) / d;
     }
 }

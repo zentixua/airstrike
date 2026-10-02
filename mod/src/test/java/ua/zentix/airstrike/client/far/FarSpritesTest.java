@@ -11,6 +11,7 @@ import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Множители квадрата к радиусу круга того же светового потока сходятся с тем, сколько квадрата закрывают сами
@@ -87,5 +88,19 @@ class FarSpritesTest {
         BufferedImage glow = image("textures/far/glow.png");
         int mid = glow.getHeight() / 2;
         assertEquals(FarSprites.RIBBON, 1 / coverage(glow, mid - 1, mid), 0.03);
+    }
+
+    @Test
+    void ballSeenFromAboveStaysOutOfTheGround() {
+        // наземный шар ракеты (радиус 11, середина на 0,45 радиуса над землёй) в 85 блоках, взгляд на 54° вниз; мягкий
+        // край — FxQuads.SOFT полуразмера кадра. Точка кадра на 0,6 радиуса ниже середины — ближняя к глазу часть купола
+        double r = 11, d = 85, pitch = Math.toRadians(54), soft = 0.5 * FarSprites.FIREBALL * r, s = 0.6 * r;
+        double centre = d * Math.sin(pitch), ground = d * (centre + 0.45 * r) / (centre + s * Math.cos(pitch));
+        double plane = (ground - d) / soft, front = (ground - d * FarSprites.front(d, FarSprites.BALL_FRONT * r)) / soft;
+        assertTrue(plane < 0.3, "плоскостью через середину низ шара уходит в землю: " + plane);
+        assertTrue(front > 0.8, "у передней половины купол виден: " + front);
+        assertEquals(d - 5, d * FarSprites.front(d, 5), 1e-9, "та же угловая величина на 5 блоков ближе");
+        assertEquals(1, FarSprites.front(1, 5), 1e-9, "у самого глаза — на месте");
+        assertEquals(1, FarSprites.front(85, 0), 1e-9);
     }
 }

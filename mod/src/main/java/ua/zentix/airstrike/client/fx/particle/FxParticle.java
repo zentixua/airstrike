@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
+import ua.zentix.airstrike.client.far.FarSprites;
 import ua.zentix.airstrike.client.fx.layer.FxAtlas;
 import ua.zentix.airstrike.client.fx.layer.FxFrame;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
@@ -263,8 +264,12 @@ public final class FxParticle {
         switch (kind) {
             case SPARK -> streak(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, light, fog);
             case RING -> ring(out, sprite, (float) px, (float) py, (float) pz, (float) d, r, g, b, cover, light, fog);
-            default -> out.billboard((float) px, (float) py, (float) pz, (float) d, quadSize, Mth.lerp(partial, oRoll, roll), sprite, r, g, b, cover,
-                    quadSize * FxQuads.SOFT, 1, light, fog);
+            default -> {
+                // огненный шар — объём: квадрат у передней половины, как и вдали (FarSprites.BALL_FRONT)
+                float k = kind == Fx.Kind.FIREBALL ? (float) FarSprites.front(d, FarSprites.BALL_FRONT * quadSize / FarSprites.FIREBALL) : 1;
+                out.billboard((float) px * k, (float) py * k, (float) pz * k, (float) d, quadSize * k, Mth.lerp(partial, oRoll, roll), sprite, r, g, b, cover,
+                        quadSize * FxQuads.SOFT, 1, light, fog);
+            }
         }
     }
 

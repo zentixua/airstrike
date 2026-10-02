@@ -132,6 +132,19 @@ class FarBlastsTest {
                 "шахед ярче снаряда РСЗО");
     }
 
+    @Test
+    void hiddenBallGlowsNoBrighterThanItsVeil() {
+        double day = 1, night = 0.17;
+        for (FarBlasts.Look k : List.of(FarBlasts.DRONE, FarBlasts.MISSILE, FarBlasts.ROCKET, FarBlasts.BUNKER_BREACH)) {
+            double peak = k.flash() + FarBlasts.ball(0);
+            assertTrue(FarBlasts.behind(peak, day, 1) < 0.1, k + ": днём зарево из-за края едва видно");
+            assertEquals(Sight.VEIL_PEAK, FarBlasts.behind(peak, night, 1), 1e-9, k + ": ночью — в силу вуали, не ярче её");
+            assertTrue(FarBlasts.behind(FarBlasts.ball(0.5), night, 1) > Sight.THRESHOLD, k + ": ночью светит, пока светит шар");
+        }
+        assertTrue(Sight.VEIL_PEAK < Sight.HALO, "закрытый шар светит слабее блика открытого");
+        assertTrue(FarBlasts.behind(8, night, 0.01) < FarBlasts.behind(8, night, 1), "дымка гасит зарево");
+    }
+
     /** Верх облака: верх верхнего клуба поднявшегося столба. */
     private static double cloud(FarBlasts.Look k) {
         double r = FarBlasts.radius(k, 1);

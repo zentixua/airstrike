@@ -66,12 +66,14 @@ public final class FarBlasts {
     static final double FADE_IN = 8;
     /**
      * Яркость огненного шара и пожара в воронке против белого экрана днём (шар в ~2000 K — в десятки раз ярче неба;
-     * здесь меньше: экран не ярче белого, пересвет — блик и белое ядро); доля вспышки, что светит заревом из-за гребня:
-     * воздух над гребнем рассеивает свет шара радиуса R на расстоянии r — яркость σ·ℓ·R²/(4r²) от яркости шара (σ ясного
-     * воздуха ~2·10⁻⁴ на метр, путь ℓ ~100 м, r — 2–3 R), тысячная. Днём это едва видно, ночью — зарево в полнеба;
-     * при 0,05 днём за краем площадки вставало белое пятно в пол-экрана.
+     * здесь меньше: экран не ярче белого, пересвет — блик и белое ядро); доля света шара, что светит заревом, когда шар
+     * закрыт: воздух рассеивает свет шара радиуса R на расстоянии r — яркость σ·ℓ·R²/(4r²) от яркости шара (σ ясного
+     * воздуха ~2·10⁻⁴ на метр, путь ℓ ~100 м, r — 2–3 R), тысячная. Днём это едва видно (при 0,05 за краем площадки
+     * вставало белое пятно в пол-экрана), ночью зарево упирается в яркость вуали ({@link #halo}).
      */
     static final double BALL = 8, BURN = 2, BEHIND = 0.001;
+    /** Радиус светящегося воздуха вокруг закрытого шара, радиусов шара: дальше рассеянный свет слабеет как 1/r. */
+    static final double HALO_SIZE = 3;
     /**
      * Центр огненного шара над точкой взрыва (радиусов): наземный шар — полусфера, низ в земле; за жизнь он всплывает ещё
      * на {@link #BALL_RISE} (как частицы вблизи: скорость 0,012 радиуса за тик, сопротивление 0,94). Пожар в воронке —
@@ -353,16 +355,16 @@ public final class FarBlasts {
         double r = k.fireball();
         if (age < k.ballTicks()) {
             double u = age / k.ballTicks(), fl = flash(k, age), h = r * (BALL_LIFT + BALL_RISE * u);
-            double vis = visible(h, r, line);
+            double vis = visible(h, r, line), hidden = 1 - vis * e.open;
+            float[] c = glare(fl, u);
             if (vis > 0) {
-                float[] c = glare(fl, u);
                 out.shaped(bx, by + h, bz, r * growth(u), FxAtlas.fireball((float) u), r * FarSprites.FIREBALL, e.phase,
                         Sight.adapted(fl + ball(u), view.ambient()) * t, t, view.pixel(), c[0], c[1], c[2], vis * w * fade(u), vis * e.open, LIGHT);
                 brightest(view, bx, by + h, bz, vis);
             }
-            // за гребнем: свет вспышки рассеивает воздух над ним — слабое зарево там, откуда место было бы видно (вблизи
-            // за постройкой — нет: там светит сама вспышка на экране)
-            if (vis < 1 && fl > 0) halo(view, out, bx, by, bz, line, 7 * r, fl * BEHIND * (1 - vis), t, w, FLASH);
+            // шар закрыт гребнем или постройкой: его свет рассеивает воздух над краем — зарево там, откуда место было бы
+            // видно, пока шар светит; на любой дальности, как блик (вблизи за домом одной вспышки на экране не хватало)
+            if (hidden > 0) halo(view, out, bx, by + Math.max(line, h), bz, HALO_SIZE * r, (fl + ball(u)) * hidden, t, c);
         }
         if (w > 0 && age < k.burnTicks()) {
             double flicker = 0.75 + 0.25 * Math.sin(age * 1.9 + e.phase) * Math.sin(age * 0.73 + 2 * e.phase);
@@ -418,16 +420,26 @@ public final class FarBlasts {
     }
 
     /**
-     * Мягкий свет без тела (зарево из-за гребня): ореол радиуса rad яркостью b с центром на высоте h над основанием;
-     * с привыканием глаза к ночи и бликом, как у шара ({@link FarSprites#shaped}); мельче точки — бледнее (поток тот же).
-     * Светится воздух на rad перед местом: что ближе, зарево закрывает ({@link FarSprites#glow}).
+     * Мягкий свет без тела (зарево закрытого шара) с центром (gx, gy, gz): ореол радиуса rad — светящийся воздух вокруг
+     * шара; что ближе него, зарево закрывает ({@link FarSprites#glow}); мельче точки — бледнее (поток тот же). Яркость —
+     * {@link #behind}.
+     *
+     * @param light яркость шара и вспышки против белого экрана, без привыкания глаза
      */
-    private static void halo(FarView view, FarSprites out, double bx, double by, double bz, double h, double rad, double b, double t, double w,
-                             float[] c) {
-        double gy = by + h, d = Math.sqrt(bx * bx + gy * gy + bz * bz);
-        double seen = Sight.adapted(b, view.ambient()) * t;
+    private static void halo(FarView view, FarSprites out, double gx, double gy, double gz, double rad, double light, double t, float[] c) {
+        double d = Math.sqrt(gx * gx + gy * gy + gz * gz);
         double floor = Math.max(rad, 0.5 * Sight.MIN_PIXELS * view.pixel() * d), k = rad / floor;
-        out.glow(bx, gy, bz, floor * (1 + Sight.GLARE * Math.log1p(seen)), rad, c[0], c[1], c[2], (float) (Math.min(1, seen * k * k) * w));
+        out.glow(gx, gy, gz, floor, rad, c[0], c[1], c[2], (float) (behind(light, view.ambient(), t) * k * k));
+    }
+
+    /**
+     * Яркость зарева закрытого шара яркостью light против белого (с воздухом t и привыканием глаза к свету неба ambient):
+     * доля {@link #BEHIND} его света, но не ярче вуали видимого шара ({@link Sight#VEIL_PEAK}) — это тот же рассеянный
+     * свет. Ночью свет ×1200 ({@link Sight#adapted}), и зарево в полную силу заливало кремовым пол-кадра шире вуали самого
+     * шара: закрытый шар светил ярче открытого.
+     */
+    static double behind(double light, double ambient, double t) {
+        return Math.min(Sight.VEIL_PEAK, Sight.adapted(light * BEHIND, ambient) * t);
     }
 
     /** Цвет света шара и вспышки: пока вспышка ярче остывающего шара — её почти белый, потом — шара ({@link #tint}). */
