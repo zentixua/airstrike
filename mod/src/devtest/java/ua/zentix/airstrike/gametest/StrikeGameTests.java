@@ -3078,11 +3078,11 @@ public final class StrikeGameTests {
         List<BlockPos> inside = List.of(c.below(10), c.above(10), c.east(10), c.offset(-7, 0, 7), c.offset(0, -7, -7), c.offset(6, 6, 6));
         int out = Mth.ceil(reach) + 1;
         List<BlockPos> outside = List.of(c.west(out), c.north(out), c.below(out), c.offset(12, 0, -12));
-        // ниже точки взрыва — в траве на дне ямы глубиной в блок; рядом, в 3 блоках, — такое же стекло в грунте без ямы
+        // ниже точки взрыва — в грунте на дне ямы до неба; рядом, в 3 блоках, — такое же стекло в грунте без ямы
         BlockPos sealed = c.offset(3, -10, 0);
-        h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(sealed))) < sure && level.getBlockState(sealed.above()).is(Blocks.GRASS_BLOCK),
-                "стекло в грунте не ближе верной дальности или не под травой");
-        level.setBlock(c.below(9), Blocks.AIR.defaultBlockState(), 3);
+        h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(sealed))) < sure && !level.getBlockState(sealed.above()).isAir(),
+                "стекло в грунте не ближе верной дальности или не под грунтом");
+        for (BlockPos p = c.below(9); !level.getBlockState(p).isAir(); p = p.above()) level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
         level.setBlock(sealed, Blocks.RED_STAINED_GLASS.defaultBlockState(), 3);
         for (int i = 0; i < inside.size(); i++) {
             h.assertTrue(Math.sqrt(centre.distanceToSqr(Vec3.atCenterOf(inside.get(i)))) < sure, "стекло " + i + " не ближе верной дальности");
