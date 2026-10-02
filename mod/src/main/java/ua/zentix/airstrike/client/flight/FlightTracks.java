@@ -34,6 +34,8 @@ public final class FlightTracks {
      */
     public static final int RINGOUT = 200;
     private static long tick;
+    /** Мир, в котором записаны пути: смена измерения — новый мир, прошлые пути там не летят. */
+    private static ClientLevel world;
 
     private FlightTracks() {}
 
@@ -47,7 +49,12 @@ public final class FlightTracks {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) {
             reset();
+            world = null;
             return;
+        }
+        if (level != world) {
+            reset();
+            world = level;
         }
         tick++;
         for (Entity e : level.entitiesForRendering()) {

@@ -37,6 +37,18 @@ class TrailPointsTest {
     }
 
     @Test
+    void frozenWorldStopsAgeing() {
+        // /tick freeze на 30 тиков: точка 100-го тика тает к 170-му, а не к 140-му
+        TrailPoints p = new TrailPoints();
+        long a = p.add(0, 0, 0, 100, SHORT, 0, 1, TrailPoints.NONE);
+        for (int i = 0; i < 30; i++) p.hold();
+        p.expire(169);
+        assertTrue(p.holds(a), "в заморозке не стареет");
+        p.expire(170);
+        assertFalse(p.holds(a));
+    }
+
+    @Test
     void finishedRibbonEndsUntilThePathResumes() {
         TrailPoints p = new TrailPoints();
         long a = p.add(0, 0, 0, 0, LONG, 0, 1, TrailPoints.NONE);

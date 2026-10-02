@@ -5,6 +5,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
@@ -188,6 +189,8 @@ public final class FarFlightView {
         }
         Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
         double world = mc.options.getEffectiveRenderDistance() * 16.0;
+        // мир заморожен: снаряды стоят, шлейфы не растут и не стареют (точки того же места не нужны)
+        boolean frozen = frozen();
         active = 0;
         for (int i = FARS.size() - 1; i >= 0; i--) {
             Far f = FARS.get(i);
@@ -199,12 +202,23 @@ public final class FarFlightView {
                 FARS.removeLast();
                 continue;
             }
-            sample(f, Math.min(f.track.lastTick(), now - 1), POINTS, FarFlightView::light);
-            close(f, now);
+            if (frozen) {
+                f.cursor = Math.max(f.cursor, Math.min(f.track.lastTick(), now - 1));
+            } else {
+                sample(f, Math.min(f.track.lastTick(), now - 1), POINTS, FarFlightView::light);
+                close(f, now);
+            }
             sight(f, now, eye, world);
             if (f.track.fromServer() && !f.track.isDead()) active++;
         }
-        POINTS.expire(now - 1);
+        if (frozen) POINTS.hold();
+        else POINTS.expire(now - 1);
+    }
+
+    /** Мир заморожен ({@code /tick freeze}): сущности и частицы стоят. */
+    private static boolean frozen() {
+        ClientLevel lv = level;
+        return lv != null && !lv.tickRateManager().runsNormally();
     }
 
     /** Точки шлейфов без света мира (юнит-тесты): открытое небо. */
@@ -272,13 +286,20 @@ public final class FarFlightView {
         f.started = true;
     }
 
-    /** Свет мира в точке: чанк есть у клиента — как у частицы, нет — открытое небо. */
+    /**
+     * Свет мира в точке: чанк есть у клиента — как у частицы, нет — открытое небо. Точка у сопла на старте бывает
+     * в верхнем блоке земли (сопло МБР на пусковой — на блок ниже её верха): внутри твёрдого блока света нет, и низ
+     * столба был бы почти чёрным — свет берётся над ним.
+     */
     private static int light(double x, double y, double z) {
         ClientLevel lv = level;
         if (lv == null) return LightTexture.FULL_SKY;
         PROBE.set(x, y, z);
-        return lv.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(PROBE.getX()), SectionPos.blockToSectionCoord(PROBE.getZ()))
-                ? LevelRenderer.getLightColor(lv, PROBE) : LightTexture.FULL_SKY;
+        if (!lv.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(PROBE.getX()), SectionPos.blockToSectionCoord(PROBE.getZ()))) {
+            return LightTexture.FULL_SKY;
+        }
+        for (int k = 0; k < 2 && lv.getBlockState(PROBE).isSolidRender(lv, PROBE); k++) PROBE.move(Direction.UP);
+        return LevelRenderer.getLightColor(lv, PROBE);
     }
 
     /** Закрыт ли снаряд рельефом: луч раз в {@link #SIGHT_PERIOD} тика, только дальше прорисовки; видимость — плавно. */
@@ -306,7 +327,7 @@ public final class FarFlightView {
         points = 0;
         nearest = null;
         Arrays.fill(COUNT, 0);
-        double t = FlightTracks.now() - 1 + view.partial();
+        double t = FlightTracks.now() - 1 + (frozen() ? 0 : view.partial());
         Vec3 cam = view.camera();
         for (long s = POINTS.first(), end = POINTS.end(); s < end; s++) {
             int i = TrailPoints.index(s);

@@ -98,6 +98,11 @@ final class TrailPoints {
         }
     }
 
+    /** Мир заморожен ({@code /tick freeze}) на тик: живые точки не стареют, как и частицы. */
+    void hold() {
+        for (long s = first; s < next; s++) birth[index(s)]++;
+    }
+
     /** Шлейф снаряда пропадает сразу (отбой: полёт кончился без взрыва). */
     void kill(int owner) {
         for (long s = first; s < next; s++) {
