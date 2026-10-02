@@ -48,8 +48,8 @@ import java.util.stream.Stream;
  * открытия повтор перематывается вперёд за все удары, после проигрывания — назад к концу, к началу проигрывания и снова
  * вперёд; на каждой — строка {@code SCENARIO replay seek}: ни частиц взрывов, ни вспышки, ни живого подрыва (Flashback
  * отдаёт пакеты перемотки разом, Flashback NeoForge Fixed кладёт последние в снимок — это прошлое), подрыв до места —
- * в своём возрасте по часам мира, после места — не виден. Во время проигрывания взрывы и подрыв — живые. Итог —
- * {@code SCENARIO replay seeks ok|FAIL}.
+ * в своём возрасте по часам мира, после места — не виден; кадр {@code replay_seek_<имя>.png}. Во время проигрывания
+ * взрывы и подрыв — живые. Итог — {@code SCENARIO replay seeks ok|FAIL}.
  */
 final class ReplayCheck {
     /** Столько тиков ждать файла повтора после выхода и мира повтора после открытия. */
@@ -209,12 +209,12 @@ final class ReplayCheck {
         last.putAll(now);
         for (UUID id : now.keySet()) {
             if (number.putIfAbsent(id, number.size() + 1) == null) {
-                for (int d : FLIGHT) shots.add(new Shot(playTicks + d, "flight" + number.get(id) + "_" + d, id, true));
+                if (frames < MAX_FRAMES) for (int d : FLIGHT) shots.add(new Shot(playTicks + d, "flight" + number.get(id) + "_" + d, id, true));
             }
         }
         for (UUID id : live) {
             if (!now.containsKey(id)) {
-                for (int d : GONE) shots.add(new Shot(playTicks + d, "gone" + number.get(id) + "_" + d, id, false));
+                if (frames < MAX_FRAMES) for (int d : GONE) shots.add(new Shot(playTicks + d, "gone" + number.get(id) + "_" + d, id, false));
             }
         }
         live.clear();
@@ -245,10 +245,8 @@ final class ReplayCheck {
                         BlockPos.containing(at).toShortString(), cam == null ? "-" : cam.getClass().getSimpleName(),
                         cam == null ? "-" : cam.blockPosition().toShortString(), ours, fx, mc.getFps(), floor,
                         BuiltInRegistries.BLOCK.getKey(mc.level.getBlockState(under).getBlock()));
-                if (++frames == MAX_FRAMES) {
-                    finish();
-                    return;
-                }
+                // кадров хватит — проигрывание идёт дальше без них, к перемоткам
+                if (++frames == MAX_FRAMES) shots.clear();
             }
         }
         if (shots.isEmpty() && (tick >= total - 2 || playTicks > total - playFrom + 400)) {
@@ -302,6 +300,7 @@ final class ReplayCheck {
         if (!agesOk) why.add("возраст");
         if (seek.nuke != null && seek.nuke != !nukes.isEmpty()) why.add(seek.nuke ? "нет подрыва" : "подрыв раньше времени");
         if ("open".equals(seek.name)) openNukes = nukes.size();
+        Screenshot.grab(mc.gameDirectory, "replay_seek_" + seek.name + ".png", mc.getMainRenderTarget(), c -> {});
         Airstrike.LOG.info("SCENARIO replay seek {} to {}: at {} fx={} flash={} nukes={} live={} age/expected{} {}", seek.name, seek.to, at, fx,
                 String.format(java.util.Locale.ROOT, "%.2f", seekFlash), nukes.size(), live, ages, why.isEmpty() ? "ok" : "FAIL " + String.join(", ", why));
         if (!why.isEmpty()) seekFails.add(seek.name + ": " + String.join(", ", why));
