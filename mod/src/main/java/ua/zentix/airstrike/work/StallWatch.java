@@ -94,7 +94,10 @@ public final class StallWatch {
                 stalledAt = 0;
             }
             if (server.isPaused()) {
-                // пауза одиночной игры: тиков нет, пока игрок в меню, — ждать первого тика после неё
+                // пауза одиночной игры: тиков нет, пока игрок в меню, — ждать первого тика после неё. Паузу ставит
+                // начало тика, событий тика при ней нет: остановка между тиками, на которой игрок нажал Esc, кончилась
+                // сейчас (длина — с точностью до пробуждения)
+                if (stalledAt != 0) report(System.nanoTime() - stalledAt, stalledInTick, samples);
                 pausedAt = at;
                 samples.clear();
                 stalledAt = 0;
