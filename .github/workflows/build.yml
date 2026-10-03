@@ -1,4 +1,5 @@
 # Сборка, юнит-тесты и GameTest (сервер с Create, Sable, Aeronautics с Modrinth); jar — в артефактах запуска.
+# Мод ведущего (mod/gm, только сервер) собирается той же сборкой, его GameTest — в задаче сборки.
 # Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
 # мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком; правка сборки
 # (pack/) — только её файлы для Prism (.mrpack и экземпляр с автообновлением). GameTest идёт
@@ -108,12 +109,27 @@ jobs:
           path: mod/build/libs/*.jar
           if-no-files-found: error
 
+      # мод ведущего (mod/gm, только сервер) собран той же сборкой; его GameTest — без Create и Sable, ~1 мин
+      - uses: actions/upload-artifact@v6
+        with:
+          name: airstrike-gm-jar
+          path: mod/gm/build/libs/*.jar
+          if-no-files-found: error
+
+      - name: GameTest мода ведущего
+        run: |
+          ./gradlew :gm:runGmGameTestServer --console=plain
+          grep -E 'All [0-9]+ required tests passed' gm/run/gametest/logs/latest.log
+
       - name: Отчёты при падении
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: reports
-          path: mod/build/reports/
+          path: |
+            mod/build/reports/
+            mod/gm/build/reports/
+            mod/gm/run/gametest/logs/
           if-no-files-found: ignore
 
   gametest:
@@ -246,10 +262,16 @@ jobs:
         with:
           name: airstrike-jar
           path: mod/build/libs
+      - uses: actions/download-artifact@v7
+        with:
+          name: airstrike-gm-jar
+          path: mod/gm/build/libs
+      # мод ведущего — рядом, своей версией (gm_version): его ставит только сервер
       - name: Релиз
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(sed -n 's/^mod_version=//p' mod/gradle.properties)
-          gh release create "v$v" "mod/build/libs/airstrike-$v.jar" --target "$GITHUB_SHA" \
+          gv=$(sed -n 's/^gm_version=//p' mod/gradle.properties)
+          gh release create "v$v" "mod/build/libs/airstrike-$v.jar" "mod/gm/build/libs/airstrike-gm-$gv.jar" --target "$GITHUB_SHA" \
             --title "Airstrike $v" --notes-file "docs/releases/$v.md"

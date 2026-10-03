@@ -35,6 +35,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     src/devtest/                         ← GameTest, сценарии полёта и клиента, стенд нагрузки (в jar не входят)
     src/test/                            ← юнит-тесты JUnit
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
+    gm/                                  ← мод ведущего airstrike_gm: мост Claude к серверу (только сервер, свой jar)
   tools/                                 ← скрипты; что каждый умеет — .claude/rules/tools.md:
                                            paths.py (все пути к игре), deploy.sh, logscan.py; моды и каталоги для
                                            запусков — fetch_runtime_mods.py, pack_dir.py, prism_instance.py; клиент без окна
@@ -42,7 +43,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
                                            freesound.py, gen_textures.py, gen_particles.py, gen_models.py,
-                                           gen_grid_assets.py; трейлер — trailer/
+                                           gen_grid_assets.py; трейлер — trailer/; ведущий (MCP) — gm.py
   pack/                                  ← своя сборка «Airstrike Pack» (packwiz); состав — pack/README.md;
                                            pack/ на main игроки с автообновлением ставят при каждом запуске игры
   docs/DESIGN-nuke.md                    ← проект ядерного удара
@@ -63,6 +64,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 export JAVA_HOME=~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta
 cd mod && ./gradlew build                 # компиляция (-Xlint:all без предупреждений) и юнит-тесты
 cd mod && ./gradlew runGameTestServer     # GameTest: сервер без окна с Create 6.0.10, Sable 2.0.5, Aeronautics 1.3.2
+cd mod && ./gradlew :gm:runGmGameTestServer  # GameTest мода ведущего (без Create; ./gradlew build собирает оба мода)
 cd mod && ./gradlew runScenarioSweep      # одни сценарии полёта, все зёрна (-PscenarioSeeds=N, по умолчанию 16;
                                           # -PscenarioOnly=<регвыр> — выбор, -PscenarioRealChunks — настоящая загрузка)
 cd mod && ./gradlew runScenarioRecord     # записать эталон траекторий заново (сдвиг — объяснить в PR по сценариям)
@@ -173,6 +175,7 @@ PR сборки с jar выпуска — после выпуска: `pack/` н�
 - `client-scenario.md` — сценарии клиента без окна: строки `SCENARIO`, сценарий `commands`, облако, сценарии `fx`.
 - `rigs.md` — стенд нагрузки, мультиплеер на петле, вложенный KWin, боевой клиент со всей сборкой.
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
+- `gm.md` — мод ведущего `mod/gm` и `tools/gm.py`: мост, методы, чанки без тика, постройка с откатом, снимки.
 
 ## Окружение
 - NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 53 мода), прежний
