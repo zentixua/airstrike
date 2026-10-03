@@ -54,13 +54,15 @@ packwiz-installer вернёт. Если сборка сменит версию 
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
 | картинка и камера | шейдерпак Complementary Reimagined, Euphoria Patches, Aeronautics Camera Sync, 3D Skin Layers, Not Enough Animations |
-| мультиплеер и удобство | Essential, LAN World Plug-n-Play (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
+| мультиплеер и удобство | Essential, LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
 | запись (по выбору) | Flashback, Flashback NeoForge Fixed, Sinytra Connector, Forgified Fabric API |
 
-LAN World Plug-n-Play (mcwifipnp) — временно, чтобы в мир хоста мог зайти игрок без входа в аккаунт Microsoft;
-уберём по слову Артёма. Хост: пауза → «Открыть для сети» → «Проверка лицензии»: «Отключить», «Переадресация порта»
-выключить → «Открыть мир для сети»; заходят по адресу хоста в Tailscale и порту из этого окна. Переадресацию выключать
-всегда: она включена по умолчанию, и роутер с UPnP открыл бы мир всему интернету, а без проверки лицензии — кому угодно.
+LAN Server Properties — временно, чтобы в мир хоста мог зайти игрок без входа в аккаунт Microsoft; уберём по слову
+Артёма. Хост: пауза → «Открыть для сети» → «Проверка лицензии»: «Без проверки лицензии + исправление UUID» → «Открыть
+мир для сети»; заходят по адресу хоста в Tailscale и порту из этого окна. Исправление UUID оставляет игрокам с лицензией
+их UUID (инвентарь и достижения в мире те же), игрок без лицензии получает свой. Порт мод не пробрасывает (UPnP у него
+нет), проверка лицензии по умолчанию включена; «Сохранить настройки» не нажимать — иначе мир будет открываться без
+проверки и дальше.
 
 Настройки, которые сборка кладёт сама:
 - `config/entityculling.json` — значения Entity Culling по умолчанию плюс сущности Airstrike в `entityWhitelist`: такие
@@ -85,6 +87,6 @@ LAN World Plug-n-Play (mcwifipnp) — временно, чтобы в мир х�
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
-| 0.1.2 | 2.6.0 | автообновление (packwiz-installer); LAN World Plug-n-Play — вход без лицензии в мир хоста, временно |
+| 0.1.2 | 2.6.0 | автообновление (packwiz-installer); LAN Server Properties — вход без лицензии в мир хоста, временно |
 | 0.1.1 | 2.6.0 | Airstrike 2.6.0 ([заметки](../docs/releases/2.6.0.md)); остальные моды и настройки те же |
 | 0.1.0 | 2.5.0 | первая версия |

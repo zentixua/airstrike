@@ -179,6 +179,11 @@ hash = "c911d03476ac0e535c3c601ad98a725ce685e063032474abbf2a2fb9bf23f786"
 metafile = true
 
 [[files]]
+file = "mods/lan-server-properties.pw.toml"
+hash = "5ff304981d07360fcd58c96803d990886f48a6041af628f75ec65798d440ee79"
+metafile = true
+
+[[files]]
 file = "mods/lithium.pw.toml"
 hash = "51e129832b04acd57da470fc41725bad5e101b6a6b1d4901fd8ea7a92b14e13d"
 metafile = true
@@ -186,11 +191,6 @@ metafile = true
 [[files]]
 file = "mods/man-of-many-planes.pw.toml"
 hash = "fd4893ff877df14bb9b01a058743144b93b2c84d2c38c106d20af429c546046a"
-metafile = true
-
-[[files]]
-file = "mods/mcwifipnp.pw.toml"
-hash = "9c3bf2d00b08908a8c31b1b330a4a44cf9a6814776571ead39d5bac889fc247f"
 metafile = true
 
 [[files]]
