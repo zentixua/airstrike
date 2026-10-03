@@ -3,7 +3,10 @@ package ua.zentix.airstrike.guidance;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -79,5 +82,15 @@ class RouteTest {
         Route orbit = Route.load(Route.plan(new Vec3(0, 64, 200), TARGET, NORTH_TO_SOUTH, 200, 300, 1).save());
         orbit.update(new Vec3(30, 64, 75), 20);
         assertTrue(orbit.finished(), "начало маршрута сохраняется");
+    }
+
+    @Test
+    void operatorMarkSurvivesGateAndSaving() {
+        Route plan = Route.plan(LAUNCH, TARGET, NORTH_TO_SOUTH, 2100, 300, 1);
+        assertFalse(plan.byOperator(), "маршрут пуска — не оператора");
+        assertFalse(Route.load(plan.after(LAUNCH, LAUNCH).save()).byOperator());
+        Route op = Route.operator(List.of(new Vec3(100, 0, 100)), LAUNCH).after(LAUNCH, LAUNCH);
+        assertTrue(op.byOperator(), "точка у пусковой перед точками оператора — всё ещё его маршрут");
+        assertTrue(Route.load(op.save()).byOperator());
     }
 }

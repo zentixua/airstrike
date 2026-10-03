@@ -109,6 +109,22 @@ class WeaponSpecTest {
         }
     }
 
+    /**
+     * Точка маршрута взята около радиуса разворота: ближе снаряд кружил бы вокруг неё, а много дальше срезал бы поворот.
+     * Дальность по маршруту оператора — путь до цели на краю карты по умолчанию (10 000 блоков) с обходом в полтора раза
+     * длиннее прямой.
+     */
+    @Test
+    void waypointCaptureAndReach() {
+        for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.LOITER)) {
+            WeaponSpec.Airframe a = w.airframe();
+            double r = a.turnRadius(a.cruiseSpeed());
+            assertTrue(w.route().capture() >= 0.95 * r && w.route().capture() <= 2 * r, "захват точки " + w.route().capture() + ", радиус разворота " + r);
+            assertTrue(w.route().reach() >= 1.5 * 10_000, "дальность по маршруту " + w.route().reach());
+        }
+        for (WeaponSpec w : List.of(WeaponSpec.BUNKER, WeaponSpec.NUKE, WeaponSpec.ROCKET)) assertTrue(!w.route().waypoints());
+    }
+
     /** Ячейка пусковой занята, пока снаряд горит на направляющей и сходит с неё; пуски не чаще, чем освобождается ячейка. */
     @Test
     void rackHoldsSlotThroughLaunch() {

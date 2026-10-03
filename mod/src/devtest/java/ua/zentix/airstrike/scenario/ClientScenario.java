@@ -156,6 +156,7 @@ public final class ClientScenario {
         else if ("map".equals(mode)) planMap();
         else if ("target-map".equals(mode)) planTargetMap();
         else if ("salvo-map".equals(mode)) planSalvoMap();
+        else if ("route-map".equals(mode)) planRouteMap();
         else if ("occlusion".equals(mode)) planOcclusion();
         else if ("nuke-profile".equals(mode)) planNukeProfile();
         else if ("onboard".equals(mode)) planOnboard();
@@ -1341,6 +1342,171 @@ public final class ClientScenario {
             Airstrike.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
+    }
+
+    /**
+     * Маршрут на карте наведения ({@code route-map}): пульт с шахедом ({@code airstrike.mapWeapon} — другое оружие),
+     * карта отдалена, цель — кликом, три точки маршрута (Shift+клик без окна не нажать: точки ставит {@code MapTarget}
+     * так же, как клик), третья убрана ПКМ, вторая перетащена мышью; маршрут длиннее дальности оружия — огонь не даётся;
+     * огонь по Enter. Сервер: снаряд проходит точки по порядку — не дальше двух захватов паспорта и шага, как
+     * {@code Route.update}, — и попадает в цель (строка {@code SCENARIO route-map impact … OK}). Кадры route-map_*.
+     * {@code airstrike.mapFrom=x,y,z} — откуда бить (и в копии мира игрока).
+     */
+    private void planRouteMap() {
+        WeaponType weapon = java.util.Objects.requireNonNull(WeaponType.parse(System.getProperty("airstrike.mapWeapon", "drone")),
+                "airstrike.mapWeapon");
+        at(40, () -> {
+            cmd("time set 6000");
+            cmd("weather clear");
+            String from = System.getProperty("airstrike.mapFrom");
+            if (from != null) {
+                cmd("gamemode creative");
+                cmd("tp @s " + from.replace(',', ' ') + " 0 30");
+            }
+            else if (System.getProperty("airstrike.world") == null) cmd("tp @s 0.5 120 0.5 0 30");
+            cmd("item replace entity @s weapon.mainhand with airstrike:strike_designator[airstrike:loadout={weapon:\"" + weapon.getSerializedName() + "\"}]");
+        });
+        for (int t = 300; t <= 300 + MAP_DH_WAIT; t += 20) {
+            at(t, () -> {
+                if (mapOpened < 0 && (dhIdle() || tick >= 300 + MAP_DH_WAIT)) routeMapBegin(tick, weapon);
+            });
+        }
+        // сервер (встроенный): какие точки маршрута снаряд прошёл и где взорвался
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.tick.ServerTickEvent.Post e) -> {
+            ua.zentix.airstrike.strike.Waypoints via = routeFired;
+            if (via == null || routePassed >= via.size()) return;
+            Vec3 wp = via.points().get(routePassed);
+            double near = 2 * weapon.spec().route().capture() + weapon.spec().airframe().cruiseSpeed() + 1;
+            var level = e.getServer().overworld();
+            java.util.List<StrikeProjectile> flying = new ArrayList<>(ua.zentix.airstrike.strike.VirtualFlights.get(level).flights());
+            level.getEntities(net.minecraft.world.level.entity.EntityTypeTest.forClass(StrikeProjectile.class), q -> !q.isRemoved()).forEach(flying::add);
+            for (StrikeProjectile q : flying) {
+                if (q.weapon() != weapon || Math.hypot(q.getX() - wp.x, q.getZ() - wp.z) > near) continue;
+                routePassed++;
+                Airstrike.LOG.info("SCENARIO route-map waypoint {} passed at {}", routePassed, xyz(q.position()));
+                break;
+            }
+        });
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.ExplosionEvent.Detonate e) -> {
+            Vec3 at = e.getExplosion().center(), aim = mapTarget;
+            ua.zentix.airstrike.strike.Waypoints via = routeFired;
+            if (aim == null || via == null || mapImpactTick >= 0 || e.getLevel().isClientSide()) return;
+            double miss = Math.hypot(at.x - aim.x, at.z - aim.z);
+            boolean ok = miss <= MAP_MAX_MISS && routePassed == via.size();
+            Airstrike.LOG.info("SCENARIO route-map impact {} miss {}, точек пройдено {} из {} — {}", xyz(at), Math.round(miss), routePassed, via.size(),
+                    ok ? "OK" : "FAIL");
+            mapImpactTick = tick;
+        });
+    }
+
+    /** Маршрут, с которым ушёл приказ (сценарий route-map), и сколько его точек снаряд прошёл; их читает поток сервера. */
+    @org.jetbrains.annotations.Nullable
+    private volatile ua.zentix.airstrike.strike.Waypoints routeFired;
+    private volatile int routePassed;
+
+    private void routeMapBegin(int o, WeaponType weapon) {
+        mapOpened = o;
+        Airstrike.LOG.info("SCENARIO route-map open at tick {}", o);
+        Minecraft mc = Minecraft.getInstance();
+        mc.setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        at(o + 20, () -> mc.screen.mouseScrolled(mc.screen.width / 2.0, mc.screen.height / 2.0, 0, -6));
+        at(o + 40, () -> {
+            Screen screen = mc.screen;
+            double x = screen.width / 2.0 + 110, y = screen.height / 2.0 - 60;
+            screen.mouseClicked(x, y, 0);
+            screen.mouseReleased(x, y, 0);
+            var place = ua.zentix.airstrike.client.map.MapTarget.get(mc.level).orElseThrow();
+            mapTarget = new Vec3(place.x(), 0, place.z());
+            // обход с запада, третья точка — лишняя (её уберёт ПКМ)
+            Vec3 me = mc.player.position();
+            ua.zentix.airstrike.client.map.MapTarget.add(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(me.x - 320, me.z - 120));
+            ua.zentix.airstrike.client.map.MapTarget.add(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(me.x - 160, me.z - 480));
+            ua.zentix.airstrike.client.map.MapTarget.add(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(me.x + 200, me.z + 200));
+            logRoute("три точки", weapon);
+        });
+        shot(o + 60, "route-map");
+        at(o + 70, () -> {
+            Screen screen = mc.screen;
+            var route = ua.zentix.airstrike.client.map.MapTarget.route(mc.level);
+            int[] third = mapScreenAt(screen, route.get(2)), second = mapScreenAt(screen, route.get(1));
+            screen.mouseClicked(third[0], third[1], 1);
+            screen.mouseClicked(second[0], second[1], 0);
+            screen.mouseDragged(second[0] + 20, second[1] - 10, 0, 20, -10);
+            screen.mouseDragged(second[0] + 40, second[1] - 20, 0, 20, -10);
+            screen.mouseReleased(second[0] + 40, second[1] - 20, 0);
+            var edited = ua.zentix.airstrike.client.map.MapTarget.route(mc.level);
+            boolean ok = edited.size() == 2 && edited.get(0).equals(route.get(0)) && edited.get(1).x() > route.get(1).x() + 1
+                    && edited.get(1).z() < route.get(1).z() - 1;
+            Airstrike.LOG.info("SCENARIO route-map edit (ПКМ убрал третью, вторая перетащена) — {}", ok ? "OK" : "FAIL");
+            logRoute("после правки", weapon);
+        });
+        shot(o + 80, "route-map");
+        at(o + 90, () -> {
+            Vec3 me = mc.player.position();
+            ua.zentix.airstrike.client.map.MapTarget.add(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(me.x, me.z + 9_500));
+            ua.zentix.airstrike.client.map.MapTarget.add(mc.level, new ua.zentix.airstrike.client.map.MapTarget.Place(me.x + 9_500, me.z + 9_500));
+            boolean blocked = !mapCanFire(mc.screen);
+            mc.screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0);
+            Airstrike.LOG.info("SCENARIO route-map too long: огонь не даётся — {}", blocked && mc.screen instanceof ua.zentix.airstrike.client.screen.MapScreen ? "OK" : "FAIL");
+            logRoute("длиннее дальности", weapon);
+        });
+        shot(o + 100, "route-map");
+        at(o + 110, () -> {
+            ua.zentix.airstrike.client.map.MapTarget.remove(mc.level, 3);
+            ua.zentix.airstrike.client.map.MapTarget.remove(mc.level, 2);
+            routeFired = ua.zentix.airstrike.client.map.MapTarget.waypoints(mc.level);
+            logRoute("огонь", weapon);
+            mc.screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, 0, 0);
+        });
+        at(o + 170, () -> {
+            logFlights();
+            mc.setScreen(new ua.zentix.airstrike.client.screen.MapScreen(new RemoteScreen()));
+        });
+        for (int t = o + 190; t <= o + MAP_FLIGHT_WAIT; t += 120) shot(t, "route-map");
+        for (int t = o + 190; t <= o + MAP_FLIGHT_WAIT; t += 20) {
+            at(t, () -> {
+                if (mapDone) return;
+                if (mapImpactTick < 0 || tick < mapImpactTick + 60) {
+                    if (tick < o + MAP_FLIGHT_WAIT) return;
+                    Airstrike.LOG.warn("SCENARIO route-map no impact by tick {}, точек пройдено {} — FAIL", tick, routePassed);
+                }
+                mapDone = true;
+                Airstrike.LOG.info("SCENARIO done");
+                Minecraft.getInstance().stop();
+            });
+        }
+    }
+
+    /** Строка маршрута на карте: точки, длина от игрока до цели, в дальности ли оружия и даётся ли огонь. */
+    private void logRoute(String stage, WeaponType weapon) {
+        Minecraft mc = Minecraft.getInstance();
+        var via = ua.zentix.airstrike.client.map.MapTarget.waypoints(mc.level);
+        Vec3 aim = mapTarget, me = mc.player.position();
+        Airstrike.LOG.info("SCENARIO route-map {}: точки {} длина {} в дальности {} огонь {}", stage,
+                via.points().stream().map(q -> Math.round(q.x) + " " + Math.round(q.z)).toList(),
+                aim == null ? "—" : Math.round(via.length(me, aim)), aim != null && via.within(weapon, me, aim), mapCanFire(mc.screen));
+    }
+
+    /** Место точки мира на карте наведения (её проекция — закрытый метод экрана: только для сценария). */
+    private static int[] mapScreenAt(Screen screen, ua.zentix.airstrike.client.map.MapTarget.Place place) {
+        try {
+            var m = ua.zentix.airstrike.client.screen.MapScreen.class.getDeclaredMethod("projection");
+            m.setAccessible(true);
+            return ((ua.zentix.airstrike.client.map.MapProjection) m.invoke(screen)).at(place.x(), place.z());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Даёт ли карта наведения огонь (закрытый метод экрана: только для сценария). */
+    private static boolean mapCanFire(Screen screen) {
+        try {
+            var m = ua.zentix.airstrike.client.screen.MapScreen.class.getDeclaredMethod("canFire");
+            m.setAccessible(true);
+            return (boolean) m.invoke(screen);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** Карта наведения с тика {@code o}: отдалить, выбрать точку в ~700 блоках, огонь, ждать попадания. */

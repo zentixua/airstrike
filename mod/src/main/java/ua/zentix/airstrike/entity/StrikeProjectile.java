@@ -815,19 +815,33 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), event, BlockPos.containing(aim), targetLost(), 0);
     }
 
-    /** Куда держать курс: следующая точка маршрута или цель. */
-    protected Vec3 navPoint(Vec3 aim, double capture) {
-        if (route != null) {
-            route.update(position(), capture);
+    /**
+     * Куда держать курс: следующая точка маршрута (взята — ближе радиуса захвата из паспорта или позади,
+     * {@link Route#update}) или цель. Взята последняя точка маршрута оператора — {@link #onRouteDone}.
+     */
+    protected Vec3 navPoint(Vec3 aim) {
+        if (route != null && !route.finished()) {
+            route.update(position(), weapon().spec().route().capture());
             Vec3 wp = route.current();
             if (wp != null) return new Vec3(wp.x, aim.y, wp.z);
+            if (route.byOperator()) onRouteDone(aim);
         }
         return aim;
     }
 
+    /** Маршрут оператора пройден в этот тик, дальше — последний участок на цель {@code aim} (перенацеливание его бросает без этого; маршрут пуска кончается точкой входа, рассчитанной под заход). */
+    protected void onRouteDone(Vec3 aim) {}
+
     /** Маршрут пройден (или его не было): последний участок — на цель. */
     protected boolean onFinalLeg() {
         return route == null || route.finished();
+    }
+
+    /** Путь до точки {@code aim} по горизонтали: по оставшемуся маршруту, а без него — напрямую, блоков. */
+    protected final double horizontalPathTo(Vec3 aim) {
+        if (route != null && !route.finished()) return route.remaining(position(), aim);
+        double dx = aim.x - getX(), dz = aim.z - getZ();
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     private void syncAim() {

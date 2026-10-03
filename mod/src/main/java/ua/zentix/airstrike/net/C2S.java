@@ -9,6 +9,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.Optional;
@@ -49,14 +50,16 @@ public final class C2S {
 
     /**
      * Пуск. Из бинокля — по {@code aim} (что под прицелом); с экрана пульта — по режиму цели из loadout
-     * (куда смотрю / вокруг меня / игрок / аппарат из списка).
+     * (куда смотрю / вокруг меня / игрок / аппарат из списка). {@code via} — точки маршрута с карты наведения
+     * (пусто — путь строит пуск).
      */
-    public record Fire(Loadout loadout, Optional<AimHint> aim, Optional<UUID> aircraft) implements CustomPacketPayload {
+    public record Fire(Loadout loadout, Optional<AimHint> aim, Optional<UUID> aircraft, Waypoints via) implements CustomPacketPayload {
         public static final Type<Fire> TYPE = new Type<>(Airstrike.id("fire"));
         public static final StreamCodec<ByteBuf, Fire> CODEC = StreamCodec.composite(
                 Loadout.STREAM_CODEC, Fire::loadout,
                 ByteBufCodecs.optional(AimHint.CODEC), Fire::aim,
                 ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC), Fire::aircraft,
+                Waypoints.STREAM_CODEC, Fire::via,
                 Fire::new);
 
         @Override

@@ -3,6 +3,7 @@ paths:
   - "mod/src/main/java/ua/zentix/airstrike/entity/**"
   - "mod/src/main/java/ua/zentix/airstrike/guidance/**"
   - "mod/src/main/java/ua/zentix/airstrike/strike/VirtualFlights.java"
+  - "mod/src/main/java/ua/zentix/airstrike/strike/Waypoints.java"
   - "mod/src/main/java/ua/zentix/airstrike/client/cam/**"
   - "mod/src/test/java/ua/zentix/airstrike/guidance/**"
 ---
@@ -21,6 +22,12 @@ paths:
   (только разгон), `LauncherEntity` (пусковая: пакет, ячейки, очередь пусков), `SpentBoosterEntity` (отработавший
   ускоритель), `DebrisEntity` (обломки по баллистике). `guidance/FlightController` — повороты с ограничением
   скорости и ускорения; `guidance/Route` — маршрут: точка обхода сбоку и точка входа, заход на цель из-за спины;
+  или маршрут оператора `strike/Waypoints` (карта наведения: Shift+ЛКМ, до 5 точек, только x и z; шахед, ракета
+  и «Ланцет» — у кого в паспорте `WeaponSpec.Route.reach`: путь от игрока через точки до цели не длиннее (30 км, у
+  «Ланцета» 15), точка взята за `capture` (около радиуса разворота); проверка — `ServerActions.routeFits`; пусковая
+  смотрит на первую точку, издалека снаряд заходит перед ней — `Waypoints.afar`; запас хода, ETA и сирена — по пути
+  через точки; залп помнит маршрут в `SalvoData`, перенацеливание его бросает — `Route.skip`; горку ракеты после точек решает
+  последний участок — только у маршрута оператора, `Route.byOperator`: маршрут пуска побитно прежний; сценарий `WAYPOINTS`);
   `guidance/Ballistics` — дискретная парабола «из точки в точку за N тиков» (РСЗО); `guidance/Orbit` — круг барража
   (векторное поле курсов с упреждением v/r: выход на круг по касательной); `guidance/BombDrop` — падение бетонобойной
   бомбы: те же шаги у бомбы и у B-2, который проигрывает её падение и сбрасывает, когда она попадёт с его высоты;

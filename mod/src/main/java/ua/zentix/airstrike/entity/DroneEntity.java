@@ -57,7 +57,7 @@ public class DroneEntity extends StrikeProjectile {
     protected void serverTick(ServerLevel level) {
         Vec3 aim = updateTarget(level);
         if (launchTick(level)) return;
-        Vec3 nav = navPoint(aim, 40);
+        Vec3 nav = navPoint(aim);
         autopilot.fly(craft, aim, nav, onFinalLeg());
         advance(level, aim, AIR.reachPad());
     }

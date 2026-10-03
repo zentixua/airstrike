@@ -168,6 +168,14 @@
       "z": -228.37,
       "hash": "c858cc0504056089"
     },
+    "drone_far.point.waypoints.0": {
+      "end": "blast",
+      "tick": 526,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "9fc103231b1d8cfd"
+    },
     "drone_rail.mob.hill.0": {
       "end": "blast",
       "tick": 863,
@@ -303,6 +311,14 @@
       "y": 0.0,
       "z": -116.72,
       "hash": "22778a94fa8d7a25"
+    },
+    "drone_rail.point.waypoints.0": {
+      "end": "blast",
+      "tick": 321,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "8b3a9b93ec3f7f41"
     },
     "icbm.point.none.0": {
       "end": "gone",
@@ -448,6 +464,14 @@
       "z": 2.55,
       "hash": "8185efe0b2e62a89"
     },
+    "loiter_far.point.waypoints.0": {
+      "end": "blast",
+      "tick": 1292,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "0f199d86a963f93c"
+    },
     "loiter_rail.mob.hill.0": {
       "end": "blast",
       "tick": 67,
@@ -583,6 +607,14 @@
       "y": 0.0,
       "z": -274.01,
       "hash": "d6be15d9d0fa9cff"
+    },
+    "loiter_rail.point.waypoints.0": {
+      "end": "blast",
+      "tick": 1129,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "c9c0cd66b0d1d1f5"
     },
     "missile_far.mob.hill.0": {
       "end": "blast",
@@ -720,6 +752,14 @@
       "z": -10.12,
       "hash": "68e3bab277a0e7e1"
     },
+    "missile_far.point.waypoints.0": {
+      "end": "blast",
+      "tick": 334,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "11faefd39dc443f9"
+    },
     "missile_rail.mob.hill.0": {
       "end": "blast",
       "tick": 451,
@@ -855,6 +895,14 @@
       "y": 0.0,
       "z": 67.37,
       "hash": "f8b983af5b71aa2a"
+    },
+    "missile_rail.point.waypoints.0": {
+      "end": "blast",
+      "tick": 581,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "hash": "ad7843a4801e4154"
     },
     "rocket_far.mob.none.0": {
       "end": "blast",
