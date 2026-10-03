@@ -48,6 +48,9 @@ import java.util.concurrent.CompletableFuture;
 final class DiskShots {
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(Block.BLOCK_STATE_REGISTRY,
             BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+    /** Цена чанка без карт высот на диске для окна ({@link Read#cost}): не больше 4 досчётов за один {@link RuinContext#requestWindow}. */
+    static final int PRIME_COST = 6;
+
     private DiskShots() {}
 
     /**
@@ -63,29 +66,47 @@ final class DiskShots {
         /**
          * Карты высот, которых не было на диске, — по блокам, как их досчитывает ваниль при загрузке
          * ({@code Heightmap.primeHeightmaps}: сверху вниз до первого непрозрачного для карты блока; нет такого — низ мира).
-         * Поток сервера: свойства состояний — из таблицы руин ({@code props}).
+         * Поток сервера: свойства состояний — из таблицы руин ({@code props}). Цена — в среднем 0,6 мс (до 1,4 мс) на чанк,
+         * где все секции до верха мира непустые, а столбцы почти все воздух (замер в облаке 03.10.2026: столб стекла до 319
+         * над плоским миром), обычно десятки микросекунд; сколько таких чанков берёт поток сервера за раз — {@link #cost}.
          */
         Read primed(Blast.PropsView props) {
             if (unprimed == 0) return this;
             int[] out = heights.clone();
             int types = RuinPlan.HEIGHTMAP_TYPES.length;
+            // подряд в столбце почти всегда одно и то же состояние (воздух, вода): его карты — без поиска в таблице
+            BlockState last = null;
+            int opaque = 0;
             for (int c = 0; c < 256; c++) {
                 int left = unprimed;
                 for (int t = 0; t < types; t++) if ((left & 1 << t) != 0) out[t * 256 + c] = minY;
                 for (int i = states.length - 1; i >= 0 && left != 0; i--) {
                     if (states[i] == null) continue;
                     for (int y = 15; y >= 0 && left != 0; y--) {
-                        Blast.Props p = props.get(states[i].get(c & 15, y, c >> 4));
-                        for (int t = 0; t < types; t++) {
-                            if ((left & 1 << t) != 0 && p.opaque(t)) {
-                                out[t * 256 + c] = minY + (i << 4) + y + 1;
-                                left &= ~(1 << t);
-                            }
+                        BlockState st = states[i].get(c & 15, y, c >> 4);
+                        if (st != last) {
+                            last = st;
+                            Blast.Props p = props.get(st);
+                            opaque = 0;
+                            for (int t = 0; t < types; t++) if (p.opaque(t)) opaque |= 1 << t;
                         }
+                        int hit = left & opaque;
+                        if (hit == 0) continue;
+                        for (int t = 0; t < types; t++) if ((hit & 1 << t) != 0) out[t * 256 + c] = minY + (i << 4) + y + 1;
+                        left &= ~hit;
                     }
                 }
             }
             return new Read(pos, minY, states, out, 0, null);
+        }
+
+        /**
+         * Сколько поток сервера платит за этот чанк в {@link RuinContext#requestWindow}, в чанках с картами высот на диске:
+         * досчёт карт ({@link #primed}) в худшем случае в десятки раз дороже снимка: 25 таких за раз — десятки миллисекунд
+         * в одном тике, по 4 — до 4,3 мс (замер 03.10.2026).
+         */
+        int cost() {
+            return unprimed == 0 ? 1 : PRIME_COST;
         }
 
         /** Первый воздух над {@code MOTION_BLOCKING} — для тени светового импульса ({@link RuinContext#putHeights}). */
