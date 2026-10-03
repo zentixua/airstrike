@@ -12,6 +12,10 @@
 
 ## Установка
 
+Проще всего играть в сборке «Airstrike Pack» (Create, Create Aeronautics, Distant Horizons, шейдеры): она сама
+обновляется при каждом запуске игры, вместе с Airstrike. Как её поставить — в [pack/README.md](pack/README.md#установка).
+Без сборки:
+
 1. Нужны Minecraft 1.21.1 и NeoForge 21.1.250 или новее. Других обязательных модов нет.
 2. Скачайте `airstrike-<версия>.jar` со страницы [Releases](https://github.com/zentixua/airstrike/releases/latest)
    и положите в папку `mods`. Прежний jar Airstrike из `mods` удалите.
