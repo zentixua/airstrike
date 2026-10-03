@@ -57,7 +57,7 @@ Distant Horizons отметить (кроме macOS).
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
 | картинка и камера | шейдерпак Complementary Reimagined, Euphoria Patches, Aeronautics Camera Sync, 3D Skin Layers, Not Enough Animations |
-| мультиплеер и удобство | Essential, TrueUUID (вход на сервер, ниже), LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
+| мультиплеер и удобство | Essential, TrueUUID (вход на сервер, ниже), LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map (+ MapSyncer: вся карта мира с сервера), Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
 | запись (по выбору) | Flashback, Flashback NeoForge Fixed, Sinytra Connector, Forgified Fabric API |
 
 LAN Server Properties — временно, чтобы в мир хоста мог зайти игрок без входа в аккаунт Microsoft; уберём по слову
@@ -75,6 +75,16 @@ TrueUUID — он стоит и на сервере, и у каждого игр
 `allowOfflineForUnknownOnly` — значения по умолчанию): под ником игрока с лицензией без неё не войти. Моды сервер
 ставит из этой же `pack/` (`packwiz-installer-bootstrap -g -s server`), поэтому `side` у модов должен быть верным:
 `client` сервер не ставит.
+
+Карта мира на сервере. В одиночке Xaero's World Map читает карту прямо из файлов мира, а в мультиплеере рисует только
+чанки, которые сервер прислал игроку. Всю карту мира игрокам отдаёт MapSyncer (стоит на сервере и у каждого игрока):
+сервер сам переводит файлы регионов мира в формат карты Xaero и при входе присылает игроку недостающие и изменённые
+регионы. Xaero's World Map и Minimap стоят и на сервере: так у каждого мира свой идентификатор, и карты и метки
+миров, которые по очереди запускаются на одном адресе, не сливаются в одну.
+На сервере для каждого мира один раз, в консоли: `mapsyncer incremental scheduled` (карта сервера обновляется раз в
+сутки в 04:00 по часам сервера, клиенты при входе забирают обновлённое) и `mapsyncer generate` (вся карта сразу;
+ход — `mapsyncer status`). Обновление раз в сутки, а не каждые несколько минут: перед каждым проходом MapSyncer
+сохраняет мир целиком на диск в потоке сервера.
 
 Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 запрашивает `GL_POLYGON_MODE` через `glGetInteger`
 (место под одно число на стеке LWJGL), а драйвер OpenGL от Apple пишет два — каждый кадр на 4 байта за конец буфера.
@@ -113,6 +123,7 @@ Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 зап�
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
+| 0.1.8 | 2.8.0 | MapSyncer: вся карта мира с сервера в Xaero's World Map; Xaero's World Map и Minimap — и на сервере |
 | 0.1.7 | 2.8.0 | TrueUUID: вход на выделенный сервер сборки с лицензией и без неё |
 | 0.1.6 | 2.8.0 | Airstrike 2.8.0 ([заметки](../docs/releases/2.8.0.md)); остальные моды и настройки те же |
 | 0.1.5 | 2.7.0 | More Culling (+ Cloth Config): рамки с предметами дешевле для потока отрисовки |
