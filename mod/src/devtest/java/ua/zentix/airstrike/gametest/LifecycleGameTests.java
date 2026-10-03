@@ -5,6 +5,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ChunkLevel;
+import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.Ticket;
@@ -36,9 +38,11 @@ import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Жизненный цикл снарядов и чанков — то, что стенд нагрузки ({@code tools/stress.sh}) ловил в игре с друзьями:
@@ -465,6 +469,79 @@ public final class LifecycleGameTests {
             h.assertTrue(regionRadii(level, "airstrike_test_shared_a", key).isEmpty(), "отпущенный район снова взят");
             areas.release(level, b);
             h.assertTrue(TicketProbe.count(level, "airstrike_area_load", key) + TicketProbe.count(level, "airstrike_test_shared_b", key) == 0, "тикеты района остались после отпуска");
+            h.succeed();
+        });
+    }
+
+    private static final TicketType<UUID> RELEASED = TicketType.create("airstrike_test_released", Comparator.<UUID>naturalOrder());
+
+    /**
+     * Отпуск многих районов разом (Отбой залпа; игра 03.10.2026 — тик 6,8 с, стенд — 5 с на сохранении ~9 тыс. чанков):
+     * районы отпускаются по очереди, и в конце тика у ванили на выгрузке не больше её порога (2000 держателей; больше —
+     * {@code ChunkMap.processUnloads} выгружает и сохраняет все сразу) и одного района сверх. Отпущенный район сразу не
+     * тикает, очередь доходит до конца, тикет отпуска есть у каждого района в очереди и ни у кого больше. Район, взятый
+     * снова, пока ждал очереди, тикает сразу. Район, который ещё грузился, отпускается без очереди (его генерация больше
+     * не нужна).
+     */
+    @GameTest(template = "range", timeoutTicks = 4000, batch = "tickets_release", skyAccess = true)
+    public static void releasedAreasUnloadInTurn(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        ChunkMap map = level.getChunkSource().chunkMap;
+        AreaLoader areas = StrikeWorld.get(level).areas();
+        ChunkPos base = new ChunkPos(h.absolutePos(BlockPos.ZERO));
+        int distance = 2;
+        // держатели района — квадрат до уровня 44 (сторона 27): районы через 30 чанков не делят ни одного
+        int side = 2 * (distance + ChunkLevel.RADIUS_AROUND_FULL_CHUNK) + 1;
+        List<AreaLoader.Area> list = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            AreaLoader.Area a = new AreaLoader.Area(RELEASED, new ChunkPos(base.x + 40 + 30 * i, base.z + 40), distance, UUID.randomUUID());
+            h.assertFalse(Terrain.ready(level, a.centre().x, a.centre().z), "район " + i + " не свежий");
+            areas.hold(level, a);
+            list.add(a);
+        }
+        AreaLoader.Area kept = list.get(list.size() - 1);
+        AreaLoader.Area loading = new AreaLoader.Area(RELEASED, new ChunkPos(base.x + 40, base.z + 80), distance, UUID.randomUUID());
+        areas.hold(level, loading);
+        areas.release(level, loading);
+        h.assertTrue(areas.releasing() == 0 && TicketProbe.count(level, "airstrike_area_load", loading.key()) == 0, "район, который ещё грузился, ждёт очереди");
+        int limit = 2000 + side * side;
+        int[] tick = {0}, releasedAt = {-1}, keptReleasedAt = {-1}, waiting = {-1}, maxUnloading = {0};
+        long[] last = {System.nanoTime()};
+        h.onEachTick(() -> {
+            tick[0]++;
+            if (releasedAt[0] < 0) {
+                // районы грузятся в фоне в темпе игры (на CI сервер GameTest без пауз прошёл бы срок раньше генерации);
+                // выгрузка потом — без пауз: ваниль разбирает её во время, свободное в тике
+                long deadline = last[0] + 50_000_000L, left;
+                while ((left = deadline - System.nanoTime()) > 0) LockSupport.parkNanos(left);
+                last[0] = System.nanoTime();
+                for (AreaLoader.Area a : list) if (!regionRadii(level, "airstrike_test_released", a.key()).equals(List.of(distance))) return;
+                for (AreaLoader.Area a : list) areas.release(level, a);
+                areas.hold(level, kept);
+                h.assertTrue(regionRadii(level, "airstrike_test_released", kept.key()).equals(List.of(distance)), "район, взятый снова, не взят целиком");
+                releasedAt[0] = tick[0];
+                return;
+            }
+            String where = "тик " + (tick[0] - releasedAt[0]) + " после отпуска: ";
+            int unloading = map.toDrop.size() + map.pendingUnloads.size();
+            maxUnloading[0] = Math.max(maxUnloading[0], unloading);
+            if (unloading > limit) throw new GameTestAssertException(where + "на выгрузке " + unloading + " держателей, предел " + limit);
+            int tickets = TicketProbe.count(level, "airstrike_area_release");
+            if (tickets != areas.releasing()) throw new GameTestAssertException(where + "тикетов отпуска " + tickets + " у районов в очереди " + areas.releasing());
+            for (AreaLoader.Area a : list) {
+                boolean ticks = level.shouldTickBlocksAt(a.centre().toLong()) || level.isPositionEntityTicking(a.centre().getMiddleBlockPosition(64));
+                if (ticks != (a == kept && keptReleasedAt[0] < 0)) throw new GameTestAssertException(where + "район " + list.indexOf(a) + (ticks ? " тикает" : " не тикает"));
+            }
+            if (waiting[0] < 0) waiting[0] = areas.releasing();
+            if (areas.releasing() > 0) return;
+            if (keptReleasedAt[0] < 0) {
+                areas.release(level, kept);
+                keptReleasedAt[0] = tick[0];
+                return;
+            }
+            h.assertTrue(waiting[0] > 0, "районы отпущены разом, без очереди");
+            Airstrike.LOG.info("Отпуск районов по очереди: после первого тика ждали {} из {}, очередь прошла за {} тиков, на выгрузке самое большее {} держателей (предел {})",
+                    waiting[0], list.size() - 1, keptReleasedAt[0] - releasedAt[0], maxUnloading[0], limit);
             h.succeed();
         });
     }
