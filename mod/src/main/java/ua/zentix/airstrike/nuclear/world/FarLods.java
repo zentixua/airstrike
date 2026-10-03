@@ -38,10 +38,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * лампы своим путём. Копия без изменений против диска в DH не уходит — его LOD по этим же блокам уже есть.
  * <p>
  * Чанк за волной без готового плана проверяется на диске (поле {@code Status} — чтением заголовка в фоне, то же правило,
- * что у плана с диска, {@link DiskStatus.State#blocksFinal}): блоки окончательные (и у чанка мира 1.17 с догенерацией под
- * нулём) — ждёт плана ({@link #PLAN_WAIT}); недогенерированный или его нет (край исследованного мира: копию не собрать,
- * а LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}): ваниль догенерирует его,
- * руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
+ * что у плана с диска, {@link DiskStatus#scan}): блоки окончательные — ждёт плана ({@link #PLAN_WAIT}); недогенерированный
+ * или его нет (край исследованного мира: копию не собрать, а LOD там DH строит своим генератором — целым) — в мир
+ * квадратом 5×5 ({@link FarZone}): ваниль догенерирует его, руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
+ * Чанк мира 1.17 с догенерацией под нулём ({@link DiskStatus.State#FINAL}), не дождавшийся плана, — тоже в мир квадратом:
+ * зона за волной его не грузит (без генерации он не загрузится), и его LOD иначе остался бы целым городом.
  * <p>
  * Только при DH ({@link DhUpdates#room}) и только чанки не дальше {@link #FAR_CHUNKS} от игрока: дальше DH по умолчанию
  * не рассылает обновления, а чтения с диска делят поток ввода-вывода с загрузкой мира игрокам — их не больше
@@ -63,10 +64,10 @@ public final class FarLods {
     /** Чтений заголовков чанков с диска в работе сразу. */
     static final int SCANS = 32;
     /**
-     * Что на диске у чанка за волной без плана: заголовок читается, блоки окончательные (план ещё может прийти),
-     * недогенерированный или нет ({@link DiskStatus.State}).
+     * Что на диске у чанка за волной без плана ({@link DiskStatus.State}): заголовок читается; целый или с догенерацией
+     * под нулём (план ещё может прийти); недогенерированный или нет.
      */
-    private static final byte SCANNING = 1, FINAL = 2, PARTIAL = 3;
+    private static final byte SCANNING = 1, WHOLE = 2, FINAL = 3, PARTIAL = 4;
 
     /**
      * Почему чанк в очереди: за волной ядерки — ждать его плана руин ({@link #RUINS}); квартал сменил свет — LOD уходит
@@ -95,7 +96,7 @@ public final class FarLods {
     /** Чанки, которые за время чтения попросили снова, и что просили: после чтения — в очередь ещё раз. */
     private final Long2ByteOpenHashMap again = new Long2ByteOpenHashMap();
     private final ConcurrentLinkedQueue<Built> built = new ConcurrentLinkedQueue<>();
-    /** Чанки за волной без плана: что на диске ({@link #SCANNING}, {@link #FINAL}, {@link #PARTIAL}); ответы — из потока ввода-вывода. */
+    /** Чанки за волной без плана: что на диске ({@link #SCANNING}, {@link #WHOLE}, {@link #FINAL}, {@link #PARTIAL}); ответы — из потока ввода-вывода. */
     private final Long2ByteOpenHashMap disk = new Long2ByteOpenHashMap();
     private final ConcurrentLinkedQueue<long[]> scanned = new ConcurrentLinkedQueue<>();
     private int scanning;
@@ -171,7 +172,7 @@ public final class FarLods {
         for (long[] s; (s = scanned.poll()) != null; ) {
             scanning--;
             // ответ на чанк, который уже не ждёт (отбой, загружен), не нужен
-            if (queued.containsKey(s[0])) disk.put(s[0], s[1] != 0 ? FINAL : PARTIAL);
+            if (queued.containsKey(s[0])) disk.put(s[0], (byte) s[1]);
             else disk.remove(s[0]);
         }
         if (!DhUpdates.enabled(level)) {
@@ -241,11 +242,17 @@ public final class FarLods {
                 partial++;
                 return false;
             }
-            if (state != FINAL || now - r.since < PLAN_WAIT) {
+            if (state != WHOLE && state != FINAL || now - r.since < PLAN_WAIT) {
                 from.add(r);
                 return false;
             }
             noPlan++;
+            if (state == FINAL) {
+                // чанк 1.17 без плана: зона за волной его не грузит — в мир квадратом, руины путём загрузки
+                done(r.chunk);
+                if (AirstrikeConfig.SERVER.nukeFarZone.get()) zone.offer(r.chunk);
+                return false;
+            }
             if ((kind & LIGHTS) == 0) {
                 done(r.chunk);
                 return false;
@@ -273,7 +280,11 @@ public final class FarLods {
         disk.put(chunk, SCANNING);
         scanning++;
         ConcurrentLinkedQueue<long[]> out = scanned;
-        DiskStatus.scan(level, new ChunkPos(chunk)).thenAccept(state -> out.add(new long[]{chunk, state.blocksFinal() ? 1 : 0}));
+        DiskStatus.scan(level, new ChunkPos(chunk)).thenAccept(state -> out.add(new long[]{chunk, switch (state) {
+            case WHOLE -> WHOLE;
+            case FINAL -> FINAL;
+            case PARTIAL -> PARTIAL;
+        }}));
     }
 
     /** Копия чанка с руинами (фоновый поток): секции с диска, места плана. */

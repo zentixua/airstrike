@@ -210,7 +210,8 @@ public final class RuinBackgroundGameTests {
 
     /**
      * План по чанкам, прочитанным с диска (фаза 2: записаны, как их записал бы мир, и разобраны как чанки не в памяти),
-     * — место в место такой же, как план по чанкам в памяти.
+     * — место в место такой же, как план по чанкам в памяти. Так же — у чанков, какими их оставляет обновление мира 1.17,
+     * и у чанков без карт высот на диске (карты из редакторов).
      */
     @GameTest(template = "range", timeoutTicks = 100, batch = "nuke_background_disk", skyAccess = true)
     public static void diskPlanMatchesMemoryPlan(GameTestHelper h) {
@@ -231,6 +232,12 @@ public final class RuinBackgroundGameTests {
                 // мир 1.17 после обновления: блоки на месте, низ мира догенерируется при загрузке — план тот же
                 diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, RuinBackgroundGameTests::asRetrogen));
                 h.assertTrue(diff == null, "план чанка " + c + " с догенерацией под нулём не такой, как по чанку в памяти:" + diff);
+                // карта из редактора: карт высот на диске нет — досчитываются по блокам, как у ванили при загрузке
+                diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, tag -> {
+                    tag.remove("Heightmaps");
+                    return tag;
+                }));
+                h.assertTrue(diff == null, "план чанка " + c + " без карт высот на диске не такой, как по чанку в памяти:" + diff);
                 compared++;
                 cells += memory.changedBlocks();
             }

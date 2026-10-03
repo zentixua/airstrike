@@ -50,7 +50,8 @@ class DiskStatusTest {
         partly.putString("Status", "minecraft:carvers");
         assertEquals(DiskStatus.State.FINAL, DiskStatus.of(partly), "статус ниже цели догенерации");
         // украшения соседей ещё не встали: они пишут и в этот чанк
-        for (String s : new String[] {"minecraft:features", "minecraft:carvers", "minecraft:noise", "minecraft:structure_starts", ""}) {
+        // имя с недопустимыми знаками (испорченные или чужие данные) — не статус ванили, а не ошибка разбора
+        for (String s : new String[] {"minecraft:features", "minecraft:carvers", "minecraft:noise", "minecraft:structure_starts", "", "Full", "minecraft:Spawn"}) {
             assertEquals(DiskStatus.State.PARTIAL, DiskStatus.of(retrogen(s)), s);
         }
     }
@@ -74,5 +75,7 @@ class DiskStatusTest {
         assertEquals(DiskStatus.State.FINAL, DiskStatus.of(old), "формат до 1.18, полная генерация");
         old.put("Level", status("features"));
         assertEquals(DiskStatus.State.PARTIAL, DiskStatus.of(old), "формат до 1.18, без украшений соседей");
+        old.put("Level", status("Full"));
+        assertEquals(DiskStatus.State.PARTIAL, DiskStatus.of(old), "формат до 1.18, статус не разбирается");
     }
 }

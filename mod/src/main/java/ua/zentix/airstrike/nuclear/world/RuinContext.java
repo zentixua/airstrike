@@ -71,15 +71,17 @@ final class RuinContext {
 
     /**
      * Чанк, прочитанный с диска (поток сервера): снимок — если снимка из памяти нет или чанк сейчас не в памяти целиком
-     * (тогда снимок из памяти всё равно не берётся), и с ним его карта высот — для тени светового импульса.
+     * (тогда снимок из памяти всё равно не берётся), и с ним его карта высот — для тени светового импульса. Карты высот,
+     * которых на диске не было, считаются здесь по блокам ({@link DiskShots.Read#primed}).
      */
     void putDisk(ServerLevel level, DiskShots.Read read) {
         long key = read.pos().toLong();
         ChunkShot now = shots.get(key);
         // высоты для тени — только вместе со снимком: у оставленного живого снимка они сняты из памяти
         if (now == null || now.fromDisk() || level.getChunkSource().getChunkNow(read.pos().x, read.pos().z) == null) {
-            putShot(key, ChunkShot.fromDisk(read, applied.get(key)));
-            putHeights(key, read.motion());
+            DiskShots.Read primed = read.primed(Blast.SERVER);
+            putShot(key, ChunkShot.fromDisk(primed, applied.get(key)));
+            putHeights(key, primed.motion());
         }
     }
 
