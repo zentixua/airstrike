@@ -314,6 +314,31 @@ class TerrainTilesTest {
         assertTrue(closed[0], "читатель закрыт");
     }
 
+    /** Предел слоя вмещает два самых широких вида карты при любом масштабе (и плавном, как у карты камеры) и запас вокруг игрока. */
+    @Test
+    void capacityHoldsTwoWidestViews() {
+        int w = 853, h = 414;
+        int widest = 0;
+        for (double e = -5; e <= 3; e += 0.01) {
+            double k = Math.pow(2, e);
+            for (double c = 0; c < 4096; c += 97.3) {
+                MapProjection map = new MapProjection(w / 2.0, h / 2.0, c, -0.7 * c, k);
+                widest = Math.max(widest, TerrainTiles.visible(map, TerrainTiles.levelFor(k), 0, 0, w, h).size());
+            }
+        }
+        int around = (2 * TerrainTiles.PREFETCH_RADIUS + 1) * (2 * TerrainTiles.PREFETCH_RADIUS + 1);
+        assertTrue(TerrainTiles.capacity(w, h) >= 2 * widest + around, "предел " + TerrainTiles.capacity(w, h) + ", шире всех вид " + widest);
+        assertEquals(768, TerrainTiles.capacity(200, 120), "маленькая карта — не меньше прежнего предела");
+    }
+
+    /** Чтений сразу по числу потоков источника — только пока карта на экране; заранее — два, сколько бы потоков ни было. */
+    @Test
+    void readsInParallelOnlyWhileMapShown() {
+        assertEquals(8, TerrainTiles.jobLimit(false, 8));
+        assertEquals(TerrainTiles.PREFETCH_JOBS, TerrainTiles.jobLimit(true, 8));
+        assertEquals(TerrainTiles.PREFETCH_JOBS, TerrainTiles.jobLimit(false, 1), "у источника один поток — не меньше, чем заранее");
+    }
+
     /**
      * Рельеф заранее — только тем, кому карта нужна: выключено в настройках — никому; карту в этом мире открывали —
      * без пульта; иначе — с пультом в инвентаре. Инвентарь смотрится, только если первые два условия не решили.

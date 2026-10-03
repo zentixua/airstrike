@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client.map;
 
 import com.seibel.distanthorizons.api.DhApi;
 import com.seibel.distanthorizons.api.interfaces.block.IDhApiBlockStateWrapper;
+import com.seibel.distanthorizons.api.interfaces.config.IDhApiConfig;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataCache;
 import com.seibel.distanthorizons.api.interfaces.data.IDhApiTerrainDataRepo;
 import com.seibel.distanthorizons.api.interfaces.world.IDhApiLevelWrapper;
@@ -128,6 +129,17 @@ final class DistantHorizonsTerrain implements TerrainSource {
     @Override
     public long refreshNanos() {
         return REFRESH_NS;
+    }
+
+    /**
+     * Потоки DH из его настроек ({@code threadCount}): в стольких работают все его пулы ({@code PriorityTaskPicker} 3.3.3),
+     * и чтение участка для карты ({@code getAsync} в пуле «IO») ждёт свободного из них в общей очереди с загрузкой LOD.
+     * Публичное API отдаёт только участки полной детализации, поэтому вид карты — сотни и тысячи таких чтений.
+     */
+    @Override
+    public int parallelism() {
+        IDhApiConfig configs = DhApi.Delayed.configs;
+        return configs == null ? 1 : configs.multiThreading().threadCount().getValue();
     }
 
     /** Все накопленные изменения разбираются; чужих миров (другое измерение, прошлый мир) — отбрасываются. */

@@ -35,7 +35,9 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Подложка карты: рельеф плитками 64×64 пикселя, как у веб-карт. Плитка уровня {@code L} покрывает
@@ -46,8 +48,10 @@ import java.util.concurrent.Executors;
  * Два слоя: снизу — Distant Horizons, если он стоит (километры вокруг, строится в своих фоновых потоках), сверху —
  * чанки клиента (строятся в кадре, понемногу). Клетка без данных прозрачна, поэтому вблизи видны точные и свежие
  * чанки (воронки), дальше — рельеф DH. Чтение DH может ждать его очередей сколько угодно (данных ещё нет, генерация
- * стоит, DH грузит свои LOD): ждут только наши фоновые потоки, их не больше {@link #MAX_JOBS}, а слой чанков от них
- * не зависит. Готовые плитки загружаются в текстуры в потоке игры.
+ * стоит, DH грузит свои LOD): ждут только наши фоновые потоки, а слой чанков от них не зависит. Пока карты нет на
+ * экране, их не больше {@link #PREFETCH_JOBS}; пока она на экране (пульт или камера снаряда без видео) — столько, сколько
+ * потоков у источника ({@link TerrainSource#parallelism}): мир за картой не виден, и вид, от центра, получает всю скорость
+ * чтения. Готовые плитки загружаются в текстуры в потоке игры.
  * <p>
  * Каждое чтение DH — участок его базы 64×64 блока (распаковка, в очереди его потоков файлов), поэтому рельеф из DH
  * читается по возможности один раз: плитка крупнее собирается из четырёх готовых плиток уровнем ниже ({@link #compose}),
@@ -60,10 +64,12 @@ public final class TerrainTiles {
     static final int SIZE = 64;
     /** Самая крупная плитка — 1024 блока (16 блоков на пиксель). */
     public static final int MAX_LEVEL = 4;
-    /** Плиток в слое: экран подробных с подложкой крупных и запас вокруг игрока ({@link #PREFETCH_RADIUS}). */
-    private static final int MAX_TILES = 768;
-    /** Сколько плиток строится в фоне одновременно: DH читает свою базу, не забираем у игры больше. */
-    private static final int MAX_JOBS = 2;
+    /** Плиток в слое не меньше этого, какой бы маленькой ни была карта ({@link #capacity}). */
+    private static final int MIN_TILES = 768;
+    /** Сколько плиток строится в фоне одновременно, пока карты нет на экране: DH читает свою базу, не забираем у игры больше. */
+    static final int PREFETCH_JOBS = 2;
+    /** Карту рисовали не раньше этого — она на экране (при низком fps между кадрами проходит несколько тиков). */
+    private static final long SHOWN_NS = 500_000_000L;
     /** Плитку с рельефом не везде (DH ещё досчитывает даль, чанк не пришёл) спрашиваем раз в столько. */
     private static final long PARTIAL_REFRESH_NS = 30_000_000_000L;
     /** Плитку без данных — чаще. */
@@ -248,6 +254,10 @@ public final class TerrainTiles {
     private static boolean prefetching;
     /** Карту в этом мире уже открывали: рельеф вокруг игрока строится заранее и без пульта в руках. */
     private static boolean opened;
+    /** Когда карту последний раз рисовали ({@link #render}); 0 — в этом мире не рисовали. */
+    private static long shownAt;
+    /** Предел плиток в слое — по размеру карты, на которой их последний раз рисовали ({@link #capacity}). */
+    private static int capacity = MIN_TILES;
 
     private TerrainTiles() {}
 
@@ -262,10 +272,12 @@ public final class TerrainTiles {
         if (current == null) return;
         if (current != level) switchTo(current);
         frame++;
+        shownAt = System.nanoTime();
         int want = levelFor(map.k());
         // мельче самых крупных плиток не строим (и не заводим): на такую карту ушли бы тысячи участков DH
         boolean build = map.k() * (2 << MAX_LEVEL) >= 1;
         double cx = map.worldX((left + right) / 2.0), cz = map.worldZ((top + bottom) / 2.0);
+        capacity = capacity(right - left, bottom - top);
         int visible = 0, ready = 0;
         StringBuilder byLayer = new StringBuilder();
         g.enableScissor(left, top, right, bottom);
@@ -273,7 +285,7 @@ public final class TerrainTiles {
             collect(layer);
             if (!build) {
                 // клеток кадра на такой карте — сотни тысяч, а нового ничего не заводится: рисуются готовые плитки
-                // самого крупного уровня, перебором плиток слоя (их не больше MAX_TILES)
+                // самого крупного уровня, перебором плиток слоя (их не больше предела слоя)
                 draw(g, map, layer, ready(layer, map, left, top, right, bottom), false);
                 continue;
             }
@@ -313,6 +325,7 @@ public final class TerrainTiles {
             else layer.source.changes(current, (chunkX, chunkZ) -> changed(layer, chunkX, chunkZ));
         }
         if (++ticks % PREFETCH_PERIOD == 0) {
+            boolean shown = shownAt != 0 && System.nanoTime() - shownAt < SHOWN_NS;
             prefetching = prefetchWanted(AirstrikeConfig.CLIENT.mapPrefetch.get(), opened,
                     () -> player.getInventory().contains(s -> s.is(ModItems.DESIGNATOR.get())));
             for (Layer layer : layers) {
@@ -330,7 +343,8 @@ public final class TerrainTiles {
                 layer.prefetchOrder = keys;
                 for (Key k : keys) layer.tiles.computeIfAbsent(k, Tile::new);
                 evict(layer);
-                if (layer.source.offThread()) request(current, layer, keys, true);
+                // пока карта на экране, фоновые чтения — её виду, от его центра: вокруг игрока он читает сам, если видит
+                if (layer.source.offThread() && !shown) request(current, layer, keys, true);
             }
         }
         // слой чанков читается только в потоке игры: каждый тик, частями, под сроком по часам; без пульта и карты — ничего
@@ -513,6 +527,7 @@ public final class TerrainTiles {
         generation++;
         progress = new Progress(0, 0, "");
         opened = false;
+        shownAt = 0;
         prefetching = false;
         // очередь событий DH держала бы обёртки мира, из которого вышли
         if (distantHorizons) DistantHorizonsTerrain.clearChanges();
@@ -568,7 +583,28 @@ public final class TerrainTiles {
         return keys;
     }
 
-    private static List<Key> visible(MapProjection map, int l, int left, int top, int right, int bottom) {
+    /**
+     * Предел плиток в слое для карты {@code width × height} пикселей: вид шире всех возможных на ней дважды (тот, что на
+     * экране, с подложкой крупных, и прежний, к которому вернутся) и квадрат заранее вокруг игрока, но не меньше
+     * {@link #MIN_TILES}. Плитка на экране не меньше 32 пикселей (уровень выбирается так, чтобы пиксель плитки был не
+     * мельче пикселя экрана, а мельче самых крупных плиток карта их не строит), а отрезок длиной в {@code s} плиток
+     * задевает не больше {@code ceil(s) + 1} из них.
+     */
+    static int capacity(int width, int height) {
+        int widest = (Mth.ceil(width / 32.0) + 1) * (Mth.ceil(height / 32.0) + 1);
+        return Math.max(MIN_TILES, 2 * widest + Mth.square(2 * PREFETCH_RADIUS + 1));
+    }
+
+    /**
+     * Сколько плиток слоя строится в фоне одновременно: заранее ({@code prefetch}, карты нет на экране) —
+     * {@link #PREFETCH_JOBS}; для карты на экране — столько, сколько у источника потоков на чтение ({@code parallelism}):
+     * каждое наше чтение держит один из них, а лишние ждали бы в его же очереди.
+     */
+    static int jobLimit(boolean prefetch, int parallelism) {
+        return prefetch ? PREFETCH_JOBS : Math.max(PREFETCH_JOBS, parallelism);
+    }
+
+    static List<Key> visible(MapProjection map, int l, int left, int top, int right, int bottom) {
         int span = SIZE << l;
         int x0 = Mth.floor(map.worldX(left) / span), x1 = Mth.floor(map.worldX(right) / span);
         int z0 = Mth.floor(map.worldZ(top) / span), z1 = Mth.floor(map.worldZ(bottom) / span);
@@ -626,7 +662,7 @@ public final class TerrainTiles {
     /**
      * Построить нужные из {@code keys} (ближние первыми): сначала те, которых нет, потом устаревшие. Крупную плитку —
      * из четырёх свежих уровнем ниже ({@link #kids}); если из них какие-то строятся или устарели — сперва они, а она
-     * ждёт; если каких-то нет — из источника: в фоне ({@link #MAX_JOBS} сразу) или в кадре под {@link #FRAME_BUDGET_NS}.
+     * ждёт; если каких-то нет — из источника: в фоне (сразу — {@link #jobLimit}) или в кадре под {@link #FRAME_BUDGET_NS}.
      * {@code prefetch} — заранее, пока карту не смотрят: недостающие, устаревшие и неполные по их часам (полные
      * перечитываются по событию источника или когда их смотрят).
      */
@@ -634,6 +670,7 @@ public final class TerrainTiles {
         TerrainSource src = layer.source;
         long now = System.nanoTime();
         long deadline = now + FRAME_BUDGET_NS;
+        int limit = src.offThread() ? jobLimit(prefetch, src.parallelism()) : 0;
         List<Tile> todo = new ArrayList<>();
         List<Tile> later = new ArrayList<>();
         for (Key key : keys) {
@@ -677,7 +714,7 @@ public final class TerrainTiles {
                     case ABSENT -> {}
                 }
                 if (src.offThread()) {
-                    if (layer.jobs >= MAX_JOBS) continue;
+                    if (layer.jobs >= limit) continue;
                     TerrainSource.Reader reader = src.open(current);
                     if (reader == null) return;
                     t.buildingSince = now;
@@ -861,7 +898,7 @@ public final class TerrainTiles {
     /** Сверх предела — самые давние по показу, кроме видимых в этом кадре, нужных заранее и строящихся. */
     private static void evict(Layer layer) {
         Iterator<Tile> it = layer.tiles.values().iterator();
-        while (layer.tiles.size() > MAX_TILES && it.hasNext()) {
+        while (layer.tiles.size() > capacity && it.hasNext()) {
             Tile t = it.next();
             if (t.buildingSince != 0 || t.drawnFrame == frame || layer.prefetch.contains(t.key)) continue;
             release(t);
@@ -875,10 +912,17 @@ public final class TerrainTiles {
         t.id = null;
     }
 
+    /**
+     * Потоки фоновой постройки. Задач в нём не больше {@link #jobLimit} (его держит счёт задач слоя), а потоков источника
+     * не больше, чем ядер ({@code threadCount} DH), поэтому пул — по числу ядер; простаивающие потоки уходят.
+     */
     private static ExecutorService executor() {
         if (executor == null) {
-            executor = Executors.newFixedThreadPool(MAX_JOBS, new ThreadFactoryBuilder().setNameFormat("Airstrike map %d").setDaemon(true)
-                    .setPriority(Thread.MIN_PRIORITY).build());
+            int threads = Runtime.getRuntime().availableProcessors();
+            ThreadPoolExecutor pool = new ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+                    new ThreadFactoryBuilder().setNameFormat("Airstrike map %d").setDaemon(true).setPriority(Thread.MIN_PRIORITY).build());
+            pool.allowCoreThreadTimeOut(true);
+            executor = pool;
         }
         return executor;
     }
