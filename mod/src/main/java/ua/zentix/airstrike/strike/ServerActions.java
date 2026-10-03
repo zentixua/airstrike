@@ -37,6 +37,7 @@ import ua.zentix.airstrike.target.TargetPicker;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -65,8 +66,38 @@ public final class ServerActions {
 
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
-        if (aim == null) return;
-        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke());
+        if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via());
+    }
+
+    /**
+     * Маршрут оператора годится ({@link Waypoints}): оружие летает по точкам, точки там же, где можно выбрать место
+     * на карте ({@link #groundInRange}), и путь от игрока через них до цели не длиннее дальности оружия по маршруту
+     * (паспорт, {@link WeaponSpec.Route#reach}). Иначе — строка игроку, пуска нет. Без точек — годится.
+     */
+    public static boolean routeFits(ServerPlayer player, WeaponType weapon, Waypoints via, Aim aim) {
+        if (via.isEmpty()) return true;
+        WeaponSpec.Route route = weapon.spec().route();
+        if (!route.waypoints()) {
+            player.displayClientMessage(Component.translatable("airstrike.route.unsupported", weapon.displayName()).withStyle(ChatFormatting.RED), true);
+            return false;
+        }
+        if (!via.finite() || via.points().stream().anyMatch(q -> !groundInRange(player, q.x, q.z))) {
+            player.displayClientMessage(Component.translatable("airstrike.route.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
+                    .withStyle(ChatFormatting.RED), true);
+            return false;
+        }
+        if (!via.within(weapon, player.position(), aim.point())) {
+            player.displayClientMessage(Component.translatable("airstrike.route.too_long", weapon.displayName(), kilometres(via.length(player.position(), aim.point())),
+                    kilometres(route.reach())).withStyle(ChatFormatting.RED), true);
+            return false;
+        }
+        return true;
+    }
+
+    /** Километры с одним знаком — для строк игроку (точка, а не запятая русской локали: строка из перевода). */
+    private static String kilometres(double blocks) {
+        return String.format(Locale.ROOT, "%.1f", blocks / 1000);
     }
 
     /** Перенацелить свой снаряд из его камеры: сервер находит то же, что под прицелом камеры, и проверяет. */
@@ -169,11 +200,12 @@ public final class ServerActions {
     }
 
     /**
-     * Пустить от имени игрока (заход из-за его спины): один снаряд точно в цель или залп — после проверки прав.
+     * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
+     * один снаряд точно в цель или залп — после проверки прав.
      *
      * @return true, если пуск состоялся
      */
-    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
+    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via) {
         Loadout l = order(weapon, count, spread, nuke);
         if (l.nuclear() && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
@@ -191,7 +223,7 @@ public final class ServerActions {
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
-        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim);
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via);
     }
 
     /**
@@ -201,7 +233,7 @@ public final class ServerActions {
      * @return true, если пуск состоялся
      */
     public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim);
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE);
     }
 
     /** Приказ в пределах настроек сервера ({@link #clamp}). */
@@ -210,14 +242,14 @@ public final class ServerActions {
     }
 
     /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
-    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim) {
-        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point());
+    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via) {
+        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), via);
         UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
-            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke());
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via);
             return true;
         }
-        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke());
+        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke(), via);
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
             else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);

@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.gametest.scenario;
 
 import net.minecraft.world.phys.Vec3;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.ArrayList;
@@ -80,7 +81,12 @@ public record Scenario(Launch launch, TargetKind target, Disturbance disturbance
          * Оператор на подлёте перенацелил снаряд на точку сбоку от него, внутри круга разворота: прямо её не достать,
          * снаряд должен уйти и зайти снова, а не кружить вокруг неё.
          */
-        BESIDE;
+        BESIDE,
+        /**
+         * Оператор проложил маршрут на карте ({@link Waypoints}): снаряд проходит его точки по порядку, а не петлю
+         * в обход, и поражает цель.
+         */
+        WAYPOINTS;
 
         /** Возмущение в полёте (а не рельеф, построенный заранее). */
         boolean inFlight() {
@@ -150,7 +156,7 @@ public record Scenario(Launch launch, TargetKind target, Disturbance disturbance
             case NONE, RETARGET -> true;
             case TARGET_GONE, TELEPORT_NEAR, TELEPORT_FAR -> target.entity();
             case HILL, QUARRY -> target == TargetKind.POINT || target == TargetKind.MOB;
-            case BESIDE -> target == TargetKind.POINT;
+            case BESIDE, WAYPOINTS -> target == TargetKind.POINT;
         };
     }
 
@@ -184,10 +190,12 @@ public record Scenario(Launch launch, TargetKind target, Disturbance disturbance
      * @param altitude   высота «игрока» над землёй
      * @param scatter    рассеивание РСЗО (единичное нормальное: × 1% дальности)
      * @param random     зерно своей случайности снаряда ({@link ua.zentix.airstrike.entity.StrikeProjectile#seed})
+     * @param waypoints  маршрут оператора ({@code WAYPOINTS}): точки от цели по горизонтали, по порядку пролёта — от 1
+     *                   до 3, каждая ближе к цели, чем прежняя, сбоку от прямой захода; у последней до цели 250–450 блоков
      */
     record Params(Vec3 approach, double flightTime, double entry, double side, double standoff, int readyTicks,
                   double when, double shift, Vec3 shiftDir, double size, double place, double mobSpeed, double orbit,
-                  double altitude, Vec3 scatter, long random) {}
+                  double altitude, Vec3 scatter, long random, List<Vec3> waypoints) {}
 
     Params params() {
         // своё зерно у каждой ячейки: соседние сценарии не повторяют друг друга со сдвигом
@@ -221,7 +229,19 @@ public record Scenario(Launch launch, TargetKind target, Disturbance disturbance
         double altitude = 5 + r.nextDouble() * 35;
         Vec3 scatter = new Vec3(r.nextGaussian(), 0, r.nextGaussian());
         long random = r.nextLong();
+        // маршрут — из чисел после прежних: у прежних сценариев ряд тот же
+        List<Vec3> waypoints = new ArrayList<>();
+        if (disturbance == Disturbance.WAYPOINTS) {
+            Vec3 across = new Vec3(-approach.z, 0, approach.x);
+            int n = 1 + r.nextInt(3);
+            double back = 250 + r.nextDouble() * 200;
+            for (int i = 0; i < n; i++) {
+                double lateral = (r.nextBoolean() ? 1 : -1) * (80 + r.nextDouble() * 320);
+                waypoints.addFirst(approach.scale(-back).add(across.scale(lateral)));
+                back += 200 + r.nextDouble() * 300;
+            }
+        }
         return new Params(approach, flightTime, entry, side, standoff, ready, when, shift, shiftDir, size, place, mobSpeed,
-                orbit, altitude, scatter, random);
+                orbit, altitude, scatter, random, List.copyOf(waypoints));
     }
 }

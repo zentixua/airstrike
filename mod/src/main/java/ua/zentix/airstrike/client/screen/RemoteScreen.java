@@ -31,6 +31,7 @@ import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.TargetPicker;
@@ -177,8 +178,8 @@ public class RemoteScreen extends Screen {
 
         // огонь, отбой, настройки
         int by = y0 + H - 26;
-        addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), b -> fire())
-                .bounds(x0 + 4, by, 128, 22).build());
+        addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
+                b -> fire(loadout.mode() == TargetMode.MAP ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE)).bounds(x0 + 4, by, 128, 22).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.clear"), b -> {
             PacketDistributor.sendToServer(new C2S.Clear());
             onClose();
@@ -287,25 +288,28 @@ public class RemoteScreen extends Screen {
 
     /**
      * Огонь по цели пульта; с карты наведения — по выбранному там месту или игроку ({@link #aimAtPlace},
-     * {@link #aimAtPlayer}). Карта открывается и клавишей, без показа пульта, поэтому здесь —
-     * {@code Minecraft.getInstance()}, а не поле экрана.
+     * {@link #aimAtPlayer}) и по точкам маршрута {@code via}, если оружие по ним летает. Карта открывается и клавишей,
+     * без показа пульта, поэтому здесь — {@code Minecraft.getInstance()}, а не поле экрана.
      */
-    void fire() {
+    void fire(Waypoints via) {
         if (loadout.mode() == TargetMode.AIRCRAFT && aircraft == null) return;
         if (loadout.mode() == TargetMode.PLAYER && loadout.player().isEmpty()) return;
+        if (!loadout.weapon().spec().route().waypoints()) via = Waypoints.NONE;
         Optional<C2S.AimHint> aim;
         if (loadout.mode() == TargetMode.MAP) {
             Optional<MapTarget.Place> place = MapTarget.get(Minecraft.getInstance().level);
-            if (place.isEmpty()) {
+            LocalPlayer p = Minecraft.getInstance().player;
+            // маршрут длиннее дальности оружия: пуска нет — карта покажет, что не так
+            if (place.isEmpty() || p == null || !via.isEmpty() && !via.within(loadout.weapon(), p.position(), new Vec3(place.get().x(), 0, place.get().z()))) {
                 openMap();
                 return;
             }
             // верх земли там по карте — оценка сервера, пока чанк места у него не готов
-            aim = place.map(p -> C2S.AimHint.ground(p.x(), p.z(), TerrainTiles.height(Mth.floor(p.x()), Mth.floor(p.z()))));
+            aim = place.map(t -> C2S.AimHint.ground(t.x(), t.z(), TerrainTiles.height(Mth.floor(t.x()), Mth.floor(t.z()))));
         } else {
             aim = nukePoint();
         }
-        C2S.Fire packet = new C2S.Fire(loadout, aim, Optional.ofNullable(aircraft));
+        C2S.Fire packet = new C2S.Fire(loadout, aim, Optional.ofNullable(aircraft), via);
         Minecraft.getInstance().setScreen(null);
         if (loadout.nuclear()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
@@ -346,9 +350,13 @@ public class RemoteScreen extends Screen {
             case AROUND_ME -> Component.translatable("airstrike.remote.hint.around_me");
             case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : Component.translatable("airstrike.remote.hint.player");
             case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : Component.translatable("airstrike.remote.hint.aircraft");
-            case MAP -> MapTarget.get(minecraft.level)
-                    .<Component>map(p -> Component.translatable("airstrike.remote.hint.map", Mth.floor(p.x()), Mth.floor(p.z())))
-                    .orElse(Component.translatable("airstrike.remote.hint.no_map"));
+            case MAP -> {
+                int points = loadout.weapon().spec().route().waypoints() ? MapTarget.route(minecraft.level).size() : 0;
+                yield MapTarget.get(minecraft.level)
+                        .<Component>map(p -> points > 0 ? Component.translatable("airstrike.remote.hint.map_route", Mth.floor(p.x()), Mth.floor(p.z()), points)
+                                : Component.translatable("airstrike.remote.hint.map", Mth.floor(p.x()), Mth.floor(p.z())))
+                        .orElse(Component.translatable("airstrike.remote.hint.no_map"));
+            }
         };
         g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);
     }

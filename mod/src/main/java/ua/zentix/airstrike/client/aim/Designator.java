@@ -33,6 +33,7 @@ import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
@@ -93,7 +94,7 @@ public final class Designator {
         return hand == null || p == null ? Loadout.DEFAULT : DesignatorItem.loadout(p.getItemInHand(hand));
     }
 
-    /** ЛКМ в бинокле: пуск по тому, что под прицелом. */
+    /** ЛКМ в бинокле: пуск по тому, что под прицелом (маршрут с карты — только у пуска с карты и пульта). */
     public static void fire() {
         TargetPicker.Pick pk = pick;
         if (pk == null || !isScoping()) return;
@@ -106,7 +107,7 @@ public final class Designator {
             hint = new C2S.AimHint(C2S.AimHint.POINT, pk.point(), 0, Vec3.ZERO);
         }
         Loadout l = loadout().withMode(TargetMode.LOOK);
-        C2S.Fire packet = new C2S.Fire(l, Optional.of(hint), Optional.empty());
+        C2S.Fire packet = new C2S.Fire(l, Optional.of(hint), Optional.empty(), Waypoints.NONE);
         if (l.weapon().spec().warhead().always()) {
             NukeArming.toggle(() -> PacketDistributor.sendToServer(packet));
         } else {

@@ -25,6 +25,8 @@ import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
+import ua.zentix.airstrike.strike.WeaponSpec;
+import ua.zentix.airstrike.strike.Waypoints;
 
 import java.util.List;
 import java.util.Locale;
@@ -37,6 +39,11 @@ import java.util.Optional;
  * тянуть — сдвиг, колесо — масштаб у курсора, Enter — огонь, пробел — к себе. Огонь — с настройками пульта;
  * дальность и права проверяет сервер ({@code map_range}).
  * <p>
+ * Маршрут ({@link Waypoints}, помнит {@link MapTarget}): Shift+ЛКМ — точка в конец маршрута (до {@link Waypoints#MAX}),
+ * точку тянут мышью, ПКМ по ней убирает её, кнопка — все. Линия идёт от тебя через точки к цели; под картой — длина
+ * и время полёта, а длиннее дальности оружия по маршруту (паспорт, {@link WeaponSpec.Route#reach}) линия красная
+ * и огня нет. Оружие без полёта по точкам (баллистика, РСЗО) маршрут не берёт — линия тусклая.
+ * <p>
  * Знаки поверх рельефа — толстые, с тёмной обводкой ({@link HudDraw#HALO}): на пёстром городе тонкий пунктир терялся.
  */
 public class MapScreen extends Screen {
@@ -47,18 +54,20 @@ public class MapScreen extends Screen {
     private static final double DRAG_THRESHOLD = 3;
     /** Метки снарядов и игроков за краем карты — на столько пикселей внутрь от края. */
     private static final int EDGE_MARGIN = 12;
-    /** Клик ближе этого (пикселей) к значку игрока — выбор игрока, а не места. */
+    /** Клик ближе этого (пикселей) к значку игрока или точки маршрута — он, а не место. */
     private static final int PICK_RADIUS = 9;
     /** Игроков спрашивать у сервера раз в столько тиков, пока карта открыта. */
     private static final int PLAYERS_PERIOD = 10;
     /** Сверху — заголовок и курсор; снизу — строка цели (своя, чтобы не лечь на подпись сетки) и кнопки. */
-    private static final int TOP = 22, BOTTOM = 44;
+    private static final int TOP = 22, BOTTOM = 56;
 
     private static final int BG = 0xFF0A1410, GRID = 0x3060FF90, GRID_TEXT = 0xC060FF90, INK = 0xFFD8F0E0, DIM = 0xFF90A898;
     /** Рельеф чуть приглушён: знаки поверх него читаются, а город и дороги видны. */
     private static final int TERRAIN_DIM = 0x480A1410;
     private static final int PANEL = 0xD0000000, TARGET = 0xFFFF3030, SPREAD = 0xF0FF5040, SPREAD_FILL = 0x38FF3020;
     private static final int CRAFT = 0xFFFFD040, ROUTE = 0xFFFF8040, AIM_LINE = 0xD0FFFFFF, PLAYER = 0xFF50DCFF, OPERATOR = 0xFFFFFFFF;
+    /** Маршрут оператора: годится — зелёный, длиннее дальности оружия — красный ({@link #TARGET}), оружию не нужен — {@link #DIM}. */
+    private static final int WAYPOINTS = 0xFF7CFF8C;
 
     /** Вид карты помнится между открытиями, пока игрок в том же мире и измерении. */
     private static double viewX, viewZ, scale = 1;
@@ -67,10 +76,12 @@ public class MapScreen extends Screen {
     private static ResourceKey<Level> placedIn;
 
     private final RemoteScreen remote;
-    private Button fireButton;
+    private Button fireButton, clearRouteButton;
     private double pressX, pressY;
-    /** ЛКМ нажата на карте (а не на кнопке) и ещё не отпущена; тянут — сдвиг карты. */
+    /** ЛКМ нажата на карте (а не на кнопке) и ещё не отпущена; тянут — сдвиг карты или точки маршрута. */
     private boolean pressing, dragging;
+    /** Точка маршрута, на которой нажата ЛКМ (её тянут), или −1. */
+    private int grabbed = -1;
     private int ticks;
     /** Для лога: когда карта впервые нарисована, сколько плиток было готово сразу, записано ли время готовности. */
     private long openedNs;
@@ -102,14 +113,16 @@ public class MapScreen extends Screen {
             viewZ = at.z();
             placedIn = mc.level.dimension();
         }
-        int by = height - 24;
+        int by = height - 24, bx = width / 2 - 206;
         fireButton = addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                b -> fire()).bounds(width / 2 - 154, by, 100, 20).build());
+                b -> fire()).bounds(bx, by, 100, 20).build());
+        clearRouteButton = addRenderableWidget(Button.builder(Component.translatable("airstrike.map.route.clear"), b -> MapTarget.clearRoute())
+                .bounds(bx + 104, by, 100, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.map.center"), b -> centerOnPlayer())
-                .bounds(width / 2 - 50, by, 100, 20).build());
+                .bounds(bx + 208, by, 100, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.map.back"), b -> onClose())
-                .bounds(width / 2 + 54, by, 100, 20).build());
-        fireButton.active = canFire();
+                .bounds(bx + 312, by, 100, 20).build());
+        updateButtons();
         // карта открыта с уже выбранным местом — его район тоже грузится заранее (тот же район сервер только продлит)
         if (!ceiling() && selectedPlayer().isEmpty()) selected().ifPresent(MapScreen::preload);
     }
@@ -135,9 +148,55 @@ public class MapScreen extends Screen {
         return l.mode() == TargetMode.PLAYER && !l.player().isEmpty() ? Optional.of(l.player()) : Optional.empty();
     }
 
-    /** Огонь есть по чему: по игроку — в любом мире, по месту — там, где у карты нет потолка. */
+    /**
+     * Огонь есть по чему: по игроку — в любом мире, по месту — там, где у карты нет потолка; и маршрут, если оружие
+     * по нему летит, не длиннее его дальности (игрок не на карте — маршрут проверит сервер).
+     */
     private boolean canFire() {
-        return selectedPlayer().isPresent() || selected().isPresent() && !ceiling();
+        return (selectedPlayer().isPresent() || selected().isPresent() && !ceiling()) && routeLength().map(len -> len <= reach()).orElse(true);
+    }
+
+    private void updateButtons() {
+        fireButton.active = canFire();
+        clearRouteButton.active = !route().isEmpty();
+    }
+
+    /** Точки маршрута в этом измерении. */
+    private static List<MapTarget.Place> route() {
+        return MapTarget.route(Minecraft.getInstance().level);
+    }
+
+    /** Оружие пульта летает по точкам маршрута. */
+    private boolean routed() {
+        return remote.loadout().weapon().spec().route().waypoints();
+    }
+
+    /** Дальность оружия по маршруту, блоков. */
+    private double reach() {
+        return remote.loadout().weapon().spec().route().reach();
+    }
+
+    /** Куда идёт удар, по горизонтали: выбранное место или выбранный игрок, если он на карте. */
+    private Optional<Vec3> aimPoint() {
+        Optional<String> player = selectedPlayer();
+        if (player.isPresent()) {
+            for (MapPlayers.Mark m : marks) {
+                if (m.name().equalsIgnoreCase(player.get())) return Optional.of(new Vec3(m.x(), 0, m.z()));
+            }
+            return Optional.empty();
+        }
+        return selected().map(t -> new Vec3(t.x(), 0, t.z()));
+    }
+
+    /**
+     * Длина пути от игрока через точки маршрута до цели — та же, что проверит сервер ({@code ServerActions.routeFits}).
+     * Пусто — маршрута нет, оружие по нему не летает или цель не известна.
+     */
+    private Optional<Double> routeLength() {
+        Minecraft mc = Minecraft.getInstance();
+        Waypoints via = MapTarget.waypoints(mc.level);
+        if (via.isEmpty() || !routed() || mc.player == null) return Optional.empty();
+        return aimPoint().map(aim -> via.length(mc.player.position(), aim));
     }
 
     private MapProjection projection() {
@@ -152,7 +211,7 @@ public class MapScreen extends Screen {
     private void fire() {
         if (!canFire()) return;
         if (selectedPlayer().isEmpty()) remote.aimAtPlace();
-        remote.fire();
+        remote.fire(MapTarget.waypoints(Minecraft.getInstance().level));
     }
 
     private void centerOnPlayer() {
@@ -186,7 +245,33 @@ public class MapScreen extends Screen {
             remote.aimAtPlace();
             preload(place);
         }
-        fireButton.active = canFire();
+        updateButtons();
+    }
+
+    /** Shift+клик: точка в конец маршрута — у оружия, которое летает по точкам, и там, где место можно выбрать. */
+    private void addWaypoint(double screenX, double screenY) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || ceiling() || !routed()) return;
+        MapProjection map = projection();
+        MapTarget.add(mc.level, new MapTarget.Place(map.worldX(screenX), map.worldZ(screenY)));
+        updateButtons();
+    }
+
+    /** Точка маршрута, чей значок ближе {@link #PICK_RADIUS} к точке экрана, или −1. */
+    private int waypointAt(double screenX, double screenY) {
+        MapProjection map = projection();
+        List<MapTarget.Place> route = route();
+        int best = -1;
+        double bestD = PICK_RADIUS * PICK_RADIUS;
+        for (int i = 0; i < route.size(); i++) {
+            int[] at = map.at(route.get(i).x(), route.get(i).z());
+            double d = Mth.square(at[0] - screenX) + Mth.square(at[1] - screenY);
+            if (d <= bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
     }
 
     /** Игрок, чей значок (на карте или у края) ближе {@link #PICK_RADIUS} к точке экрана. */
@@ -214,10 +299,20 @@ public class MapScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (super.mouseClicked(mouseX, mouseY, button)) return true;
         if (!onMap(mouseX, mouseY)) return false;
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            // ПКМ по точке маршрута — убрать её
+            int i = waypointAt(mouseX, mouseY);
+            if (i < 0) return false;
+            MapTarget.remove(Minecraft.getInstance().level, i);
+            updateButtons();
+            return true;
+        }
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
         pressX = mouseX;
         pressY = mouseY;
         pressing = true;
         dragging = false;
+        grabbed = waypointAt(mouseX, mouseY);
         return true;
     }
 
@@ -227,6 +322,13 @@ public class MapScreen extends Screen {
         if (!pressing) return false;
         if (!dragging && Math.hypot(mouseX - pressX, mouseY - pressY) < DRAG_THRESHOLD) return true;
         dragging = true;
+        if (grabbed >= 0) {
+            // тянут точку маршрута — она под курсором (и за край нижней панели не уходит)
+            MapProjection map = projection();
+            double y = Mth.clamp(mouseY, TOP, height - BOTTOM - 1);
+            MapTarget.move(Minecraft.getInstance().level, grabbed, new MapTarget.Place(map.worldX(mouseX), map.worldZ(y)));
+            return true;
+        }
         viewX -= dragX / scale;
         viewZ -= dragY / scale;
         return true;
@@ -236,8 +338,14 @@ public class MapScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         boolean handled = super.mouseReleased(mouseX, mouseY, button);
         boolean click = pressing && !dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && onMap(mouseX, mouseY);
+        boolean onPoint = grabbed >= 0;
         pressing = dragging = false;
-        if (click) select(mouseX, mouseY);
+        grabbed = -1;
+        // клик по точке маршрута ничего не выбирает: её тянут или убирают
+        if (click && !onPoint) {
+            if (hasShiftDown()) addWaypoint(mouseX, mouseY);
+            else select(mouseX, mouseY);
+        }
         return click || handled;
     }
 
@@ -319,8 +427,11 @@ public class MapScreen extends Screen {
         } else {
             aim = selected().map(t -> map.at(t.x(), t.z())).orElse(null);
         }
+        List<MapTarget.Place> route = route();
+        boolean routed = routed() && !route.isEmpty();
+        if (aim != null && !routed) HudDraw.dashed(g, op[0], op[1], aim[0], aim[1], 1, AIM_LINE);
+        if (!route.isEmpty()) drawRoute(g, map, op, aim, route, mouseX, mouseY);
         if (aim != null) {
-            HudDraw.dashed(g, op[0], op[1], aim[0], aim[1], 1, AIM_LINE);
             if (l.spread() > 0) {
                 float r = (float) (l.spread() * scale);
                 HudDraw.disc(g, aim[0], aim[1], r, SPREAD_FILL);
@@ -392,6 +503,31 @@ public class MapScreen extends Screen {
                 (System.nanoTime() - openedNs) / 1_000_000, p.visible(), atOpen.ready(), atOpen.layers(), TerrainTiles.stats());
     }
 
+    /**
+     * Маршрут: линия от игрока через точки к цели и номера точек; под курсором — рамка (тянуть — сдвиг, ПКМ — убрать).
+     * Цвет — что с ним будет при пуске: {@link #WAYPOINTS}, {@link #TARGET} (длиннее дальности), {@link #DIM} (оружие
+     * летит без точек).
+     */
+    private void drawRoute(GuiGraphics g, MapProjection map, int[] op, @Nullable int[] aim, List<MapTarget.Place> route, int mouseX, int mouseY) {
+        int color = !routed() ? DIM : routeLength().map(len -> len <= reach()).orElse(true) ? WAYPOINTS : TARGET;
+        int[] prev = op;
+        int[][] at = new int[route.size()][];
+        for (int i = 0; i < route.size(); i++) {
+            at[i] = map.at(route.get(i).x(), route.get(i).z());
+            HudDraw.haloLine(g, prev[0], prev[1], at[i][0], at[i][1], 2, color);
+            prev = at[i];
+        }
+        if (aim != null) HudDraw.haloLine(g, prev[0], prev[1], aim[0], aim[1], 2, color);
+        int hover = grabbed >= 0 ? grabbed : onMap(mouseX, mouseY) ? waypointAt(mouseX, mouseY) : -1;
+        for (int i = 0; i < route.size(); i++) {
+            HudDraw.disc(g, at[i][0] + 0.5f, at[i][1] + 0.5f, 7, HudDraw.HALO);
+            HudDraw.disc(g, at[i][0] + 0.5f, at[i][1] + 0.5f, 6, color);
+            Component n = Component.literal(Integer.toString(i + 1));
+            g.drawString(font, n, at[i][0] - font.width(n) / 2 + 1, at[i][1] - 3, 0xFF000000, false);
+            if (i == hover) HudDraw.ring(g, at[i][0] + 0.5f, at[i][1] + 0.5f, 9, 1, OPERATOR);
+        }
+    }
+
     /** Прицел у цели: кольцо с точкой. */
     private static void reticle(GuiGraphics g, int x, int y, int r, int color) {
         HudDraw.ring(g, x, y, r, 2, color);
@@ -428,7 +564,7 @@ public class MapScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        fireButton.active = canFire();
+        updateButtons();
         super.render(g, mouseX, mouseY, partialTick);
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
@@ -451,6 +587,7 @@ public class MapScreen extends Screen {
 
         // над кнопками, в нижней панели: выбранная цель или подсказка
         g.drawCenteredString(font, targetLine(p.position()), width / 2, height - BOTTOM + 5, canFire() ? 0xFFFF6050 : DIM);
+        routeLine(g);
         String note = ceiling() ? "airstrike.map.no_ceiling"
                 : !TerrainTiles.farTerrain() ? "airstrike.map.near_only" : TerrainTiles.farPending() ? "airstrike.map.far_pending" : null;
         if (note != null) g.drawString(font, Component.translatable(note).withStyle(ChatFormatting.ITALIC), 8, TOP + 6, DIM);
@@ -473,15 +610,52 @@ public class MapScreen extends Screen {
                 : Component.translatable("airstrike.map.hint");
     }
 
+    /**
+     * Строка маршрута под строкой цели: подсказка, если точек нет; «3 точки · 12.40 км · ≈ 4:55 полёта»; длиннее
+     * дальности — сколько и докуда можно; оружие без полёта по точкам — что маршрут ему не нужен.
+     */
+    private void routeLine(GuiGraphics g) {
+        int points = route().size();
+        Component line;
+        int color;
+        if (!routed()) {
+            line = points == 0 ? Component.translatable("airstrike.map.route.weapon", remote.loadout().weapon().displayName())
+                    : Component.translatable("airstrike.map.route.unused", remote.loadout().weapon().displayName());
+            color = DIM;
+        } else if (points == 0) {
+            line = Component.translatable("airstrike.map.route.hint", Waypoints.MAX);
+            color = DIM;
+        } else {
+            Optional<Double> length = routeLength();
+            if (length.isEmpty()) {
+                line = Component.translatable("airstrike.map.route.no_target", points, Waypoints.MAX);
+                color = WAYPOINTS;
+            } else if (length.get() > reach()) {
+                line = Component.translatable("airstrike.map.route.too_long", distance(length.get()), distance(reach()));
+                color = TARGET;
+            } else {
+                // время — по маршевой скорости: разгон, набор и пике его почти не меняют
+                int seconds = (int) Math.round(length.get() / remote.loadout().weapon().spec().airframe().cruiseSpeed() / 20);
+                line = Component.translatable("airstrike.map.route", points, Waypoints.MAX, distance(length.get()),
+                        String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60));
+                color = WAYPOINTS;
+            }
+        }
+        g.drawCenteredString(font, line, width / 2, height - BOTTOM + 17, color);
+    }
+
     /** «X 1200  Z −340 · 2.40 км · азимут 135°» — дальность и азимут от игрока. */
     private static Component place(double x, double z, Vec3 from) {
         double dx = x - from.x, dz = z - from.z;
-        double dist = Math.sqrt(dx * dx + dz * dz);
         // азимут — от севера (−Z) по часовой
         int azimuth = Math.floorMod(Math.round((float) Math.toDegrees(Math.atan2(dx, -dz))), 360);
-        Component range = dist >= 1000 ? Component.translatable("airstrike.map.km", String.format(Locale.ROOT, "%.2f", dist / 1000))
-                : Component.translatable("airstrike.map.m", String.format(Locale.ROOT, "%.0f", dist));
-        return Component.translatable("airstrike.map.place", Mth.floor(x), Mth.floor(z), range, azimuth);
+        return Component.translatable("airstrike.map.place", Mth.floor(x), Mth.floor(z), distance(Math.sqrt(dx * dx + dz * dz)), azimuth);
+    }
+
+    /** «2.40 км» или «340 м». */
+    private static Component distance(double blocks) {
+        return blocks >= 1000 ? Component.translatable("airstrike.map.km", String.format(Locale.ROOT, "%.2f", blocks / 1000))
+                : Component.translatable("airstrike.map.m", String.format(Locale.ROOT, "%.0f", blocks));
     }
 
     private void label(GuiGraphics g, Component text, int x, int y, int color) {

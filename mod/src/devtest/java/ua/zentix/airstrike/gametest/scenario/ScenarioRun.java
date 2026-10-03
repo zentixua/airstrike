@@ -31,6 +31,7 @@ import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.gametest.StrikeGameTests;
 import ua.zentix.airstrike.gametest.TicketProbe;
 import ua.zentix.airstrike.guidance.BombDrop;
@@ -38,11 +39,13 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.VirtualFlights;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.stress.StressDirector;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
+import ua.zentix.airstrike.util.Local;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.ArrayList;
@@ -66,6 +69,7 @@ import java.util.function.Consumer;
  *     <li>нет кружения: вне круга барража управляемый снаряд в радиусе своего разворота от точки цели поворачивает
  *         в сумме не больше чем на {@link #MAX_TURN}° ({@link Track#turn});</li>
  *     <li>неподвижная цель поражена в пределах дальности взрывателя ({@link #checkHit});</li>
+ *     <li>по маршруту оператора снаряд проходит его точки по порядку ({@link #checkWaypoints});</li>
  *     <li>после конца полёта ни тикетов с UUID снаряда, ни записи в {@link VirtualFlights};</li>
  *     <li>мод не читал неготовых чанков ({@link SyncLoadWatch});</li>
  *     <li>бюджет работы за тик (корень 1): полоса попаданий не больше общего срока и единицы, с блэкаутом — единицы
@@ -115,6 +119,9 @@ final class ScenarioRun {
     @Nullable
     private Vec3 stationaryAim;
     private double retargetShift;
+    /** Маршрут оператора ({@code WAYPOINTS}) и сколько его точек снаряд уже прошёл. */
+    private Waypoints via = Waypoints.NONE;
+    private int viaPassed;
 
     // ход сценария
     private int tick;
@@ -299,6 +306,7 @@ final class ScenarioRun {
         Vec3 point = targetPoint();
         lastTargetPoint = point;
         aim = point;
+        via = new Waypoints(p.waypoints().stream().map(targetBase::add).toList());
         StrikeProjectile proj = switch (s.launch()) {
             case DRONE_FAR, MISSILE_FAR -> fromAfar(point);
             case DRONE_RAIL, MISSILE_RAIL -> guidedFromRail(point);
@@ -335,9 +343,20 @@ final class ScenarioRun {
         return s.launch().weapon.spec().airframe().cruiseSpeed() * p.flightTime() * 20;
     }
 
-    /** Как {@code StrikeService.fromAfar}: начало на прямой захода, на длину полёта от цели, вне мира. */
+    /**
+     * Как {@code StrikeService.fromAfar}: начало на прямой захода, на длину полёта от цели, вне мира; по маршруту
+     * оператора — перед его первой точкой на продолжении первого участка.
+     */
     private StrikeProjectile fromAfar(Vec3 point) {
         StrikeProjectile e = guided();
+        if (!via.isEmpty()) {
+            WeaponSpec spec = s.launch().weapon.spec();
+            Vec3 start = via.afar(point, spec.route().finalLeg()).add(0, point.y + spec.airframe().cruiseHeight(), 0);
+            e.launch(start, target, point, owner);
+            e.setRoute(via.route(start));
+            VirtualFlights.launch(level, e);
+            return e;
+        }
         double length = Math.max(pathLength(), p.entry());
         Vec3 start = point.subtract(p.approach().scale(length)).add(0, s.launch().weapon.spec().airframe().cruiseHeight(), 0);
         e.launch(start, target, point, owner);
@@ -346,10 +365,21 @@ final class ScenarioRun {
         return e;
     }
 
-    /** Как {@code StrikeService.fromLauncher}: пакет смотрит на первую точку маршрута. */
+    /**
+     * Как {@code StrikeService.fromLauncher}: пакет смотрит на первую точку маршрута; по маршруту оператора — ворота
+     * взведения на курсе к его первой точке, потом его точки.
+     */
     private StrikeProjectile guidedFromRail(Vec3 point) {
         StrikeProjectile e = guided();
         Vec3 rail = rail();
+        if (!via.isEmpty()) {
+            float yaw = FlightController.anglesTo(rail, via.points().getFirst())[0];
+            Vec3 gate = rail.add(Local.horizontal(yaw).scale(ProximityFuse.ARM_DISTANCE));
+            e.placeOnLauncher(rail, yaw, LauncherEntity.elevation(s.launch().weapon), p.readyTicks(), 0, target, point, owner);
+            e.setRoute(via.route(gate).after(gate, rail));
+            add(e);
+            return e;
+        }
         Route plan = Route.plan(rail, point, p.approach(), pathLength(), p.entry(), p.side());
         Vec3 first = plan.current() == null ? point : plan.current();
         e.placeOnLauncher(rail, FlightController.anglesTo(rail, first)[0], LauncherEntity.elevation(s.launch().weapon), p.readyTicks(), 0, target, point, owner);
@@ -360,9 +390,11 @@ final class ScenarioRun {
 
     private StrikeProjectile loiterFromAfar(Vec3 point) {
         LoiterEntity e = create(ModEntities.LOITER.get());
-        Vec3 from = point.subtract(p.approach().scale(p.standoff())).add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), 0);
+        Vec3 from = via.isEmpty() ? point.subtract(p.approach().scale(p.standoff()))
+                : via.afar(point, WeaponSpec.LOITER.route().standoff()).add(0, point.y, 0);
+        from = from.add(0, WeaponSpec.LOITER.airframe().cruiseHeight(), 0);
         e.launch(from, target, point, owner);
-        e.setRoute(null);
+        e.setRoute(via.isEmpty() ? null : via.route(from));
         VirtualFlights.launch(level, e);
         return e;
     }
@@ -370,8 +402,9 @@ final class ScenarioRun {
     private StrikeProjectile loiterFromRail(Vec3 point) {
         LoiterEntity e = create(ModEntities.LOITER.get());
         Vec3 rail = rail();
-        e.placeOnLauncher(rail, FlightController.anglesTo(rail, point)[0], LauncherEntity.elevation(WeaponType.LOITER), p.readyTicks(), 0, target, point, owner);
-        e.setRoute(null);
+        e.placeOnLauncher(rail, FlightController.anglesTo(rail, via.isEmpty() ? point : via.points().getFirst())[0],
+                LauncherEntity.elevation(WeaponType.LOITER), p.readyTicks(), 0, target, point, owner);
+        e.setRoute(via.isEmpty() ? null : via.route(rail));
         add(e);
         return e;
     }
@@ -539,6 +572,7 @@ final class ScenarioRun {
             Vec3 step = pos.subtract(tr.last);
             tr.lastStep = step.length();
             accumulateTurn(tr, e, step);
+            if (e.getUUID().equals(projectileId)) passWaypoints(e, tr, pos);
             tr.last = pos;
             if (outcome == null) trace.add(t, tr.order, e.flightPhase().ordinal(), e.isVirtual(), pos.subtract(site.origin));
             if (outcome == null && e instanceof BunkerBusterEntity bomb && bomb.isDrilling()) {
@@ -555,6 +589,18 @@ final class ScenarioRun {
                 outcome = new Outcome("gone", t, last.last, last.weapon);
             }
         }
+    }
+
+    /**
+     * Точка маршрута оператора пройдена, когда снаряд подошёл к ней по горизонтали не дальше двух захватов паспорта
+     * и шага: столько оставляет {@code Route.update} снаряду, который проскочил точку с большим кругом разворота.
+     * Считаются только по порядку: подойти ко второй раньше первой — не пройти её.
+     */
+    private void passWaypoints(StrikeProjectile e, Track tr, Vec3 pos) {
+        if (viaPassed >= via.size()) return;
+        Vec3 wp = via.points().get(viaPassed);
+        double near = 2 * e.weapon().spec().route().capture() + tr.lastStep + 1;
+        if (Math.hypot(pos.x - wp.x, pos.z - wp.z) <= near) viaPassed++;
     }
 
     /**
@@ -642,6 +688,7 @@ final class ScenarioRun {
             known(Scenario.Property.TURN, this::checkTurns);
             checkDuration();
             known(Scenario.Property.HIT, this::checkHit);
+            checkWaypoints();
             checkReleased();
             checkWork();
             List<SyncLoadWatch.Violation> reads = SyncLoadWatch.since(launchGameTime);
@@ -706,6 +753,11 @@ final class ScenarioRun {
         double miss = outcome.at.distanceTo(stationaryAim);
         h.assertTrue(miss <= reach, String.format(Locale.ROOT, "взрыв в %.1f блоках от неподвижной цели (дальность %.1f) у %s",
                 miss, reach, rel(outcome.at)));
+    }
+
+    private void checkWaypoints() {
+        h.assertTrue(viaPassed == via.size(), "маршрут оператора: пройдено точек " + viaPassed + " из " + via.size() + ", следующая "
+                + (viaPassed < via.size() ? rel(via.points().get(viaPassed)) : "—"));
     }
 
     private void checkReleased() {

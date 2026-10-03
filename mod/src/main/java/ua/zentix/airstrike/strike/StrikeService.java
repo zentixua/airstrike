@@ -39,9 +39,9 @@ import java.util.UUID;
  * Шахед и крылатая ракета стартуют с мобильной пусковой рядом со стреляющим ({@link LaunchSite}): поджиг,
  * сход с направляющей на ускорителе, сброс ускорителя, выход на маршрут. Маршрут ({@link Route}) — петля в обход
  * и заход на цель с направления взгляда стреляющего, «из-за спины», на всё время полёта из настроек (шахед 50 с,
- * ракета 30 с). Большая часть пути проходит вне загруженного мира ({@link VirtualFlights}). Без стреляющего рядом
- * (консоль, командный блок, игрок в другом мире) или без места под пусковую — заход издалека по той же схеме.
- * B-2 всегда заходит издалека.
+ * ракета 30 с), а если оператор поставил на карте свои точки ({@link Waypoints}) — по ним. Большая часть пути проходит
+ * вне загруженного мира ({@link VirtualFlights}). Без стреляющего рядом (консоль, командный блок, игрок в другом мире)
+ * или без места под пусковую — заход издалека по той же схеме. B-2 всегда заходит издалека.
  */
 public final class StrikeService {
     /** Радиус, в котором слышна сирена и видна тревога. */
@@ -64,9 +64,11 @@ public final class StrikeService {
      *                    (у залпа сирена одна на весь залп), искать место пусковой заново
      * @param nuke        мощность и подрыв ядерной боеголовки; у крылатой ракеты и бомбы — только с {@code onCarrier}
      *                    (МБР — всегда ядерная)
+     * @param via         точки оператора: шахед, ракета и «Ланцет» летят по ним вместо петли в обход (курс захода
+     *                    {@code approachYaw} им тогда не нужен); у остального оружия маршрута нет
      */
     public static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
-                                @Nullable UUID owner, boolean siren, Loadout.Nuke nuke) {
+                                @Nullable UUID owner, boolean siren, Loadout.Nuke nuke, Waypoints via) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (shooter != null && shooter.level() != level) shooter = null;
         if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
@@ -80,9 +82,9 @@ public final class StrikeService {
         }
         Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (spec.launch()) {
-            case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter);
+            case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter, via);
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter);
-            case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter);
+            case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter, via);
             case BOMBER -> launchBomber(level, target, point, approachYaw, owner);
             case ICBM -> throw new IllegalStateException("МБР пускает NuclearStrikes");
         };
@@ -116,16 +118,15 @@ public final class StrikeService {
     /** Шахед или ракета: с пусковой рядом со стреляющим, иначе издалека. Снаряд ещё не добавлен в мир. */
     @Nullable
     private static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float yaw,
-                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter) {
-        Vec3 dir = Local.horizontal(yaw);
-        double length = pathLength(weapon);
-        double entry = entryDistance(weapon, point, shooter);
-        double side = level.random.nextBoolean() ? 1 : -1;
+                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter, Waypoints via) {
+        Course course = via.isEmpty()
+                ? new Loop(point, Local.horizontal(yaw), pathLength(weapon), entryDistance(weapon, point, shooter), level.random.nextBoolean() ? 1 : -1)
+                : new Through(point, via);
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
-            StrikeProjectile p = fromLauncher(level, weapon, target, point, dir, length, entry, side, shooter);
+            StrikeProjectile p = fromLauncher(level, weapon, target, point, course, shooter);
             if (p != null) return p;
         }
-        return fromAfar(level, weapon, target, point, dir, length, entry, side, owner);
+        return fromAfar(level, weapon, target, point, course, owner);
     }
 
     /**
@@ -133,29 +134,102 @@ public final class StrikeService {
      * {@code FakePlayer} NeoForge). Снаряд ещё не добавлен в мир: с пусковой — добавить, вне мира — уже летит.
      */
     @Nullable
-    public static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Vec3 point, float yaw, ServerPlayer shooter) {
+    public static StrikeProjectile launchGuided(ServerLevel level, WeaponType weapon, Vec3 point, float yaw, ServerPlayer shooter, Waypoints via) {
         StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
-        return launchGuided(level, weapon, new Target.Point(point), point, yaw, shooter.getUUID(), shooter);
+        return launchGuided(level, weapon, new Target.Point(point), point, yaw, shooter.getUUID(), shooter, via);
     }
 
-    /** Курс пусковой шахедов и ракет не дальше этого от направления на цель, °: иначе залп уходил бы от цели. */
+    /**
+     * Путь шахеда или ракеты к цели от места старта: петля в обход ({@link Loop}) или маршрут оператора ({@link Through}).
+     * Пусковая смотрит на первую точку маршрута, поэтому её курс выбирается по маршруту от её места.
+     */
+    private sealed interface Course permits Loop, Through {
+        /** Сколько вариантов маршрута, по порядку предпочтения (у петли — обход с одной и с другой стороны). */
+        int options();
+
+        /** Маршрут варианта {@code option} от {@code start}, до которого снаряд от пусковой уже пролетел {@code travelled} блоков. */
+        Route from(Vec3 start, double travelled, int option);
+
+        /** Курс пусковой — не дальше {@link #MAX_OFF_TARGET} от направления на эту точку: туда идёт путь. */
+        Vec3 heading();
+
+        /** Откуда заходит снаряд издалека (по горизонтали; высоту ставит пуск) — по варианту 0. */
+        Vec3 afar(WeaponType weapon);
+    }
+
+    /**
+     * Петля в обход и заход из-за спины стреляющего ({@link Route#plan}): путь {@code length} на время полёта из настроек,
+     * последний прямой участок {@code entry}, обход со стороны {@code side} (вариант 1 — с другой).
+     */
+    private record Loop(Vec3 point, Vec3 dir, double length, double entry, double side) implements Course {
+        @Override
+        public int options() {
+            return 2;
+        }
+
+        @Override
+        public Route from(Vec3 start, double travelled, int option) {
+            return Route.plan(start, point, dir, Math.max(0, length - travelled), entry, option == 0 ? side : -side);
+        }
+
+        @Override
+        public Vec3 heading() {
+            return point;
+        }
+
+        /** На прямой захода, на длину пути от цели; короткий полёт из настроек — не ближе точки входа, иначе первым делом разворот назад. */
+        @Override
+        public Vec3 afar(WeaponType weapon) {
+            double back = Math.max(length, entry);
+            return new Vec3(point.x - dir.x * back, 0, point.z - dir.z * back);
+        }
+    }
+
+    /** Маршрут оператора: по его точкам, после последней — на цель. */
+    private record Through(Vec3 point, Waypoints via) implements Course {
+        @Override
+        public int options() {
+            return 1;
+        }
+
+        @Override
+        public Route from(Vec3 start, double travelled, int option) {
+            return via.route(start);
+        }
+
+        @Override
+        public Vec3 heading() {
+            return via.points().getFirst();
+        }
+
+        /** Перед первой точкой на последний прямой участок из паспорта: к ней снаряд подходит по курсу маршрута. */
+        @Override
+        public Vec3 afar(WeaponType weapon) {
+            return via.afar(point, weapon.spec().route().finalLeg());
+        }
+    }
+
+    /**
+     * Курс пусковой шахедов и ракет не дальше этого от направления пути ({@link Course#heading}: на цель, у маршрута
+     * оператора — на его первую точку), °: иначе залп уходил бы не туда.
+     */
     private static final float MAX_OFF_TARGET = 90;
     @Nullable
-    private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
-                                                 double length, double entry, double side, ServerPlayer shooter) {
+    private static StrikeProjectile fromLauncher(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Course course,
+                                                 ServerPlayer shooter) {
         // пусковая, чей сектор пуска упирается в постройку, не годится: снаряд разбился бы о неё до взведения; проверка
         // своей и поиск места — под одним пределом
         LaunchSite.Budget budget = new LaunchSite.Budget();
         LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon, l -> LaunchSite.clearAhead(level, l, point, budget));
+        int option = 0;
         if (launcher == null) {
             if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
-            // пакет смотрит на первую точку маршрута — обход с одной или с другой стороны, какой свободен; иначе
-            // поворачивается (не дальше MAX_OFF_TARGET от цели), пока не найдёт свободный сектор
-            double[] sides = {side, -side};
-            LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, point, site -> {
-                float[] yaws = new float[sides.length];
-                for (int i = 0; i < sides.length; i++) {
-                    Route plan = Route.plan(site, point, dir, length, entry, sides[i]);
+            // пакет смотрит на первую точку маршрута — у петли обход с одной или с другой стороны, какой свободен; иначе
+            // поворачивается (не дальше MAX_OFF_TARGET от направления пути), пока не найдёт свободный сектор
+            LaunchSite.Pick pick = LaunchSite.findClear(level, shooter, weapon, course.heading(), site -> {
+                float[] yaws = new float[course.options()];
+                for (int i = 0; i < yaws.length; i++) {
+                    Route plan = course.from(site, 0, i);
                     yaws[i] = FlightController.anglesTo(site, plan.current() == null ? point : plan.current())[0];
                 }
                 return yaws;
@@ -164,7 +238,7 @@ public final class StrikeService {
                 noLaunchSite(level, shooter, weapon, budget);
                 return null;
             }
-            if (pick.preferred() >= 0) side = sides[pick.preferred()];
+            option = Math.max(0, pick.preferred());
             launcher = LaunchSite.deploy(level, pick.site(), pick.yaw(), weapon, shooter);
         }
         StrikeProjectile p = create(level, weapon);
@@ -174,8 +248,7 @@ public final class StrikeService {
         // первая точка маршрута — на курсе пусковой в дальности взведения: до неё снаряд идёт ровно по проверенному
         // сектору, а доворачивает на маршрут уже взведённым
         Vec3 gate = gate(slot.rail(), launcher.getYRot());
-        Route plan = Route.plan(gate, point, dir, Math.max(0, length - ProximityFuse.ARM_DISTANCE), entry, side);
-        p.setRoute(plan.after(gate, slot.rail()));
+        p.setRoute(course.from(gate, ProximityFuse.ARM_DISTANCE, option).after(gate, slot.rail()));
         return p;
     }
 
@@ -214,8 +287,8 @@ public final class StrikeService {
     }
 
     /**
-     * Пусковая у стреляющего, наведённая на цель (РСЗО, барражирующие): своя — доворачивается, если молчит; нет своей —
-     * ставится новая. {@code null}, если места под неё нет.
+     * Пусковая у стреляющего, наведённая на точку {@code point} (РСЗО — на цель, барражирующие — на цель или первую точку
+     * маршрута оператора): своя — доворачивается, если молчит; нет своей — ставится новая. {@code null}, если места под неё нет.
      */
     @Nullable
     private static LauncherEntity aimedLauncher(ServerLevel level, ServerPlayer shooter, WeaponType weapon, Vec3 point) {
@@ -240,18 +313,16 @@ public final class StrikeService {
     }
 
     /**
-     * Заход издалека: снаряд начинает полёт вне мира на прямой захода, на расстоянии времени полёта от цели
-     * (а если это место уже загружено — сразу в мире).
+     * Заход издалека: снаряд начинает полёт вне мира на прямой захода, на расстоянии времени полёта от цели, а по
+     * маршруту оператора — перед его первой точкой (а если это место уже загружено — сразу в мире).
      */
-    private static StrikeProjectile fromAfar(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Vec3 dir,
-                                             double length, double entry, double side, @Nullable UUID owner) {
+    private static StrikeProjectile fromAfar(ServerLevel level, WeaponType weapon, Target target, Vec3 point, Course course,
+                                             @Nullable UUID owner) {
         StrikeProjectile p = create(level, weapon);
         if (p == null) return null;
-        // короткий полёт из настроек: старт не ближе точки входа, иначе первым делом разворот назад
-        length = Math.max(length, entry);
-        Vec3 start = point.subtract(dir.scale(length)).add(0, weapon.spec().airframe().cruiseHeight(), 0);
+        Vec3 start = course.afar(weapon).add(0, point.y + weapon.spec().airframe().cruiseHeight(), 0);
         p.launch(start, target, point, owner);
-        p.setRoute(Route.plan(start, point, dir, length, entry, side));
+        p.setRoute(course.from(start, 0, 0));
         startVirtual(level, p);
         return p;
     }
@@ -282,27 +353,30 @@ public final class StrikeService {
 
     /**
      * Барражирующий боеприпас: с катапульты у стреляющего (доворачивается на цель, если молчит) прямо к цели,
-     * иначе — издалека на высоте круга.
+     * иначе — издалека на высоте круга. По маршруту оператора катапульта смотрит на его первую точку, а издалека
+     * боеприпас заходит к ней за вынос пусковой из паспорта.
      */
     @Nullable
     private static StrikeProjectile launchLoiter(ServerLevel level, Target target, Vec3 point, float yaw,
-                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter) {
+                                                 @Nullable UUID owner, @Nullable ServerPlayer shooter, Waypoints via) {
         LoiterEntity e = ModEntities.LOITER.get().create(level);
         if (e == null) return null;
         if (shooter != null && AirstrikeConfig.SERVER.launchNearPlayer.get()) {
-            LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.LOITER, point);
+            LauncherEntity launcher = aimedLauncher(level, shooter, WeaponType.LOITER, via.isEmpty() ? point : via.points().getFirst());
             if (launcher != null) {
                 Slot slot = Slot.reserve(level, launcher);
                 e.placeOnLauncher(slot.rail(), launcher.getYRot(), launcher.elevation(), slot.ready(), slot.hidden(), target, point,
                         shooter.getUUID());
-                e.setRoute(null);
+                e.setRoute(via.isEmpty() ? null : via.route(slot.rail()));
                 return e;
             }
         }
         WeaponSpec spec = WeaponType.LOITER.spec();
-        Vec3 from = point.subtract(Local.horizontal(yaw).scale(spec.route().standoff())).add(0, spec.airframe().cruiseHeight(), 0);
+        Vec3 from = via.isEmpty() ? point.subtract(Local.horizontal(yaw).scale(spec.route().standoff()))
+                : via.afar(point, spec.route().standoff()).add(0, point.y, 0);
+        from = from.add(0, spec.airframe().cruiseHeight(), 0);
         e.launch(from, target, point, owner);
-        e.setRoute(null);
+        e.setRoute(via.isEmpty() ? null : via.route(from));
         startVirtual(level, e);
         return e;
     }
@@ -351,10 +425,15 @@ public final class StrikeService {
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, ALERT_RADIUS, new S2C.Siren(at, kind));
     }
 
-    /** Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда и за чем снаряды следят. */
-    public static void log(ServerLevel level, String who, WeaponType weapon, int count, int spread, Target target, Vec3 point) {
-        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} ({}) — {}", weapon.getSerializedName(), count, spread,
-                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), who);
+    /**
+     * Строка в лог сервера на каждый приказ (для tools/logscan.py): кто, чем, сколько, куда, за чем снаряды следят и,
+     * если оператор поставил точки, — маршрут по ним.
+     */
+    public static void log(ServerLevel level, String who, WeaponType weapon, int count, int spread, Target target, Vec3 point, Waypoints via) {
+        StringBuilder route = new StringBuilder();
+        for (Vec3 q : via.points()) route.append(route.isEmpty() ? ", маршрут " : " → ").append(Mth.floor(q.x)).append(' ').append(Mth.floor(q.z));
+        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} ({}{}) — {}", weapon.getSerializedName(), count, spread,
+                Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), route, who);
     }
 
     /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */

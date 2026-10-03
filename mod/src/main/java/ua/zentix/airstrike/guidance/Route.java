@@ -19,6 +19,8 @@ public final class Route {
     /** Откуда начат маршрут: начало первого участка (для проверки «проскочил» уже на нём). */
     @Nullable
     private final Vec3 origin;
+    /** Точки поставил оператор на карте ({@code strike/Waypoints}), а не пуск: последний участок до цели бывает любым. */
+    private final boolean operator;
     private int next;
 
     public Route(List<Vec3> points) {
@@ -26,8 +28,22 @@ public final class Route {
     }
 
     public Route(List<Vec3> points, @Nullable Vec3 origin) {
+        this(points, origin, false);
+    }
+
+    private Route(List<Vec3> points, @Nullable Vec3 origin, boolean operator) {
         this.points = new ArrayList<>(points);
         this.origin = origin;
+        this.operator = operator;
+    }
+
+    /** Маршрут по точкам оператора. */
+    public static Route operator(List<Vec3> points, Vec3 origin) {
+        return new Route(points, new Vec3(origin.x, 0, origin.z), true);
+    }
+
+    public boolean byOperator() {
+        return operator;
     }
 
     public static Route direct() {
@@ -52,7 +68,7 @@ public final class Route {
         List<Vec3> pts = new ArrayList<>();
         pts.add(new Vec3(first.x, 0, first.z));
         pts.addAll(points.subList(next, points.size()));
-        return new Route(pts, new Vec3(origin.x, 0, origin.z));
+        return new Route(pts, new Vec3(origin.x, 0, origin.z), operator);
     }
 
     /** Бросить оставшиеся точки: прямо на цель (перенацеливание из камеры). */
@@ -152,6 +168,7 @@ public final class Route {
             tag.putDouble("origin_x", origin.x);
             tag.putDouble("origin_z", origin.z);
         }
+        if (operator) tag.putBoolean("operator", true);
         return tag;
     }
 
@@ -162,7 +179,7 @@ public final class Route {
             pts.add(new Vec3(c.getDouble("x"), 0, c.getDouble("z")));
         }
         Vec3 origin = tag.contains("origin_x") ? new Vec3(tag.getDouble("origin_x"), 0, tag.getDouble("origin_z")) : null;
-        Route r = new Route(pts, origin);
+        Route r = new Route(pts, origin, tag.getBoolean("operator"));
         r.next = Math.min(tag.getInt("next"), pts.size());
         return r;
     }

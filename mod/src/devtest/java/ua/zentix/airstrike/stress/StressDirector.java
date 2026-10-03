@@ -743,9 +743,9 @@ public final class StressDirector {
         log("аппарат %s у %.0f %.0f %.0f", craftId, c.x, c.y, c.z);
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
-                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.DRONE, drones, 10, aim,
-                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE);
     }
 
     /**
@@ -766,7 +766,8 @@ public final class StressDirector {
                 shooter, fresh ? "не готов" : "уже готов");
         if (!fresh) problems.add("проба " + name + ": район уже готов — растяжение не проверено");
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
-                new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT,
+                ua.zentix.airstrike.strike.Waypoints.NONE);
     }
 
     /** Бомбы сразу вне мира (без B-2: сброс {@code drop} в воздухе) на точку в 300 блоках позади и на 150 ниже (как GameTest virtualMissNeverFallsBelowGround). */
