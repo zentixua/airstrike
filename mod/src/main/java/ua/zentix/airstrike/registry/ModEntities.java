@@ -49,7 +49,10 @@ public final class ModEntities {
                     .noSummon()
                     .build(Airstrike.MOD_ID + ":launcher"));
 
-    /** Отработавший ускоритель: падает по баллистике, как обломок. */
+    /**
+     * Отработавший ускоритель: падает по баллистике, как обломок. Живёт секунды и в мир не сохраняется
+     * ({@code noSave}): чанк, выгруженный посреди его падения, не хранит его до следующей загрузки.
+     */
     public static final DeferredHolder<EntityType<?>, EntityType<SpentBoosterEntity>> SPENT_BOOSTER = REGISTER.register("spent_booster",
             () -> EntityType.Builder.<SpentBoosterEntity>of(SpentBoosterEntity::new, MobCategory.MISC)
                     .sized(0.6f, 0.6f)
@@ -57,9 +60,15 @@ public final class ModEntities {
                     .updateInterval(2)
                     .fireImmune()
                     .noSummon()
+                    .noSave()
                     .build(Airstrike.MOD_ID + ":spent_booster"));
 
-    /** Обломки: летят по баллистике, падают блоком или рассыпаются. Как у falling_block — позиция раз в несколько тиков. */
+    /**
+     * Обломки: летят по баллистике, падают блоком или рассыпаются. Как у falling_block — позиция раз в несколько тиков.
+     * В мир не сохраняются ({@code noSave}): район цели отпускается вскоре после взрыва, и обломки, ещё летевшие в его
+     * чанках, сохранялись с ними и висели там до следующей загрузки (в сохранении Newisle после игры 03.10.2026 —
+     * 10 427 обломков).
+     */
     public static final DeferredHolder<EntityType<?>, EntityType<DebrisEntity>> DEBRIS = REGISTER.register("debris",
             () -> EntityType.Builder.<DebrisEntity>of(DebrisEntity::new, MobCategory.MISC)
                     .sized(0.98f, 0.98f)
@@ -67,6 +76,7 @@ public final class ModEntities {
                     .updateInterval(2)
                     .fireImmune()
                     .noSummon()
+                    .noSave()
                     .build(Airstrike.MOD_ID + ":debris"));
 
     private ModEntities() {}
