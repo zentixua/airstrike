@@ -175,10 +175,15 @@ public class LauncherEntity extends Entity {
      * пакет опускается, прицеп поворачивается, пакет поднимается снова (пуски ждут подъёма).
      */
     public void turnTo(float yaw, long now) {
-        if (Math.abs(Mth.wrapDegrees(yaw - getYRot())) <= 15 || now < lastStart + 20) return;
+        if (turnedYaw(yaw, now) == getYRot()) return;
         setYRot(yaw);
         yRotO = yaw;
         entityData.set(DATA_DEPLOYED, now);
+    }
+
+    /** Курс пакета после {@link #turnTo}{@code (yaw, now)}: прежний, если доворачивать не нужно или установка не молчит. */
+    public float turnedYaw(float yaw, long now) {
+        return Math.abs(Mth.wrapDegrees(yaw - getYRot())) <= 15 || now < lastStart + 20 ? getYRot() : yaw;
     }
 
     @Override
