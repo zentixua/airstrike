@@ -36,6 +36,7 @@ import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.warhead.CraterFalls;
+import ua.zentix.airstrike.work.StallWatch;
 import ua.zentix.airstrike.work.WorkScheduler;
 
 /**
@@ -103,6 +104,8 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
 
         NeoForge.EVENT_BUS.addListener(WorkScheduler::onServerTick);
+        NeoForge.EVENT_BUS.addListener(StallWatch::onTickPre);
+        NeoForge.EVENT_BUS.addListener(StallWatch::onTickPost);
         if (ua.zentix.airstrike.nuclear.world.NukeDiag.ON) {
             // диагностика прогонов (-Dairstrike.nukeDiag=true): стеки долгих тиков; без свойства — ни слушателей, ни потока
             NeoForge.EVENT_BUS.addListener(ua.zentix.airstrike.nuclear.world.NukeDiag::onTickPre);
