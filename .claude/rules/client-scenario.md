@@ -1,0 +1,28 @@
+---
+paths:
+  - "mod/src/devtest/java/ua/zentix/airstrike/scenario/**"
+  - "tools/client_scenario.sh"
+  - "tools/prod_client.py"
+  - "tools/x11_record.py"
+---
+
+# Сценарии клиента без окна
+
+## Строки сценария
+Сценарий клиента пишет строки `SCENARIO …` в лог (звуки, fps, вспышка, `SCENARIO far` — что рисуется вдали и последний
+дальний раскат) — по ним и по кадрам проверяется картинка и звук. Сценарий `commands` (`airstrike.commands`, шаги через
+«;», `ScenarioCommands`/`CommandPlan`): команды, `wait:N`, `shot:<имя>`, `hud:off|on`, `wait:nuke` (шаги ждут пакета
+подрыва), `wait:blast` (ждут следующего взрыва на сервере, не дольше 3600 тиков).
+
+## Подводные камни
+- Сервер может отставать от клиента по тикам (генерация мира): в сценарии клиента кадры привязаны к событиям, не к счётчику.
+- Экран приветствия доступности и пауза без фокуса ломают клиент без окна — `client_scenario.sh` пишет свой `options.txt`.
+- Клиент без окна работает и в облаке, без KWin и шейдеров (каталог `run/scenario/logs` для gc.log Gradle создаёт сам):
+  `AIRSTRIKE_SCENARIO=launch LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientScenario
+  -PmcModsDir=run/ci-mods` (моды — `tools/fetch_runtime_mods.py`; 3–6 fps). На llvmpipe секции чанков строятся
+  медленно: сразу после резкой смены точки обзора сущности в кадре могут не появиться на несколько кадров.
+- Сценарий `fx` (и `fx-night`) снимает эффекты крупным планом: зритель висит в 50 блоках от цели, кадры — от момента,
+  когда снаряд пропал (взрыв), в конце — старт МБР; столбы прежних ударов перед следующим снимаются (`FarRenderer.reset`).
+  `fx-late` — шахед и ракета и их столб через 45 с с половины прорисовки и из-за её края. В облаке (без KWin) клиент
+  идёт под `xvfb-run` с llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1`), ~10 fps; без Create/Sable в `run/scenario/mods` нужен
+  jar sable-companion.
