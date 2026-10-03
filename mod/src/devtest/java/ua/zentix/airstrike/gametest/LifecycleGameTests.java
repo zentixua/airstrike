@@ -36,6 +36,7 @@ import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.work.StallWatch;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -543,6 +544,25 @@ public final class LifecycleGameTests {
             Airstrike.LOG.info("Отпуск районов по очереди: после первого тика ждали {} из {}, очередь прошла за {} тиков, на выгрузке самое большее {} держателей (предел {})",
                     waiting[0], list.size() - 1, keptReleasedAt[0] - releasedAt[0], maxUnloading[0], limit);
             h.succeed();
+        });
+    }
+
+    /** Поток сервера стоит в тике дольше 2 с ({@code StallWatch}): когда он пошёл дальше, строка остановки уходит в лог. */
+    @GameTest(template = "range", timeoutTicks = 2000, batch = "stall_watch", skyAccess = true)
+    public static void longStallIsReported(GameTestHelper h) {
+        // ответ наблюдателя — через полсекунды после остановки: срок — игровой
+        StrikeGameTests.gameSpeed(h);
+        int before = StallWatch.reported();
+        boolean[] stalled = {false};
+        h.onEachTick(() -> {
+            if (!stalled[0]) {
+                stalled[0] = true;
+                // parkNanos просыпается раньше (задачи чанков будят поток сервера): ждать до срока в цикле
+                long deadline = System.nanoTime() + 3_000_000_000L, left;
+                while ((left = deadline - System.nanoTime()) > 0) LockSupport.parkNanos(left);
+                return;
+            }
+            if (StallWatch.reported() > before) h.succeed();
         });
     }
 
