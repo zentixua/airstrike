@@ -57,7 +57,7 @@ Distant Horizons отметить (кроме macOS).
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
 | картинка и камера | шейдерпак Complementary Reimagined, Euphoria Patches, Aeronautics Camera Sync, 3D Skin Layers, Not Enough Animations |
-| мультиплеер и удобство | Essential, LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
+| мультиплеер и удобство | Essential, TrueUUID (вход на сервер, ниже), LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
 | запись (по выбору) | Flashback, Flashback NeoForge Fixed, Sinytra Connector, Forgified Fabric API |
 
 LAN Server Properties — временно, чтобы в мир хоста мог зайти игрок без входа в аккаунт Microsoft; уберём по слову
@@ -66,6 +66,15 @@ LAN Server Properties — временно, чтобы в мир хоста мо
 их UUID (инвентарь и достижения в мире те же), игрок без лицензии получает свой. Порт мод не пробрасывает (UPnP у него
 нет), проверка лицензии по умолчанию включена; «Сохранить настройки» не нажимать — иначе мир будет открываться без
 проверки и дальше.
+
+Сервер сборки (выделенный, на VPS хоста) работает без проверки лицензии сервером (`online-mode=false`), а проверяет её
+TrueUUID — он стоит и на сервере, и у каждого игрока. При входе сервер посылает клиенту одноразовый вызов, клиент
+отвечает через `joinServer` своей сессии Mojang (токен остаётся у игрока), сервер сверяет ответ с `hasJoined`: игрок
+с лицензией входит со своим UUID и скином. Без лицензии пускается только клиент, который прямо отвечает «сессии нет»,
+и только под ником, который ещё ни разу не входил с лицензией (`knownPremiumDenyOffline`,
+`allowOfflineForUnknownOnly` — значения по умолчанию): под ником игрока с лицензией без неё не войти. Моды сервер
+ставит из этой же `pack/` (`packwiz-installer-bootstrap -g -s server`), поэтому `side` у модов должен быть верным:
+`client` сервер не ставит.
 
 Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 запрашивает `GL_POLYGON_MODE` через `glGetInteger`
 (место под одно число на стеке LWJGL), а драйвер OpenGL от Apple пишет два — каждый кадр на 4 байта за конец буфера.
@@ -104,6 +113,7 @@ Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 зап�
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
+| 0.1.7 | 2.8.0 | TrueUUID: вход на выделенный сервер сборки с лицензией и без неё |
 | 0.1.6 | 2.8.0 | Airstrike 2.8.0 ([заметки](../docs/releases/2.8.0.md)); остальные моды и настройки те же |
 | 0.1.5 | 2.7.0 | More Culling (+ Cloth Config): рамки с предметами дешевле для потока отрисовки |
 | 0.1.4 | 2.7.0 | Distant Horizons — необязательный (по умолчанию включён): на macOS его выключают, DH 3.3.3 там роняет игру |

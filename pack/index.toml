@@ -263,6 +263,11 @@ hash = "2a001cdb3d5ac4970d422914083c27380eba8ebd40dfd435754fe6566ba78beb"
 metafile = true
 
 [[files]]
+file = "mods/trueuuid.pw.toml"
+hash = "3bc9931298a82fa0401161ab83c5bb1584424b404606eabda9f0ffcd66d083fa"
+metafile = true
+
+[[files]]
 file = "mods/vics-point-blank.pw.toml"
 hash = "4b11f8fdedd3b99842f6d9d99334955c2aafebe6a8d7f4d4e2521b74c07e01d9"
 metafile = true
