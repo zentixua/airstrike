@@ -203,6 +203,11 @@ hash = "fd4893ff877df14bb9b01a058743144b93b2c84d2c38c106d20af429c546046a"
 metafile = true
 
 [[files]]
+file = "mods/mapsyncer-for-xaeroworldmap.pw.toml"
+hash = "fc09ad6f603a6bc743c439fb154f0e3385ffa7566fdd5f8e8c12f6d34b66bb24"
+metafile = true
+
+[[files]]
 file = "mods/mezzconfig.pw.toml"
 hash = "12c6e23ca90b3dc4df9f51c445d944e7cd298186dec5aeff65b66e54343f3272"
 metafile = true
@@ -274,12 +279,12 @@ metafile = true
 
 [[files]]
 file = "mods/xaeros-minimap.pw.toml"
-hash = "8ed3e895470dd147a57481100de34488b57a12d777a3ac0441e5d8d902d4b50c"
+hash = "64670072fa3b4db4a721769dd3d66a2865daac01c9a2480b9561675b1e9e9737"
 metafile = true
 
 [[files]]
 file = "mods/xaeros-world-map.pw.toml"
-hash = "f139ff8d596a050f140c50a54866bbbd454833e4014227986a716c39a7dbe535"
+hash = "f8cc300d53ae8bf71d77124e6c46a5e85fe31654b39c5d73a1652a4d9c404af4"
 metafile = true
 
 [[files]]
