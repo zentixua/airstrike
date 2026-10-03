@@ -22,7 +22,8 @@ cd pack && packwiz mr export      # → Airstrike Pack-<версия>.mrpack
 Новый экземпляр: Prism → «Добавить экземпляр…» → «Импорт» → `Airstrike Pack.zip` (артефакт CI `airstrike-pack` или
 `tools/prism_instance.py`). В нём Minecraft и NeoForge из `pack.toml`, 6144 МБ памяти, `packwiz-installer-bootstrap.jar`
 в папке игры и команда перед запуском. Первый запуск скачивает моды и спрашивает про необязательные: запись (Flashback,
-Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает.
+Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает; Distant Horizons
+включён, на macOS его выключить (ниже).
 
 Экземпляр, поставленный из `.mrpack`, переводится на автообновление так же, миры остаются:
 1. Prism: «Папка» (папка игры экземпляра, там `mods` и `saves`): переименовать `mods` в `mods-old` и положить
@@ -37,19 +38,21 @@ Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна т
 `config/` сборки на первом запуске он перезаписывает, если они отличаются.
 
 Окно packwiz-installer на каждом запуске: «Continue» — сразу в игру (иначе само через 10 с), «Optional mods...» —
-включить или выключить запись. Галочки модов сборки на странице «Моды» Prism не менять: убранный или выключенный мод
-packwiz-installer вернёт. Если сборка сменит версию Minecraft или NeoForge, он спросит, обновить ли их в экземпляре.
-Файлы сборки GitHub раздаёт с кэшем до 5 минут: запуск сразу после слияния PR сборки может застать `pack.toml` и
-`index.toml` разных коммитов, и packwiz-installer скажет про неверный хеш индекса — «Quit» и запустить снова позже.
+включить или выключить запись и Distant Horizons. Галочки модов сборки на странице «Моды» Prism не менять: убранный
+или выключенный мод packwiz-installer вернёт. Если сборка сменит версию Minecraft или NeoForge, он спросит, обновить
+ли их в экземпляре. Файлы сборки GitHub раздаёт с кэшем до 5 минут: запуск сразу после слияния PR сборки может застать
+`pack.toml` и `index.toml` разных коммитов, и packwiz-installer скажет про неверный хеш индекса — «Quit» и запустить
+снова позже.
 
 `.mrpack` (`packwiz mr export`, артефакт CI) — разовая установка без автообновления: «Импорт» этого файла, Prism сам
-спросит про необязательные моды.
+спросит про необязательные моды. Галочек по умолчанию в формате Modrinth нет, и Prism предлагает их все выключенными:
+Distant Horizons отметить (кроме macOS).
 
 ## Что внутри
 
 | группа | моды |
 |---|---|
-| основа | Create, Sable, Create Aeronautics, Airstrike (jar выпуска с GitHub), Distant Horizons |
+| основа | Create, Sable, Create Aeronautics, Airstrike (jar выпуска с GitHub), Distant Horizons (по выбору, включён) |
 | производительность | Sodium, Sodium Extra, Reese's Sodium Options, Iris, Colorwheel, Lithium, FerriteCore, ModernFix, ImmediatelyFast, Entity Culling, Dynamic FPS |
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
@@ -63,6 +66,14 @@ LAN Server Properties — временно, чтобы в мир хоста мо
 их UUID (инвентарь и достижения в мире те же), игрок без лицензии получает свой. Порт мод не пробрасывает (UPnP у него
 нет), проверка лицензии по умолчанию включена; «Сохранить настройки» не нажимать — иначе мир будет открываться без
 проверки и дальше.
+
+Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 запрашивает `GL_POLYGON_MODE` через `glGetInteger`
+(место под одно число на стеке LWJGL), а драйвер OpenGL от Apple пишет два — каждый кадр на 4 байта за конец буфера.
+Портится соседняя память, и Java падает (`SIGSEGV` в `Chunk::chop`, компилятор JIT). В `main` DH этот запрос тот же,
+падения на macOS у них — открытая [#1258](https://gitlab.com/distant-horizons-team/distant-horizons/-/issues/1258).
+Выключенный на странице «Моды» Prism мод packwiz-installer вернёт, поэтому DH — необязательный мод сборки: галочка
+в окне «Optional mods...». Игре по сети его отсутствие у игрока не мешает: пакеты DH зарегистрированы как
+необязательные (`PayloadRegistrar.optional()`).
 
 Настройки, которые сборка кладёт сама:
 - `config/entityculling.json` — значения Entity Culling по умолчанию плюс сущности Airstrike в `entityWhitelist`: такие
@@ -87,6 +98,7 @@ LAN Server Properties — временно, чтобы в мир хоста мо
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
+| 0.1.4 | 2.7.0 | Distant Horizons — необязательный (по умолчанию включён): на macOS его выключают, DH 3.3.3 там роняет игру |
 | 0.1.3 | 2.7.0 | Airstrike 2.7.0 ([заметки](../docs/releases/2.7.0.md)); остальные моды и настройки те же |
 | 0.1.2 | 2.6.0 | автообновление (packwiz-installer); LAN Server Properties — вход без лицензии в мир хоста, временно |
 | 0.1.1 | 2.6.0 | Airstrike 2.6.0 ([заметки](../docs/releases/2.6.0.md)); остальные моды и настройки те же |
