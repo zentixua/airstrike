@@ -62,7 +62,8 @@ jobs:
             while IFS= read -r f; do
               case "$f" in
                 '') ;;
-                mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
+                mod/*|tools/fetch_runtime_mods.py) mod=true ;;
+                tools/paths.py) mod=true; pack=true ;;
                 tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
                 .github/*) mod=true; rig=true; pack=true ;;
                 pack/*|tools/prism_instance.py) pack=true ;;

@@ -27,7 +27,7 @@ PACK_URL = "https://raw.githubusercontent.com/zentixua/airstrike/main/pack/pack.
 BOOTSTRAP = "packwiz-installer-bootstrap.jar"
 BOOTSTRAP_URL = f"https://github.com/packwiz/packwiz-installer-bootstrap/releases/download/v0.0.3/{BOOTSTRAP}"
 BOOTSTRAP_SHA256 = "a8fbb24dc604278e97f4688e82d3d91a318b98efc08d5dbfcbcbcab6443d116c"
-# как в инструкции для друзей: игре с шейдерами нужно 1,5–2,5 ГБ
+# с запасом: замер сборки на ноутбуке (02.10.2026) — игре с шейдерами нужно 1,5–2,5 ГБ живой памяти
 MAX_MEMORY_MB = 6144
 # компоненты Prism (mmc-pack.json) по ключам [versions] в pack.toml — те же, что сверяет packwiz-installer
 COMPONENTS = {"minecraft": "net.minecraft", "neoforge": "net.neoforged"}

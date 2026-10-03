@@ -25,16 +25,22 @@ cd pack && packwiz mr export      # → Airstrike Pack-<версия>.mrpack
 Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает.
 
 Экземпляр, поставленный из `.mrpack`, переводится на автообновление так же, миры остаются:
-1. Положить [packwiz-installer-bootstrap.jar](https://github.com/packwiz/packwiz-installer-bootstrap/releases/latest)
-   в папку игры экземпляра (Prism: «Папка» — там `mods` и `saves`).
+1. Prism: «Папка» (папка игры экземпляра, там `mods` и `saves`): переименовать `mods` в `mods-old` и положить
+   туда же [packwiz-installer-bootstrap.jar](https://github.com/packwiz/packwiz-installer-bootstrap/releases/latest).
 2. «Изменить…» → «Параметры» → «Пользовательские команды»: включить и в «Предстартовая команда» вписать
    `"$INST_JAVA" -jar packwiz-installer-bootstrap.jar https://raw.githubusercontent.com/zentixua/airstrike/main/pack/pack.toml`
-3. Запустить. Моды, которые уже стоят, packwiz-installer сверяет по хешу и не качает заново. В окне необязательных
-   модов отметить запись, если она включена: не отмеченные моды записи он удаляет.
+3. Запустить: packwiz-installer скачает моды сборки заново и спросит про необязательные. Свои моды не из сборки, если
+   они были, вернуть из `mods-old` в `mods`.
+
+`mods` в сторону — потому что удаляет packwiz-installer только то, что ставил сам: jar старой версии сборки с другим
+именем (`airstrike-2.5.0.jar` у 0.1.0) остался бы рядом с новым, и игра не запустилась бы с двумя Airstrike. Файлы
+`config/` сборки на первом запуске он перезаписывает, если они отличаются.
 
 Окно packwiz-installer на каждом запуске: «Continue» — сразу в игру (иначе само через 10 с), «Optional mods...» —
 включить или выключить запись. Галочки модов сборки на странице «Моды» Prism не менять: убранный или выключенный мод
 packwiz-installer вернёт. Если сборка сменит версию Minecraft или NeoForge, он спросит, обновить ли их в экземпляре.
+Файлы сборки GitHub раздаёт с кэшем до 5 минут: запуск сразу после слияния PR сборки может застать `pack.toml` и
+`index.toml` разных коммитов, и packwiz-installer скажет про неверный хеш индекса — «Quit» и запустить снова позже.
 
 `.mrpack` (`packwiz mr export`, артефакт CI) — разовая установка без автообновления: «Импорт» этого файла, Prism сам
 спросит про необязательные моды.

@@ -86,7 +86,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md;
                                            pack/ на main игроки с автообновлением ставят при каждом запуске игры
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar и .mrpack в артефактах; релиз
+  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar, .mrpack и экземпляр Prism в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
