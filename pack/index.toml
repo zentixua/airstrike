@@ -189,6 +189,11 @@ hash = "fd4893ff877df14bb9b01a058743144b93b2c84d2c38c106d20af429c546046a"
 metafile = true
 
 [[files]]
+file = "mods/mcwifipnp.pw.toml"
+hash = "9c3bf2d00b08908a8c31b1b330a4a44cf9a6814776571ead39d5bac889fc247f"
+metafile = true
+
+[[files]]
 file = "mods/mezzconfig.pw.toml"
 hash = "12c6e23ca90b3dc4df9f51c445d944e7cd298186dec5aeff65b66e54343f3272"
 metafile = true
