@@ -53,7 +53,7 @@ Distant Horizons отметить (кроме macOS).
 | группа | моды |
 |---|---|
 | основа | Create, Sable, Create Aeronautics, Airstrike (jar выпуска с GitHub), Distant Horizons (по выбору, включён) |
-| производительность | Sodium, Sodium Extra, Reese's Sodium Options, Iris, Colorwheel, Lithium, FerriteCore, ModernFix, ImmediatelyFast, Entity Culling, Dynamic FPS |
+| производительность | Sodium, Sodium Extra, Reese's Sodium Options, Iris, Colorwheel, Lithium, FerriteCore, ModernFix, ImmediatelyFast, Entity Culling, More Culling (+ Cloth Config), Dynamic FPS |
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
 | картинка и камера | шейдерпак Complementary Reimagined, Euphoria Patches, Aeronautics Camera Sync, 3D Skin Layers, Not Enough Animations |
@@ -84,6 +84,12 @@ Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 зап�
   Версия 1.4.0 сама пишет новый файл с версией схемы 0, а на следующем запуске считает его устаревшим и вместо
   главного меню открывает вопрос «Config Reset» (`ConfigMigrationManager`: файл был и схема меньше 5) — до первого
   нажатия «Reset» или «Ignore», которые ставят 5. С файлом сборки вопроса нет. Обновляя мод, сверить его версию схемы.
+- `config/moreculling.toml` — `useBlockStateCulling = false`, остальное More Culling дописывает сам (и, как у нового
+  файла, переводит дальности рамок в блоки). Рамки он рисует сам: без задней стенки и карт, к которым игрок стоит
+  спиной, у блока в рамке — три видимые грани, у плоского предмета дальше 16 блоков — только лицевая сторона
+  (торец в 3 см). Отсечение граней блоков выключено: оно отвечает за `Block.shouldRenderFace` в его начале и перебивает
+  правку Aeronautics, по которой грань у левитита рисуется (`levitite/BlockMixin`), а даёт оно меньше вершин видеокарте,
+  которая в замере 03.10.2026 была занята на 34 %, пока поток отрисовки стоял на 100 %.
 
 ## Как обновлять
 
@@ -98,6 +104,7 @@ Distant Horizons на macOS (Apple Silicon) выключать: DH 3.3.3 зап�
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
+| 0.1.5 | 2.7.0 | More Culling (+ Cloth Config): рамки с предметами дешевле для потока отрисовки |
 | 0.1.4 | 2.7.0 | Distant Horizons — необязательный (по умолчанию включён): на macOS его выключают, DH 3.3.3 там роняет игру |
 | 0.1.3 | 2.7.0 | Airstrike 2.7.0 ([заметки](../docs/releases/2.7.0.md)); остальные моды и настройки те же |
 | 0.1.2 | 2.6.0 | автообновление (packwiz-installer); LAN Server Properties — вход без лицензии в мир хоста, временно |

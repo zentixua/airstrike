@@ -9,6 +9,10 @@ file = "config/entityculling.json"
 hash = "f08640a62bef05a21e0e4560175e45842d398af147ac9ef8864977f5933e0604"
 
 [[files]]
+file = "config/moreculling.toml"
+hash = "2704aa71d40b744fa4f4ac0bd37cbb787dbf50d8404015ac5ae331245f95afb9"
+
+[[files]]
 file = "mods/3dskinlayers.pw.toml"
 hash = "b3b67f83faf9dcc4985b7a13fa8affb71062461d271f80cc0958652df9f3126b"
 metafile = true
@@ -26,6 +30,11 @@ metafile = true
 [[files]]
 file = "mods/airstrike.pw.toml"
 hash = "2209b7b545d0fb0af05c1a0654db5789ff8d26c7fd9ba8c95c6321c0a92d703b"
+metafile = true
+
+[[files]]
+file = "mods/cloth-config.pw.toml"
+hash = "75181b55e0407d1fca1e2f346c6501f919f5109545990ddfb66db9cd1b771f8a"
 metafile = true
 
 [[files]]
@@ -201,6 +210,11 @@ metafile = true
 [[files]]
 file = "mods/modernfix.pw.toml"
 hash = "c84140c66f233909b392bd7253ca33c59903ffda51beff558d9a2a4a8c6bc269"
+metafile = true
+
+[[files]]
+file = "mods/moreculling.pw.toml"
+hash = "f32f944f62c4ea97b2d1f8582bb5f1a0adf7f62983b35f75288e27025365d7d0"
 metafile = true
 
 [[files]]
