@@ -544,6 +544,9 @@ public final class LifecycleGameTests {
             Airstrike.LOG.info("Отпуск районов по очереди: после первого тика ждали {} из {}, очередь прошла за {} тиков, на выгрузке самое большее {} держателей (предел {})",
                     waiting[0], list.size() - 1, keptReleasedAt[0] - releasedAt[0], maxUnloading[0], limit);
             h.succeed();
+        });
+    }
+
     /** Поток сервера стоит в тике дольше 2 с ({@code StallWatch}): когда он пошёл дальше, строка остановки уходит в лог. */
     @GameTest(template = "range", timeoutTicks = 2000, batch = "stall_watch", skyAccess = true)
     public static void longStallIsReported(GameTestHelper h) {
