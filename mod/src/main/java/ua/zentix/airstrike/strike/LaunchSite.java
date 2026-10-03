@@ -13,6 +13,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.flight.ProximityFuse;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
@@ -147,13 +148,14 @@ public final class LaunchSite {
         float elevation = LauncherEntity.elevation(weapon);
         WeaponSpec.Airframe air = weapon.spec().airframe();
         WeaponSpec.LaunchProfile lp = air.launchProfile();
-        Vec3 gate = null;
-        for (int slot = 0; slot < LauncherEntity.slots(weapon); slot++) {
+        int slots = LauncherEntity.slots(weapon);
+        List<List<Vec3[]>> boost = new ArrayList<>(slots), paths = new ArrayList<>(slots);
+        for (int slot = 0; slot < slots; slot++) {
             Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, slot);
             List<Vec3> path = new ArrayList<>();
             path.add(rail);
             if (lp != null) {
-                if (!clear(level, boostSweep(rail, yaw, elevation, lp, air.noseLength()))) return false;
+                boost.add(boostSweep(rail, yaw, elevation, lp, air.noseLength()));
                 double climb = Math.toRadians(Math.min(elevation, -lp.boostEndPitch()));
                 double reach = ProximityFuse.ARM_DISTANCE;
                 path.add(rail.add(Local.horizontal(yaw).scale(reach)).add(0, reach * Math.tan(climb), 0));
@@ -168,10 +170,10 @@ public final class LaunchSite {
             }
             List<Vec3[]> legs = new ArrayList<>(path.size());
             for (int i = 1; i < path.size(); i++) legs.add(new Vec3[]{path.get(i - 1), path.get(i)});
-            if (!clear(level, legs)) return false;
-            if (gate == null) gate = path.getLast();
+            paths.add(legs);
         }
-        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, gate, yaw, air);
+        if (!clear(level, boost) || !clear(level, paths)) return false;
+        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, paths.getFirst().getLast()[1], yaw, air);
     }
 
     /**
@@ -193,17 +195,60 @@ public final class LaunchSite {
     }
 
     /**
-     * Отрезки пути {@code legs} по порядку не упираются в блоки ни осью, ни корпусом ({@link #HULL} ниже); дальше первого
-     * неготового чанка не смотрим.
+     * Пути ячеек {@code cells} (у каждой — отрезки по порядку) не упираются в блоки ни осью, ни корпусом ({@link #HULL}
+     * ниже); дальше первого неготового чанка путь не смотрим. Отрезки с одним номером у всех ячеек, которые целиком
+     * выше верхнего блока своих колонок ({@link #aboveBlocks}), лучами не проверяются: там лучу задеть нечего, а у пакета
+     * РСЗО это 80 лучей на отрезок — над открытой местностью дуга почти вся такая. Блоки аппарата Sable в карте высот
+     * мира не стоят — рядом с аппаратом лучи идут везде.
      */
-    private static boolean clear(ServerLevel level, List<Vec3[]> legs) {
-        for (double below : new double[]{0, HULL}) {
-            for (Vec3[] leg : legs) {
-                Vec3 from = leg[0].subtract(0, below, 0), end = leg[1].subtract(0, below, 0);
-                Vec3 to = Terrain.readyUntil(level, from, end);
-                if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
-                        .getType() != HitResult.Type.MISS) return false;
-                if (to.distanceToSqr(end) > 1e-6) break;
+    private static boolean clear(ServerLevel level, List<List<Vec3[]>> cells) {
+        AABB all = null;
+        int legs = 0;
+        for (List<Vec3[]> path : cells) {
+            legs = Math.max(legs, path.size());
+            for (Vec3[] leg : path) all = all == null ? swept(leg) : all.minmax(swept(leg));
+        }
+        if (all == null) return true;
+        boolean crafts = SubLevels.mayHaveCraftNear(level, all.getCenter(), Math.max(all.getXsize(), Math.max(all.getYsize(), all.getZsize())) / 2);
+        boolean[] stopped = new boolean[cells.size() * 2];
+        for (int k = 0; k < legs; k++) {
+            if (!crafts && aboveBlocks(level, cells, k)) continue;
+            for (int c = 0; c < cells.size(); c++) {
+                if (k >= cells.get(c).size()) continue;
+                Vec3[] leg = cells.get(c).get(k);
+                for (int ray = 0; ray < 2; ray++) {
+                    if (stopped[2 * c + ray]) continue;
+                    double below = ray * HULL;
+                    Vec3 from = leg[0].subtract(0, below, 0), end = leg[1].subtract(0, below, 0);
+                    Vec3 to = Terrain.readyUntil(level, from, end);
+                    if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
+                            .getType() != HitResult.Type.MISS) return false;
+                    if (to.distanceToSqr(end) > 1e-6) stopped[2 * c + ray] = true;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Коробка, которую заметают ось и корпус на отрезке {@code leg}. */
+    private static AABB swept(Vec3[] leg) {
+        return new AABB(leg[0], leg[1]).expandTowards(0, -HULL, 0);
+    }
+
+    /**
+     * Отрезки номер {@code k} всех ячеек целиком выше верхнего блока (любого, и без столкновений: карта высот
+     * {@code WORLD_SURFACE}) каждой колонки под ними, чанки колонок готовы. Луч {@code Level.clip} проверяет только
+     * клетки, через которые идёт, — выше карты высот это воздух, и ответ тот же, что у лучей.
+     */
+    private static boolean aboveBlocks(ServerLevel level, List<List<Vec3[]>> cells, int k) {
+        AABB box = null;
+        for (List<Vec3[]> path : cells) {
+            if (k < path.size()) box = box == null ? swept(path.get(k)) : box.minmax(swept(path.get(k)));
+        }
+        if (box == null) return true;
+        for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX); x++) {
+            for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ); z++) {
+                if (!Terrain.ready(level, x >> 4, z >> 4) || Terrain.height(level, Heightmap.Types.WORLD_SURFACE, x, z) > box.minY) return false;
             }
         }
         return true;

@@ -215,12 +215,14 @@ public final class StrikeService {
      */
     @Nullable
     private static LauncherEntity aimedLauncher(ServerLevel level, ServerPlayer shooter, WeaponType weapon, Vec3 point) {
-        // своя — если на цель с неё свободен сектор пуска (катапульта, труба пакета): иначе снаряд разбился бы о постройку
+        // своя — если свободен сектор пуска (катапульта, труба пакета) с курсом, который у пакета будет после доворота на
+        // цель: иначе снаряд разбился бы о постройку
+        long now = level.getGameTime();
         LauncherEntity launcher = LaunchSite.existing(level, shooter, weapon,
-                l -> LaunchSite.clearAhead(level, l.position(), FlightController.anglesTo(l.position(), point)[0], weapon, point));
+                l -> LaunchSite.clearAhead(level, l.position(), l.turnedYaw(FlightController.anglesTo(l.position(), point)[0], now), weapon, point));
         if (launcher != null) {
-            launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], level.getGameTime());
-            if (LaunchSite.clearAhead(level, launcher, point)) return launcher;
+            launcher.turnTo(FlightController.anglesTo(launcher.position(), point)[0], now);
+            return launcher;
         }
         if (StrikeWorld.get(level).noLaunchSite(shooter.getUUID(), weapon, shooter.chunkPosition())) return null;
         // пакет наводится на цель сам: поворачивать его нельзя, только другое место
