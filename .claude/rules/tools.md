@@ -32,7 +32,8 @@ paths:
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза);
                                            инстанс с автообновлением сборки не трогает: packwiz-installer вернул бы jar сборки
     logscan.py                           ← выжимка из logs/latest.log
-    client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
+    client_scenario.sh <сценарий> [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV;
+                                           сценарии и что снимает каждый — в шапке скрипта
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus без запуска служб
                                            (nested_kwin_bus.conf) и каталоги XDG
     laptop_job.sh <имя> -- <команда>     ← тяжёлая задача на ноутбуке хоста: своя временная служба systemd (не в группе Claude),
