@@ -57,6 +57,21 @@ public final class TicketProbe {
         }
     }
 
+    /** Тикеты типа с именем {@code type} во всём мире, с любым значением. */
+    @SuppressWarnings("unchecked")
+    public static int count(ServerLevel level, String type) {
+        try {
+            var map = (Long2ObjectMap<SortedArraySet<Ticket<?>>>) TICKETS.get(level.getChunkSource().chunkMap.getDistanceManager());
+            int n = 0;
+            for (SortedArraySet<Ticket<?>> set : map.values()) {
+                for (Ticket<?> t : set) if (t.getType().toString().equals(type)) n++;
+            }
+            return n;
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** Типы тикетов с ключом {@code key} во всём мире, по одному на тикет (для сообщений проверок). */
     @SuppressWarnings("unchecked")
     public static List<String> types(ServerLevel level, UUID key) {

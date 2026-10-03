@@ -1,7 +1,10 @@
 package ua.zentix.airstrike.strike;
 
 import net.minecraft.server.level.ChunkLevel;
+import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.FullChunkStatus;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
@@ -9,7 +12,6 @@ import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -49,6 +51,10 @@ import java.util.UUID;
  * Район без тика ({@link Area#ticks} — false: место ядерного подрыва, пока летит МБР) держит только тикет загрузки:
  * чанки полностью загружены, но не тикают ни блоками, ни сущностями.
  * <p>
+ * Отпущенный район тикать перестаёт сразу, а его чанки держит тикет без тика, пока ваниль не разберёт прежнюю выгрузку
+ * ({@link #drainReleases}): отпуск сотен районов разом (Отбой, снаряды, не дождавшиеся района) иначе выгружал и сохранял
+ * тысячи чанков в одном тике.
+ * <p>
  * Состояние не сохраняется (как и тикеты): после перезапуска снаряд попросит район заново. Живёт в
  * {@link StrikeWorld}, тикает и при {@code /tick freeze}: загрузка мира — не симуляция, а трейлер ждёт прогрузки
  * района в замороженном мире.
@@ -76,8 +82,30 @@ public final class AreaLoader {
                     .thenComparing(Area::key).thenComparingInt(Area::distance).thenComparing(Area::ticks)
                     .thenComparingLong(a -> a.centre().toLong()));
 
+    /**
+     * Тикет отпущенного района ({@link #drainReleases}): без тика, того же уровня, что у района. Значение — номер отпуска,
+     * а не район: тикеты района по его ключу после отпуска не находятся.
+     */
+    private static final TicketType<Long> RELEASE = TicketType.create("airstrike_area_release", Long::compare);
+    /**
+     * Сколько держателей чанков на выгрузке ваниль разбирает по времени тика ({@code ChunkMap.processUnloads}): больше —
+     * и она ставит в выгрузку все разом, а готовые к выгрузке сверх этого сохраняет и выгружает в одном тике.
+     */
+    private static final int UNLOAD_CALM = 2000;
+    /**
+     * Сколько тиков подряд очередь может ждать выгрузку: сервер без свободного времени в тике выгрузку до
+     * {@link #UNLOAD_CALM} не разбирает вовсе, и очередь стояла бы, держа всё новые чанки, — тогда один район отпускается
+     * и так.
+     */
+    private static final int STALL_TICKS = 100;
+
     /** Радиус тикета региона, взятого районом: −1 — ещё нет. Равен {@code distance} — район взят целиком. */
     private final Map<Area, Integer> requests = new LinkedHashMap<>();
+    /** Отпущенные районы, чьи чанки ещё держит тикет отпуска (номер в его значении), в порядке отпуска. */
+    private final Map<Area, Long> releasing = new LinkedHashMap<>();
+    private long released;
+    /** Сколько тиков подряд очередь ждёт выгрузку. */
+    private int stalled;
     /** Когда отпустить район сам (подсказка карты: игрок мог уйти), игровой тик. */
     private final Map<Area, Long> expiring = new LinkedHashMap<>();
 
@@ -93,11 +121,14 @@ public final class AreaLoader {
         if (area.ticks() && ready(level, area.centre(), area.distance())) {
             level.getChunkSource().addRegionTicket(area.type(), area.centre(), area.distance(), area.key());
             requests.put(area, area.distance());
-            return;
+        } else {
+            distances(level).addTicket(LOAD, area.centre(), area.level(), area);
+            requests.put(area, -1);
+            grow(level, area);
         }
-        level.getChunkSource().chunkMap.getDistanceManager().addTicket(LOAD, area.centre(), area.level(), area);
-        requests.put(area, -1);
-        grow(level, area);
+        // взят снова, пока ждал снятия тикета отпуска: те же чанки уже держат тикеты района
+        Long release = releasing.remove(area);
+        if (release != null) distances(level).removeTicket(RELEASE, area.centre(), area.level(), release);
     }
 
     /** Продлить район, взятый на время, до тика {@code until}; отпущенный — не брать снова. */
@@ -105,21 +136,45 @@ public final class AreaLoader {
         if (requests.containsKey(area)) expiring.put(area, until);
     }
 
-    /** Отпустить район: тикет региона и, если район ещё рос, тикет загрузки. */
+    /**
+     * Отпустить район: тикет региона и, если район ещё рос, тикет загрузки. Тикать район перестаёт сразу, а чанки
+     * готового района держит тикет отпуска, пока до него не дойдёт очередь {@link #drainReleases}. Район, который ещё
+     * грузился, отпускается сразу: тикет отпуска того же уровня догенерировал бы ненужное. При остановке сервера — тоже
+     * сразу: очередь больше не тикает, а {@code util/StopDrain} ждёт генерацию, которую держат тикеты.
+     */
     public void release(ServerLevel level, Area area) {
         expiring.remove(area);
         Integer taken = requests.remove(area);
         if (taken == null) return;
-        if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
-        if (taken < area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area);
+        if (level.getServer().isRunning() && (area.ticks() ? taken == area.distance() : ready(level, area.centre(), area.distance()))) {
+            // сначала тикет отпуска, потом тикеты района: уровни загрузки чанков не меняются, пока не дойдёт очередь
+            long release = released++;
+            distances(level).addTicket(RELEASE, area.centre(), area.level(), release);
+            releasing.put(area, release);
+        }
+        removeTickets(level, area, taken);
     }
 
     /**
-     * Отпустить все районы (остановка сервера): тикеты районов не сохраняются, а взятые при остановке запускали бы
-     * генерацию, которую ждёт {@code util/StopDrain}. После запуска районы берут заново их владельцы.
+     * Отпустить все районы сразу, без очереди (остановка сервера): тикеты районов не сохраняются, а взятые при остановке
+     * запускали бы генерацию, которую ждёт {@code util/StopDrain}. После запуска районы берут заново их владельцы.
      */
     public void releaseAll(ServerLevel level) {
-        for (Area area : List.copyOf(requests.keySet())) release(level, area);
+        requests.forEach((area, taken) -> removeTickets(level, area, taken));
+        requests.clear();
+        expiring.clear();
+        releasing.forEach((area, release) -> distances(level).removeTicket(RELEASE, area.centre(), area.level(), release));
+        releasing.clear();
+    }
+
+    private static void removeTickets(ServerLevel level, Area area, int taken) {
+        if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
+        if (taken < area.distance()) distances(level).removeTicket(LOAD, area.centre(), area.level(), area);
+    }
+
+    /** Отпущенных районов, чьи чанки ещё держит тикет отпуска (проверки). */
+    public int releasing() {
+        return releasing.size();
     }
 
     /** Районов взято или растёт (проверки). */
@@ -143,6 +198,55 @@ public final class AreaLoader {
             for (Area area : expiring.entrySet().stream().filter(e -> e.getValue() <= now).map(Map.Entry::getKey).toList()) release(level, area);
         }
         for (Area area : requests.keySet()) grow(level, area);
+        drainReleases(level);
+    }
+
+    /**
+     * Снять тикеты отпущенных районов, пока ваниль успевает выгружать без спешки. Держатели чанков, оставшиеся без
+     * тикетов, ваниль сохраняет и выгружает во время, свободное в тике, но больше {@link #UNLOAD_CALM} на выгрузке —
+     * все сверх в одном тике: стенд 03.10.2026 стоял 5 с на сохранении ~9 тыс. чанков, отпущенных разом. Поэтому районы
+     * отпускаются по порядку, и после каждого ваниль сразу пересчитывает уровни ({@code runDistanceManagerUpdates}) —
+     * видно, сколько держателей он отдал. Следующий — если на выгрузке хватит места на весь его квадрат держателей
+     * ({@link #holders}), а когда выгрузка пуста — в любом случае; очередь, простоявшая {@link #STALL_TICKS}, отпускает
+     * один район и так. Чанки отпущенного района не тикают, а очередь идёт и при {@code /tick freeze}, как загрузка.
+     */
+    private void drainReleases(ServerLevel level) {
+        if (releasing.isEmpty()) {
+            stalled = 0;
+            return;
+        }
+        ServerChunkCache chunks = level.getChunkSource();
+        // каждый раз — первый в очереди, без живого итератора: пересчёт уровней доходит до сущностей в чанках, и снаряд,
+        // уходя с ними, может отпустить свой район
+        for (int n = releasing.size(); n > 0 && !releasing.isEmpty(); n--) {
+            Map.Entry<Area, Long> next = releasing.entrySet().iterator().next();
+            Area area = next.getKey();
+            long release = next.getValue();
+            int unloading = unloading(chunks.chunkMap);
+            if (unloading > 0 && unloading + holders(area) > UNLOAD_CALM && ++stalled < STALL_TICKS) return;
+            stalled = 0;
+            releasing.remove(area);
+            distances(level).removeTicket(RELEASE, area.centre(), area.level(), release);
+            chunks.runDistanceManagerUpdates();
+        }
+    }
+
+    /** Держателей чанков на выгрузке: ушедших из загрузки и уже поставленных в выгрузку ({@code ChunkMap.processUnloads}). */
+    private static int unloading(ChunkMap map) {
+        return map.toDrop.size() + map.pendingUnloads.size();
+    }
+
+    /**
+     * Сколько держателей чанков самое большее отдаёт отпуск района: тикет уровня {@code 33 − distance} держит квадрат
+     * радиусом {@code distance + ChunkLevel.RADIUS_AROUND_FULL_CHUNK}.
+     */
+    static int holders(Area area) {
+        int side = 2 * (area.distance() + ChunkLevel.RADIUS_AROUND_FULL_CHUNK) + 1;
+        return side * side;
+    }
+
+    private static DistanceManager distances(ServerLevel level) {
+        return level.getChunkSource().chunkMap.getDistanceManager();
     }
 
     /** Тикет региона — на наибольший готовый квадрат вокруг центра; готов весь район — тикет загрузки больше не нужен. */
@@ -157,7 +261,7 @@ public final class AreaLoader {
         // сначала новый, потом старый: уровни чанков не проседают ни на тик
         level.getChunkSource().addRegionTicket(area.type(), area.centre(), k, area.key());
         if (taken >= 0) level.getChunkSource().removeRegionTicket(area.type(), area.centre(), taken, area.key());
-        if (k == area.distance()) level.getChunkSource().chunkMap.getDistanceManager().removeTicket(LOAD, area.centre(), area.level(), area);
+        if (k == area.distance()) distances(level).removeTicket(LOAD, area.centre(), area.level(), area);
         requests.put(area, k);
     }
 
