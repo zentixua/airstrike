@@ -1,7 +1,7 @@
 # Сборка, юнит-тесты и GameTest (сервер с Create, Sable, Aeronautics с Modrinth); jar — в артефактах запуска.
 # Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
 # мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком; правка сборки
-# (pack/) — только её файл .mrpack. GameTest идёт
+# (pack/) — только её файлы для Prism (.mrpack и экземпляр с автообновлением). GameTest идёт
 # частями на шести машинах сразу (devtest GameTestShards), сборка и юнит-тесты — рядом. Итог всех проверок — «Итог».
 # Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
 # проверка целиком, после неё — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
@@ -62,10 +62,11 @@ jobs:
             while IFS= read -r f; do
               case "$f" in
                 '') ;;
-                mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
+                mod/*|tools/fetch_runtime_mods.py) mod=true ;;
+                tools/paths.py) mod=true; pack=true ;;
                 tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
                 .github/*) mod=true; rig=true; pack=true ;;
-                pack/*) pack=true ;;
+                pack/*|tools/prism_instance.py) pack=true ;;
                 tools/*|docs/*|*.md|.claude/*|.gitignore) ;;
                 *) mod=true ;;
               esac
@@ -174,7 +175,8 @@ jobs:
         timeout-minutes: 2
         run: tools/test_rig_procs.sh
 
-  # своя сборка (pack/, packwiz): индекс свежий, файл для лаунчера собирается; .mrpack — в артефактах запуска
+  # своя сборка (pack/, packwiz): индекс свежий, файлы для лаунчера собираются — .mrpack и экземпляр Prism, который
+  # ставит сборку с main сам при каждом запуске (tools/prism_instance.py); оба — в артефактах запуска
   pack:
     name: Сборка модов
     needs: changes
@@ -204,10 +206,15 @@ jobs:
       - name: Файл для лаунчера
         run: packwiz mr export -o "airstrike-pack-$(sed -n 's/^version = "\(.*\)"$/\1/p' pack.toml).mrpack"
 
+      - name: Экземпляр Prism с автообновлением
+        run: python3 ../tools/prism_instance.py "Airstrike Pack.zip"
+
       - uses: actions/upload-artifact@v6
         with:
           name: airstrike-pack
-          path: pack/*.mrpack
+          path: |
+            pack/*.mrpack
+            pack/Airstrike Pack.zip
           if-no-files-found: error
 
   # одна отметка на коммит: всё, что изменение требовало, прошло; ненужное пропущено

@@ -16,7 +16,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 - Не удалять миры/сейвы/файлы пользователя. Лишнее — переносить в сторону (`deploy.sh` кладёт в `airstrike-backup/`).
 - Качество важнее скорости: перед сдачей — сборка, тесты, GameTest, ревью диффа.
 - **Доводить до конца без вопросов**: когда работа готова и проверена (сборка, тесты, GameTest), самому влить свой PR
-  и поставить мод в игру `tools/deploy.sh` — Артём должен застать мод готовым к игре, а не список шагов для себя.
+  и поставить мод в игру `tools/deploy.sh` (инстанс с автообновлением сборки получает мод выпуском и PR сборки) —
+  Артём должен застать мод готовым к игре, а не список шагов для себя.
   Спрашивать только то, что меняет цель или чего нельзя отменить.
 
 ## Где что лежит
@@ -35,7 +36,10 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     paths.py                             ← все пути к игре (единственное место)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
     pack_dir.py <каталог> [--optional]   ← каталог игры из pack/ (моды по хешам, config/) — для prod_client.py --no-copy
-    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза)
+    prism_instance.py [zip]              ← экземпляр Prism со сборкой, которая обновляется сама: перед запуском packwiz-installer
+                                           ставит pack/ с main (артефакт CI airstrike-pack)
+    deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза);
+                                           инстанс с автообновлением сборки не трогает: packwiz-installer вернул бы jar сборки
     logscan.py                           ← выжимка из logs/latest.log
     client_scenario.sh [all|launch|rocket|loiter|hud|map|target-map|salvo-map|nuke|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby] [shaders] [dh] ← клиент без окна (KWin virtual + Xwayland), кадры и звук в WAV
     nested_kwin.sh                       ← вложенный KWin для клиента: без окна и без звука хоста, своя шина D-Bus без запуска служб
@@ -79,9 +83,10 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
   pack/                                  ← своя сборка «Airstrike Pack» (packwiz: pack.toml, mods/*.pw.toml, config/);
-                                           .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md
+                                           .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md;
+                                           pack/ на main игроки с автообновлением ставят при каждом запуске игры
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar и .mrpack в артефактах; релиз
+  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar, .mrpack и экземпляр Prism в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
@@ -114,7 +119,8 @@ git commit
 CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
 не запускает — PR открывать сразу, черновиком); jar — артефакт `airstrike-jar`. Проверяется то, что изменилось
 (задача «Что изменилось»): правка только `tools/` (кроме `fetch_runtime_mods.py`, `paths.py`), `docs/`, `*.md` мод не
-собирает и GameTest не гоняет; `pack/` — только задача «Сборка модов» (индекс packwiz свежий, `.mrpack` собирается);
+собирает и GameTest не гоняет; `pack/` и `tools/prism_instance.py` — только задача «Сборка модов» (индекс packwiz свежий,
+`.mrpack` и экземпляр Prism собираются);
 `mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
 GameTest идёт частями на шести машинах (`-PgametestShard=i/n`, `GameTestShards`: партия целиком в одной части, части
 равняются по `gametest-durations.json`; таблицу освежает `tools/gametest_durations.py` по логам частей, когда части
@@ -124,6 +130,7 @@ GameTest идёт частями на шести машинах (`-PgametestShar
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
 с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
 вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.
+PR сборки с jar выпуска — после выпуска: `pack/` на `main` игроки с автообновлением ставят при следующем запуске.
 Версию протокола (`AirstrikeNetwork.PROTOCOL`) поднимает PR, который меняет формат пакетов или данных сущностей; релиз,
 у которого поведение или ключи языка отличаются от прошлого выданного jar, поднимает её сам, если за выпуск её ещё
 не подняли: старый jar не должен заходить к новому хосту (NeoForge тогда говорит «разные версии мода»).
@@ -877,7 +884,7 @@ GameTest идёт частями на шести машинах (`-PgametestShar
   `SCENARIO replay seek`), модель сервера повтора — `ReplayTest`.
 
 ## Окружение
-- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 50 модов), прежний
+- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 51 мод), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям;
   jar мода нужен всем (сервер и клиенты).
 - Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.5** (аппараты — «sub-levels», блоки живут

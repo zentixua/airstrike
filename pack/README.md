@@ -14,10 +14,36 @@ cd pack && packwiz mr export      # → Airstrike Pack-<версия>.mrpack
 
 ## Установка
 
-Prism Launcher: «Добавить экземпляр» → «Импорт» → файл `.mrpack`. Prism покажет окно необязательных модов: запись
-(Flashback, Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает;
-не выбранные моды ставятся выключенными, их можно включить потом во вкладке модов. Если Prism попросит подтвердить
-загрузку не с Modrinth — это jar Airstrike из выпуска на GitHub.
+Сборка обновляется сама: перед каждым запуском игры Prism Launcher запускает
+[packwiz-installer](https://packwiz.infra.link/tutorials/installing/packwiz-installer/), и тот ставит `pack/` с `main`
+этого репозитория — новое докачивает, убранное из сборки удаляет. Свои файлы игрока (миры, настройки, моды не из
+сборки) он не трогает; файл из `config/` сборки перезаписывает, только когда сборка его меняет.
+
+Новый экземпляр: Prism → «Добавить экземпляр…» → «Импорт» → `Airstrike Pack.zip` (артефакт CI `airstrike-pack` или
+`tools/prism_instance.py`). В нём Minecraft и NeoForge из `pack.toml`, 6144 МБ памяти, `packwiz-installer-bootstrap.jar`
+в папке игры и команда перед запуском. Первый запуск скачивает моды и спрашивает про необязательные: запись (Flashback,
+Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает.
+
+Экземпляр, поставленный из `.mrpack`, переводится на автообновление так же, миры остаются:
+1. Prism: «Папка» (папка игры экземпляра, там `mods` и `saves`): переименовать `mods` в `mods-old` и положить
+   туда же [packwiz-installer-bootstrap.jar](https://github.com/packwiz/packwiz-installer-bootstrap/releases/latest).
+2. «Изменить…» → «Параметры» → «Пользовательские команды»: включить и в «Предстартовая команда» вписать
+   `"$INST_JAVA" -jar packwiz-installer-bootstrap.jar https://raw.githubusercontent.com/zentixua/airstrike/main/pack/pack.toml`
+3. Запустить: packwiz-installer скачает моды сборки заново и спросит про необязательные. Свои моды не из сборки, если
+   они были, вернуть из `mods-old` в `mods`.
+
+`mods` в сторону — потому что удаляет packwiz-installer только то, что ставил сам: jar старой версии сборки с другим
+именем (`airstrike-2.5.0.jar` у 0.1.0) остался бы рядом с новым, и игра не запустилась бы с двумя Airstrike. Файлы
+`config/` сборки на первом запуске он перезаписывает, если они отличаются.
+
+Окно packwiz-installer на каждом запуске: «Continue» — сразу в игру (иначе само через 10 с), «Optional mods...» —
+включить или выключить запись. Галочки модов сборки на странице «Моды» Prism не менять: убранный или выключенный мод
+packwiz-installer вернёт. Если сборка сменит версию Minecraft или NeoForge, он спросит, обновить ли их в экземпляре.
+Файлы сборки GitHub раздаёт с кэшем до 5 минут: запуск сразу после слияния PR сборки может застать `pack.toml` и
+`index.toml` разных коммитов, и packwiz-installer скажет про неверный хеш индекса — «Quit» и запустить снова позже.
+
+`.mrpack` (`packwiz mr export`, артефакт CI) — разовая установка без автообновления: «Импорт» этого файла, Prism сам
+спросит про необязательные моды.
 
 ## Что внутри
 
@@ -28,8 +54,15 @@ Prism Launcher: «Добавить экземпляр» → «Импорт» →
 | Create | Propulsion: Simulated, Aeroworks, Tweaked Controllers, Big Cannons (+ RPL), Connected, Deco, Diesel Generators, Aeronautics Hot Air Fix |
 | авиация и оружие | Immersive Aircraft, Man of Many Planes, Vic's Point Blank (+ GeckoLib), Point Blank Aeronautics compat |
 | картинка и камера | шейдерпак Complementary Reimagined, Euphoria Patches, Aeronautics Camera Sync, 3D Skin Layers, Not Enough Animations |
-| мультиплеер и удобство | Essential, JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
+| мультиплеер и удобство | Essential, LAN Server Properties (временно, ниже), JEI (+ MezzConfig), Jade, Jade Sable Compat, Xaero's Minimap и World Map, Create – Xaero's map, GraveStone и его патч для Sable, Mouse Tweaks, No Chat Reports |
 | запись (по выбору) | Flashback, Flashback NeoForge Fixed, Sinytra Connector, Forgified Fabric API |
+
+LAN Server Properties — временно, чтобы в мир хоста мог зайти игрок без входа в аккаунт Microsoft; уберём по слову
+Артёма. Хост: пауза → «Открыть для сети» → «Проверка лицензии»: «Без проверки лицензии + исправление UUID» → «Открыть
+мир для сети»; заходят по адресу хоста в Tailscale и порту из этого окна. Исправление UUID оставляет игрокам с лицензией
+их UUID (инвентарь и достижения в мире те же), игрок без лицензии получает свой. Порт мод не пробрасывает (UPnP у него
+нет), проверка лицензии по умолчанию включена; «Сохранить настройки» не нажимать — иначе мир будет открываться без
+проверки и дальше.
 
 Настройки, которые сборка кладёт сама:
 - `config/entityculling.json` — значения Entity Culling по умолчанию плюс сущности Airstrike в `entityWhitelist`: такие
@@ -47,10 +80,13 @@ Prism Launcher: «Добавить экземпляр» → «Импорт» →
   версия), потом `packwiz refresh`. CI проверяет, что `index.toml` свежий.
 - Новый выпуск Airstrike: `packwiz url add Airstrike https://github.com/zentixua/airstrike/releases/download/v<версия>/airstrike-<версия>.jar --meta-name airstrike`.
 - Версию сборки (`version` в `pack.toml`) поднимать при каждом изменении состава: у всех игроков должен быть один набор.
+- `pack/` на `main` игроки ставят при следующем запуске игры: в `main` — только проверенное CI и только jar Airstrike
+  из уже вышедшего выпуска (PR сборки — после релиза).
 
 ## Версии
 
 | версия | Airstrike | что изменилось |
 |---|---|---|
+| 0.1.2 | 2.6.0 | автообновление (packwiz-installer); LAN Server Properties — вход без лицензии в мир хоста, временно |
 | 0.1.1 | 2.6.0 | Airstrike 2.6.0 ([заметки](../docs/releases/2.6.0.md)); остальные моды и настройки те же |
 | 0.1.0 | 2.5.0 | первая версия |
