@@ -891,7 +891,7 @@ PR сборки с jar выпуска — после выпуска: `pack/` н�
   `SCENARIO replay seek`), модель сервера повтора — `ReplayTest`.
 
 ## Окружение
-- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 51 мод), прежний
+- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям;
   jar мода нужен всем (сервер и клиенты).
 - Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.5** (аппараты — «sub-levels», блоки живут
