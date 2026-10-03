@@ -39,22 +39,74 @@ import java.util.concurrent.CompletableFuture;
  * руин ({@link RuinWorkers#executor}), как и у ванили (она обновляет и разбирает чанки в фоновых потоках). В потоке
  * сервера остаётся только {@link ChunkShot#fromDisk}: состояния палитр — в таблицу свойств.
  * <p>
- * Берётся только чанк, целый на диске ({@link DiskStatus#whole}), с картами высот всех видов
- * {@link RuinPlan#HEIGHTMAP_TYPES}; остальное пропускается с причиной ({@link Read#skip}) — его руины строятся после
- * волны, как раньше.
+ * Берётся только чанк с окончательными блоками ({@link DiskStatus.State#blocksFinal}: и чанк мира 1.17 с догенерацией
+ * под нулём); остальное пропускается с причиной ({@link Read#skip}) — его руины строятся после волны, как раньше. Карты
+ * высот {@link RuinPlan#HEIGHTMAP_TYPES}, которых на диске нет или они не того размера (карты из редакторов: не все
+ * карты у Greenfield — у 295855 чанков из 295936, у Newisle — у 23595 из 23644 целых), досчитываются по блокам, как при
+ * загрузке у ванили ({@link Read#primed}).
  */
 final class DiskShots {
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(Block.BLOCK_STATE_REGISTRY,
             BlockState.CODEC, PalettedContainer.Strategy.SECTION_STATES, Blocks.AIR.defaultBlockState());
+    /** Цена чанка без карт высот на диске для окна ({@link Read#cost}): не больше 4 досчётов за один {@link RuinContext#requestWindow}. */
+    static final int PRIME_COST = 6;
+
     private DiskShots() {}
 
     /**
      * Прочитанный чанк: секции (null — воздух), первый свободный по картам {@link RuinPlan#HEIGHTMAP_TYPES}
-     * ({@code вид * 256 + столбец}); {@code skip} — почему не годится (тогда остальное пусто).
+     * ({@code вид * 256 + столбец}); {@code unprimed} — карты, которых на диске не было (бит {@code 1 << вид}: их значения
+     * ещё не посчитаны, {@link #primed}); {@code skip} — почему не годится (тогда остальное пусто).
      */
-    record Read(ChunkPos pos, int minY, PalettedContainer<BlockState>[] states, int[] heights, @Nullable String skip) {
+    record Read(ChunkPos pos, int minY, PalettedContainer<BlockState>[] states, int[] heights, int unprimed, @Nullable String skip) {
         static Read skipped(ChunkPos pos, String why) {
-            return new Read(pos, 0, empty(), new int[0], why);
+            return new Read(pos, 0, empty(), new int[0], 0, why);
+        }
+
+        /**
+         * Карты высот, которых не было на диске, — по блокам, как их досчитывает ваниль при загрузке
+         * ({@code Heightmap.primeHeightmaps}: сверху вниз до первого непрозрачного для карты блока; нет такого — низ мира).
+         * Поток сервера: свойства состояний — из таблицы руин ({@code props}). Цена — в среднем 0,6 мс (до 1,4 мс) на чанк,
+         * где все секции до верха мира непустые, а столбцы почти все воздух (замер в облаке 03.10.2026: столб стекла до 319
+         * над плоским миром), обычно десятки микросекунд; сколько таких чанков берёт поток сервера за раз — {@link #cost}.
+         */
+        Read primed(Blast.PropsView props) {
+            if (unprimed == 0) return this;
+            int[] out = heights.clone();
+            int types = RuinPlan.HEIGHTMAP_TYPES.length;
+            // подряд в столбце почти всегда одно и то же состояние (воздух, вода): его карты — без поиска в таблице
+            BlockState last = null;
+            int opaque = 0;
+            for (int c = 0; c < 256; c++) {
+                int left = unprimed;
+                for (int t = 0; t < types; t++) if ((left & 1 << t) != 0) out[t * 256 + c] = minY;
+                for (int i = states.length - 1; i >= 0 && left != 0; i--) {
+                    if (states[i] == null) continue;
+                    for (int y = 15; y >= 0 && left != 0; y--) {
+                        BlockState st = states[i].get(c & 15, y, c >> 4);
+                        if (st != last) {
+                            last = st;
+                            Blast.Props p = props.get(st);
+                            opaque = 0;
+                            for (int t = 0; t < types; t++) if (p.opaque(t)) opaque |= 1 << t;
+                        }
+                        int hit = left & opaque;
+                        if (hit == 0) continue;
+                        for (int t = 0; t < types; t++) if ((hit & 1 << t) != 0) out[t * 256 + c] = minY + (i << 4) + y + 1;
+                        left &= ~hit;
+                    }
+                }
+            }
+            return new Read(pos, minY, states, out, 0, null);
+        }
+
+        /**
+         * Сколько поток сервера платит за этот чанк в {@link RuinContext#requestWindow}, в чанках с картами высот на диске:
+         * досчёт карт ({@link #primed}) в худшем случае в десятки раз дороже снимка: 25 таких за раз — десятки миллисекунд
+         * в одном тике, по 4 — до 4,3 мс (замер 03.10.2026).
+         */
+        int cost() {
+            return unprimed == 0 ? 1 : PRIME_COST;
         }
 
         /** Первый воздух над {@code MOTION_BLOCKING} — для тени светового импульса ({@link RuinContext#putHeights}). */
@@ -99,18 +151,24 @@ final class DiskShots {
         Checked checked = check(f, raw);
         if (checked.skip != null) return Read.skipped(pos, checked.skip);
         CompoundTag tag = checked.tag;
-        // карты высот: все виды плана, в формате самой карты (биты на значение — по высоте мира)
+        // карты высот: все виды плана, в формате самой карты (биты на значение — по высоте мира); нет карты или она
+        // не того размера — посчитается по блокам (Read.primed), как у ванили при загрузке
         CompoundTag maps = tag.getCompound("Heightmaps");
         int[] heights = new int[RuinPlan.HEIGHTMAP_TYPES.length * 256];
-        int bits = Mth.ceillog2(f.height + 1);
+        int bits = Mth.ceillog2(f.height + 1), unprimed = 0;
         for (int t = 0; t < RuinPlan.HEIGHTMAP_TYPES.length; t++) {
             String key = RuinPlan.HEIGHTMAP_TYPES[t].getSerializationKey();
-            if (!maps.contains(key, Tag.TAG_LONG_ARRAY)) return Read.skipped(pos, "нет карты высот " + key);
-            SimpleBitStorage data;
-            try {
-                data = new SimpleBitStorage(bits, 256, maps.getLongArray(key));
-            } catch (SimpleBitStorage.InitializationException e) {
-                return Read.skipped(pos, "карта высот " + key + " другого размера");
+            SimpleBitStorage data = null;
+            if (maps.contains(key, Tag.TAG_LONG_ARRAY)) {
+                try {
+                    data = new SimpleBitStorage(bits, 256, maps.getLongArray(key));
+                } catch (SimpleBitStorage.InitializationException e) {
+                    // не того размера: ваниль так же отбрасывает её и считает по блокам
+                }
+            }
+            if (data == null) {
+                unprimed |= 1 << t;
+                continue;
             }
             for (int c = 0; c < 256; c++) heights[t * 256 + c] = data.get(c) + f.minY;
         }
@@ -125,15 +183,15 @@ final class DiskShots {
             PalettedContainer<BlockState> c = parsed.get();
             if (c.maybeHas(st -> !st.isAir())) states[index] = c;
         }
-        return new Read(pos, f.minY, states, heights, null);
+        return new Read(pos, f.minY, states, heights, unprimed, null);
     }
 
     /** Данные чанка, обновлённые до текущей версии, или почему чанк не годится ({@code skip}). */
     private record Checked(CompoundTag tag, @Nullable String skip) {}
 
     private static Checked check(Format f, CompoundTag tag) {
-        // как на диске, до обновления версии: то же правило, что у зоны за волной и LOD вдали
-        if (!DiskStatus.whole(tag)) return new Checked(tag, "не целый на диске");
+        // как на диске, до обновления версии: то же правило, что у заголовка (DiskStatus.scan)
+        if (!DiskStatus.of(tag).blocksFinal()) return new Checked(tag, "не догенерирован на диске");
         int version = ChunkStorage.getVersion(tag);
         if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
             try {

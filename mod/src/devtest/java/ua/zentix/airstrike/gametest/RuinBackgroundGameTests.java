@@ -210,7 +210,8 @@ public final class RuinBackgroundGameTests {
 
     /**
      * План по чанкам, прочитанным с диска (фаза 2: записаны, как их записал бы мир, и разобраны как чанки не в памяти),
-     * — место в место такой же, как план по чанкам в памяти.
+     * — место в место такой же, как план по чанкам в памяти. Так же — у чанков, какими их оставляет обновление мира 1.17,
+     * и у чанков без карт высот на диске (карты из редакторов).
      */
     @GameTest(template = "range", timeoutTicks = 100, batch = "nuke_background_disk", skyAccess = true)
     public static void diskPlanMatchesMemoryPlan(GameTestHelper h) {
@@ -228,6 +229,15 @@ public final class RuinBackgroundGameTests {
                 RuinPlan memory = RuinPlanner.planFresh(level, d, chunk, true), disk = RuinPlanner.planFromDisk(level, d, chunk);
                 String diff = memory.differs(disk);
                 h.assertTrue(diff == null, "план чанка " + c + " с диска не такой, как по чанку в памяти:" + diff);
+                // мир 1.17 после обновления: блоки на месте, низ мира догенерируется при загрузке — план тот же
+                diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, RuinBackgroundGameTests::asRetrogen));
+                h.assertTrue(diff == null, "план чанка " + c + " с догенерацией под нулём не такой, как по чанку в памяти:" + diff);
+                // карта из редактора: карт высот на диске нет — досчитываются по блокам, как у ванили при загрузке
+                diff = memory.differs(RuinPlanner.planFromDisk(level, d, chunk, tag -> {
+                    tag.remove("Heightmaps");
+                    return tag;
+                }));
+                h.assertTrue(diff == null, "план чанка " + c + " без карт высот на диске не такой, как по чанку в памяти:" + diff);
                 compared++;
                 cells += memory.changedBlocks();
             }
@@ -235,6 +245,19 @@ public final class RuinBackgroundGameTests {
         h.assertTrue(cells > 0, "город не разрушен: сравнивать нечего");
         Airstrike.LOG.info("Руины с диска: {} планов совпали, {} мест", compared, cells);
         h.succeed();
+    }
+
+    /**
+     * Чанк, каким его оставляет обновление мира 1.17 (ваниль {@code ChunkHeightAndBiomeFix}, затем переименование
+     * статусов): статус «пусто», догенерация под нулём до полной генерации 1.17 ({@code heightmaps} → {@code spawn}).
+     */
+    private static net.minecraft.nbt.CompoundTag asRetrogen(net.minecraft.nbt.CompoundTag tag) {
+        net.minecraft.nbt.CompoundTag retrogen = new net.minecraft.nbt.CompoundTag();
+        retrogen.putString("target_status", "minecraft:spawn");
+        retrogen.putLongArray("missing_bedrock", new long[4]);
+        tag.putString("Status", "minecraft:empty");
+        tag.put("below_zero_retrogen", retrogen);
+        return tag;
     }
 
     /**
@@ -892,6 +915,35 @@ public final class RuinBackgroundGameTests {
         h.assertTrue(q.withholds(key, late), "чанк, впервые попросившийся к игроку долго после волны, ушёл без руин сразу");
         h.assertTrue(q.withholds(key, late + 199), "удержание кончилось раньше срока от первой просьбы");
         h.assertFalse(q.withholds(key, late + 200), "удержание не кончилось через срок от первой просьбы");
+        NuclearStrikes.clear(level);
+        h.succeed();
+    }
+
+    /**
+     * Чанк, чей срок пришёл, когда его никто не видел, стоит в очереди невидимых — за чанками зоны и LOD вдали. Игрок
+     * перенёсся к нему и ждёт его руин: первая просьба переводит чанк к видимым (игра Артёма в Newisle, подрыв №2: после
+     * телепорта руины чанков у игрока шли за невидимыми, и 1085 чанков ушли к нему до руин). Бюджета — на одну единицу:
+     * второй чанк остаётся в очереди.
+     */
+    @GameTest(template = "range", timeoutTicks = 200, batch = "nuke_send_promote", skyAccess = true)
+    public static void askedChunkGoesAheadOfUnseen(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Detonation d = NuclearWarhead.detonate(level, Vec3.atBottomCenterOf(h.absolutePos(NuclearGameTests.CENTER)), 1, false, null, 0.1f);
+        ScarQueue q = new ScarQueue();
+        List<Long> keys = new ArrayList<>();
+        for (int west : new int[]{16, 32}) {
+            LevelChunk chunk = level.getChunkAt(h.absolutePos(NuclearGameTests.CENTER.west(west)));
+            q.offer(chunk, d);
+            keys.add(chunk.getPos().toLong());
+        }
+        long late = d.gameTime() + 100_000;
+        ua.zentix.airstrike.nuclear.world.WorkClock clock = ua.zentix.airstrike.nuclear.world.WorkClock.counting(1_000_000);
+        clock.start(0);
+        q.work(level, late, clock);
+        List<Long> left = keys.stream().filter(k -> "в очереди готовых".equals(q.diagState(k, late))).toList();
+        h.assertTrue(left.size() == 1, "в очереди невидимых не один чанк: " + keys.stream().map(k -> q.diagState(k, late)).toList());
+        q.withholds(left.get(0), late);
+        h.assertTrue("в очереди готовых, видимых".equals(q.diagState(left.get(0), late)), "попросившийся чанк остался среди невидимых: " + q.diagState(left.get(0), late));
         NuclearStrikes.clear(level);
         h.succeed();
     }

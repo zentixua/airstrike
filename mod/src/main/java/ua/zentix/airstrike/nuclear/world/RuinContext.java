@@ -71,15 +71,17 @@ final class RuinContext {
 
     /**
      * Чанк, прочитанный с диска (поток сервера): снимок — если снимка из памяти нет или чанк сейчас не в памяти целиком
-     * (тогда снимок из памяти всё равно не берётся), и с ним его карта высот — для тени светового импульса.
+     * (тогда снимок из памяти всё равно не берётся), и с ним его карта высот — для тени светового импульса. Карты высот,
+     * которых на диске не было, считаются здесь по блокам ({@link DiskShots.Read#primed}).
      */
     void putDisk(ServerLevel level, DiskShots.Read read) {
         long key = read.pos().toLong();
         ChunkShot now = shots.get(key);
         // высоты для тени — только вместе со снимком: у оставленного живого снимка они сняты из памяти
         if (now == null || now.fromDisk() || level.getChunkSource().getChunkNow(read.pos().x, read.pos().z) == null) {
-            putShot(key, ChunkShot.fromDisk(read, applied.get(key)));
-            putHeights(key, read.motion());
+            DiskShots.Read primed = read.primed(Blast.SERVER);
+            putShot(key, ChunkShot.fromDisk(primed, applied.get(key)));
+            putHeights(key, primed.motion());
         }
     }
 
@@ -90,7 +92,10 @@ final class RuinContext {
         return s != null && s.fromDisk() && s.fresh();
     }
 
-    /** Прочитанных с диска снимков в поток сервера за один {@link #requestWindow}, не больше: окно 5×5. */
+    /**
+     * Прочитанных с диска снимков в поток сервера за один {@link #requestWindow}, не больше: окно 5×5; чанк без карт
+     * высот на диске идёт за несколько ({@link DiskShots.Read#cost}).
+     */
     private static final int PUTS_PER_WINDOW = (2 * RuinPlanner.REACH + 1) * (2 * RuinPlanner.REACH + 1);
     /** Соседи окна, которые читаются с диска ({@link #requestWindow}), и прочитанные, но ещё не взятые потоком сервера. */
     private final LongOpenHashSet reading = new LongOpenHashSet();
@@ -113,9 +118,11 @@ final class RuinContext {
      */
     int requestWindow(ServerLevel level, ChunkPos pos) {
         // прочитанные — не больше окна за раз: снимок с диска строится в потоке сервера, а пока игра на паузе, потоки
-        // чтения идут и прочитанных копится сколько угодно; остальные возьмут следующие окна
+        // чтения идут и прочитанных копится сколько угодно; остальные возьмут следующие окна. Берёт их только этот поток:
+        // подсмотренный (peek) — тот же, что потом снимается (poll)
         int put = 0;
-        for (DiskShots.Read r; put < PUTS_PER_WINDOW && (r = reads.poll()) != null; put++) {
+        for (DiskShots.Read r; (r = reads.peek()) != null && (put == 0 || put + r.cost() <= PUTS_PER_WINDOW); put += r.cost()) {
+            reads.poll();
             long key = r.pos().toLong();
             reading.remove(key);
             windowReads++;
