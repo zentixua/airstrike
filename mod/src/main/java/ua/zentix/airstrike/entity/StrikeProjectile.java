@@ -736,10 +736,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 if (phaseAge() >= lp.ignitionTicks()) setPhase(FlightPhase.BOOST);
             }
             default -> {
-                // тяга растёт не сразу: первые тики снаряд едва сползает с направляющей
-                double ramp = Math.min(1, (phaseAge() + 1) / 6.0);
-                speed += lp.boostAccel() * ramp;
-                if (phaseAge() > lp.railTicks()) flight.holdPitch(lp.boostEndPitch(), 0.06, 1.2, 0.12);
+                speed = lp.boost(flight, speed, phaseAge());
                 if (!advance(level, tracker.point(), 0)) return true;
                 if (phaseAge() >= lp.boostTicks()) {
                     separate(level);
@@ -877,6 +874,16 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
+     * Путь носа за шаг полёта из {@code pos} по {@code dir} на {@code speed}: от середины носа до носа после шага — его
+     * заметает {@link #advance}, а проверка сектора пуска ({@code LaunchSite.clearAhead}) — по тикам разгона.
+     *
+     * @return {откуда, докуда}
+     */
+    public static Vec3[] noseSweep(Vec3 pos, Vec3 dir, double speed, double noseLength) {
+        return new Vec3[]{pos.add(dir.scale(noseLength * 0.5)), pos.add(dir.scale(speed + noseLength))};
+    }
+
+    /**
      * Шаг полёта: заметаем путь носа на длину шага. Столкновение (блок, аппарат, человек рядом с траекторией)
      * или достижение цели — {@link #impact}. Возвращает true, если снаряд ещё летит.
      *
@@ -902,9 +909,10 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             return false;
         }
 
-        Vec3 noseFrom = pos.add(dir.scale(noseLength() * 0.5));
+        Vec3[] sweep = noseSweep(pos, dir, speed, noseLength());
+        Vec3 noseFrom = sweep[0];
         // нос не заглядывает в неготовый чанк (clip грузил бы его); туда снаряд и не шагнёт — уйдёт в полёт вне мира
-        Vec3 noseTo = Terrain.readyUntil(level, noseFrom, pos.add(dir.scale(speed + noseLength())));
+        Vec3 noseTo = Terrain.readyUntil(level, noseFrom, sweep[1]);
 
         // и на разгоне: снаряд, прошедший сквозь дом на ускорителе, выходил из разгона внутри постройки и разбивался о неё
         // в первом же тике набора — тихо и далеко от места, где встретил её

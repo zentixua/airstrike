@@ -618,6 +618,37 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
+    /**
+     * Сектор пуска ракеты — из обоих контейнеров и по настоящему пути разгона. Столб, который стоит только на пути
+     * второго контейнера (в 1.24 блока вбок от первого), и навес над прямой под углом набора, через который ракета
+     * идёт на разгоне (с направляющей под 40° она выше прямой под 14°: в 13 блоках — на ~6), закрывают сектор.
+     * 02.10.2026, Newisle: сектор проверялся только из первой ячейки и только по прямой, и из залпа 20 ракет разбилась
+     * на разгоне ровно каждая вторая — все из одного контейнера, об один и тот же блок.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_sector_cells", skyAccess = true)
+    public static void launchSectorCoversEveryCellAndBoost(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 8)));
+        Vec3 far = site.add(0, 0, 1000);
+        WeaponType weapon = WeaponType.MISSILE;
+        h.assertTrue(LaunchSite.clearAhead(level, site, 0, weapon, far), "пустая полоса закрыта");
+        Vec3 first = LauncherEntity.railPoint(site, 0, weapon, 0), second = LauncherEntity.railPoint(site, 0, weapon, 1);
+        int y = Mth.floor(first.y), z = Mth.floor(first.z);
+        // столб в 30 блоках по курсу у второго контейнера: путь первого идёт мимо
+        int postX = Mth.floor(second.x);
+        h.assertTrue(Mth.floor(first.x) != postX, "столб на пути первого контейнера");
+        Iterable<BlockPos> post = BlockPos.betweenClosed(postX, Mth.floor(site.y), z + 30, postX, y + 30, z + 30);
+        post.forEach(p -> level.setBlock(p, Blocks.STONE.defaultBlockState(), 2));
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon, far), "столб на пути второго контейнера не виден");
+        post.forEach(p -> level.setBlock(p, Blocks.AIR.defaultBlockState(), 2));
+        h.assertTrue(LaunchSite.clearAhead(level, site, 0, weapon, far), "без столба полоса закрыта");
+        // навес в 11–15 блоках по курсу на 8–11 над направляющей: прямая под 14° — на 3–4 блока выше неё
+        BlockPos.betweenClosed(Mth.floor(site.x) - 12, y + 8, z + 11, Mth.floor(site.x) + 12, y + 11, z + 15)
+                .forEach(p -> level.setBlock(p, Blocks.STONE.defaultBlockState(), 2));
+        h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon, far), "навес на пути разгона не виден");
+        h.succeed();
+    }
+
     /** Стенка поперёк полосы (13 блоков шириной, 2 в толщину) от земли {@code base} до высоты {@code top} включительно. */
     private static void build(ServerLevel level, BlockPos base, int top, Block block) {
         for (int x = -6; x <= 6; x++) for (int z = 0; z <= 1; z++) for (int y = base.getY(); y <= top; y++) {

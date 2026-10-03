@@ -130,44 +130,83 @@ public final class LaunchSite {
     }
 
     /**
-     * Сектор пуска пусковой, стоящей в {@code site} с курсом {@code yaw}, свободен. Путь снаряда от нижней направляющей до
-     * взведения взрывателя ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки. У снаряда с разгоном
-     * (паспорт, {@code LaunchProfile}) — луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
-     * ({@code boostEndPitch}). У РСЗО — его настоящая дуга из трубы на цель {@code target} (скорость задаёт дальность,
-     * {@link RocketEntity}): до конца работы двигателя (дальше он взведён) и не ближе {@link #NEAR_AIM} к цели — у самой
-     * цели блоки — это цель. Два луча: ось и на {@link #HULL} ниже (корпус). У шахеда и ракеты ещё и подъём после
-     * взведения по силам их автопилоту ({@link #climbOut}). Неготовые чанки не читаются: путь по ним считается свободным
-     * (там снаряд уйдёт в полёт вне мира).
+     * Сектор пуска пусковой, стоящей в {@code site} с курсом {@code yaw}, свободен — из каждой ячейки пакета: залп идёт
+     * со всех, и снаряд, которому блок стоит только на пути его ячейки, разбивается до взведения. Путь снаряда от
+     * направляющей до взведения взрывателя ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки.
+     * У снаряда с разгоном (паспорт, {@code LaunchProfile}) — и его путь носа на разгоне ({@link #boostSweep}: тот же
+     * закон, что в полёте), и луч под углом набора: меньшим из угла направляющей и тангажа к концу разгона
+     * ({@code boostEndPitch}) — ниже него снаряд до взведения не опускается, а разгон идёт выше, под навес, крону или
+     * край дома над лучом. До 03.10.2026 проверялись только луч и только из первой ячейки (02.10.2026, Newisle: из залпа
+     * 20 ракет разбилась ровно каждая вторая — все из одного контейнера, об один и тот же блок). У РСЗО — его настоящая дуга из трубы на цель {@code target} (скорость
+     * задаёт дальность, {@link RocketEntity}): до конца работы двигателя (дальше он взведён) и не ближе {@link #NEAR_AIM}
+     * к цели — у самой цели блоки — это цель. Два луча: ось и на {@link #HULL} ниже (корпус). У шахеда и ракеты ещё
+     * и подъём после взведения по силам их автопилоту ({@link #climbOut}). Неготовые чанки не читаются: путь по ним
+     * считается свободным (там снаряд уйдёт в полёт вне мира).
      */
     public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target) {
-        Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, 0);
         float elevation = LauncherEntity.elevation(weapon);
-        WeaponSpec.LaunchProfile lp = weapon.spec().airframe().launchProfile();
-        List<Vec3> path = new ArrayList<>();
-        path.add(rail);
-        if (lp != null) {
-            double climb = Math.toRadians(Math.min(elevation, -lp.boostEndPitch()));
-            double reach = ProximityFuse.ARM_DISTANCE;
-            path.add(rail.add(Local.horizontal(yaw).scale(reach)).add(0, reach * Math.tan(climb), 0));
-        } else {
-            Vec3 v0 = Ballistics.launchVelocity(rail, target, Ballistics.ticksFor(rail, target, elevation, RocketEntity.MIN_FLIGHT));
-            double reach = Math.min(ProximityFuse.ARM_DISTANCE, horizontal(rail, target) - NEAR_AIM);
-            for (int k = ARC_STEP; k <= RocketEntity.BURN_TICKS; k += ARC_STEP) {
-                Vec3 at = Ballistics.at(rail, v0, k);
-                if (horizontal(rail, at) > reach) break;
-                path.add(at);
+        WeaponSpec.Airframe air = weapon.spec().airframe();
+        WeaponSpec.LaunchProfile lp = air.launchProfile();
+        Vec3 gate = null;
+        for (int slot = 0; slot < LauncherEntity.slots(weapon); slot++) {
+            Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, slot);
+            List<Vec3> path = new ArrayList<>();
+            path.add(rail);
+            if (lp != null) {
+                if (!clear(level, boostSweep(rail, yaw, elevation, lp, air.noseLength()))) return false;
+                double climb = Math.toRadians(Math.min(elevation, -lp.boostEndPitch()));
+                double reach = ProximityFuse.ARM_DISTANCE;
+                path.add(rail.add(Local.horizontal(yaw).scale(reach)).add(0, reach * Math.tan(climb), 0));
+            } else {
+                Vec3 v0 = Ballistics.launchVelocity(rail, target, Ballistics.ticksFor(rail, target, elevation, RocketEntity.MIN_FLIGHT));
+                double reach = Math.min(ProximityFuse.ARM_DISTANCE, horizontal(rail, target) - NEAR_AIM);
+                for (int k = ARC_STEP; k <= RocketEntity.BURN_TICKS; k += ARC_STEP) {
+                    Vec3 at = Ballistics.at(rail, v0, k);
+                    if (horizontal(rail, at) > reach) break;
+                    path.add(at);
+                }
             }
+            List<Vec3[]> legs = new ArrayList<>(path.size());
+            for (int i = 1; i < path.size(); i++) legs.add(new Vec3[]{path.get(i - 1), path.get(i)});
+            if (!clear(level, legs)) return false;
+            if (gate == null) gate = path.getLast();
         }
+        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, gate, yaw, air);
+    }
+
+    /**
+     * Путь носа на разгоне из ячейки {@code rail} — по отрезку за тик, как его заметает снаряд в полёте: закон разгона
+     * паспорта ({@link WeaponSpec.LaunchProfile#boost}) и шаг носа ({@link StrikeProjectile#noseSweep}).
+     */
+    private static List<Vec3[]> boostSweep(Vec3 rail, float yaw, float elevation, WeaponSpec.LaunchProfile lp, double noseLength) {
+        FlightController flight = new FlightController(yaw, -elevation);
+        List<Vec3[]> sweep = new ArrayList<>(lp.boostTicks());
+        Vec3 pos = rail;
+        double speed = 0;
+        for (int tick = 1; tick <= lp.boostTicks(); tick++) {
+            speed = lp.boost(flight, speed, tick);
+            Vec3 dir = flight.forward();
+            sweep.add(StrikeProjectile.noseSweep(pos, dir, speed, noseLength));
+            pos = pos.add(dir.scale(speed));
+        }
+        return sweep;
+    }
+
+    /**
+     * Отрезки пути {@code legs} по порядку не упираются в блоки ни осью, ни корпусом ({@link #HULL} ниже); дальше первого
+     * неготового чанка не смотрим.
+     */
+    private static boolean clear(ServerLevel level, List<Vec3[]> legs) {
         for (double below : new double[]{0, HULL}) {
-            for (int i = 1; i < path.size(); i++) {
-                Vec3 from = path.get(i - 1).subtract(0, below, 0), end = path.get(i).subtract(0, below, 0);
+            for (Vec3[] leg : legs) {
+                Vec3 from = leg[0].subtract(0, below, 0), end = leg[1].subtract(0, below, 0);
                 Vec3 to = Terrain.readyUntil(level, from, end);
                 if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
                         .getType() != HitResult.Type.MISS) return false;
                 if (to.distanceToSqr(end) > 1e-6) break;
             }
         }
-        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, path.getLast(), yaw, weapon.spec().airframe());
+        return true;
     }
 
     /**

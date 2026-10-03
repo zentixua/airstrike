@@ -9,6 +9,7 @@ import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.LauncherRack;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.BombDrop;
+import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.registry.ModEntities;
 
 import java.util.function.Supplier;
@@ -126,7 +127,19 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * @param railTicks     первые тики разгона нос держит угол направляющей
      * @param boostEndPitch тангаж к концу разгона (° , < 0 — нос вверх)
      */
-    public record LaunchProfile(int ignitionTicks, int boostTicks, double boostAccel, int railTicks, float boostEndPitch) {}
+    public record LaunchProfile(int ignitionTicks, int boostTicks, double boostAccel, int railTicks, float boostEndPitch) {
+        /**
+         * Тик разгона {@code tick} (с 1 до {@code boostTicks}): тяга растёт не сразу — первые тики снаряд едва сползает
+         * с направляющей; сойдя с неё, нос уходит к тангажу конца разгона. Один закон у снаряда в полёте и у проверки
+         * сектора пуска ({@code LaunchSite.clearAhead}).
+         *
+         * @return скорость после тика
+         */
+        public double boost(FlightController flight, double speed, int tick) {
+            if (tick > railTicks) flight.holdPitch(boostEndPitch, 0.06, 1.2, 0.12);
+            return speed + boostAccel * Math.min(1, (tick + 1) / 6.0);
+        }
+    }
 
     /**
      * Летательный аппарат: числа, которыми сущность снаряда отличается от других.
