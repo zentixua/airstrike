@@ -62,13 +62,16 @@ public final class LaunchSite {
         return existing(level, player, weapon, l -> true);
     }
 
-    /** Своя пусковая этого оружия рядом с игроком, которая годится ({@code fits}: например, сектор пуска свободен). */
+    /**
+     * Ближайшая своя пусковая этого оружия рядом с игроком, которая годится ({@code fits}: например, сектор пуска
+     * свободен). Проверяются от ближней, до первой годной: проверка сектора недешёвая.
+     */
     @Nullable
     public static LauncherEntity existing(ServerLevel level, ServerPlayer player, WeaponType weapon, Predicate<LauncherEntity> fits) {
         UUID id = player.getUUID();
         AABB box = player.getBoundingBox().inflate(REUSE_RADIUS, 64, REUSE_RADIUS);
-        return level.getEntitiesOfClass(LauncherEntity.class, box, l -> l.isAlive() && l.weapon() == weapon && id.equals(l.ownerId()) && fits.test(l))
-                .stream().min(Comparator.comparingDouble(l -> l.distanceToSqr(player))).orElse(null);
+        return level.getEntitiesOfClass(LauncherEntity.class, box, l -> l.isAlive() && l.weapon() == weapon && id.equals(l.ownerId()))
+                .stream().sorted(Comparator.comparingDouble(l -> l.distanceToSqr(player))).filter(fits).findFirst().orElse(null);
     }
 
     /**
@@ -88,46 +91,113 @@ public final class LaunchSite {
     private static final double HULL = 1;
 
     /**
+     * Предел цены одного выбора пусковой (проверка своей и поиск места) в клетках мира: клетка луча {@code Level.clip}
+     * ({@link #traversed}), колонка карты высот, колонка полосы подъёма ({@link #climbOut}). Без предела поиск в плотном
+     * городе — до 12 мест по нескольку курсов, по тысячам клеток каждый, — стоил сотни миллисекунд в одном тике. Вышел
+     * предел — «места нет»: удар идёт издалека, как без места (раз на приказ, {@link StrikeWorld#noLaunchSite}). Одна
+     * проверка без единого отсева по карте высот: шахед и ракета — до ~6 000 клеток с подъёмом, РСЗО по цели в 400 блоках —
+     * ~15 000; дальше 600 блоков косым курсом — до ~22 000, и тогда предел (только среди башен выше всей дуги).
+     */
+    public static final class Budget {
+        /**
+         * Предел по умолчанию, клеток: ≈8–16 мс (клетка луча — как шаг луча взрыва, у хоста ~0,4 мкс и больше).
+         */
+        public static final int CELLS = 20_000;
+        /**
+         * Колонок полосы подъёма на блок пути: полоса шириной 3 блока — до 5 проходов сетки, на косом курсе ~1,4 колонки
+         * на блок каждый.
+         */
+        static final double CLIMB_COLUMNS_PER_BLOCK = 8;
+
+        private final int limit;
+        private int spent;
+        private boolean out;
+
+        public Budget() {
+            this(CELLS);
+        }
+
+        public Budget(int limit) {
+            this.limit = limit;
+        }
+
+        /** Списать {@code cells} клеток; не помещаются — предел вышел: false, и дальше ничего не берётся. */
+        public boolean take(int cells) {
+            if (out || cells > limit - spent) {
+                out = true;
+                return false;
+            }
+            spent += cells;
+            return true;
+        }
+
+        /** Предел вышел: проверка, которой он не хватил, ответила «занято», не досмотрев. */
+        public boolean out() {
+            return out;
+        }
+
+        /** Сколько клеток списано. */
+        public int spent() {
+            return spent;
+        }
+    }
+
+    /**
      * Место под новую пусковую с свободным сектором пуска: на каждом месте по порядку ({@link #find}) — предложенные
      * курсы ({@code yaws} от места), потом повороты от первого, не дальше {@code maxOff}° от направления на цель
-     * {@code target} (дальше — залп уходил бы от цели, это выглядит поломкой). Null — нигде: снаряд заходит издалека.
+     * {@code target} (дальше — залп уходил бы от цели, это выглядит поломкой). Null — нигде или вышел предел
+     * {@code budget}: снаряд заходит издалека.
      */
     @Nullable
     public static Pick findClear(ServerLevel level, ServerPlayer player, WeaponType weapon, Vec3 target, Function<Vec3, float[]> yaws,
-                                 float maxOff) {
+                                 float maxOff, Budget budget) {
         float yaw = player.getYRot();
         for (double[] c : CANDIDATES) {
             Vec3 off = Local.offset(yaw, 0, c[1], 0, -c[0]);
             Vec3 p = player.position().add(off);
             Vec3 site = check(level, Mth.floor(p.x), Mth.floor(p.z));
             if (site == null || taken(level, site)) continue;
-            Pick pick = pickOn(level, site, weapon, yaws.apply(site), target, maxOff);
+            Pick pick = pickOn(level, site, weapon, yaws.apply(site), target, maxOff, budget);
             if (pick != null) return pick;
+            if (budget.out()) return null;
         }
         return null;
     }
 
-    /**
-     * Курс на месте {@code site}: первый свободный из предложенных {@code want}, потом повороты от первого не дальше
-     * {@code maxOff}° от курса на цель {@code target}; null — все заняты.
-     */
+    /** {@link #pickOn(ServerLevel, Vec3, WeaponType, float[], Vec3, float, Budget)} со своим пределом по умолчанию. */
     @Nullable
     public static Pick pickOn(ServerLevel level, Vec3 site, WeaponType weapon, float[] want, Vec3 target, float maxOff) {
+        return pickOn(level, site, weapon, want, target, maxOff, new Budget());
+    }
+
+    /**
+     * Курс на месте {@code site}: первый свободный из предложенных {@code want}, потом повороты от первого не дальше
+     * {@code maxOff}° от курса на цель {@code target}; null — все заняты или вышел предел {@code budget}.
+     */
+    @Nullable
+    public static Pick pickOn(ServerLevel level, Vec3 site, WeaponType weapon, float[] want, Vec3 target, float maxOff, Budget budget) {
         float toTarget = FlightController.anglesTo(site, target)[0];
         for (int i = 0; i < want.length; i++) {
-            if (clearAhead(level, site, want[i], weapon, target)) return new Pick(site, want[i], i);
+            if (clearAhead(level, site, want[i], weapon, target, budget)) return new Pick(site, want[i], i);
+            if (budget.out()) return null;
         }
         for (float t : TURNS) {
             float yaw = Mth.wrapDegrees(want[0] + t);
             if (Math.abs(Mth.wrapDegrees(yaw - toTarget)) > maxOff) continue;
-            if (clearAhead(level, site, yaw, weapon, target)) return new Pick(site, yaw, -1);
+            if (clearAhead(level, site, yaw, weapon, target, budget)) return new Pick(site, yaw, -1);
+            if (budget.out()) return null;
         }
         return null;
     }
 
     /** Сектор пуска стоящей пусковой (с её нынешним курсом) по цели {@code target} свободен. */
-    public static boolean clearAhead(ServerLevel level, LauncherEntity launcher, Vec3 target) {
-        return clearAhead(level, launcher.position(), launcher.getYRot(), launcher.weapon(), target);
+    public static boolean clearAhead(ServerLevel level, LauncherEntity launcher, Vec3 target, Budget budget) {
+        return clearAhead(level, launcher.position(), launcher.getYRot(), launcher.weapon(), target, budget);
+    }
+
+    /** {@link #clearAhead(ServerLevel, Vec3, float, WeaponType, Vec3, Budget)} со своим пределом по умолчанию. */
+    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target) {
+        return clearAhead(level, site, yaw, weapon, target, new Budget());
     }
 
     /**
@@ -143,8 +213,11 @@ public final class LaunchSite {
      * к цели — у самой цели блоки — это цель. Два луча: ось и на {@link #HULL} ниже (корпус). У шахеда и ракеты ещё
      * и подъём после взведения по силам их автопилоту ({@link #climbOut}). Неготовые чанки не читаются: путь по ним
      * считается свободным (там снаряд уйдёт в полёт вне мира).
+     * <p>
+     * Цена — из предела {@code budget} ({@link Budget}): не помещается — false. Сначала крайние ячейки пакета (путь после
+     * разгона, потом разгон), потом средние: в городе чаще упирается длинный луч, а крайние обычно закрывают и средние.
      */
-    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target) {
+    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target, Budget budget) {
         float elevation = LauncherEntity.elevation(weapon);
         WeaponSpec.Airframe air = weapon.spec().airframe();
         WeaponSpec.LaunchProfile lp = air.launchProfile();
@@ -172,8 +245,21 @@ public final class LaunchSite {
             for (int i = 1; i < path.size(); i++) legs.add(new Vec3[]{path.get(i - 1), path.get(i)});
             paths.add(legs);
         }
-        if (!clear(level, boost) || !clear(level, paths)) return false;
-        return weapon.spec().launch() != WeaponSpec.Launch.GUIDED || climbOut(level, paths.getFirst().getLast()[1], yaw, air);
+        if (!clear(level, edges(paths), budget) || !clear(level, edges(boost), budget)
+                || !clear(level, middle(paths), budget) || !clear(level, middle(boost), budget)) return false;
+        if (weapon.spec().launch() != WeaponSpec.Launch.GUIDED) return true;
+        return budget.take((int) Math.ceil(air.reliefLookahead() * Budget.CLIMB_COLUMNS_PER_BLOCK))
+                && climbOut(level, paths.getFirst().getLast()[1], yaw, air);
+    }
+
+    /** Первая и последняя ячейки пакета. */
+    private static <T> List<T> edges(List<T> cells) {
+        return cells.size() <= 2 ? cells : List.of(cells.getFirst(), cells.getLast());
+    }
+
+    /** Ячейки пакета между первой и последней. */
+    private static <T> List<T> middle(List<T> cells) {
+        return cells.size() <= 2 ? List.of() : cells.subList(1, cells.size() - 1);
     }
 
     /**
@@ -199,9 +285,10 @@ public final class LaunchSite {
      * ниже); дальше первого неготового чанка путь не смотрим. Отрезки с одним номером у всех ячеек, которые целиком
      * выше верхнего блока своих колонок ({@link #aboveBlocks}), лучами не проверяются: там лучу задеть нечего, а у пакета
      * РСЗО это 80 лучей на отрезок — над открытой местностью дуга почти вся такая. Блоки аппарата Sable в карте высот
-     * мира не стоят — рядом с аппаратом лучи идут везде.
+     * мира не стоят — рядом с аппаратом лучи идут везде. Каждый луч и каждая колонка карты высот списываются с предела
+     * {@code budget} до того, как их прочесть; не поместились — false.
      */
-    private static boolean clear(ServerLevel level, List<List<Vec3[]>> cells) {
+    private static boolean clear(ServerLevel level, List<List<Vec3[]>> cells, Budget budget) {
         AABB all = null;
         int legs = 0;
         for (List<Vec3[]> path : cells) {
@@ -212,7 +299,16 @@ public final class LaunchSite {
         boolean crafts = SubLevels.mayHaveCraftNear(level, all.getCenter(), Math.max(all.getXsize(), Math.max(all.getYsize(), all.getZsize())) / 2);
         boolean[] stopped = new boolean[cells.size() * 2];
         for (int k = 0; k < legs; k++) {
-            if (!crafts && aboveBlocks(level, cells, k)) continue;
+            int rays = 0;
+            for (int c = 0; c < cells.size(); c++) {
+                if (k >= cells.get(c).size()) continue;
+                Vec3[] leg = cells.get(c).get(k);
+                for (int ray = 0; ray < 2; ray++) {
+                    if (!stopped[2 * c + ray]) rays += traversed(leg[0], leg[1]);
+                }
+            }
+            if (rays == 0) break;
+            if (!crafts && aboveBlocks(level, cells, k, rays, budget)) continue;
             for (int c = 0; c < cells.size(); c++) {
                 if (k >= cells.get(c).size()) continue;
                 Vec3[] leg = cells.get(c).get(k);
@@ -220,6 +316,7 @@ public final class LaunchSite {
                     if (stopped[2 * c + ray]) continue;
                     double below = ray * HULL;
                     Vec3 from = leg[0].subtract(0, below, 0), end = leg[1].subtract(0, below, 0);
+                    if (!budget.take(traversed(from, end))) return false;
                     Vec3 to = Terrain.readyUntil(level, from, end);
                     if (level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, CollisionContext.empty()))
                             .getType() != HitResult.Type.MISS) return false;
@@ -230,6 +327,15 @@ public final class LaunchSite {
         return true;
     }
 
+    /**
+     * Клеток, через которые идёт луч {@code Level.clip} от {@code from} до {@code to}: он обходит сетку блоков, по клетке
+     * на каждую пересечённую грань. Сдвиг на целое число блоков (корпус, {@link #HULL}) их не меняет.
+     */
+    private static int traversed(Vec3 from, Vec3 to) {
+        return 1 + Math.abs(Mth.floor(to.x) - Mth.floor(from.x)) + Math.abs(Mth.floor(to.y) - Mth.floor(from.y))
+                + Math.abs(Mth.floor(to.z) - Mth.floor(from.z));
+    }
+
     /** Коробка, которую заметают ось и корпус на отрезке {@code leg}. */
     private static AABB swept(Vec3[] leg) {
         return new AABB(leg[0], leg[1]).expandTowards(0, -HULL, 0);
@@ -238,16 +344,21 @@ public final class LaunchSite {
     /**
      * Отрезки номер {@code k} всех ячеек целиком выше верхнего блока (любого, и без столкновений: карта высот
      * {@code WORLD_SURFACE}) каждой колонки под ними, чанки колонок готовы. Луч {@code Level.clip} проверяет только
-     * клетки, через которые идёт, — выше карты высот это воздух, и ответ тот же, что у лучей.
+     * клетки, через которые идёт, — выше карты высот это воздух, и ответ тот же, что у лучей. Колонок коробки больше,
+     * чем клеток у самих лучей {@code rays} (длинный косой луч: коробка 68×68 — 4 600 колонок против ~600 клеток), или
+     * не помещаются в предел {@code budget} — false без чтения карты: дешевле лучи.
      */
-    private static boolean aboveBlocks(ServerLevel level, List<List<Vec3[]>> cells, int k) {
+    private static boolean aboveBlocks(ServerLevel level, List<List<Vec3[]>> cells, int k, int rays, Budget budget) {
         AABB box = null;
         for (List<Vec3[]> path : cells) {
             if (k < path.size()) box = box == null ? swept(path.get(k)) : box.minmax(swept(path.get(k)));
         }
         if (box == null) return true;
-        for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX); x++) {
-            for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ); z++) {
+        int x0 = Mth.floor(box.minX), x1 = Mth.floor(box.maxX), z0 = Mth.floor(box.minZ), z1 = Mth.floor(box.maxZ);
+        long columns = (long) (x1 - x0 + 1) * (z1 - z0 + 1);
+        if (columns > rays || !budget.take((int) columns)) return false;
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
                 if (!Terrain.ready(level, x >> 4, z >> 4) || Terrain.height(level, Heightmap.Types.WORLD_SURFACE, x, z) > box.minY) return false;
             }
         }
