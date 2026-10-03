@@ -105,6 +105,11 @@ public final class RuinPlanner {
      * соседи записаны так, как их записал бы мир ({@code ChunkSerializer.write}), и разобраны как чанки не в памяти.
      */
     public static RuinPlan planFromDisk(ServerLevel level, Detonation d, LevelChunk chunk) {
+        return planFromDisk(level, d, chunk, java.util.function.UnaryOperator.identity());
+    }
+
+    /** То же, а записанное — каким оно лежит на диске ({@code onDisk}: например, чанк мира 1.17 после обновления). */
+    public static RuinPlan planFromDisk(ServerLevel level, Detonation d, LevelChunk chunk, java.util.function.UnaryOperator<net.minecraft.nbt.CompoundTag> onDisk) {
         RuinContext ctx = new RuinContext(d);
         ChunkPos c = chunk.getPos();
         for (int dx = -REACH; dx <= REACH; dx++) {
@@ -112,7 +117,7 @@ public final class RuinPlanner {
                 LevelChunk n = level.getChunkSource().getChunkNow(c.x + dx, c.z + dz);
                 if (n == null) throw new IllegalStateException("сосед " + (c.x + dx) + ", " + (c.z + dz) + " не загружен");
                 DiskShots.Read read = DiskShots.parse(level, new ChunkPos(c.x + dx, c.z + dz),
-                        net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, n));
+                        onDisk.apply(net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, n)));
                 if (read.skip() != null) throw new IllegalStateException("чанк с диска не разобран: " + read.skip());
                 ctx.putDisk(level, read);
             }

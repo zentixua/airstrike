@@ -10,47 +10,88 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Целый ли чанк на диске — одно правило на весь мод: по нему строится план руин с диска ({@link DiskShots}, фаза 2
- * подготовки {@link NuclearPrep}), зона за волной берёт чанк в мир ({@link NuclearPrep}: чанк, чьё окно руин целое)
- * и LOD вдали решает, собрать копию с диска или взять чанк в мир ({@link FarLods}, {@link FarZone}). Иначе план с диска
- * получал чанк, которого зона не грузит: план ждал до конца зоны и пропадал (игра Артёма 01.10.2026: «не дождались 453»).
+ * Что за чанк на диске — одно правило на весь мод. Блоки окончательные ({@link State#blocksFinal}) — по нему строится
+ * план руин с диска ({@link DiskShots}, фаза 2 подготовки {@link NuclearPrep}) и копия с руинами для LOD вдали
+ * ({@link FarLods}: иначе чанк берёт в мир {@link FarZone}). Целый ({@link State#WHOLE}) — зона за волной берёт его
+ * в мир ({@link NuclearPrep}: чанк, чьё окно руин целое), ничего не генерируя. Разница — чанки мира 1.17, обновлённого
+ * до 1.21: блоки на месте, но при загрузке ваниль догенерирует низ мира под нулём. Их план с диска верен (сверка —
+ * по старым состояниям мест плана, низ мира и бедрок в них не входят), до волны их не грузит зона, а после — грузит
+ * игрок или LOD; план держится до конца зоны. До 03.10.2026 такие чанки были «не целыми», а на старых картах их почти
+ * все (копии миров Артёма 03.10.2026: Zearth — 77974 из 86392 чанков на диске, Greenfield — 295718 из 295936): план
+ * с диска они не получали, а LOD вдали грузил их в мир с генерацией.
  */
 final class DiskStatus {
     /** Имя полной генерации в поле {@code Status}. */
     private static final ResourceLocation FULL = ResourceLocation.withDefaultNamespace("full");
+    /**
+     * Статусы, после которых блоки чанка окончательные: украшения соседей в радиусе 1 (они пишут и в этот чанк) уже
+     * поставлены — свет у ванили ждёт их ({@code ChunkPyramid}). У чанков 1.17 полная генерация в
+     * {@code below_zero_retrogen} записана как {@code heightmaps}, после переименования — {@code spawn}.
+     */
+    private static final Set<ResourceLocation> FINISHED = Set.of(ResourceLocation.withDefaultNamespace("light"),
+            ResourceLocation.withDefaultNamespace("spawn"), ResourceLocation.withDefaultNamespace("heightmaps"), FULL);
+
+    /** Что за чанк на диске. */
+    enum State {
+        /** Нет на диске, недогенерированный (кольца у края исследованного мира, начала структур), ошибка чтения. */
+        PARTIAL,
+        /**
+         * Блоки окончательные, но в мир без генерации не войдёт: догенерация под нулём ({@code below_zero_retrogen})
+         * или формат до 1.18 ({@code Status} внутри {@code Level}: что выйдет при обновлении, зависит от измерения).
+         */
+        FINAL,
+        /** Полная генерация без догенерации: ваниль грузит его, ничего не генерируя. */
+        WHOLE;
+
+        /** Годится ли для плана руин и копии LOD с диска. */
+        boolean blocksFinal() {
+            return this != PARTIAL;
+        }
+    }
 
     private DiskStatus() {}
 
     /**
-     * Загрузится ли чанк в мир, ничего не генерируя: {@code Status} — полная генерация, как его читает ваниль
-     * ({@code ChunkStatus.byName}: имя без пространства имён, как в старых сохранениях, — из {@code minecraft}), и без
-     * незавершённой догенерации под нулём ({@code below_zero_retrogen}: её ваниль догоняет при загрузке). Чанка нет
-     * ({@code null}), он недогенерирован (кольца у края исследованного мира, начала структур) или в формате до 1.18
-     * ({@code Status} внутри {@code Level}: что выйдет при обновлении, зависит от измерения) — не целый. Реестр статусов
-     * не нужен: проверяется и в фоновых потоках.
+     * Что за чанк — по данным, как на диске, до обновления версии. Имя статуса без пространства имён (как в старых
+     * сохранениях) — из {@code minecraft}, как читает ваниль ({@code ChunkStatus.byName}). Реестр статусов не нужен:
+     * проверяется и в фоновых потоках.
      *
-     * @param fields данные чанка или только поля {@link #fields} — как на диске, до обновления версии
+     * @param fields данные чанка или только поля {@link #fields}; {@code null} — чанка нет
      */
-    static boolean whole(@Nullable CompoundTag fields) {
-        return fields != null && fields.contains("Status", Tag.TAG_STRING) && FULL.equals(ResourceLocation.tryParse(fields.getString("Status")))
-                && !fields.contains("below_zero_retrogen");
+    static State of(@Nullable CompoundTag fields) {
+        if (fields == null) return State.PARTIAL;
+        if (fields.contains("below_zero_retrogen", Tag.TAG_COMPOUND))
+            return finished(fields.getCompound("below_zero_retrogen").getString("target_status")) ? State.FINAL : State.PARTIAL;
+        if (fields.contains("Status", Tag.TAG_STRING))
+            return FULL.equals(ResourceLocation.tryParse(fields.getString("Status"))) ? State.WHOLE : State.PARTIAL;
+        if (fields.contains("Level", Tag.TAG_COMPOUND))
+            return finished(fields.getCompound("Level").getString("Status")) ? State.FINAL : State.PARTIAL;
+        return State.PARTIAL;
     }
 
-    /** Поля, по которым {@link #whole} решает, — без разбора всего чанка ({@code chunkScanner}). */
+    private static boolean finished(String status) {
+        // имя с недопустимыми знаками не разбирается (null): не статус ванили
+        ResourceLocation name = ResourceLocation.tryParse(status);
+        return name != null && FINISHED.contains(name);
+    }
+
+    /** Поля, по которым {@link #of} решает, — без разбора всего чанка ({@code chunkScanner}). */
     private static CollectFields fields() {
-        return new CollectFields(new FieldSelector(StringTag.TYPE, "Status"), new FieldSelector(CompoundTag.TYPE, "below_zero_retrogen"));
+        return new CollectFields(new FieldSelector(StringTag.TYPE, "Status"), new FieldSelector(CompoundTag.TYPE, "below_zero_retrogen"),
+                new FieldSelector("Level", StringTag.TYPE, "Status"));
     }
 
     /**
-     * Целый ли чанк на диске — по его заголовку, в потоке ввода-вывода чанков ({@code chunkScanner}: не загружая и не
-     * разбирая чанк). Ответ приходит в потоке ввода-вывода; ошибка чтения — «не целый».
+     * Что за чанк на диске — по его заголовку, в потоке ввода-вывода чанков ({@code chunkScanner}: не загружая и не
+     * разбирая чанк). Ответ приходит в потоке ввода-вывода; ошибка чтения — {@link State#PARTIAL}.
      */
-    static CompletableFuture<Boolean> scan(ServerLevel level, ChunkPos pos) {
+    static CompletableFuture<State> scan(ServerLevel level, ChunkPos pos) {
         CollectFields fields = fields();
         return level.getChunkSource().chunkMap.chunkScanner().scanChunk(pos, fields)
-                .handle((v, e) -> e == null && whole(fields.getResult() instanceof CompoundTag tag ? tag : null));
+                .handle((v, e) -> e == null ? of(fields.getResult() instanceof CompoundTag tag ? tag : null) : State.PARTIAL);
     }
 }
