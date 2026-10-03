@@ -9,4 +9,5 @@ mod/runs/
 tools/.sound-cache/
 tools/.trailer-cache/
 pack/*.mrpack
+pack/*.zip
 mod/logs/

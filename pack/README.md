@@ -14,10 +14,30 @@ cd pack && packwiz mr export      # → Airstrike Pack-<версия>.mrpack
 
 ## Установка
 
-Prism Launcher: «Добавить экземпляр» → «Импорт» → файл `.mrpack`. Prism покажет окно необязательных модов: запись
-(Flashback, Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает;
-не выбранные моды ставятся выключенными, их можно включить потом во вкладке модов. Если Prism попросит подтвердить
-загрузку не с Modrinth — это jar Airstrike из выпуска на GitHub.
+Сборка обновляется сама: перед каждым запуском игры Prism Launcher запускает
+[packwiz-installer](https://packwiz.infra.link/tutorials/installing/packwiz-installer/), и тот ставит `pack/` с `main`
+этого репозитория — новое докачивает, убранное из сборки удаляет. Свои файлы игрока (миры, настройки, моды не из
+сборки) он не трогает; файл из `config/` сборки перезаписывает, только когда сборка его меняет.
+
+Новый экземпляр: Prism → «Добавить экземпляр…» → «Импорт» → `Airstrike Pack.zip` (артефакт CI `airstrike-pack` или
+`tools/prism_instance.py`). В нём Minecraft и NeoForge из `pack.toml`, 6144 МБ памяти, `packwiz-installer-bootstrap.jar`
+в папке игры и команда перед запуском. Первый запуск скачивает моды и спрашивает про необязательные: запись (Flashback,
+Sinytra Connector, Forgified Fabric API, Flashback NeoForge Fixed) нужна только тем, кто снимает.
+
+Экземпляр, поставленный из `.mrpack`, переводится на автообновление так же, миры остаются:
+1. Положить [packwiz-installer-bootstrap.jar](https://github.com/packwiz/packwiz-installer-bootstrap/releases/latest)
+   в папку игры экземпляра (Prism: «Папка» — там `mods` и `saves`).
+2. «Изменить…» → «Параметры» → «Пользовательские команды»: включить и в «Предстартовая команда» вписать
+   `"$INST_JAVA" -jar packwiz-installer-bootstrap.jar https://raw.githubusercontent.com/zentixua/airstrike/main/pack/pack.toml`
+3. Запустить. Моды, которые уже стоят, packwiz-installer сверяет по хешу и не качает заново. В окне необязательных
+   модов отметить запись, если она включена: не отмеченные моды записи он удаляет.
+
+Окно packwiz-installer на каждом запуске: «Continue» — сразу в игру (иначе само через 10 с), «Optional mods...» —
+включить или выключить запись. Галочки модов сборки на странице «Моды» Prism не менять: убранный или выключенный мод
+packwiz-installer вернёт. Если сборка сменит версию Minecraft или NeoForge, он спросит, обновить ли их в экземпляре.
+
+`.mrpack` (`packwiz mr export`, артефакт CI) — разовая установка без автообновления: «Импорт» этого файла, Prism сам
+спросит про необязательные моды.
 
 ## Что внутри
 
@@ -47,6 +67,8 @@ Prism Launcher: «Добавить экземпляр» → «Импорт» →
   версия), потом `packwiz refresh`. CI проверяет, что `index.toml` свежий.
 - Новый выпуск Airstrike: `packwiz url add Airstrike https://github.com/zentixua/airstrike/releases/download/v<версия>/airstrike-<версия>.jar --meta-name airstrike`.
 - Версию сборки (`version` в `pack.toml`) поднимать при каждом изменении состава: у всех игроков должен быть один набор.
+- `pack/` на `main` игроки ставят при следующем запуске игры: в `main` — только проверенное CI и только jar Airstrike
+  из уже вышедшего выпуска (PR сборки — после релиза).
 
 ## Версии
 

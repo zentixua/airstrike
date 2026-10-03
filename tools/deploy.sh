@@ -10,6 +10,7 @@
 # (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в airstrike-backup/<время>/ рядом с mods/.
 # Мод заменяет их полностью; настройки датапака он переносит в свой конфиг сам при первом запуске мира.
 # После установки — перезапустить игру. Друзьям нужен тот же jar (dist/airstrike-*.jar) в их mods/.
+# Инстанс с автообновлением сборки (tools/prism_instance.py) deploy.sh не трогает: jar мода там — из pack/ на main.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 path() { python3 "$ROOT/tools/paths.py" "$1"; }
@@ -44,6 +45,12 @@ else
   echo "собран: $JAR → dist/"
 fi
 if [ "$DRY" = 1 ]; then echo "--dry: игра не тронута"; exit 0; fi
+# Перед запуском такого инстанса packwiz-installer ставит сборку: убранный jar сборки он вернёт, и Airstrike станет два.
+if grep -qs '^PreLaunchCommand=.*packwiz-installer' "$(dirname "$MC")/instance.cfg"; then
+  echo "инстанс обновляется сам из pack/ на main (packwiz-installer): мод приходит в игру выпуском и PR сборки;" \
+    "игра не тронута" >&2
+  exit 1
+fi
 
 [ -d "$MODS" ] || { echo "нет папки $MODS — проверь tools/paths.py или задай MC_DIR" >&2; exit 1; }
 aside() { # перенести в сторону с сохранением пути относительно .minecraft
