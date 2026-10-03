@@ -58,7 +58,7 @@ public record Waypoints(List<Vec3> points) {
 
     /** Маршрут полёта по точкам; первый участок начинается в {@code origin} (точка пуска). */
     public Route route(Vec3 origin) {
-        return new Route(points, new Vec3(origin.x, 0, origin.z));
+        return Route.operator(points, origin);
     }
 
     /**

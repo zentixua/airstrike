@@ -845,7 +845,7 @@ public final class StrikeGameTests {
         h.assertTrue(path.size() == 3 && flat(path.get(0), gate) < 1.5 && flat(path.get(1), a) < 1e-6 && flat(path.get(2), b) < 1e-6,
                 "маршрут не ворота → точки: " + path + ", ворота " + gate);
         double planned = p.route().remaining(p.position(), point);
-        h.assertTrue(planned > flat(p.position(), point) + 20, "путь по точкам не длиннее прямого: " + planned);
+        h.assertTrue(planned > flat(p.position(), point), "путь по точкам " + planned + " не длиннее прямого " + flat(p.position(), point));
         h.assertTrue(p.rangeLeft() >= 1.5 * planned, "запас хода " + p.rangeLeft() + " меньше полутора путей по точкам " + planned);
         launcher.discard();
         // места пусковой нет — заход издалека

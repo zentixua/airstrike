@@ -817,19 +817,19 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Куда держать курс: следующая точка маршрута (взята — ближе радиуса захвата из паспорта или позади,
-     * {@link Route#update}) или цель. Взята последняя точка — {@link #onRouteDone}.
+     * {@link Route#update}) или цель. Взята последняя точка маршрута оператора — {@link #onRouteDone}.
      */
     protected Vec3 navPoint(Vec3 aim) {
         if (route != null && !route.finished()) {
             route.update(position(), weapon().spec().route().capture());
             Vec3 wp = route.current();
             if (wp != null) return new Vec3(wp.x, aim.y, wp.z);
-            onRouteDone(aim);
+            if (route.byOperator()) onRouteDone(aim);
         }
         return aim;
     }
 
-    /** Маршрут пройден в этот тик, дальше — последний участок на цель {@code aim} (перенацеливание его бросает без этого). */
+    /** Маршрут оператора пройден в этот тик, дальше — последний участок на цель {@code aim} (перенацеливание его бросает без этого; маршрут пуска кончается точкой входа, рассчитанной под заход). */
     protected void onRouteDone(Vec3 aim) {}
 
     /** Маршрут пройден (или его не было): последний участок — на цель. */
