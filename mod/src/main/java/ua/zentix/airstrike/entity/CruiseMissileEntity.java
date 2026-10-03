@@ -66,11 +66,17 @@ public class CruiseMissileEntity extends StrikeProjectile {
         autopilot.retarget(craft, tracker.point());
     }
 
+    /** Маршрут пройден: горка — только если на последнем участке до цели на неё хватает места (у точек оператора он бывает коротким). */
+    @Override
+    protected void onRouteDone(Vec3 aim) {
+        autopilot.approach(bearingTo(aim).horizontal());
+    }
+
     @Override
     protected void serverTick(ServerLevel level) {
         Vec3 aim = updateTarget(level);
         if (launchTick(level)) return;
-        Vec3 nav = navPoint(aim, 120);
+        Vec3 nav = navPoint(aim);
         // ядерная БЧ, воздушный подрыв: над целью, не долетая до земли (высоту подрыва задаёт сама БЧ)
         if (nuclear != null && nuclear.airBurst() && onFinalLeg() && armed() && bearingTo(aim).horizontal() <= speed * 2 + 12
                 && (!isVirtual() || Terrain.ready(level, BlockPos.containing(aim)))) {

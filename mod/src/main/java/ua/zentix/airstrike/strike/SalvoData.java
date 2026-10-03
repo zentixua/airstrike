@@ -35,7 +35,7 @@ import java.util.UUID;
  * Залпы: N снарядов с разбросом вокруг цели, по одному через случайную паузу (шахеды 20–40 тиков, ракеты 15–30,
  * B-2 60–80) — с одной пусковой по ячейкам. Цель может двигаться — каждый снаряд целится со своим смещением
  * относительно неё; маршруты разные (обход слева или справа, курс захода ±35°), поэтому залп приходит волной
- * с разных сторон.
+ * с разных сторон. По точкам оператора ({@link Waypoints}) весь залп идёт одним маршрутом.
  * Хранится в мире: незаконченный залп продолжится после перезахода.
  */
 public final class SalvoData extends SavedData {
@@ -101,10 +101,11 @@ public final class SalvoData extends SavedData {
      * @param centerPoint где цель сейчас
      * @param yaw         курс захода
      * @param owner       кто пустил (ему — сообщения о залпе), null — консоль или командный блок
+     * @param via         точки оператора: весь залп летит по ним
      */
     public static void start(ServerLevel level, WeaponType weapon, int count, int radius, Target center, Vec3 centerPoint,
-                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke) {
-        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke));
+                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke, Waypoints via) {
+        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke, via));
         ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (player != null) {
             player.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
@@ -133,9 +134,11 @@ public final class SalvoData extends SavedData {
         final UUID owner;
         int cooldown;
         final Loadout.Nuke nuke;
+        /** Точки оператора: у всего залпа одни. */
+        final Waypoints via;
 
         Salvo(WeaponType weapon, int total, int remaining, int radius, Target center, Vec3 lastCenter, float yaw, @Nullable UUID owner, int cooldown,
-              Loadout.Nuke nuke) {
+              Loadout.Nuke nuke, Waypoints via) {
             this.weapon = weapon;
             this.total = total;
             this.remaining = remaining;
@@ -147,6 +150,7 @@ public final class SalvoData extends SavedData {
             this.cooldown = cooldown;
             // ядерных залпов нет (ServerActions.clamp): снаряды залпа ядерной БЧ не несут
             this.nuke = nuke.withOnCarrier(false);
+            this.via = via;
         }
 
         boolean tick(ServerLevel level) {
@@ -226,7 +230,7 @@ public final class SalvoData extends SavedData {
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
             // сирена одна на залп: её включит первый снаряд, когда его «увидят» на подлёте
-            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke);
+            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, via);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */
@@ -251,6 +255,7 @@ public final class SalvoData extends SavedData {
             if (owner != null) t.putUUID("owner", owner);
             t.putInt("cooldown", cooldown);
             Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuke).resultOrPartial(Airstrike.LOG::error).ifPresent(n -> t.put("nuke", n));
+            if (!via.isEmpty()) Waypoints.CODEC.encodeStart(NbtOps.INSTANCE, via).resultOrPartial(Airstrike.LOG::error).ifPresent(r -> t.put("route", r));
             return t;
         }
 
@@ -261,8 +266,11 @@ public final class SalvoData extends SavedData {
             if (last == null) last = Vec3.ZERO;
             Target c = Target.CODEC.parse(NbtOps.INSTANCE, t.get("center")).resultOrPartial(Airstrike.LOG::error).orElse(new Target.Point(last));
             Loadout.Nuke nuke = Loadout.Nuke.CODEC.parse(NbtOps.INSTANCE, t.get("nuke")).result().orElse(Loadout.Nuke.DEFAULT);
+            // залп, сохранённый до маршрутов оператора, — без точек
+            Waypoints via = t.contains("route") ? Waypoints.CODEC.parse(NbtOps.INSTANCE, t.get("route")).resultOrPartial(Airstrike.LOG::error)
+                    .orElse(Waypoints.NONE) : Waypoints.NONE;
             return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
-                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke));
+                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via));
         }
     }
 

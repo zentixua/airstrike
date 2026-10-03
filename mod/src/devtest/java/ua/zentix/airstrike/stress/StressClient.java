@@ -23,6 +23,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
+import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.strike.WeaponType;
 
 import java.util.Locale;
@@ -135,18 +136,18 @@ public final class StressClient {
     private void host(Minecraft mc) {
         if (tick == 2600) {
             Loadout l = new Loadout(WeaponType.ROCKET, 30, 150, TargetMode.PLAYER, "Friend2", Loadout.Nuke.DEFAULT);
-            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.empty(), Optional.empty()));
+            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.empty(), Optional.empty(), Waypoints.NONE));
             log("пульт: РСЗО 30 по Friend2");
         }
         if (tick == 2800) {
             Vec3 at = mc.player.position().add(0, -mc.player.getY() + 70, 300);
             Loadout l = new Loadout(WeaponType.MISSILE, 10, 60, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
-            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.of(new C2S.AimHint(C2S.AimHint.POINT, at, 0, Vec3.ZERO)), Optional.empty()));
+            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.of(new C2S.AimHint(C2S.AimHint.POINT, at, 0, Vec3.ZERO)), Optional.empty(), Waypoints.NONE));
             log("бинокль: ракеты 10 по точке");
         }
         if (tick == 4400) {
             Loadout l = new Loadout(WeaponType.LOITER, 30, 150, TargetMode.PLAYER, "Friend1", Loadout.Nuke.DEFAULT);
-            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.empty(), Optional.empty()));
+            PacketDistributor.sendToServer(new C2S.Fire(l, Optional.empty(), Optional.empty(), Waypoints.NONE));
             log("пульт: барраж 30 по Friend1");
         }
     }
