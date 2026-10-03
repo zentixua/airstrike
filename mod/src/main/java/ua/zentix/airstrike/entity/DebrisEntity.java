@@ -98,6 +98,12 @@ public class DebrisEntity extends Entity {
 
         if (level().isClientSide) return;
         ServerLevel level = (ServerLevel) level();
+        // улетел из тикающих чанков (за край района цели): там он больше не тикает и висел бы в воздухе, пока чанк
+        // не выгрузится, — рассыпается сразу и не ложится блоком туда, где мир не тикает
+        if (!level.isPositionEntityTicking(blockPosition())) {
+            discard();
+            return;
+        }
         if (hurtsEntities && before.lengthSqr() > 0.09) hurtWhoIsHit(level, before);
         if (onGround() || horizontalCollision && before.y < 0 && getDeltaMovement().horizontalDistanceSqr() < 1.0e-4) {
             land(level, before);

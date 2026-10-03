@@ -3390,4 +3390,32 @@ public final class StrikeGameTests {
             h.assertTrue(found, "обломок не лёг блоком");
         });
     }
+
+    /**
+     * Обломок, улетевший за тикающие чанки, рассыпается, а не застывает в воздухе: площадку держат принудительно
+     * загруженные чанки (сущности тикают только в них), к +Z от неё пусто — чанк за краем не тикает сущностями.
+     */
+    @GameTest(template = "range", timeoutTicks = 100, batch = "debris", skyAccess = true)
+    public static void debrisCrumblesBeyondTickingChunks(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        // выше стены из барьеров (высота площадки 40), к +Z — за край площадки
+        Vec3 at = Vec3.atCenterOf(h.absolutePos(new BlockPos(32, 45, 58)));
+        DebrisEntity d = DebrisEntity.create(level, at, Blocks.COBBLESTONE.defaultBlockState(), false, false, new Vec3(0, 0.3, 1.5));
+        level.addFreshEntity(d);
+        h.succeedWhen(() -> {
+            h.assertTrue(d.isRemoved(), "обломок висит у края тикающих чанков: " + d.blockPosition());
+            h.assertTrue(d.getRemovalReason() == Entity.RemovalReason.DISCARDED, "обломок убран не им самим: " + d.getRemovalReason());
+            h.assertFalse(level.isPositionEntityTicking(d.blockPosition()), "обломок рассыпался в тикающем чанке: " + d.blockPosition());
+        });
+    }
+
+    /** Обломки и ускорители живут секунды: в мир (чанк при выгрузке, сохранение) они не пишутся. */
+    @GameTest(template = "pad", timeoutTicks = 5, batch = "debris")
+    public static void shortLivedEffectsNotSaved(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        DebrisEntity d = DebrisEntity.create(level, Vec3.atCenterOf(h.absolutePos(BlockPos.ZERO)), Blocks.GRAVEL.defaultBlockState(), false, false, Vec3.ZERO);
+        h.assertFalse(d.save(new CompoundTag()), "обломок сохраняется в мир");
+        h.assertFalse(ModEntities.SPENT_BOOSTER.get().create(level).save(new CompoundTag()), "ускоритель сохраняется в мир");
+        h.succeed();
+    }
 }
