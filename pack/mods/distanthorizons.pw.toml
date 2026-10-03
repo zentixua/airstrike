@@ -11,3 +11,8 @@ hash = "d14b32d3fd143a06514d6ad388eee11e9d657c84e1a937aaf8d033b1137fb43ef8b05cff
 [update.modrinth]
 mod-id = "uCdwusMi"
 version = "9w34y8ai"
+
+[option]
+optional = true
+default = true
+description = "Дальняя прорисовка (Distant Horizons). На macOS снять галочку: DH 3.3.3 портит память с драйвером OpenGL от Apple, и игра падает"

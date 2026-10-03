@@ -6,8 +6,9 @@
 
 Те же файлы, что ставит Prism из .mrpack сборки: моды и шейдерпаки по `*.pw.toml` (скачанный файл сверяется с хешем
 из них), остальное из index.toml (`config/…`) — как есть. Только для клиента: `side = "server"` не ставится;
-необязательные (`[option] optional = true`) — выключенными, `<файл>.disabled`, как их ставит Prism без галочки;
-с --optional — включёнными. Индекс должен быть свежим (хеши метафайлов сверяются, как в CI: `packwiz refresh`).
+необязательные (`[option] optional = true`) — как их галочка по умолчанию (`default`, как у packwiz-installer):
+выключенные — `<файл>.disabled`, как их ставит Prism без галочки; с --optional — все включёнными. Индекс должен быть
+свежим (хеши метафайлов сверяются, как в CI: `packwiz refresh`).
 Скачанное лежит в кэше по хешу (по умолчанию mod/run/pack-cache) и второй раз не качается. Каталог должен быть новым
 или без mods/: смешивать с прежним набором модов нельзя.
 """
@@ -74,7 +75,7 @@ def fetch(name, download, cache):
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("dir", help="каталог игры (новый)")
-    ap.add_argument("--optional", action="store_true", help="необязательные моды (запись повторов) включить")
+    ap.add_argument("--optional", action="store_true", help="все необязательные моды включить")
     ap.add_argument("--cache", default=os.path.join(paths.MOD, "run", "pack-cache"))
     a = ap.parse_args()
     dest = os.path.abspath(a.dir)
@@ -107,7 +108,8 @@ def main():
         if meta.get("side", "both") == "server":
             continue
         rel = os.path.join(os.path.dirname(entry["file"]), meta["filename"])
-        enabled = a.optional or not meta.get("option", {}).get("optional", False)
+        option = meta.get("option", {})
+        enabled = a.optional or not option.get("optional", False) or option.get("default", False)
         out = inside(dest, rel if enabled else rel + ".disabled")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shutil.copyfile(fetch(meta["name"], meta["download"], a.cache), out)
