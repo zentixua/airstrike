@@ -37,10 +37,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * копия уходит в DH как {@link ProtoChunk}. Мир копия не трогает: чанк, который загрузят потом, получит те же руины и
  * лампы своим путём. Копия без изменений против диска в DH не уходит — его LOD по этим же блокам уже есть.
  * <p>
- * Чанк за волной без готового плана проверяется на диске (поле {@code Status} — чтением заголовка в фоне, как у зоны за
- * волной, {@link DiskStatus#whole}): целый — ждёт плана ({@link #PLAN_WAIT}); не целый или его нет (край исследованного
- * мира: копию не собрать, а LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}):
- * ваниль догенерирует его, руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
+ * Чанк за волной без готового плана проверяется на диске (поле {@code Status} — чтением заголовка в фоне, то же правило,
+ * что у плана с диска, {@link DiskStatus.State#blocksFinal}): блоки окончательные (и у чанка мира 1.17 с догенерацией под
+ * нулём) — ждёт плана ({@link #PLAN_WAIT}); недогенерированный или его нет (край исследованного мира: копию не собрать,
+ * а LOD там DH строит своим генератором — целым) — в мир квадратом 5×5 ({@link FarZone}): ваниль догенерирует его,
+ * руины встанут путём загрузки, LOD уйдёт в DH с их отметкой.
  * <p>
  * Только при DH ({@link DhUpdates#room}) и только чанки не дальше {@link #FAR_CHUNKS} от игрока: дальше DH по умолчанию
  * не рассылает обновления, а чтения с диска делят поток ввода-вывода с загрузкой мира игрокам — их не больше
@@ -61,8 +62,11 @@ public final class FarLods {
     public static final int VISITS = 256;
     /** Чтений заголовков чанков с диска в работе сразу. */
     static final int SCANS = 32;
-    /** Что на диске у чанка за волной без плана: заголовок читается, целый (план ещё может прийти), не целый или нет. */
-    private static final byte SCANNING = 1, WHOLE = 2, PARTIAL = 3;
+    /**
+     * Что на диске у чанка за волной без плана: заголовок читается, блоки окончательные (план ещё может прийти),
+     * недогенерированный или нет ({@link DiskStatus.State}).
+     */
+    private static final byte SCANNING = 1, FINAL = 2, PARTIAL = 3;
 
     /**
      * Почему чанк в очереди: за волной ядерки — ждать его плана руин ({@link #RUINS}); квартал сменил свет — LOD уходит
@@ -91,7 +95,7 @@ public final class FarLods {
     /** Чанки, которые за время чтения попросили снова, и что просили: после чтения — в очередь ещё раз. */
     private final Long2ByteOpenHashMap again = new Long2ByteOpenHashMap();
     private final ConcurrentLinkedQueue<Built> built = new ConcurrentLinkedQueue<>();
-    /** Чанки за волной без плана: что на диске ({@link #SCANNING}, {@link #WHOLE}, {@link #PARTIAL}); ответы — из потока ввода-вывода. */
+    /** Чанки за волной без плана: что на диске ({@link #SCANNING}, {@link #FINAL}, {@link #PARTIAL}); ответы — из потока ввода-вывода. */
     private final Long2ByteOpenHashMap disk = new Long2ByteOpenHashMap();
     private final ConcurrentLinkedQueue<long[]> scanned = new ConcurrentLinkedQueue<>();
     private int scanning;
@@ -167,7 +171,7 @@ public final class FarLods {
         for (long[] s; (s = scanned.poll()) != null; ) {
             scanning--;
             // ответ на чанк, который уже не ждёт (отбой, загружен), не нужен
-            if (queued.containsKey(s[0])) disk.put(s[0], s[1] != 0 ? WHOLE : PARTIAL);
+            if (queued.containsKey(s[0])) disk.put(s[0], s[1] != 0 ? FINAL : PARTIAL);
             else disk.remove(s[0]);
         }
         if (!DhUpdates.enabled(level)) {
@@ -237,7 +241,7 @@ public final class FarLods {
                 partial++;
                 return false;
             }
-            if (state != WHOLE || now - r.since < PLAN_WAIT) {
+            if (state != FINAL || now - r.since < PLAN_WAIT) {
                 from.add(r);
                 return false;
             }
@@ -264,12 +268,12 @@ public final class FarLods {
         if (disk.get(chunk) != SCANNING) disk.remove(chunk);
     }
 
-    /** Заголовок чанка с диска ({@link DiskStatus#whole}): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}. */
+    /** Заголовок чанка с диска ({@link DiskStatus#scan}): только заголовок, в потоке ввода-вывода чанков; ответ — в {@link #scanned}. */
     private void scan(ServerLevel level, long chunk) {
         disk.put(chunk, SCANNING);
         scanning++;
         ConcurrentLinkedQueue<long[]> out = scanned;
-        DiskStatus.scan(level, new ChunkPos(chunk)).thenAccept(whole -> out.add(new long[]{chunk, whole ? 1 : 0}));
+        DiskStatus.scan(level, new ChunkPos(chunk)).thenAccept(state -> out.add(new long[]{chunk, state.blocksFinal() ? 1 : 0}));
     }
 
     /** Копия чанка с руинами (фоновый поток): секции с диска, места плана. */

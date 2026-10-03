@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
@@ -18,6 +19,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -139,13 +141,15 @@ public final class ScarQueue {
     private long lastSlowChunk = Long.MIN_VALUE / 2;
     private final PriorityQueue<Job> byDue = new PriorityQueue<>(Comparator.comparingLong(j -> j.due));
     /**
-     * Чанки, чей срок пришёл: сперва те, что видит игрок (их руины — ровно с фронтом, изменения уходят ему в том же
-     * тике), потом остальные (их никто не видит — отставание на несколько тиков не заметно; они всё равно доходят
-     * до руин, на диск и в LOD Distant Horizons).
+     * Чанки, чей срок пришёл: сперва те, что видит игрок ({@link #watched}: их руины — ровно с фронтом, изменения
+     * уходят ему в том же тике), потом остальные (их никто не видит — отставание на несколько тиков не заметно; они всё
+     * равно доходят до руин, на диск и в LOD Distant Horizons). Чанк, который игрок попросил, когда он уже стоял среди
+     * невидимых (телепорт), переходит к видимым ({@link #withholds}). Множества с порядком, а не очереди: переход —
+     * без поиска по очереди невидимых, где после ядерки тысячи чанков.
      */
     private record Log(long at, net.minecraft.world.level.block.state.BlockState state) {}
 
-    private final ArrayDeque<Job> readySeen = new ArrayDeque<>(), readyUnseen = new ArrayDeque<>();
+    private final LinkedHashSet<Job> readySeen = new LinkedHashSet<>(), readyUnseen = new LinkedHashSet<>();
     /** Стволы, упавшие в чанк, чьи руины ещё впереди: кладутся после его руин (иначе они старили бы его план). */
     private final Long2ObjectOpenHashMap<List<Log>> logs = new Long2ObjectOpenHashMap<>();
     private final Map<Integer, ColumnScar.Budget> budgets = new HashMap<>();
@@ -338,7 +342,7 @@ public final class ScarQueue {
         if (background.contains(j)) return "план в фоне";
         if (parked.containsKey(chunk)) return "план ждёт соседей, свой тикет r" + j.held;
         if (j.waitsNeighbours) return "ждёт соседей, свой тикет r" + j.held + (j.mayHold ? "" : " (под чужим тикетом)");
-        if (j.ready) return "в очереди готовых";
+        if (j.ready) return readySeen.contains(j) ? "в очереди готовых, видимых" : "в очереди готовых";
         return j.due > now ? "срок через " + (j.due - now) : "срок пришёл";
     }
 
@@ -449,8 +453,25 @@ public final class ScarQueue {
     public boolean withholds(long chunk, long now) {
         Job job = jobs.get(chunk);
         if (job == null || job.event >= job.events.size() || job.wave > now) return false;
-        if (job.asked == Long.MIN_VALUE) job.asked = now;
+        if (job.asked == Long.MIN_VALUE) {
+            job.asked = now;
+            // игрок ждёт чанк, который стоит среди невидимых (пришёл в обзор позже срока — телепорт): к видимым
+            if (job.ready && readyUnseen.remove(job)) readySeen.add(job);
+        }
         return now - job.asked < WITHHOLD_LIMIT;
+    }
+
+    /**
+     * Видит ли чанк игрок: чанк в его обзоре ({@code ChunkTrackingView}), уже отправлен или ещё в очереди отправки. Не
+     * {@code ChunkMap.getPlayers(pos, false)}: тот не считает игрока, у которого чанк в очереди, а чанк, который держит
+     * {@link ChunkSendGate}, стоит в ней до руин, — и руины чанков, которых игрок ждал после телепорта, шли за
+     * невидимыми до {@link #WITHHOLD_LIMIT} (игра Артёма в Newisle, подрыв №2: 1085 чанков ушли игроку до руин).
+     */
+    private static boolean watched(ServerLevel level, ChunkPos pos) {
+        for (ServerPlayer player : level.players()) {
+            if (player.getChunkTrackingView().contains(pos)) return true;
+        }
+        return false;
     }
 
     /** Есть ли чанки, которые, может быть, нельзя отдавать игрокам (быстрая проверка перед перебором). */
@@ -614,7 +635,7 @@ public final class ScarQueue {
                             st[10]++;
                             withNeighbours.computeIfAbsent(scan.d.id(), k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet()).add(c);
                         }
-                        else if (!level.getChunkSource().chunkMap.getPlayers(chunk.getPos(), false).isEmpty()) st[19]++;
+                        else if (watched(level, chunk.getPos())) st[19]++;
                     }
                 }
             } catch (RuntimeException e) {
@@ -652,19 +673,18 @@ public final class ScarQueue {
             if (ctx.running(job.chunk) && !ctx.done(job.chunk)) continue;
             it.remove();
             job.ready = true;
-            (level.getChunkSource().chunkMap.getPlayers(new ChunkPos(job.chunk), false).isEmpty() ? readyUnseen : readySeen).addFirst(job);
+            (watched(level, new ChunkPos(job.chunk)) ? readySeen : readyUnseen).addFirst(job);
         }
-        var chunkMap = level.getChunkSource().chunkMap;
         while (!byDue.isEmpty() && byDue.peek().due <= now + EARLY) {
             Job job = byDue.poll();
             job.ready = true;
-            (chunkMap.getPlayers(new ChunkPos(job.chunk), false).isEmpty() ? readyUnseen : readySeen).add(job);
+            (watched(level, new ChunkPos(job.chunk)) ? readySeen : readyUnseen).add(job);
         }
         inspected = waitedThisTick = 0;
         while (clock.canStart()) {
             if (inspected > 0 && clock.overdue()) return;
-            Job job = !readySeen.isEmpty() ? readySeen.poll() : readyUnseen.poll();
-            if (job == null) return;
+            if (readySeen.isEmpty() && readyUnseen.isEmpty()) return;
+            Job job = !readySeen.isEmpty() ? readySeen.removeFirst() : readyUnseen.removeFirst();
             job.ready = false;
             if (jobs.get(job.chunk) != job) continue; // выгружен или снят
             long c0 = clock.begin();
@@ -887,7 +907,7 @@ public final class ScarQueue {
         }
         // забытый подрыв (чанк впервые загрузился спустя дни) выжигает, но не поджигает: пожары давно бы догорели
         ColumnScar.Budget budget = budgets.computeIfAbsent(d.id(), k -> new ColumnScar.Budget(!NuclearEvents.get(level).isPast(k)));
-        boolean seen = !level.getChunkSource().chunkMap.getPlayers(pos, false).isEmpty();
+        boolean seen = watched(level, pos);
         if (submit) {
             // плана нет: снимки — этой единицей, план — в фоне; работа ждёт его в background
             if (ctx.submit(level, chunk)) this.background.add(job);

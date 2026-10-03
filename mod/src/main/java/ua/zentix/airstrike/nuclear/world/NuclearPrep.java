@@ -3,6 +3,7 @@ package ua.zentix.airstrike.nuclear.world;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerLevel;
@@ -37,10 +38,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * <p>
  * После подрыва — зона за волной: тяжёлая зона (у земли от 5 psi) грузится квадратами 5×5 вслед за фронтом, чтобы руины
  * были на диске и в LOD Distant Horizons, а не только там, где стоял игрок. Из квадрата грузится каждый чанк, чьё окно
- * руин ({@link RuinPlanner#REACH}) целое на диске ({@link DiskStatus#whole}: заголовки читаются в фоне через
- * {@code chunkScanner}) или в памяти, — то же окно, что у плана с диска, поэтому каждый план с диска находит свой чанк
- * в мире. Ради удара мир не генерируется: такой чанк ваниль грузит без генерации (сам целый, соседи готовы —
- * {@code ChunkGenerationTask.canLoadWithoutGeneration}). Чанки держатся каждый своим тикетом загрузки без тика
+ * руин ({@link RuinPlanner#REACH}) целое на диске ({@link DiskStatus.State#WHOLE}: заголовки читаются в фоне через
+ * {@code chunkScanner}) или в памяти, — то же окно, что у плана с диска. Ради удара мир не генерируется: такой чанк
+ * ваниль грузит без генерации (сам целый, соседи готовы — {@code ChunkGenerationTask.canLoadWithoutGeneration}).
+ * Чанк мира 1.17 с догенерацией под нулём план с диска получает ({@link DiskStatus.State#FINAL}), но зона его не
+ * грузит: его план ждёт игрока или копии для LOD вдали ({@link FarLods}). Чанки держатся каждый своим тикетом загрузки без тика
  * ({@link AreaLoader}, {@code ticks = false}, уровень 33: не тикают и под чужим счётом тика), ближние к цели квадраты
  * первыми, не больше {@link #HELD_TILES} квадратов сразу; руины их чанков строит очередь ({@link ScarQueue}), квадрат
  * отпускается, когда его руины стоят. Ничего не сохраняется: после перезапуска подготовка начинается заново по
@@ -222,6 +224,8 @@ public final class NuclearPrep {
         final ConcurrentLinkedQueue<DiskShots.Read> reads = new ConcurrentLinkedQueue<>();
         /** Чанки, которых нет на диске полностью сгенерированными: плана им и их соседям заранее нет. */
         final LongOpenHashSet unreadable = new LongOpenHashSet();
+        /** Почему чанки не прочитались ({@link DiskShots.Read#skip} до двоеточия) — для строки «готовы». */
+        final Object2IntOpenHashMap<String> unreadWhy = new Object2IntOpenHashMap<>();
         /** Курсоры по {@link #order}: докуда отданы чтения окон и докуда отданы планы. */
         int nextRead, nextFar;
         /** Чанки, чей план по снимкам с диска строят фоновые потоки. */
@@ -368,12 +372,21 @@ public final class NuclearPrep {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее (чанки, загруженные потом, ещё подхватываются)
             Runtime rt = Runtime.getRuntime();
-            Airstrike.LOG.info("Руины удара №{} готовы: планов по чанкам в памяти {} (чанков в памяти за полёт {}), с диска {} (тяжёлая зона {} чанков), не с диска {} (до подрыва {} с), планы {} МБ, "
-                            + "снимки {} МБ, фоновые потоки {} заняты на {} %, куча {} из {} МБ",
-                    p.strike, p.nearPlans, p.everInMemory.size(), p.farPlans, p.order.length, p.farSkipped, Math.max(0, p.detonateTime - now) / 20,
+            Airstrike.LOG.info("Руины удара №{} готовы: планов по чанкам в памяти {} (чанков в памяти за полёт {}), с диска {} (тяжёлая зона {} чанков), не с диска {} "
+                            + "(не прочитаны {}{}; до подрыва {} с), планы {} МБ, снимки {} МБ, фоновые потоки {} заняты на {} %, куча {} из {} МБ",
+                    p.strike, p.nearPlans, p.everInMemory.size(), p.farPlans, p.order.length, p.farSkipped, p.unreadable.size(), why(p.unreadWhy),
+                    Math.max(0, p.detonateTime - now) / 20,
                     p.planBytes >> 20, p.ruins.shotBytes() >> 20, RuinWorkers.summary(), Math.round(RuinWorkers.utilisation() * 100),
                     (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20);
         }
+    }
+
+    /** Причины по убыванию числа чанков: «: нет на диске 1200, не догенерирован на диске 30»; пусто — нет причин. */
+    private static String why(Object2IntOpenHashMap<String> counts) {
+        StringBuilder out = new StringBuilder();
+        counts.object2IntEntrySet().stream().sorted((x, y) -> Integer.compare(y.getIntValue(), x.getIntValue()))
+                .forEach(e -> out.append(out.isEmpty() ? ": " : ", ").append(e.getKey()).append(' ').append(e.getIntValue()));
+        return out.toString();
     }
 
     /** Чанки в памяти в радиусе руин, которых ещё нет в очереди подготовки: в очередь, ближние первыми. */
@@ -476,6 +489,7 @@ public final class NuclearPrep {
             try {
                 if (r.skip() != null) {
                     p.unreadable.add(c);
+                    p.unreadWhy.addTo(r.skip().split(":", 2)[0], 1);
                 } else {
                     p.ruins.putDisk(level, r);
                     p.diskShots++;
@@ -678,7 +692,7 @@ public final class NuclearPrep {
         return Math.hypot(x - d.burst().x, z - d.burst().z);
     }
 
-    /** Целы ли чанки на диске ({@link DiskStatus#whole}): в памяти — сразу, остальные — чтением заголовка в фоне. */
+    /** Целы ли чанки на диске ({@link DiskStatus.State#WHOLE}): в памяти — сразу, остальные — чтением заголовка в фоне. */
     private static void scan(ServerLevel level, Prep p) {
         for (long[] r; (r = p.scanned.poll()) != null; ) {
             p.scanning--;
@@ -692,7 +706,7 @@ public final class NuclearPrep {
             }
             p.scanning++;
             ConcurrentLinkedQueue<long[]> out = p.scanned;
-            DiskStatus.scan(level, new ChunkPos(c)).thenAccept(whole -> out.add(new long[]{c, whole ? 1 : 0}));
+            DiskStatus.scan(level, new ChunkPos(c)).thenAccept(state -> out.add(new long[]{c, state == DiskStatus.State.WHOLE ? 1 : 0}));
         }
     }
 

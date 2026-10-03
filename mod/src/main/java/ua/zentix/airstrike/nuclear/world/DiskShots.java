@@ -39,9 +39,9 @@ import java.util.concurrent.CompletableFuture;
  * руин ({@link RuinWorkers#executor}), как и у ванили (она обновляет и разбирает чанки в фоновых потоках). В потоке
  * сервера остаётся только {@link ChunkShot#fromDisk}: состояния палитр — в таблицу свойств.
  * <p>
- * Берётся только чанк, целый на диске ({@link DiskStatus#whole}), с картами высот всех видов
- * {@link RuinPlan#HEIGHTMAP_TYPES}; остальное пропускается с причиной ({@link Read#skip}) — его руины строятся после
- * волны, как раньше.
+ * Берётся только чанк с окончательными блоками ({@link DiskStatus.State#blocksFinal}: и чанк мира 1.17 с догенерацией
+ * под нулём), с картами высот всех видов {@link RuinPlan#HEIGHTMAP_TYPES}; остальное пропускается с причиной
+ * ({@link Read#skip}) — его руины строятся после волны, как раньше.
  */
 final class DiskShots {
     private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(Block.BLOCK_STATE_REGISTRY,
@@ -132,8 +132,8 @@ final class DiskShots {
     private record Checked(CompoundTag tag, @Nullable String skip) {}
 
     private static Checked check(Format f, CompoundTag tag) {
-        // как на диске, до обновления версии: то же правило, что у зоны за волной и LOD вдали
-        if (!DiskStatus.whole(tag)) return new Checked(tag, "не целый на диске");
+        // как на диске, до обновления версии: то же правило, что у заголовка (DiskStatus.scan)
+        if (!DiskStatus.of(tag).blocksFinal()) return new Checked(tag, "не догенерирован на диске");
         int version = ChunkStorage.getVersion(tag);
         if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
             try {
