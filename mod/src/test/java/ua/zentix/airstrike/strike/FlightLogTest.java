@@ -71,4 +71,16 @@ class FlightLogTest {
         assertTrue(lines.get(0).text().endsWith(" сбиты до взведения взрывателя у 1 80 0 (±1), урон onFire"), lines.get(0).text());
         assertEquals(Level.WARN, lines.get(1).level());
     }
+
+    /** Сбиты зенитной ракетой: штатный исход (INFO), в строке — какой ЗРК. */
+    @Test
+    void interceptedNamesLauncher() {
+        FlightLog log = new FlightLog();
+        log.note(DRONE, FlightLog.Event.INTERCEPTED, new BlockPos(500, 120, -40), false, 0, "ЗРК 10, 64, -3");
+        List<FlightLog.Line> lines = log.drain();
+        assertEquals(1, lines.size(), lines.toString());
+        assertEquals(Level.INFO, lines.getFirst().level());
+        assertTrue(lines.getFirst().text().endsWith(" сбиты зенитной ракетой у 500 120 -40, ЗРК 10, 64, -3"), lines.getFirst().text());
+        assertEquals(1, log.total(FlightLog.Event.INTERCEPTED));
+    }
 }

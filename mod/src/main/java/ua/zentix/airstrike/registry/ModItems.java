@@ -8,6 +8,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.item.GeigerCounterItem;
+import ua.zentix.airstrike.item.InterceptorItem;
 import ua.zentix.airstrike.item.MunitionItem;
 
 public final class ModItems {
@@ -19,6 +20,11 @@ public final class ModItems {
             GeigerCounterItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredItem<BlockItem> TRINITITE = REGISTER.registerSimpleBlockItem(ModBlocks.TRINITITE);
     public static final DeferredItem<BlockItem> SUBSTATION = REGISTER.registerSimpleBlockItem(ModBlocks.SUBSTATION);
+    /** ЗРК ({@link ua.zentix.airstrike.defense.SamBlock}). */
+    public static final DeferredItem<BlockItem> SAM = REGISTER.registerSimpleBlockItem(ModBlocks.SAM);
+    /** Зенитная ракета: запас ЗРК (кладётся рукой, воронкой, воронкой Create). */
+    public static final DeferredItem<InterceptorItem> INTERCEPTOR = REGISTER.registerItem("interceptor",
+            InterceptorItem::new, new Item.Properties().stacksTo(16));
 
     // Боеприпасы: пуск снимает их из инвентаря стреляющего (strike.Munitions); какой у оружия — его паспорт (WeaponSpec.munition)
     public static final DeferredItem<MunitionItem> SHAHED = REGISTER.registerItem("shahed",

@@ -67,6 +67,7 @@ class FarModelsTest {
     void everyPoseFitsTheTileSphere() {
         for (WeaponModels.Mesh m : WeaponModels.Mesh.values()) {
             if (m == WeaponModels.Mesh.ROCKET_RACK) continue; // пакет РСЗО — пусковая, не снаряд вдали
+            if (m == WeaponModels.Mesh.INTERCEPTOR_BODY) continue; // зенитную ракету вдали не рисуют — только вблизи, сущностью
             Obj o = obj(m.file);
             assertNotNull(o, m.file);
             double reach = 0;

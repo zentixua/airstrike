@@ -134,7 +134,7 @@ public final class C2S {
         }
     }
 
-    /** Отбой: убрать все летящие снаряды и залпы без взрыва. */
+    /** «Отбой» с пульта: свои удары игрока прекращаются ({@code ServerActions.recall}). */
     public record Clear() implements CustomPacketPayload {
         public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));
         public static final StreamCodec<ByteBuf, Clear> CODEC = StreamCodec.unit(new Clear());

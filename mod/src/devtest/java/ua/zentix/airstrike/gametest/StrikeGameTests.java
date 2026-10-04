@@ -3200,7 +3200,9 @@ public final class StrikeGameTests {
             h.assertTrue(centers.size() == 1 && centers.getFirst() instanceof Target.Point p && p.pos().distanceTo(at) < 1,
                     "залп после гибели цели идёт не по месту гибели: " + centers);
             h.assertTrue(!aims.isEmpty(), "после гибели цели не пущено ни одного снаряда остатка");
-            h.assertTrue(aims.stream().allMatch(a -> a.distanceTo(at) < 2),
+            // у шахеда свой промах (паспорт): 5 СКО — с запасом, а место возрождения в 40 блоках
+            double miss = 2 + 5 * WeaponType.DRONE.spec().route().error();
+            h.assertTrue(aims.stream().allMatch(a -> a.distanceTo(at) < miss),
                     "снаряды остатка летят не к месту гибели " + at + ": " + aims);
             h.succeed();
         });

@@ -88,6 +88,12 @@ public final class AirstrikeConfig {
 
         public final ModConfigSpec.IntValue farRange;
 
+        public final ModConfigSpec.IntValue samRadarRange;
+        public final ModConfigSpec.IntValue samEngageRange;
+        public final ModConfigSpec.DoubleValue samKillProbability;
+        public final ModConfigSpec.IntValue samRails;
+        public final ModConfigSpec.IntValue samReloadSeconds;
+
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
             dronePower = b.comment("Сила взрыва шахеда (TNT = 4). Больше 60 вешает сервер.")
@@ -248,6 +254,21 @@ public final class AirstrikeConfig {
                             "моделью (мельче пары пикселей — точкой), факелом, шлейфом, огненным шаром и столбом дыма, звук — с задержкой",
                             "по скорости звука. Дальше всё равно съедает дымка, а раскат тонет в тишине; меньше — меньше пакетов игрокам.")
                     .translation("airstrike.config.far_range").defineInRange("far_range", 8000, 640, 32_000);
+            b.pop();
+
+            b.translation("airstrike.config.air_defense").push("air_defense");
+            samRadarRange = b.comment("Дальность радара ЗРК, блоков: дальше снаряды не видно; малозаметные (B-2, ракета на бреющем,",
+                            "«Ланцет») — ближе, по паспорту оружия. Тревога своим — о каждой новой чужой цели на радаре.")
+                    .translation("airstrike.config.sam_radar_range").defineInRange("radar_range", 3000, 64, 16_000);
+            samEngageRange = b.comment("Дальность огня ЗРК, блоков: ближе этого он пускает ракету по чужому шахеду, ракете, «Ланцету» и B-2",
+                            "(МБР и «Град» не перехватывает).")
+                    .translation("airstrike.config.sam_engage_range").defineInRange("engage_range", 1500, 32, 8000);
+            samKillProbability = b.comment("Вероятность, что зенитная ракета, разорвавшись у цели, её собьёт (0–1). Промах — цель летит дальше.")
+                    .translation("airstrike.config.sam_kill_probability").defineInRange("kill_probability", 0.8, 0.0, 1.0);
+            samRails = b.comment("Сколько ракет стоит на направляющих ЗРК готовыми к пуску.")
+                    .translation("airstrike.config.sam_rails").defineInRange("rails", 4, 1, 16);
+            samReloadSeconds = b.comment("За сколько секунд расчёт ставит на свободную направляющую следующую ракету из запаса ЗРК.")
+                    .translation("airstrike.config.sam_reload").defineInRange("reload_seconds", 8, 0, 600);
             b.pop();
         }
     }

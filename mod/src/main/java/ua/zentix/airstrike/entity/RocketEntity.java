@@ -77,6 +77,12 @@ public class RocketEntity extends StrikeProjectile {
         return WeaponType.ROCKET;
     }
 
+    /** Неуправляемый реактивный снаряд: самоликвидатора нет, отбой его не останавливает (полёт — секунды). */
+    @Override
+    public boolean recallable() {
+        return false;
+    }
+
     /** Средняя скорость по траектории — для оценок; время подлёта считается по самой траектории. */
 
     @Override

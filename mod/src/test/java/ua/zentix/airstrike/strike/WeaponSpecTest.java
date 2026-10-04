@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.strike;
 
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.entity.LauncherRack;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
@@ -24,6 +26,25 @@ class WeaponSpecTest {
         assertEquals(40.1, WeaponSpec.DRONE.airframe().turnRadius(WeaponSpec.DRONE.airframe().cruiseSpeed()), 0.1);
         assertEquals(76.4, WeaponSpec.MISSILE.airframe().turnRadius(WeaponSpec.MISSILE.airframe().cruiseSpeed()), 0.1);
         assertEquals(687.5, WeaponSpec.BUNKER.airframe().turnRadius(WeaponSpec.BUNKER.airframe().cruiseSpeed()), 0.1);
+    }
+
+    /**
+     * Как снаряд видит и бьёт ЗРК: B-2 и «Ланцет» малозаметны, бомба под B-2 — почти не видна; МБР и РСЗО ЗРК видит,
+     * но не перехватывает (МБР — не его цель, «Град» дешевле ракеты); шахед, ракета, «Ланцет» и B-2 — да.
+     */
+    @Test
+    void radarSignature() {
+        for (WeaponType w : WeaponType.values()) {
+            WeaponSpec.Signature r = w.spec().airframe().radar();
+            assertTrue(r.visibility() > 0 && r.visibility() <= 1, w + ": заметность " + r.visibility());
+            assertEquals(w == WeaponType.DRONE || w == WeaponType.MISSILE || w == WeaponType.LOITER || w == WeaponType.BUNKER, r.intercept(),
+                    w + ": перехват");
+        }
+        assertTrue(WeaponSpec.BUNKER.airframe().radar().visibility() <= 0.2, "B-2 виден издалека");
+        assertTrue(WeaponSpec.LOITER.airframe().radar().visibility() < WeaponSpec.DRONE.airframe().radar().visibility());
+        assertTrue(WeaponSpec.MISSILE.airframe().radar().visibility() < WeaponSpec.DRONE.airframe().radar().visibility());
+        WeaponSpec.Airframe bomb = WeaponSpec.BUNKER.payload();
+        assertTrue(bomb != null && !bomb.radar().intercept() && bomb.radar().visibility() <= WeaponSpec.BUNKER.airframe().radar().visibility());
     }
 
     @Test
@@ -60,6 +81,28 @@ class WeaponSpecTest {
         assertEquals(6, WeaponSpec.ROCKET.route().sigma(600), 1e-9);
         assertEquals(1, WeaponSpec.ROCKET.route().sigma(40), 1e-9);
         for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.LOITER, WeaponSpec.BUNKER)) assertEquals(0, w.route().sigma(600));
+    }
+
+    /**
+     * Промах: у ракеты и бомбы меньше, чем у шахеда; «Ланцет» (камера), МБР и РСЗО (у неё рассеивание) — без промаха.
+     * Выборка промахов шахеда — с его СКО по каждой оси, по горизонтали.
+     */
+    @Test
+    void missIsPerWeapon() {
+        assertTrue(WeaponSpec.MISSILE.route().error() < WeaponSpec.DRONE.route().error());
+        assertTrue(WeaponSpec.BUNKER.route().error() < WeaponSpec.DRONE.route().error());
+        RandomSource random = RandomSource.create(1);
+        for (WeaponSpec w : List.of(WeaponSpec.LOITER, WeaponSpec.NUKE, WeaponSpec.ROCKET)) assertEquals(Vec3.ZERO, w.route().miss(random));
+        int n = 20_000;
+        double sx = 0, sz = 0;
+        for (int i = 0; i < n; i++) {
+            Vec3 m = WeaponSpec.DRONE.route().miss(random);
+            assertEquals(0, m.y);
+            sx += m.x * m.x;
+            sz += m.z * m.z;
+        }
+        assertEquals(WeaponSpec.DRONE.route().error(), Math.sqrt(sx / n), 0.05);
+        assertEquals(WeaponSpec.DRONE.route().error(), Math.sqrt(sz / n), 0.05);
     }
 
     /** Тревога звучит раньше, чем снаряд выходит на последний прямой участок: у цели успевают услышать заход. */

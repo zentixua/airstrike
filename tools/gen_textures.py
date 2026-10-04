@@ -15,6 +15,8 @@
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
   block/substation_* — трансформаторная подстанция 16×16 (бак, фасад с табличкой, радиатор, изолятор, плита) и обгоревшие;
+  block/sam_* — ЗРК 16×16 (шасси с жалюзи, борт контейнеров, торец с крышками четырёх труб, верх, решётка радара);
+  item/interceptor — зенитная ракета 16×16;
   nuke/puffs — атлас 4×2 клубов гриба по 64×64 (почти серые: цвет даёт рендерер), nuke/plasma — бесшовная плазма шара 128×128,
   nuke/rain — лист капель чёрного дождя 64×256 (бесшовный по вертикали), nuke/flare — круглое свечение 64×64 (голова следа боеголовки, вспышка).
 Нужны Pillow и numpy.
@@ -483,6 +485,129 @@ def substation():
     save(rgba(rgb, np.ones(rgb.shape[:2])), "block/substation_base")
 
 
+# ---------------------------------------------------------------- ЗРК (свой генератор: прежние текстуры не меняются)
+
+OLIVE = np.array((86, 98, 58)) / 255         # защитная краска, как у пульта
+zrng = np.random.default_rng(13)
+
+
+def olive(N=16, amount=0.06):
+    """Защитная краска с мелкой неровностью, бесшовно."""
+    n = pnoise(N, 1.0) - 0.5
+    return np.clip(OLIVE[None, None, :] * (1 + amount * 2 * n[..., None]) + amount * 0.3 * (zrng.random((N, N, 1)) - 0.5), 0, 1)
+
+
+def sam_base(N=16):
+    """Шасси: жалюзи двигателя (тёмные щели со светлой кромкой), снизу — тень и грязь."""
+    rgb = olive()
+    for y in (3, 6, 9):
+        rgb[y, 2:14] *= 0.45
+        rgb[y + 1, 2:14] *= 1.2
+    rgb[12:] *= np.linspace(0.95, 0.6, N - 12)[:, None, None]
+    rgb[0] *= 1.2
+    return np.clip(rgb, 0, 1)
+
+
+def sam_side(N=16):
+    """Борт пакета контейнеров: продольные рёбра, хомуты, жёлтая трафаретная полоса."""
+    rgb = olive()
+    for y in (0, 5, 10, 15):
+        rgb[y] *= 0.7
+    for x in (3, 12):
+        rgb[:, x] *= 0.75
+        rgb[:, x + 1] *= 1.15
+    rgb[7, 5:11] = (0.78, 0.66, 0.16)
+    return np.clip(rgb, 0, 1)
+
+
+def sam_tubes(N=16):
+    """Торец пакета: четыре трубы 2×2 под крышками — тёмный круг с кольцом и крестом крышки."""
+    rgb = olive() * 0.9
+    yy, xx = np.mgrid[0:N, 0:N] + 0.5
+    for cy in (4.5, 11.5):
+        for cx in (4.5, 11.5):
+            r = np.hypot(xx - cx, yy - cy)
+            rgb[r < 3.6] = OLIVE * 0.55
+            rgb[(r >= 2.6) & (r < 3.6)] = OLIVE * 1.25
+            rgb[(r < 2.6) & ((np.abs(xx - cx) < 0.6) | (np.abs(yy - cy) < 0.6))] = OLIVE * 0.75
+    return np.clip(rgb, 0, 1)
+
+
+def sam_top(N=16):
+    """Верх: люк с петлями и заклёпки по краю."""
+    rgb = olive() * 1.05
+    rgb[4:12, 4] *= 0.6
+    rgb[4:12, 11] *= 0.6
+    rgb[4, 4:12] *= 0.6
+    rgb[11, 4:12] *= 0.6
+    rgb[7:9, 10] = OLIVE * 0.4
+    for k in range(1, 16, 4):
+        for y, x in ((1, k), (14, k), (k, 1), (k, 14)):
+            rgb[y, x] = OLIVE * 0.6
+    return np.clip(rgb, 0, 1)
+
+
+def sam_radar(N=16):
+    """Полотно радара: решётка излучателей (тёмные квадраты в светлой сетке), рамка."""
+    base = np.array((70, 78, 66)) / 255
+    rgb = np.clip(base[None, None, :] * (1 + 0.08 * (zrng.random((N, N, 1)) - 0.5)), 0, 1)
+    for y in range(1, N - 1):
+        for x in range(1, N - 1):
+            if y % 2 == 1 and x % 2 == 1:
+                rgb[y, x] *= 0.55
+            else:
+                rgb[y, x] *= 1.15
+    rgb[0] = rgb[-1] = OLIVE * 0.8
+    rgb[:, 0] = rgb[:, -1] = OLIVE * 0.8
+    return np.clip(rgb, 0, 1)
+
+
+# Зенитная ракета: светлый корпус наискосок, тёмная головка, жёлтая полоса, крестовые рули, сопло
+INTERCEPTOR = [
+    "................",
+    ".............DD.",
+    "............DDD.",
+    "...........WWD..",
+    "..........WWW...",
+    ".........YWW....",
+    "....F...YYW.....",
+    "...FF..WWY......",
+    "....FFWWW.......",
+    ".....WWW........",
+    "....WWWF........",
+    "...WWW.FF.......",
+    "..BWW...F.......",
+    ".OBB............",
+    "OOO.............",
+    ".O..............",
+]
+INTERCEPTOR_PALETTE = {
+    ".": (0, 0, 0, 0),
+    "W": (214, 216, 208, 255),   # корпус
+    "D": (60, 62, 60, 255),      # обтекатель головки
+    "Y": (214, 178, 38, 255),    # полоса боевой части
+    "F": (150, 152, 146, 255),   # рули и стабилизаторы
+    "B": (90, 88, 84, 255),      # сопло
+    "O": (255, 150, 50, 255),    # пламя
+}
+
+
+def paint_with(rows, palette, name):
+    img = Image.new("RGBA", (len(rows), len(rows)))
+    for y, row in enumerate(rows):
+        assert len(row) == len(rows), (name, y)
+        for x, c in enumerate(row):
+            img.putpixel((x, y), palette[c])
+    save(img, name)
+
+
+def sam():
+    for name, f in (("base", sam_base), ("side", sam_side), ("tubes", sam_tubes), ("top", sam_top), ("radar", sam_radar)):
+        rgb = f()
+        save(rgba(rgb, np.ones(rgb.shape[:2])), f"block/sam_{name}")
+    paint_with(INTERCEPTOR, INTERCEPTOR_PALETTE, "item/interceptor")
+
+
 if __name__ == "__main__":
     paint(DESIGNATOR, "item/strike_designator")
     paint(GEIGER, "item/geiger_counter")
@@ -499,4 +624,5 @@ if __name__ == "__main__":
     save(rain_sheet(), "nuke/rain")
     save(flare(), "nuke/flare")
     substation()
+    sam()
     print("ok")
