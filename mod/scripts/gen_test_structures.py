@@ -3,7 +3,8 @@
 GameTest ставит шаблон на блок выше своей точки отсчёта: слой шаблона y = 0 — это y = 1 в координатах теста.
 
   python3 scripts/gen_test_structures.py   → src/devtest/resources/data/airstrike/structure/*.nbt
-                                             (и data/airstrike_sweep/structure/pad.nbt — сценарии полёта)
+                                             (и data/airstrike_sweep/structure/pad.nbt — сценарии полёта,
+                                             gm/src/devtest/resources/data/airstrike_gm/structure/floor.nbt — мод ведущего)
 """
 import gzip
 import os
@@ -12,6 +13,7 @@ import struct
 DATA_VERSION = 3955  # 1.21.1
 MOD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(MOD, "src", "devtest", "resources", "data")
+GM_DATA = os.path.join(MOD, "gm", "src", "devtest", "resources", "data")
 
 TAG_END, TAG_INT, TAG_STRING, TAG_LIST, TAG_COMPOUND = 0, 3, 8, 9, 10
 
@@ -59,8 +61,8 @@ def structure(sx, sy, sz, floor_layers):
     return struct.pack(">b", TAG_COMPOUND) + _name("") + _payload(TAG_COMPOUND, root)
 
 
-def write(name, data, namespace="airstrike"):
-    out = os.path.join(DATA, namespace, "structure")
+def write(name, data, namespace="airstrike", root=DATA):
+    out = os.path.join(root, namespace, "structure")
     os.makedirs(out, exist_ok=True)
     path = os.path.join(out, name + ".nbt")
     with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as f:
@@ -78,3 +80,5 @@ write("range", structure(64, 40, 64, ["minecraft:stone"] * 8 + ["minecraft:dirt"
 # ставит вокруг площадки стену из барьеров высотой с шаблон, а крылатая ракета возвращается в мир за стеной, на краю
 # полосы подлёта (256 блоков до цели), и идёт в 12 блоках над плоским миром теста — стена ниже неё
 write("runway", structure(32, 8, 256, ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"]))
+# мод ведущего: площадка 64×64 с полом из камня — постройки, откат, карта и виды сбоку
+write("floor", structure(64, 12, 64, ["minecraft:stone"]), "airstrike_gm", GM_DATA)

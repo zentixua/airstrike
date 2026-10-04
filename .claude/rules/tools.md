@@ -20,10 +20,13 @@ paths:
       …/gametest/scenario/               ← сценарии полёта: оружие × цель × возмущение × зерно, свойства полёта,
                                            эталон траекторий src/devtest/resources/scenario-baseline.json
     src/test/                            ← юнит-тесты JUnit (звук, модель ядерного взрыва)
-    scripts/gen_test_structures.py       ← шаблоны GameTest (pad, range, runway)
+    scripts/gen_test_structures.py       ← шаблоны GameTest (pad, range, runway; floor мода ведущего)
+    gm/                                  ← мод ведущего airstrike_gm (только сервер): мост Claude к серверу, .claude/rules/gm.md
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
   tools/
     paths.py                             ← все пути к игре (единственное место)
+    gm.py mcp|call|follow                ← ведущий: MCP-сервер для Claude Code над мостом мода airstrike_gm, вызов метода,
+                                           лента событий построчно (для Monitor); адрес и токен — AIRSTRIKE_GM_URL, _TOKEN(_FILE)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза);
                                            инстанс с автообновлением сборки не трогает: packwiz-installer вернул бы jar сборки
