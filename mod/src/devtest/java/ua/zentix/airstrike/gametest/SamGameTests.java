@@ -276,7 +276,7 @@ public final class SamGameTests {
 
     /**
      * Чужой шахед вне мира — в 600 блоках к +X (там площадок нет), уходит дальше: ЗРК бьёт его, ракета летит вне
-     * загрузки и сбивает его там. Ни один чанк полосы от ЗРК до шахеда за весь полёт не стал загруженным — ни радар,
+     * загрузки и сбивает его там; её вид — только над тикающими чанками у ЗРК. Ни один чанк полосы от ЗРК до шахеда за весь полёт не стал загруженным — ни радар,
      * ни полёт ракеты, ни разрыв чанков не грузили и тикетов не ставили. Полоса начинается в 96 блоках от ЗРК: тикеты
      * площадки (уровень 31) дают держателей чанкам до ~13 чанков вокруг, но загружены из них только ближние два.
      */
@@ -309,7 +309,7 @@ public final class SamGameTests {
                     + far.position().subtract(antenna));
             h.assertTrue(log.total(FlightLog.Event.INTERCEPTED) - intercepted == 1, "шахед вне мира не сбит");
             h.assertTrue(launches.count() == 1 && sam.ready() + sam.stockCount() == 0, "ракет " + launches.count());
-            h.assertFalse(launches.viewed, "вид ракеты вне загрузки");
+            h.assertFalse(launches.viewedUnloaded, "вид ракеты вне загрузки");
         });
     }
 
@@ -485,6 +485,8 @@ public final class SamGameTests {
         private final List<Interceptor> order = new ArrayList<>();
         /** Хоть раз у ракеты был вид в мире. */
         boolean viewed;
+        /** Вид был, когда ракета летела не над тикающим чанком. */
+        boolean viewedUnloaded;
 
         Launches(ServerLevel level, @Nullable UUID owner) {
             this.level = level;
@@ -495,7 +497,9 @@ public final class SamGameTests {
             for (Interceptor f : DefenseWorld.get(level).flights()) {
                 if (!Objects.equals(f.owner(), owner)) continue;
                 if (seen.putIfAbsent(f, level.getGameTime()) == null) order.add(f);
-                if (f.view() != null) viewed = true;
+                if (f.view() == null) continue;
+                viewed = true;
+                if (!level.isPositionEntityTicking(BlockPos.containing(f.position()))) viewedUnloaded = true;
             }
         }
 
