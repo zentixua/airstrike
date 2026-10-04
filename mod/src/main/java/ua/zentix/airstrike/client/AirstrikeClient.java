@@ -2,6 +2,7 @@ package ua.zentix.airstrike.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Block;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -321,7 +322,9 @@ public final class AirstrikeClient {
 
         @Override
         public void cleared(S2C.Cleared p) {
-            Alerts.reset();
+            Player me = Minecraft.getInstance().player;
+            if (p.owner().isEmpty()) Alerts.reset();
+            else if (me != null && p.owner().get().equals(me.getUUID())) Alerts.salvoCancelled();
             if (p.nuclear()) {
                 ClientSounds.reset();
                 FlightTracks.reset();

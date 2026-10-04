@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.strike;
 
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import ua.zentix.airstrike.entity.LauncherRack;
 import ua.zentix.airstrike.nuclear.model.BlastModel;
@@ -60,6 +62,28 @@ class WeaponSpecTest {
         assertEquals(6, WeaponSpec.ROCKET.route().sigma(600), 1e-9);
         assertEquals(1, WeaponSpec.ROCKET.route().sigma(40), 1e-9);
         for (WeaponSpec w : List.of(WeaponSpec.DRONE, WeaponSpec.MISSILE, WeaponSpec.LOITER, WeaponSpec.BUNKER)) assertEquals(0, w.route().sigma(600));
+    }
+
+    /**
+     * Промах: у ракеты и бомбы меньше, чем у шахеда; «Ланцет» (камера), МБР и РСЗО (у неё рассеивание) — без промаха.
+     * Выборка промахов шахеда — с его СКО по каждой оси, по горизонтали.
+     */
+    @Test
+    void missIsPerWeapon() {
+        assertTrue(WeaponSpec.MISSILE.route().error() < WeaponSpec.DRONE.route().error());
+        assertTrue(WeaponSpec.BUNKER.route().error() < WeaponSpec.DRONE.route().error());
+        RandomSource random = RandomSource.create(1);
+        for (WeaponSpec w : List.of(WeaponSpec.LOITER, WeaponSpec.NUKE, WeaponSpec.ROCKET)) assertEquals(Vec3.ZERO, w.route().miss(random));
+        int n = 20_000;
+        double sx = 0, sz = 0;
+        for (int i = 0; i < n; i++) {
+            Vec3 m = WeaponSpec.DRONE.route().miss(random);
+            assertEquals(0, m.y);
+            sx += m.x * m.x;
+            sz += m.z * m.z;
+        }
+        assertEquals(WeaponSpec.DRONE.route().error(), Math.sqrt(sx / n), 0.05);
+        assertEquals(WeaponSpec.DRONE.route().error(), Math.sqrt(sz / n), 0.05);
     }
 
     /** Тревога звучит раньше, чем снаряд выходит на последний прямой участок: у цели успевают услышать заход. */

@@ -3,6 +3,7 @@ package ua.zentix.airstrike.strike;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
@@ -136,13 +137,15 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * @param standoff      без стреляющего рядом пусковая стоит за столько блоков от цели (по направлению захода)
      * @param dispersion    рассеивание неуправляемого снаряда: СКО точки падения по каждой оси — такая доля дальности
      *                      стрельбы, не меньше блока; 0 — снаряд управляемый, точка — сама цель
+     * @param error         ошибка наведения: СКО промаха по каждой оси, блоков, — снаряд целится в цель со сдвигом,
+     *                      случайным для каждого пуска (спутниковая навигация, сброс с эшелона); 0 — точно в цель
      * @param capture       точка маршрута взята, когда до неё ближе стольких блоков по горизонтали (или она уже позади,
      *                      {@code guidance.Route#update}): около радиуса разворота — ближе снаряд кружил бы вокруг точки
      * @param reach         дальность по маршруту оператора ({@link Waypoints}): путь от него через его точки до цели не
      *                      длиннее стольких блоков; 0 — по точкам оператора не летает
      */
     public record Route(@Nullable Supplier<ModConfigSpec.IntValue> flightSeconds, double finalLeg, double standoff, double dispersion,
-                        double capture, double reach) {
+                        double error, double capture, double reach) {
         /** Время полёта из настроек, секунд. */
         public int seconds() {
             return flightSeconds == null ? 0 : flightSeconds.get().get();
@@ -156,6 +159,11 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
         /** СКО точки падения по каждой оси при стрельбе на {@code range} блоков (0 — без рассеивания). */
         public double sigma(double range) {
             return dispersion > 0 ? Math.max(1, range * dispersion) : 0;
+        }
+
+        /** Промах этого пуска ({@link #error}): сдвиг по горизонтали. */
+        public Vec3 miss(RandomSource random) {
+            return error > 0 ? new Vec3(random.nextGaussian() * error, 0, random.nextGaussian() * error) : Vec3.ZERO;
         }
     }
 
@@ -269,11 +277,12 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     /**
      * Дрон-камикадзе в духе Shahed-136: ≈150 км/ч, крейсер над рельефом, пикирование на цель с разгоном до 3 блоков/тик.
      * Стартовый ускоритель горит ~2 с и сбрасывается. Боевая часть — 50 кг: стёкла выбивает до ~70 блоков. По точкам
-     * оператора — до 30 км пути (~12 минут полёта): втрое дальше карты пульта по умолчанию.
+     * оператора — до 30 км пути (~12 минут полёта): втрое дальше карты пульта по умолчанию. Навигация спутниковая и
+     * инерциальная: промах — СКО 3 блока по каждой оси (в среднем ~3,5 блока от цели).
      */
     public static final WeaponSpec DRONE = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 25, Salvo.gaps(20, 40), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.dronePower, Launch.GUIDED,
-            new Route(() -> AirstrikeConfig.SERVER.droneFlightTime, 300, 0, 0, 40, 30_000), Tracking.CAMERA, LauncherRack.DRONE, Blast.DRONE, 50, false, 0.6f,
+            new Route(() -> AirstrikeConfig.SERVER.droneFlightTime, 300, 0, 0, 3, 40, 30_000), Tracking.CAMERA, LauncherRack.DRONE, Blast.DRONE, 50, false, 0.6f,
             new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 256, 1.83, 12, 900 * 2.1, 4.3,
                     new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE),
@@ -284,11 +293,12 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * в 12 блоках над рельефом, горка и пикирование до 5 блоков/тик. Ускоритель выносит её до ~3.4 блока/тик — ниже
      * маршевой: дальше разгоняет турбина, без рывка вниз. Последние 256 блоков — в мире: больше дальности прорисовки
      * 12 чанков, чтобы подлёт с её края был виден и при меньшей дистанции симуляции. Боевая часть — 450 кг, как у «Калибра»
-     * и Х-101: стёкла выбивает до ~150 блоков. По точкам оператора — до 30 км пути (~6 минут полёта).
+     * и Х-101: стёкла выбивает до ~150 блоков. По точкам оператора — до 30 км пути (~6 минут полёта). Точнее шахеда
+     * (сверка с рельефом и камерой на подлёте): промах — СКО 1,5 блока по оси.
      */
     public static final WeaponSpec MISSILE = new WeaponSpec(WeaponType.SirenKind.MISSILE, 15, Salvo.gaps(15, 30), new Warhead(false, true, true),
             () -> AirstrikeConfig.SERVER.missilePower, Launch.GUIDED,
-            new Route(() -> AirstrikeConfig.SERVER.missileFlightTime, 500, 0, 0, 120, 30_000), Tracking.POINT, LauncherRack.MISSILE, Blast.MISSILE, 450, false, 0.5f,
+            new Route(() -> AirstrikeConfig.SERVER.missileFlightTime, 500, 0, 0, 1.5, 120, 30_000), Tracking.POINT, LauncherRack.MISSILE, Blast.MISSILE, 450, false, 0.5f,
             new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 256, 2.96, 8, 700 * 4.0, 6.5,
                     new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE),
@@ -296,11 +306,12 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
 
     /**
      * B-2 на эшелоне +170 над местом падения бомбы, 12 блоков/тик, разворот 1°/тик (радиус ~690 блоков), сброс за ~85
-     * блоков до цели; бетонобойная бомба пробивает грунт и взрывается под землёй.
+     * блоков до цели; бетонобойная бомба пробивает грунт и взрывается под землёй. Бомба со спутниковым наведением:
+     * промах — СКО 1,5 блока по оси.
      */
     public static final WeaponSpec BUNKER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(60, 80), new Warhead(false, true, false),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.BOMBER,
-            new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0, 0, 0, 0), Tracking.POINT, null, Blast.NONE, 0, true, 0.5f,
+            new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0, 0, 1.5, 0, 0), Tracking.POINT, null, Blast.NONE, 0, true, 0.5f,
             new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 0, 8.5, 0, 120 * 12, 0, null, 0, Attack.NONE,
                     ph -> Hearing.JET),
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, 0, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
@@ -311,11 +322,12 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     /**
      * МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. Сила
      * взрыва — {@code bunkerPower}: своей настройки у МБР нет, её подрыв ядерный (мощность — килотонны {@code Loadout.Nuke}),
-     * а поле паспорта обязательно.
+     * а поле паспорта обязательно. Промаха нет: у настоящей МБР он в сотни метров, но при ядерном заряде ничего не меняет,
+     * а подрыв точно в отметке совпадает с её сиреной и предупреждением.
      */
     public static final WeaponSpec NUKE = new WeaponSpec(WeaponType.SirenKind.NUCLEAR, 0, Salvo.gaps(200, 300), new Warhead(true, false, true),
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.ICBM,
-            new Route(null, 0, 0, 0, 0, 0), Tracking.POINT, null, Blast.NONE, 0, false, 0.5f,
+            new Route(null, 0, 0, 0, 0, 0, 0), Tracking.POINT, null, Blast.NONE, 0, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0),
             null, Munition.single(() -> ModItems.ICBM.get()));
@@ -328,7 +340,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      */
     public static final WeaponSpec ROCKET = new WeaponSpec(WeaponType.SirenKind.MISSILE, 8, new Salvo(8, 12, 12, 15), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.rocketPower, Launch.ROCKET,
-            new Route(null, 0, 600, 0.01, 0, 0), Tracking.POINT, LauncherRack.ROCKET, Blast.ROCKET, 6.4, false, 0.5f,
+            new Route(null, 0, 600, 0.01, 0, 0, 0), Tracking.POINT, LauncherRack.ROCKET, Blast.ROCKET, 6.4, false, 0.5f,
             new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 0, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
                     ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR),
             null, new Munition(() -> ModItems.GRAD_ROCKETS.get(), LauncherRack.ROCKET.slots()));
@@ -337,11 +349,11 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      * Барражирующий боеприпас в духе «Ланцета»: ≈115 км/ч, с катапульты (толчок за полсекунды, без огня) к цели,
      * круг на 45 блоков выше неё, пикирование с разгоном до 4 блоков/тик; без стреляющего рядом — издалека, с 500 блоков.
      * Боевая часть — 3 кг, как у «Ланцета-3»: стёкла выбивает до ~29 блоков. По точкам оператора — до 15 км пути
-     * (~8 минут полёта): ближнее оружие, вдвое короче шахеда.
+     * (~8 минут полёта): ближнее оружие, вдвое короче шахеда. Наводится камерой (оператора или своей): промаха нет.
      */
     public static final WeaponSpec LOITER = new WeaponSpec(WeaponType.SirenKind.AIR_RAID, 20, Salvo.gaps(40, 60), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.loiterPower, Launch.LOITER,
-            new Route(null, 0, 500, 0, 32, 15_000), Tracking.CAMERA, LauncherRack.LOITER, Blast.DRONE, 3, false, 0.5f,
+            new Route(null, 0, 500, 0, 0, 32, 15_000), Tracking.CAMERA, LauncherRack.LOITER, Blast.DRONE, 3, false, 0.5f,
             new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 35, 1.3, 4, 2400 * 1.6, 3.0,
                     new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
                     ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE),

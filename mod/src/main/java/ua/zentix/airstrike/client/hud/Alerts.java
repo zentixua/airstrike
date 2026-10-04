@@ -63,6 +63,11 @@ public final class Alerts {
         lastSiren = ticks - SIREN_MEMORY;
     }
 
+    /** Свой отбой: строки хода залпа больше нет; тревога остаётся — над игроком могут лететь и чужие удары. */
+    public static void salvoCancelled() {
+        salvoLeft = 0;
+    }
+
     /** Надпись тревоги (мигает) и ход залпа — над хотбаром, где раньше была строка actionbar. */
     public static void render(GuiGraphics g, DeltaTracker delta) {
         Minecraft mc = Minecraft.getInstance();

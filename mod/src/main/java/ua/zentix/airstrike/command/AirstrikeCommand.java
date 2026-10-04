@@ -74,10 +74,16 @@ public final class AirstrikeCommand {
         }));
         root.then(Commands.literal("clear").executes(ctx -> {
             CommandSourceStack s = ctx.getSource();
-            // ядерные удары отменяет только оператор (консоль, командный блок) и хост — не тот, кто их пустил
-            boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && NuclearKeys.trusted(p);
-            int n = ServerActions.clearAll(s.getServer(), nuclear, s.getTextName());
-            s.sendSuccess(() -> ServerActions.clearedMessage(n, nuclear), true);
+            // оператор (консоль, командный блок) и хост снимают всё, и ядерные удары; игрок — только свои, как с пульта
+            boolean trusted = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && NuclearKeys.trusted(p);
+            if (!trusted && s.getEntity() instanceof ServerPlayer p) {
+                // отбой — до строки: без sendCommandFeedback sendSuccess не зовёт поставщик строки
+                Component done = ServerActions.recall(p);
+                s.sendSuccess(() -> done, false);
+                return 1;
+            }
+            int n = ServerActions.clearAll(s.getServer(), trusted, s.getTextName());
+            s.sendSuccess(() -> ServerActions.clearedMessage(n, trusted), true);
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))
