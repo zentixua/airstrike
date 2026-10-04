@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -71,7 +72,8 @@ public final class ServerActions {
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
-        strike(player, true, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via());
+        // пульт — по правилам игрока у всех, и у операторов: приказ оплачивается боеприпасами
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), true);
     }
 
     /**
@@ -109,16 +111,27 @@ public final class ServerActions {
         if (!(ctx.player() instanceof ServerPlayer player) || !mayUse(player)) return;
         ServerLevel level = player.serverLevel();
         if (!(level.getEntity(p.projectile()) instanceof StrikeProjectile proj) || !player.getUUID().equals(proj.ownerId())) return;
+        // ядерный снаряд не оператора идёт туда, где объявлена тревога и куда повёрнут второй ключ
+        if (proj.isNuclear() && !NuclearKeys.trusted(player)) {
+            player.displayClientMessage(Component.translatable("airstrike.nuke.no_retarget").withStyle(ChatFormatting.RED), true);
+            return;
+        }
         C2S.AimHint h = p.aim();
         // из камеры видно не дальше дальности прорисовки снаряда
         if (!valid(h) || h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
         if (tooSoon(player, ModAttachments.LAST_RETARGET.get())) return;
-        Aim aim = resolveHint(level, player, h);
+        Aim hinted = resolveHint(level, player, h);
+        Aim aim = hinted == null ? null : sighted(player, hinted, subject -> CameraLink.holds(level, proj, subject, hinted.point()));
         if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
         Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
         player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
         Airstrike.LOG.info("Перенацеливание: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
                 Mth.floor(aim.point().y), Mth.floor(aim.point().z), player.getGameProfile().getName());
+    }
+
+    /** Камера снаряда смотрит с борта своего снаряда ({@link CameraLink}). */
+    public static void cameraView(C2S.CameraView p, IPayloadContext ctx) {
+        if (ctx.player() instanceof ServerPlayer player) CameraLink.receive(player, p.projectile(), p.yaw(), p.pitch());
     }
 
     public static void setLoadout(C2S.SetLoadout p, IPayloadContext ctx) {
@@ -183,12 +196,11 @@ public final class ServerActions {
         return StringUtil.truncateStringIfNecessary(name, S2C.MapPlayer.MAX_NAME, false);
     }
 
+    /** «Отбой» с пульта — свой у всех, и у операторов ({@link #recall}); всё снимает команда оператора или хоста. */
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
-        boolean nuclear = mayUseNuke(player);
-        int n = clearAll(player.server, nuclear, player.getGameProfile().getName());
-        player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
+        player.sendSystemMessage(recall(player).withStyle(ChatFormatting.GRAY));
     }
 
     /** Действие того же рода было меньше {@link #FIRE_INTERVAL} тиков назад; иначе запомнить это. */
@@ -232,23 +244,22 @@ public final class ServerActions {
      * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
      * один снаряд точно в цель или залп — после проверки прав.
      *
-     * @param bound приказ по правилам игроков: с пульта (у всех, и у операторов) и командой не оператора — цель не дальше
-     *              {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #scouted}); команда оператора — без них
-     *
+     * @param rules приказ по правилам игроков: с пульта — всегда (и у операторов), командой — у игрока без прав оператора:
+     *              цель не дальше {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #sighted}); приказ
+     *              оплачивается боеприпасами из инвентаря ({@link Munitions}; творческий режим не платит). Команда
+     *              оператора сервера, как и консоль ({@link #dispatch}), бьёт без них
      * @return true, если пуск состоялся
      */
-    public static boolean strike(ServerPlayer player, boolean bound, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via) {
-        if (bound) {
+    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via,
+                                 boolean rules) {
+        if (rules) {
             if (!withinMapRange(player, aim.point().x, aim.point().z)) {
                 player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
                         .withStyle(ChatFormatting.RED), true);
                 return false;
             }
-            if (AirstrikeConfig.SERVER.sightRules.get()) {
-                Entity victim = aim.target() instanceof Target.OfEntity of ? player.serverLevel().getEntity(of.uuid()) : null;
-                aim = scouted(player, aim, victim);
-                if (aim == null) return false;
-            }
+            aim = sighted(player, aim, subject -> seesNow(player, subject));
+            if (aim == null) return false;
         }
         Loadout l = order(weapon, count, spread, nuke);
         if (l.nuclear() && !mayUseNuke(player)) {
@@ -264,10 +275,86 @@ public final class ServerActions {
                 return false;
             }
         }
-        if (aim.label() != null) {
-            player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
+        // весь приказ — сразу: залп не урезается под то, что есть в инвентаре
+        Munitions.Bill bill = rules && !player.hasInfiniteMaterials() ? Munitions.Bill.of(l) : null;
+        if (bill != null && !Munitions.pay(player, bill)) return false;
+        if (aim.label() != null) player.sendSystemMessage(locked(weapon, aim).withStyle(ChatFormatting.GOLD));
+        // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с
+        if (l.nuclear() && rules && !NuclearKeys.trusted(player)) {
+            return NuclearKeys.order(player, player.server.getPlayerList().getPlayers(), l, aim, via, bill);
         }
-        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via);
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, bill);
+    }
+
+    /**
+     * Правила приказа игрока. Чужой игрок (и сущность, на которой он едет) и аппарат Sable — только замеченные
+     * ({@code sight_rules}, {@link Sightings}): стрелявший видит цель сейчас ({@code seen}: с пульта — глазами или
+     * камерой своего снаряда, {@link #seesNow}; перенацеливание из камеры — в её кадре, {@link CameraLink#holds}) или его
+     * сторона видела её только что — по ней; видели раньше, не дольше {@code sight_memory}, — по месту, где видели
+     * последний раз; иначе отказ. Движущаяся цель (сущность, аппарат) становится замеченной ({@link Target.Sighted}):
+     * удар туда, где её видели, а дальше за ней идёт только оружие с камерой, пока оператор держит её в кадре
+     * ({@link WeaponSpec.Tracking}). Иначе по нику били в любой точке карты, и снаряд вёл цель до конца (игра
+     * 03.10.2026: сотни шахедов по одному игроку).
+     *
+     * @param seen стрелявший видит цель приказа ({@link Target.OfEntity} или {@link Target.OfSubLevel}) сейчас
+     * @return цель приказа; null — приказ не принят (игроку — строка)
+     */
+    @Nullable
+    public static Aim sighted(ServerPlayer player, Aim aim, Predicate<Target> seen) {
+        Target target = aim.target();
+        if (!(target instanceof Target.OfEntity) && !(target instanceof Target.OfSubLevel)) return aim;
+        Aim sighted = new Aim(new Target.Sighted(target, aim.point()), aim.point(), aim.label());
+        if (!AirstrikeConfig.SERVER.sightRules.get()) return sighted;
+        ServerLevel level = player.serverLevel();
+        UUID id;
+        Component name;
+        if (target instanceof Target.OfEntity e) {
+            Player rider = level.getEntity(e.uuid()) instanceof Entity victim ? rider(victim) : null;
+            if (rider == null || Sides.friendly(player, rider)) return sighted;
+            id = rider.getUUID();
+            name = rider.getDisplayName();
+        } else {
+            SubLevelAccess craft = SubLevels.containing(level, ((Target.OfSubLevel) target).plotPos());
+            if (craft == null) return sighted;
+            id = craft.getUniqueId();
+            name = SubLevels.describe(craft);
+        }
+        if (seen.test(target)) return sighted;
+        Sightings.Contact c = Sightings.contact(level, Sides.side(player), id);
+        if (c == null) {
+            player.displayClientMessage(Component.translatable("airstrike.target.unseen", name).withStyle(ChatFormatting.RED), true);
+            return null;
+        }
+        long age = c.age(level.getGameTime());
+        if (age <= Sightings.CURRENT) return sighted;
+        Vec3 at = c.kind() == Sightings.Kind.PLAYER ? c.pos().add(0, 1, 0) : c.pos();
+        player.sendSystemMessage(Component.translatable("airstrike.target.last_seen", name, Math.max(1, age / 20)).withStyle(ChatFormatting.GOLD));
+        return new Aim(new Target.Point(at), at, null);
+    }
+
+    /** Игрок видит цель приказа {@code subject} сейчас — глазами или камерой своего снаряда ({@link Sightings}). */
+    private static boolean seesNow(ServerPlayer player, Target subject) {
+        ServerLevel level = player.serverLevel();
+        return switch (subject) {
+            case Target.OfEntity e -> level.getEntity(e.uuid()) instanceof Entity victim
+                    && (Sightings.sees(player, victim) || rider(victim) instanceof Player rider && rider != victim && Sightings.sees(player, rider));
+            case Target.OfSubLevel s -> SubLevels.containing(level, s.plotPos()) instanceof SubLevelAccess craft && Sightings.seesCraft(player, craft);
+            default -> true;
+        };
+    }
+
+    /** Строка «цель взята»: идёт ли снаряд за ней и как. */
+    private static MutableComponent locked(WeaponType weapon, Aim aim) {
+        return switch (aim.target()) {
+            case Target.Sighted s -> weapon.spec().tracking() == WeaponSpec.Tracking.CAMERA
+                    ? Component.translatable("airstrike.target.locked.camera", aim.label(), Component.keybind(Airstrike.CAMERA_KEY))
+                    : Component.translatable("airstrike.target.locked.point", aim.label());
+            // приказ без правил: снаряд идёт за ней
+            case Target.OfEntity e -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.OfSubLevel s -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.Point p -> Component.translatable("airstrike.target.locked.place", aim.label());
+            case Target.Ground g -> Component.translatable("airstrike.target.locked.place", aim.label());
+        };
     }
 
     /**
@@ -277,7 +364,7 @@ public final class ServerActions {
      * @return true, если пуск состоялся
      */
     public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE);
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE, null);
     }
 
     /** Приказ в пределах настроек сервера ({@link #clamp}). */
@@ -285,18 +372,35 @@ public final class ServerActions {
         return clamp(new Loadout(weapon, count, spread, TargetMode.LOOK, "", nuke));
     }
 
-    /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
-    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via) {
+    /**
+     * Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог.
+     *
+     * @param paid что стреляющий заплатил за приказ ({@link Munitions}); null — не платил. Неудачный пуск это возвращает,
+     *             залп — то, что из него не вылетит
+     */
+    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via,
+                                  @Nullable Munitions.Bill paid) {
         StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), via);
         UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
-            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via);
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via, paid != null);
             return true;
         }
-        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke(), via);
+        StrikeService.Result r;
+        String why = "пуск не удался";
+        try {
+            r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, null, true, l.nuke(), via)
+                    : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), yaw, owner, true, l.nuke(), via);
+        } catch (RuntimeException e) {
+            // как у залпа (SalvoData.tick): упавший пуск — неудачный, оплаченное возвращается
+            Airstrike.LOG.error("Пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);
+            r = StrikeService.Result.FAILED;
+            why = "пуск упал с ошибкой";
+        }
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
             else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
+            if (!r.ok() && paid != null) Munitions.refund(List.of(owner), owner.getUUID(), paid, why);
         }
         return r.ok();
     }
@@ -434,53 +538,6 @@ public final class ServerActions {
         }
     }
 
-    /**
-     * Цель под правилом разведки ({@code sight_rules}): чужой игрок (и сущность, на которой едет игрок) и аппарат Sable —
-     * только если сторона стрелявшего ({@link Sides}) видит его сейчас — тогда цель он сам — или видела не дольше
-     * {@code sight_memory} назад — тогда место, где его видели последний раз ({@link Sightings}); иначе строка
-     * стрелявшему и null. Свои, прочие сущности и места — как есть.
-     *
-     * @param victim сущность, в которую целится {@code aim} ({@link Target.OfEntity}), если она в мире
-     */
-    @Nullable
-    public static Aim scouted(ServerPlayer shooter, Aim aim, @Nullable Entity victim) {
-        ServerLevel level = shooter.serverLevel();
-        String side = Sides.side(shooter);
-        if (victim != null) {
-            Player rider = rider(victim);
-            if (rider == null || Sides.friendly(shooter, rider)) return aim;
-            if (Sightings.sees(shooter, rider) || Sightings.sees(shooter, victim)) {
-                Sightings.spot(level, side, rider, Sightings.Source.EYES);
-                return aim;
-            }
-            return lastSeen(shooter, Sightings.contact(level, side, rider.getUUID()), aim, rider.getDisplayName());
-        }
-        if (aim.target() instanceof Target.OfSubLevel of) {
-            SubLevelAccess craft = SubLevels.containing(level, of.plotPos());
-            if (craft == null) return aim;
-            if (Sightings.seesCraft(shooter, craft)) {
-                Sightings.spot(level, side, craft, Sightings.Source.EYES);
-                return aim;
-            }
-            return lastSeen(shooter, Sightings.contact(level, side, craft.getUniqueId()), aim, SubLevels.describe(craft));
-        }
-        return aim;
-    }
-
-    /** Видели только что — цель как есть; раньше — место, где видели; не видели — строка стрелявшему и null. */
-    @Nullable
-    private static Aim lastSeen(ServerPlayer shooter, @Nullable Sightings.Contact c, Aim aim, Component name) {
-        if (c == null) {
-            shooter.displayClientMessage(Component.translatable("airstrike.target.unseen", name).withStyle(ChatFormatting.RED), true);
-            return null;
-        }
-        long age = c.age(shooter.serverLevel().getGameTime());
-        if (age <= Sightings.CURRENT) return aim;
-        Vec3 at = c.kind() == Sightings.Kind.PLAYER ? c.pos().add(0, 1, 0) : c.pos();
-        shooter.sendSystemMessage(Component.translatable("airstrike.target.last_seen", name, Math.max(1, age / 20)).withStyle(ChatFormatting.GOLD));
-        return new Aim(new Target.Point(at), at, null);
-    }
-
     /** Игрок, которого касается удар по сущности: она сама или тот, кто едет на ней или с ней; null — никто. */
     @Nullable
     private static Player rider(Entity e) {
@@ -493,7 +550,7 @@ public final class ServerActions {
         return null;
     }
 
-    /** Удар по игроку: центр тела (на блок выше ног), снаряд идёт за ним. */
+    /** Удар по игроку или сущности: центр тела (на блок выше ног); приказ без правил идёт за ней. */
     public static Aim atPlayer(Entity victim) {
         return new Aim(new Target.OfEntity(victim.getUUID(), new Vec3(0, 1, 0)), victim.position().add(0, 1, 0), null);
     }
@@ -509,13 +566,17 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета
-     * и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая ракета, остаётся до её пуска.
+     * Отбой всего (команда оператора и хоста, консоль): снаряды, обломки и пусковые всех игроков во всех мирах убраны без
+     * взрыва, залпы отменены — их невыпущенные оплаченные
+     * снаряды возвращаются владельцам в сети ({@link Munitions}; выпущенные, в том числе стоящие на пусковой, — нет).
+     * Ядерные удары (МБР, ракета и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая
+     * ракета, остаётся до её пуска.
      *
      * Что и кем снято — строкой в лог: отбой снимает и чужие удары, а нажавший видит только итог в чате (игра 02.10.2026:
      * МБР №3 пропала из лога без следа — её снял «Отбоем» другой игрок).
      *
-     * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
+     * @param nuclear отменить и ядерные удары, и ждущие второго ключа или пуска после тревоги (только оператору и хосту,
+     *                {@link NuclearKeys#trusted})
      * @param who     кто дал отбой — для лога
      */
     public static int clearAll(MinecraftServer server, boolean nuclear, String who) {
@@ -553,9 +614,8 @@ public final class ServerActions {
                 else if (e instanceof LauncherEntity) launchersRemoved++;
                 e.discard();
             }
-            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
-            salvos += SalvoData.get(level).size();
-            StrikeWorld.clearSalvos(level);
+            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба; невыпущенное — владельцам
+            salvos += StrikeWorld.clearSalvos(level);
             if (nuclear) {
                 NuclearEvents events = NuclearEvents.get(level);
                 for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
@@ -566,12 +626,91 @@ public final class ServerActions {
                 n += NuclearStrikes.clear(level);
             }
         }
-        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear, projectiles));
+        if (nuclear) {
+            n += NuclearKeys.cancelAll(server, server.getPlayerList().getPlayers(),
+                    Component.translatable("airstrike.nuke.key.cancelled").withStyle(ChatFormatting.GRAY), "ядерный отбой — " + who);
+        }
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.empty(), nuclear, projectiles));
         Airstrike.LOG.info("Отбой{} — {}: снарядов {} (вне мира {}), пусковых {}, залпов {}{}{}", nuclear ? " с ядерными" : "", who,
                 projectiles.size(), virtual, launchersRemoved, salvos, strikes.isEmpty() ? "" : "; " + String.join(", ", strikes),
                 detonations == 0 ? "" : "; забыто подрывов " + detonations);
         return n + projectiles.size();
     }
+
+    /**
+     * Свой отбой: удары игрока {@code owner} прекращаются, чужие не трогаются. Снаряды в полёте самоликвидируются в
+     * воздухе без боевой части, B-2 до сброса отворачивает ({@link StrikeProjectile#recall}); вне загруженного мира они
+     * просто пропадают (этого никто не видит); со своих пусковых снаряды снимаются вместе с пусковыми; залпы отменяются,
+     * невыпущенное оплаченное возвращается ({@link SalvoData#cancel}). Не отзываются ядерные удары — МБР и носители
+     * с ядерной БЧ (отменяет только оператор, {@link #clearAll}) — и снаряды без управления в полёте: ракеты РСЗО и
+     * сброшенная бомба долетят ({@link StrikeProjectile#recallable}). Обломки и сброшенные ускорители остаются.
+     *
+     * @param who кто дал отбой — для лога
+     * @return сколько снарядов прекратили удар и сколько залпов отменено
+     */
+    public static Recalled recall(MinecraftServer server, UUID owner, String who) {
+        Predicate<StrikeProjectile> mine = p -> owner.equals(p.ownerId()) && !p.isNuclear();
+        // снаряды, которых больше нет: клиенты глушат их звук и камеру (B-2, который отвернул, звучит, пока уходит)
+        List<UUID> gone = new ArrayList<>();
+        int destroyed = 0, turned = 0, unlaunched = 0, virtual = 0, launchersRemoved = 0, salvos = 0;
+        for (ServerLevel level : server.getAllLevels()) {
+            List<UUID> outside = VirtualFlights.get(level).clear(level, p -> mine.test(p) && (p.flightPhase().onLauncher() || p.recallable()));
+            virtual += outside.size();
+            gone.addAll(outside);
+            List<StrikeProjectile> flying = new ArrayList<>();
+            List<LauncherEntity> launchers = new ArrayList<>();
+            // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
+            List<StrikeProjectile> onRail = new ArrayList<>();
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+                if (p.flightPhase().onLauncher()) onRail.add(p);
+            }
+            for (Entity e : level.getAllEntities()) {
+                if (e instanceof StrikeProjectile p) {
+                    if (!p.flightPhase().onLauncher()) {
+                        if (mine.test(p)) flying.add(p);
+                    } else if (mine.test(p)) {
+                        p.discard();
+                        gone.add(p.getUUID());
+                        unlaunched++;
+                    } else {
+                        onRail.add(p);
+                    }
+                } else if (e instanceof LauncherEntity l && owner.equals(l.ownerId())) {
+                    launchers.add(l);
+                }
+            }
+            for (LauncherEntity l : launchers) {
+                if (onRail.stream().noneMatch(l::serves)) {
+                    l.discard();
+                    launchersRemoved++;
+                }
+            }
+            // самоликвидация — после обхода: взрыв меняет сущности мира
+            for (StrikeProjectile p : flying) {
+                if (!p.recall(level)) continue;
+                if (p.isRemoved()) {
+                    gone.add(p.getUUID());
+                    destroyed++;
+                } else {
+                    turned++;
+                }
+            }
+            salvos += SalvoData.get(level).cancel(level, owner, server.getPlayerList().getPlayers());
+        }
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.of(owner), false, gone));
+        Airstrike.LOG.info("Отбой своих — {}: самоликвидировались {}, отвернули {}, сняты с пусковых {} (пусковых {}), вне мира {}, залпов {}",
+                who, destroyed, turned, unlaunched, launchersRemoved, virtual, salvos);
+        return new Recalled(destroyed + turned + unlaunched + virtual, salvos);
+    }
+
+    /** {@link #recall(MinecraftServer, UUID, String)} игрока {@code player}: итог для него. */
+    public static MutableComponent recall(ServerPlayer player) {
+        Recalled r = recall(player.server, player.getUUID(), player.getGameProfile().getName());
+        return Component.translatable("airstrike.recalled", r.projectiles(), r.salvos());
+    }
+
+    /** Итог своего отбоя: снарядов, прекративших удар, и отменённых залпов. */
+    public record Recalled(int projectiles, int salvos) {}
 
     /** Итог отбоя для того, кто его дал: отменены ли и ядерные удары. */
     public static MutableComponent clearedMessage(int n, boolean nuclear) {

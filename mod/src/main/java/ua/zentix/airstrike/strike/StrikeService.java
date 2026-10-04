@@ -70,16 +70,30 @@ public final class StrikeService {
     public static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke, Waypoints via) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+        return launch(level, weapon, target, point, approachYaw, owner, shooter, siren, nuke, via);
+    }
+
+    /**
+     * Пуск от имени игрока, который уже известен (пульт, команда игрока), — как {@link #launch}, но без поиска его
+     * в списке игроков (GameTest: стреляющий — {@code FakePlayer} NeoForge, которого в списке нет).
+     */
+    public static Result launchBy(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                  ServerPlayer shooter, boolean siren, Loadout.Nuke nuke, Waypoints via) {
+        return launch(level, weapon, target, point, approachYaw, shooter.getUUID(), shooter, siren, nuke, via);
+    }
+
+    private static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                 @Nullable UUID owner, @Nullable ServerPlayer shooter, boolean siren, Loadout.Nuke nuke, Waypoints via) {
         if (shooter != null && shooter.level() != level) shooter = null;
         if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
-        if (spec.launch() == WeaponSpec.Launch.ICBM) {
-            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
-            boolean ok = target instanceof Target.Ground
-                    ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter)
-                    : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
-            return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
+        // промах этого пуска (паспорт): снаряд целится в цель со сдвигом — у сущности сдвиг относительно неё
+        Vec3 miss = spec.route().miss(level.random);
+        if (!miss.equals(Vec3.ZERO)) {
+            target = target.offset(miss);
+            point = point.add(miss);
         }
+        if (spec.launch() == WeaponSpec.Launch.ICBM) return launchIcbm(level, target, point, nuke, shooter, AirstrikeConfig.SERVER.nukeFlightTime.get());
         Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (spec.launch()) {
             case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter, via);
@@ -94,6 +108,19 @@ public final class StrikeService {
         int eta = p.etaTicks();
         if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
         return new Result(true, eta);
+    }
+
+    /**
+     * МБР: бьёт по координатам — за движущейся целью не следит; тревогу поднимает сам пуск.
+     *
+     * @param flightTicks полёт от пуска до подрыва (настройка мира; у удара не оператора — не меньше 90 с, {@link NuclearKeys})
+     */
+    public static Result launchIcbm(ServerLevel level, Target target, Vec3 point, Loadout.Nuke nuke, @Nullable ServerPlayer shooter, int flightTicks) {
+        if (shooter != null && shooter.level() != level) shooter = null;
+        boolean ok = target instanceof Target.Ground
+                ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks)
+                : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), false, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks);
+        return new Result(ok, flightTicks);
     }
 
     /** Длина маршрута на время полёта из настроек (паспорт). */
@@ -388,20 +415,19 @@ public final class StrikeService {
     }
 
     /**
-     * Бомба бьёт по точке на поверхности над целью (с разбросом ±2.5 блока) и за движущейся целью не следит;
-     * если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
+     * Бомба бьёт по точке на поверхности над целью (промах — паспорт, {@link WeaponSpec.Route#error}) и за движущейся
+     * целью не следит; если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
      */
     private static StrikeProjectile launchBomber(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
-        double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
-        int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
+        int sx = Mth.floor(point.x), sz = Mth.floor(point.z);
         // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней;
         // у неготового чанка место с карты уже несёт свою оценку (карта клиента лучше генератора); к сбросу B-2
         // уточняет её по готовому чанку
         Terrain.Surface under = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz,
                 target instanceof Target.Ground ? Terrain.Allowed.CHUNK : Terrain.Allowed.ORDER);
         double sy = under.known() ? under.y() : point.y + 0.5;
-        Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
-        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
+        Vec3 surface = new Vec3(point.x, sy - 0.5, point.z);
+        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по промаху — готов)
         BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
@@ -436,7 +462,7 @@ public final class StrikeService {
                 Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), route, who);
     }
 
-    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат; у замеченной — «по месту, где видели». */
     private static String describe(ServerLevel level, Target target) {
         return switch (target) {
             case Target.Point p -> "точка";
@@ -449,6 +475,7 @@ public final class StrikeService {
                 yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
             }
             case Target.OfSubLevel s -> "аппарат";
+            case Target.Sighted s -> describe(level, s.quarry()) + " по месту, где видели";
         };
     }
 

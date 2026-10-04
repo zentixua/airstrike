@@ -11,6 +11,7 @@
   uv run tools/gen_textures.py   → mod/src/main/resources/assets/airstrike/textures/…
 
   item/strike_designator, item/geiger_counter — пиксель-арт 16×16 (сетка символов + палитра);
+  item/shahed, lancet, cruise_missile, grad_rockets, bunker_buster, icbm, nuclear_warhead — боеприпасы, тоже пиксель-арт;
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
   block/substation_* — трансформаторная подстанция 16×16 (бак, фасад с табличкой, радиатор, изолятор, плита) и обгоревшие;
@@ -73,6 +74,8 @@ PALETTE = {
     "F": (255, 214, 90, 255),   # пламя: ядро
     "f": (240, 120, 30, 255),   # пламя
     "r": (170, 40, 20, 255),    # пламя: край
+    "A": (182, 180, 170, 255),  # планер шахеда (серо-бежевый)
+    "a": (126, 124, 116, 255),  # тень планера
 }
 
 # Значок ожогов 18×18: язык пламени
@@ -116,6 +119,136 @@ GEIGER = [
     "KyyyyyyyyyK..c..",
     ".KKKKKKKKK......",
 ]
+
+# Боеприпасы пульта: все носом вверх (бомба — вниз), контур K, без мелочей — читаются в слоте инвентаря
+SHAHED = [  # треугольное крыло, кили на концах, толкающий винт сзади
+    "................",
+    ".......KK.......",
+    "......KAAK......",
+    "......KAAK......",
+    ".....KAAAAK.....",
+    ".....KAaaAK.....",
+    "....KAAaaAAK....",
+    "....KAAaaAAK....",
+    "...KAAAaaAAAK...",
+    "..KAAAAaaAAAAK..",
+    ".KAAAAAaaAAAAAK.",
+    "KaAAAAAaaAAAAAaK",
+    "KaKKKKAaaAKKKKaK",
+    ".K....KAAK....K.",
+    "......KnnK......",
+    ".......nn.......",
+]
+LANCET = [  # цилиндр с двумя крестами крыльев, винт сзади
+    "................",
+    ".......KK.......",
+    "......KOOK......",
+    "......KOOK......",
+    "...KKKKOOKKKK...",
+    "..KoooKOOKoooK..",
+    "...KKKKOOKKKK...",
+    "......KOOK......",
+    "......KOOK......",
+    "......KOOK......",
+    ".KKKKKKOOKKKKKK.",
+    "KooooooOOooooooK",
+    ".KKKKKKOOKKKKKK.",
+    "......KOOK......",
+    "......KnnK......",
+    ".......nn.......",
+]
+CRUISE_MISSILE = [  # серый корпус, сложенные крылья, оперение, факел турбины
+    "................",
+    ".......KK.......",
+    "......KMMK......",
+    "......KMmK......",
+    "......KMmK......",
+    "......KMmK......",
+    "....KKKMmKKK....",
+    "...KmmmMmmmmK...",
+    "....KKKMmKKK....",
+    "......KMmK......",
+    "......KMmK......",
+    "......KMmK......",
+    ".....KKMmKK.....",
+    "....KmKMmKmK....",
+    "....KK.FF.KK....",
+    ".......ff.......",
+]
+GRAD_ROCKETS = [  # пакет труб спереди: в каждой — головка снаряда
+    "................",
+    ".KKKKKKKKKKKKKK.",
+    ".KOOOOOOOOOOOOK.",
+    ".KOMmOMmOMmOMmK.",
+    ".KOmnOmnOmnOmnK.",
+    ".KOOOOOOOOOOOOK.",
+    ".KOMmOMmOMmOMmK.",
+    ".KOmnOmnOmnOmnK.",
+    ".KOOOOOOOOOOOOK.",
+    ".KOMmOMmOMmOMmK.",
+    ".KOmnOmnOmnOmnK.",
+    ".KOOOOOOOOOOOOK.",
+    ".KooooooooooooK.",
+    ".KKKKKKKKKKKKKK.",
+    "..Kn........nK..",
+    "................",
+]
+BUNKER_BUSTER = [  # толстая бомба носом вниз: оперение, жёлтый поясок, стальной нос
+    "....KK....KK....",
+    "....KoK..KoK....",
+    "....KooKKooK....",
+    ".....KKOOKK.....",
+    ".....KOOOOK.....",
+    "....KOOOOOoK....",
+    "....KYYYYYYK....",
+    "....KOOOOOoK....",
+    "....KOOOOOoK....",
+    "....KOOOOOoK....",
+    "....KOOOOOoK....",
+    "....KOOOOOoK....",
+    ".....KOOOoK.....",
+    ".....KMMMmK.....",
+    "......KMmK......",
+    ".......KK.......",
+]
+ICBM = [  # белая ракета с чёрной головной частью, ступени, стабилизаторы, факел
+    ".......KK.......",
+    "......KbbK......",
+    "......KbbK......",
+    ".....KbbbbK.....",
+    ".....KWWWMK.....",
+    ".....KWWWMK.....",
+    ".....KmmmmK.....",
+    ".....KWWWMK.....",
+    ".....KWWWMK.....",
+    ".....KWWWMK.....",
+    ".....KWWWMK.....",
+    "....KKWWWMKK....",
+    "...KmKWWWMKmK...",
+    "...KKKKKKKKKK...",
+    "......FFFF......",
+    ".......ff.......",
+]
+NUCLEAR_WARHEAD = [  # головная часть: конус с жёлто-чёрным знаком
+    "................",
+    ".......KK.......",
+    "......KMMK......",
+    "......KMmK......",
+    ".....KMMmmK.....",
+    ".....KMMmmK.....",
+    "....KMMBBmmK....",
+    "....KMBbbBmK....",
+    "...KMMBbbBmmK...",
+    "...KMMMBBmmmK...",
+    "..KMMMMMmmmmmK..",
+    "..KMMMMMmmmmmK..",
+    ".KMMMMMMmmmmmmK.",
+    ".KmmmmmmmmmmmmK.",
+    ".KKKKKKKKKKKKKK.",
+    "................",
+]
+MUNITIONS = {"shahed": SHAHED, "lancet": LANCET, "cruise_missile": CRUISE_MISSILE, "grad_rockets": GRAD_ROCKETS,
+             "bunker_buster": BUNKER_BUSTER, "icbm": ICBM, "nuclear_warhead": NUCLEAR_WARHEAD}
 
 
 def save(img, name):
@@ -478,6 +611,8 @@ def sam():
 if __name__ == "__main__":
     paint(DESIGNATOR, "item/strike_designator")
     paint(GEIGER, "item/geiger_counter")
+    for name, rows in MUNITIONS.items():
+        paint(rows, "item/" + name)
     save(trefoil(), "mob_effect/radiation_sickness")
     paint(BURNS_ICON, "mob_effect/burns")
     save(trinitite(), "block/trinitite")

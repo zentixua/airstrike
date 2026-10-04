@@ -14,7 +14,9 @@ paths:
 - `entity/` — `StrikeProjectile` (общий полёт: столкновения, старт с направляющей `launchTick`, `virtualTick`/`materialize`
   для полёта вне мира, перенацеливание, запас хода; части — `entity/flight/`: `ChunkHold` — свой чанк и чанк впереди,
   `TargetAreaHold` — район цели и полоса подлёта, `ProximityFuse` — взведение и неконтактный взрыватель; автопилоту
-  сущность отдаёт себя как `guidance/Craft`),
+  сущность отдаёт себя как `guidance/Craft`; замеченную цель `Target.Sighted` снаряд с `WeaponSpec.Tracking.CAMERA` ведёт по
+  кадру камеры оператора — `strike/CameraLink`, см. `strike.md`; синхронизированный `Pursuit` — строка камеры: цель
+  в кадре или полёт туда, где видел),
   `FlightPhase` (синхронизирована: на пусковой → поджиг → разгон → набор → маршрут → горка → атака; по ней эффекты
   и звук), `DroneEntity`, `LoiterEntity` («Ланцет»: катапульта, круг `LOITER` над целью, пике по времени или по цели
   из камеры), `CruiseMissileEntity`, `RocketEntity` (РСЗО: баллистика из трубы пакета), `BomberEntity` +

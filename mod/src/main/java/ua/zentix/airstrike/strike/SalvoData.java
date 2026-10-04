@@ -27,6 +27,8 @@ import ua.zentix.airstrike.util.Nbt;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +39,9 @@ import java.util.UUID;
  * относительно неё; маршруты разные (обход слева или справа, курс захода ±35°), поэтому залп приходит волной
  * с разных сторон. По точкам оператора ({@link Waypoints}) весь залп идёт одним маршрутом.
  * Хранится в мире: незаконченный залп продолжится после перезахода.
+ * <p>
+ * Залп, оплаченный боеприпасами ({@link Munitions}), возвращает владельцу то, что не вылетело: невыпущенные снаряды
+ * отменённого залпа (отбой, ошибка) и снаряды, чей пуск не удался, — в конце залпа.
  */
 public final class SalvoData extends SavedData {
     private static final String NAME = Airstrike.MOD_ID + "_salvos";
@@ -52,11 +57,23 @@ public final class SalvoData extends SavedData {
         setDirty();
     }
 
-    public void clear() {
-        if (!salvos.isEmpty()) {
-            salvos.clear();
-            setDirty();
+    /**
+     * Отменить залпы владельца {@code owner} (null — все): невыпущенные оплаченные снаряды — владельцу, если он среди
+     * {@code online} ({@link Munitions#refund}).
+     *
+     * @return сколько залпов отменено
+     */
+    public int cancel(ServerLevel level, @Nullable UUID owner, Collection<? extends ServerPlayer> online) {
+        int n = 0;
+        for (Iterator<Salvo> it = salvos.iterator(); it.hasNext(); ) {
+            Salvo s = it.next();
+            if (owner != null && !owner.equals(s.owner)) continue;
+            it.remove();
+            refund(s, online, "залп отменён");
+            n++;
         }
+        if (n > 0) setDirty();
+        return n;
     }
 
     public int size() {
@@ -81,6 +98,16 @@ public final class SalvoData extends SavedData {
         return n;
     }
 
+    /**
+     * Залп уходит из списка: оплаченный возвращает владельцу (если он среди {@code online}) невыпущенные снаряды и те,
+     * чей пуск не удался ({@link Munitions#refund}). Единственное место возврата: его зовёт каждый путь, которым залп
+     * убирается, — отмена, ошибка, конец залпа. Залп ядерным не бывает: ядерных БЧ в возврате нет.
+     */
+    private static void refund(Salvo s, Collection<? extends ServerPlayer> online, String why) {
+        if (s.paid) Munitions.refund(online, s.owner, new Munitions.Bill(s.weapon, s.remaining + s.failed, 0), why);
+        s.failed = 0;
+    }
+
     void tick(ServerLevel level) {
         if (salvos.isEmpty()) return;
         salvos.removeIf(s -> {
@@ -88,6 +115,7 @@ public final class SalvoData extends SavedData {
                 return !s.tick(level);
             } catch (RuntimeException e) {
                 Airstrike.LOG.error("Залп упал с ошибкой и отменён", e);
+                refund(s, level.getServer().getPlayerList().getPlayers(), "залп упал с ошибкой");
                 return true;
             }
         });
@@ -102,10 +130,11 @@ public final class SalvoData extends SavedData {
      * @param yaw         курс захода
      * @param owner       кто пустил (ему — сообщения о залпе), null — консоль или командный блок
      * @param via         точки оператора: весь залп летит по ним
+     * @param paid        залп оплачен боеприпасами владельца: что не вылетит, вернётся ему ({@link Munitions})
      */
     public static void start(ServerLevel level, WeaponType weapon, int count, int radius, Target center, Vec3 centerPoint,
-                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke, Waypoints via) {
-        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke, via));
+                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke, Waypoints via, boolean paid) {
+        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke, via, paid, 0));
         ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         if (player != null) {
             player.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
@@ -136,9 +165,13 @@ public final class SalvoData extends SavedData {
         final Loadout.Nuke nuke;
         /** Точки оператора: у всего залпа одни. */
         final Waypoints via;
+        /** Оплачен боеприпасами владельца ({@link Munitions}): что не вылетело, вернётся ему. */
+        final boolean paid;
+        /** Сколько пусков залпа не удалось: возвращаются владельцу в конце залпа (одной строкой, а не на каждый). */
+        int failed;
 
         Salvo(WeaponType weapon, int total, int remaining, int radius, Target center, Vec3 lastCenter, float yaw, @Nullable UUID owner, int cooldown,
-              Loadout.Nuke nuke, Waypoints via) {
+              Loadout.Nuke nuke, Waypoints via, boolean paid, int failed) {
             this.weapon = weapon;
             this.total = total;
             this.remaining = remaining;
@@ -151,7 +184,10 @@ public final class SalvoData extends SavedData {
             // ядерных залпов нет (ServerActions.clamp): снаряды залпа ядерной БЧ не несут
             this.nuke = nuke.withOnCarrier(false);
             this.via = via;
+            this.paid = paid;
+            this.failed = failed;
         }
+
 
         boolean tick(ServerLevel level) {
             watchCenter(level);
@@ -162,9 +198,10 @@ public final class SalvoData extends SavedData {
                     ownerPlayer.displayClientMessage(Component.translatable("airstrike.salvo.done").withStyle(ChatFormatting.GRAY), true);
                     PacketDistributor.sendToPlayer(ownerPlayer, new S2C.SalvoStatus(weapon.id(), total, total));
                 }
+                if (failed > 0) refund(this, level.getServer().getPlayerList().getPlayers(), "пуски залпа не удались");
                 return false;
             }
-            fire(level);
+            if (!fire(level).ok()) failed++;
             remaining--;
             cooldown = weapon.salvoGap(level.random);
             if (ownerPlayer != null) PacketDistributor.sendToPlayer(ownerPlayer, new S2C.SalvoStatus(weapon.id(), total - remaining, total));
@@ -196,7 +233,7 @@ public final class SalvoData extends SavedData {
             return e instanceof LivingEntity l ? l.isDeadOrDying() : e.getRemovalReason() == Entity.RemovalReason.KILLED;
         }
 
-        private void fire(ServerLevel level) {
+        private StrikeService.Result fire(ServerLevel level) {
             center.resolve(level).ifPresent(p -> lastCenter = p);
             int dx = 0, dz = 0;
             if (radius > 0) {
@@ -209,28 +246,29 @@ public final class SalvoData extends SavedData {
             }
             Target shot;
             Vec3 point;
-            if (!(center instanceof Target.Point)) {
+            if (!(center instanceof Target.Point) && !(center instanceof Target.Sighted)) {
                 // движущаяся цель или место на земле: своё смещение относительно неё (у места — своя высота земли)
                 shot = center.offset(new Vec3(dx, 0, dz));
                 point = shot.resolve(level).orElse(lastCenter.add(dx, 0, dz));
-            } else if (weapon.spec().penetrates() || radius == 0) {
-                // бомба — на глубине центра (найдёт пещеру под игроком)
-                point = lastCenter.add(dx, 1, dz);
-                shot = new Target.Point(point);
-            } else if (inAir(level, lastCenter)) {
-                point = lastCenter.add(dx, 1, dz);
-                shot = new Target.Point(point);
             } else {
-                int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
-                // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
-                Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
-                double y = ground.known() ? ground.y() - 0.5 : lastCenter.y;
-                point = new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
-                shot = new Target.Point(point);
+                // неподвижный центр: точка, или замеченная цель — там, где её видели (снаряд залпа ведёт её только камерой)
+                point = around(level, dx, dz);
+                shot = center instanceof Target.Sighted sighted ? sighted.at(point) : new Target.Point(point);
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
             // сирена одна на залп: её включит первый снаряд, когда его «увидят» на подлёте
-            StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, via);
+            return StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, via);
+        }
+
+        /** Точка снаряда залпа со смещением (dx, dz) от неподвижного центра. */
+        private Vec3 around(ServerLevel level, int dx, int dz) {
+            // бомба — на глубине центра (найдёт пещеру под игроком)
+            if (weapon.spec().penetrates() || radius == 0 || inAir(level, lastCenter)) return lastCenter.add(dx, 1, dz);
+            int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
+            // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
+            Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
+            double y = ground.known() ? ground.y() - 0.5 : lastCenter.y;
+            return new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */
@@ -256,6 +294,8 @@ public final class SalvoData extends SavedData {
             t.putInt("cooldown", cooldown);
             Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuke).resultOrPartial(Airstrike.LOG::error).ifPresent(n -> t.put("nuke", n));
             if (!via.isEmpty()) Waypoints.CODEC.encodeStart(NbtOps.INSTANCE, via).resultOrPartial(Airstrike.LOG::error).ifPresent(r -> t.put("route", r));
+            if (paid) t.putBoolean("paid", true);
+            if (failed > 0) t.putInt("failed", failed);
             return t;
         }
 
@@ -269,8 +309,9 @@ public final class SalvoData extends SavedData {
             // залп, сохранённый до маршрутов оператора, — без точек
             Waypoints via = t.contains("route") ? Waypoints.CODEC.parse(NbtOps.INSTANCE, t.get("route")).resultOrPartial(Airstrike.LOG::error)
                     .orElse(Waypoints.NONE) : Waypoints.NONE;
+            // залп, сохранённый до боеприпасов, не оплачен: возвращать нечего
             return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
-                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via));
+                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via, t.getBoolean("paid"), t.getInt("failed")));
         }
     }
 

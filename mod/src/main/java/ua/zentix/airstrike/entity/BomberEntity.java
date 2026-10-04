@@ -46,6 +46,7 @@ public class BomberEntity extends StrikeProjectile {
     /** После сброса улетает и исчезает через столько тиков (или раньше — на краю загруженного мира). */
     private static final int EGRESS_TICKS = 400;
 
+    /** Бомба сброшена или удар отозван до сброса ({@link #recall}): B-2 уходит. */
     private boolean released;
     /** Точка под землёй, к которой бомба пробивается (цель в пещере); null — бурит вниз. */
     @Nullable
@@ -171,6 +172,16 @@ public class BomberEntity extends StrikeProjectile {
         Vec3 next = position().add(dir.scale(speed));
         if (leavesTickingChunks(level, next)) return;
         moveAlong(level, next, dir);
+    }
+
+    /** Свой отбой до сброса: бомбы не будет — B-2 отворачивает и уходит, как после сброса. После сброса — нечего отзывать. */
+    @Override
+    public boolean recall(ServerLevel level) {
+        if (released) return false;
+        released = true;
+        setPhase(FlightPhase.EGRESS);
+        Airstrike.LOG.info("B-2 {} отозван у {}: уходит без сброса (вне мира {})", getUUID(), blockPosition(), isVirtual());
+        return true;
     }
 
     /** @param drop точка на поверхности, куда падает бомба */

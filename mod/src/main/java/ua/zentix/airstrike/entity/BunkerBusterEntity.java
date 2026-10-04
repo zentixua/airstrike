@@ -59,6 +59,12 @@ public class BunkerBusterEntity extends StrikeProjectile {
         return WeaponType.BUNKER;
     }
 
+    @Override
+    /** Сброшенная бомба падает: отбой её не останавливает — B-2 отзывают до сброса. */
+    public boolean recallable() {
+        return false;
+    }
+
     /** Бомба — вторая сущность полёта оружия: её паспорт — {@link WeaponSpec#payload}. */
     @Override
     public WeaponSpec.Airframe airframe() {

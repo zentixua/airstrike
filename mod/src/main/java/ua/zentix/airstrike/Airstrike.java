@@ -36,6 +36,7 @@ import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightStatus;
+import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.target.Sightings;
@@ -99,6 +100,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onClone);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onRespawn);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogout);
+        NeoForge.EVENT_BUS.addListener(NuclearKeys::onLogout);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);

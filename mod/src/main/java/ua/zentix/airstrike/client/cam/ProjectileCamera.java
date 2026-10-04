@@ -28,7 +28,6 @@ import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
-import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Local;
@@ -36,14 +35,14 @@ import ua.zentix.airstrike.util.Local;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Камера снаряда: картинка с его стабилизированной камеры (как у барражирующих боеприпасов). Клавиша камеры —
  * к ближайшему по времени снаряду, ещё раз — к следующему, после последнего — обратно к себе; Shift — выход.
- * Смотреть можно мышью (камера на подвесе), ЛКМ — перенацелить снаряд на то, что в перекрестии.
+ * Смотреть можно мышью (камера на подвесе), ЛКМ — перенацелить снаряд на то, что в перекрестии. Замеченную цель
+ * (игрок, моб, аппарат по приказу с пульта) шахед и «Ланцет» ведут, только пока она в кадре: куда смотрит камера, клиент
+ * шлёт серверу каждый тик ({@link C2S.CameraView}), а что выходит, показывает строка над подсказкой.
  * <p>Как в кино, три плана. <b>Пуск</b>: пока снаряд на пусковой и на ускорителе, камера стоит сбоку от пусковой
  * и ведёт его длинным фокусом. <b>Борт</b>: после отделения ускорителя — вид с борта. <b>Попадание</b>: в момент
  * удара — полсекунды помех, затем камера со стороны захода медленно облетает взрыв несколько секунд; дальше
@@ -94,14 +93,6 @@ public final class ProjectileCamera {
     /** Снаряд, который сейчас на карте (видео нет): если он пропадёт, карта покажет, где и чем кончилось. */
     @Nullable
     private static ClientFlights.Tracked mapped;
-    /** Снаряд, глазами которого, как знает сервер, мы смотрим ({@link C2S.Watch}). */
-    @Nullable
-    private static UUID watching;
-    /** Поворот камеры, о котором знает сервер, и когда его послали (время мира клиента). */
-    private static float watchYaw, watchPitch;
-    private static long watchSent;
-    /** Поворот камеры больше стольких градусов сервер узнаёт заново. */
-    private static final float WATCH_TURN = 2;
     /** Снаряды, уже виденные (для автокамеры: новый снаряд — сразу на пуск). */
     private static final java.util.Set<UUID> SEEN = new java.util.HashSet<>();
 
@@ -200,7 +191,6 @@ public final class ProjectileCamera {
 
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
-        syncWatch(mc);
         autoFollow(mc);
         if (!active) return;
         if (mc.player == null || mc.level == null) {
@@ -267,6 +257,8 @@ public final class ProjectileCamera {
                     shot = Shot.ONBOARD;
                 }
                 if (mc.getCameraEntity() != p) mc.setCameraEntity(p);
+                // сервер ведёт замеченную цель, только пока она в кадре: куда смотрит камера, знает лишь клиент
+                PacketDistributor.sendToServer(new C2S.CameraView(p.getUUID(), mc.player.getYRot(), mc.player.getXRot()));
             }
         } else {
             // вне зоны видео: что видели раньше, уже не место попадания; пока — карта
@@ -442,23 +434,6 @@ public final class ProjectileCamera {
         mc.getSoundManager().play(SimpleSoundInstance.forUI(ua.zentix.airstrike.registry.ModSounds.DESIGNATOR_LOCK.get(), 1.0f, 0.8f));
     }
 
-    /** Глаза камеры — серверу: пока смотрим глазами снаряда, его камера замечает чужих ({@code Sightings}). */
-    private static void syncWatch(Minecraft mc) {
-        if (mc.getConnection() == null || mc.player == null || mc.level == null) return;
-        UUID now = isViewing() && mc.getCameraEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
-        // камера смотрит по повороту игрока (angles), а его поворотов, пока он в камере, клиент серверу не шлёт
-        float yaw = mc.player.getYRot(), pitch = mc.player.getXRot();
-        long time = mc.level.getGameTime();
-        boolean turned = now != null && time - watchSent >= Sightings.SCAN_PERIOD
-                && (Math.abs(Mth.wrapDegrees(yaw - watchYaw)) > WATCH_TURN || Math.abs(pitch - watchPitch) > WATCH_TURN);
-        if (Objects.equals(now, watching) && !turned) return;
-        watching = now;
-        watchYaw = yaw;
-        watchPitch = pitch;
-        watchSent = time;
-        PacketDistributor.sendToServer(new C2S.Watch(Optional.ofNullable(now), yaw, pitch));
-    }
-
     /** Мир клиента уходит (смена измерения): съёмочная камера в нём больше не нужна и не должна его держать. */
     public static void onLevelUnload(LevelEvent.Unload e) {
         if (rig != null && rig.level() == e.getLevel()) rig = null;
@@ -467,7 +442,6 @@ public final class ProjectileCamera {
     public static void reset() {
         close();
         SEEN.clear();
-        watching = null;
     }
 
     /**
@@ -587,6 +561,13 @@ public final class ProjectileCamera {
             g.drawString(font, right[i], w - m - 6 - font.width(right[i]), m + 6 + 12 * i, i == 3 ? 0xFFFFC040 : 0xFFE8E8E8);
         }
         if (f.nuclear()) g.drawString(font, "☢", cx - font.width("☢") / 2, m + 6, 0xFFFFD020);
+        if (p.pursuit() != StrikeProjectile.Pursuit.NONE) {
+            // замеченная цель: снаряд идёт за ней, только пока она в кадре
+            boolean held = p.pursuit() == StrikeProjectile.Pursuit.HELD;
+            Component pursuit = Component.translatable(held ? "airstrike.camera.pursuit.held" : "airstrike.camera.pursuit.waiting")
+                    .withStyle(held ? ChatFormatting.GREEN : ChatFormatting.GOLD, ChatFormatting.BOLD);
+            g.drawString(font, pursuit, cx - font.width(pursuit) / 2, h - 60, 0xFFFFFFFF);
+        }
         if (f.phase() == FlightPhase.LOITER && rec) {
             // барражирующий кружит: оператор ищет цель в кадре
             Component loiter = Component.translatable("airstrike.camera.loiter").withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD);
