@@ -48,6 +48,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
+import ua.zentix.airstrike.warhead.DebrisSpawner;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.List;
@@ -1229,6 +1230,24 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.SHOT_DOWN, blockPosition(), targetLost(), 0,
                 source.getMsgId());
         crash(level, position());
+    }
+
+    /**
+     * Сбит зенитной ракетой ({@code defense.Interceptor}): боевая часть не срабатывает, корпус разваливается и обломки
+     * падают дальше по ходу полёта ({@link DebrisSpawner#wreck}); вне мира снаряд просто убран — обломкам там негде
+     * падать. В лог — строкой на залп ({@link FlightLog.Event#INTERCEPTED}, подробность — какой ЗРК).
+     */
+    public void intercepted(ServerLevel level, String by) {
+        if (isRemoved()) return;
+        Vec3 at = position();
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.INTERCEPTED, BlockPos.containing(at), targetLost(), 0, by);
+        if (virtual) {
+            VirtualFlights.get(level).clear(level, p -> p == this);
+            return;
+        }
+        Vec3 v = getDeltaMovement();
+        discard();
+        if (level.isPositionEntityTicking(BlockPos.containing(at))) DebrisSpawner.wreck(level, at, v, noseLength());
     }
 
     // ---------------------------------------------------------------- синхронизация и интерполяция

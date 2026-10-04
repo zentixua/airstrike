@@ -32,7 +32,9 @@ public final class FlightLog {
         /** Сбиты уроном до взведения (подробность — тип урона): разбились без подрыва боевой части. */
         SHOT_DOWN(Level.WARN, "сбиты до взведения взрывателя у"),
         /** Убраны не модом (команда, чистильщик сущностей другого мода; подробность — кем). */
-        REMOVED(Level.WARN, "убраны не модом у");
+        REMOVED(Level.WARN, "убраны не модом у"),
+        /** Сбиты зенитной ракетой (подробность — какой ЗРК): боевая часть не сработала, корпус упал обломками. */
+        INTERCEPTED(Level.INFO, "сбиты зенитной ракетой у");
 
         private final Level level;
         private final String text;
@@ -111,6 +113,7 @@ public final class FlightLog {
                 case CRASHED -> k.detail.isEmpty() ? "" : ", " + k.detail;
                 case SHOT_DOWN -> ", урон " + k.detail;
                 case REMOVED -> ", кем: " + k.detail;
+                case INTERCEPTED -> ", " + k.detail;
             };
             lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",
                     g.count, k.weapon, k.event.text, g.where(), tail)));

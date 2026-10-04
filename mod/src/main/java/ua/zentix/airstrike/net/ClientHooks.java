@@ -43,6 +43,10 @@ public interface ClientHooks {
 
     default void replayTick(S2C.ReplayTick p) {}
 
+    default void intercept(S2C.Intercept p) {}
+
+    default void radarScope(S2C.RadarScope p) {}
+
     ClientHooks NONE = new ClientHooks() {};
 
     final class Holder {

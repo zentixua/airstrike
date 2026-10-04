@@ -13,6 +13,7 @@ import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.InterceptorEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.LoiterEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
@@ -78,6 +79,20 @@ public final class ModEntities {
                     .noSummon()
                     .noSave()
                     .build(Airstrike.MOD_ID + ":debris"));
+
+    /**
+     * Зенитная ракета — вид полёта, который ведёт {@code defense.DefenseWorld}: позиция — каждый тик (14 блоков/тик), не
+     * сохраняется ({@code noSave}): полёт — секунды, после перезапуска его нет.
+     */
+    public static final DeferredHolder<EntityType<?>, EntityType<InterceptorEntity>> INTERCEPTOR = REGISTER.register("interceptor",
+            () -> EntityType.Builder.<InterceptorEntity>of(InterceptorEntity::new, MobCategory.MISC)
+                    .sized(0.4f, 0.4f)
+                    .clientTrackingRange(16)
+                    .updateInterval(1)
+                    .fireImmune()
+                    .noSummon()
+                    .noSave()
+                    .build(Airstrike.MOD_ID + ":interceptor"));
 
     private ModEntities() {}
 

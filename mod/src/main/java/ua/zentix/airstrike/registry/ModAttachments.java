@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.DhUpdates;
+import ua.zentix.airstrike.defense.DefenseWorld;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
@@ -110,6 +111,10 @@ public final class ModAttachments {
     /** Игрок: снаряд, глазами которого он смотрит ({@link Sightings#watch}); нет данных — смотрит своими; не сохраняется. */
     public static final Supplier<AttachmentType<UUID>> WATCHING = REGISTER.register("watching",
             () -> AttachmentType.<UUID>builder(() -> new UUID(0, 0)).build());
+
+    /** Мир: зенитные ракеты в полёте, их цели и объявленные тревоги ({@link DefenseWorld}); не сохраняется. */
+    public static final Supplier<AttachmentType<DefenseWorld>> DEFENSE_WORLD = REGISTER.register("defense_world",
+            () -> AttachmentType.builder(DefenseWorld::new).build());
 
     private ModAttachments() {}
 }

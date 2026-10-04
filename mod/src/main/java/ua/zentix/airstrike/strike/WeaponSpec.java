@@ -174,16 +174,27 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
      *                      ({@link FlightTickets#approach}); 0 — только район цели
      * @param attack        геометрия атаки управляемого снаряда
      * @param audible       докуда слышно снаряд в этой фазе, блоков, без затухания {@link Hearing#FADE} (0 — не слышно)
+     * @param radar         как его видит и бьёт ЗРК ({@code defense.Radar})
      */
     public record Airframe(Supplier<EntityType<? extends StrikeProjectile>> entity, double cruiseSpeed, double diveSpeed,
                            double turnRate, double climbTurnRate, double cruiseHeight, double clearance, double reliefLookahead, double noseLength,
                            float health, double range, double reachPad, @Nullable LaunchProfile launchProfile, double visibleLeg,
-                           Attack attack, ToDoubleFunction<FlightPhase> audible) {
+                           Attack attack, ToDoubleFunction<FlightPhase> audible, Signature radar) {
         /** Радиус разворота на скорости {@code speed} с пределом поворота на маршруте ({@link #turnRadius(double, double)}). */
         public double turnRadius(double speed) {
             return WeaponSpec.turnRadius(speed, turnRate);
         }
     }
+
+    /**
+     * Снаряд на экране радара ЗРК ({@code defense.Radar}): с какой дальности его видно и тратит ли ЗРК на него ракету.
+     *
+     * @param visibility доля дальности радара, с которой снаряд виден: 1 — со всей, 0.15 — малозаметный B-2 только
+     *                   вблизи; крылатую ракету на бреющем и мелкий «Ланцет» радар берёт ближе шахеда
+     * @param intercept  ЗРК тратит на него ракету-перехватчик: шахед, ракета, «Ланцет», B-2. МБР перехватчику не догнать
+     *                   (25 блоков/тик на разгоне), неуправляемый снаряд «Града» не стоит ракеты, падающая бомба — поздно
+     */
+    public record Signature(double visibility, boolean intercept) {}
 
     /**
      * Геометрия атаки управляемого снаряда. Эти числа не выводятся из скорости и поворота одной формулой: они
@@ -244,7 +255,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(() -> AirstrikeConfig.SERVER.droneFlightTime, 300, 0, 0, 40, 30_000), LauncherRack.DRONE, Blast.DRONE, 50, false, 0.6f,
             new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 256, 1.83, 12, 900 * 2.1, 4.3,
                     new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
-                    ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE),
+                    ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE, new Signature(1.0, true)),
             null);
 
     /**
@@ -259,7 +270,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(() -> AirstrikeConfig.SERVER.missileFlightTime, 500, 0, 0, 120, 30_000), LauncherRack.MISSILE, Blast.MISSILE, 450, false, 0.5f,
             new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 256, 2.96, 8, 700 * 4.0, 6.5,
                     new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
-                    ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE),
+                    ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE, new Signature(0.7, true)),
             null);
 
     /**
@@ -270,10 +281,10 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.BOMBER,
             new Route(() -> AirstrikeConfig.SERVER.bomberFlightTime, 85, 0, 0, 0, 0), null, Blast.NONE, 0, true, 0.5f,
             new Airframe(() -> ModEntities.BOMBER.get(), 12, 12, 1.0, 1.0, 170, 30, 0, 8.5, 0, 120 * 12, 0, null, 0, Attack.NONE,
-                    ph -> Hearing.JET),
+                    ph -> Hearing.JET, new Signature(0.15, true)),
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, 0, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
                     BombDrop.REACH_PAD, null, 0, Attack.NONE,
-                    ph -> Hearing.ENGINE));
+                    ph -> Hearing.ENGINE, new Signature(0.1, false)));
 
     /**
      * МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. Сила
@@ -284,7 +295,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             () -> AirstrikeConfig.SERVER.bunkerPower, Launch.ICBM,
             new Route(null, 0, 0, 0, 0, 0), null, Blast.NONE, 0, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
-                    ph -> ph.boosterLit() ? Hearing.ICBM : 0),
+                    ph -> ph.boosterLit() ? Hearing.ICBM : 0, new Signature(1.0, false)),
             null);
 
     /**
@@ -296,7 +307,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             () -> AirstrikeConfig.SERVER.rocketPower, Launch.ROCKET,
             new Route(null, 0, 600, 0.01, 0, 0), LauncherRack.ROCKET, Blast.ROCKET, 6.4, false, 0.5f,
             new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 0, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
-                    ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR),
+                    ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR, new Signature(1.0, false)),
             null);
 
     /**
@@ -310,6 +321,6 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(null, 0, 500, 0, 32, 15_000), LauncherRack.LOITER, Blast.DRONE, 3, false, 0.5f,
             new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 35, 1.3, 4, 2400 * 1.6, 3.0,
                     new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
-                    ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE),
+                    ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE, new Signature(0.5, true)),
             null);
 }
