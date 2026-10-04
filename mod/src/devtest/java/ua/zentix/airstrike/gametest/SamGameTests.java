@@ -411,10 +411,19 @@ public final class SamGameTests {
         });
     }
 
-    /** Поставить ЗРК (хозяин — как будто его поставил этот игрок) и положить в запас ракеты. */
+    /**
+     * Поставить ЗРК (хозяин — как будто его поставил этот игрок) и положить в запас ракеты. После проверки ЗРК убирается
+     * без выпадения: площадки старых проверок стоят, и заряженный ЗРК у соседней площадки сбивал бы снаряды чужих проверок.
+     */
     private static SamBlockEntity sam(GameTestHelper h, BlockPos at, @Nullable UUID owner, int missiles) {
         h.setBlock(at, ModBlocks.SAM.get());
         SamBlockEntity be = h.getBlockEntity(at);
+        BlockPos abs = h.absolutePos(at);
+        StrikeGameTests.afterTest(h, () -> {
+            // без блок-сущности onRemove нечего ронять
+            h.getLevel().removeBlockEntity(abs);
+            h.getLevel().setBlock(abs, Blocks.AIR.defaultBlockState(), 3);
+        });
         be.setOwner(owner);
         if (missiles > 0) h.assertTrue(be.load(new ItemStack(ModItems.INTERCEPTOR.get(), missiles)).isEmpty(), "ракеты не вошли в запас");
         return be;
