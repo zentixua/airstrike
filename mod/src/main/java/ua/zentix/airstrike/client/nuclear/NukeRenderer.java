@@ -62,15 +62,16 @@ public final class NukeRenderer {
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
         float far = mc.gameRenderer.getDepthFar() * 0.97f;
 
-        FarDraw.begin(e);
+        Vec3 eye = FarDraw.eye(e);
+        FarDraw.begin(e, eye);
         try {
-            collect(level, camera, partial, far);
-            drawSkyGlow(camera, partial, far);
-            drawFireballs(camera, partial, far);
+            collect(level, eye, partial, far);
+            drawSkyGlow(eye, partial, far);
+            drawFireballs(camera, eye, partial, far);
             drawQuads(camera, QUADS);
             drawGlow(camera, QUADS);
-            drawReentry(level, camera, partial, far);
-            drawBlackRain(level, camera, partial);
+            drawReentry(level, camera, eye, partial, far);
+            drawBlackRain(level, eye, partial);
         } finally {
             FarDraw.end();
         }
@@ -78,10 +79,9 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- гриб
 
-    /** Все клубы всех подрывов за кадр (дальние — сжатые), отсортированные от дальних к ближним. */
-    private static void collect(ClientLevel level, Camera camera, float partial, float far) {
+    /** Все клубы всех подрывов за кадр (дальние — сжатые) от глаза cam, отсортированные от дальних к ближним. */
+    private static void collect(ClientLevel level, Vec3 cam, float partial, float far) {
         QUADS.clear();
-        Vec3 cam = camera.getPosition();
         float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
         float[] fog = RenderSystem.getShaderFogColor();
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
@@ -134,8 +134,7 @@ public final class NukeRenderer {
      * Янтарное небо после вспышки ({@link NukeSky#amber}): купол у дальней плоскости — мир ближе закрывает его,
      * поэтому окрашено только небо, сильнее всего в сторону подрыва.
      */
-    private static void drawSkyGlow(Camera camera, float partial, float far) {
-        Vec3 cam = camera.getPosition();
+    private static void drawSkyGlow(Vec3 cam, float partial, float far) {
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             float amber = NukeSky.amber(a, cam, partial);
             if (amber <= 0.004f) continue;
@@ -159,8 +158,7 @@ public final class NukeRenderer {
      * складывается с ним (жёлтое поверх серо-голубого неба давало лаймовый диск), к центру — бело-жёлтый накал,
      * к краю — оранжевее. Поверх — плазма и корона, складываются со светом; ореол вокруг — тёплый.
      */
-    private static void drawFireballs(Camera camera, float partial, float far) {
-        Vec3 cam = camera.getPosition();
+    private static void drawFireballs(Camera camera, Vec3 cam, float partial, float far) {
         for (ClientNuclear.Active a : ClientNuclear.detonations()) {
             Detonation d = a.d;
             double t = a.seconds(partial);
@@ -235,8 +233,7 @@ public final class NukeRenderer {
     // ---------------------------------------------------------------- вход боеголовки
 
     /** Последние 3 с перед подрывом: светящаяся черта с головой-звездой сверху вниз к цели. */
-    private static void drawReentry(ClientLevel level, Camera camera, float partial, float far) {
-        Vec3 cam = camera.getPosition();
+    private static void drawReentry(ClientLevel level, Camera camera, Vec3 cam, float partial, float far) {
         double now = level.getGameTime() + partial;
         for (S2C.NukeWarning w : ClientNuclear.warnings()) {
             double left = w.detonateTime() - now;
@@ -276,10 +273,9 @@ public final class NukeRenderer {
     // ---------------------------------------------------------------- чёрный дождь
 
     /** Тёмные тяжёлые капли вокруг игрока в следе осадков: как ванильный дождь, только свой и местный. */
-    private static void drawBlackRain(ClientLevel level, Camera camera, float partial) {
+    private static void drawBlackRain(ClientLevel level, Vec3 cam, float partial) {
         float k = NukeSky.blackRain();
         if (k <= 0) return;
-        Vec3 cam = camera.getPosition();
         int cx = Mth.floor(cam.x), cz = Mth.floor(cam.z);
         int radius = 10;
         float time = (level.getGameTime() % 100_000) + partial;

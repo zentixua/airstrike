@@ -28,6 +28,7 @@ import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 import ua.zentix.airstrike.util.Local;
@@ -96,6 +97,11 @@ public final class ProjectileCamera {
     /** Снаряд, глазами которого, как знает сервер, мы смотрим ({@link C2S.Watch}). */
     @Nullable
     private static UUID watching;
+    /** Поворот камеры, о котором знает сервер, и когда его послали (время мира клиента). */
+    private static float watchYaw, watchPitch;
+    private static long watchSent;
+    /** Поворот камеры больше стольких градусов сервер узнаёт заново. */
+    private static final float WATCH_TURN = 2;
     /** Снаряды, уже виденные (для автокамеры: новый снаряд — сразу на пуск). */
     private static final java.util.Set<UUID> SEEN = new java.util.HashSet<>();
 
@@ -438,10 +444,19 @@ public final class ProjectileCamera {
 
     /** Глаза камеры — серверу: пока смотрим глазами снаряда, его камера замечает чужих ({@code Sightings}). */
     private static void syncWatch(Minecraft mc) {
+        if (mc.getConnection() == null || mc.player == null || mc.level == null) return;
         UUID now = isViewing() && mc.getCameraEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
-        if (Objects.equals(now, watching) || mc.getConnection() == null) return;
+        // камера смотрит по повороту игрока (angles), а его поворотов, пока он в камере, клиент серверу не шлёт
+        float yaw = mc.player.getYRot(), pitch = mc.player.getXRot();
+        long time = mc.level.getGameTime();
+        boolean turned = now != null && time - watchSent >= Sightings.SCAN_PERIOD
+                && (Math.abs(Mth.wrapDegrees(yaw - watchYaw)) > WATCH_TURN || Math.abs(pitch - watchPitch) > WATCH_TURN);
+        if (Objects.equals(now, watching) && !turned) return;
         watching = now;
-        PacketDistributor.sendToServer(new C2S.Watch(Optional.ofNullable(now)));
+        watchYaw = yaw;
+        watchPitch = pitch;
+        watchSent = time;
+        PacketDistributor.sendToServer(new C2S.Watch(Optional.ofNullable(now), yaw, pitch));
     }
 
     /** Мир клиента уходит (смена измерения): съёмочная камера в нём больше не нужна и не должна его держать. */

@@ -139,7 +139,8 @@ public final class AirstrikeConfig {
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
             mapPlayers = b.comment("Карта пульта показывает игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей):",
-                            "своих по команде /team — всегда, чужих — там, где их видели последний раз (при sight_rules), иначе всех.")
+                            "своих по команде /team — всегда, чужих — там, где их видели последний раз (при sight_rules), иначе всех.",
+                            "Выключено — карта их не рисует, а список целей пульта в режиме «игрок» остаётся.")
                     .translation("airstrike.config.map_players").define("map_players", true);
             sightRules = b.comment("Разведка: по чужому игроку и аппарату пульт бьёт, только если его видит или недавно видела (sight_memory)",
                             "сторона стрелявшего — он сам или его команда /team, глазами или камерой своего снаряда; давно не виденного —",

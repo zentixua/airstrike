@@ -260,12 +260,14 @@ public final class S2C {
     }
 
     /**
-     * Метки для карты наведения — ответ на {@link C2S.MapPlayers}: свои игроки и замеченное стороной спросившего в его
-     * измерении и не дальше {@code map_range} (кто попадает в список — {@code ServerActions.mapPlayers}).
+     * Метки для карты наведения и целей пульта — ответ на {@link C2S.MapPlayers}: свои игроки и замеченное стороной
+     * спросившего в его измерении и не дальше {@code map_range} (кто попадает в список — {@code ServerActions.mapPlayers});
+     * {@code shown} — карта их рисует ({@code map_players}), иначе они только цели пульта.
      */
-    public record MapPlayers(List<MapPlayer> players) implements CustomPacketPayload {
+    public record MapPlayers(List<MapPlayer> players, boolean shown) implements CustomPacketPayload {
         public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players"));
-        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = MapPlayer.CODEC.apply(ByteBufCodecs.list()).map(MapPlayers::new, MapPlayers::players);
+        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = StreamCodec.composite(
+                MapPlayer.CODEC.apply(ByteBufCodecs.list()), MapPlayers::players, ByteBufCodecs.BOOL, MapPlayers::shown, MapPlayers::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

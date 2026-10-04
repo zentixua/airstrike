@@ -32,6 +32,8 @@ public final class MapPlayers {
     }
 
     private static List<S2C.MapPlayer> players = List.of();
+    /** Карта рисует метки ({@code map_players}); иначе они только цели пульта. */
+    private static boolean shown;
     /** Измерение, в котором пришёл список: после смены измерения старый список — чужие координаты. */
     @Nullable
     private static ResourceKey<Level> dimension;
@@ -46,12 +48,13 @@ public final class MapPlayers {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) return;
         players = List.copyOf(p.players());
+        shown = p.shown();
         dimension = level.dimension();
     }
 
-    /** Игроки в измерении {@code level} на момент кадра {@code partialTick}. */
+    /** Метки карты в измерении {@code level} на момент кадра {@code partialTick} (выключены в настройках мира — пусто). */
     public static List<Mark> marks(@Nullable ClientLevel level, float partialTick) {
-        if (level == null || !level.dimension().equals(dimension)) return List.of();
+        if (level == null || !shown || !level.dimension().equals(dimension)) return List.of();
         List<Mark> marks = new ArrayList<>(players.size());
         for (S2C.MapPlayer p : players) {
             Player seen = p.kind() == Sightings.Kind.PLAYER && p.age() == 0 ? level.getPlayerByUUID(p.id()) : null;
@@ -75,6 +78,7 @@ public final class MapPlayers {
 
     public static void reset() {
         players = List.of();
+        shown = false;
         dimension = null;
     }
 }

@@ -1,6 +1,7 @@
 package ua.zentix.airstrike.registry;
 
 import com.mojang.serialization.Codec;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
@@ -108,9 +109,12 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<Sightings>> SIGHTINGS = REGISTER.register("sightings",
             () -> AttachmentType.builder(Sightings::new).build());
 
-    /** Игрок: снаряд, глазами которого он смотрит ({@link Sightings#watch}); нет данных — смотрит своими; не сохраняется. */
-    public static final Supplier<AttachmentType<UUID>> WATCHING = REGISTER.register("watching",
-            () -> AttachmentType.<UUID>builder(() -> new UUID(0, 0)).build());
+    /**
+     * Игрок: снаряд, глазами которого он смотрит, и взгляд его камеры ({@link Sightings#watch}); нет данных — смотрит
+     * своими; не сохраняется.
+     */
+    public static final Supplier<AttachmentType<Sightings.Watching>> WATCHING = REGISTER.register("watching",
+            () -> AttachmentType.builder(() -> new Sightings.Watching(new UUID(0, 0), Vec3.ZERO)).build());
 
     /** Мир: зенитные ракеты в полёте, их цели и объявленные тревоги ({@link DefenseWorld}); не сохраняется. */
     public static final Supplier<AttachmentType<DefenseWorld>> DEFENSE_WORLD = REGISTER.register("defense_world",

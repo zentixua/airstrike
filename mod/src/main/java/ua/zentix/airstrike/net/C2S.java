@@ -119,12 +119,16 @@ public final class C2S {
     }
 
     /**
-     * Игрок смотрит глазами своего снаряда {@code projectile} (пусто — вернулся к себе): его камера замечает чужих
-     * ({@code Sightings}). Клиент шлёт при каждой смене.
+     * Игрок смотрит глазами своего снаряда {@code projectile} (пусто — вернулся к себе), камера повёрнута на {@code yaw},
+     * {@code pitch}: её взгляд замечает чужих ({@code Sightings}). Пока игрок смотрит в камеру, свой поворот клиент
+     * серверу не шлёт (у ванили его шлёт только игрок, который сам камера), поэтому взгляд камеры — здесь. Клиент шлёт
+     * при смене снаряда и при повороте камеры, не чаще раза в {@code Sightings.SCAN_PERIOD} тиков.
      */
-    public record Watch(Optional<UUID> projectile) implements CustomPacketPayload {
+    public record Watch(Optional<UUID> projectile, float yaw, float pitch) implements CustomPacketPayload {
         public static final Type<Watch> TYPE = new Type<>(Airstrike.id("watch"));
-        public static final StreamCodec<ByteBuf, Watch> CODEC = UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional).map(Watch::new, Watch::projectile);
+        public static final StreamCodec<ByteBuf, Watch> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional), Watch::projectile, ByteBufCodecs.FLOAT, Watch::yaw,
+                ByteBufCodecs.FLOAT, Watch::pitch, Watch::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
