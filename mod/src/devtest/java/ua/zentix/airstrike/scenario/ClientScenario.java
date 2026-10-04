@@ -134,6 +134,10 @@ public final class ClientScenario {
             new StrikeProfile(); // шаги и замер тиков сервера — свои (StrikeProfile); мир — копия игрока (onScreen)
             return;
         }
+        if ("guide".equals(scenario)) {
+            new GuideShots(); // кадры руководства игрока (docs/guide, tools/guide_images.sh)
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;
@@ -188,7 +192,7 @@ public final class ClientScenario {
         rules.getRule(GameRules.RULE_WEATHER_CYCLE).set(false, null);
         rules.getRule(GameRules.RULE_DOMOBSPAWNING).set(false, null);
         LevelSettings settings = new LevelSettings(WORLD, GameType.CREATIVE, false, Difficulty.PEACEFUL, true, rules, WorldDataConfiguration.DEFAULT);
-        mc.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(20260927L, "trailer".equals(System.getProperty("airstrike.scenario")), false),
+        mc.createWorldOpenFlows().createFreshLevel(WORLD, settings, new WorldOptions(20260927L, List.of("trailer", "guide").contains(System.getProperty("airstrike.scenario")), false),
                 WorldPresets::createNormalWorldDimensions, parent);
     }
 

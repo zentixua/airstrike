@@ -81,6 +81,8 @@ neoForge {
             if (System.getenv('AIRSTRIKE_PROFILE_GAP')) systemProperty 'airstrike.profile.gap', System.getenv('AIRSTRIKE_PROFILE_GAP')
             // сценарий commands в облаке без prod_client.py: шаги через «;», как --prop airstrike.commands
             if (System.getenv('AIRSTRIKE_COMMANDS')) systemProperty 'airstrike.commands', System.getenv('AIRSTRIKE_COMMANDS')
+            // сценарий guide: только эти разделы (AIRSTRIKE_GUIDE=recipes,map — список в GuideShots)
+            if (System.getenv('AIRSTRIKE_GUIDE')) systemProperty 'airstrike.guide', System.getenv('AIRSTRIKE_GUIDE')
             // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
             def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
             programArguments.addAll '--width', size[0], '--height', size[1]
