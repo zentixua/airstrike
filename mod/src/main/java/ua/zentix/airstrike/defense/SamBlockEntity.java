@@ -236,7 +236,7 @@ public class SamBlockEntity extends BlockEntity {
             if (blips.size() >= S2C.RadarScope.MAX_BLIPS) break;
             Vec3 d = t.position().subtract(antenna);
             int flags = (t.hostile() ? S2C.Blip.HOSTILE : 0) | (t.engageable() ? S2C.Blip.ENGAGEABLE : 0) | (world.engaged(t.id()) ? S2C.Blip.ENGAGED : 0);
-            blips.add(new S2C.Blip((float) d.x, (float) d.z, (float) d.y, t.projectile().getYRot(), t.projectile().weapon().id(), flags));
+            blips.add(new S2C.Blip((float) d.x, (float) d.z, t.projectile().getYRot(), t.projectile().weapon().id(), flags));
         }
         AirstrikeConfig.Server cfg = AirstrikeConfig.SERVER;
         S2C.RadarScope packet = new S2C.RadarScope(antenna, cfg.samRadarRange.get(), cfg.samEngageRange.get(), ready, stockCount(), blips);

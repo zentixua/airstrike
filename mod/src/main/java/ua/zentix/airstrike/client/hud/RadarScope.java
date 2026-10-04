@@ -12,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.strike.WeaponType;
 
 /**
  * Экран радара ЗРК в левом верхнем углу — у своих рядом с ЗРК ({@link S2C.RadarScope}, раз в осмотр радара): круг
@@ -77,10 +78,17 @@ public final class RadarScope {
             // хвост — откуда летит (курс Minecraft: 0° — на +Z, вниз по экрану)
             float yaw = b.yaw() * Mth.DEG_TO_RAD;
             HudDraw.line(g, x, y, x + Mth.sin(yaw) * 4, y - Mth.cos(yaw) * 4, 1, color & 0x80FFFFFF);
-            HudDraw.disc(g, x, y, b.is(S2C.Blip.ENGAGEABLE) ? 2.2f : 1.6f, color);
+            HudDraw.disc(g, x, y, size(b.weapon()) * (b.is(S2C.Blip.ENGAGEABLE) ? 1.35f : 1f), color);
         }
         Component line = Component.translatable("airstrike.sam.scope", String.valueOf(s.ready()), String.valueOf(s.stock()), String.valueOf(hostile))
                 .withStyle(hostile > 0 ? ChatFormatting.RED : ChatFormatting.GREEN);
         g.drawString(font, line, MARGIN, cy + RADIUS + 4, 0xFFFFFFFF);
+    }
+
+    /** Радиус отметки, px: по длине корпуса оружия — «Ланцет» и шахед мелкие, ракета и МБР крупнее, B-2 — крупнее всех. */
+    static float size(int weapon) {
+        WeaponType[] all = WeaponType.values();
+        if (weapon < 0 || weapon >= all.length) return 1.6f;
+        return Mth.clamp((float) (1.1 + 0.25 * all[weapon].spec().airframe().noseLength()), 1.4f, 3.2f);
     }
 }

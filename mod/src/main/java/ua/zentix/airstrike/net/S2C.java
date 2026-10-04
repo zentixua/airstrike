@@ -451,10 +451,11 @@ public final class S2C {
     }
 
     /**
-     * Цель на экране радара: сдвиг от антенны по x, z и высоте, блоков, курс (градусы, как у сущности), вид оружия
-     * ({@link ua.zentix.airstrike.strike.WeaponType#id()}) и признаки {@link #HOSTILE}, {@link #ENGAGEABLE}, {@link #ENGAGED}.
+     * Цель на экране радара: сдвиг от антенны по x и z, блоков, курс (градусы, как у сущности), вид оружия
+     * ({@link ua.zentix.airstrike.strike.WeaponType#id()}: крупный корпус — крупнее отметка) и признаки {@link #HOSTILE},
+     * {@link #ENGAGEABLE}, {@link #ENGAGED}.
      */
-    public record Blip(float dx, float dz, float dy, float yaw, int weapon, int flags) {
+    public record Blip(float dx, float dz, float yaw, int weapon, int flags) {
         /** Чужая. */
         public static final int HOSTILE = 1;
         /** В дальности огня и стоит ракеты. */
@@ -462,7 +463,7 @@ public final class S2C {
         /** За ней идёт ракета. */
         public static final int ENGAGED = 4;
         public static final StreamCodec<ByteBuf, Blip> CODEC = StreamCodec.composite(
-                ByteBufCodecs.FLOAT, Blip::dx, ByteBufCodecs.FLOAT, Blip::dz, ByteBufCodecs.FLOAT, Blip::dy, ByteBufCodecs.FLOAT, Blip::yaw,
+                ByteBufCodecs.FLOAT, Blip::dx, ByteBufCodecs.FLOAT, Blip::dz, ByteBufCodecs.FLOAT, Blip::yaw,
                 ByteBufCodecs.VAR_INT, Blip::weapon, ByteBufCodecs.VAR_INT, Blip::flags, Blip::new);
 
         public boolean is(int flag) {
