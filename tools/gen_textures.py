@@ -15,6 +15,7 @@
   mob_effect/radiation_sickness, mob_effect/burns — значки эффектов 18×18;
   block/trinitite — оплавленный зелёный песок 16×16, бесшовный;
   block/substation_* — трансформаторная подстанция 16×16 (бак, фасад с табличкой, радиатор, изолятор, плита) и обгоревшие;
+  block/fixed_launcher_* — стационарная пусковая 16×16 (тумба с люком, верх с кольцом поворотного круга, низ);
   block/sam_* — ЗРК 16×16 (шасси с жалюзи, борт контейнеров, торец с крышками четырёх труб, верх, решётка радара);
   item/interceptor — зенитная ракета 16×16;
   nuke/puffs — атлас 4×2 клубов гриба по 64×64 (почти серые: цвет даёт рендерер), nuke/plasma — бесшовная плазма шара 128×128,
@@ -608,6 +609,57 @@ def sam():
     paint_with(INTERCEPTOR, INTERCEPTOR_PALETTE, "item/interceptor")
 
 
+# ---------------------------------------------------------------- стационарная пусковая (последней: прежние не меняются)
+
+lrng = np.random.default_rng(17)
+
+
+def launcher_side(N=16):
+    """Тумба: защитная краска, люк обслуживания с петлями, жёлтая трафаретная полоса, кольцо круга сверху, грязь снизу."""
+    rgb = olive(amount=0.05) * 0.95
+    rgb[0:2] = OLIVE * 0.55
+    rgb[2] *= 1.15
+    rgb[5:13, 4] *= 0.6
+    rgb[5:13, 11] *= 0.6
+    rgb[5, 4:12] *= 0.6
+    rgb[12, 4:12] *= 0.6
+    rgb[7, 3] = rgb[10, 3] = OLIVE * 0.45
+    rgb[8:10, 10] = OLIVE * 0.4
+    rgb[3, 2:14] = (0.78, 0.66, 0.16)
+    for x in (1, 14):
+        for y in (4, 8, 12):
+            rgb[y, x] = OLIVE * 0.6
+    rgb[13:] *= np.linspace(0.95, 0.65, N - 13)[:, None, None]
+    rgb *= 1 + 0.04 * (lrng.random((N, N, 1)) - 0.5)
+    return np.clip(rgb, 0, 1)
+
+
+def launcher_top(N=16):
+    """Верх: опорное кольцо поворотного круга (тёмный обод с болтами) на плите."""
+    rgb = olive(amount=0.05)
+    yy, xx = np.mgrid[0:N, 0:N] + 0.5
+    r = np.hypot(xx - N / 2, yy - N / 2)
+    rgb[(r >= 5.2) & (r < 7.0)] = OLIVE * 0.5
+    rgb[(r >= 4.4) & (r < 5.2)] = OLIVE * 1.2
+    for a in np.arange(8) * np.pi / 4:
+        x, y = int(N / 2 + 6.1 * np.cos(a)), int(N / 2 + 6.1 * np.sin(a))
+        rgb[y, x] = OLIVE * 0.85
+    rgb[0] = rgb[-1] = OLIVE * 0.7
+    rgb[:, 0] = rgb[:, -1] = OLIVE * 0.7
+    return np.clip(rgb, 0, 1)
+
+
+def launcher_bottom(N=16):
+    """Низ: та же краска в тени."""
+    return np.clip(olive(amount=0.05) * 0.6, 0, 1)
+
+
+def launcher():
+    for name, f in (("side", launcher_side), ("top", launcher_top), ("bottom", launcher_bottom)):
+        rgb = f()
+        save(rgba(rgb, np.ones(rgb.shape[:2])), f"block/fixed_launcher_{name}")
+
+
 if __name__ == "__main__":
     paint(DESIGNATOR, "item/strike_designator")
     paint(GEIGER, "item/geiger_counter")
@@ -625,4 +677,5 @@ if __name__ == "__main__":
     save(flare(), "nuke/flare")
     substation()
     sam()
+    launcher()
     print("ok")

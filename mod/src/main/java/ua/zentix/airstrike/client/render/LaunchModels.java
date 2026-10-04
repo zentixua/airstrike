@@ -5,7 +5,7 @@ import net.minecraft.world.level.block.Blocks;
 /**
  * Модели пусковой — из блоков ({@link PartModel}): размеры в блоках,
  * нос (направление пуска) по +Z, +X — левый борт. Прицеп и пакет рисуются отдельно: пакет качается вокруг
- * поперечной оси (см. {@link ua.zentix.airstrike.entity.LauncherEntity#PIVOT_UP}) и в своей системе растёт вдоль +Z.
+ * поперечной оси (см. {@link ua.zentix.airstrike.entity.LauncherMount}) и в своей системе растёт вдоль +Z.
  */
 public final class LaunchModels {
     private LaunchModels() {}
@@ -46,6 +46,22 @@ public final class LaunchModels {
             }
         }
         return b.build();
+    }
+
+    /**
+     * Поворотный круг стационарной пусковой ({@link ua.zentix.airstrike.entity.LauncherMount#PAD}) на верху её блока:
+     * плита круга и две щеки с цапфами оси качания пакета (ось — на 0.25 над верхом блока, над его серединой). Начало —
+     * середина низа блока; поворачивается с пакетом.
+     */
+    public static final PartModel PAD = pad();
+
+    private static PartModel pad() {
+        return PartModel.builder()
+                .block(Blocks.GRAY_CONCRETE, -0.7f, 1.0f, -0.7f, 1.4f, 0.08f, 1.4f)
+                .block(Blocks.GREEN_TERRACOTTA, -0.62f, 1.08f, -0.25f, 0.12f, 0.3f, 0.5f)
+                .block(Blocks.GREEN_TERRACOTTA, 0.5f, 1.08f, -0.25f, 0.12f, 0.3f, 0.5f)
+                .block(Blocks.IRON_BLOCK, -0.66f, 1.2f, -0.06f, 1.32f, 0.1f, 0.12f)
+                .build();
     }
 
     /**

@@ -17,6 +17,7 @@ import ua.zentix.airstrike.grid.block.UnlitLampBlock;
 import ua.zentix.airstrike.grid.block.UnlitLanternBlock;
 import ua.zentix.airstrike.grid.block.UnlitLightBlock;
 import ua.zentix.airstrike.grid.block.UnlitPillarBlock;
+import ua.zentix.airstrike.launcher.FixedLauncherBlock;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,6 +54,17 @@ public final class ModBlocks {
                     .requiresCorrectToolForDrops()
                     .sound(SoundType.METAL)
                     .noOcclusion()));
+
+    /**
+     * Стационарная пусковая установка ({@link FixedLauncherBlock}): пуск по задаче от сигнала редстоуна. Прочность —
+     * как у ЗРК.
+     */
+    public static final DeferredBlock<FixedLauncherBlock> FIXED_LAUNCHER = REGISTER.register("fixed_launcher", () -> new FixedLauncherBlock(
+            BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GREEN)
+                    .strength(5.0f, 6.0f)
+                    .requiresCorrectToolForDrops()
+                    .sound(SoundType.METAL)));
 
     /** Лампа сети и её обесточенный двойник. */
     public record UnlitPair(Supplier<Block> lit, DeferredBlock<? extends Block> unlit) {}

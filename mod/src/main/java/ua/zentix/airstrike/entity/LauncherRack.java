@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.entity;
 
+import ua.zentix.airstrike.strike.WeaponType;
+
 /**
  * Пакет мобильной пусковой ({@link LauncherEntity}) — часть паспорта оружия ({@code WeaponSpec#rack}): угол
  * возвышения, число ячеек, темп пусков, сколько снаряд ждёт и занимает ячейку, где ячейки на пакете.
@@ -34,6 +36,15 @@ public enum LauncherRack {
         this.busyTicks = busyTicks;
     }
 
+    /**
+     * Пакет оружия {@code weapon} (паспорт, {@code WeaponSpec#rack}); у оружия без пакета (B-2, МБР — такой пусковой не
+     * бывает, разве что из чужого сохранения) — пакет шахедов.
+     */
+    public static LauncherRack of(WeaponType weapon) {
+        LauncherRack rack = weapon.spec().rack();
+        return rack != null ? rack : DRONE;
+    }
+
     public float elevation() {
         return elevation;
     }
@@ -55,7 +66,7 @@ public enum LauncherRack {
     }
 
     /**
-     * Ячейка на пакете в его осях от оси качания ({@link LauncherEntity#PIVOT_UP}, {@link LauncherEntity#PIVOT_BACK}):
+     * Ячейка на пакете в его осях от оси качания (её место — у опоры, {@link LauncherMount}):
      * {влево, вверх, вперёд}, блоков — центр снаряда на направляющей.
      */
     double[] slotOffset(int slot) {

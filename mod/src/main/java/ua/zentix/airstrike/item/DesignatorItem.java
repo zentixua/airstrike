@@ -12,6 +12,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.level.Level;
+import ua.zentix.airstrike.launcher.LauncherLinks;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.strike.Loadout;
@@ -20,7 +21,8 @@ import java.util.List;
 
 /**
  * Пульт наведения. ПКМ (держать) — бинокль; колесо — оружие; ЛКМ — пуск по точке под прицелом;
- * Shift+ПКМ — экран пульта (открывает клиент через ClientHooks.openRemote). Пуск всегда проверяет сервер.
+ * Shift+ПКМ — экран пульта (открывает клиент через ClientHooks.openRemote); ПКМ по стационарной пусковой — привязать
+ * её ({@link LauncherLinks}): тогда «Огонь» ставит задачу привязанным. Пуск всегда проверяет сервер.
  */
 public class DesignatorItem extends Item {
     public DesignatorItem(Properties properties) {
@@ -67,5 +69,8 @@ public class DesignatorItem extends Item {
         tooltip.add(Component.translatable("item.airstrike.strike_designator.hint.scope").withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("item.airstrike.strike_designator.hint.fire").withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("item.airstrike.strike_designator.hint.menu").withStyle(ChatFormatting.GRAY));
+        int linked = LauncherLinks.of(stack).size();
+        tooltip.add(linked > 0 ? Component.translatable("item.airstrike.strike_designator.launchers", linked).withStyle(ChatFormatting.GOLD)
+                : Component.translatable("item.airstrike.strike_designator.hint.link").withStyle(ChatFormatting.GRAY));
     }
 }

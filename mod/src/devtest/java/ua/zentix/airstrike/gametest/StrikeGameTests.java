@@ -70,6 +70,7 @@ import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.SalvoData;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.FlightLog;
+import ua.zentix.airstrike.strike.LaunchOrigin;
 import ua.zentix.airstrike.strike.LaunchSite;
 import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.TargetMode;
@@ -956,13 +957,13 @@ public final class StrikeGameTests {
         // пуска, ни у маршрута; те же точки в границах мира проходят
         Vec3 beyondBorder = new Vec3(level.getWorldBorder().getMaxX() + 100, 0, from.z);
         for (Vec3 bad : List.of(new Vec3(Double.NaN, 0, from.z), new Vec3(from.x, 0, Double.POSITIVE_INFINITY), beyondBorder)) {
-            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, bad, Waypoints.NONE, point)),
+            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, new LaunchOrigin.Place(bad), Waypoints.NONE, point)),
                     "место пуска " + bad + " не названо вне мира");
             // путь через такую точку и так длиннее дальности: отказ должен быть именно «вне мира»
-            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, from, new Waypoints(List.of(a, bad)), point)),
+            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, new LaunchOrigin.Place(from), new Waypoints(List.of(a, bad)), point)),
                     "точка маршрута " + bad + " не названа вне мира");
         }
-        h.assertTrue(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, from, new Waypoints(List.of(a, b)), point) == null,
+        h.assertTrue(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, new LaunchOrigin.Place(from), new Waypoints(List.of(a, b)), point) == null,
                 "место пуска и маршрут в границах мира не приняты");
         h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(beyondBorder)) == 0, "команда приняла место пуска за границей мира");
 
