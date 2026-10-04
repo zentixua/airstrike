@@ -238,7 +238,7 @@ public final class StrikeGameTests {
         Vec3 point = top(h, new BlockPos(16, 3, 700));
         level.getChunk(Mth.floor(point.x) >> 4, Mth.floor(point.z) >> 4);
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
-        LauncherEntity launcher = LauncherEntity.create(level, site, 0, WeaponType.MISSILE, null);
+        LauncherEntity launcher = LauncherEntity.create(level, site, 0, WeaponType.MISSILE, null, false);
         level.addFreshEntity(launcher);
         int ready = LauncherEntity.DEPLOY_TICKS + 10;
         CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
@@ -487,7 +487,7 @@ public final class StrikeGameTests {
     @GameTest(template = "runway", timeoutTicks = 900, batch = "launcher", skyAccess = true)
     public static void droneLaunchesFromLauncher(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.DRONE, null);
+        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.DRONE, null, false);
         level.addFreshEntity(launcher);
         Vec3 point = top(h, RUNWAY_TARGET);
         int ready = LauncherEntity.DEPLOY_TICKS + 10;
@@ -537,7 +537,7 @@ public final class StrikeGameTests {
         for (int x = 4; x <= 28; x++) for (int y = 4; y <= 40; y++) h.setBlock(new BlockPos(x, y, 40), Blocks.STONE);
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
         h.assertFalse(LaunchSite.clearAhead(level, site, 0, weapon, top(h, RUNWAY_TARGET)), "стена по курсу не видна");
-        LauncherEntity launcher = LauncherEntity.create(level, site, 0, weapon, null);
+        LauncherEntity launcher = LauncherEntity.create(level, site, 0, weapon, null, false);
         level.addFreshEntity(launcher);
         Vec3 point = top(h, RUNWAY_TARGET);
         int ready = LauncherEntity.DEPLOY_TICKS + 10;
@@ -860,7 +860,7 @@ public final class StrikeGameTests {
         h.assertTrue(flat(far.position(), entry) < 1e-6 && far.route().points().equals(via.points()),
                 "заход издалека не перед первой точкой: " + far.position() + " против " + entry + ", маршрут " + far.route().points());
         h.assertTrue(far.position().y > point.y, "заход издалека ниже цели: " + far.position().y);
-        StrikeService.Result loiter = StrikeService.launch(level, WeaponType.LOITER, new Target.Point(point), point, 0, null, false, Loadout.Nuke.DEFAULT, via);
+        StrikeService.Result loiter = StrikeService.launch(level, WeaponType.LOITER, new Target.Point(point), point, 0, null, false, Loadout.Nuke.DEFAULT, via, null);
         StrikeProjectile lancet = VirtualFlights.get(level).flights().stream().filter(f -> f.weapon() == WeaponType.LOITER && f.aimPoint().distanceTo(point) < 1)
                 .findFirst().orElse(null);
         h.assertTrue(loiter.ok() && lancet != null && lancet.route() != null && lancet.route().points().equals(via.points()), "«Ланцет» без маршрута: " + lancet);
@@ -871,7 +871,7 @@ public final class StrikeGameTests {
         h.assertTrue(far.retarget(new Target.Point(other), other) && far.route().finished(), "перенацеливание не бросило точки маршрута");
         VirtualFlights.get(level).clear(level, f -> f == far || f == lancet);
         // залп помнит маршрут
-        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(point), point, 0, null, Loadout.Nuke.DEFAULT, via);
+        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(point), point, 0, null, Loadout.Nuke.DEFAULT, via, null);
         CompoundTag saved = SalvoData.get(level).save(new CompoundTag(), level.registryAccess());
         SalvoData.get(level).clear();
         ListTag salvos = saved.getList("salvos", Tag.TAG_COMPOUND);
@@ -879,6 +879,106 @@ public final class StrikeGameTests {
         Waypoints kept = Waypoints.CODEC.parse(NbtOps.INSTANCE, salvo.get("route")).result().orElse(Waypoints.NONE);
         h.assertTrue(kept.equals(via), "залп сохранил маршрут " + kept.points() + " вместо " + via.points());
         h.succeed();
+    }
+
+    /**
+     * Место пуска и маршрут из команды ({@code /airstrike salvo … from x z via x z …}) от консоли: пусковая встаёт на
+     * самом месте пуска (у консоли без владельца) и смотрит на первую точку, путь — ворота взведения и точки; второй
+     * приказ с того же места — с той же пусковой. Место пуска в неготовом чанке — шахед и РСЗО стартуют из него вне мира.
+     * Точек у B-2 команда не разбирает, путь длиннее дальности не принимает. Пусковые на местах пуска лишними у владельца
+     * не считаются, а залп помнит место пуска в сохранении.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_from", skyAccess = true)
+    public static void commandLaunchPointAndRoute(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        Vec3 from = h.absoluteVec(new Vec3(16.5, 0, 60.5)), a = h.absoluteVec(new Vec3(26, 0, 170)), b = h.absoluteVec(new Vec3(6, 0, 190));
+        String at = String.format(Locale.ROOT, " at %.2f %.2f %.2f", point.x, point.y, point.z);
+        String via = String.format(Locale.ROOT, " via %.2f %.2f %.2f %.2f", a.x, a.z, b.x, b.z);
+        java.util.function.Predicate<LauncherEntity> placed = l -> l.isAlive() && flat(l.position(), from) < PLACE_SLACK;
+        // пусковые и снаряды на них — до пуска: на полосе после теста ничего не взлетает
+        StrikeGameTests.afterTest(h, () -> {
+            level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+            level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+        });
+
+        h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(from) + via) == 1, "приказ с места пуска не принят");
+        List<LauncherEntity> launchers = level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive);
+        h.assertTrue(launchers.size() == 1 && placed.test(launchers.getFirst()), "пусковая не на месте пуска " + from + ": "
+                + launchers.stream().map(Entity::position).toList());
+        LauncherEntity launcher = launchers.getFirst();
+        h.assertTrue(launcher.ordered() && launcher.ownerId() == null, "пусковая консоли: на месте пуска " + launcher.ordered() + ", владелец " + launcher.ownerId());
+        float toFirst = (float) Math.toDegrees(Math.atan2(-(a.x - launcher.getX()), a.z - launcher.getZ()));
+        h.assertTrue(Math.abs(Mth.wrapDegrees(launcher.getYRot() - toFirst)) < 3, "пусковая не смотрит на первую точку: курс " + launcher.getYRot() + ", на точку " + toFirst);
+        List<StrikeProjectile> onRail = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64), launcher::serves);
+        h.assertTrue(onRail.size() == 1, "на пусковой не один шахед: " + onRail.size());
+        List<Vec3> path = onRail.getFirst().route().points();
+        h.assertTrue(path.size() == 3 && flat(path.get(1), a) < 0.01 && flat(path.get(2), b) < 0.01, "маршрут не ворота → точки: " + path);
+        h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(from)) == 1, "второй приказ с места пуска не принят");
+        h.assertTrue(level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive).size() == 1
+                && level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64), launcher::serves).size() == 2,
+                "второй приказ с того же места — не с той же пусковой");
+
+        // место пуска далеко, чанк не готов: старт из него вне мира (у РСЗО точка падения — с рассеиванием)
+        Vec3 far = from.add(0, 0, 20_000);
+        java.util.function.Predicate<StrikeProjectile> fromFar = f -> flat(f.position(), far) < 1e-6;
+        h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(far)) == 1, "приказ с далёкого места пуска не принят");
+        h.assertTrue(command(h, "airstrike salvo rocket 1 0" + at + fromArg(far)) == 1, "залп РСЗО с далёкого места пуска не принят");
+        List<StrikeProjectile> outside = VirtualFlights.get(level).flights().stream().filter(fromFar).toList();
+        VirtualFlights.get(level).clear(level, fromFar);
+        h.assertTrue(outside.stream().map(StrikeProjectile::weapon).sorted().toList().equals(List.of(WeaponType.DRONE, WeaponType.ROCKET)),
+                "вне мира с места пуска стартовали не шахед и РСЗО: " + outside.stream().map(StrikeProjectile::weapon).toList());
+        StrikeProjectile drone = outside.stream().filter(f -> f.weapon() == WeaponType.DRONE).findFirst().orElseThrow();
+        h.assertTrue(Math.abs(drone.getY() - point.y - WeaponType.DRONE.spec().airframe().cruiseHeight()) < 1e-6, "шахед стартовал не на высоте крейсера: " + drone.getY());
+
+        // точек у B-2 нет, путь дальше дальности оружия — отказ
+        h.assertTrue(command(h, "airstrike salvo bunker 1 0" + at + via) == -1, "команда разобрала точки маршрута у B-2");
+        Vec3 beyond = from.add(0, 0, -WeaponType.DRONE.spec().route().reach());
+        h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + String.format(Locale.ROOT, " via %.2f %.2f", beyond.x, beyond.z)) == 0,
+                "маршрут длиннее дальности принят");
+
+        // залп помнит место пуска
+        h.assertTrue(command(h, "airstrike salvo missile 3 6" + at + fromArg(far)) == 1, "залп с места пуска не принят");
+        CompoundTag saved = SalvoData.get(level).save(new CompoundTag(), level.registryAccess());
+        SalvoData.get(level).clear();
+        ListTag salvos = saved.getList("salvos", Tag.TAG_COMPOUND);
+        CompoundTag salvo = salvos.getCompound(salvos.size() - 1);
+        h.assertTrue(Math.abs(salvo.getDouble("from_x") - far.x) < 0.01 && Math.abs(salvo.getDouble("from_z") - far.z) < 0.01,
+                "залп сохранил место пуска " + salvo.getDouble("from_x") + " " + salvo.getDouble("from_z") + " вместо " + far);
+
+        // пусковые на местах пуска стоят, сколько бы их ни было; у стреляющего — не больше трёх своих, что идут за ним
+        UUID owner = UUID.randomUUID();
+        Vec3 c = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
+        for (int i = 0; i < LaunchSite.MAX_PER_OWNER + 1; i++) {
+            LaunchSite.deploy(level, c.add(0, 0, 12 * i), 0, WeaponType.DRONE, new LaunchSite.Post(c, 0, owner, true));
+            LaunchSite.deploy(level, c.add(0, 0, 12 * i + 6), 0, WeaponType.DRONE, new LaunchSite.Post(c, 0, owner, false));
+        }
+        List<LauncherEntity> mine = level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), l -> l.isAlive() && owner.equals(l.ownerId()));
+        h.assertTrue(mine.stream().filter(LauncherEntity::ordered).count() == LaunchSite.MAX_PER_OWNER + 1
+                        && mine.stream().filter(l -> !l.ordered()).count() == LaunchSite.MAX_PER_OWNER,
+                "пусковых на местах пуска " + mine.stream().filter(LauncherEntity::ordered).count() + ", за владельцем " + mine.stream().filter(l -> !l.ordered()).count());
+        h.succeed();
+    }
+
+    /** Пусковая на месте пуска из приказа — в центре блока самого места (поправка {@code LaunchSite.check}). */
+    private static final double PLACE_SLACK = 1;
+
+    /** « from x z» для команды. */
+    private static String fromArg(Vec3 from) {
+        return String.format(Locale.ROOT, " from %.2f %.2f", from.x, from.z);
+    }
+
+    /**
+     * Команда от консоли сервера, как её даёт ведущий: итог команды; −1 — не разобрана (нет такой ветки в дереве).
+     */
+    private static int command(GameTestHelper h, String command) {
+        net.minecraft.server.MinecraftServer server = h.getLevel().getServer();
+        try {
+            return server.getCommands().getDispatcher().execute(command,
+                    server.createCommandSourceStack().withLevel(h.getLevel()).withPermission(4).withSuppressedOutput());
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
+            return -1;
+        }
     }
 
     /** Расстояние по горизонтали. */
@@ -990,7 +1090,7 @@ public final class StrikeGameTests {
         Vec3 approach = new Vec3(0, 0, 1);
         Vec3 first = Route.plan(site, point, approach, 600, 150, -1).current();
         float yaw = ua.zentix.airstrike.guidance.FlightController.anglesTo(site, first)[0];
-        LauncherEntity launcher = LauncherEntity.create(level, site, yaw, WeaponType.MISSILE, null);
+        LauncherEntity launcher = LauncherEntity.create(level, site, yaw, WeaponType.MISSILE, null, false);
         level.addFreshEntity(launcher);
         int ready = LauncherEntity.DEPLOY_TICKS + 10;
         Vec3 rail = launcher.railPoint(0);
@@ -1173,7 +1273,7 @@ public final class StrikeGameTests {
     public static void rocketsRippleFromLauncher(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 point = top(h, RUNWAY_TARGET);
-        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.ROCKET, null);
+        LauncherEntity launcher = LauncherEntity.create(level, Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12))), 0, WeaponType.ROCKET, null, false);
         level.addFreshEntity(launcher);
         List<RocketEntity> rockets = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
@@ -3082,7 +3182,7 @@ public final class StrikeGameTests {
     public static void salvoFiresEveryShot(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 c = top(h, RUNWAY_TARGET);
-        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null, Loadout.Nuke.DEFAULT, Waypoints.NONE, null);
         h.succeedWhen(() -> {
             h.assertTrue(SalvoData.get(level).size() == 0, "залп ещё не закончился");
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty(), "ещё летят вне мира: " + VirtualFlights.get(level).flights().size());
@@ -3105,14 +3205,14 @@ public final class StrikeGameTests {
         ServerActions.Aim aim = new ServerActions.Aim(new Target.Point(far), far, null);
         // свои снаряды — по точке цели (в мире теста могут лететь и чужие)
         java.util.function.Predicate<StrikeProjectile> ours = p -> p.aimPoint().distanceTo(far) < 40;
-        h.assertTrue(ServerActions.dispatch(level, "GameTest", 0, WeaponType.MISSILE, 5, 20, aim, nuke), "пуск от консоли не прошёл");
+        h.assertTrue(ServerActions.dispatch(level, "GameTest", 0, WeaponType.MISSILE, 5, 20, aim, nuke, Waypoints.NONE, null), "пуск от консоли не прошёл");
         h.assertTrue(SalvoData.get(level).size() == 0, "ядерный приказ стал залпом");
         boolean carriers = ua.zentix.airstrike.AirstrikeConfig.SERVER.carrierNukes.get();
         List<StrikeProjectile> single = VirtualFlights.get(level).flights().stream().filter(ours).toList();
         h.assertTrue(single.size() == 1 && single.getFirst().isNuclear() == carriers,
                 "не одна ракета с ядерной БЧ: " + single.stream().map(StrikeProjectile::isNuclear).toList());
         VirtualFlights.get(level).clear(level, ours);
-        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke, Waypoints.NONE, null);
         h.runAfterDelay(3, () -> {
             List<StrikeProjectile> fired = VirtualFlights.get(level).flights().stream().filter(ours).toList();
             h.assertTrue(!fired.isEmpty() && fired.stream().noneMatch(StrikeProjectile::isNuclear),
@@ -3133,7 +3233,7 @@ public final class StrikeGameTests {
         java.util.UUID owner = java.util.UUID.randomUUID(), other = java.util.UUID.randomUUID();
         Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
         Vec3 rail = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 1, 0);
-        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, null);
         CruiseMissileEntity onRail = ModEntities.CRUISE_MISSILE.get().create(level);
         onRail.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(far), far, owner);
         onRail.setRoute(Route.direct());
@@ -3170,7 +3270,7 @@ public final class StrikeGameTests {
         pig.setNoAi(true);
         level.addFreshEntity(pig);
         Target.OfEntity target = new Target.OfEntity(pig.getUUID(), Vec3.ZERO);
-        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, null);
         Runnable cleanup = () -> {
             SalvoData.get(level).clear();
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
