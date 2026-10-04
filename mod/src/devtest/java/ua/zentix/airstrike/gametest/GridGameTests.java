@@ -1109,6 +1109,7 @@ public final class GridGameTests {
                 .thenExecute(() -> {
                     BlockPos origin = caseOrigin(level, far);
                     placed.putAll(lampCases(level, origin));
+                    sealLampCases(level, origin);
                     glow[0] = find(placed, Blocks.GLOWSTONE);
                     chest[0] = origin.offset(0, 0, 9);
                     level.setBlock(chest[0], Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
@@ -1349,6 +1350,22 @@ public final class GridGameTests {
         level.getChunkSource().addRegionTicket(HOLD, p, 2, p);
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) level.getChunk(p.x + dx, p.z + dz);
+        }
+    }
+
+    /**
+     * Камень вокруг раскладки {@link #lampCases} (лампы — x 0..9, z 0 и 3, опоры над ними — y + 1): свет внутри — только
+     * от её ламп. Партии идут на тех же местах площадок, и чужой свет у дальнего чанка (то, что оставили проверки
+     * раньше) давал над погашенным светокамнем 1–4 вместо 0.
+     */
+    private static void sealLampCases(ServerLevel level, BlockPos origin) {
+        for (int dx = -1; dx <= 10; dx++) {
+            for (int dy = -1; dy <= 2; dy++) {
+                for (int dz = -1; dz <= 4; dz++) {
+                    boolean inside = dx >= 0 && dx <= 9 && dy >= 0 && dy <= 1 && dz >= 0 && dz <= 3;
+                    if (!inside) level.setBlock(origin.offset(dx, dy, dz), Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+                }
+            }
         }
     }
 
