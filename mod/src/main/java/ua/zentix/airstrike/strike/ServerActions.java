@@ -304,12 +304,21 @@ public final class ServerActions {
             SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via, paid != null);
             return true;
         }
-        StrikeService.Result r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, null, true, l.nuke(), via)
-                : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), yaw, owner, true, l.nuke(), via);
+        StrikeService.Result r;
+        String why = "пуск не удался";
+        try {
+            r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, null, true, l.nuke(), via)
+                    : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), yaw, owner, true, l.nuke(), via);
+        } catch (RuntimeException e) {
+            // как у залпа (SalvoData.tick): упавший пуск — неудачный, оплаченное возвращается
+            Airstrike.LOG.error("Пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);
+            r = StrikeService.Result.FAILED;
+            why = "пуск упал с ошибкой";
+        }
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
             else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
-            if (!r.ok() && paid != null) Munitions.refund(List.of(owner), owner.getUUID(), paid, "пуск не удался");
+            if (!r.ok() && paid != null) Munitions.refund(List.of(owner), owner.getUUID(), paid, why);
         }
         return r.ok();
     }
