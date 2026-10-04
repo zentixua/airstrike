@@ -106,6 +106,8 @@ public final class SightGameTests {
         h.assertFalse(Sides.friendly(level.getServer(), ua, null), "ничей — свой");
         h.assertFalse(Sides.friendly(level.getServer(), null, null), "два ничьих — свои");
         h.assertFalse(Sides.side(level.getServer(), ua).equals(Sides.side(level.getServer(), c.getUUID())), "одна сторона у разных игроков");
+        h.assertValueEqual(Sides.side(a), Sides.side(b), "у команды разные стороны");
+        h.assertFalse(Sides.side(a).equals(Sides.side(c)), "у разных команд одна сторона");
         h.succeed();
     }
 

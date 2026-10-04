@@ -38,13 +38,16 @@ public final class Sides {
      * у них разные приставки).
      */
     public static String side(MinecraftServer server, UUID player) {
-        PlayerTeam team = team(server, player);
-        return team != null ? "team:" + team.getName() : "player:" + player;
+        return key(team(server, player), player);
     }
 
-    /** Ключ стороны игрока в сети ({@link #side(MinecraftServer, UUID)}). */
+    /** Ключ стороны игрока в сети ({@link #side(MinecraftServer, UUID)}): команда — по его имени на табло. */
     public static String side(ServerPlayer player) {
-        return side(player.server, player.getUUID());
+        return key(player.getTeam(), player.getUUID());
+    }
+
+    private static String key(@Nullable PlayerTeam team, UUID player) {
+        return team != null ? "team:" + team.getName() : "player:" + player;
     }
 
     /**

@@ -30,8 +30,8 @@ public final class MapGameTests {
     private MapGameTests() {}
 
     /**
-     * Игроки на карте ({@link ServerActions#mapPlayers}; {@code FakePlayer} NeoForge — он пакетов не шлёт и в список
-     * игроков не входит, поэтому список передаётся сам): только в измерении спросившего и не дальше {@code map_range};
+     * Игроки на карте без разведки ({@link ServerActions#mapPlayers}; {@code FakePlayer} NeoForge — он пакетов не шлёт
+     * и в список игроков не входит, поэтому список передаётся сам): только в измерении спросившего и не дальше {@code map_range};
      * не он сам, не наблюдатель, не невидимый; без прав на пульт и чаще раза в 4 тика — без ответа; выключено
      * в настройках мира — пустой список.
      */
@@ -42,11 +42,15 @@ public final class MapGameTests {
         h.assertTrue(nether != null, "нет Незера");
         int range = AirstrikeConfig.SERVER.mapRange.get();
         boolean everyone = AirstrikeConfig.SERVER.designatorForEveryone.get(), shown = AirstrikeConfig.SERVER.mapPlayers.get();
+        boolean rules = AirstrikeConfig.SERVER.sightRules.get();
         StrikeGameTests.afterTest(h, () -> {
             AirstrikeConfig.SERVER.mapRange.set(range);
             AirstrikeConfig.SERVER.designatorForEveryone.set(everyone);
             AirstrikeConfig.SERVER.mapPlayers.set(shown);
+            AirstrikeConfig.SERVER.sightRules.set(rules);
         });
+        // без разведки — все игроки там, где они сейчас (с разведкой — SpottingGameTests)
+        AirstrikeConfig.SERVER.sightRules.set(false);
         AirstrikeConfig.SERVER.mapRange.set(256);
         AirstrikeConfig.SERVER.designatorForEveryone.set(true);
         AirstrikeConfig.SERVER.mapPlayers.set(true);

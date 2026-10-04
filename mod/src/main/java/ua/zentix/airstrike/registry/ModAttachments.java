@@ -15,9 +15,11 @@ import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.work.WorkScheduler;
 import ua.zentix.airstrike.warhead.CraterFalls;
 
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class ModAttachments {
@@ -100,6 +102,14 @@ public final class ModAttachments {
      */
     public static final Supplier<AttachmentType<ArrivalTickets.Slot>> ARRIVAL = REGISTER.register("arrival",
             () -> AttachmentType.builder(ArrivalTickets.Slot::new).build());
+
+    /** Мир: кого и что видела каждая сторона ({@link Sightings}); не сохраняется. */
+    public static final Supplier<AttachmentType<Sightings>> SIGHTINGS = REGISTER.register("sightings",
+            () -> AttachmentType.builder(Sightings::new).build());
+
+    /** Игрок: снаряд, глазами которого он смотрит ({@link Sightings#watch}); нет данных — смотрит своими; не сохраняется. */
+    public static final Supplier<AttachmentType<UUID>> WATCHING = REGISTER.register("watching",
+            () -> AttachmentType.<UUID>builder(() -> new UUID(0, 0)).build());
 
     private ModAttachments() {}
 }

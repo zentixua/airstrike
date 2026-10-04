@@ -1,16 +1,18 @@
 package ua.zentix.airstrike.net;
 
+import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.ServerActions;
+import ua.zentix.airstrike.target.Sightings;
 
 /**
  * Пакеты мода. Мод обязателен у всех, поэтому канал обязательный; версия протокола меняется при любом
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class AirstrikeNetwork {
-    public static final String PROTOCOL = "16";
+    public static final String PROTOCOL = "17";
 
     private AirstrikeNetwork() {}
 
@@ -42,6 +44,9 @@ public final class AirstrikeNetwork {
         r.playToServer(C2S.Clear.TYPE, C2S.Clear.CODEC, ServerActions::clear);
         r.playToServer(C2S.Retarget.TYPE, C2S.Retarget.CODEC, ServerActions::retarget);
         r.playToServer(C2S.MapPlayers.TYPE, C2S.MapPlayers.CODEC, ServerActions::mapPlayers);
+        r.playToServer(C2S.Watch.TYPE, C2S.Watch.CODEC, (p, ctx) -> {
+            if (ctx.player() instanceof ServerPlayer player) Sightings.watch(player, p.projectile().orElse(null));
+        });
         r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
     }
 }
