@@ -67,7 +67,8 @@ paths:
                                            взрывов — ровно на `BlastMix`, петли — тише взрыва своего снаряда, ровность проверяется)
     freesound.py login|fetch             ← оригиналы Freesound (OAuth2): вход вне репозитория (~/.config/airstrike), файлы —
                                            tools/.sound-cache/orig; скачанные вход не требуют
-    gen_textures.py                      ← текстуры (Pillow), фиксированный сид
+    gen_textures.py                      ← текстуры (Pillow), фиксированный сид; у каждой группы свой генератор
+                                           случайных чисел, новая — в конец (прежние файлы не меняются)
     gen_particles.py                     ← текстуры частиц эффектов (textures/fx/particle), факела и дальних спрайтов (numpy + Pillow)
     gen_models.py                        ← модели снарядов: сетки OBJ + текстуры (numpy + Pillow) и упрощённые копии
                                            деталей `_lod1` для моделей вдали, не править OBJ руками

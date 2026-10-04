@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.client.ClientWeaponSpec;
 import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.fx.particle.FxBudget;
+import ua.zentix.airstrike.defense.InterceptorSpec;
 import ua.zentix.airstrike.entity.BomberEntity;
 import ua.zentix.airstrike.entity.BunkerBusterEntity;
 import ua.zentix.airstrike.entity.CruiseMissileEntity;
@@ -16,6 +17,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.DroneEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
 import ua.zentix.airstrike.entity.IcbmEntity;
+import ua.zentix.airstrike.entity.InterceptorEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
@@ -316,6 +318,39 @@ public final class Exhaust {
                 Fx.smoke().size(0.5f, 1.6f).life(7).color(0xF6F8FA, 0xFFFFFF).alpha(0.5f).fadeIn(1).fadeFrom(0.15f).drag(0.7f)
                         .wind(0).spawn(level, p);
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- зенитная ракета
+
+    private static final Map<InterceptorEntity, Vec3> INTERCEPTORS = new WeakHashMap<>();
+
+    /**
+     * Зенитная ракета: огонь у сопла и белый дымный след твердотопливного двигателя клубами по пути сопла за тик —
+     * висит над позицией ЗРК дугой пуска и тает за полминуты. Сход с направляющей — вспышка и клубы у пусковой.
+     */
+    public static void interceptor(InterceptorEntity e) {
+        if (!(e.level() instanceof ClientLevel level)) return;
+        RandomSource r = level.random;
+        Vec3 back = Local.offset(e.getYRot(), e.getXRot(), 0, 0, -1);
+        Vec3 nozzle = e.position().add(back.scale(InterceptorSpec.SAM.noseLength()));
+        Vec3 from = INTERCEPTORS.put(e, nozzle);
+        if (from == null && e.age() <= 2) {
+            // сход: струя бьёт в пусковую, дым растекается вокруг
+            Fx.flash().size(2.5f, 3.5f).life(3).alpha(0.6f).spawn(level, nozzle);
+            for (int i = 0; i < Fx.count(8, nozzle); i++) {
+                double a = r.nextDouble() * Mth.TWO_PI, v = 0.15 + r.nextDouble() * 0.3;
+                Fx.smoke().vel(Math.cos(a) * v, 0.02 + r.nextDouble() * 0.06, Math.sin(a) * v).size(0.8f, 4.5f).life(220 + r.nextInt(120))
+                        .color(0xE9E4DC, 0xB4AEA6).alpha(0.75f).drag(0.92f).glow(0.6f, 6).rise(0.0015f).collide().growFast().fadeIn(2)
+                        .fadeFrom(0.6f).spin(0.008f).budget(FxBudget.GROUND).spawn(level, nozzle.x, nozzle.y - 1, nozzle.z);
+            }
+        }
+        Fx.Spec puff = Fx.smoke().size(0.35f, 2.2f).life(360 + r.nextInt(200)).color(0xF0EDE8, 0xBDB9B3).colorCurve(0.6f).alpha(0.55f)
+                .drag(0.9f).glow(0.8f, 4).rise(0.0012f).fadeIn(1).fadeFrom(0.5f).spin(0.01f).budget(FxBudget.TRAIL);
+        segment(level, from, nozzle, puff, 1.6, r);
+        for (int i = 0; i < 2; i++) {
+            Fx.fire().vel(back.scale(0.3 + r.nextDouble() * 0.3).add(r.nextGaussian() * 0.04, r.nextGaussian() * 0.04, r.nextGaussian() * 0.04))
+                    .size(0.25f, 0.6f).life(2 + r.nextInt(2)).alpha(0.85f).drag(0.9f).spawn(level, nozzle);
         }
     }
 

@@ -22,6 +22,8 @@ public final class ModCreativeTabs {
                 // боеприпасы — в порядке пульта (WeaponType.menu), ядерная БЧ на носитель — за МБР
                 for (WeaponType w : WeaponType.menu()) output.accept(w.spec().munition().item().get());
                 output.accept(ModItems.NUCLEAR_WARHEAD.get());
+                output.accept(ModItems.SAM.get());
+                output.accept(ModItems.INTERCEPTOR.get());
             })
             .build());
 

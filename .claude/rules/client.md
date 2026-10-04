@@ -64,7 +64,8 @@ paths:
   (API 7.2: текстура, проекция из `DhApiBeforeRenderEvent`, диапазон и направление глубины; под шейдерпаком LOD рисует
   программа пака перспективой Iris с плоскостями `DhApiRenderParam`, не матрицей DH — `DhDepth.irisPlanes`, признак —
   подмена `IDhApiFramebuffer`: матрицей DH LOD читались втрое ближе и закрывали дальний дым)),
-  `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки),
+  `hud/` (`ClientFlights` — снаряды в полёте по данным сервера, `StrikesHud` — список, время до удара, метки,
+  `RadarScope` — экран радара ЗРК рядом с ним, `defense.md`),
   `replay/Replay` (повтор Flashback: событие ждёт метки конца тика сервера повтора `S2C.ReplayTick` — её шлёт
   `compat/FlashbackReplay`, отражением; разовое событие из перемотки — прошлое, `Replay.event`; после перемотки эффекты
   сбрасываются, ядерка — в своём возрасте, `ClientNuclear.rewound`),

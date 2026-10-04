@@ -416,4 +416,61 @@ public final class S2C {
             return TYPE;
         }
     }
+
+    /**
+     * Зенитная ракета разорвалась в воздухе ({@code defense.Interceptor}): у цели или сама (самоликвидация, земля).
+     * kill — цель сбита: её путь у клиента кончается в этот тик ({@code target}), обломки летят сущностями. Наземного
+     * взрыва нет — только вспышка, облачко и хлопок; сид — вариант звука.
+     */
+    public record Intercept(Vec3 pos, boolean kill, Optional<UUID> target, long seed) implements CustomPacketPayload {
+        public static final Type<Intercept> TYPE = new Type<>(Airstrike.id("intercept"));
+        public static final StreamCodec<ByteBuf, Intercept> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, Intercept::pos, ByteBufCodecs.BOOL, Intercept::kill, ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC), Intercept::target,
+                ByteBufCodecs.VAR_LONG, Intercept::seed, Intercept::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Экран радара ЗРК своим рядом с ним ({@code defense.SamBlockEntity}, раз в осмотр): где антенна, дальности радара
+     * и огня, ракеты на направляющих и в запасе, цели. Перестал приходить — экран гаснет.
+     */
+    public record RadarScope(Vec3 radar, int range, int engageRange, int ready, int stock, List<Blip> blips) implements CustomPacketPayload {
+        /** Больше целей экран не покажет (ближние — первыми). */
+        public static final int MAX_BLIPS = 64;
+        public static final Type<RadarScope> TYPE = new Type<>(Airstrike.id("radar_scope"));
+        public static final StreamCodec<ByteBuf, RadarScope> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, RadarScope::radar, ByteBufCodecs.VAR_INT, RadarScope::range, ByteBufCodecs.VAR_INT, RadarScope::engageRange,
+                ByteBufCodecs.VAR_INT, RadarScope::ready, ByteBufCodecs.VAR_INT, RadarScope::stock,
+                Blip.CODEC.apply(ByteBufCodecs.list(MAX_BLIPS)), RadarScope::blips, RadarScope::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Цель на экране радара: сдвиг от антенны по x и z, блоков, курс (градусы, как у сущности), вид оружия
+     * ({@link ua.zentix.airstrike.strike.WeaponType#id()}: крупный корпус — крупнее отметка) и признаки {@link #HOSTILE},
+     * {@link #ENGAGEABLE}, {@link #ENGAGED}.
+     */
+    public record Blip(float dx, float dz, float yaw, int weapon, int flags) {
+        /** Чужая. */
+        public static final int HOSTILE = 1;
+        /** В дальности огня и стоит ракеты. */
+        public static final int ENGAGEABLE = 2;
+        /** За ней идёт ракета. */
+        public static final int ENGAGED = 4;
+        public static final StreamCodec<ByteBuf, Blip> CODEC = StreamCodec.composite(
+                ByteBufCodecs.FLOAT, Blip::dx, ByteBufCodecs.FLOAT, Blip::dz, ByteBufCodecs.FLOAT, Blip::yaw,
+                ByteBufCodecs.VAR_INT, Blip::weapon, ByteBufCodecs.VAR_INT, Blip::flags, Blip::new);
+
+        public boolean is(int flag) {
+            return (flags & flag) != 0;
+        }
+    }
 }

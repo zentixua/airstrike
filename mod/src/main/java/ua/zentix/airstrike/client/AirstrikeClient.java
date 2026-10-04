@@ -40,6 +40,7 @@ import ua.zentix.airstrike.client.fx.particle.Fx;
 import ua.zentix.airstrike.client.fx.particle.FxPool;
 import ua.zentix.airstrike.client.hud.Alerts;
 import ua.zentix.airstrike.client.hud.ClientFlights;
+import ua.zentix.airstrike.client.hud.RadarScope;
 import ua.zentix.airstrike.client.hud.StrikesHud;
 import ua.zentix.airstrike.client.map.MapPlayers;
 import ua.zentix.airstrike.client.map.MapTarget;
@@ -54,6 +55,7 @@ import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
 import ua.zentix.airstrike.client.render.DhDepth;
 import ua.zentix.airstrike.client.render.FarModels;
+import ua.zentix.airstrike.client.render.InterceptorRenderer;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.ScreenProjection;
 import ua.zentix.airstrike.client.render.SpentBoosterRenderer;
@@ -64,8 +66,10 @@ import ua.zentix.airstrike.client.screen.MapScreen;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
 import ua.zentix.airstrike.client.sound.BlastSounds;
 import ua.zentix.airstrike.client.sound.ClientSounds;
+import ua.zentix.airstrike.client.sound.InterceptorSound;
 import ua.zentix.airstrike.client.sound.SoundFilters;
 import ua.zentix.airstrike.entity.DebrisEntity;
+import ua.zentix.airstrike.entity.InterceptorEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.ClientHooks;
@@ -137,6 +141,7 @@ public final class AirstrikeClient {
         e.registerEntityRenderer(ModEntities.DEBRIS.get(), DebrisRenderer::new);
         e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
+        e.registerEntityRenderer(ModEntities.INTERCEPTOR.get(), InterceptorRenderer::new);
     }
 
     /**
@@ -169,6 +174,7 @@ public final class AirstrikeClient {
         e.registerBelow(VanillaGuiLayers.CROSSHAIR, Airstrike.id("projectile_camera"), ProjectileCamera::render);
         e.registerAbove(VanillaGuiLayers.OVERLAY_MESSAGE, Airstrike.id("nuke"), NukeHud::render);
         e.registerAbove(VanillaGuiLayers.HOTBAR, Airstrike.id("geiger"), Geiger::render);
+        e.registerAbove(VanillaGuiLayers.SCOREBOARD_SIDEBAR, Airstrike.id("radar_scope"), RadarScope::render);
     }
 
     /** Двигатели снарядов (факел, шлейф, облако пуска) и горящие обломки — после тика сущности в мире клиента. */
@@ -177,6 +183,10 @@ public final class AirstrikeClient {
         if (!entity.level().isClientSide) return;
         if (entity instanceof StrikeProjectile p) Exhaust.tick(p);
         else if (entity instanceof DebrisEntity d) Exhaust.debris(d);
+        else if (entity instanceof InterceptorEntity i) {
+            Exhaust.interceptor(i);
+            InterceptorSound.tick(i);
+        }
     }
 
     private static void tick(ClientTickEvent.Post e) {
@@ -203,6 +213,7 @@ public final class AirstrikeClient {
         CameraShake.tick();
         Flash.tick();
         Alerts.tick();
+        RadarScope.tick();
         NukeArming.tick();
         ClientNuclear.tick();
     }
@@ -250,6 +261,7 @@ public final class AirstrikeClient {
         ClientFlights.reset();
         NukeArming.cancel();
         Designator.reset();
+        RadarScope.reset();
         ClientNuclear.reset();
         MapTarget.reset();
         MapPlayers.reset();
@@ -387,6 +399,23 @@ public final class AirstrikeClient {
         public void gridDistrict(S2C.GridDistrict p) {
             Replay.event("district", live -> {
                 if (live) GridEffects.district(p);
+            });
+        }
+
+        @Override
+        public void intercept(S2C.Intercept p) {
+            Replay.event("intercept", live -> {
+                if (!live) return;
+                p.target().ifPresent(FlightTracks::impact);
+                BlastEffects.intercept(p);
+            });
+        }
+
+        @Override
+        public void radarScope(S2C.RadarScope p) {
+            // экран — состояние «сейчас»: из перемотки повтора его нет
+            Replay.event("radar", live -> {
+                if (live) RadarScope.received(p);
             });
         }
 

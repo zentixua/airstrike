@@ -80,6 +80,33 @@ public final class DebrisSpawner {
                 + spawnCharred(level, at, 0.45, 1.2, 2.7);
     }
 
+    /**
+     * Обломки снаряда, сбитого в воздухе зенитной ракетой: детали корпуса, горящие и обгоревшие куски летят дальше по
+     * ходу цели, теряя скорость, и падают. Сколько — по размеру корпуса ({@code noseLength}): «Ланцет» и шахед —
+     * горсть, ракета — больше, B-2 — дождь деталей. Грунта нет — взрыв был в воздухе. Возвращает, сколько обломков.
+     */
+    public static int wreck(ServerLevel level, Vec3 at, Vec3 velocity, double noseLength) {
+        RandomSource r = level.random;
+        List<BlockState> parts = noseLength > 2.5 ? wreckMissile() : wreckDrone();
+        int rounds = noseLength > 5 ? 3 : 1;
+        // корпус уносит треть скорости цели: обломки ложатся полосой по курсу, а не столбом под местом разрыва
+        Vec3 drift = velocity.scale(0.35);
+        double spread = Math.min(2.5, 0.4 + noseLength * 0.3);
+        int n = 0;
+        for (int k = 0; k < rounds; k++) {
+            for (BlockState s : parts) n += wreckPiece(level, at, s, false, true, drift, spread, r);
+            for (BlockState s : embers()) n += wreckPiece(level, at, s, true, true, drift, spread, r);
+            for (BlockState s : burning()) n += wreckPiece(level, at, s, true, false, drift, spread, r);
+        }
+        return n;
+    }
+
+    private static int wreckPiece(ServerLevel level, Vec3 at, BlockState s, boolean hot, boolean hurts, Vec3 drift, double spread, RandomSource r) {
+        Vec3 p = at.add((r.nextDouble() - 0.5) * spread * 2, (r.nextDouble() - 0.5) * spread, (r.nextDouble() - 0.5) * spread * 2);
+        level.addFreshEntity(DebrisEntity.create(level, p, s, hot, hurts, drift.add(velocity(r, 0.45, -0.15, 0.35))));
+        return 1;
+    }
+
     private static int spawn(ServerLevel level, Vec3 at, List<BlockState> states, boolean hot, double horizontal, double upMin, double upMax) {
         for (BlockState s : states) {
             level.addFreshEntity(DebrisEntity.create(level, start(level.random, at), s, hot, true, velocity(level.random, horizontal, upMin, upMax)));

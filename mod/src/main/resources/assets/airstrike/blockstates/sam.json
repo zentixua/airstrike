@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "airstrike:block/sam"
+    },
+    "facing=east": {
+      "model": "airstrike:block/sam",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "airstrike:block/sam",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "airstrike:block/sam",
+      "y": 270
+    }
+  }
+}

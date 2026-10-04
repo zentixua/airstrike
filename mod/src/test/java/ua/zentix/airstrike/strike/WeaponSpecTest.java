@@ -28,6 +28,25 @@ class WeaponSpecTest {
         assertEquals(687.5, WeaponSpec.BUNKER.airframe().turnRadius(WeaponSpec.BUNKER.airframe().cruiseSpeed()), 0.1);
     }
 
+    /**
+     * Как снаряд видит и бьёт ЗРК: B-2 и «Ланцет» малозаметны, бомба под B-2 — почти не видна; МБР и РСЗО ЗРК видит,
+     * но не перехватывает (МБР — не его цель, «Град» дешевле ракеты); шахед, ракета, «Ланцет» и B-2 — да.
+     */
+    @Test
+    void radarSignature() {
+        for (WeaponType w : WeaponType.values()) {
+            WeaponSpec.Signature r = w.spec().airframe().radar();
+            assertTrue(r.visibility() > 0 && r.visibility() <= 1, w + ": заметность " + r.visibility());
+            assertEquals(w == WeaponType.DRONE || w == WeaponType.MISSILE || w == WeaponType.LOITER || w == WeaponType.BUNKER, r.intercept(),
+                    w + ": перехват");
+        }
+        assertTrue(WeaponSpec.BUNKER.airframe().radar().visibility() <= 0.2, "B-2 виден издалека");
+        assertTrue(WeaponSpec.LOITER.airframe().radar().visibility() < WeaponSpec.DRONE.airframe().radar().visibility());
+        assertTrue(WeaponSpec.MISSILE.airframe().radar().visibility() < WeaponSpec.DRONE.airframe().radar().visibility());
+        WeaponSpec.Airframe bomb = WeaponSpec.BUNKER.payload();
+        assertTrue(bomb != null && !bomb.radar().intercept() && bomb.radar().visibility() <= WeaponSpec.BUNKER.airframe().radar().visibility());
+    }
+
     @Test
     void sirenLeadIsSecondsInTicks() {
         assertEquals(500, WeaponSpec.DRONE.sirenLead());
