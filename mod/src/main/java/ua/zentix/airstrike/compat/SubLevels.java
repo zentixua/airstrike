@@ -5,12 +5,18 @@ import dev.ryanhcode.sable.companion.SubLevelAccess;
 import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import net.minecraft.core.Position;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.fml.ModList;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -150,7 +156,11 @@ public final class SubLevels {
     @Nullable
     public static UUID containingId(Level level, net.minecraft.world.level.ChunkPos chunk) {
         SubLevelAccess sub = containing(level, chunk);
-        if (sub == null) return null;
+        return sub == null ? null : uniqueId(sub);
+    }
+
+    @Nullable
+    private static UUID uniqueId(SubLevelAccess sub) {
         try {
             return sub.getUniqueId();
         } catch (RuntimeException | LinkageError e) {
@@ -165,6 +175,23 @@ public final class SubLevels {
             if (id.equals(s.getUniqueId())) return s;
         }
         return null;
+    }
+
+    /**
+     * Аппарат с точкой плота {@code plotPos} виден из {@code from}: луч до её места в мире не упирается ни в блоки мира,
+     * ни в другой аппарат — упереться в сам аппарат и значит его видеть (с Sable {@code Level.clip} отдаёт попадание
+     * в аппарат в координатах его плота). Только по готовым чанкам ({@link Terrain#readyAlong}).
+     */
+    public static boolean visibleFrom(ServerLevel level, Vec3 from, Vec3 plotPos) {
+        SubLevelAccess craft = containing(level, plotPos);
+        if (craft == null) return false;
+        Vec3 to = toWorld(level, plotPos);
+        if (!Terrain.readyAlong(level, from, to)) return false;
+        BlockHitResult hit = level.clip(new ClipContext(from, to, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+        if (hit.getType() == HitResult.Type.MISS) return true;
+        SubLevelAccess struck = containing(level, hit.getLocation());
+        UUID id = uniqueId(craft);
+        return struck != null && id != null && id.equals(uniqueId(struck));
     }
 
     /** Имя аппарата для интерфейса. */

@@ -13,11 +13,14 @@ import ua.zentix.airstrike.nuclear.world.FarLods;
 import ua.zentix.airstrike.nuclear.world.NuclearWorld;
 import ua.zentix.airstrike.nuclear.world.WorkClock;
 import ua.zentix.airstrike.strike.ArrivalTickets;
+import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.work.WorkScheduler;
 import ua.zentix.airstrike.warhead.CraterFalls;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class ModAttachments {
@@ -82,6 +85,10 @@ public final class ModAttachments {
     public static final Supplier<AttachmentType<Long>> LAST_RETARGET = REGISTER.register("last_retarget",
             () -> AttachmentType.builder(() -> 0L).build());
 
+    /** Игрок: с борта какого своего снаряда он смотрит камерой и куда ({@link CameraLink}); не сохраняется. */
+    public static final Supplier<AttachmentType<Optional<CameraLink>>> CAMERA_LINK = REGISTER.register("camera_link",
+            () -> AttachmentType.builder(Optional::<CameraLink>empty).build());
+
     /** Игрок: игровое время последнего запроса игроков для карты наведения; не сохраняется. */
     public static final Supplier<AttachmentType<Long>> LAST_MAP_PLAYERS = REGISTER.register("last_map_players",
             () -> AttachmentType.builder(() -> 0L).build());
@@ -100,6 +107,10 @@ public final class ModAttachments {
      */
     public static final Supplier<AttachmentType<ArrivalTickets.Slot>> ARRIVAL = REGISTER.register("arrival",
             () -> AttachmentType.builder(ArrivalTickets.Slot::new).build());
+
+    /** Мир: кого и что видела каждая сторона ({@link Sightings}); не сохраняется. */
+    public static final Supplier<AttachmentType<Sightings>> SIGHTINGS = REGISTER.register("sightings",
+            () -> AttachmentType.builder(Sightings::new).build());
 
     private ModAttachments() {}
 }

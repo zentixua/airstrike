@@ -40,7 +40,9 @@ import java.util.UUID;
 /**
  * Камера снаряда: картинка с его стабилизированной камеры (как у барражирующих боеприпасов). Клавиша камеры —
  * к ближайшему по времени снаряду, ещё раз — к следующему, после последнего — обратно к себе; Shift — выход.
- * Смотреть можно мышью (камера на подвесе), ЛКМ — перенацелить снаряд на то, что в перекрестии.
+ * Смотреть можно мышью (камера на подвесе), ЛКМ — перенацелить снаряд на то, что в перекрестии. Замеченную цель
+ * (игрок, моб, аппарат по приказу с пульта) шахед и «Ланцет» ведут, только пока она в кадре: куда смотрит камера, клиент
+ * шлёт серверу каждый тик ({@link C2S.CameraView}), а что выходит, показывает строка над подсказкой.
  * <p>Как в кино, три плана. <b>Пуск</b>: пока снаряд на пусковой и на ускорителе, камера стоит сбоку от пусковой
  * и ведёт его длинным фокусом. <b>Борт</b>: после отделения ускорителя — вид с борта. <b>Попадание</b>: в момент
  * удара — полсекунды помех, затем камера со стороны захода медленно облетает взрыв несколько секунд; дальше
@@ -255,6 +257,8 @@ public final class ProjectileCamera {
                     shot = Shot.ONBOARD;
                 }
                 if (mc.getCameraEntity() != p) mc.setCameraEntity(p);
+                // сервер ведёт замеченную цель, только пока она в кадре: куда смотрит камера, знает лишь клиент
+                PacketDistributor.sendToServer(new C2S.CameraView(p.getUUID(), mc.player.getYRot(), mc.player.getXRot()));
             }
         } else {
             // вне зоны видео: что видели раньше, уже не место попадания; пока — карта
@@ -557,6 +561,13 @@ public final class ProjectileCamera {
             g.drawString(font, right[i], w - m - 6 - font.width(right[i]), m + 6 + 12 * i, i == 3 ? 0xFFFFC040 : 0xFFE8E8E8);
         }
         if (f.nuclear()) g.drawString(font, "☢", cx - font.width("☢") / 2, m + 6, 0xFFFFD020);
+        if (p.pursuit() != StrikeProjectile.Pursuit.NONE) {
+            // замеченная цель: снаряд идёт за ней, только пока она в кадре
+            boolean held = p.pursuit() == StrikeProjectile.Pursuit.HELD;
+            Component pursuit = Component.translatable(held ? "airstrike.camera.pursuit.held" : "airstrike.camera.pursuit.waiting")
+                    .withStyle(held ? ChatFormatting.GREEN : ChatFormatting.GOLD, ChatFormatting.BOLD);
+            g.drawString(font, pursuit, cx - font.width(pursuit) / 2, h - 60, 0xFFFFFFFF);
+        }
         if (f.phase() == FlightPhase.LOITER && rec) {
             // барражирующий кружит: оператор ищет цель в кадре
             Component loiter = Component.translatable("airstrike.camera.loiter").withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD);

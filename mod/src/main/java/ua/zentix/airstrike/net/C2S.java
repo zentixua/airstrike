@@ -68,6 +68,22 @@ public final class C2S {
         }
     }
 
+    /**
+     * Камера снаряда смотрит с борта своего снаряда {@code projectile} в направлении {@code yaw}/{@code pitch}: клиент
+     * шлёт каждый тик, пока смотрит ({@code strike.CameraLink}). Перестал слать — камеру закрыли.
+     */
+    public record CameraView(UUID projectile, float yaw, float pitch) implements CustomPacketPayload {
+        public static final Type<CameraView> TYPE = new Type<>(Airstrike.id("camera_view"));
+        public static final StreamCodec<ByteBuf, CameraView> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, CameraView::projectile, ByteBufCodecs.FLOAT, CameraView::yaw, ByteBufCodecs.FLOAT, CameraView::pitch,
+                CameraView::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Перенацелить свой снаряд на то, что под прицелом его камеры. */
     public record Retarget(UUID projectile, AimHint aim) implements CustomPacketPayload {
         public static final Type<Retarget> TYPE = new Type<>(Airstrike.id("retarget"));
