@@ -99,7 +99,14 @@ public final class StrikeService {
         p.setNuclear(warhead);
         if (siren && AirstrikeConfig.SERVER.siren.get()) p.armSiren(spec.sirenLead());
         int eta = p.etaTicks();
-        if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
+        if (!p.isVirtual()) {
+            // на пусковой: тикеты — до входа в мир, место пуска из приказа может быть там, где сущности не тикают
+            p.holdChunks(level);
+            if (!level.addFreshEntity(p)) {
+                p.discard();
+                return Result.FAILED;
+            }
+        }
         return new Result(true, eta);
     }
 

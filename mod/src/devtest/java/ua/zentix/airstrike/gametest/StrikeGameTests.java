@@ -912,7 +912,11 @@ public final class StrikeGameTests {
         h.assertTrue(Math.abs(Mth.wrapDegrees(launcher.getYRot() - toFirst)) < 3, "пусковая не смотрит на первую точку: курс " + launcher.getYRot() + ", на точку " + toFirst);
         List<StrikeProjectile> onRail = level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64), launcher::serves);
         h.assertTrue(onRail.size() == 1, "на пусковой не один шахед: " + onRail.size());
-        List<Vec3> path = onRail.getFirst().route().points();
+        // свой чанк — с входа в мир, ещё до первого тика: место пуска бывает там, где сущности не тикают, и без тикета
+        // снаряд на направляющей не тикнул бы ни разу
+        StrikeProjectile first = onRail.getFirst();
+        h.assertTrue(ChunkTickets.holds(level, first.getUUID(), ChunkPos.asLong(first.blockPosition())), "шахед на пусковой места пуска не держит свой чанк");
+        List<Vec3> path = first.route().points();
         h.assertTrue(path.size() == 3 && flat(path.get(1), a) < 0.01 && flat(path.get(2), b) < 0.01, "маршрут не ворота → точки: " + path);
         h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(from)) == 1, "второй приказ с места пуска не принят");
         h.assertTrue(level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64), LauncherEntity::isAlive).size() == 1
