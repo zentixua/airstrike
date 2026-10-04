@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -180,12 +181,11 @@ public final class ServerActions {
         return StringUtil.truncateStringIfNecessary(name, S2C.MapPlayer.MAX_NAME, false);
     }
 
+    /** «Отбой» с пульта — свой у всех, и у операторов ({@link #recall}); всё снимает команда оператора. */
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
-        boolean nuclear = mayUseNuke(player);
-        int n = clearAll(player.server, nuclear, player.getGameProfile().getName());
-        player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
+        player.sendSystemMessage(recall(player).withStyle(ChatFormatting.GRAY));
     }
 
     /** Действие того же рода было меньше {@link #FIRE_INTERVAL} тиков назад; иначе запомнить это. */
@@ -518,7 +518,8 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены — их невыпущенные оплаченные
+     * Отбой всего (команда оператора, консоль): снаряды, обломки и пусковые всех игроков во всех мирах убраны без
+     * взрыва, залпы отменены — их невыпущенные оплаченные
      * снаряды возвращаются владельцам в сети ({@link Munitions}; выпущенные, в том числе стоящие на пусковой, — нет).
      * Ядерные удары (МБР, ракета и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая
      * ракета, остаётся до её пуска.
@@ -576,12 +577,87 @@ public final class ServerActions {
                 n += NuclearStrikes.clear(level);
             }
         }
-        PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear, projectiles));
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.empty(), nuclear, projectiles));
         Airstrike.LOG.info("Отбой{} — {}: снарядов {} (вне мира {}), пусковых {}, залпов {}{}{}", nuclear ? " с ядерными" : "", who,
                 projectiles.size(), virtual, launchersRemoved, salvos, strikes.isEmpty() ? "" : "; " + String.join(", ", strikes),
                 detonations == 0 ? "" : "; забыто подрывов " + detonations);
         return n + projectiles.size();
     }
+
+    /**
+     * Свой отбой: удары игрока {@code owner} прекращаются, чужие не трогаются. Снаряды в полёте самоликвидируются в
+     * воздухе без боевой части, B-2 до сброса отворачивает ({@link StrikeProjectile#recall}); вне загруженного мира они
+     * просто пропадают (этого никто не видит); со своих пусковых снаряды снимаются вместе с пусковыми; залпы отменяются,
+     * невыпущенное оплаченное возвращается ({@link SalvoData#cancel}). Не отзываются ядерные удары — МБР и носители
+     * с ядерной БЧ (отменяет только оператор, {@link #clearAll}) — и снаряды без управления в полёте: ракеты РСЗО и
+     * сброшенная бомба долетят ({@link StrikeProjectile#recallable}). Обломки и сброшенные ускорители остаются.
+     *
+     * @param who кто дал отбой — для лога
+     * @return сколько снарядов прекратили удар и сколько залпов отменено
+     */
+    public static Recalled recall(MinecraftServer server, UUID owner, String who) {
+        Predicate<StrikeProjectile> mine = p -> owner.equals(p.ownerId()) && !p.isNuclear();
+        // снаряды, которых больше нет: клиенты глушат их звук и камеру (B-2, который отвернул, звучит, пока уходит)
+        List<UUID> gone = new ArrayList<>();
+        int destroyed = 0, turned = 0, unlaunched = 0, virtual = 0, launchersRemoved = 0, salvos = 0;
+        for (ServerLevel level : server.getAllLevels()) {
+            List<UUID> outside = VirtualFlights.get(level).clear(level, p -> mine.test(p) && (p.flightPhase().onLauncher() || p.recallable()));
+            virtual += outside.size();
+            gone.addAll(outside);
+            List<StrikeProjectile> flying = new ArrayList<>();
+            List<LauncherEntity> launchers = new ArrayList<>();
+            // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
+            List<StrikeProjectile> onRail = new ArrayList<>();
+            for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
+                if (p.flightPhase().onLauncher()) onRail.add(p);
+            }
+            for (Entity e : level.getAllEntities()) {
+                if (e instanceof StrikeProjectile p) {
+                    if (!p.flightPhase().onLauncher()) {
+                        if (mine.test(p)) flying.add(p);
+                    } else if (mine.test(p)) {
+                        p.discard();
+                        gone.add(p.getUUID());
+                        unlaunched++;
+                    } else {
+                        onRail.add(p);
+                    }
+                } else if (e instanceof LauncherEntity l && owner.equals(l.ownerId())) {
+                    launchers.add(l);
+                }
+            }
+            for (LauncherEntity l : launchers) {
+                if (onRail.stream().noneMatch(l::serves)) {
+                    l.discard();
+                    launchersRemoved++;
+                }
+            }
+            // самоликвидация — после обхода: взрыв меняет сущности мира
+            for (StrikeProjectile p : flying) {
+                if (!p.recall(level)) continue;
+                if (p.isRemoved()) {
+                    gone.add(p.getUUID());
+                    destroyed++;
+                } else {
+                    turned++;
+                }
+            }
+            salvos += SalvoData.get(level).cancel(level, owner, server.getPlayerList().getPlayers());
+        }
+        PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.of(owner), false, gone));
+        Airstrike.LOG.info("Отбой своих — {}: самоликвидировались {}, отвернули {}, сняты с пусковых {} (пусковых {}), вне мира {}, залпов {}",
+                who, destroyed, turned, unlaunched, launchersRemoved, virtual, salvos);
+        return new Recalled(destroyed + turned + unlaunched + virtual, salvos);
+    }
+
+    /** {@link #recall(MinecraftServer, UUID, String)} игрока {@code player}: итог для него. */
+    public static MutableComponent recall(ServerPlayer player) {
+        Recalled r = recall(player.server, player.getUUID(), player.getGameProfile().getName());
+        return Component.translatable("airstrike.recalled", r.projectiles(), r.salvos());
+    }
+
+    /** Итог своего отбоя: снарядов, прекративших удар, и отменённых залпов. */
+    public record Recalled(int projectiles, int salvos) {}
 
     /** Итог отбоя для того, кто его дал: отменены ли и ядерные удары. */
     public static MutableComponent clearedMessage(int n, boolean nuclear) {
