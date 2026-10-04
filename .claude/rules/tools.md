@@ -50,6 +50,8 @@ paths:
                                            в меню — гистограмма классов и выборка JFR с путями до корней (нужен -XX:VMThreadStackSize=8192:
                                            со стеком по умолчанию поиск путей ронял JVM), в лог — строки `SCENARIO leak … holder`;
                                            replay — повтор Flashback в каталоге tools/pack_dir.py сборки (zentixua/airstrike-pack) с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал; перемотки назад и вперёд через удары и ядерку — без живых взрывов и вспышек
+    guide_images.sh [кадры]              ← картинки руководства docs/guide/img из кадров `client_scenario.sh guide`: рецепты
+                                           и пульт по месту окна GUI, кадры в JPEG, карта в GIF; лучшие кадры серий — номерами в скрипте
     x11_record.py                        ← окно клиента во вложенном KWin — в видео в реальном времени (ffmpeg x11grab) с отметками
                                            времени для звука audio.wav (prod_client.py --video, --size)
     stress.sh                            ← стенд нагрузки (облако, xvfb): выделенный сервер с режиссёром (src/devtest/.../stress) и три игрока
@@ -73,6 +75,7 @@ paths:
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
   pack/                                  ← прежний адрес сборки, заморожен: сама сборка — zentixua/airstrike-pack
   docs/DESIGN-nuke.md                    ← проект ядерного удара
+  docs/guide/                            ← руководство игрока (страницы по темам, картинки в img/)
   .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 ```
