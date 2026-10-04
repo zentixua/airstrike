@@ -87,13 +87,7 @@ public final class StrikeService {
         if (shooter != null && shooter.level() != level) shooter = null;
         if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
-        if (spec.launch() == WeaponSpec.Launch.ICBM) {
-            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
-            boolean ok = target instanceof Target.Ground
-                    ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter)
-                    : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
-            return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
-        }
+        if (spec.launch() == WeaponSpec.Launch.ICBM) return launchIcbm(level, target, point, nuke, shooter, AirstrikeConfig.SERVER.nukeFlightTime.get());
         Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (spec.launch()) {
             case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter, via);
@@ -108,6 +102,19 @@ public final class StrikeService {
         int eta = p.etaTicks();
         if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
         return new Result(true, eta);
+    }
+
+    /**
+     * МБР: бьёт по координатам — за движущейся целью не следит; тревогу поднимает сам пуск.
+     *
+     * @param flightTicks полёт от пуска до подрыва (настройка мира; у удара не оператора — не меньше 90 с, {@link NuclearKeys})
+     */
+    public static Result launchIcbm(ServerLevel level, Target target, Vec3 point, Loadout.Nuke nuke, @Nullable ServerPlayer shooter, int flightTicks) {
+        if (shooter != null && shooter.level() != level) shooter = null;
+        boolean ok = target instanceof Target.Ground
+                ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks)
+                : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), false, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks);
+        return new Result(ok, flightTicks);
     }
 
     /** Длина маршрута на время полёта из настроек (паспорт). */

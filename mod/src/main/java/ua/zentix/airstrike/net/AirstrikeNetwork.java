@@ -2,6 +2,7 @@ package ua.zentix.airstrike.net;
 
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.ServerActions;
 
@@ -44,5 +45,6 @@ public final class AirstrikeNetwork {
         r.playToServer(C2S.CameraView.TYPE, C2S.CameraView.CODEC, ServerActions::cameraView);
         r.playToServer(C2S.MapPlayers.TYPE, C2S.MapPlayers.CODEC, ServerActions::mapPlayers);
         r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
+        r.playToServer(C2S.NuclearKey.TYPE, C2S.NuclearKey.CODEC, NuclearKeys::onKey);
     }
 }

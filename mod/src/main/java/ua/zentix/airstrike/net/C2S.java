@@ -144,4 +144,18 @@ public final class C2S {
             return TYPE;
         }
     }
+
+    /**
+     * Клавиша «Второй ключ»: подтвердить ядерный пуск игрока рядом ({@code strike.NuclearKeys}). Что подтверждать, кто
+     * рядом и не свой ли это пуск — решает сервер.
+     */
+    public record NuclearKey() implements CustomPacketPayload {
+        public static final Type<NuclearKey> TYPE = new Type<>(Airstrike.id("second_key"));
+        public static final StreamCodec<ByteBuf, NuclearKey> CODEC = StreamCodec.unit(new NuclearKey());
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
 }

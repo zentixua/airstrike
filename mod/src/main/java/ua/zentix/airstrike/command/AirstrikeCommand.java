@@ -28,6 +28,7 @@ import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.strike.Loadout;
+import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.Waypoints;
@@ -73,7 +74,8 @@ public final class AirstrikeCommand {
         }));
         root.then(Commands.literal("clear").executes(ctx -> {
             CommandSourceStack s = ctx.getSource();
-            boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && ServerActions.mayUseNuke(p);
+            // ядерные удары отменяет только оператор (консоль, командный блок) и хост — не тот, кто их пустил
+            boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && NuclearKeys.trusted(p);
             int n = ServerActions.clearAll(s.getServer(), nuclear, s.getTextName());
             s.sendSuccess(() -> ServerActions.clearedMessage(n, nuclear), true);
             return n;

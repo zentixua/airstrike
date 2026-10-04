@@ -309,7 +309,7 @@ public final class MunitionGameTests {
     // ---------------------------------------------------------------- помощники
 
     /** {@code FakePlayer}, который запоминает строки над хотбаром и в чате (NeoForge их глушит). */
-    private static final class Listener extends FakePlayer {
+    static final class Listener extends FakePlayer {
         final List<Component> said = new ArrayList<>();
 
         Listener(ServerLevel level, String name) {
@@ -336,7 +336,7 @@ public final class MunitionGameTests {
         }
     }
 
-    private static Listener player(GameTestHelper h, String name) {
+    static Listener player(GameTestHelper h, String name) {
         Listener p = new Listener(h.getLevel(), name);
         p.moveTo(Vec3.atBottomCenterOf(h.absolutePos(RANGE_CENTER.above())));
         return p;
@@ -351,12 +351,12 @@ public final class MunitionGameTests {
         return new ServerActions.Aim(new Target.Point(point), point, null);
     }
 
-    private static void give(FakePlayer p, Item item, int n) {
+    static void give(FakePlayer p, Item item, int n) {
         p.getInventory().placeItemBackInInventory(new ItemStack(item, n));
     }
 
     /** Снарядов в инвентаре (у пакета — по пакетам). */
-    private static int held(FakePlayer p, Item item) {
+    static int held(FakePlayer p, Item item) {
         return Munitions.held(p.getInventory(), item, Munitions.perItem(item));
     }
 
@@ -373,12 +373,12 @@ public final class MunitionGameTests {
 
     /** Аргументы строки: компоненты — как есть, числа — числами. */
     @Nullable
-    private static List<Object> args(@Nullable TranslatableContents t) {
+    static List<Object> args(@Nullable TranslatableContents t) {
         return t == null ? null : List.of(t.getArgs());
     }
 
     /** Снаряды владельца — вне мира и в мире — убрать без взрыва. */
-    private static void removeFlights(ServerLevel level, UUID owner) {
+    static void removeFlights(ServerLevel level, UUID owner) {
         VirtualFlights.get(level).clear(level, f -> owner.equals(f.ownerId()));
         for (StrikeProjectile e : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), f -> owner.equals(f.ownerId()))) {
             e.discard();
