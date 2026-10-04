@@ -12,6 +12,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
@@ -885,7 +887,7 @@ public final class StrikeGameTests {
      * Место пуска и маршрут из команды ({@code /airstrike salvo … from x z via x z …}) от консоли: пусковая встаёт на
      * самом месте пуска (у консоли без владельца) и смотрит на первую точку, путь — ворота взведения и точки; второй
      * приказ с того же места — с той же пусковой. Место пуска в неготовом чанке — шахед и РСЗО стартуют из него вне мира.
-     * Точек у B-2 команда не разбирает, путь длиннее дальности не принимает. Пусковые на местах пуска лишними у владельца
+     * Точек у B-2 команда не разбирает, путь длиннее дальности и точки вне мира (NaN, бесконечность, за границей) не принимает. Пусковые на местах пуска лишними у владельца
      * не считаются, а залп помнит место пуска в сохранении.
      */
     @GameTest(template = "runway", timeoutTicks = 20, batch = "launch_from", skyAccess = true)
@@ -950,6 +952,20 @@ public final class StrikeGameTests {
         h.assertTrue(Math.abs(salvo.getDouble("from_x") - far.x) < 0.01 && Math.abs(salvo.getDouble("from_z") - far.z) < 0.01,
                 "залп сохранил место пуска " + salvo.getDouble("from_x") + " " + salvo.getDouble("from_z") + " вместо " + far);
 
+        // точек вне мира (NaN и бесконечность — из подделанного пакета карты, за границей мира — из команды) нет ни у места
+        // пуска, ни у маршрута; те же точки в границах мира проходят
+        Vec3 beyondBorder = new Vec3(level.getWorldBorder().getMaxX() + 100, 0, from.z);
+        for (Vec3 bad : List.of(new Vec3(Double.NaN, 0, from.z), new Vec3(from.x, 0, Double.POSITIVE_INFINITY), beyondBorder)) {
+            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, bad, Waypoints.NONE, point)),
+                    "место пуска " + bad + " не названо вне мира");
+            // путь через такую точку и так длиннее дальности: отказ должен быть именно «вне мира»
+            h.assertTrue(outsideWorld(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, from, new Waypoints(List.of(a, bad)), point)),
+                    "точка маршрута " + bad + " не названа вне мира");
+        }
+        h.assertTrue(ServerActions.routeProblem(level, null, false, WeaponType.DRONE, from, new Waypoints(List.of(a, b)), point) == null,
+                "место пуска и маршрут в границах мира не приняты");
+        h.assertTrue(command(h, "airstrike salvo drone 1 0" + at + fromArg(beyondBorder)) == 0, "команда приняла место пуска за границей мира");
+
         // пусковые на местах пуска стоят, сколько бы их ни было; у стреляющего — не больше трёх своих, что идут за ним
         UUID owner = UUID.randomUUID();
         Vec3 c = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 120)));
@@ -962,6 +978,11 @@ public final class StrikeGameTests {
                         && mine.stream().filter(l -> !l.ordered()).count() == LaunchSite.MAX_PER_OWNER,
                 "пусковых на местах пуска " + mine.stream().filter(LauncherEntity::ordered).count() + ", за владельцем " + mine.stream().filter(l -> !l.ordered()).count());
         h.succeed();
+    }
+
+    /** Отказ приказа — «точка за границей мира» ({@code airstrike.route.outside_world}). */
+    private static boolean outsideWorld(@Nullable Component problem) {
+        return problem != null && problem.getContents() instanceof TranslatableContents t && t.getKey().equals("airstrike.route.outside_world");
     }
 
     /** Пусковая на месте пуска из приказа — в центре блока самого места (поправка {@code LaunchSite.check}). */
