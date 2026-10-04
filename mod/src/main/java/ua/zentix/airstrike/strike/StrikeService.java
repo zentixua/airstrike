@@ -436,7 +436,7 @@ public final class StrikeService {
                 Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), route, who);
     }
 
-    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат; у замеченной — «по месту, где видели». */
     private static String describe(ServerLevel level, Target target) {
         return switch (target) {
             case Target.Point p -> "точка";
@@ -449,6 +449,7 @@ public final class StrikeService {
                 yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
             }
             case Target.OfSubLevel s -> "аппарат";
+            case Target.Sighted s -> describe(level, s.quarry()) + " по месту, где видели";
         };
     }
 

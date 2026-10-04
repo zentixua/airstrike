@@ -56,7 +56,7 @@ public final class FlightStatus {
         if (owner == null || p.isRemoved() || p instanceof IcbmEntity || p instanceof BomberEntity b && b.hasReleased()) return;
         int kind = S2C.Flight.TARGET_POINT;
         String name = "";
-        Target t = p.target();
+        Target t = p.target() == null ? null : p.target().subject();
         if (t instanceof Target.OfEntity e) {
             Entity ent = p.level() instanceof ServerLevel sl ? sl.getEntity(e.uuid()) : null;
             if (ent instanceof Player || ent != null && ent.hasCustomName()) {

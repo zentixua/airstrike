@@ -280,7 +280,7 @@ public class RemoteScreen extends Screen {
         save();
     }
 
-    /** На карте выбран игрок: цель пульта — он, снаряды пойдут за ним. */
+    /** На карте выбран игрок: цель пульта — он (удар по правилам сервера: {@code ServerActions.sighted}). */
     void aimAtPlayer(String name) {
         loadout = loadout.withMode(TargetMode.PLAYER).withPlayer(name);
         save();
@@ -348,8 +348,8 @@ public class RemoteScreen extends Screen {
         Component hint = switch (loadout.mode()) {
             case LOOK -> Component.translatable("airstrike.remote.hint.look");
             case AROUND_ME -> Component.translatable("airstrike.remote.hint.around_me");
-            case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : Component.translatable("airstrike.remote.hint.player");
-            case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : Component.translatable("airstrike.remote.hint.aircraft");
+            case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : movingHint("player");
+            case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : movingHint("aircraft");
             case MAP -> {
                 int points = loadout.weapon().spec().route().waypoints() ? MapTarget.route(minecraft.level).size() : 0;
                 yield MapTarget.get(minecraft.level)
@@ -359,6 +359,13 @@ public class RemoteScreen extends Screen {
             }
         };
         g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);
+    }
+
+    /** Подсказка для движущейся цели ({@code player}, {@code aircraft}): идёт ли выбранное оружие за ней ({@link WeaponSpec.Tracking}). */
+    private Component movingHint(String what) {
+        return loadout.weapon().spec().tracking() == WeaponSpec.Tracking.CAMERA
+                ? Component.translatable("airstrike.remote.hint." + what + ".camera", Component.keybind(Airstrike.CAMERA_KEY))
+                : Component.translatable("airstrike.remote.hint." + what + ".point");
     }
 
     @Override
