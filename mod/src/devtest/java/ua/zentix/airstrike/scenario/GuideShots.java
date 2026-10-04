@@ -423,17 +423,50 @@ final class GuideShots {
         startGif("hud", 2);
     }
 
-    /** Камера ракеты (GIF, втрое быстрее жизни): пуск со стороны, борт, карта, пока ракета дальше прорисовки, попадание. */
+    /**
+     * Камера ракеты (GIF): вдали — карта с её путём, ближе 160 м к игроку — видео с борта, пике и попадание. Путь прямой
+     * (from и via на одной линии с деревней) и заходит с той стороны деревни, где рельеф ниже: атака ракеты не видит
+     * склона между ней и целью, а с холма зрителя она цепляла деревья на его вершине. Зритель — на пути у деревни:
+     * видео — весь подлёт.
+     */
     private void camera() {
+        until("пустого неба", 2400, () -> ClientFlights.all().isEmpty());
+        Vec3[] side = new Vec3[1];
+        run(() -> onServer(server -> {
+            ServerLevel level = server.overworld();
+            int best = Integer.MAX_VALUE;
+            Vec3 pick = along;
+            for (Vec3 d : new Vec3[]{along, along.reverse(), across, across.reverse()}) {
+                int top = Integer.MIN_VALUE;
+                for (int t = 16; t <= 200; t += 8) {
+                    int x = (int) Math.floor(village.x + d.x * t), z = (int) Math.floor(village.z + d.z * t);
+                    level.getChunk(x >> 4, z >> 4);
+                    top = Math.max(top, level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z));
+                }
+                if (top < best) {
+                    best = top;
+                    pick = d;
+                }
+            }
+            Vec3 e = village.add(pick.scale(40));
+            stand(new Vec3(e.x, surface(level, (int) Math.floor(e.x), (int) Math.floor(e.z)), e.z), village);
+            Airstrike.LOG.info("SCENARIO guide: заход ракеты с {}, рельеф на подлёте до y {}", xyz(village.add(pick.scale(200))), best);
+            side[0] = pick;
+        }));
+        until("места зрителя", 200, () -> side[0] != null);
+        await(40);
+        until("прорисовки у деревни", 1200, this::worldReady);
         run(() -> {
-            look(village);
-            cmd(String.format(Locale.ROOT, "airstrike missile at %.1f %.1f %.1f", village.x, village.y, village.z));
+            Vec3 from = village.add(side[0].scale(400)), via = village.add(side[0].scale(150));
+            cmd(String.format(Locale.ROOT, "airstrike salvo missile 1 0 at %.1f %.1f %.1f from %.1f %.1f via %.1f %.1f",
+                    village.x, village.y, village.z, from.x, from.z, via.x, via.z));
         });
         until("пуска", 200, () -> !ClientFlights.all().isEmpty());
         run(ProjectileCamera::cycle);
-        // ~31 с полёта втрое быстрее: пуск, борт, карта на обходе, пике и попадание
-        gHold(11.0);
-        startGif("camera", 3);
+        // ~2–3 с карты, видео с ~200 м до деревни, пике и попадание
+        until("подлёта ракеты", 2400, () -> ClientFlights.all().stream().anyMatch(f -> f.etaSeconds(0) <= 5));
+        gHold(6.5);
+        startGif("camera", 1);
         run(() -> {
             if (ProjectileCamera.isActive()) ProjectileCamera.exit();
         });

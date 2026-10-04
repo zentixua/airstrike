@@ -46,6 +46,6 @@ webp scope    0 0
 webp hud      0 0
 webp camera   0 0
 webp loiter   0 104
-webp sam      0 0
+webp sam      0 72    # дальше — один дым пуска
 webp launcher 0 64
 ls -la "$OUT"
