@@ -43,7 +43,7 @@ paths:
     gametest_durations.py <лог>...       ← время партий GameTest по логам (latest.log или лог задачи CI) → таблица, по которой
                                            CI делит GameTest на части (src/devtest/resources/gametest-durations.json)
     mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
-    prod_client.py <сценарий> [--world …] ← боевой клиент со всей сборкой хоста (копия инстанса, без Prism): сценарий из
+    prod_client.py <сценарий> [--world …] ← клиент со всей сборкой хоста, как у игрока (копия инстанса, без Prism): сценарий из
                                            ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва;
                                            strike-profile — тики сервера вокруг ударов и телепортов (--prop airstrike.profile.steps=…);
                                            leak — кто держит мир после выхода в меню: заходы в мир с командами (airstrike.leak.*),

@@ -5,7 +5,7 @@ paths:
   - "mod/src/devtest/java/ua/zentix/airstrike/stress/**"
 ---
 
-# Стенды, мультиплеер, вложенный KWin, боевой клиент
+# Стенды, мультиплеер, вложенный KWin, клиент со всей сборкой
 
 ## Подводные камни
 - Стенд нагрузки (`tools/stress.sh`, в облаке `MODS=run/ci-mods`): сервер и три клиента на 4 ядрах и 16 ГБ — у JVM
@@ -36,6 +36,6 @@ paths:
   `/run/user/1000/doc` (`fusermount3 -u -z`), при выходе — свой; flatpak-приложения (Prism) не запускались
   («bwrap: Can't find source path …/doc/by-app/…»; вернуть — `systemctl --user restart xdg-document-portal.service`).
   Проверка: `findmnt /run/user/1000/doc` до и после — тот же маунт.
-- Сборка хоста (zentixua/airstrike-pack, в ней Sinytra Connector) в Gradle-запуске не стартует: Connector требует боевую раскладку Minecraft
+- Сборка хоста (zentixua/airstrike-pack, в ней Sinytra Connector) в Gradle-запуске не стартует: Connector требует раскладку файлов Minecraft, как у лаунчера
   («Could not determine clean minecraft artifact path»). Для проверок с полной сборкой — `tools/prod_client.py`
   (библиотеки и ForgeWrapper из каталога Prism, копия инстанса в `mod/run/prod`; инстанс Артёма не трогается).
