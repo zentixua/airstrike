@@ -8,7 +8,10 @@ import com.mojang.blaze3d.vertex.MeshData;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 import org.joml.Matrix4fStack;
 import org.joml.Vector3f;
 
@@ -17,18 +20,50 @@ import org.joml.Vector3f;
  * вдали. Под шейдерами Iris виден только этот этап (всё, что нарисовано раньше, шейдерпак пропускает через свои
  * проходы, и его туман съедает дальнее). Глубина проверяется, но не пишется: рельеф ближе закрывает, небо — нет.
  * Дальше дальней плоскости отсечения точка переносится ближе по тому же лучу и уменьшается во столько же раз —
- * угловой размер тот же ({@link #fold}).
+ * угловой размер тот же ({@link #fold}). Начало координат — глаз ({@link #eye}): лучи переноса идут из него.
  */
 public final class FarDraw {
+    private static final Matrix4f VIEW_PROJECTION = new Matrix4f();
+    private static final Vector3f OFFSET = new Vector3f();
+
     private FarDraw() {}
 
-    /** Начать: своя матрица вида (камера в начале координат), состояние — как оставил мир. */
-    public static void begin(RenderLevelStageEvent e) {
+    /**
+     * Глаз кадра в мире — центр проекции, из которого мир на самом деле нарисован. Покачивание вида при ходьбе сдвигает
+     * его от позиции камеры до 0,1 блока: ваниль кладёт покачивание в проекцию, Iris с шейдерпаком —
+     * в матрицу вида ({@code MixinModelViewBobbing}), произведение то же. Всё, что переносится ближе по лучу с тем же
+     * угловым размером (блик в 0,25 блока перед глазом, ореол в воздухе, дальнее у дальней плоскости), переносится к нему:
+     * от позиции камеры блик огня при ходьбе гулял по дуге шага до 22°, а мир за ним стоял.
+     */
+    public static Vec3 eye(RenderLevelStageEvent e) {
+        Vector3f o = eyeOffset(e.getProjectionMatrix(), e.getModelViewMatrix(), OFFSET);
+        return e.getCamera().getPosition().add(o.x(), o.y(), o.z());
+    }
+
+    /** Глаз от позиции камеры по матрицам кадра (проекция и вид для координат от камеры) — в dest. */
+    static Vector3f eyeOffset(Matrix4fc projection, Matrix4fc modelView, Vector3f dest) {
+        return VIEW_PROJECTION.set(projection).mul(modelView).perspectiveOrigin(dest);
+    }
+
+    /** Начать: своя матрица вида с глазом {@code eye} ({@link #eye}) в начале координат, состояние — как оставил мир. */
+    public static void begin(RenderLevelStageEvent e, Vec3 eye) {
         Matrix4fStack mv = RenderSystem.getModelViewStack();
         mv.pushMatrix();
         mv.identity();
-        mv.mul(e.getModelViewMatrix());
+        fromEye(mv.mul(e.getModelViewMatrix()), e, eye);
         RenderSystem.applyModelViewMatrix();
+    }
+
+    /** Проекция с видом кадра для координат от глаза {@code eye}, как у {@link #begin}, — в dest. */
+    public static Matrix4f viewProjection(RenderLevelStageEvent e, Vec3 eye, Matrix4f dest) {
+        fromEye(dest.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()), e, eye);
+        return dest;
+    }
+
+    /** Матрицу для координат от позиции камеры — для координат от глаза. */
+    private static void fromEye(Matrix4f m, RenderLevelStageEvent e, Vec3 eye) {
+        Vec3 cam = e.getCamera().getPosition();
+        m.translate((float) (eye.x - cam.x), (float) (eye.y - cam.y), (float) (eye.z - cam.z));
     }
 
     /** Вернуть матрицу и состояние, которые ждёт остальная отрисовка. */

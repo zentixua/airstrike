@@ -134,7 +134,7 @@ public final class FxLayer {
         boolean warmup = !warmed;
         // атлас дальних моделей со всеми сетками в видеопамяти — до сбора кадра (прогрев начинает атлас заново)
         if (warmup) FarRenderer.warmup();
-        FRUSTUM.set(VIEW_PROJECTION.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()));
+        FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
         LIGHTS.begin();
         QUADS.nearestTexels(true);
@@ -151,7 +151,7 @@ public final class FxLayer {
         int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
         LightTexture light = mc.gameRenderer.lightTexture();
-        FarDraw.begin(e);
+        FarDraw.begin(e, view.camera());
         try {
             RenderSystem.setShader(() -> s);
             RenderSystem.setShaderTexture(0, atlas);
