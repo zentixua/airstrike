@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameRules;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.registry.ModDataComponents;
@@ -20,8 +21,8 @@ import java.util.UUID;
  * (паспорт, {@link WeaponSpec#munition}; пакет «Града» — по снаряду из пакета), ядерная БЧ на носителе — ещё предметом
  * {@link #warhead()}. Не хватает — пуска нет, строка над хотбаром: сколько нужно и сколько есть; приказ не урезается.
  * Неудачный пуск и невыпущенные снаряды отменённого залпа возвращаются владельцу, если он в сети (полный инвентарь —
- * к ногам); не в сети — не возвращаются (строка в лог). Творческий режим, команда оператора, консоль и командный
- * блок не платят.
+ * к ногам; погибшему, пока он не возродился, — на место гибели); не в сети — не возвращаются (строка в лог).
+ * Творческий режим, команда оператора, консоль и командный блок не платят.
  */
 public final class Munitions {
     private Munitions() {}
@@ -135,11 +136,28 @@ public final class Munitions {
         if (rounds > 0) throw new IllegalStateException("снято меньше, чем проверено: не хватило " + rounds);
     }
 
-    /** Вернуть оплаченное игроку: в инвентарь, полный — к ногам; строка ему в чат. */
+    /** Вернуть оплаченное игроку: в инвентарь, полный — к ногам, погибшему — на место гибели; строка ему в чат. */
     private static void refund(ServerPlayer player, Bill bill) {
         WeaponSpec.Munition m = bill.weapon().spec().munition();
         give(player, m.item().get(), m.rounds(), bill.shots());
         give(player, warhead(), 1, bill.warheads());
+        if (!keeps(player)) player.sendSystemMessage(Component.translatable("airstrike.munitions.refunded.dead").withStyle(ChatFormatting.GRAY));
+    }
+
+    /**
+     * Инвентарь игрока переживёт возрождение: жив, или правило {@code keepInventory}. Погибший на экране смерти — в списке
+     * игроков, но его инвентарь при возрождении без {@code keepInventory} не переносится ({@code ServerPlayer.restoreFrom}):
+     * положенное туда пропало бы.
+     */
+    private static boolean keeps(ServerPlayer player) {
+        return player.isAlive() || player.serverLevel().getGameRules().getBoolean(GameRules.RULE_KEEPINVENTORY);
+    }
+
+    /** Отдать стопку: в инвентарь (полный — к ногам) или, погибшему, — выбросить на месте гибели. */
+    private static void put(ServerPlayer player, ItemStack s) {
+        if (keeps(player)) player.getInventory().placeItemBackInInventory(s);
+        // вокруг, как добыча при гибели; без ItemTossEvent — это не бросок игрока
+        else player.drop(s, true, false);
     }
 
     /**
@@ -168,7 +186,7 @@ public final class Munitions {
         player.sendSystemMessage((perItem > 1 ? Component.translatable("airstrike.munitions.refunded.rounds", item.getDescription(), rounds)
                 : Component.translatable("airstrike.munitions.refunded", item.getDescription(), rounds)).withStyle(ChatFormatting.GRAY));
         Inventory inv = player.getInventory();
-        if (perItem > 1) {
+        if (perItem > 1 && keeps(player)) {
             for (int i = 0; i < inv.getContainerSize() && rounds > 0; i++) {
                 ItemStack s = inv.getItem(i);
                 if (!s.is(item) || s.getCount() != 1 || !s.has(ModDataComponents.ROUNDS.get())) continue;
@@ -181,9 +199,9 @@ public final class Munitions {
         int max = new ItemStack(item).getMaxStackSize();
         while (whole > 0) {
             int n = Math.min(whole, max);
-            inv.placeItemBackInInventory(new ItemStack(item, n));
+            put(player, new ItemStack(item, n));
             whole -= n;
         }
-        if (rounds % perItem > 0) inv.placeItemBackInInventory(pack(item, perItem, rounds % perItem));
+        if (rounds % perItem > 0) put(player, pack(item, perItem, rounds % perItem));
     }
 }

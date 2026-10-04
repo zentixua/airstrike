@@ -48,7 +48,7 @@ import java.util.Locale;
  *   /airstrike menu | clear | give [игроки] | help
  *   /airstrike nuke [кт] [air|ground]                  МБР туда, куда смотрю (по умолчанию — воздушный подрыв)
  *   /airstrike nuke at x y z [кт] [air|ground]         МБР по точке
- *   /airstrike nuke now [at x y z] [кт] [air|ground]   подрыв сразу, без полёта (отладка)
+ *   /airstrike nuke now [at x y z] [кт] [air|ground]   подрыв сразу, без полёта (только оператор)
  *   /airstrike radiation [игрок] | radiation clear [игроки]
  *   /airstrike grid …                                  сеть и блэкаут ({@link GridCommand})
  * </pre>
@@ -136,7 +136,8 @@ public final class AirstrikeCommand {
         return nuke
                 .then(Commands.literal("at").then(yieldArgs(Commands.argument("pos", Vec3Argument.vec3()),
                         (ctx, n) -> nukeAt(ctx.getSource(), Vec3Argument.getVec3(ctx, "pos"), n))))
-                .then(yieldArgs(Commands.literal("now"), (ctx, n) -> nukeNow(ctx.getSource(), lookPoint(ctx), n))
+                // подрыв без полёта — инструмент хоста: не платит, без тревоги; не оператору его нет и при ops_only = false
+                .then(yieldArgs(Commands.literal("now").requires(s -> s.hasPermission(2)), (ctx, n) -> nukeNow(ctx.getSource(), lookPoint(ctx), n))
                         .then(Commands.literal("at").then(yieldArgs(Commands.argument("pos", Vec3Argument.vec3()),
                                 (ctx, n) -> nukeNow(ctx.getSource(), Vec3Argument.getVec3(ctx, "pos"), n)))));
     }

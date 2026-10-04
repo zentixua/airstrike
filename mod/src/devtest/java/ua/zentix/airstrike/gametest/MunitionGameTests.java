@@ -11,6 +11,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -19,6 +20,7 @@ import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.ShapedRecipe;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.Vec3;
@@ -186,8 +188,35 @@ public final class MunitionGameTests {
     }
 
     /**
+     * Владелец погиб и ещё не возродился (экран смерти: в списке игроков, но инвентарь без {@code keepInventory} при
+     * возрождении не переносится) — отбой залпа кладёт невыпущенное не в инвентарь, а на место гибели.
+     */
+    @GameTest(template = "range", batch = "munitions", skyAccess = true)
+    public static void deadOwnerRefundDropsAtDeathSpot(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Listener p = player(h, "munitions_dead");
+        StrikeGameTests.afterTest(h, () -> SalvoData.get(level).cancel(level, p.getUUID(), List.of()));
+        Item shahed = ModItems.SHAHED.get();
+        give(p, shahed, 3);
+        h.assertTrue(ServerActions.strike(p, true, WeaponType.DRONE, 3, 20, aim(h), Loadout.Nuke.DEFAULT, Waypoints.NONE), "залп не принят");
+        h.assertTrue(!level.getGameRules().getBoolean(GameRules.RULE_KEEPINVENTORY), "в мире GameTest keepInventory");
+        p.setHealth(0);
+        h.assertFalse(p.isAlive(), "владелец жив");
+        h.assertValueEqual(SalvoData.get(level).cancel(level, p.getUUID(), List.of(p)), 1, "отменено залпов");
+        h.assertValueEqual(count(p, shahed), 0, "погибшему боеприпасы положены в инвентарь");
+        List<ItemEntity> dropped = level.getEntitiesOfClass(ItemEntity.class,
+                p.getBoundingBox().inflate(4), e -> e.getItem().is(shahed));
+        int n = dropped.stream().mapToInt(e -> e.getItem().getCount()).sum();
+        dropped.forEach(Entity::discard);
+        h.assertValueEqual(n, 3, "шахедов на месте гибели");
+        h.assertTrue(p.last("airstrike.munitions.refunded.dead") != null, "нет строки о месте гибели");
+        h.succeed();
+    }
+
+    /**
      * Неудачный пуск возвращает оплаченное: снаряд у пусковой стреляющего не вошёл в мир (событие входа отменено —
-     * так делают моды защиты территорий) — шахед и МБР снова в инвентаре, ядерного удара нет.
+     * так делают моды защиты территорий) — шахед и МБР снова в инвентаре, ядерного удара нет. Пуск, упавший с ошибкой
+     * (здесь — обработчик того же события), тоже неудачный: шахед возвращается.
      */
     @GameTest(template = "runway", timeoutTicks = 20, batch = "munitions_failed", skyAccess = true)
     public static void failedLaunchRefunds(GameTestHelper h) {
@@ -196,10 +225,12 @@ public final class MunitionGameTests {
         Listener p = player(h, "munitions_failed");
         p.moveTo(Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 60))), 0, 0);
         int[] vetoed = {0};
+        boolean[] crash = {false};
         Consumer<EntityJoinLevelEvent> veto = e -> {
             if (e.getEntity() instanceof StrikeProjectile proj && p.getUUID().equals(proj.ownerId())) {
-                e.setCanceled(true);
                 vetoed[0]++;
+                if (crash[0]) throw new IllegalStateException("проверка: пуск падает с ошибкой");
+                e.setCanceled(true);
             }
         };
         NeoForge.EVENT_BUS.addListener(veto);
@@ -230,6 +261,13 @@ public final class MunitionGameTests {
         h.assertValueEqual(vetoed[0], 2, "МБР не пыталась войти в мир");
         h.assertValueEqual(held(p, icbm), 1, "МБР после неудачного пуска");
         h.assertValueEqual(NuclearEvents.get(level).scheduled().size(), scheduled, "неудачный пуск записал ядерный удар");
+
+        crash[0] = true;
+        p.said.clear();
+        h.assertFalse(ServerActions.strike(p, true, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE), "пуск с ошибкой удался");
+        h.assertValueEqual(vetoed[0], 3, "шахед не пытался войти в мир");
+        h.assertValueEqual(held(p, shahed), 1, "шахед после пуска с ошибкой");
+        h.assertTrue(p.last("airstrike.munitions.refunded") != null, "нет строки о возврате после ошибки");
         h.succeed();
     }
 
