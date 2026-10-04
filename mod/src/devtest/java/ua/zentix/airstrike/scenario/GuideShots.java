@@ -159,18 +159,6 @@ final class GuideShots {
         });
         // секции чанков вокруг собраны: на llvmpipe кадр сразу после входа — одно небо
         until("прорисовки вокруг", 2400, this::worldReady);
-        // зритель на вершине среди деревьев: пусковой негде было встать, и снаряды заходили издалека (в GIF не было
-        // пуска). Вокруг — ровная поляна 33×33 без деревьев, под ней — земля до склона. Только когда место загружено:
-        // fill в незагруженном месте не делает ничего (и до 32768 блоков за раз)
-        run(() -> {
-            int x = (int) Math.floor(view.x), y = (int) Math.floor(view.y), z = (int) Math.floor(view.z);
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 16, y, z - 16, x, y + 30, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x + 1, y, z - 16, x + 16, y + 30, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:dirt replace #minecraft:replaceable",
-                    x - 16, y - 12, z - 16, x + 16, y - 2, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 16, y - 1, z - 16, x + 16, y - 1, z + 16));
-        });
-        await(20);
         if (only("recipes")) recipes();
         if (only("scope")) scope();
         if (only("remote")) remote();
@@ -497,12 +485,23 @@ final class GuideShots {
             sam[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
         }));
         until("места ЗРК", 100, () -> sam[0] != null);
+        // поляна 25×25 у ЗРК и зрителя: под листвой ЗРК не стреляет (нет открытого неба), а зритель смотрел сквозь неё;
+        // ровная — на высоте ЗРК, вперёд от зрителя склон не закрывает (fill — до 32768 блоков за раз)
+        run(() -> {
+            BlockPos s = sam[0];
+            Vec3 m = Vec3.atBottomCenterOf(s).subtract(along.scale(5));
+            int x = (int) Math.floor(m.x), y = s.getY(), z = (int) Math.floor(m.z);
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 12, y, z - 12, x + 12, y + 30, z + 12));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 12, y - 1, z - 12, x + 12, y - 1, z + 12));
+        });
         run(() -> {
             BlockPos s = sam[0];
             setblock(s, "airstrike:sam");
             setblock(s.east(), "minecraft:hopper[facing=west]{Items:[{Slot:0b,id:\"airstrike:interceptor\",count:12}]}");
-            stand(view.subtract(along.scale(14)).add(across.scale(-2)), view.add(along.scale(100)).add(0, 20, 0));
-            mc.player.getInventory().selected = 8; // пустая рука: пульт в руке закрывал полкадра
+            Vec3 c = Vec3.atBottomCenterOf(s);
+            stand(c.subtract(along.scale(10)).add(across.scale(-6)), c.add(along.scale(80)).add(0, 20, 0));
+            mc.player.getInventory().selected = 8;
+            mc.gameRenderer.setRenderHand(false); // рука и пульт в руке закрывали полкадра
         });
         until("ракет ЗРК на направляющих", 1200, () -> {
             onServer(server -> {
@@ -559,6 +558,7 @@ final class GuideShots {
             setblock(lever[0], wall[0] + ",powered=false]");
             stand(c.add(side.scale(6)).subtract(forward.scale(4)), c.add(forward.scale(4)).add(0, 3, 0));
             mc.player.getInventory().selected = 8;
+            mc.gameRenderer.setRenderHand(false);
         });
         // пакет поднимается и доворачивает на курс
         await(200);
