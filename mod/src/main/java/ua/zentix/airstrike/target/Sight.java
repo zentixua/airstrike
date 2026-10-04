@@ -23,17 +23,25 @@ public final class Sight {
     private Sight() {}
 
     /**
-     * Игрок {@code viewer} видит сущность {@code target}: она в его мире и не невидима для него (зелье невидимости, кроме
-     * своих по команде с {@code seeFriendlyInvisibles}), Minecraft отдаёт её его клиенту ({@link Entity#broadcastToPlayer}:
-     * наблюдатель не виден), она не дальше по горизонтали, чем клиент её получает ({@link #range}), и от глаз игрока до её
-     * глаз или середины тела взгляд ничего не заслоняет ({@link #clear}).
+     * Игрок {@code viewer} видит сущность {@code target} своими глазами — {@link #sees(ServerPlayer, Vec3, Entity)} из его
+     * глаз.
      */
     public static boolean sees(ServerPlayer viewer, Entity target) {
+        return sees(viewer, viewer.getEyePosition(), target);
+    }
+
+    /**
+     * Игрок {@code viewer} видит сущность {@code target} из точки {@code eye} — своими глазами или камерой своего снаряда
+     * (картинка камеры у клиента есть, только пока сущность ему отдаётся): она в его мире, жива и не невидима для него
+     * (зелье невидимости, кроме своих по команде с {@code seeFriendlyInvisibles}), Minecraft отдаёт её его клиенту
+     * ({@link Entity#broadcastToPlayer}: наблюдатель не виден), она не дальше от игрока по горизонтали, чем клиент её
+     * получает ({@link #range}), и из {@code eye} до её глаз или середины тела взгляд ничего не заслоняет ({@link #clear}).
+     */
+    public static boolean sees(ServerPlayer viewer, Vec3 eye, Entity target) {
         if (target == viewer || target.level() != viewer.level() || !target.isAlive()) return false;
         if (target.isInvisibleTo(viewer) || !target.broadcastToPlayer(viewer)) return false;
         if (!within(viewer, target.position(), range(viewer, target))) return false;
         ServerLevel level = viewer.serverLevel();
-        Vec3 eye = viewer.getEyePosition();
         return clear(level, eye, target.getEyePosition()) || clear(level, eye, target.getBoundingBox().getCenter());
     }
 
