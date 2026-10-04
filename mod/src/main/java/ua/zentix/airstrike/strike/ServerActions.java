@@ -657,27 +657,31 @@ public final class ServerActions {
             List<UUID> outside = VirtualFlights.get(level).clear(level, p -> mine.test(p) && (p.flightPhase().onLauncher() || p.recallable()));
             virtual += outside.size();
             gone.addAll(outside);
-            List<StrikeProjectile> flying = new ArrayList<>();
+            List<StrikeProjectile> flying = new ArrayList<>(), mineOnRail = new ArrayList<>();
             List<LauncherEntity> launchers = new ArrayList<>();
             // оставшиеся снаряды на направляющей (в мире и вне его): их пусковые стоят до пуска
             List<StrikeProjectile> onRail = new ArrayList<>();
             for (StrikeProjectile p : VirtualFlights.get(level).flights()) {
                 if (p.flightPhase().onLauncher()) onRail.add(p);
             }
+            // только собрать: discard сразу убирает сущность из карты, которую обходит getAllEntities
             for (Entity e : level.getAllEntities()) {
                 if (e instanceof StrikeProjectile p) {
                     if (!p.flightPhase().onLauncher()) {
                         if (mine.test(p)) flying.add(p);
                     } else if (mine.test(p)) {
-                        p.discard();
-                        gone.add(p.getUUID());
-                        unlaunched++;
+                        mineOnRail.add(p);
                     } else {
                         onRail.add(p);
                     }
                 } else if (e instanceof LauncherEntity l && owner.equals(l.ownerId())) {
                     launchers.add(l);
                 }
+            }
+            for (StrikeProjectile p : mineOnRail) {
+                p.discard();
+                gone.add(p.getUUID());
+                unlaunched++;
             }
             for (LauncherEntity l : launchers) {
                 if (onRail.stream().noneMatch(l::serves)) {

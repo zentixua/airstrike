@@ -77,7 +77,9 @@ public final class AirstrikeCommand {
             // оператор (консоль, командный блок) и хост снимают всё, и ядерные удары; игрок — только свои, как с пульта
             boolean trusted = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && NuclearKeys.trusted(p);
             if (!trusted && s.getEntity() instanceof ServerPlayer p) {
-                s.sendSuccess(() -> ServerActions.recall(p), false);
+                // отбой — до строки: без sendCommandFeedback sendSuccess не зовёт поставщик строки
+                Component done = ServerActions.recall(p);
+                s.sendSuccess(() -> done, false);
                 return 1;
             }
             int n = ServerActions.clearAll(s.getServer(), trusted, s.getTextName());
