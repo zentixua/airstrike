@@ -42,7 +42,7 @@ import java.util.Locale;
  * /airstrike — то же, что пульт, но для операторов и автоматизации (командные блоки, функции):
  * <pre>
  *   /airstrike drone|missile|bunker                   куда смотрю
- *   /airstrike missile ENOTzRPG                       по игроку или мобу (снаряд идёт за ним)
+ *   /airstrike missile ENOTzRPG                       по игроку или мобу (у оператора снаряд идёт за ним)
  *   /airstrike bunker at ~ ~-20 ~                     по точке
  *   /airstrike salvo drone 6 25 [me|look|ник|at x y z] залп: сколько, разброс
  *   /airstrike menu | clear | give [игроки] | help
@@ -52,7 +52,8 @@ import java.util.Locale;
  *   /airstrike radiation [игрок] | radiation clear [игроки]
  *   /airstrike grid …                                  сеть и блэкаут ({@link GridCommand})
  * </pre>
- * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке.
+ * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке. Команда игрока без
+ * прав оператора бьёт по правилам пульта ({@link #rules}).
  */
 public final class AirstrikeCommand {
     private static final SimpleCommandExceptionType TARGET_NOT_FOUND = new SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found"));
@@ -147,7 +148,7 @@ public final class AirstrikeCommand {
     private static int nukeLook(CommandContext<CommandSourceStack> ctx, Loadout.Nuke nuke) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", nuke), null);
-        return aim != null && ServerActions.strike(player, bound(ctx.getSource()), WeaponType.NUKE, 1, 0, aim, nuke, Waypoints.NONE) ? 1 : 0;
+        return aim != null && ServerActions.strike(player, WeaponType.NUKE, 1, 0, aim, nuke, Waypoints.NONE, rules(ctx.getSource())) ? 1 : 0;
     }
 
     private static int nukeAt(CommandSourceStack s, Vec3 pos, Loadout.Nuke nuke) {
@@ -218,7 +219,7 @@ public final class AirstrikeCommand {
     private static int look(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(w, count, spread, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT), null);
-        return aim != null && ServerActions.strike(player, bound(ctx.getSource()), w, count, spread, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE) ? 1 : 0;
+        return aim != null && ServerActions.strike(player, w, count, spread, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, rules(ctx.getSource())) ? 1 : 0;
     }
 
     private static int me(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread) {
@@ -239,11 +240,6 @@ public final class AirstrikeCommand {
         return fire(s, w, count, spread, ServerActions.atPlayer(target));
     }
 
-    /** Приказ по правилам игроков ({@link ServerActions#strike}): команда не оператора; у оператора — без них. */
-    private static boolean bound(CommandSourceStack s) {
-        return !s.hasPermission(2);
-    }
-
     /** Пуск от имени игрока (заход из-за его спины) или от консоли/командного блока. */
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim) {
         return fire(s, w, count, spread, aim, Loadout.Nuke.DEFAULT);
@@ -251,9 +247,17 @@ public final class AirstrikeCommand {
 
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim, Loadout.Nuke nuke) {
         boolean ok = s.getEntity() instanceof ServerPlayer player
-                ? ServerActions.strike(player, bound(s), w, count, spread, aim, nuke, Waypoints.NONE)
+                ? ServerActions.strike(player, w, count, spread, aim, nuke, Waypoints.NONE, rules(s))
                 : ServerActions.dispatch(s.getLevel(), s.getTextName(), s.getRotation().y, w, count, spread, aim, nuke);
         return ok ? 1 : 0;
+    }
+
+    /**
+     * Приказ командой — по правилам пульта ({@link ServerActions#sighted}), кроме операторов сервера: хост и ведущий
+     * устраивают события без правил, как консоль и командный блок.
+     */
+    private static boolean rules(CommandSourceStack s) {
+        return !s.hasPermission(2);
     }
 
     private static int give(CommandContext<CommandSourceStack> ctx, Collection<ServerPlayer> players) {

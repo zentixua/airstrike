@@ -16,13 +16,14 @@ import ua.zentix.airstrike.util.Terrain;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Цель удара. Движущиеся цели (сущность, аппарат) каждый тик пересчитываются в мировую точку;
  * если цель пропала (умерла, ушла в другой мир, аппарат разобран) — {@link #resolve} пуст,
  * и снаряд летит в последнюю известную точку.
  */
-public sealed interface Target permits Target.Point, Target.Ground, Target.OfEntity, Target.OfSubLevel {
+public sealed interface Target permits Target.Point, Target.Ground, Target.OfEntity, Target.OfSubLevel, Target.Sighted {
     Codec<Target> CODEC = Kind.CODEC.dispatch(Target::kind, Kind::codec);
 
     Optional<Vec3> resolve(ServerLevel level);
@@ -31,6 +32,11 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
     Target offset(Vec3 delta);
 
     Kind kind();
+
+    /** Что это за цель (для подписей и взрывателя): сама цель, а у замеченной — та, кого заметили ({@link Sighted#quarry}). */
+    default Target subject() {
+        return this;
+    }
 
     /** Неподвижная точка мира. */
     record Point(Vec3 pos) implements Target {
@@ -182,24 +188,71 @@ public sealed interface Target permits Target.Point, Target.Ground, Target.OfEnt
         }
     }
 
+    /**
+     * Движущаяся цель (сущность, аппарат), которую игрок выбрал, видя её: снаряд бьёт туда, где её видели
+     * ({@code seen}), а за ней самой ({@code quarry}) идёт, только пока оператор держит её в кадре камеры этого снаряда
+     * и оружие это умеет ({@code WeaponSpec.Tracking#CAMERA}, {@link TargetTracker#tick}). Так бьёт приказ игрока;
+     * без этого игрок по нику бил в любой точке карты, и снаряд вёл его до конца (игра 03.10.2026: сотни шахедов
+     * по одному игроку). Разброс залпа сдвигает место, а не цель: ведомый камерой снаряд идёт в саму цель.
+     */
+    record Sighted(Target quarry, Vec3 seen) implements Target {
+        static final MapCodec<Sighted> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+                Codec.lazyInitialized(() -> Target.CODEC).fieldOf("quarry").forGetter(Sighted::quarry),
+                Vec3.CODEC.fieldOf("seen").forGetter(Sighted::seen)
+        ).apply(i, Sighted::new));
+
+        /** Где цель видели; дальше — только по камере ({@link TargetTracker}). */
+        @Override
+        public Optional<Vec3> resolve(ServerLevel level) {
+            return Optional.of(seen);
+        }
+
+        @Override
+        public Target offset(Vec3 delta) {
+            return new Sighted(quarry, seen.add(delta));
+        }
+
+        /** Та же цель, видели её в {@code point} (место снаряда залпа). */
+        public Sighted at(Vec3 point) {
+            return new Sighted(quarry, point);
+        }
+
+        @Override
+        public Target subject() {
+            return quarry;
+        }
+
+        @Override
+        public Kind kind() {
+            return Kind.SIGHTED;
+        }
+    }
+
+    /**
+     * Вид цели в сохранении. Кодеки видов берутся при чтении и записи, а не при создании перечисления: у интерфейса
+     * есть метод по умолчанию ({@link #subject}), поэтому первое обращение к любой записи-цели сперва
+     * инициализирует сам {@code Target} (JLS 12.4.2), а с ним {@link #CODEC} и это перечисление, — и кодек ещё не
+     * инициализированной записи был бы здесь {@code null}.
+     */
     enum Kind implements StringRepresentable {
-        POINT("point", Point.CODEC),
-        GROUND("ground", Ground.CODEC),
-        ENTITY("entity", OfEntity.CODEC),
-        SUB_LEVEL("sub_level", OfSubLevel.CODEC);
+        POINT("point", () -> Point.CODEC),
+        GROUND("ground", () -> Ground.CODEC),
+        ENTITY("entity", () -> OfEntity.CODEC),
+        SUB_LEVEL("sub_level", () -> OfSubLevel.CODEC),
+        SIGHTED("sighted", () -> Sighted.CODEC);
 
         static final Codec<Kind> CODEC = StringRepresentable.fromEnum(Kind::values);
 
         private final String name;
-        private final MapCodec<? extends Target> codec;
+        private final Supplier<MapCodec<? extends Target>> codec;
 
-        Kind(String name, MapCodec<? extends Target> codec) {
+        Kind(String name, Supplier<MapCodec<? extends Target>> codec) {
             this.name = name;
             this.codec = codec;
         }
 
         MapCodec<? extends Target> codec() {
-            return codec;
+            return codec.get();
         }
 
         @Override

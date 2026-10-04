@@ -68,6 +68,22 @@ public final class C2S {
         }
     }
 
+    /**
+     * Камера снаряда смотрит с борта своего снаряда {@code projectile} в направлении {@code yaw}/{@code pitch}: клиент
+     * шлёт каждый тик, пока смотрит ({@code strike.CameraLink}). Перестал слать — камеру закрыли.
+     */
+    public record CameraView(UUID projectile, float yaw, float pitch) implements CustomPacketPayload {
+        public static final Type<CameraView> TYPE = new Type<>(Airstrike.id("camera_view"));
+        public static final StreamCodec<ByteBuf, CameraView> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, CameraView::projectile, ByteBufCodecs.FLOAT, CameraView::yaw, ByteBufCodecs.FLOAT, CameraView::pitch,
+                CameraView::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Перенацелить свой снаряд на то, что под прицелом его камеры. */
     public record Retarget(UUID projectile, AimHint aim) implements CustomPacketPayload {
         public static final Type<Retarget> TYPE = new Type<>(Airstrike.id("retarget"));
@@ -111,24 +127,6 @@ public final class C2S {
     public record MapPlayers() implements CustomPacketPayload {
         public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players_query"));
         public static final StreamCodec<ByteBuf, MapPlayers> CODEC = StreamCodec.unit(new MapPlayers());
-
-        @Override
-        public Type<? extends CustomPacketPayload> type() {
-            return TYPE;
-        }
-    }
-
-    /**
-     * Игрок смотрит глазами своего снаряда {@code projectile} (пусто — вернулся к себе), камера повёрнута на {@code yaw},
-     * {@code pitch}: её взгляд замечает чужих ({@code Sightings}). Пока игрок смотрит в камеру, свой поворот клиент
-     * серверу не шлёт (у ванили его шлёт только игрок, который сам камера), поэтому взгляд камеры — здесь. Клиент шлёт
-     * при смене снаряда и при повороте камеры, не чаще раза в {@code Sightings.SCAN_PERIOD} тиков.
-     */
-    public record Watch(Optional<UUID> projectile, float yaw, float pitch) implements CustomPacketPayload {
-        public static final Type<Watch> TYPE = new Type<>(Airstrike.id("watch"));
-        public static final StreamCodec<ByteBuf, Watch> CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional), Watch::projectile, ByteBufCodecs.FLOAT, Watch::yaw,
-                ByteBufCodecs.FLOAT, Watch::pitch, Watch::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

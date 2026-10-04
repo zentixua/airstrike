@@ -209,28 +209,29 @@ public final class SalvoData extends SavedData {
             }
             Target shot;
             Vec3 point;
-            if (!(center instanceof Target.Point)) {
+            if (!(center instanceof Target.Point) && !(center instanceof Target.Sighted)) {
                 // движущаяся цель или место на земле: своё смещение относительно неё (у места — своя высота земли)
                 shot = center.offset(new Vec3(dx, 0, dz));
                 point = shot.resolve(level).orElse(lastCenter.add(dx, 0, dz));
-            } else if (weapon.spec().penetrates() || radius == 0) {
-                // бомба — на глубине центра (найдёт пещеру под игроком)
-                point = lastCenter.add(dx, 1, dz);
-                shot = new Target.Point(point);
-            } else if (inAir(level, lastCenter)) {
-                point = lastCenter.add(dx, 1, dz);
-                shot = new Target.Point(point);
             } else {
-                int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
-                // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
-                Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
-                double y = ground.known() ? ground.y() - 0.5 : lastCenter.y;
-                point = new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
-                shot = new Target.Point(point);
+                // неподвижный центр: точка, или замеченная цель — там, где её видели (снаряд залпа ведёт её только камерой)
+                point = around(level, dx, dz);
+                shot = center instanceof Target.Sighted sighted ? sighted.at(point) : new Target.Point(point);
             }
             float shotYaw = yaw + (level.random.nextInt(7001) - 3500) / 100f;
             // сирена одна на залп: её включит первый снаряд, когда его «увидят» на подлёте
             StrikeService.launch(level, weapon, shot, point, shotYaw, owner, remaining == total, nuke, via);
+        }
+
+        /** Точка снаряда залпа со смещением (dx, dz) от неподвижного центра. */
+        private Vec3 around(ServerLevel level, int dx, int dz) {
+            // бомба — на глубине центра (найдёт пещеру под игроком)
+            if (weapon.spec().penetrates() || radius == 0 || inAir(level, lastCenter)) return lastCenter.add(dx, 1, dz);
+            int x = Mth.floor(lastCenter.x + dx), z = Mth.floor(lastCenter.z + dz);
+            // высота земли — только из готового чанка (иначе по высоте центра): чанк ради пуска не грузим
+            Terrain.Surface ground = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z, Terrain.Allowed.CHUNK);
+            double y = ground.known() ? ground.y() - 0.5 : lastCenter.y;
+            return new Vec3(lastCenter.x + dx, y, lastCenter.z + dz);
         }
 
         /** Центр залпа в воздухе (игрок на аппарате, в полёте): бьём по высоте центра, а не по земле под ним. */

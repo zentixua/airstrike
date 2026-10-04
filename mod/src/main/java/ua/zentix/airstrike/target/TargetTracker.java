@@ -11,13 +11,15 @@ import ua.zentix.airstrike.util.Nbt;
 
 import java.lang.ref.WeakReference;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Слежение за целью в полёте: текущая мировая точка цели и запас на погоню. Снаряд догоняет сдвиг цели
  * (ушла, телепортировалась, перенацелена) не дальше {@link #CHASE_BUDGET} блоков сверх плана полёта: это
  * запас топлива или батареи, и он же — предел, дальше которого цель не преследуется. Пропавшая цель или цель,
  * которая ушла дальше запаса, потеряна — снаряд идёт в последнюю точку. Неподвижная цель ({@link Target.Point})
- * не сдвигается, поэтому не теряется, как бы далеко ни стартовал снаряд.
+ * не сдвигается, поэтому не теряется, как бы далеко ни стартовал снаряд. Замеченная цель ({@link Target.Sighted})
+ * сдвигается, только пока её видно ({@link #tick}): иначе её точка — где её видели в последний раз.
  */
 public final class TargetTracker {
     /** Сколько блоков сдвига цели снаряд догоняет сверх плана полёта. */
@@ -36,6 +38,8 @@ public final class TargetTracker {
     private Vec3 velocity = Vec3.ZERO;
     private double chased;
     private boolean lost;
+    /** Замеченную цель в этот тик было видно и снаряд шёл за ней (не сохраняется: видно ли, решается каждый тик). */
+    private boolean inSight;
     /** Потеряна, потому что ушла дальше запаса на погоню, а не пропала (для строки в лог; не сохраняется). */
     private boolean outOfReach;
     /**
@@ -52,14 +56,19 @@ public final class TargetTracker {
     }
 
     /**
-     * Пересчитать точку цели.
+     * Пересчитать точку цели. Замеченную цель ({@link Target.Sighted}) снаряд ведёт, только пока {@code visible}
+     * принимает её точку; не принимает — точка остаётся, где цель видели в последний раз, а пропавшая цель
+     * теряется так же, как незамеченная.
      *
-     * @return на сколько блоков снаряду пришлось догонять цель за этот тик (0 — цель на месте или потеряна)
+     * @param visible видна ли замеченная цель в своей точке сейчас (у остальных целей не спрашивается)
+     * @return на сколько блоков снаряду пришлось догонять цель за этот тик (0 — цель на месте, не видна или потеряна)
      */
-    public double tick(ServerLevel level) {
+    public double tick(ServerLevel level, Predicate<Vec3> visible) {
+        inSight = false;
         if (lost) return 0;
+        Target subject = target.subject();
         Optional<Vec3> now;
-        if (target instanceof Target.OfEntity e) {
+        if (subject instanceof Target.OfEntity e) {
             Entity entity = level.getEntity(e.uuid());
             if (followed != null && followed.get() != entity) {
                 loseTarget();
@@ -68,11 +77,18 @@ public final class TargetTracker {
             if (followed == null && entity != null) followed = new WeakReference<>(entity);
             now = e.resolve(level, entity);
         } else {
-            now = target.resolve(level);
+            now = subject.resolve(level);
         }
         if (now.isEmpty()) {
             loseTarget();
             return 0;
+        }
+        if (target instanceof Target.Sighted) {
+            if (!visible.test(now.get())) {
+                velocity = velocity.scale(1 - VELOCITY_SMOOTHING);
+                return 0;
+            }
+            inSight = true;
         }
         Vec3 step = now.get().subtract(point);
         double moved = step.length();
@@ -141,6 +157,11 @@ public final class TargetTracker {
 
     public boolean isLost() {
         return lost;
+    }
+
+    /** Замеченную цель в последний тик было видно, и снаряд шёл за ней ({@link #tick}). */
+    public boolean inSight() {
+        return inSight;
     }
 
     /** Цель потеряна, потому что ушла дальше запаса на погоню {@link #CHASE_BUDGET} (а не пропала). */
