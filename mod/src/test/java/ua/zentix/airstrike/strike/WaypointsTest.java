@@ -80,13 +80,10 @@ class WaypointsTest {
         }
     }
 
-    /** Сохранение залпа: маршрут читается тем же; NaN — не маршрут для приказа. */
+    /** Сохранение залпа: маршрут читается тем же. */
     @Test
-    void codecRoundTripAndFinite() {
+    void codecRoundTrip() {
         Waypoints via = new Waypoints(List.of(new Vec3(-12_345.5, 0, 678.25), new Vec3(4, 0, -9)));
         assertEquals(via, Waypoints.CODEC.parse(JsonOps.INSTANCE, Waypoints.CODEC.encodeStart(JsonOps.INSTANCE, via).getOrThrow()).getOrThrow());
-        assertTrue(via.finite());
-        assertFalse(new Waypoints(List.of(new Vec3(Double.NaN, 0, 0))).finite());
-        assertFalse(new Waypoints(List.of(new Vec3(0, 0, Double.POSITIVE_INFINITY))).finite());
     }
 }

@@ -1927,8 +1927,8 @@ public final class NuclearGameTests {
         CruiseMissileEntity conventionalOnRail = onRail(level, rail.add(0, 0, 4), target, null);
         CruiseMissileEntity nuclearVirtual = virtual(level, target.add(0, 60, 2000), target, warhead);
         CruiseMissileEntity conventionalVirtual = virtual(level, target.add(0, 60, -2000), target, null);
-        LauncherEntity missileLauncher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, null);
-        LauncherEntity droneLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.DRONE, null);
+        LauncherEntity missileLauncher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, null, false);
+        LauncherEntity droneLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.DRONE, null, false);
         level.addFreshEntity(missileLauncher);
         level.addFreshEntity(droneLauncher);
 

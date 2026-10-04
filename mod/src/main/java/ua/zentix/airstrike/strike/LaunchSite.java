@@ -5,6 +5,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -26,16 +27,21 @@ import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.util.Local;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
- * Где поставить пусковую: позади и сбоку от стреляющего, на ровной твёрдой земле под открытым небом, только
- * в готовых чанках (ничего не грузим ради пуска). Своя пусковая того же оружия в {@link #REUSE_RADIUS} — берём её:
- * залп идёт с одной установки. Больше {@link #MAX_PER_OWNER} установок у игрока не бывает — старая убирается.
+ * Где поставить пусковую: позади и сбоку от стреляющего, а у приказа с местом пуска — на нём самом ({@link Post}),
+ * на ровной твёрдой земле под открытым небом, только в готовых чанках (ничего не грузим ради пуска). Своя пусковая
+ * того же оружия рядом ({@link #REUSE_RADIUS} от стреляющего, {@link #PLACE_REUSE} от места пуска) — берём её: залп
+ * идёт с одной установки. Больше {@link #MAX_PER_OWNER} установок, что идут за игроком, у него не бывает — старая
+ * убирается; на местах пуска из приказа они стоят до «Отбоя».
  * <p>
  * Пакет шахедов и ракет ставится только туда и так, чтобы сектор пуска был свободен ({@link #clearAhead}): на разгоне и
  * наборе до взведения взрывателя снаряд, встретив дом, разбивается без подрыва — в городе весь залп с пусковой, смотрящей
@@ -45,6 +51,8 @@ import java.util.function.Predicate;
  */
 public final class LaunchSite {
     public static final double REUSE_RADIUS = 96;
+    /** Своя пусковая не дальше этого от места пуска из приказа — его: дальше места вокруг него не ищутся. */
+    public static final double PLACE_REUSE = 40;
     public static final int MAX_PER_OWNER = 3;
     /** Ближе этого к другой пусковой новую не ставим. */
     private static final double CLEARANCE = 9;
@@ -53,25 +61,64 @@ public final class LaunchSite {
     private static final double[][] CANDIDATES = {
             {18, 11}, {18, -11}, {24, 0}, {13, 17}, {13, -17}, {30, 13}, {30, -13}, {4, 22}, {4, -22}, {38, 0}, {24, 24}, {24, -24}
     };
+    /** Места относительно места пуска из приказа: оно само, а там не ровно или занято — те же, что у игрока. */
+    private static final double[][] AT_PLACE = Stream.concat(Stream.<double[]>of(new double[]{0, 0}), Arrays.stream(CANDIDATES))
+            .toArray(double[][]::new);
 
     private LaunchSite() {}
 
-    /** Своя пусковая этого оружия рядом с игроком. */
-    @Nullable
-    public static LauncherEntity existing(ServerLevel level, ServerPlayer player, WeaponType weapon) {
-        return existing(level, player, weapon, l -> true);
+    /**
+     * Огневая позиция: вокруг чего искать место пусковой и чьи пусковые там свои.
+     *
+     * @param center  где стоит стреляющий; у места пуска из приказа — оно само, на земле
+     * @param yaw     «вперёд» для мест вокруг: взгляд стреляющего, у места пуска — курс на цель (запасные места —
+     *                позади него)
+     * @param owner   чьи пусковые (null — консоли и командного блока)
+     * @param ordered место пуска задано приказом ({@code /airstrike salvo … from x z}): пусковая — на нём, а нет там
+     *                ровного места — рядом; у стреляющего она встаёт позади и сбоку, а не на нём
+     */
+    public record Post(Vec3 center, float yaw, @Nullable UUID owner, boolean ordered) {
+        /** У стреляющего игрока: позади и сбоку от него по взгляду. */
+        public static Post of(ServerPlayer player) {
+            return new Post(player.position(), player.getYRot(), player.getUUID(), false);
+        }
+
+        /**
+         * Место пуска {@code place} (по горизонтали) из приказа по цели {@code target}; null — чанк места не готов:
+         * пусковую там никто не увидит, а грузить его ради пуска нельзя.
+         */
+        @Nullable
+        public static Post ordered(ServerLevel level, Vec3 place, Vec3 target, @Nullable UUID owner) {
+            int x = Mth.floor(place.x), z = Mth.floor(place.z);
+            if (!Terrain.ready(level, x >> 4, z >> 4)) return null;
+            Vec3 center = new Vec3(place.x, Terrain.height(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), place.z);
+            return new Post(center, FlightController.anglesTo(center, target)[0], owner, true);
+        }
+
+        /** Места пусковой: [назад, влево] от центра в блоках, по порядку предпочтения. */
+        private double[][] candidates() {
+            return ordered ? AT_PLACE : CANDIDATES;
+        }
+
+        /** Своя пусковая не дальше этого — её. */
+        private double reuse() {
+            return ordered ? PLACE_REUSE : REUSE_RADIUS;
+        }
+
+        public ChunkPos chunk() {
+            return new ChunkPos(BlockPos.containing(center));
+        }
     }
 
     /**
-     * Ближайшая своя пусковая этого оружия рядом с игроком, которая годится ({@code fits}: например, сектор пуска
-     * свободен). Проверяются от ближней, до первой годной: проверка сектора недешёвая.
+     * Ближайшая своя пусковая этого оружия у огневой позиции {@code post}, которая годится ({@code fits}: например,
+     * сектор пуска свободен). Проверяются от ближней, до первой годной: проверка сектора недешёвая.
      */
     @Nullable
-    public static LauncherEntity existing(ServerLevel level, ServerPlayer player, WeaponType weapon, Predicate<LauncherEntity> fits) {
-        UUID id = player.getUUID();
-        AABB box = player.getBoundingBox().inflate(REUSE_RADIUS, 64, REUSE_RADIUS);
-        return level.getEntitiesOfClass(LauncherEntity.class, box, l -> l.isAlive() && l.weapon() == weapon && id.equals(l.ownerId()))
-                .stream().sorted(Comparator.comparingDouble(l -> l.distanceToSqr(player))).filter(fits).findFirst().orElse(null);
+    public static LauncherEntity existing(ServerLevel level, Post post, WeaponType weapon, Predicate<LauncherEntity> fits) {
+        AABB box = new AABB(post.center(), post.center()).inflate(post.reuse(), 64, post.reuse());
+        return level.getEntitiesOfClass(LauncherEntity.class, box, l -> l.isAlive() && l.weapon() == weapon && Objects.equals(post.owner(), l.ownerId()))
+                .stream().sorted(Comparator.comparingDouble(l -> l.distanceToSqr(post.center()))).filter(fits).findFirst().orElse(null);
     }
 
     /**
@@ -143,18 +190,17 @@ public final class LaunchSite {
     }
 
     /**
-     * Место под новую пусковую с свободным сектором пуска: на каждом месте по порядку ({@link #find}) — предложенные
-     * курсы ({@code yaws} от места), потом повороты от первого, не дальше {@code maxOff}° от направления на цель
-     * {@code target} (дальше — залп уходил бы от цели, это выглядит поломкой). Null — нигде или вышел предел
-     * {@code budget}: снаряд заходит издалека.
+     * Место под новую пусковую у огневой позиции {@code post} с свободным сектором пуска: на каждом месте по порядку
+     * ({@link Post#candidates}) — предложенные курсы ({@code yaws} от места), потом повороты от первого, не дальше
+     * {@code maxOff}° от направления на цель {@code target} (дальше — залп уходил бы от цели, это выглядит поломкой).
+     * Null — нигде или вышел предел {@code budget}: снаряд заходит без пусковой.
      */
     @Nullable
-    public static Pick findClear(ServerLevel level, ServerPlayer player, WeaponType weapon, Vec3 target, Function<Vec3, float[]> yaws,
+    public static Pick findClear(ServerLevel level, Post post, WeaponType weapon, Vec3 target, Function<Vec3, float[]> yaws,
                                  float maxOff, Budget budget) {
-        float yaw = player.getYRot();
-        for (double[] c : CANDIDATES) {
-            Vec3 off = Local.offset(yaw, 0, c[1], 0, -c[0]);
-            Vec3 p = player.position().add(off);
+        for (double[] c : post.candidates()) {
+            Vec3 off = Local.offset(post.yaw(), 0, c[1], 0, -c[0]);
+            Vec3 p = post.center().add(off);
             Vec3 site = check(level, Mth.floor(p.x), Mth.floor(p.z));
             if (site == null || taken(level, site)) continue;
             Pick pick = pickOn(level, site, weapon, yaws.apply(site), target, maxOff, budget);
@@ -385,19 +431,6 @@ public final class LaunchSite {
         return Math.sqrt(dx * dx + dz * dz);
     }
 
-    /** Место под новую пусковую или null (игрок в воде, в пещере без неба над ним поблизости, мир не готов). */
-    @Nullable
-    public static Vec3 find(ServerLevel level, ServerPlayer player) {
-        float yaw = player.getYRot();
-        for (double[] c : CANDIDATES) {
-            Vec3 off = Local.offset(yaw, 0, c[1], 0, -c[0]);
-            Vec3 p = player.position().add(off);
-            Vec3 site = check(level, Mth.floor(p.x), Mth.floor(p.z));
-            if (site != null && !taken(level, site)) return site;
-        }
-        return null;
-    }
-
     /** Рядом уже стоит пусковая (своя другого оружия или чужая): прицеп 7.6 м, пакеты выше 4 м — не ставить внахлёст. */
     private static boolean taken(ServerLevel level, Vec3 site) {
         return !level.getEntitiesOfClass(LauncherEntity.class, new AABB(site, site).inflate(CLEARANCE, 8, CLEARANCE), LauncherEntity::isAlive).isEmpty();
@@ -426,13 +459,18 @@ public final class LaunchSite {
         return new Vec3(x + 0.5, y, z + 0.5);
     }
 
-    /** Новая пусковая; лишние старые установки игрока убираются. */
-    public static LauncherEntity deploy(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, ServerPlayer owner) {
-        List<LauncherEntity> mine = new ArrayList<>();
-        for (var e : level.getEntities(ModEntities.LAUNCHER.get(), l -> owner.getUUID().equals(l.ownerId()))) mine.add(e);
-        mine.sort(Comparator.comparingLong(LauncherEntity::deployedAt));
-        for (int i = 0; i <= mine.size() - MAX_PER_OWNER; i++) mine.get(i).discard();
-        LauncherEntity l = LauncherEntity.create(level, site, yaw, weapon, owner.getUUID());
+    /**
+     * Новая пусковая огневой позиции {@code post}; у стреляющего лишние старые установки, что шли за ним, убираются
+     * (на местах пуска из приказа они стоят до «Отбоя»).
+     */
+    public static LauncherEntity deploy(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Post post) {
+        if (!post.ordered()) {
+            List<LauncherEntity> mine = new ArrayList<>();
+            for (var e : level.getEntities(ModEntities.LAUNCHER.get(), l -> !l.ordered() && Objects.equals(post.owner(), l.ownerId()))) mine.add(e);
+            mine.sort(Comparator.comparingLong(LauncherEntity::deployedAt));
+            for (int i = 0; i <= mine.size() - MAX_PER_OWNER; i++) mine.get(i).discard();
+        }
+        LauncherEntity l = LauncherEntity.create(level, site, yaw, weapon, post.owner(), post.ordered());
         level.addFreshEntity(l);
         return l;
     }
