@@ -71,11 +71,15 @@ public final class AirstrikeCommand {
             PacketDistributor.sendToPlayer(ctx.getSource().getPlayerOrException(), new S2C.OpenRemote());
             return 1;
         }));
+        // не оператор — свой отбой, как с пульта; оператор и консоль снимают всё, и ядерные удары
         root.then(Commands.literal("clear").executes(ctx -> {
             CommandSourceStack s = ctx.getSource();
-            boolean nuclear = s.hasPermission(2) || s.getEntity() instanceof ServerPlayer p && ServerActions.mayUseNuke(p);
-            int n = ServerActions.clearAll(s.getServer(), nuclear, s.getTextName());
-            s.sendSuccess(() -> ServerActions.clearedMessage(n, nuclear), true);
+            if (!s.hasPermission(2) && s.getEntity() instanceof ServerPlayer p) {
+                s.sendSuccess(() -> ServerActions.recall(p), false);
+                return 1;
+            }
+            int n = ServerActions.clearAll(s.getServer(), true, s.getTextName());
+            s.sendSuccess(() -> ServerActions.clearedMessage(n, true), true);
             return n;
         }));
         root.then(Commands.literal("give").requires(s -> s.hasPermission(2))

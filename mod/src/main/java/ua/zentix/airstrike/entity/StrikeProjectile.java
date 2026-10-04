@@ -761,6 +761,27 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
+     * Свой отбой ({@code ServerActions.recall}) в полёте в мире: самоликвидация — снаряд разбивается в воздухе, боевая
+     * часть не срабатывает ({@link #crash}), блоки не рушатся.
+     *
+     * @return снаряд больше не угроза; false — свернуть ему нечем ({@link #recallable}), он летит дальше
+     */
+    public boolean recall(ServerLevel level) {
+        if (!recallable()) return false;
+        Airstrike.LOG.debug("Снаряд {} {} самоликвидировался по отбою у {}", getType().getDescriptionId(), getUUID(), blockPosition());
+        crash(level, position().add(flight.forward().scale(noseLength())));
+        return true;
+    }
+
+    /**
+     * Свой отбой останавливает снаряд ({@link #recall}): у управляемого есть самоликвидатор; неуправляемый (ракета РСЗО,
+     * сброшенная бомба) летит дальше.
+     */
+    public boolean recallable() {
+        return true;
+    }
+
+    /**
      * Столкновение до взведения взрывателя (на старте): боевая часть не срабатывает — снаряд разбивается,
      * горит топливо.
      */
