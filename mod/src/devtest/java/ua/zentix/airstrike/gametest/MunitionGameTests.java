@@ -86,18 +86,18 @@ public final class MunitionGameTests {
         Item shahed = ModItems.SHAHED.get();
         give(p, shahed, 5);
 
-        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "залп из 3 шахедов не принят");
+        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "залп из 3 шахедов не принят");
         h.assertValueEqual(held(p, shahed), 2, "шахедов после залпа из 3");
         h.assertValueEqual(SalvoData.get(level).remaining(p.getUUID()), 3, "невыпущенных в залпе");
 
-        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "залп без боеприпасов принят");
+        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "залп без боеприпасов принят");
         h.assertValueEqual(held(p, shahed), 2, "отказ снял шахеды");
         h.assertValueEqual(SalvoData.get(level).remaining(p.getUUID()), 3, "отказ всё же начал залп");
         h.assertValueEqual(args(p.last("airstrike.munitions.short")), List.of(shahed.getDescription(), 3, 2), "строка отказа");
 
         Item grad = ModItems.GRAD_ROCKETS.get();
         give(p, grad, 1);
-        h.assertTrue(ServerActions.strike(p, WeaponType.ROCKET, 12, 15, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "залп «Града» не принят");
+        h.assertTrue(ServerActions.strike(p, WeaponType.ROCKET, 12, 15, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "залп «Града» не принят");
         h.assertValueEqual(held(p, grad), 28, "снарядов в пакете после залпа из 12");
         h.assertValueEqual(count(p, grad), 1, "начатый пакет — не тот же предмет");
 
@@ -106,7 +106,7 @@ public final class MunitionGameTests {
         Item missile = ModItems.CRUISE_MISSILE.get(), warhead = Munitions.warhead();
         give(p, missile, 1);
         Loadout.Nuke onCarrier = new Loadout.Nuke(15, true, true);
-        h.assertFalse(ServerActions.strike(p, WeaponType.MISSILE, 1, 0, aim, onCarrier, Waypoints.NONE, true), "ядерная ракета без БЧ принята");
+        h.assertFalse(ServerActions.strike(p, WeaponType.MISSILE, 1, 0, aim, onCarrier, Waypoints.NONE, null, true), "ядерная ракета без БЧ принята");
         h.assertValueEqual(held(p, missile), 1, "без БЧ ракета снята");
         h.assertValueEqual(args(p.last("airstrike.munitions.short")), List.of(warhead.getDescription(), 1, 0), "строка отказа без БЧ");
         // с БЧ счёт — ракета и БЧ (сам пуск ядерной ракеты в тестовом мире не нужен)
@@ -136,15 +136,15 @@ public final class MunitionGameTests {
         Listener creative = player(h, "munitions_creative");
         creative.setGameMode(GameType.CREATIVE);
         h.assertTrue(creative.hasInfiniteMaterials(), "творческий режим без бесконечных материалов");
-        h.assertTrue(ServerActions.strike(creative, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "в творческом залп не принят");
+        h.assertTrue(ServerActions.strike(creative, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "в творческом залп не принят");
         Listener op = player(h, "munitions_op");
         StrikeGameTests.afterTest(h, () -> {
             SalvoData.get(level).cancel(level, creative.getUUID(), List.of());
             SalvoData.get(level).cancel(level, op.getUUID(), List.of());
         });
-        h.assertTrue(ServerActions.strike(op, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, false), "команда оператора не принята");
+        h.assertTrue(ServerActions.strike(op, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false), "команда оператора не принята");
         Listener survival = player(h, "munitions_survival");
-        h.assertFalse(ServerActions.strike(survival, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "без боеприпасов залп принят");
+        h.assertFalse(ServerActions.strike(survival, WeaponType.DRONE, 2, 10, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "без боеприпасов залп принят");
 
         SalvoData salvos = SalvoData.get(level);
         h.assertTrue(salvos.cancel(level, creative.getUUID(), List.of(creative)) == 1 && salvos.cancel(level, op.getUUID(), List.of(op)) == 1, "залпов нет");
@@ -168,7 +168,7 @@ public final class MunitionGameTests {
         });
         Item shahed = ModItems.SHAHED.get();
         give(p, shahed, 4);
-        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 4, 20, aim(h), Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "залп не принят");
+        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 4, 20, aim(h), Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "залп не принят");
         h.assertValueEqual(held(p, shahed), 0, "залп из 4 не снял все 4");
         boolean[] done = {false};
         h.onEachTick(() -> {
@@ -198,7 +198,7 @@ public final class MunitionGameTests {
         StrikeGameTests.afterTest(h, () -> SalvoData.get(level).cancel(level, p.getUUID(), List.of()));
         Item shahed = ModItems.SHAHED.get();
         give(p, shahed, 3);
-        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim(h), Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "залп не принят");
+        h.assertTrue(ServerActions.strike(p, WeaponType.DRONE, 3, 20, aim(h), Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "залп не принят");
         h.assertTrue(!level.getGameRules().getBoolean(GameRules.RULE_KEEPINVENTORY), "в мире GameTest keepInventory");
         p.setHealth(0);
         h.assertFalse(p.isAlive(), "владелец жив");
@@ -248,7 +248,7 @@ public final class MunitionGameTests {
 
         Item shahed = ModItems.SHAHED.get();
         give(p, shahed, 1);
-        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "пуск без входа в мир удался");
+        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "пуск без входа в мир удался");
         h.assertValueEqual(vetoed[0], 1, "шахед не пытался войти в мир у пусковой");
         h.assertValueEqual(held(p, shahed), 1, "шахед после неудачного пуска");
         h.assertTrue(p.last("airstrike.launch_failed") != null && p.last("airstrike.munitions.refunded") != null, "нет строк о неудаче и возврате");
@@ -257,14 +257,14 @@ public final class MunitionGameTests {
         Item icbm = ModItems.ICBM.get();
         give(p, icbm, 1);
         int scheduled = NuclearEvents.get(level).scheduled().size();
-        h.assertFalse(ServerActions.strike(p, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE, true), "пуск МБР без входа в мир удался");
+        h.assertFalse(ServerActions.strike(p, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE, null, true), "пуск МБР без входа в мир удался");
         h.assertValueEqual(vetoed[0], 2, "МБР не пыталась войти в мир");
         h.assertValueEqual(held(p, icbm), 1, "МБР после неудачного пуска");
         h.assertValueEqual(NuclearEvents.get(level).scheduled().size(), scheduled, "неудачный пуск записал ядерный удар");
 
         crash[0] = true;
         p.said.clear();
-        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, true), "пуск с ошибкой удался");
+        h.assertFalse(ServerActions.strike(p, WeaponType.DRONE, 1, 0, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, true), "пуск с ошибкой удался");
         h.assertValueEqual(vetoed[0], 3, "шахед не пытался войти в мир");
         h.assertValueEqual(held(p, shahed), 1, "шахед после пуска с ошибкой");
         h.assertTrue(p.last("airstrike.munitions.refunded") != null, "нет строки о возврате после ошибки");

@@ -235,17 +235,17 @@ public final class NuclearKeys {
         Loadout l = o.loadout;
         ServerActions.Aim aim = o.aim;
         String who = o.name + (o.confirmer == null ? "" : " (второй ключ — " + o.confirmer + ")");
-        StrikeService.log(o.level, who, l.weapon(), 1, 0, aim.target(), aim.point(), o.via);
+        StrikeService.log(o.level, who, l.weapon(), 1, 0, aim.target(), aim.point(), o.via, null);
         StrikeService.Result r;
         String why = "ядерный пуск не удался";
         try {
             if (o.icbm()) {
                 r = StrikeService.launchIcbm(o.level, aim.target(), aim.point(), l.nuke(), owner, flightTicks());
             } else if (owner != null) {
-                r = StrikeService.launchBy(o.level, l.weapon(), aim.target(), aim.point(), owner.getYRot(), owner, true, l.nuke(), o.via);
+                r = StrikeService.launchBy(o.level, l.weapon(), aim.target(), aim.point(), owner.getYRot(), owner, true, l.nuke(), o.via, null);
             } else {
                 // носитель после тревоги, запускающий вышел: пуск, как у залпа без владельца в сети, — издалека
-                r = StrikeService.launch(o.level, l.weapon(), aim.target(), aim.point(), o.lastYaw, o.ownerId, true, l.nuke(), o.via);
+                r = StrikeService.launch(o.level, l.weapon(), aim.target(), aim.point(), o.lastYaw, o.ownerId, true, l.nuke(), o.via, null);
             }
         } catch (RuntimeException e) {
             Airstrike.LOG.error("Ядерный пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);

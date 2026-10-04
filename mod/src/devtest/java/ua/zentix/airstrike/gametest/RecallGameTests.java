@@ -54,8 +54,8 @@ public final class RecallGameTests {
         onRail.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(far), far, a);
         onRail.setRoute(Route.direct());
         level.addFreshEntity(onRail);
-        LauncherEntity launcher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, a);
-        LauncherEntity otherLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.MISSILE, b);
+        LauncherEntity launcher = LauncherEntity.create(level, rail.add(6, -1, 0), 0, WeaponType.MISSILE, a, false);
+        LauncherEntity otherLauncher = LauncherEntity.create(level, rail.add(-6, -1, 0), 0, WeaponType.MISSILE, b, false);
         level.addFreshEntity(launcher);
         level.addFreshEntity(otherLauncher);
         CruiseMissileEntity outside = ModEntities.CRUISE_MISSILE.get().create(level);
@@ -65,8 +65,8 @@ public final class RecallGameTests {
         BomberEntity bomber = ModEntities.BOMBER.get().create(level);
         bomber.launch(c.add(0, 0, -20), far, null, a);
         level.addFreshEntity(bomber);
-        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, a, Loadout.Nuke.DEFAULT, Waypoints.NONE, false);
-        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, b, Loadout.Nuke.DEFAULT, Waypoints.NONE, false);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, a, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, b, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false);
         StrikeGameTests.afterTest(h, () -> {
             SalvoData.get(level).cancel(level, a, List.of());
             SalvoData.get(level).cancel(level, b, List.of());
