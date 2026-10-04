@@ -104,7 +104,8 @@ public final class FixedLauncherGameTests {
     /**
      * Отказы без пуска и без расхода запаса: задачи нет; запаса меньше, чем на весь приказ (строка — сколько нужно и
      * сколько есть); цель дальше {@code map_range} от пусковой; хозяину нельзя пульт (пульт только операторам), а ничья
-     * пусковая (поставлена командой) — без правил хозяина; сектор пуска закрыт домом.
+     * пусковая (поставлена командой) — без правил хозяина; сектор пуска закрыт стенами со всех сторон — пуск не удался
+     * с причиной «сектор закрыт», снятый снаряд вернулся в запас.
      */
     @GameTest(template = "runway", timeoutTicks = 20, batch = "fixed_refuse", skyAccess = true)
     public static void refusesWithoutSpending(GameTestHelper h) {
@@ -126,14 +127,18 @@ public final class FixedLauncherGameTests {
         AirstrikeConfig.SERVER.designatorForEveryone.set(false);
         be.setMission(new Mission(WeaponType.DRONE, 1, 0, new Target.Point(far), far, Waypoints.NONE));
         h.assertValueEqual(key(LauncherOrders.fire(level, be)), "airstrike.fixed_launcher.no_rights", "хозяину нельзя пульт");
-        // дом поперёк полосы в 20 блоках по курсу, выше набора шахеда до взведения
-        for (int x = 1; x <= 31; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, PAD.getZ() + 20), Blocks.STONE);
-        StrikeGameTests.afterTest(h, () -> {
-            for (int x = 1; x <= 31; x++) for (int y = 4; y <= 50; y++) h.setBlock(new BlockPos(x, y, PAD.getZ() + 20), Blocks.AIR);
-        });
+        // стены вокруг пусковой в 4 блоках, выше набора шахеда до взведения: любой курс упирается в них
+        List<BlockPos> walls = new java.util.ArrayList<>();
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) != 4) continue;
+                for (int y = PAD.getY(); y <= 50; y++) walls.add(new BlockPos(PAD.getX() + dx, y, PAD.getZ() + dz));
+            }
+        }
+        walls.forEach(p -> h.setBlock(p, Blocks.STONE));
+        StrikeGameTests.afterTest(h, () -> walls.forEach(p -> h.setBlock(p, Blocks.AIR)));
         be.setOwner(null);
-        h.assertValueEqual(key(LauncherOrders.fire(level, be)), "airstrike.fixed_launcher.failed", "ничья пусковая в дом");
-        h.assertValueEqual(key(be.lastReport()), "airstrike.fixed_launcher.sector", "причина — сектор");
+        h.assertValueEqual(key(LauncherOrders.fire(level, be)), "airstrike.fixed_launcher.sector", "ничья пусковая в стенах");
         h.assertTrue(be.stockCount() == 2 && ours(level, be, null).isEmpty(), "отказ потратил запас или пустил снаряд");
         h.succeed();
     }
@@ -201,6 +206,12 @@ public final class FixedLauncherGameTests {
         ItemStack theirs = new ItemStack(ModItems.DESIGNATOR.get());
         LauncherLinks.toggle(stranger, theirs, be);
         h.assertTrue(LauncherLinks.of(theirs).isEmpty(), "чужая привязалась");
+        // команда игрока по UUID — по имени из списка игроков или кэша профилей: FakePlayer в списке нет, в игре оба в кэше
+        var profiles = level.getServer().getProfileCache();
+        if (profiles != null) {
+            profiles.add(owner.getGameProfile());
+            profiles.add(stranger.getGameProfile());
+        }
         Scoreboard board = level.getScoreboard();
         PlayerTeam team = board.addPlayerTeam("fixed_" + UUID.randomUUID().toString().substring(0, 8));
         StrikeGameTests.afterTest(h, () -> board.removePlayerTeam(team));

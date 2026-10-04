@@ -49,16 +49,15 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
     private final Magazine stock = new Magazine(SLOTS, FixedLauncherBlockEntity::munition, this::setChanged);
     @Nullable
     private Mission mission;
-    /** Оружие пакета на круге (клиент рисует его); null — задачи нет или у оружия нет пакета (B-2 заходит издалека). */
+    /** Оружие пакета на круге (клиент рисует его); null — задачи нет. */
     @Nullable
     private WeaponType rack;
     private float yaw;
     private long deployedAt = Long.MIN_VALUE / 2;
     private final LaunchQueue queue = new LaunchQueue();
-    /** Чем кончился последний сигнал или пуск по нему — для строки состояния (не сохраняется), и когда. */
+    /** Чем кончился последний сигнал или пуск по нему — для строки состояния (не сохраняется). */
     @Nullable
     private Component last;
-    private long lastAt = Long.MIN_VALUE;
 
     public FixedLauncherBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.FIXED_LAUNCHER.get(), pos, state);
@@ -68,7 +67,7 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
         e.registerBlockEntity(Capabilities.ItemHandler.BLOCK, ModBlockEntities.FIXED_LAUNCHER.get(), (be, side) -> be.stock.loader());
     }
 
-    /** Боеприпас оружия, которое берёт пусковая ({@link Mission#accepts}): шахеды, «Ланцеты», ракеты, пакеты «Града», бомбы. */
+    /** Боеприпас оружия, которое берёт пусковая ({@link Mission#accepts}): шахеды, «Ланцеты», ракеты, пакеты «Града». */
     public static boolean munition(ItemStack stack) {
         for (WeaponType w : WeaponType.values()) {
             if (Mission.accepts(w) && stack.is(w.spec().munition().item().get())) return true;
@@ -97,7 +96,7 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
      */
     public void setMission(@Nullable Mission mission) {
         this.mission = mission;
-        WeaponType shown = mission != null && mission.weapon().spec().rack() != null ? mission.weapon() : null;
+        WeaponType shown = mission != null && Mission.accepts(mission.weapon()) ? mission.weapon() : null;
         long now = level != null ? level.getGameTime() : 0;
         if (shown != rack) {
             // другой пакет ставится заново: поднимается с нуля
@@ -150,19 +149,29 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
         stock.dropAll(level, pos);
     }
 
-    /** Сигнал редстоуна дошёл: приказ по задаче; не вышло — щелчок, как у пустого раздатчика, и причина в строке состояния. */
-    void fire(ServerLevel level) {
-        long now = level.getGameTime();
+    /**
+     * Сигнал редстоуна дошёл (или команда ведущего): приказ по задаче; не вышло — щелчок, как у пустого раздатчика, и
+     * причина в строке состояния.
+     *
+     * @return null — приказ отдан; иначе — почему нет
+     */
+    @Nullable
+    public Component fire(ServerLevel level) {
         Component problem = LauncherOrders.fire(level, this);
-        // пуск сам сказал, что не так (сектор закрыт), — эта причина точнее общей
-        if (problem == null || lastAt != now) report(problem != null ? problem : Component.translatable("airstrike.fixed_launcher.fired"));
+        report(problem != null ? problem : Component.translatable("airstrike.fixed_launcher.fired"));
         if (problem != null) level.levelEvent(1001, worldPosition, 0);
+        return problem;
     }
 
     /** Что вышло с приказом или снарядом залпа с этой пусковой: в строку состояния. */
     public void report(Component what) {
         last = what;
-        lastAt = level != null ? level.getGameTime() : 0;
+    }
+
+    /** Чем кончился последний сигнал или пуск по нему; null — с загрузки ничего. */
+    @Nullable
+    public Component lastReport() {
+        return last;
     }
 
     /** Строка состояния для игрока, который смотрит на пусковую. */
@@ -196,8 +205,8 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
         return yaw;
     }
 
-    /** Курс пакета при установке блока — от ставящего. */
-    void setYaw(float yaw) {
+    /** Курс пакета без подъёма заново: при установке блока — от ставящего. */
+    public void setYaw(float yaw) {
         this.yaw = yaw;
         setChanged();
     }

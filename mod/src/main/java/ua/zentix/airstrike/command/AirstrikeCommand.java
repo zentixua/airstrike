@@ -9,9 +9,11 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.commands.arguments.coordinates.Vec2Argument;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
@@ -22,17 +24,21 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
+import ua.zentix.airstrike.launcher.FixedLauncherBlockEntity;
+import ua.zentix.airstrike.launcher.Mission;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.nuclear.radiation.GeigerFormat;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
 import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.registry.ModItems;
+import ua.zentix.airstrike.strike.LaunchOrigin;
 import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.ServerActions;
@@ -41,6 +47,7 @@ import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
+import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -62,6 +69,9 @@ import java.util.Locale;
  *   /airstrike nuke now [at x y z] [кт] [air|ground]   подрыв сразу, без полёта (только оператор)
  *   /airstrike radiation [игрок] | radiation clear [игроки]
  *   /airstrike grid …                                  сеть и блэкаут ({@link GridCommand})
+ *   /airstrike launcher x y z                          стационарная пусковая (оператор): состояние;
+ *          … fire | clear | load N | owner игрок|none   приказ по задаче, снять задачу, боеприпасы задачи, хозяин;
+ *          … mission оружие N разброс x y z [via x z …] задача, как с пульта, без правил
  * </pre>
  * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке. Команда игрока без
  * прав оператора бьёт по правилам пульта ({@link #rules}) и тратит боеприпасы из инвентаря ({@code strike.Munitions});
@@ -73,6 +83,9 @@ import java.util.Locale;
  */
 public final class AirstrikeCommand {
     private static final SimpleCommandExceptionType TARGET_NOT_FOUND = new SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found"));
+    private static final SimpleCommandExceptionType NO_LAUNCHER = new SimpleCommandExceptionType(Component.translatable("airstrike.fixed_launcher.none_here"));
+    private static final SimpleCommandExceptionType LAUNCHER_NOT_LOADED = new SimpleCommandExceptionType(
+            Component.translatable("airstrike.fixed_launcher.not_loaded"));
 
     private AirstrikeCommand() {}
 
@@ -107,6 +120,7 @@ public final class AirstrikeCommand {
 
         root.then(nuke());
         root.then(GridCommand.build());
+        root.then(launcher());
         root.then(Commands.literal("radiation").requires(s -> s.hasPermission(2))
                 .executes(ctx -> radiation(ctx, ctx.getSource().getPlayerOrException()))
                 .then(Commands.literal("clear")
@@ -233,8 +247,8 @@ public final class AirstrikeCommand {
 
     // ---------------------------------------------------------------- откуда и через где
 
-    /** Откуда и через где летит приказ: место пуска (по горизонтали; null — у стреляющего или издалека) и точки маршрута. */
-    private record Path(@Nullable Vec3 from, Waypoints via) {
+    /** Откуда и через где летит приказ: место пуска (null — у стреляющего или издалека) и точки маршрута. */
+    private record Path(@Nullable LaunchOrigin from, Waypoints via) {
         static final Path NONE = new Path(null, Waypoints.NONE);
     }
 
@@ -275,7 +289,7 @@ public final class AirstrikeCommand {
     private static Path path(CommandContext<CommandSourceStack> ctx, boolean from, int points) {
         List<Vec3> via = new ArrayList<>(points);
         for (int i = 1; i <= points; i++) via.add(column(ctx, "point" + i));
-        return new Path(from ? column(ctx, "site") : null, new Waypoints(via));
+        return new Path(from ? new LaunchOrigin.Place(column(ctx, "site")) : null, new Waypoints(via));
     }
 
     /** Место «x z» по горизонтали; «~» — от того, кто дал команду (в числах double: {@code Vec2Argument.getVec2} — float). */
@@ -335,6 +349,99 @@ public final class AirstrikeCommand {
         return ok ? 1 : 0;
     }
 
+    // ---------------------------------------------------------------- стационарная пусковая
+
+    /**
+     * «launcher x y z …» — стационарная пусковая для ведущего и скриптов (только оператор): состояние; приказ по задаче,
+     * как сигнал редстоуна; задача — как с пульта, но без правил игрока (цель — место); снять задачу; положить в запас
+     * боеприпасы оружия задачи; хозяин (снаряды — от его имени, свои по {@code /team}) или ничья (без правил хозяина).
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> launcher() {
+        RequiredArgumentBuilder<CommandSourceStack, Coordinates> at = Commands.argument("launcher", BlockPosArgument.blockPos())
+                .executes(ctx -> {
+                    FixedLauncherBlockEntity be = launcherAt(ctx);
+                    ctx.getSource().sendSuccess(be::status, false);
+                    return 1;
+                });
+        at.then(Commands.literal("fire").executes(ctx -> {
+            FixedLauncherBlockEntity be = launcherAt(ctx);
+            Component problem = be.fire(ctx.getSource().getLevel());
+            if (problem != null) {
+                ctx.getSource().sendFailure(problem);
+                return 0;
+            }
+            ctx.getSource().sendSuccess(be::status, true);
+            return 1;
+        }));
+        at.then(Commands.literal("clear").executes(ctx -> {
+            FixedLauncherBlockEntity be = launcherAt(ctx);
+            be.setMission(null);
+            ctx.getSource().sendSuccess(be::status, true);
+            return 1;
+        }));
+        at.then(Commands.literal("load").then(Commands.argument("items", IntegerArgumentType.integer(1, FixedLauncherBlockEntity.SLOTS * 64))
+                .executes(ctx -> loadLauncher(ctx, IntegerArgumentType.getInteger(ctx, "items")))));
+        at.then(Commands.literal("owner")
+                .then(Commands.literal("none").executes(ctx -> launcherOwner(ctx, null)))
+                .then(Commands.argument("player", EntityArgument.player()).executes(ctx -> launcherOwner(ctx, EntityArgument.getPlayer(ctx, "player")))));
+        LiteralArgumentBuilder<CommandSourceStack> mission = Commands.literal("mission");
+        for (WeaponType w : WeaponType.values()) {
+            if (!Mission.accepts(w)) continue;
+            for (String name : names(w)) {
+                RequiredArgumentBuilder<CommandSourceStack, Coordinates> target = Commands.argument("pos", Vec3Argument.vec3())
+                        .executes(ctx -> launcherMission(ctx, w, Waypoints.NONE));
+                if (w.spec().route().waypoints()) target.then(via((ctx, path) -> launcherMission(ctx, w, path.via()), false));
+                mission.then(Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, Loadout.MAX_COUNT))
+                        .then(Commands.argument("spread", IntegerArgumentType.integer(0, Loadout.MAX_SPREAD)).then(target))));
+            }
+        }
+        return Commands.literal("launcher").requires(s -> s.hasPermission(2)).then(at.then(mission));
+    }
+
+    /** Пусковая в месте из команды: только в готовом чанке (ради команды его не грузим). */
+    private static FixedLauncherBlockEntity launcherAt(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerLevel level = ctx.getSource().getLevel();
+        BlockPos pos = BlockPosArgument.getBlockPos(ctx, "launcher");
+        if (!Terrain.ready(level, pos)) throw LAUNCHER_NOT_LOADED.create();
+        if (level.getBlockEntity(pos) instanceof FixedLauncherBlockEntity be) return be;
+        throw NO_LAUNCHER.create();
+    }
+
+    private static int launcherMission(CommandContext<CommandSourceStack> ctx, WeaponType w, Waypoints via) throws CommandSyntaxException {
+        FixedLauncherBlockEntity be = launcherAt(ctx);
+        Vec3 point = Vec3Argument.getVec3(ctx, "pos");
+        CommandSourceStack s = ctx.getSource();
+        MutableComponent problem = ServerActions.routeProblem(s.getLevel(), null, false, w, new LaunchOrigin.Fixed(be.getBlockPos()), via, point);
+        if (problem != null) {
+            s.sendFailure(problem);
+            return 0;
+        }
+        be.setMission(new Mission(w, count(ctx), spread(ctx), new Target.Point(point), point, via));
+        s.sendSuccess(be::status, true);
+        return 1;
+    }
+
+    private static int loadLauncher(CommandContext<CommandSourceStack> ctx, int items) throws CommandSyntaxException {
+        FixedLauncherBlockEntity be = launcherAt(ctx);
+        Mission m = be.mission();
+        if (m == null) {
+            ctx.getSource().sendFailure(Component.translatable("airstrike.fixed_launcher.no_mission.short"));
+            return 0;
+        }
+        ItemStack rest = be.load(new ItemStack(m.weapon().spec().munition().item().get(), items));
+        int loaded = items - rest.getCount();
+        ctx.getSource().sendSuccess(() -> Component.translatable("airstrike.fixed_launcher.loaded", loaded).append(" ").append(be.status()), true);
+        return loaded;
+    }
+
+    private static int launcherOwner(CommandContext<CommandSourceStack> ctx, @Nullable ServerPlayer owner) throws CommandSyntaxException {
+        FixedLauncherBlockEntity be = launcherAt(ctx);
+        be.setOwner(owner == null ? null : owner.getUUID());
+        ctx.getSource().sendSuccess(() -> owner == null ? Component.translatable("airstrike.fixed_launcher.owner.none")
+                : Component.translatable("airstrike.fixed_launcher.owner", owner.getDisplayName()), true);
+        return 1;
+    }
+
     /**
      * Приказ командой — по правилам пульта ({@link ServerActions#sighted}) и с оплатой боеприпасами, кроме операторов
      * сервера (и {@code /execute as} из консоли или командного блока — права у них): хост и ведущий устраивают события
@@ -355,7 +462,7 @@ public final class AirstrikeCommand {
     private static int help(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack s = ctx.getSource();
         s.sendSystemMessage(Component.translatable("airstrike.help.title").withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD));
-        for (int i = 1; i <= 13; i++) {
+        for (int i = 1; i <= 14; i++) {
             s.sendSystemMessage(Component.translatable("airstrike.help." + i).withStyle(ChatFormatting.GRAY));
         }
         return 1;

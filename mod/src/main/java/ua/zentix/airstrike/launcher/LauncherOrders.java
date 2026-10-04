@@ -30,7 +30,7 @@ import java.util.UUID;
 
 /**
  * Приказы стационарным пусковым ({@link FixedLauncherBlockEntity}): задача с привязанного пульта ({@link #assign}) и
- * пуск по сигналу редстоуна ({@link #fire}). Пуск — тем же путём, что приказ игрока ({@link ServerActions#order}):
+ * пуск по сигналу редстоуна ({@link #fire}). Пуск — тем же путём, что приказ игрока ({@link ServerActions#fromLauncher}):
  * один снаряд или залп ({@link SalvoData}) с огневой позиции — этой пусковой ({@link LaunchOrigin.Fixed}); снаряды —
  * от имени хозяина пусковой, поэтому свои и чужие по {@code /team}, его «Отбой» и предел снарядов в работе — как у его
  * приказов с пульта. Платит запас пусковой: на весь приказ он должен быть сразу (приказ не урезается), а снимается по
@@ -45,7 +45,7 @@ public final class LauncherOrders {
 
     /** Сигнал дошёл до пусковой {@code be}: приказ по задаче. Null — приказ отдан; иначе — почему нет. */
     @Nullable
-    public static MutableComponent fire(ServerLevel level, FixedLauncherBlockEntity be) {
+    public static Component fire(ServerLevel level, FixedLauncherBlockEntity be) {
         Mission m = be.mission();
         if (m == null) return Component.translatable("airstrike.fixed_launcher.no_mission.short");
         BlockPos pos = be.getBlockPos();
@@ -65,8 +65,11 @@ public final class LauncherOrders {
         MutableComponent missing = Munitions.shortage(be.store().items(), Munitions.Bill.of(l));
         if (missing != null) return missing;
         String who = "пусковая " + pos.toShortString();
-        boolean ok = ServerActions.order(level, who, null, owner, be.yawTo(m.point()), l, new ServerActions.Aim(m.target(), m.point(), null), m.via(), origin);
-        return ok ? null : Component.translatable("airstrike.fixed_launcher.failed");
+        Component before = be.lastReport();
+        boolean ok = ServerActions.fromLauncher(level, who, owner, l, new ServerActions.Aim(m.target(), m.point(), null), m.via(), origin);
+        if (ok) return null;
+        // пуск сам сказал, что не так (сектор закрыт, запас), — эта причина точнее общей
+        return be.lastReport() != before ? be.lastReport() : Component.translatable("airstrike.fixed_launcher.failed");
     }
 
     /**
@@ -107,7 +110,12 @@ public final class LauncherOrders {
      */
     public static void assign(ServerPlayer player, List<GlobalPos> links, Loadout loadout, ServerActions.Aim aim, Waypoints via) {
         Loadout l = ServerActions.clamp(loadout);
-        if (!Mission.accepts(l.weapon()) || l.nuclear()) {
+        if (!Mission.accepts(l.weapon())) {
+            player.displayClientMessage(Component.translatable("airstrike.fixed_launcher.unsupported", l.weapon().displayName())
+                    .withStyle(ChatFormatting.RED), true);
+            return;
+        }
+        if (l.nuclear()) {
             player.displayClientMessage(Component.translatable("airstrike.fixed_launcher.no_nuke").withStyle(ChatFormatting.RED), true);
             return;
         }

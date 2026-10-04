@@ -31,9 +31,12 @@ public record Mission(WeaponType weapon, int count, int spread, Target target, V
         if (!weapon.spec().route().waypoints()) via = Waypoints.NONE;
     }
 
-    /** Оружие, которое берёт стационарная пусковая: всё, кроме ядерного удара МБР (у неё свои ключи и тревога). */
+    /**
+     * Оружие, которое берёт стационарная пусковая: то, что стартует с пакета пусковой (паспорт, {@link WeaponSpec#rack}) —
+     * шахед, «Ланцет», крылатая ракета, «Град». B-2 заходит издалека, у МБР своя площадка.
+     */
     public static boolean accepts(WeaponType weapon) {
-        return weapon.spec().launch() != WeaponSpec.Launch.ICBM;
+        return weapon.spec().rack() != null;
     }
 
     /** Куда смотрит пакет с этой задачей: на первую точку маршрута, без точек — на цель. */
