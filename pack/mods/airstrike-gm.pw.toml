@@ -1,8 +1,8 @@
 name = "Airstrike GM"
-filename = "airstrike-gm-0.1.0.jar"
+filename = "airstrike-gm-0.1.2.jar"
 side = "server"
 
 [download]
-url = "https://github.com/zentixua/airstrike/releases/download/v2.8.2/airstrike-gm-0.1.0.jar"
+url = "https://github.com/zentixua/airstrike/releases/download/v2.9.0/airstrike-gm-0.1.2.jar"
 hash-format = "sha256"
-hash = "3ad8d75c80cb83fa1813f34e5060a22c99f158740210e8f43651b5d3f2d5a194"
+hash = "a1759fbb1e40bcf3a1adf7164fe3255afe35b38ea2fb49992e986bf6024ee401"
