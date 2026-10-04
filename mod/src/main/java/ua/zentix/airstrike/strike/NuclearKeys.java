@@ -337,6 +337,15 @@ public final class NuclearKeys {
         return orders.size();
     }
 
+    /** Сколько снарядов в ждущих приказах игрока: они в работе для {@code max_active_per_player} ({@link StrikeWorld#active}). */
+    public int waiting(UUID owner) {
+        int n = 0;
+        for (Order o : orders) {
+            if (o.ownerId.equals(owner)) n += o.loadout.count();
+        }
+        return n;
+    }
+
     /**
      * Отменить все ждущие ядерные приказы с возвратом владельцам в сети: ядерный отбой оператора или хоста, остановка сервера.
      *
