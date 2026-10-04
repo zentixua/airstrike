@@ -7,6 +7,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.level.block.Blocks;
@@ -98,14 +99,21 @@ public final class SpottingGameTests {
 
         Sightings.scan(level, List.of(a, b));
         h.assertTrue(Sightings.contact(level, Sides.side(a), b.getUUID()) == null, "увидел сквозь стену");
-        Sightings.watch(a, cam.getUUID());
+        // взгляд камеры — свой (клиент шлёт поворот камеры), а не последний поворот игрока на сервере: тот смотрит на b
+        Vec3 toB = b.getEyePosition().subtract(cam.position());
+        float yaw = (float) (Mth.atan2(toB.z, toB.x) * Mth.RAD_TO_DEG) - 90;
+        float pitch = (float) -(Mth.atan2(toB.y, toB.horizontalDistance()) * Mth.RAD_TO_DEG);
+        Sightings.watch(a, cam.getUUID(), yaw + 180, 0);
+        Sightings.scan(level, List.of(a, b));
+        h.assertTrue(Sightings.contact(level, Sides.side(a), b.getUUID()) == null, "камера, повёрнутая прочь, заметила");
+        Sightings.watch(a, cam.getUUID(), yaw, pitch);
         Sightings.scan(level, List.of(a, b));
         Sightings.Contact c = Sightings.contact(level, Sides.side(a), b.getUUID());
         h.assertTrue(c != null && c.source() == Sightings.Source.CAMERA, "камера снаряда не заметила: " + c);
 
         // чужой снаряд — не камера игрока
-        Sightings.watch(a, null);
-        Sightings.watch(b, cam.getUUID());
+        Sightings.watch(a, null, 0, 0);
+        Sightings.watch(b, cam.getUUID(), yaw, pitch);
         h.assertTrue(Sightings.camera(b) == null, "чужой снаряд принят камерой");
         h.succeed();
     }
@@ -220,8 +228,8 @@ public final class SpottingGameTests {
         return p;
     }
 
-    private static Map<String, S2C.MapPlayer> byName(@Nullable List<S2C.MapPlayer> marks) {
+    private static Map<String, S2C.MapPlayer> byName(@Nullable S2C.MapPlayers marks) {
         if (marks == null) throw new AssertionError("ответа нет");
-        return marks.stream().collect(Collectors.toMap(S2C.MapPlayer::name, m -> m));
+        return marks.players().stream().collect(Collectors.toMap(S2C.MapPlayer::name, m -> m));
     }
 }
