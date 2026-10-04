@@ -79,19 +79,21 @@ public final class SightGameTests {
         PlayerList list = level.getServer().getPlayerList();
         int before = list.getViewDistance();
         StrikeGameTests.afterTest(h, () -> list.setViewDistance(before));
-        list.setViewDistance(10);
+        list.setViewDistance(16);
         Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(1, 1, 1)));
-        h.assertValueEqual(Sight.viewRange(viewer(level, at, 64)), 160, "настройка 64 при сервере 10");
-        h.assertValueEqual(Sight.viewRange(viewer(level, at, 5)), 80, "настройка 5 при сервере 10");
+        h.assertValueEqual(Sight.viewRange(viewer(level, at, 64)), 256, "настройка 64 при сервере 16");
+        h.assertValueEqual(Sight.viewRange(viewer(level, at, 5)), 80, "настройка 5 при сервере 16");
         h.assertValueEqual(Sight.viewRange(viewer(level, at, 1)), 32, "настройка 1 — не меньше двух чанков");
 
         ServerPlayer far = viewer(level, at, 64);
         Pig pig = EntityType.PIG.create(level);
         h.assertTrue(pig != null, "нет свиньи");
-        // свинья отслеживается на 10 чанков (160 блоков) с поправкой сервера; игрок — на 32 чанка, т. е. до прорисовки
+        // свинья отслеживается на 10 чанков (160 блоков) с поправкой сервера — ближе прорисовки (256); игрок — на 32
+        // чанка, т. е. до прорисовки
         int pigRange = level.getServer().getScaledTrackingDistance(EntityType.PIG.clientTrackingRange() * 16);
-        h.assertValueEqual(Sight.range(far, pig), (double) Math.min(pigRange, 160), "дальность свиньи");
-        h.assertValueEqual(Sight.range(far, far), 160.0, "дальность игрока — не дальше прорисовки");
+        h.assertTrue(pigRange < 256, "дальность свиньи должна быть меньше прорисовки: " + pigRange);
+        h.assertValueEqual(Sight.range(far, pig), (double) pigRange, "дальность свиньи");
+        h.assertValueEqual(Sight.range(far, far), 256.0, "дальность игрока — не дальше прорисовки");
         h.succeed();
     }
 
@@ -155,7 +157,7 @@ public final class SightGameTests {
     /** Настоящий игрок вне списка игроков с настройкой прорисовки {@code chunks}: {@code FakePlayer} её не принимает. */
     private static ServerPlayer viewer(ServerLevel level, Vec3 at, int chunks) {
         ServerPlayer p = new ServerPlayer(level.getServer(), level, new GameProfile(UUID.randomUUID(), "sight_range"), withView(chunks));
-        p.moveTo(at);
+        p.setPos(at); // moveTo у ServerPlayer зовёт connection.resetPosition, а соединения нет
         return p;
     }
 
