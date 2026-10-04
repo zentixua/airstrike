@@ -742,9 +742,10 @@ public final class StressDirector {
         Vec3 c = ua.zentix.airstrike.compat.SubLevels.center(sub);
         log("аппарат %s у %.0f %.0f %.0f", craftId, c.x, c.y, c.z);
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
-        ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
+        // режиссёр стенда — как команда оператора: без боеприпасов из инвентаря
+        ua.zentix.airstrike.strike.ServerActions.strike(p, false, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE);
-        ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.DRONE, drones, 10, aim,
+        ua.zentix.airstrike.strike.ServerActions.strike(p, false, ua.zentix.airstrike.strike.WeaponType.DRONE, drones, 10, aim,
                 ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE);
     }
 
@@ -765,7 +766,8 @@ public final class StressDirector {
         log("проба %s: РСЗО 10 по %d %d %d, %.0f блоков от %s, район %s", name, x, (int) point.y, z, Math.hypot(x - p.getX(), z - p.getZ()),
                 shooter, fresh ? "не готов" : "уже готов");
         if (!fresh) problems.add("проба " + name + ": район уже готов — растяжение не проверено");
-        ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
+        // как команда оператора: без боеприпасов из инвентаря
+        ua.zentix.airstrike.strike.ServerActions.strike(p, false, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
                 new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT,
                 ua.zentix.airstrike.strike.Waypoints.NONE);
     }

@@ -202,9 +202,14 @@ public final class StrikeWorld {
         return n;
     }
 
-    /** Отбой: взрывы в процессе доигрываются (это уже случилось), залпы отменяются. */
-    public static void clearSalvos(ServerLevel level) {
-        SalvoData.get(level).clear();
+    /**
+     * Отбой: взрывы в процессе доигрываются (это уже случилось), залпы отменяются, а их невыпущенные оплаченные снаряды
+     * возвращаются владельцам в сети ({@link Munitions}).
+     *
+     * @return сколько залпов отменено
+     */
+    public static int clearSalvos(ServerLevel level) {
+        return SalvoData.get(level).cancel(level, null, level.getServer().getPlayerList().getPlayers());
     }
 
     /**

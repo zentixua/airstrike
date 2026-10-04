@@ -70,6 +70,20 @@ public final class StrikeService {
     public static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
                                 @Nullable UUID owner, boolean siren, Loadout.Nuke nuke, Waypoints via) {
         ServerPlayer shooter = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+        return launch(level, weapon, target, point, approachYaw, owner, shooter, siren, nuke, via);
+    }
+
+    /**
+     * Пуск от имени игрока, который уже известен (пульт, команда игрока), — как {@link #launch}, но без поиска его
+     * в списке игроков (GameTest: стреляющий — {@code FakePlayer} NeoForge, которого в списке нет).
+     */
+    public static Result launchBy(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                  ServerPlayer shooter, boolean siren, Loadout.Nuke nuke, Waypoints via) {
+        return launch(level, weapon, target, point, approachYaw, shooter.getUUID(), shooter, siren, nuke, via);
+    }
+
+    private static Result launch(ServerLevel level, WeaponType weapon, Target target, Vec3 point, float approachYaw,
+                                 @Nullable UUID owner, @Nullable ServerPlayer shooter, boolean siren, Loadout.Nuke nuke, Waypoints via) {
         if (shooter != null && shooter.level() != level) shooter = null;
         if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
