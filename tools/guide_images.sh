@@ -2,7 +2,7 @@
 # Картинки руководства игрока (docs/guide/img) из кадров сценария guide: tools/client_scenario.sh guide,
 # потом этот скрипт (нужен только ffmpeg). Рецепты и экран пульта режутся по месту окна GUI (1280×720, масштаб GUI 2,
 # как в options.txt сценария), кадры игры — в JPEG, карта — GIF из кадров guide-gif-map-*.
-# Какой кадр серии (hud-N, camera-N, loiter-N, sam-N) лучше, видно только глазами: номера — ниже, их правят после съёмки.
+# Какой кадр серии (hud-N, camera-N, loiter-N, sam-N, launcher-N) лучше, видно только глазами: номера — ниже, их правят после съёмки.
 #   tools/guide_images.sh [папка кадров]   (по умолчанию mod/run/scenario/screenshots)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,6 +18,7 @@ CAMERA_MAP=camera-30
 CAMERA_HIT=camera-42
 LOITER=loiter-6
 SAM=sam-38
+LAUNCHER_FIRE=launcher-21
 
 ff() { ffmpeg -loglevel error -y "$@"; }
 
@@ -32,7 +33,7 @@ ff -i "$SRC/guide-remote.png" -vf "crop=656:488:312:116" "$OUT/remote.png"
 
 # кадры игры и карты
 for pair in "$SCOPE:scope" "$HUD:hud" "$CAMERA_ONBOARD:camera-onboard" "$CAMERA_MAP:camera-map" "$CAMERA_HIT:camera-hit" \
-            "$LOITER:camera-loiter" "$SAM:sam" "map:map" "map-route:map-route" "map-flight:map-flight"; do
+            "$LOITER:camera-loiter" "$SAM:sam" "launcher:launcher" "$LAUNCHER_FIRE:launcher-fire" "map:map" "map-route:map-route" "map-flight:map-flight"; do
   ff -i "$SRC/guide-${pair%%:*}.png" -q:v 4 "$OUT/${pair#*:}.jpg"
 done
 

@@ -4,7 +4,7 @@
 #   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   guide — кадры руководства игрока (GuideShots): рецепты, бинокль, пульт, GIF карты, снаряды на экране, камера,
-#     «Ланцет», ЗРК; AIRSTRIKE_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
+#     «Ланцет», ЗРК, стационарная пусковая; AIRSTRIKE_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
 #     картинки в docs/guide/img — tools/guide_images.sh;
 #   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (N) до удара;
 #   rocket — залп РСЗО: камера у пакета на очереди, дуги над головой, разрывы по площади;
