@@ -17,6 +17,7 @@ import ua.zentix.airstrike.defense.DefenseWorld;
 import ua.zentix.airstrike.defense.SamBlockEntity;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkSaves;
+import ua.zentix.airstrike.launcher.FixedLauncherBlockEntity;
 import ua.zentix.airstrike.legacy.LegacyMigration;
 import ua.zentix.airstrike.net.AirstrikeNetwork;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -76,6 +77,7 @@ public final class Airstrike {
 
         modBus.addListener(AirstrikeNetwork::register);
         modBus.addListener(SamBlockEntity::registerCapabilities);
+        modBus.addListener(FixedLauncherBlockEntity::registerCapabilities);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);

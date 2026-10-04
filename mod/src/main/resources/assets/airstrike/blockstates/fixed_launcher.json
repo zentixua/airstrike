@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "triggered=false": {
+      "model": "airstrike:block/fixed_launcher"
+    },
+    "triggered=true": {
+      "model": "airstrike:block/fixed_launcher"
+    }
+  }
+}

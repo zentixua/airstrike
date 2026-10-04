@@ -26,6 +26,7 @@ import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
+import ua.zentix.airstrike.launcher.LauncherLinks;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.nuclear.model.Yield;
 import ua.zentix.airstrike.registry.ModDataComponents;
@@ -184,7 +185,10 @@ public class RemoteScreen extends Screen {
 
         // огонь, отбой, настройки
         int by = y0 + H - 26;
-        addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.fire").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
+        // пульт с привязанными пусковыми ставит им задачу, а не пускает сам (launcher.LauncherLinks)
+        int linked = hand != null && minecraft.player != null ? LauncherLinks.of(minecraft.player.getItemInHand(hand)).size() : 0;
+        Component fireLabel = linked > 0 ? Component.translatable("airstrike.remote.assign", linked) : Component.translatable("airstrike.remote.fire");
+        addRenderableWidget(Button.builder(fireLabel.copy().withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                 b -> fire(loadout.mode() == TargetMode.MAP ? MapTarget.waypoints(minecraft.level) : Waypoints.NONE)).bounds(x0 + 4, by, 128, 22).build());
         addRenderableWidget(Button.builder(Component.translatable("airstrike.remote.clear"), b -> {
             PacketDistributor.sendToServer(new C2S.Clear());
