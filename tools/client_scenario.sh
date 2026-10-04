@@ -54,6 +54,10 @@ soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
 OPT
+# руководство игрока — на русском, как играют друзья
+if [ "${1:-all}" = guide ]; then
+  if grep -q '^lang:' "$RUN/options.txt"; then sed -i 's/^lang:.*/lang:ru_ru/' "$RUN/options.txt"; else echo 'lang:ru_ru' >> "$RUN/options.txt"; fi
+fi
 export AIRSTRIKE_SCENARIO="${1:-all}"
 MC="$(python3 "$ROOT/tools/paths.py" MC)"
 unset AIRSTRIKE_SHADERS AIRSTRIKE_DH
