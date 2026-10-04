@@ -22,6 +22,7 @@ import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
@@ -66,6 +67,7 @@ import ua.zentix.airstrike.client.sound.ClientSounds;
 import ua.zentix.airstrike.client.sound.SoundFilters;
 import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModBlocks;
@@ -155,6 +157,7 @@ public final class AirstrikeClient {
         e.register(Keys.MENU);
         e.register(Keys.MAP);
         e.register(Keys.CAMERA);
+        e.register(Keys.SECOND_KEY);
     }
 
     private static void layers(RegisterGuiLayersEvent e) {
@@ -183,6 +186,7 @@ public final class AirstrikeClient {
         while (Keys.MAP.consumeClick()) mc.setScreen(new MapScreen(new RemoteScreen()));
         while (Keys.FIRE.consumeClick()) Designator.fire();
         while (Keys.CAMERA.consumeClick()) ProjectileCamera.cycle();
+        while (Keys.SECOND_KEY.consumeClick()) PacketDistributor.sendToServer(new C2S.NuclearKey());
         Replay.tick();
         if (mc.isPaused()) return;
         Designator.tick();

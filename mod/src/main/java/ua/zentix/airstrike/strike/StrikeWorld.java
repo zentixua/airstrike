@@ -46,6 +46,8 @@ public final class StrikeWorld {
      * игроку — раз на приказ.
      */
     private final Map<String, Long> noLaunchSite = new HashMap<>();
+    /** Ядерные приказы не операторов, которые ждут второго ключа или пуска после тревоги. */
+    private final NuclearKeys keys = new NuclearKeys();
 
     /** Для {@link ModAttachments#STRIKE_WORLD}: своё у каждого мира, живёт, пока мир загружен, не сохраняется. */
     public StrikeWorld() {}
@@ -57,6 +59,11 @@ public final class StrikeWorld {
     /** Районы, которые мод грузит заранее: районы целей и взрывов, чанки снарядов, подсказки карты, ядерный удар. */
     public AreaLoader areas() {
         return areas;
+    }
+
+    /** Ядерные приказы не операторов: второй ключ и тревога перед пуском носителя. */
+    NuclearKeys keys() {
+        return keys;
     }
 
     /** Районы полос подлёта и снаряды, которые их держат ({@link FlightTickets}). */
@@ -131,6 +138,7 @@ public final class StrikeWorld {
         VirtualFlights.get(level).tick(level);
         if (level.hasData(ModAttachments.STRIKE_WORLD)) {
             StrikeWorld world = get(level);
+            world.keys.tick(level, level.getServer().getPlayerList().getPlayers());
             world.tick(level);
             world.flightLog.flush();
         }
@@ -219,6 +227,8 @@ public final class StrikeWorld {
      * до этого, без бюджета ({@link UnitQueue#finish(ServerLevel)}).
      */
     public static void onServerStopping(ServerStoppingEvent event) {
+        // ждущие ядерные приказы не сохраняются: оплаченное — владельцам, пока они ещё в сети (сохранение игроков — после)
+        NuclearKeys.cancelAll(event.getServer(), event.getServer().getPlayerList().getPlayers(), null, "сервер останавливается");
         for (ServerLevel level : event.getServer().getAllLevels()) {
             // работа попаданий не сохраняется: начатое и поставленное доделать сейчас, иначе в мире остались бы взрывы,
             // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются, как раньше)

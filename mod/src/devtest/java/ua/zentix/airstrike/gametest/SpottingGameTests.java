@@ -8,6 +8,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.level.block.Blocks;
@@ -24,6 +25,7 @@ import ua.zentix.airstrike.entity.CruiseMissileEntity;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.ServerActions;
 import ua.zentix.airstrike.target.Sides;
 import ua.zentix.airstrike.target.Sightings;
@@ -35,7 +37,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Разведка ({@link Sightings}): кого видит сторона и что из этого следует для пульта ({@link ServerActions#scouted}) и
+ * Разведка ({@link Sightings}): кого видит сторона и что из этого следует для пульта ({@link ServerActions#sighted}) и
  * карты. {@code FakePlayer} NeoForge в мир не добавляется: осмотр и карта получают список игроков сами.
  */
 @GameTestHolder(Airstrike.MOD_ID)
@@ -103,47 +105,50 @@ public final class SpottingGameTests {
         Vec3 toB = b.getEyePosition().subtract(cam.position());
         float yaw = (float) (Mth.atan2(toB.z, toB.x) * Mth.RAD_TO_DEG) - 90;
         float pitch = (float) -(Mth.atan2(toB.y, toB.horizontalDistance()) * Mth.RAD_TO_DEG);
-        Sightings.watch(a, cam.getUUID(), yaw + 180, 0);
+        CameraLink.receive(a, cam.getUUID(), yaw + 180, 0);
         Sightings.scan(level, List.of(a, b));
         h.assertTrue(Sightings.contact(level, Sides.side(a), b.getUUID()) == null, "камера, повёрнутая прочь, заметила");
-        Sightings.watch(a, cam.getUUID(), yaw, pitch);
+        CameraLink.receive(a, cam.getUUID(), yaw, pitch);
         Sightings.scan(level, List.of(a, b));
         Sightings.Contact c = Sightings.contact(level, Sides.side(a), b.getUUID());
         h.assertTrue(c != null && c.source() == Sightings.Source.CAMERA, "камера снаряда не заметила: " + c);
 
         // чужой снаряд — не камера игрока
-        Sightings.watch(a, null, 0, 0);
-        Sightings.watch(b, cam.getUUID(), yaw, pitch);
-        h.assertTrue(Sightings.camera(b) == null, "чужой снаряд принят камерой");
+        CameraLink.receive(b, cam.getUUID(), yaw, pitch);
+        h.assertTrue(CameraLink.current(b).isEmpty(), "чужой снаряд принят камерой");
         h.succeed();
     }
 
     /**
-     * Пульт по чужому игроку: незамеченный — отказ; видят сейчас — сам игрок; видели раньше — место, где видели; свои и
-     * мобы — без правил.
+     * Пульт по чужому игроку, которого стрелявший сам сейчас не видит: незамеченный стороной — отказ; замеченный только
+     * что — он сам, как замеченная цель; виденный раньше — место, где видели; свои и мобы — без правил разведки.
      */
     @GameTest(template = "pad", batch = "spotting", timeoutTicks = 60)
     public static void strikesOnlyAtSpotted(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         FakePlayer a = player(h, "scout_a", A), b = player(h, "scout_b", B);
-        for (int z = 0; z < 8; z++) for (int y = 1; y < 5; y++) h.setBlock(new BlockPos(3, y, z), Blocks.STONE);
-        a.lookAt(EntityAnchorArgument.Anchor.EYES, b.getEyePosition());
+        // цель приказа ищется в мире: игрок должен в нём быть
+        level.addNewPlayer(b);
+        StrikeGameTests.afterTest(h, () -> level.removePlayerImmediately(b, Entity.RemovalReason.DISCARDED));
         ServerActions.Aim live = ServerActions.atPlayer(b);
-        h.assertTrue(ServerActions.scouted(a, live, b) == null, "удар по незамеченному");
+        h.assertTrue(ServerActions.sighted(a, live, t -> false) == null, "удар по незамеченному");
 
         Vec3 seenAt = b.position();
         Sightings.spot(level, Sides.side(a), b, Sightings.Source.EYES);
-        h.assertTrue(ServerActions.scouted(a, live, b) == live, "только что видели — не по нему самому");
+        h.assertTrue(sightedAt(ServerActions.sighted(a, live, t -> false), live), "только что видели — не по нему самому");
+        h.assertTrue(sightedAt(ServerActions.sighted(a, live, t -> true), live), "видит сам — не по нему самому");
         b.moveTo(seenAt.add(0, 0, -3));
 
         Pig pig = EntityType.PIG.create(level);
         h.assertTrue(pig != null, "нет свиньи");
         pig.moveTo(Vec3.atBottomCenterOf(h.absolutePos(B)));
+        level.addFreshEntity(pig);
+        StrikeGameTests.afterTest(h, pig::discard);
         ServerActions.Aim atPig = ServerActions.atPlayer(pig);
-        h.assertTrue(ServerActions.scouted(a, atPig, pig) == atPig, "моб под правилом разведки");
+        h.assertTrue(sightedAt(ServerActions.sighted(a, atPig, t -> false), atPig), "моб под правилом разведки");
 
         h.runAfterDelay(Sightings.CURRENT + 5, () -> {
-            ServerActions.Aim old = ServerActions.scouted(a, live, b);
+            ServerActions.Aim old = ServerActions.sighted(a, live, t -> false);
             h.assertTrue(old != null && old.target() instanceof Target.Point p && p.pos().equals(seenAt.add(0, 1, 0)),
                     "не по последнему месту: " + (old == null ? null : old.target()));
 
@@ -151,11 +156,16 @@ public final class SpottingGameTests {
             PlayerTeam red = board.addPlayerTeam("scout_red");
             board.addPlayerToTeam(a.getScoreboardName(), red);
             board.addPlayerToTeam(b.getScoreboardName(), red);
-            boolean friendly = ServerActions.scouted(a, live, b) == live;
+            boolean friendly = sightedAt(ServerActions.sighted(a, live, t -> false), live);
             board.removePlayerTeam(red);
             h.assertTrue(friendly, "по своему — правило разведки");
             h.succeed();
         });
+    }
+
+    /** Приказ принят как замеченная цель {@code aim} там, где её видели. */
+    private static boolean sightedAt(@Nullable ServerActions.Aim got, ServerActions.Aim aim) {
+        return got != null && got.target() instanceof Target.Sighted s && s.quarry().equals(aim.target()) && s.seen().equals(aim.point());
     }
 
     /** Забытое: через {@code sight_memory} замеченного нет ни для пульта, ни для карты. */

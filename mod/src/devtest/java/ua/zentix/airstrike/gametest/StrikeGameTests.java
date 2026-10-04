@@ -358,7 +358,7 @@ public final class StrikeGameTests {
         ServerLevel level = h.getLevel();
         Cow cow = h.spawn(EntityType.COW, RANGE_CENTER.above());
         TargetTracker tracker = new TargetTracker(Target.OfEntity.center(cow), cow.getBoundingBox().getCenter());
-        tracker.tick(level);
+        tracker.tick(level, q -> false);
         h.assertFalse(tracker.isLost(), "живая цель потеряна");
         cow.discard();
         Cow again = EntityType.COW.create(level);
@@ -367,7 +367,7 @@ public final class StrikeGameTests {
         again.moveTo(at.x, at.y, at.z);
         level.addFreshEntity(again);
         h.assertTrue(level.getEntity(cow.getUUID()) == again, "новая сущность не нашлась по UUID");
-        tracker.tick(level);
+        tracker.tick(level, q -> false);
         h.assertTrue(tracker.isLost(), "слежение подхватило новую сущность с тем же UUID");
         h.succeed();
     }

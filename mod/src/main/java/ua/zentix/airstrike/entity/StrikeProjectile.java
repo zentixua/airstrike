@@ -36,6 +36,7 @@ import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.guidance.Mission;
 import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.util.Terrain;
+import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.ChunkTickets;
 import ua.zentix.airstrike.strike.FlightLog;
 import ua.zentix.airstrike.strike.FlightTickets;
@@ -81,6 +82,21 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final EntityDataAccessor<Boolean> DATA_NUCLEAR = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BOOLEAN);
     /** Сколько первых тиков на пусковой снаряд не виден (пакет ещё поднимается — снаряд «в ячейке»). */
     private static final EntityDataAccessor<Integer> DATA_HIDDEN = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.INT);
+    /** Ведёт ли снаряд замеченную цель камерой оператора ({@link Pursuit}) — для картинки его камеры. */
+    private static final EntityDataAccessor<Byte> DATA_PURSUIT = SynchedEntityData.defineId(StrikeProjectile.class, EntityDataSerializers.BYTE);
+
+    /**
+     * Погоня снаряда с камерой ({@link WeaponSpec.Tracking#CAMERA}) за замеченной целью ({@link Target.Sighted}):
+     * её показывает камера снаряда у оператора.
+     */
+    public enum Pursuit {
+        /** Замеченной цели нет, она потеряна или оружие за ней не идёт. */
+        NONE,
+        /** Оператор держит цель в кадре: снаряд идёт за ней. */
+        HELD,
+        /** Цель не в кадре: снаряд летит туда, где её видели в последний раз. */
+        WAITING
+    }
 
     /**
      * Дольше минуты район цели не загрузился — снаряд убирается: сервер не справляется с генерацией (десятки районов
@@ -380,6 +396,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     public ServerPlayer ownerPlayer() {
         UUID id = ownerId();
         return id != null && level() instanceof ServerLevel sl ? sl.getServer().getPlayerList().getPlayer(id) : null;
+    }
+
+    /** Ведёт ли снаряд замеченную цель камерой оператора (синхронизировано — для картинки камеры). */
+    public Pursuit pursuit() {
+        return Pursuit.values()[Mth.clamp(entityData.get(DATA_PURSUIT), 0, Pursuit.values().length - 1)];
     }
 
     /** Точка, куда снаряд сейчас целится (синхронизирована — для HUD, тревоги и свиста ракеты). */
@@ -806,9 +827,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         crash(level, point);
     }
 
-    /** Слежение за целью; возвращает текущую точку прицеливания. */
+    /**
+     * Слежение за целью; возвращает текущую точку прицеливания. За замеченной целью ({@link Target.Sighted}) снаряд
+     * идёт, только пока её держит в кадре камера этого снаряда ({@link CameraLink#holds}) и оружие это умеет
+     * ({@link WeaponSpec.Tracking#CAMERA}).
+     */
     protected Vec3 updateTarget(ServerLevel level) {
-        mission().chase(tracker.tick(level));
+        boolean byCamera = weapon().spec().tracking() == WeaponSpec.Tracking.CAMERA;
+        mission().chase(tracker.tick(level, at -> byCamera && CameraLink.holds(level, this, tracker.target().subject(), at)));
+        Pursuit pursuit = !byCamera || !(tracker.target() instanceof Target.Sighted) || tracker.isLost() ? Pursuit.NONE
+                : tracker.inSight() ? Pursuit.HELD : Pursuit.WAITING;
+        entityData.set(DATA_PURSUIT, (byte) pursuit.ordinal());
         // и у снаряда, сохранённого прежней версией уже с потерянной целью (флага «урезан» нет)
         if (tracker.isLost() && mission().lose(plannedPathLeft(), cruiseSpeed())) onTargetLost(level);
         syncAim();
@@ -960,7 +989,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         Vec3 sweepEnd = blockPoint != null ? blockPoint : noseTo;
 
         if (armed()) {
-            UUID targetId = tracker.target() instanceof Target.OfEntity e ? e.uuid() : null;
+            UUID targetId = tracker.target().subject() instanceof Target.OfEntity e ? e.uuid() : null;
             Entity victim = ProximityFuse.victim(level, this, noseFrom, sweepEnd, speed, targetId, ownerId());
             if (victim != null) {
                 Vec3 at = victim.getBoundingBox().getCenter();
@@ -1264,6 +1293,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         builder.define(DATA_OWNER, Optional.empty());
         builder.define(DATA_NUCLEAR, false);
         builder.define(DATA_HIDDEN, 0);
+        builder.define(DATA_PURSUIT, (byte) Pursuit.NONE.ordinal());
     }
 
     @Override

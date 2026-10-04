@@ -53,8 +53,17 @@ public final class NuclearStrikes {
 
     /** @param surface цель — место на земле (с карты): подрыв на поверхности, высота {@code target} — только оценка */
     public static boolean launch(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, @Nullable ServerPlayer owner) {
-        return owner == null ? launchFrom(level, target, surface, yieldKt, airBurst, null, 0, null)
-                : launchFrom(level, target, surface, yieldKt, airBurst, owner.position(), owner.getYRot(), owner.getUUID());
+        return launch(level, target, surface, yieldKt, airBurst, owner, AirstrikeConfig.SERVER.nukeFlightTime.get());
+    }
+
+    /**
+     * @param flightTicks полёт от пуска до подрыва: настройка мира, у удара не оператора — не меньше 90 с тревоги
+     *                    ({@code strike.NuclearKeys})
+     */
+    public static boolean launch(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, @Nullable ServerPlayer owner,
+                                 int flightTicks) {
+        return owner == null ? launchFrom(level, target, surface, yieldKt, airBurst, null, 0, null, flightTicks)
+                : launchFrom(level, target, surface, yieldKt, airBurst, owner.position(), owner.getYRot(), owner.getUUID(), flightTicks);
     }
 
     /**
@@ -63,15 +72,15 @@ public final class NuclearStrikes {
      */
     public static boolean launchFrom(ServerLevel level, Vec3 target, double yieldKt, boolean airBurst, @Nullable Vec3 launcher, float yaw,
                                      @Nullable UUID owner) {
-        return launchFrom(level, target, false, yieldKt, airBurst, launcher, yaw, owner);
+        return launchFrom(level, target, false, yieldKt, airBurst, launcher, yaw, owner, AirstrikeConfig.SERVER.nukeFlightTime.get());
     }
 
     private static boolean launchFrom(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, @Nullable Vec3 launcher,
-                                      float yaw, @Nullable UUID owner) {
+                                      float yaw, @Nullable UUID owner, int flightTicks) {
         if (!AirstrikeConfig.SERVER.nukeEnabled.get()) return false;
         yieldKt = Math.min(yieldKt, AirstrikeConfig.SERVER.nukeMaxYield.get());
         if (launcher == null) {
-            schedule(level, target, surface, yieldKt, airBurst, target, owner);
+            schedule(level, target, surface, yieldKt, airBurst, target, owner, flightTicks);
             return true;
         }
         Vec3 back = Local.horizontal(yaw).scale(-30);
@@ -81,16 +90,17 @@ public final class NuclearStrikes {
         if (icbm == null) return false;
         icbm.prepare(pad, target, owner);
         if (!level.addFreshEntity(icbm)) return false;
-        schedule(level, target, surface, yieldKt, airBurst, pad, owner);
+        schedule(level, target, surface, yieldKt, airBurst, pad, owner, flightTicks);
         return true;
     }
 
     /** Записать удар: момент подрыва = сейчас + время полёта; всем в измерении — тревога и отсчёт. */
-    private static void schedule(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, Vec3 launchPos, @Nullable UUID owner) {
+    private static void schedule(ServerLevel level, Vec3 target, boolean surface, double yieldKt, boolean airBurst, Vec3 launchPos, @Nullable UUID owner,
+                                 int flightTicks) {
         NuclearEvents events = NuclearEvents.get(level);
         long now = level.getGameTime();
         NuclearEvents.ScheduledStrike s = new NuclearEvents.ScheduledStrike(events.nextId(), target, yieldKt, airBurst, now,
-                now + AirstrikeConfig.SERVER.nukeFlightTime.get(), launchPos, Optional.ofNullable(owner), surface);
+                now + flightTicks, launchPos, Optional.ofNullable(owner), surface);
         events.schedule(s);
         holdGround(level, s, true);
         Airstrike.LOG.info("МБР №{}: {} кт по {} {} {}, подрыв через {} с", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),

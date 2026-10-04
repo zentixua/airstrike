@@ -3,7 +3,6 @@ package ua.zentix.airstrike.target;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
@@ -17,6 +16,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
@@ -33,7 +33,7 @@ import java.util.UUID;
  * <p>
  * Глаза: раз в {@link #SCAN_PERIOD} тиков каждый игрок осматривается — чужой замечен, если он в поле зрения (конус
  * {@link #FIELD_DEGREES}° вокруг взгляда — экран с запасом) и {@link Sight#sees} его видит. Камера снаряда: пока игрок
- * смотрит глазами своего снаряда ({@link #watch}), тот же осмотр идёт и из снаряда по взгляду камеры. Радар и другие датчики сообщают сами ({@link #spot}). Состояние мира, не сохраняется.
+ * смотрит с борта своего снаряда ({@link CameraLink}), тот же осмотр идёт и из снаряда — в кадре камеры. Радар и другие датчики сообщают сами ({@link #spot}). Состояние мира, не сохраняется.
  */
 public final class Sightings {
     /** Раз в столько тиков игроки осматриваются. */
@@ -115,42 +115,18 @@ public final class Sightings {
 
     // ---------------------------------------------------------------- камера снаряда
 
-    /** Игрок смотрит глазами снаряда {@code projectile}, камера смотрит по {@code look} (единичный вектор). */
-    public record Watching(UUID projectile, Vec3 look) {}
-
-    /** Камера снаряда, глазами которого игрок смотрит сейчас, и её взгляд. */
-    private record View(StrikeProjectile camera, Vec3 look) {}
-
-    /**
-     * Игрок смотрит глазами своего снаряда {@code projectile} (null — вернулся к себе), камера повёрнута на {@code yaw},
-     * {@code pitch} (градусы, как у сущности). Чужой снаряд, снаряд не в его мире и поворот не числом не принимаются.
-     */
-    public static void watch(ServerPlayer player, @Nullable UUID projectile, float yaw, float pitch) {
-        if (projectile == null) {
-            player.removeData(ModAttachments.WATCHING.get());
-        } else if (Float.isFinite(yaw) && Float.isFinite(pitch) && camera(player, projectile) != null) {
-            player.setData(ModAttachments.WATCHING.get(), new Watching(projectile, Vec3.directionFromRotation(Mth.clamp(pitch, -90, 90), yaw)));
+    /** Камера снаряда, с борта которого игрок смотрит сейчас ({@link CameraLink}), и её вид. */
+    private record View(StrikeProjectile camera, CameraLink link) {
+        Vec3 eye() {
+            return camera.getEyePosition();
         }
-    }
-
-    /** Снаряд, глазами которого игрок смотрит сейчас: свой, в его мире, в полёте. */
-    @Nullable
-    public static StrikeProjectile camera(ServerPlayer player) {
-        View v = view(player);
-        return v == null ? null : v.camera();
     }
 
     @Nullable
     private static View view(ServerPlayer player) {
-        Watching w = player.getExistingData(ModAttachments.WATCHING.get()).orElse(null);
-        StrikeProjectile camera = w == null ? null : camera(player, w.projectile());
-        return camera == null ? null : new View(camera, w.look());
-    }
-
-    @Nullable
-    private static StrikeProjectile camera(ServerPlayer player, UUID id) {
-        return player.serverLevel().getEntity(id) instanceof StrikeProjectile p && p.isAlive()
-                && player.getUUID().equals(p.ownerId()) ? p : null;
+        CameraLink link = CameraLink.current(player).orElse(null);
+        return link != null && player.serverLevel().getEntity(link.projectile()) instanceof StrikeProjectile p && p.isAlive()
+                ? new View(p, link) : null;
     }
 
     // ---------------------------------------------------------------- осмотр
@@ -199,8 +175,8 @@ public final class Sightings {
         Vec3 eye = viewer.getEyePosition();
         if (facing(eye, viewer.getViewVector(1), target.getBoundingBox().getCenter()) && Sight.sees(viewer, eye, target)) return Source.EYES;
         View v = view(viewer);
-        if (v != null && v.camera() != target && facing(v.camera().position(), v.look(), target.getBoundingBox().getCenter())
-                && Sight.sees(viewer, v.camera().position(), target)) return Source.CAMERA;
+        if (v != null && v.camera() != target && v.link().frames(v.eye(), target.getBoundingBox().getCenter())
+                && Sight.sees(viewer, v.eye(), target)) return Source.CAMERA;
         return null;
     }
 
@@ -215,7 +191,7 @@ public final class Sightings {
             return true;
         }
         View v = view(viewer);
-        return v != null && facing(v.camera().position(), v.look(), center) && craftInSight(viewer.serverLevel(), v.camera().position(), craft, center);
+        return v != null && v.link().frames(v.eye(), center) && craftInSight(viewer.serverLevel(), v.eye(), craft, center);
     }
 
     /** Взгляд из {@code eye} в середину аппарата упирается в сам аппарат или ни во что. */

@@ -93,13 +93,7 @@ public final class StrikeService {
             target = target.offset(miss);
             point = point.add(miss);
         }
-        if (spec.launch() == WeaponSpec.Launch.ICBM) {
-            // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
-            boolean ok = target instanceof Target.Ground
-                    ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter)
-                    : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), nuke.yieldKt(), nuke.airBurst(), shooter);
-            return new Result(ok, AirstrikeConfig.SERVER.nukeFlightTime.get());
-        }
+        if (spec.launch() == WeaponSpec.Launch.ICBM) return launchIcbm(level, target, point, nuke, shooter, AirstrikeConfig.SERVER.nukeFlightTime.get());
         Loadout.Nuke warhead = nuke.onCarrier() && Loadout.carriesNuke(weapon) ? nuke : null;
         StrikeProjectile p = switch (spec.launch()) {
             case GUIDED -> launchGuided(level, weapon, target, point, approachYaw, owner, shooter, via);
@@ -114,6 +108,19 @@ public final class StrikeService {
         int eta = p.etaTicks();
         if (!p.isVirtual() && !level.addFreshEntity(p)) return Result.FAILED;
         return new Result(true, eta);
+    }
+
+    /**
+     * МБР: бьёт по координатам — за движущейся целью не следит; тревогу поднимает сам пуск.
+     *
+     * @param flightTicks полёт от пуска до подрыва (настройка мира; у удара не оператора — не меньше 90 с, {@link NuclearKeys})
+     */
+    public static Result launchIcbm(ServerLevel level, Target target, Vec3 point, Loadout.Nuke nuke, @Nullable ServerPlayer shooter, int flightTicks) {
+        if (shooter != null && shooter.level() != level) shooter = null;
+        boolean ok = target instanceof Target.Ground
+                ? NuclearStrikes.launch(level, point, true, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks)
+                : NuclearStrikes.launch(level, NuclearStrikes.ground(level, point), false, nuke.yieldKt(), nuke.airBurst(), shooter, flightTicks);
+        return new Result(ok, flightTicks);
     }
 
     /** Длина маршрута на время полёта из настроек (паспорт). */
@@ -455,7 +462,7 @@ public final class StrikeService {
                 Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), route, who);
     }
 
-    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат. */
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат; у замеченной — «по месту, где видели». */
     private static String describe(ServerLevel level, Target target) {
         return switch (target) {
             case Target.Point p -> "точка";
@@ -468,6 +475,7 @@ public final class StrikeService {
                 yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
             }
             case Target.OfSubLevel s -> "аппарат";
+            case Target.Sighted s -> describe(level, s.quarry()) + " по месту, где видели";
         };
     }
 

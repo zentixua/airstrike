@@ -68,6 +68,22 @@ public final class C2S {
         }
     }
 
+    /**
+     * Камера снаряда смотрит с борта своего снаряда {@code projectile} в направлении {@code yaw}/{@code pitch}: клиент
+     * шлёт каждый тик, пока смотрит ({@code strike.CameraLink}). Перестал слать — камеру закрыли.
+     */
+    public record CameraView(UUID projectile, float yaw, float pitch) implements CustomPacketPayload {
+        public static final Type<CameraView> TYPE = new Type<>(Airstrike.id("camera_view"));
+        public static final StreamCodec<ByteBuf, CameraView> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, CameraView::projectile, ByteBufCodecs.FLOAT, CameraView::yaw, ByteBufCodecs.FLOAT, CameraView::pitch,
+                CameraView::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Перенацелить свой снаряд на то, что под прицелом его камеры. */
     public record Retarget(UUID projectile, AimHint aim) implements CustomPacketPayload {
         public static final Type<Retarget> TYPE = new Type<>(Airstrike.id("retarget"));
@@ -118,17 +134,10 @@ public final class C2S {
         }
     }
 
-    /**
-     * Игрок смотрит глазами своего снаряда {@code projectile} (пусто — вернулся к себе), камера повёрнута на {@code yaw},
-     * {@code pitch}: её взгляд замечает чужих ({@code Sightings}). Пока игрок смотрит в камеру, свой поворот клиент
-     * серверу не шлёт (у ванили его шлёт только игрок, который сам камера), поэтому взгляд камеры — здесь. Клиент шлёт
-     * при смене снаряда и при повороте камеры, не чаще раза в {@code Sightings.SCAN_PERIOD} тиков.
-     */
-    public record Watch(Optional<UUID> projectile, float yaw, float pitch) implements CustomPacketPayload {
-        public static final Type<Watch> TYPE = new Type<>(Airstrike.id("watch"));
-        public static final StreamCodec<ByteBuf, Watch> CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional), Watch::projectile, ByteBufCodecs.FLOAT, Watch::yaw,
-                ByteBufCodecs.FLOAT, Watch::pitch, Watch::new);
+    /** «Отбой» с пульта: свои удары игрока прекращаются ({@code ServerActions.recall}). */
+    public record Clear() implements CustomPacketPayload {
+        public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));
+        public static final StreamCodec<ByteBuf, Clear> CODEC = StreamCodec.unit(new Clear());
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -136,10 +145,13 @@ public final class C2S {
         }
     }
 
-    /** «Отбой» с пульта: свои удары игрока прекращаются ({@code ServerActions.recall}). */
-    public record Clear() implements CustomPacketPayload {
-        public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));
-        public static final StreamCodec<ByteBuf, Clear> CODEC = StreamCodec.unit(new Clear());
+    /**
+     * Клавиша «Второй ключ»: подтвердить ядерный пуск игрока рядом ({@code strike.NuclearKeys}). Что подтверждать, кто
+     * рядом и не свой ли это пуск — решает сервер.
+     */
+    public record NuclearKey() implements CustomPacketPayload {
+        public static final Type<NuclearKey> TYPE = new Type<>(Airstrike.id("second_key"));
+        public static final StreamCodec<ByteBuf, NuclearKey> CODEC = StreamCodec.unit(new NuclearKey());
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
