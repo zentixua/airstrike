@@ -149,7 +149,7 @@
   "airstrike.config.designator_for_everyone": "Пульт у всех игроков",
   "airstrike.config.designator_for_everyone.tooltip": "Выключено — пускать могут только операторы",
   "airstrike.config.map_players": "Игроки на карте пульта",
-  "airstrike.config.map_players.tooltip": "В том же измерении, не дальше дальности карты: свои по команде — всегда, чужие — где их видели последний раз",
+  "airstrike.config.map_players.tooltip": "В том же измерении, не дальше дальности карты: свои по команде — всегда, чужие — где их видели последний раз. Выключено — карта их не рисует, список целей пульта остаётся",
   "airstrike.config.sight_rules": "Разведка",
   "airstrike.config.sight_rules.tooltip": "По чужому игроку и аппарату пульт бьёт, только если его видите вы или ваша команда (или видели недавно — тогда по последнему месту); карта показывает чужих так же",
   "airstrike.config.sight_memory": "Память разведки, с",

@@ -149,7 +149,7 @@
   "airstrike.config.designator_for_everyone": "Designator for everyone",
   "airstrike.config.designator_for_everyone.tooltip": "Off — only operators can launch",
   "airstrike.config.map_players": "Players on the designator map",
-  "airstrike.config.map_players.tooltip": "Same dimension, within map range: teammates always, others where they were last seen",
+  "airstrike.config.map_players.tooltip": "Same dimension, within map range: teammates always, others where they were last seen. Off: the map does not draw them, the designator target list stays",
   "airstrike.config.sight_rules": "Spotting",
   "airstrike.config.sight_rules.tooltip": "The designator strikes another player or aircraft only if you or your team see it (or saw it recently, then at the last known place); the map shows others the same way",
   "airstrike.config.sight_memory": "Spotting memory, s",
