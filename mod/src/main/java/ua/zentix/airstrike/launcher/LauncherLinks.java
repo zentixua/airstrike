@@ -51,6 +51,12 @@ public final class LauncherLinks {
         return Component.translatable("airstrike.fixed_launcher.linked", links.size()).withStyle(ChatFormatting.GOLD);
     }
 
+    /** Отвязать от пульта {@code designator} пусковые в {@code gone}. */
+    public static void forget(ItemStack designator, List<GlobalPos> gone) {
+        List<GlobalPos> links = new ArrayList<>(of(designator));
+        if (links.removeAll(gone)) set(designator, links);
+    }
+
     private static void set(ItemStack designator, List<GlobalPos> links) {
         if (links.isEmpty()) designator.remove(ModDataComponents.LAUNCHERS.get());
         else designator.set(ModDataComponents.LAUNCHERS.get(), List.copyOf(links));

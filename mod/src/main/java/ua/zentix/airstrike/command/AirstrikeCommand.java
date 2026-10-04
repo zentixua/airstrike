@@ -31,6 +31,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.launcher.FixedLauncherBlockEntity;
+import ua.zentix.airstrike.launcher.LauncherOrders;
 import ua.zentix.airstrike.launcher.Mission;
 import ua.zentix.airstrike.net.S2C;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
@@ -86,6 +87,7 @@ public final class AirstrikeCommand {
     private static final SimpleCommandExceptionType NO_LAUNCHER = new SimpleCommandExceptionType(Component.translatable("airstrike.fixed_launcher.none_here"));
     private static final SimpleCommandExceptionType LAUNCHER_NOT_LOADED = new SimpleCommandExceptionType(
             Component.translatable("airstrike.fixed_launcher.not_loaded"));
+    private static final SimpleCommandExceptionType LAUNCHER_BUSY = new SimpleCommandExceptionType(Component.translatable("airstrike.fixed_launcher.busy"));
 
     private AirstrikeCommand() {}
 
@@ -374,7 +376,7 @@ public final class AirstrikeCommand {
             return 1;
         }));
         at.then(Commands.literal("clear").executes(ctx -> {
-            FixedLauncherBlockEntity be = launcherAt(ctx);
+            FixedLauncherBlockEntity be = idleLauncherAt(ctx);
             be.setMission(null);
             ctx.getSource().sendSuccess(be::status, true);
             return 1;
@@ -407,8 +409,15 @@ public final class AirstrikeCommand {
         throw NO_LAUNCHER.create();
     }
 
-    private static int launcherMission(CommandContext<CommandSourceStack> ctx, WeaponType w, Waypoints via) throws CommandSyntaxException {
+    /** Пусковая, которой можно сменить задачу: прошлый приказ не идёт ({@link LauncherOrders#busy}). */
+    private static FixedLauncherBlockEntity idleLauncherAt(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         FixedLauncherBlockEntity be = launcherAt(ctx);
+        if (LauncherOrders.busy(ctx.getSource().getLevel(), be)) throw LAUNCHER_BUSY.create();
+        return be;
+    }
+
+    private static int launcherMission(CommandContext<CommandSourceStack> ctx, WeaponType w, Waypoints via) throws CommandSyntaxException {
+        FixedLauncherBlockEntity be = idleLauncherAt(ctx);
         Vec3 point = Vec3Argument.getVec3(ctx, "pos");
         CommandSourceStack s = ctx.getSource();
         MutableComponent problem = ServerActions.routeProblem(s.getLevel(), null, false, w, new LaunchOrigin.Fixed(be.getBlockPos()), via, point);

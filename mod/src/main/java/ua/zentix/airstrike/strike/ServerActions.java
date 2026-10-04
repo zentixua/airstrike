@@ -2,7 +2,6 @@ package ua.zentix.airstrike.strike;
 
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
@@ -78,9 +77,9 @@ public final class ServerActions {
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null) return;
         // пульт с привязанными стационарными пусковыми ставит им задачу, а не пускает сам
-        List<GlobalPos> links = LauncherLinks.of(designator(player));
-        if (!links.isEmpty()) {
-            LauncherOrders.assign(player, links, l, aim, p.via());
+        ItemStack designator = designator(player);
+        if (!LauncherLinks.of(designator).isEmpty()) {
+            LauncherOrders.assign(player, designator, l, aim, p.via());
             return;
         }
         MutableComponent problem = routeProblem(player.serverLevel(), player, true, l.weapon(), null, p.via(), aim.point());

@@ -147,13 +147,14 @@ public final class FixedLauncherGameTests {
 
     /**
      * Залп «Града» с пусковой: запас — один пакет (40 снарядов), задача — 3; залп идёт с её труб, пока он идёт —
-     * пусковая занята; в конце в пакете 37. Отбой хозяина посреди залпа шахедов отменяет его: что не встало на
-     * направляющую, в запасе и осталось.
+     * пусковая занята: ни приказа, ни новой задачи с пульта; в конце в пакете 37. Отбой хозяина посреди залпа шахедов
+     * отменяет его: что не встало на направляющую, в запасе и осталось.
      */
     @GameTest(template = "runway", timeoutTicks = 600, batch = "fixed_salvo", skyAccess = true)
     public static void salvoPaysPerShot(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        UUID owner = UUID.randomUUID();
+        FakePlayer player = player(level, "Хозяин", Vec3.atBottomCenterOf(h.absolutePos(PAD)).add(3, 0, 0));
+        UUID owner = player.getUUID();
         FixedLauncherBlockEntity be = launcher(h, PAD, owner);
         Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(PAD));
         Vec3 target = site.add(0, -1, 400);
@@ -163,15 +164,25 @@ public final class FixedLauncherGameTests {
         h.assertTrue(LauncherOrders.fire(level, be) == null, "залп не начался");
         h.assertTrue(SalvoData.busy(level, origin), "залп пусковой не в списке");
         h.assertValueEqual(key(LauncherOrders.fire(level, be)), "airstrike.fixed_launcher.busy", "второй приказ посреди залпа");
+        // новая задача посреди залпа сменила бы пакет, с которого стартуют его снаряды
+        Mission grad = be.mission();
+        ItemStack designator = new ItemStack(ModItems.DESIGNATOR.get());
+        LauncherLinks.toggle(player, designator, be);
+        Loadout drones = new Loadout(WeaponType.DRONE, 1, 0, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
+        LauncherOrders.assign(player, designator, drones, new ServerActions.Aim(new Target.Point(target), target, null), Waypoints.NONE);
+        h.assertTrue(be.mission() == grad, "задача сменилась посреди залпа: " + be.mission());
         h.startSequence()
-                .thenWaitUntil(() -> h.assertTrue(!SalvoData.busy(level, origin), "залп ещё идёт"))
+                .thenWaitUntil(() -> h.assertTrue(!LauncherOrders.busy(level, be), "залп ещё идёт или пакет не молчит"))
                 .thenExecute(() -> {
                     int left = Munitions.held(be.store().items(), ModItems.GRAD_ROCKETS.get(), 40);
                     h.assertTrue(left == 37, "в пакете " + left + " вместо 37");
                     discard(level, be, owner);
-                    // залп шахедов и отбой после первого
+                    // залп шахедов (задача — с пульта, теперь пусковая свободна) и отбой после первого
                     Vec3 far = site.add(0, -1, 1000);
-                    be.setMission(new Mission(WeaponType.DRONE, 4, 20, new Target.Point(far), far, Waypoints.NONE));
+                    Loadout salvo = new Loadout(WeaponType.DRONE, 4, 20, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
+                    LauncherOrders.assign(player, designator, salvo, new ServerActions.Aim(new Target.Point(far), far, null), Waypoints.NONE);
+                    h.assertTrue(be.mission() != null && be.mission().weapon() == WeaponType.DRONE && be.mission().count() == 4,
+                            "задача после залпа не поставлена: " + be.mission());
                     load(h, be, new ItemStack(ModItems.SHAHED.get(), 4));
                 })
                 .thenWaitUntil(() -> h.assertTrue(be.queue().silent(level.getGameTime()), "пакет ещё не молчит"))
@@ -223,21 +234,71 @@ public final class FixedLauncherGameTests {
 
         Vec3 east = c.add(400, 0, 0);
         Loadout drones = new Loadout(WeaponType.DRONE, 2, 5, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
-        LauncherOrders.assign(owner, LauncherLinks.of(designator), drones, new ServerActions.Aim(new Target.Point(east), east, null), Waypoints.NONE);
+        LauncherOrders.assign(owner, designator, drones, new ServerActions.Aim(new Target.Point(east), east, null), Waypoints.NONE);
         Mission m = be.mission();
         h.assertTrue(m != null && m.weapon() == WeaponType.DRONE && m.count() == 2 && m.spread() == 5 && m.point().equals(east), "задача: " + m);
         h.assertTrue(be.hasRack() && Math.abs(be.yaw() - be.yawTo(east)) < 1, "пакет не к цели: " + be.yaw());
-        Loadout nuke = new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
-        LauncherOrders.assign(owner, LauncherLinks.of(designator), nuke, new ServerActions.Aim(new Target.Point(c), c, null), Waypoints.NONE);
-        h.assertTrue(be.mission() == m, "ядерная задача принята");
+        Loadout icbm = new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT);
+        LauncherOrders.assign(owner, designator, icbm, new ServerActions.Aim(new Target.Point(east), east, null), Waypoints.NONE);
+        h.assertTrue(be.mission() == m, "задача МБР принята");
+        h.assertTrue(AirstrikeConfig.SERVER.carrierNukes.get(), "ядерная БЧ на ракете выключена в настройках — проверка ниже пуста");
+        Loadout carrier = new Loadout(WeaponType.MISSILE, 1, 0, TargetMode.LOOK, "", new Loadout.Nuke(5, true, true));
+        LauncherOrders.assign(owner, designator, carrier, new ServerActions.Aim(new Target.Point(east), east, null), Waypoints.NONE);
+        h.assertTrue(be.mission() == m, "ракета с ядерной БЧ принята");
         Vec3 beyond = c.add(0, 0, AirstrikeConfig.SERVER.mapRange.get() + 100);
         owner.moveTo(beyond.add(0, 0, -50));
-        LauncherOrders.assign(owner, LauncherLinks.of(designator), drones, new ServerActions.Aim(new Target.Point(beyond), beyond, null), Waypoints.NONE);
+        LauncherOrders.assign(owner, designator, drones, new ServerActions.Aim(new Target.Point(beyond), beyond, null), Waypoints.NONE);
         h.assertTrue(be.mission() == m, "цель дальше дальности карты от пусковой принята");
+        // сломанная пусковая отвязывается при следующем «Огне», иначе пульт остался бы в режиме задач
+        owner.moveTo(c.add(3, 0, 0));
+        level.removeBlock(h.absolutePos(RANGE_CENTER), false);
+        LauncherOrders.assign(owner, designator, drones, new ServerActions.Aim(new Target.Point(east), east, null), Waypoints.NONE);
+        h.assertTrue(LauncherLinks.of(designator).isEmpty(), "сломанная пусковая осталась привязанной");
+        h.assertTrue(LauncherLinks.of(theirs).size() == 1, "отвязалась у чужого пульта");
         h.succeed();
     }
 
     // ---------------------------------------------------------------- блок
+
+    /**
+     * Запас полон стопками пакетов «Града» (воронка держит его полным): пакет из стопки вскрывается, и его остаток ложится
+     * в запасную ячейку, а не на землю; следующие снаряды — из него, возврат — в него.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "fixed_block", skyAccess = true)
+    public static void fullStoreKeepsOpenedPack(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        BlockPos at = new BlockPos(12, 11, 12);
+        FixedLauncherBlockEntity be = launcher(h, at, null);
+        BlockPos abs = h.absolutePos(at);
+        IItemHandler cap = level.getCapability(Capabilities.ItemHandler.BLOCK, abs, Direction.UP);
+        ItemStack grad = new ItemStack(ModItems.GRAD_ROCKETS.get());
+        int per = 40, full = FixedLauncherBlockEntity.SLOTS * grad.getMaxStackSize() * per;
+        h.assertTrue(cap != null && insert(cap, grad.copyWithCount(FixedLauncherBlockEntity.SLOTS * grad.getMaxStackSize())).isEmpty(), "запас не заполнился");
+        h.assertTrue(!insert(cap, grad.copy()).isEmpty(), "в полный запас вошло ещё");
+        AABB around = new AABB(abs).inflate(4);
+        int[] paid = {0};
+        java.util.function.IntConsumer pay = n -> {
+            h.assertTrue(Munitions.pay(be.store(), new Munitions.Bill(WeaponType.ROCKET, n, 0)) == null, "не оплачено " + n);
+            paid[0] += n;
+        };
+        java.util.function.Consumer<String> check = when -> {
+            int left = Munitions.held(be.store().items(), grad.getItem(), per);
+            h.assertTrue(left == full - paid[0], when + ": снарядов " + left + " вместо " + (full - paid[0]));
+            h.assertTrue(dropped(level, around, grad) == 0, when + ": пакет выпал на землю");
+        };
+        pay.accept(1);
+        check.accept("первый снаряд");
+        Munitions.refund(be.store(), new Munitions.Bill(WeaponType.ROCKET, 1, 0));
+        paid[0] -= 1;
+        check.accept("возврат");
+        pay.accept(1);
+        check.accept("снова снаряд");
+        pay.accept(39);
+        check.accept("вскрытый пакет кончился");
+        pay.accept(1);
+        check.accept("вскрыт второй пакет");
+        h.succeed();
+    }
 
     /**
      * Запас: способность предметов с любой стороны и без стороны берёт боеприпасы, а не землю и не МБР; вынуть ею

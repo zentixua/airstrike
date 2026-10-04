@@ -173,13 +173,17 @@ public final class Munitions {
         return missing == null;
     }
 
-    /** Снять {@code rounds} снарядов: сперва из начатых пакетов (новых начатых не плодить), потом из целых. */
+    /**
+     * Снять {@code rounds} снарядов: сперва из начатых пакетов, потом из одиночных целых, потом из стопок (новых начатых
+     * не плодить: пакет из стопки вскрывается отдельным предметом, которому нужно место).
+     */
     private static void take(Store store, Item item, int perItem, int rounds) {
         IItemHandlerModifiable items = store.items();
-        for (boolean opened : new boolean[]{true, false}) {
+        for (int pass = 0; pass < 3; pass++) {
+            boolean opened = pass == 0;
             for (int i = 0; i < items.getSlots() && rounds > 0; i++) {
                 ItemStack s = items.getStackInSlot(i);
-                if (!s.is(item) || s.has(ModDataComponents.ROUNDS.get()) != opened) continue;
+                if (!s.is(item) || s.has(ModDataComponents.ROUNDS.get()) != opened || pass == 1 && s.getCount() > 1) continue;
                 s = s.copy();
                 int left = left(s, perItem);
                 ItemStack opening = ItemStack.EMPTY;

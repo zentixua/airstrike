@@ -45,8 +45,11 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
 
     @Nullable
     private UUID owner;
-    /** Запас боеприпасов: снаружи — только загрузка. */
-    private final Magazine stock = new Magazine(SLOTS, FixedLauncherBlockEntity::munition, this::setChanged);
+    /**
+     * Запас боеприпасов: снаружи — только загрузка; запасная ячейка — под остаток вскрытого пакета «Града», когда воронка
+     * держит открытые полными.
+     */
+    private final Magazine stock = new Magazine(SLOTS, 1, FixedLauncherBlockEntity::munition, this::setChanged);
     @Nullable
     private Mission mission;
     /** Оружие пакета на круге (клиент рисует его); null — задачи нет. */
@@ -122,8 +125,8 @@ public class FixedLauncherBlockEntity extends BlockEntity implements Launcher {
 
             @Override
             public void put(ItemStack s) {
-                // возврат и остаток вскрытого пакета: что не влезло — выпадает у пусковой
-                ItemStack rest = stock.load(s);
+                // возврат и остаток вскрытого пакета — в запасную ячейку, если открытые полны; не влезло и туда — выпадает
+                ItemStack rest = stock.stow(s);
                 if (!rest.isEmpty() && level != null) Block.popResource(level, worldPosition.above(), rest);
             }
         };

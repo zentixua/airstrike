@@ -10,6 +10,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.GameProfileCache;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +26,7 @@ import ua.zentix.airstrike.strike.StrikeWorld;
 import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.util.Terrain;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -56,9 +58,8 @@ public final class LauncherOrders {
             MutableComponent rule = rules(level.getServer(), owner, be.position(), m.point());
             if (rule != null) return rule;
         }
+        if (busy(level, be)) return Component.translatable("airstrike.fixed_launcher.busy");
         LaunchOrigin.Fixed origin = new LaunchOrigin.Fixed(pos);
-        // прошлый приказ ещё идёт: залп не кончился или снаряды на направляющих
-        if (SalvoData.busy(level, origin) || !be.queue().silent(level.getGameTime())) return Component.translatable("airstrike.fixed_launcher.busy");
         Loadout l = ServerActions.clamp(new Loadout(m.weapon(), m.count(), m.spread(), Loadout.DEFAULT.mode(), "", Loadout.Nuke.DEFAULT));
         MutableComponent route = ServerActions.routeProblem(level, null, false, m.weapon(), origin, m.via(), m.point());
         if (route != null) return route;
@@ -70,6 +71,14 @@ public final class LauncherOrders {
         if (ok) return null;
         // пуск сам сказал, что не так (сектор закрыт, запас), — эта причина точнее общей
         return be.lastReport() != before ? be.lastReport() : Component.translatable("airstrike.fixed_launcher.failed");
+    }
+
+    /**
+     * Прошлый приказ пусковой ещё идёт: залп не кончился или снаряды на направляющих. Тогда ни нового приказа, ни новой
+     * задачи: задача меняет пакет, а снаряды залпа стартуют с пакета своего оружия.
+     */
+    public static boolean busy(ServerLevel level, FixedLauncherBlockEntity be) {
+        return SalvoData.busy(level, new LaunchOrigin.Fixed(be.getBlockPos())) || !be.queue().silent(level.getGameTime());
     }
 
     /**
@@ -106,9 +115,11 @@ public final class LauncherOrders {
      * «Огонь» пульта с привязанными пусковыми {@code links}: цель приказа {@code aim} — по правилам игрока, как его
      * собственный пуск ({@link ServerActions#ruled}), — становится задачей ({@link Mission}) каждой привязанной, до
      * которой можно дотянуться: в этом мире, в готовом чанке, своей или своей команды, цель в её дальности и маршрут
-     * {@code via} — в дальности оружия от неё. Игроку — строка, скольким передано и почему не остальным.
+     * {@code via} — в дальности оружия от неё, и она не занята прошлым приказом. Пусковой на месте нет (чанк готов, блока
+     * нет) — она отвязывается от пульта {@code designator}. Игроку — строка, скольким передано и почему не остальным.
      */
-    public static void assign(ServerPlayer player, List<GlobalPos> links, Loadout loadout, ServerActions.Aim aim, Waypoints via) {
+    public static void assign(ServerPlayer player, ItemStack designator, Loadout loadout, ServerActions.Aim aim, Waypoints via) {
+        List<GlobalPos> links = LauncherLinks.of(designator);
         Loadout l = ServerActions.clamp(loadout);
         if (!Mission.accepts(l.weapon())) {
             player.displayClientMessage(Component.translatable("airstrike.fixed_launcher.unsupported", l.weapon().displayName())
@@ -124,17 +135,27 @@ public final class LauncherOrders {
         Mission mission = new Mission(l.weapon(), l.count(), l.spread(), ruled.target(), ruled.point(), via);
         int given = 0;
         MutableComponent why = null;
+        List<GlobalPos> gone = new ArrayList<>();
         for (GlobalPos at : links) {
             MutableComponent problem = assign(player, at, mission);
             if (problem == null) given++;
             else if (why == null) why = problem;
+            if (missing(player.serverLevel(), at)) gone.add(at);
         }
+        // сломанная или взорванная пусковая: привязка к ней держала бы пульт в режиме задач навсегда
+        if (!gone.isEmpty()) LauncherLinks.forget(designator, gone);
         Airstrike.LOG.info("Задача пусковым: {} ×{} по {} {} {} — {} из {}, {}", l.weapon().getSerializedName(), l.count(), Math.round(ruled.point().x),
                 Math.round(ruled.point().y), Math.round(ruled.point().z), given, links.size(), player.getGameProfile().getName());
         MutableComponent line = given > 0 ? Component.translatable("airstrike.fixed_launcher.assigned", given, links.size()).withStyle(ChatFormatting.GOLD)
                 : Component.translatable("airstrike.fixed_launcher.assigned.none").withStyle(ChatFormatting.RED);
         if (why != null && given < links.size()) line.append(Component.literal(" — ").append(why).withStyle(ChatFormatting.RED));
         player.displayClientMessage(line, true);
+    }
+
+    /** Пусковой в {@code at} точно нет: место в этом мире, чанк готов, блока нет. */
+    private static boolean missing(ServerLevel level, GlobalPos at) {
+        return at.dimension().equals(level.dimension()) && Terrain.ready(level, at.pos())
+                && !(level.getBlockEntity(at.pos()) instanceof FixedLauncherBlockEntity);
     }
 
     /** Задача {@code mission} пусковой в {@code at}; null — поставлена, иначе — почему нет. */
@@ -146,6 +167,7 @@ public final class LauncherOrders {
         if (!Terrain.ready(level, at.pos())) return Component.translatable("airstrike.fixed_launcher.not_loaded");
         if (!(level.getBlockEntity(at.pos()) instanceof FixedLauncherBlockEntity be)) return Component.translatable("airstrike.fixed_launcher.gone");
         if (!LauncherLinks.mayCommand(player, be)) return Component.translatable("airstrike.fixed_launcher.not_yours");
+        if (busy(level, be)) return Component.translatable("airstrike.fixed_launcher.busy");
         if (!inRange(be.position(), mission.point())) {
             return Component.translatable("airstrike.fixed_launcher.out_of_range", AirstrikeConfig.SERVER.mapRange.get());
         }

@@ -16,8 +16,12 @@ import java.util.function.Predicate;
  * Снаружи — {@link #loader} для {@link Capabilities.ItemHandler#BLOCK} с любой стороны (воронка, воронка, жёлоб и
  * механическая рука Create — через воронку): только загрузка, воронка под блоком запас не вытаскивает. Сломан блок —
  * запас выпадает ({@link #dropAll}); компаратор — по заполненности ({@link #comparator}).
+ * <p>
+ * Запасные ячейки — после открытых, снаружи их не видно: туда ложится то, что запас сам себе отдаёт ({@link #stow}), —
+ * остаток вскрытого пакета, когда воронка держит открытые ячейки полными, иначе он выпал бы на землю.
  */
 public class Magazine extends ItemStackHandler {
+    private final int open;
     private final Predicate<ItemStack> valid;
     private final Runnable changed;
     private final IItemHandler loader = new Loader();
@@ -28,7 +32,13 @@ public class Magazine extends ItemStackHandler {
      *                компаратор)
      */
     public Magazine(int slots, Predicate<ItemStack> valid, Runnable changed) {
-        super(slots);
+        this(slots, 0, valid, changed);
+    }
+
+    /** Запас с {@code slots} открытыми ячейками и {@code spare} запасными ({@link #stow}). */
+    public Magazine(int slots, int spare, Predicate<ItemStack> valid, Runnable changed) {
+        super(slots + spare);
+        this.open = slots;
         this.valid = valid;
         this.changed = changed;
     }
@@ -48,8 +58,13 @@ public class Magazine extends ItemStackHandler {
         return loader;
     }
 
-    /** Положить стопку (сперва к таким же); возвращает то, что не влезло. */
+    /** Положить стопку в открытые ячейки (сперва к таким же); возвращает то, что не влезло. */
     public ItemStack load(ItemStack stack) {
+        return ItemHandlerHelper.insertItemStacked(loader, stack, false);
+    }
+
+    /** Положить своё (остаток вскрытого пакета, возврат): в открытые ячейки, потом в запасные; возвращает то, что не влезло. */
+    public ItemStack stow(ItemStack stack) {
         return ItemHandlerHelper.insertItemStacked(this, stack, false);
     }
 
@@ -60,9 +75,9 @@ public class Magazine extends ItemStackHandler {
         return n;
     }
 
-    /** Сигнал компаратора — по заполненности, как у сундука. */
+    /** Сигнал компаратора — по заполненности открытых ячеек, как у сундука. */
     public int comparator() {
-        return ItemHandlerHelper.calcRedstoneFromInventory(this);
+        return ItemHandlerHelper.calcRedstoneFromInventory(loader);
     }
 
     /** Блок сломан или взорван: запас выпадает на его месте и уходит из ячеек. */
@@ -74,11 +89,11 @@ public class Magazine extends ItemStackHandler {
         }
     }
 
-    /** Запас снаружи: видно, что лежит, положить можно, вынуть — нет. */
+    /** Запас снаружи — открытые ячейки: видно, что лежит, положить можно, вынуть — нет. */
     private final class Loader implements IItemHandler {
         @Override
         public int getSlots() {
-            return Magazine.this.getSlots();
+            return open;
         }
 
         @Override

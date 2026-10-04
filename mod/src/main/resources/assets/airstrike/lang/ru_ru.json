@@ -502,7 +502,7 @@
   "airstrike.fixed_launcher.assigned.none": "Задача не передана",
   "airstrike.fixed_launcher.elsewhere": "пусковая в другом измерении",
   "airstrike.fixed_launcher.not_loaded": "пусковая далеко, её место не загружено",
-  "airstrike.fixed_launcher.gone": "пусковой на месте нет",
+  "airstrike.fixed_launcher.gone": "пусковой на месте нет, она отвязана",
   "airstrike.fixed_launcher.none_here": "Здесь нет стационарной пусковой",
   "airstrike.fixed_launcher.loaded": "В запас пусковой: +%s.",
   "airstrike.fixed_launcher.owner": "Хозяин пусковой: %s — снаряды от его имени, по его правилам",
