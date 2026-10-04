@@ -31,6 +31,7 @@ import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModDataComponents;
+import ua.zentix.airstrike.target.Sight;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
@@ -67,7 +68,7 @@ public final class ServerActions {
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
-        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via());
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), true);
     }
 
     /**
@@ -109,12 +110,18 @@ public final class ServerActions {
         // из камеры видно не дальше дальности прорисовки снаряда
         if (!valid(h) || h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
         if (tooSoon(player, ModAttachments.LAST_RETARGET.get())) return;
-        Aim aim = resolveHint(level, player, h);
+        Aim hinted = resolveHint(level, player, h);
+        Aim aim = hinted == null ? null : sighted(player, hinted, victim -> CameraLink.holds(level, proj, hinted.target(), hinted.point()));
         if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
         Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
         player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
         Airstrike.LOG.info("Перенацеливание: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
                 Mth.floor(aim.point().y), Mth.floor(aim.point().z), player.getGameProfile().getName());
+    }
+
+    /** Камера снаряда смотрит с борта своего снаряда ({@link CameraLink}). */
+    public static void cameraView(C2S.CameraView p, IPayloadContext ctx) {
+        if (ctx.player() instanceof ServerPlayer player) CameraLink.receive(player, p.projectile(), p.yaw(), p.pitch());
     }
 
     public static void setLoadout(C2S.SetLoadout p, IPayloadContext ctx) {
@@ -125,8 +132,8 @@ public final class ServerActions {
     }
 
     /**
-     * Игроки для карты наведения — тем, кому можно пульт (пульт и так целится в любого игрока по имени): все
-     * в измерении спросившего, кроме него самого и наблюдателей.
+     * Игроки для карты наведения — тем, кому можно пульт: все в измерении спросившего, кроме него самого и
+     * наблюдателей. Ударить по игроку с карты можно, только когда он виден ({@link #sighted}).
      */
     public static void mapPlayers(C2S.MapPlayers p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
@@ -203,9 +210,16 @@ public final class ServerActions {
      * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
      * один снаряд точно в цель или залп — после проверки прав.
      *
+     * @param rules приказ по правилам ({@link #sighted}): с пульта — всегда, командой — у игрока без прав оператора;
+     *              команда оператора сервера, как и консоль ({@link #dispatch}), бьёт без них
      * @return true, если пуск состоялся
      */
-    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via) {
+    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via,
+                                 boolean rules) {
+        if (rules) {
+            aim = sighted(player, aim, victim -> Sight.sees(player, victim));
+            if (aim == null) return false;
+        }
         Loadout l = order(weapon, count, spread, nuke);
         if (l.nuclear() && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
@@ -220,10 +234,43 @@ public final class ServerActions {
                 return false;
             }
         }
-        if (aim.label() != null) {
-            player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
-        }
+        if (aim.label() != null) player.sendSystemMessage(locked(weapon, aim).withStyle(ChatFormatting.GOLD));
         return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via);
+    }
+
+    /**
+     * Правила приказа игрока: по другому игроку — только если тот виден ему сейчас ({@code seen}: в бинокль — глазами,
+     * {@link Sight#sees}; из камеры снаряда — в её кадре, {@link CameraLink#holds}), а движущаяся цель (сущность,
+     * аппарат) становится замеченной ({@link Target.Sighted}): удар туда, где её видели, а дальше за ней идёт только
+     * оружие с камерой, пока оператор держит её в кадре ({@link WeaponSpec.Tracking}). Иначе по нику били в любой точке
+     * карты, и снаряд вёл цель до конца (игра 03.10.2026: сотни шахедов по одному игроку).
+     *
+     * @return цель приказа; null — приказ не принят (игроку — строка)
+     */
+    @Nullable
+    public static Aim sighted(ServerPlayer player, Aim aim, Predicate<Player> seen) {
+        Target target = aim.target();
+        if (!(target instanceof Target.OfEntity) && !(target instanceof Target.OfSubLevel)) return aim;
+        if (target instanceof Target.OfEntity e && player.serverLevel().getEntity(e.uuid()) instanceof Player victim && victim != player
+                && !seen.test(victim)) {
+            player.displayClientMessage(Component.translatable("airstrike.target.unseen", victim.getDisplayName()).withStyle(ChatFormatting.RED), true);
+            return null;
+        }
+        return new Aim(new Target.Sighted(target, aim.point()), aim.point(), aim.label());
+    }
+
+    /** Строка «цель взята»: идёт ли снаряд за ней и как. */
+    private static MutableComponent locked(WeaponType weapon, Aim aim) {
+        return switch (aim.target()) {
+            case Target.Sighted s -> weapon.spec().tracking() == WeaponSpec.Tracking.CAMERA
+                    ? Component.translatable("airstrike.target.locked.camera", aim.label(), Component.keybind(Airstrike.CAMERA_KEY))
+                    : Component.translatable("airstrike.target.locked.point", aim.label());
+            // приказ без правил: снаряд идёт за ней
+            case Target.OfEntity e -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.OfSubLevel s -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.Point p -> Component.translatable("airstrike.target.locked.place", aim.label());
+            case Target.Ground g -> Component.translatable("airstrike.target.locked.place", aim.label());
+        };
     }
 
     /**
@@ -390,7 +437,7 @@ public final class ServerActions {
         }
     }
 
-    /** Удар по игроку: центр тела (на блок выше ног), снаряд идёт за ним. */
+    /** Удар по игроку или сущности: центр тела (на блок выше ног); приказ без правил идёт за ней. */
     public static Aim atPlayer(Entity victim) {
         return new Aim(new Target.OfEntity(victim.getUUID(), new Vec3(0, 1, 0)), victim.position().add(0, 1, 0), null);
     }

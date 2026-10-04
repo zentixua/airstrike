@@ -211,7 +211,7 @@ public final class LifecycleGameTests {
         ServerLevel level = h.getLevel();
         Vec3 far = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(8, 11, 8))).add(0, 0, 5000);
         TargetTracker point = new TargetTracker(new Target.Point(far), far);
-        for (int i = 0; i < 3; i++) point.tick(level);
+        for (int i = 0; i < 3; i++) point.tick(level, q -> false);
         h.assertFalse(point.isLost(), "неподвижная цель потеряна");
 
         Vec3 at = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(8, 11, 8)));
@@ -220,16 +220,16 @@ public final class LifecycleGameTests {
         TargetTracker moving = new TargetTracker(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), at);
         Vec3 near = at.add(20, 0, 0);
         stand.teleportTo(near.x, near.y, near.z);
-        h.assertTrue(Math.abs(moving.tick(level) - 20) < 1e-6, "сдвиг цели не догоняется");
+        h.assertTrue(Math.abs(moving.tick(level, q -> false) - 20) < 1e-6, "сдвиг цели не догоняется");
         h.assertFalse(moving.isLost(), "цель потеряна в пределах запаса на погоню");
         Vec3 runaway = near.add(0, 0, TargetTracker.CHASE_BUDGET);
         stand.teleportTo(runaway.x, runaway.y, runaway.z);
-        h.assertTrue(moving.tick(level) == 0 && moving.isLost(), "цель ушла дальше запаса на погоню и не потеряна");
+        h.assertTrue(moving.tick(level, q -> false) == 0 && moving.isLost(), "цель ушла дальше запаса на погоню и не потеряна");
         h.assertTrue(moving.point().distanceTo(near) < 1e-6, "потерянная цель сдвинула точку удара");
 
         TargetTracker gone = new TargetTracker(new Target.OfEntity(stand.getUUID(), Vec3.ZERO), runaway);
         stand.discard();
-        gone.tick(level);
+        gone.tick(level, q -> false);
         h.assertTrue(gone.isLost(), "пропавшая цель не потеряна");
         h.succeed();
     }
