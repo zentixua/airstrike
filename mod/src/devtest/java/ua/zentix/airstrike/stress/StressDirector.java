@@ -385,6 +385,8 @@ public final class StressDirector {
             run(s, "gamerule sendCommandFeedback false");
             run(s, "time set 6000");
             for (ServerPlayer p : s.getPlayerList().getPlayers()) s.getPlayerList().op(p.getGameProfile());
+            // стенд меряет нагрузку ударов, а не разведку: пульт Host бьёт по друзьям за сотни блоков, не видя их
+            ua.zentix.airstrike.AirstrikeConfig.SERVER.sightRules.set(false);
             place(s, "Host", 0, 0);
             place(s, "Friend1", 480, 320);
             place(s, "Friend2", -620, 420);

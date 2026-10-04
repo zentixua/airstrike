@@ -135,21 +135,25 @@ public final class ServerActions {
      */
     public static void mapPlayers(C2S.MapPlayers p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
-        List<S2C.MapPlayer> marks = mapPlayers(player, player.server.getPlayerList().getPlayers());
-        if (marks != null) PacketDistributor.sendToPlayer(player, new S2C.MapPlayers(marks));
+        S2C.MapPlayers marks = mapPlayers(player, player.server.getPlayerList().getPlayers());
+        if (marks != null) PacketDistributor.sendToPlayer(player, marks);
     }
 
     /**
      * Метки на карте пульта у {@code viewer}: в его измерении, не дальше {@code map_range} (дальше удар и так не
      * примут), кроме него самого, наблюдателей и невидимых. Свои по команде ({@link Sides}) из {@code players} — где они
      * сейчас; чужие игроки из {@code players} и прочее, что видела его сторона ({@link Sightings}), — там, где видели
-     * последний раз, с давностью; без {@code sight_rules} — все игроки там, где они сейчас. Null — не отвечать: нет прав
-     * на пульт или запрос чаще раза в {@link #FIRE_INTERVAL} тиков. Выключено в настройках мира — пустой список.
+     * последний раз, с давностью; без {@code sight_rules} — все игроки там, где они сейчас. Те же метки — список целей
+     * пульта в режиме «игрок»: {@code map_players} выключает только рисование на карте. Null — не отвечать: нет прав
+     * на пульт или запрос чаще раза в {@link #FIRE_INTERVAL} тиков.
      */
     @Nullable
-    public static List<S2C.MapPlayer> mapPlayers(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
+    public static S2C.MapPlayers mapPlayers(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
         if (!mayUse(viewer) || tooSoon(viewer, ModAttachments.LAST_MAP_PLAYERS.get())) return null;
-        if (!AirstrikeConfig.SERVER.mapPlayers.get()) return List.of();
+        return new S2C.MapPlayers(marks(viewer, players), AirstrikeConfig.SERVER.mapPlayers.get());
+    }
+
+    private static List<S2C.MapPlayer> marks(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
         boolean rules = AirstrikeConfig.SERVER.sightRules.get();
         ServerLevel level = viewer.serverLevel();
         List<S2C.MapPlayer> marks = new ArrayList<>();

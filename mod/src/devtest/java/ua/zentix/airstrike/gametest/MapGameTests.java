@@ -67,7 +67,7 @@ public final class MapGameTests {
         List<ServerPlayer> all = List.of(viewer, near, far, spectator, invisible, elsewhere);
 
         h.assertValueEqual(names(ServerActions.mapPlayers(viewer, all)), Set.of("map_near"), "на карте");
-        S2C.MapPlayer mark = ServerActions.mapPlayers(fresh(viewer), all).getFirst();
+        S2C.MapPlayer mark = ServerActions.mapPlayers(fresh(viewer), all).players().getFirst();
         h.assertTrue(mark.id().equals(near.getUUID()) && mark.x() == near.getX() && mark.z() == near.getZ(), "метка не там: " + mark);
 
         viewer.setData(ModAttachments.LAST_MAP_PLAYERS.get(), level.getGameTime());
@@ -78,8 +78,11 @@ public final class MapGameTests {
         AirstrikeConfig.SERVER.mapRange.set(300);
         h.assertValueEqual(names(ServerActions.mapPlayers(fresh(viewer), all)), Set.of("map_near", "map_far"), "дальность карты 300");
 
+        // выключено в настройках мира: карта не рисует, а пульт по-прежнему выбирает из них цель
         AirstrikeConfig.SERVER.mapPlayers.set(false);
-        h.assertValueEqual(names(ServerActions.mapPlayers(fresh(viewer), all)), Set.of(), "выключено в настройках мира");
+        S2C.MapPlayers off = ServerActions.mapPlayers(fresh(viewer), all);
+        h.assertTrue(off != null && !off.shown(), "выключено в настройках мира, а карта рисует");
+        h.assertValueEqual(names(off), Set.of("map_near", "map_far"), "цели пульта при выключенной карте");
         AirstrikeConfig.SERVER.mapPlayers.set(true);
 
         // не оператор (FakePlayer без прав), пульт — только операторам
@@ -100,8 +103,8 @@ public final class MapGameTests {
         return p;
     }
 
-    private static Set<String> names(@Nullable List<S2C.MapPlayer> marks) {
+    private static Set<String> names(@Nullable S2C.MapPlayers marks) {
         if (marks == null) throw new AssertionError("ответа нет");
-        return marks.stream().map(S2C.MapPlayer::name).collect(Collectors.toSet());
+        return marks.players().stream().map(S2C.MapPlayer::name).collect(Collectors.toSet());
     }
 }

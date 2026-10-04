@@ -45,7 +45,7 @@ public final class AirstrikeNetwork {
         r.playToServer(C2S.Retarget.TYPE, C2S.Retarget.CODEC, ServerActions::retarget);
         r.playToServer(C2S.MapPlayers.TYPE, C2S.MapPlayers.CODEC, ServerActions::mapPlayers);
         r.playToServer(C2S.Watch.TYPE, C2S.Watch.CODEC, (p, ctx) -> {
-            if (ctx.player() instanceof ServerPlayer player) Sightings.watch(player, p.projectile().orElse(null));
+            if (ctx.player() instanceof ServerPlayer player) Sightings.watch(player, p.projectile().orElse(null), p.yaw(), p.pitch());
         });
         r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
     }
