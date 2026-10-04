@@ -32,6 +32,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
 import ua.zentix.airstrike.client.cam.ProjectileCamera;
@@ -147,14 +148,6 @@ final class GuideShots {
             along = new Vec3(village.x - view.x, 0, village.z - view.z).normalize();
             across = new Vec3(-along.z, 0, along.x);
             Airstrike.LOG.info("SCENARIO guide: деревня {}, зритель {}", xyz(village), xyz(view));
-            // зритель на вершине среди деревьев: пусковой негде было встать, и снаряды заходили издалека (в GIF не было
-            // пуска). Вокруг — ровная поляна 33×33 без деревьев, под ней — земля до склона (fill — до 32768 блоков за раз)
-            int x = (int) Math.floor(view.x), y = (int) Math.floor(view.y), z = (int) Math.floor(view.z);
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 16, y, z - 16, x, y + 30, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x + 1, y, z - 16, x + 16, y + 30, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:dirt replace #minecraft:replaceable",
-                    x - 16, y - 12, z - 16, x + 16, y - 2, z + 16));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 16, y - 1, z - 16, x + 16, y - 1, z + 16));
             stand(view, village);
             give("missile", 6, 20, "map");
         });
@@ -166,6 +159,18 @@ final class GuideShots {
         });
         // секции чанков вокруг собраны: на llvmpipe кадр сразу после входа — одно небо
         until("прорисовки вокруг", 2400, this::worldReady);
+        // зритель на вершине среди деревьев: пусковой негде было встать, и снаряды заходили издалека (в GIF не было
+        // пуска). Вокруг — ровная поляна 33×33 без деревьев, под ней — земля до склона. Только когда место загружено:
+        // fill в незагруженном месте не делает ничего (и до 32768 блоков за раз)
+        run(() -> {
+            int x = (int) Math.floor(view.x), y = (int) Math.floor(view.y), z = (int) Math.floor(view.z);
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 16, y, z - 16, x, y + 30, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x + 1, y, z - 16, x + 16, y + 30, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:dirt replace #minecraft:replaceable",
+                    x - 16, y - 12, z - 16, x + 16, y - 2, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 16, y - 1, z - 16, x + 16, y - 1, z + 16));
+        });
+        await(20);
         if (only("recipes")) recipes();
         if (only("scope")) scope();
         if (only("remote")) remote();
@@ -922,9 +927,10 @@ final class GuideShots {
     private void onGuiRender(RenderGuiEvent.Post e) {
         if (gif == null || mc.screen != null || hint == null || gifFrame >= hintUntil) return;
         GuiGraphics g = e.getGuiGraphics();
-        // слои HUD рисуются с проверкой глубины и уходят вверх по z (бинокль — выше подписи): подпись — без глубины
+        // слои HUD уходят вверх по z, а прямоугольники и текст GUI рисуются с проверкой глубины (её включает сам тип
+        // отрисовки): подпись под биноклем не видна. Глубину — сбросить, тогда подпись поверх всего
         g.flush();
-        RenderSystem.disableDepthTest();
+        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         g.pose().pushPose();
         g.pose().translate(10, g.guiHeight() - 44, 0);
         g.pose().scale(1.5f, 1.5f, 1);
@@ -933,7 +939,6 @@ final class GuideShots {
         g.drawString(mc.font, hint, 0, 0, 0xFFFFE070, false);
         g.pose().popPose();
         g.flush();
-        RenderSystem.enableDepthTest();
     }
 
     /** Курсор, подпись клавиши и круг щелчка — поверх экрана. */
