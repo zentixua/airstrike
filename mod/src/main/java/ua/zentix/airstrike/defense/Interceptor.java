@@ -20,7 +20,7 @@ import java.util.UUID;
 
 /**
  * Полёт зенитной ракеты: сход с направляющей вверх в сторону цели, разгон и погоня — каждый тик курс на нынешнее
- * место цели с пределом поворота ({@link Homing}). Неконтактный взрыватель рвёт её у цели (ближайшее сближение за
+ * место цели с пределом поворота по боковому ускорению ({@link Homing}, {@link InterceptorSpec#turnLimit}). Неконтактный взрыватель рвёт её у цели (ближайшее сближение за
  * тик); с вероятностью {@code kill_probability} цель сбита, иначе летит дальше. Цель пропала, на ней кто-то сидит,
  * кончилось топливо — самоликвидация в воздухе. Цель — только снаряд мода ({@link StrikeProjectile}) по его UUID.
  * <p>
@@ -149,14 +149,15 @@ public final class Interceptor {
     }
 
     /**
-     * Тик погони без мира: возраст, после направляющей — доворот на нынешнее место цели не круче паспорта, на разгоне —
-     * прирост скорости. Возвращает, где ракета будет в конце тика; сдвигает её {@link #moveTo} после проверки преград.
+     * Тик погони без мира: возраст, после направляющей — доворот на нынешнее место цели не круче паспорта на этой
+     * скорости ({@link InterceptorSpec#turnLimit}), на разгоне — прирост скорости. Возвращает, где ракета будет в конце
+     * тика; сдвигает её {@link #moveTo} после проверки преград.
      */
     Vec3 steer(Vec3 targetNow) {
         age++;
         if (age > spec.railTicks()) {
             Vec3 to = targetNow.subtract(pos);
-            if (to.lengthSqr() > 1.0e-6) dir = Homing.turn(dir, to.normalize(), spec.turnRate());
+            if (to.lengthSqr() > 1.0e-6) dir = Homing.turn(dir, to.normalize(), spec.turnLimit(speed));
         }
         if (age <= spec.boostTicks()) speed = Math.min(spec.maxSpeed(), speed + spec.boostAccel());
         return pos.add(dir.scale(speed));

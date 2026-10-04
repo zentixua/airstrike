@@ -10,7 +10,8 @@ package ua.zentix.airstrike.defense;
  * @param boostTicks  тики разгона
  * @param boostAccel  прирост скорости за тик разгона, блоков/тик²
  * @param maxSpeed    наибольшая скорость, блоков/тик
- * @param turnRate    предельная скорость поворота, °/тик
+ * @param turnRate    предельная скорость поворота на наибольшей скорости, °/тик; предел — боковое ускорение
+ *                    ({@link #turnLimit}), и медленная ракета поворачивает круче
  * @param fuelTicks   столько тиков летит, потом самоликвидация
  * @param fuse        радиус неконтактного взрывателя, блоков (сверх полудлины корпуса цели)
  * @param noseLength  полудлина корпуса, блоков (модель и срез сопла — {@code client.render.InterceptorRenderer})
@@ -23,4 +24,13 @@ public record InterceptorSpec(int railTicks, double elevation, double launchSpee
      * Взрыватель — 6 блоков: шахед на 2 блоках/тик она проходит за тик с запасом.
      */
     public static final InterceptorSpec SAM = new InterceptorSpec(5, 65, 0.8, 30, 0.45, 14, 9, 300, 6, 2.0);
+
+    /**
+     * Предел поворота за тик на скорости {@code speed}, °: боковое ускорение у ракеты одно (v·ω), поэтому на разгоне
+     * она поворачивает круче, чем на наибольшей скорости. С одной угловой скоростью ракета, сошедшая с направляющей
+     * навстречу цели, которая проходит над самым ЗРК, разворачивалась уже за ней и шла за пикирующим шахедом до земли.
+     */
+    public double turnLimit(double speed) {
+        return turnRate * maxSpeed / Math.max(speed, launchSpeed);
+    }
 }

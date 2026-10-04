@@ -88,6 +88,42 @@ class InterceptorFlightTest {
         }
     }
 
+    /** Где шахед через {@code tick} тиков: идёт на высоте {@code height} над ЗРК, в 6 блоках сбоку, с {@code z0}, с z 0 — пике в землю у z 100. */
+    private static Vec3 overhead(double z0, int tick, double height, double cruise, double dive) {
+        double z = z0 + cruise * tick;
+        if (z <= 0) return RAIL.add(6, height, z);
+        Vec3 start = RAIL.add(6, height, 0), ground = RAIL.add(6, -1, 100);
+        double s = dive * (tick + z0 / cruise);
+        return s >= start.distanceTo(ground) ? ground : start.add(ground.subtract(start).normalize().scale(s));
+    }
+
+    /**
+     * Шахед проходит над самым ЗРК и за ним пикирует в цель в 100 блоках (GameTest {@code shootsDownHostileDrones}):
+     * в какой бы тик осмотра неба ракета ни сошла — с цели за 50 блоков до ЗРК до цели над ним, — она сбивает его до
+     * земли. С одной угловой скоростью поворота ракета, сошедшая навстречу, разворачивалась уже за ним и шла за ним
+     * до земли ({@link InterceptorSpec#turnLimit}).
+     */
+    @Test
+    void catchesTargetPassingOverhead() {
+        WeaponSpec.Airframe a = WeaponType.DRONE.spec().airframe();
+        for (double z0 = -50; z0 <= 0; z0 += 0.5) {
+            Interceptor f = new Interceptor(SPEC, UUID.randomUUID(), null, "тест", RAIL, Interceptor.railDirection(RAIL, overhead(z0, 0, 45, a.cruiseSpeed(),
+                    a.diveSpeed()), SPEC));
+            int hit = -1;
+            for (int tick = 1; tick <= SPEC.fuelTicks(); tick++) {
+                Vec3 prev = overhead(z0, tick - 1, 45, a.cruiseSpeed(), a.diveSpeed()), t = overhead(z0, tick, 45, a.cruiseSpeed(), a.diveSpeed());
+                if (t.y <= RAIL.y) break;
+                Vec3 next = f.steer(t);
+                if (f.fuze(next, prev, t, a.noseLength()) >= 0) {
+                    hit = tick;
+                    break;
+                }
+                f.moveTo(next);
+            }
+            assertTrue(hit > 0, "шахед в " + (int) -z0 + " блоках до ЗРК: ракета не сбила его до земли");
+        }
+    }
+
     /** На направляющей взрыватель не взведён: цель рядом с пусковой не рвёт ракету на старте. */
     @Test
     void fuzeIsSafeOnTheRail() {
