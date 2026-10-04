@@ -157,7 +157,7 @@ public final class SightGameTests {
     /** Настоящий игрок вне списка игроков с настройкой прорисовки {@code chunks}: {@code FakePlayer} её не принимает. */
     private static ServerPlayer viewer(ServerLevel level, Vec3 at, int chunks) {
         ServerPlayer p = new ServerPlayer(level.getServer(), level, new GameProfile(UUID.randomUUID(), "sight_range"), withView(chunks));
-        p.moveTo(at);
+        p.setPos(at); // moveTo у ServerPlayer зовёт connection.resetPosition, а соединения нет
         return p;
     }
 
