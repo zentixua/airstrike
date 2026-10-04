@@ -5,8 +5,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 точное наведение на всё, куда смотрит игрок (блоки, мобы, игроки, летательные аппараты Create Aeronautics),
 свой 3D-звук с Доплером. Репозиторий: https://github.com/zentixua/airstrike (публичный).
 Что умеет мод для игрока — README.md; проект ядерного удара и отступления от него — docs/DESIGN-nuke.md.
-Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и Djinn, мост ведущего
-(серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/djinn); у каждого свой CLAUDE.md.
+Сборка «Airstrike Pack» — в своём репозитории https://github.com/zentixua/airstrike-pack (свой CLAUDE.md).
 
 Здесь — только то, что нужно в каждой сессии. Устройство пакетов и подводные камни по областям — в `.claude/rules/`
 (список в конце): файл области подгружается сам, когда Claude открывает её файлы инструментами Read, Edit или Write.
@@ -37,6 +36,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     src/devtest/                         ← GameTest, сценарии полёта и клиента, стенд нагрузки (в jar не входят)
     src/test/                            ← юнит-тесты JUnit
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
+    gm/                                  ← мод ведущего airstrike_gm: мост Claude к серверу (только сервер, свой jar)
   tools/                                 ← скрипты; что каждый умеет — .claude/rules/tools.md:
                                            paths.py (все пути к игре), deploy.sh, logscan.py; моды и каталоги для
                                            запусков — fetch_runtime_mods.py (каталог игры из сборки — pack_dir.py в
@@ -45,7 +45,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
                                            freesound.py, gen_textures.py, gen_particles.py, gen_models.py,
-                                           gen_grid_assets.py; трейлер — trailer/
+                                           gen_grid_assets.py; трейлер — trailer/; ведущий (MCP) — gm.py
   pack/                                  ← прежний адрес сборки для экземпляров, ещё не переведённых на airstrike-pack:
                                            заморожен, не править; убирается по слову Артёма
   docs/DESIGN-nuke.md                    ← проект ядерного удара
@@ -66,6 +66,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 export JAVA_HOME=~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta
 cd mod && ./gradlew build                 # компиляция (-Xlint:all без предупреждений) и юнит-тесты
 cd mod && ./gradlew runGameTestServer     # GameTest: сервер без окна с Create 6.0.10, Sable 2.0.5, Aeronautics 1.3.2
+cd mod && ./gradlew :gm:runGmGameTestServer  # GameTest мода ведущего (без Create; ./gradlew build собирает оба мода)
 cd mod && ./gradlew runScenarioSweep      # одни сценарии полёта, все зёрна (-PscenarioSeeds=N, по умолчанию 16;
                                           # -PscenarioOnly=<регвыр> — выбор, -PscenarioRealChunks — настоящая загрузка)
 cd mod && ./gradlew runScenarioRecord     # записать эталон траекторий заново (сдвиг — объяснить в PR по сценариям)
@@ -176,6 +177,7 @@ PR сборки с jar выпуска — в airstrike-pack, после выпу
 - `client-scenario.md` — сценарии клиента без окна: строки `SCENARIO`, сценарий `commands`, облако, сценарии `fx`.
 - `rigs.md` — стенд нагрузки, мультиплеер на петле, вложенный KWin, боевой клиент со всей сборкой.
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
+- `gm.md` — мод ведущего `mod/gm` и `tools/gm.py`: мост, методы, чанки без тика, постройка с откатом, снимки.
 
 ## Окружение
 - NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний

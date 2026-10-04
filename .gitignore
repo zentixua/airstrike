@@ -6,6 +6,8 @@ mod/.gradle/
 mod/build/
 mod/run/
 mod/runs/
+mod/gm/run/
+mod/gm/logs/
 tools/.sound-cache/
 tools/.trailer-cache/
 mod/logs/
