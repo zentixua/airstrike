@@ -146,6 +146,16 @@ final class GuideShots {
             along = new Vec3(village.x - view.x, 0, village.z - view.z).normalize();
             across = new Vec3(-along.z, 0, along.x);
             Airstrike.LOG.info("SCENARIO guide: деревня {}, зритель {}", xyz(village), xyz(view));
+            // деревья вокруг зрителя закрывали курс пуска: пусковая не вставала, снаряды заходили издалека
+            int x = (int) Math.floor(view.x), y = (int) Math.floor(view.y), z = (int) Math.floor(view.z);
+            for (String tag : new String[]{"#minecraft:leaves", "#minecraft:logs"}) {
+                for (int dx : new int[]{-24, 0}) {
+                    for (int dz : new int[]{-24, 0}) {
+                        cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air replace %s",
+                                x + dx, y - 4, z + dz, x + dx + 23, y + 26, z + dz + 23, tag));
+                    }
+                }
+            }
             stand(view, village);
             give("missile", 6, 20, "map");
         });
@@ -243,7 +253,7 @@ final class GuideShots {
         gHint("ПКМ (держать)", 2.0);
         gHold(1.6);
         gHint("колесо мыши", 2.8);
-        for (double d : new double[]{-1, -1, 1, 1}) {
+        for (double d : new double[]{1, 1, -1, -1}) {
             gDo(() -> Designator.scroll(d));
             gHold(0.65);
         }
@@ -259,8 +269,7 @@ final class GuideShots {
 
     /** Экран пульта (GIF): шахед, число и разброс, режим цели, огонь — шахеды туда, куда смотрит зритель. */
     private void remote() {
-        String count = Component.translatable("airstrike.remote.count", "").getString().split(":")[0];
-        String spread = Component.translatable("airstrike.remote.spread", "").getString().split(":")[0];
+        String count = "airstrike.remote.count", spread = "airstrike.remote.spread";
         run(() -> {
             give("missile", 6, 20, "look");
             look(village);
@@ -680,9 +689,12 @@ final class GuideShots {
         return w == null ? new double[]{mx, my} : new double[]{w.getX() + w.getWidth() / 2.0, w.getY() + w.getHeight() / 2.0};
     }
 
-    /** Точка ползунка экрана пульта для значения {@code v} из {@code min…max} (как {@code setValueFromMouse}). */
-    private double[] sliderAt(String text, int v, int min, int max) {
-        AbstractWidget w = findWidget(text);
+    /**
+     * Точка ползунка экрана пульта для значения {@code v} из {@code min…max} (как {@code setValueFromMouse}); ползунок —
+     * по подписи ключа {@code key} до двоеточия (язык известен только в игре, не при планировании шагов).
+     */
+    private double[] sliderAt(String key, int v, int min, int max) {
+        AbstractWidget w = findWidget(Component.translatable(key, "").getString().split(":")[0]);
         if (w == null) return new double[]{mx, my};
         return new double[]{w.getX() + 4 + (w.getWidth() - 8) * (v - min) / (double) (max - min), w.getY() + w.getHeight() / 2.0};
     }
