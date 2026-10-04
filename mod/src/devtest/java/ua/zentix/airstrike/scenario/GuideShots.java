@@ -386,8 +386,7 @@ final class GuideShots {
             hint = "клавиша «,»";
             hintUntil = gifFrame + FPS * 3 / 2;
         });
-        gHold(1.5);
-        gHold(1.5);
+        gHold(3.0);
         startGif("map", 0);
         run(() -> {
             cursor = false;
