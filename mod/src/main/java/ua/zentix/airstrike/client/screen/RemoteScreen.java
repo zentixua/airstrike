@@ -280,7 +280,7 @@ public class RemoteScreen extends Screen {
         save();
     }
 
-    /** На карте выбран игрок: цель пульта — он, снаряды пойдут за ним. */
+    /** На карте выбран игрок: цель пульта — он (удар по правилам сервера: {@code ServerActions.sighted}). */
     void aimAtPlayer(String name) {
         loadout = loadout.withMode(TargetMode.PLAYER).withPlayer(name);
         save();
