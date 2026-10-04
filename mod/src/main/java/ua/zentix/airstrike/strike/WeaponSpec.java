@@ -2,6 +2,7 @@ package ua.zentix.airstrike.strike;
 
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import org.jetbrains.annotations.Nullable;
@@ -12,6 +13,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.BombDrop;
 import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.registry.ModEntities;
+import ua.zentix.airstrike.registry.ModItems;
 
 import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
@@ -40,10 +42,12 @@ import java.util.function.ToDoubleFunction;
  * @param confirmPitch тон щелчка пульта, когда пуск принят
  * @param airframe   сущность, которой летит оружие (у B-2 — сам бомбардировщик)
  * @param payload    вторая сущность полёта: бомба, которую сбрасывает носитель; null — её нет
+ * @param munition   боеприпас: предмет, который пуск снимает из инвентаря стреляющего ({@link Munitions})
  */
 public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo salvo, Warhead warhead,
                          Supplier<ModConfigSpec.IntValue> power, Launch launch, Route route, @Nullable LauncherRack rack,
-                         Blast blast, double charge, boolean penetrates, float confirmPitch, Airframe airframe, @Nullable Airframe payload) {
+                         Blast blast, double charge, boolean penetrates, float confirmPitch, Airframe airframe, @Nullable Airframe payload,
+                         Munition munition) {
 
     /** Как оружие пускается. */
     public enum Launch {
@@ -76,12 +80,25 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
     /**
      * Ядерная боевая часть.
      *
-     * @param always     всегда ядерная (МБР)
-     * @param optional   может нести ядерную вместо обычной ({@code Loadout.Nuke#onCarrier}: ракета, бомба B-2)
+     * @param always     всегда ядерная (МБР: её боеприпас уже ядерный)
+     * @param optional   может нести ядерную вместо обычной ({@code Loadout.Nuke#onCarrier}: ракета, бомба B-2) — тогда пуск
+     *                   снимает и ядерную боевую часть ({@link Munitions#warhead()}, одна на всех носителей)
      * @param chooseBurst подрыв выбирается: воздушный или наземный (бомба рвётся под землёй — выбора нет)
      */
     public record Warhead(boolean always, boolean optional, boolean chooseBurst) {
         static final Warhead CONVENTIONAL = new Warhead(false, false, false);
+    }
+
+    /**
+     * Боеприпас: что пуск снимает из инвентаря стреляющего ({@link Munitions}) — по предмету на снаряд или пакет снарядов.
+     *
+     * @param item   предмет (поставщик: паспорт не трогает реестр, пока его не спросят)
+     * @param rounds сколько снарядов в одном предмете: больше одного — пакет, его начинают и тратят по снаряду
+     */
+    public record Munition(Supplier<? extends Item> item, int rounds) {
+        static Munition single(Supplier<? extends Item> item) {
+            return new Munition(item, 1);
+        }
     }
 
     /** Наземный взрыв боевой части: картинка у клиентов ({@code S2C.Blast}) и то, что взрыв делает сверх главного подрыва. */
@@ -254,7 +271,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.DRONE.get(), 2.1, 3.0, 3.0, 1.6, 45, 20, 256, 1.83, 12, 900 * 2.1, 4.3,
                     new LaunchProfile(8, 38, 0.075, 8, -9), 0, new Attack(16, 0, 0),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.ENGINE),
-            null);
+            null, Munition.single(() -> ModItems.SHAHED.get()));
 
     /**
      * Крылатая ракета: 80 м/с (4 блока/тик, ≈290 км/ч) — медленнее настоящей, чтобы подлёт было видно; бреющий полёт
@@ -270,7 +287,7 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.CRUISE_MISSILE.get(), 4.0, 5.0, 3.0, 2.0, 12, 12, 256, 2.96, 8, 700 * 4.0, 6.5,
                     new LaunchProfile(6, 40, 0.09, 8, -14), 256, new Attack(64, 160, 185),
                     ph -> launching(ph) ? Hearing.BOOSTER : Hearing.WHISTLE),
-            null);
+            null, Munition.single(() -> ModItems.CRUISE_MISSILE.get()));
 
     /**
      * B-2 на эшелоне +170 над местом падения бомбы, 12 блоков/тик, разворот 1°/тик (радиус ~690 блоков), сброс за ~85
@@ -284,7 +301,8 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
                     ph -> Hearing.JET),
             new Airframe(() -> ModEntities.BUNKER_BUSTER.get(), BombDrop.MAX_SPEED, BombDrop.MAX_SPEED, 0, 0, 0, 12, 0, BombDrop.NOSE, 0, 300 * BombDrop.MAX_SPEED,
                     BombDrop.REACH_PAD, null, 0, Attack.NONE,
-                    ph -> Hearing.ENGINE));
+                    ph -> Hearing.ENGINE),
+            Munition.single(() -> ModItems.BUNKER_BUSTER.get()));
 
     /**
      * МБР с ядерной боеголовкой: только участок разгона до 25 блоков/тик; удар — таймер {@code NuclearStrikes}. Сила
@@ -297,19 +315,20 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Route(null, 0, 0, 0, 0, 0, 0), null, Blast.NONE, 0, false, 0.5f,
             new Airframe(() -> ModEntities.ICBM.get(), 25, 25, 0, 0, 0, 12, 0, 9, 0, 600 * 25, 0, null, 0, Attack.NONE,
                     ph -> ph.boosterLit() ? Hearing.ICBM : 0),
-            null);
+            null, Munition.single(() -> ModItems.ICBM.get()));
 
     /**
      * РСЗО в духе БМ-21 «Град»: неуправляемые реактивные снаряды по баллистике с пакета из 40 труб, залп очередью
      * по полсекунды; одиночным не стреляет — пульт ставит очередь из 12 по площади 15 блоков; без стреляющего рядом
-     * пакет стоит в 600 блоках от цели. Заряд снаряда 9М22У — 6,4 кг ВВ: стёкла выбивает до ~37 блоков.
+     * пакет стоит в 600 блоках от цели. Заряд снаряда 9М22У — 6,4 кг ВВ: стёкла выбивает до ~37 блоков. Боеприпас —
+     * пакет на все трубы пусковой (40 снарядов, как перезарядка БМ-21): залп тратит из него по снаряду.
      */
     public static final WeaponSpec ROCKET = new WeaponSpec(WeaponType.SirenKind.MISSILE, 8, new Salvo(8, 12, 12, 15), Warhead.CONVENTIONAL,
             () -> AirstrikeConfig.SERVER.rocketPower, Launch.ROCKET,
             new Route(null, 0, 600, 0.01, 0, 0, 0), LauncherRack.ROCKET, Blast.ROCKET, 6.4, false, 0.5f,
             new Airframe(() -> ModEntities.ROCKET.get(), 4, 4, 0, 0, 0, 4, 0, 1.45, 2, 2400 * 4, 1.5, null, 0, Attack.NONE,
                     ph -> launching(ph) ? Hearing.ROCKET_LAUNCH : Hearing.ROCKET_AIR),
-            null);
+            null, new Munition(() -> ModItems.GRAD_ROCKETS.get(), LauncherRack.ROCKET.slots()));
 
     /**
      * Барражирующий боеприпас в духе «Ланцета»: ≈115 км/ч, с катапульты (толчок за полсекунды, без огня) к цели,
@@ -323,5 +342,5 @@ public record WeaponSpec(WeaponType.SirenKind siren, int sirenSeconds, Salvo sal
             new Airframe(() -> ModEntities.LOITER.get(), 1.6, 4.0, 3.0, 2.0, 45, 25, 35, 1.3, 4, 2400 * 1.6, 3.0,
                     new LaunchProfile(4, 10, 0.16, 4, -8), 0, Attack.NONE,
                     ph -> ph.onLauncher() ? Hearing.ENGINE : Hearing.LOITER_DIVE),
-            null);
+            null, Munition.single(() -> ModItems.LANCET.get()));
 }

@@ -53,6 +53,8 @@ import java.util.Locale;
  *   /airstrike grid …                                  сеть и блэкаут ({@link GridCommand})
  * </pre>
  * Ник подсказывает Tab — регистр букв больше не важен. «shahed» — синоним drone, как в датапаке.
+ * Пуск от игрока-не оператора — по правилам игрока, как с пульта (боеприпасы из инвентаря, {@code strike.Munitions});
+ * оператор, консоль и командный блок не платят.
  */
 public final class AirstrikeCommand {
     private static final SimpleCommandExceptionType TARGET_NOT_FOUND = new SimpleCommandExceptionType(Component.translatable("airstrike.target_not_found"));
@@ -239,11 +241,6 @@ public final class AirstrikeCommand {
         return fire(s, w, count, spread, ServerActions.atPlayer(target));
     }
 
-    /** Приказ по правилам игроков ({@link ServerActions#strike}): команда не оператора; у оператора — без них. */
-    private static boolean bound(CommandSourceStack s) {
-        return !s.hasPermission(2);
-    }
-
     /** Пуск от имени игрока (заход из-за его спины) или от консоли/командного блока. */
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim) {
         return fire(s, w, count, spread, aim, Loadout.Nuke.DEFAULT);
@@ -254,6 +251,14 @@ public final class AirstrikeCommand {
                 ? ServerActions.strike(player, bound(s), w, count, spread, aim, nuke, Waypoints.NONE)
                 : ServerActions.dispatch(s.getLevel(), s.getTextName(), s.getRotation().y, w, count, spread, aim, nuke);
         return ok ? 1 : 0;
+    }
+
+    /**
+     * Приказ игрока по его правилам ({@link ServerActions#strike}): команда не оператора — как пульт; оператор (и
+     * {@code /execute as} из консоли или командного блока — права у них) — без них.
+     */
+    private static boolean bound(CommandSourceStack s) {
+        return !s.hasPermission(2);
     }
 
     private static int give(CommandContext<CommandSourceStack> ctx, Collection<ServerPlayer> players) {

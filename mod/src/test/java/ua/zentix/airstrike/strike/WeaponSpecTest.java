@@ -148,4 +148,19 @@ class WeaponSpecTest {
         }
         assertTrue(WeaponType.BUNKER.spec().payload() != null);
     }
+
+    /**
+     * Боеприпас у каждого оружия: по предмету на снаряд, а пакет «Града» — на все трубы пусковой (40, как перезарядка
+     * БМ-21): залп по умолчанию из пульта в него помещается.
+     */
+    @Test
+    void munitionPerShotAndGradPack() {
+        for (WeaponType w : WeaponType.values()) {
+            if (w == WeaponType.ROCKET) continue;
+            assertEquals(1, w.spec().munition().rounds(), w.getSerializedName());
+        }
+        assertEquals(LauncherRack.ROCKET.slots(), WeaponSpec.ROCKET.munition().rounds());
+        assertEquals(40, WeaponSpec.ROCKET.munition().rounds());
+        assertTrue(WeaponSpec.ROCKET.salvo().count() <= WeaponSpec.ROCKET.munition().rounds());
+    }
 }

@@ -8,6 +8,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.item.GeigerCounterItem;
+import ua.zentix.airstrike.item.MunitionItem;
 
 public final class ModItems {
     public static final DeferredRegister.Items REGISTER = DeferredRegister.createItems(Airstrike.MOD_ID);
@@ -18,6 +19,23 @@ public final class ModItems {
             GeigerCounterItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredItem<BlockItem> TRINITITE = REGISTER.registerSimpleBlockItem(ModBlocks.TRINITITE);
     public static final DeferredItem<BlockItem> SUBSTATION = REGISTER.registerSimpleBlockItem(ModBlocks.SUBSTATION);
+
+    // Боеприпасы: пуск снимает их из инвентаря стреляющего (strike.Munitions); какой у оружия — его паспорт (WeaponSpec.munition)
+    public static final DeferredItem<MunitionItem> SHAHED = REGISTER.registerItem("shahed",
+            MunitionItem::new, new Item.Properties().stacksTo(16));
+    public static final DeferredItem<MunitionItem> LANCET = REGISTER.registerItem("lancet",
+            MunitionItem::new, new Item.Properties().stacksTo(16));
+    public static final DeferredItem<MunitionItem> CRUISE_MISSILE = REGISTER.registerItem("cruise_missile",
+            MunitionItem::new, new Item.Properties().stacksTo(16).rarity(Rarity.UNCOMMON));
+    public static final DeferredItem<MunitionItem> GRAD_ROCKETS = REGISTER.registerItem("grad_rockets",
+            MunitionItem::new, new Item.Properties().stacksTo(16));
+    public static final DeferredItem<MunitionItem> BUNKER_BUSTER = REGISTER.registerItem("bunker_buster",
+            MunitionItem::new, new Item.Properties().stacksTo(16).rarity(Rarity.RARE));
+    public static final DeferredItem<MunitionItem> ICBM = REGISTER.registerItem("icbm",
+            MunitionItem::new, new Item.Properties().stacksTo(1).rarity(Rarity.EPIC));
+    /** Ядерная боевая часть на крылатую ракету или бомбу B-2 (у МБР она в самом боеприпасе). */
+    public static final DeferredItem<MunitionItem> NUCLEAR_WARHEAD = REGISTER.registerItem("nuclear_warhead",
+            MunitionItem::new, new Item.Properties().stacksTo(1).rarity(Rarity.EPIC));
 
     private ModItems() {}
 }

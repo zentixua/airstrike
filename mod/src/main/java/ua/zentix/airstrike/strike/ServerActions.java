@@ -71,6 +71,7 @@ public final class ServerActions {
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
+        // пульт — по правилам игрока у всех, и у операторов: приказ оплачивается боеприпасами
         strike(player, true, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via());
     }
 
@@ -228,9 +229,10 @@ public final class ServerActions {
      * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
      * один снаряд точно в цель или залп — после проверки прав.
      *
-     * @param bound приказ по правилам игроков: с пульта (у всех, и у операторов) и командой не оператора — цель не дальше
-     *              {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #scouted}); команда оператора — без них
-     *
+     * @param bound приказ по правилам игрока: пульт (у всех, и у операторов) и команда не оператора. Такой приказ
+     *              оплачивается боеприпасами из инвентаря ({@link Munitions}; творческий режим не платит), цель — не
+     *              дальше {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #scouted}); команда
+     *              оператора — без этого
      * @return true, если пуск состоялся
      */
     public static boolean strike(ServerPlayer player, boolean bound, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via) {
@@ -260,10 +262,13 @@ public final class ServerActions {
                 return false;
             }
         }
+        // весь приказ — сразу: залп не урезается под то, что есть в инвентаре
+        Munitions.Bill bill = bound && !player.hasInfiniteMaterials() ? Munitions.Bill.of(l) : null;
+        if (bill != null && !Munitions.pay(player, bill)) return false;
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
         }
-        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via);
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, bill);
     }
 
     /**
@@ -273,7 +278,7 @@ public final class ServerActions {
      * @return true, если пуск состоялся
      */
     public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE);
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE, null);
     }
 
     /** Приказ в пределах настроек сервера ({@link #clamp}). */
@@ -281,18 +286,26 @@ public final class ServerActions {
         return clamp(new Loadout(weapon, count, spread, TargetMode.LOOK, "", nuke));
     }
 
-    /** Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. */
-    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via) {
+    /**
+     * Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог.
+     *
+     * @param paid что стреляющий заплатил за приказ ({@link Munitions}); null — не платил. Неудачный пуск это возвращает,
+     *             залп — то, что из него не вылетит
+     */
+    private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via,
+                                  @Nullable Munitions.Bill paid) {
         StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), via);
         UUID ownerId = owner == null ? null : owner.getUUID();
         if (l.count() > 1 || l.spread() > 0) {
-            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via);
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via, paid != null);
             return true;
         }
-        StrikeService.Result r = StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, ownerId, true, l.nuke(), via);
+        StrikeService.Result r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, null, true, l.nuke(), via)
+                : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), yaw, owner, true, l.nuke(), via);
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
             else owner.displayClientMessage(Component.translatable("airstrike.launch_failed").withStyle(ChatFormatting.RED), true);
+            if (!r.ok() && paid != null) Munitions.refund(List.of(owner), owner.getUUID(), paid, "пуск не удался");
         }
         return r.ok();
     }
@@ -505,8 +518,10 @@ public final class ServerActions {
     }
 
     /**
-     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены. Ядерные удары (МБР, ракета
-     * и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая ракета, остаётся до её пуска.
+     * Отбой: снаряды, обломки и пусковые во всех мирах убраны без взрыва, залпы отменены — их невыпущенные оплаченные
+     * снаряды возвращаются владельцам в сети ({@link Munitions}; выпущенные, в том числе стоящие на пусковой, — нет).
+     * Ядерные удары (МБР, ракета и B-2 с ядерной БЧ) отменяет только ядерный отбой; пусковая, на которой стоит такая
+     * ракета, остаётся до её пуска.
      *
      * Что и кем снято — строкой в лог: отбой снимает и чужие удары, а нажавший видит только итог в чате (игра 02.10.2026:
      * МБР №3 пропала из лога без следа — её снял «Отбоем» другой игрок).
@@ -549,9 +564,8 @@ public final class ServerActions {
                 else if (e instanceof LauncherEntity) launchersRemoved++;
                 e.discard();
             }
-            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба
-            salvos += SalvoData.get(level).size();
-            StrikeWorld.clearSalvos(level);
+            // залпы ядерными не бывают (ServerActions.clamp): одна ракета, одна бомба; невыпущенное — владельцам
+            salvos += StrikeWorld.clearSalvos(level);
             if (nuclear) {
                 NuclearEvents events = NuclearEvents.get(level);
                 for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
