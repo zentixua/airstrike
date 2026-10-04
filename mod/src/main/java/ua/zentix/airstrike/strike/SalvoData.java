@@ -38,7 +38,9 @@ import java.util.UUID;
  * B-2 60–80) — с одной пусковой по ячейкам. Цель может двигаться — каждый снаряд целится со своим смещением
  * относительно неё; маршруты разные (обход слева или справа, курс захода ±35°), поэтому залп приходит волной
  * с разных сторон. По точкам оператора ({@link Waypoints}) весь залп идёт одним маршрутом, с места пуска из приказа —
- * с одной пусковой на нём.
+ * с одной пусковой на нём, со стационарной пусковой ({@link LaunchOrigin.Fixed}) — с неё: пока её чанк не готов, залп
+ * ждёт (грузить его ради пуска нельзя), блока на месте нет — залп кончен; строк и полосы залпа хозяину у неё нет —
+ * её залпы идут по сигналу, когда хозяин может быть где угодно.
  * Хранится в мире: незаконченный залп продолжится после перезахода.
  * <p>
  * Залп, оплаченный боеприпасами ({@link Munitions}), возвращает владельцу то, что не вылетело: невыпущенные снаряды
@@ -79,6 +81,14 @@ public final class SalvoData extends SavedData {
 
     public int size() {
         return salvos.size();
+    }
+
+    /** Идёт залп с пусковой {@code origin} (стационарной: занята, пока он не кончится). */
+    public static boolean busy(ServerLevel level, LaunchOrigin origin) {
+        for (Salvo s : get(level).salvos) {
+            if (origin.equals(s.from)) return true;
+        }
+        return false;
     }
 
     /** Цели залпов этого игрока (для проверок). */
@@ -131,13 +141,14 @@ public final class SalvoData extends SavedData {
      * @param yaw         курс захода
      * @param owner       кто пустил (ему — сообщения о залпе), null — консоль или командный блок
      * @param via         точки оператора: весь залп летит по ним
-     * @param from        место пуска из приказа (по горизонтали): весь залп — оттуда ({@link StrikeService#launch})
+     * @param from        место пуска из приказа или стационарная пусковая: весь залп — оттуда ({@link StrikeService#launch})
      * @param paid        залп оплачен боеприпасами владельца: что не вылетит, вернётся ему ({@link Munitions})
      */
     public static void start(ServerLevel level, WeaponType weapon, int count, int radius, Target center, Vec3 centerPoint,
-                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke, Waypoints via, @Nullable Vec3 from, boolean paid) {
-        get(level).add(new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke, via, from, paid, 0));
-        ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+                             float yaw, @Nullable UUID owner, Loadout.Nuke nuke, Waypoints via, @Nullable LaunchOrigin from, boolean paid) {
+        Salvo salvo = new Salvo(weapon, count, count, radius, center, centerPoint, yaw, owner, 1, nuke, via, from, paid, 0);
+        get(level).add(salvo);
+        ServerPlayer player = salvo.reporter(level);
         if (player != null) {
             player.sendSystemMessage(Component.translatable("airstrike.salvo.started." + weapon.getSerializedName(), count, radius)
                     .withStyle(ChatFormatting.RED));
@@ -167,16 +178,16 @@ public final class SalvoData extends SavedData {
         final Loadout.Nuke nuke;
         /** Точки оператора: у всего залпа одни. */
         final Waypoints via;
-        /** Место пуска из приказа: у всего залпа одно. */
+        /** Место пуска из приказа или стационарная пусковая: у всего залпа одно. */
         @Nullable
-        final Vec3 from;
+        final LaunchOrigin from;
         /** Оплачен боеприпасами владельца ({@link Munitions}): что не вылетело, вернётся ему. */
         final boolean paid;
         /** Сколько пусков залпа не удалось: возвращаются владельцу в конце залпа (одной строкой, а не на каждый). */
         int failed;
 
         Salvo(WeaponType weapon, int total, int remaining, int radius, Target center, Vec3 lastCenter, float yaw, @Nullable UUID owner, int cooldown,
-              Loadout.Nuke nuke, Waypoints via, @Nullable Vec3 from, boolean paid, int failed) {
+              Loadout.Nuke nuke, Waypoints via, @Nullable LaunchOrigin from, boolean paid, int failed) {
             this.weapon = weapon;
             this.total = total;
             this.remaining = remaining;
@@ -195,10 +206,26 @@ public final class SalvoData extends SavedData {
         }
 
 
+        /** Кому строки и полоса залпа: владельцу в сети, если залп не со стационарной пусковой. */
+        @Nullable
+        ServerPlayer reporter(ServerLevel level) {
+            return owner == null || from instanceof LaunchOrigin.Fixed ? null : level.getServer().getPlayerList().getPlayer(owner);
+        }
+
         boolean tick(ServerLevel level) {
             watchCenter(level);
+            if (from instanceof LaunchOrigin.Fixed fixed) {
+                // стационарная пусковая: её чанк не готов — ждать (пауза залпа не идёт), блока нет — залп кончен
+                if (!Terrain.ready(level, fixed.pos())) return true;
+                if (fixed.launcher(level) == null) {
+                    Airstrike.LOG.info("Залп: {} — пусковой {} нет на месте, остаток ({}) отменён", weapon.getSerializedName(),
+                            fixed.pos().toShortString(), remaining);
+                    refund(this, level.getServer().getPlayerList().getPlayers(), "пусковой нет на месте");
+                    return false;
+                }
+            }
             if (--cooldown > 0) return true;
-            ServerPlayer ownerPlayer = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+            ServerPlayer ownerPlayer = reporter(level);
             if (remaining <= 0) {
                 if (ownerPlayer != null) {
                     ownerPlayer.displayClientMessage(Component.translatable("airstrike.salvo.done").withStyle(ChatFormatting.GRAY), true);
@@ -300,7 +327,7 @@ public final class SalvoData extends SavedData {
             t.putInt("cooldown", cooldown);
             Loadout.Nuke.CODEC.encodeStart(NbtOps.INSTANCE, nuke).resultOrPartial(Airstrike.LOG::error).ifPresent(n -> t.put("nuke", n));
             if (!via.isEmpty()) Waypoints.CODEC.encodeStart(NbtOps.INSTANCE, via).resultOrPartial(Airstrike.LOG::error).ifPresent(r -> t.put("route", r));
-            if (from != null) Nbt.putVec(t, "from", from);
+            LaunchOrigin.save(t, from);
             if (paid) t.putBoolean("paid", true);
             if (failed > 0) t.putInt("failed", failed);
             return t;
@@ -318,7 +345,7 @@ public final class SalvoData extends SavedData {
                     .orElse(Waypoints.NONE) : Waypoints.NONE;
             // залп, сохранённый до места пуска в приказе, — без него; до боеприпасов — не оплачен: возвращать нечего
             return Optional.of(new Salvo(w, t.getInt("total"), t.getInt("remaining"), t.getInt("radius"), c, last, t.getFloat("yaw"),
-                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via, Nbt.getVec(t, "from"), t.getBoolean("paid"),
+                    t.hasUUID("owner") ? t.getUUID("owner") : null, t.getInt("cooldown"), nuke, via, LaunchOrigin.load(t), t.getBoolean("paid"),
                     t.getInt("failed")));
         }
     }

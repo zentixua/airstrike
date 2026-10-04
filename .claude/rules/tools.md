@@ -1,7 +1,6 @@
 ---
 paths:
   - "tools/**"
-  - "pack/**"
   - "mod/scripts/**"
   - ".github/**"
   - "mod/build.gradle"
@@ -29,9 +28,6 @@ paths:
     gm.py mcp|call|follow                ← ведущий: MCP-сервер для Claude Code над мостом мода airstrike_gm, вызов метода,
                                            лента событий построчно (для Monitor); адрес и токен — AIRSTRIKE_GM_URL, _TOKEN(_FILE)
     fetch_runtime_mods.py                ← Create/Sable/Aeronautics/Lithium с Modrinth (sha512) — для CI и облака без инстанса
-    pack_dir.py <каталог> [--optional]   ← каталог игры из pack/ (моды по хешам, config/) — для prod_client.py --no-copy
-    prism_instance.py [zip]              ← экземпляр Prism со сборкой, которая обновляется сама: перед запуском packwiz-installer
-                                           ставит pack/ с main (артефакт CI airstrike-pack)
     deploy.sh                            ← сборка → mods/ инстанса и dist/ (--test, --dry; --jar F — готовый jar CI/релиза);
                                            инстанс с автообновлением сборки не трогает: packwiz-installer вернул бы jar сборки
     logscan.py                           ← выжимка из logs/latest.log
@@ -56,7 +52,7 @@ paths:
                                            leak — кто держит мир после выхода в меню: заходы в мир с командами (airstrike.leak.*),
                                            в меню — гистограмма классов и выборка JFR с путями до корней (нужен -XX:VMThreadStackSize=8192:
                                            со стеком по умолчанию поиск путей ронял JVM), в лог — строки `SCENARIO leak … holder`;
-                                           replay — повтор Flashback в каталоге pack_dir.py с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал; перемотки назад и вперёд через удары и ядерку — без живых взрывов и вспышек
+                                           replay — повтор Flashback в каталоге tools/pack_dir.py сборки (zentixua/airstrike-pack) с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал; перемотки назад и вперёд через удары и ядерку — без живых взрывов и вспышек
     guide_images.sh [кадры]              ← картинки руководства docs/guide/img из кадров `client_scenario.sh guide`: рецепты
                                            и пульт по месту окна GUI, кадры в JPEG, карта в GIF; лучшие кадры серий — номерами в скрипте
     x11_record.py                        ← окно клиента во вложенном KWin — в видео в реальном времени (ffmpeg x11grab) с отметками
@@ -80,11 +76,9 @@ paths:
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
-  pack/                                  ← своя сборка «Airstrike Pack» (packwiz: pack.toml, mods/*.pw.toml, config/);
-                                           .mrpack — `packwiz mr export` или артефакт CI `airstrike-pack`; состав — pack/README.md;
-                                           pack/ на main игроки с автообновлением ставят при каждом запуске игры
+  pack/                                  ← прежний адрес сборки, заморожен: сама сборка — zentixua/airstrike-pack
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   docs/guide/                            ← руководство игрока (страницы по темам, картинки в img/)
-  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, сборка модов, итог; jar, .mrpack и экземпляр Prism в артефактах; релиз
+  .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 ```

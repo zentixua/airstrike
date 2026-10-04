@@ -28,6 +28,7 @@ import ua.zentix.airstrike.AirstrikeConfig;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.item.DesignatorItem;
+import ua.zentix.airstrike.launcher.LauncherLinks;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.registry.ModDataComponents;
 import ua.zentix.airstrike.registry.ModSounds;
@@ -204,6 +205,13 @@ public final class Designator {
                 ? Component.translatable("airstrike.hud.loadout.salvo", l.weapon().displayName(), l.count(), l.spread())
                 : Component.translatable("airstrike.hud.loadout", l.weapon().displayName());
         g.drawString(font, weapon.copy().withStyle(ChatFormatting.GOLD), cx - font.width(weapon) / 2, cy + 52, 0xFFFFFFFF);
+        InteractionHand hand = scopingHand();
+        int linked = hand == null || p == null ? 0 : LauncherLinks.of(p.getItemInHand(hand)).size();
+        if (linked > 0) {
+            // ЛКМ ставит задачу привязанным пусковым, а не пускает сам
+            Component assign = Component.translatable("airstrike.hud.assign", linked).withStyle(ChatFormatting.YELLOW);
+            g.drawString(font, assign, cx - font.width(assign) / 2, cy + 64, 0xFFFFFFFF);
+        }
         Component hint = Component.translatable("airstrike.hud.scope_hint").withStyle(ChatFormatting.GRAY);
         g.drawString(font, hint, cx - font.width(hint) / 2, cy - r + 6, 0xFFFFFFFF);
     }

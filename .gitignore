@@ -10,6 +10,4 @@ mod/gm/run/
 mod/gm/logs/
 tools/.sound-cache/
 tools/.trailer-cache/
-pack/*.mrpack
-pack/*.zip
 mod/logs/

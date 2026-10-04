@@ -19,9 +19,6 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemHandlerHelper;
-import net.neoforged.neoforge.items.ItemStackHandler;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.AirstrikeConfig;
@@ -30,6 +27,7 @@ import ua.zentix.airstrike.registry.ModBlockEntities;
 import ua.zentix.airstrike.registry.ModItems;
 import ua.zentix.airstrike.target.Sides;
 import ua.zentix.airstrike.target.Sightings;
+import ua.zentix.airstrike.util.Magazine;
 import ua.zentix.airstrike.util.Terrain;
 
 import java.util.ArrayList;
@@ -56,49 +54,8 @@ public class SamBlockEntity extends BlockEntity {
 
     @Nullable
     private UUID owner;
-    private final ItemStackHandler stock = new ItemStackHandler(SLOTS) {
-        @Override
-        public boolean isItemValid(int slot, ItemStack stack) {
-            return stack.is(ModItems.INTERCEPTOR.get());
-        }
-
-        @Override
-        protected void onContentsChanged(int slot) {
-            setChanged();
-        }
-    };
-    /** Снаружи — только загрузка: воронка под ЗРК не вытаскивает ракеты. */
-    private final IItemHandler loader = new IItemHandler() {
-        @Override
-        public int getSlots() {
-            return stock.getSlots();
-        }
-
-        @Override
-        public ItemStack getStackInSlot(int slot) {
-            return stock.getStackInSlot(slot);
-        }
-
-        @Override
-        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-            return stock.insertItem(slot, stack, simulate);
-        }
-
-        @Override
-        public ItemStack extractItem(int slot, int amount, boolean simulate) {
-            return ItemStack.EMPTY;
-        }
-
-        @Override
-        public int getSlotLimit(int slot) {
-            return stock.getSlotLimit(slot);
-        }
-
-        @Override
-        public boolean isItemValid(int slot, ItemStack stack) {
-            return stock.isItemValid(slot, stack);
-        }
-    };
+    /** Запас ракет: снаружи — только загрузка, воронка под ЗРК не вытаскивает ракеты. */
+    private final Magazine stock = new Magazine(SLOTS, s -> s.is(ModItems.INTERCEPTOR.get()), this::setChanged);
     /** Ракет на направляющих, готовых к пуску. */
     private int ready;
     /** Тиков идёт установка следующей ракеты на направляющую. */
@@ -113,7 +70,7 @@ public class SamBlockEntity extends BlockEntity {
     }
 
     public static void registerCapabilities(RegisterCapabilitiesEvent e) {
-        e.registerBlockEntity(Capabilities.ItemHandler.BLOCK, ModBlockEntities.SAM.get(), (be, side) -> be.loader);
+        e.registerBlockEntity(Capabilities.ItemHandler.BLOCK, ModBlockEntities.SAM.get(), (be, side) -> be.stock.loader());
     }
 
     @Nullable
@@ -133,28 +90,22 @@ public class SamBlockEntity extends BlockEntity {
 
     /** Ракет в запасе. */
     public int stockCount() {
-        int n = 0;
-        for (int i = 0; i < stock.getSlots(); i++) n += stock.getStackInSlot(i).getCount();
-        return n;
+        return stock.count();
     }
 
     /** Положить ракеты в запас; возвращает то, что не влезло. */
     public ItemStack load(ItemStack stack) {
-        return ItemHandlerHelper.insertItem(stock, stack, false);
+        return stock.load(stack);
     }
 
     /** Сигнал компаратора — по заполненности запаса. */
     public int comparator() {
-        return ItemHandlerHelper.calcRedstoneFromInventory(stock);
+        return stock.comparator();
     }
 
     /** Блок сломан или взорван: запас и ракеты с направляющих выпадают. */
     void dropContents(Level level, BlockPos pos) {
-        for (int i = 0; i < stock.getSlots(); i++) {
-            ItemStack s = stock.getStackInSlot(i);
-            if (!s.isEmpty()) Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), s.copy());
-            stock.setStackInSlot(i, ItemStack.EMPTY);
-        }
+        stock.dropAll(level, pos);
         if (ready > 0) Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), new ItemStack(ModItems.INTERCEPTOR.get(), ready));
         ready = 0;
     }

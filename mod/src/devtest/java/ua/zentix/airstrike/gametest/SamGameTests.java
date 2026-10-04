@@ -549,8 +549,9 @@ public final class SamGameTests {
         return p;
     }
 
+    /** Карта игроков сервера по UUID (по ней {@link Sides} узнаёт команду игрока «в сети»). */
     @SuppressWarnings("unchecked")
-    private static Map<UUID, ServerPlayer> playersByUuid(PlayerList list) {
+    static Map<UUID, ServerPlayer> playersByUuid(PlayerList list) {
         try {
             Field f = PlayerList.class.getDeclaredField("playersByUUID");
             f.setAccessible(true);

@@ -14,7 +14,7 @@
 ## Установка
 
 Проще всего играть в сборке «Airstrike Pack» (Create, Create Aeronautics, Distant Horizons, шейдеры): она сама
-обновляется при каждом запуске игры, вместе с Airstrike. Как её поставить — в [pack/README.md](pack/README.md#установка).
+обновляется при каждом запуске игры, вместе с Airstrike. Как её поставить — в [README сборки](https://github.com/zentixua/airstrike-pack#установка).
 Без сборки:
 
 1. Нужны Minecraft 1.21.1 и NeoForge 21.1.250 или новее. Других обязательных модов нет.
@@ -37,7 +37,7 @@
 - [С чего начать](docs/guide/README.md#с-чего-начать) и все клавиши;
 - [пульт наведения](docs/guide/designator.md), [карта наведения](docs/guide/map.md) и [камера снаряда](docs/guide/camera.md);
 - [оружие](docs/guide/weapons.md), [боеприпасы и рецепты](docs/guide/munitions.md), [правила ударов](docs/guide/rules.md);
-- [оборона и ЗРК](docs/guide/defense.md), [ядерный удар](docs/guide/nuke.md), [блэкаут](docs/guide/blackout.md);
+- [оборона и ЗРК](docs/guide/defense.md), [стационарная пусковая](docs/guide/launcher.md), [ядерный удар](docs/guide/nuke.md), [блэкаут](docs/guide/blackout.md);
 - [команды](docs/guide/commands.md), [настройки](docs/guide/settings.md), [вопросы и неполадки](docs/guide/faq.md).
 
 ## Совместимость

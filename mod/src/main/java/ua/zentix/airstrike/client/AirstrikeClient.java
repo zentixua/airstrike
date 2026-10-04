@@ -55,6 +55,7 @@ import ua.zentix.airstrike.client.nuclear.NukeSky;
 import ua.zentix.airstrike.client.render.DebrisRenderer;
 import ua.zentix.airstrike.client.render.DhDepth;
 import ua.zentix.airstrike.client.render.FarModels;
+import ua.zentix.airstrike.client.render.FixedLauncherRenderer;
 import ua.zentix.airstrike.client.render.InterceptorRenderer;
 import ua.zentix.airstrike.client.render.LauncherRenderer;
 import ua.zentix.airstrike.client.render.ScreenProjection;
@@ -74,6 +75,7 @@ import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.ClientHooks;
 import ua.zentix.airstrike.net.S2C;
+import ua.zentix.airstrike.registry.ModBlockEntities;
 import ua.zentix.airstrike.registry.ModBlocks;
 import ua.zentix.airstrike.registry.ModEntities;
 
@@ -142,6 +144,7 @@ public final class AirstrikeClient {
         e.registerEntityRenderer(ModEntities.LAUNCHER.get(), LauncherRenderer::new);
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
         e.registerEntityRenderer(ModEntities.INTERCEPTOR.get(), InterceptorRenderer::new);
+        e.registerBlockEntityRenderer(ModBlockEntities.FIXED_LAUNCHER.get(), FixedLauncherRenderer::new);
     }
 
     /**

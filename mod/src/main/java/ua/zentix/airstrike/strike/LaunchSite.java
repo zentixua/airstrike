@@ -16,7 +16,9 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.compat.SubLevels;
 import ua.zentix.airstrike.entity.flight.ProximityFuse;
+import ua.zentix.airstrike.entity.Launcher;
 import ua.zentix.airstrike.entity.LauncherEntity;
+import ua.zentix.airstrike.entity.LauncherMount;
 import ua.zentix.airstrike.entity.RocketEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
 import ua.zentix.airstrike.guidance.Autopilot;
@@ -216,29 +218,37 @@ public final class LaunchSite {
         return pickOn(level, site, weapon, want, target, maxOff, new Budget());
     }
 
-    /**
-     * Курс на месте {@code site}: первый свободный из предложенных {@code want}, потом повороты от первого не дальше
-     * {@code maxOff}° от курса на цель {@code target}; null — все заняты или вышел предел {@code budget}.
-     */
+    /** Курс прицепа на месте {@code site} ({@link #pickOn(ServerLevel, LauncherMount, Vec3, WeaponType, float[], Vec3, float, Budget)}). */
     @Nullable
     public static Pick pickOn(ServerLevel level, Vec3 site, WeaponType weapon, float[] want, Vec3 target, float maxOff, Budget budget) {
+        return pickOn(level, LauncherMount.TRAILER, site, weapon, want, target, maxOff, budget);
+    }
+
+    /**
+     * Курс пакета на опоре {@code mount} на месте {@code site}: первый свободный из предложенных {@code want}, потом
+     * повороты от первого не дальше {@code maxOff}° от курса на цель {@code target}; null — все заняты или вышел
+     * предел {@code budget}.
+     */
+    @Nullable
+    public static Pick pickOn(ServerLevel level, LauncherMount mount, Vec3 site, WeaponType weapon, float[] want, Vec3 target, float maxOff,
+                              Budget budget) {
         float toTarget = FlightController.anglesTo(site, target)[0];
         for (int i = 0; i < want.length; i++) {
-            if (clearAhead(level, site, want[i], weapon, target, budget)) return new Pick(site, want[i], i);
+            if (clearAhead(level, mount, site, want[i], weapon, target, budget)) return new Pick(site, want[i], i);
             if (budget.out()) return null;
         }
         for (float t : TURNS) {
             float yaw = Mth.wrapDegrees(want[0] + t);
             if (Math.abs(Mth.wrapDegrees(yaw - toTarget)) > maxOff) continue;
-            if (clearAhead(level, site, yaw, weapon, target, budget)) return new Pick(site, yaw, -1);
+            if (clearAhead(level, mount, site, yaw, weapon, target, budget)) return new Pick(site, yaw, -1);
             if (budget.out()) return null;
         }
         return null;
     }
 
     /** Сектор пуска стоящей пусковой (с её нынешним курсом) по цели {@code target} свободен. */
-    public static boolean clearAhead(ServerLevel level, LauncherEntity launcher, Vec3 target, Budget budget) {
-        return clearAhead(level, launcher.position(), launcher.getYRot(), launcher.weapon(), target, budget);
+    public static boolean clearAhead(ServerLevel level, Launcher launcher, Vec3 target, Budget budget) {
+        return clearAhead(level, launcher.mount(), launcher.position(), launcher.yaw(), launcher.weapon(), target, budget);
     }
 
     /** {@link #clearAhead(ServerLevel, Vec3, float, WeaponType, Vec3, Budget)} со своим пределом по умолчанию. */
@@ -246,8 +256,13 @@ public final class LaunchSite {
         return clearAhead(level, site, yaw, weapon, target, new Budget());
     }
 
+    /** Сектор пуска прицепа ({@link #clearAhead(ServerLevel, LauncherMount, Vec3, float, WeaponType, Vec3, Budget)}). */
+    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target, Budget budget) {
+        return clearAhead(level, LauncherMount.TRAILER, site, yaw, weapon, target, budget);
+    }
+
     /**
-     * Сектор пуска пусковой, стоящей в {@code site} с курсом {@code yaw}, свободен — из каждой ячейки пакета: залп идёт
+     * Сектор пуска пусковой на опоре {@code mount}, стоящей в {@code site} с курсом {@code yaw}, свободен — из каждой ячейки пакета: залп идёт
      * со всех, и снаряд, которому блок стоит только на пути его ячейки, разбивается до взведения. Путь снаряда от
      * направляющей до взведения взрывателя ({@link ProximityFuse#ARM_DISTANCE} по горизонтали) не упирается в блоки.
      * У снаряда с разгоном (паспорт, {@code LaunchProfile}) — и его путь носа на разгоне ({@link #boostSweep}: тот же
@@ -263,14 +278,14 @@ public final class LaunchSite {
      * Цена — из предела {@code budget} ({@link Budget}): не помещается — false. Сначала крайние ячейки пакета (путь после
      * разгона, потом разгон), потом средние: в городе чаще упирается длинный луч, а крайние обычно закрывают и средние.
      */
-    public static boolean clearAhead(ServerLevel level, Vec3 site, float yaw, WeaponType weapon, Vec3 target, Budget budget) {
+    public static boolean clearAhead(ServerLevel level, LauncherMount mount, Vec3 site, float yaw, WeaponType weapon, Vec3 target, Budget budget) {
         float elevation = LauncherEntity.elevation(weapon);
         WeaponSpec.Airframe air = weapon.spec().airframe();
         WeaponSpec.LaunchProfile lp = air.launchProfile();
         int slots = LauncherEntity.slots(weapon);
         List<List<Vec3[]>> boost = new ArrayList<>(slots), paths = new ArrayList<>(slots);
         for (int slot = 0; slot < slots; slot++) {
-            Vec3 rail = LauncherEntity.railPoint(site, yaw, weapon, slot);
+            Vec3 rail = mount.railPoint(site, yaw, weapon, slot);
             List<Vec3> path = new ArrayList<>();
             path.add(rail);
             if (lp != null) {

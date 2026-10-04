@@ -357,7 +357,7 @@ public final class MunitionGameTests {
 
     /** Снарядов в инвентаре (у пакета — по пакетам). */
     static int held(FakePlayer p, Item item) {
-        return Munitions.held(p.getInventory(), item, Munitions.perItem(item));
+        return Munitions.held(Munitions.of(p).items(), item, Munitions.perItem(item));
     }
 
     private static int count(FakePlayer p, Item item) {

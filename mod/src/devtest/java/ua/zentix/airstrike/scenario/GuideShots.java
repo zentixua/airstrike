@@ -63,7 +63,7 @@ import java.util.function.Supplier;
  */
 final class GuideShots {
     private static final String[] RECIPES = {"strike_designator", "shahed", "lancet", "cruise_missile", "grad_rockets", "bunker_buster",
-            "nuclear_warhead", "icbm", "sam", "interceptor", "substation"};
+            "nuclear_warhead", "icbm", "sam", "interceptor", "substation", "fixed_launcher"};
     /** Кадров GIF в секунду: шаг сценария идёт по кадрам, поэтому GIF ровный при любом fps клиента без окна. */
     private static final int FPS = 12;
     /** Сколько ждать, пока Distant Horizons (если стоит) посчитает рельеф вокруг (с входа в мир), тиков. */
@@ -167,13 +167,14 @@ final class GuideShots {
         if (only("camera")) camera();
         if (only("loiter")) loiter();
         if (only("sam")) sam();
+        if (only("launcher")) launcher();
         run(() -> {
             Airstrike.LOG.info("SCENARIO done");
             mc.stop();
         });
     }
 
-    /** Разделы съёмки из {@code airstrike.guide} (через запятую: recipes, scope, remote, map, hud, camera, loiter, sam); без него — все. */
+    /** Разделы съёмки из {@code airstrike.guide} (через запятую: recipes, scope, remote, map, hud, camera, loiter, sam, launcher); без него — все. */
     private static boolean only(String section) {
         String list = System.getProperty("airstrike.guide");
         return list == null || List.of(list.split(",")).contains(section);
@@ -450,6 +451,43 @@ final class GuideShots {
             shot("sam-" + i);
         }
         until("попаданий", 1200, () -> ClientFlights.all().isEmpty());
+    }
+
+    /**
+     * Стационарная пусковая на расчищенной площадке по другую сторону от зрителя, чем ЗРК: задача — крылатая ракета
+     * по деревне, в запасе 4. Кадр — пакет, повёрнутый к цели, и строка состояния (ПКМ пустой рукой); дальше — пуск
+     * по команде, как по сигналу редстоуна.
+     */
+    private void launcher() {
+        BlockPos[] pad = new BlockPos[1];
+        run(() -> onServer(server -> {
+            Vec3 at = view.add(across.scale(-12));
+            pad[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
+        }));
+        until("места пусковой", 100, () -> pad[0] != null);
+        run(() -> {
+            BlockPos s = pad[0];
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", s.getX() - 8, s.getY(), s.getZ() - 8, s.getX() + 8, s.getY() + 30, s.getZ() + 8));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", s.getX() - 8, s.getY() - 1, s.getZ() - 8, s.getX() + 8, s.getY() - 1, s.getZ() + 8));
+            setblock(s, "airstrike:fixed_launcher");
+            cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d mission missile 1 0 %.1f %.1f %.1f", s.getX(), s.getY(), s.getZ(), village.x, village.y, village.z));
+            cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d load 4", s.getX(), s.getY(), s.getZ()));
+            Vec3 c = Vec3.atBottomCenterOf(s);
+            stand(c.subtract(along.scale(7)).add(across.scale(-6)), c.add(along.scale(3)).add(0, 2, 0));
+            mc.player.getInventory().selected = 8;
+        });
+        // пакет доворачивается к цели
+        await(100);
+        run(() -> mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND,
+                new BlockHitResult(Vec3.atCenterOf(pad[0]).add(0, 0.5, 0), Direction.UP, pad[0], false)));
+        await(10);
+        shot("launcher");
+        run(() -> cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d fire", pad[0].getX(), pad[0].getY(), pad[0].getZ())));
+        for (int i = 0; i < 80; i++) {
+            await(4);
+            shot("launcher-" + i);
+        }
+        until("попадания ракеты", 2400, () -> ClientFlights.all().isEmpty());
     }
 
     // ---------------------------------------------------------------- место съёмки

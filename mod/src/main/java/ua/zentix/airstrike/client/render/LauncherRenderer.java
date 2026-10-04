@@ -9,9 +9,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.InventoryMenu;
 import org.joml.Quaternionf;
+import ua.zentix.airstrike.entity.Launcher;
 import ua.zentix.airstrike.entity.LauncherEntity;
 
-/** Пусковая: прицеп по курсу и пакет, поднимающийся на угол возвышения вокруг своей оси. */
+/** Мобильная пусковая: прицеп по курсу и пакет, поднимающийся на угол возвышения вокруг своей оси. */
 public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
     public LauncherRenderer(EntityRendererProvider.Context ctx) {
         super(ctx);
@@ -20,20 +21,29 @@ public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
 
     @Override
     public void render(LauncherEntity e, float entityYaw, float partialTick, PoseStack pose, MultiBufferSource buffers, int packedLight) {
-        float elev = e.deployedElevation(e.level().getGameTime(), partialTick);
         pose.pushPose();
         pose.mulPose(new Quaternionf().rotationY(-e.getYRot() * Mth.DEG_TO_RAD));
         LaunchModels.TRAILER.render(pose, buffers, packedLight);
-        pose.translate(0, LauncherEntity.PIVOT_UP, -LauncherEntity.PIVOT_BACK);
-        pose.mulPose(new Quaternionf().rotationX(-elev * Mth.DEG_TO_RAD));
-        switch (e.rack()) {
+        renderRack(e, e.level().getGameTime(), partialTick, pose, buffers, packedLight);
+        pose.popPose();
+        super.render(e, entityYaw, partialTick, pose, buffers, packedLight);
+    }
+
+    /**
+     * Пакет пусковой {@code l} на его опоре, поднятый на нынешний угол: поза — место пусковой, уже повёрнутое по её
+     * курсу (прицеп и стационарная пусковая рисуют пакет одинаково).
+     */
+    public static void renderRack(Launcher l, long gameTime, float partialTick, PoseStack pose, MultiBufferSource buffers, int packedLight) {
+        pose.pushPose();
+        pose.translate(0, l.mount().up, -l.mount().back);
+        pose.mulPose(new Quaternionf().rotationX(-l.deployedElevation(gameTime, partialTick) * Mth.DEG_TO_RAD));
+        switch (l.rack()) {
             case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, packedLight);
             case ROCKET -> WeaponModels.Mesh.ROCKET_RACK.draw(pose, buffers, packedLight);
             case LOITER -> LaunchModels.LOITER_RACK.render(pose, buffers, packedLight);
             case DRONE -> LaunchModels.DRONE_RACK.render(pose, buffers, packedLight);
         }
         pose.popPose();
-        super.render(e, entityYaw, partialTick, pose, buffers, packedLight);
     }
 
     @Override

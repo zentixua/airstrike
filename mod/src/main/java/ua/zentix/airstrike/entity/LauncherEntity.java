@@ -8,7 +8,6 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
@@ -19,7 +18,6 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.registry.ModEntities;
 import ua.zentix.airstrike.strike.WeaponType;
-import ua.zentix.airstrike.util.Local;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -34,18 +32,15 @@ import java.util.UUID;
  * Пусковая на месте пуска из приказа ({@code /airstrike salvo … from x z}, {@link #ordered}) стоит там, куда её
  * поставили, до «Отбоя» или удара: лишней у владельца она не считается ({@code LaunchSite.deploy}).
  */
-public class LauncherEntity extends Entity {
+public class LauncherEntity extends Entity implements Launcher {
     private static final EntityDataAccessor<Byte> DATA_WEAPON = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.BYTE);
     private static final EntityDataAccessor<Long> DATA_DEPLOYED = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.LONG);
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.OPTIONAL_UUID);
 
     /** Сколько тиков пакет поднимается на угол возвышения. */
     public static final int DEPLOY_TICKS = 40;
-    /** Высота оси качания пакета над землёй и её вынос назад от центра прицепа. */
-    public static final double PIVOT_UP = 1.6, PIVOT_BACK = 2.2;
 
-    private long[] slotFreeAt = new long[0];
-    private long lastStart = Long.MIN_VALUE / 2;
+    private final LaunchQueue queue = new LaunchQueue();
     /** Стоит на месте пуска из приказа, а не у стреляющего (только сервер: клиенту не нужно). */
     private boolean ordered;
 
@@ -63,10 +58,10 @@ public class LauncherEntity extends Entity {
         l.entityData.set(DATA_WEAPON, (byte) weapon.id());
         l.entityData.set(DATA_DEPLOYED, level.getGameTime());
         l.entityData.set(DATA_OWNER, Optional.ofNullable(owner));
-        l.slotFreeAt = new long[slots(weapon)];
         return l;
     }
 
+    @Override
     public WeaponType weapon() {
         return WeaponType.byId(entityData.get(DATA_WEAPON));
     }
@@ -86,42 +81,34 @@ public class LauncherEntity extends Entity {
         return p.weapon() == weapon() && Objects.equals(p.ownerId(), ownerId());
     }
 
+    @Override
+    public float yaw() {
+        return getYRot();
+    }
+
+    @Override
+    public LauncherMount mount() {
+        return LauncherMount.TRAILER;
+    }
+
+    @Override
     public long deployedAt() {
         return entityData.get(DATA_DEPLOYED);
     }
 
-    /** Сколько тиков ещё поднимается пакет (0 — поднят). */
-    public int raisingTicks(long now) {
-        return (int) Math.max(0, deployedAt() + DEPLOY_TICKS - now);
+    @Override
+    public LaunchQueue queue() {
+        return queue;
     }
 
-    /**
-     * Пакет пусковой оружия (паспорт, {@code WeaponSpec#rack}); у оружия без пусковой у игрока (B-2, МБР — такой
-     * пусковой не бывает, разве что из чужого сохранения) — пакет шахедов.
-     */
+    /** Пакет пусковой оружия ({@link LauncherRack#of}). */
     public static LauncherRack rack(WeaponType weapon) {
-        LauncherRack rack = weapon.spec().rack();
-        return rack != null ? rack : LauncherRack.DRONE;
-    }
-
-    public LauncherRack rack() {
-        return rack(weapon());
+        return LauncherRack.of(weapon);
     }
 
     /** Угол возвышения направляющей (паспорт): шахеды 15°, катапульта барражирующих 20°, ракеты 40°, трубы РСЗО 50°. */
     public static float elevation(WeaponType weapon) {
         return rack(weapon).elevation();
-    }
-
-    public float elevation() {
-        return elevation(weapon());
-    }
-
-    /** Текущий угол пакета с учётом подъёма (клиент рисует по нему). */
-    public float deployedElevation(long gameTime, float partialTick) {
-        float t = Mth.clamp((gameTime - deployedAt() + partialTick) / DEPLOY_TICKS, 0, 1);
-        float eased = t * t * (3 - 2 * t);
-        return elevation() * eased;
     }
 
     public static int slots(WeaponType weapon) {
@@ -132,19 +119,9 @@ public class LauncherEntity extends Entity {
     public static final int ROCKET_COLUMNS = 10, ROCKET_ROWS = 4;
     public static final float TUBE_PITCH = 0.3f, TUBE_LENGTH = 3.2f;
 
-    /**
-     * Точка ячейки на направляющей (центр снаряда) в координатах мира, при полном подъёме пакета.
-     * Ось пакета — поперечная, в {@link #PIVOT_UP} над землёй и {@link #PIVOT_BACK} позади центра прицепа.
-     */
-    public Vec3 railPoint(int slot) {
-        return railPoint(position(), getYRot(), weapon(), slot);
-    }
-
-    /** Центр снаряда на направляющей {@code slot} у пусковой оружия {@code weapon}, стоящей в {@code pos} с курсом {@code yaw}. */
+    /** Центр снаряда на направляющей {@code slot} у прицепа оружия {@code weapon}, стоящего в {@code pos} с курсом {@code yaw}. */
     public static Vec3 railPoint(Vec3 pos, float yaw, WeaponType weapon, int slot) {
-        Vec3 pivot = Local.at(pos, yaw, 0, 0, PIVOT_UP, -PIVOT_BACK);
-        double[] at = rack(weapon).slotOffset(slot);
-        return Local.at(pivot, yaw, -elevation(weapon), at[0], at[1], at[2]);
+        return LauncherMount.TRAILER.railPoint(pos, yaw, weapon, slot);
     }
 
     /** Направляющие барражирующих: три внизу, два сверху (0.83 м между осями). */
@@ -161,31 +138,8 @@ public class LauncherEntity extends Entity {
         return rack(weapon).spacing();
     }
 
-    /**
-     * Занять ячейку под пуск.
-     *
-     * @param busyTicks сколько тиков снаряд простоит в ячейке после готовности (поджиг и сход)
-     * @return [ячейка, через сколько тиков поджиг] — не раньше, чем пакет поднимется и освободится ячейка
-     */
-    public int[] reserve(long now, int minReady, int busyTicks) {
-        if (slotFreeAt.length != slots(weapon())) slotFreeAt = new long[slots(weapon())];
-        int best = 0;
-        for (int i = 1; i < slotFreeAt.length; i++) {
-            if (slotFreeAt[i] < slotFreeAt[best]) best = i;
-        }
-        long deployDone = deployedAt() + DEPLOY_TICKS + 5;
-        long start = Math.max(now + minReady, Math.max(slotFreeAt[best], deployDone));
-        // пуски, заказанные, пока пакет поднимался, не срываются разом: очередь с интервалом
-        start = Math.max(start, lastStart + spacing(weapon()));
-        lastStart = start;
-        slotFreeAt[best] = start + busyTicks;
-        return new int[]{best, (int) (start - now)};
-    }
-
-    /**
-     * Довернуть пакет на новую цель (РСЗО, барражирующие): если курс отличается больше чем на 15° и установка молчит —
-     * пакет опускается, прицеп поворачивается, пакет поднимается снова (пуски ждут подъёма).
-     */
+    /** Прицеп поворачивается целиком. */
+    @Override
     public void turnTo(float yaw, long now) {
         if (turnedYaw(yaw, now) == getYRot()) return;
         setYRot(yaw);
@@ -193,17 +147,12 @@ public class LauncherEntity extends Entity {
         entityData.set(DATA_DEPLOYED, now);
     }
 
-    /** Курс пакета после {@link #turnTo}{@code (yaw, now)}: прежний, если доворачивать не нужно или установка не молчит. */
-    public float turnedYaw(float yaw, long now) {
-        return Math.abs(Mth.wrapDegrees(yaw - getYRot())) <= 15 || now < lastStart + 20 ? getYRot() : yaw;
-    }
-
     @Override
     public void tick() {
         super.tick();
         if (level().isClientSide && level().getGameTime() - deployedAt() < DEPLOY_TICKS) {
             // гидравлика поднимает пакет: пыхтит сизым паром у оси
-            Vec3 pivot = Local.at(position(), getYRot(), 0, 0, PIVOT_UP - 0.6, -PIVOT_BACK);
+            Vec3 pivot = mount().pivot(position(), getYRot()).subtract(0, 0.6, 0);
             if (random.nextInt(3) == 0) level().addParticle(ParticleTypes.CLOUD, pivot.x, pivot.y, pivot.z, 0, 0.02, 0);
         }
     }
@@ -257,7 +206,6 @@ public class LauncherEntity extends Entity {
         entityData.set(DATA_DEPLOYED, tag.getLong("deployed"));
         entityData.set(DATA_OWNER, tag.hasUUID("owner") ? Optional.of(tag.getUUID("owner")) : Optional.empty());
         ordered = tag.getBoolean("ordered");
-        slotFreeAt = new long[slots(weapon())];
     }
 
     @Override

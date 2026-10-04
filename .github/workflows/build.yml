@@ -1,9 +1,9 @@
 # Сборка, юнит-тесты и GameTest (сервер с Create, Sable, Aeronautics с Modrinth); jar — в артефактах запуска.
 # Мод ведущего (mod/gm, только сервер) собирается той же сборкой, его GameTest — в задаче сборки.
 # Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
-# мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком; правка сборки
-# (pack/) — только её файлы для Prism (.mrpack и экземпляр с автообновлением). GameTest идёт
+# мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком. GameTest идёт
 # частями на шести машинах сразу (devtest GameTestShards), сборка и юнит-тесты — рядом. Итог всех проверок — «Итог».
+# Сборка «Airstrike Pack» — в своём репозитории zentixua/airstrike-pack.
 # Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
 # проверка целиком, после неё — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
@@ -38,7 +38,6 @@ jobs:
     outputs:
       mod: ${{ steps.diff.outputs.mod }}
       rig: ${{ steps.diff.outputs.rig }}
-      pack: ${{ steps.diff.outputs.pack }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -54,29 +53,27 @@ jobs:
             *) base= ;;
           esac
           if [ -z "$base" ]; then
-            mod=true; rig=true; pack=true
+            mod=true; rig=true
             echo "Проверка целиком ($GITHUB_EVENT_NAME)" >> "$GITHUB_STEP_SUMMARY"
           else
-            mod=false; rig=false; pack=false
+            mod=false; rig=false
             # --no-renames: перенос из mod/ — это и удаление в mod/
             files=$(git diff --name-only --no-renames "$base" HEAD)
             while IFS= read -r f; do
               case "$f" in
                 '') ;;
-                mod/*|tools/fetch_runtime_mods.py) mod=true ;;
-                tools/paths.py) mod=true; pack=true ;;
+                mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
                 tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
-                .github/*) mod=true; rig=true; pack=true ;;
-                pack/*|tools/prism_instance.py) pack=true ;;
-                tools/*|docs/*|*.md|.claude/*|.gitignore) ;;
+                .github/*) mod=true; rig=true ;;
+                # pack/ — прежний адрес сборки, заморожен до перевода всех экземпляров на zentixua/airstrike-pack
+                tools/*|docs/*|*.md|.claude/*|.gitignore|pack/*) ;;
                 *) mod=true ;;
               esac
             done <<< "$files"
-            { echo "Мод (сборка, юнит-тесты, GameTest): $mod; остановка проверок: $rig; сборка модов: $pack"; echo; echo '```'; echo "$files"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo "Мод (сборка, юнит-тесты, GameTest): $mod; остановка проверок: $rig"; echo; echo '```'; echo "$files"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "mod=$mod" >> "$GITHUB_OUTPUT"
           echo "rig=$rig" >> "$GITHUB_OUTPUT"
-          echo "pack=$pack" >> "$GITHUB_OUTPUT"
 
   build:
     name: Сборка и юнит-тесты
@@ -191,52 +188,10 @@ jobs:
         timeout-minutes: 2
         run: tools/test_rig_procs.sh
 
-  # своя сборка (pack/, packwiz): индекс свежий, файлы для лаунчера собираются — .mrpack и экземпляр Prism, который
-  # ставит сборку с main сам при каждом запуске (tools/prism_instance.py); оба — в артефактах запуска
-  pack:
-    name: Сборка модов
-    needs: changes
-    if: needs.changes.outputs.pack == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: pack
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.24'
-          cache: false
-
-      - name: packwiz
-        run: go install github.com/packwiz/packwiz@v0.0.0-20260906154125-ef87d964f8cb
-
-      # .pw.toml правят руками или packwiz; индекс с их хешами должен быть пересчитан тем же коммитом
-      - name: Индекс свежий
-        run: |
-          packwiz refresh
-          git diff --exit-code -- .
-
-      - name: Файл для лаунчера
-        run: packwiz mr export -o "airstrike-pack-$(sed -n 's/^version = "\(.*\)"$/\1/p' pack.toml).mrpack"
-
-      - name: Экземпляр Prism с автообновлением
-        run: python3 ../tools/prism_instance.py "Airstrike Pack.zip"
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: airstrike-pack
-          path: |
-            pack/*.mrpack
-            pack/Airstrike Pack.zip
-          if-no-files-found: error
-
   # одна отметка на коммит: всё, что изменение требовало, прошло; ненужное пропущено
   ci:
     name: Итог
-    needs: [changes, build, gametest, rig, pack]
+    needs: [changes, build, gametest, rig]
     # и после упавших, пропущенных и отменённых: пропущенная задача засчитывается успехом, и «Итог», пропущенный
     # в отменённом прогоне, был бы зелёным без сборки и GameTest — поэтому в отменённом прогоне он идёт и падает
     if: always()
@@ -245,7 +200,7 @@ jobs:
     steps:
       - name: Нужные проверки прошли
         run: |
-          echo 'что изменилось: ${{ needs.changes.result }}; сборка: ${{ needs.build.result }}; GameTest: ${{ needs.gametest.result }}; остановка проверок: ${{ needs.rig.result }}; сборка модов: ${{ needs.pack.result }}'
+          echo 'что изменилось: ${{ needs.changes.result }}; сборка: ${{ needs.build.result }}; GameTest: ${{ needs.gametest.result }}; остановка проверок: ${{ needs.rig.result }}'
           [ '${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}' = false ]
 
   release:

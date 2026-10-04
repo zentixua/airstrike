@@ -45,6 +45,7 @@
 | `launch.designator_for_everyone` | вкл | пульт работает у всех игроков, а не только у операторов |
 | `launch.max_salvo`, `max_spread` | 30, 150 | наибольший залп и разброс |
 | `launch.map_range` | 10000 | дальность удара по карте, блоков |
+| `launch.max_active_per_player` | 0 | сколько снарядов одного игрока может быть в полёте и в очереди залпов; 0 — без предела |
 | `launch.sight_rules`, `sight_memory` | вкл, 30 | разведка: бить только по замеченным; сколько секунд помнится замеченное |
 | `launch.map_players` | вкл | игроки на карте пульта |
 | `launch.drone_flight_time`, `missile_flight_time`, `bomber_flight_time` | 50, 30, 40 | время полёта до удара, секунд |
