@@ -74,10 +74,8 @@ paths:
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
-  pack/                                  ← зеркало сборки zentixua/airstrike-pack для экземпляров со старым адресом:
-                                           копирует .github/workflows/pack-mirror.yml, руками не править
+  pack/                                  ← прежний адрес сборки, заморожен: сама сборка — zentixua/airstrike-pack
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
-  .github/workflows/pack-mirror.yml      ← зеркало pack/ из airstrike-pack: каждые 15 минут и вручную, коммит — только при изменении
   docs/releases/<версия>.md              ← заметки к релизу
 ```
