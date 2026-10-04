@@ -82,12 +82,12 @@ public final class PursuitGameTests {
         StrikeGameTests.afterTest(h, () -> level.removePlayerImmediately(victim, Entity.RemovalReason.DISCARDED));
 
         ServerActions.Aim atVictim = ServerActions.atPlayer(victim);
-        ServerActions.Aim seen = ServerActions.sighted(shooter, atVictim, v -> Sight.sees(shooter, v));
+        ServerActions.Aim seen = ServerActions.sighted(shooter, atVictim, t -> Sight.sees(shooter, victim));
         h.assertTrue(seen != null && seen.target() instanceof Target.Sighted s && s.quarry().equals(atVictim.target())
                 && s.seen().equals(atVictim.point()), "по видимому игроку — не замеченная цель: " + (seen == null ? null : seen.target()));
 
         for (int z = 0; z < 8; z++) for (int y = 1; y < 5; y++) h.setBlock(new BlockPos(4, y, z), Blocks.STONE);
-        h.assertTrue(ServerActions.sighted(shooter, atVictim, v -> Sight.sees(shooter, v)) == null, "по игроку за стеной приказ принят");
+        h.assertTrue(ServerActions.sighted(shooter, atVictim, t -> Sight.sees(shooter, victim)) == null, "по игроку за стеной приказ принят");
 
         Cow cow = h.spawn(EntityType.COW, new BlockPos(2, 1, 6));
         ServerActions.Aim atCow = new ServerActions.Aim(Target.OfEntity.center(cow), cow.getBoundingBox().getCenter(), Component.literal("cow"));

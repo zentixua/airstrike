@@ -35,6 +35,7 @@ import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightStatus;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.work.StallWatch;
 import ua.zentix.airstrike.work.WorkScheduler;
@@ -71,6 +72,7 @@ public final class Airstrike {
 
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(Sightings::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
         // после того как мод снял свои тикеты и работу: генерация, начатая до выхода, доходит до конца (иначе цикл выгрузки висит)

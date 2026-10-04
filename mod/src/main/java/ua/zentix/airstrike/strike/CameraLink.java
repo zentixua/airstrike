@@ -21,7 +21,7 @@ import java.util.UUID;
  * <p>
  * По этому виду снаряд с камерой ({@link WeaponSpec.Tracking#CAMERA}) идёт за замеченной целью
  * ({@link Target.Sighted}): только пока оператор держит её в кадре ({@link #holds}). Вид у игрока один — и ведомый
- * снаряд у него один.
+ * снаряд у него один. Тот же вид замечает чужих за сторону оператора ({@code target.Sightings}).
  *
  * @param projectile снаряд, с борта которого смотрит оператор
  * @param look       куда смотрит камера, единичный вектор
@@ -48,6 +48,19 @@ public record CameraLink(UUID projectile, Vec3 look, long tick) {
                 player.serverLevel().getGameTime())));
     }
 
+    /** Вид игрока {@code player}, если он смотрит с борта своего снаряда сейчас: пакет пришёл не раньше {@link #FRESH} тиков назад. */
+    public static Optional<CameraLink> current(ServerPlayer player) {
+        long now = player.serverLevel().getGameTime();
+        return player.getData(ModAttachments.CAMERA_LINK).filter(v -> now - v.tick <= FRESH);
+    }
+
+    /** Точка {@code at} в кадре этого вида с борта снаряда в точке {@code eye} и не дальше {@link #REACH}. */
+    public boolean frames(Vec3 eye, Vec3 at) {
+        Vec3 to = at.subtract(eye);
+        double distance = to.length();
+        return distance <= REACH && (distance <= 1e-6 || to.dot(look) >= distance * FRAME_COS);
+    }
+
     /**
      * Оператор снаряда {@code p} держит цель {@code subject} в её точке {@code at} в кадре камеры этого снаряда: смотрит
      * с его борта сейчас, точка в кадре и не дальше {@link #REACH}, его клиент её получает ({@link Sight#within}), а
@@ -62,12 +75,9 @@ public record CameraLink(UUID projectile, Vec3 look, long tick) {
     /** То же для уже найденного оператора {@code operator} в мире снаряда (см. {@link #holds(ServerLevel, StrikeProjectile, Target, Vec3)}). */
     public static boolean holds(ServerPlayer operator, StrikeProjectile p, Target subject, Vec3 at) {
         ServerLevel level = operator.serverLevel();
-        Optional<CameraLink> view = operator.getData(ModAttachments.CAMERA_LINK);
-        if (view.isEmpty() || !view.get().projectile.equals(p.getUUID()) || level.getGameTime() - view.get().tick > FRESH) return false;
+        Optional<CameraLink> view = current(operator);
         Vec3 eye = p.getEyePosition();
-        Vec3 to = at.subtract(eye);
-        double distance = to.length();
-        if (distance > REACH || distance > 1e-6 && to.dot(view.get().look) < distance * FRAME_COS) return false;
+        if (view.isEmpty() || !view.get().projectile.equals(p.getUUID()) || !view.get().frames(eye, at)) return false;
         if (!Sight.within(operator, at)) return false;
         return switch (subject) {
             case Target.OfEntity e -> {
