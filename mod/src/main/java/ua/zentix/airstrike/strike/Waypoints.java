@@ -14,7 +14,8 @@ import java.util.List;
  * держит сам снаряд). Пусто — путь строит пуск ({@link StrikeService}): петля в обход и заход из-за спины стреляющего.
  * По точкам летит оружие, у которого в паспорте есть дальность маршрута ({@link WeaponSpec.Route#reach}): шахед,
  * крылатая ракета и «Ланцет». Точек не больше {@link #MAX}; что они годятся (конечные числа, в дальности карты, путь
- * в дальности оружия), проверяет сервер ({@code ServerActions}).
+ * в дальности оружия), проверяет сервер ({@code ServerActions.routeProblem}). Те же точки задаёт и команда
+ * ({@code /airstrike salvo … via x z …}).
  */
 public record Waypoints(List<Vec3> points) {
     /** Больше точек на маршруте не бывает. */
@@ -38,11 +39,6 @@ public record Waypoints(List<Vec3> points) {
 
     public int size() {
         return points.size();
-    }
-
-    /** Все координаты — конечные числа: NaN проходит любые сравнения дальности, бесконечность ломает чанки. */
-    public boolean finite() {
-        return points.stream().allMatch(p -> Double.isFinite(p.x) && Double.isFinite(p.z));
     }
 
     /** Путь от {@code from} через точки до {@code to} по горизонтали, блоков. */

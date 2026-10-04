@@ -193,7 +193,7 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * Длина пути от игрока через точки маршрута до цели — та же, что проверит сервер ({@code ServerActions.routeFits}).
+     * Длина пути от игрока через точки маршрута до цели — та же, что проверит сервер ({@code ServerActions.routeProblem}).
      * Пусто — маршрута нет, оружие по нему не летает или цель не известна.
      */
     private Optional<Double> routeLength() {

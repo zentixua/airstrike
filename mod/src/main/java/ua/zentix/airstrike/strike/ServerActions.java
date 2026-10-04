@@ -24,6 +24,7 @@ import ua.zentix.airstrike.entity.DebrisEntity;
 import ua.zentix.airstrike.entity.LauncherEntity;
 import ua.zentix.airstrike.entity.SpentBoosterEntity;
 import ua.zentix.airstrike.entity.StrikeProjectile;
+import ua.zentix.airstrike.guidance.FlightController;
 import ua.zentix.airstrike.item.DesignatorItem;
 import ua.zentix.airstrike.net.C2S;
 import ua.zentix.airstrike.net.S2C;
@@ -71,34 +72,54 @@ public final class ServerActions {
 
         Loadout l = p.loadout();
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
-        if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
+        if (aim == null) return;
+        MutableComponent problem = routeProblem(player.serverLevel(), player, true, l.weapon(), null, p.via(), aim.point());
+        if (problem != null) {
+            player.displayClientMessage(problem.withStyle(ChatFormatting.RED), true);
+            return;
+        }
         // пульт — по правилам игрока у всех, и у операторов: приказ оплачивается боеприпасами
-        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), true);
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), null, true);
     }
 
     /**
-     * Маршрут оператора годится ({@link Waypoints}): оружие летает по точкам, точки там же, где можно выбрать место
-     * на карте ({@link #groundInRange}), и путь от игрока через них до цели не длиннее дальности оружия по маршруту
-     * (паспорт, {@link WeaponSpec.Route#reach}). Иначе — строка игроку, пуска нет. Без точек — годится.
+     * Что не так с местом пуска {@code from} и маршрутом оператора {@code via} ({@link Waypoints}) приказа по точке
+     * {@code aim}; null — годятся (и когда их нет). Место пуска и точки — конечные числа в границах мира, а по правилам
+     * ({@code rules}: пульт, команда игрока без прав оператора) точки — там же, где можно выбрать место на карте
+     * стреляющего ({@link #groundInRange}); место пуска задаёт только приказ без правил (команда оператора, консоль).
+     * По точкам летает не всякое оружие ({@link WeaponSpec.Route#waypoints}), и путь через них до цели не длиннее его
+     * дальности по маршруту (паспорт, {@link WeaponSpec.Route#reach}) — от места пуска, без него от стреляющего, а у
+     * консоли — от первой точки (снаряд издалека появляется перед ней).
+     *
+     * @param shooter игрок, отдавший приказ; null — консоль или командный блок
      */
-    public static boolean routeFits(ServerPlayer player, WeaponType weapon, Waypoints via, Aim aim) {
-        if (via.isEmpty()) return true;
+    @Nullable
+    public static MutableComponent routeProblem(ServerLevel level, @Nullable ServerPlayer shooter, boolean rules, WeaponType weapon,
+                                                @Nullable Vec3 from, Waypoints via, Vec3 aim) {
+        if (from != null && !inWorld(level, from)) return outsideWorld(from);
+        if (via.isEmpty()) return null;
         WeaponSpec.Route route = weapon.spec().route();
-        if (!route.waypoints()) {
-            player.displayClientMessage(Component.translatable("airstrike.route.unsupported", weapon.displayName()).withStyle(ChatFormatting.RED), true);
-            return false;
+        if (!route.waypoints()) return Component.translatable("airstrike.route.unsupported", weapon.displayName());
+        for (Vec3 q : via.points()) {
+            if (!inWorld(level, q)) return outsideWorld(q);
+            if (rules && shooter != null && !groundInRange(shooter, q.x, q.z)) {
+                return Component.translatable("airstrike.route.out_of_range", AirstrikeConfig.SERVER.mapRange.get());
+            }
         }
-        if (!via.finite() || via.points().stream().anyMatch(q -> !groundInRange(player, q.x, q.z))) {
-            player.displayClientMessage(Component.translatable("airstrike.route.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
-                    .withStyle(ChatFormatting.RED), true);
-            return false;
+        Vec3 start = from != null ? from : shooter != null ? shooter.position() : via.points().getFirst();
+        if (!via.within(weapon, start, aim)) {
+            return Component.translatable("airstrike.route.too_long", weapon.displayName(), kilometres(via.length(start, aim)), kilometres(route.reach()));
         }
-        if (!via.within(weapon, player.position(), aim.point())) {
-            player.displayClientMessage(Component.translatable("airstrike.route.too_long", weapon.displayName(), kilometres(via.length(player.position(), aim.point())),
-                    kilometres(route.reach())).withStyle(ChatFormatting.RED), true);
-            return false;
-        }
-        return true;
+        return null;
+    }
+
+    /** Конечные координаты в границах мира (NaN проходит любые сравнения дальности, бесконечность ломает чанки). */
+    private static boolean inWorld(ServerLevel level, Vec3 q) {
+        return Double.isFinite(q.x) && Double.isFinite(q.z) && level.getWorldBorder().isWithinBounds(q.x, q.z);
+    }
+
+    private static MutableComponent outsideWorld(Vec3 q) {
+        return Component.translatable("airstrike.route.outside_world", Mth.floor(q.x), Mth.floor(q.z));
     }
 
     /** Километры с одним знаком — для строк игроку (точка, а не запятая русской локали: строка из перевода). */
@@ -241,8 +262,8 @@ public final class ServerActions {
     }
 
     /**
-     * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
-     * один снаряд точно в цель или залп — после проверки прав.
+     * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, с места пуска {@code from} или
+     * у него — уже проверенным {@link #routeProblem}): один снаряд точно в цель или залп — после проверки прав.
      *
      * @param rules приказ по правилам игроков: с пульта — всегда (и у операторов), командой — у игрока без прав оператора:
      *              цель не дальше {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #sighted}); приказ
@@ -251,7 +272,7 @@ public final class ServerActions {
      * @return true, если пуск состоялся
      */
     public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via,
-                                 boolean rules) {
+                                 @Nullable Vec3 from, boolean rules) {
         if (rules) {
             if (!withinMapRange(player, aim.point().x, aim.point().z)) {
                 player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
@@ -279,11 +300,12 @@ public final class ServerActions {
         Munitions.Bill bill = rules && !player.hasInfiniteMaterials() ? Munitions.Bill.of(l) : null;
         if (bill != null && !Munitions.pay(player, bill)) return false;
         if (aim.label() != null) player.sendSystemMessage(locked(weapon, aim).withStyle(ChatFormatting.GOLD));
-        // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с
+        // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с (места пуска у такого приказа нет:
+        // его задаёт только оператор, а приказ оператора идёт без правил)
         if (l.nuclear() && rules && !NuclearKeys.trusted(player)) {
             return NuclearKeys.order(player, player.server.getPlayerList().getPlayers(), l, aim, via, bill);
         }
-        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, bill);
+        return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, from, bill);
     }
 
     /**
@@ -358,13 +380,14 @@ public final class ServerActions {
     }
 
     /**
-     * Пустить без игрока — от консоли или командного блока ({@code who} — для лога): заход по курсу {@code yaw}.
-     * Права проверяет сама команда.
+     * Пустить без игрока — от консоли или командного блока ({@code who} — для лога): заход по курсу {@code yaw}, по
+     * точкам {@code via} и с места пуска {@code from}, уже проверенным {@link #routeProblem}. Права проверяет сама команда.
      *
      * @return true, если пуск состоялся
      */
-    public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke) {
-        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, Waypoints.NONE, null);
+    public static boolean dispatch(ServerLevel level, String who, float yaw, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke,
+                                   Waypoints via, @Nullable Vec3 from) {
+        return launch(level, who, null, yaw, order(weapon, count, spread, nuke), aim, via, from, null);
     }
 
     /** Приказ в пределах настроек сервера ({@link #clamp}). */
@@ -373,24 +396,26 @@ public final class ServerActions {
     }
 
     /**
-     * Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог.
+     * Строка в лог и пуск: один снаряд или залп; стреляющему ({@code owner}, если есть) — итог. С места пуска
+     * {@code from} заход — с его стороны: курс от него на цель вместо {@code yaw}.
      *
      * @param paid что стреляющий заплатил за приказ ({@link Munitions}); null — не платил. Неудачный пуск это возвращает,
      *             залп — то, что из него не вылетит
      */
     private static boolean launch(ServerLevel level, String who, @Nullable ServerPlayer owner, float yaw, Loadout l, Aim aim, Waypoints via,
-                                  @Nullable Munitions.Bill paid) {
-        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), via);
+                                  @Nullable Vec3 from, @Nullable Munitions.Bill paid) {
+        StrikeService.log(level, who, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), via, from);
         UUID ownerId = owner == null ? null : owner.getUUID();
+        float course = from != null ? FlightController.anglesTo(from, aim.point())[0] : yaw;
         if (l.count() > 1 || l.spread() > 0) {
-            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), yaw, ownerId, l.nuke(), via, paid != null);
+            SalvoData.start(level, l.weapon(), l.count(), l.spread(), aim.target(), aim.point(), course, ownerId, l.nuke(), via, from, paid != null);
             return true;
         }
         StrikeService.Result r;
         String why = "пуск не удался";
         try {
-            r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), yaw, null, true, l.nuke(), via)
-                    : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), yaw, owner, true, l.nuke(), via);
+            r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), course, null, true, l.nuke(), via, from)
+                    : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), course, owner, true, l.nuke(), via, from);
         } catch (RuntimeException e) {
             // как у залпа (SalvoData.tick): упавший пуск — неудачный, оплаченное возвращается
             Airstrike.LOG.error("Пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);

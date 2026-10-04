@@ -746,9 +746,9 @@ public final class StressDirector {
         var aim = new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.OfSubLevel(ua.zentix.airstrike.compat.SubLevels.toPlot(sub, c)), c, null);
         // режиссёр стенда — как команда оператора: без правил и боеприпасов из инвентаря
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.MISSILE, missiles, 6, aim,
-                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE, false);
+                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE, null, false);
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.DRONE, drones, 10, aim,
-                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE, false);
+                ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE, null, false);
     }
 
     /**
@@ -771,7 +771,7 @@ public final class StressDirector {
         // как команда оператора: без боеприпасов из инвентаря
         ua.zentix.airstrike.strike.ServerActions.strike(p, ua.zentix.airstrike.strike.WeaponType.ROCKET, 10, PROBE_SPREAD,
                 new ua.zentix.airstrike.strike.ServerActions.Aim(ground, point, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT,
-                ua.zentix.airstrike.strike.Waypoints.NONE, false);
+                ua.zentix.airstrike.strike.Waypoints.NONE, null, false);
     }
 
     /** Бомбы сразу вне мира (без B-2: сброс {@code drop} в воздухе) на точку в 300 блоках позади и на 150 ниже (как GameTest virtualMissNeverFallsBelowGround). */
@@ -804,7 +804,8 @@ public final class StressDirector {
         log("проба %s: %s %d по %d 40 %d (рельеф над целью %d), район %s", name, weapon.name().toLowerCase(Locale.ROOT), count, x, z,
                 (int) Target.Ground.at(level, x, z).pos().y, Terrain.ready(level, x >> 4, z >> 4) ? "уже готов" : "не готов");
         ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + name, 0, weapon, count, 8,
-                new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.Point(aim), aim, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                new ua.zentix.airstrike.strike.ServerActions.Aim(new Target.Point(aim), aim, null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT,
+                ua.zentix.airstrike.strike.Waypoints.NONE, null);
     }
 
     /** Держит чанк стойки пробы: уровень 31 — сущности тикают (как принудительная загрузка), грузится в фоне. */
@@ -845,7 +846,8 @@ public final class StressDirector {
         groundProbes.add(pr);
         log("проба %s: B-2 по %d %d %d", name, x, (int) aim.pos().y, z);
         ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + name, 0, WeaponType.BUNKER, 1, 0,
-                new ua.zentix.airstrike.strike.ServerActions.Aim(aim, aim.pos(), null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                new ua.zentix.airstrike.strike.ServerActions.Aim(aim, aim.pos(), null), ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT,
+                ua.zentix.airstrike.strike.Waypoints.NONE, null);
     }
 
     /** Стойка пробы — когда её чанк готов; подъём — когда ракета вне мира в 300–1000 блоках от неё. */
@@ -867,7 +869,7 @@ public final class StressDirector {
                 log("проба %s: стойка у %d %d %d (чанк грузился %d тиков), пуск %d ракет издалека", pr.name, c.getX(), y, c.getZ(), tick - pr.setupTick, RISING_SHOTS);
                 ua.zentix.airstrike.strike.ServerActions.dispatch(level, "стенд " + pr.name, 0, WeaponType.MISSILE, RISING_SHOTS, 0,
                         new ua.zentix.airstrike.strike.ServerActions.Aim(Target.OfEntity.center(stand), stand.position(), null),
-                        ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT);
+                        ua.zentix.airstrike.strike.Loadout.Nuke.DEFAULT, ua.zentix.airstrike.strike.Waypoints.NONE, null);
                 continue;
             }
             if (pr.stand == null) continue;

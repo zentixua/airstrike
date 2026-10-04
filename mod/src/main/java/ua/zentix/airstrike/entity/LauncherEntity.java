@@ -28,6 +28,9 @@ import java.util.UUID;
  * ячеек (как на иранских пусковых; с него же катапультой стартуют барражирующие), для крылатых ракет — два наклонных контейнера. Появляется рядом с игроком
  * при первом пуске, разворачивает пакет (подъём на угол возвышения) и дальше служит всем его пускам поблизости:
  * залп идёт с одной установки по ячейкам. Ломается ударом (без дропа); «Отбой» убирает все.
+ * <p>
+ * Пусковая на месте пуска из приказа ({@code /airstrike salvo … from x z}, {@link #ordered}) стоит там, куда её
+ * поставили, до «Отбоя» или удара: лишней у владельца она не считается ({@code LaunchSite.deploy}).
  */
 public class LauncherEntity extends Entity implements Launcher {
     private static final EntityDataAccessor<Byte> DATA_WEAPON = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.BYTE);
@@ -38,14 +41,18 @@ public class LauncherEntity extends Entity implements Launcher {
     public static final int DEPLOY_TICKS = 40;
 
     private final LaunchQueue queue = new LaunchQueue();
+    /** Стоит на месте пуска из приказа, а не у стреляющего (только сервер: клиенту не нужно). */
+    private boolean ordered;
 
     public LauncherEntity(EntityType<? extends LauncherEntity> type, Level level) {
         super(type, level);
         this.setNoGravity(true);
     }
 
-    public static LauncherEntity create(ServerLevel level, Vec3 pos, float yaw, WeaponType weapon, @Nullable UUID owner) {
+    /** @param ordered на месте пуска из приказа ({@link #ordered}) */
+    public static LauncherEntity create(ServerLevel level, Vec3 pos, float yaw, WeaponType weapon, @Nullable UUID owner, boolean ordered) {
         LauncherEntity l = new LauncherEntity(ModEntities.LAUNCHER.get(), level);
+        l.ordered = ordered;
         l.moveTo(pos.x, pos.y, pos.z, yaw, 0);
         l.yRotO = yaw;
         l.entityData.set(DATA_WEAPON, (byte) weapon.id());
@@ -62,6 +69,11 @@ public class LauncherEntity extends Entity implements Launcher {
     @Nullable
     public UUID ownerId() {
         return entityData.get(DATA_OWNER).orElse(null);
+    }
+
+    /** Стоит на месте пуска из приказа: до «Отбоя» или удара, а не одна из установок, что идут за стреляющим. */
+    public boolean ordered() {
+        return ordered;
     }
 
     /** Снаряд этой пусковой: того же оружия и того же владельца (пусковая одна на игрока и оружие рядом с ним). */
@@ -193,6 +205,7 @@ public class LauncherEntity extends Entity implements Launcher {
         entityData.set(DATA_WEAPON, (byte) (w == null ? WeaponType.DRONE : w).id());
         entityData.set(DATA_DEPLOYED, tag.getLong("deployed"));
         entityData.set(DATA_OWNER, tag.hasUUID("owner") ? Optional.of(tag.getUUID("owner")) : Optional.empty());
+        ordered = tag.getBoolean("ordered");
     }
 
     @Override
@@ -201,5 +214,6 @@ public class LauncherEntity extends Entity implements Launcher {
         tag.putLong("deployed", deployedAt());
         UUID owner = ownerId();
         if (owner != null) tag.putUUID("owner", owner);
+        if (ordered) tag.putBoolean("ordered", true);
     }
 }

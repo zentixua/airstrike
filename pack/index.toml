@@ -29,12 +29,12 @@ metafile = true
 
 [[files]]
 file = "mods/airstrike-gm.pw.toml"
-hash = "cc91a04f7308a62bdb304d7550b6a11faaecf1f48cfa0788efa372f61323e924"
+hash = "006bd3a52f6c969845346062ff12d784dc7a149a082bdcfec5c5b80c6445fa73"
 metafile = true
 
 [[files]]
 file = "mods/airstrike.pw.toml"
-hash = "742e3391d7a56a13ddc6019b793c536e1f8a86c3eb12c6977f0cff34c88341c7"
+hash = "e89e0f21a3c7df2eb2dc4d8008946893a9a1109073971c20a89dd7fc69436845"
 metafile = true
 
 [[files]]
