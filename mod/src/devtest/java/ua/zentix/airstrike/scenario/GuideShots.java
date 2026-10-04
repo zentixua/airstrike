@@ -446,12 +446,12 @@ final class GuideShots {
         run(ProjectileCamera::cycle);
         until("круга «Ланцета»", 2400, () -> ClientFlights.all().stream().anyMatch(f -> f.phase() == FlightPhase.LOITER));
         // камера «Ланцета» смотрит, куда смотрит игрок: прицел держится на деревне
-        Vec3 aim = village.add(across.scale(12));
+        Supplier<Vec3> aim = () -> village.add(across.scale(12));
         gEach(3.0, () -> look(village));
-        gEach(0.6, () -> look(aim));
+        gEach(0.6, () -> look(aim.get()));
         gDo(this::retarget);
         gHint("ЛКМ — новая цель", 1.8);
-        gEach(6.0, () -> look(aim));
+        gEach(6.0, () -> look(aim.get()));
         startGif("loiter", 1.5);
         run(() -> {
             if (ProjectileCamera.isActive()) ProjectileCamera.exit();
