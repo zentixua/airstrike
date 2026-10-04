@@ -24,11 +24,12 @@
 
 | Команда | Что делает |
 |---|---|
-| `/airstrike nuke [кт] [air\|ground]` | МБР туда, куда смотришь |
-| `/airstrike nuke at <x y z> [кт] [air\|ground]` | МБР по точке |
-| `/airstrike nuke now [at <x y z>] [кт] [air\|ground]` | подрыв сразу, без полёта (только оператор) |
+| `/airstrike nuke [кт [air\|ground]]` | МБР туда, куда смотришь |
+| `/airstrike nuke at <x y z> [кт [air\|ground]]` | МБР по точке |
+| `/airstrike nuke now [at <x y z>] [кт [air\|ground]]` | подрыв сразу, без полёта (только оператор) |
 
-Без числа — 15 кт, без `air` или `ground` — воздушный подрыв.
+Без числа — 15 кт, без `air` или `ground` — воздушный подрыв. `air` и `ground` пишутся только после числа:
+`/airstrike nuke 15 ground`.
 
 ## Прочее
 
