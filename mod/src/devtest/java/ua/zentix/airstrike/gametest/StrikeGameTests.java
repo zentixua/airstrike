@@ -871,9 +871,9 @@ public final class StrikeGameTests {
         h.assertTrue(far.retarget(new Target.Point(other), other) && far.route().finished(), "перенацеливание не бросило точки маршрута");
         VirtualFlights.get(level).clear(level, f -> f == far || f == lancet);
         // залп помнит маршрут
-        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(point), point, 0, null, Loadout.Nuke.DEFAULT, via);
+        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(point), point, 0, null, Loadout.Nuke.DEFAULT, via, false);
         CompoundTag saved = SalvoData.get(level).save(new CompoundTag(), level.registryAccess());
-        SalvoData.get(level).clear();
+        SalvoData.get(level).cancel(level, null, List.of());
         ListTag salvos = saved.getList("salvos", Tag.TAG_COMPOUND);
         CompoundTag salvo = salvos.getCompound(salvos.size() - 1);
         Waypoints kept = Waypoints.CODEC.parse(NbtOps.INSTANCE, salvo.get("route")).result().orElse(Waypoints.NONE);
@@ -3082,7 +3082,7 @@ public final class StrikeGameTests {
     public static void salvoFiresEveryShot(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         Vec3 c = top(h, RUNWAY_TARGET);
-        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 3, 6, new Target.Point(c), c, 0, null, Loadout.Nuke.DEFAULT, Waypoints.NONE, false);
         h.succeedWhen(() -> {
             h.assertTrue(SalvoData.get(level).size() == 0, "залп ещё не закончился");
             h.assertTrue(VirtualFlights.get(level).flights().isEmpty(), "ещё летят вне мира: " + VirtualFlights.get(level).flights().size());
@@ -3112,12 +3112,12 @@ public final class StrikeGameTests {
         h.assertTrue(single.size() == 1 && single.getFirst().isNuclear() == carriers,
                 "не одна ракета с ядерной БЧ: " + single.stream().map(StrikeProjectile::isNuclear).toList());
         VirtualFlights.get(level).clear(level, ours);
-        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.MISSILE, 3, 20, new Target.Point(far), far, 0, null, nuke, Waypoints.NONE, false);
         h.runAfterDelay(3, () -> {
             List<StrikeProjectile> fired = VirtualFlights.get(level).flights().stream().filter(ours).toList();
             h.assertTrue(!fired.isEmpty() && fired.stream().noneMatch(StrikeProjectile::isNuclear),
                     "снаряды залпа: " + fired.stream().map(StrikeProjectile::isNuclear).toList());
-            SalvoData.get(level).clear();
+            SalvoData.get(level).cancel(level, null, List.of());
             VirtualFlights.get(level).clear(level, ours);
             h.succeed();
         });
@@ -3133,7 +3133,7 @@ public final class StrikeGameTests {
         java.util.UUID owner = java.util.UUID.randomUUID(), other = java.util.UUID.randomUUID();
         Vec3 far = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 0, 3000);
         Vec3 rail = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(0, 1, 0);
-        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 5, 10, new Target.Point(far), far, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, false);
         CruiseMissileEntity onRail = ModEntities.CRUISE_MISSILE.get().create(level);
         onRail.placeOnLauncher(rail, 0, 40, 1000, 0, new Target.Point(far), far, owner);
         onRail.setRoute(Route.direct());
@@ -3149,7 +3149,7 @@ public final class StrikeGameTests {
             h.assertTrue(SalvoData.get(level).remaining(owner) < 5, "залп не выпустил ни одного снаряда");
             h.assertTrue(StrikeWorld.active(level.getServer(), owner) == 7, "после пуска из залпа: " + StrikeWorld.active(level.getServer(), owner));
             h.assertTrue(StrikeWorld.active(level.getServer(), other) == 1, "у другого игрока: " + StrikeWorld.active(level.getServer(), other));
-            SalvoData.get(level).clear();
+            SalvoData.get(level).cancel(level, null, List.of());
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()) || other.equals(p.ownerId()));
             onRail.discard();
             h.succeed();
@@ -3170,9 +3170,9 @@ public final class StrikeGameTests {
         pig.setNoAi(true);
         level.addFreshEntity(pig);
         Target.OfEntity target = new Target.OfEntity(pig.getUUID(), Vec3.ZERO);
-        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE);
+        SalvoData.start(level, WeaponType.DRONE, 30, 0, target, at, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, false);
         Runnable cleanup = () -> {
-            SalvoData.get(level).clear();
+            SalvoData.get(level).cancel(level, null, List.of());
             VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
         };
         h.runAfterDelay(3, () -> {
