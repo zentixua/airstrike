@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.scenario;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
 import net.minecraft.client.Screenshot;
@@ -40,8 +41,8 @@ import ua.zentix.airstrike.client.map.MapTarget;
 import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.screen.MapScreen;
 import ua.zentix.airstrike.client.screen.RemoteScreen;
+import ua.zentix.airstrike.defense.SamBlockEntity;
 import ua.zentix.airstrike.entity.FlightPhase;
-import ua.zentix.airstrike.launcher.FixedLauncherBlockEntity;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.WeaponType;
 
@@ -146,16 +147,14 @@ final class GuideShots {
             along = new Vec3(village.x - view.x, 0, village.z - view.z).normalize();
             across = new Vec3(-along.z, 0, along.x);
             Airstrike.LOG.info("SCENARIO guide: деревня {}, зритель {}", xyz(village), xyz(view));
-            // деревья вокруг зрителя закрывали курс пуска: пусковая не вставала, снаряды заходили издалека
+            // зритель на вершине среди деревьев: пусковой негде было встать, и снаряды заходили издалека (в GIF не было
+            // пуска). Вокруг — ровная поляна 33×33 без деревьев, под ней — земля до склона (fill — до 32768 блоков за раз)
             int x = (int) Math.floor(view.x), y = (int) Math.floor(view.y), z = (int) Math.floor(view.z);
-            for (String tag : new String[]{"#minecraft:leaves", "#minecraft:logs"}) {
-                for (int dx : new int[]{-24, 0}) {
-                    for (int dz : new int[]{-24, 0}) {
-                        cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air replace %s",
-                                x + dx, y - 4, z + dz, x + dx + 23, y + 26, z + dz + 23, tag));
-                    }
-                }
-            }
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 16, y, z - 16, x, y + 30, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x + 1, y, z - 16, x + 16, y + 30, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:dirt replace #minecraft:replaceable",
+                    x - 16, y - 12, z - 16, x + 16, y - 2, z + 16));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 16, y - 1, z - 16, x + 16, y - 1, z + 16));
             stand(view, village);
             give("missile", 6, 20, "map");
         });
@@ -404,19 +403,30 @@ final class GuideShots {
         await(10);
     }
 
-    /** Снаряды на экране (GIF, вдвое быстрее жизни): залп шахедов и ракет летит к деревне, зритель смотрит в небо над ней. */
+    /**
+     * Снаряды на экране (GIF, вдвое быстрее жизни): залп шахедов и ракет к деревне. GIF — с подлёта ракет: метки
+     * снарядов идут к деревне, список справа считает время, ракеты бьют; зритель с пустой рукой смотрит на деревню
+     * со стороны, откуда они летят.
+     */
     private void hud() {
         run(() -> {
             give("missile", 1, 0, "look");
             look(village);
+            mc.gameRenderer.setRenderHand(false); // дальше рука только закрывает кадр
             cmd(String.format(Locale.ROOT, "airstrike salvo drone 3 8 at %.1f %.1f %.1f", village.x, village.y, village.z));
             cmd(String.format(Locale.ROOT, "airstrike salvo missile 2 10 at %.1f %.1f %.1f", village.x, village.y, village.z));
         });
-        // пусковые встают и пускают: в GIF — полёт с этапами и временем до удара
-        await(140);
-        run(() -> look(village.add(0, 20, 0)));
-        await(10);
-        gHold(6.0);
+        until("подлёта ракет", 2400, () -> ClientFlights.all().stream()
+                .anyMatch(f -> f.weapon() == WeaponType.MISSILE && f.etaSeconds(0) <= 10));
+        run(() -> {
+            mc.player.getInventory().selected = 8;
+            ClientFlights.all().stream().filter(f -> f.weapon() == WeaponType.MISSILE).findFirst().ifPresent(f -> {
+                Vec3 from = f.position(0).subtract(village);
+                look(village.add(new Vec3(from.x, 0, from.z).normalize().scale(40)).add(0, 12, 0));
+            });
+        });
+        await(5);
+        gHold(7.0);
         startGif("hud", 2);
     }
 
@@ -428,7 +438,8 @@ final class GuideShots {
         });
         until("пуска", 200, () -> !ClientFlights.all().isEmpty());
         run(ProjectileCamera::cycle);
-        gHold(9.0);
+        // ~31 с полёта втрое быстрее: пуск, борт, карта на обходе, пике и попадание
+        gHold(11.0);
         startGif("camera", 3);
         run(() -> {
             if (ProjectileCamera.isActive()) ProjectileCamera.exit();
@@ -469,86 +480,83 @@ final class GuideShots {
     }
 
     /**
-     * ЗРК (GIF): ЗРК рядом со зрителем, ракеты — из воронки сбоку. Шахеды летят с пусковой за деревней («from») к деревне
-     * мимо ЗРК, тот бьёт их на подлёте; зритель стоит за ЗРК на расчищенной площадке и смотрит в их сторону.
+     * ЗРК (GIF): ЗРК на поляне зрителя, ракеты — из воронки сбоку. Шахеды летят с пусковой за деревней («from») к деревне,
+     * ЗРК бьёт их на подлёте. Зритель — за ЗРК и в стороне от него: дым пуска уходит вбок, а не в кадр. Шахедов пускают,
+     * когда на направляющих все четыре ракеты: в GIF — залп ЗРК, а не перезарядка.
      */
     private void sam() {
         BlockPos[] sam = new BlockPos[1];
+        int[] ready = {0};
         run(() -> onServer(server -> {
             Vec3 at = view.add(across.scale(10));
             sam[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
         }));
         until("места ЗРК", 100, () -> sam[0] != null);
-        // площадка 13×13 без деревьев: ЗРК в середине, зритель на ней за ЗРК
         run(() -> {
             BlockPos s = sam[0];
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", s.getX() - 6, s.getY(), s.getZ() - 6, s.getX() + 6, s.getY() + 30, s.getZ() + 6));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", s.getX() - 6, s.getY() - 1, s.getZ() - 6, s.getX() + 6, s.getY() - 1, s.getZ() + 6));
             setblock(s, "airstrike:sam");
             setblock(s.east(), "minecraft:hopper[facing=west]{Items:[{Slot:0b,id:\"airstrike:interceptor\",count:12}]}");
-            Vec3 c = Vec3.atBottomCenterOf(s);
-            stand(c.subtract(along.scale(6)).add(across.scale(-2)), c.add(along.scale(14)).add(0, 6, 0));
-            mc.player.getInventory().selected = 8; // пустая рука: пульт в руке закрывал ЗРК
+            stand(view.subtract(along.scale(14)).add(across.scale(-2)), view.add(along.scale(100)).add(0, 20, 0));
+            mc.player.getInventory().selected = 8; // пустая рука: пульт в руке закрывал полкадра
         });
-        await(40);
+        until("ракет ЗРК на направляющих", 1200, () -> {
+            onServer(server -> {
+                if (server.overworld().getBlockEntity(sam[0]) instanceof SamBlockEntity be) ready[0] = be.ready();
+            });
+            return ready[0] >= 4;
+        });
         run(() -> {
             Vec3 site = village.add(along.scale(300));
             cmd(String.format(Locale.ROOT, "airstrike salvo drone 4 20 at %.1f %.1f %.1f from %.1f %.1f", village.x, village.y, village.z, site.x, site.z));
         });
-        // шахеды взлетают; ЗРК бьёт их, как только они в круге огня (кадр 2.4.x — через ~190 тиков после приказа)
-        await(100);
+        // пусковая шахедов встаёт и пускает; ЗРК бьёт их, как только они в воздухе
+        await(40);
         gHold(14.0);
         startGif("sam", 1);
         until("попаданий", 1200, () -> ClientFlights.all().isEmpty());
+        // ЗРК без хозяина бьёт любые снаряды: ракету стационарной пусковой он сбил бы на пуске
+        run(() -> {
+            setblock(sam[0].east(), "minecraft:air");
+            setblock(sam[0], "minecraft:air");
+        });
     }
 
     /**
-     * Стационарная пусковая (GIF): площадка, пусковая с задачей «крылатая ракета по деревне», запас 4. Первый пуск — по
-     * команде, чтобы узнать курс пуска (пакет доворачивается на него сам); потом зритель встаёт сбоку от курса, рядом
-     * с пусковой рычаг, и второй пуск — сигналом рычага, как у игрока.
+     * Стационарная пусковая (GIF): площадка, пусковая с задачей «крылатая ракета по деревне» через точку маршрута впереди —
+     * пакет сразу доворачивается на неё, и курс пуска известен без пробного пуска (его дым стоял бы в кадре). Зритель —
+     * сбоку от курса, рядом с пусковой рычаг, пуск — сигналом рычага, как у игрока.
      */
     private void launcher() {
         BlockPos[] pad = new BlockPos[1];
         BlockPos[] lever = new BlockPos[1];
         String[] wall = new String[1];
-        float[] course = {Float.NaN};
         run(() -> onServer(server -> {
             Vec3 at = view.add(across.scale(-12));
             pad[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
         }));
         until("места пусковой", 100, () -> pad[0] != null);
-        // площадка 33×33: зритель на ней и сбоку от курса пуска, в 14 блоках (fill — не больше 32768 блоков за раз)
+        // площадка 33×33 (fill — не больше 32768 блоков за раз)
         run(() -> {
             BlockPos s = pad[0];
             cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", s.getX() - 16, s.getY(), s.getZ() - 16, s.getX(), s.getY() + 30, s.getZ() + 16));
             cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", s.getX() + 1, s.getY(), s.getZ() - 16, s.getX() + 16, s.getY() + 30, s.getZ() + 16));
             cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", s.getX() - 16, s.getY() - 1, s.getZ() - 16, s.getX() + 16, s.getY() - 1, s.getZ() + 16));
             setblock(s, "airstrike:fixed_launcher");
-            cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d mission missile 1 0 %.1f %.1f %.1f", s.getX(), s.getY(), s.getZ(), village.x, village.y, village.z));
+            Vec3 c = Vec3.atBottomCenterOf(s), via = c.add(along.scale(120));
+            cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d mission missile 1 0 %.1f %.1f %.1f via %.1f %.1f",
+                    s.getX(), s.getY(), s.getZ(), village.x, village.y, village.z, via.x, via.z));
             cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d load 4", s.getX(), s.getY(), s.getZ()));
-            Vec3 c = Vec3.atBottomCenterOf(s);
-            stand(c.subtract(along.scale(7)).add(across.scale(-6)), c.add(along.scale(3)).add(0, 2, 0));
-            mc.player.getInventory().selected = 8;
-        });
-        await(100);
-        run(() -> cmd(String.format(Locale.ROOT, "airstrike launcher %d %d %d fire", pad[0].getX(), pad[0].getY(), pad[0].getZ())));
-        await(10);
-        run(() -> onServer(server -> {
-            if (server.overworld().getBlockEntity(pad[0]) instanceof FixedLauncherBlockEntity be) course[0] = be.yaw();
-        }));
-        until("курса пуска", 100, () -> !Float.isNaN(course[0]));
-        // дым первого пуска расходится; зритель — сбоку от курса, рычаг — на стороне пусковой к нему
-        run(() -> {
-            double r = Math.toRadians(course[0]);
-            Vec3 forward = new Vec3(-Math.sin(r), 0, Math.cos(r)), side = new Vec3(Math.cos(r), 0, Math.sin(r));
-            Vec3 c = Vec3.atBottomCenterOf(pad[0]);
+            Vec3 forward = new Vec3(via.x - c.x, 0, via.z - c.z).normalize(), side = new Vec3(-forward.z, 0, forward.x);
+            if (side.dot(across) < 0) side = side.scale(-1); // к поляне зрителя
             Direction d = Direction.getNearest(side.x, 0, side.z);
-            lever[0] = pad[0].relative(d);
+            lever[0] = s.relative(d);
             wall[0] = "minecraft:lever[face=wall,facing=" + d.getSerializedName();
             setblock(lever[0], wall[0] + ",powered=false]");
-            stand(c.add(side.scale(9)).subtract(forward.scale(3)), c.add(forward.scale(5)).add(0, 4, 0));
+            stand(c.add(side.scale(6)).subtract(forward.scale(4)), c.add(forward.scale(4)).add(0, 3, 0));
+            mc.player.getInventory().selected = 8;
         });
-        await(500);
+        // пакет поднимается и доворачивает на курс
+        await(200);
         until("прорисовки у пусковой", 600, this::worldReady);
         gHold(1.2);
         gDo(() -> setblock(lever[0], wall[0] + ",powered=true]"));
@@ -850,6 +858,9 @@ final class GuideShots {
             gif = segs;
             gifName = name;
             segIndex = segFrame = gifFrame = 0;
+            hint = null; // подпись прошлой GIF считала кадры по её счётчику
+            hintUntil = 0;
+            ringAt = -100;
             this.pace = pace;
             paceNanos = 0;
             if (pace > 0) tickRate(20 * pace * 5 / FPS); // без окна — около 5 кадров в секунду, дальше по замеру
@@ -911,13 +922,18 @@ final class GuideShots {
     private void onGuiRender(RenderGuiEvent.Post e) {
         if (gif == null || mc.screen != null || hint == null || gifFrame >= hintUntil) return;
         GuiGraphics g = e.getGuiGraphics();
+        // слои HUD рисуются с проверкой глубины и уходят вверх по z (бинокль — выше подписи): подпись — без глубины
+        g.flush();
+        RenderSystem.disableDepthTest();
         g.pose().pushPose();
-        g.pose().translate(10, g.guiHeight() - 44, 500);
+        g.pose().translate(10, g.guiHeight() - 44, 0);
         g.pose().scale(1.5f, 1.5f, 1);
         int w = mc.font.width(hint);
         g.fill(-4, -4, w + 4, 12, 0xD0101010);
         g.drawString(mc.font, hint, 0, 0, 0xFFFFE070, false);
         g.pose().popPose();
+        g.flush();
+        RenderSystem.enableDepthTest();
     }
 
     /** Курсор, подпись клавиши и круг щелчка — поверх экрана. */
