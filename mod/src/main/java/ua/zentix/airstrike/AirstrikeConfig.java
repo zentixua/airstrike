@@ -44,6 +44,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue mapRange;
         public final ModConfigSpec.BooleanValue designatorForEveryone;
         public final ModConfigSpec.BooleanValue mapPlayers;
+        public final ModConfigSpec.BooleanValue sightRules;
+        public final ModConfigSpec.IntValue sightMemory;
         public final ModConfigSpec.BooleanValue launchNearPlayer;
         public final ModConfigSpec.IntValue droneFlightTime;
         public final ModConfigSpec.IntValue missileFlightTime;
@@ -71,6 +73,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue nukeRuinThreads;
         public final ModConfigSpec.IntValue nukeMaxFires;
         public final ModConfigSpec.IntValue nukeWarningRadius;
+        public final ModConfigSpec.IntValue nukeSecondKeyDistance;
+        public final ModConfigSpec.IntValue nukeSecondKeyWindow;
 
         public final ModConfigSpec.BooleanValue gridEnabled;
         public final ModConfigSpec.IntValue gridNodeRadius;
@@ -83,6 +87,12 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue workBudgetMs;
 
         public final ModConfigSpec.IntValue farRange;
+
+        public final ModConfigSpec.IntValue samRadarRange;
+        public final ModConfigSpec.IntValue samEngageRange;
+        public final ModConfigSpec.DoubleValue samKillProbability;
+        public final ModConfigSpec.IntValue samRails;
+        public final ModConfigSpec.IntValue samReloadSeconds;
 
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
@@ -130,8 +140,16 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.map_range").defineInRange("map_range", 10_000, 256, 1_000_000);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
-            mapPlayers = b.comment("Карта пульта показывает других игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей).")
+            mapPlayers = b.comment("Карта пульта показывает игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей):",
+                            "своих по команде /team — всегда, чужих — там, где их видели последний раз (при sight_rules), иначе всех.",
+                            "Выключено — карта их не рисует, а список целей пульта в режиме «игрок» остаётся.")
                     .translation("airstrike.config.map_players").define("map_players", true);
+            sightRules = b.comment("Разведка: по чужому игроку и аппарату пульт бьёт, только если его видит или недавно видела (sight_memory)",
+                            "сторона стрелявшего — он сам или его команда /team, глазами или камерой своего снаряда; давно не виденного —",
+                            "по последнему месту. Карта показывает чужих так же. Команды /airstrike операторов и консоли — без правил.")
+                    .translation("airstrike.config.sight_rules").define("sight_rules", true);
+            sightMemory = b.comment("Сколько секунд сторона помнит замеченного игрока или аппарат.")
+                    .translation("airstrike.config.sight_memory").defineInRange("sight_memory", 30, 0, 600);
             launchNearPlayer = b.comment("Шахеды и ракеты стартуют с мобильной пусковой рядом с тем, кто пустил (иначе заходят издалека).")
                     .translation("airstrike.config.launch_near_player").define("launch_near_player", true);
             droneFlightTime = b.comment("Полёт шахеда от пуска до цели, секунд: маршрут в обход и заход из-за спины (не меньше прямого пути).")
@@ -173,7 +191,7 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_mob_radiation").define("mob_radiation", true);
             nukeBlackRain = b.comment("Чёрный дождь в следе осадков (заражает, пока не смыть водой).")
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
-            nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут).")
+            nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут). У удара не оператора — не меньше 1800 (90 с тревоги).")
                     .translation("airstrike.config.nuke_flight_time").defineInRange("flight_time", 1800, 200, 72_000);
             nukeTimeBudgetMs = b.comment("Предел разрушений ядерки внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–45).",
                             "По умолчанию 30: разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна;",
@@ -194,6 +212,11 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
+            nukeSecondKeyDistance = b.comment("Ядерный удар не оператора (ops_only = false) — вторым ключом: другой игрок не дальше стольких блоков",
+                            "от запускающего нажимает свою клавишу «Второй ключ». Один в сети — без ключа.")
+                    .translation("airstrike.config.nuke_second_key_distance").defineInRange("second_key_distance", 16, 2, 128);
+            nukeSecondKeyWindow = b.comment("Сколько секунд ждать второго ключа; не дождались — пуска нет, боеприпасы возвращаются.")
+                    .translation("airstrike.config.nuke_second_key_window").defineInRange("second_key_window", 30, 5, 300);
             carrierNukes = b.comment("Ядерная боевая часть и на крылатой ракете и B-2 (кроме МБР).")
                     .translation("airstrike.config.carrier_nukes").define("carrier_nukes", true);
             b.pop();
@@ -231,6 +254,21 @@ public final class AirstrikeConfig {
                             "моделью (мельче пары пикселей — точкой), факелом, шлейфом, огненным шаром и столбом дыма, звук — с задержкой",
                             "по скорости звука. Дальше всё равно съедает дымка, а раскат тонет в тишине; меньше — меньше пакетов игрокам.")
                     .translation("airstrike.config.far_range").defineInRange("far_range", 8000, 640, 32_000);
+            b.pop();
+
+            b.translation("airstrike.config.air_defense").push("air_defense");
+            samRadarRange = b.comment("Дальность радара ЗРК, блоков: дальше снаряды не видно; малозаметные (B-2, ракета на бреющем,",
+                            "«Ланцет») — ближе, по паспорту оружия. Тревога своим — о каждой новой чужой цели на радаре.")
+                    .translation("airstrike.config.sam_radar_range").defineInRange("radar_range", 3000, 64, 16_000);
+            samEngageRange = b.comment("Дальность огня ЗРК, блоков: ближе этого он пускает ракету по чужому шахеду, ракете, «Ланцету» и B-2",
+                            "(МБР и «Град» не перехватывает).")
+                    .translation("airstrike.config.sam_engage_range").defineInRange("engage_range", 1500, 32, 8000);
+            samKillProbability = b.comment("Вероятность, что зенитная ракета, разорвавшись у цели, её собьёт (0–1). Промах — цель летит дальше.")
+                    .translation("airstrike.config.sam_kill_probability").defineInRange("kill_probability", 0.8, 0.0, 1.0);
+            samRails = b.comment("Сколько ракет стоит на направляющих ЗРК готовыми к пуску.")
+                    .translation("airstrike.config.sam_rails").defineInRange("rails", 4, 1, 16);
+            samReloadSeconds = b.comment("За сколько секунд расчёт ставит на свободную направляющую следующую ракету из запаса ЗРК.")
+                    .translation("airstrike.config.sam_reload").defineInRange("reload_seconds", 8, 0, 600);
             b.pop();
         }
     }

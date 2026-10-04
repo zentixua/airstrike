@@ -49,6 +49,7 @@ import ua.zentix.airstrike.strike.WeaponType;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetTracker;
 import ua.zentix.airstrike.util.Nbt;
+import ua.zentix.airstrike.warhead.DebrisSpawner;
 import ua.zentix.airstrike.warhead.Warheads;
 
 import java.util.List;
@@ -791,6 +792,27 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
+     * Свой отбой ({@code ServerActions.recall}) в полёте в мире: самоликвидация — снаряд разбивается в воздухе, боевая
+     * часть не срабатывает ({@link #crash}), блоки не рушатся.
+     *
+     * @return снаряд больше не угроза; false — свернуть ему нечем ({@link #recallable}), он летит дальше
+     */
+    public boolean recall(ServerLevel level) {
+        if (!recallable()) return false;
+        Airstrike.LOG.debug("Снаряд {} {} самоликвидировался по отбою у {}", getType().getDescriptionId(), getUUID(), blockPosition());
+        crash(level, position().add(flight.forward().scale(noseLength())));
+        return true;
+    }
+
+    /**
+     * Свой отбой останавливает снаряд ({@link #recall}): у управляемого есть самоликвидатор; неуправляемый (ракета РСЗО,
+     * сброшенная бомба) летит дальше.
+     */
+    public boolean recallable() {
+        return true;
+    }
+
+    /**
      * Столкновение до взведения взрывателя (на старте): боевая часть не срабатывает — снаряд разбивается,
      * горит топливо.
      */
@@ -1267,6 +1289,24 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.SHOT_DOWN, blockPosition(), targetLost(), 0,
                 source.getMsgId());
         crash(level, position());
+    }
+
+    /**
+     * Сбит зенитной ракетой ({@code defense.Interceptor}): боевая часть не срабатывает, корпус разваливается и обломки
+     * падают дальше по ходу полёта ({@link DebrisSpawner#wreck}); вне мира снаряд просто убран — обломкам там негде
+     * падать. В лог — строкой на залп ({@link FlightLog.Event#INTERCEPTED}, подробность — какой ЗРК).
+     */
+    public void intercepted(ServerLevel level, String by) {
+        if (isRemoved()) return;
+        Vec3 at = position();
+        StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.INTERCEPTED, BlockPos.containing(at), targetLost(), 0, by);
+        if (virtual) {
+            VirtualFlights.get(level).clear(level, p -> p == this);
+            return;
+        }
+        Vec3 v = getDeltaMovement();
+        discard();
+        if (level.isPositionEntityTicking(BlockPos.containing(at))) DebrisSpawner.wreck(level, at, v, noseLength());
     }
 
     // ---------------------------------------------------------------- синхронизация и интерполяция

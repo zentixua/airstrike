@@ -6,6 +6,7 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.strike.WeaponType;
 
 public final class ModCreativeTabs {
     public static final DeferredRegister<CreativeModeTab> REGISTER = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, Airstrike.MOD_ID);
@@ -18,6 +19,11 @@ public final class ModCreativeTabs {
                 output.accept(ModItems.GEIGER_COUNTER.get());
                 output.accept(ModItems.TRINITITE.get());
                 output.accept(ModItems.SUBSTATION.get());
+                // боеприпасы — в порядке пульта (WeaponType.menu), ядерная БЧ на носитель — за МБР
+                for (WeaponType w : WeaponType.menu()) output.accept(w.spec().munition().item().get());
+                output.accept(ModItems.NUCLEAR_WARHEAD.get());
+                output.accept(ModItems.SAM.get());
+                output.accept(ModItems.INTERCEPTOR.get());
             })
             .build());
 

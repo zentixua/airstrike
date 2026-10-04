@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.compat.DhUpdates;
+import ua.zentix.airstrike.defense.DefenseWorld;
 import ua.zentix.airstrike.grid.BlackoutWorld;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.nuclear.radiation.RadiationDose;
@@ -16,6 +17,7 @@ import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.work.WorkScheduler;
 import ua.zentix.airstrike.warhead.CraterFalls;
 
@@ -106,6 +108,14 @@ public final class ModAttachments {
      */
     public static final Supplier<AttachmentType<ArrivalTickets.Slot>> ARRIVAL = REGISTER.register("arrival",
             () -> AttachmentType.builder(ArrivalTickets.Slot::new).build());
+
+    /** Мир: кого и что видела каждая сторона ({@link Sightings}); не сохраняется. */
+    public static final Supplier<AttachmentType<Sightings>> SIGHTINGS = REGISTER.register("sightings",
+            () -> AttachmentType.builder(Sightings::new).build());
+
+    /** Мир: зенитные ракеты в полёте, их цели и объявленные тревоги ({@link DefenseWorld}); не сохраняется. */
+    public static final Supplier<AttachmentType<DefenseWorld>> DEFENSE_WORLD = REGISTER.register("defense_world",
+            () -> AttachmentType.builder(DefenseWorld::new).build());
 
     private ModAttachments() {}
 }

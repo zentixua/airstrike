@@ -13,6 +13,8 @@ import ua.zentix.airstrike.command.AirstrikeCommand;
 import ua.zentix.airstrike.compat.DhChunks;
 import ua.zentix.airstrike.compat.DhUpdates;
 import ua.zentix.airstrike.compat.FlashbackReplay;
+import ua.zentix.airstrike.defense.DefenseWorld;
+import ua.zentix.airstrike.defense.SamBlockEntity;
 import ua.zentix.airstrike.grid.Blackouts;
 import ua.zentix.airstrike.grid.ChunkSaves;
 import ua.zentix.airstrike.legacy.LegacyMigration;
@@ -22,6 +24,7 @@ import ua.zentix.airstrike.nuclear.radiation.RadiationTicker;
 import ua.zentix.airstrike.nuclear.world.BlockResponse;
 import ua.zentix.airstrike.nuclear.world.FarLods;
 import ua.zentix.airstrike.registry.ModAttachments;
+import ua.zentix.airstrike.registry.ModBlockEntities;
 import ua.zentix.airstrike.registry.ModBlocks;
 import ua.zentix.airstrike.registry.ModCreativeTabs;
 import ua.zentix.airstrike.registry.ModDataComponents;
@@ -33,14 +36,17 @@ import ua.zentix.airstrike.registry.ModSounds;
 import ua.zentix.airstrike.strike.ArrivalTickets;
 import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightStatus;
+import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.StrikeWorld;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.warhead.CraterFalls;
 import ua.zentix.airstrike.work.StallWatch;
 import ua.zentix.airstrike.work.WorkScheduler;
 
 /**
- * Airstrike: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы, МБР с ядерной БЧ.
+ * Airstrike: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы, МБР с ядерной БЧ;
+ * защита от них — ЗРК с радаром.
  * Здесь только регистрации; игровая логика — в пакетах strike/entity/warhead, клиент — в client.
  */
 @Mod(Airstrike.MOD_ID)
@@ -55,6 +61,7 @@ public final class Airstrike {
 
     public Airstrike(IEventBus modBus, ModContainer container) {
         ModBlocks.REGISTER.register(modBus);
+        ModBlockEntities.REGISTER.register(modBus);
         ModEntities.REGISTER.register(modBus);
         ModItems.REGISTER.register(modBus);
         ModSounds.REGISTER.register(modBus);
@@ -68,9 +75,13 @@ public final class Airstrike {
         container.registerConfig(ModConfig.Type.CLIENT, AirstrikeConfig.CLIENT_SPEC);
 
         modBus.addListener(AirstrikeNetwork::register);
+        modBus.addListener(SamBlockEntity::registerCapabilities);
 
         NeoForge.EVENT_BUS.addListener(AirstrikeCommand::register);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(Sightings::onLevelTick);
+        // после StrikeWorld: снаряды вне мира в этом тике уже сдвинулись — зенитная ракета идёт за их новым местом
+        NeoForge.EVENT_BUS.addListener(DefenseWorld::onLevelTick);
         NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.airstrike.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
         // после того как мод снял свои тикеты и работу: генерация, начатая до выхода, доходит до конца (иначе цикл выгрузки висит)
@@ -89,6 +100,7 @@ public final class Airstrike {
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onClone);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onRespawn);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogout);
+        NeoForge.EVENT_BUS.addListener(NuclearKeys::onLogout);
         NeoForge.EVENT_BUS.addListener(ArrivalTickets::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
         NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);

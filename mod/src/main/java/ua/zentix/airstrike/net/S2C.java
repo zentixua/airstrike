@@ -6,9 +6,11 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.codec.NeoForgeStreamCodecs;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.Yield;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.List;
@@ -258,13 +260,14 @@ public final class S2C {
     }
 
     /**
-     * Игроки для карты наведения — ответ на {@link C2S.MapPlayers}: в измерении спросившего и не дальше
-     * {@code map_range}, кроме него самого, наблюдателей и невидимых (сущностей дальше дальности отслеживания у клиента
-     * нет; кто попадает в список — {@code ServerActions.mapPlayers}).
+     * Метки для карты наведения и целей пульта — ответ на {@link C2S.MapPlayers}: свои игроки и замеченное стороной
+     * спросившего в его измерении и не дальше {@code map_range} (кто попадает в список — {@code ServerActions.mapPlayers});
+     * {@code shown} — карта их рисует ({@code map_players}), иначе они только цели пульта.
      */
-    public record MapPlayers(List<MapPlayer> players) implements CustomPacketPayload {
+    public record MapPlayers(List<MapPlayer> players, boolean shown) implements CustomPacketPayload {
         public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players"));
-        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = MapPlayer.CODEC.apply(ByteBufCodecs.list()).map(MapPlayers::new, MapPlayers::players);
+        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = StreamCodec.composite(
+                MapPlayer.CODEC.apply(ByteBufCodecs.list()), MapPlayers::players, ByteBufCodecs.BOOL, MapPlayers::shown, MapPlayers::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -272,13 +275,19 @@ public final class S2C {
         }
     }
 
-    /** Игрок на карте: UUID, имя (им же пульт целится), где он. */
-    public record MapPlayer(UUID id, String name, double x, double z) {
+    /**
+     * Метка на карте: UUID, имя (у игрока — ник, им же пульт целится), что это, где оно (у чужого — где его видели
+     * последний раз), свой ли по команде и сколько секунд назад видели (0 — видят сейчас).
+     */
+    public record MapPlayer(UUID id, String name, double x, double z, Sightings.Kind kind, boolean friendly, int age) {
         /** Имя игрока в Minecraft — до 16 знаков; запас на имена модов. */
         public static final int MAX_NAME = 64;
-        public static final StreamCodec<ByteBuf, MapPlayer> CODEC = StreamCodec.composite(
+        private static final StreamCodec<ByteBuf, Sightings.Kind> KIND = ByteBufCodecs.idMapper(
+                i -> Sightings.Kind.values()[Math.floorMod(i, Sightings.Kind.values().length)], Sightings.Kind::ordinal);
+        public static final StreamCodec<ByteBuf, MapPlayer> CODEC = NeoForgeStreamCodecs.composite(
                 UUIDUtil.STREAM_CODEC, MapPlayer::id, ByteBufCodecs.stringUtf8(MAX_NAME), MapPlayer::name,
-                ByteBufCodecs.DOUBLE, MapPlayer::x, ByteBufCodecs.DOUBLE, MapPlayer::z, MapPlayer::new);
+                ByteBufCodecs.DOUBLE, MapPlayer::x, ByteBufCodecs.DOUBLE, MapPlayer::z, KIND, MapPlayer::kind,
+                ByteBufCodecs.BOOL, MapPlayer::friendly, ByteBufCodecs.VAR_INT, MapPlayer::age, MapPlayer::new);
     }
 
     /** Открыть экран пульта (команда /airstrike menu). */
@@ -293,13 +302,16 @@ public final class S2C {
     }
 
     /**
-     * Отбой: убрано без взрыва — заглушить моторы отменённых снарядов ({@code projectiles}) и тревогу;
-     * {@code nuclear} — отменены и ядерные удары (иначе ядерные снаряды летят дальше, их звук и камера остаются).
+     * Отбой: заглушить моторы и камеру снарядов, которых больше нет ({@code projectiles}). {@code owner} — свой отбой этого
+     * игрока (у него гаснет строка залпа, у остальных тревога остаётся: чужие удары летят дальше); пусто — отбой всего,
+     * гаснет и тревога. {@code nuclear} — отменены и ядерные удары (иначе ядерные снаряды летят дальше, их звук и камера
+     * остаются).
      */
-    public record Cleared(boolean nuclear, List<UUID> projectiles) implements CustomPacketPayload {
+    public record Cleared(Optional<UUID> owner, boolean nuclear, List<UUID> projectiles) implements CustomPacketPayload {
         public static final Type<Cleared> TYPE = new Type<>(Airstrike.id("cleared"));
         public static final StreamCodec<ByteBuf, Cleared> CODEC = StreamCodec.composite(
-                ByteBufCodecs.BOOL, Cleared::nuclear, UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), Cleared::projectiles, Cleared::new);
+                UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional), Cleared::owner, ByteBufCodecs.BOOL, Cleared::nuclear,
+                UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), Cleared::projectiles, Cleared::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -402,6 +414,63 @@ public final class S2C {
         @Override
         public Type<? extends CustomPacketPayload> type() {
             return TYPE;
+        }
+    }
+
+    /**
+     * Зенитная ракета разорвалась в воздухе ({@code defense.Interceptor}): у цели или сама (самоликвидация, земля).
+     * kill — цель сбита: её путь у клиента кончается в этот тик ({@code target}), обломки летят сущностями. Наземного
+     * взрыва нет — только вспышка, облачко и хлопок; сид — вариант звука.
+     */
+    public record Intercept(Vec3 pos, boolean kill, Optional<UUID> target, long seed) implements CustomPacketPayload {
+        public static final Type<Intercept> TYPE = new Type<>(Airstrike.id("intercept"));
+        public static final StreamCodec<ByteBuf, Intercept> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, Intercept::pos, ByteBufCodecs.BOOL, Intercept::kill, ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC), Intercept::target,
+                ByteBufCodecs.VAR_LONG, Intercept::seed, Intercept::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Экран радара ЗРК своим рядом с ним ({@code defense.SamBlockEntity}, раз в осмотр): где антенна, дальности радара
+     * и огня, ракеты на направляющих и в запасе, цели. Перестал приходить — экран гаснет.
+     */
+    public record RadarScope(Vec3 radar, int range, int engageRange, int ready, int stock, List<Blip> blips) implements CustomPacketPayload {
+        /** Больше целей экран не покажет (ближние — первыми). */
+        public static final int MAX_BLIPS = 64;
+        public static final Type<RadarScope> TYPE = new Type<>(Airstrike.id("radar_scope"));
+        public static final StreamCodec<ByteBuf, RadarScope> CODEC = StreamCodec.composite(
+                StreamCodecs.VEC3, RadarScope::radar, ByteBufCodecs.VAR_INT, RadarScope::range, ByteBufCodecs.VAR_INT, RadarScope::engageRange,
+                ByteBufCodecs.VAR_INT, RadarScope::ready, ByteBufCodecs.VAR_INT, RadarScope::stock,
+                Blip.CODEC.apply(ByteBufCodecs.list(MAX_BLIPS)), RadarScope::blips, RadarScope::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Цель на экране радара: сдвиг от антенны по x и z, блоков, курс (градусы, как у сущности), вид оружия
+     * ({@link ua.zentix.airstrike.strike.WeaponType#id()}: крупный корпус — крупнее отметка) и признаки {@link #HOSTILE},
+     * {@link #ENGAGEABLE}, {@link #ENGAGED}.
+     */
+    public record Blip(float dx, float dz, float yaw, int weapon, int flags) {
+        /** Чужая. */
+        public static final int HOSTILE = 1;
+        /** В дальности огня и стоит ракеты. */
+        public static final int ENGAGEABLE = 2;
+        /** За ней идёт ракета. */
+        public static final int ENGAGED = 4;
+        public static final StreamCodec<ByteBuf, Blip> CODEC = StreamCodec.composite(
+                ByteBufCodecs.FLOAT, Blip::dx, ByteBufCodecs.FLOAT, Blip::dz, ByteBufCodecs.FLOAT, Blip::yaw,
+                ByteBufCodecs.VAR_INT, Blip::weapon, ByteBufCodecs.VAR_INT, Blip::flags, Blip::new);
+
+        public boolean is(int flag) {
+            return (flags & flag) != 0;
         }
     }
 }

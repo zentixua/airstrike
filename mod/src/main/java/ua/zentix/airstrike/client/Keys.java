@@ -7,6 +7,7 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.lwjgl.glfw.GLFW;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
+import ua.zentix.airstrike.strike.NuclearKeys;
 
 /**
  * Клавиши (Управление → Airstrike). «Пуск» по умолчанию — ЛКМ, но только пока смотришь в бинокль пульта:
@@ -35,6 +36,12 @@ public final class Keys {
     public static final KeyMapping MENU = new KeyMapping("key.airstrike.menu", KeyConflictContext.IN_GAME, InputConstants.UNKNOWN, CATEGORY);
     /** Карта наведения (та же, что «На карте» в пульте); по умолчанию «,» (M у Xaero в сборке). */
     public static final KeyMapping MAP = new KeyMapping("key.airstrike.map", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_COMMA, CATEGORY);
+    /**
+     * Второй ключ: подтвердить ядерный пуск игрока рядом ({@code strike.NuclearKeys}); по умолчанию «.» — рядом с картой
+     * («,»), свободна в сборке хоста (K, O и R заняты Iris).
+     */
+    public static final KeyMapping SECOND_KEY = new KeyMapping(NuclearKeys.KEY, KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PERIOD,
+            CATEGORY);
 
     private Keys() {}
 }

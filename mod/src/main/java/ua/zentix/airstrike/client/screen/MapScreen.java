@@ -27,6 +27,7 @@ import ua.zentix.airstrike.strike.Loadout;
 import ua.zentix.airstrike.strike.TargetMode;
 import ua.zentix.airstrike.strike.WeaponSpec;
 import ua.zentix.airstrike.strike.Waypoints;
+import ua.zentix.airstrike.target.Sightings;
 
 import java.util.List;
 import java.util.Locale;
@@ -69,6 +70,8 @@ public class MapScreen extends Screen {
     private static final int CRAFT = 0xFFFFD040, ROUTE = 0xFFFF8040, AIM_LINE = 0xD0FFFFFF, PLAYER = 0xFF50DCFF, OPERATOR = 0xFFFFFFFF;
     /** Маршрут оператора: годится — зелёный, длиннее дальности оружия — красный ({@link #TARGET}), оружию не нужен — {@link #DIM}. */
     private static final int WAYPOINTS = 0xFF7CFF8C;
+    /** Свои по команде и замеченные чужие снаряды и прочее (не игроки и не аппараты). */
+    private static final int FRIEND = 0xFF60FF80, HOSTILE = 0xFFFF6040;
 
     /** Вид карты помнится между открытиями, пока игрок в том же мире и измерении. */
     private static double viewX, viewZ, scale = 1;
@@ -182,7 +185,7 @@ public class MapScreen extends Screen {
         Optional<String> player = selectedPlayer();
         if (player.isPresent()) {
             for (MapPlayers.Mark m : marks) {
-                if (m.name().equalsIgnoreCase(player.get())) return Optional.of(new Vec3(m.x(), 0, m.z()));
+                if (m.target() && m.name().equalsIgnoreCase(player.get())) return Optional.of(new Vec3(m.x(), 0, m.z()));
             }
             return Optional.empty();
         }
@@ -275,13 +278,14 @@ public class MapScreen extends Screen {
         return best;
     }
 
-    /** Игрок, чей значок (на карте или у края) ближе {@link #PICK_RADIUS} к точке экрана. */
+    /** Чужой игрок, чей значок (на карте или у края) ближе {@link #PICK_RADIUS} к точке экрана. */
     @Nullable
     private MapPlayers.Mark playerAt(double screenX, double screenY) {
         MapProjection map = projection();
         MapPlayers.Mark best = null;
         double bestD = PICK_RADIUS * PICK_RADIUS;
         for (MapPlayers.Mark m : marks) {
+            if (!m.target()) continue;
             int[] at = map.at(m.x(), m.z());
             int[] edge = edge(at[0], at[1], height - BOTTOM);
             if (edge != null) at = edge;
@@ -423,7 +427,7 @@ public class MapScreen extends Screen {
         int[] aim = null;
         if (aimedPlayer.isPresent()) {
             for (MapPlayers.Mark m : marks) {
-                if (m.name().equalsIgnoreCase(aimedPlayer.get())) aim = map.at(m.x(), m.z());
+                if (m.target() && m.name().equalsIgnoreCase(aimedPlayer.get())) aim = map.at(m.x(), m.z());
             }
         } else {
             aim = selected().map(t -> map.at(t.x(), t.z())).orElse(null);
@@ -460,20 +464,25 @@ public class MapScreen extends Screen {
             }
         }
 
-        // игроки: значок и имя; за краем — стрелкой; под курсором — рамка (клик — цель)
+        // свои и замеченное: значок и имя (давно виденное — бледнее, с давностью); за краем — стрелкой; под курсором —
+        // рамка (клик по чужому игроку — цель)
         MapPlayers.Mark hover = onMap(mouseX, mouseY) ? playerAt(mouseX, mouseY) : null;
         for (MapPlayers.Mark m : marks) {
             int[] at = map.at(m.x(), m.z());
-            Component name = Component.literal(m.name());
-            boolean aimed = aimedPlayer.isPresent() && m.name().equalsIgnoreCase(aimedPlayer.get());
+            Component named = m.kind() == Sightings.Kind.AIRCRAFT && m.name().isBlank()
+                    ? Component.translatable("airstrike.target.aircraft") : Component.literal(m.name());
+            Component name = m.age() > 0 ? Component.translatable("airstrike.map.last_seen", named, m.age()) : named;
+            boolean aimed = m.target() && aimedPlayer.isPresent() && m.name().equalsIgnoreCase(aimedPlayer.get());
+            int color = aimed ? TARGET : markColor(m);
             int[] edge = edge(at[0], at[1], bottom);
             int[] mark = edge == null ? at : edge;
             if (edge == null) {
-                g.fill(at[0] - 4, at[1] - 4, at[0] + 5, at[1] + 5, HudDraw.HALO);
-                g.fill(at[0] - 3, at[1] - 3, at[0] + 4, at[1] + 4, aimed ? TARGET : PLAYER);
-                label(g, name, at[0], at[1] + 7, aimed ? TARGET : PLAYER);
+                int r = m.kind() == Sightings.Kind.PROJECTILE ? 2 : 3;
+                g.fill(at[0] - r - 1, at[1] - r - 1, at[0] + r + 2, at[1] + r + 2, HudDraw.HALO);
+                g.fill(at[0] - r, at[1] - r, at[0] + r + 1, at[1] + r + 1, color);
+                label(g, name, at[0], at[1] + 7, color);
             } else {
-                edgeMark(g, edge, at, bottom, name, aimed ? TARGET : PLAYER);
+                edgeMark(g, edge, at, bottom, name, color);
             }
             if (aimed) reticle(g, mark[0], mark[1], 9, TARGET);
             else if (m == hover) HudDraw.ring(g, mark[0], mark[1], 8, 1, OPERATOR);
@@ -594,12 +603,22 @@ public class MapScreen extends Screen {
         if (note != null) g.drawString(font, Component.translatable(note).withStyle(ChatFormatting.ITALIC), 8, TOP + 6, DIM);
     }
 
+    /** Цвет метки: свой, чужой игрок, аппарат, снаряд; давно виденное — бледнее. */
+    private static int markColor(MapPlayers.Mark m) {
+        int rgb = m.friendly() ? FRIEND : switch (m.kind()) {
+            case PLAYER -> PLAYER;
+            case AIRCRAFT -> CRAFT;
+            case PROJECTILE, OTHER -> HOSTILE;
+        };
+        return m.age() > 0 ? (rgb & 0x00FFFFFF) | 0xA0000000 : rgb;
+    }
+
     /** «Цель: игрок · где он», «Цель: место» или подсказка. */
     private Component targetLine(Vec3 me) {
         Optional<String> player = selectedPlayer();
         if (player.isPresent()) {
             for (MapPlayers.Mark m : marks) {
-                if (m.name().equalsIgnoreCase(player.get())) {
+                if (m.target() && m.name().equalsIgnoreCase(player.get())) {
                     return Component.translatable("airstrike.map.selected_player", m.name(), place(m.x(), m.z(), me));
                 }
             }

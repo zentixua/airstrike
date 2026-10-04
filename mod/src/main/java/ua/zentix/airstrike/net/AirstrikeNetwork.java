@@ -2,6 +2,7 @@ package ua.zentix.airstrike.net;
 
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import ua.zentix.airstrike.strike.NuclearKeys;
 import ua.zentix.airstrike.strike.PickHints;
 import ua.zentix.airstrike.strike.ServerActions;
 
@@ -36,6 +37,8 @@ public final class AirstrikeNetwork {
         r.playToClient(S2C.MapPlayers.TYPE, S2C.MapPlayers.CODEC, (p, ctx) -> ClientHooks.get().mapPlayers(p));
         r.playToClient(S2C.OpenRemote.TYPE, S2C.OpenRemote.CODEC, (p, ctx) -> ClientHooks.get().openRemote());
         r.playToClient(S2C.ReplayTick.TYPE, S2C.ReplayTick.CODEC, (p, ctx) -> ClientHooks.get().replayTick(p));
+        r.playToClient(S2C.Intercept.TYPE, S2C.Intercept.CODEC, (p, ctx) -> ClientHooks.get().intercept(p));
+        r.playToClient(S2C.RadarScope.TYPE, S2C.RadarScope.CODEC, (p, ctx) -> ClientHooks.get().radarScope(p));
 
         r.playToServer(C2S.Fire.TYPE, C2S.Fire.CODEC, ServerActions::fire);
         r.playToServer(C2S.SetLoadout.TYPE, C2S.SetLoadout.CODEC, ServerActions::setLoadout);
@@ -44,5 +47,6 @@ public final class AirstrikeNetwork {
         r.playToServer(C2S.CameraView.TYPE, C2S.CameraView.CODEC, ServerActions::cameraView);
         r.playToServer(C2S.MapPlayers.TYPE, C2S.MapPlayers.CODEC, ServerActions::mapPlayers);
         r.playToServer(C2S.Pick.TYPE, C2S.Pick.CODEC, PickHints::pick);
+        r.playToServer(C2S.NuclearKey.TYPE, C2S.NuclearKey.CODEC, NuclearKeys::onKey);
     }
 }

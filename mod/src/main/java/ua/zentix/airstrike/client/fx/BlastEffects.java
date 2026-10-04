@@ -46,6 +46,14 @@ public final class BlastEffects {
         FarBlasts.add(p);
     }
 
+    /**
+     * Зенитная ракета разорвалась в воздухе ({@link S2C.Intercept}): вспышка, клуб огня, чёрное облачко разрыва и осколки;
+     * сбила — ещё и горящее топливо цели. Хлопок и лёгкая тряска — с фронтом. Дальше {@link FarBlasts#NEAR} — ничего: разрыв мал.
+     */
+    public static void intercept(S2C.Intercept p) {
+        if (FarBlasts.near(p.pos())) Effects.add(new Airburst(p.pos(), p.seed(), p.kill()));
+    }
+
     // ---------------------------------------------------------------- общее
 
     /** Фронт звука и ударной волны: срабатывает у слушателя один раз, когда до него дошёл. */
@@ -162,6 +170,49 @@ public final class BlastEffects {
             else BlastSounds.surface(pos, false, seed);
             int shake = band == 1 ? 26 : band == 2 ? 22 : band <= 4 ? 16 : band <= 8 ? 10 : 0;
             if (shake > 0) CameraShake.blast(shake);
+        }
+    }
+
+    // ================================================================ разрыв зенитной ракеты
+
+    static final class Airburst extends Timeline {
+        /** Радиус клуба огня, блоки (осколочно-фугасная часть ~20 кг). */
+        static final float R = 2.5f;
+        static final double FLASH_NEAR = 3 * R, FLASH_RANGE = 160;
+        private final boolean kill;
+
+        Airburst(Vec3 pos, long seed, boolean kill) {
+            super(pos, GroundMaterial.STONE, seed);
+            this.kill = kill;
+        }
+
+        @Override
+        boolean run(ClientLevel level, int t) {
+            if (t == 0) {
+                flash(level, pos.subtract(0, 1.5, 0), FLASH_NEAR, FLASH_RANGE, 0.6f);
+                Explosions.fireball(level, pos, R, 6, random);
+                // чёрное облачко разрыва висит в воздухе и тает
+                int n = Math.round(10 * Fx.density(pos)) + 3;
+                for (int i = 0; i < n; i++) {
+                    Vec3 d = Explosions.dir(random, -1);
+                    Fx.smoke().vel(d.scale(0.25)).size(R * 0.4f, R * (0.9f + 0.4f * random.nextFloat())).growFast().life(240 + random.nextInt(120))
+                            .color(0x1E1C1A, 0x5A5650).alpha(0.85f).glow(1, 4).drag(0.85f).rise(0.001f).fadeIn(1).fadeFrom(0.45f)
+                            .budget(FxBudget.GROUND).spawn(level, pos.add(d.scale(R * 0.4)));
+                }
+                for (int i = 0; i < 30; i++) {
+                    Fx.spark().vel(Explosions.dir(random, -1).scale(0.6 + random.nextDouble() * 1.2)).life(8 + random.nextInt(14)).gravity(0.03f)
+                            .spawn(level, pos);
+                }
+                if (kill) Explosions.cookoff(level, pos, 2.0f, random);
+            }
+            return t < 61;
+        }
+
+        @Override
+        void arrive(ClientLevel level, int band) {
+            BlastSounds.rocket(pos, seed);
+            if (band == 1) CameraShake.blast(10);
+            else if (band == 2) CameraShake.blast(6);
         }
     }
 

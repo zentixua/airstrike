@@ -49,7 +49,9 @@ public final class WeaponModels {
         BOMBER_BODY("bomber_body", true), BOMBER_DOOR_L_IN("bomber_door_l_in", false), BOMBER_DOOR_L_OUT("bomber_door_l_out", false),
         BOMBER_DOOR_R_IN("bomber_door_r_in", false), BOMBER_DOOR_R_OUT("bomber_door_r_out", false),
         BOMB_BODY("bomb_body", true), ICBM_BODY("icbm_body", true), ROCKET_BODY("rocket_body", true), ROCKET_RACK("rocket_rack_body", false),
-        LOITER_BODY("loiter_body", true), LOITER_WINGS("loiter_wings", true), LOITER_PROP("loiter_prop", true), LOITER_DISC("loiter_disc", false, true);
+        LOITER_BODY("loiter_body", true), LOITER_WINGS("loiter_wings", true), LOITER_PROP("loiter_prop", true), LOITER_DISC("loiter_disc", false, true),
+        /** Зенитная ракета ЗРК: вдали её не рисуют (полёт короткий, вид — только в мире), упрощённой копии нет. */
+        INTERCEPTOR_BODY("interceptor_body", false);
 
         /** Имя OBJ (models/weapon/&lt;имя&gt;.obj). */
         public final String file;

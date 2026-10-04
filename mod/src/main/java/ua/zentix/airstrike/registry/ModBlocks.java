@@ -8,6 +8,7 @@ import net.minecraft.world.level.material.MapColor;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import ua.zentix.airstrike.Airstrike;
+import ua.zentix.airstrike.defense.SamBlock;
 import ua.zentix.airstrike.grid.SubstationBlock;
 import ua.zentix.airstrike.grid.block.UnlitBlock;
 import ua.zentix.airstrike.grid.block.UnlitBulbBlock;
@@ -37,6 +38,17 @@ public final class ModBlocks {
     public static final DeferredBlock<SubstationBlock> SUBSTATION = REGISTER.register("substation", () -> new SubstationBlock(
             BlockBehaviour.Properties.of()
                     .mapColor(MapColor.COLOR_GRAY)
+                    .strength(5.0f, 6.0f)
+                    .requiresCorrectToolForDrops()
+                    .sound(SoundType.METAL)
+                    .noOcclusion()));
+
+    /**
+     * ЗРК: пусковая с радаром ({@link SamBlock}). Прочность — как у подстанции: взрыв шахеда рядом его разносит.
+     */
+    public static final DeferredBlock<SamBlock> SAM = REGISTER.register("sam", () -> new SamBlock(
+            BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GREEN)
                     .strength(5.0f, 6.0f)
                     .requiresCorrectToolForDrops()
                     .sound(SoundType.METAL)
