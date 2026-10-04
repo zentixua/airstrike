@@ -71,6 +71,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue nukeRuinThreads;
         public final ModConfigSpec.IntValue nukeMaxFires;
         public final ModConfigSpec.IntValue nukeWarningRadius;
+        public final ModConfigSpec.IntValue nukeSecondKeyDistance;
+        public final ModConfigSpec.IntValue nukeSecondKeyWindow;
 
         public final ModConfigSpec.BooleanValue gridEnabled;
         public final ModConfigSpec.IntValue gridNodeRadius;
@@ -173,7 +175,7 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_mob_radiation").define("mob_radiation", true);
             nukeBlackRain = b.comment("Чёрный дождь в следе осадков (заражает, пока не смыть водой).")
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
-            nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут).")
+            nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут). У удара не оператора — не меньше 1800 (90 с тревоги).")
                     .translation("airstrike.config.nuke_flight_time").defineInRange("flight_time", 1800, 200, 72_000);
             nukeTimeBudgetMs = b.comment("Предел разрушений ядерки внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–45).",
                             "По умолчанию 30: разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна;",
@@ -194,6 +196,11 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
             nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
+            nukeSecondKeyDistance = b.comment("Ядерный удар не оператора (ops_only = false) — вторым ключом: другой игрок не дальше стольких блоков",
+                            "от запускающего нажимает свою клавишу «Второй ключ». Один в сети — без ключа.")
+                    .translation("airstrike.config.nuke_second_key_distance").defineInRange("second_key_distance", 16, 2, 128);
+            nukeSecondKeyWindow = b.comment("Сколько секунд ждать второго ключа; не дождались — пуска нет, боеприпасы возвращаются.")
+                    .translation("airstrike.config.nuke_second_key_window").defineInRange("second_key_window", 30, 5, 300);
             carrierNukes = b.comment("Ядерная боевая часть и на крылатой ракете и B-2 (кроме МБР).")
                     .translation("airstrike.config.carrier_nukes").define("carrier_nukes", true);
             b.pop();

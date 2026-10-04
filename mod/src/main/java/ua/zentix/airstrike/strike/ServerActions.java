@@ -106,6 +106,11 @@ public final class ServerActions {
         if (!(ctx.player() instanceof ServerPlayer player) || !mayUse(player)) return;
         ServerLevel level = player.serverLevel();
         if (!(level.getEntity(p.projectile()) instanceof StrikeProjectile proj) || !player.getUUID().equals(proj.ownerId())) return;
+        // ядерный снаряд не оператора идёт туда, где объявлена тревога и куда повёрнут второй ключ
+        if (proj.isNuclear() && !NuclearKeys.trusted(player)) {
+            player.displayClientMessage(Component.translatable("airstrike.nuke.no_retarget").withStyle(ChatFormatting.RED), true);
+            return;
+        }
         C2S.AimHint h = p.aim();
         // из камеры видно не дальше дальности прорисовки снаряда
         if (!valid(h) || h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
@@ -158,7 +163,8 @@ public final class ServerActions {
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
         if (!mayUse(player) || tooSoon(player, ModAttachments.LAST_FIRE.get())) return;
-        boolean nuclear = mayUseNuke(player);
+        // ядерные удары отменяет только оператор и хост: запускающий не отзывает свой (NuclearKeys)
+        boolean nuclear = NuclearKeys.trusted(player);
         int n = clearAll(player.server, nuclear, player.getGameProfile().getName());
         player.sendSystemMessage(clearedMessage(n, nuclear).withStyle(ChatFormatting.GRAY));
     }
@@ -229,6 +235,10 @@ public final class ServerActions {
         if (bill != null && !Munitions.pay(player, bill)) return false;
         if (aim.label() != null) {
             player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
+        }
+        // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с
+        if (l.nuclear() && bound && !NuclearKeys.trusted(player)) {
+            return NuclearKeys.order(player, player.server.getPlayerList().getPlayers(), l, aim, via, bill);
         }
         return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, bill);
     }
@@ -438,7 +448,8 @@ public final class ServerActions {
      * Что и кем снято — строкой в лог: отбой снимает и чужие удары, а нажавший видит только итог в чате (игра 02.10.2026:
      * МБР №3 пропала из лога без следа — её снял «Отбоем» другой игрок).
      *
-     * @param nuclear отменить и ядерные удары (только тем, кому можно ядерное оружие)
+     * @param nuclear отменить и ядерные удары, и ждущие второго ключа или пуска после тревоги (только оператору и хосту,
+     *                {@link NuclearKeys#trusted})
      * @param who     кто дал отбой — для лога
      */
     public static int clearAll(MinecraftServer server, boolean nuclear, String who) {
@@ -487,6 +498,10 @@ public final class ServerActions {
                 detonations += events.detonations().size();
                 n += NuclearStrikes.clear(level);
             }
+        }
+        if (nuclear) {
+            n += NuclearKeys.cancelAll(server, server.getPlayerList().getPlayers(),
+                    Component.translatable("airstrike.nuke.key.cancelled").withStyle(ChatFormatting.GRAY), "ядерный отбой — " + who);
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared(nuclear, projectiles));
         Airstrike.LOG.info("Отбой{} — {}: снарядов {} (вне мира {}), пусковых {}, залпов {}{}{}", nuclear ? " с ядерными" : "", who,
