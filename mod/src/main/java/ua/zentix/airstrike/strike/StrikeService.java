@@ -73,6 +73,12 @@ public final class StrikeService {
         if (shooter != null && shooter.level() != level) shooter = null;
         if (siren && shooter != null) StrikeWorld.get(level).newOrder(shooter.getUUID(), weapon);
         WeaponSpec spec = weapon.spec();
+        // промах этого пуска (паспорт): снаряд целится в цель со сдвигом — у сущности сдвиг относительно неё
+        Vec3 miss = spec.route().miss(level.random);
+        if (!miss.equals(Vec3.ZERO)) {
+            target = target.offset(miss);
+            point = point.add(miss);
+        }
         if (spec.launch() == WeaponSpec.Launch.ICBM) {
             // МБР бьёт по координатам: за движущейся целью не следит; тревогу поднимает сам пуск
             boolean ok = target instanceof Target.Ground
@@ -388,20 +394,19 @@ public final class StrikeService {
     }
 
     /**
-     * Бомба бьёт по точке на поверхности над целью (с разбросом ±2.5 блока) и за движущейся целью не следит;
-     * если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
+     * Бомба бьёт по точке на поверхности над целью (промах — паспорт, {@link WeaponSpec.Route#error}) и за движущейся
+     * целью не следит; если цель глубже 4 блоков под поверхностью (пещера, бункер), бомба пробивается к ней.
      */
     private static StrikeProjectile launchBomber(ServerLevel level, Target target, Vec3 point, float yaw, @Nullable UUID owner) {
-        double jx = (level.random.nextInt(51) - 25) / 10.0, jz = (level.random.nextInt(51) - 25) / 10.0;
-        int sx = Mth.floor(point.x + jx), sz = Mth.floor(point.z + jz);
+        int sx = Mth.floor(point.x), sz = Mth.floor(point.z);
         // поверхность под целью (чанк ради пуска не грузим): цель бывает в воздухе, а бомба падает на землю под ней;
         // у неготового чанка место с карты уже несёт свою оценку (карта клиента лучше генератора); к сбросу B-2
         // уточняет её по готовому чанку
         Terrain.Surface under = Terrain.estimate(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sx, sz,
                 target instanceof Target.Ground ? Terrain.Allowed.CHUNK : Terrain.Allowed.ORDER);
         double sy = under.known() ? under.y() : point.y + 0.5;
-        Vec3 surface = new Vec3(point.x + jx, sy - 0.5, point.z + jz);
-        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по разбросу — готов)
+        Vec3 surface = new Vec3(point.x, sy - 0.5, point.z);
+        // место с карты — на поверхности, бункера под ним нет (его высота бывает оценкой, а сосед по промаху — готов)
         BlockPos goal = !(target instanceof Target.Ground) && surface.y - point.y >= 4 ? BlockPos.containing(point) : null;
         BomberEntity e = ModEntities.BOMBER.get().create(level);
         if (e == null) return null;
