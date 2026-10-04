@@ -9,6 +9,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
@@ -49,6 +50,7 @@ import ua.zentix.airstrike.strike.Waypoints;
 import ua.zentix.airstrike.target.Target;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -176,10 +178,11 @@ public final class FixedLauncherGameTests {
                 .thenExecute(() -> h.assertTrue(LauncherOrders.fire(level, be) == null, "залп шахедов не начался"))
                 .thenWaitUntil(() -> h.assertTrue(SalvoData.get(level).remaining(owner) == 3, "первый шахед не встал"))
                 .thenExecute(() -> {
-                    h.assertTrue(be.stockCount() == 3, "после первого шахеда в запасе " + be.stockCount());
+                    // в запасе ещё начатый пакет «Града»: шахеды — отдельно
+                    h.assertTrue(shaheds(be) == 3, "после первого шахеда в запасе " + shaheds(be));
                     ServerActions.recall(level.getServer(), owner, "проверка");
                     h.assertTrue(!SalvoData.busy(level, origin) && SalvoData.get(level).remaining(owner) == 0, "отбой не отменил залп");
-                    h.assertTrue(be.stockCount() == 3, "отбой тронул запас: " + be.stockCount());
+                    h.assertTrue(shaheds(be) == 3, "отбой тронул запас: " + shaheds(be));
                 })
                 .thenSucceed();
     }
@@ -206,12 +209,9 @@ public final class FixedLauncherGameTests {
         ItemStack theirs = new ItemStack(ModItems.DESIGNATOR.get());
         LauncherLinks.toggle(stranger, theirs, be);
         h.assertTrue(LauncherLinks.of(theirs).isEmpty(), "чужая привязалась");
-        // команда игрока по UUID — по имени из списка игроков или кэша профилей: FakePlayer в списке нет, в игре оба в кэше
-        var profiles = level.getServer().getProfileCache();
-        if (profiles != null) {
-            profiles.add(owner.getGameProfile());
-            profiles.add(stranger.getGameProfile());
-        }
+        // команда хозяина по UUID — по имени из списка игроков (в игре — ещё из кэша профилей, у сервера GameTest его нет)
+        online(h, owner);
+        online(h, stranger);
         Scoreboard board = level.getScoreboard();
         PlayerTeam team = board.addPlayerTeam("fixed_" + UUID.randomUUID().toString().substring(0, 8));
         StrikeGameTests.afterTest(h, () -> board.removePlayerTeam(team));
@@ -346,6 +346,17 @@ public final class FixedLauncherGameTests {
     @Nullable
     private static String key(@Nullable Component c) {
         return c != null && c.getContents() instanceof TranslatableContents t ? t.getKey() : null;
+    }
+
+    private static int shaheds(FixedLauncherBlockEntity be) {
+        return Munitions.held(be.store().items(), ModItems.SHAHED.get(), 1);
+    }
+
+    /** Игрок «в сети» для {@link ua.zentix.airstrike.target.Sides}: в карте игроков сервера по UUID; убирается после проверки. */
+    private static void online(GameTestHelper h, FakePlayer p) {
+        Map<UUID, ServerPlayer> byUuid = SamGameTests.playersByUuid(h.getLevel().getServer().getPlayerList());
+        byUuid.put(p.getUUID(), p);
+        StrikeGameTests.afterTest(h, () -> byUuid.remove(p.getUUID(), p));
     }
 
     private static FakePlayer player(ServerLevel level, String name, Vec3 at) {
