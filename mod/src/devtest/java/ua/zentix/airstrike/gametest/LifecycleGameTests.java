@@ -478,9 +478,9 @@ public final class LifecycleGameTests {
 
     /**
      * Отпуск многих районов разом (Отбой залпа; игра 03.10.2026 — тик 6,8 с, стенд — 5 с на сохранении ~9 тыс. чанков):
-     * районы отпускаются по очереди, и в конце тика в {@code toDrop} не больше порога ванили (2000 держателей; что сверх,
-     * {@code ChunkMap.processUnloads} в следующем тике переводит в выгрузку разом, а без свободного времени и сохраняет) и
-     * одного района. Без очереди там было 3645 при пределе 2729. Отпущенный район сразу не
+     * районы отпускаются по очереди, и в конце тика у ванили на выгрузке ({@link AreaLoader#unloading}) не больше её
+     * порога (2000 держателей; что сверх, {@code ChunkMap.processUnloads} сохраняет в следующем тике разом), её темпа без
+     * свободного времени (200) и одного района. Без очереди там было 3645 при пределе 2729. Отпущенный район сразу не
      * тикает, очередь доходит до конца, тикет отпуска есть у каждого района в очереди и ни у кого больше. Район, взятый
      * снова, пока ждал очереди, тикает сразу. Район, который ещё грузился, отпускается без очереди (его генерация больше
      * не нужна).
@@ -506,8 +506,8 @@ public final class LifecycleGameTests {
         areas.hold(level, loading);
         areas.release(level, loading);
         h.assertTrue(areas.releasing() == 0 && TicketProbe.count(level, "airstrike_area_load", loading.key()) == 0, "район, который ещё грузился, ждёт очереди");
-        int limit = 2000 + side * side;
-        int[] tick = {0}, releasedAt = {-1}, keptReleasedAt = {-1}, waiting = {-1}, maxToDrop = {0};
+        int limit = 2000 + 200 + side * side;
+        int[] tick = {0}, releasedAt = {-1}, keptReleasedAt = {-1}, waiting = {-1}, maxUnloading = {0};
         long[] last = {System.nanoTime()};
         h.onEachTick(() -> {
             tick[0]++;
@@ -525,8 +525,9 @@ public final class LifecycleGameTests {
                 return;
             }
             String where = "тик " + (tick[0] - releasedAt[0]) + " после отпуска: ";
-            maxToDrop[0] = Math.max(maxToDrop[0], map.toDrop.size());
-            if (map.toDrop.size() > limit) throw new GameTestAssertException(where + "в toDrop " + map.toDrop.size() + " держателей, предел " + limit);
+            int unloading = AreaLoader.unloading(map);
+            maxUnloading[0] = Math.max(maxUnloading[0], unloading);
+            if (unloading > limit) throw new GameTestAssertException(where + "на выгрузке " + unloading + " держателей, предел " + limit);
             int tickets = TicketProbe.count(level, "airstrike_area_release");
             if (tickets != areas.releasing()) throw new GameTestAssertException(where + "тикетов отпуска " + tickets + " у районов в очереди " + areas.releasing());
             for (AreaLoader.Area a : list) {
@@ -541,8 +542,8 @@ public final class LifecycleGameTests {
                 return;
             }
             h.assertTrue(waiting[0] > 0, "районы отпущены разом, без очереди");
-            Airstrike.LOG.info("Отпуск районов по очереди: после первого тика ждали {} из {}, очередь прошла за {} тиков, в toDrop самое большее {} держателей (предел {})",
-                    waiting[0], list.size() - 1, keptReleasedAt[0] - releasedAt[0], maxToDrop[0], limit);
+            Airstrike.LOG.info("Отпуск районов по очереди: после первого тика ждали {} из {}, очередь прошла за {} тиков, на выгрузке самое большее {} держателей (предел {})",
+                    waiting[0], list.size() - 1, keptReleasedAt[0] - releasedAt[0], maxUnloading[0], limit);
             h.succeed();
         });
     }
@@ -553,9 +554,9 @@ public final class LifecycleGameTests {
      * сверх, а очередь, ждавшая места на выгрузке, отпускала район раз в 100 тиков: Zearth 04.10.2026 после ~60 залпов —
      * 12,5 тыс. тикетов отпуска и ~25 тыс. загруженных чанков. Теперь очередь идёт темпом ванили (она переводит в
      * выгрузку 200 держателей за тик и без свободного времени): 8 районов без общих держателей уходят за тики на их
-     * квадраты в этом темпе и по два тика на район, в {@code toDrop} в конце тика не больше 2000 и одного района (за тик
-     * ваниль сохраняет сверх своих 2000 не больше своего темпа и одного района), тикет отпуска — ровно у районов в
-     * очереди, отпущенные не тикают.
+     * квадраты в этом темпе и по два тика на район, на выгрузке ({@link AreaLoader#unloading}) в конце тика не больше
+     * 2000, этого темпа и одного района (за тик ваниль сохраняет сверх своих 2000 не больше своего темпа и одного района —
+     * и в первом тике, когда вернётся свободное время), тикет отпуска — ровно у районов в очереди, отпущенные не тикают.
      */
     @GameTest(template = "range", timeoutTicks = 3000, batch = "tickets_release_busy", skyAccess = true)
     public static void releasedAreasUnloadWithoutFreeTime(GameTestHelper h) {
@@ -577,8 +578,8 @@ public final class LifecycleGameTests {
         });
         // срок — квадраты всех районов в темпе ванили и по два тика на район (старая очередь — по 100 тиков на район)
         int limit = list.size() * side * side / 200 + 2 * list.size();
-        int bound = 2000 + side * side;
-        int[] tick = {0}, releasedAt = {-1}, maxToDrop = {0}, maxUnloading = {0};
+        int bound = 2000 + 200 + side * side;
+        int[] tick = {0}, releasedAt = {-1}, maxQueued = {0}, maxUnloading = {0};
         long[] last = {System.nanoTime()};
         h.onEachTick(() -> {
             tick[0]++;
@@ -595,9 +596,10 @@ public final class LifecycleGameTests {
             }
             int ticks = tick[0] - releasedAt[0];
             String where = "тик " + ticks + " после отпуска: ";
-            maxToDrop[0] = Math.max(maxToDrop[0], map.toDrop.size());
+            int queued = AreaLoader.unloading(map);
+            maxQueued[0] = Math.max(maxQueued[0], queued);
             maxUnloading[0] = Math.max(maxUnloading[0], map.toDrop.size() + map.pendingUnloads.size());
-            if (map.toDrop.size() > bound) throw new GameTestAssertException(where + "в toDrop " + map.toDrop.size() + " держателей, предел " + bound);
+            if (queued > bound) throw new GameTestAssertException(where + "на выгрузке " + queued + " держателей, предел " + bound);
             int tickets = TicketProbe.count(level, "airstrike_area_release");
             if (tickets != areas.releasing()) throw new GameTestAssertException(where + "тикетов отпуска " + tickets + " у районов в очереди " + areas.releasing());
             for (AreaLoader.Area a : list) {
@@ -610,8 +612,8 @@ public final class LifecycleGameTests {
                 return;
             }
             level.getServer().tickRateManager().stopSprinting();
-            Airstrike.LOG.info("Отпуск районов без свободного времени: очередь из {} прошла за {} тиков (срок {}), в toDrop самое большее {} (предел {}), на выгрузке {}",
-                    list.size(), ticks, limit, maxToDrop[0], bound, maxUnloading[0]);
+            Airstrike.LOG.info("Отпуск районов без свободного времени: очередь из {} прошла за {} тиков (срок {}), на выгрузке самое большее {} (предел {}), с держателями генерации {}",
+                    list.size(), ticks, limit, maxQueued[0], bound, maxUnloading[0]);
             // ваниль без свободного времени держала выгрузку полной: иначе проверялся бы не занятый сервер
             h.assertTrue(maxUnloading[0] > 2000, "на выгрузке не больше 2000 — сервер разбирал её во время, свободное в тике");
             h.succeed();

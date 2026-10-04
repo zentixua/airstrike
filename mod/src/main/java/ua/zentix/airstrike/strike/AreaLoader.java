@@ -1,5 +1,7 @@
 package ua.zentix.airstrike.strike;
 
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
@@ -217,34 +219,53 @@ public final class AreaLoader {
      * 04.10.2026: после ~60 залпов — 12,5 тыс. тикетов отпуска, ~25 тыс. загруженных чанков, TPS 13–15, и чем больше
      * чанков держала очередь, тем меньше свободного времени оставалось). Поэтому сверх места очередь отдаёт держатели и
      * темпом ванили без свободного времени — {@link #UNLOAD_PER_TICK} за тик ({@link #credit}): район больше этого идёт
-     * в долг, и следующий ждёт, пока долг не покроют следующие тики. И только пока в {@code toDrop} меньше
-     * {@link #UNLOAD_CALM}: там сверх него не больше одного района, и за тик ваниль переводит в выгрузку (а без
-     * свободного времени и сохраняет сверх своих {@link #UNLOAD_CALM}) не больше своего темпа и одного района.
+     * в долг, и следующий ждёт, пока долг не покроют следующие тики. И только пока на выгрузке ({@link #unloading}: без
+     * держателей генерации — их ваниль не трогает, и очередь не ждёт их) меньше {@link #UNLOAD_CALM} и этого темпа, а в
+     * {@code toDrop} — меньше {@link #UNLOAD_CALM}: в первом же тике со свободным временем ваниль переводит в выгрузку весь
+     * {@code toDrop} и сохраняет всё, что сверх её {@link #UNLOAD_CALM}, даже когда время кончилось, — после очереди это
+     * не больше её темпа и одного района, было у сервера свободное время или нет.
      * <p>
      * Чанки отпущенного района не тикают, а очередь идёт и при {@code /tick freeze}, как загрузка.
      */
     private void drainReleases(ServerLevel level) {
         credit = Math.min(credit + UNLOAD_PER_TICK, UNLOAD_PER_TICK);
+        if (releasing.isEmpty()) return;
         ServerChunkCache chunks = level.getChunkSource();
         ChunkMap map = chunks.chunkMap;
+        // раз на тик: отпуск только добавляет в toDrop, и держатели генерации, которых он добавил, идут в счёт выгрузки
+        int generating = generating(map);
         // каждый раз — первый в очереди, без живого итератора: пересчёт уровней доходит до сущностей в чанках, и снаряд,
         // уходя с ними, может отпустить свой район
         for (int n = releasing.size(); n > 0 && !releasing.isEmpty(); n--) {
             Map.Entry<Area, Long> next = releasing.entrySet().iterator().next();
             Area area = next.getKey();
-            boolean room = unloading(map) + holders(area) <= UNLOAD_CALM;
-            if (!room && (credit <= 0 || map.toDrop.size() >= UNLOAD_CALM)) return;
+            int unloading = map.toDrop.size() + map.pendingUnloads.size() - generating;
+            boolean room = unloading + holders(area) <= UNLOAD_CALM;
+            if (!room && (credit <= 0 || unloading >= UNLOAD_CALM + UNLOAD_PER_TICK || map.toDrop.size() >= UNLOAD_CALM)) return;
             int dropping = map.toDrop.size();
             releasing.remove(area);
             distances(level).removeTicket(RELEASE, area.centre(), area.level(), next.getValue());
             chunks.runDistanceManagerUpdates();
-            if (!room) credit -= map.toDrop.size() - dropping;
+            if (!room) credit -= Math.max(0, map.toDrop.size() - dropping);
         }
     }
 
-    /** Держателей чанков на выгрузке: ушедших из загрузки и уже поставленных в выгрузку ({@code ChunkMap.processUnloads}). */
-    private static int unloading(ChunkMap map) {
-        return map.toDrop.size() + map.pendingUnloads.size();
+    /**
+     * Держателей чанков на выгрузке, которых ваниль разберёт ({@code ChunkMap.processUnloads}): ушедших из загрузки и уже
+     * поставленных в выгрузку, кроме тех, что ещё держит генерация соседей (и проверки).
+     */
+    public static int unloading(ChunkMap map) {
+        return map.toDrop.size() + map.pendingUnloads.size() - generating(map);
+    }
+
+    /** Держателей в {@code toDrop}, которых ещё держит генерация соседей: ваниль пропускает их, пока она не кончится. */
+    private static int generating(ChunkMap map) {
+        int n = 0;
+        for (LongIterator it = map.toDrop.iterator(); it.hasNext(); ) {
+            ChunkHolder holder = map.getVisibleChunkIfPresent(it.nextLong());
+            if (holder != null && holder.getGenerationRefCount() != 0) n++;
+        }
+        return n;
     }
 
     /**
