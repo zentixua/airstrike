@@ -196,13 +196,15 @@ public final class StrikeWorld {
     }
 
     /**
-     * Сколько снарядов игрока в работе во всех мирах: в полёте (в мире и вне его) и ещё не выпущенных в залпах —
-     * для предела {@code max_active_per_player}.
+     * Сколько снарядов игрока в работе во всех мирах: в полёте (в мире и вне его), ещё не выпущенных в залпах и в
+     * ядерных приказах, которые ждут второго ключа или конца тревоги ({@link NuclearKeys}), — для предела
+     * {@code max_active_per_player}.
      */
     public static int active(MinecraftServer server, UUID owner) {
         int n = 0;
         for (ServerLevel level : server.getAllLevels()) {
             n += SalvoData.get(level).remaining(owner);
+            n += get(level).keys().waiting(owner);
             for (StrikeProjectile p : projectiles(level)) {
                 if (owner.equals(p.ownerId())) n++;
             }

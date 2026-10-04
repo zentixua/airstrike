@@ -78,6 +78,7 @@ public final class NuclearKeyGameTests {
         h.assertTrue(order(a, online, l, h), "приказ не принят");
         h.assertValueEqual(held(a, icbm), 0, "МБР не оплачена при отдаче");
         h.assertValueEqual(NuclearKeys.get(level).pending(), 1, "приказов ждёт ключа");
+        h.assertValueEqual(StrikeWorld.active(level.getServer(), a.getUUID()), 1, "ждущий ключа приказ не в работе (max_active_per_player)");
         h.assertValueEqual(NuclearEvents.get(level).scheduled().size(), scheduled, "пуск без второго ключа");
         h.assertTrue(a.last("airstrike.nuke.key.wait") != null, "запускающему не сказано ждать ключа");
         h.assertTrue(near.last("airstrike.nuke.key.prompt") != null, "игрока рядом не позвали");
@@ -101,7 +102,7 @@ public final class NuclearKeyGameTests {
 
     /**
      * Один в сети (сервер GameTest без игроков): приказ с пульта идёт сразу, без ключа, но МБР летит 90 с, а не 10 с из
-     * настройки. Команда оператора ({@code bound = false}) — без ключа и по настройке.
+     * настройки. Команда оператора ({@code rules = false}) — без ключа и по настройке.
      */
     @GameTest(template = "runway", batch = "nuclear_keys_alone", skyAccess = true)
     public static void aloneNoKeyButFullWarning(GameTestHelper h) {
@@ -174,6 +175,7 @@ public final class NuclearKeyGameTests {
         h.assertTrue(held(a, missile) == 0 && held(a, warhead) == 0, "ракета и БЧ не оплачены");
         h.assertTrue(NuclearKeys.confirm(near, online), "ключ не принят");
         h.assertValueEqual(NuclearKeys.get(level).pending(), 1, "носитель не ждёт конца тревоги");
+        h.assertValueEqual(StrikeWorld.active(level.getServer(), a.getUUID()), 1, "носитель до конца тревоги не в работе (max_active_per_player)");
         h.assertTrue(near.last("airstrike.nuke.alarm.carrier") != null, "у цели нет тревоги");
         h.assertTrue(a.last("airstrike.nuke.alarm.armed") != null, "запускающему не сказано о тревоге");
         h.assertTrue(StrikeWorld.projectiles(level).stream().noneMatch(p -> a.getUUID().equals(p.ownerId())), "носитель стартовал до конца тревоги");
