@@ -8,5 +8,3 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.9.0'
 }
 rootProject.name = 'airstrike'
-// Мод ведущего (только для сервера, свой jar): mod/gm, задачи — :gm:…, запуски — runGm*
-include 'gm'

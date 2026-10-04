@@ -5,6 +5,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 точное наведение на всё, куда смотрит игрок (блоки, мобы, игроки, летательные аппараты Create Aeronautics),
 свой 3D-звук с Доплером. Репозиторий: https://github.com/zentixua/airstrike (публичный).
 Что умеет мод для игрока — README.md; проект ядерного удара и отступления от него — docs/DESIGN-nuke.md.
+Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и мост ведущего
+(серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/minecraft-agent-bridge); у каждого свой CLAUDE.md.
 
 Здесь — только то, что нужно в каждой сессии. Устройство пакетов и подводные камни по областям — в `.claude/rules/`
 (список в конце): файл области подгружается сам, когда Claude открывает её файлы инструментами Read, Edit или Write.
@@ -15,7 +17,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 - Автор/хост: **Артём**, в игре **ZentixUA**. Друзья: **ENOTzRPG**, **WallyFillmark**.
 - Общаемся по-русски, кратко и по делу.
 - **Не управлять компьютером пользователя** (никакого computer-use, кликов в игре). Всё готовим так,
-  чтобы Артёму оставалось только запустить игру: мод приходит в неё выпуском и PR сборки (автообновление).
+  чтобы Артёму оставалось только запустить игру: мод приходит в неё выпуском и PR сборки в airstrike-pack (автообновление).
 - **Минимум просьб «проверь в игре»** — это мешает игре. Проверяем сами: юнит-тесты, GameTest, клиент без окна
   (`tools/client_scenario.sh`), после игры — `tools/logscan.py`.
 - Не удалять миры/сейвы/файлы пользователя. Лишнее — переносить в сторону (`deploy.sh` кладёт в `airstrike-backup/`).
@@ -35,24 +37,24 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
     src/devtest/                         ← GameTest, сценарии полёта и клиента, стенд нагрузки (в jar не входят)
     src/test/                            ← юнит-тесты JUnit
     run/<client|server|gametest|scenario>/  ← папки запусков (в .gitignore)
-    gm/                                  ← мод ведущего airstrike_gm: мост Claude к серверу (только сервер, свой jar)
   tools/                                 ← скрипты; что каждый умеет — .claude/rules/tools.md:
                                            paths.py (все пути к игре), deploy.sh, logscan.py; моды и каталоги для
-                                           запусков — fetch_runtime_mods.py, pack_dir.py, prism_instance.py; клиент без окна
+                                           запусков — fetch_runtime_mods.py (каталог игры из сборки — pack_dir.py в
+                                           airstrike-pack); клиент без окна
                                            и проверки — client_scenario.sh, prod_client.py, x11_record.py, nested_kwin.sh,
                                            stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
                                            freesound.py, gen_textures.py, gen_particles.py, gen_models.py,
-                                           gen_grid_assets.py; трейлер — trailer/; ведущий (MCP) — gm.py
-  pack/                                  ← своя сборка «Airstrike Pack» (packwiz); состав — pack/README.md;
-                                           pack/ на main игроки с автообновлением ставят при каждом запуске игры
+                                           gen_grid_assets.py; трейлер — trailer/
+  pack/                                  ← прежний адрес сборки для экземпляров, ещё не переведённых на airstrike-pack:
+                                           заморожен, не править; убирается по слову Артёма
   docs/DESIGN-nuke.md                    ← проект ядерного удара
   docs/releases/<версия>.md              ← заметки к релизу
   .github/workflows/build.yml            ← CI
   .claude/rules/                         ← устройство пакетов и подводные камни по областям
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
-  instances/Airstrike Pack/minecraft/                             ← .minecraft инстанса (MC): сборка pack/, в ней играет Артём
+  instances/Airstrike Pack/minecraft/                             ← .minecraft инстанса (MC): сборка airstrike-pack, в ней играет Артём
     mods/                              ← моды; отсюда же build.gradle берёт Create/Sable/Aeronautics для запусков
     logs/latest.log                    ← лог клиента и встроенного сервера
     airstrike-backup/                  ← что deploy.sh убрал в сторону (старые jar, датапак, пакет звуков)
@@ -64,7 +66,6 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 export JAVA_HOME=~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta
 cd mod && ./gradlew build                 # компиляция (-Xlint:all без предупреждений) и юнит-тесты
 cd mod && ./gradlew runGameTestServer     # GameTest: сервер без окна с Create 6.0.10, Sable 2.0.5, Aeronautics 1.3.2
-cd mod && ./gradlew :gm:runGmGameTestServer  # GameTest мода ведущего (без Create; ./gradlew build собирает оба мода)
 cd mod && ./gradlew runScenarioSweep      # одни сценарии полёта, все зёрна (-PscenarioSeeds=N, по умолчанию 16;
                                           # -PscenarioOnly=<регвыр> — выбор, -PscenarioRealChunks — настоящая загрузка)
 cd mod && ./gradlew runScenarioRecord     # записать эталон траекторий заново (сдвиг — объяснить в PR по сценариям)
@@ -82,9 +83,7 @@ git commit
 CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
 не запускает — PR открывать сразу, черновиком); jar — артефакт `airstrike-jar`. Проверяется то, что изменилось
 (задача «Что изменилось»): правка только `tools/` (кроме `fetch_runtime_mods.py`, `paths.py`), `docs/`, `*.md` мод не
-собирает и GameTest не гоняет; `pack/` и `tools/prism_instance.py` — только задача «Сборка модов» (индекс packwiz свежий,
-`.mrpack` и экземпляр Prism собираются);
-`mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
+собирает и GameTest не гоняет; `mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
 GameTest идёт частями на шести машинах (`-PgametestShard=i/n`, `GameTestShards`: партия целиком в одной части, части
 равняются по `gametest-durations.json`; таблицу освежает `tools/gametest_durations.py` по логам частей, когда части
 заметно разошлись по времени). Слияние решает задача «Итог»: падает, если упала или отменена любая нужная проверка.
@@ -93,7 +92,8 @@ GameTest идёт частями на шести машинах (`-PgametestShar
 Релиз: поднять `mod_version`, написать `docs/releases/<версия>.md`, влить в `main` и запустить `build` вручную на `main`
 с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья). Если `main` ушёл
 вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками, запуск на ней.
-PR сборки с jar выпуска — после выпуска: `pack/` на `main` игроки с автообновлением ставят при следующем запуске.
+PR сборки с jar выпуска — в airstrike-pack, после выпуска: сборку на её `main` игроки с автообновлением ставят при
+следующем запуске.
 Версию протокола (`AirstrikeNetwork.PROTOCOL`) поднимает PR, который меняет формат пакетов или данных сущностей; релиз,
 у которого поведение или ключи языка отличаются от прошлого выданного jar, поднимает её сам, если за выпуск её ещё
 не подняли: старый jar не должен заходить к новому хосту (NeoForge тогда говорит «разные версии мода»).
@@ -176,10 +176,9 @@ PR сборки с jar выпуска — после выпуска: `pack/` н�
 - `client-scenario.md` — сценарии клиента без окна: строки `SCENARIO`, сценарий `commands`, облако, сценарии `fx`.
 - `rigs.md` — стенд нагрузки, мультиплеер на петле, вложенный KWin, боевой клиент со всей сборкой.
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
-- `gm.md` — мод ведущего `mod/gm` и `tools/gm.py`: мост, методы, чанки без тика, постройка с откатом, снимки.
 
 ## Окружение
-- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (`pack/`, 53 мода), прежний
+- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям;
   jar мода нужен всем (сервер и клиенты).
 - Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.5** (аппараты — «sub-levels», блоки живут
