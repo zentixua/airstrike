@@ -6,9 +6,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.GameProfileCache;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Scoreboard;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Свой или чужой — по командам {@code /team} (ванильное табло): свои — один и тот же игрок или игроки одной команды.
@@ -27,10 +29,15 @@ public final class Sides {
      * Null — ничей (консоль), не свой никому.
      */
     public static boolean friendly(MinecraftServer server, @Nullable UUID a, @Nullable UUID b) {
+        return friendly(server.getScoreboard(), a, b, names(server));
+    }
+
+    /** {@link #friendly(MinecraftServer, UUID, UUID)} по табло {@code board} и именам игроков {@code names}. */
+    public static boolean friendly(Scoreboard board, @Nullable UUID a, @Nullable UUID b, Function<UUID, @Nullable String> names) {
         if (a == null || b == null) return false;
         if (a.equals(b)) return true;
-        PlayerTeam team = team(server, a);
-        return team != null && team.isAlliedTo(team(server, b));
+        PlayerTeam team = team(board, a, names);
+        return team != null && team.isAlliedTo(team(board, b, names));
     }
 
     /**
@@ -38,7 +45,12 @@ public final class Sides {
      * у них разные приставки).
      */
     public static String side(MinecraftServer server, UUID player) {
-        return key(team(server, player), player);
+        return side(server.getScoreboard(), player, names(server));
+    }
+
+    /** {@link #side(MinecraftServer, UUID)} по табло {@code board} и именам игроков {@code names}. */
+    public static String side(Scoreboard board, UUID player, Function<UUID, @Nullable String> names) {
+        return key(team(board, player, names), player);
     }
 
     /** Ключ стороны игрока в сети ({@link #side(MinecraftServer, UUID)}): команда — по его имени на табло. */
@@ -50,20 +62,23 @@ public final class Sides {
         return team != null ? "team:" + team.getName() : "player:" + player;
     }
 
-    /**
-     * Команда игрока по UUID. Табло хранит участников команд по именам: у игрока в сети имя — его, иначе — из кэша
-     * профилей сервера (нет там — команды не узнать).
-     */
+    /** Команда игрока по UUID: табло хранит участников команд по именам ({@link #names}). */
     @Nullable
-    public static PlayerTeam team(MinecraftServer server, UUID player) {
-        ServerPlayer online = server.getPlayerList().getPlayer(player);
-        String name = online != null ? online.getScoreboardName() : cachedName(server, player);
-        return name == null ? null : server.getScoreboard().getPlayersTeam(name);
+    public static PlayerTeam team(Scoreboard board, UUID player, Function<UUID, @Nullable String> names) {
+        String name = names.apply(player);
+        return name == null ? null : board.getPlayersTeam(name);
     }
 
-    @Nullable
-    private static String cachedName(MinecraftServer server, UUID player) {
-        GameProfileCache cache = server.getProfileCache();
-        return cache == null ? null : cache.get(player).map(GameProfile::getName).orElse(null);
+    /**
+     * Имя игрока на табло по UUID: у игрока в сети — его, иначе — из кэша профилей сервера (нет там — null: команды не
+     * узнать).
+     */
+    public static Function<UUID, @Nullable String> names(MinecraftServer server) {
+        return id -> {
+            ServerPlayer online = server.getPlayerList().getPlayer(id);
+            if (online != null) return online.getScoreboardName();
+            GameProfileCache cache = server.getProfileCache();
+            return cache == null ? null : cache.get(id).map(GameProfile::getName).orElse(null);
+        };
     }
 }
