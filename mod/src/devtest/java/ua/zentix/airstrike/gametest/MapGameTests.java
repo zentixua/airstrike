@@ -30,8 +30,8 @@ public final class MapGameTests {
     private MapGameTests() {}
 
     /**
-     * Игроки на карте ({@link ServerActions#mapPlayers}; {@code FakePlayer} NeoForge — он пакетов не шлёт и в список
-     * игроков не входит, поэтому список передаётся сам): только в измерении спросившего и не дальше {@code map_range};
+     * Игроки на карте без разведки ({@link ServerActions#mapPlayers}; {@code FakePlayer} NeoForge — он пакетов не шлёт
+     * и в список игроков не входит, поэтому список передаётся сам): только в измерении спросившего и не дальше {@code map_range};
      * не он сам, не наблюдатель, не невидимый; без прав на пульт и чаще раза в 4 тика — без ответа; выключено
      * в настройках мира — пустой список.
      */
@@ -42,11 +42,15 @@ public final class MapGameTests {
         h.assertTrue(nether != null, "нет Незера");
         int range = AirstrikeConfig.SERVER.mapRange.get();
         boolean everyone = AirstrikeConfig.SERVER.designatorForEveryone.get(), shown = AirstrikeConfig.SERVER.mapPlayers.get();
+        boolean rules = AirstrikeConfig.SERVER.sightRules.get();
         StrikeGameTests.afterTest(h, () -> {
             AirstrikeConfig.SERVER.mapRange.set(range);
             AirstrikeConfig.SERVER.designatorForEveryone.set(everyone);
             AirstrikeConfig.SERVER.mapPlayers.set(shown);
+            AirstrikeConfig.SERVER.sightRules.set(rules);
         });
+        // без разведки — все игроки там, где они сейчас (с разведкой — SpottingGameTests)
+        AirstrikeConfig.SERVER.sightRules.set(false);
         AirstrikeConfig.SERVER.mapRange.set(256);
         AirstrikeConfig.SERVER.designatorForEveryone.set(true);
         AirstrikeConfig.SERVER.mapPlayers.set(true);
@@ -63,7 +67,7 @@ public final class MapGameTests {
         List<ServerPlayer> all = List.of(viewer, near, far, spectator, invisible, elsewhere);
 
         h.assertValueEqual(names(ServerActions.mapPlayers(viewer, all)), Set.of("map_near"), "на карте");
-        S2C.MapPlayer mark = ServerActions.mapPlayers(fresh(viewer), all).getFirst();
+        S2C.MapPlayer mark = ServerActions.mapPlayers(fresh(viewer), all).players().getFirst();
         h.assertTrue(mark.id().equals(near.getUUID()) && mark.x() == near.getX() && mark.z() == near.getZ(), "метка не там: " + mark);
 
         viewer.setData(ModAttachments.LAST_MAP_PLAYERS.get(), level.getGameTime());
@@ -74,8 +78,11 @@ public final class MapGameTests {
         AirstrikeConfig.SERVER.mapRange.set(300);
         h.assertValueEqual(names(ServerActions.mapPlayers(fresh(viewer), all)), Set.of("map_near", "map_far"), "дальность карты 300");
 
+        // выключено в настройках мира: карта не рисует, а пульт по-прежнему выбирает из них цель
         AirstrikeConfig.SERVER.mapPlayers.set(false);
-        h.assertValueEqual(names(ServerActions.mapPlayers(fresh(viewer), all)), Set.of(), "выключено в настройках мира");
+        S2C.MapPlayers off = ServerActions.mapPlayers(fresh(viewer), all);
+        h.assertTrue(off != null && !off.shown(), "выключено в настройках мира, а карта рисует");
+        h.assertValueEqual(names(off), Set.of("map_near", "map_far"), "цели пульта при выключенной карте");
         AirstrikeConfig.SERVER.mapPlayers.set(true);
 
         // не оператор (FakePlayer без прав), пульт — только операторам
@@ -96,8 +103,8 @@ public final class MapGameTests {
         return p;
     }
 
-    private static Set<String> names(@Nullable List<S2C.MapPlayer> marks) {
+    private static Set<String> names(@Nullable S2C.MapPlayers marks) {
         if (marks == null) throw new AssertionError("ответа нет");
-        return marks.stream().map(S2C.MapPlayer::name).collect(Collectors.toSet());
+        return marks.players().stream().map(S2C.MapPlayer::name).collect(Collectors.toSet());
     }
 }

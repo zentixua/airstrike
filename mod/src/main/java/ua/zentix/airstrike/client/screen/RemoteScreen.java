@@ -8,7 +8,6 @@ import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -21,6 +20,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.client.aim.Designator;
+import ua.zentix.airstrike.client.map.MapPlayers;
 import ua.zentix.airstrike.client.map.MapTarget;
 import ua.zentix.airstrike.client.map.TerrainTiles;
 import ua.zentix.airstrike.client.nuclear.NukeArming;
@@ -63,6 +63,12 @@ public class RemoteScreen extends Screen {
     private final List<Choice> choices = new ArrayList<>();
 
     private record Choice(Component label, String player, @Nullable UUID aircraft) {}
+
+    /** Игроков спрашивать у сервера раз в столько тиков, пока открыт режим «игрок». */
+    private static final int PLAYERS_PERIOD = 10;
+    private int ticks;
+    /** Игроки, которые сейчас в списке. */
+    private List<String> shownPlayers = List.of();
 
     public RemoteScreen() {
         super(Component.translatable("airstrike.remote.title"));
@@ -188,16 +194,18 @@ public class RemoteScreen extends Screen {
                 .bounds(x0 + 210, by, 106, 22).build());
     }
 
+    /** Чужие игроки, которых видит или недавно видела своя сторона ({@link MapPlayers#targets}): по другим пульт не бьёт. */
     private void collectPlayers() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.getConnection() == null || mc.player == null) return;
-        List<String> names = new ArrayList<>();
-        for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
-            String n = info.getProfile().getName();
-            if (!n.equals(mc.player.getGameProfile().getName())) names.add(n);
-        }
-        names.sort(String.CASE_INSENSITIVE_ORDER);
-        for (String n : names) choices.add(new Choice(Component.literal(n), n, null));
+        shownPlayers = MapPlayers.targets(Minecraft.getInstance().level);
+        for (String n : shownPlayers) choices.add(new Choice(Component.literal(n), n, null));
+    }
+
+    /** В режиме «игрок» список обновляется по ответам сервера, пока экран открыт. */
+    @Override
+    public void tick() {
+        if (loadout.mode() != TargetMode.PLAYER) return;
+        if (ticks++ % PLAYERS_PERIOD == 0) MapPlayers.request();
+        if (!MapPlayers.targets(Minecraft.getInstance().level).equals(shownPlayers)) rebuildWidgets();
     }
 
     private void collectAircraft() {
@@ -280,7 +288,7 @@ public class RemoteScreen extends Screen {
         save();
     }
 
-    /** На карте выбран игрок: цель пульта — он, снаряды пойдут за ним. */
+    /** На карте выбран игрок: цель пульта — он (удар по правилам сервера: {@code ServerActions.sighted}). */
     void aimAtPlayer(String name) {
         loadout = loadout.withMode(TargetMode.PLAYER).withPlayer(name);
         save();
@@ -348,8 +356,8 @@ public class RemoteScreen extends Screen {
         Component hint = switch (loadout.mode()) {
             case LOOK -> Component.translatable("airstrike.remote.hint.look");
             case AROUND_ME -> Component.translatable("airstrike.remote.hint.around_me");
-            case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : Component.translatable("airstrike.remote.hint.player");
-            case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : Component.translatable("airstrike.remote.hint.aircraft");
+            case PLAYER -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_players") : movingHint("player");
+            case AIRCRAFT -> choices.isEmpty() ? Component.translatable("airstrike.remote.hint.no_aircraft") : movingHint("aircraft");
             case MAP -> {
                 int points = loadout.weapon().spec().route().waypoints() ? MapTarget.route(minecraft.level).size() : 0;
                 yield MapTarget.get(minecraft.level)
@@ -359,6 +367,13 @@ public class RemoteScreen extends Screen {
             }
         };
         g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);
+    }
+
+    /** Подсказка для движущейся цели ({@code player}, {@code aircraft}): идёт ли выбранное оружие за ней ({@link WeaponSpec.Tracking}). */
+    private Component movingHint(String what) {
+        return loadout.weapon().spec().tracking() == WeaponSpec.Tracking.CAMERA
+                ? Component.translatable("airstrike.remote.hint." + what + ".camera", Component.keybind(Airstrike.CAMERA_KEY))
+                : Component.translatable("airstrike.remote.hint." + what + ".point");
     }
 
     @Override

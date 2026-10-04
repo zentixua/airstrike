@@ -31,13 +31,17 @@ import ua.zentix.airstrike.nuclear.NuclearEvents;
 import ua.zentix.airstrike.nuclear.NuclearStrikes;
 import ua.zentix.airstrike.registry.ModAttachments;
 import ua.zentix.airstrike.registry.ModDataComponents;
+import ua.zentix.airstrike.target.Sides;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.target.Target;
 import ua.zentix.airstrike.target.TargetPicker;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -68,7 +72,7 @@ public final class ServerActions {
         Aim aim = p.aim().isPresent() ? fromHint(player, p.aim().get()) : fromMode(player, l, p.aircraft().orElse(null));
         if (aim == null || !routeFits(player, l.weapon(), p.via(), aim)) return;
         // пульт — по правилам игрока у всех, и у операторов: приказ оплачивается боеприпасами
-        strike(player, true, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via());
+        strike(player, l.weapon(), l.count(), l.spread(), aim, l.nuke(), p.via(), true);
     }
 
     /**
@@ -115,12 +119,18 @@ public final class ServerActions {
         // из камеры видно не дальше дальности прорисовки снаряда
         if (!valid(h) || h.point().distanceToSqr(proj.position()) > 1024 * 1024) return;
         if (tooSoon(player, ModAttachments.LAST_RETARGET.get())) return;
-        Aim aim = resolveHint(level, player, h);
+        Aim hinted = resolveHint(level, player, h);
+        Aim aim = hinted == null ? null : sighted(player, hinted, subject -> CameraLink.holds(level, proj, subject, hinted.point()));
         if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
         Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
         player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
         Airstrike.LOG.info("Перенацеливание: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
                 Mth.floor(aim.point().y), Mth.floor(aim.point().z), player.getGameProfile().getName());
+    }
+
+    /** Камера снаряда смотрит с борта своего снаряда ({@link CameraLink}). */
+    public static void cameraView(C2S.CameraView p, IPayloadContext ctx) {
+        if (ctx.player() instanceof ServerPlayer player) CameraLink.receive(player, p.projectile(), p.yaw(), p.pitch());
     }
 
     public static void setLoadout(C2S.SetLoadout p, IPayloadContext ctx) {
@@ -131,33 +141,58 @@ public final class ServerActions {
     }
 
     /**
-     * Игроки для карты наведения — тем, кому можно пульт (пульт и так целится в любого игрока по имени): все
-     * в измерении спросившего, кроме него самого и наблюдателей.
+     * Игроки и замеченное для карты наведения — тем, кому можно пульт ({@link #mapPlayers(ServerPlayer, Collection)}).
      */
     public static void mapPlayers(C2S.MapPlayers p, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer player)) return;
-        List<S2C.MapPlayer> marks = mapPlayers(player, player.server.getPlayerList().getPlayers());
-        if (marks != null) PacketDistributor.sendToPlayer(player, new S2C.MapPlayers(marks));
+        S2C.MapPlayers marks = mapPlayers(player, player.server.getPlayerList().getPlayers());
+        if (marks != null) PacketDistributor.sendToPlayer(player, marks);
     }
 
     /**
-     * Игроки на карте пульта у {@code viewer} из {@code players}: в его измерении, не дальше {@code map_range}
-     * (дальше удар по ним и так не примут), кроме него самого, наблюдателей и невидимых. Null — не отвечать: нет прав
-     * на пульт или запрос чаще раза в {@link #FIRE_INTERVAL} тиков. Выключено в настройках мира — пустой список.
+     * Метки на карте пульта у {@code viewer}: в его измерении, не дальше {@code map_range} (дальше удар и так не
+     * примут), кроме него самого, наблюдателей и невидимых. Свои по команде ({@link Sides}) из {@code players} — где они
+     * сейчас; чужие игроки из {@code players} и прочее, что видела его сторона ({@link Sightings}), — там, где видели
+     * последний раз, с давностью; без {@code sight_rules} — все игроки там, где они сейчас. Те же метки — список целей
+     * пульта в режиме «игрок»: {@code map_players} выключает только рисование на карте. Null — не отвечать: нет прав
+     * на пульт или запрос чаще раза в {@link #FIRE_INTERVAL} тиков.
      */
     @Nullable
-    public static List<S2C.MapPlayer> mapPlayers(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
+    public static S2C.MapPlayers mapPlayers(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
         if (!mayUse(viewer) || tooSoon(viewer, ModAttachments.LAST_MAP_PLAYERS.get())) return null;
-        if (!AirstrikeConfig.SERVER.mapPlayers.get()) return List.of();
+        return new S2C.MapPlayers(marks(viewer, players), AirstrikeConfig.SERVER.mapPlayers.get());
+    }
+
+    private static List<S2C.MapPlayer> marks(ServerPlayer viewer, Collection<? extends ServerPlayer> players) {
+        boolean rules = AirstrikeConfig.SERVER.sightRules.get();
+        ServerLevel level = viewer.serverLevel();
         List<S2C.MapPlayer> marks = new ArrayList<>();
+        Map<UUID, ServerPlayer> others = new HashMap<>();
         for (ServerPlayer other : players) {
-            if (other == viewer || other.level() != viewer.level() || other.isSpectator() || other.isInvisible()) continue;
-            if (!withinMapRange(viewer, other.getX(), other.getZ())) continue;
-            // имя длиннее предела кодек не пишет (исключение при отправке): у модов бывают длинные
-            String name = StringUtil.truncateStringIfNecessary(other.getGameProfile().getName(), S2C.MapPlayer.MAX_NAME, false);
-            marks.add(new S2C.MapPlayer(other.getUUID(), name, other.getX(), other.getZ()));
+            if (other == viewer || other.level() != level || other.isSpectator() || other.isInvisible()) continue;
+            boolean friendly = Sides.friendly(viewer, other);
+            if (!friendly && rules) {
+                others.put(other.getUUID(), other);
+            } else if (withinMapRange(viewer, other.getX(), other.getZ())) {
+                marks.add(new S2C.MapPlayer(other.getUUID(), mapName(other.getGameProfile().getName()), other.getX(), other.getZ(),
+                        Sightings.Kind.PLAYER, friendly, 0));
+            }
+        }
+        if (!rules) return marks;
+        long now = level.getGameTime();
+        for (Sightings.Contact c : Sightings.contacts(level, Sides.side(viewer))) {
+            // игрок, что ушёл из мира, перешёл в своих или стал наблюдателем, — не цель
+            if (c.kind() == Sightings.Kind.PLAYER && !others.containsKey(c.id())) continue;
+            if (!withinMapRange(viewer, c.pos().x, c.pos().z)) continue;
+            int age = (int) (Math.max(0, c.age(now) - Sightings.CURRENT) / 20);
+            marks.add(new S2C.MapPlayer(c.id(), mapName(c.name()), c.pos().x, c.pos().z, c.kind(), false, age));
         }
         return marks;
+    }
+
+    /** Имя длиннее предела кодек не пишет (исключение при отправке): у модов бывают длинные. */
+    private static String mapName(String name) {
+        return StringUtil.truncateStringIfNecessary(name, S2C.MapPlayer.MAX_NAME, false);
     }
 
     public static void clear(C2S.Clear p, IPayloadContext ctx) {
@@ -210,12 +245,23 @@ public final class ServerActions {
      * Пустить от имени игрока (заход из-за его спины или по его точкам {@code via}, уже проверенным {@link #routeFits}):
      * один снаряд точно в цель или залп — после проверки прав.
      *
-     * @param bound приказ по правилам игрока: пульт (у всех, и у операторов) и команда не оператора. Такой приказ
-     *              оплачивается боеприпасами из инвентаря ({@link Munitions}; творческий режим не платит); команда
-     *              оператора — нет
+     * @param rules приказ по правилам игроков: с пульта — всегда (и у операторов), командой — у игрока без прав оператора:
+     *              цель не дальше {@code map_range}, чужой игрок и аппарат — только замеченные ({@link #sighted}); приказ
+     *              оплачивается боеприпасами из инвентаря ({@link Munitions}; творческий режим не платит). Команда
+     *              оператора сервера, как и консоль ({@link #dispatch}), бьёт без них
      * @return true, если пуск состоялся
      */
-    public static boolean strike(ServerPlayer player, boolean bound, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via) {
+    public static boolean strike(ServerPlayer player, WeaponType weapon, int count, int spread, Aim aim, Loadout.Nuke nuke, Waypoints via,
+                                 boolean rules) {
+        if (rules) {
+            if (!withinMapRange(player, aim.point().x, aim.point().z)) {
+                player.displayClientMessage(Component.translatable("airstrike.map.out_of_range", AirstrikeConfig.SERVER.mapRange.get())
+                        .withStyle(ChatFormatting.RED), true);
+                return false;
+            }
+            aim = sighted(player, aim, subject -> seesNow(player, subject));
+            if (aim == null) return false;
+        }
         Loadout l = order(weapon, count, spread, nuke);
         if (l.nuclear() && !mayUseNuke(player)) {
             player.displayClientMessage(Component.translatable(AirstrikeConfig.SERVER.nukeEnabled.get()
@@ -231,16 +277,85 @@ public final class ServerActions {
             }
         }
         // весь приказ — сразу: залп не урезается под то, что есть в инвентаре
-        Munitions.Bill bill = bound && !player.hasInfiniteMaterials() ? Munitions.Bill.of(l) : null;
+        Munitions.Bill bill = rules && !player.hasInfiniteMaterials() ? Munitions.Bill.of(l) : null;
         if (bill != null && !Munitions.pay(player, bill)) return false;
-        if (aim.label() != null) {
-            player.sendSystemMessage(Component.translatable("airstrike.target.locked", aim.label()).withStyle(ChatFormatting.GOLD));
-        }
+        if (aim.label() != null) player.sendSystemMessage(locked(weapon, aim).withStyle(ChatFormatting.GOLD));
         // ядерный удар не оператора: второй ключ и тревога у цели не меньше 90 с
-        if (l.nuclear() && bound && !NuclearKeys.trusted(player)) {
+        if (l.nuclear() && rules && !NuclearKeys.trusted(player)) {
             return NuclearKeys.order(player, player.server.getPlayerList().getPlayers(), l, aim, via, bill);
         }
         return launch(player.serverLevel(), player.getGameProfile().getName(), player, player.getYRot(), l, aim, via, bill);
+    }
+
+    /**
+     * Правила приказа игрока. Чужой игрок (и сущность, на которой он едет) и аппарат Sable — только замеченные
+     * ({@code sight_rules}, {@link Sightings}): стрелявший видит цель сейчас ({@code seen}: с пульта — глазами или
+     * камерой своего снаряда, {@link #seesNow}; перенацеливание из камеры — в её кадре, {@link CameraLink#holds}) или его
+     * сторона видела её только что — по ней; видели раньше, не дольше {@code sight_memory}, — по месту, где видели
+     * последний раз; иначе отказ. Движущаяся цель (сущность, аппарат) становится замеченной ({@link Target.Sighted}):
+     * удар туда, где её видели, а дальше за ней идёт только оружие с камерой, пока оператор держит её в кадре
+     * ({@link WeaponSpec.Tracking}). Иначе по нику били в любой точке карты, и снаряд вёл цель до конца (игра
+     * 03.10.2026: сотни шахедов по одному игроку).
+     *
+     * @param seen стрелявший видит цель приказа ({@link Target.OfEntity} или {@link Target.OfSubLevel}) сейчас
+     * @return цель приказа; null — приказ не принят (игроку — строка)
+     */
+    @Nullable
+    public static Aim sighted(ServerPlayer player, Aim aim, Predicate<Target> seen) {
+        Target target = aim.target();
+        if (!(target instanceof Target.OfEntity) && !(target instanceof Target.OfSubLevel)) return aim;
+        Aim sighted = new Aim(new Target.Sighted(target, aim.point()), aim.point(), aim.label());
+        if (!AirstrikeConfig.SERVER.sightRules.get()) return sighted;
+        ServerLevel level = player.serverLevel();
+        UUID id;
+        Component name;
+        if (target instanceof Target.OfEntity e) {
+            Player rider = level.getEntity(e.uuid()) instanceof Entity victim ? rider(victim) : null;
+            if (rider == null || Sides.friendly(player, rider)) return sighted;
+            id = rider.getUUID();
+            name = rider.getDisplayName();
+        } else {
+            SubLevelAccess craft = SubLevels.containing(level, ((Target.OfSubLevel) target).plotPos());
+            if (craft == null) return sighted;
+            id = craft.getUniqueId();
+            name = SubLevels.describe(craft);
+        }
+        if (seen.test(target)) return sighted;
+        Sightings.Contact c = Sightings.contact(level, Sides.side(player), id);
+        if (c == null) {
+            player.displayClientMessage(Component.translatable("airstrike.target.unseen", name).withStyle(ChatFormatting.RED), true);
+            return null;
+        }
+        long age = c.age(level.getGameTime());
+        if (age <= Sightings.CURRENT) return sighted;
+        Vec3 at = c.kind() == Sightings.Kind.PLAYER ? c.pos().add(0, 1, 0) : c.pos();
+        player.sendSystemMessage(Component.translatable("airstrike.target.last_seen", name, Math.max(1, age / 20)).withStyle(ChatFormatting.GOLD));
+        return new Aim(new Target.Point(at), at, null);
+    }
+
+    /** Игрок видит цель приказа {@code subject} сейчас — глазами или камерой своего снаряда ({@link Sightings}). */
+    private static boolean seesNow(ServerPlayer player, Target subject) {
+        ServerLevel level = player.serverLevel();
+        return switch (subject) {
+            case Target.OfEntity e -> level.getEntity(e.uuid()) instanceof Entity victim
+                    && (Sightings.sees(player, victim) || rider(victim) instanceof Player rider && rider != victim && Sightings.sees(player, rider));
+            case Target.OfSubLevel s -> SubLevels.containing(level, s.plotPos()) instanceof SubLevelAccess craft && Sightings.seesCraft(player, craft);
+            default -> true;
+        };
+    }
+
+    /** Строка «цель взята»: идёт ли снаряд за ней и как. */
+    private static MutableComponent locked(WeaponType weapon, Aim aim) {
+        return switch (aim.target()) {
+            case Target.Sighted s -> weapon.spec().tracking() == WeaponSpec.Tracking.CAMERA
+                    ? Component.translatable("airstrike.target.locked.camera", aim.label(), Component.keybind(Airstrike.CAMERA_KEY))
+                    : Component.translatable("airstrike.target.locked.point", aim.label());
+            // приказ без правил: снаряд идёт за ней
+            case Target.OfEntity e -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.OfSubLevel s -> Component.translatable("airstrike.target.locked", aim.label());
+            case Target.Point p -> Component.translatable("airstrike.target.locked.place", aim.label());
+            case Target.Ground g -> Component.translatable("airstrike.target.locked.place", aim.label());
+        };
     }
 
     /**
@@ -424,7 +539,19 @@ public final class ServerActions {
         }
     }
 
-    /** Удар по игроку: центр тела (на блок выше ног), снаряд идёт за ним. */
+    /** Игрок, которого касается удар по сущности: она сама или тот, кто едет на ней или с ней; null — никто. */
+    @Nullable
+    private static Player rider(Entity e) {
+        if (e instanceof Player p) return p;
+        Entity root = e.getRootVehicle();
+        if (root instanceof Player p) return p;
+        for (Entity passenger : root.getIndirectPassengers()) {
+            if (passenger instanceof Player p) return p;
+        }
+        return null;
+    }
+
+    /** Удар по игроку или сущности: центр тела (на блок выше ног); приказ без правил идёт за ней. */
     public static Aim atPlayer(Entity victim) {
         return new Aim(new Target.OfEntity(victim.getUUID(), new Vec3(0, 1, 0)), victim.position().add(0, 1, 0), null);
     }

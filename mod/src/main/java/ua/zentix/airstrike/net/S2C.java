@@ -6,9 +6,11 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.codec.NeoForgeStreamCodecs;
 import ua.zentix.airstrike.Airstrike;
 import ua.zentix.airstrike.nuclear.Detonation;
 import ua.zentix.airstrike.nuclear.model.Yield;
+import ua.zentix.airstrike.target.Sightings;
 import ua.zentix.airstrike.util.StreamCodecs;
 
 import java.util.List;
@@ -258,13 +260,14 @@ public final class S2C {
     }
 
     /**
-     * Игроки для карты наведения — ответ на {@link C2S.MapPlayers}: в измерении спросившего и не дальше
-     * {@code map_range}, кроме него самого, наблюдателей и невидимых (сущностей дальше дальности отслеживания у клиента
-     * нет; кто попадает в список — {@code ServerActions.mapPlayers}).
+     * Метки для карты наведения и целей пульта — ответ на {@link C2S.MapPlayers}: свои игроки и замеченное стороной
+     * спросившего в его измерении и не дальше {@code map_range} (кто попадает в список — {@code ServerActions.mapPlayers});
+     * {@code shown} — карта их рисует ({@code map_players}), иначе они только цели пульта.
      */
-    public record MapPlayers(List<MapPlayer> players) implements CustomPacketPayload {
+    public record MapPlayers(List<MapPlayer> players, boolean shown) implements CustomPacketPayload {
         public static final Type<MapPlayers> TYPE = new Type<>(Airstrike.id("map_players"));
-        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = MapPlayer.CODEC.apply(ByteBufCodecs.list()).map(MapPlayers::new, MapPlayers::players);
+        public static final StreamCodec<ByteBuf, MapPlayers> CODEC = StreamCodec.composite(
+                MapPlayer.CODEC.apply(ByteBufCodecs.list()), MapPlayers::players, ByteBufCodecs.BOOL, MapPlayers::shown, MapPlayers::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -272,13 +275,19 @@ public final class S2C {
         }
     }
 
-    /** Игрок на карте: UUID, имя (им же пульт целится), где он. */
-    public record MapPlayer(UUID id, String name, double x, double z) {
+    /**
+     * Метка на карте: UUID, имя (у игрока — ник, им же пульт целится), что это, где оно (у чужого — где его видели
+     * последний раз), свой ли по команде и сколько секунд назад видели (0 — видят сейчас).
+     */
+    public record MapPlayer(UUID id, String name, double x, double z, Sightings.Kind kind, boolean friendly, int age) {
         /** Имя игрока в Minecraft — до 16 знаков; запас на имена модов. */
         public static final int MAX_NAME = 64;
-        public static final StreamCodec<ByteBuf, MapPlayer> CODEC = StreamCodec.composite(
+        private static final StreamCodec<ByteBuf, Sightings.Kind> KIND = ByteBufCodecs.idMapper(
+                i -> Sightings.Kind.values()[Math.floorMod(i, Sightings.Kind.values().length)], Sightings.Kind::ordinal);
+        public static final StreamCodec<ByteBuf, MapPlayer> CODEC = NeoForgeStreamCodecs.composite(
                 UUIDUtil.STREAM_CODEC, MapPlayer::id, ByteBufCodecs.stringUtf8(MAX_NAME), MapPlayer::name,
-                ByteBufCodecs.DOUBLE, MapPlayer::x, ByteBufCodecs.DOUBLE, MapPlayer::z, MapPlayer::new);
+                ByteBufCodecs.DOUBLE, MapPlayer::x, ByteBufCodecs.DOUBLE, MapPlayer::z, KIND, MapPlayer::kind,
+                ByteBufCodecs.BOOL, MapPlayer::friendly, ByteBufCodecs.VAR_INT, MapPlayer::age, MapPlayer::new);
     }
 
     /** Открыть экран пульта (команда /airstrike menu). */

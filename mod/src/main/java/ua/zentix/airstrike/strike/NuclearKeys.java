@@ -27,7 +27,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Ядерный удар игрока, который не оператор ({@code nuclear.ops_only = false}; приказ по правилам игрока — {@code bound}
+ * Ядерный удар игрока, который не оператор ({@code nuclear.ops_only = false}; приказ по правилам игрока — {@code rules}
  * у {@link ServerActions#strike}):
  * <ul>
  * <li><b>второй ключ</b>: оплаченный приказ ждёт, пока другой игрок не дальше {@code second_key_distance} блоков от

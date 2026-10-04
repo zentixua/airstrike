@@ -111,7 +111,7 @@ public final class NuclearKeyGameTests {
         Listener a = at(h, "keys_alone", LAUNCHER);
         give(a, ModItems.ICBM.get(), 1);
         ServerActions.Aim aim = aim(h);
-        h.assertTrue(ServerActions.strike(a, true, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE), "пуск одного в сети не принят");
+        h.assertTrue(ServerActions.strike(a, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE, true), "пуск одного в сети не принят");
         h.assertValueEqual(NuclearKeys.get(level).pending(), 0, "один в сети ждёт ключа");
         NuclearEvents.ScheduledStrike s = mine(level, a.getUUID());
         h.assertTrue(s != null, "МБР одного в сети не запущена");
@@ -119,7 +119,7 @@ public final class NuclearKeyGameTests {
         h.assertTrue(a.last("airstrike.nuke.launch_detected") != null, "нет строки «обнаружен пуск»");
 
         Listener op = at(h, "keys_op_command", LAUNCHER.east(8));
-        h.assertTrue(ServerActions.strike(op, false, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE), "команда оператора не принята");
+        h.assertTrue(ServerActions.strike(op, WeaponType.NUKE, 1, 0, aim, new Loadout.Nuke(15, true), Waypoints.NONE, false), "команда оператора не принята");
         NuclearEvents.ScheduledStrike o = mine(level, op.getUUID());
         h.assertTrue(o != null, "МБР команды оператора не запущена");
         h.assertValueEqual(o.detonateTime() - o.launchTime(), (long) SHORT_FLIGHT, "полёт МБР команды оператора, тиков");
