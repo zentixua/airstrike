@@ -5,8 +5,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 точное наведение на всё, куда смотрит игрок (блоки, мобы, игроки, летательные аппараты Create Aeronautics),
 свой 3D-звук с Доплером. Репозиторий: https://github.com/zentixua/airstrike (публичный).
 Что умеет мод для игрока — README.md; проект ядерного удара и отступления от него — docs/DESIGN-nuke.md.
-Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и мост ведущего
-(серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/minecraft-agent-bridge); у каждого свой CLAUDE.md.
+Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и Djinn, мост ведущего
+(серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/djinn); у каждого свой CLAUDE.md.
 
 Здесь — только то, что нужно в каждой сессии. Устройство пакетов и подводные камни по областям — в `.claude/rules/`
 (список в конце): файл области подгружается сам, когда Claude открывает её файлы инструментами Read, Edit или Write.

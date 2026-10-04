@@ -2,7 +2,7 @@
 # Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
 # мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком. GameTest идёт
 # частями на шести машинах сразу (devtest GameTestShards), сборка и юнит-тесты — рядом. Итог всех проверок — «Итог».
-# Сборка «Airstrike Pack» и мост ведущего — в своих репозиториях (zentixua/airstrike-pack и репозиторий моста).
+# Сборка «Airstrike Pack» и мост ведущего Djinn — в своих репозиториях (zentixua/airstrike-pack, zentixua/djinn).
 # Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
 # проверка целиком, после неё — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
