@@ -118,6 +118,20 @@ public final class C2S {
         }
     }
 
+    /**
+     * Игрок смотрит глазами своего снаряда {@code projectile} (пусто — вернулся к себе): его камера замечает чужих
+     * ({@code Sightings}). Клиент шлёт при каждой смене.
+     */
+    public record Watch(Optional<UUID> projectile) implements CustomPacketPayload {
+        public static final Type<Watch> TYPE = new Type<>(Airstrike.id("watch"));
+        public static final StreamCodec<ByteBuf, Watch> CODEC = UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs::optional).map(Watch::new, Watch::projectile);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     /** Отбой: убрать все летящие снаряды и залпы без взрыва. */
     public record Clear() implements CustomPacketPayload {
         public static final Type<Clear> TYPE = new Type<>(Airstrike.id("clear"));

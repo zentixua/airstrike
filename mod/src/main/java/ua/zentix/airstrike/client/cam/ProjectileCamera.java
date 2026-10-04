@@ -35,6 +35,8 @@ import ua.zentix.airstrike.util.Local;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -91,6 +93,9 @@ public final class ProjectileCamera {
     /** Снаряд, который сейчас на карте (видео нет): если он пропадёт, карта покажет, где и чем кончилось. */
     @Nullable
     private static ClientFlights.Tracked mapped;
+    /** Снаряд, глазами которого, как знает сервер, мы смотрим ({@link C2S.Watch}). */
+    @Nullable
+    private static UUID watching;
     /** Снаряды, уже виденные (для автокамеры: новый снаряд — сразу на пуск). */
     private static final java.util.Set<UUID> SEEN = new java.util.HashSet<>();
 
@@ -189,6 +194,7 @@ public final class ProjectileCamera {
 
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
+        syncWatch(mc);
         autoFollow(mc);
         if (!active) return;
         if (mc.player == null || mc.level == null) {
@@ -430,6 +436,14 @@ public final class ProjectileCamera {
         mc.getSoundManager().play(SimpleSoundInstance.forUI(ua.zentix.airstrike.registry.ModSounds.DESIGNATOR_LOCK.get(), 1.0f, 0.8f));
     }
 
+    /** Глаза камеры — серверу: пока смотрим глазами снаряда, его камера замечает чужих ({@code Sightings}). */
+    private static void syncWatch(Minecraft mc) {
+        UUID now = isViewing() && mc.getCameraEntity() instanceof StrikeProjectile p ? p.getUUID() : null;
+        if (Objects.equals(now, watching) || mc.getConnection() == null) return;
+        watching = now;
+        PacketDistributor.sendToServer(new C2S.Watch(Optional.ofNullable(now)));
+    }
+
     /** Мир клиента уходит (смена измерения): съёмочная камера в нём больше не нужна и не должна его держать. */
     public static void onLevelUnload(LevelEvent.Unload e) {
         if (rig != null && rig.level() == e.getLevel()) rig = null;
@@ -438,6 +452,7 @@ public final class ProjectileCamera {
     public static void reset() {
         close();
         SEEN.clear();
+        watching = null;
     }
 
     /**

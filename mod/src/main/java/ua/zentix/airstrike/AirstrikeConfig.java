@@ -44,6 +44,8 @@ public final class AirstrikeConfig {
         public final ModConfigSpec.IntValue mapRange;
         public final ModConfigSpec.BooleanValue designatorForEveryone;
         public final ModConfigSpec.BooleanValue mapPlayers;
+        public final ModConfigSpec.BooleanValue sightRules;
+        public final ModConfigSpec.IntValue sightMemory;
         public final ModConfigSpec.BooleanValue launchNearPlayer;
         public final ModConfigSpec.IntValue droneFlightTime;
         public final ModConfigSpec.IntValue missileFlightTime;
@@ -130,8 +132,15 @@ public final class AirstrikeConfig {
                     .translation("airstrike.config.map_range").defineInRange("map_range", 10_000, 256, 1_000_000);
             designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
-            mapPlayers = b.comment("Карта пульта показывает других игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей).")
+            mapPlayers = b.comment("Карта пульта показывает игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей):",
+                            "своих по команде /team — всегда, чужих — там, где их видели последний раз (при sight_rules), иначе всех.")
                     .translation("airstrike.config.map_players").define("map_players", true);
+            sightRules = b.comment("Разведка: по чужому игроку и аппарату пульт бьёт, только если его видит или недавно видела (sight_memory)",
+                            "сторона стрелявшего — он сам или его команда /team, глазами или камерой своего снаряда; давно не виденного —",
+                            "по последнему месту. Карта показывает чужих так же. Команды /airstrike операторов и консоли — без правил.")
+                    .translation("airstrike.config.sight_rules").define("sight_rules", true);
+            sightMemory = b.comment("Сколько секунд сторона помнит замеченного игрока или аппарат.")
+                    .translation("airstrike.config.sight_memory").defineInRange("sight_memory", 30, 0, 600);
             launchNearPlayer = b.comment("Шахеды и ракеты стартуют с мобильной пусковой рядом с тем, кто пустил (иначе заходят издалека).")
                     .translation("airstrike.config.launch_near_player").define("launch_near_player", true);
             droneFlightTime = b.comment("Полёт шахеда от пуска до цели, секунд: маршрут в обход и заход из-за спины (не меньше прямого пути).")

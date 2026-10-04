@@ -147,7 +147,7 @@ public final class AirstrikeCommand {
     private static int nukeLook(CommandContext<CommandSourceStack> ctx, Loadout.Nuke nuke) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(WeaponType.NUKE, 1, 0, TargetMode.LOOK, "", nuke), null);
-        return aim != null && ServerActions.strike(player, WeaponType.NUKE, 1, 0, aim, nuke, Waypoints.NONE) ? 1 : 0;
+        return aim != null && ServerActions.strike(player, bound(ctx.getSource()), WeaponType.NUKE, 1, 0, aim, nuke, Waypoints.NONE) ? 1 : 0;
     }
 
     private static int nukeAt(CommandSourceStack s, Vec3 pos, Loadout.Nuke nuke) {
@@ -218,7 +218,7 @@ public final class AirstrikeCommand {
     private static int look(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ServerActions.Aim aim = ServerActions.fromMode(player, new Loadout(w, count, spread, TargetMode.LOOK, "", Loadout.Nuke.DEFAULT), null);
-        return aim != null && ServerActions.strike(player, w, count, spread, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE) ? 1 : 0;
+        return aim != null && ServerActions.strike(player, bound(ctx.getSource()), w, count, spread, aim, Loadout.Nuke.DEFAULT, Waypoints.NONE) ? 1 : 0;
     }
 
     private static int me(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread) {
@@ -239,6 +239,11 @@ public final class AirstrikeCommand {
         return fire(s, w, count, spread, ServerActions.atPlayer(target));
     }
 
+    /** Приказ по правилам игроков ({@link ServerActions#strike}): команда не оператора; у оператора — без них. */
+    private static boolean bound(CommandSourceStack s) {
+        return !s.hasPermission(2);
+    }
+
     /** Пуск от имени игрока (заход из-за его спины) или от консоли/командного блока. */
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim) {
         return fire(s, w, count, spread, aim, Loadout.Nuke.DEFAULT);
@@ -246,7 +251,7 @@ public final class AirstrikeCommand {
 
     private static int fire(CommandSourceStack s, WeaponType w, int count, int spread, ServerActions.Aim aim, Loadout.Nuke nuke) {
         boolean ok = s.getEntity() instanceof ServerPlayer player
-                ? ServerActions.strike(player, w, count, spread, aim, nuke, Waypoints.NONE)
+                ? ServerActions.strike(player, bound(s), w, count, spread, aim, nuke, Waypoints.NONE)
                 : ServerActions.dispatch(s.getLevel(), s.getTextName(), s.getRotation().y, w, count, spread, aim, nuke);
         return ok ? 1 : 0;
     }
