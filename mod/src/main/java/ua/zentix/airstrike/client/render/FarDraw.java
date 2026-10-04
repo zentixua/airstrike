@@ -40,9 +40,13 @@ public final class FarDraw {
         return e.getCamera().getPosition().add(o.x(), o.y(), o.z());
     }
 
-    /** Глаз от позиции камеры по матрицам кадра (проекция и вид для координат от камеры) — в dest. */
+    /**
+     * Глаз от позиции камеры по матрицам кадра (проекция и вид для координат от камеры) — в dest. У ортогональной
+     * проекции центра нет — глаз в позиции камеры.
+     */
     static Vector3f eyeOffset(Matrix4fc projection, Matrix4fc modelView, Vector3f dest) {
-        return VIEW_PROJECTION.set(projection).mul(modelView).perspectiveOrigin(dest);
+        VIEW_PROJECTION.set(projection).mul(modelView).perspectiveOrigin(dest);
+        return dest.isFinite() ? dest : dest.zero();
     }
 
     /** Начать: своя матрица вида с глазом {@code eye} ({@link #eye}) в начале координат, состояние — как оставил мир. */

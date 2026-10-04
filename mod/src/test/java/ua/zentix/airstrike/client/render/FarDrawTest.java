@@ -17,8 +17,13 @@ class FarDrawTest {
     private static final Matrix4f PROJECTION = new Matrix4f().perspective((float) Math.toRadians(70), 16f / 10f, 0.05f, 1024f);
     /** Взгляд камеры: повёрнута по курсу и немного вниз (вид — обратный поворот, как у Minecraft). */
     private static final Matrix4f ROTATION = new Matrix4f().rotationXYZ(0.35f, -2.2f, 0f);
-    /** Точки мира от камеры: прямо, сбоку и внизу, далеко. */
-    private static final Vector3f[] POINTS = {new Vector3f(0, -12, -100), new Vector3f(30, -40, -90), new Vector3f(-60, 5, -400)};
+    /** Точки мира от камеры, в кадре: впереди чуть ниже взгляда, сбоку и внизу, далеко (заданы в осях взгляда). */
+    private static final Vector3f[] POINTS = {ahead(0, -12, -100), ahead(30, -40, -90), ahead(-60, 5, -400)};
+
+    /** Точка от камеры по осям взгляда (x вправо, y вверх, −z вперёд) — в осях мира. */
+    private static Vector3f ahead(float x, float y, float z) {
+        return new Matrix4f(ROTATION).invert().transformDirection(new Vector3f(x, y, z));
+    }
 
     /** Покачивание вида при ходьбе, как {@code GameRenderer.bobView}: фаза шага и сила (у идущего по земле 0,1). */
     private static Matrix4f bobbing(float phase, float bob) {
@@ -28,8 +33,10 @@ class FarDrawTest {
                 .rotateX((float) Math.toRadians(Math.abs((float) Math.cos(phase * Math.PI - 0.2f) * bob) * 5));
     }
 
+    /** Точка на экране (NDC); она перед глазом. */
     private static Vector3f screen(Matrix4f projection, Matrix4f view, Vector3f p) {
         Vector4f v = new Matrix4f(projection).mul(view).transform(new Vector4f(p, 1));
+        assertTrue(v.w > 0, "точка за глазом");
         return new Vector3f(v.x / v.w, v.y / v.w, v.z / v.w);
     }
 
@@ -49,6 +56,7 @@ class FarDrawTest {
                 Vector3f eye = FarDraw.eyeOffset(m[0], m[1], new Vector3f());
                 for (Vector3f p : POINTS) {
                     Vector3f source = screen(m[0], m[1], p);
+                    assertTrue(Math.abs(source.x) <= 1 && Math.abs(source.y) <= 1, "источник в кадре");
                     Vector3f glare = screen(m[0], m[1], toward(eye, p, 0.25f));
                     assertEquals(source.x, glare.x, 1e-4, "блик у глаза по горизонтали, фаза " + i);
                     assertEquals(source.y, glare.y, 1e-4, "блик у глаза по вертикали, фаза " + i);
@@ -58,6 +66,12 @@ class FarDrawTest {
                 }
             }
         }
+    }
+
+    @Test
+    void orthographicEyeIsCamera() {
+        Vector3f eye = FarDraw.eyeOffset(new Matrix4f().ortho(-10, 10, -6, 6, 0.05f, 1024f), ROTATION, new Vector3f());
+        assertEquals(0, eye.length(), 0);
     }
 
     @Test
