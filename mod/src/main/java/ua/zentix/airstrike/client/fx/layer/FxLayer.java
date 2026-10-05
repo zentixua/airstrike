@@ -151,10 +151,12 @@ public final class FxLayer {
         QUADS.nearestTexels(false);
         FarRenderer.collect(view, QUADS, LIGHTS, PROBES);
         if (warmup) {
-            // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего (и проба источника)
+            // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего, с пробой источника
+            // перед глазом (проба считается, квадрат её берёт)
+            QUADS.seenBy(PROBES.add(view.forward().x() * 16, view.forward().y() * 16, view.forward().z() * 16, 1));
             QUADS.quad(16);
             for (int i = 0; i < 4; i++) QUADS.vertex(i % 2, i / 2, -16, 0, 0, 0, 0, 0, 0, 1, 1, LightTexture.FULL_BRIGHT, 0);
-            PROBES.add(0, 0, -16, 1);
+            QUADS.seenBy(0);
         }
         lastQuads = QUADS.size();
         if (QUADS.size() == 0) return;

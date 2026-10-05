@@ -22,8 +22,9 @@ const float RING = 0.7;
 const int TAPS = 6;
 const vec2 TAP[TAPS] = vec2[TAPS](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.7071, 0.7071), vec2(0.0, 1.0), vec2(-0.7071, 0.7071),
         vec2(-1.0, 0.0));
-// передняя половина и мягкость в радиусах — как у тела в слое (FarSprites.BALL_FRONT, BODY_SOFT)
-const float FRONT = 0.5, SOFT = 0.25;
+// передняя половина и мягкость в радиусах — как у тела в слое (FarSprites.BALL_FRONT, BODY_SOFT), но не меньше
+// полублока: у факела снаряда (радиус 0,2–0,6) это доли блока, а глубина вдали и LOD DH точнее не бывают — блик мигал бы
+const float FRONT = 0.5, SOFT = 0.25, MIN_BLOCKS = 0.5;
 
 void main() {
     vec4 view = SourceView * vec4(center, 1.0);
@@ -34,7 +35,7 @@ void main() {
         vec2 size = vec2(textureSize(Sampler0, 0));
         vec2 at = (clip.xy / clip.w * 0.5 + 0.5) * size;
         float ring = RING * radius / (length(view.xyz) * Pixel);
-        float front = d - FRONT * radius, soft = max(SOFT * radius, 1e-3), sum = 0.0;
+        float front = d - max(FRONT * radius, MIN_BLOCKS), soft = max(SOFT * radius, MIN_BLOCKS), sum = 0.0;
         int n = 0;
         for (int k = 0; k < TAPS; k++) {
             vec2 p = at + TAP[k] * ring;
