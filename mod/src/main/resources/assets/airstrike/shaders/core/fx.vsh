@@ -5,7 +5,8 @@ in vec3 Position;
 in vec2 UV0;
 // свет, уже умноженный на непрозрачность; альфа — сколько закрыто того, что за частицей
 in vec4 Color;
-// x: мягкость края у рельефа, блоков × 16; y: во сколько раз точка перенесена ближе (дальше дальней плоскости), × 32767
+// x: мягкость края у рельефа, блоков × 16 (меньше нуля — свет в глазу от источника: минус номер его пробы,
+// SourceProbes); y: во сколько раз точка перенесена ближе (дальше дальней плоскости), × 32767
 in ivec2 UV1;
 // свет мира (карта освещения)
 in ivec2 UV2;
@@ -14,6 +15,10 @@ in ivec2 UV2;
 in vec3 Normal;
 
 uniform sampler2D Sampler2;
+// видимая доля источников кадра (SourceProbes): проба i — пиксель (i % ширина, i / ширина)
+uniform sampler2D Sampler4;
+// 1 — пробы есть
+uniform float FxProbes;
 
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
@@ -62,10 +67,16 @@ void main() {
         vec3 add = balls(Position / unfold, dot(texelFetch(Sampler2, ivec2(0, 15), 0).rgb, LUMA));
         light.rgb += add / max(1.0, dot(add, LUMA));
     }
-    vertexColor = vec4(Color.rgb * light.rgb, Color.a);
+    // блик и вуаль у глаза за ними ничто не режет: их видно, сколько видно в кадре самого источника
+    float seen = 1.0;
+    if (UV1.x < 0 && FxProbes > 0.5) {
+        int i = -UV1.x - 1, w = textureSize(Sampler4, 0).x;
+        seen = texelFetch(Sampler4, ivec2(i % w, i / w), 0).r;
+    }
+    vertexColor = vec4(Color.rgb * light.rgb, Color.a) * seen;
     // настоящее расстояние по оси взгляда: перенесённую ближе точку — обратно
     viewDistance = -view.z / unfold;
-    softness = float(UV1.x) / 16.0;
+    softness = float(max(UV1.x, 0)) / 16.0;
     fog = Normal.x;
     nearest = Normal.y;
     opacity = Normal.z;

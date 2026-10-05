@@ -36,6 +36,7 @@ import java.util.Locale;
  * <p>
  * Глубина: аппаратная проверка (рельеф ближе закрывает, запись выключена — прозрачное), и ещё расстояние до мира за
  * пикселем ({@link SceneDepth}, с глубиной Distant Horizons): клуб мягко тает, входя в землю, и пропадает за LOD DH.
+ * Блик и вуаль у глаза — по видимой в кадре доле своего источника ({@link SourceProbes}, по тому же расстоянию до мира).
  * Смешивание одно — с умноженной альфой ({@code ONE, ONE_MINUS_SRC_ALPHA}): дым закрывает и светит, искры и ореолы
  * только светят. Свет мира — картой освещения и светом огненных шаров ({@link FxLights}), туман Minecraft — снятый
  * до конца кадра (к нему ваниль туман гасит).
@@ -43,8 +44,9 @@ import java.util.Locale;
 public final class FxLayer {
     private static final FxQuads QUADS = new FxQuads();
     private static final FxLights LIGHTS = new FxLights();
+    private static final SourceProbes PROBES = new SourceProbes();
     private static final FxFrame.Fog FOG = new FxFrame.Fog();
-    private static final Matrix4f VIEW_PROJECTION = new Matrix4f();
+    private static final Matrix4f VIEW_PROJECTION = new Matrix4f(), VIEW = new Matrix4f();
     private static final FrustumIntersection FRUSTUM = new FrustumIntersection();
     @Nullable
     private static ShaderInstance shader;
@@ -85,6 +87,12 @@ public final class FxLayer {
         } catch (IOException ex) {
             SceneDepth.shader = null;
             Airstrike.LOG.error("Шейдер расстояния до мира не загрузился: дым без мягких краёв и не прячется за LOD Distant Horizons", ex);
+        }
+        try {
+            e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("fx_probe"), SourceProbes.FORMAT), s -> SourceProbes.shader = s);
+        } catch (IOException ex) {
+            SourceProbes.shader = null;
+            Airstrike.LOG.error("Шейдер проб источников не загрузился: блик закрытого огня вдали не гаснет", ex);
         }
     }
 
@@ -137,19 +145,24 @@ public final class FxLayer {
         FRUSTUM.set(FarDraw.viewProjection(e, view.camera(), VIEW_PROJECTION));
         QUADS.begin(view.left(), view.up());
         LIGHTS.begin();
+        PROBES.begin();
         QUADS.nearestTexels(true);
         FxPool.INSTANCE.collect(new FxFrame(view, FRUSTUM, FOG), QUADS, view.partial());
         QUADS.nearestTexels(false);
-        FarRenderer.collect(view, QUADS, LIGHTS);
+        FarRenderer.collect(view, QUADS, LIGHTS, PROBES);
         if (warmup) {
-            // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего
+            // невидимый квадрат: ни света, ни заслона — кадр проходит весь путь до первого настоящего, с пробой источника
+            // перед глазом (проба считается, квадрат её берёт)
+            QUADS.seenBy(PROBES.add(view.forward().x() * 16, view.forward().y() * 16, view.forward().z() * 16, 1));
             QUADS.quad(16);
             for (int i = 0; i < 4; i++) QUADS.vertex(i % 2, i / 2, -16, 0, 0, 0, 0, 0, 0, 1, 1, LightTexture.FULL_BRIGHT, 0);
+            QUADS.seenBy(0);
         }
         lastQuads = QUADS.size();
         if (QUADS.size() == 0) return;
         int models = FarRenderer.renderModels();
         int scene = SceneDepth.update(e.getProjectionMatrix());
+        int seen = PROBES.update(scene, FarDraw.view(e, view.camera(), VIEW), e.getProjectionMatrix(), view.pixel());
         LightTexture light = mc.gameRenderer.lightTexture();
         FarDraw.begin(e, view.camera());
         try {
@@ -157,9 +170,11 @@ public final class FxLayer {
             RenderSystem.setShaderTexture(0, atlas);
             RenderSystem.setShaderTexture(1, scene >= 0 ? scene : atlas);
             RenderSystem.setShaderTexture(3, models > 0 ? models : atlas);
+            RenderSystem.setShaderTexture(4, seen >= 0 ? seen : atlas);
             light.turnOnLightLayer();
             s.safeGetUniform("FxFogColor").set(FOG.color[0], FOG.color[1], FOG.color[2], FOG.color[3]);
             s.safeGetUniform("FxScene").set(scene >= 0 ? 1f : 0f);
+            s.safeGetUniform("FxProbes").set(seen >= 0 ? 1f : 0f);
             s.safeGetUniform("FxBalls").set(LIGHTS.balls);
             s.safeGetUniform("FxBallLight").set(LIGHTS.light);
             RenderSystem.enableBlend();

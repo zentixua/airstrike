@@ -7,6 +7,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import ua.zentix.airstrike.client.fx.layer.FxLayer;
 import ua.zentix.airstrike.client.fx.layer.FxLights;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
+import ua.zentix.airstrike.client.fx.layer.SourceProbes;
 import ua.zentix.airstrike.client.render.FarDraw;
 
 import java.util.Arrays;
@@ -30,9 +31,12 @@ public final class FarRenderer {
         FarFlightView.tick();
     }
 
-    /** Дальнее в кадр слоя эффектов; огненные шары — ещё и светом частиц кадра ({@code lights}). */
-    public static void collect(FarView view, FxQuads out, FxLights lights) {
-        SPRITES.begin(view, out);
+    /**
+     * Дальнее в кадр слоя эффектов; огненные шары — ещё и светом частиц кадра ({@code lights}), яркие источники —
+     * пробами видимости для своего блика и вуали ({@code probes}).
+     */
+    public static void collect(FarView view, FxQuads out, FxLights lights, SourceProbes probes) {
+        SPRITES.begin(view, out, probes);
         if (!FarBlasts.isEmpty() || !FarFlightView.isEmpty()) {
             FarBlasts.collect(view, SPRITES, lights);
             FarFlightView.collect(view, SPRITES);
