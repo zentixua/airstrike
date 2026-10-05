@@ -17,7 +17,8 @@ import java.util.Arrays;
  * смешивается верно только в таком порядке: ближний клуб поверх дальнего, а не «кто родился позже».
  * <p>
  * Вершина — 36 байт ({@link #FORMAT}): место от камеры, место на листе, свет с умноженной альфой, мягкость края
- * у рельефа и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}), туман Minecraft ({@code Normal.x}),
+ * у рельефа или проба источника ({@link #seenBy}) и множитель переноса ближе ({@code UV1}), свет мира ({@code UV2}),
+ * туман Minecraft ({@code Normal.x}),
  * чем брать текстуру ({@code Normal.y}: 1 — частица ближайшим пикселем, {@link #nearestTexels}; −1 — плитка атласа
  * дальних моделей, {@link #modelTiles}; 0 — лист слоя гладко) и непрозрачность частицы без текстуры ({@code Normal.z},
  * {@link #opacity}).
@@ -44,6 +45,7 @@ public final class FxQuads {
     private final ByteBufferBuilder out = new ByteBufferBuilder(QUAD * 256);
     private Vector3f left = new Vector3f(1, 0, 0), up = new Vector3f(0, 1, 0);
     private byte nearest, opacity;
+    private short probe;
 
     /** Новый кадр: оси экрана (влево, вверх) для квадратов лицом к камере. */
     public void begin(Vector3f left, Vector3f up) {
@@ -51,6 +53,7 @@ public final class FxQuads {
         this.up = up;
         n = 0;
         nearest = opacity = 0;
+        probe = 0;
     }
 
     /**
@@ -81,6 +84,15 @@ public final class FxQuads {
         opacity = (byte) Math.round(Mth.clamp(a, 0, 1) * 127);
     }
 
+    /**
+     * Следующие квадраты — свет в глазу (блик, вуаль) от источника с пробой {@code probe} ({@link SourceProbes#add}):
+     * их видно, сколько в кадре видно самого источника, а что за самим квадратом — не важно (мягкость края у рельефа
+     * не берётся). 0 — снова как обычно.
+     */
+    public void seenBy(int probe) {
+        this.probe = (short) Mth.clamp(probe, 0, SourceProbes.MAX);
+    }
+
     public int size() {
         return n;
     }
@@ -95,8 +107,8 @@ public final class FxQuads {
 
     /**
      * Вершина: место от камеры, место на листе, свет (r, g, b), уже умноженный на непрозрачность, сколько закрыто
-     * за ней (a), мягкость края у рельефа (блоки, 0 — без мягкости), во сколько раз точка перенесена ближе (1 — нет),
-     * свет мира (упакованный), туман Minecraft 0..1.
+     * за ней (a), мягкость края у рельефа (блоки, 0 — без мягкости; у света от источника, {@link #seenBy}, — не
+     * берётся), во сколько раз точка перенесена ближе (1 — нет), свет мира (упакованный), туман Minecraft 0..1.
      */
     public void vertex(float x, float y, float z, float u, float v, float r, float g, float b, float a, float soft, float unfold, int light, float fog) {
         long p = write;
@@ -109,7 +121,8 @@ public final class FxQuads {
         MemoryUtil.memPutByte(p + 21, unorm(g));
         MemoryUtil.memPutByte(p + 22, unorm(b));
         MemoryUtil.memPutByte(p + 23, unorm(a));
-        MemoryUtil.memPutShort(p + 24, (short) Math.min(Short.MAX_VALUE, Math.round(soft * 16)));
+        // мягкость — не меньше нуля, проба источника — минус её номер
+        MemoryUtil.memPutShort(p + 24, probe > 0 ? (short) -probe : (short) Mth.clamp(Math.round(soft * 16), 0, Short.MAX_VALUE));
         MemoryUtil.memPutShort(p + 26, (short) Mth.clamp(Math.round(unfold * Short.MAX_VALUE), 1, Short.MAX_VALUE));
         MemoryUtil.memPutShort(p + 28, (short) (light & 0xFFFF));
         MemoryUtil.memPutShort(p + 30, (short) (light >>> 16 & 0xFFFF));

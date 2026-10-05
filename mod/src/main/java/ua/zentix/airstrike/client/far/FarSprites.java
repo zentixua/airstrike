@@ -4,6 +4,7 @@ import net.minecraft.client.renderer.LightTexture;
 import org.joml.Vector3f;
 import ua.zentix.airstrike.client.fx.layer.FxAtlas;
 import ua.zentix.airstrike.client.fx.layer.FxQuads;
+import ua.zentix.airstrike.client.fx.layer.SourceProbes;
 import ua.zentix.airstrike.client.render.FarDraw;
 import ua.zentix.airstrike.client.render.FarModels;
 import ua.zentix.airstrike.client.render.ProjectilePose;
@@ -53,7 +54,8 @@ public final class FarSprites {
     /**
      * Блик и вуаль — свет, рассеянный в самом глазу: их квадрат переносится к глазу на столько блоков с тем же угловым
      * размером, и ближние рельеф и постройки его не режут (у края загруженного мира ореол обрывался прямой линией).
-     * Закрыто ли само тело, решает вызывающий: дальше прорисовки — луч по рельефу, в ней — луч по блокам.
+     * Закрыто ли само тело: в кадре — по тому, что на экране ({@link SourceProbes}: глубина Minecraft и LOD Distant
+     * Horizons у самого источника), вне кадра — по лучам вызывающего (дальше прорисовки — по рельефу, в ней — по блокам).
      */
     static final double EYE = 0.25;
     /**
@@ -72,15 +74,17 @@ public final class FarSprites {
     final FarModels models = new FarModels();
     private final float[] tile = new float[FarModels.OUT];
     private FxQuads out;
+    private SourceProbes probes;
     private double far;
     /** Куда смотрит камера (для глубины ореола у глаза). */
     private float fx, fy, fz;
     /** Сколько клубов, кругов, света, лент и моделей записано в этом кадре. */
     private final int[] counts = new int[5];
 
-    /** Новый кадр: писать в out. */
-    void begin(FarView view, FxQuads out) {
+    /** Новый кадр: писать в out, яркие источники — в пробы видимости probes. */
+    void begin(FarView view, FxQuads out, SourceProbes probes) {
         this.out = out;
+        this.probes = probes;
         far = view.far();
         fx = view.forward().x();
         fy = view.forward().y();
@@ -175,7 +179,8 @@ public final class FarSprites {
      *
      * @param t     доля света, дошедшая через воздух: насколько тело закрывает то, что за ним
      * @param w     доля ядра (видимое над рельефом, переход к ближней картинке)
-     * @param glare доля блика и вуали: их глубина не режет, поэтому закрытое блоками в прорисовке — здесь
+     * @param glare доля блика и вуали: их глубина не режет, поэтому закрытое по лучам вызывающего — здесь (в кадре — ещё
+     *              и проба {@link SourceProbes})
      * @param out   числа {@link Sight#light} (5) — для лога
      */
     public void light(double dx, double dy, double dz, double radius, double seen, double t, double pixel, float r, float g, float b, double w,
@@ -183,7 +188,7 @@ public final class FarSprites {
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         Sight.light(radius, seen, d, pixel, out);
         core(dx, dy, dz, out, t, r, g, b, w);
-        glare(dx, dy, dz, out, seen, r, g, b, glare, 1);
+        glare(dx, dy, dz, radius, out, seen, r, g, b, glare, 1);
     }
 
     /**
@@ -205,7 +210,7 @@ public final class FarSprites {
         if (shape < 1) core(dx, dy, dz, out, t, r, g, b, body * (1 - shape));
         float a = (float) (t * body * shape);
         if (shape > 0 && billboard(dx, dy, dz, half, rot, sprite, a, a, a, a, (float) (radius * BODY_SOFT), BALL_FRONT * radius)) counts[1]++;
-        glare(dx, dy, dz, out, seen, r, g, b, glare, shown);
+        glare(dx, dy, dz, radius, out, seen, r, g, b, glare, shown);
     }
 
     /** Ядро {@link #light} кругом: свой свет поверх того, что за ним; пересвет — к белому, тусклее белого — тает. */
@@ -217,20 +222,21 @@ public final class FarSprites {
     }
 
     /**
-     * Блик и вуаль {@link #light} ореолами цвета тела у самого глаза ({@link #EYE}), не ярче тела на экране shown; видно ли
-     * тело — решает вызывающий.
+     * Блик и вуаль {@link #light} тела радиуса radius ореолами его цвета у самого глаза ({@link #EYE}), не ярче тела на
+     * экране shown: доля w — сколько тела открыто по лучам вызывающего, в кадре — ещё и проба тела ({@link SourceProbes}).
      */
-    private void glare(double dx, double dy, double dz, double[] o, double seen, float r, float g, float b, double w, double shown) {
+    private void glare(double dx, double dy, double dz, double radius, double[] o, double seen, float r, float g, float b, double w, double shown) {
         if (w <= 0) return;
-        eye(dx, dy, dz, o[3], r, g, b, (float) (Math.min(Math.min(Sight.HALO, Sight.SCATTER * seen), shown) * w));
-        if (o[4] > 0) eye(dx, dy, dz, o[4], r, g, b, (float) (Math.min(Sight.VEIL_PEAK, shown) * w));
+        int probe = probes.add(dx, dy, dz, radius);
+        eye(dx, dy, dz, o[3], r, g, b, (float) (Math.min(Math.min(Sight.HALO, Sight.SCATTER * seen), shown) * w), probe);
+        if (o[4] > 0) eye(dx, dy, dz, o[4], r, g, b, (float) (Math.min(Sight.VEIL_PEAK, shown) * w), probe);
     }
 
     /**
      * Ореол {@link #glow}, перенесённый к глазу: те же лучи от глаза, сортировка — по настоящему расстоянию; глубина —
-     * не меньше {@link #EYE_DEPTH} (сбоку — дальше от глаза).
+     * не меньше {@link #EYE_DEPTH} (сбоку — дальше от глаза); виден, сколько видно источника с пробой probe.
      */
-    private void eye(double dx, double dy, double dz, double radius, float r, float g, float b, float a) {
+    private void eye(double dx, double dy, double dz, double radius, float r, float g, float b, float a, int probe) {
         if (r * a + g * a + b * a < 0.006f) return;
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         double cos = (dx * fx + dy * fy + dz * fz) / Math.max(d, 1e-9);
@@ -239,8 +245,10 @@ public final class FarSprites {
             glow(dx, dy, dz, radius, 0, r, g, b, a);
             return;
         }
+        out.seenBy(probe);
         out.billboard((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) d, (float) (radius * GLOW * k), 0, FxAtlas.glow(), Math.min(1, r * a),
                 Math.min(1, g * a), Math.min(1, b * a), 0, 0, (float) k, LightTexture.FULL_BRIGHT, 0);
+        out.seenBy(0);
         counts[2]++;
     }
 

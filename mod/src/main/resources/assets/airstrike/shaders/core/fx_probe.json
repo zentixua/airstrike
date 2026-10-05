@@ -1,0 +1,13 @@
+{
+    "vertex": "airstrike:fx_probe",
+    "fragment": "airstrike:fx_probe",
+    "samplers": [
+        { "name": "Sampler0" }
+    ],
+    "uniforms": [
+        { "name": "SourceView", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "SourceProj", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "ProbeSize", "type": "float", "count": 2, "values": [ 1.0, 1.0 ] },
+        { "name": "Pixel", "type": "float", "count": 1, "values": [ 0.001 ] }
+    ]
+}

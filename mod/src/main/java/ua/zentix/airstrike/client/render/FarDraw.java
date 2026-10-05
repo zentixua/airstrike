@@ -58,6 +58,12 @@ public final class FarDraw {
         RenderSystem.applyModelViewMatrix();
     }
 
+    /** Вид кадра для координат от глаза {@code eye}, как у {@link #begin}, — в dest. */
+    public static Matrix4f view(RenderLevelStageEvent e, Vec3 eye, Matrix4f dest) {
+        fromEye(dest.set(e.getModelViewMatrix()), e, eye);
+        return dest;
+    }
+
     /** Проекция с видом кадра для координат от глаза {@code eye}, как у {@link #begin}, — в dest. */
     public static Matrix4f viewProjection(RenderLevelStageEvent e, Vec3 eye, Matrix4f dest) {
         fromEye(dest.set(e.getProjectionMatrix()).mul(e.getModelViewMatrix()), e, eye);
