@@ -46,20 +46,26 @@ class WorkSchedulerTest {
         assertTrue(nuclear.maxUnitsPerTick() <= 26, "ядерке за тик " + nuclear.maxUnitsPerTick() + " единиц");
     }
 
-    /** Сервер не успевает (времени в тике нет): одна единица за тик, а не весь бюджет поверх его работы. */
+    /**
+     * Сервер не успевает (времени в тике нет): полоса идёт до малого срока {@link WorkScheduler#BUSY_MS}, а не весь
+     * бюджет поверх его работы; время появилось — снова до своего срока.
+     */
     @Test
-    void busyServerGetsOneUnitPerTick() {
+    void busyServerGetsShortDeadline() {
         long[] now = {0};
         WorkClock c = WorkClock.decaying(() -> now[0], 1);
         boolean[] spare = {false};
-        c.start(TOTAL, () -> spare[0]);
-        assertTrue(c.canStart(), "первая единица — всегда");
-        long began = c.begin();
-        now[0] += MS;
-        c.end(began);
-        assertFalse(c.canStart(), "времени в тике нет");
-        assertFalse(c.canStart(0));
-        assertTrue(c.overdue());
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        int units = 0;
+        while (c.canStart()) {
+            long began = c.begin();
+            now[0] += MS / 2;
+            c.end(began);
+            units++;
+        }
+        assertEquals(3, units, "срок 2 мс, единицы по 0,5 мс: четвёртая кончилась бы ровно в срок — не начинается");
+        now[0] = WorkScheduler.BUSY_MS * MS;
+        assertTrue(c.overdue(), "малый срок вышел");
         spare[0] = true;
         assertTrue(c.canStart(), "время в тике есть — дальше по бюджету");
         assertFalse(c.overdue());
@@ -69,7 +75,7 @@ class WorkSchedulerTest {
     @Test
     void countingClockIgnoresSpareTime() {
         WorkClock c = WorkClock.counting(MS);
-        c.start(TOTAL, () -> false);
+        c.start(TOTAL, () -> false, 0);
         c.end(c.begin());
         assertTrue(c.canStart(), "считающим часам — весь бюджет");
         assertFalse(c.overdue());

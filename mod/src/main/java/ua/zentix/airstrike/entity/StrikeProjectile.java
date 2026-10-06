@@ -717,11 +717,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     }
 
     /**
-     * Пора ли району цели тикать ({@link TargetAreaHold}): до удара не больше {@link #AREA_TICK_LEAD} тиков. Раньше
-     * район только грузится.
+     * Пора ли району цели тикать ({@link TargetAreaHold}): до удара не больше {@link #AREA_TICK_LEAD} тиков или снаряд
+     * уже стоит на поверхности, где кончился его путь вне мира, и ждёт района там. Раньше район только грузится.
      */
     protected boolean targetAreaTicks() {
-        return etaTicks() <= AREA_TICK_LEAD;
+        return grounded != null || etaTicks() <= AREA_TICK_LEAD;
     }
 
     /**

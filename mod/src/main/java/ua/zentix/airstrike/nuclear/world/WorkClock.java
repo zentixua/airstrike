@@ -38,10 +38,9 @@ public final class WorkClock {
     private long sampled;
 
     private long deadline;
-    /**
-     * Есть ли ещё у сервера время в этом тике ({@link #start(long, BooleanSupplier)}): нет — только первая единица тика,
-     * как у ванили, которая во время, не оставшееся в тике, ничего сверх обязательного не делает.
-     */
+    /** Срок без свободного времени в тике ({@link #start(long, BooleanSupplier, long)}): малый, но работа идёт. */
+    private long busyDeadline;
+    /** Есть ли ещё у сервера время в этом тике ({@link #start(long, BooleanSupplier, long)}). */
     private BooleanSupplier spare = ALWAYS;
     /** Оценка длительности следующей единицы, нс. */
     private double estimate;
@@ -79,20 +78,24 @@ public final class WorkClock {
 
     /** Новый тик: срок — через {@code budgetNanos} от сейчас. Оценка переходит из тика в тик. */
     public void start(long budgetNanos) {
-        start(budgetNanos, ALWAYS);
+        start(budgetNanos, ALWAYS, budgetNanos);
     }
 
     /**
-     * Новый тик: срок — через {@code budgetNanos} от сейчас, но работа идёт, только пока у сервера есть время в тике
-     * ({@code spare}: ванильное {@code ServerTickEvent.hasTime}). Сервер, который не успевает (тик с работой мира дольше
-     * 50 мс), получает от очереди одну единицу за тик, а не весь бюджет поверх: иначе залп, начатый на занятом сервере,
-     * добавлял к каждому тику свои 30 мс (Zearth 06.10.2026: TPS 7–10).
+     * Новый тик: срок — через {@code budgetNanos} от сейчас, пока у сервера есть время в тике ({@code spare}: ванильное
+     * {@code ServerTickEvent.hasTime}, по которому ваниль выгружает чанки), а без него — только {@code busyNanos}.
+     * Времени нет, когда сервер отстаёт от расписания: тик с работой мира дольше 50 мс, догон после заминки, задачи
+     * чанков между тиками, занявшие время до следующего тика. Залп ведущего на таком сервере прибавлял к каждому тику
+     * весь бюджет, 30 мс (Zearth 06.10.2026: TPS 7–10), а теперь — малый срок, на котором очереди всё же идут: волна
+     * ядерки бьёт по мобу за единицу, и одна единица за тик растянула бы её на минуты.
      */
-    public void start(long budgetNanos, BooleanSupplier spare) {
+    public void start(long budgetNanos, BooleanSupplier spare, long busyNanos) {
         // у считающих часов время идёт только работой: настенное «есть ли время в тике» им чужое, иначе сценарии
         // полёта на медленной машине CI шли бы иначе, чем на быстрой
         this.spare = unitCost > 0 ? ALWAYS : spare;
-        deadline = time.getAsLong() + budgetNanos;
+        long now = time.getAsLong();
+        deadline = now + budgetNanos;
+        busyDeadline = now + Math.min(budgetNanos, busyNanos);
         worked = false;
         unitsLastTick = unitsThisTick;
         unitsThisTick = 0;
@@ -106,14 +109,14 @@ public final class WorkClock {
     }
 
     /**
-     * Успеем ли ещё одну единицу работы до срока, пока у сервера есть время в тике. Первая единица тика — всегда, даже
-     * при сроке, который уже прошёл ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по порядку общего
-     * бюджета может не остаться), и на сервере, который не успевает: иначе очередь встала бы до конца нагрузки.
+     * Успеем ли ещё одну единицу работы до срока (без свободного времени в тике — до малого). Первая единица тика —
+     * всегда, даже при сроке, который уже прошёл ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по
+     * порядку общего бюджета может не остаться).
      */
     public boolean canStart() {
         if (!worked) return true;
         long now = time.getAsLong();
-        return now + (long) estimate < deadline && spare.getAsBoolean();
+        return now + (long) estimate < deadline();
     }
 
     /**
@@ -123,7 +126,12 @@ public final class WorkClock {
     public boolean canStart(int kind) {
         if (!worked) return true;
         long now = time.getAsLong();
-        return now + (long) kindEstimate(kind) < deadline && spare.getAsBoolean();
+        return now + (long) kindEstimate(kind) < deadline();
+    }
+
+    /** Срок, к которому идёт работа: свой бюджет, а без свободного времени в тике — {@link #busyDeadline}. */
+    private long deadline() {
+        return spare.getAsBoolean() ? deadline : busyDeadline;
     }
 
     private double kindEstimate(int kind) {
@@ -164,7 +172,7 @@ public final class WorkClock {
      * пускает всегда, и очередь, где все только ждут, выгребалась бы за тик.
      */
     public boolean overdue() {
-        return time.getAsLong() >= deadline || !spare.getAsBoolean();
+        return time.getAsLong() >= deadline();
     }
 
     /**
