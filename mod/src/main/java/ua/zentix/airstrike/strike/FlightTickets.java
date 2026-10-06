@@ -19,8 +19,9 @@ import java.util.UUID;
 
 /**
  * Район цели снаряда: чанки грузятся (и генерируются) в фоне, пока снаряд на подлёте, — к его прибытию там тикают
- * сущности, и он (в мире или вернувшись в мир из полёта вне его) бьёт как обычно. Грузится район сразу, а тикать
- * начинает по мере готовности ({@link AreaLoader}).
+ * сущности, и он (в мире или вернувшись в мир из полёта вне его) бьёт как обычно. Грузится район заранее, а тикать
+ * (мобы, блок-сущности, спавн) начинает только на последних секундах подлёта ({@code TargetAreaHold}) и по мере
+ * готовности ({@link AreaLoader}).
  * У каждого снаряда свой тикет (ключ — его UUID): залп по одной точке не снимает тикет друг у друга. Полосы подлёта
  * ракет — общие ({@link #holdApproach}).
  * Тикеты не сохраняются: после перезапуска снаряд возьмёт свой заново.
@@ -130,6 +131,11 @@ public final class FlightTickets {
         return new AreaLoader.Area(TYPE, c, APPROACH_DISTANCE, APPROACH_KEY);
     }
 
+    /** Сколько тикающих районов цели держит снаряд {@code flight}, без полосы подлёта (проверки). */
+    public static int ticking(ServerLevel level, UUID flight) {
+        return StrikeWorld.get(level).areas().count(TYPE, flight, true);
+    }
+
     /** Сколько районов держит снаряд {@code flight}: район цели и районы полосы подлёта, общие с другими (проверки). */
     public static int held(ServerLevel level, UUID flight) {
         StrikeWorld world = StrikeWorld.get(level);
@@ -139,7 +145,15 @@ public final class FlightTickets {
 
     /** {@code distance} — уровень тикета: {@link #DISTANCE} по умолчанию, 6 — сущности тикают в квадрате 9×9 чанков. */
     public static void hold(ServerLevel level, ChunkPos pos, int distance, UUID flight, boolean hold) {
-        AreaLoader.Area area = new AreaLoader.Area(TYPE, pos, distance, flight);
+        hold(level, pos, distance, flight, true, hold);
+    }
+
+    /**
+     * То же; {@code ticks} — false: район только грузится ({@link AreaLoader.Area#ticks}), тикать он начнёт, когда
+     * снаряд возьмёт его тикающим ({@code TargetAreaHold}).
+     */
+    public static void hold(ServerLevel level, ChunkPos pos, int distance, UUID flight, boolean ticks, boolean hold) {
+        AreaLoader.Area area = new AreaLoader.Area(TYPE, pos, distance, flight, ticks);
         if (hold) StrikeWorld.get(level).areas().hold(level, area);
         else StrikeWorld.get(level).areas().release(level, area);
     }

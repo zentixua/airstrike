@@ -1171,6 +1171,82 @@ public final class StrikeGameTests {
     }
 
     /**
+     * Район цели грузится заранее, а тикает только последние {@link StrikeProjectile#AREA_TICK_LEAD} тиков подлёта:
+     * ракета издалека вне мира (без игрока у цели — без полосы подлёта) берёт район без тика с пуска (до цели меньше
+     * {@code PRELOAD_TICKS} полёта), тикающим — когда до удара осталось не больше этого, и отпускает всё после удара.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_area_late_tick", skyAccess = true)
+    public static void targetAreaTicksOnlyNearArrival(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.launch(point.add(1200, 80, 0), new Target.Point(point), point, null);
+        missile.setRoute(Route.direct());
+        VirtualFlights.launch(level, missile);
+        UUID id = missile.getUUID();
+        boolean[] loadedEarly = {false}, tickedLate = {false};
+        String[] early = {null};
+        h.onEachTick(() -> {
+            if (!(findProjectile(level, id) instanceof StrikeProjectile p)) return;
+            int eta = p.etaTicks();
+            if (eta > StrikeProjectile.AREA_TICK_LEAD + 1) {
+                if (FlightTickets.held(level, id) > 0) loadedEarly[0] = true;
+                if (FlightTickets.ticking(level, id) > 0 && early[0] == null) early[0] = "район тикает за " + eta + " тиков до удара";
+            } else if (eta < StrikeProjectile.AREA_TICK_LEAD - 1 && FlightTickets.ticking(level, id) == 1) {
+                tickedLate[0] = true;
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(findProjectile(level, id) == null, "ракета ещё летит");
+            h.assertTrue(early[0] == null, early[0]);
+            h.assertTrue(loadedEarly[0], "район цели не грузился заранее");
+            h.assertTrue(tickedLate[0], "район цели так и не стал тикающим на подлёте");
+            assertCrater(h, RUNWAY_TARGET, "");
+            h.assertTrue(FlightTickets.held(level, id) == 0, "ракета не отпустила районы");
+        });
+    }
+
+    /**
+     * Снаряд, которого не видит ни один игрок, держит только свой чанк ({@link ChunkTickets}), а не чанк впереди: иначе
+     * тикет на нём грузил квадрат вокруг, и снаряд тянул бы тикающие чанки за собой до цели. Ракета с пусковой без
+     * игроков: на старте — свой и впереди, в полёте — не больше одного, и за площадкой она уходит в полёт вне мира.
+     */
+    @GameTest(template = "runway", timeoutTicks = 1200, batch = "missile_unseen_chunks", skyAccess = true)
+    public static void unseenMissileHoldsOnlyItsChunk(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET).add(0, 0, 900);
+        Vec3 site = Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 12)));
+        float yaw = ua.zentix.airstrike.guidance.FlightController.anglesTo(site, point)[0];
+        LauncherEntity launcher = LauncherEntity.create(level, site, yaw, WeaponType.MISSILE, null, false);
+        level.addFreshEntity(launcher);
+        Vec3 rail = launcher.railPoint(0);
+        CruiseMissileEntity missile = ModEntities.CRUISE_MISSILE.get().create(level);
+        missile.placeOnLauncher(rail, launcher.getYRot(), launcher.elevation(), LauncherEntity.DEPLOY_TICKS + 10, LauncherEntity.DEPLOY_TICKS,
+                new Target.Point(point), point, null);
+        missile.setRoute(Route.direct());
+        level.addFreshEntity(missile);
+        UUID id = missile.getUUID();
+        // долетев, ракета взорвалась бы в 900 блоках — там, где сетка ставит площадки следующих партий
+        afterTest(h, () -> {
+            VirtualFlights.get(level).clear(level, p -> p.getUUID().equals(id));
+            if (level.getEntity(id) != null) level.getEntity(id).discard();
+        });
+        int[] most = {0}, flying = {0};
+        boolean[] virtual = {false};
+        h.onEachTick(() -> {
+            if (!(findProjectile(level, id) instanceof StrikeProjectile p)) return;
+            if (p.isVirtual()) virtual[0] = true;
+            // тикет снимается в следующем переносе после смены фазы: первый тик после старта — ещё со стартовыми
+            else if (p.flightPhase().launching()) flying[0] = 0;
+            else if (++flying[0] > 1) most[0] = Math.max(most[0], ChunkTickets.held(level, id));
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(virtual[0], "ракета не ушла в полёт вне мира");
+            h.assertTrue(most[0] <= 1, "в полёте без игроков ракета держала " + most[0] + " чанков");
+        });
+    }
+
+    /**
      * Ракета издалека вне мира возвращается в мир на краю полосы подлёта ({@link CruiseMissileEntity#VISIBLE_LEG}),
      * а не у района цели (±40 блоков): её подлёт видно игроку у цели и при дистанции симуляции меньше прорисовки.
      * Заход — поперёк полосы: чанки самой площадки держит GameTest, и ракета вдоль неё вошла бы в мир и без полосы подлёта.

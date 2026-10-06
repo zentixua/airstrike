@@ -108,6 +108,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
+    /**
+     * Район цели тикает, когда до удара осталось столько тиков ({@link #etaTicks}): снаряду вне мира хватает вернуться
+     * в мир у цели, а ракете РСЗО — не растягивать траекторию ({@code RocketEntity.STRETCH_TICKS} до её черты ожидания).
+     */
+    public static final int AREA_TICK_LEAD = 160;
 
     protected final FlightController flight = new FlightController(0, 0);
     protected double speed;
@@ -559,7 +564,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 else crashUnarmed(level, at);
                 return;
             }
-            if (chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
+            if (chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed, lookAhead(level));
             serverTick(level);
             // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
             if (isRemoved()) return;
@@ -659,7 +664,22 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * на пусковой места пуска из приказа — оно может быть дальше дистанции симуляции от игроков.
      */
     public void holdChunks(ServerLevel level) {
-        chunks.update(level, getUUID(), position(), flight.forward(), speed);
+        chunks.update(level, getUUID(), position(), flight.forward(), speed, lookAhead(level));
+    }
+
+    /**
+     * Держать ли и чанк впереди по курсу ({@link ChunkHold}): на старте — да (место пуска из приказа бывает вдали от
+     * игроков, а сход с пусковой идёт в мире), в полёте — пока есть кому его видеть ({@link FlightTickets#watched}:
+     * игрок ближе дальности прорисовки сервера — дальше сущность клиенту не уходит) и на последних секундах подлёта,
+     * когда район цели уже тикает ({@link TargetAreaHold#ticking}). Иначе полёт в мире ничего не даёт, а чанк впереди
+     * тянул бы за снарядом тикающие чанки через всю карту: дойдя до края своего чанка, он уходит в полёт вне мира, и
+     * игрокам его путь идёт пакетами {@code FarFlights}. У цели снаряд в мире остаётся в мире: без чанка впереди он
+     * уходил бы из мира у края района цели и возвращался в него через тик-другой — смотря когда у свежих чанков района
+     * начнут тикать сущности (это доделывают задачи чанков, а не тикеты), и сценарии полёта расходились бы на тик.
+     * Признаки — расстояние и тикеты, а не то, что сущность уже у клиента: они не зависят от темпа отправки чанков.
+     */
+    private boolean lookAhead(ServerLevel level) {
+        return flightPhase().launching() || aimArea.ticking() || FlightTickets.watched(level, position(), 0);
     }
 
     /**
@@ -696,7 +716,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (tracker == null || isRemoved()) return;
         // путь вне мира кончился на поверхности: грузится место попадания, а не цель
         Vec3 aim = grounded != null ? grounded : tracker.point();
-        aimArea.hold(level, getUUID(), position(), aim, preloadDistance(), targetArea(), visibleLeg(), route, age);
+        aimArea.hold(level, getUUID(), position(), aim, preloadDistance(), targetArea(), targetAreaTicks(), visibleLeg(), route, age);
+    }
+
+    /**
+     * Пора ли району цели тикать ({@link TargetAreaHold}): до удара не больше {@link #AREA_TICK_LEAD} тиков или снаряд
+     * уже стоит на поверхности, где кончился его путь вне мира, и ждёт района там. Раньше район только грузится.
+     */
+    protected boolean targetAreaTicks() {
+        return grounded != null || etaTicks() <= AREA_TICK_LEAD;
     }
 
     /**
@@ -1132,7 +1160,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         setXRot(flight.pitch());
         float roll = flight.bankAngle(speed);
         if (Math.abs(roll - entityData.get(DATA_ROLL)) > 0.2f) entityData.set(DATA_ROLL, roll);
-        if (!virtual) chunks.update(level, getUUID(), next, dir, speed);
+        if (!virtual) chunks.update(level, getUUID(), next, dir, speed, lookAhead(level));
     }
 
     /**

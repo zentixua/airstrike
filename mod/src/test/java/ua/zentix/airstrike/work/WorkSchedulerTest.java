@@ -46,6 +46,49 @@ class WorkSchedulerTest {
         assertTrue(nuclear.maxUnitsPerTick() <= 26, "ядерке за тик " + nuclear.maxUnitsPerTick() + " единиц");
     }
 
+    /**
+     * Сервер не успевает (времени в тике нет): полоса идёт до малого срока {@link WorkScheduler#BUSY_MS}, а не весь
+     * бюджет поверх его работы; время появилось — снова до своего срока.
+     */
+    @Test
+    void busyServerGetsShortDeadline() {
+        long[] now = {0};
+        WorkClock c = WorkClock.decaying(() -> now[0], 1);
+        boolean[] spare = {false};
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        int units = 0;
+        while (c.canStart()) {
+            long began = c.begin();
+            now[0] += MS / 2;
+            c.end(began);
+            units++;
+        }
+        assertEquals(4, units, "срок 2 мс, единицы по 0,5 мс: начинаются, пока срок не вышел");
+        now[0] = WorkScheduler.BUSY_MS * MS;
+        assertTrue(c.overdue(), "малый срок вышел");
+        // тяжёлая единица не останавливает полосу на последующие тики: оценка 5 мс больше малого срока
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        long heavy = c.begin();
+        now[0] += 5 * MS;
+        c.end(heavy);
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        c.end(c.begin());
+        assertTrue(c.canStart(), "после тяжёлой единицы — снова до малого срока, а не одна единица за тик");
+        spare[0] = true;
+        assertTrue(c.canStart(), "время в тике есть — дальше по бюджету");
+        assertFalse(c.overdue());
+    }
+
+    /** Считающие часы (сценарии полёта, проверки) идут только работой: настенное «время в тике» на них не влияет. */
+    @Test
+    void countingClockIgnoresSpareTime() {
+        WorkClock c = WorkClock.counting(MS);
+        c.start(TOTAL, () -> false, 0);
+        c.end(c.begin());
+        assertTrue(c.canStart(), "считающим часам — весь бюджет");
+        assertFalse(c.overdue());
+    }
+
     /** Срок полосы уже вышел — одна единица всё равно: иначе полоса ниже вставала бы на весь залп. */
     @Test
     void laneWithNoBudgetStillDoesOneUnit() {

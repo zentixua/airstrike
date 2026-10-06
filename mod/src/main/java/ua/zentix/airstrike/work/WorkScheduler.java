@@ -14,12 +14,20 @@ import ua.zentix.airstrike.strike.StrikeWorld;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * Общий бюджет тяжёлой работы мода на тик сервера ({@code performance.work_ms_per_tick}): полосы по порядку важности,
  * у каждой свои часы ({@link WorkClock}: своя оценка единицы — ванильный взрыв и лампа блэкаута разные величины),
  * срок полосы — то, что оставили полосы выше, не больше её собственного предела. Идёт после тика миров, так что
  * попадание, случившееся в тике, в пустой очереди делается в том же тике (картинка клиента начинается с пакета удара).
+ * <p>
+ * Бюджет — потолок, а не обещание: весь он — только пока у сервера есть время в тике ({@code hasTime} события —
+ * ванильное «до следующего тика ещё есть время», по которому и ваниль выгружает чанки). Сервер, который отстаёт от
+ * расписания (тик дольше 50 мс, догон после заминки, задачи чанков между тиками до самого следующего), получает по
+ * {@link #BUSY_MS} мс на полосу, а не бюджет поверх своей работы: залп ведущего по всей карте на занятом сервере
+ * прибавлял к каждому тику до 30 мс (Zearth 06.10.2026). В ускорении ({@code /tick sprint}) тики идут без пауз и
+ * времени в тике у ванили нет никогда — там полосам весь их бюджет, как в обычном тике.
  * <p>
  * Одна единица за тик у каждой полосы с работой — всегда ({@link WorkClock#canStart}): иначе после долгой единицы
  * полоса встала бы. Отсюда и граница тика: общий срок плюс по одной единице на полосу. Миры в полосе — по кругу:
@@ -37,6 +45,12 @@ public final class WorkScheduler {
         /** Блэкаут ({@link Blackouts#work}) — фон. */
         GRID
     }
+
+    /**
+     * Срок полосы на сервере без свободного времени в тике, мс: очереди идут (волна ядерки бьёт по мобу за единицу, и
+     * одна единица за тик растянула бы её на минуты), а к отстающему тику три полосы прибавляют не больше 6 мс.
+     */
+    static final long BUSY_MS = 2;
 
     /** Доля общего бюджета у попаданий, пока у полос ниже есть работа: блэкаут не стоит весь залп. */
     static final double IMPACT_SHARE_WHEN_SHARED = 2.0 / 3.0;
@@ -105,9 +119,11 @@ public final class WorkScheduler {
         server.getAllLevels().forEach(levels::add);
         Collections.rotate(levels, -(server.getTickCount() % levels.size()));
         long total = totalNanos();
+        BooleanSupplier spare = server.tickRateManager().isSprinting() ? () -> true : e::hasTime;
 
         WorkClock impact = impactClock(server);
-        impact.start(impactBudget(total, Blackouts.pending(server) || NuclearStrikes.pending(server)));
+        long busy = BUSY_MS * 1_000_000L;
+        impact.start(impactBudget(total, Blackouts.pending(server) || NuclearStrikes.pending(server)), spare, busy);
         for (ServerLevel level : levels) {
             // «/tick freeze» останавливает и попадания (как снаряды и таймлайны)
             if (level.tickRateManager().runsNormally() && level.hasData(ModAttachments.STRIKE_WORLD)) {
@@ -121,11 +137,11 @@ public final class WorkScheduler {
         WorkClock nuclear = NuclearWorld.clock(server);
         long gridCap = AirstrikeConfig.SERVER.gridTimeBudgetMs.get() * 1_000_000L;
         nuclear.start(nuclearBudget(total, impact.usedThisTickNanos(), AirstrikeConfig.SERVER.nukeTimeBudgetMs.get() * 1_000_000L,
-                Blackouts.pending(server) ? gridCap : 0));
+                Blackouts.pending(server) ? gridCap : 0), spare, busy);
         NuclearStrikes.work(levels, nuclear);
 
         WorkClock grid = Blackouts.clock(server);
-        grid.start(remaining(total, impact.usedThisTickNanos() + nuclear.usedThisTickNanos(), gridCap));
+        grid.start(remaining(total, impact.usedThisTickNanos() + nuclear.usedThisTickNanos(), gridCap), spare, busy);
         Blackouts.work(server, levels, grid);
 
         OWN[Math.floorMod(server.getTickCount(), OWN.length)] = impact.usedThisTickNanos() + nuclear.usedThisTickNanos() + grid.usedThisTickNanos();

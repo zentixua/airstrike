@@ -115,6 +115,12 @@ public class LoiterEntity extends StrikeProjectile {
         return FlightTickets.LOITER_DISTANCE;
     }
 
+    /** Круг над целью идёт в мире, а время до удара на круге — всё время барража: район тикает, как только взят. */
+    @Override
+    protected boolean targetAreaTicks() {
+        return true;
+    }
+
     @Override
     protected boolean launchTick(ServerLevel level) {
         if (flightPhase() == FlightPhase.IGNITION && phaseAge() == 0) {

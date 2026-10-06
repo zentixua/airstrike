@@ -50,7 +50,8 @@ import java.util.UUID;
  * больше дальности обзора сервера: чанки за обзором ваниль не грузит, а тикет мода грузит. Правило тика блок-сущностей мод
  * не меняет: оно общее для всех модов сборки.
  * <p>
- * Район без тика ({@link Area#ticks} — false: место ядерного подрыва, пока летит МБР) держит только тикет загрузки:
+ * Район без тика ({@link Area#ticks} — false: место ядерного подрыва, пока летит МБР; район цели снаряда до последних
+ * секунд подлёта) держит только тикет загрузки:
  * чанки полностью загружены, но не тикают ни блоками, ни сущностями.
  * <p>
  * Отпущенный район тикать перестаёт сразу, а его чанки держит тикет без тика, пока очередь не отдаст их ваниле в её темпе
@@ -194,6 +195,11 @@ public final class AreaLoader {
     /** Сколько районов с тикетом {@code type} и ключом {@code key} взято или растёт (проверки). */
     public int count(TicketType<?> type, UUID key) {
         return (int) requests.keySet().stream().filter(a -> a.type() == type && a.key().equals(key)).count();
+    }
+
+    /** То же только среди тикающих районов ({@link Area#ticks}) или только среди районов без тика (проверки). */
+    public int count(TicketType<?> type, UUID key, boolean ticks) {
+        return (int) requests.keySet().stream().filter(a -> a.type() == type && a.key().equals(key) && a.ticks() == ticks).count();
     }
 
     void tick(ServerLevel level) {
