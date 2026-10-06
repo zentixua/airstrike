@@ -196,6 +196,11 @@ public final class AreaLoader {
         return (int) requests.keySet().stream().filter(a -> a.type() == type && a.key().equals(key)).count();
     }
 
+    /** То же только среди тикающих районов ({@link Area#ticks}) или только среди районов без тика (проверки). */
+    public int count(TicketType<?> type, UUID key, boolean ticks) {
+        return (int) requests.keySet().stream().filter(a -> a.type() == type && a.key().equals(key) && a.ticks() == ticks).count();
+    }
+
     void tick(ServerLevel level) {
         long now = level.getGameTime();
         if (!expiring.isEmpty()) {

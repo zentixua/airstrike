@@ -113,7 +113,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Район цели тикает, когда до удара осталось столько тиков ({@link #etaTicks}): снаряду вне мира хватает вернуться
      * в мир у цели, а ракете РСЗО — не растягивать траекторию ({@code RocketEntity.STRETCH_TICKS} до её черты ожидания).
      */
-    static final int AREA_TICK_LEAD = 160;
+    public static final int AREA_TICK_LEAD = 160;
 
     protected final FlightController flight = new FlightController(0, 0);
     protected double speed;

@@ -131,6 +131,11 @@ public final class FlightTickets {
         return new AreaLoader.Area(TYPE, c, APPROACH_DISTANCE, APPROACH_KEY);
     }
 
+    /** Сколько тикающих районов цели держит снаряд {@code flight}, без полосы подлёта (проверки). */
+    public static int ticking(ServerLevel level, UUID flight) {
+        return StrikeWorld.get(level).areas().count(TYPE, flight, true);
+    }
+
     /** Сколько районов держит снаряд {@code flight}: район цели и районы полосы подлёта, общие с другими (проверки). */
     public static int held(ServerLevel level, UUID flight) {
         StrikeWorld world = StrikeWorld.get(level);
