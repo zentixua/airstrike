@@ -85,6 +85,11 @@ public final class TargetAreaHold {
         if (FlightTickets.holdApproach(level, centres, owner)) approach = centres;
     }
 
+    /** Район цели взят тикающим: снаряд на последних секундах подлёта. */
+    public boolean ticking() {
+        return area != null && ticking;
+    }
+
     /** Отпустить район и полосу (снаряд убран или перенацелен — новый район возьмётся на подлёте). */
     public void release(ServerLevel level, UUID owner) {
         if (area != null) FlightTickets.hold(level, area, size, owner, ticking, false);
