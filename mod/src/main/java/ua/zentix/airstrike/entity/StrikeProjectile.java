@@ -109,6 +109,11 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private static final double BELOW_AIM = 16;
     /** Район цели догружается, когда до неё осталось столько тиков полёта (и не меньше 400 блоков). */
     private static final int PRELOAD_TICKS = 300;
+    /**
+     * Район цели тикает, когда до удара осталось столько тиков ({@link #etaTicks}): снаряду вне мира хватает вернуться
+     * в мир у цели, а ракете РСЗО — не растягивать траекторию ({@code RocketEntity.STRETCH_TICKS} до её черты ожидания).
+     */
+    static final int AREA_TICK_LEAD = 160;
 
     protected final FlightController flight = new FlightController(0, 0);
     protected double speed;
@@ -707,7 +712,15 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (tracker == null || isRemoved()) return;
         // путь вне мира кончился на поверхности: грузится место попадания, а не цель
         Vec3 aim = grounded != null ? grounded : tracker.point();
-        aimArea.hold(level, getUUID(), position(), aim, preloadDistance(), targetArea(), visibleLeg(), route, age);
+        aimArea.hold(level, getUUID(), position(), aim, preloadDistance(), targetArea(), targetAreaTicks(), visibleLeg(), route, age);
+    }
+
+    /**
+     * Пора ли району цели тикать ({@link TargetAreaHold}): до удара не больше {@link #AREA_TICK_LEAD} тиков. Раньше
+     * район только грузится.
+     */
+    protected boolean targetAreaTicks() {
+        return etaTicks() <= AREA_TICK_LEAD;
     }
 
     /**
