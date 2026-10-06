@@ -38,7 +38,6 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.ChunkTickets;
-import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightLog;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
@@ -670,12 +669,14 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Держать ли и чанк впереди по курсу ({@link ChunkHold}): на старте — да (место пуска из приказа бывает вдали от
-     * игроков, а сход с пусковой идёт в мире), в полёте — пока снаряд есть сущностью хоть у одного игрока
-     * ({@link FarFlights#seenByAnyone}). Невидимому полёт в мире ничего не даёт, а чанк впереди тянул бы за ним тикающие
-     * чанки до самой цели: дойдя до края своего чанка, он уходит в полёт вне мира.
+     * игроков, а сход с пусковой идёт в мире), в полёте — пока есть кому его видеть ({@link FlightTickets#watched}:
+     * игрок ближе дальности прорисовки сервера — дальше сущность клиенту не уходит). Невидимому полёт в мире ничего не
+     * даёт, а чанк впереди тянул бы за ним тикающие чанки до самой цели: дойдя до края своего чанка, он уходит в полёт
+     * вне мира, и игрокам его путь идёт пакетами {@code FarFlights}. Признак — расстояние, а не то, что сущность уже у
+     * клиента: оно не зависит от темпа отправки чанков, и сценарии полёта повторяются точно.
      */
     private boolean lookAhead(ServerLevel level) {
-        return flightPhase().launching() || FarFlights.seenByAnyone(level, this);
+        return flightPhase().launching() || FlightTickets.watched(level, position(), 0);
     }
 
     /**

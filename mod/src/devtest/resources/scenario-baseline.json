@@ -390,7 +390,7 @@
       "x": 15.46,
       "y": 26.78,
       "z": 39.69,
-      "hash": "896113367a0aa20e"
+      "hash": "8cac975ba0bd8ddf"
     },
     "loiter_far.player.retarget.0": {
       "end": "blast",
@@ -558,7 +558,7 @@
       "x": -41.5,
       "y": 29.05,
       "z": 13.55,
-      "hash": "4d3295e0e3cf30d1"
+      "hash": "217ee8568179252c"
     },
     "loiter_rail.player.teleport_near.0": {
       "end": "blast",
