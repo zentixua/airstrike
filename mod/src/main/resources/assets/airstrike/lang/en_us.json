@@ -421,7 +421,7 @@
   "airstrike.config.far_range.tooltip": "Beyond render distance players see and hear projectiles in flight and conventional blasts up to this range (haze still hides them by the weather)",
   "airstrike.config.performance": "Performance",
   "airstrike.config.work_budget": "Mod work per tick (ms)",
-  "airstrike.config.work_budget.tooltip": "At most how many milliseconds of each server tick the mod spends on heavy work in total: strike destruction, then the nuke, then blackout lights. Only from the time left in the tick.",
+  "airstrike.config.work_budget.tooltip": "At most how many milliseconds of each server tick the mod spends on heavy work in total: strike destruction, then the nuke, then blackout lights. The full budget only comes from the time left in the tick; a server that is behind gets about 2 ms per kind of work.",
   "airstrike.help.12": "/airstrike grid status|blackout|restore|node …: power grid status, cut power to an area, restore power, map nodes",
   "airstrike.help.13": "/airstrike salvo … [from x z] [via x z …] — launch point (operators) and route points, as on the map; a single round — salvo <weapon> 1 0 …",
   "airstrike.help.14": "/airstrike launcher <x y z> [fire|clear|load N|owner …|mission <weapon> N spread x y z [via …]] — fixed launcher (operators)",

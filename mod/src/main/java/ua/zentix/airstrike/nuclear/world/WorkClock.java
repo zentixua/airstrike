@@ -114,9 +114,7 @@ public final class WorkClock {
      * порядку общего бюджета может не остаться).
      */
     public boolean canStart() {
-        if (!worked) return true;
-        long now = time.getAsLong();
-        return now + (long) estimate < deadline();
+        return fits((long) estimate);
     }
 
     /**
@@ -124,14 +122,18 @@ public final class WorkClock {
      * взрыва и порция блоков) общая оценка после дешёвых пускала дорогую единицу впритык к сроку.
      */
     public boolean canStart(int kind) {
-        if (!worked) return true;
-        long now = time.getAsLong();
-        return now + (long) kindEstimate(kind) < deadline();
+        return fits((long) kindEstimate(kind));
     }
 
-    /** Срок, к которому идёт работа: свой бюджет, а без свободного времени в тике — {@link #busyDeadline}. */
-    private long deadline() {
-        return spare.getAsBoolean() ? deadline : busyDeadline;
+    /**
+     * Начинать ли ещё единицу с оценкой {@code estimate}. Без свободного времени в тике — пока не вышел малый срок
+     * {@link #busyDeadline}, без оценки: после одной тяжёлой единицы (столбец воронки — 3–5 мс) оценка дольше малого срока
+     * и тает медленно, и полоса десятки тиков делала бы по единице за тик.
+     */
+    private boolean fits(long estimate) {
+        if (!worked) return true;
+        long now = time.getAsLong();
+        return spare.getAsBoolean() ? now + estimate < deadline : now < busyDeadline;
     }
 
     private double kindEstimate(int kind) {
@@ -172,7 +174,7 @@ public final class WorkClock {
      * пускает всегда, и очередь, где все только ждут, выгребалась бы за тик.
      */
     public boolean overdue() {
-        return time.getAsLong() >= deadline();
+        return time.getAsLong() >= (spare.getAsBoolean() ? deadline : busyDeadline);
     }
 
     /**

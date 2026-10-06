@@ -63,9 +63,17 @@ class WorkSchedulerTest {
             c.end(began);
             units++;
         }
-        assertEquals(3, units, "срок 2 мс, единицы по 0,5 мс: четвёртая кончилась бы ровно в срок — не начинается");
+        assertEquals(4, units, "срок 2 мс, единицы по 0,5 мс: начинаются, пока срок не вышел");
         now[0] = WorkScheduler.BUSY_MS * MS;
         assertTrue(c.overdue(), "малый срок вышел");
+        // тяжёлая единица не останавливает полосу на последующие тики: оценка 5 мс больше малого срока
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        long heavy = c.begin();
+        now[0] += 5 * MS;
+        c.end(heavy);
+        c.start(TOTAL, () -> spare[0], WorkScheduler.BUSY_MS * MS);
+        c.end(c.begin());
+        assertTrue(c.canStart(), "после тяжёлой единицы — снова до малого срока, а не одна единица за тик");
         spare[0] = true;
         assertTrue(c.canStart(), "время в тике есть — дальше по бюджету");
         assertFalse(c.overdue());
