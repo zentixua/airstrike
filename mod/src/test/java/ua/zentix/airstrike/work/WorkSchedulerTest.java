@@ -46,6 +46,22 @@ class WorkSchedulerTest {
         assertTrue(nuclear.maxUnitsPerTick() <= 26, "ядерке за тик " + nuclear.maxUnitsPerTick() + " единиц");
     }
 
+    /** Сервер не успевает (времени в тике нет): одна единица за тик, а не весь бюджет поверх его работы. */
+    @Test
+    void busyServerGetsOneUnitPerTick() {
+        WorkClock c = WorkClock.counting(MS);
+        boolean[] spare = {false};
+        c.start(TOTAL, () -> spare[0]);
+        assertTrue(c.canStart(), "первая единица — всегда");
+        c.end(c.begin());
+        assertFalse(c.canStart(), "времени в тике нет");
+        assertFalse(c.canStart(0));
+        assertTrue(c.overdue());
+        spare[0] = true;
+        assertTrue(c.canStart(), "время в тике есть — дальше по бюджету");
+        assertFalse(c.overdue());
+    }
+
     /** Срок полосы уже вышел — одна единица всё равно: иначе полоса ниже вставала бы на весь залп. */
     @Test
     void laneWithNoBudgetStillDoesOneUnit() {

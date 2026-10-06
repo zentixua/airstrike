@@ -38,6 +38,7 @@ import ua.zentix.airstrike.guidance.Route;
 import ua.zentix.airstrike.util.Terrain;
 import ua.zentix.airstrike.strike.CameraLink;
 import ua.zentix.airstrike.strike.ChunkTickets;
+import ua.zentix.airstrike.strike.FarFlights;
 import ua.zentix.airstrike.strike.FlightLog;
 import ua.zentix.airstrike.strike.FlightTickets;
 import ua.zentix.airstrike.strike.Loadout;
@@ -559,7 +560,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
                 else crashUnarmed(level, at);
                 return;
             }
-            if (chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed);
+            if (chunks.isEmpty()) chunks.update(level, getUUID(), position(), flight.forward(), speed, lookAhead(level));
             serverTick(level);
             // взорвался или ушёл в полёт вне мира (там летит уже копия): ни сирены, ни новых тикетов
             if (isRemoved()) return;
@@ -659,7 +660,17 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * на пусковой места пуска из приказа — оно может быть дальше дистанции симуляции от игроков.
      */
     public void holdChunks(ServerLevel level) {
-        chunks.update(level, getUUID(), position(), flight.forward(), speed);
+        chunks.update(level, getUUID(), position(), flight.forward(), speed, lookAhead(level));
+    }
+
+    /**
+     * Держать ли и чанк впереди по курсу ({@link ChunkHold}): на старте — да (место пуска из приказа бывает вдали от
+     * игроков, а сход с пусковой идёт в мире), в полёте — пока снаряд есть сущностью хоть у одного игрока
+     * ({@link FarFlights#seenByAnyone}). Невидимому полёт в мире ничего не даёт, а чанк впереди тянул бы за ним тикающие
+     * чанки до самой цели: дойдя до края своего чанка, он уходит в полёт вне мира.
+     */
+    private boolean lookAhead(ServerLevel level) {
+        return flightPhase().launching() || FarFlights.seenByAnyone(level, this);
     }
 
     /**
@@ -1132,7 +1143,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         setXRot(flight.pitch());
         float roll = flight.bankAngle(speed);
         if (Math.abs(roll - entityData.get(DATA_ROLL)) > 0.2f) entityData.set(DATA_ROLL, roll);
-        if (!virtual) chunks.update(level, getUUID(), next, dir, speed);
+        if (!virtual) chunks.update(level, getUUID(), next, dir, speed, lookAhead(level));
     }
 
     /**

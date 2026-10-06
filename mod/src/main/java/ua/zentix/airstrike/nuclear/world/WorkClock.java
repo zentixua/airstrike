@@ -1,5 +1,6 @@
 package ua.zentix.airstrike.nuclear.world;
 
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 /**
@@ -18,6 +19,8 @@ import java.util.function.LongSupplier;
 public final class WorkClock {
     /** Затухание оценки за одну единицу работы. */
     private static final double DECAY = 0.95;
+    /** Время в тике есть всегда: часы вне тика сервера (подготовка ядерки по своему сроку) и проверки. */
+    private static final BooleanSupplier ALWAYS = () -> true;
 
     private final LongSupplier time;
     /** У считающих часов — цена одной единицы работы, нс; 0 — настоящие часы. */
@@ -35,6 +38,11 @@ public final class WorkClock {
     private long sampled;
 
     private long deadline;
+    /**
+     * Есть ли ещё у сервера время в этом тике ({@link #start(long, BooleanSupplier)}): нет — только первая единица тика,
+     * как у ванили, которая во время, не оставшееся в тике, ничего сверх обязательного не делает.
+     */
+    private BooleanSupplier spare = ALWAYS;
     /** Оценка длительности следующей единицы, нс. */
     private double estimate;
     /** Оценки по видам единиц ({@link #canStart(int)}), нс: дешёвая порция не делает смелее перед дорогой единицей. */
@@ -71,6 +79,17 @@ public final class WorkClock {
 
     /** Новый тик: срок — через {@code budgetNanos} от сейчас. Оценка переходит из тика в тик. */
     public void start(long budgetNanos) {
+        start(budgetNanos, ALWAYS);
+    }
+
+    /**
+     * Новый тик: срок — через {@code budgetNanos} от сейчас, но работа идёт, только пока у сервера есть время в тике
+     * ({@code spare}: ванильное {@code ServerTickEvent.hasTime}). Сервер, который не успевает (тик с работой мира дольше
+     * 50 мс), получает от очереди одну единицу за тик, а не весь бюджет поверх: иначе залп, начатый на занятом сервере,
+     * добавлял к каждому тику свои 30 мс (Zearth 06.10.2026: TPS 7–10).
+     */
+    public void start(long budgetNanos, BooleanSupplier spare) {
+        this.spare = spare;
         deadline = time.getAsLong() + budgetNanos;
         worked = false;
         unitsLastTick = unitsThisTick;
@@ -85,13 +104,14 @@ public final class WorkClock {
     }
 
     /**
-     * Успеем ли ещё одну единицу работы до срока. Первая единица тика — всегда, даже при сроке, который уже прошёл
-     * ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по порядку общего бюджета может не остаться).
+     * Успеем ли ещё одну единицу работы до срока, пока у сервера есть время в тике. Первая единица тика — всегда, даже
+     * при сроке, который уже прошёл ({@link ua.zentix.airstrike.work.WorkScheduler}: полосе ниже по порядку общего
+     * бюджета может не остаться), и на сервере, который не успевает: иначе очередь встала бы до конца нагрузки.
      */
     public boolean canStart() {
         if (!worked) return true;
         long now = time.getAsLong();
-        return now + (long) estimate < deadline;
+        return now + (long) estimate < deadline && spare.getAsBoolean();
     }
 
     /**
@@ -101,7 +121,7 @@ public final class WorkClock {
     public boolean canStart(int kind) {
         if (!worked) return true;
         long now = time.getAsLong();
-        return now + (long) kindEstimate(kind) < deadline;
+        return now + (long) kindEstimate(kind) < deadline && spare.getAsBoolean();
     }
 
     private double kindEstimate(int kind) {
@@ -142,7 +162,7 @@ public final class WorkClock {
      * пускает всегда, и очередь, где все только ждут, выгребалась бы за тик.
      */
     public boolean overdue() {
-        return time.getAsLong() >= deadline;
+        return time.getAsLong() >= deadline || !spare.getAsBoolean();
     }
 
     /**

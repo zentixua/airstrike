@@ -91,6 +91,12 @@ public final class FarFlights {
         return tracked != null && tracked.seenBy.contains(player.connection);
     }
 
+    /** Снаряд в мире есть сущностью хоть у одного игрока; у остальных его путь — пакетами отсюда. */
+    public static boolean seenByAnyone(ServerLevel level, StrikeProjectile p) {
+        ChunkMap.TrackedEntity tracked = level.getChunkSource().chunkMap.entityMap.get(p.getId());
+        return tracked != null && !tracked.seenBy.isEmpty();
+    }
+
     private static S2C.FarFlight sample(StrikeProjectile p, boolean audible) {
         return new S2C.FarFlight(p.getUUID(), p.weapon().id(), p instanceof BomberEntity, p instanceof BunkerBusterEntity b && b.isDrilling(),
                 audible, p.position(), p.velocity(), p.getYRot(), p.getXRot(), p.roll(), p.flightPhase().ordinal(), p.phaseAge(), p.aimPoint());
