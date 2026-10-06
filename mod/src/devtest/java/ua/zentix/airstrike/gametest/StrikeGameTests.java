@@ -1231,12 +1231,14 @@ public final class StrikeGameTests {
             VirtualFlights.get(level).clear(level, p -> p.getUUID().equals(id));
             if (level.getEntity(id) != null) level.getEntity(id).discard();
         });
-        int[] most = {0};
+        int[] most = {0}, flying = {0};
         boolean[] virtual = {false};
         h.onEachTick(() -> {
             if (!(findProjectile(level, id) instanceof StrikeProjectile p)) return;
             if (p.isVirtual()) virtual[0] = true;
-            else if (!p.flightPhase().launching()) most[0] = Math.max(most[0], ChunkTickets.held(level, id));
+            // тикет снимается в следующем переносе после смены фазы: первый тик после старта — ещё со стартовыми
+            else if (p.flightPhase().launching()) flying[0] = 0;
+            else if (++flying[0] > 1) most[0] = Math.max(most[0], ChunkTickets.held(level, id));
         });
         h.succeedWhen(() -> {
             h.assertTrue(virtual[0], "ракета не ушла в полёт вне мира");

@@ -49,16 +49,29 @@ class WorkSchedulerTest {
     /** Сервер не успевает (времени в тике нет): одна единица за тик, а не весь бюджет поверх его работы. */
     @Test
     void busyServerGetsOneUnitPerTick() {
-        WorkClock c = WorkClock.counting(MS);
+        long[] now = {0};
+        WorkClock c = WorkClock.decaying(() -> now[0], 1);
         boolean[] spare = {false};
         c.start(TOTAL, () -> spare[0]);
         assertTrue(c.canStart(), "первая единица — всегда");
-        c.end(c.begin());
+        long began = c.begin();
+        now[0] += MS;
+        c.end(began);
         assertFalse(c.canStart(), "времени в тике нет");
         assertFalse(c.canStart(0));
         assertTrue(c.overdue());
         spare[0] = true;
         assertTrue(c.canStart(), "время в тике есть — дальше по бюджету");
+        assertFalse(c.overdue());
+    }
+
+    /** Считающие часы (сценарии полёта, проверки) идут только работой: настенное «время в тике» на них не влияет. */
+    @Test
+    void countingClockIgnoresSpareTime() {
+        WorkClock c = WorkClock.counting(MS);
+        c.start(TOTAL, () -> false);
+        c.end(c.begin());
+        assertTrue(c.canStart(), "считающим часам — весь бюджет");
         assertFalse(c.overdue());
     }
 

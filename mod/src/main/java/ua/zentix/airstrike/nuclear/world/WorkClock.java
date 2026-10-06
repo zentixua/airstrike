@@ -89,7 +89,9 @@ public final class WorkClock {
      * добавлял к каждому тику свои 30 мс (Zearth 06.10.2026: TPS 7–10).
      */
     public void start(long budgetNanos, BooleanSupplier spare) {
-        this.spare = spare;
+        // у считающих часов время идёт только работой: настенное «есть ли время в тике» им чужое, иначе сценарии
+        // полёта на медленной машине CI шли бы иначе, чем на быстрой
+        this.spare = unitCost > 0 ? ALWAYS : spare;
         deadline = time.getAsLong() + budgetNanos;
         worked = false;
         unitsLastTick = unitsThisTick;
