@@ -9,7 +9,7 @@ import net.neoforged.fml.ModList;
 import org.slf4j.Logger;
 
 /**
- * Руины, записанные прямо в секции ({@code RuinPlan}), — физике аппаратов Sable. Sable 2.0.5 держит копию блоков мира
+ * Руины, записанные прямо в секции ({@code RuinPlan}), — физике аппаратов Sable. Sable 2.0.5–2.0.6 держит копию блоков мира
  * у аппаратов (секции в сцене Rapier, {@code PhysicsChunkTicketManager}: секции рядом с аппаратами, до 20 тиков после
  * того, как аппарат ушёл) и обновляет её только из {@code LevelChunk.setBlockState} (свой миксин
  * {@code plot.LevelChunkMixin} → {@code SableCommonEvents.handleBlockChange}); запись в секцию мимо него аппарат

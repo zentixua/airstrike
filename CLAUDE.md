@@ -36,7 +36,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 ## Где что лежит
 ```
 /mnt/data/projects/airstrike/            ← этот проект (git)
-  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.250, Parchment, Java 21)
+  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.256, Parchment, Java 21)
     src/main/java/ua/zentix/airstrike/   ← код (пакеты — ниже)
     src/main/resources/                  ← assets (звуки, текстуры, lang ru/en), data (теги, типы урона), AT
     src/devtest/                         ← GameTest, сценарии полёта и клиента, стенд нагрузки (в jar не входят)
@@ -71,7 +71,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 ```sh
 export JAVA_HOME=~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta
 cd mod && ./gradlew build                 # компиляция (-Xlint:all без предупреждений) и юнит-тесты
-cd mod && ./gradlew runGameTestServer     # GameTest: сервер без окна с Create 6.0.10, Sable 2.0.5, Aeronautics 1.3.2
+cd mod && ./gradlew runGameTestServer     # GameTest: сервер без окна с Create 6.0.10, Sable 2.0.6, Aeronautics 1.3.2
 cd mod && ./gradlew runScenarioSweep      # одни сценарии полёта, все зёрна (-PscenarioSeeds=N, по умолчанию 16;
                                           # -PscenarioOnly=<регвыр> — выбор, -PscenarioRealChunks — настоящая загрузка)
 cd mod && ./gradlew runScenarioRecord     # записать эталон траекторий заново (сдвиг — объяснить в PR по сценариям)
@@ -192,11 +192,11 @@ PR сборки с jar выпуска — в airstrike-pack, после выпу
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
 
 ## Окружение
-- NeoForge 21.1.250, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
+- NeoForge 21.1.256, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям
   или играют на его выделенном сервере (сборка с `main`, белый список, мост Almighty для ИИ-ведущего); jar мода нужен
   всем (сервер и клиенты).
-- Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.5** (аппараты — «sub-levels», блоки живут
+- Важные моды: Create 6.0.10, **Create Aeronautics 1.3.2 + Sable 2.0.6** (аппараты — «sub-levels», блоки живут
   в далёком «плоте», их ломает ванильный взрыв через миксин Sable), Sodium, **Iris с шейдерами у хоста**, Distant Horizons,
   Flashback, Essential.
 
