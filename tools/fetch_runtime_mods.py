@@ -3,6 +3,7 @@
 Версии — как в сборке «Airstrike Pack» (zentixua/airstrike-pack, pack/mods); файлы проверяются по sha512 из Modrinth.
 Потом: ./gradlew runGameTestServer -PmcModsDir=<папка> [-PwithLithium]
 (Lithium идёт в запуск только с -PwithLithium — проверка совместимости с ним, как у хоста.)
+Папка — только для этих модов: другие jar в ней (прежние версии) убираются, иначе запуск взял бы обе версии мода.
 
     python3 tools/fetch_runtime_mods.py [папка]   (по умолчанию mod/run/ci-mods)
 """
@@ -44,8 +45,10 @@ def version_file(project, number):
 def main():
     out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(MOD, "run", "ci-mods"))
     os.makedirs(out, exist_ok=True)
+    pinned = set()
     for project, number in PINNED.items():
         f = version_file(project, number)
+        pinned.add(f["filename"])
         path = os.path.join(out, f["filename"])
         sha = f["hashes"]["sha512"]
         if os.path.exists(path) and hashlib.sha512(open(path, "rb").read()).hexdigest() == sha:
@@ -57,6 +60,10 @@ def main():
         with open(path, "wb") as fh:
             fh.write(data)
         print(f"скачан  {f['filename']} ({len(data) // 1024} КБ)")
+    for name in sorted(os.listdir(out)):
+        if name.endswith(".jar") and name not in pinned:
+            os.remove(os.path.join(out, name))
+            print(f"убран   {name}")
     print(out)
 
 

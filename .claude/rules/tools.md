@@ -13,7 +13,7 @@ paths:
 
 ```
 /mnt/data/projects/airstrike/            ← этот проект (git)
-  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.256, Parchment, Java 21)
+  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.259, Parchment, Java 21)
     src/main/java/ua/zentix/airstrike/   ← код (пакеты — в корневом CLAUDE.md)
     src/main/resources/                  ← assets (звуки, текстуры, lang ru/en), data (теги, типы урона), AT
     src/devtest/                         ← GameTest, шаблоны площадок, сценарий клиента (в jar не входят)

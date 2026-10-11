@@ -36,7 +36,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 ## Где что лежит
 ```
 /mnt/data/projects/airstrike/            ← этот проект (git)
-  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.256, Parchment, Java 21)
+  mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.259, Parchment, Java 21)
     src/main/java/ua/zentix/airstrike/   ← код (пакеты — ниже)
     src/main/resources/                  ← assets (звуки, текстуры, lang ru/en), data (теги, типы урона), AT
     src/devtest/                         ← GameTest, сценарии полёта и клиента, стенд нагрузки (в jar не входят)
@@ -192,7 +192,7 @@ PR сборки с jar выпуска — в airstrike-pack, после выпу
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
 
 ## Окружение
-- NeoForge 21.1.256, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
+- NeoForge 21.1.259, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям
   или играют на его выделенном сервере (сборка с `main`, белый список, мост Almighty для ИИ-ведущего); jar мода нужен
   всем (сервер и клиенты).
