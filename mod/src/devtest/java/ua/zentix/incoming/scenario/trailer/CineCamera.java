@@ -181,6 +181,102 @@ final class CineCamera {
         };
     }
 
+    /**
+     * FPV: полёт по точкам (сплайн Катмулла — Рома через все) с постоянной скоростью {@code speed} блоков за тик,
+     * взгляд — на путь через {@code lookAhead} блоков, крен — в поворот, как у дрона ({@code bank} — градусов крена на
+     * градус поворота за тик), лёгкая тряска ({@code shake} блоков). Путь кончился — камера висит в последней точке.
+     */
+    static Path fpv(java.util.List<Vec3> points, double speed, double lookAhead, double bank, double shake, double fov) {
+        Spline s = new Spline(points);
+        final double[] roll = {0, -1};
+        return t -> {
+            double d = t * speed;
+            Vec3 p = s.at(d), ahead = s.at(d + lookAhead);
+            // поворот за тик — по направлениям пути на шаг вперёд
+            Vec3 d0 = s.at(d + speed).subtract(p), d1 = s.at(d + 2 * speed).subtract(s.at(d + speed));
+            double turn = Math.toDegrees(Mth.atan2(d0.x * d1.z - d0.z * d1.x, d0.x * d1.x + d0.z * d1.z));
+            double want = Mth.clamp(turn * bank, -40, 40);
+            // крен сглажен по времени плана (камера не дёргается на стыках отрезков)
+            double k = roll[1] < 0 ? 1 : Mth.clamp(1 - Math.pow(0.8, Math.max(0, t - roll[1])), 0, 1);
+            roll[0] = Mth.lerp(k, roll[0], want);
+            roll[1] = t;
+            Vec3 jitter = new Vec3(Math.sin(t * 1.7) + Math.sin(t * 3.1) * 0.5, Math.sin(t * 2.3 + 1) + Math.sin(t * 4.3) * 0.4,
+                    Math.cos(t * 1.9) * 0.6).scale(shake);
+            return Pose.look(p.add(jitter), ahead, (float) roll[0], fov);
+        };
+    }
+
+    /** Сплайн по точкам, параметр — пройденный путь в блоках (таблица длин по отрезкам). */
+    static final class Spline {
+        private final java.util.List<Vec3> pts;
+        private final double[] len;
+        private static final int STEPS = 32;
+
+        Spline(java.util.List<Vec3> points) {
+            pts = new java.util.ArrayList<>(points);
+            len = new double[(pts.size() - 1) * STEPS + 1];
+            Vec3 prev = pts.get(0);
+            for (int i = 1; i < len.length; i++) {
+                Vec3 q = raw((double) i / STEPS);
+                len[i] = len[i - 1] + q.distanceTo(prev);
+                prev = q;
+            }
+        }
+
+        double length() {
+            return len[len.length - 1];
+        }
+
+        Vec3 at(double dist) {
+            dist = Mth.clamp(dist, 0, length());
+            int lo = 0, hi = len.length - 1;
+            while (hi - lo > 1) {
+                int mid = (lo + hi) >>> 1;
+                if (len[mid] <= dist) lo = mid; else hi = mid;
+            }
+            double f = len[hi] == len[lo] ? 0 : (dist - len[lo]) / (len[hi] - len[lo]);
+            return raw((lo + f) / STEPS);
+        }
+
+        private Vec3 raw(double u) {
+            int n = pts.size() - 1;
+            int i = Mth.clamp((int) Math.floor(u), 0, n - 1);
+            double f = u - i;
+            Vec3 p0 = pts.get(Math.max(0, i - 1)), p1 = pts.get(i), p2 = pts.get(i + 1), p3 = pts.get(Math.min(n, i + 2));
+            double f2 = f * f, f3 = f2 * f;
+            return p1.scale(2).add(p2.subtract(p0).scale(f)).add(p0.scale(2).subtract(p1.scale(5)).add(p2.scale(4)).subtract(p3).scale(f2))
+                    .add(p3.subtract(p0).add(p1.scale(3)).subtract(p2.scale(3)).scale(f3)).scale(0.5);
+        }
+    }
+
+    /** Глазами сущности (бота): камера в глазах, взгляд — его голова; {@code fov} — угол кадра. */
+    static Path eyes(Supplier<Entity> who, double fov) {
+        return t -> {
+            Entity e = who.get();
+            if (e == null) return pose != null ? pose : new Pose(Vec3.ZERO, 0, 0, 0, fov);
+            float pt = partial();
+            return new Pose(e.getEyePosition(pt), e.getViewYRot(pt), e.getViewXRot(pt), 0, fov);
+        };
+    }
+
+    /**
+     * Из-за плеча: позади головы по её курсу ({@code back}), выше ({@code up}), сбоку ({@code side}, плюс — правое
+     * плечо), взгляд — туда же, куда смотрит сущность, или на точку {@code at}, если она есть.
+     */
+    static Path shoulder(Supplier<Entity> who, double back, double up, double side, @Nullable Supplier<Vec3> at, double fov) {
+        return t -> {
+            Entity e = who.get();
+            if (e == null) return pose != null ? pose : new Pose(Vec3.ZERO, 0, 0, 0, fov);
+            float pt = partial();
+            Vec3 eye = e.getEyePosition(pt);
+            Vec3 look = Vec3.directionFromRotation(e.getViewXRot(pt), e.getViewYRot(pt));
+            Vec3 flat = new Vec3(look.x, 0, look.z).normalize();
+            Vec3 right = new Vec3(-flat.z, 0, flat.x);
+            Vec3 from = eye.subtract(flat.scale(back)).add(0, up, 0).add(right.scale(side));
+            return Pose.look(from, at != null ? at.get() : eye.add(look.scale(30)), 0, fov);
+        };
+    }
+
     static float partial() {
         return Minecraft.getInstance().getTimer().getGameTimeDeltaPartialTick(true);
     }

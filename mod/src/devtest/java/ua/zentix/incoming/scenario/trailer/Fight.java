@@ -84,6 +84,27 @@ final class Fight {
         }
     }
 
+    /** Бой замирает: все опускают оружие и смотрят на точку (МБР в небе) с разбросом взглядов. */
+    void watch(Vec3 at, double jitter) {
+        on = false;
+        for (Soldier s : soldiers) {
+            ServerPlayer p = cast.player(s.name);
+            Cast.Gun g = p == null ? null : Cast.gun(p);
+            JsonArray a = Cast.steps();
+            a.add(Cast.step("release", "all"));
+            if (g != null) a.add(g.state(Cast.IDLE));
+            a.add(Cast.step("wait", random.nextInt(25)));
+            a.add(Cast.lookAt(at.add(random.nextGaussian() * jitter, random.nextGaussian() * jitter * 0.3, random.nextGaussian() * jitter)));
+            cast.act(s.name, a, true);
+        }
+    }
+
+    /** Боец падает от очереди врага (бессмертие снимается: урон настоящий, смерть — как у игрока). */
+    void kill(String name) {
+        cast.command("effect clear " + name + " minecraft:resistance");
+        cast.command("damage " + name + " 1000 minecraft:generic");
+    }
+
     private void tick(ServerTickEvent.Post e) {
         // мир стоит, пока план ждёт прогрузки: бой идёт только в записи, иначе его исход решился бы до неё
         if (!on || e.getServer() != server || server.tickRateManager().isFrozen()) return;
