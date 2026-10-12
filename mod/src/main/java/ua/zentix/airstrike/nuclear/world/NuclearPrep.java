@@ -66,7 +66,7 @@ public final class NuclearPrep {
      * ({@link RuinContext#requestWindow}), готовый план соседей не ждёт (кроме {@link RuinPlan#neighbourRadius} — те держат
      * соседей сами). Раньше держался квадрат 9×9: 81 чанк на 25 руин, и зона за волной грузилась втрое дольше (проверка
      * 30.09.2026: ~23 чанка в секунду, отставание у игроков до 6514 тиков). Квадрат, где хоть один чанк окон не целый,
-     * пропускался целиком, и планы с диска его чанков ждали до конца зоны (игра Артёма 01.10.2026: «не дождались 453» —
+     * пропускался целиком, и планы с диска его чанков ждали до конца зоны (игра Артёма 01.10.2026: «unplaced 453» —
      * квадраты у края исследованного мира и у недогенерированных мест).
      */
     private static final int WINDOWS_REACH = TILE_RADIUS + RuinPlanner.REACH, WINDOWS = 2 * WINDOWS_REACH + 1;
@@ -174,7 +174,7 @@ public final class NuclearPrep {
         final LongArrayList todo = new LongArrayList();
         int nextTodo;
         final LongOpenHashSet considered = new LongOpenHashSet();
-        /** Все чанки, бывшие в памяти в радиусе руин за полёт (знаменатель строк «готовы» и «руины заранее»). */
+        /** Все чанки, бывшие в памяти в радиусе руин за полёт (знаменатель строк «ready» и «pre-built ruins»). */
         final LongOpenHashSet everInMemory = new LongOpenHashSet();
         /** Планов по чанкам в памяти (ближняя подготовка). */
         int nearPlans;
@@ -224,7 +224,7 @@ public final class NuclearPrep {
         final ConcurrentLinkedQueue<DiskShots.Read> reads = new ConcurrentLinkedQueue<>();
         /** Чанки, которых нет на диске полностью сгенерированными: плана им и их соседям заранее нет. */
         final LongOpenHashSet unreadable = new LongOpenHashSet();
-        /** Почему чанки не прочитались ({@link DiskShots.Read#skip} до двоеточия) — для строки «готовы». */
+        /** Почему чанки не прочитались ({@link DiskShots.Read#skip} до двоеточия) — для строки «ready». */
         final Object2IntOpenHashMap<String> unreadWhy = new Object2IntOpenHashMap<>();
         /** Курсоры по {@link #order}: докуда отданы чтения окон и докуда отданы планы. */
         int nextRead, nextFar;
@@ -233,7 +233,7 @@ public final class NuclearPrep {
         int farPlans, diskShots, farSkipped;
         /** Курсор по {@link #order}: докуда волна дошла и чанки отданы в LOD вдали ({@link FarLods}). */
         int nextLod;
-        /** Чанки тяжёлой зоны не в памяти при подрыве: для строки «дальние кольца». */
+        /** Чанки тяжёлой зоны не в памяти при подрыве: для строки «far rings». */
         @Nullable
         long[] farAtDetonation;
 
@@ -331,7 +331,7 @@ public final class NuclearPrep {
                 }
                 work(level, s, p, shared);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Подготовка руин удара №{} упала с ошибкой; снята", p.strike, e);
+                Airstrike.LOG.error("Ruin preparation for strike #{} failed with an exception; dropped", p.strike, e);
                 failed.add(p.strike);
                 if (p.draining) {
                     // упала уже отпуская квадраты: отпустить все разом и больше не трогать (иначе ошибка — каждый тик)
@@ -339,7 +339,7 @@ public final class NuclearPrep {
                     try {
                         release(level, p);
                     } catch (RuntimeException again) {
-                        Airstrike.LOG.error("Подготовка руин удара №{}: квадраты не отпущены", p.strike, again);
+                        Airstrike.LOG.error("Ruin preparation for strike #{}: tiles not released", p.strike, again);
                     }
                     continue;
                 }
@@ -372,8 +372,8 @@ public final class NuclearPrep {
             p.announced = true;
             // строка для проверок и съёмки: руины удара готовы заранее (чанки, загруженные потом, ещё подхватываются)
             Runtime rt = Runtime.getRuntime();
-            Airstrike.LOG.info("Руины удара №{} готовы: планов по чанкам в памяти {} (чанков в памяти за полёт {}), с диска {} (тяжёлая зона {} чанков), не с диска {} "
-                            + "(не прочитаны {}{}; до подрыва {} с), планы {} МБ, снимки {} МБ, фоновые потоки {} заняты на {} %, куча {} из {} МБ",
+            Airstrike.LOG.info("Ruins for strike #{} ready: plans for loaded chunks {} (chunks loaded during flight {}), from disk {} (heavy zone {} chunks), not from disk {} "
+                            + "(unread {}{}; {} s to detonation), plans {} MB, snapshots {} MB, background threads {} busy {} %, heap {} of {} MB",
                     p.strike, p.nearPlans, p.everInMemory.size(), p.farPlans, p.order.length, p.farSkipped, p.unreadable.size(), why(p.unreadWhy),
                     Math.max(0, p.detonateTime - now) / 20,
                     p.planBytes >> 20, p.ruins.shotBytes() >> 20, RuinWorkers.summary(), Math.round(RuinWorkers.utilisation() * 100),
@@ -381,7 +381,7 @@ public final class NuclearPrep {
         }
     }
 
-    /** Причины по убыванию числа чанков: «: нет на диске 1200, не догенерирован на диске 30»; пусто — нет причин. */
+    /** Причины по убыванию числа чанков: «: not on disk 1200, not fully generated on disk 30»; пусто — нет причин. */
     private static String why(Object2IntOpenHashMap<String> counts) {
         StringBuilder out = new StringBuilder();
         counts.object2IntEntrySet().stream().sorted((x, y) -> Integer.compare(y.getIntValue(), x.getIntValue()))
@@ -441,7 +441,7 @@ public final class NuclearPrep {
                     p.submitted.add(c); // чанк перезагрузили: план заново
                 }
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Руины заранее: план чанка {} упал с ошибкой; его руины построятся на месте", new ChunkPos(c), e);
+                Airstrike.LOG.error("Pre-built ruins: plan for chunk {} failed with an exception; its ruins will be built on the spot", new ChunkPos(c), e);
             } finally {
                 clock.record(shared.end(c0));
             }
@@ -455,7 +455,7 @@ public final class NuclearPrep {
         p.planBytes += plan.bytes();
         if (p.planBytes + RuinWorkers.bufferBytes(level.getHeight()) > PLANS_CAP && !p.capped) {
             p.capped = true;
-            Airstrike.LOG.warn("Руины удара №{}: готовые планы заняли {} МБ — дальше руины заранее не строятся (планов {}, чанков тяжёлой зоны {})",
+            Airstrike.LOG.warn("Ruins for strike #{}: finished plans take {} MB — no more ruins are pre-built (plans {}, heavy zone chunks {})",
                     p.strike, p.planBytes >> 20, p.plans.size(), p.order.length);
         }
     }
@@ -496,7 +496,7 @@ public final class NuclearPrep {
                 }
             } catch (RuntimeException e) {
                 p.unreadable.add(c);
-                Airstrike.LOG.error("Руины заранее: чанк {} с диска не встал в снимок", r.pos(), e);
+                Airstrike.LOG.error("Pre-built ruins: snapshot of chunk {} from disk failed", r.pos(), e);
             } finally {
                 clock.record(shared.end(c0));
             }
@@ -518,7 +518,7 @@ public final class NuclearPrep {
                     p.farPlans++;
                 }
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Руины заранее: план чанка {} с диска упал с ошибкой; его руины построятся на месте", new ChunkPos(c), e);
+                Airstrike.LOG.error("Pre-built ruins: plan for chunk {} from disk failed with an exception; its ruins will be built on the spot", new ChunkPos(c), e);
             } finally {
                 clock.record(shared.end(c0));
             }
@@ -576,7 +576,7 @@ public final class NuclearPrep {
                 p.nextFar++;
             } catch (RuntimeException e) {
                 p.nextFar++;
-                Airstrike.LOG.error("Руины заранее: снимки чанка {} с диска упали с ошибкой; его руины построятся на месте", new ChunkPos(c), e);
+                Airstrike.LOG.error("Pre-built ruins: snapshots of chunk {} from disk failed with an exception; its ruins will be built on the spot", new ChunkPos(c), e);
             } finally {
                 clock.record(shared.end(c0));
             }
@@ -626,7 +626,7 @@ public final class NuclearPrep {
                 if (p.ruins.submit(level, chunk)) p.submitted.add(c);
                 else p.nextTodo--;
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Руины заранее: снимки чанка {} упали с ошибкой; его руины построятся на месте", new ChunkPos(c), e);
+                Airstrike.LOG.error("Pre-built ruins: snapshots of chunk {} failed with an exception; its ruins will be built on the spot", new ChunkPos(c), e);
             } finally {
                 clock.record(shared.end(c0));
             }
@@ -842,7 +842,7 @@ public final class NuclearPrep {
         releaseDone(level, p, scars, clock);
         if (NukeDiag.ON && now >= p.nextIoReport) {
             p.nextIoReport = now + 200;
-            Airstrike.LOG.info("ДИАГ ввод-вывод №{}: {}", p.detonation, NukeDiag.io(level));
+            Airstrike.LOG.info("DIAG I/O #{}: {}", p.detonation, NukeDiag.io(level));
         }
         if (now >= p.nextZoneReport) {
             p.nextZoneReport = now + ZONE_REPORT;
@@ -852,7 +852,7 @@ public final class NuclearPrep {
     }
 
     /**
-     * Строки «ДИАГ» (только с {@link NukeDiag#ON}): что держит слоты зоны за волной. Квадраты по состояниям, на чём
+     * Строки «DIAG» (только с {@link NukeDiag#ON}): что держит слоты зоны за волной. Квадраты по состояниям, на чём
      * останавливался набор, сколько шли отпущенные квадраты, у квадратов в загрузке — чанков не полных, у готовых —
      * что с чанками, которые не дают отпустить квадрат; причины ожидания очереди руин и чтения с диска.
      */
@@ -861,9 +861,9 @@ public final class NuclearPrep {
         for (Tile t : p.tiles) states[t.state.ordinal()]++;
         long[] s = p.diagStops, dn = p.diagDone;
         long n = Math.max(1, dn[0]);
-        Airstrike.LOG.info("ДИАГ зона №{}: квадратов SCAN {}, SKIP {}, WAIT {}, LOADING {}, READY {}; заголовков прочитано {} из {} (в работе {}); "
-                        + "набор стоял тиков — слоты {}, ответ с диска {}, волна {}, брать нечего {}, подрыв забыт {}; отпущено {}: тикет→полные в среднем {} (самое большее {}), "
-                        + "полные→отпущен {} ({}), волна→тикет {} ({}); удержаний за квадраты {}, отказов в отпуске квадрата (мало удержаний) {}",
+        Airstrike.LOG.info("DIAG zone #{}: tiles SCAN {}, SKIP {}, WAIT {}, LOADING {}, READY {}; headers read {} of {} (in flight {}); "
+                        + "intake stalled, ticks — slots {}, disk reply {}, wave {}, nothing to take {}, detonation forgotten {}; released {}: ticket→full avg {} (max {}), "
+                        + "full→released {} ({}), wave→ticket {} ({}); holds for tiles {}, tile releases refused (too few holds) {}",
                 p.detonation, states[0], states[1], states[2], states[3], states[4], p.nextScan - p.scanning, p.toScan.size(), p.scanning,
                 s[0], s[1], s[2], s[3], s[4], dn[0], dn[1] / n, dn[2], dn[3] / n, dn[4], dn[5] / Math.max(1, dn[7]), dn[6], scars.tileHoldsDiag(), p.diagRefused);
         java.util.Arrays.fill(s, 0);
@@ -875,7 +875,7 @@ public final class NuclearPrep {
                         if ((t.held & Tile.bit(dx, dz)) != 0 && !Terrain.ready(level, t.centre.x + dx, t.centre.z + dz)) notFull++;
                     }
                 }
-                Airstrike.LOG.info("ДИАГ квадрат {} грузится {} тиков: не полных чанков {} из {}", t.centre, now - t.heldAt, notFull, Integer.bitCount(t.held));
+                Airstrike.LOG.info("DIAG tile {} loading for {} ticks: {} of {} chunks not full", t.centre, now - t.heldAt, notFull, Integer.bitCount(t.held));
             } else if (t.state == TileState.READY) {
                 java.util.Map<String, Integer> why = new java.util.TreeMap<>();
                 String example = null;
@@ -884,24 +884,24 @@ public final class NuclearPrep {
                         if ((t.held & Tile.bit(dx, dz)) == 0) continue;
                         long c = t.chunk(dx, dz);
                         String state = scars.diagState(c, now);
-                        if (state == null && scars.pendingPlan(p.detonation, c)) state = "готовый план, работы в очереди нет";
+                        if (state == null && scars.pendingPlan(p.detonation, c)) state = "finished plan, no queued work";
                         if (state == null) continue;
                         why.merge(state, 1, Integer::sum);
                         if (example == null) example = new ChunkPos(c) + " — " + state;
                     }
                 }
-                Airstrike.LOG.info("ДИАГ квадрат {} готов {} тиков (грузился {}): держат {}{}", t.centre, now - t.readyAt, t.readyAt - t.heldAt,
-                        why.isEmpty() ? "никто" : why, example == null ? "" : "; например " + example);
+                Airstrike.LOG.info("DIAG tile {} ready for {} ticks (loaded in {}): held by {}{}", t.centre, now - t.readyAt, t.readyAt - t.heldAt,
+                        why.isEmpty() ? "nothing" : why, example == null ? "" : "; e.g. " + example);
             }
         }
-        Airstrike.LOG.info("ДИАГ очередь руин: {}", NukeDiag.takeWaits());
+        Airstrike.LOG.info("DIAG ruin queue: {}", NukeDiag.takeWaits());
     }
 
     /** Строка для проверок: сколько чанков тяжёлой зоны уже в руинах (в памяти при подрыве и загруженных за волной). */
     private static void zoneReport(Prep p, ScarQueue scars, @Nullable Detonation d, long now) {
         int done = 0;
         for (long c : p.order) if (scars.ruined(p.detonation, c)) done++;
-        Airstrike.LOG.info("Подрыв №{}: зона за волной — готово {} из {} чанков, квадратов держится {}", p.detonation, done, p.order.length, heldTiles(p));
+        Airstrike.LOG.info("Detonation #{}: zone behind the wave — {} of {} chunks done, tiles held {}", p.detonation, done, p.order.length, heldTiles(p));
         if (d == null || p.farAtDetonation == null || p.ruins == null) return;
         // дальние кольца: чанки не в памяти при подрыве, до которых волна уже дошла, — был ли план готов к её приходу
         int passed = 0, ready = 0, late = 0, none = 0, unreadable = 0;
@@ -923,8 +923,8 @@ public final class NuclearPrep {
                 none++;
             }
         }
-        Airstrike.LOG.info("Подрыв №{}: дальние кольца: готово к волне {} из {} (позже волны {}: в среднем через {} тиков, самое большее через {}; "
-                        + "плана ещё нет {}, не с диска {}; волна впереди у {})", p.detonation, ready, passed, late, late == 0 ? 0 : lateSum / late, lateMax,
+        Airstrike.LOG.info("Detonation #{}: far rings: ready for the wave {} of {} (after the wave {}: avg {} ticks late, max {}; "
+                        + "no plan yet {}, not from disk {}; wave still ahead for {})", p.detonation, ready, passed, late, late == 0 ? 0 : lateSum / late, lateMax,
                 none, unreadable, p.farAtDetonation.length - passed);
     }
 
@@ -948,8 +948,8 @@ public final class NuclearPrep {
             lastMeasured = measured;
             long live = watch.live();
             heapStrikes = HeapWatch.strikes(heapStrikes, live, watch.limit());
-            if (NukeDiag.ON) Airstrike.LOG.info("ДИАГ куча: {} после сборки {} МБ из {}, подряд выше предела {}",
-                    watch.available() ? "старое поколение" : "куча", live >> 20, Runtime.getRuntime().maxMemory() >> 20, heapStrikes);
+            if (NukeDiag.ON) Airstrike.LOG.info("DIAG heap: {} after GC {} MB of {}, consecutive over the limit {}",
+                    watch.available() ? "old generation" : "heap", live >> 20, Runtime.getRuntime().maxMemory() >> 20, heapStrikes);
         }
         return heapStrikes >= 2;
     }
@@ -962,7 +962,7 @@ public final class NuclearPrep {
     /** Памяти мало: готовые планы остаются, остальные чанки — на месте при волне (медленнее, но без нехватки памяти). */
     private static void stopForHeap(Prep p) {
         Runtime rt = Runtime.getRuntime();
-        Airstrike.LOG.warn("Руины удара №{}: куча после сборки {} из {} МБ — дальше руины заранее не строятся (планов {}, чанков тяжёлой зоны {})",
+        Airstrike.LOG.warn("Ruins for strike #{}: heap after GC {} of {} MB — no more ruins are pre-built (plans {}, heavy zone chunks {})",
                 p.strike, HeapWatch.get().live() >> 20, rt.maxMemory() >> 20, p.plans.size(), p.order.length);
         p.heapStop = true;
     }
@@ -991,8 +991,8 @@ public final class NuclearPrep {
             p.detonation = d.id();
             p.handedOff = now;
             p.farAtDetonation = java.util.Arrays.stream(p.order).filter(c -> level.getChunkSource().getChunkNow(ChunkPos.getX(c), ChunkPos.getZ(c)) == null).toArray();
-            Airstrike.LOG.info("Подрыв №{}: руины заранее — планов по чанкам в памяти {} (чанков в памяти за полёт {}), ещё строятся {}; с диска {} "
-                            + "(чанков зоны не в памяти при подрыве {}), ещё строятся {}, не с диска {}; фоновые потоки {}", d.id(), p.nearPlans, p.everInMemory.size(),
+            Airstrike.LOG.info("Detonation #{}: pre-built ruins — plans for loaded chunks {} (chunks loaded during flight {}), still building {}; from disk {} "
+                            + "(zone chunks not loaded at detonation {}), still building {}, not from disk {}; background threads {}", d.id(), p.nearPlans, p.everInMemory.size(),
                     p.submitted.size(), p.farPlans,
                     p.farAtDetonation.length, p.farRunning.size(), p.farSkipped, RuinWorkers.summary());
             p.nextZoneReport = now + ZONE_REPORT;

@@ -304,7 +304,7 @@ public final class RuinBackgroundGameTests {
     /**
      * Живые потоки руин после остановки пула. Пул объявляет остановку, когда счёт его потоков дошёл до нуля, а поток,
      * уже вышедший из цикла пула, ещё доходит до конца {@code run()}: на CI 01.10.2026 «потоков руин 1» — в той же
-     * миллисекунде, что строка «фоновые потоки остановлены». Поэтому каждый ждётся, не дольше секунды: зависший так
+     * миллисекунде, что строка «background threads stopped». Поэтому каждый ждётся, не дольше секунды: зависший так
      * и остаётся в счёте.
      */
     private static long ruinThreadsLeft() {
@@ -709,7 +709,7 @@ public final class RuinBackgroundGameTests {
                 case 5 -> {
                     // квадрат отпущен: P держит себя сам, пока его руины не встали (иначе он выгрузился бы без руин)
                     if (scars.queued(p.toLong())) {
-                        if (scars.diagState(p.toLong(), now).contains("тикет r2")) {
+                        if (scars.diagState(p.toLong(), now).contains("ticket r2")) {
                             widened[0] = true;
                             // расширенный тикет за квадрат — всё ещё в счёте удержаний
                             h.assertTrue(scars.tileHoldsLeft() == 63, "тикет P r2 вне счёта удержаний: свободно " + scars.tileHoldsLeft());
@@ -949,7 +949,7 @@ public final class RuinBackgroundGameTests {
     }
 
     /**
-     * Зона за волной у края исследованного мира (игра Артёма 01.10.2026, удар №2: «не дождались 453 чанков»): чанк, чьё
+     * Зона за волной у края исследованного мира (игра Артёма 01.10.2026, удар №2: «unplaced 453 chunks»): чанк, чьё
      * окно руин целое на диске, получает план с диска, а квадрат зоны, где хоть один чанк окон его чанков не целый,
      * пропускался целиком — план ждал до конца зоны и пропадал, руин на диске не было. Здесь место удара (9×9 вокруг цели,
      * его держит район подрыва с пуска) и полоса B к востоку (6×7 чанков) сгенерированы и выгружены, вокруг — только
@@ -989,8 +989,8 @@ public final class RuinBackgroundGameTests {
         List<String> waited = java.util.Collections.synchronizedList(new ArrayList<>());
         boolean[] prepared = {false};
         Runnable unwatch = NuclearGameTests.watchLog(line -> {
-            if (line.contains("не дождались")) waited.add(line);
-            if (line.startsWith("Руины удара №") && line.contains(" готовы:")) prepared[0] = true;
+            if (line.contains("unplaced")) waited.add(line);
+            if (line.startsWith("Ruins for strike #") && line.contains(" ready:")) prepared[0] = true;
         });
         StrikeGameTests.afterTest(h, () -> {
             unwatch.run();
@@ -1055,8 +1055,8 @@ public final class RuinBackgroundGameTests {
                         h.assertTrue(chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == det[0].id(), "у чанка " + c + " руин нет: зона его не грузила");
                     }
                     for (String line : waited) {
-                        // строка «не дождались N чанков (в зоне за волной M, …)» — только если план остался
-                        h.assertFalse(line.startsWith("Руины подрыва №" + det[0].id() + ": не дождались") && !line.contains("в зоне за волной 0,"), "планы зоны пропали: " + line);
+                        // строка «unplaced N chunks (in the zone behind the wave M, …)» — только если план остался
+                        h.assertFalse(line.startsWith("Ruins for detonation #" + det[0].id() + ": unplaced") && !line.contains("in the zone behind the wave 0,"), "планы зоны пропали: " + line);
                     }
                     stage[0] = 3;
                 }
@@ -1081,7 +1081,7 @@ public final class RuinBackgroundGameTests {
     /**
      * Остановка по куче (живой объём кучи после сборок выше предела): руины заранее больше не строятся, но готовые планы
      * не пропадают — зона за волной грузит их чанки. До этого она после остановки не грузила ничего (игра Артёма
-     * 01.10.2026: остановка с готовыми 453 планами, «не дождались»). Чанк без плана зона не грузит: полоса C к западу
+     * 01.10.2026: остановка с готовыми 453 планами, «unplaced»). Чанк без плана зона не грузит: полоса C к западу
      * становится целой только после остановки, плана ей нет, и её чанки так и не загружаются полностью (полную загрузку
      * на два чанка вокруг себя дают только тикеты очереди руин у загруженных чанков, C — дальше).
      */
@@ -1128,9 +1128,9 @@ public final class RuinBackgroundGameTests {
         List<String> waited = java.util.Collections.synchronizedList(new ArrayList<>());
         boolean[] prepared = {false}, stopped = {false};
         Runnable unwatch = NuclearGameTests.watchLog(line -> {
-            if (line.contains("не дождались")) waited.add(line);
-            if (line.startsWith("Руины удара №") && line.contains(" готовы:")) prepared[0] = true;
-            if (line.contains("дальше руины заранее не строятся")) stopped[0] = true;
+            if (line.contains("unplaced")) waited.add(line);
+            if (line.startsWith("Ruins for strike #") && line.contains(" ready:")) prepared[0] = true;
+            if (line.contains("no more ruins are pre-built")) stopped[0] = true;
         });
         StrikeGameTests.afterTest(h, () -> {
             unwatch.run();
@@ -1217,7 +1217,7 @@ public final class RuinBackgroundGameTests {
                         h.assertTrue(chunk.getExistingData(ModAttachments.CHUNK_SCAR).orElse(0) == det[0].id(), "у чанка " + c + " с планом руин нет: зона его не грузила");
                     }
                     for (String line : waited) {
-                        h.assertFalse(line.startsWith("Руины подрыва №" + det[0].id() + ": не дождались") && !line.contains("в зоне за волной 0,"), "планы зоны пропали: " + line);
+                        h.assertFalse(line.startsWith("Ruins for detonation #" + det[0].id() + ": unplaced") && !line.contains("in the zone behind the wave 0,"), "планы зоны пропали: " + line);
                     }
                     h.succeed();
                 }

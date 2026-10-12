@@ -26,8 +26,8 @@ class FlightLogTest {
         assertEquals(1, lines.size(), lines.toString());
         assertEquals(Level.INFO, lines.getFirst().level());
         String text = lines.getFirst().text();
-        assertTrue(text.startsWith("Снаряды: 30 × " + DRONE + " потеряли цель (пропала)"), text);
-        assertTrue(text.endsWith(" -271 70 85 (±29), запас хода ≤ 12 с"), text);
+        assertTrue(text.startsWith("Projectiles: 30 × " + DRONE + " lost the target (gone)"), text);
+        assertTrue(text.endsWith(" -271 70 85 (±29), endurance ≤ 12 s"), text);
         assertTrue(log.drain().isEmpty(), "строки за тик не забыты");
     }
 
@@ -40,21 +40,21 @@ class FlightLogTest {
         log.note("entity.airstrike.cruise_missile", FlightLog.Event.LOST_GONE, new BlockPos(0, 64, 0), true, 3);
         List<FlightLog.Line> lines = log.drain();
         assertEquals(3, lines.size(), lines.toString());
-        assertTrue(lines.get(0).text().endsWith(" 0 64 0, запас хода ≤ 5 с"), lines.get(0).text());
+        assertTrue(lines.get(0).text().endsWith(" 0 64 0, endurance ≤ 5 s"), lines.get(0).text());
         assertEquals(Level.WARN, lines.get(1).level());
-        assertTrue(lines.get(1).text().endsWith(" 10 64 10 (потеряна)"), lines.get(1).text());
+        assertTrue(lines.get(1).text().endsWith(" 10 64 10 (lost)"), lines.get(1).text());
     }
 
     /** Разбились до взведения: WARN с местом (середина и разброс), счёт по событию не сбрасывается строками тика. */
     @Test
     void crashedIsWarnedWithPlace() {
         FlightLog log = new FlightLog();
-        for (int i = 0; i < 30; i++) log.note(DRONE, FlightLog.Event.CRASHED, new BlockPos(-250 + i % 3, 90, -1140), false, 0, "курс 90°, фаза boost");
+        for (int i = 0; i < 30; i++) log.note(DRONE, FlightLog.Event.CRASHED, new BlockPos(-250 + i % 3, 90, -1140), false, 0, "heading 90°, phase boost");
         List<FlightLog.Line> lines = log.drain();
         assertEquals(1, lines.size(), lines.toString());
         assertEquals(Level.WARN, lines.get(0).level());
-        assertTrue(lines.get(0).text().startsWith("Снаряды: 30 × "), lines.get(0).text());
-        assertTrue(lines.get(0).text().endsWith(" разбились до взведения взрывателя у -249 90 -1140 (±1), курс 90°, фаза boost"), lines.get(0).text());
+        assertTrue(lines.get(0).text().startsWith("Projectiles: 30 × "), lines.get(0).text());
+        assertTrue(lines.get(0).text().endsWith(" crashed before fuze arming at -249 90 -1140 (±1), heading 90°, phase boost"), lines.get(0).text());
         assertEquals(30, log.total(FlightLog.Event.CRASHED));
     }
 
@@ -67,8 +67,8 @@ class FlightLogTest {
         log.note(DRONE, FlightLog.Event.SHOT_DOWN, new BlockPos(0, 80, 0), false, 0, "player");
         List<FlightLog.Line> lines = log.drain();
         assertEquals(2, lines.size(), lines.toString());
-        assertTrue(lines.get(0).text().startsWith("Снаряды: 2 × "), lines.get(0).text());
-        assertTrue(lines.get(0).text().endsWith(" сбиты до взведения взрывателя у 1 80 0 (±1), урон onFire"), lines.get(0).text());
+        assertTrue(lines.get(0).text().startsWith("Projectiles: 2 × "), lines.get(0).text());
+        assertTrue(lines.get(0).text().endsWith(" shot down before fuze arming at 1 80 0 (±1), damage onFire"), lines.get(0).text());
         assertEquals(Level.WARN, lines.get(1).level());
     }
 
@@ -76,11 +76,11 @@ class FlightLogTest {
     @Test
     void interceptedNamesLauncher() {
         FlightLog log = new FlightLog();
-        log.note(DRONE, FlightLog.Event.INTERCEPTED, new BlockPos(500, 120, -40), false, 0, "ЗРК 10, 64, -3");
+        log.note(DRONE, FlightLog.Event.INTERCEPTED, new BlockPos(500, 120, -40), false, 0, "SAM 10, 64, -3");
         List<FlightLog.Line> lines = log.drain();
         assertEquals(1, lines.size(), lines.toString());
         assertEquals(Level.INFO, lines.getFirst().level());
-        assertTrue(lines.getFirst().text().endsWith(" сбиты зенитной ракетой у 500 120 -40, ЗРК 10, 64, -3"), lines.getFirst().text());
+        assertTrue(lines.getFirst().text().endsWith(" shot down by a SAM at 500 120 -40, SAM 10, 64, -3"), lines.getFirst().text());
         assertEquals(1, log.total(FlightLog.Event.INTERCEPTED));
     }
 }

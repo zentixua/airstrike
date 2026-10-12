@@ -20,21 +20,21 @@ public final class FlightLog {
     /** Что случилось с полётом. */
     public enum Event {
         /** Цель пропала (умерла, вышла, другое измерение, аппарат разобран): снаряд идёт в её последнюю точку. */
-        LOST_GONE(Level.INFO, "потеряли цель (пропала), идут в её последнюю точку"),
+        LOST_GONE(Level.INFO, "lost the target (gone), heading to its last position"),
         /** Цель ушла дальше запаса погони. */
-        LOST_OUT_OF_REACH(Level.INFO, "потеряли цель (ушла дальше запаса погони), идут в её последнюю точку"),
+        LOST_OUT_OF_REACH(Level.INFO, "lost the target (beyond pursuit range), heading to its last position"),
         /** Запас хода кончился в мире: самоликвидация. */
-        EXPIRED(Level.INFO, "не долетели (кончился запас хода) и самоликвидировались, цель"),
+        EXPIRED(Level.INFO, "ran out of endurance and self-destructed, target"),
         /** Запас хода кончился вне мира: снаряд убран без взрыва. */
-        EXPIRED_VIRTUAL(Level.WARN, "не долетели (кончился запас хода) вне мира и убраны, цель"),
+        EXPIRED_VIRTUAL(Level.WARN, "ran out of endurance off-world and were removed, target"),
         /** Столкновение до взведения взрывателя (на старте): разбились без подрыва боевой части. */
-        CRASHED(Level.WARN, "разбились до взведения взрывателя у"),
+        CRASHED(Level.WARN, "crashed before fuze arming at"),
         /** Сбиты уроном до взведения (подробность — тип урона): разбились без подрыва боевой части. */
-        SHOT_DOWN(Level.WARN, "сбиты до взведения взрывателя у"),
+        SHOT_DOWN(Level.WARN, "shot down before fuze arming at"),
         /** Убраны не модом (команда, чистильщик сущностей другого мода; подробность — кем). */
-        REMOVED(Level.WARN, "убраны не модом у"),
+        REMOVED(Level.WARN, "removed externally at"),
         /** Сбиты зенитной ракетой (подробность — какой ЗРК): боевая часть не сработала, корпус упал обломками. */
-        INTERCEPTED(Level.INFO, "сбиты зенитной ракетой у");
+        INTERCEPTED(Level.INFO, "shot down by a SAM at");
 
         private final Level level;
         private final String text;
@@ -108,14 +108,14 @@ public final class FlightLog {
         List<Line> lines = new ArrayList<>(groups.size());
         groups.forEach((k, g) -> {
             String tail = switch (k.event) {
-                case LOST_GONE, LOST_OUT_OF_REACH -> ", запас хода ≤ " + g.seconds + " с";
-                case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (потеряна)" : "";
+                case LOST_GONE, LOST_OUT_OF_REACH -> ", endurance ≤ " + g.seconds + " s";
+                case EXPIRED, EXPIRED_VIRTUAL -> k.targetLost ? " (lost)" : "";
                 case CRASHED -> k.detail.isEmpty() ? "" : ", " + k.detail;
-                case SHOT_DOWN -> ", урон " + k.detail;
-                case REMOVED -> ", кем: " + k.detail;
+                case SHOT_DOWN -> ", damage " + k.detail;
+                case REMOVED -> ", by: " + k.detail;
                 case INTERCEPTED -> ", " + k.detail;
             };
-            lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Снаряды: %d × %s %s %s%s",
+            lines.add(new Line(k.event.level, String.format(Locale.ROOT, "Projectiles: %d × %s %s %s%s",
                     g.count, k.weapon, k.event.text, g.where(), tail)));
         });
         groups.clear();

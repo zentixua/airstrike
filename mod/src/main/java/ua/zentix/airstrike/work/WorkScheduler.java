@@ -151,7 +151,7 @@ public final class WorkScheduler {
     /**
      * Раз в 30 с, если полосы работали: средний и наибольший тик сервера (прошлого — нынешний ещё идёт), сколько из
      * него в среднем заняли полосы и сколько — всё остальное (ваниль и другие моды). По ней видно, чей тик: нашего
-     * бюджета или чужой работы (строка «Работа мода за 30 с»).
+     * бюджета или чужой работы (строка «Mod work over 30 s»).
      */
     private static void report(MinecraftServer server, long impact, long nuclear, long grid) {
         long[] times = server.getTickTimesNanos();
@@ -165,8 +165,8 @@ public final class WorkScheduler {
         if (WINDOW[0] < REPORT_TICKS) return;
         long n = WINDOW[0];
         if (WINDOW[3] + WINDOW[4] + WINDOW[5] > 0) {
-            ua.zentix.airstrike.Airstrike.LOG.info("Работа мода за 30 с: тик сервера в среднем {} мс (наибольший {}), из него полосы мода в среднем — "
-                            + "попадания {}, ядерка {}, блэкаут {} мс; остальное (ваниль, другие моды) {} мс",
+            ua.zentix.airstrike.Airstrike.LOG.info("Mod work over 30 s: server tick avg {} ms (max {}), of which mod lanes avg — "
+                            + "impacts {}, nuke {}, blackout {} ms; the rest (vanilla, other mods) {} ms",
                     ms(WINDOW[1] / n), ms(WINDOW[2]), ms(WINDOW[3] / n), ms(WINDOW[4] / n), ms(WINDOW[5] / n),
                     ms(Math.max(0, WINDOW[1] - WINDOW[3] - WINDOW[4] - WINDOW[5]) / n));
         }

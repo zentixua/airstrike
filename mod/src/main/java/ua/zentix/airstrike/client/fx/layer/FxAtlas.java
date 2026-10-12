@@ -132,7 +132,7 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
     /** Огонь кадров из {@code fireball.json}: {@code {"fire": [16 чисел]}}. */
     static float[] parseFire(Reader in) {
         JsonArray a = JsonParser.parseReader(in).getAsJsonObject().getAsJsonArray("fire");
-        if (a.size() != FIREBALL_FRAMES) throw new IllegalArgumentException("кадров " + a.size() + ", а не " + FIREBALL_FRAMES);
+        if (a.size() != FIREBALL_FRAMES) throw new IllegalArgumentException("frames " + a.size() + ", expected " + FIREBALL_FRAMES);
         float[] out = new float[FIREBALL_FRAMES];
         for (int i = 0; i < out.length; i++) out[i] = a.get(i).getAsFloat();
         return out;
@@ -193,11 +193,11 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
             try (Reader in = new InputStreamReader(res.get().open(), StandardCharsets.UTF_8)) {
                 return parseFire(in);
             } catch (IOException | RuntimeException e) {
-                Airstrike.LOG.warn("{} не прочитался: свет шара — без предела по кадру", FIREBALL_LIGHT, e);
+                Airstrike.LOG.warn("{} could not be read: fireball light has no per-frame limit", FIREBALL_LIGHT, e);
                 return full();
             }
         }
-        Airstrike.LOG.warn("{} не найден: свет шара — без предела по кадру", FIREBALL_LIGHT);
+        Airstrike.LOG.warn("{} not found: fireball light has no per-frame limit", FIREBALL_LIGHT);
         return full();
     }
 
@@ -205,14 +205,14 @@ public final class FxAtlas extends SimplePreparableReloadListener<NativeImage[]>
     private static void place(ResourceManager resources, Slot s, int[][] sheets) {
         Optional<Resource> res = resources.getResource(s.texture);
         if (res.isEmpty()) {
-            Airstrike.LOG.warn("Текстура эффектов {} не найдена: на её месте пусто", s.texture);
+            Airstrike.LOG.warn("Effect texture {} not found: its slot stays empty", s.texture);
             return;
         }
         int[] px;
         try (InputStream in = res.get().open(); NativeImage img = NativeImage.read(in)) {
             px = fit(img, s.w, s.h);
         } catch (IOException | RuntimeException e) {
-            Airstrike.LOG.warn("Текстура эффектов {} не прочиталась: на её месте пусто", s.texture, e);
+            Airstrike.LOG.warn("Effect texture {} could not be read: its slot stays empty", s.texture, e);
             return;
         }
         int w = s.w, h = s.h;

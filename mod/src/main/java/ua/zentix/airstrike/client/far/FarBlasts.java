@@ -656,12 +656,12 @@ public final class FarBlasts {
      * тень, дождь), насколько верха глуше низов и сколько из этого от земли. Ничего дальнего ещё не было — пустая строка.
      */
     public static String describe() {
-        String light = BRIGHTEST[4] <= 0 ? "" : String.format(Locale.ROOT, "; ярче всех: ядро %.1f px, пересвет %.0f, блик %.1f px, вуаль %.1f px, "
-                + "видно %.2f", BRIGHTEST[0], BRIGHTEST[3], BRIGHTEST[1], BRIGHTEST[2], BRIGHTEST[4]);
-        if (lastHeard == null) return EVENTS.isEmpty() ? "" : "взрывов " + EVENTS.size() + light;
+        String light = BRIGHTEST[4] <= 0 ? "" : String.format(Locale.ROOT, "; brightest: core %.1f px, overexposure %.0f, glare %.1f px, veil %.1f px, "
+                + "visible %.2f", BRIGHTEST[0], BRIGHTEST[3], BRIGHTEST[1], BRIGHTEST[2], BRIGHTEST[4]);
+        if (lastHeard == null) return EVENTS.isEmpty() ? "" : "blasts " + EVENTS.size() + light;
         Outdoor.Heard h = lastHeard;
-        return String.format(Locale.ROOT, "взрывов %d; звук: %.0f бл, задержка %d т (фронт %.1f т), громкость %.3f, запас %.1f дБ, преграда %.1f дБ, "
-                        + "тень %.1f дБ, дождь %.1f дБ, верха %.1f дБ, из них земля %.1f дБ", EVENTS.size(), lastDistance, lastDelay,
+        return String.format(Locale.ROOT, "blasts %d; sound: %.0f blocks, delay %d ticks (front %.1f ticks), volume %.3f, margin %.1f dB, barrier %.1f dB, "
+                        + "shadow %.1f dB, rain %.1f dB, highs %.1f dB, of which ground %.1f dB", EVENTS.size(), lastDistance, lastDelay,
                 lastDistance / Acoustics.SPEED, h.volume(), h.margin(), h.barrier(), h.shadow(), h.masking(), 20 * Math.log10(Math.max(1e-6, h.highs())),
                 -h.ground()) + light;
     }

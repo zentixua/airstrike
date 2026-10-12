@@ -8,23 +8,23 @@ public enum ExplosionStage {
     /** До лучей: {@code new Explosion} и {@code ExplosionEvent.Start} (обработчики модов). */
     START("Start"),
     /** Ванильный {@code Explosion.explode} целиком (аппарат Sable рядом): лучи, сущности, {@code Detonate}, урон. */
-    VANILLA("ванильный взрыв"),
+    VANILLA("vanilla explosion"),
     /** {@code gameEvent(EXPLODE)}: слушатели вибраций (скалк, моды). */
-    GAME_EVENT("событие"),
+    GAME_EVENT("game event"),
     /** Лучи по блокам. */
-    RAYS("лучи"),
+    RAYS("rays"),
     /** Сбор сущностей в кубе досягаемости. */
-    ENTITIES("сбор сущностей"),
+    ENTITIES("entity search"),
     /** {@code ExplosionEvent.Detonate}: обработчики модов (и наши: блэкаут, запись для проверок). */
     DETONATE("Detonate"),
     /** Урон и отбрасывание: {@code getSeenPercent} (лучи к сущности), {@code hurt} — смерть, лут, обработчики. */
-    DAMAGE("урон"),
+    DAMAGE("damage"),
     /** Раздел выбранных лучами позиций на плоты аппаратов и мир, чтение блоков мира (воздух без огня — прочь). */
-    SPLIT("раздел"),
+    SPLIT("split"),
     /** Снятие блоков аппаратов (плоты Sable) — одним разом после урона, со сверкой аппарата и блока. */
-    CRAFTS("блоки аппаратов"),
+    CRAFTS("aircraft blocks"),
     /** Снимок блоков мира для порций и сортировка от центра. */
-    SNAPSHOT("снимок");
+    SNAPSHOT("snapshot");
 
     public final String label;
 

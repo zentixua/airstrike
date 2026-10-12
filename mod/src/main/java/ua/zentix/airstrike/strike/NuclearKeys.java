@@ -149,7 +149,7 @@ public final class NuclearKeys {
         owner.sendSystemMessage(Component.translatable("airstrike.nuke.key.wait", what(loadout), distance(), Component.keybind(KEY),
                 window() / 20).withStyle(ChatFormatting.GOLD));
         keys.prompt(o, online, owner);
-        Airstrike.LOG.info("Ядерный пуск ждёт второго ключа {} с: {} по {} {} {} — {}", window() / 20, loadout.weapon().getSerializedName(),
+        Airstrike.LOG.info("Nuclear launch waits {} s for a second key: {} at {} {} {} — {}", window() / 20, loadout.weapon().getSerializedName(),
                 Mth.floor(aim.point().x), Mth.floor(aim.point().y), Mth.floor(aim.point().z), o.name);
         return true;
     }
@@ -187,7 +187,7 @@ public final class NuclearKeys {
             return false;
         }
         best.confirmer = by.getGameProfile().getName();
-        Airstrike.LOG.info("Второй ключ: {} подтвердил ядерный пуск {} — {}", best.confirmer, best.loadout.weapon().getSerializedName(), best.name);
+        Airstrike.LOG.info("Second key: {} confirmed nuclear launch {} — {}", best.confirmer, best.loadout.weapon().getSerializedName(), best.name);
         Component done = Component.translatable("airstrike.nuke.key.confirmed", by.getDisplayName(), what(best.loadout)).withStyle(ChatFormatting.GOLD);
         by.sendSystemMessage(done);
         ServerPlayer owner = best.owner(online);
@@ -212,7 +212,7 @@ public final class NuclearKeys {
         if (owner != null) {
             owner.sendSystemMessage(Component.translatable("airstrike.nuke.alarm.armed", MIN_WARNING / 20).withStyle(ChatFormatting.GOLD));
         }
-        Airstrike.LOG.info("Ядерная тревога у цели {} {} {}: {} — пуск через {} с — {}", Mth.floor(o.aim.point().x), Mth.floor(o.aim.point().y),
+        Airstrike.LOG.info("Nuclear alarm at target {} {} {}: {} — launch in {} s — {}", Mth.floor(o.aim.point().x), Mth.floor(o.aim.point().y),
                 Mth.floor(o.aim.point().z), o.loadout.weapon().getSerializedName(), MIN_WARNING / 20, o.name);
         return true;
     }
@@ -234,10 +234,10 @@ public final class NuclearKeys {
         ServerPlayer owner = o.owner(online);
         Loadout l = o.loadout;
         ServerActions.Aim aim = o.aim;
-        String who = o.name + (o.confirmer == null ? "" : " (второй ключ — " + o.confirmer + ")");
+        String who = o.name + (o.confirmer == null ? "" : " (second key — " + o.confirmer + ")");
         StrikeService.log(o.level, who, l.weapon(), 1, 0, aim.target(), aim.point(), o.via, null);
         StrikeService.Result r;
-        String why = "ядерный пуск не удался";
+        String why = "nuclear launch failed";
         try {
             if (o.icbm()) {
                 r = StrikeService.launchIcbm(o.level, aim.target(), aim.point(), l.nuke(), owner, flightTicks());
@@ -248,9 +248,9 @@ public final class NuclearKeys {
                 r = StrikeService.launch(o.level, l.weapon(), aim.target(), aim.point(), o.lastYaw, o.ownerId, true, l.nuke(), o.via, null);
             }
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Ядерный пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);
+            Airstrike.LOG.error("Nuclear launch {} failed with an exception — {}", l.weapon().getSerializedName(), who, e);
             r = StrikeService.Result.FAILED;
-            why = "ядерный пуск упал с ошибкой";
+            why = "nuclear launch failed with an exception";
         }
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
@@ -287,7 +287,7 @@ public final class NuclearKeys {
             boolean alarmed = o.icbm() && p.level() == o.level && p.position().distanceToSqr(o.aim.point()) <= r * r;
             if (!alarmed) p.playNotifySound(ModSounds.SIREN.get(), SoundSource.MASTER, 1.0f, 1.0f);
         }
-        Airstrike.LOG.info("Ядерный пуск обнаружен: {} из района {} {} — {}", o.loadout.weapon().getSerializedName(), x, z, o.name);
+        Airstrike.LOG.info("Nuclear launch detected: {} from area {} {} — {}", o.loadout.weapon().getSerializedName(), x, z, o.name);
     }
 
     /** Координата района: ближайшая кратная {@link #AREA_CELL}. */
@@ -323,8 +323,8 @@ public final class NuclearKeys {
                 if (owner != null) {
                     owner.sendSystemMessage(Component.translatable("airstrike.nuke.key.expired", window() / 20).withStyle(ChatFormatting.RED));
                 }
-                if (o.paid != null) Munitions.refund(owner != null ? List.of(owner) : online, o.ownerId, o.paid, "второй ключ не получен");
-                Airstrike.LOG.info("Второй ключ не получен за {} с: ядерный пуск {} отменён — {}", window() / 20, o.loadout.weapon().getSerializedName(), o.name);
+                if (o.paid != null) Munitions.refund(owner != null ? List.of(owner) : online, o.ownerId, o.paid, "no second key");
+                Airstrike.LOG.info("No second key within {} s: nuclear launch {} cancelled — {}", window() / 20, o.loadout.weapon().getSerializedName(), o.name);
             } else if ((now - o.created) % PROMPT_EVERY == 0) {
                 ServerPlayer owner = o.owner(online);
                 if (owner != null) prompt(o, online, owner);
@@ -363,7 +363,7 @@ public final class NuclearKeys {
                 ServerPlayer owner = o.owner(online);
                 if (owner != null && notice != null) owner.sendSystemMessage(notice);
                 if (o.paid != null) Munitions.refund(owner != null ? List.of(owner) : online, o.ownerId, o.paid, why);
-                Airstrike.LOG.info("Ядерный пуск {} отменён ({}) — {}", o.loadout.weapon().getSerializedName(), why, o.name);
+                Airstrike.LOG.info("Nuclear launch {} cancelled ({}) — {}", o.loadout.weapon().getSerializedName(), why, o.name);
             }
         }
         return n;
@@ -381,8 +381,8 @@ public final class NuclearKeys {
             for (Order o : List.copyOf(keys.orders)) {
                 if (o.launchAt >= 0 || !o.ownerId.equals(player.getUUID())) continue;
                 keys.orders.remove(o);
-                if (o.paid != null) Munitions.refund(List.of(player), o.ownerId, o.paid, "запускающий вышел до второго ключа");
-                Airstrike.LOG.info("Ядерный пуск {} отменён: {} вышел до второго ключа", o.loadout.weapon().getSerializedName(), o.name);
+                if (o.paid != null) Munitions.refund(List.of(player), o.ownerId, o.paid, "launching player left before the second key");
+                Airstrike.LOG.info("Nuclear launch {} cancelled: {} left before the second key", o.loadout.weapon().getSerializedName(), o.name);
             }
         }
     }

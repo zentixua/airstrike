@@ -153,7 +153,7 @@ public final class Terrain {
 
         /** Снаружи — только наборы выше и {@link #withMap}. */
         Allowed(Set<Source> sources, Optional<Integer> map) {
-            if (sources.contains(Source.CLIENT_MAP) != map.isPresent()) throw new IllegalArgumentException("CLIENT_MAP — только с подсказкой карты");
+            if (sources.contains(Source.CLIENT_MAP) != map.isPresent()) throw new IllegalArgumentException("CLIENT_MAP only with a map hint");
             this.sources = Set.copyOf(sources);
             this.map = map;
         }

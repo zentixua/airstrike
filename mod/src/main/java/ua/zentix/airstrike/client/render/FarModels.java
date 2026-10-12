@@ -159,7 +159,7 @@ public final class FarModels {
                     s -> shader = s);
         } catch (IOException ex) {
             shader = null;
-            Airstrike.LOG.error("Шейдер дальних моделей не загрузился: снаряды вдали будут точками", ex);
+            Airstrike.LOG.error("Far model shader failed to load: distant projectiles will be dots", ex);
         }
     }
 

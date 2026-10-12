@@ -192,13 +192,13 @@ public final class RuinPlan {
         onlyA.removeAll(fb);
         onlyB.removeAll(fa);
         if (!onlyA.isEmpty() || !onlyB.isEmpty()) {
-            out.append(" пожаров ").append(fa.size()).append(" | ").append(fb.size()).append(", только слева ").append(onlyA.size())
-                    .append(", только справа ").append(onlyB.size());
+            out.append(" fires ").append(fa.size()).append(" | ").append(fb.size()).append(", only left ").append(onlyA.size())
+                    .append(", only right ").append(onlyB.size());
         }
         // карты высот и нижние источники неба изменённых столбцов (у снимка с диска источники неба посчитаны по блокам)
         boolean heightsDiffer = !java.util.Arrays.equals(heights, o.heights);
-        if (heightsDiffer) out.append(" карты высот различаются (").append(heights.length).append(" | ").append(o.heights.length).append(')');
-        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer ? null : n + " мест" + out;
+        if (heightsDiffer) out.append(" heightmaps differ (").append(heights.length).append(" | ").append(o.heights.length).append(')');
+        return n == 0 && onlyA.isEmpty() && onlyB.isEmpty() && !heightsDiffer ? null : n + " cells" + out;
     }
 
     /**

@@ -25,6 +25,6 @@ public interface SplitGuard {
     }
 
     static void swallowed(RuntimeException e) {
-        LOG.warn("Sable: дробление аппарата пропущено, иначе упал бы мир ({})", e.getMessage());
+        LOG.warn("Sable: aircraft split skipped, otherwise the world would crash ({})", e.getMessage());
     }
 }

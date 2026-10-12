@@ -167,7 +167,7 @@ public final class StrikeWorld {
             try {
                 done = !t.tick(level);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Таймлайн удара упал с ошибкой и убран", e);
+                Airstrike.LOG.error("Strike timeline failed with an exception and was removed", e);
                 done = true;
             }
             if (done) t.end(level);
@@ -231,7 +231,7 @@ public final class StrikeWorld {
      */
     public static void onServerStopping(ServerStoppingEvent event) {
         // ждущие ядерные приказы не сохраняются: оплаченное — владельцам, пока они ещё в сети (сохранение игроков — после)
-        NuclearKeys.cancelAll(event.getServer(), event.getServer().getPlayerList().getPlayers(), null, "сервер останавливается");
+        NuclearKeys.cancelAll(event.getServer(), event.getServer().getPlayerList().getPlayers(), null, "server stopping");
         for (ServerLevel level : event.getServer().getAllLevels()) {
             // работа попаданий не сохраняется: начатое и поставленное доделать сейчас, иначе в мире остались бы взрывы,
             // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются, как раньше)

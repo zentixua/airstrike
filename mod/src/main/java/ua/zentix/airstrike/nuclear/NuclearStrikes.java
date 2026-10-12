@@ -103,7 +103,7 @@ public final class NuclearStrikes {
                 now + flightTicks, launchPos, Optional.ofNullable(owner), surface);
         events.schedule(s);
         holdGround(level, s, true);
-        Airstrike.LOG.info("МБР №{}: {} кт по {} {} {}, подрыв через {} с", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),
+        Airstrike.LOG.info("ICBM #{}: {} kt at {} {} {}, detonation in {} s", s.id(), Math.round(yieldKt), Mth.floor(target.x), Mth.floor(target.y),
                 Mth.floor(target.z), (s.detonateTime() - now) / 20);
         for (ServerPlayer p : level.players()) PacketDistributor.sendToPlayer(p, warning(s, p));
     }
@@ -217,8 +217,8 @@ public final class NuclearStrikes {
         long t3 = System.nanoTime();
         if (t3 - t0 > SLOW_TICK_NS && world.slowLogDue(now)) {
             long[] w = world.lastNanos();
-            Airstrike.LOG.warn("Ядерный тик {} мс: удары {} мс, фронт {} мс, свет {} мс, воронки {} мс, очередь руин {} мс ({}), руины заранее {} мс, "
-                            + "осадки у мобов {} мс, радиация {} мс",
+            Airstrike.LOG.warn("Nuclear tick {} ms: strikes {} ms, front {} ms, light {} ms, craters {} ms, ruin queue {} ms ({}), pre-built ruins {} ms, "
+                            + "mob fallout {} ms, radiation {} ms",
                     (t3 - t0) / 1_000_000, (t1 - t0) / 1_000_000, w[0] / 1_000_000, w[1] / 1_000_000, w[2] / 1_000_000, w[3] / 1_000_000, world.scarSummary(),
                     w[4] / 1_000_000, w[5] / 1_000_000, (t3 - t2) / 1_000_000);
         }

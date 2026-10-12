@@ -146,7 +146,7 @@ public class BomberEntity extends StrikeProjectile {
             }
         }
         if (exhausted() && !released) {
-            Airstrike.LOG.warn("B-2 {} не сбросил бомбу, кончился запас хода, убран у {} (точка {}, вне мира {})", getUUID(),
+            Airstrike.LOG.warn("B-2 {} ran out of endurance without dropping its bomb, removed at {} (aim point {}, off-world {})", getUUID(),
                     blockPosition(), BlockPos.containing(aim), isVirtual());
         }
         // вне мира после сброса лететь незачем: уход никто не увидит
@@ -180,7 +180,7 @@ public class BomberEntity extends StrikeProjectile {
         if (released) return false;
         released = true;
         setPhase(FlightPhase.EGRESS);
-        Airstrike.LOG.info("B-2 {} отозван у {}: уходит без сброса (вне мира {})", getUUID(), blockPosition(), isVirtual());
+        Airstrike.LOG.info("B-2 {} recalled at {}: leaving without a drop (off-world {})", getUUID(), blockPosition(), isVirtual());
         return true;
     }
 
@@ -193,7 +193,7 @@ public class BomberEntity extends StrikeProjectile {
         bomb.drop(position().add(0, -BombDrop.DROP_BELOW, 0), flight.yaw(), drop, goal, ownerId());
         bomb.setNuclear(nuclear);
         // по UUID бомбы из предупреждений снаряда находится её B-2
-        Airstrike.LOG.info("B-2 {} сбросил бомбу {} у {} в {} блоках от точки, на {} над ней (вне мира {})", getUUID(), bomb.getUUID(),
+        Airstrike.LOG.info("B-2 {} dropped bomb {} at {}, {} blocks from the aim point, {} above it (off-world {})", getUUID(), bomb.getUUID(),
                 blockPosition(), Math.round(position().subtract(drop).horizontalDistance()), Math.round(getY() - drop.y), isVirtual());
         if (isVirtual()) VirtualFlights.launch(level, bomb);
         else level.addFreshEntity(bomb);

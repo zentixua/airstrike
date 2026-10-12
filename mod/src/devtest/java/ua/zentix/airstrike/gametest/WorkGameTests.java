@@ -580,7 +580,7 @@ public final class WorkGameTests {
 
     /**
      * Порции блоков — по времени: на считающих часах (1 мс на блок, срок 5 мс) в порции ровно 5 блоков; блок дольше
-     * 10 мс (11 мс на блок) — порция из одного блока и строка «блок снимался» (в лог — первые пять за удар). Всё, что
+     * 10 мс (11 мс на блок) — порция из одного блока и строка «removing block took» (в лог — первые пять за удар). Всё, что
      * выбрали лучи, снесено.
      */
     @GameTest(template = "range", timeoutTicks = 600, batch = "work_portion_time", skyAccess = true)
@@ -687,7 +687,7 @@ public final class WorkGameTests {
         });
     }
 
-    /** Строк «блок снимался» за удар (как {@code BlastArea.SLOW_BLOCKS_LOGGED}). */
+    /** Строк «removing block took» за удар (как {@code BlastArea.SLOW_BLOCKS_LOGGED}). */
     private static final int BLAST_SLOW_LOGGED = 5;
 
     /**

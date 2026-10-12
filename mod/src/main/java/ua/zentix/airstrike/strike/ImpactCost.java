@@ -18,17 +18,17 @@ public final class ImpactCost {
     /** Вид работы попадания. */
     public enum Kind {
         /** Ванильные взрывы: начало ({@code ExplosionEvent.Start}, запрос аппаратов) и лучи. */
-        RAYS("взрывы: лучи"),
+        RAYS("explosions: rays"),
         /** Ванильные взрывы: разбор выбранного лучами, снятие блоков порциями, выпадение, огонь. */
-        BLOCKS("взрывы: блоки"),
+        BLOCKS("explosions: blocks"),
         /** Выбитые ударной волной стёкла и листва. */
-        GLASS("стёкла"),
+        GLASS("glass"),
         /** Обломки-сущности. */
-        DEBRIS("обломки"),
+        DEBRIS("debris"),
         /** Прочее: огонь по кольцу, щебень и обрушение свода бомбы. */
-        GROUND("огонь и грунт"),
+        GROUND("fire and ground"),
         /** Ванильные взрывы: сбор сущностей, {@code ExplosionEvent.Detonate}, урон и отбрасывание. */
-        HITS("взрывы: Detonate и урон");
+        HITS("explosions: Detonate and damage");
 
         private final String label;
 
@@ -103,7 +103,7 @@ public final class ImpactCost {
         }
         if (seriesStart < 0 || !idle || now - seriesLastWork < SERIES_QUIET_TICKS) return;
         Airstrike.LOG.info(String.format(Locale.ROOT,
-                "Итог серии попаданий (%s): ударов %d, единиц %d, всего %.1f мс, самая долгая единица %.1f мс, самый долгий тик %.1f мс, тиков дольше 50 мс %d, за %d тиков",
+                "Impact series summary (%s): strikes %d, units %d, total %.1f ms, longest unit %.1f ms, longest tick %.1f ms, ticks over 50 ms %d, over %d ticks",
                 level.dimension().location(), seriesStrikes, seriesUnits, seriesNanos / 1e6, seriesMaxUnit / 1e6, seriesMaxTick / 1e6,
                 seriesSlowTicks, seriesLastWork - seriesStart + 1));
         seriesStart = -1;
@@ -117,7 +117,7 @@ public final class ImpactCost {
         endSeriesTick(level, now, queue.isEmpty());
         long wait = queue.oldestWaitTicks(level);
         if (wait > LONG_WAIT_TICKS && now - lastWaitLog >= LOG_PERIOD) {
-            Airstrike.LOG.info("Попадания ({}): в очереди {} работ, самая старая ждёт {} тиков", level.dimension().location(), queue.size(), wait);
+            Airstrike.LOG.info("Impacts ({}): {} jobs queued, oldest waiting {} ticks", level.dimension().location(), queue.size(), wait);
             lastWaitLog = now;
         }
         if (total > SLOW_NANOS) {
@@ -125,15 +125,15 @@ public final class ImpactCost {
                 StringBuilder parts = new StringBuilder();
                 for (Kind k : Kind.values()) {
                     if (parts.length() > 0) parts.append(", ");
-                    parts.append(k.label).append(' ').append(nanos[k.ordinal()] / 1_000_000).append(" мс (").append(counts[k.ordinal()]).append(')');
+                    parts.append(k.label).append(' ').append(nanos[k.ordinal()] / 1_000_000).append(" ms (").append(counts[k.ordinal()]).append(')');
                 }
-                parts.append("; шаги взрывов [");
+                parts.append("; explosion steps [");
                 for (ExplosionStage st : ExplosionStage.values()) {
                     if (st.ordinal() > 0) parts.append(", ");
                     parts.append(st.label).append(' ').append(rayStages[st.ordinal()] / 1_000_000);
                 }
-                parts.append(" мс]");
-                Airstrike.LOG.warn("Попадания ({}): {} мс за тик — {}; в очереди {}; таких тиков после прошлой строки: {}",
+                parts.append(" ms]");
+                Airstrike.LOG.warn("Impacts ({}): {} ms in a tick — {}; queued {}; such ticks since the last line: {}",
                         level.dimension().location(), total / 1_000_000, parts, queue.size(), slowSinceLog);
                 lastLog = now;
                 slowSinceLog = 0;

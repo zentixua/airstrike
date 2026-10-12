@@ -223,14 +223,14 @@ public final class SubLevels {
         if (e instanceof LinkageError) {
             if (!broken) {
                 broken = true;
-                Airstrike.LOG.error("Sable companion сломался — наведение на аппараты отключено до перезапуска", e);
+                Airstrike.LOG.error("Sable companion broke — targeting aircraft is disabled until restart", e);
             }
             return;
         }
         long now = System.currentTimeMillis();
         if (now - lastFailureLog > 60_000) {
             lastFailureLog = now;
-            Airstrike.LOG.warn("Sable не ответил на запрос об аппарате (запрос пропущен)", e);
+            Airstrike.LOG.warn("Sable did not answer an aircraft query (query skipped)", e);
         }
     }
 }

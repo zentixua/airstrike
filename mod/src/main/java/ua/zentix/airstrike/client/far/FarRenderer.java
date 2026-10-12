@@ -79,8 +79,8 @@ public final class FarRenderer {
      */
     public static String describe() {
         if (FarBlasts.isEmpty() && FarFlightView.isEmpty()) return "";
-        return "взрывы: " + FarBlasts.describe() + "; снаряды: " + FarFlightView.describe() + "; кадр: клубов " + LAST_FRAME[0] + ", точек "
-                + LAST_FRAME[1] + ", света " + LAST_FRAME[2] + ", лент " + LAST_FRAME[3] + ", моделей " + LAST_FRAME[4] + "; слой: "
+        return "blasts: " + FarBlasts.describe() + "; projectiles: " + FarFlightView.describe() + "; frame: puffs " + LAST_FRAME[0] + ", points "
+                + LAST_FRAME[1] + ", lights " + LAST_FRAME[2] + ", ribbons " + LAST_FRAME[3] + ", models " + LAST_FRAME[4] + "; layer: "
                 + FxLayer.describeTiming();
     }
 

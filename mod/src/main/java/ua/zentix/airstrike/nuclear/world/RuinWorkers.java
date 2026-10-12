@@ -101,8 +101,8 @@ public final class RuinWorkers {
         startedAt = System.nanoTime();
         BUSY.set(0);
         int manual = AirstrikeConfig.SERVER.nukeRuinThreads.get();
-        Airstrike.LOG.info("Руины: фоновых потоков {} ({}; ядер {}, оставлено игре {}{})", n, manual > 0 ? "из настройки ruin_threads" : "сами",
-                Runtime.getRuntime().availableProcessors(), manual > 0 ? 0 : reserve(integrated), integrated ? ", сервер встроенный" : "");
+        Airstrike.LOG.info("Ruins: background threads {} ({}; cores {}, left to the game {}{})", n, manual > 0 ? "from the ruin_threads setting" : "automatic",
+                Runtime.getRuntime().availableProcessors(), manual > 0 ? 0 : reserve(integrated), integrated ? ", integrated server" : "");
         return pool;
     }
 
@@ -195,7 +195,7 @@ public final class RuinWorkers {
             p.setMaximumPoolSize(active);
             p.setCorePoolSize(active);
         }
-        Airstrike.LOG.info("Руины: фоновых потоков в работе {} из {} (тик сервера без полос мода {} мс)", active, size, String.format(java.util.Locale.ROOT, "%.1f", ms));
+        Airstrike.LOG.info("Ruins: background threads working {} of {} (server tick without mod lanes {} ms)", active, size, String.format(java.util.Locale.ROOT, "%.1f", ms));
     }
 
     /** Фоновый план брошен: не готов за срок ({@link RuinContext#TASK_AGE_LIMIT}). */
@@ -203,9 +203,9 @@ public final class RuinWorkers {
         expired++;
     }
 
-    /** Для строки «готовы»: потоков, в работе, снижений, возвратов, брошенных задач. */
+    /** Для строки «ready»: потоков, в работе, снижений, возвратов, брошенных задач. */
     static String summary() {
-        return size + " (в работе " + active + ", снижений " + lowered + ", возвратов " + raised + ", брошено задач " + expired + ")";
+        return size + " (working " + active + ", lowered " + lowered + ", raised " + raised + ", tasks abandoned " + expired + ")";
     }
 
     /** Буферы решателей всех потоков пула, байт (оценка по окну 48×48 на высоту мира: 7 байт на место). */
@@ -213,7 +213,7 @@ public final class RuinWorkers {
         return (long) size * RuinWindow.SIDE * RuinWindow.SIDE * height * 7;
     }
 
-    /** Доля времени, которую потоки заняты с запуска пула (для строки «готовы»). */
+    /** Доля времени, которую потоки заняты с запуска пула (для строки «ready»). */
     static double utilisation() {
         if (pool == null) return 0;
         long wall = System.nanoTime() - startedAt;
@@ -243,8 +243,8 @@ public final class RuinWorkers {
             Thread.currentThread().interrupt();
             done = false;
         }
-        if (done) Airstrike.LOG.info("Руины: фоновые потоки остановлены (брошено задач в очереди {})", dropped);
-        else Airstrike.LOG.warn("Руины: фоновые потоки не остановились за {} мс — в работе {}", JOIN_MS, p.getActiveCount());
+        if (done) Airstrike.LOG.info("Ruins: background threads stopped (queued tasks dropped: {})", dropped);
+        else Airstrike.LOG.warn("Ruins: background threads did not stop within {} ms — still working {}", JOIN_MS, p.getActiveCount());
         return done;
     }
 
@@ -255,6 +255,6 @@ public final class RuinWorkers {
 
     /** Остановка или брошенная задача (прерывание): план дальше не строится. */
     static void checkStop() {
-        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("руины: остановка");
+        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("ruins: stopping");
     }
 }

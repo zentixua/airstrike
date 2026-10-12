@@ -48,7 +48,7 @@ public final class Effects {
         try {
             return r.effect.tick(level, r.t++);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Эффект упал с ошибкой и убран", e);
+            Airstrike.LOG.error("Effect failed with an exception and was removed", e);
             return false;
         }
     }

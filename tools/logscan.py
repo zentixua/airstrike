@@ -54,13 +54,13 @@ for i, l in enumerate(lines):
 
 sections = [
     ("Загрузка мода", r"Loading mod airstrike|Found mod file airstrike|airstrike.*(mod file|version)"),
-    ("Удары и ядерные подрывы", r"Airstrike/\]: (Удар|Ядерный подрыв|МБР)"),
+    ("Удары и ядерные подрывы", r"Airstrike/\]: (Strike:|Nuclear detonation|ICBM)"),
     # «Can't keep up» — накопленное отставание с прошлой такой строки (не чаще 15 с игры), а не одна пауза;
     # рядом по времени — удары и медленные тики мода; строки чата (игрок написал «Teleported…»:
     # «[CHAT] <…>» у клиента, «]: <…>» у сервера) — не в счёт
-    ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Airstrike/\]: (Удар:|Попадания \(|Итог удара \(|Итог серии попаданий \(|Взрыв: блок|Ядерный тик|Поток сервера стоял)|Teleported)"),
-    ("Снаряды: потеря цели, самоликвидация, сбитые ЗРК", r"Airstrike/\]: Снаряды: "),
-    ("Переезд со старого датапака", r"Airstrike/\]: (Выключаю старые датапаки|Настройки датапака|Удалены objectives)"),
+    ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Airstrike/\]: (Strike:|Impacts \(|Strike summary \(|Impact series summary \(|Blast: removing block|Nuclear tick|Server thread stalled)|Teleported)"),
+    ("Снаряды: потеря цели, самоликвидация, сбитые ЗРК", r"Airstrike/\]: Projectiles: "),
+    ("Переезд со старого датапака", r"Airstrike/\]: (Disabling old datapacks|Datapack settings moved|Removed objectives of the old datapack)"),
     ("Неизвестные звуки", r"Unable to play unknown soundEvent|Missing sound for event: (airstrike|snassets):"),
     ("Аппараты Sable (добавлены/удалены)", r"shtreimel\.lifecycle.*sub-level (added|removed)"),
     ("Чат игроков", r"\[CHAT\] <"),

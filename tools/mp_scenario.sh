@@ -88,7 +88,7 @@ wait $A_PID $B_PID || true
 rig_stop $SERVER_PID
 
 echo "== сервер"
-grep -E "joined the game|left the game|Удар|Снаряд|ERROR|Exception|at ua\.zentix" "$SERVER/logs/latest.log" | cut -c1-200 || true
+grep -E "joined the game|left the game|Strike|Projectile|ERROR|Exception|at ua\.zentix" "$SERVER/logs/latest.log" | cut -c1-200 || true
 for c in mp-a mp-b; do
   echo "== $c"
   grep -E "SCENARIO mp|ERROR\] \[ua\.zentix|at ua\.zentix|Exception" "$RUN/$c/logs/latest.log" | cut -c1-200 || true

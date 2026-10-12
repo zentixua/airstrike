@@ -80,7 +80,7 @@ final class DistantHorizonsTerrain implements TerrainSource {
     static boolean supported() {
         int major = DhApi.getApiMajorVersion();
         if (major == API_MAJOR) return true;
-        Airstrike.LOG.warn("Distant Horizons {}: API {}.{}, мод собран под {}.x — дальний рельеф на карте выключен",
+        Airstrike.LOG.warn("Distant Horizons {}: API {}.{}, the mod is built for {}.x — far terrain on the map is off",
                 DhApi.getModVersion(), major, DhApi.getApiMinorVersion(), API_MAJOR);
         return false;
     }
@@ -169,7 +169,7 @@ final class DistantHorizonsTerrain implements TerrainSource {
     public Reader open(ClientLevel level) {
         IDhApiLevelWrapper dhLevel = initialized ? dhLevel(level) : null;
         if (dhLevel == null) {
-            notOpened = !initialized ? "DH ещё не инициализирован" : "DH не загрузил мир " + level.dimension().location();
+            notOpened = !initialized ? "DH not initialized yet" : "DH has not loaded world " + level.dimension().location();
             return null;
         }
         IDhApiTerrainDataRepo repo = DhApi.Delayed.terrainRepo;
@@ -186,7 +186,7 @@ final class DistantHorizonsTerrain implements TerrainSource {
                     // отказ API исключением, а не через DhApiResult: колонка без данных, как при любом отказе, —
                     // одна колонка не роняет всю плитку (её перестраивали бы каждые 5 с со стеком в лог)
                     if (failed.getAndIncrement() == 0) firstFailure = e.toString();
-                    if (!threw.getAndSet(true)) Airstrike.LOG.warn("Distant Horizons: чтение колонки ({}, {}) бросило исключение", x, z, e);
+                    if (!threw.getAndSet(true)) Airstrike.LOG.warn("Distant Horizons: reading column ({}, {}) threw an exception", x, z, e);
                     return null;
                 }
                 if (!r.success || r.payload == null) {
@@ -207,9 +207,9 @@ final class DistantHorizonsTerrain implements TerrainSource {
 
     @Override
     public String describe() {
-        return String.format(Locale.ROOT, "DH %s (API %d.%d): колонок с верхом %d, пустых %d, отказов %d%s%s", DhApi.getModVersion(),
+        return String.format(Locale.ROOT, "DH %s (API %d.%d): columns with top %d, empty %d, failures %d%s%s", DhApi.getModVersion(),
                 DhApi.getApiMajorVersion(), DhApi.getApiMinorVersion(), found.get(), empty.get(), failed.get(),
-                firstFailure.isEmpty() ? "" : " (первый: " + firstFailure + ")", notOpened.isEmpty() ? "" : ", не открыт: " + notOpened);
+                firstFailure.isEmpty() ? "" : " (first: " + firstFailure + ")", notOpened.isEmpty() ? "" : ", not opened: " + notOpened);
     }
 
     /**

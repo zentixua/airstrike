@@ -206,8 +206,8 @@ public final class FarLods {
         else zone.clear(level);
         if (now >= nextReport && sent + unchanged + stale + unread + noPlan + partial > 0) {
             nextReport = now + 600;
-            Airstrike.LOG.info("LOD Distant Horizons вдали ({}): ушло {} чанков (с руинами {}), без изменений {}, план устарел {}, не прочитаны {}, "
-                            + "не дождались плана {}, не целые на диске {} (в мир: {}); в очереди {} (руины {}), читаются {}", level.dimension().location(), sent,
+            Airstrike.LOG.info("Far Distant Horizons LODs ({}): sent {} chunks ({} with ruins), unchanged {}, stale plan {}, unread {}, "
+                            + "no plan in time {}, incomplete on disk {} (into the world: {}); queued {} (ruins {}), reading {}", level.dimension().location(), sent,
                     sentRuins, unchanged, stale, unread, noPlan, partial, zone.summary(), queued.size(), ruinQueue.size(), reading.size());
         }
     }
@@ -264,7 +264,7 @@ public final class FarLods {
         reading.add(r.chunk);
         DiskShots.Format f = format;
         boolean fires = AirstrikeConfig.SERVER.nukeFires.get(), lights = (kind & LIGHTS) != 0;
-        DiskShots.readSections(f, pos).thenApply(s -> build(f, s, plan, fires, lights)).exceptionally(e -> new Built(r.chunk, null, false, false, "ошибка: " + e))
+        DiskShots.readSections(f, pos).thenApply(s -> build(f, s, plan, fires, lights)).exceptionally(e -> new Built(r.chunk, null, false, false, "error: " + e))
                 .thenAccept(built::add);
         return true;
     }
@@ -291,7 +291,7 @@ public final class FarLods {
     private static Built build(DiskShots.Format f, DiskShots.Sections s, @Nullable RuinPlan plan, boolean fires, boolean lights) {
         long chunk = s.pos().toLong();
         if (s.skip() != null) return new Built(chunk, null, false, lights, s.skip());
-        if (plan != null && !plan.applyToCopy(s.sections(), fires)) return new Built(chunk, null, false, lights, "план устарел");
+        if (plan != null && !plan.applyToCopy(s.sections(), fires)) return new Built(chunk, null, false, lights, "stale plan");
         ProtoChunk copy = new ProtoChunk(s.pos(), UpgradeData.EMPTY, s.sections(), new ProtoChunkTicks<>(), new ProtoChunkTicks<>(),
                 LevelHeightAccessor.create(f.minY(), f.height()), f.biomes(), null);
         copy.setPersistedStatus(ChunkStatus.FULL);
@@ -305,7 +305,7 @@ public final class FarLods {
         if ((asked & RUINS) != 0) request(level, b.chunk, true);
         if ((asked & LIGHTS) != 0) request(level, b.chunk, false);
         if (b.copy == null) {
-            if ("план устарел".equals(b.skip)) stale++;
+            if ("stale plan".equals(b.skip)) stale++;
             else unread++;
             return;
         }

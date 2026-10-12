@@ -81,9 +81,9 @@ public final class SceneDepth {
     /** Чем закрыт слой в последнем кадре — для строки сценария. */
     static String describe() {
         return switch (last) {
-            case 2 -> "мир и DH";
-            case 1 -> "мир";
-            default -> "нет";
+            case 2 -> "world and DH";
+            case 1 -> "world";
+            default -> "none";
         };
     }
 
@@ -106,7 +106,7 @@ public final class SceneDepth {
         boolean ok = GlStateManager.glCheckFramebufferStatus(GlConst.GL_FRAMEBUFFER) == GlConst.GL_FRAMEBUFFER_COMPLETE;
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, previous);
         if (!ok) {
-            Airstrike.LOG.error("Слой эффектов: текстура расстояний {}×{} не создалась, мягких краёв не будет", w, h);
+            Airstrike.LOG.error("Effects layer: depth texture {}×{} not created, no soft edges", w, h);
             width = height = 0;
             return false;
         }

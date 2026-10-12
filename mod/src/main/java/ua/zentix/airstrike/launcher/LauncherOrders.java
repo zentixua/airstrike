@@ -65,7 +65,7 @@ public final class LauncherOrders {
         if (route != null) return route;
         MutableComponent missing = Munitions.shortage(be.store().items(), Munitions.Bill.of(l));
         if (missing != null) return missing;
-        String who = "пусковая " + pos.toShortString();
+        String who = "launcher " + pos.toShortString();
         Component before = be.lastReport();
         boolean ok = ServerActions.fromLauncher(level, who, owner, l, new ServerActions.Aim(m.target(), m.point(), null), m.via(), origin);
         if (ok) return null;
@@ -144,7 +144,7 @@ public final class LauncherOrders {
         }
         // сломанная или взорванная пусковая: привязка к ней держала бы пульт в режиме задач навсегда
         if (!gone.isEmpty()) LauncherLinks.forget(designator, gone);
-        Airstrike.LOG.info("Задача пусковым: {} ×{} по {} {} {} — {} из {}, {}", l.weapon().getSerializedName(), l.count(), Math.round(ruled.point().x),
+        Airstrike.LOG.info("Launcher mission: {} ×{} at {} {} {} — {} of {}, {}", l.weapon().getSerializedName(), l.count(), Math.round(ruled.point().x),
                 Math.round(ruled.point().y), Math.round(ruled.point().z), given, links.size(), player.getGameProfile().getName());
         MutableComponent line = given > 0 ? Component.translatable("airstrike.fixed_launcher.assigned", given, links.size()).withStyle(ChatFormatting.GOLD)
                 : Component.translatable("airstrike.fixed_launcher.assigned.none").withStyle(ChatFormatting.RED);

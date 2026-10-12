@@ -113,7 +113,7 @@ final class BlastArea {
 
     /** Ещё один держатель (единица работы, которая может кончиться позже взявшего): отпустить — своим {@link #release}. */
     BlastArea retain() {
-        if (holders <= 0) throw new IllegalStateException("район взрыва уже отпущен");
+        if (holders <= 0) throw new IllegalStateException("blast area already released");
         holders++;
         return this;
     }
@@ -150,9 +150,9 @@ final class BlastArea {
      */
     void slowBlock(ServerLevel level, BlockState state, BlockPos pos, long took) {
         if (slowBlocks++ >= SLOW_BLOCKS_LOGGED) return;
-        Airstrike.LOG.warn(String.format(Locale.ROOT, "Взрыв: блок %s снимался %.1f мс у %d %d %d (%s, блок-сущность: %s)",
+        Airstrike.LOG.warn(String.format(Locale.ROOT, "Blast: removing block %s took %.1f ms at %d %d %d (%s, block entity: %s)",
                 BuiltInRegistries.BLOCK.getKey(state.getBlock()), took / 1e6, pos.getX(), pos.getY(), pos.getZ(),
-                level.dimension().location(), state.hasBlockEntity() ? "да" : "нет"));
+                level.dimension().location(), state.hasBlockEntity() ? "yes" : "no"));
     }
 
     /** Счётчики лучей взрыва — в итог удара. */
@@ -191,9 +191,9 @@ final class BlastArea {
             rays.append(st.label).append(' ').append(ms(rayStages[st.ordinal()]));
         }
         return String.format(Locale.ROOT,
-                "Итог удара (%s) у %d %d %d: %d единиц, взрывов %d, снято блоков %d, стёкол %d, обломков %d, за %d тиков, всего %s мс, "
-                        + "самая долгая единица %s мс (%s); шаги взрывов: %s мс; лучи: шагов %d, в воздухе %d, из кэша %d, "
-                        + "запросов аппаратов %d, ванильных взрывов %d; блоков дольше 10 мс %d",
+                "Strike summary (%s) at %d %d %d: units %d, explosions %d, blocks removed %d, glass %d, debris %d, over %d ticks, total %s ms, "
+                        + "longest unit %s ms (%s); explosion steps: %s ms; rays: steps %d, in air %d, cached %d, "
+                        + "aircraft queries %d, vanilla explosions %d; blocks over 10 ms %d",
                 dimension, Mth.floor(centre.x), Mth.floor(centre.y), Mth.floor(centre.z), units,
                 done[ImpactCost.Kind.RAYS.ordinal()], done[ImpactCost.Kind.BLOCKS.ordinal()], done[ImpactCost.Kind.GLASS.ordinal()],
                 done[ImpactCost.Kind.DEBRIS.ordinal()], lastUnitAt - heldAt + 1, ms(nanos), ms(maxUnit), maxKind.label(), rays,

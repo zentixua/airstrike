@@ -126,7 +126,7 @@ public final class SourceProbes {
         boolean ok = GlStateManager.glCheckFramebufferStatus(GlConst.GL_FRAMEBUFFER) == GlConst.GL_FRAMEBUFFER_COMPLETE;
         GlStateManager._glBindFramebuffer(GlConst.GL_FRAMEBUFFER, previous);
         if (!ok) {
-            Airstrike.LOG.error("Слой эффектов: текстура проб источников {}×{} не создалась, блик закрытого огня не гаснет", WIDTH, rows);
+            Airstrike.LOG.error("Effects layer: source probe texture {}×{} not created, glare of hidden fire is not dimmed", WIDTH, rows);
             rows = 0;
             return false;
         }

@@ -65,7 +65,7 @@ public final class ChunkSaves {
                     // тег писал не ванильный конвейер для этого чанка — не наш; двойники этой секции уйдут на диск как есть
                     if (!foreignLogged) {
                         foreignLogged = true;
-                        Airstrike.LOG.warn("Блэкаут: секция {} чанка {} в сохранении не та, что в памяти (другой мод меняет тег) — погашенные лампы в ней сохранены как есть",
+                        Airstrike.LOG.warn("Blackout: section {} of chunk {} in the save differs from memory (another mod changes the tag) — its unlit lamps are saved as they are",
                                 s.getByte("Y"), chunk.getPos());
                     }
                     continue;
@@ -87,7 +87,7 @@ public final class ChunkSaves {
         } catch (RuntimeException ex) {
             if (!failureLogged) {
                 failureLogged = true;
-                Airstrike.LOG.error("Блэкаут: чанк {} сохранён с погашенными лампами — вернуть их в тег не вышло", chunk.getPos(), ex);
+                Airstrike.LOG.error("Blackout: chunk {} saved with unlit lamps — could not restore them in the tag", chunk.getPos(), ex);
             }
         }
     }
@@ -105,12 +105,12 @@ public final class ChunkSaves {
         // потоках, — это копия с диска, а не чанк мира. Мир загружает чанки в потоке сервера (ChunkMap.scheduleChunkLoad);
         // в чужом потоке — ничего не трогать (состояние сети и очереди — только потока сервера)
         if (!level.getServer().isSameThread()) {
-            foreignRead(OFF_THREAD, chunk.getPos(), "поток " + Thread.currentThread().getName());
+            foreignRead(OFF_THREAD, chunk.getPos(), "thread " + Thread.currentThread().getName());
             return;
         }
         // копия чанка, который уже в мире: гасить её можно, а свет с диска у чанка мира убирать нечего — не трогать его
         boolean copy = BlackoutWorld.inMemory(level, chunk.getPos().toLong()) != null;
-        if (copy) foreignRead(COPY, chunk.getPos(), "чанк уже в мире");
+        if (copy) foreignRead(COPY, chunk.getPos(), "chunk already in the world");
         PowerGrid grid = PowerGrid.get(level);
         LevelChunkSection[] sections = chunk.getSections();
         // отметка GRID_DARK не сохраняется: у чанка с диска её нет
@@ -148,7 +148,7 @@ public final class ChunkSaves {
         FOREIGN_READS.incrementAndGet(kind);
         // первый случай каждого вида — со стеком: он называет мод, который читает чанки
         if (FOREIGN_LOGGED.compareAndSet(kind, 0, 1)) {
-            Airstrike.LOG.info("Блэкаут: чанк {} прочитан с диска не для мира ({}) — очередь блэкаута его не трогает", pos, what, new Throwable("кто читает"));
+            Airstrike.LOG.info("Blackout: chunk {} read from disk not for the world ({}) — the blackout queue ignores it", pos, what, new Throwable("who reads it"));
         }
     }
 

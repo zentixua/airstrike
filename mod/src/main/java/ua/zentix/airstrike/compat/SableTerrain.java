@@ -48,7 +48,7 @@ public final class SableTerrain {
             Hook.changed(level, chunk, x, y, z, old, now);
         } catch (RuntimeException | LinkageError e) {
             broken = true;
-            LOG.error("Sable: изменения руин физике аппаратов больше не сообщаются", e);
+            LOG.error("Sable: ruin changes are no longer reported to aircraft physics", e);
         }
     }
 

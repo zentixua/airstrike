@@ -48,7 +48,7 @@ public final class StopDrain {
             int n = inFlight(level);
             if (n > 0) s.append(' ').append(level.dimension().location()).append(" — ").append(n);
         }
-        Airstrike.LOG.warn("Остановка: генерация чанков не кончилась за {} с, держателей занято:{} — выход, вероятно, зависнет на «Saving worlds»",
+        Airstrike.LOG.warn("Shutdown: chunk generation not finished within {} s, holders busy:{} — exit will probably hang at \"Saving worlds\"",
                 LIMIT_NANOS / 1_000_000_000L, s);
     }
 
@@ -76,7 +76,7 @@ public final class StopDrain {
                 report = now + REPORT_NANOS;
                 int n = 0;
                 for (ServerLevel level : levels) n += inFlight(level);
-                Airstrike.LOG.info("Остановка: жду генерацию чанков, начатую до выхода (держателей занято {})", n);
+                Airstrike.LOG.info("Shutdown: waiting for chunk generation started before exit (holders busy {})", n);
             }
             // слои генерации идут в потоках генерации, ввода-вывода и света; задачи потоку сервера они пришлют сами
             LockSupport.parkNanos(1_000_000L);

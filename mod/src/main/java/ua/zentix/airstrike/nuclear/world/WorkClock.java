@@ -72,7 +72,7 @@ public final class WorkClock {
 
     /** То же на своём источнике времени (проверки). */
     public static WorkClock decaying(LongSupplier time, double tickDecay) {
-        if (!(tickDecay > 0 && tickDecay <= 1)) throw new IllegalArgumentException("tickDecay " + tickDecay + " вне (0, 1]");
+        if (!(tickDecay > 0 && tickDecay <= 1)) throw new IllegalArgumentException("tickDecay " + tickDecay + " outside (0, 1]");
         return new WorkClock(time, 0, tickDecay);
     }
 

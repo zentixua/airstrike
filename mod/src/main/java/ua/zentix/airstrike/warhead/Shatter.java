@@ -389,6 +389,6 @@ final class Shatter implements UnitQueue.Job {
 
     @Override
     public String describe() {
-        return "Стёкла у " + Mth.floor(centre.x) + " " + Mth.floor(centre.y) + " " + Mth.floor(centre.z);
+        return "Glass at " + Mth.floor(centre.x) + " " + Mth.floor(centre.y) + " " + Mth.floor(centre.z);
     }
 }

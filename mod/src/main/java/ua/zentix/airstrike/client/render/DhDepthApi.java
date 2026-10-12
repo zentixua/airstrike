@@ -34,7 +34,7 @@ final class DhDepthApi {
     static boolean supported() {
         int major = DhApi.getApiMajorVersion(), minor = DhApi.getApiMinorVersion();
         if (major == API_MAJOR && minor >= API_MINOR) return true;
-        Airstrike.LOG.warn("Distant Horizons {}: API {}.{}, мод собран под {}.{}+ — рельеф DH не закрывает дым и взрывы вдали",
+        Airstrike.LOG.warn("Distant Horizons {}: API {}.{}, the mod is built for {}.{}+ — DH terrain does not hide distant smoke and blasts",
                 DhApi.getModVersion(), major, minor, API_MAJOR, API_MINOR);
         return false;
     }

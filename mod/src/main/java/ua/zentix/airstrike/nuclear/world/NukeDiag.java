@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Диагностика зоны за волной для прогонов на ноутбуке: только считает и пишет строки «ДИАГ …», поведение не меняет.
+ * Диагностика зоны за волной для прогонов на ноутбуке: только считает и пишет строки «DIAG …», поведение не меняет.
  * Включается свойством JVM {@code -Dairstrike.nukeDiag=true}; без него ни одной строки и ни одного потока.
  * Не состояние мира — замер (как {@code WorkScheduler.ownNanos}).
  */
@@ -20,15 +20,15 @@ public final class NukeDiag {
 
     /** Почему работа чанка в очереди руин отложена (счёт попыток за окно отчёта). */
     enum Wait {
-        BELOW_FULL("сам ниже полной загрузки"),
-        SERVER_PLAN("план в потоке сервера ждёт окна REACH"),
-        PLAN_R1("готовый план ждёт соседей r1"),
-        PLAN_R2("готовый план ждёт соседей r2"),
-        WINDOW("окно читается с диска"),
-        ADMIT("пул фона полон"),
-        BACKGROUND("план строится в фоне"),
-        SUBMIT("снимки не отданы"),
-        AGAIN("ещё единица (разлом/устарел)");
+        BELOW_FULL("chunk itself below full load"),
+        SERVER_PLAN("server-thread plan waits for the REACH window"),
+        PLAN_R1("finished plan waits for neighbours r1"),
+        PLAN_R2("finished plan waits for neighbours r2"),
+        WINDOW("window being read from disk"),
+        ADMIT("background pool full"),
+        BACKGROUND("plan building in the background"),
+        SUBMIT("snapshots not submitted"),
+        AGAIN("another unit (fracture/stale)");
 
         final String text;
 
@@ -78,8 +78,8 @@ public final class NukeDiag {
         }
         java.util.Arrays.fill(WAITS, 0);
         long n = READS.getAndSet(0), sum = READ_NANOS.getAndSet(0), max = READ_MAX.getAndSet(0);
-        return (sb.isEmpty() ? "нет" : sb) + "; чтений с диска (окна и дальние кольца) " + n + " (в среднем " + (n == 0 ? 0 : sum / n / 1_000_000) + " мс, самое долгое "
-                + max / 1_000_000 + " мс, в работе " + READS_IN_FLIGHT.get() + ", в пуле фона задач " + RuinWorkers.inFlight() + " из " + RuinWorkers.capacity() + ")";
+        return (sb.isEmpty() ? "none" : sb) + "; disk reads (windows and far rings) " + n + " (avg " + (n == 0 ? 0 : sum / n / 1_000_000) + " ms, longest "
+                + max / 1_000_000 + " ms, in flight " + READS_IN_FLIGHT.get() + ", background pool tasks " + RuinWorkers.inFlight() + " of " + RuinWorkers.capacity() + ")";
     }
 
     /**
@@ -95,13 +95,13 @@ public final class NukeDiag {
             java.lang.reflect.Field writes = type.getDeclaredField("pendingWrites"), mailbox = type.getDeclaredField("mailbox");
             writes.setAccessible(true);
             mailbox.setAccessible(true);
-            queue = "записей ждёт " + ((Map<?, ?>) writes.get(worker)).size() + ", задач в очереди "
+            queue = "writes pending " + ((Map<?, ?>) writes.get(worker)).size() + ", mailbox tasks "
                     + ((net.minecraft.util.thread.ProcessorMailbox<?>) mailbox.get(worker)).size();
         } catch (ReflectiveOperationException | RuntimeException e) {
-            queue = "очередь не прочитана (" + e + ")";
+            queue = "queue unreadable (" + e + ")";
         }
         Runtime rt = Runtime.getRuntime();
-        return queue + "; чтений мода в работе " + READS_IN_FLIGHT.get() + "; куча " + ((rt.totalMemory() - rt.freeMemory()) >> 20) + " из " + (rt.maxMemory() >> 20) + " МБ";
+        return queue + "; mod reads in flight " + READS_IN_FLIGHT.get() + "; heap " + ((rt.totalMemory() - rt.freeMemory()) >> 20) + " of " + (rt.maxMemory() >> 20) + " MB";
     }
 
     // ---------------------------------------------------------------- долгий тик: стеки потока сервера
@@ -134,11 +134,11 @@ public final class NukeDiag {
         }
         StringBuilder sb = new StringBuilder();
         count.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue()).limit(3).forEach(en -> {
-            sb.append("\n  снимков ").append(en.getValue()).append(':');
+            sb.append("\n  samples ").append(en.getValue()).append(':');
             StackTraceElement[] st = full.get(en.getKey());
             for (int i = 0; i < Math.min(45, st.length); i++) sb.append("\n    at ").append(st[i]);
         });
-        Airstrike.LOG.info("ДИАГ долгий тик {} мс, снимков стека {}:{}", ms, got.size(), sb);
+        Airstrike.LOG.info("DIAG long tick {} ms, stack samples {}:{}", ms, got.size(), sb);
     }
 
     private static synchronized void startSampler(MinecraftServer server) {

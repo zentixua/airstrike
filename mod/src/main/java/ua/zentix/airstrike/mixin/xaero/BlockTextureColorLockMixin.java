@@ -29,7 +29,7 @@ public abstract class BlockTextureColorLockMixin {
     private int airstrike$lockColor(BlockState state, boolean flag, Level level, Registry<Block> blocks, BlockPos pos, Operation<Integer> original) {
         if (!airstrike$reported) {
             airstrike$reported = true;
-            Airstrike.LOG.info("Xaero: кэш цветов блоков xaerolib — под замком (первое обращение, поток {})", Thread.currentThread().getName());
+            Airstrike.LOG.info("Xaero: xaerolib block colour cache is guarded by a lock (first access, thread {})", Thread.currentThread().getName());
         }
         synchronized (this) {
             return original.call(state, flag, level, blocks, pos);

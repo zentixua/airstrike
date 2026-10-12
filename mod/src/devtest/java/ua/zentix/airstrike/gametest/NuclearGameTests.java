@@ -1095,14 +1095,14 @@ public final class NuclearGameTests {
     @GameTest(template = "range", timeoutTicks = 900, batch = "nuke_prep", skyAccess = true)
     public static void ruinsPreparedDuringFlightFallWithFront(GameTestHelper h) {
         ServerLevel level = h.getLevel();
-        // диагностика зоны за волной без -Dairstrike.nukeDiag=true молчит: ни строки «ДИАГ», ни потока снимков стека
+        // диагностика зоны за волной без -Dairstrike.nukeDiag=true молчит: ни строки «DIAG», ни потока снимков стека
         h.assertFalse(ua.zentix.airstrike.nuclear.world.NukeDiag.ON, "диагностика включена в GameTest");
         // очередь ввода-вывода диагностика читает отражением: поля IOWorker на месте (имена Mojang, как в игре)
         String io = ua.zentix.airstrike.nuclear.world.NukeDiag.io(level);
-        h.assertFalse(io.contains("не прочитана"), "диагностика ввода-вывода: " + io);
+        h.assertFalse(io.contains("unreadable"), "диагностика ввода-вывода: " + io);
         java.util.List<String> diag = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         Runnable unwatch = watchLog(line -> {
-            if (line.startsWith("ДИАГ")) diag.add(line);
+            if (line.startsWith("DIAG")) diag.add(line);
         });
         BlockPos glass = CENTER.west(16);
         h.setBlock(glass, Blocks.GLASS);
@@ -1612,7 +1612,7 @@ public final class NuclearGameTests {
      * ({@code processUnloads} → {@code pendingUnloads}), а сам чанк выгружает позже, когда его можно сохранить; тикет,
      * вернувшийся за это время, возвращает тот же чанк без {@code ChunkEvent.Load}. Очередь руин теряла такой чанк
      * навсегда: при постановке подрыва (чанк G — его не было среди видимых) и в работе (чанк F — работа снималась как
-     * с выгруженного), а готовый план держал квадрат зоны (ноутбук 01.10.2026: «не дождались 2»). Окно ожидания
+     * с выгруженного), а готовый план держал квадрат зоны (ноутбук 01.10.2026: «unplaced 2»). Окно ожидания
      * выгрузки задаётся здесь детерминированно: тик чанков без запаса времени ({@code ServerChunkCache.tick(() -> false,
      * false)}) переносит снятые держатели в {@code pendingUnloads}, но не выгружает их; очередь руин зовётся в том же
      * шаге, для F — с часами на тик после прихода волны. F и G — в 20 чанках от площадки: ближе тикеты площадки
@@ -1935,15 +1935,15 @@ public final class NuclearGameTests {
         // кто и что снял — строкой в лог (игра 02.10.2026: МБР, снятая «Отбоем» другого игрока, пропала из лога без следа)
         List<String> lines = new java.util.concurrent.CopyOnWriteArrayList<>();
         Runnable unwatch = watchLog(line -> {
-            if (line.startsWith("Отбой")) lines.add(line);
+            if (line.startsWith("Clear")) lines.add(line);
         });
         StrikeGameTests.afterTest(h, unwatch);
         int icbmId = NuclearEvents.get(level).scheduled().getFirst().id();
 
         ServerActions.clearAll(level.getServer(), false, "проверка");
         // числа — не точно: отбой снимает всё в мире, а в нём бывают снаряды и пусковые прежних партий
-        h.assertTrue(lines.size() == 1 && lines.getFirst().startsWith("Отбой — проверка: снарядов ") && lines.getFirst().contains(", пусковых ")
-                && !lines.getFirst().contains("МБР"), "строка обычного отбоя: " + lines);
+        h.assertTrue(lines.size() == 1 && lines.getFirst().startsWith("Clear — проверка: projectiles ") && lines.getFirst().contains(", launchers ")
+                && !lines.getFirst().contains("ICBM"), "строка обычного отбоя: " + lines);
         h.assertFalse(missileLauncher.isRemoved(), "обычный отбой убрал пусковую из-под ракеты с ядерной БЧ");
         h.assertTrue(droneLauncher.isRemoved(), "обычный отбой не убрал пустую пусковую");
         h.assertTrue(!icbm.isRemoved() && NuclearEvents.get(level).scheduled().size() == 1, "обычный отбой отменил МБР");
@@ -1953,8 +1953,8 @@ public final class NuclearGameTests {
                 && !VirtualFlights.get(level).flights().contains(conventionalVirtual), "обычный отбой не убрал обычные ракеты");
 
         ServerActions.clearAll(level.getServer(), true, "проверка");
-        h.assertTrue(lines.size() == 2 && lines.get(1).startsWith("Отбой с ядерными — проверка: снарядов ")
-                && lines.get(1).contains("МБР №" + icbmId + " (15 кт по "), "строка ядерного отбоя: " + lines);
+        h.assertTrue(lines.size() == 2 && lines.get(1).startsWith("Clear with nukes — проверка: projectiles ")
+                && lines.get(1).contains("ICBM #" + icbmId + " (15 kt at "), "строка ядерного отбоя: " + lines);
         h.assertTrue(icbm.isRemoved() && NuclearEvents.get(level).scheduled().isEmpty(), "ядерный отбой не отменил МБР");
         h.assertTrue(nuclearOnRail.isRemoved() && nuclearVirtual.isRemoved() && VirtualFlights.get(level).flights().isEmpty(),
                 "ядерный отбой не убрал ракеты с ядерной БЧ");

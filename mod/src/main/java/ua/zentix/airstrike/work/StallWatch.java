@@ -12,9 +12,9 @@ import java.util.Map;
 
 /**
  * Остановки потока сервера дольше {@link #STALL_MS} — в тике или между тиками (задачи чанков, пакеты игроков): когда
- * поток пошёл дальше, строка WARN «Поток сервера стоял N с» с самыми частыми местами по снимкам его стека. Ваниль пишет
- * только накопленное отставание («Can't keep up») и стек — лишь когда сервер падает через 60 с, а строка «Работа мода за
- * 30 с» видит только тики: в игре 03.10.2026 сервер стоял ~14 с между тиками, игроки отключились, и где он стоял, по
+ * поток пошёл дальше, строка WARN «Server thread stalled for N s» с самыми частыми местами по снимкам его стека. Ваниль пишет
+ * только накопленное отставание («Can't keep up») и стек — лишь когда сервер падает через 60 с, а строка «Mod work over
+ * 30 s» видит только тики: в игре 03.10.2026 сервер стоял ~14 с между тиками, игроки отключились, и где он стоял, по
  * логам узнать было нельзя.
  * <p>
  * Только замер, поведение не меняет. Поток-наблюдатель просыпается раз в {@link #SAMPLE_MS} и сравнивает отметку тика;
@@ -125,12 +125,12 @@ public final class StallWatch {
         }
         StringBuilder sb = new StringBuilder();
         count.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue()).limit(3).forEach(en -> {
-            sb.append("\n  снимков ").append(en.getValue()).append(':');
+            sb.append("\n  samples ").append(en.getValue()).append(':');
             StackTraceElement[] st = first.get(en.getKey());
             for (int i = 0; i < Math.min(40, st.length); i++) sb.append("\n    at ").append(st[i]);
         });
         reported++;
-        Airstrike.LOG.warn("Поток сервера стоял {} с {}, снимков стека {}:{}", String.format(Locale.ROOT, "%.1f", nanos / 1e9),
-                tick ? "в тике" : "между тиками", samples.size(), sb);
+        Airstrike.LOG.warn("Server thread stalled for {} s {}, stack samples {}:{}", String.format(Locale.ROOT, "%.1f", nanos / 1e9),
+                tick ? "in a tick" : "between ticks", samples.size(), sb);
     }
 }

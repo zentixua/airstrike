@@ -119,7 +119,7 @@ public final class DefenseWorld {
         flights.add(f);
         engaged.put(track.id(), f);
         level.playSound(null, rail.x, rail.y, rail.z, ModSounds.ROCKET_LAUNCH.get(), SoundSource.AMBIENT, 6f, 1.15f);
-        Airstrike.LOG.debug("ЗРК {} пустил ракету по {} {} в {} блоках", launcher, track.projectile().getType().getDescriptionId(), track.id(),
+        Airstrike.LOG.debug("SAM {} fired at {} {}, range {} blocks", launcher, track.projectile().getType().getDescriptionId(), track.id(),
                 (int) track.distance());
         show(level, f);
         return f;
@@ -131,7 +131,7 @@ public final class DefenseWorld {
             try {
                 f.tick(level, this);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Зенитная ракета у {} упала с ошибкой и убрана", BlockPos.containing(f.position()), e);
+                Airstrike.LOG.error("Interceptor at {} failed with an exception and was removed", BlockPos.containing(f.position()), e);
                 end(f, Interceptor.End.LOST);
             }
             if (!f.done()) show(level, f);
@@ -144,8 +144,8 @@ public final class DefenseWorld {
      */
     void burst(ServerLevel level, Interceptor f, Vec3 at, @Nullable StrikeProjectile target, Interceptor.End end) {
         boolean kill = end == Interceptor.End.KILL && target != null;
-        if (kill) target.intercepted(level, "ЗРК " + f.launcher());
-        Airstrike.LOG.debug("Зенитная ракета ЗРК {} по {}: {} у {}", f.launcher(), f.target(), end, BlockPos.containing(at));
+        if (kill) target.intercepted(level, "SAM " + f.launcher());
+        Airstrike.LOG.debug("Interceptor from SAM {} against {}: {} at {}", f.launcher(), f.target(), end, BlockPos.containing(at));
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z, AirstrikeConfig.SERVER.farRange.get(),
                 new S2C.Intercept(at, kill, kill ? Optional.of(target.getUUID()) : Optional.empty(), level.random.nextLong()));
         end(f, end);

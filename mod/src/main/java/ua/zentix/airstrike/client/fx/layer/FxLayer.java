@@ -80,19 +80,19 @@ public final class FxLayer {
             });
         } catch (IOException ex) {
             shader = null;
-            Airstrike.LOG.error("Шейдер слоя эффектов не загрузился: дыма, огня и дальней картинки не будет", ex);
+            Airstrike.LOG.error("Effects layer shader failed to load: no smoke, fire or far rendering", ex);
         }
         try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("fx_depth"), DefaultVertexFormat.POSITION), s -> SceneDepth.shader = s);
         } catch (IOException ex) {
             SceneDepth.shader = null;
-            Airstrike.LOG.error("Шейдер расстояния до мира не загрузился: дым без мягких краёв и не прячется за LOD Distant Horizons", ex);
+            Airstrike.LOG.error("Scene depth shader failed to load: smoke has no soft edges and is not hidden by Distant Horizons LODs", ex);
         }
         try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Airstrike.id("fx_probe"), SourceProbes.FORMAT), s -> SourceProbes.shader = s);
         } catch (IOException ex) {
             SourceProbes.shader = null;
-            Airstrike.LOG.error("Шейдер проб источников не загрузился: блик закрытого огня вдали не гаснет", ex);
+            Airstrike.LOG.error("Source probe shader failed to load: glare of hidden distant fire is not dimmed", ex);
         }
     }
 
@@ -191,7 +191,7 @@ public final class FxLayer {
         long spent = System.nanoTime() - start;
         if (warmup) {
             warmed = true;
-            Airstrike.LOG.info("Слой эффектов: прогрев {} мс", String.format(Locale.ROOT, "%.1f", spent / 1e6));
+            Airstrike.LOG.info("Effects layer: warm-up {} ms", String.format(Locale.ROOT, "%.1f", spent / 1e6));
             return;
         }
         frameNanos += spent;
@@ -207,7 +207,7 @@ public final class FxLayer {
 
     /** Время кадра слоя за прошлую секунду — для строки сценария. */
     public static String describeTiming() {
-        return String.format(Locale.ROOT, "квадратов %d, %.3f мс (самый долгий за секунду %.3f; без сборки мусора %.3f, процессор %.3f; кадров со сборкой %d), глубина: %s",
+        return String.format(Locale.ROOT, "quads %d, %.3f ms (longest in the second %.3f; without GC %.3f, CPU %.3f; frames with GC %d), depth: %s",
                 lastQuads, lastMean, lastMax, lastClean, Math.max(0, lastCleanCpu), lastCollected, SceneDepth.describe());
     }
 

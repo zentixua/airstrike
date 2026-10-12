@@ -59,7 +59,7 @@ public final class DhChunks {
             Api.forgetGenerators();
         } catch (LinkageError ex) {
             state = -1;
-            Airstrike.LOG.warn("Distant Horizons: не удалось забыть генераторы прошлых миров — они останутся в памяти до выхода из игры", ex);
+            Airstrike.LOG.warn("Distant Horizons: could not drop generators of previous worlds — they stay in memory until the game exits", ex);
         }
     }
 
@@ -77,12 +77,12 @@ public final class DhChunks {
         } catch (LinkageError e) {
             // API не то, под которое собран мод: до конца игры не трогаем
             state = -1;
-            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — LOD изменённых чанков обновится при их сохранении", e);
+            Airstrike.LOG.warn("Distant Horizons: API differs from the one the mod was built for — LODs of changed chunks will update when they are saved", e);
         } catch (RuntimeException e) {
             // разовый отказ (мир DH ещё не готов и т. п.): этот чанк — при сохранении, следующие — снова через API
             if (!logged) {
                 logged = true;
-                Airstrike.LOG.warn("Distant Horizons: обновление LOD изменённого чанка {} не прошло — он обновится при сохранении", chunk.getPos(), e);
+                Airstrike.LOG.warn("Distant Horizons: LOD update of changed chunk {} failed — it will update when saved", chunk.getPos(), e);
             }
         }
     }
@@ -114,7 +114,7 @@ public final class DhChunks {
                     // отказ API (мир DH не тот, DH только читает) — один раз в лог: в LOD руины придут при сохранении чанка
                     if (!r.success && !refused) {
                         refused = true;
-                        Airstrike.LOG.warn("Distant Horizons не принял изменённый чанк {}: {}", chunk.getPos(), r.message);
+                        Airstrike.LOG.warn("Distant Horizons rejected changed chunk {}: {}", chunk.getPos(), r.message);
                     }
                     return;
                 }

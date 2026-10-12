@@ -551,7 +551,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             age++;
             if (tracker == null) {
                 // сбой загрузки или спавна без launch(): летать некуда
-                Airstrike.LOG.warn("Снаряд {} {} у {} без цели (сбой загрузки или спавн без пуска) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
+                Airstrike.LOG.warn("Projectile {} {} at {} has no target (load failure or spawned without launch), removed", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -574,7 +574,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             holdTargetArea(level);
             syncSpeed();
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} {} в {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
+            Airstrike.LOG.error("Projectile {} {} at {} failed with an exception and was removed", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
@@ -588,7 +588,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         try {
             age++;
             if (tracker == null) {
-                Airstrike.LOG.warn("Снаряд {} {} вне мира у {} без цели (сбой загрузки) и убран", getType().getDescriptionId(), getUUID(), blockPosition());
+                Airstrike.LOG.warn("Projectile {} {} off-world at {} has no target (load failure), removed", getType().getDescriptionId(), getUUID(), blockPosition());
                 discard();
                 return;
             }
@@ -602,7 +602,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             checkSiren(level);
             holdTargetArea(level);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Снаряд {} {} вне мира у {} упал с ошибкой и убран", getType().getDescriptionId(), getUUID(), blockPosition(), e);
+            Airstrike.LOG.error("Projectile {} {} off-world at {} failed with an exception and was removed", getType().getDescriptionId(), getUUID(), blockPosition(), e);
             discard();
         }
     }
@@ -752,7 +752,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     protected final boolean waitForAimArea(Vec3 aim) {
         if (++areaWait > AREA_WAIT_LIMIT) {
-            Airstrike.LOG.warn("Снаряд {} {} не дождался загрузки района цели {} и убран", getType().getDescriptionId(), getUUID(),
+            Airstrike.LOG.warn("Projectile {} {} gave up waiting for target area {} to load, removed", getType().getDescriptionId(), getUUID(),
                     BlockPos.containing(aim));
             discard();
             return false;
@@ -827,7 +827,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      */
     public boolean recall(ServerLevel level) {
         if (!recallable()) return false;
-        Airstrike.LOG.debug("Снаряд {} {} самоликвидировался по отбою у {}", getType().getDescriptionId(), getUUID(), blockPosition());
+        Airstrike.LOG.debug("Projectile {} {} self-destructed on recall at {}", getType().getDescriptionId(), getUUID(), blockPosition());
         crash(level, position().add(flight.forward().scale(noseLength())));
         return true;
     }
@@ -856,12 +856,12 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * разбился о постройку у пусковой, в логе выглядел как пропавший.
      */
     protected final void crashUnarmed(ServerLevel level, Vec3 point) {
-        Airstrike.LOG.debug("Снаряд {} {} разбился до взведения у {} (фаза {})", getType().getDescriptionId(), getUUID(),
+        Airstrike.LOG.debug("Projectile {} {} crashed before arming at {} (phase {})", getType().getDescriptionId(), getUUID(),
                 BlockPos.containing(point), flightPhase());
         // курс — по 10°: у залпа с одной пусковой он общий, строка одна
         int course = Math.floorMod(Math.round(flight.yaw() / 10f) * 10, 360);
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.CRASHED, BlockPos.containing(point), targetLost(), 0,
-                "курс " + course + "°, фаза " + flightPhase().getSerializedName());
+                "heading " + course + "°, phase " + flightPhase().getSerializedName());
         crash(level, point);
     }
 
@@ -890,7 +890,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     private void onTargetLost(ServerLevel level) {
         BlockPos last = BlockPos.containing(tracker.point());
         int seconds = (int) (Math.max(0, rangeLeft()) / cruiseSpeed()) / 20;
-        Airstrike.LOG.debug("Снаряд {} {} у {} потерял цель, идёт в {}, запас на {} с", getType().getDescriptionId(), getUUID(),
+        Airstrike.LOG.debug("Projectile {} {} at {} lost its target, heading to {}, endurance {} s", getType().getDescriptionId(), getUUID(),
                 blockPosition(), last, seconds);
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(),
                 tracker.outOfReach() ? FlightLog.Event.LOST_OUT_OF_REACH : FlightLog.Event.LOST_GONE, last, true, seconds);
@@ -898,7 +898,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /** Запас хода кончился: в лог — строкой на залп ({@link FlightLog}), каждый снаряд — строкой DEBUG. */
     private void noteExpired(ServerLevel level, Vec3 aim, FlightLog.Event event) {
-        Airstrike.LOG.debug("Снаряд {} {} не долетел до {}, кончился запас хода ({}) у {}", getType().getDescriptionId(), getUUID(),
+        Airstrike.LOG.debug("Projectile {} {} did not reach {}, out of endurance ({}) at {}", getType().getDescriptionId(), getUUID(),
                 BlockPos.containing(aim), event, blockPosition());
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), event, BlockPos.containing(aim), targetLost(), 0);
     }
@@ -1043,7 +1043,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
         Vec3 next = pos.add(dir.scale(speed));
         if (next.y < level.getMinBuildHeight() - 64) {
-            Airstrike.LOG.warn("Снаряд {} {} ушёл ниже мира у {} и убран", getType().getDescriptionId(), getUUID(), blockPosition());
+            Airstrike.LOG.warn("Projectile {} {} fell below the world at {}, removed", getType().getDescriptionId(), getUUID(), blockPosition());
             discard();
             return false;
         }
@@ -1093,7 +1093,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (ground != null) {
             // мимо цели (или цель под землёй): вне мира столкновений нет, и снаряд падал бы без взрыва до конца запаса
             // хода или до низа мира (бомба на точку позади B-2 — до y=−3022); путь кончается на поверхности
-            Airstrike.LOG.info("Снаряд {} {} вне мира дошёл до поверхности у {}, цель {}", getType().getDescriptionId(), getUUID(),
+            Airstrike.LOG.info("Projectile {} {} reached the surface off-world at {}, target {}", getType().getDescriptionId(), getUUID(),
                     BlockPos.containing(ground), BlockPos.containing(aim));
             grounded = ground;
             moveAlong(level, ground, dir);
@@ -1222,8 +1222,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         RemovalReason reason = getRemovalReason();
         if (level() instanceof ServerLevel level && level.getServer().isRunning() && isActive()
                 && (reason == null || reason == RemovalReason.UNLOADED_TO_CHUNK)) {
-            Airstrike.LOG.warn("Снаряд {} {} в полёте выгружен вместе с чанком у {} ({})", getType().getDescriptionId(), getUUID(), blockPosition(),
-                    reason == null ? "чанк перестал отслеживаться" : "чанк выгружен");
+            Airstrike.LOG.warn("Projectile {} {} unloaded in flight with its chunk at {} ({})", getType().getDescriptionId(), getUUID(), blockPosition(),
+                    reason == null ? "chunk no longer tracked" : "chunk unloaded");
         }
         super.onRemovedFromLevel();
         releaseTickets();
@@ -1259,7 +1259,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // кем — первый вызов не из самой сущности (discard, kill)
         String who = frames.stream().map(StackWalker.StackFrame::getClassName).filter(c -> !c.startsWith("net.minecraft.world.entity."))
                 .findFirst().orElse("?");
-        Airstrike.LOG.debug("Снаряд {} {} у {} (фаза {}) убран не модом ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
+        Airstrike.LOG.debug("Projectile {} {} at {} (phase {}) removed externally ({}): {}", getType().getDescriptionId(), getUUID(), blockPosition(),
                 flightPhase(), reason, by);
         if (level() instanceof ServerLevel level) {
             StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.REMOVED, blockPosition(), targetLost(), 0,
@@ -1312,7 +1312,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
             impact(level, position(), null);
             return;
         }
-        Airstrike.LOG.debug("Снаряд {} {} сбит до взведения у {} (фаза {}, урон {})", getType().getDescriptionId(), getUUID(),
+        Airstrike.LOG.debug("Projectile {} {} shot down before arming at {} (phase {}, damage {})", getType().getDescriptionId(), getUUID(),
                 blockPosition(), flightPhase(), source.getMsgId());
         StrikeWorld.get(level).flightLog().note(getType().getDescriptionId(), FlightLog.Event.SHOT_DOWN, blockPosition(), targetLost(), 0,
                 source.getMsgId());

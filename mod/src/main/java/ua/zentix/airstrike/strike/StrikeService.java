@@ -143,7 +143,7 @@ public final class StrikeService {
             case ROCKET -> launchRocket(level, target, point, approachYaw, owner, shooter, stand);
             case LOITER -> launchLoiter(level, target, point, approachYaw, owner, shooter, stand, via);
             case BOMBER -> launchBomber(level, target, point, approachYaw, owner);
-            case ICBM -> throw new IllegalStateException("МБР пускает NuclearStrikes");
+            case ICBM -> throw new IllegalStateException("ICBMs are launched by NuclearStrikes");
         };
         if (p == null) return Result.FAILED;
         p.setNuclear(warhead);
@@ -426,12 +426,12 @@ public final class StrikeService {
     private static void noLaunchSite(ServerLevel level, LaunchSite.Post post, @Nullable ServerPlayer shooter, WeaponType weapon,
                                      LaunchSite.Budget budget) {
         if (!StrikeWorld.get(level).rememberNoLaunchSite(post.owner(), weapon, post.chunk())) return;
-        String why = budget.out() ? "проверки сектора пуска дошли до предела в " + LaunchSite.Budget.CELLS + " клеток"
-                : "нет места или сектор пуска упирается в постройки";
-        String who = shooter != null ? shooter.getGameProfile().getName() : "консоли";
-        Airstrike.LOG.info("Пуск: {} — пусковую {} негде поставить ({}) у {}, {}", weapon.getSerializedName(),
-                post.ordered() ? "на месте пуска" : "у " + who, why, BlockPos.containing(post.center()),
-                post.ordered() ? "старт оттуда без неё" : "заход издалека");
+        String why = budget.out() ? "launch sector checks hit the limit of " + LaunchSite.Budget.CELLS + " cells"
+                : "no room, or the launch sector is blocked by buildings";
+        String who = shooter != null ? shooter.getGameProfile().getName() : "the console";
+        Airstrike.LOG.info("Launch: {} — no place for a launcher {} ({}) at {}, {}", weapon.getSerializedName(),
+                post.ordered() ? "at the ordered launch point" : "near " + who, why, BlockPos.containing(post.center()),
+                post.ordered() ? "launching from there without it" : "coming in from afar");
         if (shooter != null) {
             shooter.displayClientMessage(Component.translatable(post.ordered() ? "airstrike.launch.no_site.ordered" : "airstrike.launch.no_site")
                     .withStyle(ChatFormatting.GOLD), true);
@@ -627,32 +627,32 @@ public final class StrikeService {
                            @Nullable LaunchOrigin from) {
         StringBuilder route = new StringBuilder();
         switch (from) {
-            case LaunchOrigin.Place p -> route.append(", пуск с ").append(Mth.floor(p.at().x)).append(' ').append(Mth.floor(p.at().z));
-            case LaunchOrigin.Fixed f -> route.append(", с пусковой ").append(f.pos().toShortString());
+            case LaunchOrigin.Place p -> route.append(", launch from ").append(Mth.floor(p.at().x)).append(' ').append(Mth.floor(p.at().z));
+            case LaunchOrigin.Fixed f -> route.append(", from launcher ").append(f.pos().toShortString());
             case null -> {}
         }
         for (int i = 0; i < via.size(); i++) {
             Vec3 q = via.points().get(i);
-            route.append(i == 0 ? ", маршрут " : " → ").append(Mth.floor(q.x)).append(' ').append(Mth.floor(q.z));
+            route.append(i == 0 ? ", route " : " → ").append(Mth.floor(q.x)).append(' ').append(Mth.floor(q.z));
         }
-        Airstrike.LOG.info("Удар: {} ×{} разброс {} по {} {} {} ({}{}) — {}", weapon.getSerializedName(), count, spread,
+        Airstrike.LOG.info("Strike: {} ×{} spread {} at {} {} {} ({}{}) — {}", weapon.getSerializedName(), count, spread,
                 Mth.floor(point.x), Mth.floor(point.y), Mth.floor(point.z), describe(level, target), route, who);
     }
 
-    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат; у замеченной — «по месту, где видели». */
+    /** Цель для лога: точка, место с карты, игрок по нику, сущность по типу, аппарат; у замеченной — «at last seen place». */
     private static String describe(ServerLevel level, Target target) {
         return switch (target) {
-            case Target.Point p -> "точка";
-            case Target.Ground g -> "место с карты";
+            case Target.Point p -> "point";
+            case Target.Ground g -> "map spot";
             case Target.OfEntity e -> {
                 // игрок — где бы он ни был (удар по игроку в другом измерении)
                 ServerPlayer player = level.getServer().getPlayerList().getPlayer(e.uuid());
-                if (player != null) yield "игрок " + player.getGameProfile().getName();
+                if (player != null) yield "player " + player.getGameProfile().getName();
                 Entity ent = level.getEntity(e.uuid());
-                yield ent == null ? "сущность " + e.uuid() : "сущность " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
+                yield ent == null ? "entity " + e.uuid() : "entity " + BuiltInRegistries.ENTITY_TYPE.getKey(ent.getType());
             }
-            case Target.OfSubLevel s -> "аппарат";
-            case Target.Sighted s -> describe(level, s.quarry()) + " по месту, где видели";
+            case Target.OfSubLevel s -> "aircraft";
+            case Target.Sighted s -> describe(level, s.quarry()) + " at last seen place";
         };
     }
 

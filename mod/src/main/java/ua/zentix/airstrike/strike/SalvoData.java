@@ -72,7 +72,7 @@ public final class SalvoData extends SavedData {
             Salvo s = it.next();
             if (owner != null && !owner.equals(s.owner)) continue;
             it.remove();
-            refund(s, online, "залп отменён");
+            refund(s, online, "salvo cancelled");
             n++;
         }
         if (n > 0) setDirty();
@@ -125,8 +125,8 @@ public final class SalvoData extends SavedData {
             try {
                 return !s.tick(level);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Залп упал с ошибкой и отменён", e);
-                refund(s, level.getServer().getPlayerList().getPlayers(), "залп упал с ошибкой");
+                Airstrike.LOG.error("Salvo failed with an exception and was cancelled", e);
+                refund(s, level.getServer().getPlayerList().getPlayers(), "salvo failed with an exception");
                 return true;
             }
         });
@@ -218,9 +218,9 @@ public final class SalvoData extends SavedData {
                 // стационарная пусковая: её чанк не готов — ждать (пауза залпа не идёт), блока нет — залп кончен
                 if (!Terrain.ready(level, fixed.pos())) return true;
                 if (fixed.launcher(level) == null) {
-                    Airstrike.LOG.info("Залп: {} — пусковой {} нет на месте, остаток ({}) отменён", weapon.getSerializedName(),
+                    Airstrike.LOG.info("Salvo: {} — launcher {} is gone, remaining {} cancelled", weapon.getSerializedName(),
                             fixed.pos().toShortString(), remaining);
-                    refund(this, level.getServer().getPlayerList().getPlayers(), "пусковой нет на месте");
+                    refund(this, level.getServer().getPlayerList().getPlayers(), "launcher is gone");
                     return false;
                 }
             }
@@ -231,7 +231,7 @@ public final class SalvoData extends SavedData {
                     ownerPlayer.displayClientMessage(Component.translatable("airstrike.salvo.done").withStyle(ChatFormatting.GRAY), true);
                     PacketDistributor.sendToPlayer(ownerPlayer, new S2C.SalvoStatus(weapon.id(), total, total));
                 }
-                if (failed > 0) refund(this, level.getServer().getPlayerList().getPlayers(), "пуски залпа не удались");
+                if (failed > 0) refund(this, level.getServer().getPlayerList().getPlayers(), "salvo launches failed");
                 return false;
             }
             if (!fire(level).ok()) failed++;
@@ -252,7 +252,7 @@ public final class SalvoData extends SavedData {
             if (last != null && died(last)) {
                 center = new Target.Point(lastCenter);
                 followed = null;
-                Airstrike.LOG.info("Залп: {} — цель {} погибла, остаток ({}) — по её последней точке {}", weapon.getSerializedName(),
+                Airstrike.LOG.info("Salvo: {} — target {} died, remaining {} go to its last position {}", weapon.getSerializedName(),
                         target.uuid(), remaining, BlockPos.containing(lastCenter));
                 return;
             }

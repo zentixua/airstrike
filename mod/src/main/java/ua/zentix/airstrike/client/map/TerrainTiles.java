@@ -502,7 +502,7 @@ public final class TerrainTiles {
                 if (t.buildingSince != 0) oldest = Math.max(oldest, now - t.buildingSince);
             }
             if (!b.isEmpty()) b.append("; ");
-            b.append(String.format(Locale.ROOT, "%s: плиток %d, с рельефом %d, в среднем %.0f мс, из мелких %d, в памяти %d, строится %d (дольше всех %.1f с)",
+            b.append(String.format(Locale.ROOT, "%s: tiles %d, with terrain %d, avg %.0f ms, composed from smaller %d, in memory %d, building %d (longest %.1f s)",
                     layer.name, layer.built, layer.withData, layer.built == 0 ? 0.0 : layer.buildNanos / 1e6 / layer.built,
                     layer.composed, layer.tiles.size(), layer.jobs, oldest / 1e9));
             String src = layer.source.describe();
@@ -550,7 +550,7 @@ public final class TerrainTiles {
             if (distantHorizons) DistantHorizonsTerrain.subscribe();
         } catch (LinkageError e) {
             // API DH без нужных классов или методов (DH новее, чем мод знает): игра грузится, рельеф — из чанков
-            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — дальний рельеф на карте выключен", e);
+            Airstrike.LOG.warn("Distant Horizons: API differs from the one the mod was built for — far terrain on the map is off", e);
             distantHorizons = false;
         }
     }
@@ -786,10 +786,10 @@ public final class TerrainTiles {
         try (reader) {
             result = build(key, gen, reader, cancelled);
         } catch (RuntimeException e) {
-            Airstrike.LOG.warn("Карта: плитка {} ({}) не построена", key, layer.name, e);
+            Airstrike.LOG.warn("Map: tile {} ({}) not built", key, layer.name, e);
         } catch (LinkageError e) {
             // другая версия API DH, чем при сборке: источник выключается до смены мира
-            Airstrike.LOG.error("Карта: источник {} несовместим, рельеф из него выключен", layer.name, e);
+            Airstrike.LOG.error("Map: source {} is incompatible, terrain from it is off", layer.name, e);
             layer.broken = true;
         } finally {
             layer.done.add(result);
@@ -799,7 +799,7 @@ public final class TerrainTiles {
     private static void stalled(Layer layer, Tile t, long now) {
         if (layer.stallLogged || now - t.buildingSince < STALL_NS) return;
         layer.stallLogged = true;
-        Airstrike.LOG.warn("Карта: источник {} не отдаёт плитку {} дольше {} с — рельеф вдали появится, когда он ответит; {}",
+        Airstrike.LOG.warn("Map: source {} has not delivered tile {} for over {} s — far terrain will appear when it answers; {}",
                 layer.name, t.key, STALL_NS / 1_000_000_000L, stats());
     }
 
@@ -848,7 +848,7 @@ public final class TerrainTiles {
             if (c != null && !c.empty()) layer.withData++;
             if (c != null && !c.empty() && !layer.firstLogged) {
                 layer.firstLogged = true;
-                Airstrike.LOG.info("Карта: первая плитка с рельефом из {} — {} за {} мс; {}", layer.name, b.key, b.nanos / 1_000_000, stats());
+                Airstrike.LOG.info("Map: first tile with terrain from {} — {} in {} ms; {}", layer.name, b.key, b.nanos / 1_000_000, stats());
             }
         }
         if (c == null) return;

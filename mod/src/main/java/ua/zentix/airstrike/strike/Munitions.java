@@ -205,7 +205,7 @@ public final class Munitions {
                 if (!opening.isEmpty()) store.put(opening);
             }
         }
-        if (rounds > 0) throw new IllegalStateException("снято меньше, чем проверено: не хватило " + rounds);
+        if (rounds > 0) throw new IllegalStateException("took fewer rounds than checked: short by " + rounds);
     }
 
     /** Вернуть оплаченное в запас {@code store}. */
@@ -251,13 +251,13 @@ public final class Munitions {
         for (ServerPlayer p : online) {
             if (p.getUUID().equals(owner)) {
                 refund(p, bill);
-                Airstrike.LOG.info("Возврат боеприпасов ({}): {} ×{}{} — {}", why, bill.weapon().getSerializedName(), bill.shots(),
-                        bill.warheads() > 0 ? ", ядерных БЧ ×" + bill.warheads() : "", p.getGameProfile().getName());
+                Airstrike.LOG.info("Munitions refund ({}): {} ×{}{} — {}", why, bill.weapon().getSerializedName(), bill.shots(),
+                        bill.warheads() > 0 ? ", nuclear warheads ×" + bill.warheads() : "", p.getGameProfile().getName());
                 return;
             }
         }
-        Airstrike.LOG.info("Возврат боеприпасов ({}): {} ×{}{} не возвращены — владелец {} не в сети", why, bill.weapon().getSerializedName(),
-                bill.shots(), bill.warheads() > 0 ? ", ядерных БЧ ×" + bill.warheads() : "", owner);
+        Airstrike.LOG.info("Munitions refund ({}): {} ×{}{} not returned — owner {} is offline", why, bill.weapon().getSerializedName(),
+                bill.shots(), bill.warheads() > 0 ? ", nuclear warheads ×" + bill.warheads() : "", owner);
     }
 
     /** Отдать {@code rounds} снарядов: сперва дополнить начатые пакеты (отменённый залп возвращает пакет целым), затем предметами. */

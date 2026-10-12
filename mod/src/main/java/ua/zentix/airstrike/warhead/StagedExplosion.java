@@ -617,7 +617,7 @@ final class StagedExplosion implements UnitQueue.Job {
                 e.getBlockInteraction(), e.getSmallExplosionParticles(), e.getLargeExplosionParticles(), e.getExplosionSound()));
     }
 
-    /** Сколько блоков сняла последняя порция (блок, сменившийся с лучей, не в счёт) — для «снято блоков». */
+    /** Сколько блоков сняла последняя порция (блок, сменившийся с лучей, не в счёт) — для «blocks removed». */
     private int blown;
 
     /**
@@ -722,6 +722,6 @@ final class StagedExplosion implements UnitQueue.Job {
 
     @Override
     public String describe() {
-        return String.format(Locale.ROOT, "Взрыв силы %.0f у %d %d %d", power, Mth.floor(at.x), Mth.floor(at.y), Mth.floor(at.z));
+        return String.format(Locale.ROOT, "Explosion of power %.0f at %d %d %d", power, Mth.floor(at.x), Mth.floor(at.y), Mth.floor(at.z));
     }
 }

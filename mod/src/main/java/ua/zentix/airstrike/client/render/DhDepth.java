@@ -50,7 +50,7 @@ public final class DhDepth {
             if (enabled) DhDepthApi.subscribe();
         } catch (LinkageError e) {
             // API DH без нужных классов или методов: игра грузится, дым вдали не прячется за LOD
-            Airstrike.LOG.warn("Distant Horizons: API не то, под которое собран мод, — рельеф DH не закрывает дым и взрывы вдали", e);
+            Airstrike.LOG.warn("Distant Horizons: API differs from the one the mod was built for — DH terrain does not hide distant smoke and blasts", e);
             enabled = false;
         }
     }

@@ -86,6 +86,6 @@ public final class FlashbackReplay {
     private static void off(Throwable ex) {
         if (serverClass == null && looked) return;
         serverClass = null;
-        Airstrike.LOG.warn("Flashback: не читаются члены сервера повтора ({}) — перемотку повтора мод не узнает, события в нём идут как живые", ex.toString());
+        Airstrike.LOG.warn("Flashback: cannot read replay server members ({}) — the mod will not detect replay seeking, replay events play as live", ex.toString());
     }
 }

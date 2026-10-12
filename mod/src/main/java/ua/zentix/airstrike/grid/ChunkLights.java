@@ -121,7 +121,7 @@ public final class ChunkLights {
                     reverted++;
                     if (!revertLogged) {
                         revertLogged = true;
-                        Airstrike.LOG.warn("Блэкаут: в {} поставлен {}, а стоит {} — блок меняет другой мод; такие лампы пропускаются", p, to, now);
+                        Airstrike.LOG.warn("Blackout: {} was set to {}, but holds {} — another mod changes the block; such lamps are skipped", p, to, now);
                     }
                     continue;
                 }

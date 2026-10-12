@@ -130,8 +130,8 @@ final class FarZone {
             Tile t = it.next();
             long age = now - t.heldAt;
             if (!t.ready && age > loadLimit || age > HOLD_LIMIT) {
-                Airstrike.LOG.warn("LOD вдали: квадрат {} держался {} тиков ({}) — отпущен без руин всех чанков", t.centre, age,
-                        t.ready ? "руины не встали" : "генерация не кончилась");
+                Airstrike.LOG.warn("Far LODs: tile {} held for {} ticks ({}), released before all its chunks got ruins", t.centre, age,
+                        t.ready ? "ruins not placed" : "generation not finished");
                 expired++;
                 it.remove();
                 release(level, t);
@@ -217,8 +217,8 @@ final class FarZone {
 
     /** Для строки в лог: квадратов ждёт, держится, взято, отпущено, по сроку, брошено; средние тики генерации и до отпуска. */
     String summary() {
-        return "квадратов ждёт " + waiting.size() + ", держится " + held.size() + ", взято " + taken + ", отпущено " + released + " (по сроку " + expired
-                + "), брошено без игроков " + dropped + "; генерация в среднем " + (loaded == 0 ? 0 : loadTicks / loaded) + " тиков, до отпуска "
+        return "tiles waiting " + waiting.size() + ", held " + held.size() + ", taken " + taken + ", released " + released + " (timed out " + expired
+                + "), dropped without players " + dropped + "; generation avg " + (loaded == 0 ? 0 : loadTicks / loaded) + " ticks, until release "
                 + (released == 0 ? 0 : holdTicks / released);
     }
 

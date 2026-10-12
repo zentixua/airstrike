@@ -137,8 +137,8 @@ final class DiskShots {
      */
     static CompletableFuture<Read> read(Format f, ChunkPos pos) {
         long diag = NukeDiag.readStart();
-        return f.storage.read(pos).whenComplete((t, e) -> NukeDiag.readDone(diag)).thenApplyAsync(tag -> tag.map(t -> parse(f, pos, t)).orElseGet(() -> Read.skipped(pos, "нет на диске")),
-                RuinWorkers.executor()).exceptionally(e -> Read.skipped(pos, "ошибка чтения: " + e));
+        return f.storage.read(pos).whenComplete((t, e) -> NukeDiag.readDone(diag)).thenApplyAsync(tag -> tag.map(t -> parse(f, pos, t)).orElseGet(() -> Read.skipped(pos, "not on disk")),
+                RuinWorkers.executor()).exceptionally(e -> Read.skipped(pos, "read error: " + e));
     }
 
     /** Разобрать данные чанка (любой поток). */
@@ -179,7 +179,7 @@ final class DiskShots {
             int index = section.getByte("Y") - f.minSection;
             if (index < 0 || index >= f.sections || !section.contains("block_states", Tag.TAG_COMPOUND)) continue;
             Optional<PalettedContainer<BlockState>> parsed = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, section.getCompound("block_states")).result();
-            if (parsed.isEmpty()) return Read.skipped(pos, "секция " + index + " не разобрана");
+            if (parsed.isEmpty()) return Read.skipped(pos, "section " + index + " not parsed");
             PalettedContainer<BlockState> c = parsed.get();
             if (c.maybeHas(st -> !st.isAir())) states[index] = c;
         }
@@ -191,13 +191,13 @@ final class DiskShots {
 
     private static Checked check(Format f, CompoundTag tag) {
         // как на диске, до обновления версии: то же правило, что у заголовка (DiskStatus.scan)
-        if (!DiskStatus.of(tag).blocksFinal()) return new Checked(tag, "не догенерирован на диске");
+        if (!DiskStatus.of(tag).blocksFinal()) return new Checked(tag, "not fully generated on disk");
         int version = ChunkStorage.getVersion(tag);
         if (version != SharedConstants.getCurrentVersion().getDataVersion().getVersion()) {
             try {
                 tag = f.storage.upgradeChunkTag(f.dimension, () -> null, tag, f.generator);
             } catch (RuntimeException e) {
-                return new Checked(tag, "не обновились данные версии " + version);
+                return new Checked(tag, "data upgrade failed from version " + version);
             }
         }
         return new Checked(tag, null);
@@ -211,8 +211,8 @@ final class DiskShots {
     record Sections(ChunkPos pos, LevelChunkSection[] sections, @Nullable String skip) {}
 
     static CompletableFuture<Sections> readSections(Format f, ChunkPos pos) {
-        return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseSections(f, pos, t)).orElseGet(() -> new Sections(pos, new LevelChunkSection[0], "нет на диске")),
-                RuinWorkers.executor()).exceptionally(e -> new Sections(pos, new LevelChunkSection[0], "ошибка чтения: " + e));
+        return f.storage.read(pos).thenApplyAsync(tag -> tag.map(t -> parseSections(f, pos, t)).orElseGet(() -> new Sections(pos, new LevelChunkSection[0], "not on disk")),
+                RuinWorkers.executor()).exceptionally(e -> new Sections(pos, new LevelChunkSection[0], "read error: " + e));
     }
 
     static Sections parseSections(Format f, ChunkPos pos, CompoundTag raw) {
@@ -229,7 +229,7 @@ final class DiskShots {
             PalettedContainer<BlockState> states;
             if (section.contains("block_states", Tag.TAG_COMPOUND)) {
                 Optional<PalettedContainer<BlockState>> parsed = BLOCK_STATE_CODEC.parse(NbtOps.INSTANCE, section.getCompound("block_states")).result();
-                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "секция " + index + " не разобрана");
+                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "section " + index + " not parsed");
                 states = parsed.get();
             } else {
                 states = new PalettedContainer<>(Block.BLOCK_STATE_REGISTRY, Blocks.AIR.defaultBlockState(), PalettedContainer.Strategy.SECTION_STATES);
@@ -237,7 +237,7 @@ final class DiskShots {
             PalettedContainerRO<Holder<Biome>> biomes;
             if (section.contains("biomes", Tag.TAG_COMPOUND)) {
                 Optional<PalettedContainerRO<Holder<Biome>>> parsed = biomeCodec.parse(NbtOps.INSTANCE, section.getCompound("biomes")).result();
-                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "биомы секции " + index + " не разобраны");
+                if (parsed.isEmpty()) return new Sections(pos, new LevelChunkSection[0], "biomes of section " + index + " not parsed");
                 biomes = parsed.get();
             } else {
                 biomes = new PalettedContainer<>(f.biomes.asHolderIdMap(), f.biomes.getHolderOrThrow(Biomes.PLAINS), PalettedContainer.Strategy.SECTION_BIOMES);

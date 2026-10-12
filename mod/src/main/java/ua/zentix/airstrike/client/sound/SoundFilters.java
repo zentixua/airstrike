@@ -149,7 +149,7 @@ public final class SoundFilters {
             if (AL10.alGetError() != AL10.AL_NO_ERROR) return -1;
             return f;
         } catch (RuntimeException | LinkageError ex) {
-            Airstrike.LOG.warn("OpenAL EFX недоступен — звуки будут без приглушения расстоянием и оглушения: {}", ex.toString());
+            Airstrike.LOG.warn("OpenAL EFX unavailable — no distance muffling or deafness for sounds: {}", ex.toString());
             return -1;
         }
     }

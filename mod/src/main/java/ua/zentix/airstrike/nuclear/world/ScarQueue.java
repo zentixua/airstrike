@@ -121,7 +121,7 @@ public final class ScarQueue {
     /** Тикетов с соседями за отпущенные квадраты зоны ({@link #holdForTile}) сразу, не больше. */
     private static final int TILE_HOLDS = 64;
     private int tileHolds;
-    /** Самое большое число {@link #tileHolds} разом (строка «ДИАГ»). */
+    /** Самое большое число {@link #tileHolds} разом (строка «DIAG»). */
     private int tileHoldsPeak;
 
     /** Радиус соседей, которых ждёт подмена, вернувшая {@code WAIT} ({@link RuinPlan#waitsNeighbours}). */
@@ -191,7 +191,7 @@ public final class ScarQueue {
     /**
      * Сколько тиков от первой просьбы чанка к игроку после прихода волны чанк без руин не уходит игроку ({@link #withholds}):
      * дольше — уходит как есть
-     * (и считается в сводке «ушло игроку до руин»), чтобы у игрока не оставалось дыр, если руины не встают.
+     * (и считается в сводке «sent to players before ruins»), чтобы у игрока не оставалось дыр, если руины не встают.
      */
     private static final int WITHHOLD_LIMIT = 200;
 
@@ -233,18 +233,18 @@ public final class ScarQueue {
         Long2ObjectOpenHashMap<RuinPlan> left = prepared.remove(detonation);
         long[] st = preparedStats.remove(detonation);
         if (st == null) st = new long[STATS];
-        Airstrike.LOG.info("Руины подрыва №{}: по готовому плану {}, план устарел {}, на месте {}, не дождались {}; отставание от волны до {} тиков "
-                        + "(у игроков до {}, у остальных до {}); подмена чанка в среднем {} мкс, самая долгая {} мс",
+        Airstrike.LOG.info("Ruins for detonation #{}: from prepared plan {}, stale plan {}, on the spot {}, unplaced {}; lag behind the wave up to {} ticks "
+                        + "(near players up to {}, elsewhere up to {}); chunk swap avg {} µs, longest {} ms",
                 detonation, st[0], st[1], st[6], left == null ? 0 : left.size(), Math.max(st[2], st[5]), st[2], st[5],
                 st[0] == 0 ? 0 : st[3] / st[0] / 1000, String.format(java.util.Locale.ROOT, "%.1f", st[4] / 1e6));
         if (st[6] > 0) {
-            Airstrike.LOG.info("Руины подрыва №{}: план и подмена на месте — в среднем {} мс, самые долгие {} мс", detonation, ms(st[7] / st[6]), ms(st[8]));
+            Airstrike.LOG.info("Ruins for detonation #{}: plan and swap on the spot — avg {} ms, longest {} ms", detonation, ms(st[7] / st[6]), ms(st[8]));
         }
-        criteria(detonation, st, "всё");
-        // строка «встали руины всех чанков, бывших в памяти» после сводки уже не пишется: её счётчики сняты вместе со сводкой
+        criteria(detonation, st, "final");
+        // строка «ruins placed for all chunks loaded at detonation» после сводки уже не пишется: её счётчики сняты вместе со сводкой
         var unplaced = awaitingMemory.remove(detonation);
         if (unplaced != null && !unplaced.isEmpty()) {
-            Airstrike.LOG.info("Руины подрыва №{}: из чанков в памяти при подрыве руин ещё нет у {} (ждут соседей у края загруженного мира)", detonation, unplaced.size());
+            Airstrike.LOG.info("Ruins for detonation #{}: {} chunks loaded at detonation still have no ruins (waiting for neighbours at the edge of the loaded world)", detonation, unplaced.size());
         }
         sentEarly.remove(detonation);
         atDetonation.remove(detonation);
@@ -260,17 +260,17 @@ public final class ScarQueue {
                 if (!zone.test(c)) continue;
                 inZone++;
                 // примеры — из зоны за волной: за её краем чанки ждут загрузки по замыслу
-                if (shown++ < 5) some.append(shown > 1 ? ", " : "").append(new ChunkPos(c)).append(inQueue ? " в очереди" : "");
+                if (shown++ < 5) some.append(shown > 1 ? ", " : "").append(new ChunkPos(c)).append(inQueue ? " queued" : "");
             }
-            Airstrike.LOG.info("Руины подрыва №{}: не дождались {} чанков (в зоне за волной {}, за её краем {}), из них в очереди {}{}", detonation,
-                    left.size(), inZone, left.size() - inZone, queued, inZone == 0 ? "" : "; в зоне: " + some);
+            Airstrike.LOG.info("Ruins for detonation #{}: unplaced {} chunks (in the zone behind the wave {}, beyond its edge {}), queued {}{}", detonation,
+                    left.size(), inZone, left.size() - inZone, queued, inZone == 0 ? "" : "; in the zone: " + some);
         }
         long[] ph = RuinPlan.PHASES;
-        Airstrike.LOG.info("Руины: подмены по частям (всего с запуска, мс) — проверка {}, секции {}, карты высот {}, свет и пакеты {}, блок-сущности {}",
+        Airstrike.LOG.info("Ruins: chunk swap by phase (total since start, ms) — check {}, sections {}, heightmaps {}, light and packets {}, block entities {}",
                 ph[0] / 1_000_000, ph[1] / 1_000_000, ph[2] / 1_000_000, ph[3] / 1_000_000, ph[4] / 1_000_000);
         if (RuinPlan.slowestWorldNanos > 0) {
-            Airstrike.LOG.info("Руины: дольше всего через мир — чанк {}: {} мест, {} мс (блок-сущности, POI, LOD Distant Horizons); "
-                            + "самый долгий блок {} — {} мс, LOD Distant Horizons {} мс",
+            Airstrike.LOG.info("Ruins: slowest through the world — chunk {}: {} cells, {} ms (block entities, POI, Distant Horizons LOD); "
+                            + "slowest block {} — {} ms, Distant Horizons LOD {} ms",
                     new ChunkPos(RuinPlan.slowestWorldChunk), RuinPlan.slowestWorldCells, ms(RuinPlan.slowestWorldNanos),
                     RuinPlan.slowestWorldBlock == null ? "—" : BuiltInRegistries.BLOCK.getKey(RuinPlan.slowestWorldBlock.getBlock()),
                     ms(RuinPlan.slowestWorldBlockNanos), ms(RuinPlan.slowestWorldDhNanos));
@@ -288,16 +288,16 @@ public final class ScarQueue {
      * Б: ушло игроку до руин): когда встали руины всех чанков, бывших в памяти при подрыве, и в конце.
      */
     private static void criteria(int detonation, long[] st, String when) {
-        Airstrike.LOG.info("Руины подрыва №{} ({}): отставание от волны у игроков до {} тиков, у остальных до {}; план устарел {}; "
-                + "игрок ждал руин чанка до {} тиков (от первой просьбы чанка после волны)", detonation, when, st[2], st[5], st[1], st[23]);
-        Airstrike.LOG.info("Руины подрыва №{}: в памяти при подрыве {} чанков, из них с загруженными соседями {}; по готовому плану {} ({} % от всех, "
-                        + "{} % из чанков с соседями); на экране игрока без соседей {}",
+        Airstrike.LOG.info("Ruins for detonation #{} ({}): lag behind the wave near players up to {} ticks, elsewhere up to {}; stale plan {}; "
+                + "a player waited for chunk ruins up to {} ticks (from the first chunk request after the wave)", detonation, when, st[2], st[5], st[1], st[23]);
+        Airstrike.LOG.info("Ruins for detonation #{}: {} chunks loaded at detonation, {} of them with loaded neighbours; from prepared plan {} ({} % of all, "
+                        + "{} % of chunks with neighbours); on a player's screen without neighbours {}",
                 detonation, st[9], st[10], st[11], percent(st[11], st[9]), percent(st[20], st[10]), st[19]);
-        Airstrike.LOG.info("Руины подрыва №{}: ушло игроку до руин: {} (разных чанков)", detonation, st[12]);
-        Airstrike.LOG.info("Руины подрыва №{}: окна с диска — прочитано соседей {}, нет на диске целыми {} (в окне — сплошной массив, как край мира)",
+        Airstrike.LOG.info("Ruins for detonation #{}: sent to players before ruins: {} (distinct chunks)", detonation, st[12]);
+        Airstrike.LOG.info("Ruins for detonation #{}: disk windows — neighbours read {}, not whole on disk {} (solid in the window, like the world edge)",
                 detonation, st[21], st[22]);
-        Airstrike.LOG.info("Руины подрыва №{}: загружены после подрыва {} чанков по плану на месте — руины после волны в среднем через {} тиков, самое большее через {}; "
-                        + "{} по готовому плану — в среднем через {}, самое большее через {}",
+        Airstrike.LOG.info("Ruins for detonation #{}: {} chunks loaded after detonation, planned on the spot — ruins avg {} ticks after the wave, max {}; "
+                        + "{} from prepared plan — avg {}, max {}",
                 detonation, st[13], st[13] == 0 ? 0 : st[14] / st[13], st[15], st[16], st[16] == 0 ? 0 : st[17] / st[16], st[18]);
     }
 
@@ -339,11 +339,11 @@ public final class ScarQueue {
     public String diagState(long chunk, long now) {
         Job j = jobs.get(chunk);
         if (j == null) return null;
-        if (background.contains(j)) return "план в фоне";
-        if (parked.containsKey(chunk)) return "план ждёт соседей, свой тикет r" + j.held;
-        if (j.waitsNeighbours) return "ждёт соседей, свой тикет r" + j.held + (j.mayHold ? "" : " (под чужим тикетом)");
-        if (j.ready) return readySeen.contains(j) ? "в очереди готовых, видимых" : "в очереди готовых";
-        return j.due > now ? "срок через " + (j.due - now) : "срок пришёл";
+        if (background.contains(j)) return "plan in the background";
+        if (parked.containsKey(chunk)) return "plan waits for neighbours, own ticket r" + j.held;
+        if (j.waitsNeighbours) return "waits for neighbours, own ticket r" + j.held + (j.mayHold ? "" : " (under another ticket)");
+        if (j.ready) return readySeen.contains(j) ? "in the ready queue, visible" : "in the ready queue";
+        return j.due > now ? "due in " + (j.due - now) : "due now";
     }
 
     /**
@@ -368,9 +368,9 @@ public final class ScarQueue {
         return true;
     }
 
-    /** Удержаний за отпущенные квадраты сейчас и самое большее разом (строка «ДИАГ»). */
+    /** Удержаний за отпущенные квадраты сейчас и самое большее разом (строка «DIAG»). */
     public String tileHoldsDiag() {
-        return "сейчас " + tileHolds + ", пик " + tileHoldsPeak + " из " + TILE_HOLDS;
+        return "now " + tileHolds + ", peak " + tileHoldsPeak + " of " + TILE_HOLDS;
     }
 
     /**
@@ -533,7 +533,7 @@ public final class ScarQueue {
         waiting.remove(chunk);
         if (!waiting.isEmpty()) return;
         awaitingMemory.remove(detonation);
-        criteria(detonation, preparedStats.computeIfAbsent(detonation, k -> new long[STATS]), "встали руины всех чанков, бывших в памяти при подрыве");
+        criteria(detonation, preparedStats.computeIfAbsent(detonation, k -> new long[STATS]), "ruins placed for all chunks loaded at detonation");
     }
 
     /** Выгружен: работа снимается (чанк с тикетом не выгружается — тикет снят раньше, в {@link #clear}). */
@@ -640,7 +640,7 @@ public final class ScarQueue {
                 }
             } catch (RuntimeException e) {
                 // чанки, загруженные потом, поставит onChunkLoad
-                Airstrike.LOG.error("Постановка чанков подрыва №{} в очередь упала с ошибкой; снята", scan.d.id(), e);
+                Airstrike.LOG.error("Queueing chunks of detonation #{} failed with an exception; dropped", scan.d.id(), e);
                 scans.poll();
                 continue;
             } finally {
@@ -692,7 +692,7 @@ public final class ScarQueue {
             try {
                 result = work(level, job, now);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Повреждения чанка {} упали с ошибкой; чанк снят с очереди", new ChunkPos(job.chunk), e);
+                Airstrike.LOG.error("Damage to chunk {} failed with an exception; chunk removed from the queue", new ChunkPos(job.chunk), e);
                 jobs.remove(job.chunk);
                 logs.remove(job.chunk);
                 release(level, job);
@@ -703,15 +703,15 @@ public final class ScarQueue {
                 // один чанк дольше 50 мс — это чужая задержка (загрузка чанка, сборщик мусора): в лог, не чаще раза в 5 с
                 if (took > 50_000_000L && now - lastSlowChunk >= 100) {
                     lastSlowChunk = now;
-                    Airstrike.LOG.warn("Медленный чанк руин {}: {} мс", new ChunkPos(job.chunk), took / 1_000_000);
+                    Airstrike.LOG.warn("Slow ruin chunk {}: {} ms", new ChunkPos(job.chunk), took / 1_000_000);
                 }
             }
         }
     }
 
-    /** Для строки медленного ядерного тика: «осмотрено N, ждали M» очереди готовых в последнем тике. */
+    /** Для строки медленного ядерного тика: «inspected N, waited M» очереди готовых в последнем тике. */
     String tickSummary() {
-        return "осмотрено " + inspected + ", ждали " + waitedThisTick;
+        return "inspected " + inspected + ", waited " + waitedThisTick;
     }
 
     /** Работ, осмотренных в последнем тике (проверки). */

@@ -63,7 +63,7 @@ final class PulseJob {
             nanos += clock.end(t0);
         }
         if (targets == null || next < targets.size()) return false;
-        Airstrike.LOG.info("Ядерный подрыв №{}: свет и радиация — {} сущностей из {} за {} тиков, {} мс", d.id(), touched, targets.size(),
+        Airstrike.LOG.info("Nuclear detonation #{}: light and radiation — {} of {} entities in {} ticks, {} ms", d.id(), touched, targets.size(),
                 level.getGameTime() - startTick + 1, nanos / 1_000_000);
         return true;
     }

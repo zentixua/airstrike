@@ -39,7 +39,7 @@ public final class LegacyMigration {
             removeObjectives(server.getScoreboard());
             disableDatapacks(server);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Переход со старого датапака не удался (мод работает, но старый датапак мог остаться включённым)", e);
+            Airstrike.LOG.error("Migration from the old datapack failed (the mod works, but the old datapack may still be enabled)", e);
         }
     }
 
@@ -48,9 +48,9 @@ public final class LegacyMigration {
         List<String> legacy = selected.stream().filter(LEGACY_PACKS::contains).toList();
         if (legacy.isEmpty()) return;
         selected.removeAll(legacy);
-        Airstrike.LOG.info("Выключаю старые датапаки {}: их заменил мод Airstrike (файлы оставлены, вернуть — /datapack enable)", legacy);
+        Airstrike.LOG.info("Disabling old datapacks {}: replaced by the Airstrike mod (files kept; to re-enable: /datapack enable)", legacy);
         server.reloadResources(selected).exceptionally(e -> {
-            Airstrike.LOG.error("Не удалось выключить старые датапаки {}", legacy, e);
+            Airstrike.LOG.error("Could not disable old datapacks {}", legacy, e);
             return null;
         });
     }
@@ -72,7 +72,7 @@ public final class LegacyMigration {
         server.getCommandStorage().set(id, new CompoundTag());
         server.getCommandStorage().set(ResourceLocation.fromNamespaceAndPath("airstrike", "tmp"), new CompoundTag());
         server.getCommandStorage().set(ResourceLocation.fromNamespaceAndPath("shahed", "cfg"), new CompoundTag());
-        Airstrike.LOG.info("Настройки датапака перенесены в конфиг мода: {}", cfg);
+        Airstrike.LOG.info("Datapack settings moved to the mod config: {}", cfg);
     }
 
     private static void setInt(CompoundTag cfg, String key, ModConfigSpec.IntValue value, int min, int max) {
@@ -89,7 +89,7 @@ public final class LegacyMigration {
                         || o.getName().equals("shahed") || o.getName().startsWith("shahed_"))
                 .toList();
         for (Objective o : legacy) scoreboard.removeObjective(o);
-        if (!legacy.isEmpty()) Airstrike.LOG.info("Удалены objectives старого датапака: {}", legacy.size());
+        if (!legacy.isEmpty()) Airstrike.LOG.info("Removed objectives of the old datapack: {}", legacy.size());
     }
 
     /** Сущности датапака (маркеры, детали моделей, обломки) больше никто не обслуживает — не загружаем их. */

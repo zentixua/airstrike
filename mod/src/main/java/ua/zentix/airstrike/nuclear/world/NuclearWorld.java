@@ -149,7 +149,7 @@ public final class NuclearWorld {
         return new long[]{lastFrontNanos, lastPulseNanos, lastCraterNanos, lastScarNanos, lastPrepNanos, lastFalloutNanos};
     }
 
-    /** Очередь руин в последнем тике: «осмотрено N, ждали M» (строка медленного ядерного тика). */
+    /** Очередь руин в последнем тике: «inspected N, waited M» (строка медленного ядерного тика). */
     public String scarSummary() {
         return scars.tickSummary();
     }
@@ -244,7 +244,7 @@ public final class NuclearWorld {
             try {
                 get(level).clear(level);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Руины: остановка в {} упала с ошибкой", level.dimension().location(), e);
+                Airstrike.LOG.error("Ruins: shutdown in {} failed with an exception", level.dimension().location(), e);
             }
         }
         return RuinWorkers.shutdown();
@@ -283,7 +283,7 @@ public final class NuclearWorld {
             try {
                 if (!job.work(level, clock)) break;
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Световой импульс подрыва №{} упал с ошибкой; снят", job.detonation().id(), e);
+                Airstrike.LOG.error("Thermal pulse of detonation #{} failed with an exception; dropped", job.detonation().id(), e);
             }
             pulses.removeFirst();
         }
@@ -294,7 +294,7 @@ public final class NuclearWorld {
             blast.work(level, clock, id -> pulses.stream().noneMatch(p -> p.detonation().id() == id));
         } catch (RuntimeException e) {
             // докуда фронт уже прошёл, остаётся: иначе он заново ударил бы всех внутри
-            Airstrike.LOG.error("Ударная волна по сущностям упала с ошибкой; удары в очереди сброшены", e);
+            Airstrike.LOG.error("Blast wave on entities failed with an exception; queued hits dropped", e);
             blast.dropHits();
         }
         lastFrontNanos = System.nanoTime() - frontStart;
@@ -310,7 +310,7 @@ public final class NuclearWorld {
         try {
             prep.tick(level, events, scars, clock);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Подготовка руин упала с ошибкой; снята", e);
+            Airstrike.LOG.error("Ruin preparation failed with an exception; dropped", e);
             prep.clear(level, scars);
         }
         long falloutStart = System.nanoTime();
@@ -318,7 +318,7 @@ public final class NuclearWorld {
         try {
             mobFallout.work(level, events.detonations(), clock);
         } catch (RuntimeException e) {
-            Airstrike.LOG.error("Осадки у мобов упали с ошибкой; обход сброшен", e);
+            Airstrike.LOG.error("Mob fallout failed with an exception; pass reset", e);
             mobFallout.clear();
         }
         lastFalloutNanos = System.nanoTime() - falloutStart;
@@ -336,7 +336,7 @@ public final class NuclearWorld {
             try {
                 s = job.step(level, level.random);
             } catch (RuntimeException e) {
-                Airstrike.LOG.error("Воронка подрыва №{} упала с ошибкой; снята", job.detonation().id(), e);
+                Airstrike.LOG.error("Crater of detonation #{} failed with an exception; dropped", job.detonation().id(), e);
                 job.release(level);
                 craters.removeFirst();
                 continue;

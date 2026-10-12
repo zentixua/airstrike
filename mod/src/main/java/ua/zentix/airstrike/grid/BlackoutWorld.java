@@ -370,7 +370,7 @@ public final class BlackoutWorld {
             } finally {
                 note(Work.RELIGHT, 1, clock.end(c0));
                 long took = System.nanoTime() - t0;
-                if (slow(level, took)) logSlowUnit(level, "зажигание", took, "ламп " + lamps, counted, timed);
+                if (slow(level, took)) logSlowUnit(level, "relight", took, "lamps " + lamps, counted, timed);
             }
         }
     }
@@ -483,7 +483,7 @@ public final class BlackoutWorld {
 
     /** Чем занята очередь (проверки). */
     public String busyState() {
-        return "очередь " + (idle() ? "пуста" : "не пуста") + ", свет с диска ждут " + staleLight.size() + " чанков, сверку сигнала — " + resignal.size();
+        return "queue " + (idle() ? "empty" : "not empty") + ", disk light cleanup pending in " + staleLight.size() + " chunks, signal recheck in " + resignal.size();
     }
 
     // ---------------------------------------------------------------- тик
@@ -559,11 +559,11 @@ public final class BlackoutWorld {
                 if (!taken.isEmpty() && taken.firstLong() == c) taken.dequeueLong();
                 queued.remove(c);
                 resume.remove(c);
-                Airstrike.LOG.error("Блэкаут: перевод чанка {} упал с ошибкой; чанк пропущен", new ChunkPos(c), e);
+                Airstrike.LOG.error("Blackout: switching chunk {} failed with an exception; chunk skipped", new ChunkPos(c), e);
             } finally {
                 note(Work.UNIT, 1, clock.end(c0));
                 long took = System.nanoTime() - t0;
-                if (slow(level, took)) logSlowUnit(level, "очередь", took, "чанков " + chunks + (chunks > 0 ? ", первый " + new ChunkPos(first) : ""), counted, timed);
+                if (slow(level, took)) logSlowUnit(level, "queue", took, "chunks " + chunks + (chunks > 0 ? ", first " + new ChunkPos(first) : ""), counted, timed);
             }
         }
     }
@@ -578,7 +578,7 @@ public final class BlackoutWorld {
 
     /**
      * Долгая единица — в лог с разбивкой по видам работы: что в ней было и сколько времени каждого вида. У единицы
-     * очереди остаток («вне видов») — время, которое не легло ни в один вид: пауза GC, вытеснение потока (у встроенного
+     * очереди остаток («outside kinds») — время, которое не легло ни в один вид: пауза GC, вытеснение потока (у встроенного
      * сервера рядом клиент), звук квартала. Остаток больше половины единицы — не работа блэкаута: строка INFO, не WARN
      * (одна пауза GC уже дольше порога). Зажигание и строка каскада на виды не делятся — у них только время и объём.
      */
@@ -591,13 +591,13 @@ public final class BlackoutWorld {
             if (w == Work.UNIT || w == Work.RELIGHT || w == Work.BUILD || n == 0 && t == 0) continue;
             inKinds += t;
             kinds.append(' ').append(w.name().toLowerCase(Locale.ROOT)).append('=').append(n);
-            if (t > 0) kinds.append('/').append(ms(t)).append("мс");
+            if (t > 0) kinds.append('/').append(ms(t)).append("ms");
         }
         // по видам раскладывается только время единицы очереди (у зажигания и каскада видов нет)
-        boolean split = unit.equals("очередь");
+        boolean split = unit.equals("queue");
         long outside = Math.max(0, took - inKinds);
-        if (split) kinds.append("; вне видов ").append(ms(outside)).append("мс");
-        String line = "Блэкаут ({}): единица работы ({}) {} мс, {}" + (kinds.isEmpty() ? "{}" : ":{}");
+        if (split) kinds.append("; outside kinds ").append(ms(outside)).append("ms");
+        String line = "Blackout ({}): work unit ({}) {} ms, {}" + (kinds.isEmpty() ? "{}" : ":{}");
         Object[] args = {level.dimension().location(), unit, ms(took), what, kinds};
         if (split && outside * 2 > took) Airstrike.LOG.info(line, args);
         else Airstrike.LOG.warn(line, args);
@@ -650,7 +650,7 @@ public final class BlackoutWorld {
                 s.buildRow();
                 note(Work.BUILD, 1, clock.end(c0));
                 long took = System.nanoTime() - t0;
-                if (slow(level, took)) logSlowUnit(level, "каскад", took, "ряд из " + (s.maxX - s.minX + 1) + " чанков", counted, timed);
+                if (slow(level, took)) logSlowUnit(level, "cascade", took, "row of " + (s.maxX - s.minX + 1) + " chunks", counted, timed);
             }
             if (!s.built()) continue;
             while (s.cursor <= now && s.cursor <= s.last) {
@@ -675,8 +675,8 @@ public final class BlackoutWorld {
             grid.swept(s.outage.id(), s.restore, s.done() ? Long.MAX_VALUE : Math.min(now, s.last));
             if (s.done()) {
                 it.remove();
-                Airstrike.LOG.info("Блэкаут №{} ({}): каскад {} прошёл весь район", s.outage.id(), level.dimension().location(),
-                        s.restore ? "возврата света" : "отключения");
+                Airstrike.LOG.info("Blackout #{} ({}): {} cascade covered the whole area", s.outage.id(), level.dimension().location(),
+                        s.restore ? "restore" : "outage");
             }
         }
     }

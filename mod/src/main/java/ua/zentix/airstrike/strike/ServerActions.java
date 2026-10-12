@@ -165,7 +165,7 @@ public final class ServerActions {
         if (aim == null || !proj.retarget(aim.target(), aim.point())) return;
         Component what = aim.label() != null ? aim.label() : Component.translatable("airstrike.target.point");
         player.displayClientMessage(Component.translatable("airstrike.retargeted", what).withStyle(ChatFormatting.GOLD), true);
-        Airstrike.LOG.info("Перенацеливание: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
+        Airstrike.LOG.info("Retarget: {} → {} {} {} — {}", proj.getType().getDescriptionId(), Mth.floor(aim.point().x),
                 Mth.floor(aim.point().y), Mth.floor(aim.point().z), player.getGameProfile().getName());
     }
 
@@ -456,15 +456,15 @@ public final class ServerActions {
             return true;
         }
         StrikeService.Result r;
-        String why = "пуск не удался";
+        String why = "launch failed";
         try {
             r = owner == null ? StrikeService.launch(level, l.weapon(), aim.target(), aim.point(), course, ownerId, true, l.nuke(), via, from)
                     : StrikeService.launchBy(level, l.weapon(), aim.target(), aim.point(), course, owner, true, l.nuke(), via, from);
         } catch (RuntimeException e) {
             // как у залпа (SalvoData.tick): упавший пуск — неудачный, оплаченное возвращается
-            Airstrike.LOG.error("Пуск {} упал с ошибкой — {}", l.weapon().getSerializedName(), who, e);
+            Airstrike.LOG.error("Launch {} failed with an exception — {}", l.weapon().getSerializedName(), who, e);
             r = StrikeService.Result.FAILED;
-            why = "пуск упал с ошибкой";
+            why = "launch failed with an exception";
         }
         if (owner != null) {
             if (r.ok()) StrikeService.confirm(owner, l.weapon(), r.eta());
@@ -688,7 +688,7 @@ public final class ServerActions {
             if (nuclear) {
                 NuclearEvents events = NuclearEvents.get(level);
                 for (NuclearEvents.ScheduledStrike s : events.scheduled()) {
-                    strikes.add("МБР №" + s.id() + " (" + Math.round(s.yieldKt()) + " кт по " + Mth.floor(s.target().x) + " "
+                    strikes.add("ICBM #" + s.id() + " (" + Math.round(s.yieldKt()) + " kt at " + Mth.floor(s.target().x) + " "
                             + Mth.floor(s.target().y) + " " + Mth.floor(s.target().z) + ")");
                 }
                 detonations += events.detonations().size();
@@ -697,12 +697,12 @@ public final class ServerActions {
         }
         if (nuclear) {
             n += NuclearKeys.cancelAll(server, server.getPlayerList().getPlayers(),
-                    Component.translatable("airstrike.nuke.key.cancelled").withStyle(ChatFormatting.GRAY), "ядерный отбой — " + who);
+                    Component.translatable("airstrike.nuke.key.cancelled").withStyle(ChatFormatting.GRAY), "nuclear clear — " + who);
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.empty(), nuclear, projectiles));
-        Airstrike.LOG.info("Отбой{} — {}: снарядов {} (вне мира {}), пусковых {}, залпов {}{}{}", nuclear ? " с ядерными" : "", who,
+        Airstrike.LOG.info("Clear{} — {}: projectiles {} (off-world {}), launchers {}, salvos {}{}{}", nuclear ? " with nukes" : "", who,
                 projectiles.size(), virtual, launchersRemoved, salvos, strikes.isEmpty() ? "" : "; " + String.join(", ", strikes),
-                detonations == 0 ? "" : "; забыто подрывов " + detonations);
+                detonations == 0 ? "" : "; detonations forgotten " + detonations);
         return n + projectiles.size();
     }
 
@@ -771,7 +771,7 @@ public final class ServerActions {
             salvos += SalvoData.get(level).cancel(level, owner, server.getPlayerList().getPlayers());
         }
         PacketDistributor.sendToAllPlayers(new S2C.Cleared(Optional.of(owner), false, gone));
-        Airstrike.LOG.info("Отбой своих — {}: самоликвидировались {}, отвернули {}, сняты с пусковых {} (пусковых {}), вне мира {}, залпов {}",
+        Airstrike.LOG.info("Stand down — {}: self-destructed {}, turned away {}, taken off launchers {} (launchers {}), off-world {}, salvos {}",
                 who, destroyed, turned, unlaunched, launchersRemoved, virtual, salvos);
         return new Recalled(destroyed + turned + unlaunched + virtual, salvos);
     }

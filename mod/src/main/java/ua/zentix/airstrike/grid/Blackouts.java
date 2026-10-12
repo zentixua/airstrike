@@ -110,8 +110,8 @@ public final class Blackouts {
         long now = level.getGameTime();
         Outage o = PowerGrid.get(level).addOutage(at.x, at.z, radius, now, speed, restoreAt(now), restoreSpread(), node);
         BlackoutWorld.get(level).onOutage(o);
-        Airstrike.LOG.info("Блэкаут №{} ({}): {} {}, радиус {}, {}", o.id(), level.dimension().location(), Math.round(at.x), Math.round(at.z), Math.round(radius),
-                o.restoreAt() == Outage.NEVER ? "свет не вернётся сам" : String.format(Locale.ROOT, "свет вернётся через %d мин",
+        Airstrike.LOG.info("Blackout #{} ({}): {} {}, radius {}, {}", o.id(), level.dimension().location(), Math.round(at.x), Math.round(at.z), Math.round(radius),
+                o.restoreAt() == Outage.NEVER ? "power will not come back by itself" : String.format(Locale.ROOT, "power returns in %d min",
                         (o.restoreAt() - now) / 1200));
         return o;
     }
@@ -147,7 +147,7 @@ public final class Blackouts {
             // каскад возврата — заново по новым срокам
             grid.swept(o.id(), true, Long.MIN_VALUE);
             BlackoutWorld.get(level).onRestore(restoring);
-            Airstrike.LOG.info("Блэкаут №{} ({}): свет возвращают по команде", o.id(), level.dimension().location());
+            Airstrike.LOG.info("Blackout #{} ({}): power restored by command", o.id(), level.dimension().location());
             n++;
         }
         Substations.sync(level, grid, now);

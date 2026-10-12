@@ -75,7 +75,7 @@ public final class RecallGameTests {
         });
         List<String> lines = new CopyOnWriteArrayList<>();
         StrikeGameTests.afterTest(h, NuclearGameTests.watchLog(line -> {
-            if (line.startsWith("Отбой своих")) lines.add(line);
+            if (line.startsWith("Stand down")) lines.add(line);
         }));
 
         ServerActions.Recalled r = ServerActions.recall(level.getServer(), a, "проверка");
@@ -87,8 +87,8 @@ public final class RecallGameTests {
         h.assertFalse(nuclear.isRemoved(), "свой отбой отозвал ядерный удар");
         h.assertTrue(!theirs.isRemoved() && !otherLauncher.isRemoved() && SalvoData.get(level).remaining(b) == 5, "свой отбой задел чужие удары");
         h.assertTrue(r.projectiles() == 4 && r.salvos() == 1, "итог: " + r);
-        h.assertValueEqual(lines, List.of("Отбой своих — проверка: самоликвидировались 1, отвернули 1, сняты с пусковых 1 (пусковых 1), "
-                + "вне мира 1, залпов 1"), "строка в лог");
+        h.assertValueEqual(lines, List.of("Stand down — проверка: self-destructed 1, turned away 1, taken off launchers 1 (launchers 1), "
+                + "off-world 1, salvos 1"), "строка в лог");
 
         // неуправляемым свернуть нечем: летят дальше
         for (StrikeProjectile p : List.of(ModEntities.ROCKET.get().create(level), ModEntities.BUNKER_BUSTER.get().create(level))) {

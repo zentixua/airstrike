@@ -96,7 +96,7 @@ public final class RuinPlanner {
     public static RuinPlan planFresh(ServerLevel level, Detonation d, LevelChunk chunk, boolean background) {
         RuinContext ctx = new RuinContext(d);
         if (!background) return plan(level, ctx, chunk);
-        if (!ctx.submit(level, chunk)) throw new IllegalStateException("фоновые потоки руин заняты");
+        if (!ctx.submit(level, chunk)) throw new IllegalStateException("ruin background threads busy");
         return await(level, ctx, chunk);
     }
 
@@ -115,14 +115,14 @@ public final class RuinPlanner {
         for (int dx = -REACH; dx <= REACH; dx++) {
             for (int dz = -REACH; dz <= REACH; dz++) {
                 LevelChunk n = level.getChunkSource().getChunkNow(c.x + dx, c.z + dz);
-                if (n == null) throw new IllegalStateException("сосед " + (c.x + dx) + ", " + (c.z + dz) + " не загружен");
+                if (n == null) throw new IllegalStateException("neighbour " + (c.x + dx) + ", " + (c.z + dz) + " not loaded");
                 DiskShots.Read read = DiskShots.parse(level, new ChunkPos(c.x + dx, c.z + dz),
                         onDisk.apply(net.minecraft.world.level.chunk.storage.ChunkSerializer.write(level, n)));
-                if (read.skip() != null) throw new IllegalStateException("чанк с диска не разобран: " + read.skip());
+                if (read.skip() != null) throw new IllegalStateException("chunk from disk not parsed: " + read.skip());
                 ctx.putDisk(level, read);
             }
         }
-        if (!ctx.submitDisk(level, c)) throw new IllegalStateException("фоновые потоки руин заняты");
+        if (!ctx.submitDisk(level, c)) throw new IllegalStateException("ruin background threads busy");
         return await(level, ctx, chunk);
     }
 
@@ -135,23 +135,23 @@ public final class RuinPlanner {
         RuinContext ctx = new RuinContext(d);
         long until = System.nanoTime() + 60_000_000_000L;
         while (ctx.requestWindow(level, chunk.getPos()) > 0) {
-            if (System.nanoTime() > until) throw new IllegalStateException("соседи окна не прочитались с диска за минуту");
+            if (System.nanoTime() > until) throw new IllegalStateException("window neighbours not read from disk within a minute");
             java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
         }
         window[0] = ctx.windowReads;
         window[1] = ctx.windowAbsent;
-        if (!ctx.submit(level, chunk)) throw new IllegalStateException("фоновые потоки руин заняты");
+        if (!ctx.submit(level, chunk)) throw new IllegalStateException("ruin background threads busy");
         return await(level, ctx, chunk);
     }
 
     private static RuinPlan await(ServerLevel level, RuinContext ctx, LevelChunk chunk) {
         long until = System.nanoTime() + 60_000_000_000L;
         while (!ctx.done(chunk.getPos().toLong())) {
-            if (System.nanoTime() > until) throw new IllegalStateException("фоновый план не готов за минуту");
+            if (System.nanoTime() > until) throw new IllegalStateException("background plan not ready within a minute");
             java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
         }
         RuinPlan plan = ctx.collect(level, chunk);
-        if (plan == null) throw new IllegalStateException("фоновый план упал");
+        if (plan == null) throw new IllegalStateException("background plan failed");
         return plan;
     }
 
@@ -439,7 +439,7 @@ public final class RuinPlanner {
                     states.add((BlockState) s);
                     return states.size() - 1;
                 });
-                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + pos + ": больше " + RuinPlan.MAX_STATES + " состояний");
+                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Ruins of chunk " + pos + ": more than " + RuinPlan.MAX_STATES + " states");
                 Blast.Props pw = view.get(was), pn = view.get(now);
                 hashes[i] = RuinPlan.mixNormal(hashes[i], pw.normal());
                 boolean covered = y < newTop[column];
@@ -457,7 +457,7 @@ public final class RuinPlanner {
                     states.add((BlockState) s);
                     return states.size() - 1;
                 });
-                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Руины чанка " + pos + ": больше " + RuinPlan.MAX_STATES + " состояний");
+                if (idx >= RuinPlan.MAX_STATES) throw new IllegalStateException("Ruins of chunk " + pos + ": more than " + RuinPlan.MAX_STATES + " states");
                 fireOut[k] = fireCells.getInt(k) | idx << RuinPlan.STATE_SHIFT;
             }
             if (kept == 0 && fireOut.length == 0 && outside.isEmpty() && fluidTicks.length == 0) return RuinPlan.nothing(ctx);

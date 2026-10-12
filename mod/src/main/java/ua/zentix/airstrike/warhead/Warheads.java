@@ -278,7 +278,7 @@ public final class Warheads {
         @Override
         public String describe() {
             Vec3 c = area.centre();
-            return what + " у " + Mth.floor(c.x) + " " + Mth.floor(c.y) + " " + Mth.floor(c.z);
+            return what + " at " + Mth.floor(c.x) + " " + Mth.floor(c.y) + " " + Mth.floor(c.z);
         }
     }
 
@@ -307,7 +307,7 @@ public final class Warheads {
             }
             if (++waited < DEFERRED_GIVE_UP_TICKS) return true;
             Vec3 c = area.centre();
-            Airstrike.LOG.warn("Взрыв у {} {} {} отменён: район не загрузился за {} тиков",
+            Airstrike.LOG.warn("Blast at {} {} {} cancelled: area did not load within {} ticks",
                     Mth.floor(c.x), Mth.floor(c.y), Mth.floor(c.z), DEFERRED_GIVE_UP_TICKS);
             return false;
         }
@@ -518,7 +518,7 @@ public final class Warheads {
                 // огненный шар — второй, зажигательный подрыв; у ракеты ещё кольцо горящих обломков
                 explode(level, area, main, pos, missile ? 3 : 2, true, direct, owner, null);
                 if (missile) {
-                    unit(level, area, main, ImpactCost.Kind.GROUND, "Кольцо огня", l -> {
+                    unit(level, area, main, ImpactCost.Kind.GROUND, "Fire ring", l -> {
                         for (int i = 0; i < 8; i++) {
                             double a = i * Math.PI / 4;
                             igniteGround(l, pos.x + Math.cos(a) * 7, pos.z + Math.sin(a) * 7);
@@ -526,7 +526,7 @@ public final class Warheads {
                         return 8;
                     });
                 }
-                unit(level, area, main, ImpactCost.Kind.DEBRIS, "Обломки",
+                unit(level, area, main, ImpactCost.Kind.DEBRIS, "Debris",
                         l -> missile ? DebrisSpawner.missile(l, pos, mat) : DebrisSpawner.drone(l, pos, mat));
                 if (AirstrikeConfig.SERVER.shatterGlass.get()) shatterGlass(level, missile);
             }
@@ -664,20 +664,20 @@ public final class Warheads {
             t++;
             switch (t) {
                 // после подрывов, которые поставлены раньше: огонь на дне и щебень — в уже выгрызенной полости
-                case 1 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Огонь в полости", l -> {
+                case 1 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Cavity fire", l -> {
                     igniteCavity(l);
                     return 6;
                 });
-                case 2 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Щебень", this::rubble);
+                case 2 -> unit(level, area, main, ImpactCost.Kind.GROUND, "Rubble", this::rubble);
                 case 3 -> {
                     explode(level, area, main, pos.add(4, -2, -3), 4, false, direct, owner, null);
                     explode(level, area, main, pos.add(-4, 1, 3), 4, false, direct, owner, null);
                     PacketDistributor.sendToPlayersNear(level, null, entry.x, entry.y, entry.z, 200, new S2C.Vent(entry, ventMat.ordinal()));
-                    unit(level, area, main, ImpactCost.Kind.DEBRIS, "Выброс", l -> DebrisSpawner.vent(l, entry, ventMat));
+                    unit(level, area, main, ImpactCost.Kind.DEBRIS, "Ejecta", l -> DebrisSpawner.vent(l, entry, ventMat));
                 }
                 case 22 -> {
                     if (AirstrikeConfig.SERVER.collapse.get() && depth >= 4 && depth <= 48) {
-                        unit(level, area, main, ImpactCost.Kind.GROUND, "Обрушение свода", l -> {
+                        unit(level, area, main, ImpactCost.Kind.GROUND, "Roof collapse", l -> {
                             collapse(l);
                             return 1;
                         });

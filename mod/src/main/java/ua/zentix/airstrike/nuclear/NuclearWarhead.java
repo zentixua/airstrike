@@ -66,7 +66,7 @@ public final class NuclearWarhead {
 
         NuclearWorld.get(level).onDetonation(level, d, owner);
         Blackouts.nuke(level, d);
-        Airstrike.LOG.info("Ядерный подрыв №{}: {} кт, {}, {} {} {}, масштаб {}, {} мс", d.id(), Math.round(yieldKt), d.surface() ? "наземный" : "воздушный",
+        Airstrike.LOG.info("Nuclear detonation #{}: {} kt, {}, {} {} {}, scale {}, {} ms", d.id(), Math.round(yieldKt), d.surface() ? "ground burst" : "air burst",
                 Mth.floor(d.burst().x), Mth.floor(d.burst().y), Mth.floor(d.burst().z), scale, (System.nanoTime() - started) / 1_000_000);
         return d;
     }

@@ -560,7 +560,7 @@ public final class FarFlightView {
      */
     public static String describe() {
         if (isEmpty() || flights == 0 && points == 0) return "";
-        StringBuilder sb = new StringBuilder("снарядов ").append(flights);
+        StringBuilder sb = new StringBuilder("projectiles ").append(flights);
         if (flights > 0) {
             sb.append(" (");
             String sep = "";
@@ -573,13 +573,13 @@ public final class FarFlightView {
         }
         Far f = nearest;
         if (f != null) {
-            sb.append(String.format(Locale.ROOT, "; ближний %s: %.0f бл, t %.2f, корпус %.1f px α %.2f",
+            sb.append(String.format(Locale.ROOT, "; nearest %s: %.0f blocks, t %.2f, body %.1f px α %.2f",
                     f.track.bomber ? "b2" : f.track.weapon.getSerializedName(), nearD, nearT, nearBody, nearBodyAlpha));
-            if (nearModel > 0) sb.append(String.format(Locale.ROOT, ", модель %.1f px (%s)", nearModel, nearCoarse ? "упрощённая" : "полная"));
-            if (nearFlame > 0) sb.append(String.format(Locale.ROOT, ", факел %.1f px α %.2f", nearFlame, nearFlameAlpha));
-            if (f.visTarget < 1) sb.append(", за рельефом");
+            if (nearModel > 0) sb.append(String.format(Locale.ROOT, ", model %.1f px (%s)", nearModel, nearCoarse ? "coarse" : "full"));
+            if (nearFlame > 0) sb.append(String.format(Locale.ROOT, ", flame %.1f px α %.2f", nearFlame, nearFlameAlpha));
+            if (f.visTarget < 1) sb.append(", behind terrain");
         }
-        return sb.append("; шлейф ").append(points).append(" т").toString();
+        return sb.append("; trail ").append(points).append(" points").toString();
     }
 
     /** Выход из мира или смена измерения. */

@@ -247,8 +247,8 @@ public final class StressDirector {
     /** Строки мода из лога (поток логера): разбираются в тике стенда. */
     private final ConcurrentLinkedQueue<String> modLines = new ConcurrentLinkedQueue<>();
     private static final Pattern GROUNDED = Pattern.compile(
-            "Снаряд \\S+ ([0-9a-f-]{36}) вне мира дошёл до поверхности у BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}, цель BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}");
-    private static final Pattern GAVE_UP = Pattern.compile("Снаряд \\S+ ([0-9a-f-]{36}) не дождался загрузки");
+            "Projectile \\S+ ([0-9a-f-]{36}) reached the surface off-world at BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}, target BlockPos\\{x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)\\}");
+    private static final Pattern GAVE_UP = Pattern.compile("Projectile \\S+ ([0-9a-f-]{36}) gave up waiting for target area");
     /** Дальше от цели по горизонтали управляемый снаряд до поверхности не доходит — иначе путь кончился не там. */
     private static final double GROUND_OFF_LIMIT = 32;
 

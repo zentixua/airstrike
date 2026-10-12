@@ -111,7 +111,7 @@ final class RuinContext {
      * загрузит тикет (проверка 30.09.2026: чанки у края ждали соседей по 200 тиков и уходили игроку целыми). Соседа нет
      * на диске целым (не сгенерирован, генерируется, данные не разобрать) — в окне его нет ({@code null} в
      * {@link #grid}): сплошной массив, как край мира, и это решение окончательное для контекста — не ждать, пока его
-     * сгенерируют. Причина — в строке подрыва («окна с диска»). Сосед в памяти ниже полной загрузки читается тоже
+     * сгенерируют. Причина — в строке подрыва («disk windows»). Сосед в памяти ниже полной загрузки читается тоже
      * с диска: правки игрока в нём после последнего сохранения план не видит.
      *
      * @return сколько соседей ещё читается (0 — окно полно, план можно отдавать)
@@ -165,7 +165,7 @@ final class RuinContext {
         planned.add(chunk);
     }
 
-    /** Когда готов план чанка (игровое время), −1 — ещё нет: для строки «дальние кольца». */
+    /** Когда готов план чанка (игровое время), −1 — ещё нет: для строки «far rings». */
     long doneAt(long chunk) {
         return doneAt.getOrDefault(chunk, -1L);
     }
@@ -369,7 +369,7 @@ final class RuinContext {
         // и в пуле, и готовых, но не забранных, — не без края: готовый план держит память
         if (!RuinWorkers.admit() || tasks.size() >= 2 * RuinWorkers.capacity()) return false;
         Grid g = grid(level, pos, true);
-        if (g.at(0, 0) == null) throw new IllegalStateException("нет снимка чанка " + pos);
+        if (g.at(0, 0) == null) throw new IllegalStateException("no snapshot of chunk " + pos);
         tasks.put(key, new Task(RuinWorkers.submit(() -> {
             RuinWorkers.checkStop();
             Collapse c = Collapse.solve(g);
@@ -417,7 +417,7 @@ final class RuinContext {
             it.remove();
             failed.add(e.getLongKey());
             RuinWorkers.expired();
-            Airstrike.LOG.warn("Руины подрыва №{}: фоновый план чанка {} не готов за {} тиков — брошен, строится в потоке сервера",
+            Airstrike.LOG.warn("Ruins for detonation #{}: background plan for chunk {} not ready in {} ticks — abandoned, building on the server thread",
                     d.id(), new ChunkPos(e.getLongKey()), TASK_AGE_LIMIT);
         }
     }
@@ -452,7 +452,7 @@ final class RuinContext {
         } catch (java.util.concurrent.ExecutionException e) {
             failed.add(key);
             // ошибка решателя повторится на многих чанках: в лог — первые
-            if (failures++ < 3) Airstrike.LOG.error("Руины подрыва №{}: фоновый план чанка {} упал; строится в потоке сервера", d.id(), pos, e.getCause());
+            if (failures++ < 3) Airstrike.LOG.error("Ruins for detonation #{}: background plan for chunk {} failed; building on the server thread", d.id(), pos, e.getCause());
             return null;
         } catch (InterruptedException | java.util.concurrent.CancellationException e) {
             return null;

@@ -150,7 +150,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
         Reference2ObjectOpenHashMap<BlockState, Props> table = published;
         return st -> {
             Props p = table.get(st);
-            if (p == null) throw new IllegalStateException("Руины: свойства состояния " + st + " не в таблице снимка");
+            if (p == null) throw new IllegalStateException("Ruins: properties of state " + st + " not in the snapshot table");
             return p;
         };
     }

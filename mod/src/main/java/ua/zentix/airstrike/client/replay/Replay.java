@@ -70,7 +70,7 @@ public final class Replay {
         } else if (MARKERS.count == 0 && ++waited > NO_MARKERS) {
             if (!warned) {
                 warned = true;
-                Airstrike.LOG.warn("Flashback: метки сервера повтора не приходят {} тиков — события повтора идут как живые", NO_MARKERS);
+                Airstrike.LOG.warn("Flashback: no replay server markers for {} ticks — replay events play as live", NO_MARKERS);
             }
             flush(true);
         }

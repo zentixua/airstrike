@@ -136,7 +136,7 @@ public final class UnitQueue {
             if (e.job.blocked()) return Outcome.SKIPPED;
             if (!e.job.ready(level)) {
                 if (now - e.added < GIVE_UP_TICKS) return Outcome.SKIPPED;
-                Airstrike.LOG.warn("{} отменено: район не загрузился за {} тиков", e.job.describe(), GIVE_UP_TICKS);
+                Airstrike.LOG.warn("{} cancelled: area did not load within {} ticks", e.job.describe(), GIVE_UP_TICKS);
                 return Outcome.DONE;
             }
             for (int n = 0; n < max; n++) {
@@ -155,7 +155,7 @@ public final class UnitQueue {
             }
             return Outcome.MORE;
         } catch (RuntimeException ex) {
-            Airstrike.LOG.error("{} упало с ошибкой и убрано", e.job.describe(), ex);
+            Airstrike.LOG.error("{} failed with an exception and was removed", e.job.describe(), ex);
             return Outcome.DONE;
         }
     }
@@ -164,7 +164,7 @@ public final class UnitQueue {
         try {
             e.job.end(level);
         } catch (RuntimeException ex) {
-            Airstrike.LOG.error("{}: не вышло отпустить", e.job.describe(), ex);
+            Airstrike.LOG.error("{}: release failed", e.job.describe(), ex);
         }
     }
 

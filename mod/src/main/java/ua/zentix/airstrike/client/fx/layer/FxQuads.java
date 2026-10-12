@@ -165,7 +165,7 @@ public final class FxQuads {
     private void grow() {
         int cap = Math.max(1024, capacity * 2);
         long p = stage == 0 ? MemoryUtil.nmemAlloc((long) cap * QUAD) : MemoryUtil.nmemRealloc(stage, (long) cap * QUAD);
-        if (p == 0) throw new OutOfMemoryError("Слой эффектов: нет памяти на " + cap + " квадратов");
+        if (p == 0) throw new OutOfMemoryError("Effects layer: out of memory for " + cap + " quads");
         stage = p;
         capacity = cap;
         keys = Arrays.copyOf(keys, cap);
