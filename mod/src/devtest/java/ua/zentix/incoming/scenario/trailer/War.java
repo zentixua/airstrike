@@ -324,10 +324,11 @@ final class War {
     private void dawn() {
         // p03: пролёт на высоте над Востоком к небоскрёбам, на которые ложится первое солнце
         film.run(() -> Film.cmd("time set 23300"));
-        hiddenAt(new Vec3(2890, 220, 340), T2);
+        // под облаками (низ — 192): над ними видны только облака; башни центра уходят в них
+        hiddenAt(new Vec3(2890, 140, 340), T2);
         film.shot("p03").length(60).hidden().farView().camera(() -> {
-            Vec3 look = new Vec3(3060, 200, 560);
-            return CineCamera.glide(new Vec3(2880, 240, 330), new Vec3(2905, 237, 352), 60, () -> look, 52);
+            Vec3 look = new Vec3(3060, 185, 560);
+            return CineCamera.glide(new Vec3(2880, 162, 330), new Vec3(2905, 158, 352), 60, () -> look, 52);
         });
 
         // p04: утро, площадь у госкомплекса — жители идут по своим делам (та же точка в p44: площадь горит и пуста)
@@ -680,12 +681,13 @@ final class War {
                 .onReady(() -> salvo("drone", 30, 70, swarm, behind(street, at(swarm), 900)))
                 .camera(() -> {
                     Vec3 c = g(street).add(0, 1.4, 0);
-                    return CineCamera.track(c, film.smoothFocus(() -> film.nearest(DroneEntity.class, c, 200), c.add(40, 60, 40), 0.15), 22);
+                    return CineCamera.track(c, film.smoothFocus(() -> film.nearest(DroneEntity.class, c, 200), c.add(6, 60, 25), 0.15), 22);
                 })
                 .when(() -> flightOver(at(street), 150), 3000);
 
         // p01d: шахеды над головой игрока со стороны затылка
-        Vec3 man = new Vec3(3000.5, 0, 420.5), past = new Vec3(3180.5, 0, 430.5);
+        // поле к западу от центра: над ним открытое небо
+        Vec3 man = new Vec3(2905.5, 0, 300.5), past = new Vec3(3085.5, 0, 300.5);
         hiddenAt(man, past);
         film.run(() -> cast().spawn("Pyotr", g(man), Film.yawTo(man, past), null));
         film.waitTicks(60);
@@ -784,20 +786,21 @@ final class War {
         }
 
         // p28: FPV над перекрёстком, по улице бежит пакет «Града», разрывы прямо под камерой
-        Vec3 cross = new Vec3(3022.5, 0, 338.5), line = cross.add(40, 0, 0);
+        // вдоль проспекта (z 327–335, открыт от x 3012 на восток): пакет ложится на улицу под камерой
+        Vec3 cross = new Vec3(3022.5, 0, 331.5), line = new Vec3(3090.5, 0, 331.5);
         hiddenAt(cross, line);
         film.shot("p28").length(85).hidden()
                 .onReady(() -> salvo("rocket", 24, 30, line, new Vec3(2400, 0, 338)))
                 .camera(() -> {
                     double y = g(cross).y;
-                    return CineCamera.fpv(List.of(new Vec3(cross.x - 30, y + 16, cross.z - 40), new Vec3(cross.x - 6, y + 14, cross.z - 8),
-                            new Vec3(cross.x + 6, y + 13, cross.z + 2), new Vec3(cross.x + 30, y + 12, cross.z + 1),
-                            new Vec3(cross.x + 90, y + 14, cross.z)), 1.6, 8, 1.1, 0.1, 76);
+                    return CineCamera.fpv(List.of(new Vec3(cross.x - 8, y + 16, cross.z), new Vec3(cross.x + 20, y + 14, cross.z + 0.5),
+                            new Vec3(cross.x + 50, y + 13, cross.z - 0.5), new Vec3(cross.x + 90, y + 12, cross.z + 0.5),
+                            new Vec3(cross.x + 150, y + 14, cross.z)), 1.6, 8, 1.1, 0.1, 76);
                 })
                 .when(() -> film.nearest(RocketEntity.class, at(line), 250) != null, 3000);
 
         // p29: боец прижался к стене; из-за плеча — шахед проносится над ним и входит в дом напротив
-        Vec3 wall = new Vec3(3120.5, 0, 339.5), house = new Vec3(3175.5, 150, 353.5);
+        Vec3 wall = new Vec3(3080.5, 0, 334.5), house = new Vec3(3175.5, 120, 353.5);
         hiddenAt(wall, house);
         film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
         film.waitTicks(60);
@@ -836,7 +839,7 @@ final class War {
         hiddenAt(T4.add(-150, -150, 0), T4);
         film.shot("p31").length(50).hidden()
                 .onReady(() -> salvo("drone", 1, 0, into, new Vec3(2500, 0, 560)))
-                .camera(() -> CineCamera.chase(() -> film.nearest(DroneEntity.class, into, 400), into.add(-250, 0, 0),
+                .camera(() -> CineCamera.chase(() -> film.nearest(DroneEntity.class, into, 400), into.add(-140, 30, 0),
                         new Vec3(1, 0, 0), 6, 1.2, -1.6, 12, 0, 70))
                 .when(() -> film.nearest(DroneEntity.class, into, 90) != null, 3000)
                 .endWhen(hit(into, 400), 14);
@@ -873,7 +876,7 @@ final class War {
         // p37: B-2 на закате — створки, бомба уходит вниз, земля вспучивается (монтаж — от отметки release)
         film.run(() -> Film.cmd("time set 12400"));
         Vec3 bombAt = new Vec3(3360.5, 0, 470.5);
-        Vec3 bayWatch = new Vec3(3190.5, 190, 470.5);
+        Vec3 bayWatch = new Vec3(3190.5, 230, 470.5);
         hiddenAt(bayWatch, bombAt);
         film.shot("p37").length(120).hidden()
                 .onReady(() -> Film.cmd("incoming salvo bunker 1 0 at " + xyz(at(bombAt)) + " from 2400 470"))
@@ -888,21 +891,21 @@ final class War {
             Film.cmd("weather rain");
         });
         Vec3 night = new Vec3(3180.5, 0, 300.5);
-        Vec3 nightCam = new Vec3(3050.5, 0, 160.5);
+        Vec3 nightCam = new Vec3(3175.5, 164, 350.5);  // северный край крыши ROOF: площадь и небо над ней
         hiddenAt(nightCam, night);
         film.shot("p38").length(70).hidden()
                 .onReady(() -> {
                     salvo("drone", 12, 60, night, new Vec3(2300, 0, 260));
-                    salvo("rocket", 24, 50, night.add(60, 0, 80), new Vec3(2600, 0, 380));
+                    salvo("rocket", 24, 50, night.add(40, 0, -50), new Vec3(2600, 0, 250));
                 })
-                .camera(() -> CineCamera.track(g(nightCam).add(0, 9, 0), () -> at(night).add(10, 40, 30), 26))
+                .camera(() -> CineCamera.track(nightCam, () -> new Vec3(3180.5, 110, 260.5), 40))
                 .when(() -> film.nearest(DroneEntity.class, at(night), 250) != null, 3000);
 
         // p39: пик — короткие вспышки ночного боя (монтаж режет каждый дубль на несколько склеек)
-        peak("p39a", new Vec3(3010.5, 0, 470.5), "rocket", 30, 30, new Vec3(-30, 2, 40), 70);
+        peak("p39a", new Vec3(2930.5, 0, 260.5), "rocket", 30, 30, new Vec3(-30, 2, 40), 70);
         peak("p39b", new Vec3(3110.5, 0, 410.5), "drone", 8, 30, new Vec3(-24, 30, -20), 60);
         peak("p39c", T1, "missile", 4, 12, new Vec3(-60, -120, -50), 40);
-        peak("p39d", new Vec3(3230.5, 0, 330.5), "rocket", 24, 24, new Vec3(-40, 14, -30), 50);
+        peak("p39d", new Vec3(3200.5, 0, 260.5), "rocket", 24, 24, new Vec3(-40, 14, 30), 50);
         film.run(() -> Film.cmd("weather clear"));
     }
 

@@ -255,7 +255,9 @@ final class CineCamera {
             Entity e = who.get();
             if (e == null) return pose != null ? pose : new Pose(Vec3.ZERO, 0, 0, 0, fov);
             float pt = partial();
-            return new Pose(e.getEyePosition(pt), e.getViewYRot(pt), e.getViewXRot(pt), 0, fov);
+            // чуть впереди глаз: изнутри головы видна изнанка лица (второй слой скина рисуется без отсечения)
+            Vec3 look = Vec3.directionFromRotation(e.getViewXRot(pt), e.getViewYRot(pt));
+            return new Pose(e.getEyePosition(pt).add(look.scale(0.4)), e.getViewYRot(pt), e.getViewXRot(pt), 0, fov);
         };
     }
 
