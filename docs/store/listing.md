@@ -12,6 +12,7 @@ Fields to paste when the project pages are created. The long description is [des
 | Modrinth categories | Equipment, Technology, Game Mechanics |
 | CurseForge categories | Armor, Tools, and Weapons; Technology; Miscellaneous |
 | License | GPL-3.0-only |
+| Content disclosure | Modrinth: "Contains AI-generated content" (the code is written with Claude Code). It is set by hand in the project's Settings → Disclosures. CurseForge has no such field |
 | Source | https://github.com/zentixua/incoming |
 | Issues | https://github.com/zentixua/incoming/issues |
 | Wiki / guide | https://github.com/zentixua/incoming/blob/main/docs/guide/README.md |
@@ -20,7 +21,8 @@ Fields to paste when the project pages are created. The long description is [des
 
 ## Media
 
-The icon is `docs/media/icon.png` (512×512), the same picture as the mod's logo `incoming.png` in the jar. The page
+The icon is `docs/media/icon.png` (512×512), the same picture as the mod's logo `incoming.png` in the jar. CurseForge
+takes a 400×400 avatar and no WebP, so its avatar is `docs/media/icon-400.png`, the same picture scaled down. The page
 opens with the loop `docs/media/hero.webp` (960×540), which also heads the README. The gallery, in this order (the
 first one is featured):
 

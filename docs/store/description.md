@@ -61,6 +61,11 @@ No other mods are required. Optional:
 The mod is needed on the server and on every client, in the same version. Before version 3.0.0 it was called
 Airstrike.
 
+## How it is made
+
+The code is written with Claude Code, an AI coding assistant, under the author's direction, and tested in play on
+the author's server. The pictures on this page are screenshots from the game.
+
 ## Links
 
 - [Player guide](https://github.com/zentixua/incoming/blob/main/docs/guide/README.md)
