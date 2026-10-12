@@ -1,6 +1,6 @@
 """Скачивает с Modrinth моды для запусков из Gradle (Create, Sable, Aeronautics, Lithium) — для CI и машин без инстанса.
 
-Версии — как в сборке «Airstrike Pack» (zentixua/airstrike-pack, pack/mods); файлы проверяются по sha512 из Modrinth.
+Версии — как в сборке «Open Skies» (zentixua/open-skies, pack/mods); файлы проверяются по sha512 из Modrinth.
 Потом: ./gradlew runGameTestServer -PmcModsDir=<папка> [-PwithLithium]
 (Lithium идёт в запуск только с -PwithLithium — проверка совместимости с ним, как у хоста.)
 Папка — только для этих модов: другие jar в ней (прежние версии) убираются, иначе запуск взял бы обе версии мода.
