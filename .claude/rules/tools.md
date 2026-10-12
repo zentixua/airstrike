@@ -76,7 +76,9 @@ paths:
                                            dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  docs/guide/                            ← руководство игрока (страницы по темам, картинки в img/)
+  docs/guide/                            ← руководство игрока по-английски (страницы по темам, картинки в img/),
+                                           docs/guide/ru/ — то же по-русски
+  docs/store/                            ← тексты страниц Modrinth и CurseForge
   .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 ```

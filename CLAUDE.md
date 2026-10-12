@@ -1,4 +1,4 @@
-# Airstrike — мод NeoForge для Minecraft 1.21.1 (сборка «Airstrike Pack»)
+# Airstrike — мод NeoForge для Minecraft 1.21.1 (сборка «Incoming Pack»)
 
 Публичное имя мода — **Incoming**, сборки — **Incoming Pack** (решение Артёма 12.10.2026: «Airstrike» на Modrinth и
 CurseForge занято). Так они называются в игре (`mod_name`, вкладка, категория клавиш) и во всех публичных текстах;
@@ -15,7 +15,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 правит и руководство в том же PR, на обоих языках (docs/guide — английский, docs/guide/ru — русский), кадры к нему —
 `tools/client_scenario.sh guide` и `tools/guide_images.sh`;
 проект ядерного удара и отступления от него — docs/DESIGN-nuke.md.
-Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и Almighty, мост ведущего
+Рядом — свои репозитории: сборка «Incoming Pack» (https://github.com/zentixua/airstrike-pack) и Almighty, мост ведущего
 (серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/almighty); у каждого свой CLAUDE.md.
 
 Здесь — только то, что нужно в каждой сессии. Устройство пакетов и подводные камни по областям — в `.claude/rules/`
@@ -201,7 +201,7 @@ PR сборки с jar выпуска — в airstrike-pack, после выпу
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
 
 ## Окружение
-- NeoForge 21.1.259, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
+- NeoForge 21.1.259, Minecraft 1.21.1. Хост играет в своей сборке «Incoming Pack» (airstrike-pack, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям
   или играют на его выделенном сервере (сборка с `main`, белый список, мост Almighty для ИИ-ведущего); jar мода нужен
   всем (сервер и клиенты).
