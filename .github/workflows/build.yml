@@ -64,8 +64,7 @@ jobs:
                 mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
                 tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
                 .github/*) mod=true; rig=true ;;
-                # pack/ — прежний адрес сборки, заморожен до перевода всех экземпляров на zentixua/airstrike-pack
-                tools/*|docs/*|*.md|.claude/*|.gitignore|pack/*) ;;
+                tools/*|docs/*|*.md|.claude/*|.gitignore) ;;
                 *) mod=true ;;
               esac
             done <<< "$files"
