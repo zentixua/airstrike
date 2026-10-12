@@ -7,7 +7,7 @@ import ua.zentix.incoming.IncomingConfig;
 
 /**
  * Тряска камеры без сдвига прицела: крутится только камера (курс, тангаж, крен), взгляд игрока остаётся на месте —
- * в датапаке трясли настоящий взгляд телепортами, и сбивался прицел. Амплитуды те же, что у датапака.
+ * тряска самого взгляда сбивала бы прицел.
  */
 public final class CameraShake {
     /** Удар взрывной волны: сколько тиков ещё трясёт. */
@@ -58,7 +58,7 @@ public final class CameraShake {
         double k = IncomingConfig.CLIENT.cameraShake.get();
         if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 || Minecraft.getInstance().isPaused()) return;
         double t = ticks + e.getPartialTick();
-        // амплитуды датапака: курс/тангаж, °
+        // амплитуды: курс/тангаж, °
         double yaw = 0, pitch = 0;
         if (shake > 0) {
             double[] a = shake >= 26 ? new double[]{5, 3.5} : shake >= 18 ? new double[]{3, 2} : shake >= 8 ? new double[]{1.5, 1} : new double[]{0.6, 0.4};

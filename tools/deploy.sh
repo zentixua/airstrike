@@ -6,7 +6,7 @@
 #   tools/deploy.sh --dry    только сборка и проверки, игру не трогать
 #   tools/deploy.sh --jar F  без сборки: поставить готовый jar F (сборку CI или релиза — те же байты, что у друзей)
 #
-# Ничего не удаляется: старые jar мода (и прежние airstrike-*.jar), копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
+# Ничего не удаляется: старые jar мода (incoming-*.jar и airstrike-*.jar), копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
 # (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в incoming-backup/<время>/ рядом с mods/.
 # Мод заменяет их полностью; настройки датапака он переносит в свой конфиг сам при первом запуске мира.
 # После установки — перезапустить игру. Друзьям нужен тот же jar (dist/incoming-*.jar) в их mods/.

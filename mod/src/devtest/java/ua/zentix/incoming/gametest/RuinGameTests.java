@@ -46,7 +46,7 @@ import static ua.zentix.incoming.gametest.NuclearGameTests.scarAll;
 import static ua.zentix.incoming.gametest.NuclearGameTests.surface;
 
 /**
- * Руины ядерного удара на физике ({@code Blast}, {@code Collapse}): случаи из ревью — пролёты шире пролёта блока,
+ * Руины ядерного удара на физике ({@code Blast}, {@code Collapse}): трудные случаи — пролёты шире пролёта блока,
  * давление в глубине постройки, опоры, навесное, вода, неразрушимое, край загруженного мира, границы квадратов
  * подготовки. Площадка и масштаб — как в {@link NuclearGameTests}: дёрн на y = 11, поверхность y = 12.
  */
@@ -489,7 +489,7 @@ public final class RuinGameTests {
      * границы квадратов (1 раз из 25 по её месту), стена стоит на обычной границе чанков. Когда чанки зоны уже на диске
      * (их выгрузили тесты до этого), после подрыва работает зона за волной: заголовки и чанки с диска и планы — по
      * настенным часам, поэтому ожидание руин идёт в темпе игры (на CI сервер GameTest тикает без пауз, ~2000 тиков/с, и
-     * 850 тиков после подрыва кончались раньше, чем зона отпускала квадраты).
+     * 850 тиков после подрыва кончаются раньше, чем зона отпускает квадраты).
      */
     @GameTest(template = "range", timeoutTicks = 3000, batch = "nuke_prep_border", skyAccess = true)
     public static void wallOnPrepTileBorderFalls(GameTestHelper h) {

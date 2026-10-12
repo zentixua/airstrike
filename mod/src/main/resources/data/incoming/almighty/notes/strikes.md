@@ -14,4 +14,4 @@ Incoming (https://github.com/zentixua/incoming): strikes by drones, missiles, ML
   count too). In the script, gm.command with the whole command as one string, numbers as numbers. Pause while mspt ≥ 35
   or ≥ 12 000 chunks are loaded (server.overworld().getChunkSource().getLoadedChunksCount()); every 20 salvos, kill the
   item entities within 200 blocks of the target. Stop it with rule remove.
-- The server handles about 200 projectiles at once without noticeable lag; 750 landing at once crashed a player's client.
+- The server handles about 200 projectiles at once without noticeable lag; 750 landing at once can crash a player's client.

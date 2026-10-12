@@ -234,7 +234,7 @@ public final class StrikeWorld {
         NuclearKeys.cancelAll(event.getServer(), event.getServer().getPlayerList().getPlayers(), null, "server stopping");
         for (ServerLevel level : event.getServer().getAllLevels()) {
             // работа попаданий не сохраняется: начатое и поставленное доделать сейчас, иначе в мире остались бы взрывы,
-            // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются, как раньше)
+            // снятые наполовину (таймлайны, которые ещё не поставили свои подрывы, теряются)
             if (level.hasData(ModAttachments.STRIKE_WORLD)) get(level).impacts.finish(level);
             for (StrikeProjectile p : level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> !p.isRemoved())) {
                 p.parkForShutdown(level);

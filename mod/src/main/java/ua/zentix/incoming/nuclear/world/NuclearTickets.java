@@ -23,10 +23,10 @@ import java.util.UUID;
  * сохраняются в мире и сами пропадают при перезапуске; кто ждёт чанк — проверяет {@link Terrain#ready}.
  * <p>
  * Менять блоки можно только там, где загружены и соседи: Sable на каждое изменение блока читает соседние блоки
- * (физика аппаратов), и на краю загруженного мира это синхронно грузило соседний чанк — по 30–300 мс на столбец.
+ * (физика аппаратов), и на краю загруженного мира это синхронно грузило бы соседний чанк — по 30–300 мс на столбец.
  * <p>
  * Чанки берутся через {@link AreaLoader}: тикет региона сразу сделал бы чанк тикающим, пока соседи ещё генерируются, —
- * и хранилище испытаний в нём грузило соседа синхронно (облако 29.09.2026: 2,5 с у чанков очереди разрушений).
+ * и хранилище испытаний в нём грузило бы соседа синхронно (до 2,5 с у чанков очереди разрушений).
  */
 public final class NuclearTickets {
     private static final TicketType<UUID> TYPE = TicketType.create("incoming_nuclear", Comparator.<UUID>naturalOrder());
@@ -62,8 +62,8 @@ public final class NuclearTickets {
      * чанк выгружает позже, когда его можно сохранить ({@code ChunkMap.processUnloads} → {@code pendingUnloads} →
      * {@code scheduleUnload}); вернувшийся за это время тикет возвращает держатель из {@code pendingUnloads} с тем же
      * чанком и без нового {@code ChunkEvent.Load}. Поэтому «нет в видимой карте» ещё не значит «выгружен»: очередь,
-     * которая сняла бы такой чанк, больше его не увидела бы (облако 01.10.2026: два чанка зоны остались без руин и
-     * держали квадрат зоны). AT: {@code ChunkMap.pendingUnloads}, только чтение.
+     * которая сняла бы такой чанк, больше его не увидела бы — чанк зоны остался бы без руин и держал бы квадрат зоны.
+     * AT: {@code ChunkMap.pendingUnloads}, только чтение.
      */
     @Nullable
     public static LevelChunk inMemory(ServerLevel level, long pos) {
@@ -81,7 +81,7 @@ public final class NuclearTickets {
 
     /**
      * Загружены все чанки в {@link #SABLE_REACH} блоках от места (по углам — с диагональными): неготовый чанк Sable
-     * грузил бы прямо в вызове (ноутбук 01.10.2026: тик 3,5 с в очереди руин, поток сервера ждал чанк в
+     * грузил бы прямо в вызове (тик до 3,5 с в очереди руин: поток сервера ждёт чанк в
      * {@code ColumnScar.replace}; GameTest {@code fallenLogNextToUnreadyChunkLoadsNothing}).
      */
     public static boolean aroundLoaded(Level level, BlockPos pos) {

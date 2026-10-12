@@ -9,9 +9,6 @@ kamikaze drone, a Lancet-style loitering munition, a cruise missile, a Grad-styl
 a bunker-buster bomb and an ICBM with a nuclear warhead. A surface-to-air missile system shoots down drones, cruise
 missiles and bombers.
 
-Before version 3.0.0 the mod was called Airstrike. Worlds from those versions keep their Incoming blocks, items and
-entities.
-
 ![Fireball and blast wave of a 15 kt airburst over a city](docs/guide/img/nuke-wave.jpg)
 
 One block is one meter. Projectiles and launchers are built to real size, and the effects of a nuclear explosion are
@@ -44,7 +41,7 @@ The [player guide](docs/guide/README.md) covers all of this in detail.
 
 1. Install Minecraft 1.21.1 with NeoForge 21.1.259 or newer. No other mods are required.
 2. Download `incoming-<version>.jar` from [Releases](https://github.com/zentixua/incoming/releases/latest) and put it
-   in the `mods` folder. Remove any older `incoming-*.jar` or `airstrike-*.jar`.
+   in the `mods` folder. Remove any older `incoming-*.jar`.
 3. The server and every player need the same version of the mod. A client with a different version cannot join.
 
 ## Compatibility

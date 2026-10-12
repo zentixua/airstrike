@@ -57,7 +57,7 @@ class TerrainTest {
 
     @Test
     void clientMapBeforeGenerator() {
-        // город с карты мира: генератор — улица под крышами (Greenfield 30.09.2026: 63 под крышей на 107)
+        // город с карты мира: генератор — улица под крышами (63 под крышей на 107)
         FakeColumn c = new FakeColumn(false, 0, false, true, 63, 63);
         assertEquals(surface(107, Terrain.Source.CLIENT_MAP), Terrain.choose(c, Terrain.Allowed.ORDER.withMap(Optional.of(107))));
         assertEquals(0, c.generatorCalls);
@@ -69,7 +69,7 @@ class TerrainTest {
 
     @Test
     void generatorNotBelowSea() {
-        // мир 1.17, поднятый до 1.21: генератор давал дно мира (Newisle 30.09.2026, «по 83 -64 -370»)
+        // мир 1.17, поднятый до 1.21: генератор даёт дно мира («по 83 -64 -370»)
         assertEquals(surface(63, Terrain.Source.GENERATOR), Terrain.choose(new FakeColumn(false, 0, false, true, 63, -64), Terrain.Allowed.ORDER));
         assertEquals(surface(107, Terrain.Source.GENERATOR), Terrain.choose(new FakeColumn(false, 0, false, true, 63, 107), Terrain.Allowed.ORDER));
         // плоский мир: море −63, земля −60

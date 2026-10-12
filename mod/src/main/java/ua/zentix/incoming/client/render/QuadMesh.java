@@ -27,7 +27,7 @@ import java.util.function.ToIntFunction;
  * запечённый свет (материал {@code glow} в OBJ) — отдельно. Кадр пишет вершины одним вызовом
  * {@link VertexConsumer#addVertex(float, float, float, int, float, float, int, int, float, float, float)} на вершину,
  * как ванильный {@code ModelPart}, а не разбирает {@link BakedQuad} заново ({@code putBulkData} копирует каждую
- * вершину через {@code MemoryStack} и заводит на неё векторы). Путь прежний — буфер слоя сущностей, поэтому свет мира,
+ * вершину через {@code MemoryStack} и заводит на неё векторы). Путь — буфер слоя сущностей, поэтому свет мира,
  * контур свечения, Iris и его проход теней работают как у любой сущности.
  */
 final class QuadMesh {

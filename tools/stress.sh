@@ -30,7 +30,7 @@ MODS_ARG=()
 [ -n "${MODS:-}" ] && MODS_ARG=("-PmcModsDir=$MODS")
 cd "$ROOT/mod"
 
-# сервер слушает только петлю и свободный порт: на VPS 0.0.0.0:25565 с online-mode=false нашёл сканер из интернета
+# сервер слушает только петлю и свободный порт: на 0.0.0.0 с online-mode=false его находят сканеры из интернета
 # (сторож LoopbackGuard роняет сервер, если сокет не на петле); клиенты берут порт из INCOMING_STRESS_PORT
 export INCOMING_STRESS_PORT="${INCOMING_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
 CLIENTS=("Host host" "Friend1 leaver" "Friend2 friend")

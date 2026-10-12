@@ -29,7 +29,7 @@ public final class ModParticles {
     /**
      * Ничего: частицы серверного ванильного взрыва ({@code Level.explode} шлёт их клиентам пакетом взрыва). Картинку
      * взрыва рисует клиент сам ({@code client/fx/BlastEffects}), как и звук ({@code ModSounds.SILENT}); ванильные клубы
-     * TNT поверх неё читались белыми кольцами с тёмной серединой. Поставщик на клиенте частиц не создаёт.
+     * TNT поверх неё читались бы белыми кольцами с тёмной серединой. Поставщик на клиенте частиц не создаёт.
      */
     public static final DeferredHolder<ParticleType<?>, SimpleParticleType> NONE = REGISTER.register("none", () -> new SimpleParticleType(false));
 

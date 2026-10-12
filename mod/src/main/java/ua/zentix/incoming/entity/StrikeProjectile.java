@@ -255,8 +255,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Запас хода кончился. Ожидание у цели загрузки её района (вне мира) хода не тратит: на медленном сервере
-     * генерация района под залп с разбросом идёт долго, и снаряды пропадали без подрыва (стенд нагрузки 28.09.2026:
-     * 38 из 41 ракеты РСЗО). У ожидания свой предел — {@link #AREA_WAIT_LIMIT}.
+     * генерация района под залп с разбросом идёт долго, и снаряды пропадали бы без подрыва (стенд нагрузки: 38 из 41
+     * ракеты РСЗО). У ожидания свой предел — {@link #AREA_WAIT_LIMIT}.
      */
     protected final boolean exhausted() {
         return mission().exhausted();
@@ -637,8 +637,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         if (!flightPhase().onLauncher() && grounded == null) {
             // рельеф под снарядом и впереди на 5 тиков полёта, каждая колонка полосы (только готовые чанки): не возникнуть
             // перед склоном или стеной, которую не успеть перепрыгнуть. Путь, который кончается у цели, — только до неё:
-            // рельеф за целью поднимал ракету РСЗО, вернувшуюся в 10 блоках от цели ниже рельефа, на десятки блоков, и
-            // она рвалась в воздухе или на склоне рядом с целью (стенд 29.09.2026)
+            // рельеф за целью поднимал бы ракету РСЗО, вернувшуюся в 10 блоках от цели ниже рельефа, на десятки блоков, и
+            // она рвалась бы в воздухе или на склоне рядом с целью
             double ahead = Math.min(Math.max(80, speed * 5), pathLeft());
             double floor = reliefStraightAhead(level, ahead) + clearance();
             if (getY() < floor) {
@@ -707,10 +707,10 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
 
     /**
      * Район цели догружается в фоне, когда до неё осталось меньше {@link #PRELOAD_TICKS} полёта, — и в мире, и вне
-     * его: снаряд в мире тоже летит туда, где никого нет (залп с разбросом в сотни блоков от игрока), и раньше
-     * район брался только после ухода из тикающих чанков, у самой цели. Движущаяся цель
-     * (аппарат, игрок) уводит район за собой: иначе снаряд ждал у неё загрузки, которой не будет, и пропадал
-     * по запасу хода (28.09.2026: 4 ракеты из 10 за улетающим аппаратом). Полоса подлёта — {@link TargetAreaHold}.
+     * его: снаряд в мире тоже летит туда, где никого нет (залп с разбросом в сотни блоков от игрока), и без этого
+     * район брался бы только после ухода из тикающих чанков, у самой цели. Движущаяся цель
+     * (аппарат, игрок) уводит район за собой: иначе снаряд ждал бы у неё загрузки, которой не будет, и пропадал бы
+     * по запасу хода (4 ракеты из 10 за улетающим аппаратом). Полоса подлёта — {@link TargetAreaHold}.
      */
     protected void holdTargetArea(ServerLevel level) {
         if (tracker == null || isRemoved()) return;
@@ -853,7 +853,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
     /**
      * Столкновение до взведения ({@link #crash}): в лог — строкой на залп ({@link FlightLog}), каждый снаряд — строкой
      * DEBUG. Иначе такой конец полёта не виден: взрыв ванильный и без строки удара, а залп из 30 шахедов, который весь
-     * разбился о постройку у пусковой, в логе выглядел как пропавший.
+     * разбился о постройку у пусковой, в логе выглядел бы как пропавший.
      */
     protected final void crashUnarmed(ServerLevel level, Vec3 point) {
         Incoming.LOG.debug("Projectile {} {} crashed before arming at {} (phase {})", getType().getDescriptionId(), getUUID(),
@@ -876,7 +876,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         Pursuit pursuit = !byCamera || !(tracker.target() instanceof Target.Sighted) || tracker.isLost() ? Pursuit.NONE
                 : tracker.inSight() ? Pursuit.HELD : Pursuit.WAITING;
         entityData.set(DATA_PURSUIT, (byte) pursuit.ordinal());
-        // и у снаряда, сохранённого прежней версией уже с потерянной целью (флага «урезан» нет)
+        // и у снаряда, сохранённого уже с потерянной целью без флага «урезан»
         if (tracker.isLost() && mission().lose(plannedPathLeft(), cruiseSpeed())) onTargetLost(level);
         syncAim();
         return tracker.point();
@@ -989,7 +989,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Шаг полёта: заметаем путь носа на длину шага. Столкновение (блок, аппарат, человек рядом с траекторией)
      * или достижение цели — {@link #impact}. Возвращает true, если снаряд ещё летит.
      *
-     * @param reachPad запас дальности подрыва сверх длины шага (как в датапаке: шахед 4.3, ракета 6.5, бомба 5.3)
+     * @param reachPad запас дальности подрыва сверх длины шага (шахед 4.3, ракета 6.5, бомба 5.3)
      */
     protected boolean advance(ServerLevel level, Vec3 aim, double reachPad) {
         Vec3 dir = flight.forward();
@@ -1016,8 +1016,8 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
         // нос не заглядывает в неготовый чанк (clip грузил бы его); туда снаряд и не шагнёт — уйдёт в полёт вне мира
         Vec3 noseTo = Terrain.readyUntil(level, noseFrom, sweep[1]);
 
-        // и на разгоне: снаряд, прошедший сквозь дом на ускорителе, выходил из разгона внутри постройки и разбивался о неё
-        // в первом же тике набора — тихо и далеко от места, где встретил её
+        // и на разгоне: снаряд, прошедший сквозь дом на ускорителе, выходил бы из разгона внутри постройки и разбивался
+        // о неё в первом же тике набора — тихо и далеко от места, где встретил её
         Vec3 blockPoint = null;
         BlockHitResult block = level.clip(new ClipContext(noseFrom, noseTo, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, this));
         if (block.getType() != HitResult.Type.MISS) {
@@ -1057,9 +1057,9 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * он догрузится: подрыв в незагруженном чанке остановил бы сервер).
      * <p>
      * Дойдя до цели, снаряд встаёт в неё и возвращается в мир, где и взрывается: вне мира столкновений нет, и снаряд,
-     * которому для возвращения не хватило тикающих чанков впереди по курсу (цель в чанке, который тикает один, —
-     * игрок в воздухе у края загрузки), пролетал цель и падал до конца запаса хода (стенд VPS 29.09.2026: ракеты РСЗО
-     * в 900 блоках под миром).
+     * которому для возвращения не хватило бы тикающих чанков впереди по курсу (цель в чанке, который тикает один, —
+     * игрок в воздухе у края загрузки), пролетал бы цель и падал до конца запаса хода (ракеты РСЗО в 900 блоках под
+     * миром).
      */
     private boolean advanceVirtual(ServerLevel level, Vec3 aim, double reachPad, Vec3 dir) {
         if (grounded != null) {
@@ -1115,7 +1115,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * в земле: попадание — на поверхности над ним (и когда пол встал выше: чанк под ним догрузился). Управляемый
      * ({@link #climbs}) ниже пола оказывается, только когда пол встал выше него — цель, за которой он держит высоту
      * (ракета +12, шахед +30), поднялась (игрок вышел из оврага, телепорт), — и ещё несколько тиков снижается, пока
-     * доворачивает вверх: его пол не останавливает, иначе он падал там, где его застало (в 3000 блоках от цели,
+     * доворачивает вверх: его пол не останавливает, иначе он падал бы там, где его застало (в 3000 блоках от цели,
      * с ядерной БЧ). Ниже низа мира не уходит никто. Снаряд, который после этого шага вернётся в мир, правило не
      * трогает: в мире столкновения свои.
      */
@@ -1144,7 +1144,7 @@ public abstract class StrikeProjectile extends Entity implements IEntityWithComp
      * Следующий шаг уходит из чанков, где тикают сущности: снаряд уходит в полёт вне мира с того места, где стоит
      * (или исчезает, если так не умеет), и шаг делает уже копия вне мира. Проверка — до шага: шагнув в чанк, где
      * сущности не тикают, снаряд оставался бы в мире без тика, с тикетами, которые снять уже некому, — такие
-     * снаряды висели в мире до конца игры, а их тикеты держали чанки (стенд нагрузки 28.09.2026: 81 тикет на 2 снаряда).
+     * снаряды висели бы в мире до конца игры, а их тикеты держали бы чанки (стенд нагрузки: 81 тикет на 2 снаряда).
      */
     protected final boolean leavesTickingChunks(ServerLevel level, Vec3 next) {
         if (virtual || level.isPositionEntityTicking(BlockPos.containing(next))) return false;

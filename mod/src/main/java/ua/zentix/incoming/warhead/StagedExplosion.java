@@ -56,8 +56,8 @@ import java.util.function.LongSupplier;
 
 /**
  * Ванильный взрыв по единицам работы ({@link UnitQueue}): те же шаги, что у {@code ServerLevel.explode}, только
- * порциями в разных единицах. Замер на сборке хоста (город, ракета): два взрыва силы 12–20 — 559 мс в одном тике;
- * после деления на подрыв и порции блоков одна единица «лучи и урон» всё ещё стоила до 150 мс.
+ * порциями в разных единицах. На сборке хоста (город, ракета) два взрыва силы 12–20 одним вызовом — 559 мс в одном
+ * тике, а при делении только на подрыв и порции блоков одна единица «лучи и урон» стоила бы до 150 мс.
  * <ol>
  *     <li>{@link Explosion} с правилами TNT, {@link EventHooks#onExplosionStart} (приваты отменяют его, как обычно),
  *     один запрос аппаратов Sable на весь охват лучей. Аппарат рядом — ванильный {@link Explosion#explode()} в этой же
@@ -327,7 +327,7 @@ final class StagedExplosion implements UnitQueue.Job {
     private boolean start(ServerLevel level) {
         long t = System.nanoTime();
         // выпадение с затуханием, как у крипера: снятый блок выпадает с вероятностью 1/сила (у TNT по умолчанию выпадает
-        // всё, и после залпов по 30 тик тысяч предметов занимал две трети потока сервера). Level.explode берёт его из
+        // всё, и после залпов по 30 тик тысяч предметов занимал бы две трети потока сервера). Level.explode берёт его из
         // правила: BLOCK — blockExplosionDropDecay, по умолчанию включено
         Level.ExplosionInteraction interaction = blocks ? Level.ExplosionInteraction.BLOCK : Level.ExplosionInteraction.NONE;
         if (SubLevels.inPlotGrid(level, new ChunkPos(BlockPos.containing(at)))) {
@@ -364,7 +364,7 @@ final class StagedExplosion implements UnitQueue.Job {
      * Аппарат рядом: ванильный {@code explode()} (лучи с миксином Sable, сбор сущностей, {@code Detonate}) — одним шагом
      * замера, снимок блоков мира — следующей единицей. Урон и отбрасывание — порциями ({@link Phase#DAMAGE}) по списку,
      * который обработчики {@code Detonate} оставили ({@link #onDetonate}): ванильный цикл урона идёт в той же единице, что
-     * и лучи (финальная проверка 01.10.2026, ракета у дирижабля: весь {@code explode()} — 181,6 мс в одном тике). Блоки
+     * и лучи (ракета у дирижабля: весь {@code explode()} — 181,6 мс в одном тике). Блоки
      * аппаратов — после урона ({@link #blowCrafts}); если урон всё же сделал сам {@code explode()} — сразу.
      */
     private boolean vanilla(ServerLevel level, Explosion e) {

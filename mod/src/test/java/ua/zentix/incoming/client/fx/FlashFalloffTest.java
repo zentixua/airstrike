@@ -9,7 +9,7 @@ class FlashFalloffTest {
     private static final double MISSILE_NEAR = BlastEffects.Missile.FLASH_NEAR, MISSILE_RANGE = BlastEffects.Missile.FLASH_RANGE;
     private static final double DRONE_NEAR = BlastEffects.Drone.FLASH_NEAR, DRONE_RANGE = BlastEffects.Drone.FLASH_RANGE;
 
-    /** Вблизи, лицом к взрыву — как было (0.85), за преградой — как было (0.3). */
+    /** Вблизи, лицом к взрыву — полная сила (0.85), за преградой — 0.3. */
     @Test
     void closeBlastKeepsItsStrength() {
         assertEquals(0.85f, FlashFalloff.strength(10, MISSILE_NEAR, MISSILE_RANGE, 1, true), 0.01f);
@@ -17,7 +17,7 @@ class FlashFalloffTest {
         assertEquals(0.85f, FlashFalloff.strength(0, DRONE_NEAR, DRONE_RANGE, 1, true), 0.01f);
     }
 
-    /** Вплотную взрыв слепит, куда ни смотри: сбоку и за спиной сила прежняя (было 0.84 у шахеда в 3 блоках). */
+    /** Вплотную взрыв слепит, куда ни смотри: сбоку и за спиной у шахеда в 3 блоках — не меньше 0.75. */
     @Test
     void blastAtHandBlindsWhateverTheView() {
         assertEquals(0.85f * 0.8f + 0.85f * 0.2f * 0.5f, FlashFalloff.strength(3, DRONE_NEAR, DRONE_RANGE, -1, true), 0.01f);
@@ -30,7 +30,7 @@ class FlashFalloffTest {
         }
     }
 
-    /** Залп в 200 блоках (план barrage трейлера) не белит экран: была заливка 0.43 от ракеты и 0.14 от шахеда. */
+    /** Залп в 200 блоках (план barrage трейлера) не белит экран: заливка не больше 0.12 от ракеты и 0.05 от шахеда. */
     @Test
     void farSalvoDoesNotWashOut() {
         assertTrue(FlashFalloff.strength(200, MISSILE_NEAR, MISSILE_RANGE, 1, true) <= 0.12f);

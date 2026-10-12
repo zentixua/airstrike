@@ -252,7 +252,7 @@ public class BunkerBusterEntity extends StrikeProjectile {
         Warheads.bunker(level, at, entry, this, ownerId());
     }
 
-    /** Классы пород из датапака (теги incoming:bb_*). */
+    /** Классы пород (теги incoming:bb_*). */
     enum RockClass {
         PASSABLE(0), SOFT(12), ROCK(30), DEEP(40), HARD(110), VERY_HARD(300), STOP(0), FLUID(5), OTHER(25);
 

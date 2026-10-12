@@ -41,7 +41,7 @@ public sealed interface LaunchOrigin {
         }
     }
 
-    /** Записать {@code origin} в {@code tag} (null — ничего): место — прежним ключом {@code from}, пусковую — {@code from_launcher}. */
+    /** Записать {@code origin} в {@code tag} (null — ничего): место — ключом {@code from}, пусковую — {@code from_launcher}. */
     static void save(CompoundTag tag, @Nullable LaunchOrigin origin) {
         switch (origin) {
             case Place p -> Nbt.putVec(tag, "from", p.at());

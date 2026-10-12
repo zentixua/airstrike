@@ -39,7 +39,7 @@ jobs:
     env:
       HAS_MODRINTH: ${{ secrets.MODRINTH_TOKEN != '' }}
       HAS_CURSEFORGE: ${{ secrets.CURSEFORGE_TOKEN != '' && vars.CURSEFORGE_ID != '' }}
-      # необязательные; slug на CurseForge проверены 12.10.2026 (Create Aeronautics там не нашёлся — только Modrinth)
+      # необязательные; slug — как на CurseForge (Create Aeronautics там нет — только Modrinth)
       DEPENDENCIES: |
         create(optional){modrinth:create}{curseforge:create}
         create-aeronautics(optional){modrinth:create-aeronautics}#(ignore:curseforge)
@@ -97,7 +97,7 @@ jobs:
           JAR: ${{ steps.rel.outputs.jar }}
         run: bash .github/scripts/modrinth.sh page "$STEP" "$JAR"
 
-      # Kira-NT/mc-publish v3.3.1 (14.07.2026), закреплён коммитом: ему отдаются токены; площадка без токена пропускается
+      # Kira-NT/mc-publish v3.3.1, закреплён коммитом: ему отдаются токены; площадка без токена пропускается
       - name: "Modrinth: версия"
         if: steps.page.outputs.upload == 'true'
         uses: Kira-NT/mc-publish@52307b03863581dec6b652b83e597aec02ebb075 # v3.3.1

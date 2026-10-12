@@ -6,7 +6,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
 import ua.zentix.incoming.Incoming;
 
-/** Теги (data/incoming/tags). Классы пород для бурения перенесены из датапака как есть. */
+/** Теги (data/incoming/tags), в том числе классы пород для бурения. */
 public final class ModTags {
     /** Сквозь это летим и бурим без затрат: воздух, трава, цветы, снег-слой, огонь. */
     public static final TagKey<Block> PASSABLE = block("passable");

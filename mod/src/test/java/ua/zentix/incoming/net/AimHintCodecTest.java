@@ -24,7 +24,7 @@ class AimHintCodecTest {
         }
     }
 
-    /** Верх по карте клиента доходит до сервера: без него сервер брал рельеф генератора (Greenfield: 63 под крышей на 107). */
+    /** Верх по карте клиента доходит до сервера: без него сервер берёт рельеф генератора (63 под крышей на 107). */
     @Test
     void mapPlaceCarriesMapSurface() {
         C2S.AimHint hint = C2S.AimHint.ground(250.5, -146.5, OptionalInt.of(108));

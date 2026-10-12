@@ -66,9 +66,8 @@ public final class ModEntities {
 
     /**
      * Обломки: летят по баллистике, падают блоком или рассыпаются. Как у falling_block — позиция раз в несколько тиков.
-     * В мир не сохраняются ({@code noSave}): район цели отпускается вскоре после взрыва, и обломки, ещё летевшие в его
-     * чанках, сохранялись с ними и висели там до следующей загрузки (в сохранении Newisle после игры 03.10.2026 —
-     * 10 427 обломков).
+     * В мир не сохраняются ({@code noSave}): район цели отпускается вскоре после взрыва, и обломки, ещё летящие в его
+     * чанках, иначе сохранялись бы с ними и висели там до следующей загрузки (в одном сохранении — 10 427 обломков).
      */
     public static final DeferredHolder<EntityType<?>, EntityType<DebrisEntity>> DEBRIS = REGISTER.register("debris",
             () -> EntityType.Builder.<DebrisEntity>of(DebrisEntity::new, MobCategory.MISC)
