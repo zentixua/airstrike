@@ -62,8 +62,8 @@ The mod is needed on the server and on every client, in the same version.
 
 ## How it is made
 
-The mod is designed by its author and tested in play with friends on the author's server. The code and the texts are
-written with Claude Code. The pictures on this page are screenshots from the game.
+I'm Zentix. I came up with Incoming, decided how every part of it should work, and test it with my friends on my own
+server. I write the code with Claude Code. All pictures on this page are screenshots from the game.
 
 ## Links
 
