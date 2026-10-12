@@ -122,7 +122,8 @@ public final class CloudPuffs {
      * клуб подходит к нему за несколько тиков). У остальных клубов не используются.
      */
     private final float[] ground0, ground1, sample;
-    private boolean tracked;
+    /** Клуб у земли стоит на замеренном рельефе; нет — на высоте эпицентра (ещё не замерен или был не виден). */
+    private final boolean[] placed;
     private int ticks;
 
     public CloudPuffs(Detonation d) {
@@ -155,6 +156,7 @@ public final class CloudPuffs {
         ground0 = new float[puffs.length];
         ground1 = new float[puffs.length];
         sample = new float[puffs.length];
+        placed = new boolean[puffs.length];
         java.util.Arrays.fill(ground0, (float) d.groundY());
         java.util.Arrays.fill(ground1, (float) d.groundY());
         java.util.Arrays.fill(sample, (float) d.groundY());
@@ -533,7 +535,7 @@ public final class CloudPuffs {
             smoke(s.rgb, s.shade, ambient, s.hot, s.heat, c);
             float hr = ((s.hot >> 16) & 0xFF) / 255f, hg = ((s.hot >> 8) & 0xFF) / 255f, hb = (s.hot & 0xFF) / 255f;
             double glowA = a * (s.emit < 0 ? s.heat : s.emit) * EMISSIVE;
-            double base = p.kind.onGround() && tracked ? Mth.lerp(partial, ground0[i], ground1[i]) : d.groundY();
+            double base = p.kind.onGround() && placed[i] ? Mth.lerp(partial, ground0[i], ground1[i]) : d.groundY();
             out.puff(d.burst().x + d.blocks(s.px), base + d.blocks(s.py), d.burst().z + d.blocks(s.pz), d.blocks(s.size),
                     p.rot + (float) (p.spin * t), c[0], c[1], c[2], (float) Math.min(1, a), hr, hg, hb, (float) glowA, p.tex);
         }
@@ -544,19 +546,21 @@ public final class CloudPuffs {
      * следующего кадра; кадры до него ставят клуб между прошлым и этим замером. Клуб у камеры (ближе {@code near}
      * блоков с его размером) замеряет каждый тик в пяти точках под собой — встаёт на склон, крыши и кроны целиком, а
      * не прыгает по отдельным домам; дальний — в одной точке раз в {@link #FAR_EVERY} тиков. Где рельефа нет — клуб
-     * остаётся на прежней высоте.
+     * остаётся на прежней высоте. Невидимый клуб (ещё не встал или осел) не замеряет, а появившись — встаёт на рельеф
+     * сразу.
      */
     public void track(double t, Sightline.Heights heights, double eyeX, double eyeZ, double near) {
         Moment m = moment(t);
-        boolean first = !tracked;
-        tracked = true;
         ticks++;
         Spot s = new Spot();
         for (int i = 0; i < puffs.length; i++) {
             Puff p = puffs[i];
             if (!p.kind.onGround()) continue;
             ground0[i] = ground1[i];
-            if (m == null || !place(p, m, s)) continue;
+            if (m == null || !place(p, m, s) || s.a * m.life < 0.01) {
+                placed[i] = false;
+                continue;
+            }
             double x = d.burst().x + d.blocks(s.px), z = d.burst().z + d.blocks(s.pz), size = d.blocks(s.size);
             double dx = x - eyeX, dz = z - eyeZ, reach = near + size;
             if (dx * dx + dz * dz <= reach * reach) {
@@ -564,19 +568,22 @@ public final class CloudPuffs {
                 if (!Double.isNaN(h)) sample[i] = (float) h;
                 ground1[i] = sample[i];
             } else {
-                if (first || (i + ticks) % FAR_EVERY == 0) {
+                if (!placed[i] || (i + ticks) % FAR_EVERY == 0) {
                     double h = heights.at(Mth.floor(x), Mth.floor(z));
                     if (!Double.isNaN(h)) sample[i] = (float) h;
                 }
                 ground1[i] += (sample[i] - ground1[i]) * FAR_FOLLOW;
             }
-            if (first) ground0[i] = ground1[i] = sample[i];
+            if (!placed[i]) {
+                ground0[i] = ground1[i] = sample[i];
+                placed[i] = true;
+            }
         }
     }
 
     /** Повтор перемотан: клубы у земли встают на рельеф заново, а не съезжают к нему с прежнего места. */
     void untrack() {
-        tracked = false;
+        java.util.Arrays.fill(placed, false);
     }
 
     /** Средний верх рельефа в середине и в четырёх точках вокруг на {@code spread} блоков; NaN — нигде не известен. */

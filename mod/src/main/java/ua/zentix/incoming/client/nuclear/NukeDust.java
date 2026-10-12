@@ -38,6 +38,13 @@ public final class NukeDust {
     private static final double TEARS_PSI = 1.5;
     /** Пыль у фронта не быстрее, блоков за тик: у эпицентра фронт идёт десятками блоков за тик. */
     private static final double DUST_SPEED = 4;
+    /**
+     * Обломки снесённого: ближе стольких блоков к камере — все, дальше — реже, по квадрату расстояния (дальние чанки
+     * иначе занимают все места кусков раньше, чем фронт дойдёт до ближних).
+     */
+    private static final double DEBRIS_FULL = 48;
+    /** Руины чанка встали позже фронта больше чем на столько тиков — его обломки не летят: волна уже прошла. */
+    private static final int DEBRIS_LATE = 20;
     /** На сколько пелена накрывает экран за тик. */
     private static final float VEIL_RISE = 0.12f;
     private static float veil, veilTarget;
@@ -72,7 +79,7 @@ public final class NukeDust {
      * Тик: голова стены у камеры. Клубы встают по дуге фронта ближе {@link #NEAR} к камере — гуще у земли, выше — крупнее,
      * летят от эпицентра медленнее фронта и отстают от него шлейфом, а у земли поднимаются (вал); где волна сильнее,
      * с ними летят тёмные клочья мусора и куски верха земли (трава, песок, листва, снег). Рельеф — карта высот
-     * загруженных чанков клиента.
+     * загруженных чанков клиента (под потолком — высота эпицентра).
      */
     static void front(ClientNuclear.Active a, Vec3 eye) {
         Detonation d = a.d;
@@ -87,6 +94,9 @@ public final class NukeDust {
         double toward = Math.atan2(ez, ex);
         double ticks = a.ticks(0);
         double speed = Math.min(DUST_SPEED, d.frontRadius(ticks + 1) - d.frontRadius(ticks));
+        // под потолком (Незер) верх карты высот — потолок: пыль — на высоте эпицентра, без кусков поверхности
+        boolean ceiling = level.dimensionType().hasCeiling();
+        int floor = level.getMinBuildHeight() + 1;
         int n = Math.min(MAX_SPOTS, (int) Math.round(2 * half * r / STEP * w.density() * Fx.density(eye)));
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
@@ -98,7 +108,9 @@ public final class NukeDust {
             int bx = Mth.floor(x), bz = Mth.floor(z);
             LevelChunk chunk = level.getChunkSource().getChunk(bx >> 4, bz >> 4, false);
             if (chunk == null) continue;
-            int top = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15) + 1;
+            int top = ceiling ? floor : chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15) + 1;
+            boolean surface = top > floor;
+            if (!surface) top = Mth.floor(d.groundY());
             // гуще у земли; клуб выше — крупнее, у земли — поднимается, наверху — уходит назад со стеной
             double up = Math.pow(RANDOM.nextDouble(), 1.6), h = w.height() * 0.8 * up;
             double v = speed * (0.25 + 0.45 * RANDOM.nextDouble());
@@ -118,7 +130,7 @@ public final class NukeDust {
                         .color(0x2A2420, 0x3A322C).alpha(0.95f).drag(0.97f).gravity(0.05f).collide().wind(0).fadeIn(0).fadeFrom(0.8f).spin(0.3f)
                         .budget(FxBudget.DEBRIS).spawn(level, x, top + 0.5 + RANDOM.nextDouble() * 2, z);
             }
-            if (psi >= TEARS_PSI && RANDOM.nextFloat() < 0.5f) {
+            if (surface && psi >= TEARS_PSI && RANDOM.nextFloat() < 0.5f) {
                 m.set(bx, top - 1, bz);
                 double u = thrown * (0.4 + 0.6 * RANDOM.nextDouble());
                 Fragments.launch(level, chunk.getBlockState(m), m, x, top + 0.3, z, cos * u, u * (0.25 + 0.4 * RANDOM.nextDouble()) + 0.1, sin * u,
@@ -136,11 +148,15 @@ public final class NukeDust {
         if (level == null) return;
         Detonation d = a.d;
         double now = a.ticks(0);
+        Vec3 eye = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         for (S2C.NukeDebris.Piece p : pieces) {
             Vec3 c = Vec3.atCenterOf(p.pos());
+            double wait = d.arrivalTicks(c.distanceTo(d.burst())) - now;
+            if (wait < -DEBRIS_LATE) continue;
             // вдали мелочь не видна: реже
-            if (RANDOM.nextFloat() > Fx.density(c)) continue;
-            int delay = Mth.clamp((int) Math.ceil(d.arrivalTicks(c.distanceTo(d.burst())) - now), 0, Fragments.DELAY_MAX);
+            double dist = Math.max(DEBRIS_FULL, c.distanceTo(eye));
+            if (RANDOM.nextFloat() > Fx.density(c) * DEBRIS_FULL * DEBRIS_FULL / (dist * dist)) continue;
+            int delay = Mth.clamp((int) Math.ceil(wait), 0, Fragments.DELAY_MAX);
             double kpa = d.overpressureKpa(c), v = Detonation.throwSpeed(kpa);
             double ax = c.x - d.burst().x, az = c.z - d.burst().z, len = Math.sqrt(ax * ax + az * az);
             if (len < 1e-3) {
@@ -175,6 +191,7 @@ public final class NukeDust {
         Vec3 away = new Vec3(ear.x - d.burst().x, 0, ear.z - d.burst().z);
         away = away.lengthSqr() < 1e-4 ? new Vec3(1, 0, 0) : away.normalize();
         double speed = Mth.clamp(0.4 + psi * 0.25, 0.4, 2.5) * (1 - age / 80.0);
+        boolean ceiling = level.dimensionType().hasCeiling();
         int n = (int) (Mth.clamp(psi * 12, 12, 90) * (1 - age / 60.0));
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         for (int i = 0; i < n; i++) {
@@ -182,7 +199,7 @@ public final class NukeDust {
             double along = -14 + RANDOM.nextDouble() * 20, side = (RANDOM.nextDouble() - 0.5) * 30, up = -2 + RANDOM.nextDouble() * 8;
             Vec3 p = ear.add(away.scale(along)).add(-away.z * side, up, away.x * side);
             double v = speed * (0.7 + RANDOM.nextDouble() * 0.6);
-            if (i % 5 == 0) {
+            if (i % 5 == 0 && !ceiling) {
                 // сорванное с земли — трава, листва, песок, снег — летит и кувыркается
                 int bx = Mth.floor(p.x), bz = Mth.floor(p.z);
                 LevelChunk chunk = level.getChunkSource().getChunk(bx >> 4, bz >> 4, false);

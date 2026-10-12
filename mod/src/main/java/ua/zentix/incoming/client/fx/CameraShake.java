@@ -108,7 +108,7 @@ public final class CameraShake {
         }
         double roll = 0;
         if (approach > 0) {
-            // земля дрожит под ногами: чаще и мельче удара
+            // земля дрожит под ногами: мельче и медленнее удара, с креном
             yaw += approach * wobble(t, 7.3, 0.9);
             pitch += approach * 0.9 * wobble(t, 9.1, 2.6);
             roll += approach * 0.5 * wobble(t, 5.9, 4.0);

@@ -215,8 +215,10 @@ public final class IncomingClient {
         FarRenderer.tick();
         FxLayer.tick();
         // частицы — после тика мира, как ванильный движок; в заморозке стоят
-        if (mc.level.tickRateManager().runsNormally()) FxPool.INSTANCE.tick(mc.level);
-        Fragments.tick();
+        if (mc.level.tickRateManager().runsNormally()) {
+            FxPool.INSTANCE.tick(mc.level);
+            Fragments.tick();
+        }
         Effects.tick();
         CameraShake.tick();
         Flash.tick();

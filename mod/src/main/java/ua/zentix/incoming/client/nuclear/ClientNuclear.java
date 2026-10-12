@@ -155,6 +155,7 @@ public final class ClientNuclear {
         long now = level == null ? 0 : level.getGameTime();
         for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
+        NukeDust.reset();
     }
 
     /**
@@ -200,6 +201,21 @@ public final class ClientNuclear {
 
     // ---------------------------------------------------------------- тик
 
+    /**
+     * Верх рельефа для пыли у земли; null — в измерении с потолком (верх карты высот там — потолок, а не земля: пыль
+     * остаётся на высоте эпицентра). Над пустотой (Энд) рельефа нет — клуб остаётся на прежней высоте.
+     */
+    @Nullable
+    private static Sightline.Heights ground(ClientLevel level) {
+        if (level.dimensionType().hasCeiling()) return null;
+        Sightline.Heights heights = FarTerrain.of(level);
+        int floor = level.getMinBuildHeight() + 1;
+        return (x, z) -> {
+            double h = heights.at(x, z);
+            return h <= floor ? Double.NaN : h;
+        };
+    }
+
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
@@ -207,14 +223,14 @@ public final class ClientNuclear {
         long now = level.getGameTime();
         CLOCK.tick(now);
         Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
-        Sightline.Heights heights = FarTerrain.of(level);
+        Sightline.Heights heights = ground(level);
         double near = mc.options.getEffectiveRenderDistance() * 16.0;
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
             a.age++;
             a.sounds.tick();
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
-            a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+            if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
             NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }

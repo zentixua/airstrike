@@ -786,7 +786,6 @@ public final class ScarQueue {
             plan = RuinPlanner.plan(level, d, chunk);
         }
         plan.apply(level, chunk, budget);
-        thrown(level, d, chunk, plan);
         var memory = atDetonation.get(d.id());
         if (memory == null || !memory.contains(key)) {
             st[13]++;
@@ -794,6 +793,7 @@ public final class ScarQueue {
             st[15] = Math.max(st[15], lag);
         }
         long took = System.nanoTime() - t0;
+        thrown(level, d, chunk, plan);
         appliedFresh++;
         st[6]++;
         st[7] += took;
@@ -807,9 +807,12 @@ public final class ScarQueue {
      * у них встали в этом же тике, куски их блоков разлетаются, когда до места дойдёт фронт.
      */
     private static void thrown(ServerLevel level, Detonation d, LevelChunk chunk, RuinPlan plan) {
-        if (level.getChunkSource().chunkMap.getPlayers(chunk.getPos(), false).isEmpty()) return;
+        List<ServerPlayer> players = level.getChunkSource().chunkMap.getPlayers(chunk.getPos(), false);
+        if (players.isEmpty()) return;
         List<S2C.NukeDebris.Piece> pieces = plan.thrown(chunk, THROWN_PER_CHUNK);
-        if (!pieces.isEmpty()) PacketDistributor.sendToPlayersTrackingChunk(level, chunk.getPos(), new S2C.NukeDebris(d.id(), pieces));
+        if (pieces.isEmpty()) return;
+        S2C.NukeDebris packet = new S2C.NukeDebris(d.id(), pieces);
+        for (ServerPlayer p : players) PacketDistributor.sendToPlayer(p, packet);
     }
 
     /** Есть готовый план чанка по подрыву: построенный заранее или собранный и ждущий соседей. */
