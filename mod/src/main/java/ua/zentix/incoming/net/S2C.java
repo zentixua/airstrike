@@ -1,10 +1,13 @@
 package ua.zentix.incoming.net;
 
 import io.netty.buffer.ByteBuf;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.codec.NeoForgeStreamCodecs;
 import ua.zentix.incoming.Incoming;
@@ -367,6 +370,28 @@ public final class S2C {
         public static final Type<NukeDetonation> TYPE = new Type<>(Incoming.id("nuke_detonation"));
         public static final StreamCodec<ByteBuf, NukeDetonation> CODEC = Detonation.STREAM_CODEC
                 .map(NukeDetonation::new, NukeDetonation::detonation);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Блоки, которые снесла ядерная волна в чанке (несколько мест из руин чанка, {@code RuinPlan#thrown}), — тем, кто видит
+     * чанк: клиент бросает их куски, когда до места доходит фронт.
+     */
+    public record NukeDebris(int detonation, List<Piece> pieces) implements CustomPacketPayload {
+        public static final Type<NukeDebris> TYPE = new Type<>(Incoming.id("nuke_debris"));
+
+        /** Место и блок, который там был. */
+        public record Piece(BlockPos pos, BlockState state) {
+            static final StreamCodec<ByteBuf, Piece> CODEC = StreamCodec.composite(BlockPos.STREAM_CODEC, Piece::pos,
+                    ByteBufCodecs.idMapper(Block.BLOCK_STATE_REGISTRY), Piece::state, Piece::new);
+        }
+
+        public static final StreamCodec<ByteBuf, NukeDebris> CODEC = StreamCodec.composite(ByteBufCodecs.VAR_INT, NukeDebris::detonation,
+                Piece.CODEC.apply(ByteBufCodecs.list(64)), NukeDebris::pieces, NukeDebris::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

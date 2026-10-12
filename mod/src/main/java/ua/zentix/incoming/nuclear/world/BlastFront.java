@@ -187,8 +187,7 @@ final class BlastFront {
         float dmg = psi >= LETHAL_PSI ? Float.MAX_VALUE : (float) (1.6 * Math.pow(psi, 1.35));
         if (cover) dmg *= 0.3f;
         if (psi >= 0.7 && !immune) e.hurt(ModDamageTypes.source(level, ModDamageTypes.NUCLEAR_BLAST, null, owner), dmg);
-        double q = BlastModel.dynamicPressureKpa(kpa);
-        double v = Math.min(6.0, 0.8 * Math.sqrt(q)) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
+        double v = Detonation.throwSpeed(kpa) * (cover ? 0.2 : 1) * (1 - e.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
         Vec3 away = new Vec3(e.getX() - d.burst().x, 0, e.getZ() - d.burst().z);
         away = away.lengthSqr() < 1e-4 ? Vec3.ZERO : away.normalize();
         e.push(away.x * v, 0.3 * v, away.z * v);

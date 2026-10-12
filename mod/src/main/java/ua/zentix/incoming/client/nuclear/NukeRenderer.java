@@ -17,19 +17,20 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Vector3f;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.client.far.FarSprites;
+import ua.zentix.incoming.client.far.FarView;
 import ua.zentix.incoming.client.render.FarDraw;
 import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
- * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, огненный шар (икосфера с плазмой), гриб из клубов
- * и его накал изнутри (второй, складывающийся проход тех же клубов), пылевая стена, облако Вильсона, след входа
- * боеголовки и чёрный дождь.
+ * Картинка ядерного удара в мире (DESIGN-nuke §6): янтарное небо, огненный шар (икосфера с плазмой), след входа
+ * боеголовки и чёрный дождь — своим проходом; гриб, стена пыли и облако Вильсона — клубами в слое эффектов
+ * ({@link #clouds}).
  * <p>
  * Дальняя плоскость отсечения в 1.21.1 — 4 × дальность прорисовки, а гриб 15 кт — 12 км в высоту. Всё, что
  * дальше {@code 0.97·far}, переносится на эту дистанцию по тому же лучу и уменьшается во столько же раз (угловой
@@ -39,17 +40,10 @@ import java.util.List;
  * ванили тоже не действует — своя дымка по настоящей дальности.
  */
 public final class NukeRenderer {
-    private static final ResourceLocation PUFFS = Incoming.id("textures/nuke/puffs.png");
     private static final ResourceLocation PLASMA = Incoming.id("textures/nuke/plasma.png");
     private static final ResourceLocation FLARE = Incoming.id("textures/nuke/flare.png");
     private static final ResourceLocation RAIN = Incoming.id("textures/nuke/rain.png");
     private static final float[][] ICOSPHERE = Icosphere.build(3);
-
-    /** Клуб, уже перенесённый к камере: координаты относительно камеры, размер, цвет. */
-    private record Quad(float x, float y, float z, float size, float rot, float r, float g, float b, float a,
-                        float gr, float gg, float gb, float ga, int tex, double dist) {}
-
-    private static final List<Quad> QUADS = new ArrayList<>();
 
     private NukeRenderer() {}
 
@@ -65,13 +59,23 @@ public final class NukeRenderer {
         Vec3 eye = FarDraw.eye(e);
         FarDraw.begin(e, eye);
         try {
-            collect(level, eye, partial, far);
             drawSkyGlow(eye, partial, far);
             drawFireballs(camera, eye, partial, far);
-            drawQuads(camera, QUADS);
-            drawGlow(camera, QUADS);
             drawReentry(level, camera, eye, partial, far);
-            drawBlackRain(level, eye, partial);
+        } finally {
+            FarDraw.end();
+        }
+    }
+
+    /** Чёрный дождь — после слоя эффектов: капли у самой камеры ближе любого дыма. */
+    public static void renderRain(RenderLevelStageEvent e) {
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || NukeSky.blackRain() <= 0) return;
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) return;
+        Vec3 eye = FarDraw.eye(e);
+        FarDraw.begin(e, eye);
+        try {
+            drawBlackRain(level, eye, e.getPartialTick().getGameTimeDeltaPartialTick(false));
         } finally {
             FarDraw.end();
         }
@@ -79,53 +83,27 @@ public final class NukeRenderer {
 
     // ---------------------------------------------------------------- гриб
 
-    /** Все клубы всех подрывов за кадр (дальние — сжатые) от глаза cam, отсортированные от дальних к ближним. */
-    private static void collect(ClientLevel level, Vec3 cam, float partial, float far) {
-        QUADS.clear();
-        float ambient = Mth.clamp(level.getSkyDarken(partial) * 1.1f - 0.05f, 0.12f, 1f);
+    /**
+     * Клубы гриба и стены пыли всех подрывов — в кадр слоя эффектов ({@link FarSprites}, из {@code FarRenderer}): там
+     * они отсортированы вместе с частицами и дальней картинкой, тают, входя в землю (мягкий край по расстоянию до мира —
+     * стена пыли лежит на рельефе), и прячутся за LOD Distant Horizons; дальше дальней плоскости — перенесены ближе
+     * с тем же угловым размером. Дымка — по настоящей дальности (в метрах модели).
+     */
+    public static void clouds(FarView view, FarSprites out) {
+        List<ClientNuclear.Active> all = ClientNuclear.detonations();
+        if (all.isEmpty()) return;
         float[] fog = RenderSystem.getShaderFogColor();
-        for (ClientNuclear.Active a : ClientNuclear.detonations()) {
-            double t = a.seconds(partial);
+        float fr = fog[0], fg = fog[1], fb = fog[2];
+        Vec3 cam = view.camera();
+        for (ClientNuclear.Active a : all) {
             double vis = a.d.visibility();
-            a.puffs.sprites(t, ambient, s -> {
-                double dx = s.x() - cam.x, dy = s.y() - cam.y, dz = s.z() - cam.z;
-                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                // дымка по настоящей дальности (в метрах модели)
-                float haze = (float) (1 - Math.exp(-a.d.metres(dist) / vis));
-                float r = Mth.lerp(haze, s.r(), fog[0]), g = Mth.lerp(haze, s.g(), fog[1]), b = Mth.lerp(haze, s.b(), fog[2]);
-                float alpha = s.a() * (1 - 0.5f * haze);
-                double k = dist > far ? far / dist : 1;
-                QUADS.add(new Quad((float) (dx * k), (float) (dy * k), (float) (dz * k), (float) (s.size() * k), s.rot(), r, g, b, alpha,
-                        s.gr(), s.gg(), s.gb(), s.ga() * (1 - 0.7f * haze), s.tex(), dist));
+            a.puffs.sprites(a.seconds(view.partial()), view.partial(), view.ambient(), (x, y, z, size, rot, r, g, b, alpha, gr, gg, gb, ga, tex) -> {
+                double dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
+                float haze = (float) (1 - Math.exp(-a.d.metres(Math.sqrt(dx * dx + dy * dy + dz * dz)) / vis));
+                out.puff(dx, dy, dz, size * 0.5, rot, tex, Mth.lerp(haze, r, fr), Mth.lerp(haze, g, fg), Mth.lerp(haze, b, fb), alpha * (1 - 0.5f * haze),
+                        gr, gg, gb, ga * (1 - 0.7f * haze));
             });
         }
-        QUADS.sort(Comparator.comparingDouble(Quad::dist).reversed());
-    }
-
-    private static void drawQuads(Camera camera, List<Quad> quads) {
-        if (quads.isEmpty()) return;
-        FarDraw.setup(PUFFS, false);
-        Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
-        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-        for (Quad q : quads) {
-            float u0 = (q.tex() % 4) * 0.25f, v0 = (q.tex() / 4) * 0.5f;
-            FarDraw.billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.r(), q.g(), q.b(), q.a());
-        }
-        FarDraw.draw(b);
-    }
-
-    /** Накал гриба и стены изнутри: те же клубы вторым проходом, свет складывается — порядок не важен. */
-    private static void drawGlow(Camera camera, List<Quad> quads) {
-        if (quads.isEmpty()) return;
-        FarDraw.setup(PUFFS, true);
-        Vector3f left = camera.getLeftVector(), up = camera.getUpVector();
-        BufferBuilder b = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-        for (Quad q : quads) {
-            if (q.ga() < 0.004f) continue;
-            float u0 = (q.tex() % 4) * 0.25f, v0 = (q.tex() / 4) * 0.5f;
-            FarDraw.billboard(b, left, up, q.x(), q.y(), q.z(), q.size() * 0.5f, q.rot(), u0, v0, u0 + 0.25f, v0 + 0.5f, q.gr(), q.gg(), q.gb(), q.ga());
-        }
-        FarDraw.draw(b);
     }
 
     // ---------------------------------------------------------------- небо

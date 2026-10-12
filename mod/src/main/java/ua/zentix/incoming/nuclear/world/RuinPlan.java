@@ -1,5 +1,6 @@
 package ua.zentix.incoming.nuclear.world;
 
+import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
@@ -13,6 +14,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -31,6 +33,7 @@ import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.compat.DhUpdates;
 import ua.zentix.incoming.compat.SableTerrain;
 import ua.zentix.incoming.grid.GridLights;
+import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.util.Terrain;
 
 import java.util.List;
@@ -277,6 +280,42 @@ public final class RuinPlan {
     /** Сколько блоков меняет план (без пожаров). */
     public int changedBlocks() {
         return cells.length;
+    }
+
+    /**
+     * До {@code max} мест, где волна снесла блок целиком (был блок с моделью, стал воздух), — с блоком, который там был:
+     * их куски разлетаются у игроков, которые видят чанк ({@code S2C.NukeDebris}). Места выбраны по хешу места (самые
+     * малые), а не по порядку плана: разбросаны по чанку, и тот же план даёт те же места. Поток сервера, проход по всем
+     * местам плана — на место только сравнения и перемешивание числа.
+     */
+    public List<S2C.NukeDebris.Piece> thrown(LevelChunk chunk, int max) {
+        if (cells.length == 0 || max <= 0) return List.of();
+        ChunkPos pos = chunk.getPos();
+        int x0 = pos.getMinBlockX(), z0 = pos.getMinBlockZ(), minY = chunk.getMinBuildHeight();
+        long salt = pos.toLong() * 0x9E3779B97F4A7C15L;
+        int local = (1 << STATE_SHIFT) - 1;
+        // лучшие по возрастанию хеша: номер места в плане и хеш
+        int[] best = new int[max];
+        long[] keys = new long[max];
+        int n = 0;
+        for (int k = 0; k < cells.length; k++) {
+            int c = cells[k];
+            if (!states[(c >>> STATE_SHIFT) & STATE_MASK].isAir() || olds[k].isAir() || olds[k].getRenderShape() != RenderShape.MODEL) continue;
+            long key = HashCommon.mix(salt + (c & local)) >>> 1;
+            if (n == max && key >= keys[n - 1]) continue;
+            int i = n < max ? n++ : n - 1;
+            while (i > 0 && keys[i - 1] > key) {
+                keys[i] = keys[i - 1];
+                best[i] = best[i - 1];
+                i--;
+            }
+            keys[i] = key;
+            best[i] = k;
+        }
+        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+        List<S2C.NukeDebris.Piece> out = new java.util.ArrayList<>(n);
+        for (int i = 0; i < n; i++) out.add(new S2C.NukeDebris.Piece(at(m, cells[best[i]], x0, z0, minY).immutable(), olds[best[i]]));
+        return out;
     }
 
     /** Примерный размер плана в памяти, байты (для строки в лог). */

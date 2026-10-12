@@ -3,38 +3,66 @@ package ua.zentix.incoming.client.nuclear;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import ua.zentix.incoming.IncomingConfig;
+import ua.zentix.incoming.client.far.Sightline;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.model.BlastModel;
 import ua.zentix.incoming.nuclear.model.CloudModel;
 import ua.zentix.incoming.nuclear.model.FireballModel;
 import ua.zentix.incoming.nuclear.model.ThermalModel;
 
-import java.util.function.Consumer;
-
 /**
  * Клубы гриба (DESIGN-nuke §6): шапка — тороидальный вихрь (снаружи опускается, в середине поднимается),
  * ножка, пылевая юбка у основания, пылевая стена — сам фронт ударной волны — со шлейфом оседающей пыли за ней
- * и облако Вильсона. Шапка, ножка и стена светятся изнутри (накал, пожары) — это отдельный складывающийся проход
- * ({@link Sprite#ga}). Каждый клуб — случайные, но постоянные параметры (сид подрыва, у всех клиентов одинаковые),
+ * и облако Вильсона. Шапка, ножка и стена светятся изнутри (накал, пожары) — свет клуба поверх его дыма
+ * ({@link Sink}). Каждый клуб — случайные, но постоянные параметры (сид подрыва, у всех клиентов одинаковые),
  * а положение, размер и цвет в каждый момент выводятся из {@link CloudModel} и {@link FireballModel}. Метры
  * модели → блоки мира через {@link Detonation#blocks}.
+ * <p>
+ * Пыль у земли (юбка, стена, шлейф) стоит на рельефе под собой, а не на высоте эпицентра: высоту земли под этими
+ * клубами берёт тик клиента ({@link #track}), кадр ставит клуб между прошлым и этим тиком. Голова стены — вал: пыль
+ * у фронта поднимается, поверху уходит назад и опускается за ним, как голова пыльной бури или пирокластического
+ * потока; оборот — по скорости воздуха за фронтом ({@link BlastModel#windSpeed}).
  */
 public final class CloudPuffs {
-    enum Kind { CAP, DOME, STEM, SKIRT, RING, CURTAIN, WILSON }
+    enum Kind {
+        CAP, DOME, STEM, SKIRT, RING, CURTAIN, WILSON;
+
+        /** Пыль у земли: стоит на рельефе под собой. */
+        boolean onGround() {
+            return this == SKIRT || this == RING || this == CURTAIN;
+        }
+    }
+
+    /** Куда идут клубы кадра. */
+    @FunctionalInterface
+    public interface Sink {
+        /**
+         * Клуб в мире: центр и размер (сторона квадрата; сам клуб на текстуре занимает ~60% её) в блоках, поворот,
+         * цвет дыма и его непрозрачность, цвет и сила свечения изнутри (свет поверх дыма, ничего не закрывает), номер
+         * текстуры в атласе.
+         */
+        void puff(double x, double y, double z, double size, float rot, float r, float g, float b, float a, float gr, float gg, float gb, float ga,
+                  int tex);
+    }
 
     /**
-     * Клуб в мире в этот кадр: центр и размер (сторона квадрата; сам клуб на текстуре занимает ~60% её) в блоках,
-     * поворот, цвет дыма, цвет и сила свечения изнутри, номер текстуры в атласе.
+     * Голова стены пыли в момент: где она (блоки от эпицентра по земле), её высота (блоки) и густота 0..1 (0 — стены
+     * нет: ещё не встала или осела).
      */
-    public record Sprite(double x, double y, double z, double size, float rot, float r, float g, float b, float a,
-                         float gr, float gg, float gb, float ga, int tex) {}
+    public record Wall(double head, double height, double density) {
+        static final Wall NONE = new Wall(0, 0, 0);
+    }
 
     private record Puff(Kind kind, float a, float b, float c, float size, int tex, float rot, float spin, float shade) {}
 
     /** За сколько секунд модели (e-кратно) оседает пыль у земли: воздушный подрыв, наземный. */
     static final double DUST_SETTLE_AIR = 90, DUST_SETTLE_SURFACE = 240;
-    private static final int CAP_BASE = 0x8C5A46, CAP_LATE = 0xC9C4BE, STEM = 0x8E7F70, DUST = 0x9C8A74, DUST_BURNT = 0x5E4E40,
-            WILSON = 0xF4F4F6;
+    /**
+     * Цвета: шапка (молодая, остывшая), ножка, пыль стены (низ — с землёй и обломками, верх — освещённая солнцем),
+     * выжженная пыль в зоне пожаров, облако Вильсона.
+     */
+    private static final int CAP_BASE = 0x8C5A46, CAP_LATE = 0xC9C4BE, STEM = 0x8E7F70, DUST_LOW = 0x6B5A4A, DUST = 0x9C8A74,
+            DUST_BURNT = 0x5E4E40, WILSON = 0xF4F4F6;
     /**
      * Цвет накала изнутри по времени (с при 15 кт, у 1 кт короче — {@link #glowScale}): бело-жёлтый у шара,
      * жёлто-оранжевый, оранжевый, к минуте — тёплый буро-оранжевый, потом — дым, освещённый снизу пожарами и небом.
@@ -45,7 +73,7 @@ public final class CloudPuffs {
     private static final int[] GLOW_RGB = {0xFFD890, 0xFFB050, 0xFF8C3C, 0xF27838, 0xC87A50, 0xB08C78};
     /** Пожары под стеной — оранжевое пламя. */
     private static final int FIRE = 0xFF8A2E;
-    /** Отсвет накала в самом дыме и сила свечения клуба в складывающемся проходе. */
+    /** Отсвет накала в самом дыме и сила свечения клуба поверх дыма. */
     private static final double GLOW_IN_SMOKE = 0.85, EMISSIVE = 0.3;
     /**
      * Шапка и ножка и после накала не чернеют: их снизу освещают пожары, сверху — небо. Это нижняя граница их
@@ -54,6 +82,26 @@ public final class CloudPuffs {
     static final double EMBER = 0.5;
     /** Под это число клубов подобраны их размеры: клубов больше — они мельче, контур резче. */
     private static final double REFERENCE_PUFFS = 600;
+    /** Клубы стены с {@code c} не меньше этого — голова-вал, остальные — тело стены за ним. */
+    private static final float HEAD = 0.45f;
+    /** Радиус вала — доля высоты стены (вал с клубами по краю — вся её высота); у эпицентра — не больше четверти радиуса фронта. */
+    private static final double ROLL = 0.42, ROLL_NEAR = 0.25;
+    /** Вал вертикально чуть сплюснут: голова потока ниже, чем длиннее. */
+    private static final double ROLL_FLAT = 0.85;
+    /** Самый быстрый оборот вала, рад/с: у эпицентра воздух за фронтом — сотни метров в секунду, вал мельтешил бы. */
+    static final double ROLL_MAX = 1.5;
+    /** Узлов таблицы угла вала по времени. */
+    private static final int ROLL_NODES = 256;
+    /** Стена за 0.3 psi расплывается со скоростью столько м/с. */
+    private static final double SETTLE_SPEED = 12;
+    /** Клуб у камеры замеряет рельеф в пяти точках: середина и на такой доле своего размера в четыре стороны. */
+    private static final double SPREAD = 0.3;
+    /**
+     * Дальний клуб замеряет рельеф раз в столько тиков (каждый в свой тик) и подходит к замеру за несколько тиков: там
+     * рельеф — плитки карты ({@code TerrainTiles}), их чтение дороже чанка, а клуб в сотни блоков ступеньки не заметит.
+     */
+    private static final int FAR_EVERY = 4;
+    private static final float FAR_FOLLOW = 0.35f;
 
     private final Detonation d;
     private final Puff[] puffs;
@@ -63,11 +111,29 @@ public final class CloudPuffs {
     private final double detail;
     /** Докуда по земле световой импульс поджигает (≥ {@link ThermalModel#IGNITE}), м: там стена — пыль и огонь. */
     private final double fireGround;
+    /** Высота подрыва над землёй, м; мощность — кубическим корнем от 15 кт (масштаб форм). */
+    private final double hob, ys;
+    /** Докуда стена пыли идёт с фронтом (0.3 psi), м; дальше расплывается и оседает. */
+    private final double ringStop;
+    /** Угол вала головы стены по времени ({@link #rollPhase}): секунды модели и угол, рад. */
+    private final double[] rollT = new double[ROLL_NODES + 1], rollAngle = new double[ROLL_NODES + 1];
+    /**
+     * Верх рельефа под клубами у земли, блоки: в прошлый тик, в этот (кадр — между ними) и последний замер (дальний
+     * клуб подходит к нему за несколько тиков). У остальных клубов не используются.
+     */
+    private final float[] ground0, ground1, sample;
+    /** Клуб у земли стоит на замеренном рельефе; нет — на высоте эпицентра (ещё не замерен или был не виден). */
+    private final boolean[] placed;
+    private int ticks;
 
     public CloudPuffs(Detonation d) {
+        this(d, IncomingConfig.CLIENT.nukeCloudQuality.get().puffs, CloudModel.wilsonCloud(humidity(d)));
+    }
+
+    /** @param n клубов гриба (без стены); humid — есть облако Вильсона */
+    CloudPuffs(Detonation d, int n, boolean humid) {
         this.d = d;
-        this.humid = CloudModel.wilsonCloud(humidity(d));
-        int n = IncomingConfig.CLIENT.nukeCloudQuality.get().puffs;
+        this.humid = humid;
         // стена пыли на фронте и шлейф за ней — отдельно и плотно: они огромные, редкие клубы в них видны дырами
         int ring = n * 4 / 5, wall = ring * 7 / 10;
         RandomSource r = RandomSource.create(d.seed());
@@ -82,9 +148,25 @@ public final class CloudPuffs {
         ringCount = wall;
         curtainCount = ring - wall;
         detail = Math.cbrt(REFERENCE_PUFFS / n);
-        double hob = Math.max(0, d.hobMetres());
+        hob = Math.max(0, d.hobMetres());
+        ys = Math.cbrt(d.yieldKt() / 15);
         double slant = ThermalModel.rangeForFluence(ThermalModel.IGNITE, d.yieldKt(), d.surface(), d.visibility());
         fireGround = Math.sqrt(Math.max(0, slant * slant - hob * hob));
+        ringStop = BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), d.yieldKt());
+        ground0 = new float[puffs.length];
+        ground1 = new float[puffs.length];
+        sample = new float[puffs.length];
+        placed = new boolean[puffs.length];
+        java.util.Arrays.fill(ground0, (float) d.groundY());
+        java.util.Arrays.fill(ground1, (float) d.groundY());
+        java.util.Arrays.fill(sample, (float) d.groundY());
+        // угол вала — интеграл скорости оборота по времени (средней точкой), узлы гуще в начале
+        double end = lifeSeconds(d);
+        for (int i = 1; i <= ROLL_NODES; i++) {
+            double f = (double) i / ROLL_NODES;
+            rollT[i] = end * f * f;
+            rollAngle[i] = rollAngle[i - 1] + rollSpeed((rollT[i] + rollT[i - 1]) * 0.5) * (rollT[i] - rollT[i - 1]);
+        }
     }
 
     /** Влажность в эпицентре (облако Вильсона видно во влажном воздухе): из биома на клиенте. */
@@ -130,16 +212,14 @@ public final class CloudPuffs {
 
     /**
      * Цвет клуба дыма: свет неба на нём плюс отсвет накала изнутри ({@code heat} 0..1, цвет {@code hot}). Днём
-     * глаз привыкает к свету — отсвет виден слабее; ночью он и есть весь цвет гриба. Возвращает r, g, b в 0..1.
+     * глаз привыкает к свету — отсвет виден слабее; ночью он и есть весь цвет гриба. Пишет r, g, b в 0..1 в {@code into}.
      */
-    static float[] smoke(int rgb, double shade, float ambient, int hot, double heat) {
+    static void smoke(int rgb, double shade, float ambient, int hot, double heat, float[] into) {
         double inner = heat * GLOW_IN_SMOKE * (1 - 0.5 * ambient);
-        float[] c = new float[3];
         for (int i = 0; i < 3; i++) {
             int sh = 16 - 8 * i;
-            c[i] = (float) Math.min(1, ((rgb >> sh) & 0xFF) / 255.0 * shade * ambient + ((hot >> sh) & 0xFF) / 255.0 * inner);
+            into[i] = (float) Math.min(1, ((rgb >> sh) & 0xFF) / 255.0 * shade * ambient + ((hot >> sh) & 0xFF) / 255.0 * inner);
         }
-        return c;
     }
 
     /**
@@ -159,214 +239,372 @@ public final class CloudPuffs {
         return (40 + 260 / (1 + x * x)) * ys;
     }
 
+    /** Радиус вала головы стены, м, у фронта радиуса {@code head} м. */
+    private double rollRadius(double head) {
+        return Math.max(1, Math.min(ROLL * wallHeight(head, ys), ROLL_NEAR * head));
+    }
+
+    /** Голова стены по земле в момент t (секунды модели), м: с фронтом до 0.3 psi, дальше расплывается. */
+    private double head(double t) {
+        double front = d.metres(d.frontRadius(t * 20 * d.scale()));
+        double ground = Math.sqrt(Math.max(0, front * front - hob * hob));
+        return Math.min(ground, ringStop) + SETTLE_SPEED * settle(ground, t);
+    }
+
+    /** Сколько секунд стена уже оседает (фронт по земле прошёл 0.3 psi). */
+    private double settle(double groundFront, double t) {
+        return groundFront >= ringStop ? t - timeTo(ringStop, hob) : 0;
+    }
+
     /**
-     * Все видимые клубы в момент {@code t} (секунды модели).
-     *
-     * @param ambient освещённость неба 0..1 (ночью гриб тёмный, кроме свечения изнутри)
+     * Скорость оборота вала, рад/с: воздух за фронтом (Ренкин–Гюгонио, давление на голове стены) на радиус вала, не
+     * быстрее {@link #ROLL_MAX}. Фронт в игре вдали медленнее настоящего ({@code FrontProfile}), а вал крутит сам
+     * воздух у головы — его скорость настоящая.
      */
-    public void sprites(double t, float ambient, Consumer<Sprite> out) {
-        if (t <= 0) return;
+    private double rollSpeed(double t) {
+        double head = head(t);
+        double u = BlastModel.windSpeed(BlastModel.overpressureKpa(Math.hypot(head, hob), d.yieldKt()));
+        return Math.min(ROLL_MAX, u / rollRadius(head));
+    }
+
+    /** Угол вала головы стены в момент t (секунды модели), рад: растёт — фронт вала идёт вверх, верх — назад. */
+    double rollPhase(double t) {
+        if (t <= 0) return 0;
+        if (t >= rollT[ROLL_NODES]) return rollAngle[ROLL_NODES] + rollSpeed(t) * (t - rollT[ROLL_NODES]);
+        int i = Math.min(ROLL_NODES, Math.max(1, (int) Math.ceil(Math.sqrt(t / rollT[ROLL_NODES]) * ROLL_NODES)));
+        while (i > 1 && rollT[i - 1] > t) i--;
+        while (i < ROLL_NODES && rollT[i] < t) i++;
+        double f = (t - rollT[i - 1]) / Math.max(1e-12, rollT[i] - rollT[i - 1]);
+        return rollAngle[i - 1] + f * (rollAngle[i] - rollAngle[i - 1]);
+    }
+
+    /** Всё, что в момент t (секунды модели) общее для клубов; метры. */
+    private static final class Moment {
+        double t, life, rf, endTop, capR, capH, yc, capBot, tau, capVis, glow, ember, fireball, overhead, stemTop, stemAlpha, stemR,
+                lowDust, lowTop, front, groundFront, settle, head, headWall, thick, headK, roll, rollPhase, ringSize, curtainSpacing,
+                windX, windZ;
+        int glowRgb, fireballRgb, capRgb;
+    }
+
+    /** Клуб в момент: место от эпицентра (высота — над землёй под ним или эпицентром) и размер, м; свет и цвет. */
+    private static final class Spot {
+        double px, py, pz, size, a, shade, heat, emit;
+        int rgb, hot;
+    }
+
+    /** Общее для клубов в момент t; null — гриба уже (или ещё) нет. */
+    private Moment moment(double t) {
+        if (t <= 0) return null;
         double y = d.yieldKt();
-        double hob = Math.max(0, d.hobMetres());
-        double rf = FireballModel.maxRadius(y, d.surface());
         double stab = CloudModel.stabilizationSeconds(y);
-        double tMax = FireballModel.secondMaximumSeconds(y);
-
-        double start = hob + FireballModel.maxRadius(y, false);
-        double endTop = Math.max(start, CloudModel.stabilizedTop(y));
-        double top = CloudModel.top(t, hob, y);
-        double capBot = Math.max(hob, CloudModel.capBottom(t, hob, y));
-        double rise = Mth.clamp((top - start) / Math.max(1, endTop - start), 0, 1);
-        double capR = rf * 1.1 + (CloudModel.capRadius(y) - rf * 1.1) * Math.pow(rise, 0.8);
-        capR *= 1 + 0.25 * Mth.clamp((t - stab) / stab, 0, 2); // шапка растекается «наковальней»
-        double capH = Math.max(rf, top - capBot);
-        double yc = capBot + capH * 0.5;
-
         double life = Mth.clamp(1 - (t - 2.5 * stab) / (1.5 * stab), 0, 1);
-        if (life <= 0) return;
+        if (life <= 0) return null;
+        Moment m = new Moment();
+        m.t = t;
+        m.life = life;
+        double rf = m.rf = FireballModel.maxRadius(y, d.surface());
+        double tMax = FireballModel.secondMaximumSeconds(y);
+        double start = hob + FireballModel.maxRadius(y, false);
+        m.endTop = Math.max(start, CloudModel.stabilizedTop(y));
+        double top = CloudModel.top(t, hob, y);
+        m.capBot = Math.max(hob, CloudModel.capBottom(t, hob, y));
+        double rise = Mth.clamp((top - start) / Math.max(1, m.endTop - start), 0, 1);
+        m.capR = rf * 1.1 + (CloudModel.capRadius(y) - rf * 1.1) * Math.pow(rise, 0.8);
+        m.capR *= 1 + 0.25 * Mth.clamp((t - stab) / stab, 0, 2); // шапка растекается «наковальней»
+        m.capH = Math.max(rf, top - m.capBot);
+        m.yc = m.capBot + m.capH * 0.5;
         // шапка проступает, когда остывает шар: он сам и становится шапкой
-        double tau = t / tMax;
-        double capVis = smooth(50, 110, tau);
-        double glow = glow(t, y);
-        int glowRgb = glowRgb(t, y);
+        m.tau = t / tMax;
+        m.capVis = smooth(50, 110, m.tau);
+        m.glow = glow(t, y);
+        m.glowRgb = glowRgb(t, y);
         // шапку и ножку после накала освещают пожары и небо: отсвет не ниже EMBER
-        double ember = Math.max(glow, EMBER);
+        m.ember = Math.max(m.glow, EMBER);
         // шар освещает всё вокруг себя: облако Вильсона, пыль под ним
-        double fireball = fireballGlow(t, y);
-        int fireballRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
+        m.fireball = fireballGlow(t, y);
+        m.fireballRgb = FireballModel.colorArgb(t, y) & 0xFFFFFF;
         // свет сверху на пыль у земли: от шара, потом от раскалённой шапки
-        double overhead = Math.max(fireball, 0.5 * glow);
-        int capRgb = lerpRgb(CAP_BASE, CAP_LATE, Mth.clamp(t / 90, 0, 1));
+        m.overhead = Math.max(m.fireball, 0.5 * m.glow);
+        m.capRgb = lerpRgb(CAP_BASE, CAP_LATE, Mth.clamp(t / 90, 0, 1));
         // ножка — пыль, которую тянет вверх за шаром: догоняет шапку за десятую часть подъёма;
         // у высокого воздушного подрыва она тоньше и бледнее
-        double stemTop = capBot * Mth.clamp(t / (stab * 0.1), 0, 1);
-        double stemAlpha = hob <= rf ? 0.8 : Mth.clamp(1.2 - hob / (rf * 6), 0.35, 0.8);
-        double stemR = capR * 0.16;
+        m.stemTop = m.capBot * Mth.clamp(t / (stab * 0.1), 0, 1);
+        m.stemAlpha = hob <= rf ? 0.8 : Mth.clamp(1.2 - hob / (rf * 6), 0.35, 0.8);
+        m.stemR = m.capR * 0.16;
         // пыль у земли (юбка, раструб ножки) оседает: держится, пока ножка догоняет шапку, дальше редеет — у воздушного
         // подрыва за полторы минуты (e-кратно), у наземного (грунт из воронки) — за четыре; сам гриб висит дальше.
         // Без этого юбка (до 1.4 км от эпицентра, до 350 м в высоту у 15 кт) и раструб ножки (до 750 м) стояли бы
         // сплошной бурой пеленой до конца гриба — 15 минут: руины у эпицентра были бы не видны ни с какой камеры
-        double lowDust = Math.exp(-Math.max(0, t - stab * 0.1) / (hob <= rf ? DUST_SETTLE_SURFACE : DUST_SETTLE_AIR));
-        double lowTop = Math.max(1, Math.min(capBot * 0.3, 1000 * Math.cbrt(y / 15)));
+        m.lowDust = Math.exp(-Math.max(0, t - stab * 0.1) / (hob <= rf ? DUST_SETTLE_SURFACE : DUST_SETTLE_AIR));
+        m.lowTop = Math.max(1, Math.min(m.capBot * 0.3, 1000 * ys));
         // волна у земли: наклонная дальность фронта → радиус по земле
-        double front = d.metres(d.frontRadius(t * 20 * d.scale()));
-        double groundFront = Math.sqrt(Math.max(0, front * front - hob * hob));
-        double windX = Math.cos(d.windDir()) * d.windSpeed(), windZ = Math.sin(d.windDir()) * d.windSpeed();
-        double ys = Math.cbrt(y / 15);
+        m.front = d.metres(d.frontRadius(t * 20 * d.scale()));
+        m.groundFront = Math.sqrt(Math.max(0, m.front * m.front - hob * hob));
+        m.windX = Math.cos(d.windDir()) * d.windSpeed();
+        m.windZ = Math.sin(d.windDir()) * d.windSpeed();
         // стена пыли идёт с фронтом, пока давление не упадёт до 0.3 psi, дальше расплывается и оседает
-        double ringStop = BlastModel.rangeForOverpressure(BlastModel.kpa(0.3), y);
-        double settle = groundFront >= ringStop ? t - timeTo(ringStop, hob) : 0;
-        double head = Math.min(groundFront, ringStop) + 12 * settle;
-        double headWall = wallHeight(head, ys);
-        double thick = Math.min(head * 0.5, 180 * ys);
-        double headK = pressure(head, hob, y);
+        m.settle = settle(m.groundFront, t);
+        m.head = Math.min(m.groundFront, ringStop) + SETTLE_SPEED * m.settle;
+        m.headWall = wallHeight(m.head, ys);
+        m.thick = Math.min(m.head * 0.5, 180 * ys);
+        m.headK = pressure(m.head, hob, y);
+        m.roll = rollRadius(m.head);
+        m.rollPhase = rollPhase(t);
         // клубы по окружности перекрываются: стена сплошная
-        double ringSize = Math.max(headWall * 0.8, 2 * Math.PI * head / Math.max(1, ringCount) * 3);
-        double curtainSpacing = Math.sqrt(Math.PI * head * head / Math.max(1, curtainCount)) * 1.5;
+        m.ringSize = Math.max(m.headWall * 0.8, 2 * Math.PI * m.head / Math.max(1, ringCount) * 3);
+        m.curtainSpacing = Math.sqrt(Math.PI * m.head * m.head / Math.max(1, curtainCount)) * 1.5;
+        return m;
+    }
 
-        for (Puff p : puffs) {
-            double px, py, pz, size, a;
-            int rgb;
-            int hot = glowRgb;
-            double shade = p.shade;
-            double heat = 0; // отсвет накала или огня на дыме 0..1
-            double emit = -1; // своё свечение клуба 0..1 (складывающийся проход); -1 — столько же, сколько отсвет
-            double ang = p.a * Math.PI * 2;
-            switch (p.kind) {
-                case CAP -> {
-                    // тор: θ идёт так, что снаружи клуб опускается, внутри — поднимается
-                    double rm = capR * 0.55, rt = capR - rm;
-                    double omega = FireballModel.riseSpeed(y) / (Math.PI * Math.max(rt, 1)) * 0.35;
-                    double th = p.b * Math.PI * 2 - omega * t;
-                    double fill = 0.35 + 0.65 * Math.sqrt(p.c);
-                    double rh = rm + rt * Math.cos(th) * fill;
-                    px = Math.cos(ang) * rh;
-                    pz = Math.sin(ang) * rh;
-                    double vert = Math.sin(th) * fill;
-                    py = yc + capH * 0.5 * vert;
-                    size = rt * 1.25 * p.size * detail;
-                    a = 0.9 * capVis;
-                    shade *= 0.62 + 0.38 * (vert * 0.5 + 0.5);
-                    // жарче всего низ шапки и сердцевина вихря, внешний край и верх — слабее, но светятся и они
-                    double core = (0.55 + 0.45 * (0.5 - 0.5 * vert)) * (1 - 0.3 * Math.max(0, Math.cos(th)) * fill);
-                    heat = ember * core;
-                    emit = glow * core;
-                    rgb = capRgb;
-                }
-                case DOME -> {
-                    double rh = capR * 0.55 * Math.sqrt(p.c);
-                    px = Math.cos(ang) * rh;
-                    pz = Math.sin(ang) * rh;
-                    py = yc + capH * (0.2 + 0.25 * p.b);
-                    size = capR * 0.5 * p.size * detail;
-                    a = 0.85 * capVis;
-                    shade *= 1.05;
-                    heat = ember * 0.6;
-                    emit = glow * 0.6;
-                    rgb = capRgb;
-                }
-                case STEM -> {
-                    double h = p.b * capBot;
-                    if (h > stemTop) continue;
-                    double w = p.b;
-                    // шире у шапки и у земли; раструб у земли — пыль, он оседает вместе с юбкой
-                    double r = stemR * (0.75 + 0.9 * w * w) + stemR * 1.6 * Math.pow(1 - w, 6) * lowDust;
-                    double rh = r * Math.sqrt(p.c);
-                    double swirl = ang + t * 0.02;
-                    px = Math.cos(swirl) * rh;
-                    pz = Math.sin(swirl) * rh;
-                    py = h;
-                    size = Math.max(stemR * 1.8, r * 1.3) * p.size * detail;
-                    a = stemAlpha * smooth(4, 20, tau) * Mth.clamp((stemTop - h) / (capBot * 0.05 + 1), 0, 1)
-                            * Mth.lerp(Mth.clamp(h / lowTop, 0, 1), lowDust, 1);
-                    shade *= 0.7 + 0.3 * w;
-                    // ножка светится по всей высоте (горячий воздух, который тянет шар): верх и сердцевина — ярче
-                    double core = (0.75 + 0.25 * w) * (1 - 0.15 * Math.sqrt(p.c));
-                    heat = ember * core;
-                    emit = glow * core;
-                    rgb = STEM;
-                }
-                case SKIRT -> {
-                    double rs = Math.min(groundFront, capR * 0.7) * (0.45 + 0.55 * p.c);
-                    px = Math.cos(ang) * rs;
-                    pz = Math.sin(ang) * rs;
-                    py = Math.min(capBot * 0.12, 350 * ys) * p.b * smooth(0, 30, t);
-                    size = Math.max(60 * ys, rs * 0.22) * p.size * detail;
-                    a = 0.7 * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5) * lowDust;
-                    shade *= 0.8 + 0.2 * p.b;
-                    heat = 0.35 * p.b * overhead;
-                    rgb = DUST;
-                }
-                case RING -> {
-                    // стена пыли и дыма — это фронт: передний край клубов ровно на радиусе фронта, у центра стена
-                    // высокая, к краю ниже; в зоне поджига — стена пыли и огня, сверху её освещает шар
-                    if (head <= 0) continue;
-                    size = ringSize * p.size;
-                    double rr = Math.max(0, head - 0.3 * size - thick * (1 - p.c) * (1 - p.c));
-                    px = Math.cos(ang) * rr;
-                    pz = Math.sin(ang) * rr;
-                    py = 0.3 * size + Math.max(0, headWall - 0.6 * size) * p.b * p.b;
-                    a = 0.9 * Math.max(headK, 0.45) * smooth(0, 1.5, t) * Mth.clamp(1 - settle / 150, 0, 1);
-                    shade *= 0.75 + 0.35 * p.b;
-                    double fire = fireZone(rr);
-                    double lit = (0.3 + 0.4 * p.b) * overhead * lightFalloff(rr, rf);
-                    double burn = fire * (0.95 - 0.45 * p.b) * glow;
-                    heat = Math.max(lit, burn);
-                    if (burn > lit) hot = FIRE;
-                    rgb = lerpRgb(DUST, DUST_BURNT, fire);
-                }
-                case CURTAIN -> {
-                    // шлейф за фронтом: пыль, поднятая, когда фронт прошёл это место, висит и оседает десятки
-                    // секунд; в зоне поджига под ней горит
-                    double rr = Math.max(0, head - thick) * Math.sqrt(p.c);
-                    double since = t - timeTo(rr, hob);
-                    if (since <= 0) continue;
-                    double wall = wallHeight(rr, ys);
-                    size = Math.max(wall * 0.9, curtainSpacing) * p.size;
-                    px = Math.cos(ang) * rr;
-                    pz = Math.sin(ang) * rr;
-                    py = 0.3 * size + wall * (0.2 + 0.6 * p.b) * (1 - Math.exp(-since / 5)) * Math.exp(-since / 120);
-                    a = 0.6 * Math.max(pressure(rr, hob, y), 0.3) * smooth(0, 3, since) * Math.exp(-since / 45);
-                    shade *= 0.7 + 0.35 * p.b;
-                    double fire = fireZone(rr);
-                    double lit = 0.35 * p.b * overhead * lightFalloff(rr, rf);
-                    double burn = fire * (0.85 - 0.4 * p.b) * glow;
-                    heat = Math.max(lit, burn);
-                    if (burn > lit) hot = FIRE;
-                    rgb = lerpRgb(DUST, DUST_BURNT, fire);
-                }
-                default -> { // WILSON
-                    if (!humid) continue;
-                    double env = smooth(0.15 * ys, 0.5 * ys, t) * (1 - smooth(1.5 * ys, 3.5 * ys, t));
-                    if (env <= 0) continue;
-                    double el = Math.asin(p.b * 2 - 1);
-                    double r = front * (0.96 + 0.04 * p.c);
-                    px = Math.cos(ang) * Math.cos(el) * r;
-                    pz = Math.sin(ang) * Math.cos(el) * r;
-                    py = hob + Math.sin(el) * r;
-                    if (py < 0) continue;
-                    size = r * 0.8 * p.size;
-                    a = 0.3 * env;
-                    rgb = WILSON;
-                    // конденсат вокруг раскалённого шара освещён им: бело-жёлтый, а не серый
-                    heat = 0.9 * fireball;
-                    hot = fireballRgb;
-                }
+    /** Густота головы стены 0..1 (без доли клуба): встаёт за полторы секунды, оседая — тает за 150 с. */
+    private static double wallAlpha(Moment m) {
+        return 0.9 * Math.max(m.headK, 0.45) * smooth(0, 1.5, m.t) * Mth.clamp(1 - m.settle / 150, 0, 1);
+    }
+
+    /**
+     * Клуб p в момент m — в s (без доли {@link Moment#life}); false — клуба сейчас нет.
+     */
+    private boolean place(Puff p, Moment m, Spot s) {
+        double y = d.yieldKt(), rf = m.rf, t = m.t;
+        s.hot = m.glowRgb;
+        s.shade = p.shade;
+        s.heat = 0; // отсвет накала или огня на дыме 0..1
+        s.emit = -1; // своё свечение клуба 0..1; -1 — столько же, сколько отсвет
+        double ang = p.a * Math.PI * 2;
+        switch (p.kind) {
+            case CAP -> {
+                // тор: θ идёт так, что снаружи клуб опускается, внутри — поднимается
+                double rm = m.capR * 0.55, rt = m.capR - rm;
+                double omega = FireballModel.riseSpeed(y) / (Math.PI * Math.max(rt, 1)) * 0.35;
+                double th = p.b * Math.PI * 2 - omega * t;
+                double fill = 0.35 + 0.65 * Math.sqrt(p.c);
+                double rh = rm + rt * Math.cos(th) * fill;
+                s.px = Math.cos(ang) * rh;
+                s.pz = Math.sin(ang) * rh;
+                double vert = Math.sin(th) * fill;
+                s.py = m.yc + m.capH * 0.5 * vert;
+                s.size = rt * 1.25 * p.size * detail;
+                s.a = 0.9 * m.capVis;
+                s.shade *= 0.62 + 0.38 * (vert * 0.5 + 0.5);
+                // жарче всего низ шапки и сердцевина вихря, внешний край и верх — слабее, но светятся и они
+                double core = (0.55 + 0.45 * (0.5 - 0.5 * vert)) * (1 - 0.3 * Math.max(0, Math.cos(th)) * fill);
+                s.heat = m.ember * core;
+                s.emit = m.glow * core;
+                s.rgb = m.capRgb;
             }
-            a *= life;
-            if (a < 0.01) continue;
-            // ветер: верх сносит сильнее низа
-            double drift = t * Mth.clamp(py / endTop, 0, 1);
-            px += windX * drift;
-            pz += windZ * drift;
-
-            // дым: свет неба и отсвет накала изнутри — ночью шапка, ножка и стена оранжевые, а не чёрные
-            float[] c = smoke(rgb, shade, ambient, hot, heat);
-            float hr = ((hot >> 16) & 0xFF) / 255f, hg = ((hot >> 8) & 0xFF) / 255f, hb = (hot & 0xFF) / 255f;
-            double glowA = a * (emit < 0 ? heat : emit) * EMISSIVE;
-            out.accept(new Sprite(d.burst().x + d.blocks(px), d.groundY() + d.blocks(py), d.burst().z + d.blocks(pz), d.blocks(size),
-                    p.rot + (float) (p.spin * t), c[0], c[1], c[2], (float) Math.min(1, a), hr, hg, hb, (float) glowA, p.tex));
+            case DOME -> {
+                double rh = m.capR * 0.55 * Math.sqrt(p.c);
+                s.px = Math.cos(ang) * rh;
+                s.pz = Math.sin(ang) * rh;
+                s.py = m.yc + m.capH * (0.2 + 0.25 * p.b);
+                s.size = m.capR * 0.5 * p.size * detail;
+                s.a = 0.85 * m.capVis;
+                s.shade *= 1.05;
+                s.heat = m.ember * 0.6;
+                s.emit = m.glow * 0.6;
+                s.rgb = m.capRgb;
+            }
+            case STEM -> {
+                double h = p.b * m.capBot;
+                if (h > m.stemTop) return false;
+                double w = p.b;
+                // шире у шапки и у земли; раструб у земли — пыль, он оседает вместе с юбкой
+                double r = m.stemR * (0.75 + 0.9 * w * w) + m.stemR * 1.6 * Math.pow(1 - w, 6) * m.lowDust;
+                double rh = r * Math.sqrt(p.c);
+                double swirl = ang + t * 0.02;
+                s.px = Math.cos(swirl) * rh;
+                s.pz = Math.sin(swirl) * rh;
+                s.py = h;
+                s.size = Math.max(m.stemR * 1.8, r * 1.3) * p.size * detail;
+                s.a = m.stemAlpha * smooth(4, 20, m.tau) * Mth.clamp((m.stemTop - h) / (m.capBot * 0.05 + 1), 0, 1)
+                        * Mth.lerp(Mth.clamp(h / m.lowTop, 0, 1), m.lowDust, 1);
+                s.shade *= 0.7 + 0.3 * w;
+                // ножка светится по всей высоте (горячий воздух, который тянет шар): верх и сердцевина — ярче
+                double core = (0.75 + 0.25 * w) * (1 - 0.15 * Math.sqrt(p.c));
+                s.heat = m.ember * core;
+                s.emit = m.glow * core;
+                s.rgb = STEM;
+            }
+            case SKIRT -> {
+                double rs = Math.min(m.groundFront, m.capR * 0.7) * (0.45 + 0.55 * p.c);
+                s.px = Math.cos(ang) * rs;
+                s.pz = Math.sin(ang) * rs;
+                s.py = Math.min(m.capBot * 0.12, 350 * ys) * p.b * smooth(0, 30, t);
+                s.size = Math.max(60 * ys, rs * 0.22) * p.size * detail;
+                s.a = 0.7 * smooth(0.5, 3, t) * (hob <= rf * 4 ? 1 : 0.5) * m.lowDust;
+                s.shade *= 0.8 + 0.2 * p.b;
+                s.heat = 0.35 * p.b * m.overhead;
+                s.rgb = DUST;
+            }
+            case RING -> {
+                // стена пыли и дыма — это фронт: передний край клубов ровно на радиусе фронта, у центра стена
+                // высокая, к краю ниже; в зоне поджига — стена пыли и огня, сверху её освещает шар
+                if (m.head <= 0) return false;
+                s.size = m.ringSize * p.size;
+                double rr, up;
+                if (p.c >= HEAD) {
+                    // голова — вал: клуб идёт по кругу, у фронта вверх, поверху назад; гуще к краю вала
+                    double k = 0.4 + 0.6 * Math.sqrt((p.c - HEAD) / (1 - HEAD));
+                    double th = p.b * Math.PI * 2 + m.rollPhase;
+                    rr = Math.max(0, m.head - 0.3 * s.size - m.roll + m.roll * k * Math.cos(th));
+                    s.py = m.roll + ROLL_FLAT * m.roll * k * Math.sin(th);
+                    up = 0.5 + 0.5 * k * Math.sin(th);
+                } else {
+                    // тело за валом: ниже, редеет назад
+                    double c = p.c / HEAD;
+                    rr = Math.max(0, m.head - 0.3 * s.size - m.roll - m.thick * (1 - c) * (1 - c));
+                    s.py = 0.3 * s.size + Math.max(0, 0.6 * m.headWall - 0.6 * s.size) * p.b * p.b;
+                    up = 0.4 * p.b;
+                }
+                s.px = Math.cos(ang) * rr;
+                s.pz = Math.sin(ang) * rr;
+                s.a = wallAlpha(m);
+                // низ — с землёй и обломками, темнее; верх светлее — освещён небом
+                s.shade *= 0.75 + 0.35 * up;
+                double fire = fireZone(rr);
+                double lit = (0.3 + 0.4 * up) * m.overhead * lightFalloff(rr, rf);
+                double burn = fire * (0.95 - 0.45 * up) * m.glow;
+                s.heat = Math.max(lit, burn);
+                if (burn > lit) s.hot = FIRE;
+                s.rgb = lerpRgb(lerpRgb(DUST_LOW, DUST, up), DUST_BURNT, fire);
+            }
+            case CURTAIN -> {
+                // шлейф за фронтом: пыль, поднятая, когда фронт прошёл это место, висит и оседает десятки
+                // секунд; в зоне поджига под ней горит
+                double rr = Math.max(0, m.head - m.thick) * Math.sqrt(p.c);
+                double wall = wallHeight(rr, ys);
+                s.size = Math.max(wall * 0.9, m.curtainSpacing) * p.size;
+                // крупный клуб (редкий шлейф) — глубже за голову: пыль шлейфа не выходит вперёд стены
+                rr = Math.min(rr, Math.max(0, m.head - 0.3 * s.size));
+                double since = t - timeTo(rr, hob);
+                if (since <= 0) return false;
+                s.px = Math.cos(ang) * rr;
+                s.pz = Math.sin(ang) * rr;
+                s.py = 0.3 * s.size + wall * (0.2 + 0.6 * p.b) * (1 - Math.exp(-since / 5)) * Math.exp(-since / 120);
+                s.a = 0.6 * Math.max(pressure(rr, hob, y), 0.3) * smooth(0, 3, since) * Math.exp(-since / 45);
+                s.shade *= 0.7 + 0.35 * p.b;
+                double fire = fireZone(rr);
+                double lit = 0.35 * p.b * m.overhead * lightFalloff(rr, rf);
+                double burn = fire * (0.85 - 0.4 * p.b) * m.glow;
+                s.heat = Math.max(lit, burn);
+                if (burn > lit) s.hot = FIRE;
+                s.rgb = lerpRgb(DUST, DUST_BURNT, fire);
+            }
+            default -> { // WILSON
+                if (!humid) return false;
+                double env = smooth(0.15 * ys, 0.5 * ys, t) * (1 - smooth(1.5 * ys, 3.5 * ys, t));
+                if (env <= 0) return false;
+                double el = Math.asin(p.b * 2 - 1);
+                double r = m.front * (0.96 + 0.04 * p.c);
+                s.px = Math.cos(ang) * Math.cos(el) * r;
+                s.pz = Math.sin(ang) * Math.cos(el) * r;
+                s.py = hob + Math.sin(el) * r;
+                if (s.py < 0) return false;
+                s.size = r * 0.8 * p.size;
+                s.a = 0.3 * env;
+                s.rgb = WILSON;
+                // конденсат вокруг раскалённого шара освещён им: бело-жёлтый, а не серый
+                s.heat = 0.9 * m.fireball;
+                s.hot = m.fireballRgb;
+            }
         }
+        // ветер: верх сносит сильнее низа
+        double drift = t * Mth.clamp(s.py / m.endTop, 0, 1);
+        s.px += m.windX * drift;
+        s.pz += m.windZ * drift;
+        return true;
+    }
+
+    /**
+     * Все видимые клубы в момент {@code t} (секунды модели).
+     *
+     * @param partial доля тика кадра: пыль у земли стоит между рельефом прошлого и этого тика ({@link #track})
+     * @param ambient освещённость неба 0..1 (ночью гриб тёмный, кроме свечения изнутри)
+     */
+    public void sprites(double t, float partial, float ambient, Sink out) {
+        Moment m = moment(t);
+        if (m == null) return;
+        Spot s = new Spot();
+        float[] c = new float[3];
+        for (int i = 0; i < puffs.length; i++) {
+            Puff p = puffs[i];
+            if (!place(p, m, s)) continue;
+            double a = s.a * m.life;
+            if (a < 0.01) continue;
+            // дым: свет неба и отсвет накала изнутри — ночью шапка, ножка и стена оранжевые, а не чёрные
+            smoke(s.rgb, s.shade, ambient, s.hot, s.heat, c);
+            float hr = ((s.hot >> 16) & 0xFF) / 255f, hg = ((s.hot >> 8) & 0xFF) / 255f, hb = (s.hot & 0xFF) / 255f;
+            double glowA = a * (s.emit < 0 ? s.heat : s.emit) * EMISSIVE;
+            double base = p.kind.onGround() && placed[i] ? Mth.lerp(partial, ground0[i], ground1[i]) : d.groundY();
+            out.puff(d.burst().x + d.blocks(s.px), base + d.blocks(s.py), d.burst().z + d.blocks(s.pz), d.blocks(s.size),
+                    p.rot + (float) (p.spin * t), c[0], c[1], c[2], (float) Math.min(1, a), hr, hg, hb, (float) glowA, p.tex);
+        }
+    }
+
+    /**
+     * Тик клиента: верх рельефа под пылью у земли там, где она будет в момент {@code t} (секунды модели) — к концу
+     * следующего кадра; кадры до него ставят клуб между прошлым и этим замером. Клуб у камеры (ближе {@code near}
+     * блоков с его размером) замеряет каждый тик в пяти точках под собой — встаёт на склон, крыши и кроны целиком, а
+     * не прыгает по отдельным домам; дальний — в одной точке раз в {@link #FAR_EVERY} тиков. Где рельефа нет — клуб
+     * остаётся на прежней высоте. Невидимый клуб (ещё не встал или осел) не замеряет, а появившись — встаёт на рельеф
+     * сразу.
+     */
+    public void track(double t, Sightline.Heights heights, double eyeX, double eyeZ, double near) {
+        Moment m = moment(t);
+        ticks++;
+        Spot s = new Spot();
+        for (int i = 0; i < puffs.length; i++) {
+            Puff p = puffs[i];
+            if (!p.kind.onGround()) continue;
+            ground0[i] = ground1[i];
+            if (m == null || !place(p, m, s) || s.a * m.life < 0.01) {
+                placed[i] = false;
+                continue;
+            }
+            double x = d.burst().x + d.blocks(s.px), z = d.burst().z + d.blocks(s.pz), size = d.blocks(s.size);
+            double dx = x - eyeX, dz = z - eyeZ, reach = near + size;
+            if (dx * dx + dz * dz <= reach * reach) {
+                double h = under(heights, x, z, size * SPREAD);
+                if (!Double.isNaN(h)) sample[i] = (float) h;
+                ground1[i] = sample[i];
+            } else {
+                if (!placed[i] || (i + ticks) % FAR_EVERY == 0) {
+                    double h = heights.at(Mth.floor(x), Mth.floor(z));
+                    if (!Double.isNaN(h)) sample[i] = (float) h;
+                }
+                ground1[i] += (sample[i] - ground1[i]) * FAR_FOLLOW;
+            }
+            if (!placed[i]) {
+                ground0[i] = ground1[i] = sample[i];
+                placed[i] = true;
+            }
+        }
+    }
+
+    /** Повтор перемотан: клубы у земли встают на рельеф заново, а не съезжают к нему с прежнего места. */
+    void untrack() {
+        java.util.Arrays.fill(placed, false);
+    }
+
+    /** Средний верх рельефа в середине и в четырёх точках вокруг на {@code spread} блоков; NaN — нигде не известен. */
+    private static double under(Sightline.Heights heights, double x, double z, double spread) {
+        double sum = 0;
+        int n = 0;
+        for (int k = 0; k < 5; k++) {
+            double ox = k == 1 ? spread : k == 2 ? -spread : 0, oz = k == 3 ? spread : k == 4 ? -spread : 0;
+            double h = heights.at(Mth.floor(x + ox), Mth.floor(z + oz));
+            if (Double.isNaN(h)) continue;
+            sum += h;
+            n++;
+        }
+        return n == 0 ? Double.NaN : sum / n;
+    }
+
+    /** Голова стены пыли в момент t (секунды модели). */
+    public Wall wall(double t) {
+        Moment m = moment(t);
+        if (m == null || m.head <= 0) return Wall.NONE;
+        return new Wall(d.blocks(m.head), d.blocks(m.headWall), wallAlpha(m) * m.life);
     }
 
     /** Давление на земле в {@code groundM} от эпицентра — доля от 5 psi (0.1..1): густота пыли. */

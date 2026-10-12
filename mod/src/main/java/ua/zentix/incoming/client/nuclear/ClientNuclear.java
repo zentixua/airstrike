@@ -4,6 +4,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.incoming.client.far.FarTerrain;
+import ua.zentix.incoming.client.far.Sightline;
 import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.NuclearStrikes;
 import ua.zentix.incoming.nuclear.Detonation;
@@ -43,6 +45,7 @@ public final class ClientNuclear {
         /** Тот же подрыв после перемотки повтора: прошлое, без вспышки и звука, возраст — по часам этого места записи. */
         Active(Active a, long clientNow) {
             this(a.d, false, clientNow, a.puffs);
+            puffs.untrack();
         }
 
         private Active(Detonation d, boolean live, long clientNow, CloudPuffs puffs) {
@@ -152,6 +155,7 @@ public final class ClientNuclear {
         long now = level == null ? 0 : level.getGameTime();
         for (Detonation d : p.detonations()) DETONATIONS.put(d.id(), new Active(d, false, now));
         for (S2C.NukeWarning w : p.warnings()) WARNINGS.put(w.strikeId(), w);
+        NukeDust.reset();
     }
 
     /**
@@ -177,6 +181,12 @@ public final class ClientNuclear {
         radiation = p;
     }
 
+    /** Блоки, которые снесла волна в чанке рядом: куски разлетаются ({@link NukeDust#debris}). */
+    public static void debris(S2C.NukeDebris p) {
+        Active a = DETONATIONS.get(p.detonation());
+        if (a != null) NukeDust.debris(a, p.pieces());
+    }
+
     public static void reset() {
         DETONATIONS.clear();
         WARNINGS.clear();
@@ -191,15 +201,37 @@ public final class ClientNuclear {
 
     // ---------------------------------------------------------------- тик
 
+    /**
+     * Верх рельефа для пыли у земли; null — в измерении с потолком (верх карты высот там — потолок, а не земля: пыль
+     * остаётся на высоте эпицентра). Над пустотой (Энд) рельефа нет — клуб остаётся на прежней высоте.
+     */
+    @Nullable
+    private static Sightline.Heights ground(ClientLevel level) {
+        if (level.dimensionType().hasCeiling()) return null;
+        Sightline.Heights heights = FarTerrain.of(level);
+        int floor = level.getMinBuildHeight() + 1;
+        return (x, z) -> {
+            double h = heights.at(x, z);
+            return h <= floor ? Double.NaN : h;
+        };
+    }
+
     public static void tick() {
-        ClientLevel level = Minecraft.getInstance().level;
+        Minecraft mc = Minecraft.getInstance();
+        ClientLevel level = mc.level;
         if (level == null) return;
         long now = level.getGameTime();
         CLOCK.tick(now);
+        Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
+        Sightline.Heights heights = ground(level);
+        double near = mc.options.getEffectiveRenderDistance() * 16.0;
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
             a.age++;
             a.sounds.tick();
+            // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
+            if (heights != null) a.puffs.track(a.seconds(1), heights, eye.x, eye.z, near);
+            NukeDust.front(a, eye);
             if (a.ticks(0) > lifeTicks(a.d)) it.remove();
         }
         // предупреждение живёт, пока не придёт подрыв (или отбой — сервер пришлёт всё заново), но не дольше срока ожидания места

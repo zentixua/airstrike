@@ -80,7 +80,7 @@ public final class FxLayer {
             });
         } catch (IOException ex) {
             shader = null;
-            Incoming.LOG.error("Effects layer shader failed to load: no smoke, fire or far rendering", ex);
+            Incoming.LOG.error("Effects layer shader failed to load: no smoke, fire, mushroom cloud or far rendering", ex);
         }
         try {
             e.registerShader(new ShaderInstance(e.getResourceProvider(), Incoming.id("fx_depth"), DefaultVertexFormat.POSITION), s -> SceneDepth.shader = s);

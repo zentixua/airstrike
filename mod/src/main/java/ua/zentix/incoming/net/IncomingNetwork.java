@@ -11,7 +11,7 @@ import ua.zentix.incoming.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class IncomingNetwork {
-    public static final String PROTOCOL = "23";
+    public static final String PROTOCOL = "24";
 
     private IncomingNetwork() {}
 
@@ -30,6 +30,7 @@ public final class IncomingNetwork {
         r.playToClient(S2C.Cleared.TYPE, S2C.Cleared.CODEC, (p, ctx) -> ClientHooks.get().cleared(p));
         r.playToClient(S2C.NukeWarning.TYPE, S2C.NukeWarning.CODEC, (p, ctx) -> ClientHooks.get().nukeWarning(p));
         r.playToClient(S2C.NukeDetonation.TYPE, S2C.NukeDetonation.CODEC, (p, ctx) -> ClientHooks.get().nukeDetonation(p));
+        r.playToClient(S2C.NukeDebris.TYPE, S2C.NukeDebris.CODEC, (p, ctx) -> ClientHooks.get().nukeDebris(p));
         r.playToClient(S2C.NukeSync.TYPE, S2C.NukeSync.CODEC, (p, ctx) -> ClientHooks.get().nukeSync(p));
         r.playToClient(S2C.Radiation.TYPE, S2C.Radiation.CODEC, (p, ctx) -> ClientHooks.get().radiation(p));
         r.playToClient(S2C.Flights.TYPE, S2C.Flights.CODEC, (p, ctx) -> ClientHooks.get().flights(p));

@@ -1,7 +1,13 @@
 package ua.zentix.incoming.client.nuclear;
 
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
+import ua.zentix.incoming.nuclear.Detonation;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CloudPuffsTest {
@@ -45,7 +51,8 @@ class CloudPuffsTest {
     void stemIsNeverBlackAtNight() {
         for (double t = 0.5; t <= 1500; t += 0.5) {
             double heat = Math.max(CloudPuffs.glow(t, 15), CloudPuffs.EMBER) * STEM_EDGE;
-            float[] c = CloudPuffs.smoke(STEM, 0.7, NIGHT, CloudPuffs.glowRgb(t, 15), heat);
+            float[] c = new float[3];
+            CloudPuffs.smoke(STEM, 0.7, NIGHT, CloudPuffs.glowRgb(t, 15), heat, c);
             assertTrue(luminance(c) > 0.15, t + " с: яркость " + luminance(c));
             if (t <= 70) {
                 assertTrue(c[0] > 0.4 && c[0] > 1.4 * c[2], t + " с: не светится оранжевым " + c[0] + " " + c[1] + " " + c[2]);
@@ -56,7 +63,66 @@ class CloudPuffsTest {
     /** Днём отсвет не заливает шапку: она светлее, но цвет дыма виден. */
     @Test
     void daylightKeepsSmokeColour() {
-        float[] c = CloudPuffs.smoke(0x8C5A46, 1, 1f, CloudPuffs.glowRgb(60, 15), CloudPuffs.EMBER);
+        float[] c = new float[3];
+        CloudPuffs.smoke(0x8C5A46, 1, 1f, CloudPuffs.glowRgb(60, 15), CloudPuffs.EMBER, c);
         assertTrue(c[2] < 0.6, "синий " + c[2]);
+    }
+
+    /** 15 кт у земли на высоте 64, без ветра, в масштабе 1 блок = 4 м. */
+    private static final Detonation GROUND = new Detonation(1, new Vec3(0, 64, 0), 64, 15, true, 0, 0, 0, 20_000, 7, 0.25f, false);
+
+    /** Клуб кадра: центр и размер, блоки. */
+    private record Seen(double x, double y, double z, double size) {}
+
+    private static List<Seen> frame(CloudPuffs puffs, double t) {
+        List<Seen> out = new ArrayList<>();
+        puffs.sprites(t, 1, 1, (x, y, z, size, rot, r, g, b, a, gr, gg, gb, ga, tex) -> out.add(new Seen(x, y, z, size)));
+        return out;
+    }
+
+    /**
+     * Пыль у земли стоит на рельефе под собой: на плато в 136 блоках над эпицентром стена, шлейф и юбка поднимаются ровно
+     * на него, гриб остаётся над эпицентром; передний край стены — на голове ({@link CloudPuffs#wall}), не дальше.
+     */
+    @Test
+    void groundDustStandsOnTerrain() {
+        for (double t : new double[]{2, 6, 20}) {
+            CloudPuffs onPlateau = new CloudPuffs(GROUND, 750, false), flat = new CloudPuffs(GROUND, 750, false);
+            onPlateau.track(t, (x, z) -> 200, 0, 0, 1e6);
+            List<Seen> raised = frame(onPlateau, t), level = frame(flat, t);
+            assertEquals(level.size(), raised.size(), t + " с");
+            double head = onPlateau.wall(t).head(), edge = 0;
+            int lifted = 0;
+            for (int i = 0; i < raised.size(); i++) {
+                Seen a = raised.get(i), b = level.get(i);
+                assertEquals(b.x, a.x, 1e-9);
+                assertEquals(b.z, a.z, 1e-9);
+                double dy = a.y - b.y;
+                assertTrue(Math.abs(dy) < 1e-6 || Math.abs(dy - 136) < 1e-6, t + " с: клуб сдвинут на " + dy);
+                if (dy > 1) {
+                    lifted++;
+                    // клуб на текстуре — ~60% квадрата
+                    edge = Math.max(edge, Math.hypot(a.x, a.z) + 0.3 * a.size);
+                }
+            }
+            assertTrue(lifted > 300, t + " с: на рельеф встало " + lifted + " клубов");
+            assertTrue(edge <= head * 1.02 + 1, t + " с: пыль впереди головы стены: " + edge + " > " + head);
+            assertTrue(edge >= head * 0.9, t + " с: стена не дошла до головы: " + edge + " < " + head);
+        }
+    }
+
+    /** Вал головы стены крутится в одну сторону и не быстрее {@link CloudPuffs#ROLL_MAX}. */
+    @Test
+    void wallHeadRollsSteadily() {
+        CloudPuffs puffs = new CloudPuffs(GROUND, 750, false);
+        assertEquals(0, puffs.rollPhase(0));
+        double prev = 0;
+        for (double t = 0.05; t <= 600; t += 0.05) {
+            double phase = puffs.rollPhase(t);
+            assertTrue(phase >= prev - 1e-9, t + " с: вал крутится назад");
+            assertTrue(phase - prev <= CloudPuffs.ROLL_MAX * 0.05 + 1e-6, t + " с: быстрее предела " + (phase - prev) / 0.05);
+            prev = phase;
+        }
+        assertTrue(puffs.rollPhase(10) > Math.PI, "за 10 с вал не обернулся и наполовину: " + puffs.rollPhase(10));
     }
 }

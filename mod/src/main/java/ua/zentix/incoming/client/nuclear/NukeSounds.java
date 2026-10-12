@@ -115,7 +115,7 @@ public final class NukeSounds {
         private final Detonation d;
         private final boolean live;
         private final RandomSource random;
-        private boolean arrived;
+        private boolean arrived, rumbled;
         private long arrivalTick;
         private double psi;
         private final double[] rumbles;
@@ -138,7 +138,10 @@ public final class NukeSounds {
             double since = now;
             if (!arrived) {
                 double dist = ear.distanceTo(d.burst());
-                if (d.frontRadius(since) < dist) return;
+                if (d.frontRadius(since) < dist) {
+                    approach(ear, d.arrivalTicks(dist) - since);
+                    return;
+                }
                 arrived = true;
                 arrivalTick = now;
                 psi = d.psi(ear);
@@ -159,6 +162,19 @@ public final class NukeSounds {
                 ClientSounds.atEar(ModSounds.NUKE_RUMBLE.get(), ear.add(Math.cos(ang) * 50, 0, Math.sin(ang) * 50), v, 0.9f + random.nextFloat() * 0.2f);
                 CameraShake.quake(20);
                 nextRumble++;
+            }
+        }
+
+        /**
+         * Стена пыли подходит: земля дрожит всё сильнее ({@link CameraShake#approach}), с первой дрожью — низкий гул
+         * толчка грунта (он бежит по земле быстрее волны в воздухе).
+         */
+        private void approach(Vec3 ear, double eta) {
+            double p = d.psi(ear);
+            CameraShake.approach(p, eta);
+            if (!rumbled && p >= 1 && eta < CameraShake.approachTicks(p)) {
+                rumbled = true;
+                ClientSounds.atEar(ModSounds.BOMB_QUAKE.get(), ear.add(0, -4, 0), (float) Mth.clamp(p / 5, 0.4, 1), 0.7f);
             }
         }
 
