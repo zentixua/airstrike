@@ -47,7 +47,22 @@ class FalloutModelTest {
         assertEquals(10000 / FalloutModel.REFERENCE_WIND, arrival, 1e-9);
         assertEquals(0, GROUND.doseRate(10000, 0, arrival - 1, 5), 0);
         assertTrue(GROUND.doseRate(10000, 0, arrival + 1, 5) > 0);
-        assertEquals(0, GROUND.arrivalSeconds(-3000, 0), 0);
+    }
+
+    /**
+     * Под облаком, против ветра и сбоку осадки не раньше, чем долетят крупные частицы: 4·Y^0.2 мин (модель Миллера),
+     * 1 Мт — 16 мин, как в «Attack Environment Manual» (1973). Иначе у эпицентра чёрный дождь шёл бы с первой секунды.
+     */
+    @Test
+    void nothingFallsBeforeLargestParticles() {
+        assertEquals(6.9 * 60, GROUND.firstArrivalSeconds(), 6);
+        assertEquals(16 * 60, new FalloutModel(1000, 0, 0, FalloutModel.REFERENCE_WIND).firstArrivalSeconds(), 10);
+        double first = GROUND.firstArrivalSeconds();
+        for (double[] p : new double[][]{{0, 0}, {-1000, 0}, {0, 1000}, {500, 0}}) {
+            assertEquals(first, GROUND.arrivalSeconds(p[0], p[1]), 1e-9);
+            assertEquals(0, GROUND.doseRate(p[0], p[1], first - 1, 0), 0);
+            assertTrue(GROUND.doseRate(p[0], p[1], first + 1, 0) > 0);
+        }
     }
 
     @Test

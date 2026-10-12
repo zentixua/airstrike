@@ -107,6 +107,8 @@ public final class Trailer {
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
     /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
     private Vec3 falloutSpot = Vec3.ZERO;
+    /** Тики после подрыва, когда осадки ложатся на {@link #falloutSpot} (не меньше 3000). */
+    private long falloutRain = 3000;
 
     private interface Step {
         /** @return шаг закончен */
@@ -414,7 +416,7 @@ public final class Trailer {
         run(() -> cmd("item replace entity @s weapon.mainhand with incoming:geiger_counter"));
         shot("fallout").length(170).hud().player(t -> new Pose(Vec3.ZERO, yawTo(mc.player.position(), village) + 150 - (float) t * 0.35f,
                         -18 + (float) Math.sin(t / 40) * 4, 0, 70))
-                .when(() -> sinceDetonation() > 3900, 6000);
+                .when(() -> sinceDetonation() > falloutRain + 900, 12000);
 
         run(() -> {
             rec.finish();
@@ -650,9 +652,9 @@ public final class Trailer {
     }
 
     /**
-     * В след осадков, куда они придут к ~2.5 мин после подрыва (как в ядерном сценарии): сначала невидимкой
-     * (прогрузить), потом на землю, на площадку из камня (вдруг там вода). При слабом ветре эта точка бывает в
-     * воронке или в овраге — тогда дальше по ветру, до открытого места.
+     * В след осадков недалеко по ветру (как в ядерном сценарии; осадки там — не раньше, чем долетят из облака):
+     * сначала невидимкой (прогрузить), потом на землю, на площадку из камня (вдруг там вода). При слабом ветре эта
+     * точка бывает в воронке или в овраге — тогда дальше по ветру, до открытого места.
      */
     private void placeInFallout(boolean land) {
         var list = ClientNuclear.detonations();
@@ -663,6 +665,7 @@ public final class Trailer {
             double m = Math.min(3000, d.windSpeed() * 150) * d.scale();
             double dx = Math.cos(d.windDir()), dz = Math.sin(d.windDir());
             falloutSpot = server.submit(() -> openGround(server.overworld(), d.burst().x, d.burst().z, dx, dz, m)).join();
+            falloutRain = Math.max(3000, (long) Math.ceil(d.falloutArrivalTicks(falloutSpot.x, falloutSpot.z)));
             placeHidden(new Vec3(falloutSpot.x, 200, falloutSpot.z));
             return;
         }

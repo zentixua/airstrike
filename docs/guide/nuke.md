@@ -34,6 +34,7 @@ fly with the dust. The ground shakes harder and harder as the wall comes closer.
 
 At 15 kt the wave kills out to about 0.4 km, the light of the fireball burns out to 3.4 km, and windows break out to
 6 km. At 1 kt all of this is several times closer. A ground burst leaves a fallout trail downwind, with black rain.
+Fallout starts to come down about 7 minutes after a 15 kt burst, and later farther downwind.
 
 ![A town after a 15 kt strike: ruins and fires](img/nuke-ruins.jpg)
 
