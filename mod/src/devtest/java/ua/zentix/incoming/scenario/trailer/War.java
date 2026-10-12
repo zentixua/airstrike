@@ -70,7 +70,7 @@ final class War {
     /** Спуск в метро у депо: лестница вниз по +x от улицы до платформы. */
     static final Vec3 SUB_TOP = new Vec3(3362.5, 63, 269.5), SUB_BOTTOM = new Vec3(3392.5, 47, 269.5);
     /** Улица у южного края площади (площадь — x 3110–3240, z 238–310, земля 62). */
-    static final Vec3 AVENUE = new Vec3(3100.5, 0, 338.5);
+    static final Vec3 AVENUE = new Vec3(3200.5, 0, 292.5);
     /** Эпицентр воздушного взрыва; крыша финала в ~900 блоках от него. */
     static final Vec3 GZ = new Vec3(3300.5, 64, 640.5);
     static final Vec3 FINAL_ROOF = new Vec3(2849.5, 116, -157.5);
@@ -364,15 +364,17 @@ final class War {
         hiddenAt(ROOF, T5);
         film.run(() -> cast().spawn("Ilya", ROOF, Film.yawTo(ROOF, T5), null));
         film.waitTicks(80);
+        // в башню ниже облаков (верх T5 — над ними) и с юга: взрыв на грани, которую видит камера
+        Vec3 t5 = T5.add(0, -60, 0);
         film.shot("p13").length(140).hidden()
-                .onReady(() -> salvo("missile", 1, 0, T5, new Vec3(2300, 0, 540)))
+                .onReady(() -> salvo("missile", 1, 0, t5, new Vec3(2700, 0, -300)))
                 .camera(() -> {
                     Vec3 eye = ROOF.add(0, 1.62, 0);
                     Vec3 back = eye.subtract(T5.subtract(eye).multiply(1, 0, 1).normalize().scale(3.4)).add(0.9, 0.35, 0);
                     return CineCamera.track(back, () -> T5.add(0, -30, 0), 46);
                 })
-                .when(() -> flightNear(T5, 340), 3000)
-                .endWhen(hit(T5, 120), 40);
+                .when(() -> flightNear(t5, 340), 3000)
+                .endWhen(hit(t5, 120), 40);
         film.run(() -> cast().remove("Ilya"));
 
         // p14: на улице сирена — следующие ракеты идут сюда; первый кадр с интерфейсом: ⚠ MISSILE THREAT ⚠ (отметка siren)
