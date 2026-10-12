@@ -16,7 +16,8 @@ interface Scene {
 
     /** Сцены по имени — для отдельной съёмки. */
     Map<String, Scene> ALL = new TreeMap<>(Map.of(
-            "street", Scene::streetFight
+            "street", Scene::streetFight,
+            "airfield", AirfieldScene::stage
     ));
 
     /** Уличный бой: два отряда по шесть бойцов за укрытиями, облёт и вид из-за плеча. */
