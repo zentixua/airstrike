@@ -277,6 +277,23 @@ final class CineCamera {
         };
     }
 
+    /**
+     * На борту: камера закреплена на сущности (самолёт, лодка) в её осях — {@code right} вправо, {@code up} вверх,
+     * {@code fwd} вперёд от её места с учётом курса и тангажа — и смотрит по её носу, на {@code tilt} градусов ниже
+     * (капот и полоса в кадре). Место и поворот — с долей тика, как их рисует игра; крена у сущности Minecraft нет.
+     */
+    static Path mount(Supplier<Entity> vehicle, double right, double up, double fwd, float tilt, double fov) {
+        return t -> {
+            Entity e = vehicle.get();
+            if (e == null) return pose != null ? pose : new Pose(Vec3.ZERO, 0, 0, 0, fov);
+            float pt = partial();
+            float yaw = e.getViewYRot(pt), pitch = e.getViewXRot(pt);
+            Vec3 f = Vec3.directionFromRotation(pitch, yaw), u = Vec3.directionFromRotation(pitch - 90, yaw);
+            Vec3 from = e.getPosition(pt).add(f.cross(u).scale(right)).add(u.scale(up)).add(f.scale(fwd));
+            return new Pose(from, yaw, pitch + tilt, 0, fov);
+        };
+    }
+
     static float partial() {
         return Minecraft.getInstance().getTimer().getGameTimeDeltaPartialTick(true);
     }
