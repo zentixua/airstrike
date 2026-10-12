@@ -1,4 +1,4 @@
-Air strikes and air defense for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one metre, and the projectiles,
+Air strikes and air defense for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one meter, and the projectiles,
 launchers and the effects of a nuclear explosion have their real sizes.
 
 ![Fireball and blast wave of a 15 kt airburst over a city](https://raw.githubusercontent.com/zentixua/incoming/main/docs/guide/img/nuke-wave.jpg)
@@ -44,7 +44,7 @@ a non-operator then needs a second player nearby to confirm it when anyone else 
 ## Also
 
 - **Blackout**: destroying a transformer substation turns off the electric lights in its district for 15 minutes.
-- **Sound**: engines and explosions carry for kilometres and travel at the speed of sound, so you see a distant
+- **Sound**: engines and explosions carry for kilometers and travel at the speed of sound, so you see a distant
   explosion before you hear it.
 - **Settings**: the world owner sets explosion power, flight times, salvo limits, who may use the designator and
   nuclear weapons, and more.
@@ -65,5 +65,3 @@ Airstrike.
 
 - [Player guide](https://github.com/zentixua/incoming/blob/main/docs/guide/README.md)
 - [Source code](https://github.com/zentixua/incoming) (GPL-3.0)
-- [Incoming Pack](https://github.com/zentixua/incoming-pack): a modpack built around the mod, with Create,
-  Create Aeronautics, Distant Horizons and shaders

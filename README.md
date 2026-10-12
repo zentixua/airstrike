@@ -12,7 +12,7 @@ entities.
 
 ![Fireball and blast wave of a 15 kt airburst over a city](docs/guide/img/nuke-wave.jpg)
 
-One block is one metre. Projectiles and launchers are built to real size, and the effects of a nuclear explosion are
+One block is one meter. Projectiles and launchers are built to real size, and the effects of a nuclear explosion are
 calculated from reference data ([design notes](docs/DESIGN-nuke.md), in Russian).
 
 ## What it adds
@@ -34,16 +34,11 @@ calculated from reference data ([design notes](docs/DESIGN-nuke.md), in Russian)
   cloud, a blast wave that ruins buildings as it passes, fires, and for a surface burst a crater and radioactive
   fallout. Operators only by default.
 - **Blackout.** Destroying a transformer substation turns off the electric lights in its district.
-- **Sound.** Engines and explosions are heard from kilometres away and arrive at the speed of sound, after the flash.
+- **Sound.** Engines and explosions are heard from kilometers away and arrive at the speed of sound, after the flash.
 
 The [player guide](docs/guide/README.md) covers all of this in detail.
 
 ## Installation
-
-The easiest way to play is the [Incoming Pack](https://github.com/zentixua/incoming-pack) modpack (Create,
-Create Aeronautics, Distant Horizons, shaders). It updates itself, this mod included, every time the game starts.
-
-Without the pack:
 
 1. Install Minecraft 1.21.1 with NeoForge 21.1.259 or newer. No other mods are required.
 2. Download `incoming-<version>.jar` from [Releases](https://github.com/zentixua/incoming/releases/latest) and put it

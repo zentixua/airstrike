@@ -1,11 +1,11 @@
-# Incoming — мод NeoForge для Minecraft 1.21.1 (сборка «Incoming Pack»)
+# Incoming — мод NeoForge для Minecraft 1.21.1 (сборка «Airstrike Pack»)
 
-До версии 3.0.0 мод назывался Airstrike, сборка — Airstrike Pack, репозитории — zentixua/airstrike и
-zentixua/airstrike-pack. Переименованы целиком (решение Артёма 12.10.2026: «Airstrike» на Modrinth и CurseForge занято):
-id и пространство имён `incoming`, команда `/incoming`, пакеты `ua.zentix.incoming`, jar `incoming-<версия>.jar`,
-настройки `incoming-server.toml`/`incoming-client.toml`. Старые миры: `legacy/OldNamespace` — псевдонимы реестров
-`airstrike:*` → `incoming:*` и файлы `data/airstrike_*.dat` под новым именем; `legacy/LegacyMigration` — ещё более
-старый датапак.
+До версии 3.0.0 мод назывался Airstrike (репозиторий zentixua/airstrike). Переименован целиком (решение Артёма
+12.10.2026: «Airstrike» на Modrinth и CurseForge занято): id и пространство имён `incoming`, команда `/incoming`, пакеты
+`ua.zentix.incoming`, jar `incoming-<версия>.jar`, настройки `incoming-server.toml`/`incoming-client.toml`. Старые миры:
+`legacy/OldNamespace` — псевдонимы реестров `airstrike:*` → `incoming:*` и файлы `data/airstrike_*.dat` под новым
+именем; `legacy/LegacyMigration` — ещё более старый датапак. Сборка «Airstrike Pack» — личная, Артёма с друзьями
+(Артём 12.10.2026): имя и репозиторий прежние, в публичных текстах мода её нет.
 
 Кинематографичные и при этом реалистичные удары: дрон-камикадзе (как Shahed-136), крылатая ракета,
 B-2 с бетонобойной бомбой, залпы с разбросом, МБР с ядерной боевой частью; пульт наведения с биноклем,
@@ -18,7 +18,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
 правит и руководство в том же PR, на обоих языках (docs/guide — английский, docs/guide/ru — русский), кадры к нему —
 `tools/client_scenario.sh guide` и `tools/guide_images.sh`;
 проект ядерного удара и отступления от него — docs/DESIGN-nuke.md.
-Рядом — свои репозитории: сборка «Incoming Pack» (https://github.com/zentixua/incoming-pack) и Almighty, мост ведущего
+Рядом — свои репозитории: сборка «Airstrike Pack» (https://github.com/zentixua/airstrike-pack) и Almighty, мост ведущего
 (серверный мод и MCP-адаптер для ИИ-агента, https://github.com/zentixua/almighty); у каждого свой CLAUDE.md.
 
 Здесь — только то, что нужно в каждой сессии. Устройство пакетов и подводные камни по областям — в `.claude/rules/`
@@ -33,7 +33,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   к релизам, ключи en_us; русский перевод (README.ru.md, docs/guide/ru, ru_ru) правится в том же PR. Пишем как человек:
   просто, точно, без рекламных слов, повторов и воды; каждое утверждение сверено с кодом.
 - **Не управлять компьютером пользователя** (никакого computer-use, кликов в игре). Всё готовим так,
-  чтобы Артёму оставалось только запустить игру: мод приходит в неё выпуском и PR сборки в incoming-pack (автообновление).
+  чтобы Артёму оставалось только запустить игру: мод приходит в неё выпуском и PR сборки в airstrike-pack (автообновление).
 - **Минимум просьб «проверь в игре»** — это мешает игре. Проверяем сами: юнит-тесты, GameTest, клиент без окна
   (`tools/client_scenario.sh`), после игры — `tools/logscan.py`.
 - Не удалять миры/сейвы/файлы пользователя. Лишнее — переносить в сторону (`deploy.sh` кладёт в `incoming-backup/`).
@@ -56,7 +56,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   tools/                                 ← скрипты; что каждый умеет — .claude/rules/tools.md:
                                            paths.py (все пути к игре), deploy.sh, logscan.py; моды и каталоги для
                                            запусков — fetch_runtime_mods.py (каталог игры из сборки — pack_dir.py в
-                                           incoming-pack); клиент без окна
+                                           airstrike-pack); клиент без окна
                                            и проверки — client_scenario.sh, prod_client.py, x11_record.py, nested_kwin.sh,
                                            stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
@@ -71,7 +71,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   .claude/rules/                         ← устройство пакетов и подводные камни по областям
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
-  instances/Incoming Pack/minecraft/                             ← .minecraft инстанса (MC): сборка incoming-pack, в ней играет Артём
+  instances/Airstrike Pack/minecraft/                             ← .minecraft инстанса (MC): сборка airstrike-pack, в ней играет Артём
     mods/                              ← моды; отсюда же build.gradle берёт Create/Sable/Aeronautics для запусков
     logs/latest.log                    ← лог клиента и встроенного сервера
     incoming-backup/                  ← что deploy.sh убрал в сторону (старые jar, датапак, пакет звуков)
@@ -110,7 +110,7 @@ GameTest идёт частями на шести машинах (`-PgametestShar
 вручную на `main` с `release=true` — после всех проверок workflow выпускает `v<версия>` с jar (оттуда его берут друзья).
 Если `main` ушёл вперёд от проверенного в игре коммита — ветка `claude/release-…` от этого коммита с одними заметками,
 запуск на ней.
-PR сборки с jar выпуска — в incoming-pack, после выпуска: сборку на её `main` игроки с автообновлением ставят при
+PR сборки с jar выпуска — в airstrike-pack, после выпуска: сборку на её `main` игроки с автообновлением ставят при
 следующем запуске.
 Версию протокола (`IncomingNetwork.PROTOCOL`) поднимает PR, который меняет формат пакетов или данных сущностей; релиз,
 у которого поведение или ключи языка отличаются от прошлого выданного jar, поднимает её сам, если за выпуск её ещё
@@ -204,7 +204,7 @@ PR сборки с jar выпуска — в incoming-pack, после выпу�
 - `trailer.md` — запись трейлера: заморозка, камера за снарядом, видео с борта, звук из журнала.
 
 ## Окружение
-- NeoForge 21.1.259, Minecraft 1.21.1. Хост играет в своей сборке «Incoming Pack» (incoming-pack, 53 мода), прежний
+- NeoForge 21.1.259, Minecraft 1.21.1. Хост играет в своей сборке «Airstrike Pack» (airstrike-pack, 53 мода), прежний
   инстанс «All of Create Aeronautics» (~217 модов) лежит рядом. Мультиплеер: хост открывает свой мир друзьям
   или играют на его выделенном сервере (сборка с `main`, белый список, мост Almighty для ИИ-ведущего); jar мода нужен
   всем (сервер и клиенты).

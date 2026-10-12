@@ -36,12 +36,6 @@
 
 ## Установка
 
-Проще всего играть в сборке [Incoming Pack](https://github.com/zentixua/incoming-pack/blob/main/README.ru.md)
-(Create, Create Aeronautics, Distant Horizons, шейдеры). Она сама обновляется при каждом запуске игры, вместе
-с модом.
-
-Без сборки:
-
 1. Нужны Minecraft 1.21.1 и NeoForge 21.1.259 или новее. Других обязательных модов нет.
 2. Скачайте `incoming-<версия>.jar` со страницы [Releases](https://github.com/zentixua/incoming/releases/latest)
    и положите в папку `mods`. Прежний `incoming-*.jar` удалите.

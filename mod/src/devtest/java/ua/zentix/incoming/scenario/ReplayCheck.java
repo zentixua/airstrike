@@ -35,7 +35,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
- * Повтор Flashback (сценарий {@code replay}: пуск, как в {@code launch}, с модами записи сборки zentixua/incoming-pack и
+ * Повтор Flashback (сценарий {@code replay}: пуск, как в {@code launch}, с модами записи сборки zentixua/airstrike-pack и
  * {@code recordingControls.quicksave} в настройках Flashback): клиент выходит из мира, как кнопка «Сохранить и выйти»,
  * Flashback на выходе дописывает запись в zip в своей папке повторов; сценарий открывает этот повтор, переходит
  * к моменту до первого пуска и проигрывает запись до конца. Камера (свой игрок повтора — зритель) идёт сбоку от снаряда;

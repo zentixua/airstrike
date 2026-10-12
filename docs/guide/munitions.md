@@ -13,8 +13,8 @@ rockets come in a pack of 40, and a salvo takes one rocket from the pack per sho
 
 ## Recipes
 
-Every recipe works on a crafting table or in a Create mechanical crafter, so munitions can be made in a factory. The
-Incoming Pack includes JEI: hover over an item and press `R`. Without Create, a clock takes the place of the precision
+Every recipe works on a crafting table or in a Create mechanical crafter, so munitions can be made in a factory. With
+JEI installed, hover over an item and press `R` to see its recipe. Without Create, a clock takes the place of the precision
 mechanism (a comparator in the SAM Interceptor) and an iron trapdoor takes the place of the propeller.
 
 | Munition | Recipe |

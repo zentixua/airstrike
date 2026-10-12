@@ -26,10 +26,6 @@ Options → Controls → Key Binds → Incoming: launch in the binoculars (LMB),
 (`,`), second key for a nuclear launch (`.`), open console (unbound by default). The binoculars and the console use the
 regular Use Item key (RMB and Shift+RMB).
 
-The Incoming Pack has its own key layout for all of its mods (one key, one action), with the same Incoming keys. If
-keys get mixed up after a pack update, Controls → Key Binds → Reset Keys restores the pack's layout (your own rebinds
-are reset too).
-
 ## World settings
 
 The world owner changes these: in singleplayer in the file `saves/<world>/serverconfig/incoming-server.toml`, on a
