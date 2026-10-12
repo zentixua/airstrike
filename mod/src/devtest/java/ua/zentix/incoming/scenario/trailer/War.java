@@ -86,7 +86,7 @@ final class War {
     static final double BATTERY_Y = 68, ROW_MISSILE = 516.5, ROW_ROCKET = 534.5;
     static final Vec3 BATTERY = new Vec3(-1490.5, 68, 525.5);
     /** Наводчик батареи и место расчёта ночью. */
-    static final Vec3 POST = new Vec3(-1425.5, 68, 538.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
+    static final Vec3 POST = new Vec3(-1545.5, 68, 525.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
     /** Цель «Градов» батареи: позиции Востока за рекой (дальность «Града» — сотни блоков, не километры). */
     static final Vec3 ROCKET_TARGET = new Vec3(-650.5, 0, 560.5);
 
@@ -593,14 +593,14 @@ final class War {
                 .onReady(() -> fireAll(missileRack))
                 .camera(() -> {
                     Vec3 l = Vec3.atBottomCenterOf(missileRack.get(4));
-                    return CineCamera.track(l.add(16, 1.2, -10), () -> l.add(30, 18, 0), 78);
+                    return CineCamera.track(l.add(16, 1.2, 8), () -> l.add(30, 18, 0), 78);
                 })
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
 
         // p36: ответ Востока — шахеды накрывают батарею, расчёт бежит от пусковых
         film.shot("p36").length(50).hidden()
                 .onReady(() -> salvo("drone", 6, 24, BATTERY.add(10, 0, 0), new Vec3(-800, 0, 560)))
-                .camera(() -> CineCamera.track(new Vec3(-1415, 71, 540), () -> BATTERY.add(0, 4, 0), 30))
+                .camera(() -> CineCamera.track(new Vec3(-1430.5, 70, 540.5), () -> BATTERY.add(0, 4, 0), 30))  // восточный край полосы
                 .when(() -> film.nearest(DroneEntity.class, BATTERY, 70) != null, 3000)
                 .cue(0, () -> film.withServer(s -> {
                     for (int i = 0; i < 8; i++) {
