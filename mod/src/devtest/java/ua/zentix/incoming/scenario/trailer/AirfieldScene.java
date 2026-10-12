@@ -118,7 +118,7 @@ final class AirfieldScene {
 
         // дубль 1: сбоку низко, чуть спереди — пара на разбеге, позади неё у ангаров рвутся снаряды
         take(14, new Shell(92, 38, 22), new Shell(110, 42, 36));
-        film.shot("airfield_side").length(110).hidden()
+        film.shot("p24b").length(110).hidden()
                 .camera(this::sideCamera)
                 .onReady(this::arm)
                 .when(() -> progress(plane(0)) > 19, 1500);
@@ -126,7 +126,7 @@ final class AirfieldScene {
 
         // дубль 2: из кабины ведущего — разбег, разрыв слева у полосы, отрыв и уход низко над горящим аэродромом
         take(14, new Shell(108, -33, 80));
-        film.shot("airfield_cockpit").length(120).hidden()
+        film.shot("p24").length(120).hidden()
                 .camera(() -> CineCamera.mount(() -> plane(0), 0.75, 2.45, -2.6, 4, 70))
                 .onReady(this::arm)
                 .when(() -> progress(plane(0)) > 24, 1500);
@@ -136,7 +136,7 @@ final class AirfieldScene {
         // проходит над головой и уходит к горящему складу за полосой, у склада рвётся снаряд; первый разрыв дубля —
         // у старта, его дым — позади пары
         take(14, new Shell(105, -36, 30), new Shell(380, 16, 262));
-        film.shot("airfield_departure").length(130).hidden()
+        film.shot("p24c").length(130).hidden()
                 .camera(() -> CineCamera.track(point(-20, 1.6, 200), film.smoothFocus(this::pair, point(0, 4, 140), 0.2), 52))
                 .onReady(this::arm)
                 .when(() -> progress(plane(0)) > 150, 1800);

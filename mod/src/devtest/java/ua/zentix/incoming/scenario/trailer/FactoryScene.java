@@ -84,15 +84,15 @@ final class FactoryScene {
         film.run(() -> Incoming.LOG.info("TRAILER factory: готово ракет {}", works.made));
 
         // 1. Крупно сбоку: рабочие докладывают детали, крафтеры сводят их к середине, ракета собрана
-        film.shot("factory_crafters").length(120).hidden()
+        film.shot("p05").length(120).hidden()
                 .camera(() -> CineCamera.dolly(v(1.5, 3.3, 4.8), v(0.7, 2.9, 5.5), 120, () -> v(0, 2.2, 8.5), 58))
                 .when(() -> works.loaded >= 6 && works.loaded < 9, 900);
         // 2. Через цех: прессы штампуют листы, лента с ракетами, у дальней стены рабочие закладывают новый цикл
-        film.shot("factory_hall").length(110).hidden()
+        film.shot("p05b").length(110).hidden()
                 .camera(() -> CineCamera.glide(v(-3.2, 4.2, -13.2), v(-1.4, 3.6, -7.4), 110, () -> v(0, 1.4, 7.0), 70))
                 .when(() -> works.cycleAge >= 0 && works.cycleAge < 6, 900);
         // 3. Выход: вдоль ленты над очередью готовых ракет — нижний крафтер кладёт новую, она едет к очереди
-        film.shot("factory_output").length(100).hidden()
+        film.shot("p05c").length(100).hidden()
                 .camera(() -> CineCamera.dolly(v(1.3, 1.6, 1.4), v(1.0, 1.5, 2.4), 100, () -> v(0, 0.9, 8.2), 55))
                 .when(() -> works.craftingAge >= 0 && works.craftingAge < 4, 900);
         film.onServer(level -> {

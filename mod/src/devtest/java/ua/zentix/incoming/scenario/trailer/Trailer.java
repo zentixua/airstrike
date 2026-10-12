@@ -24,7 +24,7 @@ public final class Trailer extends Film {
 
     private void script() {
         setup();
-        streetFight(new Vec3(0.5, 151, 0.5), 0);
+        new War(this).stage();
         finish();
     }
 
@@ -106,7 +106,7 @@ public final class Trailer extends Film {
         });
         waitTicks(60);
         onServer(level -> {
-            for (Fight.Soldier s : fight().soldiers()) arm(s);
+            for (Fight.Soldier s : fight().soldiers()) armSoldier(s.name, s.side);
         });
         waitTicks(40);
         run(() -> withServer(server -> fight().start()));
@@ -124,22 +124,22 @@ public final class Trailer extends Film {
         fight().add(name, side, at, facing);
     }
 
-    /** Форма стороны (кожа в цвет), каска, автомат и патроны. */
-    private void arm(Fight.Soldier s) {
-        String color = s.side == 0 ? "5597744" : "6181203";
+    /** Форма стороны (кожа в цвет; 0 — Запад, 1 — Восток), каска, автомат и патроны. */
+    void armSoldier(String name, int side) {
+        String color = side == 0 ? "5597744" : "6181203";
         String[][] parts = {{"chest", "chestplate"}, {"legs", "leggings"}, {"feet", "boots"}};
         for (String[] part : parts) {
             cast().command(fmt("item replace entity %s armor.%s with minecraft:leather_%s[dyed_color={rgb:%s,show_in_tooltip:false}]",
-                    s.name, part[0], part[1], color));
+                    name, part[0], part[1], color));
         }
-        cast().command(fmt("item replace entity %s armor.head with minecraft:iron_helmet", s.name));
-        cast().command(fmt("item replace entity %s hotbar.0 with pointblank:ak47", s.name));
-        cast().command(fmt("give %s pointblank:ammo762 512", s.name));
+        cast().command(fmt("item replace entity %s armor.head with minecraft:iron_helmet", name));
+        cast().command(fmt("item replace entity %s hotbar.0 with pointblank:ak47", name));
+        cast().command(fmt("give %s pointblank:ammo762 512", name));
         // бессмертны: кто падает, решает сценарий, а не случайная очередь до нужного плана
-        cast().command(fmt("effect give %s minecraft:resistance infinite 4 true", s.name));
+        cast().command(fmt("effect give %s minecraft:resistance infinite 4 true", name));
     }
 
-    private void withServer(java.util.function.Consumer<MinecraftServer> work) {
+    void withServer(java.util.function.Consumer<MinecraftServer> work) {
         MinecraftServer server = mc.getSingleplayerServer();
         server.execute(() -> work.accept(server));
     }
