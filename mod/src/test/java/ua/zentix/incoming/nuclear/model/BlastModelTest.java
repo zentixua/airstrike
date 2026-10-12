@@ -48,6 +48,19 @@ class BlastModelTest {
     }
 
     @Test
+    void windBehindFront() {
+        // наибольший ветер за фронтом (Glasstone, табл. 3.07): 2 psi — 70 миль/ч, 5 psi — 163, 10 psi — 294
+        assertEquals(31.3, BlastModel.windSpeed(BlastModel.kpa(2)), 1.5);
+        assertEquals(72.9, BlastModel.windSpeed(BlastModel.kpa(5)), 2);
+        assertEquals(131.4, BlastModel.windSpeed(BlastModel.kpa(10)), 3);
+        assertEquals(0, BlastModel.windSpeed(0), 0);
+        // воздух за фронтом всегда медленнее самого фронта
+        for (double psi = 0.1; psi < 200; psi *= 1.5) {
+            assertTrue(BlastModel.windSpeed(BlastModel.kpa(psi)) < BlastModel.frontSpeed(BlastModel.kpa(psi)));
+        }
+    }
+
+    @Test
     void positivePhase() {
         assertEquals(0.4 * Math.cbrt(15), BlastModel.positivePhaseSeconds(15), 1e-12);
         assertEquals(4, BlastModel.positivePhaseSeconds(1000), 1e-9);

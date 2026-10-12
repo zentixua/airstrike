@@ -229,13 +229,15 @@ public final class NuclearGameTests {
     /**
      * Руины: башня из каменного кирпича 3×3×4 в 480 м от 15 кт у земли (1 блок = 40 м, ~30 psi) рушится, на её месте —
      * завал в блок высотой; карты высот чанка — по руинам (подмена секций целиком, без {@code setBlock} на каждый блок).
+     * Обломки игрокам ({@link RuinPlan#thrown}) — снесённые места башни с её блоком; меньший предел — начало того же списка.
      */
     @GameTest(template = "range", timeoutTicks = 40, batch = "nuke_ruins", skyAccess = true)
     public static void collapsedBuildingLeavesRubble(GameTestHelper h) {
         ServerLevel level = h.getLevel();
         BlockPos tower = CENTER.east(12);
         for (BlockPos p : BlockPos.betweenClosed(tower.offset(-1, 0, -1), tower.offset(1, 3, 1))) h.setBlock(p, Blocks.STONE_BRICKS);
-        scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        List<RuinPlan> plans = scarAll(h, detonation(h, CENTER, 0, 15, 0.025f), new ColumnScar.Budget(false));
+        thrownTower(h, plans, tower);
         for (BlockPos p : BlockPos.betweenClosed(tower.offset(-1, 0, -1), tower.offset(1, 0, 1))) {
             BlockPos q = p.immutable();
             var rubble = h.getBlockState(q);
@@ -282,6 +284,29 @@ public final class NuclearGameTests {
         int standingFresh = towerFell(h, d, c, built, "на месте");
         h.assertTrue(standingAhead == standingFresh, "руины заранее и на месте разные: выше завала " + standingAhead + " и " + standingFresh + " блоков");
         h.succeed();
+    }
+
+    /** Обломки чанка башни {@code tower} (3×3, завал в нижнем ряду): все снесённые места над завалом, с кирпичом. */
+    private static void thrownTower(GameTestHelper h, List<RuinPlan> plans, BlockPos tower) {
+        BlockPos at = h.absolutePos(tower);
+        List<LevelChunk> chunks = chunks(h);
+        int i = 0;
+        while (i < chunks.size() && !chunks.get(i).getPos().equals(new ChunkPos(at))) i++;
+        h.assertTrue(i < chunks.size(), "чанк башни не на площадке");
+        LevelChunk chunk = chunks.get(i);
+        var all = plans.get(i).thrown(chunk, 4096);
+        for (var p : all) {
+            h.assertTrue(h.getLevel().getBlockState(p.pos()).isAir(), "обломок с места, где блок стоит: " + p.pos().toShortString());
+            h.assertFalse(p.state().isAir(), "обломок воздуха в " + p.pos().toShortString());
+        }
+        for (BlockPos q : BlockPos.betweenClosed(at.offset(-1, 1, -1), at.offset(1, 3, 1))) {
+            if (new ChunkPos(q).equals(chunk.getPos())) {
+                BlockPos b = q.immutable();
+                h.assertTrue(all.stream().anyMatch(p -> p.pos().equals(b) && p.state().is(Blocks.STONE_BRICKS)), "нет обломка башни в " + b.toShortString());
+            }
+        }
+        var few = plans.get(i).thrown(chunk, 5);
+        h.assertTrue(few.equals(all.subList(0, Math.min(5, all.size()))), "малый предел — не начало списка: " + few + " и " + all.subList(0, Math.min(5, all.size())));
     }
 
     private static final int TOWER_HEIGHT = 150, TOWER_HALF = 4;

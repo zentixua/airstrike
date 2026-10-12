@@ -18,6 +18,10 @@ public final class CameraShake {
     /** Ядерная волна: сколько тиков ещё, сколько всего и размах, °. */
     private static int nuke, nukeTotal;
     private static double nukeAmp;
+    /** Подходящая ядерная волна: размах в этот тик, °. */
+    private static double approach;
+    /** Перед приходом волны размах дрожи доходит до этой доли удара. */
+    static final double APPROACH_SHARE = 0.45;
 
     private CameraShake() {}
 
@@ -30,12 +34,11 @@ public final class CameraShake {
     }
 
     /**
-     * Приход ядерной волны: удар и долгое затухающее дрожание. Размах — от давления у игрока
-     * (1 psi — 4°, 5 psi — 9°, 20 psi — 14°), длительность — до 10 с.
+     * Приход ядерной волны: удар и долгое затухающее дрожание. Размах — от давления у игрока ({@link #nukeAmplitude}),
+     * длительность — до 10 с.
      */
     public static void nuke(double psi) {
-        double amp = Mth.clamp(4 + 7 * Math.log10(Math.max(1, psi)), 2.5, 16);
-        if (psi < 1) amp = 2.5 + 1.5 * psi;
+        double amp = nukeAmplitude(psi);
         int ticks = (int) Mth.clamp(40 + psi * 12, 40, 200);
         if (amp >= nukeAmp * Math.max(0, (double) nuke / Math.max(1, nukeTotal))) {
             nukeAmp = amp;
@@ -43,8 +46,38 @@ public final class CameraShake {
         }
     }
 
+    /** Размах удара ядерной волны, °: 1 psi — 4°, 5 psi — 9°, 20 psi — 14°, слабее 1 psi — от 2,5°. */
+    static double nukeAmplitude(double psi) {
+        return psi < 1 ? 2.5 + 1.5 * Math.max(0, psi) : Mth.clamp(4 + 7 * Math.log10(psi), 2.5, 16);
+    }
+
+    /** За сколько тиков до прихода ядерной волны начинает дрожать земля: 3 с при 1 psi, 10 с — с 7 psi. */
+    public static double approachTicks(double psi) {
+        return Mth.clamp(60 + 20 * psi, 60, 200);
+    }
+
+    /**
+     * Размах дрожи, пока ядерная волна подходит, °, за {@code eta} тиков до неё: с {@link #approachTicks} — от нуля, к её
+     * приходу — {@link #APPROACH_SHARE} удара, по квадрату (всё сильнее и сильнее); слабее 0,5 psi не трясёт.
+     */
+    static double approachAmplitude(double psi, double eta) {
+        double total = approachTicks(psi);
+        if (psi < 0.5 || eta >= total) return 0;
+        double f = 1 - Math.max(0, eta) / total;
+        return nukeAmplitude(psi) * APPROACH_SHARE * f * f;
+    }
+
+    /**
+     * Ядерная волна давлением psi у игрока придёт через {@code eta} тиков: в этот тик земля дрожит ({@link #approachAmplitude}).
+     * Толчок грунта бежит быстрее волны в воздухе, а стену пыли видно издалека — дрожь нарастает, пока она подходит.
+     */
+    public static void approach(double psi, double eta) {
+        approach = Math.max(approach, approachAmplitude(psi, eta));
+    }
+
     public static void tick() {
         ticks++;
+        approach = 0;
         if (shake > 0) shake--;
         if (quake > 0) quake--;
         if (nuke > 0) nuke--;
@@ -52,11 +85,12 @@ public final class CameraShake {
 
     public static void reset() {
         shake = quake = nuke = 0;
+        approach = 0;
     }
 
     public static void apply(ViewportEvent.ComputeCameraAngles e) {
         double k = IncomingConfig.CLIENT.cameraShake.get();
-        if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 || Minecraft.getInstance().isPaused()) return;
+        if (k <= 0 || shake <= 0 && quake <= 0 && nuke <= 0 && approach <= 0 || Minecraft.getInstance().isPaused()) return;
         double t = ticks + e.getPartialTick();
         // амплитуды: курс/тангаж, °
         double yaw = 0, pitch = 0;
@@ -73,6 +107,12 @@ public final class CameraShake {
             pitch += a[1] * fade * wobble(t, 6.7, 4.4);
         }
         double roll = 0;
+        if (approach > 0) {
+            // земля дрожит под ногами: мельче и медленнее удара, с креном
+            yaw += approach * wobble(t, 7.3, 0.9);
+            pitch += approach * 0.9 * wobble(t, 9.1, 2.6);
+            roll += approach * 0.5 * wobble(t, 5.9, 4.0);
+        }
         if (nuke > 0) {
             // первые полсекунды — удар (вдвое сильнее и резче), дальше затухание по экспоненте
             double age = nukeTotal - nuke + e.getPartialTick();

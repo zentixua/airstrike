@@ -108,7 +108,18 @@ public final class FarSprites {
      * (r, g, b) с непрозрачностью a (уже с дымкой воздуха).
      */
     public void puff(double dx, double dy, double dz, double half, float rot, int tex, float r, float g, float b, float a) {
-        if (billboard(dx, dy, dz, half, rot, FxAtlas.puff(tex), r * a, g * a, b * a, a, (float) half * FxQuads.SOFT)) counts[0]++;
+        puff(dx, dy, dz, half, rot, tex, r, g, b, a, 0, 0, 0, 0);
+    }
+
+    /**
+     * Клуб, который ещё и светится изнутри (накал гриба, пожары под стеной пыли): поверх своего дыма — свет (gr, gg, gb)
+     * силы ga, он ничего не закрывает. Свет клуба позади закрывают клубы перед ним.
+     */
+    public void puff(double dx, double dy, double dz, double half, float rot, int tex, float r, float g, float b, float a, float gr, float gg,
+                     float gb, float ga) {
+        if (billboard(dx, dy, dz, half, rot, FxAtlas.puff(tex), r * a + gr * ga, g * a + gg * ga, b * a + gb * ga, a, (float) half * FxQuads.SOFT)) {
+            counts[0]++;
+        }
     }
 
     /**

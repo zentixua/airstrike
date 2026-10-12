@@ -111,6 +111,14 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
         return BlastModel.psi(overpressureKpa(p));
     }
 
+    /**
+     * С какой скоростью волна давлением {@code kpa} бросает незакреплённое — существо, сорванный обломок, блоков за тик:
+     * по скоростному напору за фронтом, не больше 6.
+     */
+    public static double throwSpeed(double kpa) {
+        return Math.min(6.0, 0.8 * Math.sqrt(BlastModel.dynamicPressureKpa(kpa)));
+    }
+
     /** Таблица прихода фронта (кэш на подрыв). */
     public ArrivalTable arrival() {
         return Caches.arrival(this);

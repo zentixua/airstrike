@@ -74,6 +74,15 @@ public final class BlastModel {
         return SOUND_SPEED * Math.sqrt(1 + 6 * Math.max(0, overpressureKpa) / (7 * P0));
     }
 
+    /**
+     * Скорость воздуха сразу за фронтом по Ренкину–Гюгонио, м/с: u = 5P/(7·P0) · 343 / √(1 + 6P/(7·P0)) — 5 psi ≈ 72 м/с,
+     * 1 psi ≈ 17 м/с.
+     */
+    public static double windSpeed(double overpressureKpa) {
+        double x = Math.max(0, overpressureKpa) / P0;
+        return SOUND_SPEED * 5 * x / 7 / Math.sqrt(1 + 6 * x / 7);
+    }
+
     /** Длительность положительной фазы на средних дальностях, с. */
     public static double positivePhaseSeconds(double yieldKt) {
         return 0.4 * Math.cbrt(yieldKt);
