@@ -69,5 +69,3 @@ The mod is needed on the server and on every client, in the same version.
 
 I design Incoming and test it on my own server with a group of friends. The code is written with Claude Code. All
 images on this page are in-game screenshots.
-
-— Zentix
