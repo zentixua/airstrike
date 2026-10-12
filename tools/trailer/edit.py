@@ -574,7 +574,7 @@ def build_edit(lang="en"):
             c.plan, c.start, c.dur = p.n, t, end - t
             if isinstance(c, Clip):
                 c.what = p.what
-                if not c.shot.startswith("p"):
+                if not (c.shot[:1] == "p" and c.shot[1:3].isdigit()):  # буква дубля (и «p» — 16-я склейка пика)
                     c.shot = f"p{p.n:02d}{c.shot}"
             edit.append(c)
             t = end
@@ -600,7 +600,7 @@ def build_edit(lang="en"):
     flash = next(c for c in edit if isinstance(c, Fill) and c.level > 0 and c.plan == 1)
     hits = [
         # старт: удар на каждой склейке, на вспышке — обрыв в тишину, тиканье и далёкий свист до входа трека
-        *[Hit(c.start, "boom", 1.2, 0.5) for c in edit if c.plan == 1 and isinstance(c, Clip) and c.start > 0],
+        *[Hit(c.start, "boom", 1.2, 0.45) for c in edit if c.plan == 1 and isinstance(c, Clip) and c.start > 0],
         Hit(flash.start, "cut"),
         Hit(AT1 - 2 * BEAT / 2, "tick", 0.1, 0.4),
         Hit(AT1 - BEAT / 2, "tick", 0.1, 0.4),
