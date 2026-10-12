@@ -57,7 +57,7 @@ public class SamBlock extends BaseEntityBlock {
         b.add(FACING);
     }
 
-    /** Пакет — лицом (надписями) к ставящему, как печь. */
+    /** Поворот — к ставящему, как у печи; пакет квадратный, и на вид все четыре поворота одинаковы. */
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext ctx) {
         return defaultBlockState().setValue(FACING, ctx.getHorizontalDirection().getOpposite());

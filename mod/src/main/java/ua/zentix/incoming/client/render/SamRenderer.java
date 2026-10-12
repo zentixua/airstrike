@@ -39,6 +39,15 @@ public class SamRenderer implements BlockEntityRenderer<SamBlockEntity> {
                 .expandTowards(0, SamBlockEntity.PACK_TOP - 1, 0);
     }
 
+    /**
+     * Пакет выходит за секцию чанка блока: секцию отсекло (взгляд вверх у самого пакета, склон), а верх пакета в кадре —
+     * без этого пропал бы весь пакет. Такие рисуются отдельным списком, рамка и дальность проверяются так же.
+     */
+    @Override
+    public boolean shouldRenderOffScreen(SamBlockEntity be) {
+        return true;
+    }
+
     /** Пакет видно издалека, как пусковую (по умолчанию блок-сущности рисуются до 64 блоков). */
     @Override
     public int getViewDistance() {

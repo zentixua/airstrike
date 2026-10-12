@@ -336,7 +336,7 @@ public final class Exhaust {
         Vec3 nozzle = e.position().add(back.scale(InterceptorSpec.SAM.noseLength()));
         Vec3 from = INTERCEPTORS.put(e, nozzle);
         if (from == null && e.age() <= 2) {
-            // сход: струя бьёт в пусковую, дым растекается вокруг
+            // сход: вспышка у пакета, дым растекается вокруг
             Fx.flash().size(2.5f, 3.5f).life(3).alpha(0.6f).spawn(level, nozzle);
             for (int i = 0; i < Fx.count(8, nozzle); i++) {
                 double a = r.nextDouble() * Mth.TWO_PI, v = 0.15 + r.nextDouble() * 0.3;

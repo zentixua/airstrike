@@ -110,7 +110,7 @@ public final class Interceptor {
         this.view = view;
     }
 
-    /** Курс схода с направляющей: вверх под углом паспорта в сторону цели (цель над самой пусковой — на юг). */
+    /** Курс схода с направляющей: вверх под углом паспорта в сторону цели (90° — отвесно; цель над самой пусковой — на юг). */
     static Vec3 railDirection(Vec3 rail, Vec3 target, InterceptorSpec spec) {
         Vec3 to = target.subtract(rail);
         Vec3 flat = new Vec3(to.x, 0, to.z);
