@@ -506,8 +506,9 @@ final class GuideShots {
 
     /**
      * ЗРК (GIF): ЗРК на поляне зрителя, ракеты — из воронки сбоку. Шахеды летят с пусковой за деревней («from») к деревне,
-     * ЗРК бьёт их на подлёте. Зритель — за ЗРК и в стороне от него: дым пуска уходит вбок, а не в кадр. Шахедов пускают,
-     * когда на направляющих все четыре ракеты: в GIF — залп ЗРК, а не перезарядка.
+     * ЗРК бьёт их на подлёте. Зритель — в 25 блоках за ЗРК и в стороне от него: ракеты уходят из контейнеров отвесно,
+     * и столб дыма пуска над ЗРК вблизи закрывал бы весь кадр. Шахедов пускают, когда на направляющих все четыре ракеты:
+     * в GIF — залп ЗРК, а не перезарядка.
      */
     private void sam() {
         BlockPos[] sam = new BlockPos[1];
@@ -517,21 +518,22 @@ final class GuideShots {
             sam[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
         }));
         until("места ЗРК", 100, () -> sam[0] != null);
-        // поляна 25×25 у ЗРК и зрителя: под листвой ЗРК не стреляет (нет открытого неба), а зритель смотрел сквозь неё;
-        // ровная — на высоте ЗРК, вперёд от зрителя склон не закрывает (fill — до 32768 блоков за раз)
+        // поляна 41×41 у ЗРК и зрителя: под листвой ЗРК не стреляет (нет открытого неба), а зритель смотрел сквозь неё;
+        // ровная — на высоте ЗРК, вперёд от зрителя склон не закрывает (fill — до 32768 блоков за раз: воздух двумя половинами)
         run(() -> {
             BlockPos s = sam[0];
-            Vec3 m = Vec3.atBottomCenterOf(s).subtract(along.scale(5));
+            Vec3 m = Vec3.atBottomCenterOf(s).subtract(along.scale(10)).subtract(across.scale(5));
             int x = (int) Math.floor(m.x), y = s.getY(), z = (int) Math.floor(m.z);
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 12, y, z - 12, x + 12, y + 30, z + 12));
-            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 12, y - 1, z - 12, x + 12, y - 1, z + 12));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x - 20, y, z - 20, x, y + 30, z + 20));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air", x + 1, y, z - 20, x + 20, y + 30, z + 20));
+            cmd(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:grass_block", x - 20, y - 1, z - 20, x + 20, y - 1, z + 20));
         });
         run(() -> {
             BlockPos s = sam[0];
             setblock(s, "incoming:sam");
             setblock(s.east(), "minecraft:hopper[facing=west]{Items:[{Slot:0b,id:\"incoming:interceptor\",count:12}]}");
             Vec3 c = Vec3.atBottomCenterOf(s);
-            stand(c.subtract(along.scale(10)).add(across.scale(-6)), c.add(along.scale(80)).add(0, 20, 0));
+            stand(c.subtract(along.scale(22)).add(across.scale(-12)), c.add(along.scale(80)).add(0, 20, 0));
             mc.player.getInventory().selected = 8;
             mc.gameRenderer.setRenderHand(false); // рука и пульт в руке закрывали полкадра
         });

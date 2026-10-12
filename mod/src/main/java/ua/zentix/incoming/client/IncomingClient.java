@@ -58,6 +58,7 @@ import ua.zentix.incoming.client.render.FarModels;
 import ua.zentix.incoming.client.render.FixedLauncherRenderer;
 import ua.zentix.incoming.client.render.InterceptorRenderer;
 import ua.zentix.incoming.client.render.LauncherRenderer;
+import ua.zentix.incoming.client.render.SamRenderer;
 import ua.zentix.incoming.client.render.ScreenProjection;
 import ua.zentix.incoming.client.render.SpentBoosterRenderer;
 import ua.zentix.incoming.client.render.StrikeProjectileRenderer;
@@ -145,6 +146,7 @@ public final class IncomingClient {
         e.registerEntityRenderer(ModEntities.SPENT_BOOSTER.get(), SpentBoosterRenderer::new);
         e.registerEntityRenderer(ModEntities.INTERCEPTOR.get(), InterceptorRenderer::new);
         e.registerBlockEntityRenderer(ModBlockEntities.FIXED_LAUNCHER.get(), FixedLauncherRenderer::new);
+        e.registerBlockEntityRenderer(ModBlockEntities.SAM.get(), SamRenderer::new);
     }
 
     /**

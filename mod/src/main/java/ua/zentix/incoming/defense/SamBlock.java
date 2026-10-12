@@ -13,7 +13,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -28,21 +27,20 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.shapes.CollisionContext;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.registry.ModBlockEntities;
 import ua.zentix.incoming.registry.ModItems;
 
 /**
- * ЗРК: пусковая с радаром на одном блоке ({@link SamBlockEntity}). Помнит, кто поставил: его сторона — свои.
+ * ЗРК ({@link SamBlockEntity}): блок — кабина радара с антеннами на четырёх гранях, над ней клиент рисует пакет из
+ * четырёх вертикальных контейнеров с ракетами в настоящую величину ({@code client.render.SamRenderer}, ~5.4 м);
+ * пакет — только картинка, блок — один. Помнит, кто поставил: его сторона — свои.
  * Зенитные ракеты кладутся рукой (ПКМ ракетами), воронкой или воронкой Create; пустой рукой — строка состояния.
  * Сломанный или взорванный — выпадает сам (таблица добычи) вместе с запасом и ракетами с направляющих.
  */
 public class SamBlock extends BaseEntityBlock {
     public static final MapCodec<SamBlock> CODEC = simpleCodec(SamBlock::new);
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
-    private static final VoxelShape SHAPE = Block.box(0, 0, 0, 16, 15, 16);
 
     public SamBlock(Properties properties) {
         super(properties);
@@ -59,7 +57,7 @@ public class SamBlock extends BaseEntityBlock {
         b.add(FACING);
     }
 
-    /** Направляющие — от ставящего (как печь: лицом к нему). */
+    /** Поворот — к ставящему, как у печи; пакет квадратный, и на вид все четыре поворота одинаковы. */
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext ctx) {
         return defaultBlockState().setValue(FACING, ctx.getHorizontalDirection().getOpposite());
@@ -73,11 +71,6 @@ public class SamBlock extends BaseEntityBlock {
     @Override
     protected BlockState mirror(BlockState state, Mirror mirror) {
         return state.setValue(FACING, mirror.mirror(state.getValue(FACING)));
-    }
-
-    @Override
-    protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return SHAPE;
     }
 
     /** У блока с блок-сущностью ваниль по умолчанию модель не рисует. */
