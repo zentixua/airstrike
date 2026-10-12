@@ -76,7 +76,11 @@ public final class Trailer extends Film {
 
     /** Статисты (боты Almighty) этого сервера. */
     Cast cast() {
-        if (cast == null) cast = new Cast(mc.getSingleplayerServer());
+        if (cast == null) {
+            MinecraftServer server = mc.getSingleplayerServer();
+            if (server == null) throw new IllegalStateException("статисты — только в шагах, после входа в мир");
+            cast = new Cast(server);
+        }
         return cast;
     }
 
