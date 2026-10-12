@@ -253,7 +253,7 @@
   "incoming.nuke.countdown": "☢ ICBM in flight · %2$s kt · detonation in %1$s s",
   "incoming.nuke.delayed": "☢ Detonation delayed: the target area is still loading",
   "incoming.nuke.detected": "Intercontinental missile launch detected",
-  "incoming.remote.yield": "Yield: %s kt %s",
+  "incoming.remote.yield": "%s kt %s",
   "incoming.remote.burst.air": "Burst: air",
   "incoming.remote.burst.ground": "Burst: ground",
   "incoming.remote.burst.tooltip": "Air: widest destruction, almost no fallout. Ground: crater, trinitite and a fallout trail with black rain",

@@ -253,7 +253,7 @@
   "incoming.nuke.countdown": "☢ МБР в полёте · %2$s кт · подрыв через %1$s с",
   "incoming.nuke.delayed": "☢ Подрыв задерживается: догружается место удара",
   "incoming.nuke.detected": "Зафиксирован пуск межконтинентальной ракеты",
-  "incoming.remote.yield": "Мощность: %s кт %s",
+  "incoming.remote.yield": "%s кт %s",
   "incoming.remote.burst.air": "Подрыв: воздушный",
   "incoming.remote.burst.ground": "Подрыв: наземный",
   "incoming.remote.burst.tooltip": "Воздушный — больше площадь разрушений, почти без осадков. Наземный — воронка, тринитит и радиоактивный след с чёрным дождём",

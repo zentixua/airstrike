@@ -106,14 +106,12 @@ public class RemoteScreen extends Screen {
         int y = y0 + 22;
 
         // оружие
-        int nw = menu.size();
-        int bw = (W - 8 - 4 * (nw - 1)) / nw;
+        List<Cell> weapons = new ArrayList<>();
         for (WeaponType w : menu) {
-            int x = x0 + 4 + menu.indexOf(w) * (bw + 4);
-            Button b = Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
-                    .bounds(x, y, bw, 20).tooltip(Tooltip.create(w.description())).build();
-            addRenderableWidget(b);
+            weapons.add(new Cell(Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
+                    .bounds(0, y, 0, 20).tooltip(Tooltip.create(w.description())).build()));
         }
+        row(weapons, x0);
         // под кнопками — описание выбранного оружия (render)
         y += 22 + descLines * LINE + 3;
 
@@ -123,23 +121,19 @@ public class RemoteScreen extends Screen {
         if (loadout.nuclear()) {
             // МБР: мощность и подрыв; ракета и B-2 с ядерной БЧ: переключатель БЧ, мощность, у ракеты — подрыв
             WeaponSpec.Warhead warhead = loadout.weapon().spec().warhead();
-            boolean carrier = !warhead.always();
-            boolean burst = warhead.chooseBurst();
-            int cols = (carrier ? 1 : 0) + 1 + (burst ? 1 : 0);
-            int cw = (W - 8 - 4 * (cols - 1)) / cols;
-            int x = x0 + 4;
-            if (carrier) {
-                addRenderableWidget(warheadButton(n, x, y, cw));
-                x += cw + 4;
+            List<Cell> nuke = new ArrayList<>();
+            if (!warhead.always()) nuke.add(new Cell(warheadButton(n, 0, y, 0)));
+            List<Component> yields = new ArrayList<>(List.of(yieldLabel(n.yieldKt())));
+            for (Yield v : Yield.values()) yields.add(yieldLabel((int) v.kt()));
+            nuke.add(new Cell(Button.builder(yields.getFirst(),
+                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst(), n.onCarrier())))).bounds(0, y, 0, 20).build(), yields));
+            if (warhead.chooseBurst()) {
+                Component air = Component.translatable("incoming.remote.burst.air"), ground = Component.translatable("incoming.remote.burst.ground");
+                nuke.add(new Cell(Button.builder(n.airBurst() ? air : ground,
+                        b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(0, y, 0, 20)
+                        .tooltip(Tooltip.create(Component.translatable("incoming.remote.burst.tooltip"))).build(), List.of(air, ground)));
             }
-            addRenderableWidget(Button.builder(Component.translatable("incoming.remote.yield", n.yieldKt(), yieldName(n.yieldKt())),
-                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20).build());
-            x += cw + 4;
-            if (burst) {
-                addRenderableWidget(Button.builder(Component.translatable(n.airBurst() ? "incoming.remote.burst.air" : "incoming.remote.burst.ground"),
-                        b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20)
-                        .tooltip(Tooltip.create(Component.translatable("incoming.remote.burst.tooltip"))).build());
-            }
+            row(nuke, x0);
         } else if (Loadout.carriesNuke(loadout.weapon())) {
             int cw = (W - 16) / 3;
             addRenderableWidget(new IntSlider(x0 + 4, y, cw, 20, "incoming.remote.count", 1, 30, loadout.count(), v -> commit(loadout.withCount(v))));
@@ -152,15 +146,14 @@ public class RemoteScreen extends Screen {
         y += 26;
 
         // режим цели
-        int modes = TargetMode.values().length;
-        int mw = (W - 8 - 4 * (modes - 1)) / modes;
+        List<Cell> modes = new ArrayList<>();
         for (TargetMode m : TargetMode.values()) {
-            int x = x0 + 4 + m.ordinal() * (mw + 4);
-            addRenderableWidget(Button.builder(label(m.displayName(), loadout.mode() == m), b -> {
+            modes.add(new Cell(Button.builder(label(m.displayName(), loadout.mode() == m), b -> {
                 page = 0;
                 set(loadout.withMode(m));
-            }).bounds(x, y, mw, 20).build());
+            }).bounds(0, y, 0, 20).build()));
         }
+        row(modes, x0);
         y += 24;
 
         // место на карте: открыть карту наведения
@@ -253,15 +246,45 @@ public class RemoteScreen extends Screen {
         return (int) Yield.values()[0].kt();
     }
 
-    private static Component yieldName(int kt) {
+    /** «15 кт (Хиросима)»; у мощности не из пресетов — без имени. */
+    private static Component yieldLabel(int kt) {
         for (Yield y : Yield.values()) {
-            if ((int) y.kt() == kt) return Component.translatable(y.key());
+            if ((int) y.kt() == kt) return Component.translatable("incoming.remote.yield", kt, Component.translatable(y.key()));
         }
-        return Component.empty();
+        return Component.translatable("incoming.remote.yield", kt, Component.empty());
     }
 
+    /** Выбранное — жёлтым с чертой, без жирного: жирный шире, и выбор раздвигал бы ряд {@link #row}. */
     private static Component label(Component text, boolean selected) {
-        return selected ? text.copy().withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD, ChatFormatting.UNDERLINE) : text.copy().withStyle(ChatFormatting.GRAY);
+        return selected ? text.copy().withStyle(ChatFormatting.YELLOW, ChatFormatting.UNDERLINE) : text.copy().withStyle(ChatFormatting.GRAY);
+    }
+
+    /** Кнопка ряда {@link #row} и все надписи, какие она показывает: ширина — по самой длинной, ряд не прыгает при переключении. */
+    private record Cell(Button button, List<Component> texts) {
+        Cell(Button button) {
+            this(button, List.of(button.getMessage()));
+        }
+    }
+
+    /**
+     * Ряд кнопок во всю ширину окна: каждой — ширина её надписи с полями и поровну остатка, иначе длинная надпись
+     * («Куда смотрю», «Подрыв: воздушный») прокручивалась бы в кнопке равной ширины. Не помещаются и так — поровну.
+     */
+    private void row(List<Cell> cells, int x0) {
+        int n = cells.size(), free = W - 8 - 4 * (n - 1);
+        int[] need = new int[n];
+        int sum = 0;
+        for (int i = 0; i < n; i++) sum += need[i] = cells.get(i).texts().stream().mapToInt(font::width).max().orElse(0) + 8;
+        int spare = free - sum, x = x0 + 4;
+        for (int i = 0; i < n; i++) {
+            // остаток делится нарастающим итогом: ряд кончается ровно у края окна
+            int w = spare >= 0 ? need[i] + spare * (i + 1) / n - spare * i / n : free * (i + 1) / n - free * i / n;
+            Button b = cells.get(i).button();
+            b.setX(x);
+            b.setWidth(w);
+            addRenderableWidget(b);
+            x += w + 4;
+        }
     }
 
     private void set(Loadout l) {
