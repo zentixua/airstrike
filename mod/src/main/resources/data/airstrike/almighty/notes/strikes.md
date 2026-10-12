@@ -1,16 +1,17 @@
-Airstrike (https://github.com/zentixua/airstrike): удары дронов, ракет, РСЗО, B-2 и ядерный удар.
-- Удар — команда «airstrike salvo <оружие> <число> <разброс> at x y z [from x z] [via x z …]»: from — место пуска
-  (там встаёт пусковая и стоит до airstrike clear), via — до 5 точек маршрута по порядку (drone, missile, loiter);
-  один снаряд — число 1, разброс 0.
-- Стационарная пусковая (блок airstrike:fixed_launcher) — команда «airstrike launcher x y z [mission <оружие> <число>
-  <разброс> x y z [via …] | load N | fire | clear | owner <игрок>|none]»; редстоун у блока — тот же fire.
-- Удары свои районы грузят сами: загружать место заранее для них не нужно.
-- Маршрут: drone (shahed) идёт на 45 выше старта и цели, loiter (lancet) кружит на 45 над целью, missile — бреющим
-  на 12 над рельефом, все трое — по via; rocket (grad) — баллистика, bunker — бомба с B-2: via у них нет, команда
-  с via не пройдёт.
-- airstrike clear снимает пусковые и все летящие снаряды разом — стоп на крайний случай; кампанию — сперва rule remove.
-- Кампания (залп раз в N секунд) — правило tick с name, every (не чаще 100 тиков) и limit (запусков правила, паузы
-  в счёте); в скрипте — gm.command строкой целиком, числами. Пауза, пока mspt ≥ 35 или загружено ≥ 12 000 чанков
-  (server.overworld().getChunkSource().getLoadedChunksCount()); раз в 20 залпов — kill предметов в 200 блоках у цели.
-  Снять — rule remove.
-- Около 200 снарядов разом сервер держит без заметных лагов; 750, упавших разом, уронили клиент игрока.
+Airstrike (https://github.com/zentixua/airstrike): strikes by drones, missiles, MLRS, a B-2, and a nuclear strike.
+- A strike is the command «airstrike salvo <weapon> <count> <spread> at x y z [from x z] [via x z …]»: from is the
+  launch site (a launcher stands there until airstrike clear), via is up to 5 waypoints in order (drone, missile,
+  loiter). A single projectile is count 1, spread 0.
+- Fixed launcher (block airstrike:fixed_launcher): «airstrike launcher x y z [mission <weapon> <count> <spread> x y z
+  [via …] | load N | fire | clear | owner <player>|none]». A redstone signal at the block does the same as fire.
+- Strikes load their own areas: there is no need to load the place in advance.
+- Routes: drone (shahed) flies 45 blocks above the launch site and the target, loiter (lancet) circles 45 blocks above
+  the target, missile flies 12 blocks above the terrain; all three follow via. rocket (grad) is ballistic and bunker is
+  a bomb from a B-2: they take no via, and a command with via fails.
+- airstrike clear removes all launchers and every projectile in flight at once: an emergency stop. To stop a campaign,
+  remove its rule first.
+- A campaign (a salvo every N seconds) is a tick rule with name, every (at least 100 ticks) and limit (rule runs; pauses
+  count too). In the script, gm.command with the whole command as one string, numbers as numbers. Pause while mspt ≥ 35
+  or ≥ 12 000 chunks are loaded (server.overworld().getChunkSource().getLoadedChunksCount()); every 20 salvos, kill the
+  item entities within 200 blocks of the target. Stop it with rule remove.
+- The server handles about 200 projectiles at once without noticeable lag; 750 landing at once crashed a player's client.

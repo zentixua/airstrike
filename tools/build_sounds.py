@@ -934,11 +934,11 @@ def write_credits():
         rows.append((author, title, lic, f"https://freesound.org/s/{fid}/"))
     lic_url = {CC0: "https://creativecommons.org/publicdomain/zero/1.0/",
                BY4: "https://creativecommons.org/licenses/by/4.0/", BY3: "https://creativecommons.org/licenses/by/3.0/"}
-    md = ["# Звуки: авторы и лицензии", "",
-          "Звуки мода собраны `tools/build_sounds.py` из записей ниже (обрезка, смешивание, фильтры, смена скорости)",
-          "и синтеза (`tools/synth_mod_sounds.py`). Записи под CC0 — общественное достояние; под CC BY — используются",
-          "с указанием автора, изменены. Спасибо авторам!", "",
-          "| Автор | Запись | Лицензия |", "|---|---|---|"]
+    md = ["# Sound credits", "",
+          "The mod's sounds are built by `tools/build_sounds.py` from the recordings below (cut, mixed, filtered,",
+          "resampled) and from synthesis (`tools/synth_mod_sounds.py`). CC0 recordings are in the public domain;",
+          "CC BY recordings are used with attribution and modified. Thanks to the authors.", "",
+          "| Author | Recording | License |", "|---|---|---|"]
     md += [f"| {a} | [{t}]({u}) | [{lic}]({lic_url[lic]}) |" for a, t, lic, u in rows]
     with open(os.path.join(ROOT, "SOUND-CREDITS.md"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(md) + "\n")
