@@ -148,10 +148,10 @@ final class AirshipScene {
             for (double[] s : new double[][]{{-8, -45}, {8, -22}, {-6, 2}}) sam(level, p(s[0], 0, s[1]));
         });
         film.run(() -> clouds(true));
-        take("airship_fpv", 0, 1);
+        take("p23", 0, 1);
         // шахеды первого дубля долетают, направляющие ЗРК заряжаются заново
         film.waitTicks(600);
-        take("airship_ground", SECOND_TAKE, -1);
+        take("p23b", SECOND_TAKE, -1);
         film.run(() -> clouds(false));
         film.onServer(level -> {
             cast().remove(GUNNER);
@@ -224,7 +224,7 @@ final class AirshipScene {
             cast().command(fmt("execute as %s run incoming salvo missile 1 0 look from %.1f %.1f via %.1f %.1f", GUNNER, site.x, site.z, via.x, via.z));
             Incoming.LOG.info("TRAILER airship: ракета по дирижаблю у {}", fmt("%.1f %.1f %.1f", c.x, c.y, c.z));
         });
-        if (shot.equals("airship_fpv")) {
+        if (shot.equals("p23")) {
             film.shot(shot).length(110).hidden()
                     .camera(this::fpv)
                     .when(() -> missileWithin(235), 900);
