@@ -11,6 +11,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -615,6 +616,22 @@ final class War {
         stageScene("factory", new Vec3(-1500.5, 68, 620.5), -90);
     }
 
+    /** ЗРК сцены убираются после неё: иначе они сбивают шахеды следующих планов (вокруг — весь Восток). */
+    private void clearSams(Vec3 center, int radius) {
+        film.onServer(level -> {
+            int cx = Mth.floor(center.x) >> 4, cz = Mth.floor(center.z) >> 4, rc = (radius >> 4) + 1;
+            for (int x = cx - rc; x <= cx + rc; x++) {
+                for (int z = cz - rc; z <= cz + rc; z++) {
+                    LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
+                    if (chunk == null) continue;
+                    for (BlockPos p : List.copyOf(chunk.getBlockEntities().keySet())) {
+                        if (chunk.getBlockEntity(p) instanceof SamBlockEntity) level.removeBlock(p, false);
+                    }
+                }
+            }
+        });
+    }
+
     private void setLauncher(BlockPos p, String mission, Vec3 target, int load) {
         String at = p.getX() + " " + p.getY() + " " + p.getZ();
         cast().command("setblock " + at + " incoming:fixed_launcher");
@@ -671,8 +688,12 @@ final class War {
                     .when(() -> film.nearest(InterceptorEntity.class, at(drones), 300) != null, 3000);
         }
 
+        clearSams(SQUARE, 96);
+
         // p23: дирижабль (своя сцена)
-        stageScene("airship", new Vec3(3000.5, 150, 380.5), -90);  // южнее T2: заход ракеты не задевает башню
+        Vec3 airship = new Vec3(3000.5, 150, 380.5);  // южнее T2: заход ракеты не задевает башню
+        stageScene("airship", airship, -90);
+        clearSams(airship, 160);
 
         // p25: с улицы снизу, длинный фокус: рой шахедов над крышами
         Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
