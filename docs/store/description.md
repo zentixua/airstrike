@@ -58,8 +58,7 @@ No other mods are required. Optional:
 - **Distant Horizons** 3.3 or newer: distant terrain on the targeting map and strike damage in distant terrain.
 - **Sound Physics Remastered**, **Iris** shaders, **Flashback** replays.
 
-The mod is needed on the server and on every client, in the same version. Before version 3.0.0 it was called
-Airstrike.
+The mod is needed on the server and on every client, in the same version.
 
 ## How it is made
 

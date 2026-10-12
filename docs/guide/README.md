@@ -6,8 +6,6 @@ Air strikes: Shahed drones, Lancets, cruise missiles, Grad rockets, a B-2 bomber
 aimed with one item, the Strike Designator. The projectiles are full size and fly like real ones; they can be seen and
 heard from far away, and a siren sounds at the target before impact.
 
-Before version 3.0.0 the mod was called Airstrike, and its command was `/airstrike`.
-
 ## Getting started
 
 1. Craft a [Strike Designator](designator.md#crafting) and [munitions](munitions.md): the designator fires only what is
