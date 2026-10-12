@@ -1,7 +1,7 @@
+![Cruise missiles dive onto a factory with tall chimneys and explode one after another](https://raw.githubusercontent.com/zentixua/incoming/main/docs/media/hero.webp)
+
 Air strikes and air defense for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one meter, and the projectiles,
 launchers and the effects of a nuclear explosion have their real sizes.
-
-![Fireball and blast wave of a 15 kt airburst over a city](https://raw.githubusercontent.com/zentixua/incoming/main/docs/guide/img/nuke-wave.jpg)
 
 ## Weapons
 

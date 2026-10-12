@@ -9,6 +9,7 @@ version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_authors}"
 displayURL = "${mod_url}"
+logoFile = "incoming.png"
 credits = "Sounds: Freesound recordings by juskiddink, KVV_Audio, Nanashi, Romaner66, Spennnyyy and tim.kahn (CC BY 4.0) and by CC0 authors; full list in assets/incoming/sounds/credits.txt. Bundled: sable-companion (MIT)."
 description = '''${mod_description}'''
 
