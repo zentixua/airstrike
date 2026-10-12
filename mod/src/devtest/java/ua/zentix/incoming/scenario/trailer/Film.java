@@ -137,6 +137,13 @@ abstract class Film {
         return best;
     }
 
+    /** Бот-статист (или любой игрок) по имени, как его видит клиент; нет рядом — null. */
+    @Nullable
+    Entity bot(String name) {
+        for (var p : mc.level.players()) if (p.getGameProfile().getName().equals(name)) return p;
+        return null;
+    }
+
     /** Тиков игры после подрыва (-1 — подрыва ещё не было). */
     long sinceDetonation() {
         return detonationTime < 0 ? -1 : mc.level.getGameTime() - detonationTime;

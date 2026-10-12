@@ -1,5 +1,6 @@
 package ua.zentix.incoming.scenario.trailer;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
@@ -16,10 +17,19 @@ public final class Trailer extends Film {
     private Fight fight;
 
     public Trailer() {
-        script();
+        String scene = System.getenv("INCOMING_TRAILER_SCENE");
+        if (scene != null && !scene.isBlank()) testScene(scene);
+        else script();
     }
 
     private void script() {
+        setup();
+        streetFight(new Vec3(0.5, 151, 0.5), 0);
+        finish();
+    }
+
+    /** Общее начало: кадр в размер, правила мира для съёмки, игрок — невидимка. */
+    private void setup() {
         then(this::exactFrame);
         run(() -> {
             cmd("gamerule doDaylightCycle false");
@@ -32,7 +42,9 @@ public final class Trailer extends Film {
             cmd("time set 1000");
             withPlayer((level, p) -> p.setGameMode(net.minecraft.world.level.GameType.SPECTATOR));
         });
-        streetFightTest();
+    }
+
+    private void finish() {
         run(() -> {
             rec.finish();
             ua.zentix.incoming.Incoming.LOG.info("TRAILER done");
@@ -41,45 +53,75 @@ public final class Trailer extends Film {
         });
     }
 
-    /** Проба боя статистов: площадка в воздухе, два отряда в укрытиях, облёт камерой. */
-    private void streetFightTest() {
-        Vec3 c = new Vec3(0.5, 151, 0.5);
+    /**
+     * Только одна сцена ({@code INCOMING_TRAILER_SCENE}): ровная площадка из камня 160×160 на высоте 150 в новом мире
+     * (вокруг — только небо), сцена ставится в её середине курсом на +Z.
+     */
+    private void testScene(String name) {
+        Scene scene = Scene.ALL.get(name);
+        if (scene == null) throw new IllegalArgumentException("нет сцены " + name + ", есть " + Scene.ALL.keySet());
+        setup();
         onServer(level -> {
-            MinecraftServer server = level.getServer();
-            cast = new Cast(server);
-            fight = new Fight(cast, server);
-            cast.command(fmt("forceload add %d %d %d %d", -48, -48, 48, 48));
-            cast.command(fmt("fill %d %d %d %d %d %d minecraft:gray_concrete", -30, 150, -30, 30, 150, 30));
-            cast.command(fmt("fill %d %d %d %d %d %d minecraft:air", -30, 151, -30, 30, 160, 30));
-            // укрытия: блоки бетона по линиям z = ±9
-            for (int x = -12; x <= 12; x += 4) {
-                cast.command(fmt("fill %d 151 %d %d 151 %d minecraft:stone_bricks", x, -9, x + 1, -9));
-                cast.command(fmt("fill %d 151 %d %d 151 %d minecraft:stone_bricks", x, 9, x + 1, 9));
+            cast().command("forceload add -96 -96 96 96");
+            for (int x = -80; x < 80; x += 32) {
+                for (int z = -80; z < 80; z += 32) {
+                    cast().command(fmt("fill %d 150 %d %d 150 %d minecraft:smooth_stone", x, z, x + 31, z + 31));
+                    cast().command(fmt("fill %d 151 %d %d 182 %d minecraft:air", x, z, x + 31, z + 31));
+                }
             }
+        });
+        scene.stage(this, new Vec3(0.5, 151, 0.5), 0);
+        finish();
+    }
+
+    /** Статисты (боты Almighty) этого сервера. */
+    Cast cast() {
+        if (cast == null) cast = new Cast(mc.getSingleplayerServer());
+        return cast;
+    }
+
+    Fight fight() {
+        if (fight == null) fight = new Fight(cast(), mc.getSingleplayerServer());
+        return fight;
+    }
+
+    /** Уличный бой: два отряда по шесть бойцов за укрытиями друг против друга, облёт и вид из-за плеча. */
+    void streetFight(Vec3 c, float yaw) {
+        onServer(level -> {
+            BlockPos o = BlockPos.containing(c);
+            cast().command(fmt("fill %d %d %d %d %d %d minecraft:gray_concrete", o.getX() - 30, o.getY() - 1, o.getZ() - 30,
+                    o.getX() + 30, o.getY() - 1, o.getZ() + 30));
+            // укрытия: блоки камня по двум линиям в 9 блоках от середины
+            for (int k = -12; k <= 12; k += 4) {
+                for (int side : new int[]{-9, 9}) {
+                    BlockPos a = BlockPos.containing(Scene.local(c, yaw, k, 0, side)), b = BlockPos.containing(Scene.local(c, yaw, k + 1, 0, side));
+                    cast().command(fmt("fill %d %d %d %d %d %d minecraft:stone_bricks", a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ()));
+                }
+            }
+            Vec3 fwd = Scene.local(Vec3.ZERO, yaw, 0, 0, 1);
             for (int i = 0; i < 6; i++) {
-                spawnSoldier("West" + i, 0, new Vec3(-10 + i * 4 + 0.5, 151, -11.5), new Vec3(0, 0, 1));
-                spawnSoldier("East" + i, 1, new Vec3(-10 + i * 4 + 0.5, 151, 11.5), new Vec3(0, 0, -1));
+                spawnSoldier("West" + i, 0, Scene.local(c, yaw, -10 + i * 4, 0, -11), fwd);
+                spawnSoldier("East" + i, 1, Scene.local(c, yaw, -10 + i * 4, 0, 11), fwd.scale(-1));
             }
         });
         waitTicks(60);
         onServer(level -> {
-            for (Fight.Soldier s : fight.soldiers()) arm(s);
+            for (Fight.Soldier s : fight().soldiers()) arm(s);
         });
         waitTicks(40);
-        run(() -> withServer(server -> fight.start()));
+        run(() -> withServer(server -> fight().start()));
         waitTicks(60);
         shot("test_fight").length(100).hidden()
                 .camera(() -> CineCamera.orbit(() -> c, 22, 7, 60, 0.35, 60));
-        // из-за плеча бойца West2: видно ли вспышку у ствола, анимацию огня и слышно ли выстрелы
-        Vec3 w2 = new Vec3(-1.5, 151, -11.5);
+        // из-за плеча бойца West2
         shot("test_fight_shoulder").length(80).hidden()
-                .camera(() -> t -> Pose.look(w2.add(1.1, 1.9, -2.4), w2.add(0, 1.4, 20), 0, 60));
-        run(() -> withServer(server -> fight.stop()));
+                .camera(() -> CineCamera.shoulder(() -> bot("West2"), 2.4, 0.5, 1.1, null, 60));
+        run(() -> withServer(server -> fight().stop()));
     }
 
     private void spawnSoldier(String name, int side, Vec3 at, Vec3 facing) {
-        cast.spawn(name, at, side == 0 ? 0 : 180, null);
-        fight.add(name, side, at, facing);
+        cast().spawn(name, at, yawTo(Vec3.ZERO, facing), null);
+        fight().add(name, side, at, facing);
     }
 
     /** Форма стороны (кожа в цвет), каска, автомат и патроны. */
@@ -87,14 +129,14 @@ public final class Trailer extends Film {
         String color = s.side == 0 ? "5597744" : "6181203";
         String[][] parts = {{"chest", "chestplate"}, {"legs", "leggings"}, {"feet", "boots"}};
         for (String[] part : parts) {
-            cast.command(fmt("item replace entity %s armor.%s with minecraft:leather_%s[dyed_color={rgb:%s,show_in_tooltip:false}]",
+            cast().command(fmt("item replace entity %s armor.%s with minecraft:leather_%s[dyed_color={rgb:%s,show_in_tooltip:false}]",
                     s.name, part[0], part[1], color));
         }
-        cast.command(fmt("item replace entity %s armor.head with minecraft:iron_helmet", s.name));
-        cast.command(fmt("item replace entity %s hotbar.0 with pointblank:ak47", s.name));
-        cast.command(fmt("give %s pointblank:ammo762 512", s.name));
+        cast().command(fmt("item replace entity %s armor.head with minecraft:iron_helmet", s.name));
+        cast().command(fmt("item replace entity %s hotbar.0 with pointblank:ak47", s.name));
+        cast().command(fmt("give %s pointblank:ammo762 512", s.name));
         // бессмертны: кто падает, решает сценарий, а не случайная очередь до нужного плана
-        cast.command(fmt("effect give %s minecraft:resistance infinite 4 true", s.name));
+        cast().command(fmt("effect give %s minecraft:resistance infinite 4 true", s.name));
     }
 
     private void withServer(java.util.function.Consumer<MinecraftServer> work) {
