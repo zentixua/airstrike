@@ -115,7 +115,7 @@ public final class Trailer extends Film {
                 .camera(() -> CineCamera.orbit(() -> c, 22, 7, 60, 0.35, 60));
         // из-за плеча бойца West2
         shot("test_fight_shoulder").length(80).hidden()
-                .camera(() -> CineCamera.shoulder(() -> bot("West2"), 2.4, 0.5, 1.1, null, 60));
+                .camera(() -> CineCamera.shoulder(() -> bot("West2"), 3.2, 0.3, 1.6, null, 55));
         run(() -> withServer(server -> fight().stop()));
     }
 

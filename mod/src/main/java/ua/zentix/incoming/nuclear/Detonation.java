@@ -192,11 +192,15 @@ public record Detonation(int id, Vec3 burst, double groundY, double yieldKt, boo
     /** Чёрный дождь там, где мощность дозы в следе от 1 Р/ч. */
     public static final double BLACK_RAIN_RATE = 1;
 
+    /** Через сколько игровых тиков после подрыва осадки ложатся в точку (реальное время модели × {@code scale}). */
+    public double falloutArrivalTicks(double x, double z) {
+        return falloutModel().arrivalSeconds(metres(x - burst.x), metres(z - burst.z)) * 20 * scale;
+    }
+
     /** Идёт ли в точке чёрный дождь: след осадков уже дошёл и ещё не выпал (одинаково на сервере и клиенте). */
     public boolean blackRain(double x, double z, long ticksSince) {
         if (!hasFallout() || falloutRate(x, z, ticksSince) < BLACK_RAIN_RATE) return false;
-        double arrival = falloutModel().arrivalSeconds(metres(x - burst.x), metres(z - burst.z)) * 20 * scale;
-        double hours = (ticksSince - arrival) / 1000.0;
+        double hours = (ticksSince - falloutArrivalTicks(x, z)) / 1000.0;
         return hours >= 0 && hours < BLACK_RAIN_HOURS;
     }
 

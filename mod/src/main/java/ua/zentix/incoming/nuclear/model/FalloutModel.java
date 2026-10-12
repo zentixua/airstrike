@@ -17,8 +17,9 @@ package ua.zentix.incoming.nuclear.model;
  * порядок контуров NUKEMAP (модель Миллера) для этого случая.
  * Всё умножается на долю наземного подрыва {@link #surfaceFraction()}.
  *
- * <p>Время: осадки приходят в точку через (путь по ветру)/(скорость ветра) реальных секунд,
- * а спад идёт по игровым часам (закон Уэя–Вигнера t^−1.2, правило 7–10) — см. {@link #doseRate}.
+ * <p>Время: осадки приходят в точку через (путь по ветру)/(скорость ветра) реальных секунд, но не раньше, чем
+ * из облака долетят самые крупные частицы ({@link #firstArrivalSeconds}); спад идёт по игровым часам (закон
+ * Уэя–Вигнера t^−1.2, правило 7–10) — см. {@link #doseRate}.
  */
 public record FalloutModel(double yieldKt, double hobM, double windDirRad, double windSpeedMps) {
     /** Мощность дозы на оси следа у эпицентра в H+1, Р/ч. */
@@ -37,6 +38,9 @@ public record FalloutModel(double yieldKt, double hobM, double windDirRad, doubl
     /** Закон спада Уэя–Вигнера. */
     public static final double DECAY_EXP = 1.2;
     private static final double MIN_WIND = 0.5;
+    /** Самые ранние осадки: {@code FIRST_ARRIVAL_MIN · Y^FIRST_ARRIVAL_EXP} минут (модель Миллера). */
+    private static final double FIRST_ARRIVAL_MIN = 4;
+    private static final double FIRST_ARRIVAL_EXP = 0.2;
 
     /**
      * Доля наземного подрыва 0..1: 0, если шар не касается земли (HOB ≥ максимального радиуса
@@ -69,10 +73,22 @@ public record FalloutModel(double yieldKt, double hobM, double windDirRad, doubl
         return amp * (trail + gz);
     }
 
-    /** Через сколько реальных секунд после подрыва осадки ложатся в (x, z): путь по ветру / скорость; против ветра — 0. */
+    /**
+     * Самые ранние осадки, реальные секунды: 4·Y^0.2 мин (15 кт — 7 мин, 1 Мт — 16 мин) — столько падают из облака
+     * и ножки самые крупные частицы (модель Миллера, 1963; Glasstone 9.50, 9.64). Под облаком и против ветра раньше
+     * этого осадков нет.
+     */
+    public double firstArrivalSeconds() {
+        return FIRST_ARRIVAL_MIN * 60 * Math.pow(yieldKt, FIRST_ARRIVAL_EXP);
+    }
+
+    /**
+     * Через сколько реальных секунд после подрыва осадки ложатся в (x, z): путь по ветру / скорость, но не раньше
+     * {@link #firstArrivalSeconds}.
+     */
     public double arrivalSeconds(double x, double z) {
         double down = x * Math.cos(windDirRad) + z * Math.sin(windDirRad);
-        return Math.max(down, 0) / wind();
+        return Math.max(firstArrivalSeconds(), Math.max(down, 0) / wind());
     }
 
     /**
