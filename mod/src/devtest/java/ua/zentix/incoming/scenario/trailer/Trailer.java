@@ -107,7 +107,7 @@ public final class Trailer {
     private final java.util.Set<Integer> released = new java.util.HashSet<>();
     /** Где наводчик стоит под чёрным дождём (выбирается, пока он невидимкой прогружает место). */
     private Vec3 falloutSpot = Vec3.ZERO;
-    /** Тики после подрыва, когда осадки ложатся на {@link #falloutSpot}. */
+    /** Тики после подрыва, когда осадки ложатся на {@link #falloutSpot} (не меньше 3000). */
     private long falloutRain = 3000;
 
     private interface Step {
