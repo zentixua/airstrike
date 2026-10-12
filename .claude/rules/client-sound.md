@@ -1,12 +1,12 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/client/sound/**"
-  - "mod/src/main/resources/assets/airstrike/sounds/**"
-  - "mod/src/main/resources/assets/airstrike/sounds.json"
+  - "mod/src/main/java/ua/zentix/incoming/client/sound/**"
+  - "mod/src/main/resources/assets/incoming/sounds/**"
+  - "mod/src/main/resources/assets/incoming/sounds.json"
   - "tools/build_sounds.py"
   - "tools/synth_mod_sounds.py"
   - "tools/freesound.py"
-  - "mod/src/test/java/ua/zentix/airstrike/client/sound/**"
+  - "mod/src/test/java/ua/zentix/incoming/client/sound/**"
 ---
 
 # Звук

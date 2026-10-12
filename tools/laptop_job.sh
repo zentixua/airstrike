@@ -14,8 +14,8 @@ name=$1; shift 2
 
 # окружение службы — только нужное задаче (служба не наследует окружение оболочки)
 envs=()
-while IFS= read -r line; do envs+=(-E "$line"); done < <(env | grep -E '^(JAVA_HOME|MC_DIR|MODS|AIRSTRIKE_[A-Z_]+|PYTHON_CPU_COUNT)=' || true)
+while IFS= read -r line; do envs+=(-E "$line"); done < <(env | grep -E '^(JAVA_HOME|MC_DIR|MODS|INCOMING_[A-Z_]+|PYTHON_CPU_COUNT)=' || true)
 
-exec systemd-inhibit --what=sleep:idle --who="Airstrike: $name" --why="проверка мода (tools/laptop_job.sh)" \
-  systemd-run --user --wait --pipe --collect --quiet --same-dir --unit="airstrike-job-$name-$$" \
+exec systemd-inhibit --what=sleep:idle --who="Incoming: $name" --why="проверка мода (tools/laptop_job.sh)" \
+  systemd-run --user --wait --pipe --collect --quiet --same-dir --unit="incoming-job-$name-$$" \
     -p OOMScoreAdjust=500 "${envs[@]}" -- "$@"

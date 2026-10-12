@@ -1,26 +1,29 @@
-# Правила ударов
+# Strike rules
 
-Пульт по умолчанию работает у всех игроков, ядерное оружие — только у операторов ([ядерный удар](nuke.md)).
+English · [Русский](ru/rules.md)
 
-## Разведка
+By default the designator works for every player, and nuclear weapons only for operators ([nuclear strike](nuke.md)).
 
-По месту, по мобам и по своим можно бить всегда. По **чужому игроку** и **чужому летательному аппарату** пульт бьёт,
-только если его заметили ты или твоя команда: глазами или камерой своего снаряда.
+## Spotting
 
-- Видишь сейчас — удар по нему. Видели не больше 30 секунд назад — по месту, где видели.
-- Незамеченного пульт не берёт и пишет, что игрок не замечен.
-- Команда видит общим зрением: заметил один, бить может любой.
-- Спрятался за стеной или ушёл за горизонт — через 30 секунд тебя потеряли.
+Places, mobs and your own side can always be struck. **Another player** and **another player's aircraft** can be
+struck only if you or your team have spotted them: with your own eyes or through the camera of your projectile.
 
-Команду собирает оператор: `/team add <название>`, затем `/team join <название> <игроки>`. Без команды «свой» только
-ты сам.
+- If you see the target now, the strike goes at it. If it was seen within the last 30 seconds, the strike goes to the
+  place where it was seen.
+- The designator refuses a target nobody has spotted and says that the player has not been spotted.
+- A team shares its sight: once one member spots someone, anyone on the team can strike.
+- If you hide behind a wall or go over the horizon, the other side loses you after 30 seconds.
 
-## Движущаяся цель
+An operator sets up teams: `/team add <name>`, then `/team join <name> <players>`. Without a team, your own side is you
+alone.
 
-За движущейся целью идут только шахед и «Ланцет», и только пока ты держишь её в кадре их [камеры](camera.md).
-Остальное оружие бьёт туда, где цель была при пуске.
+## Moving targets
 
-## Пределы
+Only the Shahed and the Lancet follow a moving target, and only while you keep it in frame in their
+[camera](camera.md). Other weapons hit where the target was at launch.
 
-До 30 снарядов в залпе, разброс до 150 блоков, бинокль до 400 блоков, карта до 10 000 блоков. Это по умолчанию,
-хозяин мира может поменять. Сколько всего ударов нанести, решают боеприпасы.
+## Limits
+
+Up to 30 rounds in a salvo, spread up to 150 blocks, binoculars up to 400 blocks, the map up to 10,000 blocks. These
+are defaults that the world owner can change. How many strikes you can make is limited by your munitions.

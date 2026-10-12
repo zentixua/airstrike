@@ -19,7 +19,7 @@ MC = os.environ.get("MC_DIR", os.path.join(PRISM, "instances", INSTANCE, "minecr
 MODS = os.path.join(MC, "mods")
 JAVA = os.path.join(PRISM, "java", "java-runtime-delta")
 # сюда deploy.sh переносит старые версии мода и копии датапака/пакета звуков — удаляет их только Артём
-BACKUP = os.path.join(MC, "airstrike-backup")
+BACKUP = os.path.join(MC, "incoming-backup")
 
 # до мода был датапак (сначала под именем shahed) и пакет звуков: их копии в игре больше не нужны
 LEGACY_DATAPACKS = "airstrike shahed"

@@ -1,0 +1,143 @@
+package ua.zentix.incoming;
+
+import com.mojang.logging.LogUtils;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.bus.api.EventPriority;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import org.slf4j.Logger;
+import ua.zentix.incoming.command.IncomingCommand;
+import ua.zentix.incoming.compat.DhChunks;
+import ua.zentix.incoming.compat.DhUpdates;
+import ua.zentix.incoming.compat.FlashbackReplay;
+import ua.zentix.incoming.defense.DefenseWorld;
+import ua.zentix.incoming.defense.SamBlockEntity;
+import ua.zentix.incoming.grid.Blackouts;
+import ua.zentix.incoming.grid.ChunkSaves;
+import ua.zentix.incoming.launcher.FixedLauncherBlockEntity;
+import ua.zentix.incoming.legacy.LegacyMigration;
+import ua.zentix.incoming.legacy.OldNamespace;
+import ua.zentix.incoming.net.IncomingNetwork;
+import ua.zentix.incoming.nuclear.NuclearStrikes;
+import ua.zentix.incoming.nuclear.radiation.RadiationTicker;
+import ua.zentix.incoming.nuclear.world.BlockResponse;
+import ua.zentix.incoming.nuclear.world.FarLods;
+import ua.zentix.incoming.registry.ModAttachments;
+import ua.zentix.incoming.registry.ModBlockEntities;
+import ua.zentix.incoming.registry.ModBlocks;
+import ua.zentix.incoming.registry.ModCreativeTabs;
+import ua.zentix.incoming.registry.ModDataComponents;
+import ua.zentix.incoming.registry.ModEffects;
+import ua.zentix.incoming.registry.ModEntities;
+import ua.zentix.incoming.registry.ModItems;
+import ua.zentix.incoming.registry.ModParticles;
+import ua.zentix.incoming.registry.ModSounds;
+import ua.zentix.incoming.strike.ArrivalTickets;
+import ua.zentix.incoming.strike.FarFlights;
+import ua.zentix.incoming.strike.FlightStatus;
+import ua.zentix.incoming.strike.NuclearKeys;
+import ua.zentix.incoming.strike.PickHints;
+import ua.zentix.incoming.strike.StrikeWorld;
+import ua.zentix.incoming.target.Sightings;
+import ua.zentix.incoming.warhead.CraterFalls;
+import ua.zentix.incoming.work.StallWatch;
+import ua.zentix.incoming.work.WorkScheduler;
+
+import java.util.List;
+
+/**
+ * Incoming: кинематографичные удары — дрон-камикадзе, крылатая ракета, B-2 с бетонобойной бомбой, залпы, МБР с ядерной БЧ;
+ * защита от них — ЗРК с радаром.
+ * Здесь только регистрации; игровая логика — в пакетах strike/entity/warhead, клиент — в client.
+ */
+@Mod(Incoming.MOD_ID)
+public final class Incoming {
+    public static final String MOD_ID = "incoming";
+    /**
+     * Имя клавиши камеры снаряда: подсказки сервера ссылаются на неё через {@code Component.keybind}, и клиент
+     * показывает ту клавишу, что назначена у игрока, а не зашитую букву.
+     */
+    public static final String CAMERA_KEY = "key.incoming.camera";
+    public static final Logger LOG = LogUtils.getLogger();
+
+    public Incoming(IEventBus modBus, ModContainer container) {
+        for (DeferredRegister<?> register : List.of(ModBlocks.REGISTER, ModBlockEntities.REGISTER, ModEntities.REGISTER,
+                ModItems.REGISTER, ModSounds.REGISTER, ModParticles.REGISTER, ModDataComponents.REGISTER,
+                ModCreativeTabs.REGISTER, ModEffects.REGISTER, ModAttachments.REGISTER)) {
+            OldNamespace.alias(register);
+            register.register(modBus);
+        }
+
+        container.registerConfig(ModConfig.Type.SERVER, IncomingConfig.SERVER_SPEC);
+        container.registerConfig(ModConfig.Type.CLIENT, IncomingConfig.CLIENT_SPEC);
+
+        modBus.addListener(IncomingNetwork::register);
+        modBus.addListener(SamBlockEntity::registerCapabilities);
+        modBus.addListener(FixedLauncherBlockEntity::registerCapabilities);
+
+        NeoForge.EVENT_BUS.addListener(IncomingCommand::register);
+        NeoForge.EVENT_BUS.addListener(StrikeWorld::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(Sightings::onLevelTick);
+        // после StrikeWorld: снаряды вне мира в этом тике уже сдвинулись — зенитная ракета идёт за их новым местом
+        NeoForge.EVENT_BUS.addListener(DefenseWorld::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(StrikeWorld::onServerStopping);
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> ua.zentix.incoming.nuclear.world.NuclearWorld.onServerStopping(e.getServer()));
+        // после того как мод снял свои тикеты и работу: генерация, начатая до выхода, доходит до конца (иначе цикл выгрузки висит)
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.incoming.util.StopDrain::onServerStopping);
+        NeoForge.EVENT_BUS.addListener(FlightStatus::onServerTick);
+        NeoForge.EVENT_BUS.addListener(FarFlights::onServerTick);
+        NeoForge.EVENT_BUS.addListener(FlashbackReplay::onServerTick);
+        NeoForge.EVENT_BUS.addListener(DhChunks::onServerStarting);
+        NeoForge.EVENT_BUS.addListener(DhChunks::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(DhUpdates::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(FarLods::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(PickHints::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogin);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onChangeDimension);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ArrivalTickets::onDeath);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onClone);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onRespawn);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onLogout);
+        NeoForge.EVENT_BUS.addListener(NuclearKeys::onLogout);
+        NeoForge.EVENT_BUS.addListener(ArrivalTickets::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(OldNamespace::onServerAboutToStart);
+        NeoForge.EVENT_BUS.addListener(LegacyMigration::onServerStarted);
+        NeoForge.EVENT_BUS.addListener(LegacyMigration::onEntityJoin);
+        NeoForge.EVENT_BUS.addListener(CraterFalls::onEntityJoin);
+
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkLoad);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkUnload);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChunkSent);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onLogin);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onChangeDimension);
+        NeoForge.EVENT_BUS.addListener(NuclearStrikes::onRespawn);
+        NeoForge.EVENT_BUS.addListener(RadiationTicker::onHeal);
+        NeoForge.EVENT_BUS.addListener(BlockResponse::onTagsUpdated);
+
+        NeoForge.EVENT_BUS.addListener(WorkScheduler::onServerTick);
+        NeoForge.EVENT_BUS.addListener(StallWatch::onTickPre);
+        NeoForge.EVENT_BUS.addListener(StallWatch::onTickPost);
+        if (ua.zentix.incoming.nuclear.world.NukeDiag.ON) {
+            // диагностика прогонов (-Dincoming.nukeDiag=true): стеки долгих тиков; без свойства — ни слушателей, ни потока
+            NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.nuclear.world.NukeDiag::onTickPre);
+            NeoForge.EVENT_BUS.addListener(ua.zentix.incoming.nuclear.world.NukeDiag::onTickPost);
+        }
+        NeoForge.EVENT_BUS.addListener(Blackouts::onChunkLoad);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onChunkUnload);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onExplosion);
+        // последним: обработчики других модов видят и правят список сущностей взрыва до того, как мод его заберёт
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, ua.zentix.incoming.warhead.Warheads::onDetonate);
+        NeoForge.EVENT_BUS.addListener(Blackouts::onBlockPlaced);
+        // первым: чужие слушатели сохранения видят тег уже без двойников
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, ChunkSaves::onSave);
+        NeoForge.EVENT_BUS.addListener(ChunkSaves::onLoad);
+    }
+
+    public static ResourceLocation id(String path) {
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+    }
+}

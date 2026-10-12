@@ -1,50 +1,52 @@
-# Пульт наведения
+# Strike Designator
 
-Пульт наводит и пускает все удары: из бинокля, с экрана пульта или с [карты](map.md).
+English · [Русский](ru/designator.md)
 
-## Как получить
+The designator aims and launches every strike: from its binoculars, from its console or from the [map](map.md).
 
-Крафт: сверху красная пыль, в середине железный слиток, подзорная труба и железный слиток, снизу компас.
+## Crafting
 
-![Рецепт пульта наведения](img/recipe-strike_designator.png)
+Recipe: redstone dust on top; iron ingot, spyglass and iron ingot in the middle row; compass at the bottom.
 
-В творческом режиме пульт лежит во вкладке «Airstrike». Если хозяин мира разрешил пульт только операторам, остальным
-он не стреляет.
+![Strike Designator recipe](img/recipe-strike_designator.png)
 
-## Бинокль
+In Creative mode the designator is in the Incoming tab. If the world owner has limited the designator to operators, it
+does not fire for other players.
 
-![Бинокль: ПКМ — приблизить, колесо — оружие, ЛКМ — пуск](img/scope.webp)
+## Binoculars
 
-- **ПКМ (держать)** — бинокль. Под прицелом видно, что это и как далеко. Захватил моба, игрока или аппарат — пульт
-  пищит.
-- **Колесо мыши** — оружие: Шахед, Барраж, Ракета, РСЗО, Бомба, Ядерная.
-- **ЛКМ** — пуск.
+![Binoculars: RMB to zoom in, wheel to pick a weapon, LMB to launch](img/scope.webp)
 
-Бинокль достаёт на 400 блоков, дальше бей [по карте](map.md). Ядерный пуск идёт после отсчёта 3 секунды, повторный
-ЛКМ его отменяет.
+- **RMB (hold)**: binoculars. The reticle shows what is under it and how far away it is. When it locks onto a mob, a
+  player or an aircraft, the designator beeps.
+- **Mouse wheel**: weapon (Shahed, Loiter, Missile, MLRS, Bomb, Nuclear).
+- **LMB**: launch.
 
-## Экран пульта
+The binoculars reach 400 blocks; farther away, strike [from the map](map.md). A nuclear launch follows a 3-second
+countdown, and pressing LMB again cancels it.
 
-Shift+ПКМ с пультом в руке. Здесь выбирают, сколько снарядов пустить, как широко их раскидать и куда. Бинокль потом
-стреляет с этими же настройками.
+## Console
 
-![Экран пульта: оружие, число снарядов, разброс, цель, огонь](img/remote.gif)
+Shift+RMB with the designator in hand. Here you choose how many rounds to launch, how widely to spread them and where.
+The binoculars then fire with the same settings.
 
-- **Оружие** — шесть кнопок, у каждой подсказка. У ракеты и бомбы рядом кнопка ядерной боевой части.
-- **Количество и разброс** — до 30 снарядов на площади до 150 блоков от центра.
-- **Цель**: «Куда смотрю», «Вокруг меня» (туда, где стоишь, так что отойди), «Игрок» (только
-  [замеченные](rules.md#разведка)), «Аппарат» (летательные аппараты Create рядом), «На карте».
-- **ОГОНЬ**, **Отбой** и **Настройки**.
+![Console: weapon, count, spread, target, fire](img/remote.gif)
 
-## Снаряды на экране
+- **Weapon**: six buttons, each with a tooltip. The Missile and the Bomb also get a warhead button.
+- **Count and Spread**: up to 30 rounds over up to 150 blocks from the center.
+- **Target**: Where I look, Around me (where you stand, so step away first), Player (only [spotted](rules.md#spotting)
+  players), Aircraft (Create aircraft nearby), On map.
+- **FIRE**, **Abort** and **Settings**.
 
-Пока твои снаряды летят, справа вверху виден их список с этапом полёта и временем до удара, а в мире над каждым
-снарядом метка с номером и пунктир к цели.
+## Projectiles on screen
 
-![Залп шахедов и ракет: список справа вверху и метки в мире](img/hud.webp)
+While your projectiles are in flight, a list in the top right corner shows each one's flight phase and time to impact,
+and in the world every projectile carries a numbered mark with a dotted line to its target.
 
-## Отбой
+![A salvo of Shaheds and missiles: the list in the top right and marks in the world](img/hud.webp)
 
-Кнопка «Отбой» на экране пульта отменяет **твои** удары: снаряды самоликвидируются в воздухе без взрыва, B-2
-отворачивает, невыпущенные снаряды залпа возвращаются в инвентарь. Ядерный удар, летящий «Град» и сброшенная бомба
-долетят.
+## Abort
+
+The Abort button on the console calls off **your** strikes: projectiles self-destruct in the air without exploding, the
+B-2 turns away, and unfired rounds of a salvo return to your inventory. A nuclear strike, Grad rockets in flight and a
+dropped bomb still hit.

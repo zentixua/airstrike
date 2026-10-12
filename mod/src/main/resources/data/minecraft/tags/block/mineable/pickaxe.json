@@ -1,18 +1,18 @@
 {
   "values": [
-    "airstrike:trinitite",
-    "airstrike:substation",
-    "airstrike:sam",
-    "airstrike:fixed_launcher",
-    "airstrike:unlit_lantern",
-    "airstrike:unlit_soul_lantern",
-    "airstrike:unlit_copper_bulb",
-    "airstrike:unlit_exposed_copper_bulb",
-    "airstrike:unlit_weathered_copper_bulb",
-    "airstrike:unlit_oxidized_copper_bulb",
-    "airstrike:unlit_waxed_copper_bulb",
-    "airstrike:unlit_waxed_exposed_copper_bulb",
-    "airstrike:unlit_waxed_weathered_copper_bulb",
-    "airstrike:unlit_waxed_oxidized_copper_bulb"
+    "incoming:trinitite",
+    "incoming:substation",
+    "incoming:sam",
+    "incoming:fixed_launcher",
+    "incoming:unlit_lantern",
+    "incoming:unlit_soul_lantern",
+    "incoming:unlit_copper_bulb",
+    "incoming:unlit_exposed_copper_bulb",
+    "incoming:unlit_weathered_copper_bulb",
+    "incoming:unlit_oxidized_copper_bulb",
+    "incoming:unlit_waxed_copper_bulb",
+    "incoming:unlit_waxed_exposed_copper_bulb",
+    "incoming:unlit_waxed_weathered_copper_bulb",
+    "incoming:unlit_waxed_oxidized_copper_bulb"
   ]
 }

@@ -1,47 +1,51 @@
-# Оборона
+# Defense
 
-## Сирены
+English · [Русский](ru/defense.md)
 
-У всех ближе 350 блоков к цели заранее воет сирена и на экране появляется надпись. О ядерном ударе предупреждают
-всех в 20 км.
+## Sirens
 
-| Сирена | Оружие | За сколько до удара |
+Everyone within 350 blocks of the target hears a siren and sees a warning on screen before the strike. A nuclear strike
+is announced to everyone within 20 km.
+
+| Warning | Weapon | Before impact |
 |---|---|---|
-| ⚠ ВОЗДУШНАЯ ТРЕВОГА ⚠ | шахед, «Ланцет», B-2 | 20–25 с |
-| ⚠ РАКЕТНАЯ ОПАСНОСТЬ ⚠ | крылатая ракета, «Град» | 15 и 8 с |
-| ☢ РАКЕТНОЕ НАПАДЕНИЕ ☢ | МБР | 90 с, с отсчётом |
+| ⚠ AIR RAID ALERT ⚠ | Shahed, Lancet, B-2 | 20–25 s |
+| ⚠ MISSILE THREAT ⚠ | cruise missile, Grad | 15 and 8 s |
+| ☢ MISSILE ATTACK ☢ | ICBM | 90 s, with a countdown |
 
-Снаряды слышно и видно издалека, до 8 км. Звук идёт со скоростью звука: вспышку вдали видно раньше, чем слышно взрыв.
+Projectiles can be heard and seen from far away, up to 8 km. Sound travels at the speed of sound: a distant flash
+shows up before you hear the explosion.
 
-## Укрытие
+## Cover
 
-Взрыв бьёт всех в радиусе, и тебя тоже, а обломки летят далеко.
+A blast hits everyone within its radius, you included, and debris flies far.
 
-- **Под землю.** Грунт и толстые стены держат взрыв, под землёй и под водой даже стёкла целы.
-- **Бетонобойная бомба** пробивает около 30 блоков камня и взрывается внутри. От неё спасает только глубина
-  или ЗРК, который собьёт B-2.
-- **Ядерный удар** — [как выжить](nuke.md#как-выжить).
+- **Get underground.** Earth and thick walls stop a blast; underground and under water even glass stays intact.
+- **The bunker buster** goes through about 30 blocks of stone and explodes inside. Only depth protects against it, or
+  a SAM that shoots down the B-2.
+- **Nuclear strike**: see [how to survive](nuke.md#how-to-survive).
 
-## Зенитный ракетный комплекс (ЗРК)
+## Surface-to-Air Missile System (SAM)
 
-ЗРК — блок, который сам сбивает чужие шахеды, «Ланцеты», крылатые ракеты и B-2. Снаряды того, кто его поставил,
-и его команды он не трогает.
+The SAM is a block that shoots down other players' Shaheds, Lancets, cruise missiles and B-2s by itself. It leaves the
+projectiles of the player who placed it, and of that player's team, alone.
 
-![ЗРК сбивает шахеды на подлёте; в углу экран радара](img/sam.webp)
+![A SAM shooting down incoming Shaheds; the radar screen in the corner](img/sam.webp)
 
-- Радар видит до 3 км, огонь — с 1,5 км, по одной ракете на цель. Примерно одна из пяти промахивается.
-- МБР и «Град» не сбивает. Игроков, мобов и аппараты не видит.
-- Над ним должно быть открытое небо, а рядом игрок: в незагруженном чанке он не работает.
-- Своим приходит «Воздушная тревога!» с направлением на цель. Рядом с ЗРК в углу экрана виден радар.
-- ПКМ пустой рукой — сколько ракет готово и в запасе.
+- Its radar reaches 3 km and it fires from 1.5 km, one interceptor per target. About one in five misses.
+- It does not shoot down ICBMs or Grad rockets. It does not see players, mobs or aircraft.
+- It needs open sky above it and a player nearby: it does not work in an unloaded chunk.
+- Its own side gets "Air raid alert!" with the direction to the target. Near the SAM, a radar screen appears in the
+  corner of the screen.
+- RMB on it with an empty hand shows how many missiles are ready and how many are in stock.
 
-Против ЗРК — залп (направляющих всего четыре), маршрут в обход, малозаметный B-2 или «Град».
+Against a SAM: a salvo (it has only four rails), a route around it, the hard-to-detect B-2, or the Grad.
 
-### Крафт и зарядка
+### Crafting and loading
 
-![Рецепт ЗРК](img/recipe-sam.png)
+![SAM recipe](img/recipe-sam.png)
 
-![Рецепт зенитной ракеты (две за крафт)](img/recipe-interceptor.png)
+![SAM Interceptor recipe (two per craft)](img/recipe-interceptor.png)
 
-Ракеты кладут правым кликом или воронкой, так что ЗРК можно заряжать с завода. Вынуть их нельзя, но сломанный ЗРК
-выпадает вместе с ракетами.
+Interceptors are loaded with a right click or through a hopper, so a factory can keep the SAM supplied. They cannot be
+taken out, but a broken SAM drops them along with itself.

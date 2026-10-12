@@ -1,9 +1,9 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/nuclear/**"
-  - "mod/src/main/java/ua/zentix/airstrike/client/nuclear/**"
+  - "mod/src/main/java/ua/zentix/incoming/nuclear/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/nuclear/**"
   - "docs/DESIGN-nuke.md"
-  - "mod/src/test/java/ua/zentix/airstrike/nuclear/**"
+  - "mod/src/test/java/ua/zentix/incoming/nuclear/**"
 ---
 
 # Ядерный удар (`nuclear/`, `client/nuclear/`)

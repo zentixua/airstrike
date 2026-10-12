@@ -1,8 +1,8 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/client/render/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/render/**"
   - "tools/gen_models.py"
-  - "mod/src/main/resources/assets/airstrike/models/**"
+  - "mod/src/main/resources/assets/incoming/models/**"
 ---
 
 # Модели снарядов и пусковых

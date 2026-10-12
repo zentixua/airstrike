@@ -1,6 +1,6 @@
 ---
 paths:
-  - "mod/src/devtest/java/ua/zentix/airstrike/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/**"
   - "mod/src/devtest/resources/**"
   - "mod/scripts/gen_test_structures.py"
   - "mod/src/test/**"

@@ -25,7 +25,7 @@ PINNED = {
     "lithium": "mc1.21.1-0.15.4-neoforge",
 }
 API = "https://api.modrinth.com/v2"
-HEADERS = {"User-Agent": "zentixua/airstrike (github.com/zentixua/airstrike)"}
+HEADERS = {"User-Agent": "zentixua/incoming (github.com/zentixua/incoming)"}
 
 
 def get(url):

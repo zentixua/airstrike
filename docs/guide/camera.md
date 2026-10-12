@@ -1,19 +1,24 @@
-# Камера снаряда
+# Projectile camera
 
-Нажми `N`, когда твой снаряд в полёте, и смотри удар его глазами: полёт с борта и попадание. Ещё раз `N` —
-следующий снаряд, Shift — выход. Пока ты в камере, твой персонаж стоит на месте.
+English · [Русский](ru/camera.md)
 
-![Камера крылатой ракеты: вдали карта, ближе видео с борта, попадание](img/camera.webp)
+Press `N` while your projectile is in flight and watch the strike through its camera: the flight from on board and the
+impact. Press `N` again for the next projectile; Shift exits. While you are in the camera, your character stays where
+it is.
 
-- Если снаряд дальше твоей прорисовки, вместо видео карта с его путём. Подлетит ближе — видео включится само.
-- **ЛКМ** — новая цель: то, что в перекрестии.
-- Шахед и «Ланцет» идут за движущейся целью, пока ты держишь её в кадре. Остальное оружие бьёт туда, где цель была
-  при пуске.
-- Чтобы камера включалась сама при каждом пуске, включи это в [настройках](settings.md).
+![Cruise missile camera: a map at long range, onboard video closer in, the impact](img/camera.webp)
 
-## «Ланцет»
+- When the projectile is beyond your render distance, you see a map with its path instead of video. The video starts
+  by itself once it comes closer.
+- **LMB**: new target, whatever is under the crosshair.
+- The Shahed and the Lancet follow a moving target while you keep it in frame. Other weapons hit where the target was
+  at launch.
+- To have the camera start by itself at every launch, turn on "Projectile camera on launch" in the
+  [settings](settings.md).
 
-«Ланцет» прилетает к цели и кружит над ней. Наведи перекрестие на цель внизу и нажми ЛКМ: он сразу пикирует.
-Не выбрал — пикирует сам примерно через 25 секунд.
+## Lancet
 
-![Камера «Ланцета»: ЛКМ по новой цели, пике, попадание](img/loiter.webp)
+The Lancet flies to the target and circles over it. Put the crosshair on a target below and press LMB: it dives at
+once. If you pick nothing, it dives by itself after about 25 seconds.
+
+![Lancet camera: LMB on a new target, dive, impact](img/loiter.webp)

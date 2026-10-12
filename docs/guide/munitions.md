@@ -1,29 +1,32 @@
-# Боеприпасы и крафт
+# Munitions and crafting
 
-Пульт пускает только то, что лежит в инвентаре: один шахед, «Ланцет», ракета, бомба или МБР — один предмет. «Град» —
-пакет на 40 снарядов, залп тратит из него по снаряду.
+English · [Русский](ru/munitions.md)
 
-- Залп оплачивается сразу и целиком. Не хватает — пуска нет, над хотбаром видно, сколько нужно и сколько есть.
-- Не удался пуск или дан [отбой](designator.md#отбой) — невыпущенное возвращается в инвентарь.
-- Ядерная боевая часть на ракете или бомбе — ещё один предмет, «Ядерная боевая часть».
-- В творческом режиме боеприпасы не нужны.
+The designator launches only what is in your inventory: one Shahed, Lancet, missile, bomb or ICBM is one item. Grad
+rockets come in a pack of 40, and a salvo takes one rocket from the pack per shot.
 
-## Рецепты
+- A salvo is paid for in full when you order it. If you are short, nothing launches, and a line above the hotbar shows
+  how many you need and how many you have.
+- If a launch fails or you [abort](designator.md#abort), unfired munitions return to your inventory.
+- A nuclear warhead on a missile or bomb is one more item, the Nuclear Warhead.
+- Creative mode needs no munitions.
 
-Все рецепты — на верстаке или в механическом крафтере Create, так что боеприпасы можно делать на заводе. В сборке
-есть JEI: наведи на предмет и нажми `R`. Без Create точный механизм в рецептах заменяют часы (у зенитной ракеты —
-компаратор), а пропеллер — железный люк.
+## Recipes
 
-| Боеприпас | Рецепт |
+Every recipe works on a crafting table or in a Create mechanical crafter, so munitions can be made in a factory. With
+JEI installed, hover over an item and press `R` to see its recipe. Without Create, a clock takes the place of the precision
+mechanism (a comparator in the SAM Interceptor) and an iron trapdoor takes the place of the propeller.
+
+| Munition | Recipe |
 |---|---|
-| **Шахед-136** | ![Шахед-136](img/recipe-shahed.png) |
-| **Барражирующий «Ланцет»** | ![«Ланцет»](img/recipe-lancet.png) |
-| **Крылатая ракета** | ![Крылатая ракета](img/recipe-cruise_missile.png) |
-| **Пакет ракет «Град»** (40 снарядов) | ![Пакет ракет «Град»](img/recipe-grad_rockets.png) |
-| **Бетонобойная бомба** | ![Бетонобойная бомба](img/recipe-bunker_buster.png) |
-| **Ядерная боевая часть** | ![Ядерная боевая часть](img/recipe-nuclear_warhead.png) |
-| **МБР** | ![МБР](img/recipe-icbm.png) |
+| **Shahed-136** | ![Shahed-136](img/recipe-shahed.png) |
+| **Lancet Loitering Munition** | ![Lancet Loitering Munition](img/recipe-lancet.png) |
+| **Cruise Missile** | ![Cruise Missile](img/recipe-cruise_missile.png) |
+| **Grad Rocket Pack** (40 rockets) | ![Grad Rocket Pack](img/recipe-grad_rockets.png) |
+| **Bunker Buster** | ![Bunker Buster](img/recipe-bunker_buster.png) |
+| **Nuclear Warhead** | ![Nuclear Warhead](img/recipe-nuclear_warhead.png) |
+| **ICBM** | ![ICBM](img/recipe-icbm.png) |
 
-Другие рецепты: [пульт](designator.md#как-получить), [ЗРК и зенитные ракеты](defense.md#крафт-и-зарядка),
-[стационарная пусковая](launcher.md#крафт), [подстанция](blackout.md). Счётчик Гейгера выдаёт оператор
-(`/give @s airstrike:geiger_counter`).
+Other recipes: [Strike Designator](designator.md#crafting), [SAM and interceptors](defense.md#crafting-and-loading),
+[fixed launcher](launcher.md#crafting), [substation](blackout.md). The Geiger Counter has no recipe; an operator gives
+it out (`/give @s incoming:geiger_counter`).

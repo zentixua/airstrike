@@ -1,11 +1,11 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/defense/**"
-  - "mod/src/main/java/ua/zentix/airstrike/entity/InterceptorEntity.java"
-  - "mod/src/main/java/ua/zentix/airstrike/guidance/Homing.java"
-  - "mod/src/main/java/ua/zentix/airstrike/client/hud/RadarScope.java"
-  - "mod/src/test/java/ua/zentix/airstrike/defense/**"
-  - "mod/src/devtest/java/ua/zentix/airstrike/gametest/SamGameTests.java"
+  - "mod/src/main/java/ua/zentix/incoming/defense/**"
+  - "mod/src/main/java/ua/zentix/incoming/entity/InterceptorEntity.java"
+  - "mod/src/main/java/ua/zentix/incoming/guidance/Homing.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/hud/RadarScope.java"
+  - "mod/src/test/java/ua/zentix/incoming/defense/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/gametest/SamGameTests.java"
 ---
 
 # ПВО (`defense/`)
@@ -31,7 +31,7 @@ paths:
   (несохраняемый attachment мира: ракеты в полёте, кто за кем идёт, тревоги сторон; тикает в `LevelTickEvent.Post`
   после `StrikeWorld` — цели в этом тике уже сдвинулись).
 - Сбита: `StrikeProjectile.intercepted` — БЧ не срабатывает, обломки `DebrisSpawner.wreck` по ходу полёта (только
-  в тикающих чанках), снаряд вне мира просто убран; лог — «Снаряды: … сбиты зенитной ракетой у …, ЗРК x, y, z»
+  в тикающих чанках), снаряд вне мира просто убран; лог — «Projectiles: … shot down by a SAM at …, SAM x, y, z»
   (`FlightLog.Event.INTERCEPTED`). Клиентам рядом — `S2C.Intercept` (вспышка, облачко и хлопок `BlastEffects.Airburst`;
   путь сбитого кончается), своим ближе 48 блоков — `S2C.RadarScope` (экран `client/hud/RadarScope`), чужие цели
   радара — на карту стороны (`Sightings.spot`, `Source.RADAR`; своих не отмечает — карта рисует отмеченное чужим).

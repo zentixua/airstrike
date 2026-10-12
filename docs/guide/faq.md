@@ -1,35 +1,37 @@
-# Вопросы и неполадки
+# FAQ and troubleshooting
 
-## Что значит сообщение
+English · [Русский](ru/faq.md)
 
-| Сообщение | Что делать |
+## What a message means
+
+| Message | What to do |
 |---|---|
-| «Не хватает боеприпасов…» | скрафти ещё или уменьши залп ([боеприпасы](munitions.md)) |
-| «… не замечен…» | найди его глазами или камерой снаряда, или пусть его увидит команда ([разведка](rules.md#разведка)) |
-| «Пусковую негде поставить…» | снаряд прилетит издалека; чтобы видеть пуск, отойди на открытое место |
-| «Пуск не удался: рядом с целью мир не загружен» | боеприпас вернулся, попробуй ещё раз |
-| «Цель не найдена» | цель дальше 400 блоков или под прицелом пусто: бей по карте |
-| «… не пролетит маршрут…» | убери или сдвинь точки маршрута |
-| «Пульт работает только у операторов» | так настроил хозяин мира |
-| «Слишком много ударов в работе…» | хозяин мира поставил предел: дождись попаданий или дай [отбой](designator.md#отбой) |
-| «Задача передана пусковым…» | к пульту привязаны [пусковые](launcher.md#задача); отвяжи их ПКМ пультом, чтобы он стрелял сам |
+| "Not enough munitions…" | craft more or make the salvo smaller ([munitions](munitions.md)) |
+| "… has not been spotted…" | find them with your own eyes or a projectile camera, or have your team spot them ([spotting](rules.md#spotting)) |
+| "No room for a launcher…" | the projectile comes in from afar; to watch the launch, move to open ground |
+| "Launch failed: the world near the target is not loaded" | the munition was returned; try again |
+| "No target found" | the target is farther than 400 blocks or nothing is under the reticle: strike from the map |
+| "… cannot fly this route…" | remove or move route points |
+| "The designator is for operators only…" | the world owner set it up that way |
+| "Too many strikes in progress…" | the world owner set a limit: wait for impacts or [abort](designator.md#abort) |
+| "Mission given to launchers…" | [launchers](launcher.md#mission) are linked to the designator; unlink them with RMB to make it fire by itself |
 
-## Неполадки
+## Troubleshooting
 
-**Не пускает на сервер: разные версии мода.** В сборке «Airstrike Pack» мод обновляется сам: перезапусти игру
-из лаунчера. Без сборки скачай тот же jar, что на сервере, со страницы
-[Releases](https://github.com/zentixua/airstrike/releases/latest).
+**A server will not let you in: different mod versions.** Download the same jar the server has from the
+[Releases](https://github.com/zentixua/incoming/releases/latest) page.
 
-**Карта вдали пустая.** Без Distant Horizons видны только загруженные чанки. Ударить туда всё равно можно.
+**The map is empty far away.** Without Distant Horizons only loaded chunks are shown. You can still strike there.
 
-**Не слышно звуков мода.** Проверь ползунок «Окружение».
+**No sound from the mod.** Check the Ambient/Environment slider.
 
-**Тормозит при ядерном взрыве.** Поставь «Подробность ядерного гриба» на низкую и дай игре не меньше 8 ГБ памяти.
+**The game stutters during a nuclear explosion.** Set "Mushroom cloud detail" to LOW and give the game at least 8 GB of
+memory.
 
-**Пусковая или ЗРК не стреляет.** ПКМ пустой рукой покажет причину. ЗРК нужно открытое небо, ракеты в запасе
-и игрок рядом; свои снаряды, МБР и «Град» он не сбивает.
+**A launcher or SAM does not fire.** RMB on it with an empty hand shows why. A SAM needs open sky, missiles in stock and
+a player nearby; it does not shoot down its own side's projectiles, ICBMs or Grad rockets.
 
-**Камера пишет «Нет снарядов в полёте».** Камера показывает только твои уже пущенные снаряды.
+**The camera says "Nothing in flight".** The camera shows only your own projectiles that are already launched.
 
-**Удар пришёл по своей базе.** Взрыв бьёт всех: перед огнём проверь цель на экране пульта. «Вокруг меня» бьёт туда,
-где ты стоишь.
+**A strike hit your own base.** A blast hurts everyone: check the target on the console before firing. "Around me"
+strikes where you stand.

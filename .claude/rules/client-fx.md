@@ -1,10 +1,10 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/client/fx/**"
-  - "mod/src/main/java/ua/zentix/airstrike/client/far/**"
-  - "mod/src/main/resources/assets/airstrike/shaders/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/fx/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/far/**"
+  - "mod/src/main/resources/assets/incoming/shaders/**"
   - "tools/gen_particles.py"
-  - "mod/src/test/java/ua/zentix/airstrike/client/fx/**"
+  - "mod/src/test/java/ua/zentix/incoming/client/fx/**"
 ---
 
 # Свои частицы, слой эффектов, шлейфы

@@ -14,7 +14,7 @@ paths:
 ```
 /mnt/data/projects/airstrike/            ← этот проект (git)
   mod/                                   ← исходники мода (ModDevGradle 2, NeoForge 21.1.259, Parchment, Java 21)
-    src/main/java/ua/zentix/airstrike/   ← код (пакеты — в корневом CLAUDE.md)
+    src/main/java/ua/zentix/incoming/   ← код (пакеты — в корневом CLAUDE.md)
     src/main/resources/                  ← assets (звуки, текстуры, lang ru/en), data (теги, типы урона), AT
     src/devtest/                         ← GameTest, шаблоны площадок, сценарий клиента (в jar не входят)
       …/gametest/scenario/               ← сценарии полёта: оружие × цель × возмущение × зерно, свойства полёта,
@@ -45,8 +45,8 @@ paths:
     mp_scenario.sh                       ← мультиплеер без окон: сервер и два клиента (Alpha бьёт, Bravo — цель), выходы и входы посреди удара
     prod_client.py <сценарий> [--world …] ← клиент со всей сборкой хоста, как у игрока (копия инстанса, без Prism): сценарий из
                                            ./gradlew scenarioJar (build/scenario-libs, в релиз не попадает); nuke-profile — замер подрыва;
-                                           strike-profile — тики сервера вокруг ударов и телепортов (--prop airstrike.profile.steps=…);
-                                           leak — кто держит мир после выхода в меню: заходы в мир с командами (airstrike.leak.*),
+                                           strike-profile — тики сервера вокруг ударов и телепортов (--prop incoming.profile.steps=…);
+                                           leak — кто держит мир после выхода в меню: заходы в мир с командами (incoming.leak.*),
                                            в меню — гистограмма классов и выборка JFR с путями до корней (нужен -XX:VMThreadStackSize=8192:
                                            со стеком по умолчанию поиск путей ронял JVM), в лог — строки `SCENARIO leak … holder`;
                                            replay — повтор Flashback в каталоге tools/pack_dir.py сборки (zentixua/airstrike-pack) с модами записи и quicksave: сохранился, открылся и проигрался — кадры снаряда и места, где он пропал; перемотки назад и вперёд через удары и ядерку — без живых взрывов и вспышек
@@ -62,7 +62,7 @@ paths:
                                            synth_mod_sounds.py; пишет sounds.json и SOUND-CREDITS.md (numpy, scipy, soundfile);
                                            взрывы и петли моторов — из оригиналов без потерь, громкость по EBU R128 (ракурсы
                                            взрывов — ровно на `BlastMix`, петли — тише взрыва своего снаряда, ровность проверяется)
-    freesound.py login|fetch             ← оригиналы Freesound (OAuth2): вход вне репозитория (~/.config/airstrike), файлы —
+    freesound.py login|fetch             ← оригиналы Freesound (OAuth2): вход вне репозитория (~/.config/incoming), файлы —
                                            tools/.sound-cache/orig; скачанные вход не требуют
     gen_textures.py                      ← текстуры (Pillow), фиксированный сид; у каждой группы свой генератор
                                            случайных чисел, новая — в конец (прежние файлы не меняются)
@@ -71,13 +71,14 @@ paths:
                                            деталей `_lod1` для моделей вдали, не править OBJ руками
     gen_grid_assets.py                   ← модели и состояния двойников ламп блэкаута из ванильного jar, не править руками
     trailer/record.sh [shaders]          ← трейлер: сценарий клиента trailer снимает планы покадрово в 60 fps
-                                           (AIRSTRIKE_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
+                                           (INCOMING_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
     trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
-                                           dist/airstrike-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
+                                           dist/incoming-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
-  pack/                                  ← прежний адрес сборки, заморожен: сама сборка — zentixua/airstrike-pack
   docs/DESIGN-nuke.md                    ← проект ядерного удара
-  docs/guide/                            ← руководство игрока (страницы по темам, картинки в img/)
+  docs/guide/                            ← руководство игрока по-английски (страницы по темам, картинки в img/),
+                                           docs/guide/ru/ — то же по-русски
+  docs/store/                            ← тексты страниц Modrinth и CurseForge
   .github/workflows/build.yml            ← CI: что изменилось → сборка и юнит-тесты, GameTest частями, итог; jar в артефактах; релиз
   docs/releases/<версия>.md              ← заметки к релизу
 ```

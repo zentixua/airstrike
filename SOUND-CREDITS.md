@@ -1,10 +1,10 @@
-# Звуки: авторы и лицензии
+# Sound credits
 
-Звуки мода собраны `tools/build_sounds.py` из записей ниже (обрезка, смешивание, фильтры, смена скорости)
-и синтеза (`tools/synth_mod_sounds.py`). Записи под CC0 — общественное достояние; под CC BY — используются
-с указанием автора, изменены. Спасибо авторам!
+The mod's sounds are built by `tools/build_sounds.py` from the recordings below (cut, mixed, filtered,
+resampled) and from synthesis (`tools/synth_mod_sounds.py`). CC0 recordings are in the public domain;
+CC BY recordings are used with attribution and modified. Thanks to the authors.
 
-| Автор | Запись | Лицензия |
+| Author | Recording | License |
 |---|---|---|
 | 221Beimesche | [Glass Shattering and Falling](https://freesound.org/s/336425/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | alienistcog | [merrimack-st-demolition.aif](https://freesound.org/s/125937/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |

@@ -1,8 +1,8 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/client/replay/**"
-  - "mod/src/main/java/ua/zentix/airstrike/compat/FlashbackReplay.java"
-  - "mod/src/test/java/ua/zentix/airstrike/client/replay/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/replay/**"
+  - "mod/src/main/java/ua/zentix/incoming/compat/FlashbackReplay.java"
+  - "mod/src/test/java/ua/zentix/incoming/client/replay/**"
 ---
 
 # Повтор Flashback
@@ -11,7 +11,7 @@ paths:
 - Повтор Flashback: перематывая, сервер повтора за один свой тик ставит снимок куска записи и читает пакеты до места,
   а пакеты модов отдаёт клиенту сразу, как прочёл, — разом; Flashback NeoForge Fixed ещё и кладёт в каждый снимок
   последний пакет каждого вида мода. Пакет разового события (взрыв, звук, вспышка, тряска) — через `Replay.event`
-  в `AirstrikeClient.Hooks`, иначе он повторяется при каждой перемотке. Живое ли событие, решает метка конца тика
+  в `IncomingClient.Hooks`, иначе он повторяется при каждой перемотке. Живое ли событие, решает метка конца тика
   сервера повтора (`compat/FlashbackReplay` в `ServerTickEvent.Post`: место в записи, `doClientRendering`, при выводе
   видео — `fastForwarding`): пакеты одного соединения клиент разбирает по порядку (Flashback отдаёт пакет мода обёрткой,
   Forgified Fabric API и NeoForge разбирают её и пакет внутри в потоке игры без второй очереди). Живое — только после

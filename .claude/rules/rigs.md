@@ -1,15 +1,15 @@
 ---
 paths:
   - "tools/**"
-  - "mod/src/devtest/java/ua/zentix/airstrike/rig/**"
-  - "mod/src/devtest/java/ua/zentix/airstrike/stress/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/rig/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/stress/**"
 ---
 
 # Стенды, мультиплеер, вложенный KWin, клиент со всей сборкой
 
 ## Подводные камни
 - Стенд нагрузки (`tools/stress.sh`, в облаке `MODS=run/ci-mods`): сервер и три клиента на 4 ядрах и 16 ГБ — у JVM
-  пределы памяти в `build.gradle` (иначе ядро убивает клиента); `AIRSTRIKE_RIG_JVM=artem` — сервер с JVM, как
+  пределы памяти в `build.gradle` (иначе ядро убивает клиента); `INCOMING_RIG_JVM=artem` — сервер с JVM, как
   у Артёма (8 ГБ, поколенческий ZGC; только где хватает памяти — VPS), сборщик — в строке «сервер запущен». Тики дольше 0,5 с режиссёр пишет со стеком
   сервера: 35 с в облаке — Sable (`PhysicsChunkTicketManager` грузит чанки синхронно), пока генерация стоит в очереди.
 - Серверы проверок слушают только петлю: `server-ip=127.0.0.1` и свободный порт (`tools/free_port.py`) в `stress.sh`
@@ -25,7 +25,7 @@ paths:
   Сервер и клиенты стенда и мультиплеера — каждый в своей сессии (`tools/rig_procs.sh`: `rig_spawn`, `rig_trap`):
   JVM клиента — внук обёртки (xvfb-run, nested_kwin → dbus-run-session → kwin), `kill` обёртки оставлял его сиротой;
   выход скрипта (конец, ошибка, Ctrl+C, TERM) гасит сессии целиком — TERM, через 20 с KILL (повторный Ctrl+C её
-  не обрывает), потом сам выходит тем же сигналом. Гасит только сессии с меткой `AIRSTRIKE_RIG_TAG` в окружении:
+  не обрывает), потом сам выходит тем же сигналом. Гасит только сессии с меткой `INCOMING_RIG_TAG` в окружении:
   номер закончившейся сессии после оборота PID может стать чужим.
 - Вложенный KWin запускать только через `tools/nested_kwin.sh` (своя шина `dbus-run-session`, свои `XDG_*_HOME`):
   на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания

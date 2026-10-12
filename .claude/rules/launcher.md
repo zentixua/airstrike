@@ -1,14 +1,14 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/launcher/**"
-  - "mod/src/main/java/ua/zentix/airstrike/entity/Launcher.java"
-  - "mod/src/main/java/ua/zentix/airstrike/entity/LaunchQueue.java"
-  - "mod/src/main/java/ua/zentix/airstrike/entity/LauncherMount.java"
-  - "mod/src/main/java/ua/zentix/airstrike/strike/LaunchOrigin.java"
-  - "mod/src/main/java/ua/zentix/airstrike/util/Magazine.java"
-  - "mod/src/main/java/ua/zentix/airstrike/client/render/FixedLauncherRenderer.java"
-  - "mod/src/test/java/ua/zentix/airstrike/entity/LaunchQueueTest.java"
-  - "mod/src/devtest/java/ua/zentix/airstrike/gametest/FixedLauncherGameTests.java"
+  - "mod/src/main/java/ua/zentix/incoming/launcher/**"
+  - "mod/src/main/java/ua/zentix/incoming/entity/Launcher.java"
+  - "mod/src/main/java/ua/zentix/incoming/entity/LaunchQueue.java"
+  - "mod/src/main/java/ua/zentix/incoming/entity/LauncherMount.java"
+  - "mod/src/main/java/ua/zentix/incoming/strike/LaunchOrigin.java"
+  - "mod/src/main/java/ua/zentix/incoming/util/Magazine.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/render/FixedLauncherRenderer.java"
+  - "mod/src/test/java/ua/zentix/incoming/entity/LaunchQueueTest.java"
+  - "mod/src/devtest/java/ua/zentix/incoming/gametest/FixedLauncherGameTests.java"
 ---
 
 # Стационарная пусковая (`launcher/`)
@@ -34,13 +34,13 @@ paths:
   через 4 тика, тик — один приказ (`LauncherOrders.fire`); отказ — щелчок `levelEvent(1001)` и причина в строке
   состояния (ПКМ пустой рукой; что сказал сам пуск, например «сектор закрыт», — `report`, точнее общего отказа).
 - Пульт: ПКМ пультом по блоку (`useItemOn`, без Shift) — привязать/отвязать (`LauncherLinks`, компонент
-  `airstrike:launchers` — список `GlobalPos`, до 16). Пока список не пуст, «Огонь» пульта (`ServerActions.fire`) ставит
+  `incoming:launchers` — список `GlobalPos`, до 16). Пока список не пуст, «Огонь» пульта (`ServerActions.fire`) ставит
   задачу привязанным (`LauncherOrders.assign`): цель — по правилам игрока (`ServerActions.ruled`), каждой — в этом
   мире, в готовом чанке (не грузить ради задачи), своей или своей команды, не занятой, цель не дальше `map_range` от
   неё, маршрут — в дальности оружия от неё (`routeProblem` с местом пуска `LaunchOrigin.Fixed`). Пусковой нет на месте
   (чанк готов, блока нет) — она отвязывается (`LauncherLinks.forget`): иначе пульт навсегда остался бы в режиме задач.
 - Пуск — путь приказа игрока (`ServerActions.fromLauncher`): одиночный — `StrikeService.launch`, залп — `SalvoData`;
-  откуда — `strike/LaunchOrigin` (`Place` — место пуска `/airstrike salvo … from x z`, `Fixed` — пусковая; залп хранит
+  откуда — `strike/LaunchOrigin` (`Place` — место пуска `/incoming salvo … from x z`, `Fixed` — пусковая; залп хранит
   его, место — прежним ключом `from`, пусковую — `from_launcher`). С `Fixed` пуск идёт только с её пакета
   (`StrikeService.Stand`): курс шахеда и ракеты — `aimFixed` (молчащий пакет доворачивается на путь или поворотом
   `LaunchSite.pickOn` на её опоре, занятый пускает своим курсом), РСЗО и «Ланцета» — `aimedFixed`; сектор закрыт, чанк
@@ -53,7 +53,7 @@ paths:
   в чанк, который может быть не загружен, нечего. Пусковая занята, пока идёт её залп (`SalvoData.busy`) или пакет не
   молчит (`LaunchQueue.silent`) — `LauncherOrders.busy`: ни приказа, ни новой задачи (задача меняет пакет, а снаряды
   залпа стартуют с пакета своего оружия; `StrikeService` пускает только оружие пакета на круге).
-- Ведущему и скриптам — `/airstrike launcher <x y z>` (оператор, `AirstrikeCommand.launcher`): состояние, `fire`,
+- Ведущему и скриптам — `/incoming launcher <x y z>` (оператор, `IncomingCommand.launcher`): состояние, `fire`,
   `mission` (без правил игрока, маршрут — `routeProblem` от пусковой), `clear`, `load N`, `owner`; место — только в
   готовом чанке; `mission` и `clear` занятой — отказ.
 

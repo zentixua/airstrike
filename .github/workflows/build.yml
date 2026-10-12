@@ -64,8 +64,7 @@ jobs:
                 mod/*|tools/fetch_runtime_mods.py|tools/paths.py) mod=true ;;
                 tools/rig_procs.sh|tools/test_rig_procs.sh) rig=true ;;
                 .github/*) mod=true; rig=true ;;
-                # pack/ — прежний адрес сборки, заморожен до перевода всех экземпляров на zentixua/airstrike-pack
-                tools/*|docs/*|*.md|.claude/*|.gitignore|pack/*) ;;
+                tools/*|docs/*|*.md|.claude/*|.gitignore) ;;
                 *) mod=true ;;
               esac
             done <<< "$files"
@@ -101,7 +100,7 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: airstrike-jar
+          name: incoming-jar
           path: mod/build/libs/*.jar
           if-no-files-found: error
 
@@ -199,12 +198,12 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
         with:
-          name: airstrike-jar
+          name: incoming-jar
           path: mod/build/libs
       - name: Релиз
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(sed -n 's/^mod_version=//p' mod/gradle.properties)
-          gh release create "v$v" "mod/build/libs/airstrike-$v.jar" --target "$GITHUB_SHA" \
-            --title "Airstrike $v" --notes-file "docs/releases/$v.md"
+          gh release create "v$v" "mod/build/libs/incoming-$v.jar" --target "$GITHUB_SHA" \
+            --title "Incoming $v" --notes-file "docs/releases/$v.md"

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "triggered=false": {
+      "model": "incoming:block/fixed_launcher"
+    },
+    "triggered=true": {
+      "model": "incoming:block/fixed_launcher"
+    }
+  }
+}

@@ -8,7 +8,7 @@
 # ///
 """Текстуры мода, нарисованные кодом (фиксированный сид — результат воспроизводим).
 
-  uv run tools/gen_textures.py   → mod/src/main/resources/assets/airstrike/textures/…
+  uv run tools/gen_textures.py   → mod/src/main/resources/assets/incoming/textures/…
 
   item/strike_designator, item/geiger_counter — пиксель-арт 16×16 (сетка символов + палитра);
   item/shahed, lancet, cruise_missile, grad_rockets, bunker_buster, icbm, nuclear_warhead — боеприпасы, тоже пиксель-арт;
@@ -28,7 +28,7 @@ import numpy as np
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "textures")
+OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "incoming", "textures")
 rng = np.random.default_rng(7)
 
 # Пульт наведения: защитный корпус, два объектива дальномера, экран с прицельной маркой, красная кнопка пуска

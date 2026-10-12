@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "ua.zentix.incoming.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "net.PlayerChunkSenderMixin",
+    "sable.SubLevelSplitGuardMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  },
+  "client": [
+    "xaero.BlockTextureColorLockMixin"
+  ]
+}

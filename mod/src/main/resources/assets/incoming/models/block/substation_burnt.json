@@ -1,0 +1,11 @@
+{
+  "parent": "incoming:block/substation",
+  "textures": {
+    "side": "incoming:block/substation_side_burnt",
+    "front": "incoming:block/substation_front_burnt",
+    "top": "incoming:block/substation_top_burnt",
+    "fins": "incoming:block/substation_fins_burnt",
+    "insulator": "incoming:block/substation_insulator_burnt",
+    "particle": "incoming:block/substation_side_burnt"
+  }
+}

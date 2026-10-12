@@ -2,13 +2,13 @@
 """Модели и состояния блоков сети (блэкаут) — из ванильных, чтобы лампа без питания выглядела той же лампой.
 
   python3 tools/gen_grid_assets.py [client.jar]
-      → mod/src/main/resources/assets/airstrike/blockstates/unlit_*.json, substation.json,
+      → mod/src/main/resources/assets/incoming/blockstates/unlit_*.json, substation.json,
         models/block/unlit_*.json, substation*.json, models/item/substation.json
 
-Двойник лампы (airstrike:unlit_*) берёт ванильное состояние блока-лампы:
+Двойник лампы (incoming:unlit_*) берёт ванильное состояние блока-лампы:
 - у ламп с «выключенной» моделью (лампа редстоуна, медные лампы) горящие варианты смотрят на выключенную модель;
 - у остальных (светокамень, морской фонарь, грибосвет, жабосветы, фонари, стержень края) — копия ванильной модели
-  с tintindex на всех гранях: клиент притушивает её цветом (AirstrikeClient.blockColors); фонарям и стержню края —
+  с tintindex на всех гранях: клиент притушивает её цветом (IncomingClient.blockColors); фонарям и стержню края —
   слой «вырезка» (render_type), который ваниль задаёт им в коде;
 - невидимый блок света — как есть.
 Нужен клиентский jar Minecraft 1.21.1 (по умолчанию — из кэша NeoForm Gradle). Только стандартная библиотека.
@@ -19,7 +19,7 @@ import sys
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike")
+ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "incoming")
 JAR = os.path.expanduser("~/.gradle/caches/neoformruntime/artifacts/minecraft_1.21.1_client.jar")
 
 # двойник → лампа (как в ModBlocks.UNLIT)
@@ -74,7 +74,7 @@ def main():
                             face["tintindex"] = 0
                     extra = {"render_type": "minecraft:cutout"} if lamp in CUTOUT else {}
                     write(f"models/block/unlit_{base}.json", {"parent": model} | extra | {"elements": tinted})
-                    v["model"] = f"airstrike:block/unlit_{base}"
+                    v["model"] = f"incoming:block/unlit_{base}"
                 elif lamp != "light":
                     v["model"] = off_model(model)
         write(f"blockstates/unlit_{lamp}.json", state)
@@ -82,13 +82,13 @@ def main():
     # подстанция: фасад (табличка) — на север, повороты по FACING; выбитая — обгоревшие текстуры
     rot = {"north": 0, "east": 90, "south": 180, "west": 270}
     write("blockstates/substation.json", {"variants": {
-        f"facing={f},powered={p}": ({"model": "airstrike:block/substation" + ("" if p == "true" else "_burnt")} | ({"y": y} if y else {}))
+        f"facing={f},powered={p}": ({"model": "incoming:block/substation" + ("" if p == "true" else "_burnt")} | ({"y": y} if y else {}))
         for f, y in rot.items() for p in ("true", "false")}})
     write("models/block/substation.json", substation(""))
-    write("models/block/substation_burnt.json", {"parent": "airstrike:block/substation", "textures": {
-        k: f"airstrike:block/substation_{k}_burnt" for k in ("side", "front", "top", "fins", "insulator")} | {
-        "particle": "airstrike:block/substation_side_burnt"}})
-    write("models/item/substation.json", {"parent": "airstrike:block/substation"})
+    write("models/block/substation_burnt.json", {"parent": "incoming:block/substation", "textures": {
+        k: f"incoming:block/substation_{k}_burnt" for k in ("side", "front", "top", "fins", "insulator")} | {
+        "particle": "incoming:block/substation_side_burnt"}})
+    write("models/item/substation.json", {"parent": "incoming:block/substation"})
     print("ok")
 
 
@@ -111,10 +111,10 @@ def substation(_):
         els.append(box([x, 12, 7], [x + 2, 15, 9], {d: "#insulator" for d in ("north", "south", "east", "west")}))
         els.append(box([x + 0.5, 15, 7.5], [x + 1.5, 16, 8.5], {d: "#top" for d in six if d != "down"}))
     return {"parent": "minecraft:block/block", "ambientocclusion": False, "textures": {
-        "particle": "airstrike:block/substation_side", "base": "airstrike:block/substation_base",
-        "side": "airstrike:block/substation_side", "front": "airstrike:block/substation_front",
-        "top": "airstrike:block/substation_top", "fins": "airstrike:block/substation_fins",
-        "insulator": "airstrike:block/substation_insulator"}, "elements": els}
+        "particle": "incoming:block/substation_side", "base": "incoming:block/substation_base",
+        "side": "incoming:block/substation_side", "front": "incoming:block/substation_front",
+        "top": "incoming:block/substation_top", "fins": "incoming:block/substation_fins",
+        "insulator": "incoming:block/substation_insulator"}, "elements": els}
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/entity/**"
-  - "mod/src/main/java/ua/zentix/airstrike/guidance/**"
-  - "mod/src/main/java/ua/zentix/airstrike/strike/VirtualFlights.java"
-  - "mod/src/main/java/ua/zentix/airstrike/strike/Waypoints.java"
-  - "mod/src/main/java/ua/zentix/airstrike/client/cam/**"
-  - "mod/src/test/java/ua/zentix/airstrike/guidance/**"
+  - "mod/src/main/java/ua/zentix/incoming/entity/**"
+  - "mod/src/main/java/ua/zentix/incoming/guidance/**"
+  - "mod/src/main/java/ua/zentix/incoming/strike/VirtualFlights.java"
+  - "mod/src/main/java/ua/zentix/incoming/strike/Waypoints.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/cam/**"
+  - "mod/src/test/java/ua/zentix/incoming/guidance/**"
 ---
 
 # Снаряды и наведение (`entity/`, `guidance/`)
@@ -28,7 +28,7 @@ paths:
   или маршрут оператора `strike/Waypoints` (карта наведения: Shift+ЛКМ, до 5 точек, только x и z; шахед, ракета
   и «Ланцет» — у кого в паспорте `WeaponSpec.Route.reach`: путь от игрока (места пуска из приказа, у консоли — от
   первой точки) через точки до цели не длиннее (30 км, у «Ланцета» 15), точка взята за `capture` (около радиуса
-  разворота); проверка у карты и команды `/airstrike salvo … via x z …` — `ServerActions.routeProblem`; пусковая
+  разворота); проверка у карты и команды `/incoming salvo … via x z …` — `ServerActions.routeProblem`; пусковая
   смотрит на первую точку, издалека снаряд заходит перед ней — `Waypoints.afar`; запас хода, ETA и сирена — по пути
   через точки; залп помнит маршрут в `SalvoData`, перенацеливание его бросает — `Route.skip`; горку ракеты после точек решает
   последний участок — только у маршрута оператора, `Route.byOperator`: маршрут пуска побитно прежний; сценарий `WAYPOINTS`);

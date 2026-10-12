@@ -10,8 +10,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOD="$ROOT/mod"
 RUN="$MOD/run"
 # сервер слушает только петлю и свободный порт (сторож LoopbackGuard роняет сервер, если сокет не на петле)
-PORT="${AIRSTRIKE_MP_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
-export AIRSTRIKE_MP_PORT=$PORT
+PORT="${INCOMING_MP_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
+export INCOMING_MP_PORT=$PORT
 export JAVA_HOME="${JAVA_HOME:-$(python3 "$ROOT/tools/paths.py" JAVA)}"
 
 SERVER="$RUN/mp-server"
@@ -30,7 +30,7 @@ difficulty=peaceful
 allow-flight=true
 view-distance=8
 simulation-distance=8
-motd=airstrike-mp
+motd=incoming-mp
 PROPS
 # NeoForge объявляет выделенный сервер в LAN (UDP-сокет на 0.0.0.0, рассылка MOTD и порта) — у проверок выключено
 python3 "$ROOT/tools/rig_config.py" "$SERVER"
@@ -51,7 +51,7 @@ cd "$MOD"
 ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runServer -PserverDir=run/mp-server -PrigOut=mp-server
 for c in "Alpha mp-a" "Bravo mp-b"; do
   read -r name dir <<< "$c"
-  AIRSTRIKE_SCENARIO=$dir ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runClientScenario \
+  INCOMING_SCENARIO=$dir ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runClientScenario \
     -PscenarioDir="run/$dir" -PscenarioUser="$name" -PrigOut="$dir"
 done
 RIG="$MOD/build/rig"
@@ -72,7 +72,7 @@ client() { # каталог (он же сценарий)
   rm -rf "$dir/logs" "$dir/screenshots"
   mkdir -p "$dir/logs"
   [ -f "$dir/options.txt" ] || printf 'onboardAccessibility:false\npauseOnLostFocus:false\nrenderDistance:8\nsimulationDistance:8\nsoundCategory_master:0.0\ntutorialStep:none\njoinedFirstServer:true\n' > "$dir/options.txt"
-  rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-$1" 960 540 "$RIG/$1.sh" > "$RUN/$1.out" 2>&1
+  rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-incoming-$1" 960 540 "$RIG/$1.sh" > "$RUN/$1.out" 2>&1
 }
 client mp-b
 B_PID=$RIG_LAST
@@ -88,7 +88,7 @@ wait $A_PID $B_PID || true
 rig_stop $SERVER_PID
 
 echo "== сервер"
-grep -E "joined the game|left the game|Удар|Снаряд|ERROR|Exception|at ua\.zentix" "$SERVER/logs/latest.log" | cut -c1-200 || true
+grep -E "joined the game|left the game|Strike|Projectile|ERROR|Exception|at ua\.zentix" "$SERVER/logs/latest.log" | cut -c1-200 || true
 for c in mp-a mp-b; do
   echo "== $c"
   grep -E "SCENARIO mp|ERROR\] \[ua\.zentix|at ua\.zentix|Exception" "$RUN/$c/logs/latest.log" | cut -c1-200 || true

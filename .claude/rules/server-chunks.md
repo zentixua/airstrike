@@ -1,9 +1,9 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/{strike,entity,guidance,target,work,warhead,nuclear,grid,util,compat,mixin,command}/**"
-  - "mod/src/main/java/ua/zentix/airstrike/Airstrike.java"
+  - "mod/src/main/java/ua/zentix/incoming/{strike,entity,guidance,target,work,warhead,nuclear,grid,util,compat,mixin,command}/**"
+  - "mod/src/main/java/ua/zentix/incoming/Incoming.java"
   - "mod/src/main/resources/META-INF/accesstransformer.cfg"
-  - "mod/src/devtest/java/ua/zentix/airstrike/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/**"
 ---
 
 # Чанки, тикеты и тик сервера

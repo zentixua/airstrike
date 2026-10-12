@@ -5,11 +5,11 @@
 # перенацеливание, гибель целей, уход за край загрузки, Незер, ядерку, save-all и «Отбой», в конце — сводка.
 #
 #   tools/stress.sh                 # весь сценарий
-#   AIRSTRIKE_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
+#   INCOMING_STRESS_RESTART=1 tools/stress.sh   # + остановка сервера посреди полёта и продолжение после запуска
 #                                                (пробы пути до поверхности в этом режиме не идут)
-#   AIRSTRIKE_JFR=1 tools/stress.sh   # + профиль JFR сервера (settings=profile) → mod/run/stress/server/stress.jfr
-#   AIRSTRIKE_STRESS_PROBES=false tools/stress.sh   # без залпов-проб РСЗО по свежим районам (замер A/B остановок сервера)
-#   AIRSTRIKE_RIG_JVM=artem tools/stress.sh   # сервер с JVM, как в игре у Артёма: 8 ГБ, поколенческий ZGC (только VPS:
+#   INCOMING_JFR=1 tools/stress.sh   # + профиль JFR сервера (settings=profile) → mod/run/stress/server/stress.jfr
+#   INCOMING_STRESS_PROBES=false tools/stress.sh   # без залпов-проб РСЗО по свежим районам (замер A/B остановок сервера)
+#   INCOMING_RIG_JVM=artem tools/stress.sh   # сервер с JVM, как в игре у Артёма: 8 ГБ, поколенческий ZGC (только VPS:
 #                                             облаку на 15 ГБ не хватит памяти); сборщик — строка «сервер запущен»
 #
 # Моды: MC_DIR (инстанс) или -PmcModsDir; в облаке — python3 tools/fetch_runtime_mods.py и MODS=run/ci-mods.
@@ -31,16 +31,16 @@ MODS_ARG=()
 cd "$ROOT/mod"
 
 # сервер слушает только петлю и свободный порт: на VPS 0.0.0.0:25565 с online-mode=false нашёл сканер из интернета
-# (сторож LoopbackGuard роняет сервер, если сокет не на петле); клиенты берут порт из AIRSTRIKE_STRESS_PORT
-export AIRSTRIKE_STRESS_PORT="${AIRSTRIKE_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
+# (сторож LoopbackGuard роняет сервер, если сокет не на петле); клиенты берут порт из INCOMING_STRESS_PORT
+export INCOMING_STRESS_PORT="${INCOMING_STRESS_PORT:-$(python3 "$ROOT/tools/free_port.py")}"
 CLIENTS=("Host host" "Friend1 leaver" "Friend2 friend")
 
 # настройки запусков (имя и роль клиента, порт, режим режиссёра) Gradle читает из окружения при подготовке;
 # --no-daemon: без живого Gradle после подготовки, даже если ~/.gradle/gradle.properties или GRADLE_OPTS включают демона
-AIRSTRIKE_STRESS="${AIRSTRIKE_STRESS:-run}" ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressServer -PrigOut=stress-server "${MODS_ARG[@]}"
+INCOMING_STRESS="${INCOMING_STRESS:-run}" ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressServer -PrigOut=stress-server "${MODS_ARG[@]}"
 for c in "${CLIENTS[@]}"; do
   read -r name role <<< "$c"
-  AIRSTRIKE_STRESS_NAME=$name AIRSTRIKE_STRESS_ROLE=$role \
+  INCOMING_STRESS_NAME=$name INCOMING_STRESS_ROLE=$role \
     ./gradlew --no-daemon --console=plain -q rigLaunch -PrigRun=runStressClient -PrigOut="stress-$name" "${MODS_ARG[@]}"
 done
 RIG="$ROOT/mod/build/rig"
@@ -67,7 +67,7 @@ echo "$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD
 echo eula=true > "$RUN/server/eula.txt"
 cat > "$RUN/server/server.properties" <<PROPS
 server-ip=127.0.0.1
-server-port=$AIRSTRIKE_STRESS_PORT
+server-port=$INCOMING_STRESS_PORT
 online-mode=false
 enable-rcon=false
 enable-query=false
@@ -116,7 +116,7 @@ skipMultiplayerWarning:true
 OPT
   if command -v kwin_wayland >/dev/null; then
     # рабочий стол KDE: свой вложенный KWin на клиента (без окна, без звука, своя шина и сокет), на видеокарте
-    rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-airstrike-stress-$name" 854 480 "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1
+    rig_spawn "$ROOT/tools/nested_kwin.sh" "wayland-incoming-stress-$name" 854 480 "$RIG/stress-$name.sh" > "$RUN/$name.out" 2>&1
   else
     # облако: xvfb-run и программная отрисовка; звуковой сервер клиенту закрыт, как в nested_kwin.sh
     LIBGL_ALWAYS_SOFTWARE=1 PIPEWIRE_REMOTE="$RUN/no-audio-server" PULSE_SERVER="unix:$RUN/no-audio-server" \

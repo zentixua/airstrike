@@ -1,6 +1,6 @@
 {
   "values": [
-    "airstrike:radiation",
-    "airstrike:player_radiation"
+    "incoming:radiation",
+    "incoming:player_radiation"
   ]
 }
