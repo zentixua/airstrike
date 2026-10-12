@@ -49,7 +49,10 @@ if [ "$FREE_GB" -lt "$NEED_GB" ]; then
 fi
 MC="$(python3 "$ROOT/tools/paths.py" MC)"
 GRADLE_ARGS=(runClientScenario --console=plain)
-if [ ! -d "$MC/mods" ]; then
+# моды для запуска: INCOMING_MODS_DIR (каталог от mod/, например моды сборки для съёмки) или инстанс, без него — Modrinth
+if [ -n "${INCOMING_MODS_DIR:-}" ]; then
+  GRADLE_ARGS+=(-PmcModsDir="$INCOMING_MODS_DIR")
+elif [ ! -d "$MC/mods" ]; then
   python3 "$ROOT/tools/fetch_runtime_mods.py"
   GRADLE_ARGS+=(-PmcModsDir=run/ci-mods)
 fi

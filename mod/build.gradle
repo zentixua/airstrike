@@ -51,6 +51,9 @@ def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 
 def shaderModPatterns = System.getenv('INCOMING_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 // ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
 def dhModPatterns = System.getenv('INCOMING_DH') ? ['DistantHorizons-*.jar'] : []
+// ... и с модами, которые снимает трейлер: Almighty (боты-статисты), Point Blank (оружие пехоты), Immersive Aircraft (бипланы)
+def filmModPatterns = System.getenv('INCOMING_FILM') ? ['almighty-*.jar', 'pointblank-neoforge-*.jar', 'geckolib-neoforge-*.jar',
+        'immersive_aircraft-neoforge-*.jar'] : []
 // GameTest с Lithium, как у хоста (-PwithLithium): проверка совместимости руками, в CI её нет
 def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
 
@@ -279,7 +282,7 @@ tasks.register('rigLaunch') {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns
+        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns + filmModPatterns
                 : runDir in ['gametest', 'scenario-sweep', 'scenario-record'] ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
         from(mcModsDir) { patterns.each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
