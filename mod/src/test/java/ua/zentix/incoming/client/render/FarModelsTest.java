@@ -68,6 +68,7 @@ class FarModelsTest {
         for (WeaponModels.Mesh m : WeaponModels.Mesh.values()) {
             if (m == WeaponModels.Mesh.ROCKET_RACK) continue; // пакет РСЗО — пусковая, не снаряд вдали
             if (m == WeaponModels.Mesh.INTERCEPTOR_BODY) continue; // зенитную ракету вдали не рисуют — только вблизи, сущностью
+            if (m == WeaponModels.Mesh.SAM_PACK) continue; // пакет ЗРК — над его блоком, вдали не рисуется
             Obj o = obj(m.file);
             assertNotNull(o, m.file);
             double reach = 0;

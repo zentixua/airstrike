@@ -26,7 +26,8 @@ import java.util.List;
  * Грузятся как дополнительные модели блоков (атлас блоков), разбираются в {@link QuadMesh} и рисуются слоем
  * сущностей: свет и тени мира, под шейдерами Iris — как обычные сущности. Подвижные детали — отдельные OBJ, здесь их поворачивают по фазе полёта:
  * винт шахеда и «Ланцета», крылья ракеты и «Ланцета», воздухозаборник ракеты, створки бомболюка B-2, стартовые ускорители до отделения.
- * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}.
+ * Пакет РСЗО ({@link Mesh#ROCKET_RACK}) рисует {@link LauncherRenderer}, пакет контейнеров ЗРК ({@link Mesh#SAM_PACK}) —
+ * {@link SamRenderer}.
  * Шарниры — те же числа, что в gen_models.py.
  * <p>
  * Рисуют по позе снаряда ({@link ProjectilePose}), а не по сущности, и отдают детали в {@link Parts}: тот же код
@@ -51,7 +52,9 @@ public final class WeaponModels {
         BOMB_BODY("bomb_body", true), ICBM_BODY("icbm_body", true), ROCKET_BODY("rocket_body", true), ROCKET_RACK("rocket_rack_body", false),
         LOITER_BODY("loiter_body", true), LOITER_WINGS("loiter_wings", true), LOITER_PROP("loiter_prop", true), LOITER_DISC("loiter_disc", false, true),
         /** Зенитная ракета ЗРК: вдали её не рисуют (полёт короткий, вид — только в мире), упрощённой копии нет. */
-        INTERCEPTOR_BODY("interceptor_body", false);
+        INTERCEPTOR_BODY("interceptor_body", false),
+        /** Пакет контейнеров ЗРК над его блоком: стоит на месте, вдали его не рисуют, упрощённой копии нет. */
+        SAM_PACK("sam_pack", false);
 
         /** Имя OBJ (models/weapon/&lt;имя&gt;.obj). */
         public final String file;

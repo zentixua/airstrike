@@ -4,6 +4,7 @@ paths:
   - "mod/src/main/java/ua/zentix/incoming/entity/InterceptorEntity.java"
   - "mod/src/main/java/ua/zentix/incoming/guidance/Homing.java"
   - "mod/src/main/java/ua/zentix/incoming/client/hud/RadarScope.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/render/SamRenderer.java"
   - "mod/src/test/java/ua/zentix/incoming/defense/**"
   - "mod/src/devtest/java/ua/zentix/incoming/gametest/SamGameTests.java"
 ---
@@ -11,7 +12,13 @@ paths:
 # ПВО (`defense/`)
 
 ## Устройство
-- `SamBlock` + `SamBlockEntity` — ЗРК: хозяин — кто поставил (`setPlacedBy`), его сторона — `target/Sides`; запас —
+- `SamBlock` + `SamBlockEntity` — ЗРК: блок — кабина радара 1×1×1 (модель блока), над ней `client/render/SamRenderer`
+  рисует пакет из четырёх вертикальных контейнеров в настоящую величину (`WeaponModels.Mesh.SAM_PACK` из
+  `tools/gen_models.py`, sam: контейнер 0.62 × 4.3 м, верх ~5.4 м; числа пакета — те же в `SamBlockEntity`, рамка
+  отрисовки — `PACK_HALF_WIDTH`, `PACK_TOP`); пакет — только картинка, без столкновений; значок предмета — прежняя
+  миниатюра (`models/item/sam.json`). Ракета стоит в контейнере (`SamBlockEntity.rail`: середина контейнера
+  направляющей) и уходит отвесно (`InterceptorSpec.SAM.elevation` 90, как у 9М96). Хозяин — кто поставил
+  (`setPlacedBy`), его сторона — `target/Sides`; запас —
   `util/Magazine` (тот же запас, что у стационарной пусковой) на 2 ячейки по 16 зенитных ракет, снаружи (`Capabilities.ItemHandler.BLOCK`: воронка, воронка
   Create) — только загрузка, вынуть нельзя; направляющие (`rails`) заполняются из запаса по одной за `reload_seconds`;
   осмотр неба — раз в `SWEEP` тиков со сдвигом по месту блока; под крышей (карта высот своего готового чанка выше
@@ -23,7 +30,8 @@ paths:
   седока, в дальности огня), `FireControl` (ближайшая цель, за которой не идёт ничья ракета: одна ракета на цель на
   весь мир, промах её освобождает), `AirAlert` (тревога стороне о новой чужой цели: строка с направлением и
   расстоянием всем своим в мире, сигнал не чаще раза в 5 с; цель, которую радары стороны не видят 10 с, забыта),
-  `Interceptor` (полёт — объект без мира: сход с направляющей под 65° в сторону цели, разгон, затем каждый тик курс на
+  `Interceptor` (полёт — объект без мира: сход с направляющей под углом паспорта в сторону цели (у ЗРК — отвесно),
+  разгон, затем каждый тик курс на
   нынешнее место цели с пределом поворота `guidance/Homing` — по боковому ускорению, `InterceptorSpec.turnLimit`:
   на разгоне круче; взрыватель — ближайшее сближение отрезков тика ракеты и
   цели, в радиусе `fuse` + полудлина цели; с вероятностью `kill_probability` сбита; цель пропала, на ней седок,

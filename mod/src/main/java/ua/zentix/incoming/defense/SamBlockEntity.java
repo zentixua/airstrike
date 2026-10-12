@@ -49,8 +49,14 @@ public class SamBlockEntity extends BlockEntity {
     public static final int SLOTS = 2;
     /** Экран радара видят свои ближе стольких блоков от ЗРК. */
     public static final double SCOPE_RANGE = 48;
-    /** Ракета сходит с направляющей на такой высоте над низом блока. */
-    static final double RAIL_HEIGHT = 1.2;
+    /**
+     * Пакет над блоком — те же числа, что у модели ({@code tools/gen_models.py}, sam): четыре контейнера 2×2, их оси —
+     * в {@code CANISTER_OFFSET} от середины блока по x и z, дно — в {@code PACK_FLOOR} над низом блока (кабина 1 м и
+     * плита), длина — {@code CANISTER_LENGTH}.
+     */
+    static final double CANISTER_OFFSET = 0.33, PACK_FLOOR = 1.1, CANISTER_LENGTH = 4.3;
+    /** Полуширина плиты пакета и верх крышек контейнеров над низом блока — рамка отрисовки. */
+    public static final double PACK_HALF_WIDTH = 0.72, PACK_TOP = PACK_FLOOR + CANISTER_LENGTH + 0.03;
 
     @Nullable
     private UUID owner;
@@ -164,12 +170,18 @@ public class SamBlockEntity extends BlockEntity {
         if (ready > 0 && !covered) {
             Radar.Track shot = FireControl.pick(tracks, DefenseWorld.get(level));
             if (shot != null) {
-                FireControl.launch(level, Vec3.atBottomCenterOf(pos).add(0, RAIL_HEIGHT, 0), shot, owner, pos.toShortString(), InterceptorSpec.SAM);
+                FireControl.launch(level, rail(pos, ready - 1), shot, owner, pos.toShortString(), InterceptorSpec.SAM);
                 ready--;
                 setChanged();
             }
         }
         scope(level, antenna, tracks);
+    }
+
+    /** Середина контейнера направляющей {@code k}: ракета стоит в нём во весь рост и уходит вверх. */
+    static Vec3 rail(BlockPos pos, int k) {
+        return Vec3.atBottomCenterOf(pos).add((k & 1) == 0 ? -CANISTER_OFFSET : CANISTER_OFFSET, PACK_FLOOR + CANISTER_LENGTH / 2,
+                (k & 2) == 0 ? -CANISTER_OFFSET : CANISTER_OFFSET);
     }
 
     /** Экран радара своим рядом с ЗРК (без хозяина — всем рядом). */
