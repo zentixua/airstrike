@@ -9,8 +9,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.net.S2C;
 import ua.zentix.incoming.nuclear.Detonation;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.registry.ModAttachments;
@@ -103,6 +105,11 @@ public final class ScarQueue {
     private static final int EARLY = 1;
     /** Через сколько тиков снова проверить чанк, который (или чьи соседи) сейчас ниже полной загрузки. */
     private static final int NEIGHBOUR_RETRY = 10;
+    /**
+     * Сколько снесённых мест чанка уходит игрокам обломками: у фронта в прорисовке — десятки чанков сразу, каждое место —
+     * один-два куска у клиента ({@code Fragments} — не больше 1200 живых).
+     */
+    static final int THROWN_PER_CHUNK = 24;
     /** Итог единицы {@link #ruin}: руины стоят; ещё единица (посчитан разлом соседа, план устарел); ждать соседей ({@link #waitRadius}). */
     private static final int RUINED = 0, AGAIN = 1, WAIT = 2;
     /**
@@ -735,6 +742,7 @@ public final class ScarQueue {
             long t0 = System.nanoTime();
             if (plan.apply(level, chunk, budget)) {
                 long took = System.nanoTime() - t0;
+                thrown(level, d, chunk, plan);
                 appliedPrepared++;
                 st[0]++;
                 st[3] += took;
@@ -778,6 +786,7 @@ public final class ScarQueue {
             plan = RuinPlanner.plan(level, d, chunk);
         }
         plan.apply(level, chunk, budget);
+        thrown(level, d, chunk, plan);
         var memory = atDetonation.get(d.id());
         if (memory == null || !memory.contains(key)) {
             st[13]++;
@@ -791,6 +800,16 @@ public final class ScarQueue {
         st[8] = Math.max(st[8], took);
         deferLogs(level, d, plan);
         return RUINED;
+    }
+
+    /**
+     * Обломки снесённого ({@link RuinPlan#thrown}, до {@link #THROWN_PER_CHUNK} мест) — игрокам, которые видят чанк: руины
+     * у них встали в этом же тике, куски их блоков разлетаются, когда до места дойдёт фронт.
+     */
+    private static void thrown(ServerLevel level, Detonation d, LevelChunk chunk, RuinPlan plan) {
+        if (level.getChunkSource().chunkMap.getPlayers(chunk.getPos(), false).isEmpty()) return;
+        List<S2C.NukeDebris.Piece> pieces = plan.thrown(chunk, THROWN_PER_CHUNK);
+        if (!pieces.isEmpty()) PacketDistributor.sendToPlayersTrackingChunk(level, chunk.getPos(), new S2C.NukeDebris(d.id(), pieces));
     }
 
     /** Есть готовый план чанка по подрыву: построенный заранее или собранный и ждущий соседей. */

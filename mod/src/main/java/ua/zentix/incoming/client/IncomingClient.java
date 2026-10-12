@@ -33,6 +33,7 @@ import ua.zentix.incoming.client.fx.CameraShake;
 import ua.zentix.incoming.client.fx.Effects;
 import ua.zentix.incoming.client.fx.Exhaust;
 import ua.zentix.incoming.client.fx.Flash;
+import ua.zentix.incoming.client.fx.Fragments;
 import ua.zentix.incoming.client.fx.GridEffects;
 import ua.zentix.incoming.client.fx.layer.FxAtlas;
 import ua.zentix.incoming.client.fx.layer.FxLayer;
@@ -119,6 +120,7 @@ public final class IncomingClient {
         NeoForge.EVENT_BUS.addListener(ScreenProjection::capture);
         NeoForge.EVENT_BUS.addListener(NukeRenderer::render);
         NeoForge.EVENT_BUS.addListener(FxLayer::render);
+        NeoForge.EVENT_BUS.addListener(NukeRenderer::renderRain);
         NeoForge.EVENT_BUS.addListener(NukeSky::fogColor);
         NeoForge.EVENT_BUS.addListener(NukeSky::fog);
         NeoForge.EVENT_BUS.addListener(SoundFilters::onSound);
@@ -214,6 +216,7 @@ public final class IncomingClient {
         FxLayer.tick();
         // частицы — после тика мира, как ванильный движок; в заморозке стоят
         if (mc.level.tickRateManager().runsNormally()) FxPool.INSTANCE.tick(mc.level);
+        Fragments.tick();
         Effects.tick();
         CameraShake.tick();
         Flash.tick();
@@ -258,6 +261,7 @@ public final class IncomingClient {
         FarRenderer.reset();
         FxPool.INSTANCE.clear();
         FxLayer.reset();
+        Fragments.reset();
         Effects.clear();
         CameraShake.reset();
         Flash.reset();
@@ -363,6 +367,14 @@ public final class IncomingClient {
         @Override
         public void nukeDetonation(S2C.NukeDetonation p) {
             Replay.event("nuke", live -> ClientNuclear.detonation(p, live));
+        }
+
+        @Override
+        public void nukeDebris(S2C.NukeDebris p) {
+            // обломки из перемотки — прошлое: они давно легли
+            Replay.event("nuke_debris", live -> {
+                if (live) ClientNuclear.debris(p);
+            });
         }
 
         @Override
