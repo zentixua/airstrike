@@ -139,7 +139,7 @@ final class TacticalMap {
 
         Vec3 v = f.velocity();
         HudDraw.heading(g, c[0], c[1], (float) Math.toDegrees(Math.atan2(-v.x, v.z)), CRAFT);
-        label(g, font, Component.literal("№" + f.number + (f.nuclear() ? " ☢" : "")), c[0], c[1] - 16, CRAFT);
+        label(g, font, Component.translatable("airstrike.hud.number", f.number).append(f.nuclear() ? " ☢" : ""), c[0], c[1] - 16, CRAFT);
 
         telemetry(g, font, f, craft, v, pt);
         status(g, font, f, craft, me, range, w, h);
@@ -155,7 +155,7 @@ final class TacticalMap {
         int x = 10, y = 8;
         g.drawString(font, Component.translatable("airstrike.camera.no_link").withStyle(ChatFormatting.BOLD), x, y, 0xFFFFC040);
         y += 14;
-        Component name = Component.literal(f.weapon().displayName().getString().toUpperCase(Locale.ROOT) + " №" + f.number);
+        Component name = Component.translatable("airstrike.hud.flight", f.weapon().displayName().getString().toUpperCase(Locale.ROOT), f.number);
         g.drawString(font, name, x, y, INK);
         y += 11;
         g.drawString(font, f.phase().displayName().getString().toUpperCase(Locale.ROOT),

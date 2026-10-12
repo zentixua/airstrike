@@ -547,7 +547,8 @@ public final class ProjectileCamera {
         double kmh = ClientFlights.kmh(p.speed());
         double dist = p.position().distanceTo(f.target());
         boolean rec = (mc.level.getGameTime() / 10) % 2 == 0;
-        String left1 = (rec ? "● " : "  ") + "REC  " + f.weapon().displayName().getString().toUpperCase(Locale.ROOT) + " №" + f.number;
+        String left1 = (rec ? "● " : "  ") + "REC  "
+                + Component.translatable("airstrike.hud.flight", f.weapon().displayName().getString().toUpperCase(Locale.ROOT), f.number).getString();
         g.drawString(font, left1, m + 6, m + 6, rec ? 0xFFFF4040 : 0xFFE8E8E8);
         g.drawString(font, f.phase().displayName().getString().toUpperCase(Locale.ROOT),
                 m + 6, m + 18, f.phase() == FlightPhase.TERMINAL ? 0xFFFF4040 : 0xFFE8E8E8);

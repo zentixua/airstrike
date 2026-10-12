@@ -453,7 +453,7 @@ public class MapScreen extends Screen {
             int[] c = map.at(f.position(partialTick)), t = map.at(f.target());
             HudDraw.dashed(g, c[0], c[1], t[0], t[1], 2, ROUTE);
             reticle(g, t[0], t[1], 5, ROUTE);
-            Component number = Component.literal("№" + f.number);
+            Component number = Component.translatable("airstrike.hud.number", f.number);
             int[] edge = edge(c[0], c[1], bottom);
             if (edge == null) {
                 Vec3 v = f.velocity();

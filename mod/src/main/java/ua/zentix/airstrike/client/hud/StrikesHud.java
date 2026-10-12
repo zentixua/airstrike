@@ -116,7 +116,7 @@ public final class StrikesHud {
             int c = f.phase() == FlightPhase.TERMINAL ? 0xFFFF4030 : 0xFFFFC040;
             if (t != null) HudDraw.dotted(g, sx, sy, (int) (t[0] * w), (int) (t[1] * h), (c & 0x00FFFFFF) | 0x70000000);
             HudDraw.diamond(g, sx, sy, 4, c);
-            String label = "№" + f.number + " " + clock(f.etaSeconds(pt));
+            String label = Component.translatable("airstrike.hud.number", f.number).getString() + " " + clock(f.etaSeconds(pt));
             g.drawString(font, label, sx - font.width(label) / 2, sy - 14, c);
         }
         List<int[]> placed = new ArrayList<>();
@@ -136,7 +136,7 @@ public final class StrikesHud {
                 g.fill(tx + i, ty + i, tx + i + 1, ty + i + 1, c);
                 g.fill(tx + i, ty - i, tx + i + 1, ty - i + 1, c);
             }
-            MutableComponent text = Component.literal(numbers(m.numbers));
+            MutableComponent text = Component.translatable("airstrike.hud.number", numbers(m.numbers));
             if (m.label != null) text.append(" · ").append(m.label);
             int tw = font.width(text), x = tx - tw / 2, y = labelY(placed, x, tw, ty + 7);
             placed.add(new int[] {x, y, tw});
@@ -177,11 +177,11 @@ public final class StrikesHud {
         }
     }
 
-    /** «№1–3, 5»: номера по возрастанию, подряд идущие — диапазоном. */
+    /** «1–3, 5»: номера по возрастанию, подряд идущие — диапазоном (знак номера — у строки {@code airstrike.hud.number}). */
     static String numbers(List<Integer> list) {
         List<Integer> n = new ArrayList<>(list);
         Collections.sort(n);
-        StringBuilder sb = new StringBuilder("№");
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < n.size(); ) {
             int j = i;
             while (j + 1 < n.size() && n.get(j + 1) == n.get(j) + 1) j++;

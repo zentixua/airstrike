@@ -96,179 +96,179 @@ public final class AirstrikeConfig {
 
         Server(ModConfigSpec.Builder b) {
             b.translation("airstrike.config.warheads").push("warheads");
-            dronePower = b.comment("Сила взрыва шахеда (TNT = 4). Больше 60 вешает сервер.")
+            dronePower = b.comment("Shahed blast power (TNT = 4). Above 60 freezes the server.")
                     .translation("airstrike.config.drone_power").defineInRange("drone_power", 12, 1, 60);
-            missilePower = b.comment("Сила взрыва крылатой ракеты.")
+            missilePower = b.comment("Cruise missile blast power (TNT = 4).")
                     .translation("airstrike.config.missile_power").defineInRange("missile_power", 20, 1, 60);
-            rocketPower = b.comment("Сила взрыва реактивного снаряда РСЗО (122 мм, как у «Града»): каждого из залпа.")
+            rocketPower = b.comment("Blast power of each MLRS rocket in a salvo (122 mm, like the Grad; TNT = 4).")
                     .translation("airstrike.config.rocket_power").defineInRange("rocket_power", 7, 1, 60);
-            loiterPower = b.comment("Сила взрыва барражирующего боеприпаса.")
+            loiterPower = b.comment("Loitering munition blast power (TNT = 4).")
                     .translation("airstrike.config.loiter_power").defineInRange("loiter_power", 8, 1, 60);
-            bunkerPower = b.comment("Сила подземного взрыва бетонобойной бомбы.")
+            bunkerPower = b.comment("Underground blast power of the bunker buster (TNT = 4).")
                     .translation("airstrike.config.bunker_power").defineInRange("bunker_power", 20, 1, 60);
-            bunkerEnergy = b.comment("Пробивная способность бомбы: 1000 ≈ 30 блоков камня.")
+            bunkerEnergy = b.comment("Bunker buster penetration: 1000 ≈ 30 blocks of stone.")
                     .translation("airstrike.config.bunker_energy").defineInRange("bunker_energy", 1000, 50, 10000);
             b.pop();
 
             b.translation("airstrike.config.world").push("world");
-            blockDamage = b.comment("Взрывы разрушают блоки.")
+            blockDamage = b.comment("Blasts destroy blocks. Off: they still hurt players and mobs. Nuclear strikes use nuclear.block_damage.")
                     .translation("airstrike.config.block_damage").define("block_damage", true);
-            shatterGlass = b.comment("Ударная волна выбивает стёкла.")
+            shatterGlass = b.comment("The blast wave breaks glass beyond the crater wherever outside air reaches it.")
                     .translation("airstrike.config.shatter_glass").define("shatter_glass", true);
-            fire = b.comment("Взрывы поджигают.")
+            fire = b.comment("Conventional blasts and burning debris start fires.")
                     .translation("airstrike.config.fire").define("fire", true);
-            debrisStay = b.comment("Обломки остаются лежать блоками.")
+            debrisStay = b.comment("Debris stays as blocks where it lands. Off: it disappears.")
                     .translation("airstrike.config.debris_stay").define("debris_stay", true);
-            collapse = b.comment("Подземный взрыв обрушивает свод над полостью.")
+            collapse = b.comment("An underground blast brings down the roof of the cavity above it.")
                     .translation("airstrike.config.collapse").define("collapse", true);
-            siren = b.comment("Сирена воздушной тревоги у тех, кто рядом с целью.")
+            siren = b.comment("Air raid siren and on-screen warning for players within 350 blocks of the target.")
                     .translation("airstrike.config.siren").define("siren", true);
             b.pop();
 
             b.translation("airstrike.config.launch").push("launch");
-            maxSalvo = b.comment("Сколько снарядов может быть в одном залпе.")
+            maxSalvo = b.comment("Largest number of rounds in one salvo.")
                     .translation("airstrike.config.max_salvo").defineInRange("max_salvo", 30, 1, Loadout.MAX_COUNT);
-            maxSpread = b.comment("Наибольший разброс залпа, блоков.")
+            maxSpread = b.comment("Largest salvo spread, blocks.")
                     .translation("airstrike.config.max_spread").defineInRange("max_spread", 150, 0, Loadout.MAX_SPREAD);
-            maxActivePerPlayer = b.comment("Сколько снарядов у одного игрока может быть в работе сразу (в полёте и ещё не выпущенных в залпах),",
-                            "чтобы новый приказ приняли; операторов не касается. 0 — без предела.")
+            maxActivePerPlayer = b.comment("How many rounds one player may have in progress (in flight and not yet fired in salvos) for a new order",
+                            "to be accepted; operators are not limited. 0: no limit.")
                     .translation("airstrike.config.max_active_per_player").defineInRange("max_active_per_player", 0, 0, 100_000);
-            aimRange = b.comment("Дальность прицела пульта, блоков.")
+            aimRange = b.comment("Designator binoculars range, blocks.")
                     .translation("airstrike.config.aim_range").defineInRange("aim_range", 400, 32, 1024);
-            mapRange = b.comment("Дальность удара по месту, выбранному на карте пульта, блоков (по горизонтали от игрока).",
-                            "Район цели сервер грузит, а где никто не был — генерирует: чем больше дальность, тем больше новой генерации.")
+            mapRange = b.comment("Range of strikes at a place picked on the targeting map, blocks (horizontal distance from the player).",
+                            "The server loads the target area and generates it where nobody has been: the larger the range, the more new terrain.")
                     .translation("airstrike.config.map_range").defineInRange("map_range", 10_000, 256, 1_000_000);
-            designatorForEveryone = b.comment("Пульт работает у всех игроков, а не только у операторов.")
+            designatorForEveryone = b.comment("The designator works for every player, not only operators.")
                     .translation("airstrike.config.designator_for_everyone").define("designator_for_everyone", true);
-            mapPlayers = b.comment("Карта пульта показывает игроков в том же измерении (не дальше map_range, кроме невидимых и наблюдателей):",
-                            "своих по команде /team — всегда, чужих — там, где их видели последний раз (при sight_rules), иначе всех.",
-                            "Выключено — карта их не рисует, а список целей пульта в режиме «игрок» остаётся.")
+            mapPlayers = b.comment("The targeting map shows players in the same dimension (within map_range, except invisible players and spectators):",
+                            "teammates (/team) always, others where they were last seen (with sight_rules) or all of them (without).",
+                            "Off: the map does not draw them; the player target list on the console stays.")
                     .translation("airstrike.config.map_players").define("map_players", true);
-            sightRules = b.comment("Разведка: по чужому игроку и аппарату пульт бьёт, только если его видит или недавно видела (sight_memory)",
-                            "сторона стрелявшего — он сам или его команда /team, глазами или камерой своего снаряда; давно не виденного —",
-                            "по последнему месту. Карта показывает чужих так же. Команды /airstrike операторов и консоли — без правил.")
+            sightRules = b.comment("Spotting: the designator strikes another player or aircraft only if the shooter or their /team sees it now or saw it",
+                            "within sight_memory, directly or through their projectile camera; one seen earlier is struck at its last known place.",
+                            "The map shows others the same way. /airstrike from operators and the console ignores these rules.")
                     .translation("airstrike.config.sight_rules").define("sight_rules", true);
-            sightMemory = b.comment("Сколько секунд сторона помнит замеченного игрока или аппарат.")
+            sightMemory = b.comment("How many seconds a player and their team remember a spotted player or aircraft.")
                     .translation("airstrike.config.sight_memory").defineInRange("sight_memory", 30, 0, 600);
-            launchNearPlayer = b.comment("Шахеды и ракеты стартуют с мобильной пусковой рядом с тем, кто пустил (иначе заходят издалека).")
+            launchNearPlayer = b.comment("Shaheds and missiles take off from a mobile launcher near the player who launched them (off: they come in from afar).")
                     .translation("airstrike.config.launch_near_player").define("launch_near_player", true);
-            droneFlightTime = b.comment("Полёт шахеда от пуска до цели, секунд: маршрут в обход и заход из-за спины (не меньше прямого пути).")
+            droneFlightTime = b.comment("Shahed flight from launch to target, seconds: a detour and an attack run from behind (never shorter than the direct path).")
                     .translation("airstrike.config.drone_flight_time").defineInRange("drone_flight_time", 50, 5, 600);
-            missileFlightTime = b.comment("Полёт крылатой ракеты от пуска до цели, секунд.")
+            missileFlightTime = b.comment("Cruise missile flight from launch to target, seconds (never shorter than the direct path).")
                     .translation("airstrike.config.missile_flight_time").defineInRange("missile_flight_time", 30, 5, 600);
-            bomberFlightTime = b.comment("Подлёт B-2 до сброса, секунд.")
+            bomberFlightTime = b.comment("B-2 approach until bomb release, seconds.")
                     .translation("airstrike.config.bomber_flight_time").defineInRange("bomber_flight_time", 40, 5, 600);
-            loiterTime = b.comment("Сколько барражирующий боеприпас кружит над целью, прежде чем пикировать, секунд (у каждого в залпе ±20%).")
+            loiterTime = b.comment("How long a loitering munition circles over the target before diving, seconds (±20% for each one in a salvo).")
                     .translation("airstrike.config.loiter_time").defineInRange("loiter_time", 25, 0, 600);
             b.pop();
 
             b.translation("airstrike.config.nuclear").push("nuclear");
-            nukeEnabled = b.comment("Ядерное оружие доступно.")
+            nukeEnabled = b.comment("Nuclear weapons are available: the ICBM, nuclear warheads and /airstrike nuke.")
                     .translation("airstrike.config.nuke_enabled").define("enabled", true);
-            nukeOpsOnly = b.comment("Ядерный удар могут наносить только операторы.")
+            nukeOpsOnly = b.comment("Only operators can launch nuclear strikes. Off: other players need a second key from a player nearby.")
                     .translation("airstrike.config.nuke_ops_only").define("ops_only", true);
-            nukeDefaultYield = b.comment("Мощность для /airstrike nuke без числа, кт (15 — Хиросима). В пульте мощность выбирается на экране.")
+            nukeDefaultYield = b.comment("Yield of /airstrike nuke without a number, kt (15 is Hiroshima). On the console the yield is chosen with a button.")
                     .translation("airstrike.config.nuke_default_yield").defineInRange("default_yield", 15, 1, Loadout.Nuke.MAX_YIELD);
-            nukeMaxYield = b.comment("Наибольшая мощность, кт.")
+            nukeMaxYield = b.comment("Largest yield, kt.")
                     .translation("airstrike.config.nuke_max_yield").defineInRange("max_yield", Loadout.Nuke.MAX_YIELD, 1, Loadout.Nuke.MAX_YIELD);
-            nukeEffectsScale = b.comment("Масштаб всех радиусов: 1.0 — как в жизни (1 блок = 1 м), меньше — для маленьких миров.")
+            nukeEffectsScale = b.comment("Scale of all radii: 1.0 is true to life (1 block = 1 m); lower for small worlds.")
                     .translation("airstrike.config.nuke_effects_scale").defineInRange("effects_scale", 1.0, 0.005, 1.0);
-            nukeBlockDamage = b.comment("Ударная волна разрушает постройки и деревья.")
+            nukeBlockDamage = b.comment("The blast wave destroys buildings and trees. Off: no ruins and no crater.")
                     .translation("airstrike.config.nuke_block_damage").define("block_damage", true);
-            nukeFires = b.comment("Световой импульс поджигает.")
+            nukeFires = b.comment("The thermal pulse starts fires.")
                     .translation("airstrike.config.nuke_fires").define("fires", true);
-            nukeTreeFall = b.comment("Деревья валятся стволами от эпицентра.")
+            nukeTreeFall = b.comment("Tree trunks fall whole, away from ground zero.")
                     .translation("airstrike.config.nuke_tree_fall").define("tree_fall", true);
-            nukeCrater = b.comment("Наземный подрыв роет воронку.")
+            nukeCrater = b.comment("A ground burst digs a crater.")
                     .translation("airstrike.config.nuke_crater").define("crater", true);
-            nukeFallout = b.comment("Радиоактивные осадки после наземного подрыва.")
+            nukeFallout = b.comment("Radioactive fallout after a ground burst.")
                     .translation("airstrike.config.nuke_fallout").define("fallout", true);
-            nukeRadiation = b.comment("Облучение и лучевая болезнь у игроков.")
+            nukeRadiation = b.comment("Radiation dose and radiation sickness for players.")
                     .translation("airstrike.config.nuke_radiation").define("radiation", true);
-            nukeMobRadiation = b.comment("Облучение и лучевая болезнь у мобов (кроме нежити): доза при подрыве и в следе осадков,",
-                            "болезнь по тем же стадиям. Выключено — мобы гибнут от проникающей радиации сразу (от 1000 бэр) или теряют",
-                            "половину здоровья (от 400), а осадки их не трогают.")
+            nukeMobRadiation = b.comment("Radiation dose and sickness for mobs (except the undead): a dose at the burst and in the fallout trail,",
+                            "sickness in the same stages as players. Off: prompt radiation kills mobs at once (from 1000 rem) or takes",
+                            "half their health (from 400 rem), and fallout does not affect them.")
                     .translation("airstrike.config.nuke_mob_radiation").define("mob_radiation", true);
-            nukeBlackRain = b.comment("Чёрный дождь в следе осадков (заражает, пока не смыть водой).")
+            nukeBlackRain = b.comment("Black rain in the fallout trail (contaminates until washed off with water).")
                     .translation("airstrike.config.nuke_black_rain").define("black_rain", true);
-            nukeFlightTime = b.comment("Полёт МБР от пуска до подрыва, тиков (в жизни — 30 минут). У удара не оператора — не меньше 1800 (90 с тревоги).")
+            nukeFlightTime = b.comment("ICBM flight from launch to detonation, ticks (about 30 minutes in reality). A non-operator strike takes at least 1800 (90 s of alarm).")
                     .translation("airstrike.config.nuke_flight_time").defineInRange("flight_time", 1800, 200, 72_000);
-            nukeTimeBudgetMs = b.comment("Предел разрушений ядерки внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–45).",
-                            "По умолчанию 30: разрушения идут вслед за фронтом, как в жизни, ценой части TPS, пока идёт волна;",
-                            "пока у блэкаута есть работа, ему оставляется его grid.ms_per_tick.")
+            nukeTimeBudgetMs = b.comment("Limit for nuclear destruction within the total per-tick budget (performance.work_ms_per_tick), ms (1–45).",
+                            "The default 30 keeps destruction right behind the blast front at the cost of some TPS while the wave runs;",
+                            "while the blackout has work, it keeps its grid.ms_per_tick.")
                     .translation("airstrike.config.nuke_time_budget").defineInRange("destruction_ms_per_tick", 30, 1, 45);
-            nukePrepMsPerTick = b.comment("Сколько миллисекунд тика, пока летит МБР, сервер тратит на руины заранее (0–20).",
-                            "Руины ближней зоны строятся во время полёта и ставятся вместе с фронтом волны.")
+            nukePrepMsPerTick = b.comment("Milliseconds of each tick the server spends on building ruins in advance while the ICBM flies (0–20).",
+                            "Ruins of the near zone are built during the flight and placed as the blast front arrives.")
                     .translation("airstrike.config.nuke_prep_budget").defineInRange("prep_ms_per_tick", 8, 0, 20);
-            nukeFarZone = b.comment("С Distant Horizons у игроков: тяжёлая зона, которой нет на диске сгенерированной до конца (край исследованного",
-                            "мира), генерируется в фоне вслед за волной (не больше двух квадратов 5×5 сразу), чтобы руины были видны",
-                            "вдали сразу. Выключено — там руины встанут, только когда игрок дойдёт туда сам.")
+            nukeFarZone = b.comment("When players use Distant Horizons: the heavy-damage zone that is not fully generated on disk (the edge of the explored",
+                            "world) is generated in the background behind the wave (at most two 5×5 squares at a time), so the ruins are",
+                            "visible from afar at once. Off: ruins appear there only when a player gets there.")
                     .translation("airstrike.config.nuke_far_zone").define("far_zone", true);
-            nukeRuinThreads = b.comment("Сколько фоновых потоков строят планы руин (разломы, обрушение и достройка по снимкам чанков, разбор чанков",
-                            "с диска), 0 — сами: все ядра, кроме трёх (поток сервера, отрисовка своей игры, ввод-вывод и генерация", "мира; на выделенном сервере — кроме двух), не меньше одного. Сколько из них работает, мод подстраивает",
-                            "под тик сервера. Поток сервера только снимает чанки и ставит готовые руины.")
+            nukeRuinThreads = b.comment("How many background threads build ruin plans (breaks, collapse and fill from chunk snapshots, parsing chunks",
+                            "from disk). 0: automatic, all cores but three (server thread, rendering, world I/O and generation;", "on a dedicated server all but two), at least one. The mod adjusts how many of them work",
+                            "to the server tick. The server thread only snapshots chunks and places finished ruins.")
                     .translation("airstrike.config.nuke_ruin_threads").defineInRange("ruin_threads", 0, 0, 256);
-            nukeMaxFires = b.comment("Наибольшее число пожаров от одного подрыва.")
+            nukeMaxFires = b.comment("Largest number of fires from one detonation.")
                     .translation("airstrike.config.nuke_max_fires").defineInRange("fires_per_detonation", 20_000, 0, 100_000);
-            nukeWarningRadius = b.comment("Кто слышит ядерную тревогу, блоков от цели.")
+            nukeWarningRadius = b.comment("Players within this many blocks of the target hear the nuclear alarm.")
                     .translation("airstrike.config.nuke_warning_radius").defineInRange("warning_radius", 20_000, 100, 1_000_000);
-            nukeSecondKeyDistance = b.comment("Ядерный удар не оператора (ops_only = false) — вторым ключом: другой игрок не дальше стольких блоков",
-                            "от запускающего нажимает свою клавишу «Второй ключ». Один в сети — без ключа.")
+            nukeSecondKeyDistance = b.comment("A nuclear strike by a non-operator (ops_only = false) needs a second key: another player within this many blocks",
+                            "of the launching player presses their Second key. Alone online: no key needed.")
                     .translation("airstrike.config.nuke_second_key_distance").defineInRange("second_key_distance", 16, 2, 128);
-            nukeSecondKeyWindow = b.comment("Сколько секунд ждать второго ключа; не дождались — пуска нет, боеприпасы возвращаются.")
+            nukeSecondKeyWindow = b.comment("How many seconds to wait for the second key; without it there is no launch and the munitions are returned.")
                     .translation("airstrike.config.nuke_second_key_window").defineInRange("second_key_window", 30, 5, 300);
-            carrierNukes = b.comment("Ядерная боевая часть и на крылатой ракете и B-2 (кроме МБР).")
+            carrierNukes = b.comment("A nuclear warhead on the cruise missile and the B-2 bomb as well as the ICBM.")
                     .translation("airstrike.config.carrier_nukes").define("carrier_nukes", true);
             b.pop();
 
             b.translation("airstrike.config.grid").push("grid");
-            gridEnabled = b.comment("Блэкаут: удар по подстанции обесточивает район — электрические лампы гаснут по кварталам.",
-                            "Факелы, свечи, костры и печи горят дальше: они не от сети.")
+            gridEnabled = b.comment("Blackout: a strike on a substation cuts power to its area, and electric lights go out district by district.",
+                            "Torches, candles, campfires and furnaces keep burning: they are not on the grid.")
                     .translation("airstrike.config.grid_enabled").define("enabled", true);
-            gridNodeRadius = b.comment("Радиус района, который питает подстанция, блоков.")
+            gridNodeRadius = b.comment("Radius of the area a substation powers, blocks.")
                     .translation("airstrike.config.grid_node_radius").defineInRange("node_radius", 512, 16, 4096);
-            gridMaxRadius = b.comment("Наибольший радиус одного отключения, блоков (ядерный удар гасит не дальше).")
+            gridMaxRadius = b.comment("Largest radius of one outage, blocks (a nuclear strike goes no further).")
                     .translation("airstrike.config.grid_max_radius").defineInRange("max_radius", 4096, 64, 16_384);
-            gridCascadeSpeed = b.comment("Скорость, с которой отключение расходится от подстанции по кварталам, блоков в секунду.")
+            gridCascadeSpeed = b.comment("How fast the outage spreads from the substation across districts, blocks per second.")
                     .translation("airstrike.config.grid_cascade_speed").defineInRange("cascade_speed", 60.0, 1.0, 10_000.0);
-            gridRestoreMinutes = b.comment("Через сколько минут свет начинают возвращать (0 — только командой /airstrike grid restore).")
+            gridRestoreMinutes = b.comment("Minutes until power starts coming back (0: only with /airstrike grid restore).")
                     .translation("airstrike.config.grid_restore_minutes").defineInRange("restore_minutes", 15, 0, 10_080);
-            gridRestoreSpread = b.comment("За сколько секунд свет возвращается во все кварталы (вразнобой).")
+            gridRestoreSpread = b.comment("Seconds over which power returns to all districts, in random order.")
                     .translation("airstrike.config.grid_restore_spread").defineInRange("restore_spread_seconds", 90, 0, 3600);
-            gridNuke = b.comment("Ядерный удар обесточивает всё в радиусе своего действия.")
+            gridNuke = b.comment("A nuclear strike cuts power within its whole damage radius.")
                     .translation("airstrike.config.grid_nuke").define("nuke_blackout", true);
-            gridTimeBudgetMs = b.comment("Предел ламп блэкаута внутри общего бюджета тика (performance.work_ms_per_tick), мс (1–20).")
+            gridTimeBudgetMs = b.comment("Limit for blackout lights within the total per-tick budget (performance.work_ms_per_tick), ms (1–20).")
                     .translation("airstrike.config.grid_time_budget").defineInRange("ms_per_tick", 4, 1, 20);
             b.pop();
 
             b.translation("airstrike.config.performance").push("performance");
-            workBudgetMs = b.comment("Сколько миллисекунд каждого тика сервер самое большее тратит на тяжёлую работу мода, всё вместе (5–45):",
-                            "разрушения от попаданий, затем ядерка (не больше destruction_ms_per_tick), затем лампы блэкаута (не больше",
-                            "своего ms_per_tick). Весь — только из времени, свободного в тике: серверу, который отстаёт от расписания,",
-                            "по 2 мс на каждую из трёх работ. Больше — разрушения залпа и руины ядерки появляются быстрее;",
-                            "меньше — ровнее тик, воронки залпа и руины достраиваются дольше.")
+            workBudgetMs = b.comment("At most how many milliseconds of each tick the server spends on the mod's heavy work in total (5–45):",
+                            "strike destruction, then the nuke (up to destruction_ms_per_tick), then blackout lights (up to",
+                            "their ms_per_tick). The full budget comes only from time left free in the tick: a server behind schedule",
+                            "gets 2 ms for each of the three. More: salvo damage and nuclear ruins appear sooner;",
+                            "less: a steadier tick, craters and ruins take longer to finish.")
                     .translation("airstrike.config.work_budget").defineInRange("work_ms_per_tick", 30, 5, 45);
             b.pop();
 
             b.translation("airstrike.config.visibility").push("visibility");
-            farRange = b.comment("Докуда игрокам видно и слышно снаряды в полёте и взрывы обычного оружия, блоков: дальше прорисовки —",
-                            "моделью (мельче пары пикселей — точкой), факелом, шлейфом, огненным шаром и столбом дыма, звук — с задержкой",
-                            "по скорости звука. Дальше всё равно съедает дымка, а раскат тонет в тишине; меньше — меньше пакетов игрокам.")
+            farRange = b.comment("How far players see and hear projectiles in flight and conventional blasts, blocks. Beyond render distance they show",
+                            "as a model (a dot when smaller than a couple of pixels), flame, trail, fireball and smoke column; sound arrives with",
+                            "the speed-of-sound delay. Haze hides them anyway further out; a lower value sends fewer packets to players.")
                     .translation("airstrike.config.far_range").defineInRange("far_range", 8000, 640, 32_000);
             b.pop();
 
             b.translation("airstrike.config.air_defense").push("air_defense");
-            samRadarRange = b.comment("Дальность радара ЗРК, блоков: дальше снаряды не видно; малозаметные (B-2, ракета на бреющем,",
-                            "«Ланцет») — ближе, по паспорту оружия. Тревога своим — о каждой новой чужой цели на радаре.")
+            samRadarRange = b.comment("SAM radar range, blocks. Stealthy targets (B-2, low-flying cruise missile, Lancet) are detected closer.",
+                            "The owner's side gets an alert for every new hostile target on the radar.")
                     .translation("airstrike.config.sam_radar_range").defineInRange("radar_range", 3000, 64, 16_000);
-            samEngageRange = b.comment("Дальность огня ЗРК, блоков: ближе этого он пускает ракету по чужому шахеду, ракете, «Ланцету» и B-2",
-                            "(МБР и «Град» не перехватывает).")
+            samEngageRange = b.comment("SAM engagement range, blocks: within it the SAM fires at hostile Shaheds, cruise missiles, Lancets and B-2s",
+                            "(it does not intercept ICBMs or Grad rockets).")
                     .translation("airstrike.config.sam_engage_range").defineInRange("engage_range", 1500, 32, 8000);
-            samKillProbability = b.comment("Вероятность, что зенитная ракета, разорвавшись у цели, её собьёт (0–1). Промах — цель летит дальше.")
+            samKillProbability = b.comment("Chance that an interceptor bursting near its target brings it down (0–1). On a miss the target flies on.")
                     .translation("airstrike.config.sam_kill_probability").defineInRange("kill_probability", 0.8, 0.0, 1.0);
-            samRails = b.comment("Сколько ракет стоит на направляющих ЗРК готовыми к пуску.")
+            samRails = b.comment("How many missiles stand on the SAM rails ready to fire.")
                     .translation("airstrike.config.sam_rails").defineInRange("rails", 4, 1, 16);
-            samReloadSeconds = b.comment("За сколько секунд расчёт ставит на свободную направляющую следующую ракету из запаса ЗРК.")
+            samReloadSeconds = b.comment("Seconds to put the next missile from the SAM stock on a free rail.")
                     .translation("airstrike.config.sam_reload").defineInRange("reload_seconds", 8, 0, 600);
             b.pop();
         }
@@ -296,24 +296,24 @@ public final class AirstrikeConfig {
         }
 
         Client(ModConfigSpec.Builder b) {
-            cameraShake = b.comment("Сила тряски камеры (0 — выключить). Прицел не сбивается: трясётся только камера.")
+            cameraShake = b.comment("Camera shake strength (0: off). Aim is never disturbed: only the camera shakes.")
                     .translation("airstrike.config.camera_shake").defineInRange("camera_shake", 1.0, 0.0, 2.0);
-            flash = b.comment("Яркость вспышки взрыва на экране (0 — выключить).")
+            flash = b.comment("Brightness of the on-screen explosion flash (0: off).")
                     .translation("airstrike.config.flash").defineInRange("flash", 1.0, 0.0, 1.0);
-            hud = b.comment("Показывать снаряды в полёте и время подлёта.")
+            hud = b.comment("Show your projectiles in flight and their time to impact.")
                     .translation("airstrike.config.hud").define("hud", true);
-            autoCamera = b.comment("Камера снаряда включается сама при каждом пуске: пуск сбоку, полёт с борта, попадание (Shift — выход).")
+            autoCamera = b.comment("The projectile camera turns on by itself at every launch: launch from the side, flight from on board, impact (Shift exits).")
                     .translation("airstrike.config.auto_camera").define("auto_camera", false);
-            zoom = b.comment("Кратность бинокля пульта.")
+            zoom = b.comment("Designator binocular zoom.")
                     .translation("airstrike.config.zoom").defineInRange("zoom", 4.0, 1.5, 10.0);
-            nukeCloudQuality = b.comment("Подробность ядерного гриба: LOW / MEDIUM / HIGH — 750 / 1500 / 2500 клубов (и ещё 4/5 от этого — пылевая стена).")
+            nukeCloudQuality = b.comment("Mushroom cloud detail: LOW / MEDIUM / HIGH = 750 / 1500 / 2500 puffs (plus 4/5 as many for the dust wall).")
                     .translation("airstrike.config.nuke_cloud_quality").defineEnum("nuke_cloud_quality", CloudQuality.MEDIUM);
-            nukeTinnitus = b.comment("Звон в ушах и глухота после близкой ударной волны.")
+            nukeTinnitus = b.comment("Ringing ears and muffled hearing after a nearby blast wave.")
                     .translation("airstrike.config.nuke_tinnitus").define("nuke_tinnitus", true);
-            soundMuffling = b.comment("Звук ударов глуше вдали (воздух съедает верха) и за холмом или стеной. С Sound Physics Remastered это делает он.")
+            soundMuffling = b.comment("Strike sounds lose high tones with distance and are muffled behind hills and walls. With Sound Physics Remastered, that mod does it.")
                     .translation("airstrike.config.sound_muffling").define("sound_muffling", true);
-            mapPrefetch = b.comment("Рельеф карты пульта вокруг игрока строится заранее (из Distant Horizons), пока пульт в инвентаре",
-                            "или карту в этом мире уже открывали: карта открывается сразу.")
+            mapPrefetch = b.comment("Terrain of the targeting map around the player is prepared in advance (from Distant Horizons) while a designator",
+                            "is in the inventory or the map was opened in this world, so the map opens instantly.")
                     .translation("airstrike.config.map_prefetch").define("map_prefetch", true);
         }
     }
