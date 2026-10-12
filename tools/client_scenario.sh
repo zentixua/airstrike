@@ -54,9 +54,9 @@ soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
 OPT
-# руководство игрока — на русском, как играют друзья
+# руководство игрока — по-английски, как и само руководство (docs/guide и docs/guide/ru берут одни кадры)
 if [ "${1:-all}" = guide ]; then
-  if grep -q '^lang:' "$RUN/options.txt"; then sed -i 's/^lang:.*/lang:ru_ru/' "$RUN/options.txt"; else echo 'lang:ru_ru' >> "$RUN/options.txt"; fi
+  if grep -q '^lang:' "$RUN/options.txt"; then sed -i 's/^lang:.*/lang:en_us/' "$RUN/options.txt"; else echo 'lang:en_us' >> "$RUN/options.txt"; fi
 fi
 export INCOMING_SCENARIO="${1:-all}"
 MC="$(python3 "$ROOT/tools/paths.py" MC)"

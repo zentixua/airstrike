@@ -242,16 +242,16 @@ final class GuideShots {
         await(20);
         gHold(0.8);
         gDo(() -> mc.options.keyUse.setDown(true));
-        gHint("ПКМ (держать)", 2.0);
+        gHint("RMB (hold)", 2.0);
         gHold(1.6);
-        gHint("колесо мыши", 2.8);
+        gHint("Mouse wheel", 2.8);
         for (double d : new double[]{1, 1, -1, -1}) {
             gDo(() -> Designator.scroll(d));
             gHold(0.65);
         }
         gHold(0.3);
         gDo(Designator::fire);
-        gHint("ЛКМ — пуск", 1.8);
+        gHint("LMB: launch", 1.8);
         gHold(2.4);
         gDo(() -> mc.options.keyUse.setDown(false));
         gHold(0.8);
@@ -350,7 +350,7 @@ final class GuideShots {
         gHold(0.6);
         gMove(this::center, 0.6);
         for (int i = 0; i < ZOOM_OUT; i++) {
-            gScroll(-1, "колесо");
+            gScroll(-1, "Mouse wheel");
             gHold(0.35);
         }
         gDrag(() -> {
@@ -364,11 +364,11 @@ final class GuideShots {
         gClick(0);
         gHold(1.2);
         gMove(() -> at(w1), 0.9);
-        gHint("Shift + ЛКМ", 1.0);
+        gHint("Shift+LMB", 1.0);
         gDo(() -> addWaypoint(w1));
         gHold(0.7);
         gMove(() -> at(w2), 0.9);
-        gHint("Shift + ЛКМ", 1.0);
+        gHint("Shift+LMB", 1.0);
         gDo(() -> addWaypoint(w2));
         gHold(0.7);
         gDrag(() -> at(w2.add(across.scale(MAP_TARGET * 0.2)).add(along.scale(-MAP_TARGET * 0.07))), 1.0);
@@ -383,7 +383,7 @@ final class GuideShots {
             double[] c = center();
             mx = c[0] + 150;
             my = c[1] + 70;
-            hint = "клавиша «,»";
+            hint = "Key ,";
             hintUntil = gifFrame + FPS * 3 / 2;
         });
         gHold(3.0);
@@ -495,7 +495,7 @@ final class GuideShots {
         gEach(3.0, () -> look(village));
         gEach(0.6, () -> look(aim.get()));
         gDo(this::retarget);
-        gHint("ЛКМ — новая цель", 1.8);
+        gHint("LMB: new target", 1.8);
         gEach(6.0, () -> look(aim.get()));
         startGif("loiter", 1.5);
         run(() -> {
@@ -513,6 +513,9 @@ final class GuideShots {
     private void sam() {
         BlockPos[] sam = new BlockPos[1];
         int[] ready = {0};
+        // пусковые прежних разделов стоят до «incoming clear»: пусковая раздела hud — у места зрителя, и зритель ЗРК
+        // (в 22 блоках за ЗРК) стоял бы вплотную к ней — она закрывала полкадра
+        run(() -> cmd("incoming clear"));
         run(() -> onServer(server -> {
             Vec3 at = view.add(across.scale(10));
             sam[0] = BlockPos.containing(at.x, surface(server.overworld(), (int) Math.floor(at.x), (int) Math.floor(at.z)), at.z);
@@ -599,7 +602,7 @@ final class GuideShots {
         until("прорисовки у пусковой", 600, this::worldReady);
         gHold(1.2);
         gDo(() -> setblock(lever[0], wall[0] + ",powered=true]"));
-        gHint("рычаг — сигнал", 1.8);
+        gHint("Lever: signal", 1.8);
         gHold(7.0);
         startGif("launcher", 1);
     }
