@@ -940,10 +940,10 @@ public final class RuinBackgroundGameTests {
         ua.zentix.incoming.nuclear.world.WorkClock clock = ua.zentix.incoming.nuclear.world.WorkClock.counting(1_000_000);
         clock.start(0);
         q.work(level, late, clock);
-        List<Long> left = keys.stream().filter(k -> "в очереди готовых".equals(q.diagState(k, late))).toList();
+        List<Long> left = keys.stream().filter(k -> "in the ready queue".equals(q.diagState(k, late))).toList();
         h.assertTrue(left.size() == 1, "в очереди невидимых не один чанк: " + keys.stream().map(k -> q.diagState(k, late)).toList());
         q.withholds(left.get(0), late);
-        h.assertTrue("в очереди готовых, видимых".equals(q.diagState(left.get(0), late)), "попросившийся чанк остался среди невидимых: " + q.diagState(left.get(0), late));
+        h.assertTrue("in the ready queue, visible".equals(q.diagState(left.get(0), late)), "попросившийся чанк остался среди невидимых: " + q.diagState(left.get(0), late));
         NuclearStrikes.clear(level);
         h.succeed();
     }
