@@ -18,26 +18,56 @@ Fields to paste when the project pages are created. The long description is [des
 | Mod id | `incoming` (before 3.0.0 the mod was called Airstrike, with the id `airstrike`) |
 | Dependencies | none required; optional: Create, Create Aeronautics + Sable, Distant Horizons |
 
-## Gallery
+## Media
 
-Images in the repository that can be uploaded as they are (no game UI text):
+The icon is `docs/media/icon.png` (512×512), the same picture as the mod's logo `incoming.png` in the jar. The page
+opens with the loop `docs/media/hero.webp` (960×540), which also heads the README. The gallery, in this order (the
+first one is featured):
 
 | File | Caption |
 |---|---|
+| `docs/media/still-2.jpg` | Cruise missile in flight over a city |
+| `docs/media/still-1.jpg` | Cruise missile flying low over the terrain toward its target |
+| `docs/media/still-3.jpg` | Cruise missile in its final dive onto a burning factory |
+| `docs/media/still-4.jpg` | The warhead explodes inside the factory |
 | `docs/guide/img/nuke-wave.jpg` | Fireball and blast wave of a 15 kt airburst over a city |
 | `docs/guide/img/nuke.jpg` | Mushroom cloud; the dust wall of the blast wave below |
 | `docs/guide/img/nuke-ruins.jpg` | A city after a 15 kt strike: ruins and fires |
-| `docs/guide/img/weapon-shahed.jpg` | Shahed-style drone in flight |
-| `docs/guide/img/weapon-lancet-launcher.jpg` | Lancet catapult launcher |
-| `docs/guide/img/weapon-missile.jpg` | Cruise missile flying low over terrain |
-| `docs/guide/img/weapon-grad.jpg` | Grad-style 40-tube rocket launcher |
-| `docs/guide/img/weapon-b2.jpg` | B-2 with the bomb bay open |
-| `docs/guide/img/weapon-icbm.jpg` | ICBM in the boost phase |
 
-Missing:
+## Publishing
 
-- **Icon** (square, at least 400×400). The mod has none yet; `tools/trailer/icon_from_frames.py` can cut one from the
-  trailer's "icon" shot.
-- **Screenshots with the English UI**: the binoculars, the designator console, the targeting map, the projectile
-  camera, the SAM radar. The guide's animations were shot with the Russian UI.
-- **A short video** (trailer) for the top of the page.
+The workflow `.github/workflows/publish.yml` creates the Modrinth page and uploads the jar of a GitHub release. It
+runs only when started by hand. [modrinth.json](modrinth.json) holds the Modrinth fields from the table above, the
+icon path and the gallery with captions; change it together with this file.
+
+Secrets and variable, in Settings → Secrets and variables → Actions:
+
+- `MODRINTH_TOKEN`: New repository secret. A Modrinth personal access token with the scopes Create projects, Read
+  projects, Write projects, Create versions and Read versions.
+- `CURSEFORGE_TOKEN`: New repository secret. A CurseForge API token for file uploads.
+- `CURSEFORGE_ID`: Variables tab → New repository variable. The project ID shown on the CurseForge project page.
+
+Without `MODRINTH_TOKEN` the workflow skips Modrinth, and without `CURSEFORGE_TOKEN` or `CURSEFORGE_ID` it skips
+CurseForge. The run does not fail because of that.
+
+To start it: Actions → publish → Run workflow, choose the step, enter the version (for example `3.0.0`; empty means
+the latest GitHub release) and press Run workflow.
+
+- `draft`: creates the Modrinth project as a draft, or updates the draft: the fields, the page text from
+  [description.md](description.md), the icon `docs/media/icon.png` and the gallery images from `modrinth.json` that
+  exist in the repository, and the jar. Only the project members see a draft and its versions. Run it again after
+  changing the images or the texts: it uploads only new images and skips a jar that is already uploaded.
+- `submit`: sends the Modrinth draft for review and uploads the jar to CurseForge. On CurseForge the first file sends
+  a new project for review.
+- `release`: for later versions, after Modrinth has approved the project: updates the Modrinth page and uploads the
+  jar to Modrinth and CurseForge.
+
+Each uploaded file lists the optional mods as dependencies: Create, Create Aeronautics, Sable and Distant Horizons on
+Modrinth, and the same without Create Aeronautics on CurseForge, which had no project with the slug
+`create-aeronautics` on 12.10.2026.
+An image removed from `gallery` is removed from the site on the next `draft` or `release`; captions of uploaded
+images are changed on the site. Running `submit` or `release` twice for the same version uploads the file to
+CurseForge twice.
+
+A CurseForge project can only be created on the site. Create it by hand first with the fields above (title, summary,
+CurseForge categories, license, links, and description.md as the description), then add its ID as `CURSEFORGE_ID`.

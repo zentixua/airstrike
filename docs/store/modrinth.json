@@ -1,0 +1,49 @@
+{
+  "slug": "incoming",
+  "title": "Incoming: Air Strikes and Air Defense",
+  "description": "Modern air strikes on a real scale: kamikaze drones, loitering munitions, cruise missiles, rocket salvos, a B-2 bomber and a nuclear ICBM, aimed with one designator. A surface-to-air missile system shoots down drones, cruise missiles and bombers.",
+  "categories": [
+    "equipment",
+    "technology",
+    "game-mechanics"
+  ],
+  "additional_categories": [],
+  "client_side": "required",
+  "server_side": "required",
+  "license_id": "GPL-3.0-only",
+  "source_url": "https://github.com/zentixua/incoming",
+  "issues_url": "https://github.com/zentixua/incoming/issues",
+  "wiki_url": "https://github.com/zentixua/incoming/blob/main/docs/guide/README.md",
+  "icon": "docs/media/icon.png",
+  "gallery": [
+    {
+      "file": "docs/media/still-2.jpg",
+      "title": "Cruise missile in flight over a city",
+      "featured": true
+    },
+    {
+      "file": "docs/media/still-1.jpg",
+      "title": "Cruise missile flying low over the terrain toward its target"
+    },
+    {
+      "file": "docs/media/still-3.jpg",
+      "title": "Cruise missile in its final dive onto a burning factory"
+    },
+    {
+      "file": "docs/media/still-4.jpg",
+      "title": "The warhead explodes inside the factory"
+    },
+    {
+      "file": "docs/guide/img/nuke-wave.jpg",
+      "title": "Fireball and blast wave of a 15 kt airburst over a city"
+    },
+    {
+      "file": "docs/guide/img/nuke.jpg",
+      "title": "Mushroom cloud; the dust wall of the blast wave below"
+    },
+    {
+      "file": "docs/guide/img/nuke-ruins.jpg",
+      "title": "A city after a 15 kt strike: ruins and fires"
+    }
+  ]
+}

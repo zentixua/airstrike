@@ -66,8 +66,12 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
   docs/guide/                            ← руководство игрока по-английски (README.md — оглавление, картинки в img/),
                                            docs/guide/ru/ — то же по-русски
   docs/store/                            ← тексты страниц Modrinth и CurseForge (поля и описание)
+  docs/media/                            ← иконка (она же логотип мода incoming.png), петля hero.webp для README и страниц,
+                                           кадры для галереи
   docs/releases/<версия>.md              ← заметки к релизу
   .github/workflows/build.yml            ← CI
+  .github/workflows/publish.yml          ← страницы Modrinth и CurseForge, только ручным запуском: draft (скрытый черновик
+                                           Modrinth), submit, release; поля — docs/store/modrinth.json
   .claude/rules/                         ← устройство пакетов и подводные камни по областям
 
 ~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/   ← Prism (tools/paths.py: PRISM)
