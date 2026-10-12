@@ -384,6 +384,12 @@ abstract class Film {
             return this;
         }
 
+        /**
+         * INCOMING_TRAILER_PREVIEW=1 — проверка кадров: без ударов, ожидания момента и реплик, по три кадра на план
+         * (начало, середина, конец); план, который ждёт сущность ({@code after}), пропускается.
+         */
+        static final boolean PREVIEW = System.getenv("INCOMING_TRAILER_PREVIEW") != null;
+
         /** INCOMING_TRAILER_SHOTS=a,b — снимать только эти планы (остальные проигрываются без записи, для отладки). */
         boolean selected() {
             String only = System.getenv("INCOMING_TRAILER_SHOTS");
@@ -404,6 +410,7 @@ abstract class Film {
         public boolean tick() {
             switch (phase) {
                 case 0 -> {
+                    if (PREVIEW && after != null) return true;
                     if (after != null && !after.getAsBoolean() && waited++ < afterTimeout) return false;
                     if (after != null && waited > afterTimeout) {
                         Incoming.LOG.warn("TRAILER {}: не дождались условия, план пропущен", name);
@@ -426,7 +433,7 @@ abstract class Film {
                     phase = prep ? 1 : 2;
                     // мир стоит, пока камера ждёт прогрузки: снаряд не долетает до цели раньше, чем начнётся запись
                     if (prep) setFrozen(true);
-                    if (!prep && atReady != null) atReady.run();
+                    if (!prep && atReady != null && !PREVIEW) atReady.run();
                     Incoming.LOG.info("TRAILER {}: подготовка", name);
                 }
                 case 1 -> {
@@ -436,20 +443,20 @@ abstract class Film {
                         setFrozen(false);
                         phase = 2;
                         waited = 0;
-                        if (atReady != null) atReady.run();
+                        if (atReady != null && !PREVIEW) atReady.run();
                     } else {
                         waited++;
                     }
                 }
                 case 2 -> {
                     followCamera();
-                    if (when != null && !when.getAsBoolean()) {
+                    if (!PREVIEW && when != null && !when.getAsBoolean()) {
                         if (++waited % 200 == 0) Incoming.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, waited);
                         if (waited < whenTimeout) return false;
                         Incoming.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
                     if (selected()) {
-                        rec.start(name, speed, hudOn);
+                        rec.start(name, PREVIEW ? Math.max(1, 1.5 * (length - 1)) : speed, hudOn);
                         recording = this;
                         frameClock = 0;
                         setTickRate(Math.max(1, (float) (8 * rec.step())));
@@ -462,7 +469,7 @@ abstract class Film {
                     followCamera();
                     t++;
                     runCues();
-                    if (end != null && endAt < 0 && end.getAsBoolean()) endAt = t + endDelay;
+                    if (!PREVIEW && end != null && endAt < 0 && end.getAsBoolean()) endAt = t + endDelay;
                     if (t >= length || endAt >= 0 && t >= endAt) {
                         rec.stop();
                         recording = null;
@@ -478,6 +485,7 @@ abstract class Film {
         }
 
         private void runCues() {
+            if (PREVIEW) return;
             for (Cue c : cues) if (c.at == t) c.action.run();
         }
 

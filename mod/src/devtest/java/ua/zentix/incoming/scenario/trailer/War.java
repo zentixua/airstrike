@@ -436,29 +436,32 @@ final class War {
 
         // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
         Vec3 room = new Vec3(3060.5, 0, 352.5);
-        Vec3 blast = new Vec3(3062.5, 0, 318.5);
+        Vec3 blast = new Vec3(3062.5, 0, 331.5);  // на улице перед окном: вспышка видна в окне целиком
         hiddenAt(room, blast);
         film.onServer(level -> buildRoom(level, room));
         film.shot("p17").length(40).hidden()
                 .onReady(() -> salvo("missile", 1, 0, blast, new Vec3(2200, 0, 318)))
                 .camera(() -> {
                     Vec3 floor = new Vec3(room.x, roomFloor, room.z);
-                    return CineCamera.dolly(floor.add(0.2, 1.5, 2.2), floor.add(0.1, 1.52, 1.9), 40, () -> at(blast).add(0, 6, 0), 66);
+                    return CineCamera.dolly(floor.add(0.2, 1.55, 1.4), floor.add(0.1, 1.57, 1.1), 40, () -> at(blast).add(0, 2, 0), 70);
                 })
                 .when(() -> flightNear(at(blast), 60), 3000);
 
         // p19: со спины человека на крыше: горизонт вспыхивает ударами (a), ракеты проходят над головой (b)
-        Vec3 farA = new Vec3(3020.5, 0, 640.5), farB = new Vec3(3240.5, 0, 700.5);
+        // земли с крыши не видно за домами — горизонт вспыхивает верхними этажами башен
+        List<Vec3> towers = List.of(new Vec3(3028.5, 165, 509.5), new Vec3(3154.5, 190, 566.5), new Vec3(2911.5, 175, 600.5),
+                new Vec3(3061.5, 180, 715.5));
+        Vec3 farA = new Vec3(3040.5, 175, 590.5), farB = new Vec3(3240.5, 0, 700.5);
         hiddenAt(ROOF, farA);
         film.run(() -> cast().spawn("Oleg", ROOF, Film.yawTo(ROOF, farA), null));
         film.waitTicks(60);
         film.shot("p19a").length(50).hidden()
                 .onReady(() -> {
-                    salvo("missile", 5, 50, farA, new Vec3(2350, 0, 600));
-                    salvo("rocket", 16, 30, farA.add(60, 0, 40), new Vec3(2550, 0, 680));
+                    // с севера, как стоит камера: удар в видимую грань; 800–920 блоков — один за другим через ~10 тиков
+                    for (int i = 0; i < towers.size(); i++) salvo("missile", 1, 0, towers.get(i), towers.get(i).add(60 - i * 40, 0, -800 - i * 40));
                 })
-                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> at(farA).add(0, 30, 0), 55))
-                .when(() -> flightNear(at(farA), 120), 3000);
+                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> farA, 55))
+                .when(() -> flightNear(towers.get(0), 160), 3000);
         film.run(() -> cast().act("Oleg", lookUp(at(farB).add(0, 30, 0)), true));
         film.shot("p19b").length(50).hidden()
                 .onReady(() -> salvo("missile", 4, 20, farB, behind(ROOF, at(farB), 900)))
@@ -1068,8 +1071,10 @@ final class War {
         int x = Mth.floor(room.x), z = Mth.floor(room.z);
         int y = groundY(level, x, z);
         roomFloor = y;
-        cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:white_concrete hollow", x - 3, y - 1, z - 3, x + 3, y + 4, z + 3));
+        cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:spruce_planks hollow", x - 3, y - 1, z - 3, x + 3, y + 4, z + 3));
+        cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:dark_oak_planks", x - 2, y - 1, z - 2, x + 2, y - 1, z + 2));
         cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:glass_pane", x - 2, y, z - 3, x + 2, y + 3, z - 3));
+        cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:lantern[hanging=true]", x, y + 3, z));
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:red_bed[facing=east,part=foot]", x - 2, y, z + 1));
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:bookshelf", x + 2, y, z + 2));
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:potted_fern", x + 2, y, z - 2));
