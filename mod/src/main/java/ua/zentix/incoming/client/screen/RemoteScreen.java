@@ -10,6 +10,7 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
@@ -50,7 +51,14 @@ import java.util.function.IntConsumer;
  * Настройки сохраняются в пульте; пуск проверяет сервер.
  */
 public class RemoteScreen extends Screen {
-    private static final int W = 320, H = 236;
+    private static final int W = 320;
+    /** Строка текста: высота шрифта Minecraft. */
+    private static final int LINE = 9;
+    /**
+     * Высота окна без строк описания оружия и подсказки цели. Тексты переносятся по ширине окна, а не уходят за его края:
+     * описанию — столько строк, сколько у самого длинного из меню (окно не прыгает при смене оружия), подсказке — две.
+     */
+    private static final int BASE_H = 204, HINT_LINES = 2;
     private static final int PAGE = 8;
     /** Настройки для тех, у кого нет пульта в руке (экран из команды). */
     private static Loadout detached = Loadout.DEFAULT;
@@ -62,6 +70,8 @@ public class RemoteScreen extends Screen {
     private UUID aircraft;
     private int page;
     private final List<Choice> choices = new ArrayList<>();
+    /** Строк описания оружия и высота окна: считаются в {@link #init()} по шрифту. */
+    private int descLines = 1, h = BASE_H + (1 + HINT_LINES) * LINE;
 
     private record Choice(Component label, String player, @Nullable UUID aircraft) {}
 
@@ -89,20 +99,21 @@ public class RemoteScreen extends Screen {
 
     @Override
     protected void init() {
-        int x0 = (width - W) / 2, y0 = (height - H) / 2;
+        List<WeaponType> menu = WeaponType.menu();
+        descLines = Math.max(1, menu.stream().mapToInt(w -> font.split(w.description(), W - 8).size()).max().orElse(1));
+        h = BASE_H + (descLines + HINT_LINES) * LINE;
+        int x0 = (width - W) / 2, y0 = (height - h) / 2;
         int y = y0 + 22;
 
         // оружие
-        List<WeaponType> menu = WeaponType.menu();
-        int nw = menu.size();
-        int bw = (W - 8 - 4 * (nw - 1)) / nw;
+        List<Cell> weapons = new ArrayList<>();
         for (WeaponType w : menu) {
-            int x = x0 + 4 + menu.indexOf(w) * (bw + 4);
-            Button b = Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
-                    .bounds(x, y, bw, 20).tooltip(Tooltip.create(w.description())).build();
-            addRenderableWidget(b);
+            weapons.add(new Cell(Button.builder(label(w.displayName(), loadout.weapon() == w), btn -> set(loadout.withWeapon(w)))
+                    .bounds(0, y, 0, 20).tooltip(Tooltip.create(w.description())).build()));
         }
-        y += 38;
+        row(weapons, x0);
+        // под кнопками — описание выбранного оружия (render)
+        y += 22 + descLines * LINE + 3;
 
         // количество и разброс; у ядерной — мощность и подрыв
         int sw = (W - 12) / 2;
@@ -110,23 +121,19 @@ public class RemoteScreen extends Screen {
         if (loadout.nuclear()) {
             // МБР: мощность и подрыв; ракета и B-2 с ядерной БЧ: переключатель БЧ, мощность, у ракеты — подрыв
             WeaponSpec.Warhead warhead = loadout.weapon().spec().warhead();
-            boolean carrier = !warhead.always();
-            boolean burst = warhead.chooseBurst();
-            int cols = (carrier ? 1 : 0) + 1 + (burst ? 1 : 0);
-            int cw = (W - 8 - 4 * (cols - 1)) / cols;
-            int x = x0 + 4;
-            if (carrier) {
-                addRenderableWidget(warheadButton(n, x, y, cw));
-                x += cw + 4;
+            List<Cell> nuke = new ArrayList<>();
+            if (!warhead.always()) nuke.add(new Cell(warheadButton(n, 0, y, 0)));
+            List<Component> yields = new ArrayList<>(List.of(yieldLabel(n.yieldKt())));
+            for (Yield v : Yield.values()) yields.add(yieldLabel((int) v.kt()));
+            nuke.add(new Cell(Button.builder(yields.getFirst(),
+                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst(), n.onCarrier())))).bounds(0, y, 0, 20).build(), yields));
+            if (warhead.chooseBurst()) {
+                Component air = Component.translatable("incoming.remote.burst.air"), ground = Component.translatable("incoming.remote.burst.ground");
+                nuke.add(new Cell(Button.builder(n.airBurst() ? air : ground,
+                        b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(0, y, 0, 20)
+                        .tooltip(Tooltip.create(Component.translatable("incoming.remote.burst.tooltip"))).build(), List.of(air, ground)));
             }
-            addRenderableWidget(Button.builder(Component.translatable("incoming.remote.yield", n.yieldKt(), yieldName(n.yieldKt())),
-                    b -> set(loadout.withNuke(new Loadout.Nuke(nextYield(n.yieldKt()), n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20).build());
-            x += cw + 4;
-            if (burst) {
-                addRenderableWidget(Button.builder(Component.translatable(n.airBurst() ? "incoming.remote.burst.air" : "incoming.remote.burst.ground"),
-                        b -> set(loadout.withNuke(new Loadout.Nuke(n.yieldKt(), !n.airBurst(), n.onCarrier())))).bounds(x, y, cw, 20)
-                        .tooltip(Tooltip.create(Component.translatable("incoming.remote.burst.tooltip"))).build());
-            }
+            row(nuke, x0);
         } else if (Loadout.carriesNuke(loadout.weapon())) {
             int cw = (W - 16) / 3;
             addRenderableWidget(new IntSlider(x0 + 4, y, cw, 20, "incoming.remote.count", 1, 30, loadout.count(), v -> commit(loadout.withCount(v))));
@@ -139,15 +146,14 @@ public class RemoteScreen extends Screen {
         y += 26;
 
         // режим цели
-        int modes = TargetMode.values().length;
-        int mw = (W - 8 - 4 * (modes - 1)) / modes;
+        List<Cell> modes = new ArrayList<>();
         for (TargetMode m : TargetMode.values()) {
-            int x = x0 + 4 + m.ordinal() * (mw + 4);
-            addRenderableWidget(Button.builder(label(m.displayName(), loadout.mode() == m), b -> {
+            modes.add(new Cell(Button.builder(label(m.displayName(), loadout.mode() == m), b -> {
                 page = 0;
                 set(loadout.withMode(m));
-            }).bounds(x, y, mw, 20).build());
+            }).bounds(0, y, 0, 20).build()));
         }
+        row(modes, x0);
         y += 24;
 
         // место на карте: открыть карту наведения
@@ -184,7 +190,7 @@ public class RemoteScreen extends Screen {
         }
 
         // огонь, отбой, настройки
-        int by = y0 + H - 26;
+        int by = y0 + h - 26;
         // пульт с привязанными пусковыми ставит им задачу, а не пускает сам (launcher.LauncherLinks)
         int linked = hand != null && minecraft.player != null ? LauncherLinks.of(minecraft.player.getItemInHand(hand)).size() : 0;
         Component fireLabel = linked > 0 ? Component.translatable("incoming.remote.assign", linked) : Component.translatable("incoming.remote.fire");
@@ -240,15 +246,45 @@ public class RemoteScreen extends Screen {
         return (int) Yield.values()[0].kt();
     }
 
-    private static Component yieldName(int kt) {
+    /** «15 кт (Хиросима)»; у мощности не из пресетов — без имени. */
+    private static Component yieldLabel(int kt) {
         for (Yield y : Yield.values()) {
-            if ((int) y.kt() == kt) return Component.translatable(y.key());
+            if ((int) y.kt() == kt) return Component.translatable("incoming.remote.yield", kt, Component.translatable(y.key()));
         }
-        return Component.empty();
+        return Component.translatable("incoming.remote.yield", kt, Component.empty());
     }
 
+    /** Выбранное — жёлтым с чертой, без жирного: жирный шире, и выбор раздвигал бы ряд {@link #row}. */
     private static Component label(Component text, boolean selected) {
-        return selected ? text.copy().withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD, ChatFormatting.UNDERLINE) : text.copy().withStyle(ChatFormatting.GRAY);
+        return selected ? text.copy().withStyle(ChatFormatting.YELLOW, ChatFormatting.UNDERLINE) : text.copy().withStyle(ChatFormatting.GRAY);
+    }
+
+    /** Кнопка ряда {@link #row} и все надписи, какие она показывает: ширина — по самой длинной, ряд не прыгает при переключении. */
+    private record Cell(Button button, List<Component> texts) {
+        Cell(Button button) {
+            this(button, List.of(button.getMessage()));
+        }
+    }
+
+    /**
+     * Ряд кнопок во всю ширину окна: каждой — ширина её надписи с полями и поровну остатка, иначе длинная надпись
+     * («Куда смотрю», «Подрыв: воздушный») прокручивалась бы в кнопке равной ширины. Не помещаются и так — поровну.
+     */
+    private void row(List<Cell> cells, int x0) {
+        int n = cells.size(), free = W - 8 - 4 * (n - 1);
+        int[] need = new int[n];
+        int sum = 0;
+        for (int i = 0; i < n; i++) sum += need[i] = cells.get(i).texts().stream().mapToInt(font::width).max().orElse(0) + 8;
+        int spare = free - sum, x = x0 + 4;
+        for (int i = 0; i < n; i++) {
+            // остаток делится нарастающим итогом: ряд кончается ровно у края окна
+            int w = spare >= 0 ? need[i] + spare * (i + 1) / n - spare * i / n : free * (i + 1) / n - free * i / n;
+            Button b = cells.get(i).button();
+            b.setX(x);
+            b.setWidth(w);
+            addRenderableWidget(b);
+            x += w + 4;
+        }
     }
 
     private void set(Loadout l) {
@@ -354,9 +390,9 @@ public class RemoteScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
-        int x0 = (width - W) / 2, y0 = (height - H) / 2;
+        int y0 = (height - h) / 2;
         g.drawCenteredString(font, Component.translatable("incoming.remote.title").withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD), width / 2, y0 + 7, 0xFFFFFFFF);
-        g.drawCenteredString(font, loadout.weapon().description().copy().withStyle(ChatFormatting.GRAY), width / 2, y0 + 46, 0xFFFFFFFF);
+        lines(g, loadout.weapon().description().copy().withStyle(ChatFormatting.GRAY), y0 + 44, false);
         Component hint = switch (loadout.mode()) {
             case LOOK -> Component.translatable("incoming.remote.hint.look");
             case AROUND_ME -> Component.translatable("incoming.remote.hint.around_me");
@@ -370,7 +406,17 @@ public class RemoteScreen extends Screen {
                         .orElse(Component.translatable("incoming.remote.hint.no_map"));
             }
         };
-        g.drawCenteredString(font, hint.copy().withStyle(ChatFormatting.DARK_GRAY), width / 2, y0 + H - 40, 0xFFFFFFFF);
+        // подсказка — над кнопками пуска: последняя строка внизу, лишние растут вверх
+        lines(g, hint.copy().withStyle(ChatFormatting.DARK_GRAY), y0 + h - 28, true);
+    }
+
+    /** Текст по середине окна, перенесённый по его ширине: от {@code y} вниз или, если {@code up}, вверх до {@code y}. */
+    private void lines(GuiGraphics g, Component text, int y, boolean up) {
+        List<FormattedCharSequence> split = font.split(text, W - 8);
+        int top = up ? y - split.size() * LINE : y;
+        for (int i = 0; i < split.size(); i++) {
+            g.drawCenteredString(font, split.get(i), width / 2, top + i * LINE, 0xFFFFFFFF);
+        }
     }
 
     /** Подсказка для движущейся цели ({@code player}, {@code aircraft}): идёт ли выбранное оружие за ней ({@link WeaponSpec.Tracking}). */
@@ -383,9 +429,9 @@ public class RemoteScreen extends Screen {
     @Override
     public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.renderBackground(g, mouseX, mouseY, partialTick);
-        int x0 = (width - W) / 2, y0 = (height - H) / 2;
-        g.fill(x0, y0, x0 + W, y0 + H, 0xE0101014);
-        g.renderOutline(x0, y0, W, H, 0xFF8A1A1A);
+        int x0 = (width - W) / 2, y0 = (height - h) / 2;
+        g.fill(x0, y0, x0 + W, y0 + h, 0xE0101014);
+        g.renderOutline(x0, y0, W, h, 0xFF8A1A1A);
         g.fill(x0 + 1, y0 + 18, x0 + W - 1, y0 + 19, 0xFF8A1A1A);
     }
 
