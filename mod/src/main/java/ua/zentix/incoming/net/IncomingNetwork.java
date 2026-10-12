@@ -11,7 +11,7 @@ import ua.zentix.incoming.strike.ServerActions;
  * несовместимом изменении — тогда NeoForge честно скажет «разные версии мода», а не упадёт.
  */
 public final class IncomingNetwork {
-    public static final String PROTOCOL = "22";
+    public static final String PROTOCOL = "23";
 
     private IncomingNetwork() {}
 
