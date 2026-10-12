@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Глаз кадра ({@link FarDraw#eye}) — центр проекции и при покачивании вида: точка, перенесённая к нему по лучу (блик
  * в 0,25 блока перед глазом, дальнее у дальней плоскости), остаётся на экране там же, где источник. От позиции камеры
- * блик огня при ходьбе гулял по дуге шага, а мир за ним стоял.
+ * блик огня при ходьбе гулял бы по дуге шага, а мир за ним стоял бы.
  */
 class FarDrawTest {
     private static final Matrix4f PROJECTION = new Matrix4f().perspective((float) Math.toRadians(70), 16f / 10f, 0.05f, 1024f);
@@ -60,7 +60,7 @@ class FarDrawTest {
                     Vector3f glare = screen(m[0], m[1], toward(eye, p, 0.25f));
                     assertEquals(source.x, glare.x, 1e-4, "блик у глаза по горизонтали, фаза " + i);
                     assertEquals(source.y, glare.y, 1e-4, "блик у глаза по вертикали, фаза " + i);
-                    // так было: перенос к позиции камеры — блик уходил от огня на доли экрана
+                    // перенос к позиции камеры: блик уходит от огня на доли экрана
                     Vector3f old = screen(m[0], m[1], toward(new Vector3f(), p, 0.25f));
                     assertTrue(Math.hypot(old.x - source.x, old.y - source.y) > 0.05, "перенос к камере, фаза " + i);
                 }

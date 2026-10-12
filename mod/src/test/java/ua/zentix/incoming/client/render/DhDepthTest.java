@@ -45,7 +45,7 @@ class DhDepthTest {
 
     @Test
     void dhMatrixAloneMisreadsIrisDepth() {
-        // то, что было: глубина Iris, прочитанная матрицей DH, — LOD города в 3 км «стоял» ближе столбов на 1,5 км
+        // глубина Iris, прочитанная одной матрицей DH, ставит LOD города в 3 км ближе столбов на 1,5 км
         Matrix4f iris = new Matrix4f().setPerspective(FOV, ASPECT, PARAM_NEAR, FAR);
         float misread = along(dhProjection().invert(), depth(iris, 3000));
         assertTrue(misread < 1500, "прочитано " + misread);

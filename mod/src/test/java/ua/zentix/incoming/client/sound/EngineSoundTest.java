@@ -50,7 +50,7 @@ class EngineSoundTest {
 
     @Test
     void missileWhistlesTheWholeApproachFromAfar() {
-        // ракета на последнем участке, слушатель у цели: свист слышно с 850 блоков (раньше — только с 260), и он нарастает
+        // ракета на последнем участке, слушатель у цели: свист слышно с 850 блоков, и он нарастает
         FlightTrack t = missile(1200, EAR, 300);
         double te = Acoustics.emissionTime(t, heardFrom(1200, 850), EAR.x, EAR.y, EAR.z);
         Emission e = Emission.at(t, te, EAR, false);
@@ -178,7 +178,7 @@ class EngineSoundTest {
     @Test
     void whistleFadesThroughThePassInsteadOfCuttingOff() {
         // ракета идёт на цель за слушателем и проходит в 60 блоках сбоку: свист подлёта стихает за пролёт, а не обрывается
-        // в ближайшей точке (раньше — с полной громкости до шума обтекания за тик)
+        // в ближайшей точке (с полной громкости до шума обтекания за тик)
         Vec3 ear = new Vec3(0, 12, 60);
         FlightTrack t = missile(600, new Vec3(-700, 0, 0), 300);
         double prev = -1, peak = 0, worst = 0;

@@ -132,7 +132,7 @@ final class CineCamera {
 
     /**
      * То же, но пока цели нет, камера стоит у {@code start} (курс {@code heading}): за камерой ходит невидимка,
-     * и без этого он уходил к нулю мира — чанки у цели выгружались, и снаряд не возвращался в мир.
+     * и без этого он уходил бы к нулю мира — чанки у цели выгружались бы, и снаряд не вернулся бы в мир.
      */
     static Path chase(Supplier<Entity> target, Vec3 start, Vec3 heading, double back, double up, double side, double lead,
                       float roll, double fov) {

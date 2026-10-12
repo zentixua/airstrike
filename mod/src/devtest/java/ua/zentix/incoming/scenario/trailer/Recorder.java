@@ -85,7 +85,7 @@ final class Recorder implements SoundEventListener {
                 Minecraft.getInstance().options.languageCode));
         Incoming.LOG.info("TRAILER shot {} x{}", name, speed);
         // петли, что зазвучали раньше плана и звучат дальше (моторы снарядов в полёте, начатые на пуске), — с начала
-        // плана: движок сообщает о звуке только при запуске, и без этого планы погони шли без мотора
+        // плана: движок сообщает о звуке только при запуске, и без этого планы погони шли бы без мотора
         for (SoundInstance sound : List.copyOf(Minecraft.getInstance().getSoundManager().soundEngine.instanceToChannel.keySet())) {
             if (sound.isLooping()) log(sound);
         }

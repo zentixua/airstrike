@@ -60,7 +60,7 @@ class FarBlastsTest {
 
     @Test
     void smokeWaitsForTheBallToFade() {
-        // пока шар светит целиком, дым столба его не закрывает (раньше десяток клубов за 8 тиков делал из шара бурый ком)
+        // пока шар светит целиком, дым столба его не закрывает (иначе десяток клубов за 8 тиков делает из шара бурый ком)
         for (FarBlasts.Look k : LOOKS) {
             int from = FarBlasts.smokeFrom(k);
             for (double age = 0; age < k.ballTicks(); age += 0.25) {
