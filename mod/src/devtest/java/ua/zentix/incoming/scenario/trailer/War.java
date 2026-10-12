@@ -451,7 +451,7 @@ final class War {
         // земли с крыши не видно за домами — горизонт вспыхивает верхними этажами башен
         List<Vec3> towers = List.of(new Vec3(3028.5, 165, 509.5), new Vec3(3154.5, 190, 566.5), new Vec3(2911.5, 175, 600.5),
                 new Vec3(3061.5, 180, 715.5));
-        Vec3 farA = new Vec3(3040.5, 175, 590.5), farB = new Vec3(3240.5, 0, 700.5);
+        Vec3 farA = new Vec3(3040.5, 175, 590.5), farB = new Vec3(2916.5, 0, 800.5);  // farB — за башнями на той же линии
         hiddenAt(ROOF, farA);
         film.run(() -> cast().spawn("Oleg", ROOF, Film.yawTo(ROOF, farA), null));
         film.waitTicks(60);
@@ -462,12 +462,12 @@ final class War {
                 })
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> farA, 55))
                 .when(() -> flightNear(towers.get(0), 160), 3000);
-        film.run(() -> cast().act("Oleg", lookUp(at(farB).add(0, 30, 0)), true));
+        film.run(() -> cast().act("Oleg", lookUp(farA), true));
         film.shot("p19b").length(50).hidden()
                 .onReady(() -> salvo("missile", 4, 20, farB, behind(ROOF, at(farB), 900)))
-                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> ROOF.add(-20, 60, -30), 60))
+                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> farA.add(0, 30, 0), 60))
                 .when(() -> flightNear(ROOF, 160), 3000)
-                .cue(10, () -> cast().act("Oleg", lookUp(ROOF.add(40, 50, 60)), true));
+                .cue(10, () -> cast().act("Oleg", lookUp(farA.add(0, 120, 0)), true));
         film.run(() -> cast().remove("Oleg"));
     }
 
@@ -657,7 +657,7 @@ final class War {
         });
         Vec3 drones = new Vec3(3170.5, 0, 250.5);
         for (String take : new String[]{"a", "b"}) {
-            Vec3 from = take.equals("a") ? new Vec3(3110.5, 0, 330.5) : new Vec3(3260.5, 0, 300.5);
+            Vec3 from = take.equals("a") ? new Vec3(3150.5, 0, 298.5) : new Vec3(3218.5, 0, 270.5);  // площадь, без домов и деревьев
             film.shot("p22" + take).length(50).hidden()
                     .onReady(() -> salvo("drone", 4, 30, drones, new Vec3(2400, 0, 250)))
                     .camera(() -> {

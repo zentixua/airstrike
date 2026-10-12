@@ -74,9 +74,10 @@ TPS = 20
 
 MUSIC = {
     "file": "juggernaut.mp3",  # копия файла из --music
-    # первый — файл в файлах проекта (video/trailer-war/music, по нему сняты доли), второй — записанный в music.md при
-    # скачивании 12.10.2026 (scottbuckley.com.au/library/juggernaut)
-    "sha256": ("994ce3d4d2fa61a2e5434c3b11c104a207f2525209840197d88585dd84584f1a",),
+    # первый — файл в файлах проекта (video/trailer-war/music, по нему сняты доли), второй — тот же трек по прямой
+    # ссылке сайта (scottbuckley.com.au/library/wp-content/uploads/2022/07/Juggernaut.mp3, 8 885 000 байт)
+    "sha256": ("994ce3d4d2fa61a2e5434c3b11c104a207f2525209840197d88585dd84584f1a",
+               "50be286d170f5a08791f1540b110fbbb4c0aa26e841084fceff0c908379e76f6"),
     "credit": 'Music: "Juggernaut" by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au',
 }
 FONTS = {
