@@ -538,7 +538,7 @@ final class War {
         // p10a: крылатые ракеты сходят с пусковых и сбрасывают ускорители — длинный фокус вдоль ряда
         film.shot("p10a").length(40).hidden()
                 .onReady(() -> fireAll(missileRack))
-                .camera(() -> CineCamera.track(new Vec3(-1425, 70.2, 512), () -> new Vec3(-1500, 73, ROW_MISSILE), 30))
+                .camera(() -> CineCamera.track(new Vec3(-1552, 70.2, 507), () -> new Vec3(-1470, 76, ROW_MISSILE), 30))
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
         // p10b: «Град» выпускает 40 ракет
         film.shot("p10b").length(40).hidden()
@@ -574,7 +574,7 @@ final class War {
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
         // p21: с огромной высоты — дымные следы тянутся на восток
         film.shot("p21").length(30).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(-1600, 175, 470), new Vec3(-1590, 175, 472), 30,
+                .camera(() -> CineCamera.glide(new Vec3(-1600, 330, 470), new Vec3(-1590, 330, 472), 30,
                         () -> new Vec3(-1200, 90, 525), 64));
 
         // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
@@ -584,7 +584,7 @@ final class War {
                 .onReady(() -> fireAll(List.of(rocketRack.get(1))))
                 .camera(() -> {
                     Vec3 l = Vec3.atBottomCenterOf(rocketRack.get(1));
-                    return CineCamera.track(l.add(-1.6, 3.6, 0.4), () -> l.add(30, 14, 0), 84);
+                    return CineCamera.track(l.add(-6, 5, 2), () -> l.add(30, 20, 0), 84);
                 })
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
 
@@ -593,15 +593,14 @@ final class War {
                 .onReady(() -> fireAll(missileRack))
                 .camera(() -> {
                     Vec3 l = Vec3.atBottomCenterOf(missileRack.get(4));
-                    return CineCamera.track(l.add(9, 0.6, 2.5), () -> l.add(28, 18, 0), 78);
+                    return CineCamera.track(l.add(16, 1.2, -10), () -> l.add(30, 18, 0), 78);
                 })
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
 
         // p36: ответ Востока — шахеды накрывают батарею, расчёт бежит от пусковых
         film.shot("p36").length(50).hidden()
                 .onReady(() -> salvo("drone", 6, 24, BATTERY.add(10, 0, 0), new Vec3(-800, 0, 560)))
-                .camera(() -> CineCamera.track(new Vec3(-1415, 71, 540),
-                        film.smoothFocus(() -> film.nearest(DroneEntity.class, BATTERY, 200), BATTERY.add(0, 4, 0), 0.2), 30))
+                .camera(() -> CineCamera.track(new Vec3(-1415, 71, 540), () -> BATTERY.add(0, 4, 0), 30))
                 .when(() -> film.nearest(DroneEntity.class, BATTERY, 70) != null, 3000)
                 .cue(0, () -> film.withServer(s -> {
                     for (int i = 0; i < 8; i++) {
