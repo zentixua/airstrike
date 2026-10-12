@@ -4,9 +4,9 @@ Fields to paste when the project pages are created. The long description is [des
 
 | Field | Value |
 |---|---|
-| Title | pending Artem's choice of a new public name (proposals: Incoming, Steel Rain, Strikefall, Strike Designator), with the subtitle "Air Strikes and Air Defense" |
-| Slug | the chosen name; `airstrike` is free on Modrinth, but «Airstrike Mod», «Air Strike», «SkyStrike» and «Air Strike Warfare» already exist on Modrinth and CurseForge |
-| Summary | Modern air strikes on a real scale: kamikaze drones, loitering munitions, cruise missiles, rocket salvos, a B-2 bomber and an ICBM with a nuclear warhead, aimed with one designator. A surface-to-air missile system defends against them. |
+| Title | Incoming: Air Strikes and Air Defense |
+| Slug | `incoming` (free on Modrinth on 12.10.2026; the mod's old name is taken several times over: «Airstrike Mod», «Air Strike», «SkyStrike», «Air Strike Warfare») |
+| Summary | Modern air strikes on a real scale: kamikaze drones, loitering munitions, cruise missiles, rocket salvos, a B-2 bomber and a nuclear ICBM, aimed with one designator. A surface-to-air missile system shoots down drones, cruise missiles and bombers. |
 | Loader and version | NeoForge, Minecraft 1.21.1 (NeoForge 21.1.259 or newer) |
 | Environment | client: required; server: required (same version on both) |
 | Modrinth categories | Equipment, Technology, Game Mechanics |
@@ -15,6 +15,7 @@ Fields to paste when the project pages are created. The long description is [des
 | Source | https://github.com/zentixua/airstrike |
 | Issues | https://github.com/zentixua/airstrike/issues |
 | Wiki / guide | https://github.com/zentixua/airstrike/blob/main/docs/guide/README.md |
+| Mod id | `airstrike` (the mod was called Airstrike before; the command is `/airstrike`) |
 | Dependencies | none required; optional: Create, Create Aeronautics + Sable, Distant Horizons |
 
 ## Gallery

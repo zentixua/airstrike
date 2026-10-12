@@ -1,4 +1,4 @@
-Airstrike (https://github.com/zentixua/airstrike): strikes by drones, missiles, MLRS, a B-2, and a nuclear strike.
+Incoming, formerly Airstrike (https://github.com/zentixua/airstrike): strikes by drones, missiles, MLRS, a B-2, and a nuclear strike.
 - A strike is the command «airstrike salvo <weapon> <count> <spread> at x y z [from x z] [via x z …]»: from is the
   launch site (a launcher stands there until airstrike clear), via is up to 5 waypoints in order (drone, missile,
   loiter). A single projectile is count 1, spread 0.

@@ -1,10 +1,14 @@
-# Airstrike
+# Incoming
 
 English · [Русский](README.ru.md)
 
-A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes: a Shahed-style kamikaze drone, a Lancet-style
-loitering munition, a cruise missile, a Grad-style rocket launcher, a B-2 with a bunker-buster bomb and an ICBM with
-a nuclear warhead. A surface-to-air missile system defends against them.
+A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are a Shahed-style
+kamikaze drone, a Lancet-style loitering munition, a cruise missile, a Grad-style rocket launcher, a B-2 with
+a bunker-buster bomb and an ICBM with a nuclear warhead. A surface-to-air missile system shoots down drones, cruise
+missiles and bombers.
+
+The mod used to be called Airstrike. Its id, the `/airstrike` command and the jar name `airstrike-<version>.jar`
+still use that name.
 
 ![Fireball and blast wave of a 15 kt airburst over a city](docs/guide/img/nuke-wave.jpg)
 
@@ -36,14 +40,14 @@ The [player guide](docs/guide/README.md) covers all of this in detail.
 
 ## Installation
 
-The easiest way to play is the [Airstrike Pack](https://github.com/zentixua/airstrike-pack) modpack (Create,
-Create Aeronautics, Distant Horizons, shaders). It updates itself, Airstrike included, every time the game starts.
+The easiest way to play is the [Incoming Pack](https://github.com/zentixua/airstrike-pack) modpack (Create,
+Create Aeronautics, Distant Horizons, shaders). It updates itself, this mod included, every time the game starts.
 
 Without the pack:
 
 1. Install Minecraft 1.21.1 with NeoForge 21.1.259 or newer. No other mods are required.
 2. Download `airstrike-<version>.jar` from [Releases](https://github.com/zentixua/airstrike/releases/latest) and put it
-   in the `mods` folder. Remove any older Airstrike jar.
+   in the `mods` folder. Remove any older `airstrike-*.jar`.
 3. The server and every player need the same version of the mod. A client with a different version cannot join.
 
 ## Compatibility
@@ -54,7 +58,7 @@ All of these are optional:
 - **Create**: munition recipes use Create parts when Create is installed and vanilla items otherwise.
 - **Distant Horizons** 3.3 or newer: the targeting map shows distant terrain, and strike damage shows up in the
   distant terrain right away.
-- **Sound Physics Remastered**: it handles muffling behind walls; Airstrike only adds deafening from explosions.
+- **Sound Physics Remastered**: it handles muffling behind walls; Incoming only adds deafening from explosions.
 - **Iris**: the nuclear effects render with shaders.
 - **Flashback**: replays show strikes, and seeking through a replay does not set off explosions again.
 
@@ -79,7 +83,7 @@ cd mod
 
 ## Credits and license
 
-Made by ZentixUA. Airstrike is free software under the GNU General Public License version 3
+Made by ZentixUA. Incoming is free software under the GNU General Public License version 3
 ([LICENSE](LICENSE)). You may use, modify and redistribute it, including in modpacks, under the same license and with
 its source code. Sounds are made from Freesound recordings under CC0 and CC BY 4.0; the authors are listed in
 [SOUND-CREDITS.md](SOUND-CREDITS.md). The jar bundles the sable-companion library (MIT).

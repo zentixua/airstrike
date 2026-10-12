@@ -1,4 +1,4 @@
-Air strikes for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one metre, and the projectiles,
+Air strikes and air defense for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one metre, and the projectiles,
 launchers and the effects of a nuclear explosion have their real sizes.
 
 ![Fireball and blast wave of a 15 kt airburst over a city](https://raw.githubusercontent.com/zentixua/airstrike/main/docs/guide/img/nuke-wave.jpg)
@@ -58,11 +58,12 @@ No other mods are required. Optional:
 - **Distant Horizons** 3.3 or newer: distant terrain on the targeting map and strike damage in distant terrain.
 - **Sound Physics Remastered**, **Iris** shaders, **Flashback** replays.
 
-The mod is needed on the server and on every client, in the same version.
+The mod is needed on the server and on every client, in the same version. It was called Airstrike before
+publication; its id and the `/airstrike` command still use that name.
 
 ## Links
 
 - [Player guide](https://github.com/zentixua/airstrike/blob/main/docs/guide/README.md)
 - [Source code](https://github.com/zentixua/airstrike) (GPL-3.0)
-- [Airstrike Pack](https://github.com/zentixua/airstrike-pack): a modpack built around the mod, with Create,
+- [Incoming Pack](https://github.com/zentixua/airstrike-pack): a modpack built around the mod, with Create,
   Create Aeronautics, Distant Horizons and shaders
