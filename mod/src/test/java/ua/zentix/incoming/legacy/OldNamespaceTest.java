@@ -16,19 +16,24 @@ class OldNamespaceTest {
     @Test
     void savedDataOfAllDimensionsGetsTheNewName(@TempDir Path world) throws IOException {
         Path overworld = Files.createDirectories(world.resolve("data"));
-        Path nether = Files.createDirectories(world.resolve("dimensions/minecraft/the_nether/data"));
+        Path nether = Files.createDirectories(world.resolve("DIM-1/data"));
+        Path end = Files.createDirectories(world.resolve("DIM1/data"));
+        Path modded = Files.createDirectories(world.resolve("dimensions/somemod/sky/data"));
         Files.writeString(overworld.resolve("airstrike_nuclear.dat"), "old");
         Files.writeString(overworld.resolve("airstrike_grid.dat"), "grid");
         Files.writeString(overworld.resolve("raids.dat"), "vanilla");
         Files.writeString(nether.resolve("airstrike_salvos.dat"), "salvos");
+        Files.writeString(end.resolve("airstrike_nuclear.dat"), "end");
+        Files.writeString(modded.resolve("airstrike_grid.dat"), "sky");
 
-        List<Path> folders = OldNamespace.dataFolders(world);
-        assertEquals(List.of(overworld, nether), folders);
-        for (Path folder : folders) OldNamespace.adoptSavedData(folder);
+        // где игра держит данные каждого измерения, решает DimensionType.getStorageFolder (GameTest oldNamespaceResolves)
+        for (Path folder : List.of(overworld, nether, end, modded)) OldNamespace.adoptSavedData(folder);
 
         assertEquals("old", Files.readString(overworld.resolve("incoming_nuclear.dat")));
         assertEquals("grid", Files.readString(overworld.resolve("incoming_grid.dat")));
         assertEquals("salvos", Files.readString(nether.resolve("incoming_salvos.dat")));
+        assertEquals("end", Files.readString(end.resolve("incoming_nuclear.dat")));
+        assertEquals("sky", Files.readString(modded.resolve("incoming_grid.dat")));
         assertTrue(Files.exists(overworld.resolve("raids.dat")));
         assertFalse(Files.exists(overworld.resolve("airstrike_nuclear.dat")));
     }
@@ -47,7 +52,7 @@ class OldNamespaceTest {
 
     @Test
     void worldWithoutDataFolderIsFine(@TempDir Path world) throws IOException {
-        for (Path folder : OldNamespace.dataFolders(world)) OldNamespace.adoptSavedData(folder);
+        OldNamespace.adoptSavedData(world.resolve("data"));
         assertFalse(Files.exists(world.resolve("data")));
     }
 }

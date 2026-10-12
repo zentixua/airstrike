@@ -24,6 +24,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -49,6 +50,7 @@ import ua.zentix.incoming.util.Terrain;
 import ua.zentix.incoming.work.StallWatch;
 
 import java.lang.reflect.Field;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -93,6 +95,13 @@ public final class LifecycleGameTests {
         state.putString("Name", OldNamespace.ID + ":" + BuiltInRegistries.BLOCK.getKey(block).getPath());
         BlockState read = NbtUtils.readBlockState(helper.getLevel().holderLookup(Registries.BLOCK), state);
         helper.assertTrue(read.is(block), "old block name read as " + read);
+        // данные мира переименовываются там, где их держит игра: Незер — DIM-1, Энд — DIM1
+        Path root = helper.getLevel().getServer().getWorldPath(LevelResource.ROOT);
+        List<Path> folders = OldNamespace.dataFolders(helper.getLevel().getServer());
+        for (String dim : List.of("DIM-1", "DIM1")) {
+            helper.assertTrue(folders.contains(root.resolve(dim).resolve("data")), "no " + dim + "/data among " + folders);
+        }
+        helper.assertTrue(folders.contains(root.resolve("data")), "no data folder of the overworld among " + folders);
         helper.succeed();
     }
 

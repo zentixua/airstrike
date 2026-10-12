@@ -5,7 +5,7 @@ Fields to paste when the project pages are created. The long description is [des
 | Field | Value |
 |---|---|
 | Title | Incoming: Air Strikes and Air Defense |
-| Slug | `incoming` (free on Modrinth on 12.10.2026; the mod's old name is taken several times over: «Airstrike Mod», «Air Strike», «SkyStrike», «Air Strike Warfare») |
+| Slug | `incoming` (free on Modrinth on 12.10.2026; a CurseForge search on the same day found no project named Incoming. The mod's old name is taken several times over: «Airstrike Mod», «Air Strike», «SkyStrike», «Air Strike Warfare») |
 | Summary | Modern air strikes on a real scale: kamikaze drones, loitering munitions, cruise missiles, rocket salvos, a B-2 bomber and a nuclear ICBM, aimed with one designator. A surface-to-air missile system shoots down drones, cruise missiles and bombers. |
 | Loader and version | NeoForge, Minecraft 1.21.1 (NeoForge 21.1.259 or newer) |
 | Environment | client: required; server: required (same version on both) |

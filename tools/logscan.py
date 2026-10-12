@@ -43,7 +43,7 @@ if since:
 # стек исключения: строки «\tat …» и «Caused by» после строки с ошибкой нашего мода
 errors = []
 for i, l in enumerate(lines):
-    if re.search(r"/(ERROR|WARN)\]", l) and re.search(r"(?i)incoming|ua\.zentix|ua\.ze\.ai", l) and "Assets URL" not in l:
+    if re.search(r"/(ERROR|WARN)\]", l) and re.search(r"Incoming/\]|ua\.zentix|ua\.ze\.in\.", l) and "Assets URL" not in l:
         block = [l]
         for nxt in lines[i + 1:i + 40]:
             if nxt.startswith(("\tat ", "Caused by", "java.", "\t... ")) or re.match(r"^\S+Exception", nxt):

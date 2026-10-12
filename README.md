@@ -42,7 +42,7 @@ The [player guide](docs/guide/README.md) covers all of this in detail.
 
 1. Install Minecraft 1.21.1 with NeoForge 21.1.259 or newer. No other mods are required.
 2. Download `incoming-<version>.jar` from [Releases](https://github.com/zentixua/incoming/releases/latest) and put it
-   in the `mods` folder. Remove any older `incoming-*.jar`.
+   in the `mods` folder. Remove any older `incoming-*.jar` or `airstrike-*.jar`.
 3. The server and every player need the same version of the mod. A client with a different version cannot join.
 
 ## Compatibility

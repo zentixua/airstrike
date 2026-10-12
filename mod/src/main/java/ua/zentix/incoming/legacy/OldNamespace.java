@@ -1,6 +1,9 @@
 package ua.zentix.incoming.legacy;
 
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -10,7 +13,6 @@ import ua.zentix.incoming.Incoming;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -38,26 +40,22 @@ public final class OldNamespace {
 
     /** {@link ServerAboutToStartEvent} идёт до загрузки миров: их данные читаются уже под новым именем. */
     public static void onServerAboutToStart(ServerAboutToStartEvent event) {
-        Path root = event.getServer().getWorldPath(LevelResource.ROOT);
+        MinecraftServer server = event.getServer();
         try {
-            for (Path data : dataFolders(root)) adoptSavedData(data);
+            for (Path data : dataFolders(server)) adoptSavedData(data);
         } catch (IOException e) {
-            Incoming.LOG.error("Could not rename the world data of the Airstrike mod in {}", root, e);
+            Incoming.LOG.error("Could not rename the world data of the Airstrike mod in {}", server.getWorldPath(LevelResource.ROOT), e);
         }
     }
 
-    /** {@code data} верхнего мира и {@code dimensions/<ns>/<path>/data} остальных измерений. */
-    static List<Path> dataFolders(Path root) throws IOException {
-        List<Path> folders = new ArrayList<>();
-        folders.add(root.resolve("data"));
-        Path dimensions = root.resolve("dimensions");
-        if (Files.isDirectory(dimensions)) {
-            try (Stream<Path> found = Files.find(dimensions, 3, (p, a) -> a.isDirectory() && p.getFileName().toString().equals("data")
-                    && dimensions.relativize(p).getNameCount() == 3)) {
-                found.forEach(folders::add);
-            }
-        }
-        return folders;
+    /**
+     * Папки {@code data} измерений мира там, где их держит игра ({@link DimensionType#getStorageFolder}): верхний мир —
+     * корень, Незер — {@code DIM-1}, Энд — {@code DIM1}, измерения модов — {@code dimensions/<ns>/<path>}.
+     */
+    public static List<Path> dataFolders(MinecraftServer server) {
+        Path root = server.getWorldPath(LevelResource.ROOT);
+        return server.registryAccess().registryOrThrow(Registries.LEVEL_STEM).registryKeySet().stream()
+                .map(stem -> DimensionType.getStorageFolder(Registries.levelStemToLevel(stem), root).resolve("data")).toList();
     }
 
     /** {@code airstrike_<имя>.dat} → {@code incoming_<имя>.dat}, если нового файла ещё нет. */
