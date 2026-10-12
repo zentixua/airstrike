@@ -45,15 +45,15 @@ public final class ModBlocks {
                     .noOcclusion()));
 
     /**
-     * ЗРК: пусковая с радаром ({@link SamBlock}). Прочность — как у подстанции: взрыв шахеда рядом его разносит.
+     * ЗРК: кабина радара под пакетом контейнеров ({@link SamBlock}). Прочность — как у подстанции: взрыв шахеда рядом его
+     * разносит.
      */
     public static final DeferredBlock<SamBlock> SAM = REGISTER.register("sam", () -> new SamBlock(
             BlockBehaviour.Properties.of()
                     .mapColor(MapColor.COLOR_GREEN)
                     .strength(5.0f, 6.0f)
                     .requiresCorrectToolForDrops()
-                    .sound(SoundType.METAL)
-                    .noOcclusion()));
+                    .sound(SoundType.METAL)));
 
     /**
      * Стационарная пусковая установка ({@link FixedLauncherBlock}): пуск по задаче от сигнала редстоуна. Прочность —

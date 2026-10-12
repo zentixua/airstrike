@@ -113,7 +113,7 @@ public final class DefenseWorld {
         return true;
     }
 
-    /** Пуск: ракета сходит с направляющей вверх под углом паспорта в сторону цели. */
+    /** Пуск: ракета сходит с направляющей вверх под углом паспорта в сторону цели (у ЗРК — отвесно). */
     Interceptor launch(ServerLevel level, Vec3 rail, Radar.Track track, @Nullable UUID owner, String launcher, InterceptorSpec spec) {
         Interceptor f = new Interceptor(spec, track.id(), owner, launcher, rail, Interceptor.railDirection(rail, track.position(), spec));
         flights.add(f);

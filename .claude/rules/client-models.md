@@ -27,4 +27,5 @@ paths:
   «сущность / путь по пакетам» на одной позе и ряды всех снарядов на 300–3000 блоках.
 - Модели — в настоящую величину (блок = метр); `gen_models.py` строит часть моделей в старых единицах и уменьшает при
   записи (`Model(scale=…)`). Меняя размер, править вместе: шарниры в `WeaponModels`, сопла, факелы и сброшенный
-  ускоритель в `ClientWeaponSpec`, `noseLength` в `WeaponSpec`, размер хитбокса в `ModEntities`, ячейки в `LauncherRack.slotOffset`.
+  ускоритель в `ClientWeaponSpec`, `noseLength` в `WeaponSpec`, размер хитбокса в `ModEntities`, ячейки в `LauncherRack.slotOffset`;
+  пакет ЗРК — числа в `SamBlockEntity` (рамка отрисовки и место ракеты в контейнере).

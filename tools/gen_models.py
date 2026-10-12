@@ -31,7 +31,8 @@
   loiter  — барражирующий боеприпас «Ланцет-3» (×1.5): тонкий корпус, два X-образных креста крыльев
             (раскрываются после катапульты), толкающий винт;
   interceptor — зенитная ракета ЗРК (как 9М96): обтекатель головки, крестообразные рули и стабилизаторы,
-            светящийся срез сопла; без упрощённой копии (вдали её не рисуют).
+            светящийся срез сопла; без упрощённой копии (вдали её не рисуют);
+  sam     — пусковая ЗРК над его блоком: плита и пакет из четырёх вертикальных контейнеров (без упрощённой копии).
 Нужны numpy и Pillow.
 """
 import json
@@ -1001,6 +1002,54 @@ def interceptor():
     m.write()
 
 
+# ============================================================================ ЗРК
+
+# пакет ЗРК: четыре контейнера 2×2 над кабиной — те же числа, что SamBlockEntity.CANISTER_OFFSET, PACK_FLOOR, CANISTER_LENGTH
+SAM_OFFSET, SAM_FLOOR, SAM_CANISTER = 0.33, 1.1, 4.3
+
+
+def sam():
+    """
+    Пусковая ЗРК над его блоком (блок — кабина радара 1 × 1 × 1 м, модель блока): опорная плита и пакет из четырёх
+    транспортно-пусковых контейнеров 2×2, стоят вертикально, как у 9М96 на С-350 и С-400: квадратная труба
+    0.62 × 0.62 × 4.3 м (ракета — 4 м, X-оперение вписано в квадрат), сверху — крышки, пакет стянут тремя бандажами.
+    Начало — середина низа блока, +Y — верх, +Z — перед (FACING блока).
+    """
+    m = Model("sam", 256, 256, lod=False)
+    side = m.cv.alloc(64, 240)
+    frame = m.cv.alloc(64, 32)
+    lid = m.cv.alloc(32, 32)
+    half, top = 0.31, SAM_FLOOR + SAM_CANISTER
+    m.box("pack", (-0.72, 1.0, -0.72), (0.72, SAM_FLOOR, 0.72), frame)
+    for y in (1.55, 3.2, 4.85):
+        m.box("pack", (-0.67, y, -0.67), (0.67, y + 0.16, 0.67), frame)
+    up = v3(0, 1, 0)
+    for cx in (-SAM_OFFSET, SAM_OFFSET):
+        for cz in (-SAM_OFFSET, SAM_OFFSET):
+            # борта: u — слева направо, если смотреть снаружи, v — сверху вниз (надпись читается)
+            for n in (v3(1, 0, 0), v3(-1, 0, 0), v3(0, 0, 1), v3(0, 0, -1)):
+                r = np.cross(-n, up)
+                c = v3(cx, 0, cz) + n * half
+                m.plate("pack", [c - r * half + up * top, c + r * half + up * top, c + r * half + up * SAM_FLOOR,
+                                 c - r * half + up * SAM_FLOOR], side, n, double=False)
+            m.plate("pack", [v3(cx - half, top, cz - half), v3(cx + half, top, cz - half), v3(cx + half, top, cz + half),
+                             v3(cx - half, top, cz + half)], frame, up, double=False)
+            m.box("pack", (cx - 0.27, top, cz - 0.27), (cx + 0.27, top + 0.03, cz + 0.27), lid)
+    side.paint((86, 96, 66), mottle=0.07)
+    # рёбра жёсткости между бандажами, трафарет и полоса «снаряжён» под верхним бандажем
+    side.lines_v([(top - y) / SAM_CANISTER for y in (4.0, 2.4)], dark=0.3)
+    side.text("9M96", 0.25, 0.2, 2, (225, 225, 215))
+    side.rect(0.25, 0.27, 0.75, 0.285, (214, 178, 38), 0.95)
+    streaks(side, 0.12)
+    frame.paint((62, 70, 50), mottle=0.06)
+    edge_wear(frame, 0.12, 0.2)
+    lid.paint((112, 118, 98), mottle=0.04)
+    u, v = lid.grid()
+    rr = np.hypot(u - 0.5, v - 0.5) * 2
+    lid.darken(((rr > 0.72) & (rr < 0.86)) | ((rr < 0.72) & ((np.abs(u - 0.5) < 0.04) | (np.abs(v - 0.5) < 0.04))), 0.4)
+    m.write()
+
+
 if __name__ == "__main__":
     drone()
     missile()
@@ -1011,3 +1060,4 @@ if __name__ == "__main__":
     rocket_rack()
     loiter()
     interceptor()
+    sam()
