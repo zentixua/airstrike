@@ -60,12 +60,14 @@ No other mods are required. Optional:
 
 The mod is needed on the server and on every client, in the same version.
 
-## How it is made
-
-I'm Zentix. I came up with Incoming, decided how every part of it should work, and test it with my friends on my own
-server. I write the code with Claude Code. All pictures on this page are screenshots from the game.
-
 ## Links
 
 - [Player guide](https://github.com/zentixua/incoming/blob/main/docs/guide/README.md)
 - [Source code](https://github.com/zentixua/incoming) (GPL-3.0)
+
+## About
+
+I design Incoming and test it on my own server with a group of friends. The code is written with Claude Code. All
+images on this page are in-game screenshots.
+
+— Zentix
