@@ -18,7 +18,8 @@ interface Scene {
     Map<String, Scene> ALL = new TreeMap<>(Map.of(
             "street", Scene::streetFight,
             "airfield", AirfieldScene::stage,
-            "factory", FactoryScene::stage
+            "factory", FactoryScene::stage,
+            "airship", AirshipScene::stage
     ));
 
     /** Уличный бой: два отряда по шесть бойцов за укрытиями, облёт и вид из-за плеча. */
