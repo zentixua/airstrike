@@ -1,50 +1,54 @@
-# Airstrike: руководство игрока
+# Incoming: player guide
 
-Удары с воздуха: шахеды, «Ланцеты», крылатые ракеты, «Град», бомбардировщик B-2 и ядерная МБР. Всё наводится одним
-предметом, пультом наведения. Снаряды настоящей величины летят по-настоящему, их видно и слышно издалека, а у цели
-заранее воет сирена.
+English · [Русский](ru/README.md)
 
-## С чего начать
+Air strikes: Shahed drones, Lancets, cruise missiles, Grad rockets, a B-2 bomber and a nuclear ICBM. All of them are
+aimed with one item, the Strike Designator. The projectiles are full size and fly like real ones; they can be seen and
+heard from far away, and a siren sounds at the target before impact.
 
-1. Скрафти [пульт наведения](designator.md#как-получить) и [боеприпасы](munitions.md): пульт стреляет только тем,
-   что лежит в инвентаре.
-2. Держи ПКМ с пультом: откроется бинокль. Колесом мыши выбери оружие, наведи прицел, нажми ЛКМ.
-3. Нажми `N` и смотри удар камерой снаряда. Shift — выход.
+The mod used to be called Airstrike; its command is still `/airstrike`.
 
-![Бинокль: ПКМ — приблизить, колесо — оружие, ЛКМ — пуск](img/scope.webp)
+## Getting started
 
-Shift+ПКМ открывает экран пульта (залп, разброс, цель), а `,` — карту для ударов вдаль.
+1. Craft a [Strike Designator](designator.md#crafting) and [munitions](munitions.md): the designator fires only what is
+   in your inventory.
+2. Hold RMB with the designator to look through its binoculars. Pick a weapon with the mouse wheel, aim, press LMB.
+3. Press `N` to watch the strike through the projectile camera. Shift exits.
 
-## Разделы
+![Binoculars: RMB to zoom in, wheel to pick a weapon, LMB to launch](img/scope.webp)
 
-| Раздел | Что там |
+Shift+RMB opens the console (salvo, spread, target), and `,` opens the map for strikes at long range.
+
+## Sections
+
+| Section | What it covers |
 |---|---|
-| [Пульт наведения](designator.md) | бинокль, экран пульта, снаряды на экране, отбой |
-| [Карта наведения](map.md) | удар вдаль, маршрут полёта |
-| [Камера снаряда](camera.md) | вид с борта, новая цель, «Ланцет» |
-| [Оружие](weapons.md) | чем отличается каждое и когда что брать |
-| [Боеприпасы и крафт](munitions.md) | рецепты, расход |
-| [Правила ударов](rules.md) | по кому можно бить, разведка |
-| [Оборона](defense.md) | сирены, укрытия, ЗРК |
-| [Стационарная пусковая](launcher.md) | блок, который стреляет по сигналу редстоуна |
-| [Ядерный удар](nuke.md) | пуск, взрыв, как выжить, радиация |
-| [Блэкаут](blackout.md) | подстанция и отключение света |
-| [Команды](commands.md) | `/airstrike` |
-| [Настройки и клавиши](settings.md) | свои настройки, клавиши, настройки мира |
-| [Вопросы и неполадки](faq.md) | что значат сообщения |
+| [Strike Designator](designator.md) | binoculars, console, projectiles on screen, abort |
+| [Targeting map](map.md) | long-range strikes, flight route |
+| [Projectile camera](camera.md) | onboard view, new target, Lancet |
+| [Weapons](weapons.md) | how each one differs and when to use it |
+| [Munitions and crafting](munitions.md) | recipes, what a launch uses |
+| [Strike rules](rules.md) | who can be struck, spotting |
+| [Defense](defense.md) | sirens, cover, SAM |
+| [Fixed launcher](launcher.md) | a block that fires on a redstone signal |
+| [Nuclear strike](nuke.md) | launch, detonation, survival, radiation |
+| [Blackout](blackout.md) | substation and power cuts |
+| [Commands](commands.md) | `/airstrike` |
+| [Settings and keys](settings.md) | your settings, keys, world settings |
+| [FAQ and troubleshooting](faq.md) | what the messages mean |
 
-## Клавиши
+## Keys
 
-| Где | Клавиша | Что делает |
+| Where | Key | What it does |
 |---|---|---|
-| с пультом в руке | ПКМ (держать) | бинокль |
-| в бинокле | ЛКМ / колесо мыши | пуск / выбор оружия |
-| с пультом в руке | Shift+ПКМ | экран пульта |
-| в игре | `,` | карта наведения |
-| в игре | `N` | камера снаряда; ещё раз — следующий снаряд |
-| в камере снаряда | ЛКМ / Shift | новая цель / выход |
-| на карте | ЛКМ / Enter | выбрать цель / огонь |
-| на карте | Shift+ЛКМ / ПКМ | поставить / убрать точку маршрута |
-| рядом с чужим ядерным пуском | `.` | второй ключ |
+| designator in hand | RMB (hold) | binoculars |
+| in the binoculars | LMB / mouse wheel | launch / pick a weapon |
+| designator in hand | Shift+RMB | console |
+| in game | `,` | targeting map |
+| in game | `N` | projectile camera; press again for the next projectile |
+| in the projectile camera | LMB / Shift | new target / exit |
+| on the map | LMB / Enter | pick a target / fire |
+| on the map | Shift+LMB / RMB | add / remove a route point |
+| near another player's nuclear launch | `.` | second key |
 
-Клавиши меняются в «Настройки → Управление → Airstrike».
+Keys are changed under Options → Controls → Key Binds → Incoming.

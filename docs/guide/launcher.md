@@ -1,38 +1,41 @@
-# Стационарная пусковая
+# Fixed launcher
 
-Блок, который сам пускает шахеды, «Ланцеты», крылатые ракеты и «Град» по сигналу редстоуна. Цель задаёт пульт,
-огонь даёт кнопка, рычаг или любая схема. Несколько пусковых — батарея на одну кнопку.
+English · [Русский](ru/launcher.md)
 
-![Рычаг — и пусковая пускает крылатую ракету](img/launcher.webp)
+A block that launches Shaheds, Lancets, cruise missiles and Grad rockets by itself on a redstone signal. The designator
+sets the target; a button, a lever or any circuit gives the order to fire. Several launchers make a battery on one
+button.
 
-## Как зарядить
+![A lever is pulled and the launcher fires a cruise missile](img/launcher.webp)
 
-Ставь на открытом месте: постройки перед пакетом закрывают пуск. Боеприпасы кладут правым кликом или воронкой
-(и через неё — механизмами Create), в запасе 9 ячеек. Вынуть их можно, только сломав блок. B-2 и МБР с неё
-не пускаются.
+## Loading
 
-## Задача
+Place it in the open: buildings in front of the rack block the launch. Munitions go in with a right click or through a
+hopper (and so from Create machines too); the stock has 9 slots. They come back out only when the block is broken. It
+does not launch B-2s or ICBMs.
 
-1. ПКМ пультом по пусковой — привязать её к пульту (ещё раз — отвязать).
-2. Выбери в пульте цель, оружие и залп и дай «Огонь»: пока к пульту привязаны пусковые, он не стреляет сам,
-   а ставит им задачу. Кнопка огня на экране пульта называется «ЗАДАЧА».
-3. Пусковая разворачивается к цели и ждёт сигнала.
+## Mission
 
-Цель задачи — место не дальше 10 000 блоков от пусковой: игрок или аппарат становятся местом, где были в этот
-момент. Привязать можно только свою пусковую или пусковую своей команды (`/team`). Чтобы пульт снова стрелял сам,
-отвяжи все пусковые.
+1. RMB on the launcher with the designator links it to the designator (again to unlink).
+2. Set the target, weapon and salvo on the designator and fire: while launchers are linked, the designator does not
+   fire by itself but gives them a mission. The fire button on the console then reads MISSION.
+3. The launcher turns toward the target and waits for a signal.
 
-## Огонь
+A mission target is a place no more than 10,000 blocks from the launcher; a player or an aircraft becomes the place
+where it was at that moment. You can link only your own launcher or one belonging to your team (`/team`). To make the
+designator fire by itself again, unlink all launchers.
 
-Каждый новый сигнал редстоуна — один приказ: снаряд или весь залп задачи. Снаряды летят от имени хозяина пусковой,
-даже если его нет в сети, и «Отбой» на его пульте их отзывает. Пусковая стреляет, только пока загружен её чанк,
-и не стреляет с летательного аппарата.
+## Firing
 
-Если пусковая щёлкает и не стреляет, ПКМ по ней пустой рукой покажет причину: нет задачи, мало запаса, идёт прошлый
-приказ или сектор закрыт постройками.
+Each new redstone signal is one order: a single round or the mission's whole salvo. The rounds fly in the name of the
+launcher's owner, even when the owner is offline, and Abort on the owner's designator calls them off. The launcher
+fires only while its chunk is loaded, and never from an aircraft.
 
-## Крафт
+If the launcher clicks but does not fire, RMB on it with an empty hand shows why: no mission, not enough stock, the
+previous order still running, or buildings blocking the launch sector.
 
-![Рецепт стационарной пусковой](img/recipe-fixed_launcher.png)
+## Crafting
 
-Без Create точный механизм в рецепте заменяют часы.
+![Fixed launcher recipe](img/recipe-fixed_launcher.png)
+
+Without Create, a clock takes the place of the precision mechanism.

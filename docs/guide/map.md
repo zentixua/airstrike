@@ -1,30 +1,32 @@
-# Карта наведения
+# Targeting map
 
-Карта бьёт по любому месту до 10 000 блоков: за холм, в соседний город. Открывается клавишей `,` или с экрана пульта
-(цель «На карте» → «Открыть карту наведения…»).
+English · [Русский](ru/map.md)
 
-![Карта: выбрать место, поставить маршрут, дать огонь, снаряды летят](img/map.gif)
+The map strikes any place up to 10,000 blocks away: behind a hill, in the next town. Open it with `,` or from the
+console (target On map, then Open targeting map…).
 
-| Действие | Клавиша |
+![Map: pick a place, set a route, fire, projectiles in flight](img/map.gif)
+
+| Action | Key |
 |---|---|
-| выбрать место или чужого игрока | ЛКМ |
-| сдвинуть карту / приблизить | тянуть ЛКМ / колесо мыши |
-| вернуться к себе | пробел |
-| поставить точку маршрута (до пяти) | Shift+ЛКМ |
-| сдвинуть / убрать точку | тянуть точку / ПКМ по ней |
-| огонь | Enter или «ОГОНЬ» |
-| назад к пульту | Esc |
+| pick a place or another player | LMB |
+| pan / zoom | drag with LMB / mouse wheel |
+| back to your position | Space |
+| add a route point (up to five) | Shift+LMB |
+| move / remove a point | drag the point / RMB on it |
+| fire | Enter or FIRE |
+| back to the console | Esc |
 
-Удар идёт с оружием, числом снарядов и разбросом [экрана пульта](designator.md#экран-пульта). На карте видны твои
-снаряды в полёте, игроки своей команды и чужие там, где их [видели](rules.md#разведка) последний раз.
+The strike uses the weapon, count and spread set on the [console](designator.md#console). The map shows your
+projectiles in flight, your teammates, and other players where they were last [spotted](rules.md#spotting).
 
-## Маршрут
+## Route
 
-Шахед, крылатая ракета и «Ланцет» летят через точки маршрута: в обход ЗРК или чтобы зайти с нужной стороны. Внизу
-видно длину маршрута и время полёта. Слишком длинный маршрут краснеет, и огонь не даётся. Без точек снаряд выбирает
-путь сам. Остальное оружие маршрут не берёт.
+The Shahed, the cruise missile and the Lancet fly through route points: around a SAM, or to come in from the side you
+choose. The bottom of the map shows the route length and flight time. A route that is too long turns red and cannot be
+fired. Without points the projectile picks its own path. Other weapons do not take a route.
 
-## Если карта пустая
+## If the map is empty
 
-Без Distant Horizons карта показывает только загруженные чанки, но ударить по пустому месту всё равно можно. В Незере
-карта не работает.
+Without Distant Horizons the map shows only loaded chunks, but you can still strike a blank spot. The map does not work
+in the Nether.

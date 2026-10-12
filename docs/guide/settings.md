@@ -1,46 +1,48 @@
-# Настройки и клавиши
+# Settings and keys
 
-Настройки открываются кнопкой «Настройки» на экране пульта или в «Моды → Airstrike → Настроить». У каждого пункта
-есть подсказка.
+English · [Русский](ru/settings.md)
 
-## Свои настройки
+Settings open with the Settings button on the console or under Mods → Incoming → Config. Every option has a tooltip.
 
-Они у каждого игрока свои и лежат в `config/airstrike-client.toml`.
+## Your settings
 
-| Настройка | По умолчанию | Что задаёт |
+Each player has their own, stored in `config/airstrike-client.toml`.
+
+| Setting | Default | What it does |
 |---|---|---|
-| Сила тряски камеры | 1 | 0 — без тряски |
-| Яркость вспышки | 1 | 0 — без вспышки взрыва на экране |
-| Снаряды в полёте на экране | вкл | список своих снарядов и метки в мире |
-| Камера снаряда сама при пуске | выкл | камера сама показывает каждый пуск |
-| Кратность бинокля | 4 | от 1,5 до 10 |
-| Подробность ядерного гриба | средняя | ниже — легче для слабого компьютера |
-| Оглушение и звон в ушах | вкл | глухота после близкой ударной волны |
+| Camera shake | 1 | 0: no shake |
+| Flash brightness | 1 | 0: no on-screen flash from explosions |
+| Show strikes in flight | on | list of your projectiles and marks in the world |
+| Projectile camera on launch | off | the camera shows every launch by itself |
+| Binocular zoom | 4 | from 1.5 to 10 |
+| Mushroom cloud detail | MEDIUM | lower is lighter on a weak computer |
+| Deafness and ringing ears | on | muffled hearing after a nearby blast wave |
 
-Звуки мода идут по ползунку громкости «Окружение».
+The mod's sounds follow the Ambient/Environment volume slider.
 
-## Клавиши
+## Keys
 
-«Настройки → Управление → Airstrike»: пуск в бинокле (ЛКМ), камера снаряда (`N`), карта наведения (`,`), второй
-ключ ядерного пуска (`.`). Бинокль и экран пульта работают от обычной клавиши «Использовать» (ПКМ и Shift+ПКМ).
+Options → Controls → Key Binds → Incoming: launch in the binoculars (LMB), projectile camera (`N`), targeting map
+(`,`), second key for a nuclear launch (`.`), open console (unbound by default). The binoculars and the console use the
+regular Use Item key (RMB and Shift+RMB).
 
-В сборке «Airstrike Pack» своя раскладка клавиш всех модов (одна клавиша — одно действие), клавиши Airstrike в ней
-те же. Если клавиши сбились после обновления сборки, «Управление → Назначение клавиш → Сбросить настройки» ставит
-раскладку сборки (свои переназначения при этом сбросятся).
+The Incoming Pack has its own key layout for all of its mods (one key, one action), with the same Incoming keys. If
+keys get mixed up after a pack update, Controls → Key Binds → Reset Keys restores the pack's layout (your own rebinds
+are reset too).
 
-## Настройки мира
+## World settings
 
-Их меняет хозяин мира: в одиночной игре — файл `saves/<мир>/serverconfig/airstrike-server.toml`, на сервере — его
-владелец. Самые нужные — ниже, остальные — в том же файле, у каждого ключа там есть пояснение.
+The world owner changes these: in singleplayer in the file `saves/<world>/serverconfig/airstrike-server.toml`, on a
+server its owner does. The most useful ones are below; the rest are in the same file, each with a comment.
 
-| Ключ | По умолчанию | Что задаёт |
+| Key | Default | What it does |
 |---|---|---|
-| `launch.designator_for_everyone` | вкл | пульт у всех игроков, а не только у операторов |
-| `launch.max_salvo`, `max_spread` | 30, 150 | наибольший залп и разброс |
-| `launch.max_active_per_player` | 0 | сколько снарядов одного игрока в полёте; 0 — без предела |
-| `launch.sight_rules` | вкл | [разведка](rules.md#разведка): бить только по замеченным |
-| `warheads.*_power` | 12, 20, 7, 8, 20 | сила взрыва шахеда, ракеты, «Града», «Ланцета», бомбы (у ТНТ 4) |
-| `world.block_damage`, `fire` | вкл | разрушения и пожары |
-| `nuclear.enabled`, `ops_only` | вкл, вкл | ядерное оружие есть; пускают его только операторы |
-| `nuclear.effects_scale` | 1.0 | масштаб радиусов ядерного удара |
-| `grid.enabled` | вкл | [блэкаут](blackout.md) |
+| `launch.designator_for_everyone` | on | the designator works for all players, not only operators |
+| `launch.max_salvo`, `max_spread` | 30, 150 | largest salvo and spread |
+| `launch.max_active_per_player` | 0 | how many of one player's rounds may be in progress; 0: no limit |
+| `launch.sight_rules` | on | [spotting](rules.md#spotting): strike only spotted targets |
+| `warheads.*_power` | 12, 20, 7, 8, 20 | blast power of the Shahed, missile, Grad, Lancet, bomb (TNT is 4) |
+| `world.block_damage`, `fire` | on | destruction and fires |
+| `nuclear.enabled`, `ops_only` | on, on | nuclear weapons exist; only operators launch them |
+| `nuclear.effects_scale` | 1.0 | scale of nuclear strike radii |
+| `grid.enabled` | on | [blackout](blackout.md) |

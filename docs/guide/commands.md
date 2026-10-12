@@ -1,63 +1,67 @@
-# Команды
+# Commands
 
-Всё, что делает пульт, можно сделать командой `/airstrike`. У обычного игрока команда тратит боеприпасы и слушается
-тех же [правил](rules.md), что пульт; у оператора и командного блока — нет.
+English · [Русский](ru/commands.md)
 
-Оружие в командах: `drone` (или `shahed`), `loiter` (`lancet`), `missile`, `rocket` (`grad`), `bunker`, `nuke`.
+Everything the designator does can also be done with the `/airstrike` command. For a regular player the command uses
+munitions and follows the same [rules](rules.md) as the designator; for operators and command blocks it does not.
 
-## Удары
+Weapons in commands: `drone` (or `shahed`), `loiter` (`lancet`), `missile`, `rocket` (`grad`), `bunker`, `nuke`.
 
-| Команда | Что делает |
+## Strikes
+
+| Command | What it does |
 |---|---|
-| `/airstrike <оружие>` | удар туда, куда смотришь |
-| `/airstrike <оружие> <игрок или моб>` | удар по цели |
-| `/airstrike <оружие> at <x y z>` | удар по точке |
-| `/airstrike salvo <оружие> <число> <разброс> [цель]` | залп; цель — `me` (где стоишь, так по умолчанию), `look`, игрок или моб, `at <x y z>` |
-| `… via <x z> [<x z> …]` | маршрут: до пяти точек, только для шахеда, ракеты и «Ланцета» |
-| `… from <x z>` | место пуска: там встанет пусковая и простоит до «Отбоя», а если места нет, снаряды стартуют оттуда без неё (только оператор) |
+| `/airstrike <weapon>` | strike where you are looking |
+| `/airstrike <weapon> <player or mob>` | strike at a target |
+| `/airstrike <weapon> at <x y z>` | strike at a point |
+| `/airstrike salvo <weapon> <count> <spread> [target]` | salvo; the target is `me` (where you stand, the default), `look`, a player or mob, or `at <x y z>` |
+| `… via <x z> [<x z> …]` | route: up to five points, for the Shahed, missile and Lancet only |
+| `… from <x z>` | launch point: a launcher sets up there and stays until an abort; if there is no room, the rounds take off from there without it (operators only) |
 
-`from` и `via` пишутся после цели залпа, сначала `from`. Один снаряд по маршруту — залп из одного: `salvo drone 1 0 …`.
+`from` and `via` go after the salvo target, `from` first. A single round on a route is a salvo of one:
+`salvo drone 1 0 …`.
 
-## Ядерный удар
+## Nuclear strike
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `/airstrike nuke [кт [air\|ground]]` | МБР туда, куда смотришь |
-| `/airstrike nuke at <x y z> [кт [air\|ground]]` | МБР по точке |
-| `/airstrike nuke now [at <x y z>] [кт [air\|ground]]` | подрыв сразу, без полёта (только оператор) |
+| `/airstrike nuke [kt [air\|ground]]` | ICBM where you are looking |
+| `/airstrike nuke at <x y z> [kt [air\|ground]]` | ICBM at a point |
+| `/airstrike nuke now [at <x y z>] [kt [air\|ground]]` | detonation at once, without a flight (operators only) |
 
-Без числа — 15 кт, воздушный подрыв. `air` или `ground` — только после числа: `/airstrike nuke 15 ground`.
+Without a number: 15 kt, air burst. `air` or `ground` only after the number: `/airstrike nuke 15 ground`.
 
-## Прочее
+## Other commands
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `/airstrike clear` | отбой своих ударов; у оператора — всех ударов у всех, включая ядерные |
-| `/airstrike menu` | экран пульта |
-| `/airstrike help` | короткая справка в чате |
-| `/airstrike give [игроки]` | выдать пульт (только оператор) |
-| `/airstrike radiation [игрок]`, `radiation clear [игроки]` | доза облучения, снять облучение (только оператор) |
-| `/airstrike grid status`, `blackout`, `restore` | энергосеть: состояние, обесточить район, вернуть свет (только оператор) |
+| `/airstrike clear` | abort your strikes; for an operator, every strike of every player, nuclear ones included |
+| `/airstrike menu` | console |
+| `/airstrike help` | short help in chat |
+| `/airstrike give [players]` | give a Strike Designator (operators only) |
+| `/airstrike radiation [player]`, `radiation clear [players]` | radiation dose, clear radiation (operators only) |
+| `/airstrike grid status`, `blackout`, `restore` | power grid: status, cut power to an area, bring power back (operators only) |
 
-## Стационарная пусковая
+## Fixed launcher
 
-Только оператор. Пусковая должна стоять в загруженном чанке.
+Operators only. The launcher has to be in a loaded chunk.
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `/airstrike launcher <x y z>` | состояние: задача, запас, последний сигнал |
-| `… fire` | приказ по задаче, как сигнал редстоуна |
-| `… mission <оружие> <число> <разброс> <x y z> [via <x z> …]` | задача без правил игрока |
-| `… clear` | снять задачу |
-| `… load <N>` | положить в запас N боеприпасов оружия задачи |
-| `… owner <игрок>`, `owner none` | сменить хозяина или сделать пусковую ничьей |
+| `/airstrike launcher <x y z>` | status: mission, stock, last signal |
+| `… fire` | order by the mission, like a redstone signal |
+| `… mission <weapon> <count> <spread> <x y z> [via <x z> …]` | mission without player rules |
+| `… clear` | remove the mission |
+| `… load <N>` | put N munitions of the mission's weapon into stock |
+| `… owner <player>`, `owner none` | change the owner or make the launcher ownerless |
 
-Пусковая без хозяина (например, поставленная `/setblock`) стреляет без правил, как консоль.
+A launcher without an owner (for example, one placed with `/setblock`) fires without player rules, like the server
+console.
 
-## Примеры
+## Examples
 
 ```
-/airstrike missile ENOTzRPG
+/airstrike missile Steve
 /airstrike salvo rocket 20 25 at 120 70 -340
 /airstrike salvo loiter 5 20 look
 /airstrike salvo drone 1 0 at 800 64 200 via 300 -100 600 -50
@@ -66,10 +70,10 @@
 /airstrike launcher 100 64 -20 mission missile 2 10 120 70 -340
 ```
 
-1. Крылатая ракета по игроку ENOTzRPG (если его видно).
-2. Очередь «Града» из 20 снарядов с разбросом 25 блоков по точке.
-3. Рой из пяти «Ланцетов» туда, куда смотришь.
-4. Один шахед по точке, в обход через две точки маршрута.
-5. Четыре крылатые ракеты по точке с пусковой у -900 400 (оператор).
-6. Наземный ядерный подрыв 1 кт по точке.
-7. Задача пусковой на 100 64 -20: две крылатые ракеты с разбросом 10 блоков по точке (оператор).
+1. A cruise missile at the player Steve (if spotted).
+2. A ripple of 20 Grad rockets with a spread of 25 blocks at a point.
+3. A swarm of five Lancets where you are looking.
+4. One Shahed at a point, detouring through two route points.
+5. Four cruise missiles at a point from a launcher at -900 400 (operator).
+6. A 1 kt ground burst at a point.
+7. A mission for the launcher at 100 64 -20: two cruise missiles with a spread of 10 blocks at a point (operator).

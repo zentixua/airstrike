@@ -1,42 +1,49 @@
-# Ядерный удар
+# Nuclear strike
 
-Ядерная боевая часть 1 или 15 кт на МБР, крылатой ракете или бомбе B-2: вспышка, гриб, ударная волна, пожары,
-а при наземном подрыве — воронка и радиоактивный след. Радиусы — как у настоящего взрыва, блок равен метру.
+English · [Русский](ru/nuke.md)
 
-## Как пустить
+A 1 or 15 kt nuclear warhead on an ICBM, a cruise missile or a B-2 bomb: flash, mushroom cloud, blast wave, fires, and
+with a ground burst a crater and a fallout trail. The radii match a real explosion, with one block equal to one meter.
 
-По умолчанию — только оператор.
+## How to launch
 
-1. Нужен предмет «МБР» или ракета либо бомба плюс «Ядерная боевая часть» ([рецепты](munitions.md#рецепты)).
-2. На экране пульта: оружие «Ядерная» или кнопка «БЧ: ☢ ядерная» у ракеты и бомбы; мощность 1 или 15 кт; подрыв
-   воздушный (шире разрушения) или наземный (воронка и радиоактивный след).
-3. ЛКМ в бинокле или «ОГОНЬ». Идёт отсчёт 3 секунды, повторный ЛКМ отменяет.
+By default only operators can.
 
-МБР стартует позади тебя и летит 90 секунд.
+1. You need an ICBM item, or a missile or bomb plus a Nuclear Warhead ([recipes](munitions.md#recipes)).
+2. On the console: the Nuclear weapon, or the "Warhead: ☢ nuclear" button of the Missile and the Bomb; yield 1 or
+   15 kt; for the ICBM and the missile an air burst (wider destruction) or a ground burst (crater and fallout trail).
+   The bomb explodes underground.
+3. LMB in the binoculars or FIRE. A 3-second countdown follows, and LMB again cancels it.
 
-Если хозяин мира разрешил ядерку всем, игроку без прав оператора нужен второй ключ, когда в игре есть кто-то ещё:
-другой игрок рядом нажимает `.` за 30 секунд. Такой пуск видят все, и отменить его нельзя.
+The ICBM lifts off behind you and flies for 90 seconds.
 
-## Что будет
+If the world owner has allowed nuclear weapons for everyone, a player without operator rights needs a second key
+whenever someone else is online: another player within 16 blocks presses `.` within 30 seconds. Every player is told
+about such a launch, and it cannot be called off. The alarm at the target lasts at least 90 seconds: a missile or B-2
+with a nuclear warhead takes off 90 seconds after the alarm starts.
 
-![Гриб над городом, внизу идёт стена пыли](img/nuke.jpg)
+## What happens
 
-Всем ближе 20 км к цели заранее воет сирена. Потом вспышка, огненный шар и гриб. Ударная волна идёт стеной
-пыли и ломает постройки, когда до них доходит.
+![Mushroom cloud over a town, the dust wall moving out below](img/nuke.jpg)
 
-![Огненный шар и ударная волна над городом](img/nuke-wave.jpg)
+Everyone within 20 km of the target hears a siren in advance. Then come the flash, the fireball and the mushroom cloud.
+The blast wave travels as a wall of dust and breaks buildings as it reaches them.
 
-У 15 кт волна убивает примерно до 0,4 км, свет шара обжигает до 3,4 км, окна вылетают до 6 км. У 1 кт всё в несколько
-раз ближе. Наземный подрыв оставляет радиоактивный след по ветру с чёрным дождём.
+![Fireball and blast wave over a town](img/nuke-wave.jpg)
 
-![Город после удара 15 кт: руины и пожары](img/nuke-ruins.jpg)
+At 15 kt the wave kills out to about 0.4 km, the light of the fireball burns out to 3.4 km, and windows break out to
+6 km. At 1 kt all of this is several times closer. A ground burst leaves a fallout trail downwind, with black rain.
 
-## Как выжить
+![A town after a 15 kt strike: ruins and fires](img/nuke-ruins.jpg)
 
-- **Под землю.** Природный грунт волна не трогает: пещеры и бункеры стоят, земля держит и свет, и радиацию.
-- **Не смотреть на шар.** Свет убивает и обжигает только тех, кто под открытым небом видит шар.
-- **Увидел вспышку вдали** — у тебя есть секунды до волны: за склон, в подвал, в яму.
-- **Уйди из следа.** Пыль с одежды смывает вода (дождь не смывает). Лучевая болезнь начинается позже и молоком
-  не лечится.
+## How to survive
 
-Счётчик Гейгера в руке щёлкает и показывает дозу. Его выдаёт оператор.
+- **Get underground.** The wave leaves natural ground alone: caves and bunkers stand, and earth stops both the light
+  and the radiation.
+- **Do not look at the fireball.** Its light kills and burns only those under open sky who can see it.
+- **If you see a flash in the distance**, you have seconds before the wave arrives: get behind a slope, into a
+  basement, into a pit.
+- **Leave the fallout trail.** Water washes the dust off you (rain does not). Radiation sickness starts later, and milk
+  does not cure it.
+
+A Geiger Counter in hand clicks and shows your dose. Operators give it out.

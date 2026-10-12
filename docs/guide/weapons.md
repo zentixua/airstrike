@@ -1,60 +1,64 @@
-# Оружие
+# Weapons
 
-Шесть видов, в пульте они идут в таком порядке. Каждый пуск тратит [боеприпас](munitions.md) из инвентаря.
+English · [Русский](ru/weapons.md)
 
-| | Шахед | Барраж («Ланцет») | Ракета | РСЗО («Град») | Бомба (B-2) | Ядерная (МБР) |
+Six weapons, in the order the designator lists them. Each launch uses [munitions](munitions.md) from your inventory.
+
+| | Shahed | Loiter (Lancet) | Missile | MLRS (Grad) | Bomb (B-2) | Nuclear (ICBM) |
 |---|---|---|---|---|---|---|
-| До удара | ≈50 с | подлёт и ≈25 с круга | ≈30 с | 7–10 с | ≈40 с | 90 с |
-| Сила взрыва (ТНТ = 4) | 12 | 8 | 20 | 7 на снаряд | 20, под землёй | 1 или 15 кт |
-| За движущейся целью | да, через камеру | да, через камеру | нет | нет | нет | нет |
-| Маршрут по карте | да | да | да | нет | нет | нет |
-| Сбивает ЗРК | да | да | да | нет | да | нет |
+| Time to impact | ≈50 s | approach plus ≈25 s circling | ≈30 s | 7–10 s | ≈40 s | 90 s |
+| Blast power (TNT = 4) | 12 | 8 | 20 | 7 per rocket | 20, underground | 1 or 15 kt |
+| Follows a moving target | yes, through the camera | yes, through the camera | no | no | no | no |
+| Route on the map | yes | yes | yes | no | no | no |
+| Shot down by a SAM | yes | yes | yes | no | yes | no |
 
-Время дано для близкой цели. Хозяин мира может поменять силу взрыва и время полёта.
+Times are for a nearby target. The world owner can change blast power and flight times.
 
-## Шахед
+## Shahed
 
-![Шахед-136 в полёте](img/weapon-shahed.jpg)
+![Shahed-136 in flight](img/weapon-shahed.jpg)
 
-Дрон-камикадзе: стартует с прицепа рядом с тобой, тарахтит мотором и в конце пикирует. Брать по постройкам
-и по движущимся целям. Его долго слышно и его сбивает ЗРК, поэтому против обороны — залпом или по маршруту в обход.
+A kamikaze drone: it takes off from a trailer next to you, flies with a loud engine buzz and dives at the end. Use it
+on buildings and on moving targets. It can be heard long before it arrives and a SAM can shoot it down, so
+against air defense send a salvo or route it around.
 
-## Барраж («Ланцет»)
+## Loiter (Lancet)
 
-![Катапульта «Ланцетов»](img/weapon-lancet-launcher.jpg)
+![Lancet catapult](img/weapon-lancet-launcher.jpg)
 
-Маленький дрон с катапульты. Кружит над целью, пока ты выбираешь её в [камере](camera.md#ланцет), и бьёт без
-промаха. Взрыв небольшой: по технике, игроку, отдельному дому.
+A small drone launched from a catapult. It circles over the target while you pick what to hit in its
+[camera](camera.md#lancet), and does not miss. The blast is small: enough for a vehicle, a player or a single house.
 
-## Крылатая ракета
+## Cruise missile
 
-![Крылатая ракета на марше](img/weapon-missile.jpg)
+![Cruise missile in flight](img/weapon-missile.jpg)
 
-Идёт низко над рельефом и перед целью пикирует. Мощный удар по неподвижной цели. Может нести ядерную боевую часть.
-Цель за крутым холмом или в глубоком карьере может не облететь: тогда бей бомбой или шахедом.
+Flies low over the terrain and dives just before the target. A heavy strike on a target that does not move. Can carry
+a nuclear warhead. It may not get past a steep hill in front of the target or down into a deep pit: use the bomb or a
+Shahed there.
 
-## РСЗО («Град»)
+## MLRS (Grad)
 
-![Пусковая «Града»](img/weapon-grad.jpg)
+![Grad launcher](img/weapon-grad.jpg)
 
-Прицеп с 40 трубами выпускает очередь неуправляемых ракет. Накрывает площадь, ЗРК его не сбивает, а сирена у цели
-воет всего за 8 секунд.
+A trailer with 40 tubes fires a ripple of unguided rockets. It covers an area, a SAM cannot shoot it down, and the
+siren at the target sounds only 8 seconds before impact.
 
-## Бомба (B-2)
+## Bomb (B-2)
 
-![B-2 с открытым бомболюком](img/weapon-b2.jpg)
+![B-2 with its bomb bay open](img/weapon-b2.jpg)
 
-B-2 прилетает издалека и сбрасывает бетонобойную бомбу. Она пробивает около 30 блоков камня и взрывается под землёй.
-Брать по бункерам и подземным базам. Радар ЗРК видит B-2 очень поздно. Может нести ядерную боевую часть.
+A B-2 arrives from far away and drops a bunker buster. The bomb goes through about 30 blocks of stone and explodes
+underground. Use it on bunkers and underground bases. SAM radar detects the B-2 very late. Can carry a nuclear warhead.
 
-## Ядерная (МБР)
+## Nuclear (ICBM)
 
-![МБР на разгоне](img/weapon-icbm.jpg)
+![ICBM during boost](img/weapon-icbm.jpg)
 
-Межконтинентальная ракета стартует позади тебя, и через 90 секунд её боевая часть рвётся у цели. Всё про неё —
-в разделе [Ядерный удар](nuke.md).
+An intercontinental ballistic missile lifts off behind you, and 90 seconds later its warhead detonates at the target.
+Everything about it is in [Nuclear strike](nuke.md).
 
-## Если пусковой негде встать
+## No room for the launcher
 
-Пусковая встаёт рядом с тобой. Если вокруг тесно, пульт пишет «Пусковую негде поставить…», и снаряд прилетает
-издалека. Хочешь видеть пуск — отойди на открытое место.
+The launcher sets up next to you. If there is no room around you, the designator says "No room for a launcher…" and
+the projectile comes in from far away instead. To watch the launch, move to open ground.
