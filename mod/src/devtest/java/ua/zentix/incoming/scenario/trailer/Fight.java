@@ -40,8 +40,8 @@ final class Fight {
     private final MinecraftServer server;
     private final List<Soldier> soldiers = new ArrayList<>();
     private final RandomSource random = RandomSource.create(7);
-    /** Разброс прицела у цели, блоков: бойцы попадают не каждой очередью. */
-    double spread = 1.6;
+    /** Разброс прицела у цели, блоков: бой в кадре — больше огня на подавление, чем попаданий. */
+    double spread = 3.0;
     /** Доля программ «перебежка». */
     double moveChance = 0.12;
     /** Перебежка — не дальше этого от своего укрытия. */
@@ -85,7 +85,8 @@ final class Fight {
     }
 
     private void tick(ServerTickEvent.Post e) {
-        if (!on || e.getServer() != server) return;
+        // мир стоит, пока план ждёт прогрузки: бой идёт только в записи, иначе его исход решился бы до неё
+        if (!on || e.getServer() != server || server.tickRateManager().isFrozen()) return;
         long now = server.getTickCount();
         for (Soldier s : soldiers) {
             if (now < s.nextAt) continue;

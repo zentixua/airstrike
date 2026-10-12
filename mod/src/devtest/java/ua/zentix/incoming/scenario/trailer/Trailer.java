@@ -70,8 +70,10 @@ public final class Trailer extends Film {
         waitTicks(60);
         shot("test_fight").length(100).hidden()
                 .camera(() -> CineCamera.orbit(() -> c, 22, 7, 60, 0.35, 60));
-        shot("test_fight_low").length(80).hidden()
-                .camera(() -> t -> Pose.look(c.add(-14 + t * 0.12, 0.7, -14), c.add(0, 1, 6), 0, 55));
+        // из-за плеча бойца West2: видно ли вспышку у ствола, анимацию огня и слышно ли выстрелы
+        Vec3 w2 = new Vec3(-1.5, 151, -11.5);
+        shot("test_fight_shoulder").length(80).hidden()
+                .camera(() -> t -> Pose.look(w2.add(1.1, 1.9, -2.4), w2.add(0, 1.4, 20), 0, 60));
         run(() -> withServer(server -> fight.stop()));
     }
 
@@ -91,7 +93,8 @@ public final class Trailer extends Film {
         cast.command(fmt("item replace entity %s armor.head with minecraft:iron_helmet", s.name));
         cast.command(fmt("item replace entity %s hotbar.0 with pointblank:ak47", s.name));
         cast.command(fmt("give %s pointblank:ammo762 512", s.name));
-        cast.command(fmt("effect give %s minecraft:resistance infinite 2 true", s.name));
+        // бессмертны: кто падает, решает сценарий, а не случайная очередь до нужного плана
+        cast.command(fmt("effect give %s minecraft:resistance infinite 4 true", s.name));
     }
 
     private void withServer(java.util.function.Consumer<MinecraftServer> work) {
