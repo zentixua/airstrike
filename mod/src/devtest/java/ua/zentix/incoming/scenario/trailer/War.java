@@ -118,6 +118,11 @@ final class War {
             streets();
             throughFire();
         }
+        if (part.equals("nuke")) {
+            // своя копия мира: пусковые и бой на площади — как после частей west и east
+            racks();
+            fight();
+        }
         if (all || part.equals("nuke")) nuke();
         if (part.equals("nukeB")) nukeWave();
     }
@@ -465,8 +470,8 @@ final class War {
 
     // ================================================================ Запад: батарея, пуски
 
-    private void battery() {
-        // батарея на полосе: ряд крылатых ракет и ряд «Градов» с шахедами; ракеты и шахеды — по Востоку за 4,5 км
+    /** Батарея на полосе: ряд крылатых ракет и ряд «Градов» с шахедами; ракеты и шахеды — по Востоку за 4,5 км. */
+    private void racks() {
         hiddenAt(BATTERY, BATTERY.add(60, 0, 0));
         film.onServer(level -> {
             missileRack.clear();
@@ -483,6 +488,10 @@ final class War {
             for (BlockPos p : rocketRack) setLauncher(p, "rocket 40 40", rocketAt, 3);
             for (BlockPos p : droneRack) setLauncher(p, "drone 2 30", new Vec3(3250.5, groundY(level, 3250.5, 350.5), 350.5), 6);
         });
+    }
+
+    private void battery() {
+        racks();
         // солдаты батареи
         film.run(() -> {
             for (int i = 0; i < 8; i++) {
@@ -662,7 +671,7 @@ final class War {
         stageScene("airship", new Vec3(3000.5, 150, 420.5), -90);
 
         // p25: с улицы снизу, длинный фокус: рой шахедов над крышами
-        Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3070.5, 0, 378.5);
+        Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
         hiddenAt(street, swarm);
         film.shot("p25").length(50).hidden()
                 .onReady(() -> salvo("drone", 30, 70, swarm, behind(street, at(swarm), 900)))
@@ -704,9 +713,9 @@ final class War {
 
     // ================================================================ волна 3: улица
 
-    private void streets() {
-        // бой у южного края площади: Запад с запада, Восток с востока, укрытия — баррикады
-        Vec3 c = new Vec3(3175.5, 0, 274.5);
+    /** Бой у южного края площади: Запад с запада, Восток с востока, укрытия — баррикады. */
+    private void fight() {
+        Vec3 c = SQUARE;
         hiddenAt(c, c.add(30, 0, 0));
         film.onServer(level -> {
             // бой и статисты — с сервером, а он есть только после входа в мир
@@ -731,6 +740,11 @@ final class War {
         film.waitTicks(40);
         film.run(() -> film.withServer(s -> street.start()));
         film.waitTicks(40);
+    }
+
+    private void streets() {
+        fight();
+        Vec3 c = SQUARE;
 
         // p26: FPV низко над уличным боем, рядом ложится «Град», камеру бросает
         film.shot("p26").length(100).hidden()
@@ -780,7 +794,7 @@ final class War {
                 .when(() -> film.nearest(RocketEntity.class, at(line), 250) != null, 3000);
 
         // p29: боец прижался к стене; из-за плеча — шахед проносится над ним и входит в дом напротив
-        Vec3 wall = new Vec3(3120.5, 0, 336.5), house = new Vec3(3175.5, 150, 353.5);
+        Vec3 wall = new Vec3(3120.5, 0, 339.5), house = new Vec3(3175.5, 150, 353.5);
         hiddenAt(wall, house);
         film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
         film.waitTicks(60);
@@ -964,7 +978,7 @@ final class War {
                 .when(() -> film.warningTicks() < 700, 4000);
 
         // p43: на Востоке ☢ MISSILE ATTACK ☢ и отсчёт; бой замирает, бойцы опускают оружие и смотрят вверх
-        Vec3 c = new Vec3(3175.5, 0, 274.5);
+        Vec3 c = SQUARE;
         film.shot("p43").length(120).hud().hidden()
                 .cue(0, () -> film.withServer(s -> {
                     if (street != null) street.watch(at(c).add(-600, 500, 300), 40);
