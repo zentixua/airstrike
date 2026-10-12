@@ -14,11 +14,11 @@ import ua.zentix.incoming.Incoming;
 /**
  * Кэш цветов блоков xaerolib (Xaero's World Map и Minimap) — один объект на клиент с обычными картами без замка
  * ({@code Object2IntOpenHashMap blockTintIndices}, {@code blockColors}), а читают его и поток игры (плитки карты перед
- * выгрузкой), и фоновые задачи карты. Два потока, вставляющих в него одновременно, ломают таблицу: gate7 — клиент упал
+ * выгрузкой), и фоновые задачи карты. Два потока, вставляющих в него одновременно, ломают таблицу: клиент падает
  * с {@code ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 2049} в {@code Object2IntOpenHashMap.rehash}
- * (xaerolib 1.7.3, Xaero's World Map 1.46.0), сразу после переноса к руинам: руины — сотни новых для кэша состояний, и
- * вставки с ростом таблицы идут пачкой. −1 — место в таблице, а не номер состояния блока. Здесь обращения к кэшу идут
- * под замком самого объекта. Без Xaero миксин не применяется ({@code require = 0}, как у Sable).
+ * (xaerolib 1.7.3, Xaero's World Map 1.46.0), например сразу после переноса к руинам: руины — сотни новых для кэша
+ * состояний, и вставки с ростом таблицы идут пачкой. −1 — место в таблице, а не номер состояния блока. Здесь обращения
+ * к кэшу идут под замком самого объекта. Без Xaero миксин не применяется ({@code require = 0}, как у Sable).
  */
 @Pseudo
 @Mixin(targets = "xaero.lib.client.level.block.BlockTextureColorUtils", remap = false)

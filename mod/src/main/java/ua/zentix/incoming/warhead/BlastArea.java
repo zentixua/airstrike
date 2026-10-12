@@ -146,7 +146,7 @@ final class BlastArea {
 
     /**
      * Блок снимался дольше {@link StagedExplosion#SLOW_BLOCK_NANOS}: строка в лог, первые {@link #SLOW_BLOCKS_LOGGED}
-     * за удар — чей блок держит порцию (у хоста порция из 16 блоков шла 65 мс).
+     * за удар — чей блок держит порцию (у хоста порция из 16 блоков доходит до 65 мс).
      */
     void slowBlock(ServerLevel level, BlockState state, BlockPos pos, long took) {
         if (slowBlocks++ >= SLOW_BLOCKS_LOGGED) return;

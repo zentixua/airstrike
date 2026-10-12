@@ -97,7 +97,7 @@ public enum WeaponType implements StringRepresentable {
         return m.get((m.indexOf(this) + m.size() - 1) % m.size());
     }
 
-    /** Имена в командах: английские и русские синонимы (как в датапаке, «shahed» — это дрон). */
+    /** Имена в командах: английские и русские синонимы («shahed» — это дрон). */
     public static WeaponType parse(String s) {
         return switch (s.toLowerCase(Locale.ROOT)) {
             case "drone", "shahed", "шахед", "дрон" -> DRONE;

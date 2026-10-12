@@ -9,7 +9,7 @@ import org.slf4j.Logger;
  * Когда аппарат распадается на много кусков, Sable собирает куски по одному; кусок без массы тут же удаляется,
  * а его плот отдаётся следующему. Если в том же тике делится кусок в таком плоте, поиск «чей это плот» находит
  * удалённый аппарат, и {@code SubLevelAssemblyHelper.assembleBlocks} бросает RuntimeException — падает тик мира
- * и вся игра («Exception ticking world», 27.09.2026). Миксин {@code SubLevelSplitGuardMixin} оборачивает
+ * и вся игра («Exception ticking world»). Миксин {@code SubLevelSplitGuardMixin} оборачивает
  * {@code SubLevelHeatMapManager.split}: именно это исключение пишется в лог, дробление куска откладывается
  * (его блоки остаются одним аппаратом), мир живёт дальше. Остальные исключения идут дальше как были.
  * <p>

@@ -13,7 +13,7 @@ import ua.zentix.incoming.strike.NuclearKeys;
  * Клавиши (Управление → Incoming). «Пуск» по умолчанию — ЛКМ, но только пока смотришь в бинокль пульта:
  * в это время ванильная атака не работает, поэтому конфликта с ней нет. Клавиши по умолчанию — свободные в сборке
  * хоста (All of Create Aeronautics, 217 модов): на V там уже четыре действия (колчан Supplementaries, рюкзаки
- * Backpacked, пружины Create), и NeoForge запускает их все сразу — открывалось окно рюкзаков.
+ * Backpacked, пружины Create), и NeoForge запускает их все сразу — открылось бы окно рюкзаков.
  */
 public final class Keys {
     public static final String CATEGORY = "key.categories.incoming";
@@ -31,7 +31,7 @@ public final class Keys {
     };
 
     public static final KeyMapping FIRE = new KeyMapping("key.incoming.fire", SCOPING, InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_LEFT, CATEGORY);
-    /** Камера снаряда: к ближайшему по времени, к следующему, к себе. N — рядом с прежней V. */
+    /** Камера снаряда: к ближайшему по времени, к следующему, к себе. */
     public static final KeyMapping CAMERA = new KeyMapping(Incoming.CAMERA_KEY, KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, CATEGORY);
     public static final KeyMapping MENU = new KeyMapping("key.incoming.menu", KeyConflictContext.IN_GAME, InputConstants.UNKNOWN, CATEGORY);
     /** Карта наведения (та же, что «На карте» в пульте); по умолчанию «,» (M у Xaero в сборке). */

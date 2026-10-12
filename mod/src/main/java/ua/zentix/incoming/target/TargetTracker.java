@@ -186,7 +186,7 @@ public final class TargetTracker {
                 : new Target.Point(p);
         TargetTracker tracker = new TargetTracker(t, p);
         tracker.chased = tag.getDouble("chased");
-        // до 2.1.3 неподвижную цель «теряли» по дальности от снаряда
+        // неподвижная цель не теряется: флаг lost у неё — из сохранений до 2.1.3
         tracker.lost = tag.getBoolean("lost") && !(t instanceof Target.Point);
         return tracker;
     }

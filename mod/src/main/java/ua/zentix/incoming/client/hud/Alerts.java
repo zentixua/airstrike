@@ -68,7 +68,7 @@ public final class Alerts {
         salvoLeft = 0;
     }
 
-    /** Надпись тревоги (мигает) и ход залпа — над хотбаром, где раньше была строка actionbar. */
+    /** Надпись тревоги (мигает) и ход залпа — над хотбаром, на высоте строки actionbar. */
     public static void render(GuiGraphics g, DeltaTracker delta) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.options.hideGui) return;

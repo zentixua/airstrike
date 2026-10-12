@@ -36,7 +36,7 @@ public final class StrikesHud {
         if (mc.options.hideGui || mc.level == null || mc.player == null || !IncomingConfig.CLIENT.hud.get()) return;
         List<ClientFlights.Tracked> flights = ClientFlights.all();
         if (flights.isEmpty()) return;
-        // в камере снаряда справа вверху — её телеметрия (и время до удара): список поверх неё слипался в кашу
+        // в камере снаряда справа вверху — её телеметрия (и время до удара): список поверх неё слипался бы в кашу
         if (ProjectileCamera.isActive()) return;
         float pt = delta.getGameTimeDeltaPartialTick(false);
         markers(g, mc.font, flights, pt);

@@ -9,7 +9,7 @@ import net.minecraft.world.phys.Vec3;
  * Частицы на клиенте с той же семантикой, что у команды {@code particle <тип> x y z dx dy dz speed count force}:
  * при count = 0 — одна частица со скоростью (dx, dy, dz)·speed, иначе count частиц с разбросом
  * по Гауссу (dx, dy, dz) и случайной скоростью·speed. «force» — видны издалека (дальше 32 блоков).
- * Так эффекты датапака переносятся без подбора заново. На сервере ничего не делает.
+ * Так эффект, подобранный командой {@code particle}, переносится без подбора заново. На сервере ничего не делает.
  */
 public final class Particles {
     private Particles() {}

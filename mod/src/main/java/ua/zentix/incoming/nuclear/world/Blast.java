@@ -63,7 +63,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
     private static final int SLENDER = 4, MAX_TOPPLE = 6;
     /**
      * Наибольшая толщина опрокидывания у грунта: природные столбы и мезы толще 4 стоят (ядро высотки из кальцита
-     * или терракоты 4×4 — ещё падает, как и до ревью).
+     * или терракоты 4×4 ещё падает).
      */
     private static final int GROUND_TOPPLE = 4;
     private static final int SIDE = RuinWindow.SIDE, LO = 16, HI = 32;
@@ -553,7 +553,7 @@ record Blast(RuinWindow.Stamp stamp, int minY, int[] removed, List<long[]> trees
             double cos = alongX ? Math.abs(ex) : Math.abs(ez);
             int fx = alongX ? wx - step : wx, fz = alongX ? wz : wz - step;
             if (!open(fx, y, fz)) return; // лицом не к небу
-            // грунт (скалы, столбы, мезы) опрокидывается не толще GROUND_TOPPLE — как до ревью; постройке — до MAX_TOPPLE
+            // грунт (скалы, столбы, мезы) опрокидывается не толще GROUND_TOPPLE; постройке — до MAX_TOPPLE
             int most = p.response().kind() == BlockResponse.Kind.GROUND ? GROUND_TOPPLE : MAX_TOPPLE;
             int run = 0;
             while (run <= most && full(alongX ? wx + step * run : wx, y, alongX ? wz : wz + step * run)) run++;

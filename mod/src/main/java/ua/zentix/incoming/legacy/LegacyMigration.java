@@ -92,7 +92,7 @@ public final class LegacyMigration {
         if (!legacy.isEmpty()) Incoming.LOG.info("Removed objectives of the old datapack: {}", legacy.size());
     }
 
-    /** Сущности датапака (маркеры, детали моделей, обломки) больше никто не обслуживает — не загружаем их. */
+    /** Сущности датапака (маркеры, детали моделей, обломки) никто не обслуживает — не загружаем их. */
     public static void onEntityJoin(EntityJoinLevelEvent event) {
         if (event.getLevel().isClientSide()) return;
         Entity e = event.getEntity();

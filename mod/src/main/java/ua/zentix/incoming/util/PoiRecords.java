@@ -10,8 +10,8 @@ import net.minecraft.world.level.block.state.BlockState;
  * Места POI (кровати, рабочие места жителей, колокола), которых нет в данных POI мира. Постройку, вставленную мимо
  * {@code setBlock} (WorldEdit, схемы карт, сборка аппарата Sable прямо в секции), ваниль в данные POI не вносит,
  * а снятие такого блока через мир ({@code ServerLevel.onBlockStateChange} → {@code PoiManager.remove}) пишет в лог
- * ошибку PoiSection «POI data mismatch: never registered» — на каждый блок. Город карты у Артёма: 151 строка за вечер
- * залпов (01.10.2026).
+ * ошибку PoiSection «POI data mismatch: never registered» — на каждый блок: в городе с карты это больше сотни строк
+ * за вечер залпов.
  */
 public final class PoiRecords {
     private PoiRecords() {}
@@ -29,8 +29,8 @@ public final class PoiRecords {
     /**
      * То же для места и шести его соседей. Снятый блок уводит за собой соседа обновлением формы: изножье — изголовье
      * кровати (место POI у кровати — изголовье), опора — колокол. Сосед уходит через мир мимо того, кто снимал блок,
-     * и без записи в данных POI ваниль пишет ошибку (игра 02.10.2026: 17 строк после ракет по домам Newisle — пары
-     * соседних мест по этажам). Сосед, который устоял, остаётся в данных — как поставленный через мир.
+     * и без записи в данных POI ваниль пишет ошибку (после ракет по домам — пары соседних мест по этажам). Сосед,
+     * который устоял, остаётся в данных — как поставленный через мир.
      */
     public static void recordWithNeighbours(ServerLevel level, BlockPos pos, BlockState state) {
         recordIfMissing(level, pos, state);

@@ -63,10 +63,10 @@ import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
 /**
- * Боевые части. Разрушения и урон — на сервере по таймлайну (как fx/mfx/bfx в датапаке, только без криперов,
- * маркеров и блоков света): основной взрыв — ванильный {@link Explosion} (его уважают приваты, Sable сам толкает им
- * аппараты), вторичные подрывы, стёкла, обломки, ударная волна на скорости звука. Всё, что видно и слышно,
- * клиент строит сам по пакету {@link S2C.Blast}: частицы, вспышку, звук с задержкой по расстоянию, тряску.
+ * Боевые части. Разрушения и урон — на сервере по таймлайну: основной взрыв — ванильный {@link Explosion} (его
+ * уважают приваты, Sable сам толкает им аппараты), вторичные подрывы, стёкла, обломки, ударная волна на скорости звука.
+ * Всё, что видно и слышно, клиент строит сам по пакету {@link S2C.Blast}: частицы, вспышку, звук с задержкой по
+ * расстоянию, тряску.
  */
 public final class Warheads {
     /** Фронт звука и ударной волны: 343 м/с = 17.15 блока за тик. */
@@ -372,7 +372,7 @@ public final class Warheads {
     }
 
     /**
-     * Ударная волна дошла: отбрасывает от эпицентра (вместо зарядов ветра датапака), контузия у тех, кто рядом.
+     * Ударная волна дошла: отбрасывает от эпицентра, контузия у тех, кто рядом.
      * Сидящих в транспорте и на сиденьях не трогаем.
      *
      * @param band номер пояса фронта: 1 — первый тик пути фронта ({@link #FRONT_SPEED} блоков), 2 — второй …
@@ -433,7 +433,7 @@ public final class Warheads {
     }
 
     /**
-     * Неровный «ком» (blob_rand датапака): три пересекающихся бруска — полуоси a по одной оси и b = 0.6·a по двум другим;
+     * Неровный «ком»: три пересекающихся бруска — полуоси a по одной оси и b = 0.6·a по двум другим;
      * центр со случайным сдвигом ±(rx, ry, rz) и смещением oy по высоте.
      */
     static void blob(BlockPos c, int rx, int ry, int rz, int oy, int rmin, int rmax, RandomSource r, Consumer<BlockPos> out) {
@@ -475,7 +475,7 @@ public final class Warheads {
             new Secondary(5, -8, 0, -7, 4), new Secondary(5, 3, 1, 9, 4),
             new Secondary(9, 10, 0, 2, 3));
 
-    /** Таймлайн наземного взрыва (fx/tick и mfx/tick датапака). */
+    /** Таймлайн наземного взрыва. */
     static final class SurfaceBlast implements Timeline {
         private final WeaponType weapon;
         private final Vec3 pos;
@@ -589,7 +589,7 @@ public final class Warheads {
 
     // ================================================================ бетонобойная бомба
 
-    /** Подземный взрыв (bfx/* датапака): каверна, щебень, сейсмика, выброс газов, обрушение свода. */
+    /** Подземный взрыв: каверна, щебень, сейсмика, выброс газов, обрушение свода. */
     static final class BunkerBlast implements Timeline {
         private final Vec3 pos;
         private final Vec3 entry;
@@ -599,7 +599,7 @@ public final class Warheads {
         private final Entity owner;
         private final GroundMaterial mat;
         private final GroundMaterial ventMat;
-        /** Верх колонки заряда (по нему — обрушение свода, как было). */
+        /** Верх колонки заряда (по нему — обрушение свода). */
         private final int surfaceY;
         /** Глубина взрыва под поверхностью, блоков. */
         private final int depth;
@@ -710,7 +710,7 @@ public final class Warheads {
             return BunkerCover.surface(h);
         }
 
-        /** Огонь на дне полости (огненные шары датапака). */
+        /** Огонь на дне полости. */
         private void igniteCavity(ServerLevel level) {
             BlockPos c = BlockPos.containing(pos);
             for (int i = 0; i < 6; i++) {
