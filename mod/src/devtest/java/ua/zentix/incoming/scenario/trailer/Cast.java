@@ -72,7 +72,11 @@ final class Cast {
 
     // ---------------------------------------------------------------- боты
 
+    /** Боты, которые ещё входят: вход с местом ждёт чанков в фоне ({@code War.settle}). */
+    static final java.util.Set<String> joining = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     void spawn(String name, Vec3 at, float yaw, String skin) {
+        joining.add(name);
         JsonObject p = new JsonObject();
         p.addProperty("name", name);
         p.add("pos", vec(at));
@@ -84,6 +88,7 @@ final class Cast {
     }
 
     void remove(String name) {
+        joining.remove(name);
         JsonObject p = new JsonObject();
         p.addProperty("name", name);
         call("bot.remove", p);

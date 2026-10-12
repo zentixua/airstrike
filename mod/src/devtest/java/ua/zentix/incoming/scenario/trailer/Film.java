@@ -231,6 +231,12 @@ abstract class Film {
         then(() -> --left[0] <= 0);
     }
 
+    /** Ждать условия (проверка — в потоке клиента), не дольше {@code max} тиков. */
+    void waitUntil(BooleanSupplier ok, int max) {
+        final int[] left = {max};
+        then(() -> ok.getAsBoolean() || --left[0] <= 0);
+    }
+
     /** Работа на сервере (поиск мест, высоты): сценарий ждёт, пока она закончится. */
     void onServer(Consumer<ServerLevel> work) {
         final boolean[] done = {false};
@@ -420,8 +426,13 @@ abstract class Film {
                     hud = hudOn;
                     if (hiddenActor && actor) {
                         actor = false;
-                        withPlayer((level, p) -> p.setGameMode(GameType.SPECTATOR));
+                        // без вещей: интерфейс оружия модов (Point Blank) рисуется и у невидимки с оружием в руке
+                        withPlayer((level, p) -> {
+                            p.setGameMode(GameType.SPECTATOR);
+                            p.getInventory().clearContent();
+                        });
                     }
+                    mc.getToasts().clear();  // «New Recipes Unlocked» и прочие всплывашки не в кадр
                     if (camera != null) {
                         path = camera.get();
                         CineCamera.use(path);

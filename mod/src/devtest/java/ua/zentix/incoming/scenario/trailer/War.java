@@ -86,7 +86,7 @@ final class War {
     static final double BATTERY_Y = 68, ROW_MISSILE = 516.5, ROW_ROCKET = 534.5;
     static final Vec3 BATTERY = new Vec3(-1490.5, 68, 525.5);
     /** Наводчик батареи и место расчёта ночью. */
-    static final Vec3 POST = new Vec3(-1545.5, 68, 525.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
+    static final Vec3 POST = new Vec3(-1425.5, 68, 538.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
     /** Цель «Градов» батареи: позиции Востока за рекой (дальность «Града» — сотни блоков, не километры). */
     static final Vec3 ROCKET_TARGET = new Vec3(-650.5, 0, 560.5);
 
@@ -325,11 +325,11 @@ final class War {
     private void dawn() {
         // p03: пролёт на высоте над Востоком к небоскрёбам, на которые ложится первое солнце
         film.run(() -> Film.cmd("time set 23300"));
-        // под облаками (низ — 192): над ними видны только облака; башни центра уходят в них
-        hiddenAt(new Vec3(2890, 140, 340), T2);
+        // над облаками: башни центра встают из них (с шейдерами — тёплый рассвет)
+        hiddenAt(new Vec3(2890, 220, 340), T2);
         film.shot("p03").length(60).hidden().farView().camera(() -> {
-            Vec3 look = new Vec3(3060, 185, 560);
-            return CineCamera.glide(new Vec3(2880, 162, 330), new Vec3(2905, 158, 352), 60, () -> look, 52);
+            Vec3 look = new Vec3(3060, 200, 560);
+            return CineCamera.glide(new Vec3(2880, 240, 330), new Vec3(2905, 237, 352), 60, () -> look, 52);
         });
 
         // p04: утро, площадь у госкомплекса — жители идут по своим делам (та же точка в p44: площадь горит и пуста)
@@ -344,7 +344,7 @@ final class War {
                 crowd().add("Cit" + i++, new Vec3(x, y, z), 18);
             }
         });
-        film.waitTicks(120);
+        settle();
         film.shot("p04").length(40).hidden().camera(() -> {
             Vec3 a = g(3116.5, 306.5).add(0, 5.5, 0);
             return CineCamera.dolly(a, a.add(4, 0.3, -3), 40, () -> GOV, 50);
@@ -359,7 +359,7 @@ final class War {
         Vec3 resident = new Vec3(2905.5, 0, 418.5), droneTarget = new Vec3(3070.5, 0, 418.5);
         hiddenAt(resident, droneTarget);
         film.run(() -> cast().spawn("Hans", g(resident), -90, null));
-        film.waitTicks(80);
+        settle();
         film.shot("p12").length(45).hidden()
                 .onReady(() -> salvo("drone", 3, 10, droneTarget, behind(resident, droneTarget, 700)))
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Hans"), 2.2, -0.35, 0.7, () -> at(droneTarget).add(0, 40, 0), 62))
@@ -370,7 +370,7 @@ final class War {
         // p13: тихое утро, житель на крыше, впереди небоскрёбы; ракета мелькает над крышами и входит в башню за ~370 блоков
         hiddenAt(ROOF, T5);
         film.run(() -> cast().spawn("Ilya", ROOF, Film.yawTo(ROOF, T5), null));
-        film.waitTicks(80);
+        settle();
         // в башню ниже облаков (верх T5 — над ними) и с юга: взрыв на грани, которую видит камера
         Vec3 t5 = T5.add(0, -60, 0);
         film.shot("p13").length(140).hidden()
@@ -405,7 +405,7 @@ final class War {
                 crowd().add("Run" + i++, new Vec3(x, y, z), 3);
             }
         });
-        film.waitTicks(80);
+        settle();
         film.run(() -> film.withServer(s -> crowd().flee(SUB_TOP, 60, SUB_BOTTOM.add(6, 0, 0))));
         film.waitTicks(10);
         film.shot("p15").length(55).hidden()
@@ -456,7 +456,7 @@ final class War {
         Vec3 farA = new Vec3(3040.5, 175, 590.5), farB = new Vec3(2916.5, 0, 800.5);  // farB — за башнями на той же линии
         hiddenAt(ROOF, farA);
         film.run(() -> cast().spawn("Oleg", ROOF, Film.yawTo(ROOF, farA), null));
-        film.waitTicks(60);
+        settle();
         film.shot("p19a").length(50).hidden()
                 .onReady(() -> {
                     // с севера, как стоит камера: удар в видимую грань; 800–920 блоков — один за другим через ~10 тиков
@@ -504,7 +504,7 @@ final class War {
                 cast().spawn("Gunner" + i, at, -90, null);
             }
         });
-        film.waitTicks(100);
+        settle();
         film.onServer(level -> {
             for (int i = 0; i < 8; i++) film.armSoldier("Gunner" + i, 0);
         });
@@ -538,7 +538,7 @@ final class War {
         // p10a: крылатые ракеты сходят с пусковых и сбрасывают ускорители — длинный фокус вдоль ряда
         film.shot("p10a").length(40).hidden()
                 .onReady(() -> fireAll(missileRack))
-                .camera(() -> CineCamera.track(new Vec3(-1552, 70.2, 507), () -> new Vec3(-1470, 76, ROW_MISSILE), 30))
+                .camera(() -> CineCamera.track(new Vec3(-1425, 70.2, 512), () -> new Vec3(-1500, 73, ROW_MISSILE), 30))
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
         // p10b: «Град» выпускает 40 ракет
         film.shot("p10b").length(40).hidden()
@@ -569,12 +569,12 @@ final class War {
                     fireAll(rocketRack);
                     fireAll(droneRack);
                 })
-                .camera(() -> CineCamera.dolly(new Vec3(-1500, 69.6, 552), new Vec3(-1503, 84, 559), 50,
+                .camera(() -> CineCamera.dolly(new Vec3(-1498, 69.6, 543), new Vec3(-1502, 86, 545), 50,
                         () -> new Vec3(-1478, 74, 522), 64))
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
         // p21: с огромной высоты — дымные следы тянутся на восток
         film.shot("p21").length(30).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(-1600, 330, 470), new Vec3(-1590, 330, 472), 30,
+                .camera(() -> CineCamera.glide(new Vec3(-1600, 175, 470), new Vec3(-1590, 175, 472), 30,
                         () -> new Vec3(-1200, 90, 525), 64));
 
         // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
@@ -600,7 +600,7 @@ final class War {
         // p36: ответ Востока — шахеды накрывают батарею, расчёт бежит от пусковых
         film.shot("p36").length(50).hidden()
                 .onReady(() -> salvo("drone", 6, 24, BATTERY.add(10, 0, 0), new Vec3(-800, 0, 560)))
-                .camera(() -> CineCamera.track(new Vec3(-1430, 74, 470),
+                .camera(() -> CineCamera.track(new Vec3(-1415, 71, 540),
                         film.smoothFocus(() -> film.nearest(DroneEntity.class, BATTERY, 200), BATTERY.add(0, 4, 0), 0.2), 30))
                 .when(() -> film.nearest(DroneEntity.class, BATTERY, 70) != null, 3000)
                 .cue(0, () -> film.withServer(s -> {
@@ -614,6 +614,19 @@ final class War {
             for (int i = 0; i < 8; i++) cast().remove("Gunner" + i);
         });
         stageScene("factory", new Vec3(-1500.5, 68, 620.5), -90);
+    }
+
+    /**
+     * Ждать, пока вошли все боты: вход с местом ждёт чанков в фоне (до 30 с), и шаги ботам до входа уходят в пустоту.
+     * Бот считается вошедшим, когда клиент его видит (все боты сцен — рядом с камерой).
+     */
+    private void settle() {
+        film.waitUntil(() -> {
+            Cast.joining.removeIf(n -> film.bot(n) != null);
+            return Cast.joining.isEmpty();
+        }, 900);
+        film.run(Cast.joining::clear);  // не вошёл за 45 с — не ждём его и в следующий раз
+        film.waitTicks(20);
     }
 
     /** ЗРК сцены убираются после неё: иначе они сбивают шахеды следующих планов (вокруг — весь Восток). */
@@ -711,7 +724,7 @@ final class War {
         Vec3 man = new Vec3(2905.5, 0, 300.5), past = new Vec3(3085.5, 0, 300.5);
         hiddenAt(man, past);
         film.run(() -> cast().spawn("Pyotr", g(man), Film.yawTo(man, past), null));
-        film.waitTicks(60);
+        settle();
         film.shot("p01d").length(40).hidden()
                 .onReady(() -> salvo("drone", 5, 14, past, behind(man, at(past), 700)))
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Pyotr"), 1.9, -0.2, 0.6, () -> at(past).add(0, 55, 0), 70))
@@ -759,7 +772,7 @@ final class War {
                 street.add("East" + i, 1, e, new Vec3(-1, 0, 0));
             }
         });
-        film.waitTicks(100);
+        settle();
         film.onServer(level -> {
             for (Fight.Soldier s : street.soldiers()) film.armSoldier(s.name, s.side);
         });
@@ -824,7 +837,7 @@ final class War {
         Vec3 wall = new Vec3(3080.5, 0, 334.5), house = new Vec3(3175.5, 120, 353.5);
         hiddenAt(wall, house);
         film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
-        film.waitTicks(60);
+        settle();
         film.onServer(level -> film.armSoldier("Vlad", 1));
         film.shot("p29").length(50).hidden()
                 .onReady(() -> salvo("drone", 1, 0, house, behind(wall, house, 700)))
@@ -835,7 +848,7 @@ final class War {
         // p30: глазами бойца — он поднимает голову, шахед пикирует прямо в камеру (монтаж режет на ударе)
         Vec3 eyeSpot = new Vec3(3150.5, 0, 300.5);
         film.run(() -> cast().spawn("Sasha", g(eyeSpot), -90, null));
-        film.waitTicks(60);
+        settle();
         film.shot("p30").length(80).hidden()
                 .onReady(() -> salvo("drone", 1, 0, eyeSpot, new Vec3(2450, 0, 318)))
                 .camera(() -> CineCamera.eyes(() -> film.bot("Sasha"), 72))
@@ -954,7 +967,7 @@ final class War {
                 cast().spawn("Crew" + i, new Vec3(NIGHT_POST.x - 2 + i * 1.6, BATTERY_Y, NIGHT_POST.z - 3 + (i % 2) * 1.2), -90, null);
             }
         });
-        film.waitTicks(80);
+        settle();
         film.onServer(level -> {
             for (int i = 0; i < 4; i++) film.armSoldier("Crew" + i, 0);
         });
@@ -1037,7 +1050,7 @@ final class War {
                 roof.add((i < 3 ? "Watch" : "Guard") + i, p, 0.5);
             }
         });
-        film.waitTicks(80);
+        settle();
         film.onServer(level -> {
             for (int i = 3; i < 6; i++) film.armSoldier("Guard" + i, 1);
             roof.watch(GZ.add(0, 300, 0), 30);
