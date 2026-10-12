@@ -333,15 +333,14 @@ public final class ClientScenario {
             cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 230 %d.5 180 -30", x, z));
         });
         for (int dt : new int[]{600, 1200, 2400, 3600}) shot(tick + dt, "cloud");
-        // в след осадков, пока там идёт чёрный дождь (2.5 игровых часа = 2 мин после прихода осадков), счётчик в руке
-        at(tick + 3900, () -> {
-            var d = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
-            // по ветру туда, куда осадки придут к ~2.5 мин после подрыва (скорость ветра у подрыва своя)
-            double m = Math.min(3000, d.windSpeed() * 150);
-            double x = d.burst().x + Math.cos(d.windDir()) * m * d.scale(), z = d.burst().z + Math.sin(d.windDir()) * m * d.scale();
-            cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f 0 0", x, z));
-        });
-        at(tick + 3960, () -> {
+        // в след осадков, пока там идёт чёрный дождь (2.5 игровых часа = 2 мин после прихода осадков), счётчик в руке:
+        // по ветру, недалеко от эпицентра (скорость ветра у подрыва своя); осадки там — не раньше, чем долетят из облака
+        var fd = ua.zentix.incoming.client.nuclear.ClientNuclear.detonations().getLast().d;
+        double fm = Math.min(3000, fd.windSpeed() * 150) * fd.scale();
+        double fx = fd.burst().x + Math.cos(fd.windDir()) * fm, fz = fd.burst().z + Math.sin(fd.windDir()) * fm;
+        int rain = Math.max(3000, (int) Math.ceil(fd.falloutArrivalTicks(fx, fz)));
+        at(tick + rain + 900, () -> cmd(String.format(java.util.Locale.ROOT, "tp @s %.1f 200 %.1f 0 0", fx, fz)));
+        at(tick + rain + 960, () -> {
             LocalPlayer p = Minecraft.getInstance().player;
             int x = (int) Math.floor(p.getX()), z = (int) Math.floor(p.getZ());
             int y = Minecraft.getInstance().level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
@@ -349,9 +348,9 @@ public final class ClientScenario {
             cmd(String.format(java.util.Locale.ROOT, "fill %d %d %d %d %d %d minecraft:stone_bricks", x - 1, y, z - 1, x + 1, y, z + 1));
             cmd(String.format(java.util.Locale.ROOT, "tp @s %d.5 %d %d.5 0 0", x, y + 1, z));
         });
-        for (int dt : new int[]{4040, 4080, 4120}) shot(tick + dt, "fallout");
-        at(tick + 4140, () -> Incoming.LOG.info("SCENARIO radiation {}", ua.zentix.incoming.client.nuclear.ClientNuclear.radiationState()));
-        at(tick + 4160, () -> {
+        for (int dt : new int[]{1040, 1080, 1120}) shot(tick + rain + dt, "fallout");
+        at(tick + rain + 1140, () -> Incoming.LOG.info("SCENARIO radiation {}", ua.zentix.incoming.client.nuclear.ClientNuclear.radiationState()));
+        at(tick + rain + 1160, () -> {
             Incoming.LOG.info("SCENARIO done");
             Minecraft.getInstance().stop();
         });
