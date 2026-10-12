@@ -6,7 +6,7 @@ Settings open with the Settings button on the console or under Mods → Incoming
 
 ## Your settings
 
-Each player has their own, stored in `config/airstrike-client.toml`.
+Each player has their own, stored in `config/incoming-client.toml`.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -32,7 +32,7 @@ are reset too).
 
 ## World settings
 
-The world owner changes these: in singleplayer in the file `saves/<world>/serverconfig/airstrike-server.toml`, on a
+The world owner changes these: in singleplayer in the file `saves/<world>/serverconfig/incoming-server.toml`, on a
 server its owner does. The most useful ones are below; the rest are in the same file, each with a comment.
 
 | Key | Default | What it does |

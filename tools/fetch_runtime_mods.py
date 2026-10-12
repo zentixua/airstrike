@@ -1,6 +1,6 @@
 """Скачивает с Modrinth моды для запусков из Gradle (Create, Sable, Aeronautics, Lithium) — для CI и машин без инстанса.
 
-Версии — как в сборке «Airstrike Pack» (zentixua/airstrike-pack, pack/mods); файлы проверяются по sha512 из Modrinth.
+Версии — как в сборке «Incoming Pack» (zentixua/incoming-pack, pack/mods); файлы проверяются по sha512 из Modrinth.
 Потом: ./gradlew runGameTestServer -PmcModsDir=<папка> [-PwithLithium]
 (Lithium идёт в запуск только с -PwithLithium — проверка совместимости с ним, как у хоста.)
 Папка — только для этих модов: другие jar в ней (прежние версии) убираются, иначе запуск взял бы обе версии мода.
@@ -25,7 +25,7 @@ PINNED = {
     "lithium": "mc1.21.1-0.15.4-neoforge",
 }
 API = "https://api.modrinth.com/v2"
-HEADERS = {"User-Agent": "zentixua/airstrike (github.com/zentixua/airstrike)"}
+HEADERS = {"User-Agent": "zentixua/incoming (github.com/zentixua/incoming)"}
 
 
 def get(url):

@@ -13,13 +13,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOD = os.path.join(ROOT, "mod")
 DIST = os.path.join(ROOT, "dist")
 
-INSTANCE = "Airstrike Pack"
+INSTANCE = "Incoming Pack"
 PRISM = os.path.expanduser(os.environ.get("PRISM_DIR", "~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher"))
 MC = os.environ.get("MC_DIR", os.path.join(PRISM, "instances", INSTANCE, "minecraft"))
 MODS = os.path.join(MC, "mods")
 JAVA = os.path.join(PRISM, "java", "java-runtime-delta")
 # сюда deploy.sh переносит старые версии мода и копии датапака/пакета звуков — удаляет их только Артём
-BACKUP = os.path.join(MC, "airstrike-backup")
+BACKUP = os.path.join(MC, "incoming-backup")
 
 # до мода был датапак (сначала под именем shahed) и пакет звуков: их копии в игре больше не нужны
 LEGACY_DATAPACKS = "airstrike shahed"

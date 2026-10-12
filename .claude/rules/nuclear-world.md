@@ -1,7 +1,7 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/nuclear/world/**"
-  - "mod/src/main/java/ua/zentix/airstrike/mixin/net/**"
+  - "mod/src/main/java/ua/zentix/incoming/nuclear/world/**"
+  - "mod/src/main/java/ua/zentix/incoming/mixin/net/**"
 ---
 
 # Руины ядерного удара (`nuclear/world/`)
@@ -77,7 +77,7 @@ paths:
   из памяти раньше волны — план пропадал), руины их чанков строит очередь (в фоне), квадрат
   отпускается, когда руины его чанков стоят или оставшиеся ждут только соседей — тогда каждый берёт свой тикет с соседями (`ScarQueue.holdForTile`;
   чанк под чужим тикетом свой не берёт, и его соседей в незагруженном квадрате никто не грузил: шесть слотов стояли
-  тысячи тиков, диагностика 01.10.2026; `-Dairstrike.nukeDiag=true` — строки «DIAG») (строка «zone behind the wave — X of Y chunks done»); подготовка и очередь руин живут только в памяти
+  тысячи тиков, диагностика 01.10.2026; `-Dincoming.nukeDiag=true` — строки «DIAG») (строка «zone behind the wave — X of Y chunks done»); подготовка и очередь руин живут только в памяти
   (несохраняемый `NuclearWorld`): перезапуск сервера посреди подрыва теряет готовые планы, и руины встают на месте —
   чанки без отметки `CHUNK_SCAR` проходятся при загрузке; в лог «Ruins for strike #N ready»; сводка подрыва — доля руин по
   готовому плану у чанков в памяти при подрыве и «sent to players before ruins»: чанк, до которого дошла волна, а руин нет,
@@ -100,8 +100,8 @@ paths:
   руин не хранит готовых секций: блэкаут гасит лампы прямо в палитре (`ChunkLights.applyInPlace`) по ходу каскада, и
   секция, скопированная до него, зажгла бы их снова (а отпечаток всей секции «устаревал» у 882 чанков из 10881 на
   проверке 30.09.2026) — поэтому пишутся только места плана.
-- Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой (очередь руин — с числом осмотренных за тик и ждавших работ, руины заранее — отдельно; осмотр ждущей работы — не единица часов полосы, но идёт, пока не вышел срок тика, и его время — в счёт полосы: `WorkClock.overdue`, `spent`); `AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke` —
-  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`; для сервера стенда — `AIRSTRIKE_JFR=1 tools/stress.sh`
+- Медленный ядерный тик (> 50 мс) пишется в лог с разбивкой (очередь руин — с числом осмотренных за тик и ждавших работ, руины заранее — отдельно; осмотр ждущей работы — не единица часов полосы, но идёт, пока не вышел срок тика, и его время — в счёт полосы: `WorkClock.overdue`, `spent`); `INCOMING_JFR=1 tools/client_scenario.sh nuke` —
+  профиль JFR в `mod/run/scenario/logs/scenario.jfr`, паузы GC — `logs/gc.log`; для сервера стенда — `INCOMING_JFR=1 tools/stress.sh`
   → `mod/run/stress/server/stress.jfr`.
 - `ChunkMap.getPlayers(pos, false)` (`isChunkTracked`) не считает игрока, у которого чанк ещё в очереди отправки, а чанк
   без руин `ChunkSendGate` держит в ней: «видит ли чанк игрок» для очереди руин — `getChunkTrackingView().contains`

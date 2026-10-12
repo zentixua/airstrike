@@ -6,7 +6,7 @@
 RIG_SESSIONS=()
 # метка в окружении всех процессов запуска (её несут exec env, xvfb-run, dbus-run-session и KWin): сессию с тем же
 # номером после оборота PID, но без метки, остановка не тронет
-RIG_TAG="AIRSTRIKE_RIG_TAG=$$.$RANDOM"
+RIG_TAG="INCOMING_RIG_TAG=$$.$RANDOM"
 # сообщения — в терминал скрипта, а не в .out, куда перенаправлен вызов rig_spawn
 exec {RIG_ERR}>&2 || exec {RIG_ERR}>/dev/null # без stderr (закрыт) — сообщения в никуда, скрипт живёт
 

@@ -1,7 +1,7 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/client/**"
-  - "mod/src/test/java/ua/zentix/airstrike/client/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/**"
+  - "mod/src/test/java/ua/zentix/incoming/client/**"
 ---
 
 # Клиент (`client/`)

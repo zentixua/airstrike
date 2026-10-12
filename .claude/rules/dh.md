@@ -1,11 +1,11 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/compat/Dh*.java"
-  - "mod/src/main/java/ua/zentix/airstrike/client/map/**"
-  - "mod/src/main/java/ua/zentix/airstrike/client/render/DhDepth*.java"
-  - "mod/src/main/java/ua/zentix/airstrike/nuclear/world/FarLods.java"
-  - "mod/src/main/java/ua/zentix/airstrike/nuclear/world/FarZone.java"
-  - "mod/src/main/java/ua/zentix/airstrike/grid/**"
+  - "mod/src/main/java/ua/zentix/incoming/compat/Dh*.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/map/**"
+  - "mod/src/main/java/ua/zentix/incoming/client/render/DhDepth*.java"
+  - "mod/src/main/java/ua/zentix/incoming/nuclear/world/FarLods.java"
+  - "mod/src/main/java/ua/zentix/incoming/nuclear/world/FarZone.java"
+  - "mod/src/main/java/ua/zentix/incoming/grid/**"
 ---
 
 # Distant Horizons

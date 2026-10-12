@@ -1,0 +1,58 @@
+package ua.zentix.incoming.client.render;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.culling.Frustum;
+import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
+import net.minecraft.world.inventory.InventoryMenu;
+import org.joml.Quaternionf;
+import ua.zentix.incoming.entity.Launcher;
+import ua.zentix.incoming.entity.LauncherEntity;
+
+/** Мобильная пусковая: прицеп по курсу и пакет, поднимающийся на угол возвышения вокруг своей оси. */
+public class LauncherRenderer extends EntityRenderer<LauncherEntity> {
+    public LauncherRenderer(EntityRendererProvider.Context ctx) {
+        super(ctx);
+        this.shadowRadius = 2.0f;
+    }
+
+    @Override
+    public void render(LauncherEntity e, float entityYaw, float partialTick, PoseStack pose, MultiBufferSource buffers, int packedLight) {
+        pose.pushPose();
+        pose.mulPose(new Quaternionf().rotationY(-e.getYRot() * Mth.DEG_TO_RAD));
+        LaunchModels.TRAILER.render(pose, buffers, packedLight);
+        renderRack(e, e.level().getGameTime(), partialTick, pose, buffers, packedLight);
+        pose.popPose();
+        super.render(e, entityYaw, partialTick, pose, buffers, packedLight);
+    }
+
+    /**
+     * Пакет пусковой {@code l} на его опоре, поднятый на нынешний угол: поза — место пусковой, уже повёрнутое по её
+     * курсу (прицеп и стационарная пусковая рисуют пакет одинаково).
+     */
+    public static void renderRack(Launcher l, long gameTime, float partialTick, PoseStack pose, MultiBufferSource buffers, int packedLight) {
+        pose.pushPose();
+        pose.translate(0, l.mount().up, -l.mount().back);
+        pose.mulPose(new Quaternionf().rotationX(-l.deployedElevation(gameTime, partialTick) * Mth.DEG_TO_RAD));
+        switch (l.rack()) {
+            case MISSILE -> LaunchModels.MISSILE_RACK.render(pose, buffers, packedLight);
+            case ROCKET -> WeaponModels.Mesh.ROCKET_RACK.draw(pose, buffers, packedLight);
+            case LOITER -> LaunchModels.LOITER_RACK.render(pose, buffers, packedLight);
+            case DRONE -> LaunchModels.DRONE_RACK.render(pose, buffers, packedLight);
+        }
+        pose.popPose();
+    }
+
+    @Override
+    public boolean shouldRender(LauncherEntity e, Frustum frustum, double x, double y, double z) {
+        return frustum.isVisible(e.getBoundingBox().inflate(10));
+    }
+
+    @Override
+    public ResourceLocation getTextureLocation(LauncherEntity e) {
+        return InventoryMenu.BLOCK_ATLAS;
+    }
+}

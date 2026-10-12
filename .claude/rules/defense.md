@@ -1,11 +1,11 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/defense/**"
-  - "mod/src/main/java/ua/zentix/airstrike/entity/InterceptorEntity.java"
-  - "mod/src/main/java/ua/zentix/airstrike/guidance/Homing.java"
-  - "mod/src/main/java/ua/zentix/airstrike/client/hud/RadarScope.java"
-  - "mod/src/test/java/ua/zentix/airstrike/defense/**"
-  - "mod/src/devtest/java/ua/zentix/airstrike/gametest/SamGameTests.java"
+  - "mod/src/main/java/ua/zentix/incoming/defense/**"
+  - "mod/src/main/java/ua/zentix/incoming/entity/InterceptorEntity.java"
+  - "mod/src/main/java/ua/zentix/incoming/guidance/Homing.java"
+  - "mod/src/main/java/ua/zentix/incoming/client/hud/RadarScope.java"
+  - "mod/src/test/java/ua/zentix/incoming/defense/**"
+  - "mod/src/devtest/java/ua/zentix/incoming/gametest/SamGameTests.java"
 ---
 
 # ПВО (`defense/`)

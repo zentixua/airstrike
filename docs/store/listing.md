@@ -12,10 +12,10 @@ Fields to paste when the project pages are created. The long description is [des
 | Modrinth categories | Equipment, Technology, Game Mechanics |
 | CurseForge categories | Armor, Tools, and Weapons; Technology; Miscellaneous |
 | License | GPL-3.0-only |
-| Source | https://github.com/zentixua/airstrike |
-| Issues | https://github.com/zentixua/airstrike/issues |
-| Wiki / guide | https://github.com/zentixua/airstrike/blob/main/docs/guide/README.md |
-| Mod id | `airstrike` (the mod was called Airstrike before; the command is `/airstrike`) |
+| Source | https://github.com/zentixua/incoming |
+| Issues | https://github.com/zentixua/incoming/issues |
+| Wiki / guide | https://github.com/zentixua/incoming/blob/main/docs/guide/README.md |
+| Mod id | `incoming` (before 3.0.0 the mod was called Airstrike, with the id `airstrike`) |
 | Dependencies | none required; optional: Create, Create Aeronautics + Sable, Distant Horizons |
 
 ## Gallery

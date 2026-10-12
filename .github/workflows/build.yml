@@ -2,7 +2,7 @@
 # Проверяется то, что изменилось: правка только инструментов (tools/, кроме модов для GameTest) и текстов (docs/, *.md)
 # мод не собирает и GameTest не гоняет; правка мода, модов GameTest или самого CI — проверка целиком. GameTest идёт
 # частями на шести машинах сразу (devtest GameTestShards), сборка и юнит-тесты — рядом. Итог всех проверок — «Итог».
-# Сборка «Airstrike Pack» и мост ведущего Almighty — в своих репозиториях (zentixua/airstrike-pack, zentixua/almighty).
+# Сборка «Incoming Pack» и мост ведущего Almighty — в своих репозиториях (zentixua/incoming-pack, zentixua/almighty).
 # Ручной запуск на main (или на ветке claude/release-*, чтобы выпустить ровно проверенный коммит) с release=true:
 # проверка целиком, после неё — релиз v<mod_version> на GitHub с этим jar и заметками из docs/releases/<mod_version>.md.
 name: build
@@ -100,7 +100,7 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: airstrike-jar
+          name: incoming-jar
           path: mod/build/libs/*.jar
           if-no-files-found: error
 
@@ -198,12 +198,12 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
         with:
-          name: airstrike-jar
+          name: incoming-jar
           path: mod/build/libs
       - name: Релиз
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(sed -n 's/^mod_version=//p' mod/gradle.properties)
-          gh release create "v$v" "mod/build/libs/airstrike-$v.jar" --target "$GITHUB_SHA" \
-            --title "Airstrike $v" --notes-file "docs/releases/$v.md"
+          gh release create "v$v" "mod/build/libs/incoming-$v.jar" --target "$GITHUB_SHA" \
+            --title "Incoming $v" --notes-file "docs/releases/$v.md"

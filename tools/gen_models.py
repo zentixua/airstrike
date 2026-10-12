@@ -8,7 +8,7 @@
 # ///
 """Модели снарядов: гладкие сетки OBJ и их текстуры, нарисованные кодом (фиксированный сид).
 
-  uv run tools/gen_models.py   → mod/src/main/resources/assets/airstrike/
+  uv run tools/gen_models.py   → mod/src/main/resources/assets/incoming/
         models/weapon/<модель>_<деталь>.obj + .json (загрузчик neoforge:obj), models/weapon/<модель>.mtl,
         textures/block/weapon/<модель>.png (атлас блоков: модели рисуются как блоки, под шейдерами — как сущности)
 
@@ -42,7 +42,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike")
+ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "incoming")
 MODELS = os.path.join(ASSETS, "models", "weapon")
 TEXTURES = os.path.join(ASSETS, "textures", "block", "weapon")
 rng = np.random.default_rng(1945)
@@ -415,7 +415,7 @@ class Model:
 
     def write(self):
         os.makedirs(MODELS, exist_ok=True)
-        tex = f"airstrike:block/weapon/{self.name}"
+        tex = f"incoming:block/weapon/{self.name}"
         with open(os.path.join(MODELS, f"{self.name}.mtl"), "w") as f:
             f.write(f"# {self.name}: краска и светящиеся детали (срез сопла) — gen_models.py\n")
             f.write(f"newmtl paint\nKd 1 1 1 1\nmap_Kd {tex}\n\n")
@@ -459,7 +459,7 @@ class Model:
         with open(os.path.join(MODELS, name + ".obj"), "w") as f:
             f.write("\n".join(lines) + "\n")
         with open(os.path.join(MODELS, name + ".json"), "w") as f:
-            json.dump({"loader": "neoforge:obj", "model": f"airstrike:models/weapon/{name}.obj", "flip_v": False,
+            json.dump({"loader": "neoforge:obj", "model": f"incoming:models/weapon/{name}.obj", "flip_v": False,
                        "emissive_ambient": True, "automatic_culling": False,
                        "textures": {"particle": tex}}, f, indent=2)
             f.write("\n")

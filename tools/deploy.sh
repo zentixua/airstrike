@@ -6,11 +6,11 @@
 #   tools/deploy.sh --dry    только сборка и проверки, игру не трогать
 #   tools/deploy.sh --jar F  без сборки: поставить готовый jar F (сборку CI или релиза — те же байты, что у друзей)
 #
-# Ничего не удаляется: старые jar мода, копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
-# (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в airstrike-backup/<время>/ рядом с mods/.
+# Ничего не удаляется: старые jar мода (и прежние airstrike-*.jar), копии датапака (saves/*/datapacks/airstrike|shahed) и пакета звуков
+# (resourcepacks/"Airstrike Sounds"|"Shahed Sounds") переносятся в incoming-backup/<время>/ рядом с mods/.
 # Мод заменяет их полностью; настройки датапака он переносит в свой конфиг сам при первом запуске мира.
-# После установки — перезапустить игру. Друзьям нужен тот же jar (dist/airstrike-*.jar) в их mods/.
-# Инстанс с автообновлением сборки (zentixua/airstrike-pack) deploy.sh не трогает: jar мода там — из сборки на её main.
+# После установки — перезапустить игру. Друзьям нужен тот же jar (dist/incoming-*.jar) в их mods/.
+# Инстанс с автообновлением сборки (zentixua/incoming-pack) deploy.sh не трогает: jar мода там — из сборки на её main.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 path() { python3 "$ROOT/tools/paths.py" "$1"; }
@@ -33,21 +33,21 @@ done
 
 mkdir -p "$DIST"
 if [ -n "$JAR" ]; then
-  [[ "$(basename "$JAR")" == airstrike-*.jar && -f "$JAR" ]] || { echo "--jar: нужен файл airstrike-<версия>.jar" >&2; exit 2; }
+  [[ "$(basename "$JAR")" == incoming-*.jar && -f "$JAR" ]] || { echo "--jar: нужен файл incoming-<версия>.jar" >&2; exit 2; }
   [ "$(dirname "$JAR")" = "$(realpath "$DIST")" ] || cp "$JAR" "$DIST/"
   echo "готовый: $JAR ($(sha256sum "$JAR" | cut -c1-64)) → dist/"
 else
   cd "$ROOT/mod"
   ./gradlew build --console=plain -q
   if [ "$TEST" = 1 ]; then ./gradlew runGameTestServer --console=plain -q; fi
-  JAR="$(realpath "$(ls -t build/libs/airstrike-*.jar | grep -v -- '-sources' | head -n1)")"
+  JAR="$(realpath "$(ls -t build/libs/incoming-*.jar | grep -v -- '-sources' | head -n1)")"
   cp "$JAR" "$DIST/"
   echo "собран: $JAR → dist/"
 fi
 if [ "$DRY" = 1 ]; then echo "--dry: игра не тронута"; exit 0; fi
-# Перед запуском такого инстанса packwiz-installer ставит сборку: убранный jar сборки он вернёт, и Airstrike станет два.
+# Перед запуском такого инстанса packwiz-installer ставит сборку: убранный jar сборки он вернёт, и Incoming станет два.
 if grep -qs '^PreLaunchCommand=.*packwiz-installer' "$(dirname "$MC")/instance.cfg"; then
-  echo "инстанс обновляется сам из сборки airstrike-pack (packwiz-installer): мод приходит в игру выпуском и PR сборки;" \
+  echo "инстанс обновляется сам из сборки incoming-pack (packwiz-installer): мод приходит в игру выпуском и PR сборки;" \
     "игра не тронута" >&2
   exit 1
 fi
@@ -59,7 +59,7 @@ aside() { # перенести в сторону с сохранением пу�
   mv "$src" "$BACKUP/$rel"
   echo "в сторону: $rel"
 }
-for old in "$MODS"/airstrike-*.jar; do
+for old in "$MODS"/incoming-*.jar "$MODS"/airstrike-*.jar; do
   if [ -e "$old" ]; then aside "$old"; fi
 done
 for w in "$MC/saves"/*/; do

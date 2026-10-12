@@ -1,8 +1,8 @@
 {
   "values": [
-    "airstrike:strike",
-    "airstrike:shockwave",
-    "airstrike:nuclear_blast",
-    "airstrike:player_nuclear_blast"
+    "incoming:strike",
+    "incoming:shockwave",
+    "incoming:nuclear_blast",
+    "incoming:player_nuclear_blast"
   ]
 }

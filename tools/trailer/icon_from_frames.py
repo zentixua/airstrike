@@ -11,14 +11,14 @@
 
     uv run tools/trailer/icon_from_frames.py mod/run/scenario/trailer-icon/frames/icon dist/icon
 
-План «icon» снимается сценарием трейлера (AIRSTRIKE_TRAILER_SHOTS=icon); готовая иконка в мод не входит.
+План «icon» снимается сценарием трейлера (INCOMING_TRAILER_SHOTS=icon); готовая иконка в мод не входит.
 
 Сам выбирает кадр (кроме первых 10 %, пока камера заходит за шахед): самый крупный силуэт снаряда (всё, что заметно отличается от неба), целиком в кадре и ближе
 к центру. Пишет:
-  airstrike-icon.png         512×512: кадр с запасом вокруг силуэта, скруглённые углы, тёплая рамка и тёмный
+  incoming-icon.png         512×512: кадр с запасом вокруг силуэта, скруглённые углы, тёплая рамка и тёмный
                              контур снаружи (видно и на тёмной, и на светлой теме Modrinth);
-  airstrike-icon-small.png   512×512 для мелких размеров: кадр теснее, небо размыто, силуэт резкий и контрастный;
-  airstrike-icon-96.png, -64.png — уменьшенный малый вариант;
+  incoming-icon-small.png   512×512 для мелких размеров: кадр теснее, небо размыто, силуэт резкий и контрастный;
+  incoming-icon-96.png, -64.png — уменьшенный малый вариант;
   preview.png                оба варианта в 128/64/32 px на тёмном и светлом фоне;
   source.txt                 какой кадр взят.
 Зависимости — в блоке script выше (PEP 723): uv run ставит их сам.
@@ -115,7 +115,7 @@ def main(frames, out):
 
     big = img.crop(square(img, box, 0.30)).resize((N, N), Image.LANCZOS)
     big = ImageEnhance.Contrast(ImageEnhance.Color(big).enhance(1.15)).enhance(1.1)
-    framed(big).save(os.path.join(out, "airstrike-icon.png"), optimize=True)
+    framed(big).save(os.path.join(out, "incoming-icon.png"), optimize=True)
 
     # малый: небо размыто и светлее, силуэт резкий, темнее и с тёмной обводкой — читается на 32 px
     sil = Image.fromarray((ndimage.binary_dilation(mask, iterations=2) * 255).astype(np.uint8))
@@ -132,11 +132,11 @@ def main(frames, out):
     box_small = square(img, box, 0.12)
     small = small.crop(box_small).resize((N, N), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=2, percent=80))
     small = framed(small)
-    small.save(os.path.join(out, "airstrike-icon-small.png"), optimize=True)
+    small.save(os.path.join(out, "incoming-icon-small.png"), optimize=True)
     for k in (96, 64):
-        small.resize((k, k), Image.LANCZOS).save(os.path.join(out, f"airstrike-icon-{k}.png"), optimize=True)
+        small.resize((k, k), Image.LANCZOS).save(os.path.join(out, f"incoming-icon-{k}.png"), optimize=True)
 
-    icons = [Image.open(os.path.join(out, "airstrike-icon.png")), small]
+    icons = [Image.open(os.path.join(out, "incoming-icon.png")), small]
     prev = Image.new("RGBA", (2 * (128 + 64 + 32 + 40), 2 * 140), (0, 0, 0, 0))
     for col, bgc in enumerate(((24, 26, 30, 255), (245, 245, 247, 255))):
         x0 = col * (128 + 64 + 32 + 40)

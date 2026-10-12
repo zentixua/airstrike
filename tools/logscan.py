@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Выжимка из лога игры всего, что касается мода Airstrike, — чтобы не просить игроков что-то проверять вручную.
+"""Выжимка из лога игры всего, что касается мода Incoming, — чтобы не просить игроков что-то проверять вручную.
 
   python3 tools/logscan.py                последняя сессия latest.log
   python3 tools/logscan.py --all          весь latest.log
@@ -43,7 +43,7 @@ if since:
 # стек исключения: строки «\tat …» и «Caused by» после строки с ошибкой нашего мода
 errors = []
 for i, l in enumerate(lines):
-    if re.search(r"/(ERROR|WARN)\]", l) and re.search(r"(?i)airstrike|ua\.zentix|ua\.ze\.ai", l) and "Assets URL" not in l:
+    if re.search(r"/(ERROR|WARN)\]", l) and re.search(r"(?i)incoming|ua\.zentix|ua\.ze\.ai", l) and "Assets URL" not in l:
         block = [l]
         for nxt in lines[i + 1:i + 40]:
             if nxt.startswith(("\tat ", "Caused by", "java.", "\t... ")) or re.match(r"^\S+Exception", nxt):
@@ -53,15 +53,15 @@ for i, l in enumerate(lines):
         errors.append("\n    ".join(block[:12]))
 
 sections = [
-    ("Загрузка мода", r"Loading mod airstrike|Found mod file airstrike|airstrike.*(mod file|version)"),
-    ("Удары и ядерные подрывы", r"Airstrike/\]: (Strike:|Nuclear detonation|ICBM)"),
+    ("Загрузка мода", r"Loading mod incoming|Found mod file incoming|incoming.*(mod file|version)"),
+    ("Удары и ядерные подрывы", r"Incoming/\]: (Strike:|Nuclear detonation|ICBM)"),
     # «Can't keep up» — накопленное отставание с прошлой такой строки (не чаще 15 с игры), а не одна пауза;
     # рядом по времени — удары и медленные тики мода; строки чата (игрок написал «Teleported…»:
     # «[CHAT] <…>» у клиента, «]: <…>» у сервера) — не в счёт
-    ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Airstrike/\]: (Strike:|Impacts \(|Strike summary \(|Impact series summary \(|Blast: removing block|Nuclear tick|Server thread stalled)|Teleported)"),
-    ("Снаряды: потеря цели, самоликвидация, сбитые ЗРК", r"Airstrike/\]: Projectiles: "),
-    ("Переезд со старого датапака", r"Airstrike/\]: (Disabling old datapacks|Datapack settings moved|Removed objectives of the old datapack)"),
-    ("Неизвестные звуки", r"Unable to play unknown soundEvent|Missing sound for event: (airstrike|snassets):"),
+    ("Отставание сервера", r"^(?!.*(\[CHAT\]|\]: (\[Not Secure\] )?<)).*(Can't keep up|Incoming/\]: (Strike:|Impacts \(|Strike summary \(|Impact series summary \(|Blast: removing block|Nuclear tick|Server thread stalled)|Teleported)"),
+    ("Снаряды: потеря цели, самоликвидация, сбитые ЗРК", r"Incoming/\]: Projectiles: "),
+    ("Переезд со старого датапака", r"Incoming/\]: (Disabling old datapacks|Datapack settings moved|Removed objectives of the old datapack)"),
+    ("Неизвестные звуки", r"Unable to play unknown soundEvent|Missing sound for event: (incoming|snassets):"),
     ("Аппараты Sable (добавлены/удалены)", r"shtreimel\.lifecycle.*sub-level (added|removed)"),
     ("Чат игроков", r"\[CHAT\] <"),
     ("Игроки вход/выход", r"joined the game|left the game|lost connection"),

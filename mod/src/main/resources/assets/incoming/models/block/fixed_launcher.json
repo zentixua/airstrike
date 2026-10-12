@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "side": "incoming:block/fixed_launcher_side",
+    "top": "incoming:block/fixed_launcher_top",
+    "bottom": "incoming:block/fixed_launcher_bottom"
+  }
+}

@@ -7,7 +7,7 @@
   2. FREESOUND_CLIENT_ID=… FREESOUND_CLIENT_SECRET=… python3 tools/freesound.py login
      — печатает адрес входа; после входа Freesound показывает код, его вставить сюда.
 
-Вход хранится вне репозитория: ~/.config/airstrike/freesound.json (или файл из FREESOUND_AUTH), токен живёт сутки
+Вход хранится вне репозитория: ~/.config/incoming/freesound.json (или файл из FREESOUND_AUTH), токен живёт сутки
 и обновляется сам, если заданы FREESOUND_CLIENT_ID и FREESOUND_CLIENT_SECRET. Скачанные оригиналы лежат
 в tools/.sound-cache/orig/<id>.<тип>; когда оригинал уже скачан, вход не нужен.
 
@@ -24,7 +24,7 @@ import urllib.request
 API = "https://freesound.org/apiv2/"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORIG = os.path.join(ROOT, "tools", ".sound-cache", "orig")
-AUTH = os.environ.get("FREESOUND_AUTH") or os.path.expanduser("~/.config/airstrike/freesound.json")
+AUTH = os.environ.get("FREESOUND_AUTH") or os.path.expanduser("~/.config/incoming/freesound.json")
 
 
 def _client():

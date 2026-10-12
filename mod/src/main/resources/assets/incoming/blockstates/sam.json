@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "incoming:block/sam"
+    },
+    "facing=east": {
+      "model": "incoming:block/sam",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "incoming:block/sam",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "incoming:block/sam",
+      "y": 270
+    }
+  }
+}

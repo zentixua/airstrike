@@ -1,8 +1,8 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/grid/**"
+  - "mod/src/main/java/ua/zentix/incoming/grid/**"
   - "tools/gen_grid_assets.py"
-  - "mod/src/test/java/ua/zentix/airstrike/grid/**"
+  - "mod/src/test/java/ua/zentix/incoming/grid/**"
 ---
 
 # Блэкаут (`grid/`)
@@ -16,7 +16,7 @@ paths:
   `SCAN_COST`), проход останавливается на лампе сверх лимита и продолжается с неё (`ChunkLights.Pass`: палитра помнит
   и переведённые состояния, конец чанка по ней не виден); чанки у игроков (`NEAR_CHUNKS`) — своей очередью, первыми
   (и чанки общей очереди, к которым подошёл игрок, — раз в секунду туда же); часы — `Blackouts.newClock`, оценка тает
-  к каждому тику, иначе один всплеск держал очередь на единице за тик; скорость — `/airstrike grid status`; единица дольше
+  к каждому тику, иначе один всплеск держал очередь на единице за тик; скорость — `/incoming grid status`; единица дольше
   10 мс — строка в лог «Blackout (…): work unit (queue|relight|cascade)» с разбивкой по видам работы и временем
   «outside kinds» (GC, вытеснение потока — не работа блэкаута; больше половины единицы — INFO, иначе WARN)), `Blackouts`
   (входы: взрыв у узла, ядерка, команда `GridCommand`; события), `SubstationBlock`/`Substations` (узел-блок, «под током»),

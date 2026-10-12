@@ -128,9 +128,9 @@ def main():
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
     if not cmd:
         ap.error("нет команды")
-    # только внутри вложенного KWin (nested_kwin.sh, сокет wayland-airstrike-…): снять экран рабочего стола нельзя
-    if not os.environ.get("DISPLAY") or not os.environ.get("WAYLAND_DISPLAY", "").startswith("wayland-airstrike-"):
-        ap.error("нужна сессия вложенного KWin (tools/nested_kwin.sh): DISPLAY и WAYLAND_DISPLAY=wayland-airstrike-…")
+    # только внутри вложенного KWin (nested_kwin.sh, сокет wayland-incoming-…): снять экран рабочего стола нельзя
+    if not os.environ.get("DISPLAY") or not os.environ.get("WAYLAND_DISPLAY", "").startswith("wayland-incoming-"):
+        ap.error("нужна сессия вложенного KWin (tools/nested_kwin.sh): DISPLAY и WAYLAND_DISPLAY=wayland-incoming-…")
     base = a.out[:-4] if a.out.endswith(".mkv") else a.out
     marks = open(base + ".jsonl", "a", buffering=1)
 

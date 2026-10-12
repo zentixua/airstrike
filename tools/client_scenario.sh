@@ -4,7 +4,7 @@
 #   tools/client_scenario.sh [all|guide|launch|rocket|loiter|hud|map|target-map|salvo-map|route-map|nuke|fx|fx-night|fx-late|models|far-models|occlusion|onboard|flyby|flyby-all|flyby-<случай>] [shaders] [dh]   → mod/run/scenario/screenshots/*.png, audio.wav, logs/latest.log
 #   all — шахед, ракета, бомба, залп, бинокль и пульт (короткие полёты издалека);
 #   guide — кадры руководства игрока (GuideShots): рецепты, бинокль, пульт, GIF карты, снаряды на экране, камера,
-#     «Ланцет», ЗРК, стационарная пусковая; AIRSTRIKE_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
+#     «Ланцет», ЗРК, стационарная пусковая; INCOMING_GUIDE=recipes,map — только эти разделы; карта — по прорисовке 20 чанков, без dh;
 #     картинки в docs/guide/img — tools/guide_images.sh;
 #   launch — пуск с пусковой у игрока, отделение ускорителя, камера снаряда (N) до удара;
 #   rocket — залп РСЗО: камера у пакета на очереди, дуги над головой, разрывы по площади;
@@ -58,23 +58,23 @@ OPT
 if [ "${1:-all}" = guide ]; then
   if grep -q '^lang:' "$RUN/options.txt"; then sed -i 's/^lang:.*/lang:ru_ru/' "$RUN/options.txt"; else echo 'lang:ru_ru' >> "$RUN/options.txt"; fi
 fi
-export AIRSTRIKE_SCENARIO="${1:-all}"
+export INCOMING_SCENARIO="${1:-all}"
 MC="$(python3 "$ROOT/tools/paths.py" MC)"
-unset AIRSTRIKE_SHADERS AIRSTRIKE_DH
+unset INCOMING_SHADERS INCOMING_DH
 for opt in "${@:2}"; do
   case "$opt" in
     shaders)
-      export AIRSTRIKE_SHADERS=1
+      export INCOMING_SHADERS=1
       PACK="$(sed -n 's/^shaderPack=//p' "$MC/config/iris.properties")"
       mkdir -p "$RUN/shaderpacks" "$RUN/config"
       rm -rf "$RUN/shaderpacks/$PACK"
       cp -r "$MC/shaderpacks/$PACK" "$RUN/shaderpacks/"
       printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
       ;;
-    dh) export AIRSTRIKE_DH=1 ;;
+    dh) export INCOMING_DH=1 ;;
     *) echo "неизвестный параметр: $opt (есть shaders, dh)" >&2; exit 2 ;;
   esac
 done
 export JAVA_HOME="${JAVA_HOME:-$HOME/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/java/java-runtime-delta}"
 cd "$ROOT/mod"
-exec "$ROOT/tools/nested_kwin.sh" wayland-airstrike-scenario 1280 720 "$ROOT/mod/gradlew runClientScenario --console=plain"
+exec "$ROOT/tools/nested_kwin.sh" wayland-incoming-scenario 1280 720 "$ROOT/mod/gradlew runClientScenario --console=plain"

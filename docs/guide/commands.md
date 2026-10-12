@@ -2,7 +2,7 @@
 
 English · [Русский](ru/commands.md)
 
-Everything the designator does can also be done with the `/airstrike` command. For a regular player the command uses
+Everything the designator does can also be done with the `/incoming` command. For a regular player the command uses
 munitions and follows the same [rules](rules.md) as the designator; for operators and command blocks it does not.
 
 Weapons in commands: `drone` (or `shahed`), `loiter` (`lancet`), `missile`, `rocket` (`grad`), `bunker`, `nuke`.
@@ -11,10 +11,10 @@ Weapons in commands: `drone` (or `shahed`), `loiter` (`lancet`), `missile`, `roc
 
 | Command | What it does |
 |---|---|
-| `/airstrike <weapon>` | strike where you are looking |
-| `/airstrike <weapon> <player or mob>` | strike at a target |
-| `/airstrike <weapon> at <x y z>` | strike at a point |
-| `/airstrike salvo <weapon> <count> <spread> [target]` | salvo; the target is `me` (where you stand, the default), `look`, a player or mob, or `at <x y z>` |
+| `/incoming <weapon>` | strike where you are looking |
+| `/incoming <weapon> <player or mob>` | strike at a target |
+| `/incoming <weapon> at <x y z>` | strike at a point |
+| `/incoming salvo <weapon> <count> <spread> [target]` | salvo; the target is `me` (where you stand, the default), `look`, a player or mob, or `at <x y z>` |
 | `… via <x z> [<x z> …]` | route: up to five points, for the Shahed, missile and Lancet only |
 | `… from <x z>` | launch point: a launcher sets up there and stays until an abort; if there is no room, the rounds take off from there without it (operators only) |
 
@@ -25,22 +25,22 @@ Weapons in commands: `drone` (or `shahed`), `loiter` (`lancet`), `missile`, `roc
 
 | Command | What it does |
 |---|---|
-| `/airstrike nuke [kt [air\|ground]]` | ICBM where you are looking |
-| `/airstrike nuke at <x y z> [kt [air\|ground]]` | ICBM at a point |
-| `/airstrike nuke now [at <x y z>] [kt [air\|ground]]` | detonation at once, without a flight (operators only) |
+| `/incoming nuke [kt [air\|ground]]` | ICBM where you are looking |
+| `/incoming nuke at <x y z> [kt [air\|ground]]` | ICBM at a point |
+| `/incoming nuke now [at <x y z>] [kt [air\|ground]]` | detonation at once, without a flight (operators only) |
 
-Without a number: 15 kt, air burst. `air` or `ground` only after the number: `/airstrike nuke 15 ground`.
+Without a number: 15 kt, air burst. `air` or `ground` only after the number: `/incoming nuke 15 ground`.
 
 ## Other commands
 
 | Command | What it does |
 |---|---|
-| `/airstrike clear` | abort your strikes; for an operator, every strike of every player, nuclear ones included |
-| `/airstrike menu` | console |
-| `/airstrike help` | short help in chat |
-| `/airstrike give [players]` | give a Strike Designator (operators only) |
-| `/airstrike radiation [player]`, `radiation clear [players]` | radiation dose, clear radiation (operators only) |
-| `/airstrike grid status`, `blackout`, `restore` | power grid: status, cut power to an area, bring power back (operators only) |
+| `/incoming clear` | abort your strikes; for an operator, every strike of every player, nuclear ones included |
+| `/incoming menu` | console |
+| `/incoming help` | short help in chat |
+| `/incoming give [players]` | give a Strike Designator (operators only) |
+| `/incoming radiation [player]`, `radiation clear [players]` | radiation dose, clear radiation (operators only) |
+| `/incoming grid status`, `blackout`, `restore` | power grid: status, cut power to an area, bring power back (operators only) |
 
 ## Fixed launcher
 
@@ -48,7 +48,7 @@ Operators only. The launcher has to be in a loaded chunk.
 
 | Command | What it does |
 |---|---|
-| `/airstrike launcher <x y z>` | status: mission, stock, last signal |
+| `/incoming launcher <x y z>` | status: mission, stock, last signal |
 | `… fire` | order by the mission, like a redstone signal |
 | `… mission <weapon> <count> <spread> <x y z> [via <x z> …]` | mission without player rules |
 | `… clear` | remove the mission |
@@ -61,13 +61,13 @@ console.
 ## Examples
 
 ```
-/airstrike missile Steve
-/airstrike salvo rocket 20 25 at 120 70 -340
-/airstrike salvo loiter 5 20 look
-/airstrike salvo drone 1 0 at 800 64 200 via 300 -100 600 -50
-/airstrike salvo missile 4 10 at 120 70 -340 from -900 400
-/airstrike nuke at 2000 64 0 1 ground
-/airstrike launcher 100 64 -20 mission missile 2 10 120 70 -340
+/incoming missile Steve
+/incoming salvo rocket 20 25 at 120 70 -340
+/incoming salvo loiter 5 20 look
+/incoming salvo drone 1 0 at 800 64 200 via 300 -100 600 -50
+/incoming salvo missile 4 10 at 120 70 -340 from -900 400
+/incoming nuke at 2000 64 0 1 ground
+/incoming launcher 100 64 -20 mission missile 2 10 120 70 -340
 ```
 
 1. A cruise missile at the player Steve (if spotted).

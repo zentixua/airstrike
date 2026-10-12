@@ -1,9 +1,9 @@
 ---
 paths:
-  - "mod/src/main/java/ua/zentix/airstrike/work/**"
-  - "mod/src/main/java/ua/zentix/airstrike/warhead/**"
-  - "mod/src/main/java/ua/zentix/airstrike/nuclear/world/**"
-  - "mod/src/test/java/ua/zentix/airstrike/work/**"
+  - "mod/src/main/java/ua/zentix/incoming/work/**"
+  - "mod/src/main/java/ua/zentix/incoming/warhead/**"
+  - "mod/src/main/java/ua/zentix/incoming/nuclear/world/**"
+  - "mod/src/test/java/ua/zentix/incoming/work/**"
 ---
 
 # Бюджет работы на тик (`work/`)

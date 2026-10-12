@@ -7,8 +7,7 @@
 бомбардировщик B-2 с бетонобойной бомбой и межконтинентальная ракета с ядерной боевой частью. Зенитный ракетный
 комплекс сбивает дроны, крылатые ракеты и бомбардировщики.
 
-Раньше мод назывался Airstrike. Его id, команда `/airstrike` и имя файла `airstrike-<версия>.jar` остались
-прежними.
+До версии 3.0.0 мод назывался Airstrike. В мирах с тех версий блоки, предметы и сущности мода сохраняются.
 
 ![Огненный шар и ударная волна воздушного взрыва 15 кт над городом](docs/guide/img/nuke-wave.jpg)
 
@@ -37,15 +36,15 @@
 
 ## Установка
 
-Проще всего играть в сборке [Incoming Pack](https://github.com/zentixua/airstrike-pack/blob/main/README.ru.md)
+Проще всего играть в сборке [Incoming Pack](https://github.com/zentixua/incoming-pack/blob/main/README.ru.md)
 (Create, Create Aeronautics, Distant Horizons, шейдеры). Она сама обновляется при каждом запуске игры, вместе
 с модом.
 
 Без сборки:
 
 1. Нужны Minecraft 1.21.1 и NeoForge 21.1.259 или новее. Других обязательных модов нет.
-2. Скачайте `airstrike-<версия>.jar` со страницы [Releases](https://github.com/zentixua/airstrike/releases/latest)
-   и положите в папку `mods`. Прежний `airstrike-*.jar` удалите.
+2. Скачайте `incoming-<версия>.jar` со страницы [Releases](https://github.com/zentixua/incoming/releases/latest)
+   и положите в папку `mods`. Прежний `incoming-*.jar` удалите.
 3. Мод нужен и на сервере, и у каждого игрока, одной и той же версии. С другой версией к серверу не подключиться.
 
 ## Совместимость

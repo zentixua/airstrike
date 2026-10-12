@@ -2,8 +2,8 @@
 """Шаблоны для GameTest: плоские площадки с каменным полом (structure .nbt, MC 1.21.1).
 GameTest ставит шаблон на блок выше своей точки отсчёта: слой шаблона y = 0 — это y = 1 в координатах теста.
 
-  python3 scripts/gen_test_structures.py   → src/devtest/resources/data/airstrike/structure/*.nbt
-                                             (и data/airstrike_sweep/structure/pad.nbt — сценарии полёта)
+  python3 scripts/gen_test_structures.py   → src/devtest/resources/data/incoming/structure/*.nbt
+                                             (и data/incoming_sweep/structure/pad.nbt — сценарии полёта)
 """
 import gzip
 import os
@@ -59,7 +59,7 @@ def structure(sx, sy, sz, floor_layers):
     return struct.pack(">b", TAG_COMPOUND) + _name("") + _payload(TAG_COMPOUND, root)
 
 
-def write(name, data, namespace="airstrike"):
+def write(name, data, namespace="incoming"):
     out = os.path.join(DATA, namespace, "structure")
     os.makedirs(out, exist_ok=True)
     path = os.path.join(out, name + ".nbt")
@@ -71,7 +71,7 @@ def write(name, data, namespace="airstrike"):
 # маленькая площадка для быстрых проверок
 write("pad", structure(8, 6, 8, ["minecraft:stone"]))
 # та же площадка в своём пространстве имён: runScenarioSweep включает только его — идут одни сценарии полёта
-write("pad", structure(8, 6, 8, ["minecraft:stone"]), "airstrike_sweep")
+write("pad", structure(8, 6, 8, ["minecraft:stone"]), "incoming_sweep")
 # полигон: 8 слоёв камня, 2 грунта и дёрн — для воронок, бурения и прицела
 write("range", structure(64, 40, 64, ["minecraft:stone"] * 8 + ["minecraft:dirt"] * 2 + ["minecraft:grass_block"]))
 # взлётная полоса 32×256: снаряды заходят на цель с настоящей дистанции (ракета — с горкой). Высота 8: GameTest

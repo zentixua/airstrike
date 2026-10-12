@@ -29,4 +29,4 @@ mechanism (a comparator in the SAM Interceptor) and an iron trapdoor takes the p
 
 Other recipes: [Strike Designator](designator.md#crafting), [SAM and interceptors](defense.md#crafting-and-loading),
 [fixed launcher](launcher.md#crafting), [substation](blackout.md). The Geiger Counter has no recipe; an operator gives
-it out (`/give @s airstrike:geiger_counter`).
+it out (`/give @s incoming:geiger_counter`).

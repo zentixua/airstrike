@@ -1,7 +1,7 @@
 Air strikes and air defense for Minecraft 1.21.1 on NeoForge, built to real scale: one block is one metre, and the projectiles,
 launchers and the effects of a nuclear explosion have their real sizes.
 
-![Fireball and blast wave of a 15 kt airburst over a city](https://raw.githubusercontent.com/zentixua/airstrike/main/docs/guide/img/nuke-wave.jpg)
+![Fireball and blast wave of a 15 kt airburst over a city](https://raw.githubusercontent.com/zentixua/incoming/main/docs/guide/img/nuke-wave.jpg)
 
 ## Weapons
 
@@ -58,12 +58,12 @@ No other mods are required. Optional:
 - **Distant Horizons** 3.3 or newer: distant terrain on the targeting map and strike damage in distant terrain.
 - **Sound Physics Remastered**, **Iris** shaders, **Flashback** replays.
 
-The mod is needed on the server and on every client, in the same version. It was called Airstrike before
-publication; its id and the `/airstrike` command still use that name.
+The mod is needed on the server and on every client, in the same version. Before version 3.0.0 it was called
+Airstrike.
 
 ## Links
 
-- [Player guide](https://github.com/zentixua/airstrike/blob/main/docs/guide/README.md)
-- [Source code](https://github.com/zentixua/airstrike) (GPL-3.0)
-- [Incoming Pack](https://github.com/zentixua/airstrike-pack): a modpack built around the mod, with Create,
+- [Player guide](https://github.com/zentixua/incoming/blob/main/docs/guide/README.md)
+- [Source code](https://github.com/zentixua/incoming) (GPL-3.0)
+- [Incoming Pack](https://github.com/zentixua/incoming-pack): a modpack built around the mod, with Create,
   Create Aeronautics, Distant Horizons and shaders

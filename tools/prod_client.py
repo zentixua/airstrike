@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Боевой клиент со всей сборкой хоста — без Prism и без окна на рабочем столе.
 
-Копирует из инстанса mods/ (кроме Airstrike), config/, options.txt, shaderpacks/, resourcepacks/ и, по желанию, один
+Копирует из инстанса mods/ (кроме Incoming), config/, options.txt, shaderpacks/, resourcepacks/ и, по желанию, один
 мир в отдельный каталог; кладёт тестовую сборку мода со сценариями (./gradlew scenarioJar) и запускает Minecraft так,
 как его запускает Prism: те же библиотеки из каталога Prism и ForgeWrapper для NeoForge (meta/*.json). Клиент идёт во
 вложенном KWin (tools/nested_kwin.sh). Инстанс, его миры и настройки не меняются.
 
-  tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod] [--prop airstrike.frametimes=true]
-  tools/prod_client.py --world "New World (7)" --quickplay [--without-airstrike | --airstrike-jar F] --seconds 180   (вход, A/B, готовый jar)
+  tools/prod_client.py <сценарий> [--world "New World (7)"] [--dir mod/run/prod] [--prop incoming.frametimes=true]
+  tools/prod_client.py --world "New World (7)" --quickplay [--without-incoming | --incoming-jar F] --seconds 180   (вход, A/B, готовый jar)
   tools/prod_client.py commands --no-copy --dir mod/run/film/instance/minecraft --world greenfield-film \
-      --prop "airstrike.commands=dh pregen status;chunky"   (готовая копия без перекопирования: проверить моды командами)
-      в airstrike.commands через «;»: команды без «/», wait:N — ещё N тиков, 0…72000 (к паузе 40 после команды и 20
+      --prop "incoming.commands=dh pregen status;chunky"   (готовая копия без перекопирования: проверить моды командами)
+      в incoming.commands через «;»: команды без «/», wait:N — ещё N тиков, 0…72000 (к паузе 40 после команды и 20
       после снимка; другое N — строка в лог и шаг пропущен), shot:имя — снимок screenshots/имя_тик.png; в конце «SCENARIO done» и выход
   tools/prod_client.py --world /путь/к/миру --dir D --copy-only   (только копия: поправить её настройки до запуска --no-copy)
-  tools/prod_client.py commands --no-copy --dir D --world мир --size 1920x1080 --video D/take.mkv --prop "airstrike.commands=…"
+  tools/prod_client.py commands --no-copy --dir D --world мир --size 1920x1080 --video D/take.mkv --prop "incoming.commands=…"
       (окно игры — в видео в реальном времени, tools/x11_record.py; звук — D/audio.wav, 48 кГц)
   → <dir>/logs/latest.log, <dir>/screenshots/, <dir>/crash-reports/
 
-Сценарий — как у tools/client_scenario.sh (свойство airstrike.scenario); с --world сценарий получает имя мира
-в свойстве airstrike.world и открывает его вместо нового. --world — имя мира игрока или путь к каталогу мира (копируется
+Сценарий — как у tools/client_scenario.sh (свойство incoming.scenario); с --world сценарий получает имя мира
+в свойстве incoming.world и открывает его вместо нового. --world — имя мира игрока или путь к каталогу мира (копируется
 под своим именем каталога).
 """
 import argparse
@@ -74,7 +74,7 @@ def copy_instance(dest, world):
     for d in ("mods", "config", "shaderpacks", "resourcepacks", "saves", "logs", "screenshots", "crash-reports"):
         shutil.rmtree(os.path.join(dest, d), ignore_errors=True)
     shutil.copytree(os.path.join(mc, "mods"), os.path.join(dest, "mods"),
-                    ignore=lambda d, names: [n for n in names if n.startswith("airstrike-") or not (n.endswith(".jar") or os.path.isdir(os.path.join(d, n)))])
+                    ignore=lambda d, names: [n for n in names if n.startswith("incoming-") or not (n.endswith(".jar") or os.path.isdir(os.path.join(d, n)))])
     for d in ("config", "shaderpacks", "resourcepacks"):
         if os.path.isdir(os.path.join(mc, d)):
             shutil.copytree(os.path.join(mc, d), os.path.join(dest, d))
@@ -141,12 +141,12 @@ def launch_args(dest, props, username, game_extra, extra_jvm=()):
 
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("scenario", nargs="?", help="сценарий (airstrike.scenario); без него клиент просто идёт в меню или в --quickplay")
+    ap.add_argument("scenario", nargs="?", help="сценарий (incoming.scenario); без него клиент просто идёт в меню или в --quickplay")
     ap.add_argument("--world", help="скопировать этот мир игрока; со сценарием — открыть его")
     ap.add_argument("--quickplay", action="store_true", help="сразу войти в --world средствами игры (quickPlaySingleplayer)")
-    ap.add_argument("--without-airstrike", action="store_true", help="сборка хоста без Airstrike (сравнение A/B)")
-    ap.add_argument("--airstrike-jar", help="готовый jar мода (сборка CI или релиза) вместо тестовой сборки; без сценариев")
-    ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например airstrike.frametimes=true")
+    ap.add_argument("--without-incoming", action="store_true", help="сборка хоста без Incoming (сравнение A/B)")
+    ap.add_argument("--incoming-jar", help="готовый jar мода (сборка CI или релиза) вместо тестовой сборки; без сценариев")
+    ap.add_argument("--prop", action="append", default=[], metavar="KEY=VALUE", help="свойство JVM, например incoming.frametimes=true")
     ap.add_argument("--jvm", action="append", default=[], metavar="ARG",
                     help="аргумент JVM поверх обычных, например --jvm=-Xmx12G --jvm=-XX:+UseZGC --jvm=-XX:+ZGenerational")
     ap.add_argument("--seconds", type=int, help="закрыть клиент через столько секунд (код выхода 143)")
@@ -159,8 +159,8 @@ def main():
     ap.add_argument("--video", metavar="FILE.mkv",
                     help="записать окно игры в реальном времени (tools/x11_record.py: куски FILE.NNN.mkv, отметки FILE.jsonl)")
     a = ap.parse_args()
-    if (a.without_airstrike or a.airstrike_jar) and a.scenario:
-        ap.error("сценарии идут из тестовой сборки Airstrike: без неё сценария нет")
+    if (a.without_incoming or a.incoming_jar) and a.scenario:
+        ap.error("сценарии идут из тестовой сборки Incoming: без неё сценария нет")
     if a.quickplay and not a.world:
         ap.error("--quickplay нужен --world")
     if a.copy_only and a.no_copy:
@@ -174,25 +174,25 @@ def main():
         if not os.path.isdir(os.path.join(dest, "mods")):
             ap.error(f"--no-copy: в {dest} нет mods/")
         # прошлый запуск мог оставить свою сборку мода — ровно одна, та, что кладётся ниже
-        for old in glob.glob(os.path.join(dest, "mods", "airstrike-*.jar")):
+        for old in glob.glob(os.path.join(dest, "mods", "incoming-*.jar")):
             os.remove(old)
     else:
         copy_instance(dest, a.world)
         if a.copy_only:
             return
-    if a.airstrike_jar:
-        shutil.copy2(a.airstrike_jar, os.path.join(dest, "mods"))
-    elif not a.without_airstrike:
+    if a.incoming_jar:
+        shutil.copy2(a.incoming_jar, os.path.join(dest, "mods"))
+    elif not a.without_incoming:
         subprocess.run([os.path.join(paths.MOD, "gradlew"), "-p", paths.MOD, "scenarioJar", "-q", "--console=plain"], check=True)
-        jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "airstrike-*-scenario.jar")), key=os.path.getmtime)
+        jar = max(glob.glob(os.path.join(paths.MOD, "build", "scenario-libs", "incoming-*-scenario.jar")), key=os.path.getmtime)
         shutil.copy2(jar, os.path.join(dest, "mods"))
     os.makedirs(os.path.join(dest, "logs"), exist_ok=True)
 
     props = dict(p.split("=", 1) for p in a.prop)
     if a.scenario:
-        props["airstrike.scenario"] = a.scenario
+        props["incoming.scenario"] = a.scenario
         if a.world and not a.quickplay:
-            props["airstrike.world"] = world_name(a.world)
+            props["incoming.world"] = world_name(a.world)
     # окно игры — во весь экран вложенного KWin сразу: размер по умолчанию 854×480, а переход на полный экран
     # во вложенном KWin не срабатывал (ноутбук 01.10: весь дубль — 854×480)
     game_extra = ["--width", width, "--height", height]
@@ -218,7 +218,7 @@ def main():
         if os.path.exists(audio):
             os.remove(audio)
         game = f"python3 \"{os.path.join(tools, 'x11_record.py')}\" --out \"{os.path.abspath(a.video)}\" --size {width}x{height} --audio \"{audio}\" -- {game}"
-    socket = "wayland-airstrike-prod-" + os.path.basename(dest)
+    socket = "wayland-incoming-prod-" + os.path.basename(dest)
     cmd = f"sh -c 'cd \"{dest}\" && exec {game}'"
     # экран KWin больше окна на рамку и запас: окно с рамкой во весь экран KWin ужал бы под экран
     screen = [str(int(width) + 128), str(int(height) + 192)]

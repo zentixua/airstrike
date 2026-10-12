@@ -8,7 +8,7 @@
 # ///
 """Текстуры частиц эффектов (дым, огонь, искры, вспышка, ударное кольцо), нарисованные кодом; сид фиксированный.
 
-  uv run tools/gen_particles.py   → mod/src/main/resources/assets/airstrike/textures/fx/particle/…
+  uv run tools/gen_particles.py   → mod/src/main/resources/assets/incoming/textures/fx/particle/…
 
   smoke_00…15 — 4 клуба дыма × 4 стадии рассеивания (клуб «тает» по краям), почти белые: цвет даёт частица;
   fire_00…07  — клубы пламени: белое ядро, жёлтое и оранжевое тело, тёмно-красные языки по краю;
@@ -38,7 +38,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike", "textures", "fx", "particle")
+OUT = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "incoming", "textures", "fx", "particle")
 rng = np.random.default_rng(1945)
 
 

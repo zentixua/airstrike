@@ -40,16 +40,16 @@ repositories {
     mavenCentral()
 }
 
-// Моды из инстанса хоста (сборка «Airstrike Pack») для запусков из Gradle (Create, Sable, Aeronautics).
+// Моды из инстанса хоста (сборка «Incoming Pack») для запусков из Gradle (Create, Sable, Aeronautics).
 // NeoForge 1.21.1 работает на mojmap-именах, поэтому jar из mods/ подходят без ремаппинга.
 // Путь переопределяется: -PmcModsDir=... или переменная MC_DIR (как в tools/paths.py).
-def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/Airstrike Pack/minecraft"
+def mcDir = System.getenv('MC_DIR') ?: "${System.getProperty('user.home')}/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances/Incoming Pack/minecraft"
 def mcModsDir = file(project.findProperty('mcModsDir') ?: "${mcDir}/mods")
 def runtimeModPatterns = ['create-1.21.1-*.jar', 'sable-neoforge-1.21.1-*.jar', 'create-aeronautics-bundled-1.21.1-*.jar']
 // сценарий клиента с Sodium и Iris, как у хоста (tools/client_scenario.sh nuke shaders)
-def shaderModPatterns = System.getenv('AIRSTRIKE_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
+def shaderModPatterns = System.getenv('INCOMING_SHADERS') ? ['sodium-neoforge-*.jar', 'iris-neoforge-*.jar'] : []
 // ... и с Distant Horizons, как у хоста: рельеф карты наведения вдали (tools/client_scenario.sh target-map dh)
-def dhModPatterns = System.getenv('AIRSTRIKE_DH') ? ['DistantHorizons-*.jar'] : []
+def dhModPatterns = System.getenv('INCOMING_DH') ? ['DistantHorizons-*.jar'] : []
 // GameTest с Lithium, как у хоста (-PwithLithium): проверка совместимости руками, в CI её нет
 def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
 
@@ -73,26 +73,26 @@ neoForge {
             // мультиплеер (tools/mp_scenario.sh): у каждого клиента свой каталог и ник
             gameDirectory = project.file(scenarioDir)
             if (project.findProperty('scenarioUser')) programArguments.addAll '--username', project.findProperty('scenarioUser')
-            if (System.getenv('AIRSTRIKE_MP_PORT')) systemProperty 'airstrike.mp.port', System.getenv('AIRSTRIKE_MP_PORT')
+            if (System.getenv('INCOMING_MP_PORT')) systemProperty 'incoming.mp.port', System.getenv('INCOMING_MP_PORT')
             // режим сценария (all, launch, nuke, fx, models…) — список в tools/client_scenario.sh
-            systemProperty 'airstrike.scenario', System.getenv('AIRSTRIKE_SCENARIO') ?: 'all'
-            // strike-profile в облаке без prod_client.py: шаги и промежуток — как --prop airstrike.profile.steps/gap
-            if (System.getenv('AIRSTRIKE_PROFILE_STEPS')) systemProperty 'airstrike.profile.steps', System.getenv('AIRSTRIKE_PROFILE_STEPS')
-            if (System.getenv('AIRSTRIKE_PROFILE_GAP')) systemProperty 'airstrike.profile.gap', System.getenv('AIRSTRIKE_PROFILE_GAP')
-            // сценарий commands в облаке без prod_client.py: шаги через «;», как --prop airstrike.commands
-            if (System.getenv('AIRSTRIKE_COMMANDS')) systemProperty 'airstrike.commands', System.getenv('AIRSTRIKE_COMMANDS')
-            // сценарий guide: только эти разделы (AIRSTRIKE_GUIDE=recipes,map — список в GuideShots)
-            if (System.getenv('AIRSTRIKE_GUIDE')) systemProperty 'airstrike.guide', System.getenv('AIRSTRIKE_GUIDE')
-            // размер окна: AIRSTRIKE_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
-            def size = (System.getenv('AIRSTRIKE_SIZE') ?: '1280x720').split('x')
+            systemProperty 'incoming.scenario', System.getenv('INCOMING_SCENARIO') ?: 'all'
+            // strike-profile в облаке без prod_client.py: шаги и промежуток — как --prop incoming.profile.steps/gap
+            if (System.getenv('INCOMING_PROFILE_STEPS')) systemProperty 'incoming.profile.steps', System.getenv('INCOMING_PROFILE_STEPS')
+            if (System.getenv('INCOMING_PROFILE_GAP')) systemProperty 'incoming.profile.gap', System.getenv('INCOMING_PROFILE_GAP')
+            // сценарий commands в облаке без prod_client.py: шаги через «;», как --prop incoming.commands
+            if (System.getenv('INCOMING_COMMANDS')) systemProperty 'incoming.commands', System.getenv('INCOMING_COMMANDS')
+            // сценарий guide: только эти разделы (INCOMING_GUIDE=recipes,map — список в GuideShots)
+            if (System.getenv('INCOMING_GUIDE')) systemProperty 'incoming.guide', System.getenv('INCOMING_GUIDE')
+            // размер окна: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
+            def size = (System.getenv('INCOMING_SIZE') ?: '1280x720').split('x')
             programArguments.addAll '--width', size[0], '--height', size[1]
             // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
-            systemProperty 'airstrike.frame', size.join('x')
+            systemProperty 'incoming.frame', size.join('x')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
-            // профиль JFR по желанию: AIRSTRIKE_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
-            if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
+            // профиль JFR по желанию: INCOMING_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
+            if (System.getenv('INCOMING_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
         }
         server {
             server()
@@ -104,39 +104,39 @@ neoForge {
             server()
             gameDirectory = project.file('run/stress/server')
             programArgument '--nogui'
-            systemProperty 'airstrike.stress', System.getenv('AIRSTRIKE_STRESS') ?: 'run'
-            systemProperty 'airstrike.stress.players', System.getenv('AIRSTRIKE_STRESS_PLAYERS') ?: '3'
-            systemProperty 'airstrike.stress.restart', System.getenv('AIRSTRIKE_STRESS_RESTART') ?: 'false'
-            systemProperty 'airstrike.stress.probes', System.getenv('AIRSTRIKE_STRESS_PROBES') ?: 'true'
+            systemProperty 'incoming.stress', System.getenv('INCOMING_STRESS') ?: 'run'
+            systemProperty 'incoming.stress.players', System.getenv('INCOMING_STRESS_PLAYERS') ?: '3'
+            systemProperty 'incoming.stress.restart', System.getenv('INCOMING_STRESS_RESTART') ?: 'false'
+            systemProperty 'incoming.stress.probes', System.getenv('INCOMING_STRESS_PROBES') ?: 'true'
             jvmArgument "-Xlog:gc:file=${project.file('run/stress/server/gc.log').absolutePath}:time,uptime"
-            // профиль JFR сервера по желанию, как у сценария клиента: AIRSTRIKE_JFR=1 tools/stress.sh → run/stress/server/stress.jfr
-            if (System.getenv('AIRSTRIKE_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/stress/server/stress.jfr').absolutePath},settings=profile"
+            // профиль JFR сервера по желанию, как у сценария клиента: INCOMING_JFR=1 tools/stress.sh → run/stress/server/stress.jfr
+            if (System.getenv('INCOMING_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/stress/server/stress.jfr').absolutePath},settings=profile"
             // сервер и три клиента на одной машине: без предела каждая JVM берёт ¼ памяти, и ядро убивает клиента.
-            // AIRSTRIKE_RIG_JVM=artem — сервер с JVM, как в игре у Артёма (8 ГБ, поколенческий ZGC), только где хватает
+            // INCOMING_RIG_JVM=artem — сервер с JVM, как в игре у Артёма (8 ГБ, поколенческий ZGC), только где хватает
             // памяти (VPS): 8 ГБ сервера и три клиента по 2 ГБ облако на 15 ГБ не вынесет. Режиссёр пишет сборщик в лог
-            // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим сборщиком (airstrike.stress.gc —
+            // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим сборщиком (incoming.stress.gc —
             // начало имени MXBean: у поколенческого ZGC «ZGC Minor/Major …», у прежнего — «ZGC Cycles») или с кучей
-            // меньше заказанной (airstrike.stress.heap, МБ)
-            def rigJvm = System.getenv('AIRSTRIKE_RIG_JVM') ?: 'default'
+            // меньше заказанной (incoming.stress.heap, МБ)
+            def rigJvm = System.getenv('INCOMING_RIG_JVM') ?: 'default'
             if (rigJvm == 'artem') {
                 ['-Xmx8g', '-XX:+UseZGC', '-XX:+ZGenerational'].each { jvmArgument it }
-                systemProperty 'airstrike.stress.gc', 'ZGC Minor'
-                systemProperty 'airstrike.stress.heap', '8192'
+                systemProperty 'incoming.stress.gc', 'ZGC Minor'
+                systemProperty 'incoming.stress.heap', '8192'
             } else if (rigJvm == 'default') {
                 jvmArgument '-Xmx4g'
             } else {
-                throw new GradleException("AIRSTRIKE_RIG_JVM=${rigJvm}: ожидается artem или default")
+                throw new GradleException("INCOMING_RIG_JVM=${rigJvm}: ожидается artem или default")
             }
         }
         stressClient {
             client()
-            def name = System.getenv('AIRSTRIKE_STRESS_NAME') ?: 'Host'
+            def name = System.getenv('INCOMING_STRESS_NAME') ?: 'Host'
             gameDirectory = project.file("run/stress/${name}")
             // сервер стенда слушает только петлю, порт — свободный, его выбирает tools/stress.sh
-            def server = "127.0.0.1:${System.getenv('AIRSTRIKE_STRESS_PORT') ?: '25565'}"
+            def server = "127.0.0.1:${System.getenv('INCOMING_STRESS_PORT') ?: '25565'}"
             programArguments.addAll '--username', name, '--quickPlayMultiplayer', server, '--width', '854', '--height', '480'
-            systemProperty 'airstrike.stress.server', server
-            systemProperty 'airstrike.stress.client', System.getenv('AIRSTRIKE_STRESS_ROLE') ?: 'friend'
+            systemProperty 'incoming.stress.server', server
+            systemProperty 'incoming.stress.client', System.getenv('INCOMING_STRESS_ROLE') ?: 'friend'
             jvmArgument '-Xmx2g'
         }
         gameTestServer {
@@ -144,27 +144,27 @@ neoForge {
             gameDirectory = project.file('run/gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
             // своя часть партий на машине CI: -PgametestShard=i/n (devtest GameTestShards); без свойства — все тесты
-            systemProperty 'airstrike.gametest.shard', (project.findProperty('gametestShard') ?: '').toString()
+            systemProperty 'incoming.gametest.shard', (project.findProperty('gametestShard') ?: '').toString()
         }
         // Сценарии полёта (gametest/scenario): все зёрна (-PscenarioSeeds, по умолчанию 16) без остальных GameTest —
-        // шаблон сценариев в своём пространстве имён airstrike_sweep. -PscenarioOnly=<регулярное выражение> — только
+        // шаблон сценариев в своём пространстве имён incoming_sweep. -PscenarioOnly=<регулярное выражение> — только
         // подходящие сценарии; -PscenarioRealChunks — настоящая загрузка чанков в темпе игры, без эталона
         scenarioSweep {
             type = 'gameTestServer'
             gameDirectory = project.file('run/scenario-sweep')
-            systemProperty 'neoforge.enabledGameTestNamespaces', 'airstrike_sweep'
-            systemProperty 'airstrike.scenario.sweep', 'true'
-            systemProperty 'airstrike.scenario.seeds', (project.findProperty('scenarioSeeds') ?: '16').toString()
-            systemProperty 'airstrike.scenario.only', (project.findProperty('scenarioOnly') ?: '').toString()
-            systemProperty 'airstrike.scenario.realChunks', project.hasProperty('scenarioRealChunks').toString()
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'incoming_sweep'
+            systemProperty 'incoming.scenario.sweep', 'true'
+            systemProperty 'incoming.scenario.seeds', (project.findProperty('scenarioSeeds') ?: '16').toString()
+            systemProperty 'incoming.scenario.only', (project.findProperty('scenarioOnly') ?: '').toString()
+            systemProperty 'incoming.scenario.realChunks', project.hasProperty('scenarioRealChunks').toString()
         }
         // Записать эталон траекторий заново (зерно 0): src/devtest/resources/scenario-baseline.json
         scenarioRecord {
             type = 'gameTestServer'
             gameDirectory = project.file('run/scenario-record')
-            systemProperty 'neoforge.enabledGameTestNamespaces', 'airstrike_sweep'
-            systemProperty 'airstrike.scenario.sweep', 'true'
-            systemProperty 'airstrike.scenario.record', project.file('src/devtest/resources/scenario-baseline.json').absolutePath
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'incoming_sweep'
+            systemProperty 'incoming.scenario.sweep', 'true'
+            systemProperty 'incoming.scenario.record', project.file('src/devtest/resources/scenario-baseline.json').absolutePath
         }
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'

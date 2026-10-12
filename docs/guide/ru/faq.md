@@ -20,7 +20,7 @@
 
 **Не пускает на сервер: разные версии мода.** В сборке «Incoming Pack» мод обновляется сам: перезапусти игру
 из лаунчера. Без сборки скачай тот же jar, что на сервере, со страницы
-[Releases](https://github.com/zentixua/airstrike/releases/latest).
+[Releases](https://github.com/zentixua/incoming/releases/latest).
 
 **Карта вдали пустая.** Без Distant Horizons видны только загруженные чанки. Ударить туда всё равно можно.
 

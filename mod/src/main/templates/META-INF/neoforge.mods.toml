@@ -9,7 +9,7 @@ version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_authors}"
 displayURL = "${mod_url}"
-credits = "Sounds: Freesound recordings by juskiddink, KVV_Audio, Nanashi, Romaner66, Spennnyyy and tim.kahn (CC BY 4.0) and by CC0 authors; full list in assets/airstrike/sounds/credits.txt. Bundled: sable-companion (MIT)."
+credits = "Sounds: Freesound recordings by juskiddink, KVV_Audio, Nanashi, Romaner66, Spennnyyy and tim.kahn (CC BY 4.0) and by CC0 authors; full list in assets/incoming/sounds/credits.txt. Bundled: sable-companion (MIT)."
 description = '''${mod_description}'''
 
 # открывает Channel.source, SoundManager.soundEngine и SoundEngine.instanceToChannel (фильтр OpenAL: воздух,
@@ -19,7 +19,7 @@ file = "META-INF/accesstransformer.cfg"
 
 # защита от краша Sable при дроблении аппарата (compat/SplitGuard); без Sable не применяется
 [[mixins]]
-config = "airstrike.mixins.json"
+config = "incoming.mixins.json"
 
 [[dependencies.${mod_id}]]
 modId = "neoforge"

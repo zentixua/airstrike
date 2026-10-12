@@ -20,7 +20,7 @@ English · [Русский](ru/faq.md)
 
 **A server will not let you in: different mod versions.** In the Incoming Pack the mod updates itself: restart the game
 from the launcher. Without the pack, download the same jar the server has from the
-[Releases](https://github.com/zentixua/airstrike/releases/latest) page.
+[Releases](https://github.com/zentixua/incoming/releases/latest) page.
 
 **The map is empty far away.** Without Distant Horizons only loaded chunks are shown. You can still strike there.
 

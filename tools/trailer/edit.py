@@ -16,9 +16,9 @@
     --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
     --draft  — быстрый черновик 960×540 (проверить монтаж)
     --rec    — папка записи; несколько — планы из следующих (пересъёмка) заменяют одноимённые; план с текстом
-               игры в кадре берётся из записи на языке ролика (en_us или ru_ru, record.sh: AIRSTRIKE_LANG)
+               игры в кадре берётся из записи на языке ролика (en_us или ru_ru, record.sh: INCOMING_LANG)
     --jobs   — процессов отрисовки (по умолчанию min(ядер, 6))
-    результат: dist/airstrike-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
+    результат: dist/incoming-trailer.mp4 (H.264, 60 fps, AAC), …-lite.mp4 (до 4 Мбит/с, для мессенджеров)
     и …-credits.txt — строки об авторах музыки и звуков для описания ролика
 
 Музыка и шрифты скачиваются один раз в tools/.trailer-cache (проверка sha256). Пакеты Python — в блоке script
@@ -80,7 +80,7 @@ def fetch(url, sha256, name):
     path = os.path.join(CACHE, name)
     if not os.path.exists(path):
         print(f"скачиваю {name}")
-        req = urllib.request.Request(url, headers={"User-Agent": "zentixua/airstrike trailer"})
+        req = urllib.request.Request(url, headers={"User-Agent": "zentixua/incoming trailer"})
         with urllib.request.urlopen(req, timeout=120) as r, open(path + ".part", "wb") as f:
             shutil.copyfileobj(r, f)
         os.replace(path + ".part", path)
@@ -270,16 +270,16 @@ BAR = MUSIC["bar"]
 CREDITS = """Music: "Impact Prelude" by Kevin MacLeod (incompetech.com)
 Licensed under Creative Commons: By Attribution 4.0 License
 http://creativecommons.org/licenses/by/4.0/
-Sound effects: Freesound contributors (CC0 / CC BY 4.0), full list: https://github.com/zentixua/airstrike/blob/main/SOUND-CREDITS.md
+Sound effects: Freesound contributors (CC0 / CC BY 4.0), full list: https://github.com/zentixua/incoming/blob/main/SOUND-CREDITS.md
 Fonts: Russo One, Oswald (SIL Open Font License)
 
 Музыка: «Impact Prelude», Kevin MacLeod (incompetech.com), лицензия Creative Commons Attribution 4.0
 http://creativecommons.org/licenses/by/4.0/
-Звуки: авторы Freesound (CC0 / CC BY 4.0), список: https://github.com/zentixua/airstrike/blob/main/SOUND-CREDITS.md
+Звуки: авторы Freesound (CC0 / CC BY 4.0), список: https://github.com/zentixua/incoming/blob/main/SOUND-CREDITS.md
 """
 
 # слова на экране: английские — для Modrinth и YouTube, русские — для своих (--lang ru)
-GAME_LANG = {"en": "en_us", "ru": "ru_ru"}  # язык игры для планов с текстом интерфейса в кадре (record.sh: AIRSTRIKE_LANG)
+GAME_LANG = {"en": "en_us", "ru": "ru_ru"}  # язык игры для планов с текстом интерфейса в кадре (record.sh: INCOMING_LANG)
 WORDS = {
     "en": {"presents": "presents", "aim": "AIM", "launch": "LAUNCH", "shahed": "SHAHED-136", "missile": "CRUISE MISSILE",
            "lancet": "LANCET", "grad": "GRAD MLRS", "last": "LAST RESORT", "icbm": "ICBM",
@@ -367,8 +367,8 @@ def build_edit(lang="en"):
         Text(start("bomb_bay") + 0.4, 2.6, ("B-2 SPIRIT",), "caption"),
         Text(card.start + 0.3, 3.6, (L["last"],), "word"),
         Text(start("icbm") + 0.5, 2.6, (L["icbm"],), "caption"),
-        Text(total - 9.0 + 0.6, 5.2, ("AIRSTRIKE",), "title"),
-        Text(total - 9.0 + 2.0, 3.8, (L["platform"], "github.com/zentixua/airstrike"), "sub"),
+        Text(total - 9.0 + 0.6, 5.2, ("INCOMING",), "title"),
+        Text(total - 9.0 + 2.0, 3.8, (L["platform"], "github.com/zentixua/incoming"), "sub"),
         Text(total - 3.0, 3.0, (L["music"] + MUSIC["credit"], L["sounds"]), "credits"),
     ]
     hits = [
@@ -667,7 +667,7 @@ def render_sfx(edit, shots, total, bank):
             hf = float(np.median(highs)) if highs else 1.0
             if hf < 0.98:  # фильтр мода (воздух, холм или дом между): доля верхов → срез
                 y = sosfilt(butter(2, max(500.0, 20000.0 * hf ** 1.6), "low", fs=SR, output="sos"), y)
-            elif dist > 40 and not e["event"].startswith("airstrike:"):  # ванильные звуки издалека — воздух глушит верха
+            elif dist > 40 and not e["event"].startswith("incoming:"):  # ванильные звуки издалека — воздух глушит верха
                 cutoff = max(900.0, 16000.0 / (1 + dist / 120))
                 y = sosfilt(butter(2, cutoff, "low", fs=SR, output="sos"), y)
             y = y * g * c.sfx
@@ -762,7 +762,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--draft", action="store_true")
     ap.add_argument("--lang", choices=sorted(WORDS), default="en", help="слова на экране: en — Modrinth и YouTube, ru — для своих")
-    ap.add_argument("--out", help="файл (по умолчанию dist/airstrike-trailer.mp4, для ru — …-ru.mp4)")
+    ap.add_argument("--out", help="файл (по умолчанию dist/incoming-trailer.mp4, для ru — …-ru.mp4)")
     ap.add_argument("--rec", action="append", help="папка записи (по умолчанию mod/run/scenario/trailer); можно несколько — "
                     "планы из следующих (пересъёмка) заменяют одноимённые")
     ap.add_argument("--preset", default="slow", help="предустановка x264 для чистового (slow — лучше, medium — быстрее)")
@@ -770,7 +770,7 @@ def main():
                     help="процессов отрисовки (по умолчанию не больше 6: каждый ~0.3 ГБ на 1080p)")
     args = ap.parse_args()
     if args.out is None:
-        args.out = os.path.join(DIST, "airstrike-trailer.mp4" if args.lang == "en" else f"airstrike-trailer-{args.lang}.mp4")
+        args.out = os.path.join(DIST, "incoming-trailer.mp4" if args.lang == "en" else f"incoming-trailer-{args.lang}.mp4")
     shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)

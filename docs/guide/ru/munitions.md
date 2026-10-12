@@ -28,4 +28,4 @@
 
 Другие рецепты: [пульт](designator.md#как-получить), [ЗРК и зенитные ракеты](defense.md#крафт-и-зарядка),
 [стационарная пусковая](launcher.md#крафт), [подстанция](blackout.md). Счётчик Гейгера выдаёт оператор
-(`/give @s airstrike:geiger_counter`).
+(`/give @s incoming:geiger_counter`).

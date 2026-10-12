@@ -1,0 +1,65 @@
+package ua.zentix.incoming.client.fx;
+
+import ua.zentix.incoming.client.far.Sight;
+
+/**
+ * Сила вспышки взрыва на экране (0..1) — как её видит глаз, без Minecraft, чтобы кривую можно было проверить тестом.
+ * <ul>
+ *   <li>Освещённость от точечного источника падает как 1/d² (закон обратных квадратов), ближе {@code near}
+ *       (огненный шар и то, что он заливает светом) — предельная.</li>
+ *   <li>Засветка на весь экран — это блеск: вуаль, которую яркий источник рассеивает в глазу. По формуле
+ *       Стайлса–Холладея (CIE, слепящий блеск) её яркость пропорциональна освещённости у глаза и падает с углом между
+ *       взглядом и источником как 1/θ². Воспринимаемая яркость — степенная функция Стивенса с показателем 0.5 для
+ *       точечного источника, поэтому на экране вуаль спадает как near/d, а не как 1/d².</li>
+ *   <li>Взрыв вне поля зрения не слепит: остаётся отсвет на окружении ({@link #AMBIENT}); за преградой — только он
+ *       и слабее ({@link #OCCLUDED}).</li>
+ *   <li>Ближе {@code near} взрыв заполняет поле зрения, и угол к нему перестаёт значить.</li>
+ *   <li>К {@code range} сила плавно доходит до нуля, без скачка на краю.</li>
+ *   <li>Засветка — свет шара против света вокруг ({@link #daylight}): днём шар освещает окрестность на проценты
+ *       от солнца, и экран едва светлеет; в сумерках и ночью — вспышка.</li>
+ * </ul>
+ * Ядерная вспышка — отдельная ({@code client/nuclear/NukeFlash}): она и должна ослеплять.
+ */
+public final class FlashFalloff {
+    /** Сила вблизи, лицом к взрыву. */
+    static final float PEAK = 0.85f;
+    /** Доля силы от взрыва за спиной при прямой видимости: свет, отражённый окружением. */
+    static final float AMBIENT = 0.5f;
+    /** Доля силы от взрыва за преградой. */
+    static final float OCCLUDED = 0.35f;
+    /**
+     * Свет огненного шара вблизи против дневного: 4–11 % от солнца (оценка по спектру чёрного тела в ~2000 K и размеру
+     * шара), поэтому днём засветки почти нет.
+     */
+    static final double DAYLIGHT = 0.08;
+
+    private FlashFalloff() {}
+
+    /**
+     * Доля засветки при свете вокруг глаза ambient ({@code FarView#adaptation}: 1 днём под небом, 0,17 ночью, 0,12
+     * в темноте): днём — {@link #DAYLIGHT}, к сумеркам, в пещере и доме свет вокруг падает на порядки (глаз привыкает —
+     * {@link Sight#adapted}), и засветка полная.
+     */
+    public static float daylight(double ambient) {
+        return (float) Math.min(1, DAYLIGHT * Sight.adapted(1, ambient));
+    }
+
+    /**
+     * @param d       расстояние от глаз до взрыва, блоки
+     * @param near    ближе этого — полная сила (радиус огненного шара с запасом), блоки
+     * @param range   дальше этого вспышки нет, блоки
+     * @param cosView косинус угла между взглядом и направлением на взрыв
+     * @param visible взрыв виден напрямую
+     */
+    public static float strength(double d, double near, double range, double cosView, boolean visible) {
+        if (d >= range) return 0;
+        double distance = Math.min(1, near / Math.max(d, 1e-6));
+        double r = d / range;
+        double edge = 1 - r * r * r * r;
+        double facing = Math.max(0, cosView);
+        double view = visible ? AMBIENT + (1 - AMBIENT) * facing * facing : OCCLUDED;
+        // вплотную взрыв заливает светом всё поле зрения, куда ни смотри: к нулю угол перестаёт значить
+        if (visible && d < near) view += (1 - view) * (1 - d / near);
+        return (float) (PEAK * distance * edge * view);
+    }
+}

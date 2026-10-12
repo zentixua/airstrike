@@ -6,7 +6,7 @@ Air strikes: Shahed drones, Lancets, cruise missiles, Grad rockets, a B-2 bomber
 aimed with one item, the Strike Designator. The projectiles are full size and fly like real ones; they can be seen and
 heard from far away, and a siren sounds at the target before impact.
 
-The mod used to be called Airstrike; its command is still `/airstrike`.
+Before version 3.0.0 the mod was called Airstrike, and its command was `/airstrike`.
 
 ## Getting started
 
@@ -33,7 +33,7 @@ Shift+RMB opens the console (salvo, spread, target), and `,` opens the map for s
 | [Fixed launcher](launcher.md) | a block that fires on a redstone signal |
 | [Nuclear strike](nuke.md) | launch, detonation, survival, radiation |
 | [Blackout](blackout.md) | substation and power cuts |
-| [Commands](commands.md) | `/airstrike` |
+| [Commands](commands.md) | `/incoming` |
 | [Settings and keys](settings.md) | your settings, keys, world settings |
 | [FAQ and troubleshooting](faq.md) | what the messages mean |
 

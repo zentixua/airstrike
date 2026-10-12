@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "hanging=false": {
+      "model": "incoming:block/unlit_soul_lantern"
+    },
+    "hanging=true": {
+      "model": "incoming:block/unlit_soul_lantern_hanging"
+    }
+  }
+}

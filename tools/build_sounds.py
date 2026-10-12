@@ -7,10 +7,10 @@
 #     "soundfile>=0.12",
 # ]
 # ///
-"""Сборка всех звуков мода Airstrike из настоящих записей и синтеза (numpy + scipy + soundfile).
+"""Сборка всех звуков мода Incoming из настоящих записей и синтеза (numpy + scipy + soundfile).
 
-  uv run tools/build_sounds.py           → mod/src/main/resources/assets/airstrike/sounds/*.ogg,
-                                            assets/airstrike/sounds.json, SOUND-CREDITS.md
+  uv run tools/build_sounds.py           → mod/src/main/resources/assets/incoming/sounds/*.ogg,
+                                            assets/incoming/sounds.json, SOUND-CREDITS.md
   uv run tools/build_sounds.py blasts    → пересобрать файлы только этих разделов (остальные файлы не трогаются;
                                             sounds.json и авторы — по всем разделам)
 
@@ -49,7 +49,7 @@ import synth_mod_sounds as syn  # noqa: E402
 SR = 44100
 syn.SR = SR  # синтез — в той же частоте
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "airstrike")
+ASSETS = os.path.join(ROOT, "mod", "src", "main", "resources", "assets", "incoming")
 OUT = os.path.join(ASSETS, "sounds")
 CACHE = os.path.join(ROOT, "tools", ".sound-cache")
 rng = np.random.default_rng(7)
@@ -460,9 +460,9 @@ def drone():
     ul = speed(cut(src(695977, orig=True), 14, 50), 1.42)
     tr = speed(cut(src(412819, orig=True), 2, 30), 1.12)
     body = mix((F(ul, lo=55, hi=7000), 1.0), (F(tr, lo=120, hi=5000), 0.35))
-    write("drone_engine", engine(loop(body, 8.0), DRONE_LUFS, "drone_engine"), "drone.engine", "subtitles.airstrike.drone")
+    write("drone_engine", engine(loop(body, 8.0), DRONE_LUFS, "drone_engine"), "drone.engine", "subtitles.incoming.drone")
     far = air(F(body, lo=60, hi=900, bells=[(140, 4, 0.6)]), 400)
-    write("drone_engine_far", engine(loop(far, 8.0), DRONE_LUFS, "drone_engine_far"), "drone.engine.far", "subtitles.airstrike.drone")
+    write("drone_engine_far", engine(loop(far, 8.0), DRONE_LUFS, "drone_engine_far"), "drone.engine.far", "subtitles.incoming.drone")
 
 
 # ================================================================ крылатая ракета
@@ -476,21 +476,21 @@ def missile():
     whine = cut(src(437910, orig=True), 10, 100)
     roar = cut(src(437917, orig=True), 10, 100)
     front = mix((F(whine, lo=900, hi=12000), 1.0), (F(roar, lo=60, hi=900), 0.45))
-    write("missile_engine", engine(loop(front, 12.0), MISSILE_LUFS, "missile_engine"), "missile.engine", "subtitles.airstrike.missile")
+    write("missile_engine", engine(loop(front, 12.0), MISSILE_LUFS, "missile_engine"), "missile.engine", "subtitles.incoming.missile")
     rear = mix((F(roar, lo=35, hi=2500, bells=[(160, 5, 1.0)]), 1.0), (F(whine, lo=2500, hi=9000), 0.2))
     write("missile_engine_rear", engine(loop(rear, 12.0), MISSILE_LUFS, "missile_engine_rear"), "missile.engine.rear",
-          "subtitles.airstrike.missile")
+          "subtitles.incoming.missile")
     dive = speed(mix((whine, 1.0), (roar, 0.6)), 1.12)
     wind = cut(src(162417, orig=True), 0, 6.2)
     dive = mix((F(dive, lo=700, hi=14000), 1.0), (F(dive, lo=50, hi=700), 0.4), (pad(np.tile(wind, 14), len(dive)), 0.35))
-    write("missile_dive", engine(loop(dive, 12.0), MISSILE_LUFS, "missile_dive"), "missile.dive", "subtitles.airstrike.missile")
+    write("missile_dive", engine(loop(dive, 12.0), MISSILE_LUFS, "missile_dive"), "missile.dive", "subtitles.incoming.missile")
     far = air(mix((F(roar, lo=35, hi=6000), 1.0), (F(whine, lo=400, hi=8000), 0.3)), 500)
     write("missile_engine_far", engine(loop(far, 12.0), MISSILE_LUFS, "missile_engine_far"), "missile.engine.far",
-          "subtitles.airstrike.missile")
+          "subtitles.incoming.missile")
     # подлёт: вой вентилятора вдвое ниже — клиент ведёт тон от 2 (вдали — как есть) до 0,6 у цели
     whistle = speed(F(whine, lo=500, hi=12000), 0.5)
     write("missile_whistle", engine(loop(whistle, 12.0), MISSILE_LUFS, "missile_whistle"), "missile.whistle",
-          "subtitles.airstrike.missile.whistle")
+          "subtitles.incoming.missile.whistle")
 
 
 # ================================================================ пуск
@@ -505,11 +505,11 @@ def launch():
         s = cut(x, a, b)
         s = mix((s, 1.0), (pad(sub_thump(1.2, 42, 8, 0.3), len(s)), 0.35))
         sigs.append(norm(punch(trim_tail(s, -50, 0.6), 3), -11, 0.95))
-    variants("launch.booster", "subtitles.airstrike.launch", "launch_booster", sigs)
+    variants("launch.booster", "subtitles.incoming.launch", "launch_booster", sigs)
     burn = cut(src(774270), 1, 23)
     crackle = F(cut(src(613855), 20, 42), lo=60, hi=12000)
     boost = mix((F(burn, lo=40, hi=14000), 1.0), (pad(crackle, len(burn)), 0.45))
-    write("booster_engine", norm(loop(boost, 9.0), -9.5), "booster.engine", "subtitles.airstrike.launch")
+    write("booster_engine", norm(loop(boost, 9.0), -9.5), "booster.engine", "subtitles.incoming.launch")
 
     # отделение ускорителя: хлопок пиропатрона и металлический лязг замков
     sep = []
@@ -521,7 +521,7 @@ def launch():
                     for k, a in [(1, 1), (1.51, 0.7), (2.23, 0.5), (3.07, 0.35), (4.2, 0.2)])
         clang *= np.minimum(1, tt / 0.001)
         sep.append(norm(fade(mix((pad(pop, n), 1.0), (clang, 0.5)), 0.001, 0.3), -13, 0.95))
-    variants("booster.separate", "subtitles.airstrike.launch.separate", "booster_separate", sep)
+    variants("booster.separate", "subtitles.incoming.launch.separate", "booster_separate", sep)
 
 
 # ================================================================ РСЗО «Град»
@@ -541,14 +541,14 @@ def rocket():
         crack = F(rng.standard_normal(n), lo=900, hi=12000) * np.exp(-tt / 0.018)
         x = mix((body, 1.0), (crack, 0.5), (sub_thump(n / SR, 60, 20, 0.12), 0.3))
         sigs.append(norm(fade(speed(x, r), 0.001, 0.4), -11, 0.95))
-    variants("rocket.launch", "subtitles.airstrike.rocket", "rocket_launch", sigs)
+    variants("rocket.launch", "subtitles.incoming.rocket", "rocket_launch", sigs)
 
     # вой на подлёте: ровный шум со спектром снарядов над головой (середины записей, без начала и разрыва) — в самих
     # записях тон плывёт от Доплера, а склейка их кусков дрожала; тон ведёт клиент
     grains = [cut(src(g, orig=True), a, b) for g, a, b in
               [(241840, 0.25, 1.2), (241838, 0.35, 1.5), (241837, 0.25, 1.1), (241839, 0.25, 1.15), (674897, 13.9, 15.3)]]
     tex = noise_loop([F(g, lo=250, hi=11000) for g in grains], 10.0)
-    write("rocket_incoming", engine(tex, ROCKET_AIR_LUFS, "rocket_incoming"), "rocket.incoming", "subtitles.airstrike.rocket.incoming")
+    write("rocket_incoming", engine(tex, ROCKET_AIR_LUFS, "rocket_incoming"), "rocket.incoming", "subtitles.incoming.rocket.incoming")
 
 
 # ================================================================ барражирующий боеприпас
@@ -559,15 +559,15 @@ def loiter():
     rc = cut(src(176973, orig=True), 0.2, 4.2)
     quad = cut(src(854352, orig=True), 2.4, 4.6)
     body = mix((F(rc, lo=120, hi=12000), 1.0), (pad(np.tile(F(quad, lo=200, hi=9000), 3), len(rc)), 0.25))
-    write("loiter_engine", engine(loop(body, 3.6, 0.4), LOITER_LUFS, "loiter_engine", False), "loiter.engine", "subtitles.airstrike.loiter")
+    write("loiter_engine", engine(loop(body, 3.6, 0.4), LOITER_LUFS, "loiter_engine", False), "loiter.engine", "subtitles.incoming.loiter")
     far = syn.reverb(F(body, lo=160, hi=2200), t60=1.4, mix=0.4)
     write("loiter_engine_far", engine(loop(far, 3.6, 0.4), LOITER_LUFS, "loiter_engine_far", False), "loiter.engine.far",
-          "subtitles.airstrike.loiter")
+          "subtitles.incoming.loiter")
     # пике: пролёт вплотную, выше тоном, и ветер
     fly = speed(cut(src(176973, orig=True), 5.0, 8.4), 1.2)
     wind = cut(src(162417, orig=True), 0, 6.2)
     dive = mix((F(fly, lo=150, hi=14000), 1.0), (pad(np.tile(wind, 2), len(fly)), 0.35))
-    write("loiter_dive", engine(loop(dive, 2.4, 0.3), LOITER_LUFS + 1, "loiter_dive", False), "loiter.dive", "subtitles.airstrike.loiter")
+    write("loiter_dive", engine(loop(dive, 2.4, 0.3), LOITER_LUFS + 1, "loiter_dive", False), "loiter.dive", "subtitles.incoming.loiter")
     # катапульта: удар поршня, свист направляющей
     cat = src(479922)
     sigs = []
@@ -575,7 +575,7 @@ def loiter():
         x = align(cut(cat, a - 0.05, a + 1.6), -20, 0.01)
         x = mix((x, 1.0), (pad(sub_thump(0.5, 70, 25, 0.08), len(x)), 0.4))
         sigs.append(norm(punch(trim_tail(x, -46, 0.3), 4), -12, 0.95))
-    variants("loiter.launch", "subtitles.airstrike.loiter.launch", "loiter_launch", sigs)
+    variants("loiter.launch", "subtitles.incoming.loiter.launch", "loiter_launch", sigs)
 
 
 # ================================================================ B-2 и бомба
@@ -584,24 +584,24 @@ def bomber():
     """Четыре турбовентиляторных двигателя B-2 (запись четырёх реактивных), вдали — пролёт B-52 craigsmith."""
     fj = cut(src(152567), 15, 85)
     near = mix((F(fj, lo=30, hi=9000), 1.0), (syn.jet(len(fj) / SR)[:len(fj)], 0.15))
-    write("bomber_engine", norm(loop(near, 10.0, 1.0), -11), "bomber.engine", "subtitles.airstrike.bomber")
+    write("bomber_engine", norm(loop(near, 10.0, 1.0), -11), "bomber.engine", "subtitles.incoming.bomber")
     b52 = cut(src(437931), 12, 30)
     far = syn.reverb(F(mix((b52, 1.0), (F(fj[:len(b52)], hi=600), 0.7)), lo=28, hi=700), t60=3.0, mix=0.5)
-    write("bomber_engine_far", norm(loop(far, 10.0, 1.2), -10.7), "bomber.engine.far", "subtitles.airstrike.bomber")
+    write("bomber_engine_far", norm(loop(far, 10.0, 1.2), -10.7), "bomber.engine.far", "subtitles.incoming.bomber")
     # падающая бомба: рвущийся воздух (обтекание) + вой снарядов над головой
     air = np.tile(cut(src(162417), 0, 6.2), 3)
     sh = cut(src(483296), 1.6, 18.3)
     sh = pad(np.tile(sh, 2), len(air))
     fall = mix((F(air, lo=200, hi=12000, bells=[(1100, 6, 0.4)]), 1.0), (F(sh, lo=400, hi=9000), 0.7),
                (syn.bomb_fall(len(air) / SR)[:len(air)], 0.35))
-    write("bomb_fall", norm(loop(fall, 8.0), -10.6), "bomb.fall", "subtitles.airstrike.bomb.fall")
+    write("bomb_fall", norm(loop(fall, 8.0), -10.6), "bomb.fall", "subtitles.incoming.bomb.fall")
     far = syn.reverb(F(fall, lo=60, hi=1200), t60=2.0, mix=0.45)
-    write("bomb_fall_far", norm(loop(far, 8.0), -10.8), "bomb.fall.far", "subtitles.airstrike.bomb.fall")
+    write("bomb_fall_far", norm(loop(far, 8.0), -10.8), "bomb.fall.far", "subtitles.incoming.bomb.fall")
     # бурение бетона: синтез скрежета + настоящий треск ломающихся перекрытий, глухо (бомба в грунте)
     crash = F(cut(src(675967), 10, 30), lo=40, hi=1600)
     dr = syn.drill(20.0)
     write("bomb_drill", norm(loop(mix((dr, 1.0), (pad(crash, len(dr)), 0.55)), 7.0), -11.3),
-          "bomb.drill", "subtitles.airstrike.bomb.drill")
+          "bomb.drill", "subtitles.incoming.bomb.drill")
 
 
 # ================================================================ взрывы
@@ -649,9 +649,9 @@ def blasts():
         mid.append(master(trim_tail(gate_hiss(x), -50, 0.6), MID_LUFS))
         # вдали (с километр): тот же взрыв через воздух — верха гаснут по ISO 9613-1
         far.append(master(trim_tail(gate_hiss(air(x, 1000)), -50, 0.8), FAR_LUFS))
-    variants("blast.near", "subtitles.airstrike.blast", "blast_near", level(near, NEAR_LUFS), level=0.2)
-    variants("blast.mid", "subtitles.airstrike.blast", "blast_mid", level(mid, MID_LUFS), level=0.2)
-    variants("blast.far", "subtitles.airstrike.blast", "blast_far", level(far, FAR_LUFS), level=0.2)
+    variants("blast.near", "subtitles.incoming.blast", "blast_near", level(near, NEAR_LUFS), level=0.2)
+    variants("blast.mid", "subtitles.incoming.blast", "blast_mid", level(mid, MID_LUFS), level=0.2)
+    variants("blast.far", "subtitles.incoming.blast", "blast_far", level(far, FAR_LUFS), level=0.2)
 
     # «под ногами»: удар земли и воздуха ниже 200 Гц — низ настоящих больших подрывов (70 т в карьере, скальный
     # подрыв в карьере на октаву ниже) и синтез: затухающий тон 50 → 35 Гц и низкий рокот
@@ -665,7 +665,7 @@ def blasts():
         rumble = F(rng.standard_normal(n), lo=20, hi=160) * np.exp(-t / 1.2)
         x = mix((s, 1.0), (thump, 0.8), (rumble, 0.4))
         subs.append(master(fade(x, 0, 1.0), SUB_DB, meter=low_level))
-    variants("blast.sub", "subtitles.airstrike.blast", "blast_sub", level(subs, SUB_DB, low_level), level=0.2)
+    variants("blast.sub", "subtitles.incoming.blast", "blast_sub", level(subs, SUB_DB, low_level), level=0.2)
 
     # эхо вокруг: те же записи после удара — отражения от склонов, домов и леса, стерео шире; играется без места
     # в мире (прямой звук идёт из точки взрыва, эхо приходит со всех сторон)
@@ -687,20 +687,20 @@ def blasts():
                       (426166, 0.0, 1.1)]:
         x = F(onset(cut(src(fid, orig=True), a, b)), lo=30)
         rockets.append(master(fade(x, 0, 0.15), ROCKET_LUFS))
-    variants("rocket.blast", "subtitles.airstrike.blast", "rocket_blast", level(rockets, ROCKET_LUFS), level=0.2)
+    variants("rocket.blast", "subtitles.incoming.blast", "rocket_blast", level(rockets, ROCKET_LUFS), level=0.2)
 
     # обломки: камни и земля падают на рядом стоящих
     deb = []
     x = src(550342)
     for a, b in [(0.0, 3.8), (4.85, 9.0), (15.17, 23.9), (24.95, 27.0)]:
         deb.append(norm(trim_tail(cut(x, a, b), -45, 0.4), -16, 0.9))
-    variants("debris.fall", "subtitles.airstrike.debris", "debris_fall", deb)
+    variants("debris.fall", "subtitles.incoming.debris", "debris_fall", deb)
 
     # пожар в воронке: гудящее пламя с треском, разгорается и стихает
     fire = cut(src(483304), 0.2, 14.2)
     tt = np.arange(len(fire)) / SR
     fire *= np.minimum(1, tt / 1.5) * np.clip((tt[-1] - tt) / 5, 0, 1)
-    write("blast_fire", norm(fire, -15), "blast.fire", "subtitles.airstrike.fire")
+    write("blast_fire", norm(fire, -15), "blast.fire", "subtitles.incoming.fire")
 
 
 def bunker():
@@ -708,31 +708,31 @@ def bunker():
     # хлопок-щелчок: N-волна над головой + хлёсткий ближний взрыв
     cr = cut(src(182431), 0, 1.6)
     crack = mix((pad(syn.bomb_crack(), int(2.5 * SR)), 1.0), (pad(F(cr, lo=400), int(2.5 * SR)), 0.6))
-    write("bomb_crack", norm(fade(crack, 0.001, 0.3), -15.4), "bomb.crack", "subtitles.airstrike.blast")
+    write("bomb_crack", norm(fade(crack, 0.001, 0.3), -15.4), "bomb.crack", "subtitles.incoming.blast")
     # удар о землю: тяжёлый глухой удар (большой взрыв в два раза медленнее, без верхов) + обломки
     imp = F(speed(cut(src(486018), 16.2, 21.1), 0.6), lo=20, hi=1800)
     imp = mix((imp, 1.0), (pad(syn.bomb_impact(), len(imp)), 0.8), (pad(cut(src(550342), 25.0, 27.0), len(imp)), 0.25))
-    write("bomb_impact", norm(fade(imp, 0.001, 0.6), -12.9), "bomb.impact", "subtitles.airstrike.bomb.impact")
+    write("bomb_impact", norm(fade(imp, 0.001, 0.6), -12.9), "bomb.impact", "subtitles.incoming.bomb.impact")
     # подземный взрыв: глухой, как из-под земли
     deep = []
     for fid, a, b, r in [(741174, 0, 8, 0.6), (486018, 45.15, 50.0, 0.5)]:
         s = F(speed(cut(src(fid), a, b), r), lo=18, hi=320)
         s = mix((syn.reverb(s, t60=3.0, mix=0.4, hi=400), 1.0), (pad(syn.bomb_deep(), len(s)), 0.8))
         deep.append(norm(fade(s, 0.002, 1.0), -12.3))
-    variants("bomb.deep", "subtitles.airstrike.blast", "bomb_deep", deep)
+    variants("bomb.deep", "subtitles.incoming.blast", "bomb_deep", deep)
     # выброс газов из воронки: порыв с грохотом (рёв ускорителя, коротко)
     vent = F(cut(src(613855), 30, 34.5), lo=40, hi=3000)
     vent = mix((vent * np.exp(-np.arange(len(vent)) / SR / 1.6), 1.0), (pad(syn.bomb_vent(), len(vent)), 0.6))
-    write("bomb_vent", norm(fade(vent, 0.05, 1.8), -11.3), "bomb.vent", "subtitles.airstrike.bomb.vent")
+    write("bomb_vent", norm(fade(vent, 0.05, 1.8), -11.3), "bomb.vent", "subtitles.incoming.bomb.vent")
     # обвал полостей: гулкий подземный удар и осыпь
     cav = cut(src(675967), 0, 9)
     cav = mix((syn.reverb(F(cav, lo=30, hi=2500), t60=3.5, mix=0.55, hi=2000), 1.0),
               (pad(syn.bomb_cave(), len(cav)), 0.7))
-    write("bomb_cave", norm(fade(cav, 0.002, 1.2), -12.8), "bomb.cave", "subtitles.airstrike.blast")
+    write("bomb_cave", norm(fade(cav, 0.002, 1.2), -12.8), "bomb.cave", "subtitles.incoming.blast")
     # толчок земли: низкий гром, почти инфразвук
     q = F(speed(cut(src(267551), 1.2, 5.2), 0.5), lo=15, hi=140)
     q = mix((q, 1.0), (pad(syn.bomb_quake(), len(q)), 0.9))
-    write("bomb_quake", norm(fade(q, 0.05, 1.5), -10.9), "bomb.quake", "subtitles.airstrike.bomb.quake")
+    write("bomb_quake", norm(fade(q, 0.05, 1.5), -10.9), "bomb.quake", "subtitles.incoming.bomb.quake")
 
 
 # ================================================================ сирены
@@ -742,13 +742,13 @@ def sirens():
     военного времени (ровный вой ниже), петлёй: звучит весь отсчёт до подрыва."""
     kv = src(676589)
     s = cut(kv, 20.5, 47.0)
-    write("siren", norm(fade(gate_hiss(s), 0.3, 3.0), -11.7, 0.85), "siren", "subtitles.airstrike.siren")
+    write("siren", norm(fade(gate_hiss(s), 0.3, 3.0), -11.7, 0.85), "siren", "subtitles.incoming.siren")
     # 25–78,5 с записи: сирена уже раскручена и ещё не выключена (вой ровный, громкость ходит с поворотом рупора);
     # шов — где громкость по обе стороны та же. Раскрутку и выбег игра делает тоном (SirenSound). Наибольшая
     # мгновенная громкость — как у разового файла, который был до петли (−6,9 LUFS)
     al = src(727588)
     a = master(loop(cut(al, 25, 78.5), 52, 1.5), -7.0, meter=lambda x: np.max(momentary(x)))
-    write("nuke_alarm", a, "nuke.alarm", "subtitles.airstrike.nuke.alarm")
+    write("nuke_alarm", a, "nuke.alarm", "subtitles.incoming.nuke.alarm")
 
 
 # ================================================================ ядерный удар
@@ -759,7 +759,7 @@ def nuke():
     t = src(675750)
     ln = align(cut(t, 3.0, 42))
     ln = mix((ln, 1.0), (pad(sub_thump(2.5, 34, 5, 0.8), len(ln)), 0.25))
-    write("nuke_launch", norm(fade(ln, 0.01, 6.0), -14.6, 0.8), "nuke.launch", "subtitles.airstrike.nuke.launch")
+    write("nuke_launch", norm(fade(ln, 0.01, 6.0), -14.6, 0.8), "nuke.launch", "subtitles.incoming.nuke.launch")
 
     # удар фронта: огромный взрыв на октаву ниже + удар грома в упор + синтез N-волны и лязга
     big = speed(cut(src(741175), 0, 9), 0.62)
@@ -770,7 +770,7 @@ def nuke():
     crack *= 0.35 + 0.65 * np.exp(-tt / 1.2)  # удар, затем спадающий грохот
     crack = crack / np.max(np.abs(crack[:int(0.5 * SR)]))
     slam = np.clip(2.5 * crack, -1, 1) * np.exp(-tt / 0.25) + np.clip(crack, -1, 1) * (1 - np.exp(-tt / 0.25))
-    write("nuke_crack", fade(F(slam, hi=9000) * 0.92, 0.001, 1.5), "nuke.crack", "subtitles.airstrike.nuke.blast")
+    write("nuke_crack", fade(F(slam, hi=9000) * 0.92, 0.001, 1.5), "nuke.crack", "subtitles.incoming.nuke.blast")
 
     # далёкий подрыв: дальний взрыв на пол-октавы ниже, затем гром, катящийся по рельефу
     far = []
@@ -780,7 +780,7 @@ def nuke():
         x = mix((pad(s, int(16 * SR)), 1.0), (pad(np.pad(roll, (int(1.2 * SR), 0)), int(16 * SR)), 0.7),
                 (pad(syn.nuke_boom_far(16.0), int(16 * SR)), 0.6))
         far.append(norm(fade(x, 0.002, 3.0), -12.8))
-    variants("nuke.boom_far", "subtitles.airstrike.nuke.blast", "nuke_boom_far", far)
+    variants("nuke.boom_far", "subtitles.incoming.nuke.blast", "nuke_boom_far", far)
 
     # рёв: огненный шар и поднятый им ураган — рокот стартующей ракеты за 20 км и шторм
     rr = cut(src(613855), 8, 40)
@@ -788,19 +788,19 @@ def nuke():
     x = mix((F(rr, lo=18, hi=2500), 1.0), (storm, 0.45), (syn.nuke_roar(32.0)[:len(rr)], 0.6))
     tt = np.arange(len(x)) / SR
     x *= np.minimum(1, tt / 0.25) * np.where(tt < 5, 1, np.cos(np.pi / 2 * np.clip((tt - 5) / (tt[-1] - 5), 0, 1)) ** 2)
-    write("nuke_roar", norm(x, -11.5), "nuke.roar", "subtitles.airstrike.nuke.roar")
+    write("nuke_roar", norm(x, -11.5), "nuke.roar", "subtitles.incoming.nuke.roar")
 
     # ураганный ветер (петля)
     w = mix((F(cut(src(438880), 10.5, 43), lo=40), 1.0), (F(cut(src(438346), 20, 52.5), lo=60), 0.8),
             (syn.hurricane(32.5)[:int(32.5 * SR)], 0.35))
-    write("nuke_wind", norm(loop(w, 10.0, 1.0), -11.5), "nuke.wind", "subtitles.airstrike.nuke.wind")
+    write("nuke_wind", norm(loop(w, 10.0, 1.0), -11.5), "nuke.wind", "subtitles.incoming.nuke.wind")
 
     # раскаты грома с разных сторон
     rum = []
     for fid, a, b, r in [(267551, 1.0, 14.0, 0.8), (267551, 14.0, 30.0, 0.75), (243782, 3.5, 17.0, 0.85)]:
         s = F(speed(cut(src(fid), a, b), r), lo=18, hi=700)
         rum.append(norm(fade(s, 0.2, 2.0), -13))
-    variants("nuke.rumble", "subtitles.airstrike.nuke.rumble", "nuke_rumble", rum)
+    variants("nuke.rumble", "subtitles.incoming.nuke.rumble", "nuke_rumble", rum)
 
     # стёкла: окна вылетают по всей улице — много разбитых стёкол вразнобой
     shards = [cut(src(758207), 0, 1.9), cut(src(336425), 0, 3.6), cut(src(453499), 1.0, 4.7),
@@ -817,11 +817,11 @@ def nuke():
                 g[k:k + len(s)] += s[:n - k]
         g = F(g, lo=500)
         glass.append(norm(fade(syn.reverb(g, t60=0.9, mix=0.25, hi=8000), 0.001, 0.4), -16.5, 0.8))
-    variants("nuke.glass", "subtitles.airstrike.nuke.glass", "nuke_glass", glass)
+    variants("nuke.glass", "subtitles.incoming.nuke.glass", "nuke_glass", glass)
 
     write("nuke_tinnitus", syn.nuke_tinnitus(), "nuke.tinnitus")
     rain = mix((F(cut(src(860133), 2, 45), lo=80), 1.0), (syn.black_rain(43.0)[:int(43 * SR)], 0.55))
-    write("nuke_rain", norm(loop(rain, 12.0, 1.0), -15.6), "nuke.rain", "subtitles.airstrike.nuke.rain")
+    write("nuke_rain", norm(loop(rain, 12.0, 1.0), -15.6), "nuke.rain", "subtitles.incoming.nuke.rain")
 
     # щелчки счётчика: настоящие, по одному
     g = src(674113)
@@ -831,11 +831,11 @@ def nuke():
     for p in peaks[::max(1, len(peaks) // 12)][:4]:
         k = int(p * 0.001 * SR) - int(0.002 * SR)
         clicks.append(norm(fade(cut(g, k / SR, k / SR + 0.03), 0.0005, 0.01), -18.8, 0.85))
-    variants("geiger.click", "subtitles.airstrike.geiger", "geiger_click", clicks)
+    variants("geiger.click", "subtitles.incoming.geiger", "geiger_click", clicks)
 
 
 def misc():
-    write("designator_lock", syn.lock_beep(), "designator.lock", "subtitles.airstrike.designator.lock")
+    write("designator_lock", syn.lock_beep(), "designator.lock", "subtitles.incoming.designator.lock")
     write("silent", np.zeros(int(0.05 * SR)), "silent")
 
 
@@ -870,17 +870,17 @@ def grid():
         bang = mix((pad(align(crack, -20, 0.005), n), 1.0), (pad(sub_thump(2.0, 42 + 4 * i, 9, 0.55), n), 0.8))
         x = mix((bang, 1.0), (a, 0.7), (tail, 0.25))
         sigs.append(norm(fade(syn.reverb(punch(x, 5), t60=1.6, mix=0.25), 0.001, 0.6), -11, 0.95))
-    variants("grid.fail", "subtitles.airstrike.grid.fail", "grid_fail", sigs)
+    variants("grid.fail", "subtitles.incoming.grid.fail", "grid_fail", sigs)
 
     arc = F(src(210878), lo=300, hi=14000)
     sparks = []
     for a, b in ((0.5, 1.1), (2.0, 2.5), (3.2, 3.9), (4.4, 4.9)):
         sparks.append(norm(fade(punch(cut(arc, a, b), 3), 0.003, 0.12), -17, 0.9))
-    variants("grid.spark", "subtitles.airstrike.grid.spark", "grid_spark", sparks)
+    variants("grid.spark", "subtitles.incoming.grid.spark", "grid_spark", sparks)
 
     hum = F(gate_hiss(src(547900)), lo=70, hi=3000)
     hums = [norm(fade(cut(hum, a, a + 4.2), 0.8, 0.8), -21, 0.7) for a in (10.0, 41.0)]
-    variants("grid.hum", "subtitles.airstrike.grid.hum", "grid_hum", hums)
+    variants("grid.hum", "subtitles.incoming.grid.hum", "grid_hum", hums)
 
     clunk = F(cut(src(451933), 0.0, 0.9), lo=60)
     fridge = F(cut(src(573936), 6.55, 8.2), lo=40)
@@ -893,11 +893,11 @@ def grid():
         c[k:k + len(clunk)] = clunk[:n - k]
         x = mix((pad(body, n), 1.0), (c, 0.9), (pad(fridge if i else np.zeros(1), n), 0.5))
         downs.append(norm(fade(syn.reverb(x, t60=1.0, mix=0.2), 0.002, 0.3), -13, 0.9))
-    variants("grid.power_down", "subtitles.airstrike.grid.power_down", "grid_power_down", downs)
+    variants("grid.power_down", "subtitles.incoming.grid.power_down", "grid_power_down", downs)
 
     ups = [norm(trim_tail(gate_hiss(F(cut(src(139970), 1.1, 5.2), lo=50)), -50, 0.4), -13, 0.9),
            norm(trim_tail(gate_hiss(F(cut(src(262509), 6.9, 10.8), lo=50)), -50, 0.4), -13, 0.9)]
-    variants("grid.power_up", "subtitles.airstrike.grid.power_up", "grid_power_up", ups)
+    variants("grid.power_up", "subtitles.incoming.grid.power_up", "grid_power_up", ups)
 
 
 # ---------------------------------------------------------------- sounds.json и авторы
@@ -919,7 +919,7 @@ def write_json():
     for ev in ORDER:
         sub, files = EVENTS[ev]
         entry = {"subtitle": sub} if sub else {}
-        entry["sounds"] = [{"name": f"airstrike:{f}", "preload": True} if ev in PRELOAD else {"name": f"airstrike:{f}"}
+        entry["sounds"] = [{"name": f"incoming:{f}", "preload": True} if ev in PRELOAD else {"name": f"incoming:{f}"}
                            for f in files]
         data[ev] = entry
     with open(os.path.join(ASSETS, "sounds.json"), "w", encoding="utf-8") as fh:
@@ -942,7 +942,7 @@ def write_credits():
     md += [f"| {a} | [{t}]({u}) | [{lic}]({lic_url[lic]}) |" for a, t, lic, u in rows]
     with open(os.path.join(ROOT, "SOUND-CREDITS.md"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(md) + "\n")
-    txt = ["Airstrike sounds are built from the recordings below (cut, mixed, filtered, resampled)",
+    txt = ["Incoming sounds are built from the recordings below (cut, mixed, filtered, resampled)",
            "plus synthesis. CC0 = public domain; CC BY = used with attribution, modified.", ""]
     txt += [f"{a} - \"{t}\" - {lic} - {u}" for a, t, lic, u in rows]
     with open(os.path.join(OUT, "credits.txt"), "w", encoding="utf-8") as fh:
