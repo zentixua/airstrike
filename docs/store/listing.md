@@ -12,7 +12,7 @@ Fields to paste when the project pages are created. The long description is [des
 | Modrinth categories | Equipment, Technology, Game Mechanics |
 | CurseForge categories | Armor, Tools, and Weapons; Technology; Miscellaneous |
 | License | GPL-3.0-only |
-| Content disclosure | Modrinth: "Contains AI-generated content" (the code is written with Claude Code). It is set by hand in the project's Settings → Disclosures. CurseForge has no such field |
+| Content disclosure | Modrinth: "Contains AI-generated content" (the code and the page texts are written with Claude Code). It is set by hand in the project's Settings → Disclosures. CurseForge has no such field |
 | Source | https://github.com/zentixua/incoming |
 | Issues | https://github.com/zentixua/incoming/issues |
 | Wiki / guide | https://github.com/zentixua/incoming/blob/main/docs/guide/README.md |
@@ -62,7 +62,7 @@ the latest GitHub release) and press Run workflow.
   exist in the repository, and the jar. Only the project members see a draft and its versions. Run it again after
   changing the images or the texts: it uploads only new images and skips a jar that is already uploaded.
 - `submit`: sends the Modrinth draft for review and uploads the jar to CurseForge. On CurseForge the first file sends
-  a new project for review.
+  a new project for review. Turn on the Modrinth content disclosure by hand before the first `submit`.
 - `release`: for later versions, after Modrinth has approved the project: updates the Modrinth page and uploads the
   jar to Modrinth and CurseForge.
 
@@ -74,4 +74,5 @@ images are changed on the site. Running `submit` or `release` twice for the same
 CurseForge twice.
 
 A CurseForge project can only be created on the site. Create it by hand first with the fields above (title, summary,
-CurseForge categories, license, links, and description.md as the description), then add its ID as `CURSEFORGE_ID`.
+CurseForge categories, license, links, the avatar `docs/media/icon-400.png`, and description.md as the description),
+then add its ID as `CURSEFORGE_ID`.

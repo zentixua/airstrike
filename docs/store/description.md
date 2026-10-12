@@ -63,8 +63,8 @@ Airstrike.
 
 ## How it is made
 
-The mod is designed by its author and tested in play with friends on the author's server. The code is written with
-Claude Code. The pictures on this page are screenshots from the game.
+The mod is designed by its author and tested in play with friends on the author's server. The code and the texts are
+written with Claude Code. The pictures on this page are screenshots from the game.
 
 ## Links
 
