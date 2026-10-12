@@ -76,8 +76,7 @@ MUSIC = {
     "file": "juggernaut.mp3",  # копия файла из --music
     # первый — файл в файлах проекта (video/trailer-war/music, по нему сняты доли), второй — записанный в music.md при
     # скачивании 12.10.2026 (scottbuckley.com.au/library/juggernaut)
-    "sha256": ("994ce3d4d2fa61a2e5434c3b11c104a207f2525209840197d88585dd84584f1a",
-               "50be286d170f5a08791f1540b110fbbb4c0aa26e841084fceff0c908379e76f6"),
+    "sha256": ("994ce3d4d2fa61a2e5434c3b11c104a207f2525209840197d88585dd84584f1a",),
     "credit": 'Music: "Juggernaut" by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au',
 }
 FONTS = {
@@ -424,7 +423,7 @@ PLANS = [
         Clip("e", "mark:gone-0.2", None, "ковёр разрывов бежит на камеру"),
         Fill(0.1, 255),  # белая вспышка на 6 кадров, на ней — обрыв
     ]),
-    Plan(2, "0:05", "Чёрный экран, две строки ИИ-ведущего в чате", [Fill()]),  # строки — TEXTS["chat"]
+    Plan(2, "0:04.4", "Чёрный экран, две строки ИИ-ведущего в чате", [Fill()]),  # строки — TEXTS["chat"]
     # ---- I · Перед ударом: трек входит на долю, склейки на его доли, «FIRE» обрывает музыку
     Plan(3, "0:06", "Рассвет над Zearth: пролёт на высоте 300 м над туманом"),
     Plan(4, "0:08", "Восток, площадь у госкомплекса: люди, у депо поезд"),
@@ -432,7 +431,7 @@ PLANS = [
     Plan(6, "0:10", "Колонна солдат вдоль ряда из двадцати пусковых"),
     Plan(7, "0:11", "Бинокль: метка на небоскрёбе Востока за 4 км"),
     Plan(8, "0:12", "Карта наведения: точка за горизонтом"),
-    Plan(9, "0:13", "Пульт STRIKE CONSOLE, палец на «FIRE»"),
+    Plan(9, PARTS[0].trailer(13.5), "Пульт STRIKE CONSOLE, палец на «FIRE»"),
     # ---- II · Первый удар: без музыки
     Plan(10, FIRE_AT, "Пуск, три склейки", [
         Clip("a", 0.0, None, "ракеты сходят с пусковых, сбрасывают ускорители"),
@@ -533,11 +532,13 @@ TEXTS = {
     "en": {"chat": ("<Claude> West batteries: targets set. Await the order.", "<Claude> Fire on my mark."),
            "end": ("Free and open source · Minecraft 1.21.1 · NeoForge · Modrinth · CurseForge",
                    "War staged with Almighty, an AI game master for your Minecraft server",
-                   "All footage captured in-game")},
+                   "All footage captured in-game",
+                   "Music: \"Juggernaut\" by Scott Buckley (CC BY 4.0)")},
     "ru": {"chat": ("<Claude> Батареи Запада: цели заданы. Ждать приказа.", "<Claude> Огонь по моей команде."),
            "end": ("Бесплатно и с открытым кодом · Minecraft 1.21.1 · NeoForge · Modrinth · CurseForge",
                    "Войну поставил Almighty — ИИ-ведущий для вашего сервера Minecraft",
-                   "Всё снято в игре")},
+                   "Всё снято в игре",
+                   "Музыка: «Juggernaut», Scott Buckley (CC BY 4.0)")},
 }
 
 
@@ -589,7 +590,7 @@ def build_edit(lang="en"):
     p2, p3 = plan(2)
     p51, p52 = plan(51)
     p53 = plan(53)[0]
-    chat1, chat2 = p2 + 0.1, p2 + 0.45   # строки появляются по одной; новая поднимает прошлую, как в игре
+    chat1, chat2 = p2 + 0.15, p2 + 0.75   # строки появляются по одной; новая поднимает прошлую, как в игре
     texts = [
         Text(chat1, chat2 - chat1, (L["chat"][0],), "chat", fade=0),
         Text(chat2, p3 - chat2, (L["chat"][0],), "chat", fade=0, row=1),
@@ -801,7 +802,7 @@ class Titles:
             if text.style == "title":
                 lines = [(text.lines[0], self.font("title", int(190 * s)), (255, 244, 228))]
             else:
-                sizes, colours = (int(40 * s), int(34 * s), int(30 * s)), ((255, 255, 255), (225, 225, 225), (165, 165, 165))
+                sizes, colours = (int(40 * s), int(34 * s), int(30 * s), int(26 * s)), ((255, 255, 255), (225, 225, 225), (165, 165, 165), (130, 130, 130))
                 lines = [(ln, self.font("text", sizes[i], 400), colours[i]) for i, ln in enumerate(text.lines)]
             boxes = [d.textbbox((0, 0), ln, font=f) for ln, f, _ in lines]
             gap = int(26 * s)
@@ -841,7 +842,7 @@ class Titles:
         s = h / 1080
         img = Image.new("RGB", (w, h), (22, 24, 28))
         d = ImageDraw.Draw(img)
-        f1, f2 = self.font("text", int(34 * s), 400), self.font("text", int(24 * s), 300)
+        f1, f2 = self.font("text", int(40 * s), 400), self.font("text", int(32 * s), 400)
         line1 = f"{c.shot} · {c.what}"
         line2 = " · ".join(x for x in (c.note, f"{fmt_time(c.start)}–{fmt_time(c.start + c.dur)}", f"{c.dur:.2f} с") if x)
         b1, b2 = d.textbbox((0, 0), line1, font=f1), d.textbbox((0, 0), line2, font=f2)
@@ -1160,7 +1161,8 @@ def mix(edit, hits, shots, total, music_path):
     sfx = render_sfx(edit, shots, total, bank)
     music, env = music_track(total, music_path)
     k = int(0.3 * SR)                      # громкость звука игры меняется плавно
-    env = np.convolve(env, np.ones(k) / k, mode="same")
+    c = np.concatenate(([0.0], np.cumsum(np.pad(env, (k // 2, k - 1 - k // 2), mode="edge"), dtype=np.float64)))
+    env = ((c[k:] - c[:-k]) / k).astype(np.float32)  # скользящее среднее за O(n): np.convolve на 6 млн отсчётов — минуты
     sfx *= (SFX_ALONE + (SFX_WITH_MUSIC - SFX_ALONE) * env)[:, None]
     rng = np.random.default_rng(20261012)
     extra = np.zeros_like(music)

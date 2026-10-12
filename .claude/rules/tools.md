@@ -72,7 +72,9 @@ paths:
     gen_grid_assets.py                   ← модели и состояния двойников ламп блэкаута из ванильного jar, не править руками
     trailer/record.sh [shaders]          ← трейлер: сценарий клиента trailer снимает планы покадрово в 60 fps
                                            (INCOMING_SIZE=1920x1080, кадры и журнал звуков — mod/run/scenario/trailer/)
-    trailer/edit.py [--lang en|ru] [--draft] [--rec …] ← монтаж под музыку (Kevin MacLeod, CC BY), титры, звук из журнала →
+    trailer/edit.py [--lang en|ru] [--draft] [--rec …] [--music F] ← монтаж «Войны двух городов» по планам pNN[буква]
+                                           под «Juggernaut» (Scott Buckley, CC BY; файл — --music, не скачивается), склейки
+                                           на доли, неснятый план — заглушка; титры, звук из журнала →
                                            dist/incoming-trailer.mp4, -lite.mp4 и -credits.txt (строки для описания ролика)
     trailer/icon_from_frames.py <кадры> <папка> ← иконка мода из плана «icon» (шахед на фоне неба): 512 и малый вариант
   docs/DESIGN-nuke.md                    ← проект ядерного удара
