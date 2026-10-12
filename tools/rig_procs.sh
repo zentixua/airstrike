@@ -1,6 +1,6 @@
 # Процессы проверок (stress.sh, mp_scenario.sh): каждый сервер и клиент — в своей сессии (setsid), остановка — всей
 # сессией. Обёртки клиентов (xvfb-run, nested_kwin.sh → dbus-run-session → kwin_wayland) держат JVM внуком: kill
-# обёртки оставлял Minecraft жить сиротой, а Ctrl+C в терминале до JVM в своей сессии и не доходит — гасит rig_stop_all.
+# обёртки оставляет Minecraft жить сиротой, а Ctrl+C в терминале до JVM в своей сессии и не доходит — гасит rig_stop_all.
 # Подключается через source; вызывающий скрипт ставит trap (rig_trap).
 
 RIG_SESSIONS=()

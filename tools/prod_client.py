@@ -194,7 +194,7 @@ def main():
         if a.world and not a.quickplay:
             props["incoming.world"] = world_name(a.world)
     # окно игры — во весь экран вложенного KWin сразу: размер по умолчанию 854×480, а переход на полный экран
-    # во вложенном KWin не срабатывал (ноутбук 01.10: весь дубль — 854×480)
+    # во вложенном KWin не срабатывает (весь дубль остаётся 854×480)
     game_extra = ["--width", width, "--height", height]
     if a.quickplay:
         game_extra += ["--quickPlaySingleplayer", world_name(a.world)]
@@ -229,7 +229,7 @@ def main():
 def run_in_group(argv, env, seconds):
     """Запуск в своей сессии; по сроку, Ctrl+C, обрыву терминала и внешнему TERM гасится вся группа.
 
-    Клиент — внук nested_kwin.sh (dbus-run-session → kwin → sh → java): TERM одной обёртке оставлял его работать
+    Клиент — внук nested_kwin.sh (dbus-run-session → kwin → sh → java): TERM одной обёртке оставляет его работать
     дальше, одновременно со следующей проверкой. Гасим группу: TERM, через 20 с — KILL оставшимся (как rig_trap в
     tools/rig_procs.sh). Код выхода: как у процесса; по сроку — 143; по сигналу — 128 + его номер.
     """

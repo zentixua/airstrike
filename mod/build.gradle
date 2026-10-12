@@ -115,7 +115,7 @@ neoForge {
             // INCOMING_RIG_JVM=artem — сервер с JVM, как в игре у Артёма (8 ГБ, поколенческий ZGC), только где хватает
             // памяти (VPS): 8 ГБ сервера и три клиента по 2 ГБ облако на 15 ГБ не вынесет. Режиссёр пишет сборщик в лог
             // и не запускается, если JVM стенда (тулчейн Gradle) работает с другим сборщиком (incoming.stress.gc —
-            // начало имени MXBean: у поколенческого ZGC «ZGC Minor/Major …», у прежнего — «ZGC Cycles») или с кучей
+            // начало имени MXBean: у поколенческого ZGC «ZGC Minor/Major …», у непоколенческого — «ZGC Cycles») или с кучей
             // меньше заказанной (incoming.stress.heap, МБ)
             def rigJvm = System.getenv('INCOMING_RIG_JVM') ?: 'default'
             if (rigJvm == 'artem') {
@@ -213,9 +213,9 @@ test {
 // конструкторах добавляют обратные вызовы в реестр Create (CreateRegistrateRegistrationCallback), а зависимость
 // на create у них с ordering "NONE": FML строит их параллельно с Create и друг с другом, и HashMultimap обратных
 // вызовов Registrate портится от одновременной записи. В dev (не production) Registrate тогда падает на старте:
-// «Found unused register callbacks» (CI, 29.09.2026). Переопределение зависимостей FML (dependencyOverrides в
+// «Found unused register callbacks». Переопределение зависимостей FML (dependencyOverrides в
 // config/fml.toml, штатная настройка загрузчика) ставит их строго друг за другом после Create: гонки нет, остальные
-// моды по-прежнему строятся параллельно. В игре хоста fml.toml не трогаем: там Registrate от этого не падает.
+// моды строятся параллельно. В игре хоста fml.toml не трогаем: там Registrate от этого не падает.
 def fmlDependencyOverrides = """# Пишет build.gradle перед каждым запуском (файл целиком); остальные ключи FML дополнит сам значениями по умолчанию
 [dependencyOverrides]
 simulated = ["+create", "+sable"]

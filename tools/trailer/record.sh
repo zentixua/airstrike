@@ -67,7 +67,7 @@ JDK="$(python3 "$ROOT/tools/paths.py" JAVA)"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "$JDK" ]; then export JAVA_HOME="$JDK"; fi
 cd "$ROOT/mod"
 if command -v kwin_wayland >/dev/null; then
-  # экран KWin с запасом: окно клиента с заголовком в размер экрана не влезает и ужимается (было 1920×1052);
+  # экран KWin с запасом: окно клиента с заголовком в размер экрана не влезает и ужимается (до 1920×1052);
   # сценарий снимает с окна рамку и ставит его ровно ${W}x${H} (Trailer.exactFrame)
   exec "$ROOT/tools/nested_kwin.sh" wayland-incoming-trailer "$((W + 64))" "$((H + 160))" "$ROOT/mod/gradlew ${GRADLE_ARGS[*]}"
 fi

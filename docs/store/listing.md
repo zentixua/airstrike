@@ -67,8 +67,8 @@ the latest GitHub release) and press Run workflow.
   jar to Modrinth and CurseForge.
 
 Each uploaded file lists the optional mods as dependencies: Create, Create Aeronautics, Sable and Distant Horizons on
-Modrinth, and the same without Create Aeronautics on CurseForge, which had no project with the slug
-`create-aeronautics` on 12.10.2026.
+Modrinth, and the same without Create Aeronautics on CurseForge, which has no project with the slug
+`create-aeronautics`.
 An image removed from `gallery` is removed from the site on the next `draft` or `release`; captions of uploaded
 images are changed on the site. Running `submit` or `release` twice for the same version uploads the file to
 CurseForge twice.

@@ -13,7 +13,7 @@ paths:
   у Артёма (8 ГБ, поколенческий ZGC; только где хватает памяти — VPS), сборщик — в строке «сервер запущен». Тики дольше 0,5 с режиссёр пишет со стеком
   сервера: 35 с в облаке — Sable (`PhysicsChunkTicketManager` грузит чанки синхронно), пока генерация стоит в очереди.
 - Серверы проверок слушают только петлю: `server-ip=127.0.0.1` и свободный порт (`tools/free_port.py`) в `stress.sh`
-  и `mp_scenario.sh` — на VPS сервер стенда на 0.0.0.0:25565 с `online-mode=false` нашёл сканер из интернета.
+  и `mp_scenario.sh` — сервер стенда на 0.0.0.0 с `online-mode=false` находят сканеры из интернета.
   Сторож devtest `rig/LoopbackGuard` роняет сервер (до загрузки мира, мир в LAN — по тику), если сокет не на петле.
   UDP: канал Sable встаёт в тот же список каналов на адресе TCP (сторож видит и его); рассылку LAN NeoForge
   (`advertiseDedicatedServerToLan` в `config/neoforge-server.toml`: сокет на 0.0.0.0, пишет в 224.0.2.60:4445) скрипты
@@ -23,17 +23,17 @@ paths:
   (java, @файлы MDG — копией на каждый запуск, classpath, каталог, окружение задачи; настройки, которые задача
   читает из окружения и `-P`, — на момент подготовки), Gradle выходит, игра идёт из скриптов без живого Gradle.
   Сервер и клиенты стенда и мультиплеера — каждый в своей сессии (`tools/rig_procs.sh`: `rig_spawn`, `rig_trap`):
-  JVM клиента — внук обёртки (xvfb-run, nested_kwin → dbus-run-session → kwin), `kill` обёртки оставлял его сиротой;
+  JVM клиента — внук обёртки (xvfb-run, nested_kwin → dbus-run-session → kwin), `kill` обёртки оставляет его сиротой;
   выход скрипта (конец, ошибка, Ctrl+C, TERM) гасит сессии целиком — TERM, через 20 с KILL (повторный Ctrl+C её
   не обрывает), потом сам выходит тем же сигналом. Гасит только сессии с меткой `INCOMING_RIG_TAG` в окружении:
   номер закончившейся сессии после оборота PID может стать чужим.
 - Вложенный KWin запускать только через `tools/nested_kwin.sh` (своя шина `dbus-run-session`, свои `XDG_*_HOME`):
-  на общей шине он цеплялся к kglobalaccel рабочего стола под именем «kwin» и при выходе выключал все сочетания
-  KWin у Артёма (Alt+Tab), а kwinrc писал в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
+  на общей шине он цепляется к kglobalaccel рабочего стола под именем «kwin» и при выходе выключает все сочетания
+  KWin у Артёма (Alt+Tab), а kwinrc пишет в общий `~/.config`. Проверка: `busctl --user call org.kde.kglobalaccel
   /component/kwin org.kde.kglobalaccel.Component isActive` — должно остаться `true`. Шина вложенной сессии служб
   не запускает (`tools/nested_kwin_bus.conf`, без D-Bus-активации), а `XDG_RUNTIME_DIR` у неё общий с рабочим столом:
-  с активацией она поднимала xdg-desktop-portal и xdg-document-portal, а тот при старте снимал у хоста маунт
-  `/run/user/1000/doc` (`fusermount3 -u -z`), при выходе — свой; flatpak-приложения (Prism) не запускались
+  с активацией она поднимает xdg-desktop-portal и xdg-document-portal, а тот при старте снимает у хоста маунт
+  `/run/user/1000/doc` (`fusermount3 -u -z`), при выходе — свой; flatpak-приложения (Prism) не запускаются
   («bwrap: Can't find source path …/doc/by-app/…»; вернуть — `systemctl --user restart xdg-document-portal.service`).
   Проверка: `findmnt /run/user/1000/doc` до и после — тот же маунт.
 - Сборка хоста (zentixua/airstrike-pack, в ней Sinytra Connector) в Gradle-запуске не стартует: Connector требует раскладку файлов Minecraft, как у лаунчера
