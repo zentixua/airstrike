@@ -63,8 +63,8 @@ Airstrike.
 
 ## How it is made
 
-The code is written with Claude Code, an AI coding assistant, under the author's direction, and tested in play on
-the author's server. The pictures on this page are screenshots from the game.
+The mod is designed by its author and tested in play with friends on the author's server. The code is written with
+Claude Code. The pictures on this page are screenshots from the game.
 
 ## Links
 
