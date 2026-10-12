@@ -2,7 +2,7 @@
 
 English · [Русский](README.ru.md)
 
-![A cruise missile flies low over a city and hits a factory](docs/media/hero.webp)
+![Cruise missiles dive onto a factory with tall chimneys and explode one after another](docs/media/hero.webp)
 
 A Minecraft 1.21.1 mod for NeoForge that adds modern air strikes and air defense. The weapons are a Shahed-style
 kamikaze drone, a Lancet-style loitering munition, a cruise missile, a Grad-style rocket launcher, a B-2 with

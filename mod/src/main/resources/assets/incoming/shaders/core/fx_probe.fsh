@@ -41,7 +41,8 @@ void main() {
             vec2 p = at + TAP[k] * ring;
             if (any(lessThan(p, vec2(0.0))) || any(greaterThanEqual(p, size))) continue;
             sum += clamp((texelFetch(Sampler0, ivec2(p), 0).r - front) / soft, 0.0, 1.0);
-            n++;
+            // не n++: Veil (его несёт Sable) пересобирает шейдеры через glsl-processor 0.2.3, а тот теряет «;» после n++
+            n += 1;
         }
         if (n > 0) seen = sum / float(n);
     }

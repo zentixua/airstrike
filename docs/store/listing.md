@@ -30,6 +30,8 @@ first one is featured):
 | `docs/media/still-1.jpg` | Cruise missile flying low over the terrain toward its target |
 | `docs/media/still-3.jpg` | Cruise missile in its final dive onto a burning factory |
 | `docs/media/still-4.jpg` | The warhead explodes inside the factory |
+| `docs/media/still-5.jpg` | Cruise missiles dive onto a factory: the first one has just hit |
+| `docs/media/still-6.jpg` | More hits on the factory as another cruise missile comes in |
 | `docs/guide/img/nuke-wave.jpg` | Fireball and blast wave of a 15 kt airburst over a city |
 | `docs/guide/img/nuke.jpg` | Mushroom cloud; the dust wall of the blast wave below |
 | `docs/guide/img/nuke-ruins.jpg` | A city after a 15 kt strike: ruins and fires |
