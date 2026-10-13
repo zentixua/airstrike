@@ -123,6 +123,19 @@ class PilotTest {
     }
 
     @Test
+    void passesAlongTheEdgeOfTheReplayChunks() {
+        // удар в 40 блоках от края: за z = 40 у клиента чанков нет (порт у моря, куда записавший не ходил)
+        Pilot.Terrain t = (x, z) -> z >= 40 ? Double.NaN : 64;
+        Pilot p = pilot(t, List.of());
+        for (Pilot.Flight f : p.plan(2)) {
+            Pilot.Track tr = check(p, f);
+            int out = 0, n = 0;
+            for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
+            assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
+        }
+    }
+
+    @Test
     void sameSeedSameFlight() {
         Pilot.Flight one = pilot((x, z) -> 64, List.of()).plan(1).get(0), two = pilot((x, z) -> 64, List.of()).plan(1).get(0);
         assertEquals(one.name(), two.name());

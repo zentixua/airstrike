@@ -721,7 +721,8 @@ class HistoryTest(unittest.TestCase):
 
 def strikes() -> Path:
     """Записавший у порта всю запись (прорисовка 20 чанков по обновлениям блоков); шахеды с запада бьют по земле у порта:
-    одиночный в 400, пять кучно в 1200–1260; удар без снаряда в 1600; шахед у края прорисовки в 1800."""
+    одиночный в 400, пять кучно в 1200–1260; в 1500 — в 200 блоках к востоку (чанки вокруг — с запада, полкруга и больше);
+    удар без снаряда в 1700; шахед у края прорисовки в 1800 (чанки вокруг — меньше полкруга)."""
     s = Scan()
     base = (-600.5, 64.0, 60.5)
 
@@ -731,7 +732,8 @@ def strikes() -> Path:
     drone("D-solo", 400, base)
     for k in range(5):
         drone(f"D-{k}", 1200 + 15 * k, (base[0] + 10 * k, 64.0, base[2] + 5 * k))
-    s.blast(1600, "airstrike:blast", base, None)
+    drone("D-half", 1500, (base[0] + 200, 64.0, base[2]))
+    s.blast(1700, "airstrike:blast", base, None)
     drone("D-edge", 1800, (base[0] + 250, 64.0, base[2]))
     for i, t in enumerate(range(0, 2100, 7)):
         s.rows["blocks"].append([t, DIM, math.floor(PORT[0]) + 16 * (i % 21), 64, math.floor(PORT[2]), "minecraft:air"])
@@ -752,8 +754,9 @@ class FpvTest(unittest.TestCase):
         self.assertEqual(r.view_radius()[0], 20, out)
         self.assertEqual(len(c), 1, out)
         shots = c[0].shots
-        self.assertEqual([s.a for s in shots], [400 - 81, 1200 - 81], "удар — на 45 % прохода, проходы по времени\n" + out)
-        self.assertEqual([s.subject["uuid"] for s in shots], ["D-solo", "D-0"], "самый жаркий — куча 1200–1260, потом одиночный")
+        self.assertEqual([s.a for s in shots], [400 - 81, 1200 - 81, 1500 - 81], "удар — на 45 % прохода, проходы по времени\n" + out)
+        self.assertEqual([s.subject["uuid"] for s in shots], ["D-solo", "D-0", "D-half"],
+                         "самый жаркий — куча 1200–1260; у края чанков с одной стороны пилот пройдёт вдоль края")
         self.assertIn("без снаряда 1, тесных 1", out, "удар без снаряда и у края прорисовки не берутся")
         self.assertEqual(shots[1].camera, {"kind": "pilot", "fov": 80.0, "dim": DIM, "time": 18000})
         self.assertEqual((shots[1].kind, shots[1].subject["weapon"], [k["t"] for k in shots[1].subject["keys"]]), ("fpv", "shahed", [1200]))
@@ -764,6 +767,16 @@ class FpvTest(unittest.TestCase):
         self.assertTrue(plan["subject"]["path"] and plan["subject"]["path"][-1][0] == 1200, "путь снаряда до удара — пилоту")
         self.assertIn([400, -600.5, 64.0, 60.5, 12], plan["smoke"], "дым прежних ударов — с поперечником шара шахеда")
         self.assertIn([1200, -600.5, 64.0, 60.5, 12], plan["smoke"], "и ударов прохода")
+        # место названо человеком, а у края чанков места мало: снимается удар, где его больше всего
+        r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
+        r.fpv_specs = [clips.fpv_spec("near=-350,60,40 shots=1 seconds=9 time=night")]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            near = r.fpv()
+        self.assertEqual([s.subject["uuid"] for s in near[0].shots], ["D-edge"], printed.getvalue())
+        self.assertIn("по 8 направлениям из 16 — снимается: место названо", printed.getvalue())
+        r.fpv_specs = [clips.fpv_spec("search=01:25/01:40 shots=1 seconds=9 time=night")]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(r.fpv(), [], "не названо — тесный удар не берётся")
         hit = shots[1].subject["keys"][0]["id"]
         film_plan._HIT_WEAPONS[id(r.con)] = (object(), {hit: "icbm"})
         self.assertEqual(film_plan.hit_weapons(r.con)[hit], "shahed", "запись закрытой базы по тому же адресу — не этой")
