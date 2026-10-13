@@ -6,11 +6,14 @@ import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
@@ -22,6 +25,7 @@ import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Field;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -114,7 +118,37 @@ public final class Film {
         // пакеты зрителю повтора после входа — когда у клиента есть мир (до onTick: отпуск и OPENING — в одном тике)
         ViewerHold.register(modBus);
         NeoForge.EVENT_BUS.addListener(this::onTick);
+        NeoForge.EVENT_BUS.addListener(this::quietCamera);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+    }
+
+    /** Частицы эффектов сущности — список, который шлёт сервер ({@code LivingEntity.DATA_EFFECT_PARTICLES}); null — поля нет. */
+    @Nullable
+    private static final EntityDataAccessor<List<ParticleOptions>> EFFECT_PARTICLES = effectParticles();
+
+    @SuppressWarnings("unchecked")
+    @Nullable
+    private static EntityDataAccessor<List<ParticleOptions>> effectParticles() {
+        try {
+            Field f = LivingEntity.class.getDeclaredField("DATA_EFFECT_PARTICLES");
+            f.setAccessible(true);
+            return (EntityDataAccessor<List<ParticleOptions>>) f.get(null);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOG.warn("Film: effect particles stay at the players'-eyes camera ({})", e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * Глазами игрока частицы его эффектов (спирали зелий: тик эффектов сыплет их по его рамке, и на высоте глаза)
+     * рождаются у самой камеры и закрывают пол-кадра: в начале тика клиента у сущности камеры список частиц эффектов
+     * пуст, и тик эффектов их не рождает. У остальных сущностей — как было.
+     */
+    private void quietCamera(ClientTickEvent.Pre e) {
+        if (EFFECT_PARTICLES != null && mc.level != null && mc.getCameraEntity() instanceof LivingEntity camera && camera != mc.player
+                && !camera.getEntityData().get(EFFECT_PARTICLES).isEmpty()) {
+            camera.getEntityData().set(EFFECT_PARTICLES, List.of());
+        }
     }
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
