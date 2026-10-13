@@ -104,6 +104,14 @@ final class Scan implements Closeable {
     private static final double MAX_ANGLE = 75;
     /** Замеры земли у места события: вниз до блока — не дальше, ближайший блок — в кубе такого радиуса. */
     private static final int CLEAR_MAX = 64, SOLID_RADIUS = 6;
+    /**
+     * Луч к событию — до точки на {@code EVENT_LIFT} блоков выше места, последние {@code EVENT_STOP} блоков не
+     * смотрятся: взрыв виден огненным шаром и дымом над точкой удара, а сама точка бывает в грунте, и пологий луч к ней
+     * шёл бы по земле десятки блоков (глаз в 1,6 блока над землёй, точка на полблока в грунте за 100 блоков — луч
+     * в земле уже за 24 блока до неё). У Incoming шар — радиусом от 3,5 (РСЗО) до 11 блоков (ракета), центр — на 0,45
+     * радиуса выше точки: точка подъёма — внутри шара любого его взрыва, отрезок без проверки — короче радиуса шара.
+     */
+    private static final double EVENT_LIFT = 3, EVENT_STOP = 3;
 
     private final Settings settings;
     private final FlashbackLink link;
@@ -586,22 +594,23 @@ final class Scan implements Closeable {
             Rays rays = new Rays(v.level, known.getOrDefault(v.level.dimension(), new LongOpenHashSet()));
             Vec3[] axes = axes(v.yaw, v.pitch);
             for (Event e : now) {
-                if (e.measure && e.pos != null && e.dim == v.level.dimension()) see(t, v, axes, rays, "p", Long.toString(e.id), e.pos);
+                if (e.measure && e.pos != null && e.dim == v.level.dimension()) see(t, v, axes, rays, "p", Long.toString(e.id), e.pos, EVENT_LIFT, EVENT_STOP);
             }
             for (Far f : farNow) {
-                if (f.dim == v.level.dimension()) see(t, v, axes, rays, "f", f.uuid, f.pos);
+                if (f.dim == v.level.dimension()) see(t, v, axes, rays, "f", f.uuid, f.pos, 0, 1);
             }
             if (!entitiesNow) continue;
             for (Tracked k : tracked.values()) {
                 if (k.lastSeen != t || k.dim != v.level.dimension() || !(k.subject || k.player)) continue;
                 Entity e = k.entity;
                 if (e.getId() == v.self) continue;
-                see(t, v, axes, rays, "e", Integer.toString(k.eid), e.getBoundingBox().getCenter());
+                see(t, v, axes, rays, "e", Integer.toString(k.eid), e.getBoundingBox().getCenter(), 0, 1);
             }
         }
     }
 
-    private void see(int t, Viewer v, Vec3[] axes, Rays rays, String kind, String ref, Vec3 target) {
+    /** Строка видимости: место в кадре — по {@code target}, луч — к точке на {@code lift} выше без последних {@code stop} блоков. */
+    private void see(int t, Viewer v, Vec3[] axes, Rays rays, String kind, String ref, Vec3 target, double lift, double stop) {
         Vec3 d = target.subtract(v.eye);
         double dist = d.length();
         if (dist > settings.range() || dist < 0.5) return;
@@ -612,7 +621,7 @@ final class Scan implements Closeable {
             cx = d.dot(axes[1]) / z;
             cy = d.dot(axes[2]) / z;
         }
-        Rays.Hit hit = rays.cast(v.eye, target, 1.0);
+        Rays.Hit hit = rays.cast(v.eye, lift == 0 ? target : target.add(0, lift, 0), stop);
         sight.add(t).add(v.id).add(kind).add(ref).add(dist).add(v.look ? z : Double.NaN).add(cx).add(cy).add(hit.hard()).add(hit.soft()).add(hit.unknown()).end();
     }
 
