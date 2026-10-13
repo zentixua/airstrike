@@ -84,7 +84,7 @@ import java.util.function.BooleanSupplier;
  * <p>
  * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
  * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p13}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
+ * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
  * {@code streets} — уличный бой (площадь и проспект, около сотни ботов) с планами 26–30.
  */
 final class War {
@@ -221,6 +221,7 @@ final class War {
         if (part.equals("nukeC")) nukeNear();
         if (part.equals("icbm")) icbm();
         // один план для проверки съёмки из повтора (ReplayFilm)
+        if (part.equals("p03")) dawnFlight();
         if (part.equals("p13")) p13();
         if (part.equals("p21")) ridge();
         if (part.equals("streets")) {
@@ -758,7 +759,12 @@ final class War {
     // ================================================================ I · рассвет и утро над Востоком
 
     private void dawn() {
-        // p03: пролёт на высоте над Востоком к небоскрёбам, на которые ложится первое солнце
+        dawnFlight();
+        dawnSquare();
+    }
+
+    /** p03: пролёт на высоте над Востоком к небоскрёбам, на которые ложится первое солнце. */
+    private void dawnFlight() {
         film.run(() -> Film.cmd("time set 23300"));
         // высоко, под облаками (320 у съёмки): за план камера проходит ~100 блоков к башням центра, на них первое солнце
         hiddenAt(new Vec3(2870, 280, 320), T2);
@@ -766,8 +772,10 @@ final class War {
             Vec3 look = new Vec3(3060, 200, 560);
             return CineCamera.glide(new Vec3(2830, 300, 290), new Vec3(2905, 296, 352), 60, () -> look, 52);
         });
+    }
 
-        // p04: утро, площадь у госкомплекса — жители идут по своим делам (та же точка в p44: площадь горит и пуста)
+    /** p04: утро, площадь у госкомплекса — жители идут по своим делам (та же точка в p44: площадь горит и пуста). */
+    private void dawnSquare() {
         film.run(() -> Film.cmd("time set 1000"));
         hiddenAt(SQUARE, GOV);
         film.onServer(level -> {

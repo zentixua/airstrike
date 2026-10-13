@@ -13,7 +13,8 @@ mkdir -p "$RUN/logs"
 #   INCOMING_TRAILER_SHOTS=bomb_bay,targets INCOMING_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
 #   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
 # облака ванили — INCOMING_CLOUDS (true, fast, false: слой на высоте 192 закрывает верх башен центра и подлёт ракет;
-# у шейдерпака облака — его настройка, их высота для проверки кадров — INCOMING_FILM_CLOUDS)
+# у шейдерпака облака — его настройка, их высота для проверки кадров — INCOMING_FILM_CLOUDS; другие настройки пака —
+# INCOMING_SHADER_OPTS, «ИМЯ=значение» через пробел)
 # язык игры — INCOMING_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
 #   INCOMING_LANG=en_us INCOMING_TRAILER_SHOTS=remote,scope,targets INCOMING_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
 export INCOMING_TRAILER_DIR="${INCOMING_TRAILER_DIR:-trailer}"
@@ -101,12 +102,16 @@ if [ "${1:-}" = shaders ]; then
   cp -r "$MC/shaderpacks/$PACK" "$RUN/shaderpacks/"
   printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
   # настройки шейдерпака у Iris — <пак>.txt рядом с ним: слой облаков Complementary (CLOUD_ALT1, толщина ±4,2, шаг
-  # настройки 4) — над всем действием, его низ не ниже INCOMING_FILM_CLOUDS (по нему проверка кадра считает облака)
+  # настройки 4) — над всем действием, его низ не ниже INCOMING_FILM_CLOUDS (по нему проверка кадра считает облака);
+  # INCOMING_SHADER_OPTS — ещё настройки пака «ИМЯ=значение» через пробел (план со своими настройками выводится
+  # отдельным запуском с INCOMING_FILM_SHOTS)
+  OPTS="$RUN/shaderpacks/$PACK.txt"
+  : > "$OPTS"
   if [ -n "${INCOMING_FILM_CLOUDS:-}" ]; then
-    printf 'CLOUD_ALT1=%d\n' "$(( (INCOMING_FILM_CLOUDS + 8 + 3) / 4 * 4 ))" > "$RUN/shaderpacks/$PACK.txt"
-  else
-    rm -f "$RUN/shaderpacks/$PACK.txt"
+    printf 'CLOUD_ALT1=%d\n' "$(( (INCOMING_FILM_CLOUDS + 8 + 3) / 4 * 4 ))" >> "$OPTS"
   fi
+  for o in ${INCOMING_SHADER_OPTS:-}; do printf '%s\n' "$o" >> "$OPTS"; done
+  [ -s "$OPTS" ] || rm -f "$OPTS"
 else
   unset INCOMING_SHADERS
 fi
