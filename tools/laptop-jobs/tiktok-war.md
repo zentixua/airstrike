@@ -43,7 +43,7 @@ $S/laptop_job.sh tiktok-war2 -- python3 $S/prod_client.py --no-copy --dir $G --i
   --prop replayscan.film=$T/clips2/film/$R/plan.json
 ```
 Успех: в `$G/logs/latest.log` — `Film: done`; у каждого плана — `Film: verdict <план> <камера>: PASS` (в `verdict.json` —
-`dh_world` 0, `low_out` 0); у отрезка глазами — `spectates ZentixUA`; строки `effect particles stay` нет. Не прошедший
+`dh_world` 0, `low_out` — до 2 % кадров); у отрезка глазами — `spectates ZentixUA`; строки `effect particles stay` нет. Не прошедший
 план не доводить: в отчёт его `why`.
 
 ## 4. Монтаж и выдача

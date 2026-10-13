@@ -407,14 +407,7 @@ class SelectTest(unittest.TestCase):
 
     def test_fly_stays_in_recorder_chunks(self):
         """Чанки повтора — только вокруг записавшего: путь, у которого глаз или низ кадра дальше reach, сдвигается (и
-        медленнее), пока весь не встанет в них; дальность без reach — по пакету входа записавшего."""
-        self.assertEqual(self.r.view_reach(), 128.0, "пакета входа нет — 8 чанков")
-        self.r.con.execute("INSERT INTO events (e, t, dim, kind, src, data) VALUES (-1, 0, ?, 'packet', 'ClientboundLoginPacket', "
-                           "'{\"playerId\": 1, \"chunkRadius\": 6}')", [DIM])
-        try:
-            self.assertEqual(self.r.view_reach(), 80.0)
-        finally:
-            self.r.con.execute("DELETE FROM events WHERE e = -1")
+        медленнее), пока весь не встанет в них."""
         spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 reach=60")
         r = self.r
         r.fly_specs = [spec]

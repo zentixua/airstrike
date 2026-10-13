@@ -211,23 +211,32 @@ final class FrameLog {
 
     /** Как далеко от камеры низ кадра ещё проверяется: дальше LOD Distant Horizons в кадре — обычная даль. */
     static final double LOW_NEAR = 128;
+    /** Уровень моря ванили: высота земли на луче, пока чанков на нём не было. */
+    private static final double SEA = 63;
 
     /**
-     * Низ кадра (лучи у нижнего края: слева, посередине, справа) встречает землю вне чанков повтора — ближе
-     * {@link #LOW_NEAR} блоков на луче начинается чанк, которого у клиента нет: там только рельеф Distant Horizons (у моря —
-     * дно и пещеры без воды) или пусто. Чанки повтора — только вокруг записавшего.
+     * Низ кадра (лучи у нижнего края: слева, посередине, справа) встречает землю вне чанков повтора: ближе
+     * {@link #LOW_NEAR} блоков на луче начинается чанк, которого у клиента нет, и луч к {@link #LOW_NEAR} блокам уже у земли
+     * (её высота — последняя по чанкам на луче, без них — уровень моря ванили): там только рельеф Distant Horizons (у моря — дно и
+     * пещеры без воды) или пусто. Луч, который за чанками ещё высоко (длинный объектив вдаль), — обычная даль. Чанки повтора —
+     * только вокруг записавшего.
      */
     private static boolean lowOutside(Minecraft mc, Cameras.View v) {
         for (double sx : new double[]{-0.9, 0, 0.9}) {
             Vec3 d = v.fwd().add(v.right().scale(sx * v.tanX())).add(v.up().scale(-0.95 * v.tanY())).normalize();
             if (d.y >= 0) continue;
+            double ground = SEA;
             for (double k = 0; k <= LOW_NEAR; k += 4) {
                 Vec3 p = v.eye().add(d.scale(k));
                 if (p.y < mc.level.getMinBuildHeight()) break;
                 int bx = Mth.floor(p.x), bz = Mth.floor(p.z);
                 LevelChunk c = mc.level.getChunkSource().getChunkNow(bx >> 4, bz >> 4);
-                if (c == null) return true;
-                if (p.y <= c.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15) + 1) break;
+                if (c == null) {
+                    if (v.eye().y + d.y * LOW_NEAR <= ground + 1) return true;
+                    break;
+                }
+                ground = c.getHeight(Heightmap.Types.MOTION_BLOCKING, bx & 15, bz & 15);
+                if (p.y <= ground + 1) break;
             }
         }
         return false;

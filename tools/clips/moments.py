@@ -286,7 +286,7 @@ def fly_spec(spec: str) -> dict:
     """`--fly`: `at=<с>/<по> from=x,y,z to=x,y,z [to_at=<время>] [focus=<с>/<по>] [look=south|<курс>] [turn=25]
     [fov=70] [dim=minecraft:overworld] [reach=<блоков>] [ground=63]` — время по шкале Flashback; камера проходит `to` в
     `to_at` (по умолчанию — в конце) и летит дальше той же прямой; удары в окне `focus` — в кадре прежде остальных;
-    `reach` — сколько блоков от записавшего у повтора есть чанки (по умолчанию — по его дальности прорисовки),
+    `reach` — сколько блоков от записавшего у повтора есть чанки (по умолчанию 128),
     `ground` — высота земли или воды под пролётом."""
     try:
         kv = dict(part.split("=", 1) for part in spec.split())
@@ -898,15 +898,12 @@ class Replay:
                           "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
                           **({"nuke_off": off[0]} if off else {}), **({"mark": mark} if mark else {})}, [shot])
 
-    def view_reach(self) -> float:
-        """Сколько блоков от записавшего у повтора есть чанки: его дальность прорисовки (пакет входа) без чанка запаса;
-        пакета нет — 8 чанков."""
-        r = self.con.execute("SELECT data FROM events WHERE src = 'ClientboundLoginPacket' LIMIT 1").fetchone()
-        m = re.search(r'"chunkRadius"\s*:\s*(\d+)', r[0]) if r and r[0] else None
-        return 16.0 * (int(m[1]) - 1) if m else 128.0
-
     # Пролёт уходит из чанков записавшего: скорость пути (доля заданной) и сдвиг (блоков, шаг) — первые, при которых он в них
     FLY_SPEEDS = (1.0, 0.8, 0.65, 0.5, 0.4, 0.3)
+    # Чанки повтора вокруг записавшего, блоков (без reach): его дальности прорисовки в разборе нет (пакет входа — только
+    # в снимке начала куска, в ленту не идёт); 8 чанков — с запасом для обычной дальности сервера, меньше — ловит
+    # проверка кадров (low_out)
+    FLY_REACH = 128.0
     FLY_SHIFT, FLY_STEP = 640, 16
 
     def fly(self) -> list[Candidate]:
@@ -947,7 +944,7 @@ class Replay:
             # где записавший (у повтора чанки только вокруг него): на сколько глаз и низ кадра дальше reach от него
             track = self.con.execute("SELECT t, x, z FROM viewers WHERE viewer = 'recorder' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
                                      [f["dim"], a - 40, b + 40]).fetchall()
-            reach = f.get("reach") or self.view_reach()
+            reach = f.get("reach") or self.FLY_REACH
             times = [r[0] for r in track]
             checks = list(range(a, b + 1, 20))
             near = [track[min(range(max(0, i - 1), min(len(track), i + 1)), key=lambda j: abs(track[j][0] - t))]
