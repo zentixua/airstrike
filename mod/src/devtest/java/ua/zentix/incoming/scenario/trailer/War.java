@@ -1039,12 +1039,12 @@ final class War {
         });
         // p42: огненная точка МБР уходит в ночное небо — с реки, длинный фокус (с Востока за 4 км её не видно: сущность
         // за дальностью прорисовки не рисуется); камера выше деревьев берега, фокус сужается с дальностью — МБР в кадре
-        // не тает в точку
+        // не тает в точку; взгляд прямо на МБР без сглаживания: при её 20 блоках за тик сглаженный отстаёт за край кадра
         Vec3 riverCam = NIGHT_POST.add(220, 0, -160);
         film.shot("p42").length(60).hidden().noPrep()
                 .camera(() -> {
                     Vec3 from = g(riverCam).add(0, 14, 0);
-                    return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 150, 0), 0.5),
+                    return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 150, 0), 1),
                             film.rangeFov(from, () -> film.newest(IcbmEntity.class), 20, 7, 250));
                 });
 
