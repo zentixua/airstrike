@@ -6,6 +6,8 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ServerLevel;
@@ -15,6 +17,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DirectionalBlock;
@@ -38,6 +41,8 @@ import ua.zentix.incoming.client.hud.Alerts;
 import ua.zentix.incoming.client.hud.ClientFlights;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
 import ua.zentix.incoming.client.nuclear.NukeArming;
+import ua.zentix.incoming.client.map.MapProjection;
+import ua.zentix.incoming.client.map.MapTarget;
 import ua.zentix.incoming.client.screen.MapScreen;
 import ua.zentix.incoming.client.screen.RemoteScreen;
 import ua.zentix.incoming.defense.SamBlockEntity;
@@ -53,6 +58,7 @@ import ua.zentix.incoming.grid.Blackouts;
 import ua.zentix.incoming.grid.PowerGrid;
 import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.registry.ModBlocks;
+import ua.zentix.incoming.registry.ModDataComponents;
 import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 import ua.zentix.incoming.strike.WeaponType;
@@ -101,12 +107,15 @@ final class War {
     static final Vec3 GZ = new Vec3(3300.5, 64, 640.5);
     static final Vec3 FINAL_ROOF = new Vec3(2849.5, 116, -157.5);
     /**
-     * Наводчик на той же крыше смотрит в бинокль на башни центра за ~700 блоков — дальше прорисовки (32 чанка): башни
-     * рисует LOD Distant Horizons, ракеты, огненные шары и дым — дальняя картинка мода. По блокам (ray.py) с крыши видны
-     * T1 выше 134, T2 выше 175, T4 — верх 15 блоков; взгляд — на 19,5° восточнее юга и 7,5° вверх: все три верха и горки
-     * ракет над ними — в открытом квадрате окуляра (±8,6° при зуме 4).
+     * Наводчик на крыше Востока смотрит в бинокль на башни центра (план 33): бинокль берёт цель до 400 блоков, отсюда
+     * (perch.py по файлам регионов) верхи T2, T1, T4 видны в 325, 233 и 325 блоках; по курсу справа налево — T2 (42,5°),
+     * T1 (34,8°), T4 (23,3°), в открытый квадрат окуляра (±8° при зуме 4) входят две соседние.
      */
-    static final Vec3 SKYLINE_POST = new Vec3(2850.5, 116, -156.5), SKYLINE_AIM = new Vec3(3084, 210, 503);
+    static final Vec3 SKYLINE_POST = new Vec3(3277.5, 138, 280.5);
+    /** Наводчик плана 7: крыша Востока в ~390 блоках от T2 (perch.py; бинокль берёт цель до 400 блоков). */
+    static final Vec3 OBSERVER = new Vec3(2872.5, 104, 181.5);
+    /** Удары по башням — под слоем облаков (ваниль — 192, Complementary — около 190): верх башен центра в облаках. */
+    static final double UNDER_CLOUDS = 172;
     /** Улица между домами в ~890 блоках от эпицентра, вдоль неё — на эпицентр. */
     static final Vec3 WAVE_STREET = new Vec3(2950.5, 64, -178.5);
     /** Взгорок к северо-западу, ~1250 блоков от эпицентра. */
@@ -122,8 +131,8 @@ final class War {
     /** Полоса западного аэропорта, на ней батарея: ряд крылатых ракет, ряд «Градов» и шахедов. */
     static final double BATTERY_Y = 68, ROW_MISSILE = 516.5, ROW_ROCKET = 534.5;
     static final Vec3 BATTERY = new Vec3(-1490.5, 68, 525.5);
-    /** Наводчик батареи и место расчёта ночью. */
-    static final Vec3 POST = new Vec3(-1545.5, 68, 525.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
+    /** Место расчёта у батареи ночью. */
+    static final Vec3 NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
     /** Расчёт пусковой МБР; первый — командир, его имя — в строке второго ключа (план 40). */
     static final String[] CREW = {"Volkov", "Crew1", "Crew2", "Crew3"};
     /** Цель «Градов» батареи: позиции Востока за рекой (дальность «Града» — сотни блоков, не километры). */
@@ -166,6 +175,7 @@ final class War {
         this.film = film;
         this.mc = film.mc;
         NeoForge.EVENT_BUS.addListener(this::watch);
+        NeoForge.EVENT_BUS.addListener(Cursor::render);
     }
 
     void stage() {
@@ -531,6 +541,7 @@ final class War {
             delayed.removeIf(d -> --d.ticks <= 0 && due.add(d));
             due.forEach(d -> d.action.run());
         }
+        Cursor.tick();
         if (film.rec == null) return;
         if (lampsQa != null && film.marking()) lampsQa.tick(film);
         int b = banner();
@@ -813,18 +824,52 @@ final class War {
                 .camera(() -> CineCamera.glide(new Vec3(-1532, 71.5, 509), new Vec3(-1520, 71.1, 509.8), 40,
                         () -> new Vec3(-1480, 69, 525), 58));
 
-        // p07, p08, p09: наводчик — бинокль на небоскрёб Востока за 4,6 км, карта наведения, пульт
-        actor(POST, T2, "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:10,spread:30}]");
-        film.shot("p07").length(45).hud()
-                .player(t -> new Pose(Vec3.ZERO, Film.yawTo(POST, T2), Film.pitchTo(POST.add(0, 1.62, 0), T2) - 0.4f, 0, 70))
+        // p07, p08, p09: наводчик на крыше Востока — бинокль на небоскрёб в ~390 блоках (бинокль берёт цель до 400), карта
+        // наведения, пульт. Пульт привязан к 10 пусковым ракет Запада: ЛКМ и кнопка пульта ставят им задачу (LauncherLinks)
+        Vec3 eye07 = OBSERVER.add(0, 1.62, 0);
+        Vec3[] aim07 = {new Vec3(T2.x, UNDER_CLOUDS, T2.z)};
+        actor(OBSERVER, aim07[0], "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:10,spread:30}]");
+        film.run(() -> film.withPlayer((level, sp) -> sp.getMainHandItem().set(ModDataComponents.LAUNCHERS.get(),
+                missileRack.stream().map(p -> GlobalPos.of(Level.OVERWORLD, p)).toList())));
+        film.waitTicks(10);
+        film.shot("p07").length(45).hud().readyChunks(26).distant()
+                .onReady(() -> aim07[0] = towerFace(eye07, T2))
+                .player(t -> new Pose(Vec3.ZERO, Film.yawTo(OBSERVER, aim07[0]), Film.pitchTo(eye07, aim07[0]), 0, 70))
                 .cue(0, () -> mc.options.keyUse.setDown(true))
                 .cueEnd(() -> mc.options.keyUse.setDown(false));
-        film.shot("p08").length(50).hud().player(t -> new Pose(Vec3.ZERO, -90, 4, 0, 70))
-                .cue(0, () -> mc.setScreen(new MapScreen(new RemoteScreen())))
-                .cueEnd(() -> mc.setScreen(null));
-        film.shot("p09").length(50).hud().player(t -> new Pose(Vec3.ZERO, -90, 4, 0, 70))
-                .cue(0, () -> mc.setScreen(new RemoteScreen()))
-                .cueEnd(() -> mc.setScreen(null));
+        // p08: карта открывается на небоскрёбе (метка — на нём), курсор подходит к метке и щёлкает: цель пульта — место на карте
+        film.shot("p08").length(50).hud().player(t -> new Pose(Vec3.ZERO, Film.yawTo(OBSERVER, aim07[0]), 4, 0, 70))
+                .prepare(() -> {
+                    MapTarget.set(mc.level, new MapTarget.Place(aim07[0].x, aim07[0].z));
+                    MapScreen.reset();  // иначе карта открылась бы там, где её открывали в этом мире раньше
+                })
+                .cue(0, () -> {
+                    mc.setScreen(new MapScreen(new RemoteScreen()));
+                    Cursor.show(new double[]{mc.getWindow().getGuiScaledWidth() * 0.72, mc.getWindow().getGuiScaledHeight() * 0.78});
+                })
+                .cue(6, () -> Cursor.moveTo(mapPoint(aim07[0]), 22))
+                .cue(34, () -> Cursor.click(mc))
+                .cueEnd(() -> {
+                    Cursor.hide();
+                    mc.setScreen(null);
+                });
+        // p09: пульт — курсор идёт к кнопке задачи пусковым («MISSION (10)»: «Огонь» пульта с привязанными пусковыми) и
+        // встаёт на ней, кнопка подсвечена. Щелчка нет: он дал бы пусковым новую цель, а пуски плана 10 и удары дальше
+        // идут по целям, которые им дал сценарий (racks)
+        film.shot("p09").length(50).hud().player(t -> new Pose(Vec3.ZERO, Film.yawTo(OBSERVER, aim07[0]), 4, 0, 70))
+                .cue(0, () -> {
+                    mc.setScreen(new RemoteScreen());
+                    Cursor.show(new double[]{mc.getWindow().getGuiScaledWidth() * 0.62, mc.getWindow().getGuiScaledHeight() * 0.42});
+                })
+                .cue(4, () -> {
+                    double[] b = Cursor.widget(mc, Component.translatable("incoming.remote.assign", "").getString().split("\\(")[0]);
+                    if (b == null) Incoming.LOG.warn("SCENARIO film staging p09: на пульте нет кнопки задачи пусковым");
+                    else Cursor.moveTo(new double[]{b[0] - 18, b[1] + 3}, 20);
+                })
+                .cueEnd(() -> {
+                    Cursor.hide();
+                    mc.setScreen(null);
+                });
 
         // p10a: крылатые ракеты сходят с пусковых и сбрасывают ускорители — длинный фокус (85 мм) с конца ряда, взгляд
         // ведёт новейшую ракету: ряд сжат в кадре, ракеты уходят одна за другой
@@ -1430,20 +1475,68 @@ final class War {
      * Каждый кадр проверяется по путям ракет ({@link HudQa}): ракета перед ударом и удар в окуляре, не за рельефом.
      */
     private void skyline() {
-        actor(SKYLINE_POST, SKYLINE_AIM, "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:1,spread:0}]");
-        Vec3[] skyline = {T2, T4, T1};
-        film.shot("p33").length(140).hud().distant()
+        Vec3 eye = SKYLINE_POST.add(0, 1.62, 0);
+        Vec3[] towers = {T2, T1, T4};  // справа налево
+        Vec3[] aims = new Vec3[towers.length];
+        for (int i = 0; i < towers.length; i++) aims[i] = new Vec3(towers[i].x, UNDER_CLOUDS, towers[i].z);
+        actor(SKYLINE_POST, aims[0].lerp(aims[1], 0.5), "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:1,spread:0}]");
+        // окуляр сперва — на T2 и T1, через 12 тиков после удара по T2 (удар виден, KEY в HudQa) за 6 тиков переходит на T1
+        // и T4: удар по T1 в кадре в обоих положениях, ракета на T4 — последние 11 тиков до удара (через 14 тиков после T1)
+        int[] hitAt = {-1};
+        boolean[] flying = {false};
+        film.shot("p33").length(100).hud().readyChunks(26).distant()
                 .onReady(() -> {
-                    for (int i = 0; i < skyline.length; i++) {
-                        Vec3 t = skyline[i];
-                        later(8 * i, () -> salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z)));
+                    for (int i = 0; i < towers.length; i++) {
+                        Vec3 t = aims[i] = towerFace(eye, towers[i]);
+                        later(14 * i, () -> salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z)));
                     }
                 })
-                .player(t -> new Pose(Vec3.ZERO, Film.yawTo(SKYLINE_POST, SKYLINE_AIM), Film.pitchTo(SKYLINE_POST.add(0, 1.62, 0), SKYLINE_AIM), 0, 70))
+                .player(t -> {
+                    boolean now = flightEta(aims[0], 6, WeaponType.MISSILE) < Double.POSITIVE_INFINITY;
+                    if (flying[0] && !now && hitAt[0] < 0) hitAt[0] = (int) t;
+                    flying[0] |= now;
+                    double s = hitAt[0] < 0 ? 0 : CineCamera.smooth(Mth.clamp((t - hitAt[0] - 12) / 6, 0, 1));
+                    Vec3 look = aims[0].lerp(aims[1], 0.5).lerp(aims[1].lerp(aims[2], 0.5), s);
+                    return new Pose(Vec3.ZERO, Film.yawTo(SKYLINE_POST, look), Film.pitchTo(eye, look), 0, 70);
+                })
                 .cue(0, () -> mc.options.keyUse.setDown(true))
                 .cueEnd(() -> mc.options.keyUse.setDown(false))
-                .watch(WeaponType.MISSILE, 40, skyline.length, skyline)
-                .when(() -> flightNear(T2, 260, WeaponType.MISSILE), 3000);
+                .watch(WeaponType.MISSILE, 40, towers.length, aims)
+                .when(() -> flightEta(aims[0], 6, WeaponType.MISSILE) <= 1.5, 3000);
+    }
+
+    /**
+     * Точка удара на башне {@code tower}, которую видит глаз {@code eye}, — под слоем облаков: луч на ось башни с высоты
+     * {@link #UNDER_CLOUDS} и выше через 4 блока до низа облаков без 6; первая грань ближе 30 блоков к оси — башня (дальше —
+     * дом перед ней). Не нашлась — строка {@code SCENARIO film staging} и ось башни на {@link #UNDER_CLOUDS}.
+     */
+    Vec3 towerFace(Vec3 eye, Vec3 tower) {
+        double clouds = Rig.cloudBase(), top = Math.min(tower.y, (Double.isNaN(clouds) ? 192 : clouds) - 6);
+        for (double y = UNDER_CLOUDS; y <= top; y += 4) {
+            Vec3 axis = new Vec3(tower.x, y, tower.z), d = axis.subtract(eye).normalize();
+            var hit = mc.level.clip(new ClipContext(eye, axis, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+            Vec3 at = hit.getType() == HitResult.Type.MISS ? axis : hit.getLocation().add(d.scale(0.5));
+            if (Math.hypot(at.x - tower.x, at.z - tower.z) > 30) continue;
+            Incoming.LOG.info("SCENARIO film staging: башня {} из {} — грань {} в {} блоках", xyz(tower), xyz(eye), xyz(at),
+                    String.format(Locale.ROOT, "%.0f", at.distanceTo(eye)));
+            return at;
+        }
+        Vec3 at = new Vec3(tower.x, UNDER_CLOUDS, tower.z);
+        Incoming.LOG.warn("SCENARIO film staging: башня {} из {} — под облаками закрыта домами, удар в {}", xyz(tower), xyz(eye), xyz(at));
+        return at;
+    }
+
+    /** Точка мира на открытой карте наведения — в координатах GUI (проекция карты; закрыта — отражением). */
+    private double[] mapPoint(Vec3 p) {
+        try {
+            var m = MapScreen.class.getDeclaredMethod("projection");
+            m.setAccessible(true);
+            int[] at = ((MapProjection) m.invoke(mc.screen)).at(p.x, p.z);
+            return new double[]{at[0], at[1]};
+        } catch (ReflectiveOperationException | ClassCastException e) {
+            Incoming.LOG.warn("SCENARIO film staging: точка карты — {}", e.toString());
+            return new double[]{mc.getWindow().getGuiScaledWidth() / 2.0, mc.getWindow().getGuiScaledHeight() / 2.0};
+        }
     }
 
     /**

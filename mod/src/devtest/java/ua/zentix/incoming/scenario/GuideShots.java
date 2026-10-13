@@ -2,7 +2,6 @@ package ua.zentix.incoming.scenario;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.MouseHandler;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -47,7 +46,6 @@ import ua.zentix.incoming.entity.FlightPhase;
 import ua.zentix.incoming.strike.TargetMode;
 import ua.zentix.incoming.strike.WeaponType;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1000,40 +998,15 @@ final class GuideShots {
             g.fill(x - 3, y - 3, x + w + 3, y + 11, 0xD0101010);
             g.drawString(mc.font, hint, x, y, 0xFFFFE070, false);
         }
-        drawCursor(g, (int) Math.round(mx), (int) Math.round(my));
+        Mouse.drawArrow(g, (int) Math.round(mx), (int) Math.round(my));
         g.pose().popPose();
     }
 
-    /** Стрелка мыши: «X» — контур, «.» — заливка. */
-    private static final String[] ARROW = {
-            "X", "XX", "X.X", "X..X", "X...X", "X....X", "X.....X", "X......X", "X.......X", "X........X",
-            "X.....XXXXX", "X..X..X", "X.X X..X", "XX  X..X", "X    X..X", "     X..X", "      XX"};
-
-    private static void drawCursor(GuiGraphics g, int x, int y) {
-        for (int row = 0; row < ARROW.length; row++) {
-            String line = ARROW[row];
-            for (int col = 0; col < line.length(); col++) {
-                char c = line.charAt(col);
-                if (c == 'X') g.fill(x + col, y + row, x + col + 1, y + row + 1, 0xFF000000);
-                else if (c == '.') g.fill(x + col, y + row, x + col + 1, y + row + 1, 0xFFFFFFFF);
-            }
-        }
-    }
-
-    /** Мышь игры в точку GUI: экран рисует наведение по ней. Без окна событий мыши нет — поле ставится прямо. */
+    /** Мышь игры в точку GUI: экран рисует наведение по ней. */
     private void mouse(double guiX, double guiY) {
         mx = guiX;
         my = guiY;
-        var w = mc.getWindow();
-        try {
-            Field x = MouseHandler.class.getDeclaredField("xpos"), y = MouseHandler.class.getDeclaredField("ypos");
-            x.setAccessible(true);
-            y.setAccessible(true);
-            x.setDouble(mc.mouseHandler, guiX * w.getScreenWidth() / w.getGuiScaledWidth());
-            y.setDouble(mc.mouseHandler, guiY * w.getScreenHeight() / w.getGuiScaledHeight());
-        } catch (ReflectiveOperationException ex) {
-            throw new IllegalStateException(ex);
-        }
+        Mouse.at(mc, guiX, guiY);
     }
 
     // ---------------------------------------------------------------- шаги
