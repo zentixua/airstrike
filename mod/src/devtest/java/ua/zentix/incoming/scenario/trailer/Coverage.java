@@ -101,9 +101,10 @@ final class Coverage {
         own("p05b", Rig.scene(), false, SCENE);
         own("p05c", Rig.scene(), false, SCENE);
         own("p06", Rig.scene(), false, SCENE);
-        own("p10a", Rig.flight("missile"), false, LAUNCH);
-        own("p10b", Rig.flight("rocket"), false, LAUNCH);
-        own("p10c", Rig.flight("drone"), false, LAUNCH);
+        // пуски — длинным фокусом (85–100 мм); теряет снаряды — тот же путь шире, потом штатив по кругу
+        own("p10a", Rig.flight("missile"), false, LAUNCH, Rig.own(false, 45), tripod());
+        own("p10b", Rig.flight("rocket"), false, LAUNCH, Rig.own(false, 50), tripod());
+        own("p10c", Rig.flight("drone"), false, LAUNCH, Rig.own(false, 45), tripod());
         own("p11", Rig.flight("drone"), true, FOLLOW, Rig.chase(28, 8, 2, -2, 0));
         // II · первый удар
         own("p12", Rig.flight("drone"), false, OVERHEAD);
@@ -114,8 +115,8 @@ final class Coverage {
         // удар за стеклом окна: лучи по блокам стекло считают стеной — проверяется мир, вспышку несёт свет
         own("p17", Rig.impact("missile", new Vec3(3062.5, 0, 338.5), 0), false, SCENE);
         own("p18", Rig.impact("rocket", new Vec3(3330.5, 0, 300.5), 0), true, new Need(0, 0, 0.4, 0));
-        own("p19a", Rig.impact("missile", null, 0), false, HIT);
-        own("p19b", Rig.flight("missile"), false, OVERHEAD);
+        own("p19a", Rig.impact("missile", null, 0), false, HIT, Rig.own(false, 30));
+        own("p19b", Rig.flight("missile"), false, OVERHEAD, Rig.own(false, 30));
         // III · война
         own("p20", Rig.flight("rocket"), false, LAUNCH);
         // p21: с хребта — рой шахедов над камерой уходит к горящему городу и входит в дома; объект — первый удар роя
@@ -123,7 +124,8 @@ final class Coverage {
         add(new Spec("p21", "p21", Rig.impact("drone", null, 0), List.of(Rig.own(false), tripod()), 0.004, new Need(0.4, 0, 0.6, 0), 300));
         own("p01c", Rig.flight("rocket"), false, LAUNCH);
         own("p22a", Rig.flight("drone"), false, OVERHEAD);
-        own("p22b", Rig.flight("drone"), false, OVERHEAD);
+        // b: перехваты и прорыв — удар шахеда, который ЗРК не сбили, в кадре
+        own("p22b", Rig.framedImpact("drone"), false, new Need(0.25, 0, 0.6, 0), tripod());
         own("p23", Rig.impact("missile", null, 0), true, HIT);
         own("p23b", Rig.impact("missile", null, 0), false, HIT);
         own("p24", Rig.scene(), false, SCENE);
@@ -141,7 +143,7 @@ final class Coverage {
         own("p31", Rig.impact("drone", War.T4, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(26, 6, 1.2, -1.6, 12));
         own("p32", Rig.impact("rocket", new Vec3(3010.5, 0, 640.5), 0), true, new Need(0, 0, 0.5, 0));
         own("p35", Rig.flight("missile"), false, OVERHEAD);
-        own("p36", Rig.impact("drone", battery.add(10, 0, 0), 0), false, new Need(0.5, 0.6, 0.7, 0), tripod());
+        own("p36", Rig.impact("drone", battery.add(10, 0, 0), 0), false, new Need(0.5, 0.6, 0.7, 0), Rig.own(false, 45), tripod());
         own("p37", Rig.impact("bunker", new Vec3(3360.5, 0, 470.5), 0), false, new Need(0.3, 0, 0.5, 0));
         own("p38", Rig.flight("drone"), false, OVERHEAD);
         own("p39a", Rig.impact("rocket", new Vec3(2930.5, 0, 260.5), 0), false, HIT);
@@ -155,7 +157,7 @@ final class Coverage {
         own("p42", Rig.flight("nuke"), false, new Need(0.7, 0, 0, 0));
         own("p44", Rig.scene(), false, SCENE);
         own("p45", Rig.nuke(300), false, SCENE.smokeIsSubject());
-        own("p46", Rig.nuke(300), false, SCENE.smokeIsSubject());
+        own("p46", Rig.nuke(300), false, SCENE.smokeIsSubject(), Rig.own(false, 21));
         own("p47", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p48", Rig.scene(), false, SCENE.smokeIsSubject());
         own("p49", Rig.scene(), false, SCENE.smokeIsSubject());

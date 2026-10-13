@@ -46,6 +46,8 @@ final class Fight {
     double moveChance = 0.12;
     /** Перебежка — не дальше этого от своего укрытия. */
     double roam = 4;
+    /** Враг дальше этого, блоков, — не цель. */
+    double range = 80;
     private boolean on;
 
     Fight(Cast cast, MinecraftServer server) {
@@ -165,10 +167,10 @@ final class Fight {
         return burst * 2 + pause;
     }
 
-    /** Ближайший живой враг в 80 блоках. */
+    /** Ближайший живой враг не дальше {@link #range}. */
     private ServerPlayer target(Soldier s, ServerPlayer p) {
         ServerPlayer best = null;
-        double bd = 80 * 80;
+        double bd = range * range;
         for (Soldier o : soldiers) {
             if (o.side == s.side) continue;
             ServerPlayer q = cast.player(o.name);

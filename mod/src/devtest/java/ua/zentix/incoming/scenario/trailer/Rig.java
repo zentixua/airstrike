@@ -188,6 +188,30 @@ final class Rig {
         return sum;
     }
 
+    /**
+     * Удар снаряда, который камера сценария снимает лучше всех: удар в окне плана (отметки «start»…«end» с запасом
+     * {@link Coverage#HIT_MARGIN}), место удара в кадре в его тик, потом — дольше всех в кадре до удара. Залп, где заранее не
+     * знать, какой снаряд дойдёт (ЗРК сбивает часть), а камера ведёт ближайший к цели. Без камеры — первый удар в окне.
+     */
+    static Function<EventLog.Data, Subject> framedImpact(String weapon) {
+        return d -> {
+            EventLog.Mark start = d.mark("start"), end = d.mark("end");
+            int a = start == null ? 0 : start.t(), b = end == null ? d.ticks - 1 : end.t();
+            List<EventLog.Flight> hits = d.of(weapon).stream()
+                    .filter(f -> f.impact >= a && f.impact <= b + Coverage.HIT_MARGIN && f.impactPos != null)
+                    .sorted(Comparator.comparingInt((EventLog.Flight f) -> f.impact)).toList();
+            if (hits.isEmpty()) return null;
+            CineCamera.Path cam = recorded(d);
+            EventLog.Flight f = hits.get(0);
+            if (cam != null) {
+                double clouds = cloudBase();
+                f = hits.stream().max(Comparator.comparingInt((EventLog.Flight x) -> inFrame(cam.at(x.impact), x.impactPos, 0.85) ? 1 : 0)
+                        .thenComparingDouble(x -> framed(x, cam, a, x.impact, clouds, false))).orElseThrow();
+            }
+            return new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.impactPos, blastOf(weapon));
+        };
+    }
+
     /** Неподвижное место (пейзаж, площадь), без события. */
     static Function<EventLog.Data, Subject> place(Vec3 p, double size) {
         return d -> new Subject("место", null, size, t -> p, 0, d.ticks - 1, -1, null, 0);
@@ -434,6 +458,23 @@ final class Rig {
             double fov = path.at(a).fov();
             double mm = 12 / Math.tan(Math.toRadians(fov / 2));
             return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm", mm), path, mm, close, true));
+        };
+    }
+
+    /**
+     * Запасная к камере сценария: тот же путь и взгляд, другой объектив {@code mm} (план с длинным фокусом теряет объект —
+     * тот же план шире). Оценка и проверка — как у остальных запасных.
+     */
+    static Kind own(boolean close, double mm) {
+        return (s, a, b, w, d) -> {
+            CineCamera.Path path = recorded(d);
+            if (path == null) return List.of();
+            double fov = fov(mm);
+            CineCamera.Path wide = t -> {
+                Pose p = path.at(t);
+                return new Pose(p.pos(), p.yaw(), p.pitch(), p.roll(), fov);
+            };
+            return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm-wide", mm), wide, mm, close));
         };
     }
 

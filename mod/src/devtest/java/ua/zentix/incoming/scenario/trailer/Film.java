@@ -75,6 +75,9 @@ abstract class Film {
     Shot recording;
     float tickRate = 20;
     long frameClock;
+    /** Нагрузка за повтор плана: тик сервера (мс) и наименьший темп записи. */
+    private double loadSum, loadMax, rateMin = 20;
+    private int loadN;
     /** Этот кадр отрисовки — кадр видео (доля тика поставлена под его момент). */
     boolean frameReady;
     /** Попыток поставить окно в размер кадра ({@link #exactFrame}). */
@@ -636,6 +639,9 @@ abstract class Film {
         events = new EventLog(replayDir().resolve(shot.name + ".events.jsonl"));
         replayShot = shot;
         frameClock = 0;
+        loadSum = loadMax = 0;
+        loadN = 0;
+        rateMin = 20;
         Incoming.LOG.info("TRAILER {}: повтор пишется", shot.name);
     }
 
@@ -646,7 +652,9 @@ abstract class Film {
         events = null;
         java.nio.file.Path zip = replayDir().resolve(shot.name + ".zip");
         FlashbackApi.finishRecording(zip, shot.name);
-        Incoming.LOG.info("TRAILER {}: повтор записан, {}", shot.name, zip);
+        // нагрузка: сколько стоит тик сервера в записи и до какого темпа запись сбавляла (ботов — сотня в уличном бою)
+        Incoming.LOG.info(String.format(java.util.Locale.ROOT, "TRAILER %s: повтор записан, %s; сервер %.1f мс/тик (наибольшее %.1f), темп записи от %.1f тиков/с, игроков %d",
+                shot.name, zip, loadN == 0 ? 0 : loadSum / loadN, loadMax, rateMin, mc.getSingleplayerServer().getPlayerCount()));
         setTickRate(20);
     }
 
@@ -686,6 +694,10 @@ abstract class Film {
         double capacity = mspt <= 0 ? 20 : 1000 / mspt;
         float want = (float) Mth.clamp(Math.min(fps * 0.85, capacity * 0.8), 2, 20);
         if (Math.abs(want - tickRate) / tickRate > 0.1) setTickRate(want);
+        loadSum += mspt;
+        loadN++;
+        loadMax = Math.max(loadMax, mspt);
+        rateMin = Math.min(rateMin, tickRate);
     }
 
     // ================================================================ события игры
