@@ -30,6 +30,7 @@ import ua.zentix.incoming.client.far.FarRenderer;
 import ua.zentix.incoming.client.flight.FlightTracks;
 import ua.zentix.incoming.client.fx.BlastEffects;
 import ua.zentix.incoming.client.fx.CameraShake;
+import ua.zentix.incoming.client.fx.CeilingDust;
 import ua.zentix.incoming.client.fx.Effects;
 import ua.zentix.incoming.client.fx.Exhaust;
 import ua.zentix.incoming.client.fx.Flash;
@@ -218,6 +219,7 @@ public final class IncomingClient {
         if (mc.level.tickRateManager().runsNormally()) {
             FxPool.INSTANCE.tick(mc.level);
             Fragments.tick();
+            CeilingDust.tick();
         }
         Effects.tick();
         CameraShake.tick();
@@ -264,6 +266,7 @@ public final class IncomingClient {
         FxPool.INSTANCE.clear();
         FxLayer.reset();
         Fragments.reset();
+        CeilingDust.reset();
         Effects.clear();
         CameraShake.reset();
         Flash.reset();

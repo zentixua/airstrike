@@ -145,6 +145,10 @@ public final class ClientScenario {
             new GuideShots(); // кадры руководства игрока (docs/guide, tools/guide_images.sh)
             return;
         }
+        if ("dust".equals(scenario)) {
+            new CeilingDustShots(); // пыль с потолка комнаты под землёй от ударов над ней
+            return;
+        }
         if (scenario.startsWith("flyby-")) {
             new FlybySound(scenario.substring("flyby-".length())); // случаи звука по очереди, итоги в лог (FlybySound)
             return;

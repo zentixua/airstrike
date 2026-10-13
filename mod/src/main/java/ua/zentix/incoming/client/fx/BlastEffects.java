@@ -31,7 +31,8 @@ public final class BlastEffects {
 
     /**
      * Пакет взрыва: ближе {@link FarBlasts#NEAR} — частицы и звук здесь; картинку дальше прорисовки и звук
-     * дальше {@link FarBlasts#NEAR} ведёт {@link FarBlasts} (пакеты приходят до {@code far_range}).
+     * дальше {@link FarBlasts#NEAR} ведёт {@link FarBlasts} (пакеты приходят до {@code far_range}); камера под сводом
+     * рядом — с потолка сыплется пыль ({@link CeilingDust}).
      */
     public static void blast(S2C.Blast p) {
         if (FarBlasts.near(p.pos())) {
@@ -44,6 +45,7 @@ public final class BlastEffects {
             }
         }
         FarBlasts.add(p);
+        CeilingDust.blast(p);
     }
 
     /**
