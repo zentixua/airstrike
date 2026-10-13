@@ -51,6 +51,12 @@ import java.util.stream.Stream;
  * не построен, и повтор идёт по тику {@code warm} тиков до начала — дым и огонь прежних ударов в кадре, как в игре;
  * с Distant Horizons вывод ждёт ещё, пока текстуры DH не в размере кадра ({@link DhDepth}).
  * <p>
+ * Мир повтора — чанки, которые сервер повтора уже прочёл в записи за этот запуск: перемотка их не забывает (пакета
+ * «забыть чанк» в записи нет), а снимок куска ставит только чанки записавшего в начале куска. Поэтому повтор до плана
+ * идёт с начала, вперёд шагами не длиннее {@link #PRIME_STEP} (такой шаг Flashback проигрывает пакетами, без снимка), а
+ * планы — по времени: у свободной камеры в мире всё, что запись показала до плана, как у зрителя, который смотрел повтор
+ * с начала; прыжок сразу к плану оставлял бы только чанки вокруг записавшего в ту минуту.
+ * <p>
  * Вывод: {@code <out>/<план>/<камера>/} — {@code video.mkv}, {@code state.json} (состояние редактора), {@code qa.jsonl},
  * {@code sounds.jsonl}, {@code verdict.json}; {@code <out>/report.jsonl} — каждый выведенный кандидат,
  * {@code <out>/best.json} — план → лучший (с тиками плана). Планы, которые в {@code best.json} прошли проверку с теми же
@@ -65,8 +71,13 @@ public final class Film {
      */
     private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300, PLAYER_WAIT = 400,
             EXPORT_WAIT = 1200, STALL = 600;
+    /**
+     * Шаг повтора вперёд до плана, тиков: Flashback прыгает к снимку куска, только когда цель дальше конца куска и не
+     * ближе 1200 тиков ({@code ReplayServer.handleActions}); ближе — проигрывает все действия между.
+     */
+    private static final int PRIME_STEP = 1200;
 
-    private enum State { TITLE, OPENING, SETTLING, SEEKING, WALKING, WARMING, EXPORTING, DONE }
+    private enum State { TITLE, OPENING, SETTLING, PRIMING, SEEKING, WALKING, WARMING, EXPORTING, DONE }
 
     private final Minecraft mc = Minecraft.getInstance();
     private final Plan plan;
@@ -96,6 +107,8 @@ public final class Film {
     @Nullable
     private CompletableFuture<UUID> povLookup;
     private int poseAt, stepped, reachedAt, seenAt, progressAt;
+    /** До какого тика повтор шёл с начала без снимка (все чанки записи до него — в мире повтора); цель и шаг. */
+    private int primed, primeGoal, primeTo, primeStart;
     /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
     private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
 
@@ -105,7 +118,8 @@ public final class Film {
         this.plan = plan;
         aspect = (double) plan.width() / plan.height();
         best = readBest(plan.out().resolve("best.json"));
-        for (Plan.Shot s : plan.shots()) {
+        // по времени: повтор до каждого плана идёт вперёд с начала ({@link #prime})
+        for (Plan.Shot s : plan.shots().stream().sorted(Comparator.comparingInt(Plan.Shot::a)).toList()) {
             if (filmed(s)) continue;
             queue.add(s);
         }
@@ -261,6 +275,26 @@ public final class Film {
             case SETTLING -> {
                 if (waited() >= SETTLE) nextShot();
             }
+            case PRIMING -> {
+                if (Export.tick() != primeTo) {
+                    if (waited() > STALL) {
+                        LOG.warn("Film: {}: replay stopped at tick {} on the way to {}; the replay world has chunks only up to tick {}",
+                                shot.name(), Export.tick(), primeTo, primed);
+                        Export.seek(primeGoal);
+                        go(State.SEEKING);
+                    }
+                    return;
+                }
+                primed = Math.max(primed, primeTo);
+                if (primeTo >= primeGoal) {
+                    LOG.info("Film: {}: replay played from the start to tick {} in {} ticks", shot.name(), primeGoal, ticks - primeStart);
+                    go(State.SEEKING);
+                    return;
+                }
+                primeTo = Math.min(primeGoal, primeTo + PRIME_STEP);
+                Export.seek(primeTo);
+                go(State.PRIMING);
+            }
             case SEEKING -> {
                 if (waited() < SEEK_SETTLE) return;
                 if (!mc.level.dimension().location().toString().equals(shot.dim())) {
@@ -391,9 +425,28 @@ public final class Film {
         int total = Export.total();
         if (shot.b() >= total) LOG.warn("Film: {} ends at {}, the replay has {} ticks", shot.name(), shot.b(), total);
         int key = shot.subject().firstKey();
-        Export.seek(Math.max(1, key >= 0 ? Math.max(shot.a(), key - 5) : shot.a()));
-        go(State.SEEKING);
         LOG.info("Film: shot {} ticks {}..{}, first event {}", shot.name(), shot.a(), shot.b(), key);
+        prime(Math.max(1, key >= 0 ? Math.max(shot.a(), key - 5) : shot.a()));
+    }
+
+    /**
+     * Повтор — на тик {@code goal}, пройдя с начала всё, что ещё не пройдено: от того, докуда он уже шёл ({@link #primed};
+     * прыжок туда снимком ничего не теряет — прочитанные чанки остаются), вперёд шагами {@link #PRIME_STEP}. Плана раньше
+     * пройденного это не касается: перемотка назад — снимком, а чанки, которые запись прислала позже, остаются в позднем
+     * виде (планы поэтому идут по времени).
+     */
+    private void prime(int goal) {
+        primeGoal = goal;
+        primeStart = ticks;
+        if (goal <= primed) {
+            Export.seek(goal);
+            go(State.SEEKING);
+            return;
+        }
+        int at = Export.tick();
+        primeTo = at < primed ? primed : Math.min(goal, Math.max(at, 0) + PRIME_STEP);
+        Export.seek(primeTo);
+        go(State.PRIMING);
     }
 
     /**
