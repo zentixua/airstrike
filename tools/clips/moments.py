@@ -907,14 +907,17 @@ class Replay:
                           "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
                           **({"nuke_off": off[0]} if off else {}), **({"mark": mark} if mark else {})}, [shot])
 
-    # Чанки повтора — то, что запись прислала до тика (сервер повтора их не забывает, съёмка идёт с начала): всё, что было
-    # не дальше прорисовки записавшего от него; её нет в разборе (пакет входа — только в снимке), поэтому — по
-    # обновлениям блоков: сервер шлёт их только в чанки, которые клиент держит (99,9 % из них — не дальше)
-    VIEW = """
-        WITH r AS (SELECT t, dim, x, z FROM viewers WHERE viewer = 'recorder')
-        SELECT count(*), quantile_cont(sqrt(power(floor(b.x / 16.0) - floor(r.x / 16.0), 2)
-                                            + power(floor(b.z / 16.0) - floor(r.z / 16.0), 2)), 0.999)
-        FROM blocks b ASOF JOIN r ON b.dim = r.dim AND b.t >= r.t"""
+    # Чанки повтора — то, что запись прислала до тика (сервер повтора их не забывает, съёмка идёт с начала; мир другого
+    # измерения — только с последнего входа, `seen_chunks`): всё, что было не дальше прорисовки записавшего от него; её
+    # нет в разборе (пакет входа — только в снимке), поэтому — по обновлениям блоков: сервер шлёт их только в чанки,
+    # которые клиент держит (99,9 % из них — не дальше). Прорисовка не больше 32 чанков (и чанк-два слежения сверх неё):
+    # дальше — не прорисовка (место записавшего отстало при телепорте), такие строки не в счёт
+    VIEW_MAX = 34
+    VIEW = f"""
+        WITH r AS (SELECT t, dim, x, z FROM viewers WHERE viewer = 'recorder'),
+        d AS (SELECT sqrt(power(floor(b.x / 16.0) - floor(r.x / 16.0), 2) + power(floor(b.z / 16.0) - floor(r.z / 16.0), 2)) AS k
+              FROM blocks b ASOF JOIN r ON b.dim = r.dim AND b.t >= r.t)
+        SELECT count(*), quantile_cont(k, 0.999) FROM d WHERE k <= {VIEW_MAX}"""
     # без обновлений блоков (меньше VIEW_ROWS) — 8 чанков: с запасом для обычной прорисовки
     VIEW_DEFAULT, VIEW_ROWS = 8, 200
     # Чанки нужны под глазом и там, где лучи нижней половины кадра встречают землю ближе FLY_NEAR блоков
@@ -930,37 +933,58 @@ class Replay:
         """Прорисовка записавшего в чанках и откуда она (по обновлениям блоков или по умолчанию)."""
         if not hasattr(self, "_view"):
             n, q = self.con.execute(self.VIEW).fetchone()
-            self._view = (max(2, math.ceil(q)), f"по {n} обновлениям блоков") if n >= self.VIEW_ROWS and q is not None \
+            self._view = (min(self.VIEW_MAX, max(2, math.ceil(q))), f"по {n} обновлениям блоков") if n >= self.VIEW_ROWS and q is not None \
                 else (self.VIEW_DEFAULT, "по умолчанию: обновлений блоков мало")
         return self._view
 
-    def seen_chunks(self, dim: str, radius: int) -> dict[tuple[int, int], int]:
-        """Чанк → первый тик, когда он у мира повтора есть: записавший был от него не дальше radius чанков."""
+    def seen_chunks(self, dim: str, radius: int) -> dict[tuple[int, int], list[tuple[int, int]]]:
+        """Чанк → отрезки тиков [с, по), когда он у мира повтора есть: записавший был от него не дальше radius чанков.
+        Верхний мир сервер повтора держит весь запуск; мир другого измерения он закрывает, когда записавший уходит
+        оттуда, — там чанки только с последнего входа."""
         key = (dim, radius)
         self._seen = getattr(self, "_seen", {})
         if key in self._seen:
             return self._seen[key]
         disk = [(dx, dz) for dx in range(-radius, radius + 1) for dz in range(-radius, radius + 1) if dx * dx + dz * dz <= radius * radius]
-        rows = self.con.execute("SELECT t, x, z FROM viewers WHERE viewer = 'recorder' AND dim = ? ORDER BY t", [dim]).fetchall()
+        rows = self.con.execute("SELECT t, dim, x, z FROM viewers WHERE viewer = 'recorder' ORDER BY t").fetchall()
+        keep = dim == "minecraft:overworld"
+        out: dict[tuple[int, int], list[tuple[int, int]]] = {}
         first: dict[tuple[int, int], int] = {}
         fresh: dict[tuple[int, int], list] = {}
         prev = None
-        for t, x, z in rows:
+
+        def close(until: int):
+            for c, t in first.items():
+                out.setdefault(c, []).append((t, until))
+            first.clear()
+
+        for t, d, x, z in rows:
+            if d != dim:
+                if prev is not None and not keep:
+                    close(t)
+                prev = None
+                continue
             c = (math.floor(x) >> 4, math.floor(z) >> 4)
             if c == prev:
                 continue
             offs = disk
             if prev is not None and abs(c[0] - prev[0]) <= 2 and abs(c[1] - prev[1]) <= 2:
-                d = (c[0] - prev[0], c[1] - prev[1])
-                if d not in fresh:
-                    old = {(dx - d[0], dz - d[1]) for dx, dz in disk}
-                    fresh[d] = [o for o in disk if o not in old]
-                offs = fresh[d]
+                dd = (c[0] - prev[0], c[1] - prev[1])
+                if dd not in fresh:
+                    old = {(dx - dd[0], dz - dd[1]) for dx, dz in disk}
+                    fresh[dd] = [o for o in disk if o not in old]
+                offs = fresh[dd]
             for dx, dz in offs:
                 first.setdefault((c[0] + dx, c[1] + dz), t)
             prev = c
-        self._seen[key] = first
-        return first
+        close(10 ** 9)
+        self._seen[key] = out
+        return out
+
+    @staticmethod
+    def seen_at(seen: dict, q, t: float) -> bool:
+        """Чанк места q (x, y, z) у мира повтора в тик t."""
+        return any(a <= t < b for a, b in seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), ()))
 
     def fly(self) -> list[Candidate]:
         """7 — пролёт свободной камеры (`--fly`, время по шкале Flashback): глаз — по прямой из `from` через `to` (в
@@ -1006,7 +1030,7 @@ class Replay:
                 for t in range(a, b + 1, TICK):
                     e = eye(t)
                     pts = [e] if yaw is None else [e, *ground_points(e, yaw, pitch, tan_x, tan_y, f["ground"], self.FLY_NEAR)]
-                    if any(seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), total + 1) > t for q in pts):
+                    if not all(self.seen_at(seen, q, t) for q in pts):
                         n += 1
                         if stop:
                             return n
@@ -1020,7 +1044,7 @@ class Replay:
             eye = path(speed, shift)
             rel, yaw, pitch, shown = aimed(eye, a0, b0, focus0)
             lost = missing(eye, yaw, pitch, a0, b0)
-            first_at = lambda q: seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4))  # noqa: E731
+            first_at = lambda q: next(iter(seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), ())), (None,))[0]  # noqa: E731
             print(f"{self.name}: пролёт {mmss(a0)}–{mmss(b0)}: прорисовка записавшего {radius} чанков ({source}); чанки у from — "
                   + (f"с {mmss(first_at(p0))}" if first_at(p0) is not None else "ни разу") + ", у to — "
                   + (f"с {mmss(first_at(p1))}" if first_at(p1) is not None else "ни разу"))

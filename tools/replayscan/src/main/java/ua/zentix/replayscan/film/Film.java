@@ -109,6 +109,8 @@ public final class Film {
     private int poseAt, stepped, reachedAt, seenAt, progressAt;
     /** До какого тика повтор шёл с начала без снимка (все чанки записи до него — в мире повтора); цель и шаг. */
     private int primed, primeGoal, primeTo, primeStart;
+    /** Шаг уже посылался снова после остановки повтора. */
+    private boolean primeRetried;
     /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
     private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
 
@@ -277,7 +279,12 @@ public final class Film {
             }
             case PRIMING -> {
                 if (Export.tick() != primeTo) {
-                    if (waited() > STALL) {
+                    if (waited() > STALL && !primeRetried) {
+                        primeRetried = true;
+                        Export.seek(primeTo);
+                        go(State.PRIMING);
+                    } else if (waited() > STALL) {
+                        // дальше — без пройденного: следующий план пойдёт снова от primed
                         LOG.warn("Film: {}: replay stopped at tick {} on the way to {}; the replay world has chunks only up to tick {}",
                                 shot.name(), Export.tick(), primeTo, primed);
                         Export.seek(primeGoal);
@@ -285,6 +292,7 @@ public final class Film {
                     }
                     return;
                 }
+                primeRetried = false;
                 primed = Math.max(primed, primeTo);
                 if (primeTo >= primeGoal) {
                     LOG.info("Film: {}: replay played from the start to tick {} in {} ticks", shot.name(), primeGoal, ticks - primeStart);
@@ -438,13 +446,16 @@ public final class Film {
     private void prime(int goal) {
         primeGoal = goal;
         primeStart = ticks;
+        primeRetried = false;
         if (goal <= primed) {
+            LOG.info("Film: {}: replay played from the start to tick {} earlier", shot.name(), primed);
             Export.seek(goal);
             go(State.SEEKING);
             return;
         }
-        int at = Export.tick();
-        primeTo = at < primed ? primed : Math.min(goal, Math.max(at, 0) + PRIME_STEP);
+        // повтор не там, докуда прошёл (ушёл назад к плану или вперёд прыжком после остановки) — сперва туда: прыжок снимком
+        // к пройденному ничего не теряет, а шаги дальше идут только от него
+        primeTo = Export.tick() == primed ? Math.min(goal, primed + PRIME_STEP) : primed;
         Export.seek(primeTo);
         go(State.PRIMING);
     }
@@ -693,6 +704,8 @@ public final class Film {
             mc.setCameraEntity(mc.player);
             spectate(null);
         }
+        // вывод шёл подряд от живого повтора до начала (не дальше пройденного) до конца плана: чанки до него — в мире повтора
+        if (shot.a() - shot.warm() <= primed) primed = Math.max(primed, Math.min(shot.b(), Export.tick()));
         FrameLog l = log;
         log = null;
         l.close();

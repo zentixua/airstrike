@@ -11,6 +11,7 @@ import json
 import math
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -422,12 +423,13 @@ class SelectTest(unittest.TestCase):
         self.assertEqual((n["view"], n["moved"], n["covered"]), (4, 0, n["checks"]), printed.getvalue())
         self.assertIn("в чанках повтора не был", printed.getvalue())
         seen = r.seen_chunks(DIM, 4)
-        keys = c[0].shots[0].camera["keys"]
+        shot = c[0].shots[0]
+        keys = shot.camera["keys"]
         tan_y = math.tan(math.radians(spec["fov"] / 2))
         for k in range(0, 301, 20):
             e = [keys[0]["eye"][i] + (keys[1]["eye"][i] - keys[0]["eye"][i]) * k / 300 for i in range(3)]
             for q in (e, *clips.ground_points(e, n["yaw"], n["pitch"], tan_y * 9 / 16, tan_y, 63, r.FLY_NEAR)):
-                self.assertIn((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), seen, f"{k}: {q}")
+                self.assertTrue(r.seen_at(seen, q, shot.a + k), f"{k}: {q}")
 
     def test_far(self):
         c = self.r.far()
@@ -654,6 +656,29 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(n["covered"], n["checks"], printed)
         self.assertEqual(n["ground"], 3, "удары у порта в 1650–1690 — в кадре\n" + printed)
         self.assertIn("то же место в", printed)
+
+    def test_other_dimension_forgets(self):
+        """Мир другого измерения сервер повтора закрывает, когда записавший уходит: там чанки только с последнего
+        входа; верхний мир держит всё."""
+        class Con:
+            def execute(self, q):
+                return self
+
+            def fetchall(self):
+                return [(0, DIM, 0.5, 0.5), (100, NETHER, 0.5, 0.5), (200, DIM, 0.5, 0.5),
+                        (300, NETHER, 1000.5, 0.5), (400, DIM, 0.5, 0.5)]
+        r = types.SimpleNamespace(con=Con())
+        nether = clips.Replay.seen_chunks(r, NETHER, 2)
+        self.assertEqual(nether[(0, 0)], [(100, 200)])
+        self.assertEqual(nether[(62, 0)], [(300, 400)])
+        self.assertFalse(clips.Replay.seen_at(nether, (0.5, 64, 0.5), 300), "второй вход — далеко, у (0, 0) мира нет")
+        self.assertTrue(clips.Replay.seen_at(nether, (0.5, 64, 0.5), 150))
+        top = clips.Replay.seen_chunks(r, DIM, 2)
+        self.assertEqual(top[(0, 0)], [(0, 10 ** 9)])
+        self.assertTrue(clips.Replay.seen_at(top, (0.5, 64, 0.5), 350), "в Незере верхний мир остаётся")
+
+
+NETHER = "minecraft:the_nether"
 
 if __name__ == "__main__":
     unittest.main()
