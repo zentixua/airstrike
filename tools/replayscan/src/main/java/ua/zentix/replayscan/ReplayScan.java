@@ -34,17 +34,34 @@ public final class ReplayScan {
     private int lastTick = -1;
 
     public ReplayScan() {
-        settings = Settings.read(FMLPaths.GAMEDIR.get());
-        if (settings == null) return;
+        if (System.getProperty("replayscan.replay", "").isBlank()) {
+            settings = null;
+            return;
+        }
+        Settings read = null;
         try {
+            read = Settings.read(FMLPaths.GAMEDIR.get());
             link = FlashbackLink.find();
         } catch (ReflectiveOperationException | LinkageError e) {
             LOG.error("Replay scan: Flashback 0.39 is required ({})", e.toString());
+            read = null;
+        } catch (RuntimeException e) {
+            LOG.error("Replay scan: bad setting ({})", e.toString());
+            read = null;
+        }
+        settings = read;
+        if (settings == null) {
+            // клиент без окна сам не выйдет: разбор не начнётся — выход, как только игра загрузилась
+            NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post e) -> {
+                if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
+            });
             return;
         }
         LOG.info("Replay scan: {} -> {} at {} ticks/s", settings.replay(), settings.out(), settings.speed());
         NeoForge.EVENT_BUS.addListener(this::clientTick);
         NeoForge.EVENT_BUS.addListener(this::serverTick);
+        // падение игры (своё или любого мода) выходит через System.exit: таблицы и meta.json дописываются на выходе
+        Runtime.getRuntime().addShutdownHook(new Thread(this::closeScan, "replayscan-exit"));
     }
 
     private void clientTick(ClientTickEvent.Post e) {
@@ -131,16 +148,27 @@ public final class ReplayScan {
     private void serverTick(ServerTickEvent.Post e) {
         MinecraftServer s = e.getServer();
         if (phase != Phase.PLAYING || !link.isReplayServer(s) || failure != null) return;
-        try {
-            if (scan == null) scan = new Scan(settings, link, LOG);
-            if (!scan.done()) scan.tick(s, link.tick(s));
-        } catch (Exception | StackOverflowError ex) {
-            failure = ex;
+        // под тем же замком, что и закрытие: закрытые таблицы новый разбор не начнёт заново (он стёр бы их)
+        synchronized (this) {
+            if (phase != Phase.PLAYING) return;
+            try {
+                if (scan == null) scan = new Scan(settings, link, LOG);
+                if (!scan.done()) scan.tick(s, link.tick(s));
+            } catch (Throwable ex) {
+                // любая ошибка разбора (и нехватка памяти) — конец разбора с записанными таблицами, а не падение игры
+                failure = ex;
+            }
         }
     }
 
     /** Таблицы и meta.json — в потоке сервера повтора (там же их писал разбор); потом клиент выходит. */
-    private synchronized void finish() {
+    private void finish() {
+        closeScan();
+        Minecraft.getInstance().execute(() -> Minecraft.getInstance().stop());
+    }
+
+    private synchronized void closeScan() {
+        phase = Phase.CLOSING;
         Scan sc = scan;
         if (sc != null) {
             try {
@@ -150,6 +178,5 @@ public final class ReplayScan {
             }
         }
         scan = null;
-        Minecraft.getInstance().execute(() -> Minecraft.getInstance().stop());
     }
 }

@@ -3,6 +3,7 @@ package ua.zentix.replayscan.stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -56,7 +57,7 @@ class TimelineTest {
     }
 
     @Test
-    void chunkCachePlaces() {
+    void chunkCachePlaces() throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         for (int[] xz : new int[][]{{3, -7}, {-100000, 42}}) {
             byte[] packet = new byte[1 + 8 + 5];
@@ -68,7 +69,7 @@ class TimelineTest {
             out.writeBytes(size);
             out.writeBytes(packet);
         }
-        long[] places = ReplayFile.chunkPlaces(out.toByteArray());
+        long[] places = ReplayFile.chunkPlaces(new ByteArrayInputStream(out.toByteArray()));
         assertEquals(2, places.length);
         assertEquals(ReplayFile.pack(3, -7), places[0]);
         assertEquals(ReplayFile.pack(-100000, 42), places[1]);
