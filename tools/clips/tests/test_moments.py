@@ -357,6 +357,24 @@ class SelectTest(unittest.TestCase):
         finally:
             sys.argv = argv
 
+    def test_flight_aims_at_focus(self):
+        """Взгляд пролёта: пять ударов чуть восточнее юга, два — к юго-западу в окне focus."""
+        eye = lambda t: (0.0, 100.0, 0.0)  # noqa: E731
+
+        def hit(t, heading):
+            h = math.radians(heading)
+            p = (-math.sin(h) * 200, 64.0, math.cos(h) * 200)
+            return (t, t, p, "unknown", *clips.bearing(eye(t), p))
+        rel = [hit(100 + 10 * k, -10) for k in range(5)] + [hit(200, 30), hit(210, 32)]
+        tan_y = math.tan(math.radians(35))
+        yaw, pitch = clips.aim_flight(eye, rel, 0, 40, tan_y * 9 / 16, tan_y)
+        self.assertEqual(yaw, 0, "без окна — где ударов больше, ближе к look")
+        self.assertAlmostEqual(pitch, math.degrees(math.atan2(36, 200)), places=6)
+        yaw, _ = clips.aim_flight(eye, rel, 0, 40, tan_y * 9 / 16, tan_y, (200, 210))
+        self.assertTrue(13 <= yaw <= 15, f"окно focus в кадре, ближе к look: {yaw}")
+        self.assertTrue(all(clips.in_view(eye(r[1]), yaw, pitch, tan_y * 9 / 16, tan_y, r[2]) for r in rel[5:]))
+        self.assertEqual(clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 focus=01:00/01:02")["focus"], (1200, 1240))
+
     def test_fly(self):
         """Пролёт: камера по прямой, взгляд — к ударам окна (хаос: восемь ударов к юго-востоку), удары в кадре — события."""
         with self.assertRaises(argparse.ArgumentTypeError):
