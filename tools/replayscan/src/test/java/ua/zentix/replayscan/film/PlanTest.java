@@ -7,11 +7,13 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** План съёмки в том виде, как его пишет {@code tools/clips/plan.py}, объект плана по тикам, кадр и ключи камеры. */
@@ -51,6 +53,7 @@ class PlanTest {
         assertArrayEquals(new double[]{0}, s.cameras().get(1).rise(), "без rise — сам глаз");
         assertEquals(0.5, s.need().near());
         assertEquals(1, s.need().loud(), "громкого за кадром не больше, чем в кадре — по умолчанию");
+        assertEquals(-1, s.time(), "без time — время суток записи");
         assertTrue(p.loud().matcher("incoming:blast.near").find());
         assertFalse(p.loud().matcher("incoming:drone.engine").find());
         // звук полёта «Града» — подлёт, не мотор; взрыв звуком полёта не считается
@@ -148,14 +151,40 @@ class PlanTest {
     @Test
     void editorStateKeysEveryTickAtFeet() {
         Cameras.Path path = t -> Cameras.Pose.look(new Vec3(0, 80, 0), new Vec3(Math.sin(t / 10.0) * 10, 64, 50), 30);
-        JsonObject st = JsonParser.parseString(Export.editorState(path, 100, 120, 1.62, false)).getAsJsonObject();
+        JsonObject st = JsonParser.parseString(Export.editorState(path, 100, 120, 1.62, false, -1)).getAsJsonObject();
+        assertNull(st.getAsJsonObject("replayVisuals").get("overrideTimeOfDay"), "время суток — как в записи");
         JsonObject scene = st.getAsJsonArray("scenes").get(0).getAsJsonObject();
         assertEquals(100, scene.get("exportStartTicks").getAsInt());
         JsonObject cam = scene.getAsJsonArray("keyframeTracks").get(0).getAsJsonObject().getAsJsonObject("keyframesByTick");
         assertNotNull(cam.get("58"), "ключи — с запасом до начала");
         assertEquals(80 - 1.62, cam.getAsJsonObject("110").getAsJsonArray("position").get(1).getAsDouble(), 1e-9);
         // глазами игрока — без дорожек
-        JsonObject pov = JsonParser.parseString(Export.editorState(null, 100, 120, 1.62, true)).getAsJsonObject();
+        JsonObject pov = JsonParser.parseString(Export.editorState(null, 100, 120, 1.62, true, 18000)).getAsJsonObject();
         assertEquals(0, pov.getAsJsonArray("scenes").get(0).getAsJsonObject().getAsJsonArray("keyframeTracks").size());
+        assertEquals(18000, pov.getAsJsonObject("replayVisuals").get("overrideTimeOfDay").getAsLong(), "ночь в выводе");
+    }
+
+    @Test
+    void pathRollReachesKeyframes() {
+        List<Plan.PathKey> keys = List.of(new Plan.PathKey(100, new Vec3(0, 80, 0), new Vec3(0, 70, 50), 0),
+                new Plan.PathKey(120, new Vec3(0, 80, 20), new Vec3(0, 70, 70), 20));
+        Cameras.Path path = Cameras.along(keys, 80);
+        assertEquals(10, path.roll(110), 1e-9, "крен — между ключами");
+        assertEquals(20, path.roll(130), 1e-9, "после последнего ключа — его");
+        JsonObject st = JsonParser.parseString(Export.editorState(path, 100, 120, 1.62, false, -1)).getAsJsonObject();
+        JsonObject cam = st.getAsJsonArray("scenes").get(0).getAsJsonObject().getAsJsonArray("keyframeTracks").get(0).getAsJsonObject()
+                .getAsJsonObject("keyframesByTick");
+        assertEquals(5, cam.getAsJsonObject("105").get("roll").getAsDouble(), 1e-6);
+    }
+
+    @Test
+    void rollTiltsFrameLikeFlashback() {
+        // на юг, крен 30° влево: верх кадра клонится влево (на восток, +x), точка справа на горизонте — ниже середины
+        Cameras.View v = Cameras.View.of(new Cameras.Pose(Vec3.ZERO, 0, 0, 90), 1).rolled(30);
+        assertEquals(0.5, v.up().x, 1e-9);
+        assertEquals(Math.cos(Math.toRadians(30)), v.up().y, 1e-9);
+        Vec3 d = new Vec3(-5, 0, 10);
+        assertEquals(-0.5 * Math.sin(Math.toRadians(30)), d.dot(v.up()) / d.dot(v.fwd()), 1e-9);
+        assertEquals(0.5 * Math.cos(Math.toRadians(30)), d.dot(v.right()) / d.dot(v.fwd()), 1e-9);
     }
 }

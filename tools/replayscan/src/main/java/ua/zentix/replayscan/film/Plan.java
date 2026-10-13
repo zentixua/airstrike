@@ -46,9 +46,10 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * @param hold тиков стоять у камеры после постройки мира (Distant Horizons строит дальний рельеф после перемотки)
      * @param far  объект дальше прорисовки: туман у её края и секции объекта не проверяются, луч — по готовым чанкам
      * @param smoke прежние удары {@code [t, x, y, z]} — столбы дыма для оценки камер до вывода
+     * @param time  время суток в выводе (тики дня, как у {@code /time set}: 18000 — полночь), меньше 0 — как в записи
      */
     record Shot(String name, int a, int b, String dim, int warm, int hold, boolean far, List<Camera> cameras, Subject subject,
-                List<double[]> smoke, Need need) {}
+                List<double[]> smoke, Need need, long time) {}
 
     /**
      * Камера: {@code pov} — глазами игрока ({@code player}: {@code recorder}, ник или UUID); {@code fixed} — неподвижная
@@ -63,8 +64,8 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                   @Nullable Vec3 around, @Nullable Vec3 heading, double[] dist, double[] elev, double azStep, double share, double size,
                   double[] rise, List<PathKey> keys) {}
 
-    /** Ключ камеры {@code path}: тик повтора, глаз и точка, куда она смотрит. */
-    record PathKey(double t, Vec3 eye, Vec3 aim) {}
+    /** Ключ камеры {@code path}: тик повтора, глаз, точка, куда она смотрит, и крен (градусы, плюс — влево, как у Flashback). */
+    record PathKey(double t, Vec3 eye, Vec3 aim, double roll) {}
 
     /**
      * Пороги проверки по кадрам: доля кадров до первого события, где объект снят ({@code subject}), то же за последнюю
@@ -97,7 +98,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 dbl(n, "loud", 1));
         return new Shot(s.get("name").getAsString(), s.get("a").getAsInt(), s.get("b").getAsInt(), str(s, "dim", "minecraft:overworld"),
                 num(s, "warm", 200), num(s, "hold", 20), s.has("far") && s.get("far").getAsBoolean(), cams, subject(s.getAsJsonObject("subject")),
-                smoke, need);
+                smoke, need, s.has("time") ? s.get("time").getAsLong() : -1);
     }
 
     private static Camera camera(JsonObject c) {
@@ -109,7 +110,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 JsonObject k = el.getAsJsonObject();
                 Vec3 eye = vec(k, "eye"), aim = vec(k, "aim");
                 if (eye == null || aim == null) throw new IllegalArgumentException("path key without eye or aim: " + k);
-                keys.add(new PathKey(k.get("t").getAsDouble(), eye, aim));
+                keys.add(new PathKey(k.get("t").getAsDouble(), eye, aim, dbl(k, "roll", 0)));
             }
             keys.sort(Comparator.comparingDouble(PathKey::t));
         }

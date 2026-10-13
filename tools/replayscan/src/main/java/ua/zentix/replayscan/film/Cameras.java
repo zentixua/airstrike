@@ -35,9 +35,13 @@ final class Cameras {
         }
     }
 
-    /** Камера по тикам повтора (с долей). */
+    /** Камера по тикам повтора (с долей); крен — градусы, плюс — влево (ключ камеры Flashback). */
     interface Path {
         Pose at(double t);
+
+        default double roll(double t) {
+            return 0;
+        }
     }
 
     /**
@@ -73,6 +77,16 @@ final class Cameras {
             right = right.lengthSqr() < 1e-8 ? new Vec3(1, 0, 0) : right.normalize();
             double ty = Math.tan(Math.toRadians(p.fov() / 2));
             return new View(p.pos(), fwd, right, right.cross(fwd).normalize(), ty * aspect, ty);
+        }
+
+        /**
+         * Кадр с креном (градусы, плюс — влево, как у ключа Flashback): Flashback поворачивает поворот камеры вокруг её
+         * оси вперёд ({@code rotateZ}) после того, как камера посчитала свои векторы, — у них крена нет.
+         */
+        View rolled(double roll) {
+            if (roll == 0) return this;
+            double c = Math.cos(Math.toRadians(roll)), s = Math.sin(Math.toRadians(roll));
+            return new View(eye, fwd, right.scale(c).add(up.scale(s)), up.scale(c).subtract(right.scale(s)), tanX, tanY);
         }
 
         /** Точка в кадре (доля полукадра {@code safe}: 1 — до края). */
@@ -244,7 +258,7 @@ final class Cameras {
             case "path" -> {
                 // и выше на rise, где задано: путь, проложенный по карте, бывает сквозь высотку
                 for (double rise : c.keys().isEmpty() ? new double[0] : c.rise()) {
-                    List<Plan.PathKey> keys = c.keys().stream().map(k -> new Plan.PathKey(k.t(), k.eye().add(0, rise, 0), k.aim().add(0, rise, 0))).toList();
+                    List<Plan.PathKey> keys = c.keys().stream().map(k -> new Plan.PathKey(k.t(), k.eye().add(0, rise, 0), k.aim().add(0, rise, 0), k.roll())).toList();
                     String name = String.format(Locale.ROOT, "path-%.0f", c.fov()) + (rise > 0 ? String.format(Locale.ROOT, "-r%.0f", rise) : "");
                     out.add(new Candidate(name, along(keys, c.fov()), null, false, c.fov(), true, true));
                 }
@@ -259,15 +273,33 @@ final class Cameras {
      * рывков), до первого ключа — в первом, после последнего — в последнем.
      */
     static Path along(List<Plan.PathKey> keys, double fov) {
-        return t -> {
-            Plan.PathKey a = keys.get(0), b = a;
-            for (Plan.PathKey k : keys) {
-                if (k.t() <= t) a = k;
-                b = k;
-                if (k.t() >= t) break;
+        return new Path() {
+            @Override
+            public Pose at(double t) {
+                Plan.PathKey[] k = around(t);
+                double u = share(k, t);
+                return Pose.look(k[0].eye().lerp(k[1].eye(), u), k[0].aim().lerp(k[1].aim(), u), fov);
             }
-            double u = b.t() > a.t() ? Mth.clamp((t - a.t()) / (b.t() - a.t()), 0, 1) : 0;
-            return Pose.look(a.eye().lerp(b.eye(), u), a.aim().lerp(b.aim(), u), fov);
+
+            @Override
+            public double roll(double t) {
+                Plan.PathKey[] k = around(t);
+                return Mth.lerp(share(k, t), k[0].roll(), k[1].roll());
+            }
+
+            private Plan.PathKey[] around(double t) {
+                Plan.PathKey a = keys.get(0), b = a;
+                for (Plan.PathKey k : keys) {
+                    if (k.t() <= t) a = k;
+                    b = k;
+                    if (k.t() >= t) break;
+                }
+                return new Plan.PathKey[]{a, b};
+            }
+
+            private double share(Plan.PathKey[] k, double t) {
+                return k[1].t() > k[0].t() ? Mth.clamp((t - k[0].t()) / (k[1].t() - k[0].t()), 0, 1) : 0;
+            }
         };
     }
 
@@ -344,7 +376,7 @@ final class Cameras {
             if (!before && k != null && t <= k.t() + FrameLog.KEY_CHECK) continue;
             samples++;
             double size = s.aimSize(t);
-            View v = View.of(p, aspect);
+            View v = View.of(p, aspect).rolled(c.path().roll(t));
             boolean seen = v.in(aim, SAFE) && w.open(v, aim, size, 5) >= 0.4 && !throughClouds(w.clouds, p.pos(), aim)
                     && (shot.far() || !beyondFog(p.pos(), aim));
             boolean smoky = smokeOnLine(p.pos(), aim, shot.smoke(), t);
@@ -371,7 +403,7 @@ final class Cameras {
             keysIn++;
             int seen = 0;
             for (int t = k.t(); t <= k.t() + FrameLog.KEY_CHECK; t++) {
-                if (keySeen(w.level, w.clouds, shot.far(), View.of(c.path().at(t), aspect), keyPoint(k, t), k.size())) seen++;
+                if (keySeen(w.level, w.clouds, shot.far(), View.of(c.path().at(t), aspect).rolled(c.path().roll(t)), keyPoint(k, t), k.size())) seen++;
             }
             if (seen * 2 >= FrameLog.KEY_CHECK + 1) keysOk++;
         }
