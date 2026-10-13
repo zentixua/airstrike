@@ -54,8 +54,8 @@ paths:
   молчит (`LaunchQueue.silent`) — `LauncherOrders.busy`: ни приказа, ни новой задачи (задача меняет пакет, а снаряды
   залпа стартуют с пакета своего оружия; `StrikeService` пускает только оружие пакета на круге).
 - Ведущему и скриптам — `/incoming launcher <x y z>` (оператор, `IncomingCommand.launcher`): состояние, `fire`,
-  `mission` (без правил игрока, маршрут — `routeProblem` от пусковой), `clear`, `load N`, `owner`; место — только в
-  готовом чанке; `mission` и `clear` занятой — отказ.
+  `mission` (без правил игрока; цель — `x z`, место на земле, или `x y z`, точка; маршрут — `routeProblem` от
+  пусковой), `clear`, `load N`, `owner`; место — только в готовом чанке; `mission` и `clear` занятой — отказ.
 
 ## Подводные камни
 - Пакет больше блока: у `FixedLauncherRenderer` свой `getRenderBoundingBox` (иначе его отсекает по кубу блока) и
