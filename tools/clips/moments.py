@@ -4,9 +4,10 @@
 # dependencies = ["duckdb>=1.1,<2"]
 # ///
 """Отбор моментов для коротких роликов (README.md): по базам разбора повторов (tools/replayscan/replaydb.py) —
-цепочки «пуск → полёт → удар по земле» и окна хаоса, дальние удары и ядерные подрывы, с камерой на каждый план.
+цепочки «пуск → полёт → удар по земле» и окна хаоса, дальние удары и ядерные подрывы, с камерой на каждый план, и
+отрезки глазами живых игроков (только их камерой).
 
-  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--notes журнал.json]
+  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--pov-top 15] [--notes журнал.json]
 
 Пишет `candidates.json` (что читает plan.py) и `candidates.md` (таблица для выбора). Камера плана — глаза игрока
 повтора (`pov`), если данные показывают, что он смотрел туда, иначе — место, которое подберёт вывод (`auto`: штатив
@@ -203,7 +204,7 @@ def mmss(t: int) -> str:
 class Shot:
     """План ролика: что снимать (снаряд и событие), когда и чем (камера)."""
     name: str
-    kind: str          # launch | flight | shootdown | impact | chaos | far | nuke
+    kind: str          # launch | flight | shootdown | impact | chaos | far | nuke | pov (отрезок глазами игрока)
     a: int             # тики повтора
     b: int
     camera: dict       # {"kind": "pov", "viewer": "recorder" | "player:<ник>"} | {"kind": "auto", …}
@@ -301,12 +302,14 @@ class Replay:
         self.views = {k: self.con.execute(q).fetchall() for k, q in POV.items()}
         self.loud = self.con.execute(LOUD).fetchall()
         self.star = [x for x in getattr(a, "star", "").split(",") if x]
+        self.watched: dict[str, list] = {}
         self.downs = [d for f in self.fl if (d := self.shot_down(f))]
 
     def shot_down(self, f: Flight):
         """Дрон, сбитый у игрока на глазах: (снаряд, тик, место, взгляд) или None. Сбит — зенитной ракетой (kill) или
         огнём игроков (взведённый дрон подрывается, где его настигли: взрыв в воздухе); зритель видел его не меньше 3 с
-        из последних 6 с и в момент сбития; сперва зрители --star, потом кто видел дольше."""
+        из последних 6 с и в момент сбития; сперва зрители --star, потом кто видел дольше (все такие зрители —
+        `watched[снаряд]`)."""
         if f.weapon not in ("shahed", "lancet") or f.ground or not f.eids:
             return None
         if f.killed is not None and f.kill_pos:
@@ -318,6 +321,7 @@ class Replay:
         rows = [r for r in self.con.execute(SHOT_DOWN, [[str(e) for e in f.eids], t - 120, t]).fetchall()
                 if r[1] >= 3 * TICK and r[2] >= t - 10]
         rows.sort(key=lambda r: (r[0] not in self.star, -r[1], r[3]))
+        self.watched[f.uuid] = rows
         return (f, t, pos, rows[0]) if rows else None
 
     def quiet(self, viewer: str, a: int, b: int) -> tuple[int, int]:
@@ -610,8 +614,9 @@ class Replay:
 
 
     # Глазами игрока — что делает момент (вес): ядерный подрыв, сбитие дрона, удар по земле в кадре (в середине кадра
-    # и ближе 120 блоков — больше), пуск и пролёт рядом
+    # и ближе 120 блоков — больше), пуск и пролёт рядом; сколько тиков отрезка нужно после события
     WEIGHT = {"nuke": 6, "shootdown": 4, "impact": 1, "launch": 1.5, "flyby": 1}
+    AFTER = {"nuke": 200}
 
     def human(self, viewer: str) -> bool:
         """Зритель — живой игрок: записавший, аккаунт Mojang (UUID версии 4) или игрок сервера без входа Mojang (UUID
@@ -627,22 +632,27 @@ class Replay:
     def pov_events(self) -> dict[str, list[tuple]]:
         """Что видели живые игроки: зритель → [(тик, вес, род, оружие, событие для проверки кадров или None, снаряд)]."""
         weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
+        nukes = self.con.execute("SELECT id, t, x, y, z FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' ORDER BY t").fetchall()
         out: dict[str, list[tuple]] = {}
         add = lambda v, *e: out.setdefault(v, []).append(e)  # noqa: E731
         for v, hid, t, d, _, _, centered, _, x, y, z in self.views["impact"]:
+            if any(hid == n[0] for n in nukes):
+                continue  # подрыв — своим родом ниже
             w = weapon.get(hid, "")
             add(v, t, self.WEIGHT["impact"] + 0.5 * bool(centered) + 0.5 * (d <= 120), "impact", w,
                 {"t": t, "pos": [x, y, z], "size": BLAST.get(w, 16), "id": hid}, None)
-        for f, t, pos, (v, *_) in self.downs:
-            add(v, t, self.WEIGHT["shootdown"], "shootdown", f.weapon, {"t": t, "pos": list(pos), "size": 8}, f.uuid)
-        for v, uuid, t_in, closest, _, t_out in self.views["flyby"]:
-            f = self.by_uuid.get(uuid)
-            add(v, (t_in + t_out) // 2, self.WEIGHT["flyby"] + 0.5 * (closest <= 30), "flyby", f.weapon if f else "", None, uuid)
-        for v, uuid, t, *_ in self.views["launch"]:
-            f = self.by_uuid.get(uuid)
-            add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, uuid)
-        for hid, t, x, y, z in self.con.execute(
-                "SELECT id, t, x, y, z FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' ORDER BY t").fetchall():
+        # сбитие — каждому, кто его видел (не только тому, кто дольше: тот бывает ботом)
+        for f, t, pos, _ in self.downs:
+            for v, *_ in self.watched[f.uuid]:
+                add(v, t, self.WEIGHT["shootdown"], "shootdown", f.weapon, {"t": t, "pos": list(pos), "size": 8}, f.uuid)
+        # пролёт — с входа в кадр (кружащий «Ланцет» бывает в кадре недолго посреди долгого пролёта)
+        for v, ref, t_in, closest, _, t_out in self.views["flyby"]:
+            f = self.by_uuid.get(ref)
+            add(v, min(t_in + 40, t_out), self.WEIGHT["flyby"] + 0.5 * (closest <= 30), "flyby", f.weapon if f else "", None, ref)
+        for v, ref, t, *_ in self.views["launch"]:
+            f = self.by_uuid.get(ref)
+            add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, ref)
+        for hid, t, x, y, z in nukes:
             for (v,) in self.con.execute("SELECT DISTINCT viewer FROM impact_views WHERE id = ? AND in_frame(cx, cy, 1)", [hid]).fetchall():
                 add(v, t, self.WEIGHT["nuke"], "nuke", "icbm", {"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}, None)
         return {v: sorted(e, key=lambda e: e[0]) for v, e in out.items() if self.human(v)}
@@ -650,15 +660,29 @@ class Replay:
     def pov(self, longest: int = 300, shortest: int = 200, lead: int = 60, tail: int = 80) -> list[Candidate]:
         """6 — глазами игроков: отрезки 10–15 с, где живой игрок видел больше всего (вес событий в отрезке), только
         камерой игрока — как он сам двигал взгляд; после ядерного подрыва — 10 с (волна и гриб). Из перекрывающихся
-        отрезков (и разных игроков в одни секунды) — лучший."""
+        отрезков (и разных игроков в одни секунды) — лучший; у края записи отрезок сдвигается, а не урезается."""
         out = []
+        total = self.meta.get("total_ticks") or 10 ** 9
+        after = lambda e: self.AFTER.get(e[2], tail)  # noqa: E731
         for viewer, events in self.pov_events().items():
             for i, first in enumerate(events):
-                group = [e for e in events[i:] if e[0] - first[0] <= longest - lead - tail]
-                a, b = first[0] - lead, min(first[0] - lead + longest, group[-1][0] + (200 if group[-1][2] == "nuke" else tail))
+                # подряд, пока событие со своим хвостом входит в отрезок: событие внутри отрезка не пропускается
+                group = []
+                for e in events[i:]:
+                    if e[0] - first[0] > longest - lead - after(e):
+                        break
+                    group.append(e)
+                if not group:
+                    continue
+                a = first[0] - lead
+                b = max(e[0] + after(e) for e in group)
                 if b - a < shortest:
-                    a, b = a - (shortest - (b - a)) // 2, a - (shortest - (b - a)) // 2 + shortest
-                a = max(0, a)
+                    a -= (shortest - (b - a)) // 2
+                    b = a + shortest
+                if a < 0:
+                    a, b = 0, b - a
+                if b > total:
+                    a, b = max(0, a - (b - total)), total
                 kinds = [e[2] for e in group]
                 keys = [e[4] for e in group if e[4]]
                 subject = next((e[5] for e in group if e[2] == "shootdown"), None) or next((e[5] for e in group if e[5]), None)

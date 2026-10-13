@@ -194,12 +194,12 @@ def pov_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
     if n.get("nuke"):
         return "A nuclear strike, seen through a player's eyes.", "Ядерный удар глазами игрока."
     if n.get("shot_down"):
-        return "A player shoots down a drone, seen through their eyes.", "Игрок сбивает дрон: вид его глазами."
+        return "A drone is shot down in front of a player, seen through their eyes.", "Дрон сбивают у игрока на глазах: вид его глазами."
     if k > 1:
         return (f"{k} strikes around a player in {sec} seconds, seen through their eyes.",
                 f"Ударов вокруг игрока за {sec} секунд: {k}. Вид его глазами.")
     if k == 1:
-        return "A strike next to a player, seen through their eyes.", "Удар рядом с игроком: вид его глазами."
+        return "A strike in front of a player, seen through their eyes.", "Удар у игрока на глазах: вид его глазами."
     if n.get("launch"):
         return f"{cap(en)}: the launch, seen through a player's eyes.", f"{cap(ru)}: пуск глазами игрока."
     return f"{cap(en)} overhead, seen through a player's eyes.", f"{cap(ru)} над игроком: вид его глазами."

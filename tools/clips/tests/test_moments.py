@@ -261,6 +261,22 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(c[0].score, max(x.score for x in c))
         spans = sorted((x.shots[0].a, x.shots[0].b) for x in c)
         self.assertTrue(all(b0 <= a1 for (_, b0), (a1, _) in zip(spans, spans[1:])), "одни секунды — в одном кандидате")
+        # после подрыва — 10 с, и когда подрыв не последний и не первый; у начала записи отрезок сдвигается
+        ev = lambda t, kind, w: (t, w, kind, "", {"t": t, "pos": [0, 64, 0], "size": 8}, None)  # noqa: E731
+        real = self.r.pov_events
+        try:
+            self.r.pov_events = lambda: {"recorder": [ev(900, "impact", 1), ev(1000, "nuke", 6), ev(1020, "impact", 1)]}
+            (s,) = [x.shots[0] for x in self.r.pov()]
+            self.assertGreaterEqual(s.b, 1200, "волна и гриб")
+            self.assertLessEqual(s.b - s.a, 300)
+            self.r.pov_events = lambda: {"recorder": [ev(10, "impact", 1)]}
+            (s,) = [x.shots[0] for x in self.r.pov()]
+            self.assertEqual((s.a, s.b), (0, 200), "у начала записи — не короче 10 с")
+            self.r.pov_events = lambda: {"recorder": [ev(2090, "nuke", 6)]}
+            (s,) = [x.shots[0] for x in self.r.pov()]
+            self.assertEqual(s.b, 2100, "не дальше конца записи")
+        finally:
+            self.r.pov_events = real
         self.assertTrue(self.r.human("recorder"))
         self.assertTrue(self.r.human("player:Friend"))
         self.assertTrue(self.r.human("player:Guest"), "без входа Mojang — тоже человек")

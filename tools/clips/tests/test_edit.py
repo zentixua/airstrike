@@ -142,7 +142,8 @@ class EditTest(unittest.TestCase):
         self.assertEqual(en, "Grad rockets: launch and flight.")
         pov = {"preview": "pov", "weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3, "seconds": 12.0}}
         self.assertIs(edit.shown(pov, [{"name": "pov-0-pov"}]), pov, "глазами игрока — один план, события все")
-        self.assertEqual(edit.caption("pov", pov), ("A player shoots down a drone, seen through their eyes.", "Игрок сбивает дрон: вид его глазами."))
+        self.assertEqual(edit.caption("pov", pov), ("A drone is shot down in front of a player, seen through their eyes.",
+                                                    "Дрон сбивают у игрока на глазах: вид его глазами."), "кто сбил — данных нет")
         en, ru = edit.caption("pov", {"weapon": "grad+shahed", "numbers": {"ground": 6, "seconds": 13.4}})
         self.assertEqual(ru, "Ударов вокруг игрока за 13 секунд: 6. Вид его глазами.")
         en, ru = edit.caption("pov", {"weapon": "shahed", "numbers": {"flyby": 2, "seconds": 10}})
