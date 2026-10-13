@@ -131,7 +131,10 @@ final class Coverage {
         own("p24c", Rig.scene(), false, SCENE);
         own("p25", Rig.flight("drone", 0), false, new Need(0.5, 0, 0, 0));
         own("p01d", Rig.flight("drone", 0), false, OVERHEAD);
-        own("p01a", Rig.impact("missile", War.T2, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(28, 9, 1.8, 2.4, 20));
+        // p01a: сценарий кончает план по времени (45 тиков от подлёта), а ракета входит в башню на несколько тиков позже —
+        // окно по удару (повтор пишется ещё 100 тиков после конца плана, камера сценария — в нём же)
+        add(new Spec("p01a", "p01a", Rig.impact("missile", War.T2, 0), 50, 24, List.of(Rig.own(true), Rig.chase(28, 9, 1.8, 2.4, 20)),
+                0.004, new Need(0.75, 0.75, 0.6, 0.6)));
         own("p01b", Rig.impact("missile", War.T3, 0), false, new Need(0.5, 0.6, 0.7, 0), tripod());
         own("p26", Rig.impact("rocket", War.SQUARE.add(-8, 0, 14), 0), true, new Need(0, 0, 0.4, 0));
         own("p28", Rig.impact("rocket", new Vec3(3090.5, 0, 331.5), 0), true, new Need(0, 0, 0.4, 0));

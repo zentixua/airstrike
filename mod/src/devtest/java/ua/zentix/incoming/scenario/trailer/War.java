@@ -64,7 +64,7 @@ import java.util.function.BooleanSupplier;
  * <p>
  * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
  * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p13}, {@code p21}, {@code p33}, {@code p37b}.
+ * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p13}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e}.
  */
 final class War {
     // ================================================================ места Zearth (y = 0 — земля этой колонки)
@@ -170,6 +170,10 @@ final class War {
         // один план для проверки съёмки из повтора (ReplayFilm)
         if (part.equals("p13")) p13();
         if (part.equals("p21")) ridge();
+        if (part.equals("p01e")) {
+            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            carpet();
+        }
         if (part.equals("p33")) skyline();
         if (part.equals("p37b")) {
             // своя копия мира: город на горизонте уже горит, как к закату после частей west и east
@@ -1130,8 +1134,13 @@ final class War {
                 .endWhen(hit(eyeSpot, 200), 4);
         film.run(() -> cast().remove("Sasha"));
 
-        // p01e: ковёр разрывов бежит прямо на камеру
+        carpet();
+    }
+
+    /** p01e: ковёр разрывов бежит прямо на камеру. */
+    private void carpet() {
         Vec3 carpet = new Vec3(3175.5, 0, 252.5);
+        hiddenAt(carpet.add(0, 0, 55), carpet);
         film.shot("p01e").length(60).hidden()
                 .onReady(() -> salvo("rocket", 30, 34, carpet, new Vec3(2450, 0, 255)))
                 .camera(() -> CineCamera.track(g(carpet.add(0, 0, 55)).add(0, 1.3, 0), () -> at(carpet).add(0, 4, 0), 62))
