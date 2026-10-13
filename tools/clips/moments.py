@@ -687,7 +687,7 @@ class Replay:
     MARK = {"marker": (300, 40), "at": (200, 100)}
     NUKE_SEEN = """
         SELECT DISTINCT v.viewer FROM impact_views v WHERE v.id = ? AND in_frame(v.cx, v.cy, 1) AND NOT coalesce((
-          SELECT bool_and(coalesce(s.hard, -1) >= 0) FROM impacts i, unnest(i.events) AS u(e)
+          SELECT bool_and(coalesce(s.hard, -1) BETWEEN 0 AND 16) FROM impacts i, unnest(i.events) AS u(e)
           JOIN sight s ON s.kind = 'p' AND s.ref = CAST(u.e AS VARCHAR) WHERE i.id = v.id AND s.viewer = v.viewer), false)"""
     NUKE_BEFORE = 1200
     AUTO_MARKERS = {"Changed Dimension"}
@@ -761,8 +761,9 @@ class Replay:
             f = self.by_uuid.get(ref)
             add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, ref)
         for hid, t, x, y, z in nukes:
-            # в кадре и не за блоками: игрок в метро, лицом к подрыву, видит стену (лучи к событиям подрыва — все упёрлись в
-            # блоки); лучей нет (дальше разбора) — в кадре значит видел
+            # в кадре и не за стеной у самого игрока: в метро лицом к подрыву он видит стену (все лучи к событиям подрыва
+            # упёрлись в блоки ближе 16 блоков); дома далеко на луче к земле не в счёт — шар встаёт над крышами; лучей нет
+            # (дальше разбора) — в кадре значит видел
             for (v,) in self.con.execute(self.NUKE_SEEN, [hid]).fetchall():
                 add(v, t, self.WEIGHT["nuke"], "nuke", "icbm", {"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}, None)
         return {v: sorted(e, key=lambda e: e[0]) for v, e in out.items() if self.human(v)}

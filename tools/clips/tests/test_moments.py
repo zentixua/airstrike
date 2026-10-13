@@ -342,8 +342,11 @@ class SelectTest(unittest.TestCase):
                            "unnest(i.events) AS u(e) WHERE i.srcs LIKE '%nuke_detonation%')")
         try:
             self.assertNotIn("nuke", [e[2] for e in self.r.pov_events()["recorder"]])
+            # дом далеко на луче к земле под подрывом — шар над крышами виден
+            self.r.con.execute("UPDATE sight SET hard = 300 WHERE kind = 'p' AND hard = 3")
+            self.assertIn("nuke", [e[2] for e in self.r.pov_events()["recorder"]])
         finally:
-            self.r.con.execute("UPDATE sight SET hard = -1 WHERE kind = 'p' AND hard = 3")
+            self.r.con.execute("UPDATE sight SET hard = -1 WHERE kind = 'p' AND hard IN (3, 300)")
 
     def test_timeline_needs_one_recording(self):
         argv = sys.argv
