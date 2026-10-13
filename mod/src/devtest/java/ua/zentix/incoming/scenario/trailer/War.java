@@ -64,7 +64,7 @@ import java.util.function.BooleanSupplier;
  * <p>
  * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
  * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}.
+ * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p13}, {@code p21}, {@code p33}, {@code p37b}.
  */
 final class War {
     // ================================================================ места Zearth (y = 0 — земля этой колонки)
@@ -171,6 +171,12 @@ final class War {
         if (part.equals("p13")) p13();
         if (part.equals("p21")) ridge();
         if (part.equals("p33")) skyline();
+        if (part.equals("p37b")) {
+            // своя копия мира: город на горизонте уже горит, как к закату после частей west и east
+            film.run(() -> Film.cmd("time set 12400"));
+            burnSkyline();
+            summit();
+        }
     }
 
     // ================================================================ мир и помощники
@@ -1178,6 +1184,8 @@ final class War {
                 .when(() -> film.nearest(BomberEntity.class, at(bombAt), 500) != null, 3000)
                 .endWhen(() -> film.nearest(BomberEntity.class, at(bombAt), 900) instanceof BomberEntity b && b.flightPhase() == FlightPhase.EGRESS, 70);
 
+        summit();
+
         // p38: ночь, дождь: рой шахедов, перехваты в небе, ночной «Град» подсвечивает облака
         film.run(() -> {
             Film.cmd("time set 13300");  // сразу после заката: небо ещё синее, город уже в огнях (в полночь под шейдером кадр чёрный)
@@ -1224,6 +1232,48 @@ final class War {
                 .cueEnd(() -> mc.options.keyUse.setDown(false))
                 .watch(WeaponType.MISSILE, 40, skyline.length, skyline)
                 .when(() -> flightNear(T2, 260, WeaponType.MISSILE), 3000);
+    }
+
+    /**
+     * Снежная вершина к северо-западу от Востока (верх 174) в ~1,2 км от башен центра. С вершины (zmap.py, лучи ray.py)
+     * видны T1 и T2 выше ~140, у T3 — верхние ~30 блоков; башни в кадре справа налево — T3, T2, T1. На закате солнце
+     * сбоку за камерой и освещает город.
+     */
+    static final Vec3 SUMMIT_LOW = new Vec3(2381.5, 177.5, -517.5), SUMMIT_HIGH = new Vec3(2388.5, 181.5, -507.5),
+            SUMMIT_LOOK = new Vec3(3090, 157, 520);
+
+    /**
+     * p37b: закат с вершины — город на горизонте горит, ракеты с запада идут через кадр справа налево и бьют в верх башен
+     * одна за другой. Это дальше прорисовки (32 чанка): горы и город рисует LOD Distant Horizons, ракеты со шлейфами,
+     * огненные шары и столбы дыма — дальняя картинка мода; звук ударов идёт до вершины 3,6 с — монтаж режет раньше.
+     * Камера медленно поднимается над вершиной (снег — внизу кадра), 50 мм. Каждый кадр проверяется по путям ракет
+     * ({@link HudQa}): ракета перед ударом и удар в кадре, не за рельефом.
+     */
+    private void summit() {
+        hiddenAt(SUMMIT_HIGH, SUMMIT_LOOK);
+        Vec3[] towers = {T3, T2, T1};
+        film.shot("p37b").length(140).hidden().live().distant()
+                .onReady(() -> {
+                    for (int i = 0; i < towers.length; i++) {
+                        Vec3 t = towers[i];
+                        later(12 * i, () -> salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z)));
+                    }
+                })
+                .camera(() -> CineCamera.glide(SUMMIT_LOW, SUMMIT_HIGH, 140, () -> SUMMIT_LOOK, Rig.fov(50)))
+                .watch(WeaponType.MISSILE, 40, towers.length, towers)
+                .when(() -> flightNear(towers[0], 300, WeaponType.MISSILE), 3000);
+    }
+
+    /** Город на горизонте горит: удары по башням и улицам центра до плана с вершины, столбы дыма стоят минуты. */
+    private void burnSkyline() {
+        hiddenAt(SUMMIT_HIGH, SUMMIT_LOOK);
+        film.run(() -> {
+            for (Vec3 t : new Vec3[]{T4, T5, T1.add(0, -60, 0), T2.add(0, -90, 0)}) salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z));
+            salvo("rocket", 16, 40, new Vec3(3110.5, 0, 410.5), new Vec3(2500, 0, 410));
+            salvo("drone", 8, 60, new Vec3(3060.5, 0, 620.5), new Vec3(2400, 0, 620));
+        });
+        // шахед идёт до города ~30 с, ракета ~20 с
+        film.waitTicks(900);
     }
 
     /**

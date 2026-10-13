@@ -95,7 +95,8 @@ abstract class Film {
      * {@code <папка записи>/replays/<план>.zip} и {@code <план>.events.jsonl}. Камеры по журналу и кадры выводит потом
      * {@link ReplayFilm} из повтора. Запись идёт от конца подготовки (мир прогружен) до конца плана и ещё {@link #TAIL}
      * тиков: момент плана ({@code when}) и его конец — отметки «start» и «end» журнала. Планы с интерфейсом ({@code hud})
-     * снимаются кадрами вживую, как без повторов: интерфейс мода в повтор не пишется.
+     * снимаются кадрами вживую, как без повторов: интерфейс мода в повтор не пишется; вживую — и планы дальше прорисовки
+     * ({@code live}): проверка кадров из повтора считает всё дальше 0,8 прорисовки скрытым.
      */
     static final boolean REPLAY = System.getenv("INCOMING_FILM_REPLAY") != null;
     static final int TAIL = 100;
@@ -299,6 +300,8 @@ abstract class Film {
         private Path playerView;
         private boolean projectileCamera;
         private boolean hudOn;
+        /** Снимать кадрами вживую и при записи повторов (без интерфейса мода): объект дальше прорисовки. */
+        private boolean live;
         private boolean hiddenActor;
         private boolean prep = true;
         /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
@@ -356,6 +359,12 @@ abstract class Film {
 
         Shot hidden() {
             hiddenActor = true;
+            return this;
+        }
+
+        /** Кадрами вживую и при записи повторов: объект дальше прорисовки (его рисуют дальняя картинка мода и LOD DH). */
+        Shot live() {
+            live = true;
             return this;
         }
 
@@ -499,7 +508,7 @@ abstract class Film {
                     followCamera();
                     // повтор: в снимок начала записи — все чанки прорисовки (дальняя цель телевика не догружается в кадре),
                     // а строить секции не нужно (кадры строит вывод); вживую — секции вокруг камеры построены
-                    boolean replay = REPLAY && !hudOn;
+                    boolean replay = REPLAY && !hudOn && !live;
                     boolean ready = replay ? worldReady(Integer.MAX_VALUE, false)
                             : worldReady(readyChunks, true) && (!distant || ua.zentix.incoming.scenario.ClientScenario.dhIdle());
                     readyFor = ready ? readyFor + 1 : 0;
@@ -515,7 +524,7 @@ abstract class Film {
                 case 2 -> {
                     followCamera();
                     // планы с интерфейсом (глаза игрока, экраны мода) снимаются кадрами вживую и при записи повторов
-                    boolean replay = REPLAY && !hudOn;
+                    boolean replay = REPLAY && !hudOn && !live;
                     if (replay && selected() && replayShot != this) startReplay(this);
                     if (!PREVIEW && when != null && !when.getAsBoolean()) {
                         if (++waited % 200 == 0) Incoming.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, waited);
