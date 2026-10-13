@@ -15,6 +15,7 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.scenario.HeapProbe;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 
 import java.io.IOException;
@@ -47,6 +48,13 @@ import java.util.stream.Stream;
  * настройками шейдерпака из того же повтора). {@code INCOMING_FILM_SHOTS} — только эти планы; {@code INCOMING_FILM_TRIES} — сколько
  * кандидатов выводить (3), {@code INCOMING_FILM_HOLD} — тиков стоять в начале после постройки мира (20; Distant Horizons
  * строит LOD после перемотки ~60). Строки лога: {@code SCENARIO film …}, в конце {@code SCENARIO done}.
+ * <p>
+ * Память: после открытия каждого повтора — гистограмма живых объектов ({@link HeapProbe}, сама делает полную сборку),
+ * строка {@code SCENARIO film heap N <повтор>: куча живых … МБ; миров сервера …} (файл — {@code <вывод>/heap/histo-N-<повтор>.txt}):
+ * прежние повторы должны уйти из памяти целиком — миров сервера не больше, чем у открытого, сервер и мир клиента по одному;
+ * больше — WARN «прежние повторы в памяти». {@code INCOMING_FILM_LEAK=1} — ещё и выборка старых объектов JFR с путями до
+ * корней GC (строки {@code … holder}, файлы {@code heap/old-N.*}; {@code build.gradle} даёт JVM нужный для путей стек потока VM).
+ * Миры повтора, которые Flashback закрывает без события выгрузки, получают его от {@link ReplayLevelUnload}.
  */
 public final class ReplayFilm {
     private static final double FPS = 60;
@@ -66,6 +74,11 @@ public final class ReplayFilm {
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
     private final String run = Instant.now().toString();
+    /** Замеры памяти после открытия повторов: папка, номер открытия, выборка JFR ({@code INCOMING_FILM_LEAK=1}). */
+    private final Path heapDir;
+    private int opened;
+    @Nullable
+    private HeapProbe.OldObjects jfr;
 
     private enum State { TITLE, OPENING, SETTLING, SEEKING, SCORING, WALKING, WARMING, EXPORTING, DONE }
 
@@ -143,8 +156,10 @@ public final class ReplayFilm {
         queue.clear();
         queue.addAll(sorted);
         Incoming.LOG.info("SCENARIO film {} shots: {}", queue.size(), queue.stream().map(Coverage.Spec::shot).toList());
+        heapDir = out.resolve("heap");
         try {
             Files.createDirectories(out);
+            Files.createDirectories(heapDir);
             // планы этого вывода (и снятые прошлым запуском): план без строки в report.jsonl отчёт называет невыведенным
             List<String> shots = new ArrayList<>(done);
             queue.forEach(q -> shots.add(q.shot()));
@@ -154,10 +169,60 @@ public final class ReplayFilm {
         }
         // пакеты зрителю повтора после входа — когда у клиента есть мир (до onTick: отпуск и OPENING — в одном тике)
         ViewerHold.register(modBus);
+        // миры повтора, которые Flashback закрывает без события выгрузки, — с событием: иначе каждый повтор оставался бы в памяти
+        ReplayLevelUnload.register();
+        if (System.getenv("INCOMING_FILM_LEAK") != null) startJfr();
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
         if (FrameQa.DH) DhFrameDepth.subscribe();
+    }
+
+    /** Выборка старых объектов JFR с первого повтора: держатели прежних повторов — в замерах следующих. */
+    private void startJfr() {
+        long stack = HeapProbe.vmThreadStackKb();
+        boolean paths = stack >= HeapProbe.PATH_STACK_KB;
+        if (!paths) {
+            Incoming.LOG.warn("SCENARIO film heap: стек потока VM {} КБ — пути до корней GC выключены (поиск на стеке по умолчанию роняет JVM), "
+                    + "нужно -XX:VMThreadStackSize={} или больше", stack, HeapProbe.PATH_STACK_KB);
+        }
+        try {
+            jfr = new HeapProbe.OldObjects(paths);
+            Incoming.LOG.info("SCENARIO film heap: выборка JFR пишет{}", paths ? ", с путями до корней" : ", без путей до корней");
+        } catch (Exception | LinkageError ex) {
+            Incoming.LOG.warn("SCENARIO film heap: запись JFR не началась — выборки старых объектов не будет", ex);
+        }
+    }
+
+    /**
+     * Замер после открытия повтора: прежний закрыт, его серверу, мирам и чанкам в памяти места нет. Миров сервера — не
+     * больше, чем у открытого повтора, сервер и мир клиента — по одному; держатели — в выборке JFR, если она пишет.
+     */
+    private void probeHeap() {
+        String tag = "SCENARIO film heap " + ++opened;
+        try {
+            HeapProbe.Histogram h = HeapProbe.histogram(tag, heapDir, opened + "-" + openReplay, false);
+            var server = mc.getSingleplayerServer();
+            long own = server == null ? 1 : server.levelKeys().size();
+            long servers = h.count("net.minecraft.server.level.ServerLevel"), clients = h.count("net.minecraft.client.multiplayer.ClientLevel"),
+                    integrated = h.count("net.minecraft.client.server.IntegratedServer");
+            Incoming.LOG.info("{} {}: куча живых {} МБ{}; миров сервера {} (у повтора {}), серверов {}, миров клиента {}, чанков {}, держателей чанков {}",
+                    tag, openReplay, HeapProbe.heapUsedMb(), HeapProbe.pools(), servers, own, integrated, clients,
+                    h.count("net.minecraft.world.level.chunk.LevelChunk"), h.count("net.minecraft.server.level.ChunkHolder"));
+            if (servers > own || integrated > 1 || clients > 1) {
+                Incoming.LOG.warn("{} {}: прежние повторы в памяти — миров сервера {} при {} у повтора, серверов {}, миров клиента {} ({})", tag, openReplay,
+                        servers, own, integrated, clients, h.file());
+            }
+        } catch (Exception | LinkageError ex) {
+            Incoming.LOG.warn("{}: гистограммы нет", tag, ex);
+        }
+        if (jfr != null) {
+            try {
+                jfr.dump(tag, heapDir, String.valueOf(opened));
+            } catch (Exception | LinkageError ex) {
+                Incoming.LOG.warn("{}: выборка JFR не сброшена", tag, ex);
+            }
+        }
     }
 
     private Path zip(String replay) {
@@ -244,6 +309,7 @@ public final class ReplayFilm {
                         && ViewerHold.releasedFor(mc.getConnection())) {
                     // редактор Flashback не активен без интерфейса — только так задание вывода начинается
                     mc.options.hideGui = true;
+                    probeHeap();
                     go(State.SETTLING);
                 } else if (waited() > OPEN_WAIT) {
                     Incoming.LOG.error("SCENARIO film failed: повтор {} не открылся (пакеты зрителя: {})", openReplay, ViewerHold.state());
@@ -714,6 +780,14 @@ public final class ReplayFilm {
 
     private void finish() {
         go(State.DONE);
+        if (jfr != null) {
+            try {
+                jfr.close();
+            } catch (Exception | LinkageError ex) {
+                Incoming.LOG.warn("SCENARIO film heap: запись JFR не закрылась", ex);
+            }
+            jfr = null;
+        }
         writeBest();
         Incoming.LOG.info("SCENARIO film done: {}", best);
         Incoming.LOG.info("SCENARIO done");

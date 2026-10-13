@@ -103,6 +103,9 @@ neoForge {
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
             // профиль JFR по желанию: INCOMING_JFR=1 tools/client_scenario.sh nuke → run/scenario/logs/scenario.jfr
             if (System.getenv('INCOMING_JFR')) jvmArgument "-XX:StartFlightRecording=filename=${project.file('run/scenario/logs/scenario.jfr').absolutePath},settings=profile"
+            // вывод трейлера с выборкой JFR старых объектов (INCOMING_FILM_LEAK=1, ReplayFilm): пути до корней GC ищет поток VM,
+            // на стеке по умолчанию (1 МБ) он переполняется, и JVM падает (HeapProbe.PATH_STACK_KB)
+            if (System.getenv('INCOMING_FILM_LEAK')) jvmArgument '-XX:VMThreadStackSize=8192'
         }
         server {
             server()
