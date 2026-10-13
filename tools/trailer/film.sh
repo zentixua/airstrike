@@ -10,22 +10,27 @@
 # библиотек Prism). Остальное — как у record.sh (INCOMING_SIZE, INCOMING_WAR_PART, INCOMING_TRAILER_SHOTS,
 # INCOMING_FILM_SHOTS, INCOMING_RENDER_DISTANCE: у вывода — не меньше, чем у записи, иначе дальние чанки повтора
 # клиент выбросит), INCOMING_FILM_LIVE=0 — запись без кадров планов вживую (интерфейс, дальше прорисовки: их снимает
-# машина с видеокартой). Моды войны (Almighty, Point Blank, Immersive Aircraft) берутся из каталога модов всегда, Distant
-# Horizons — только у записи (без него — INCOMING_DH=, пусто: в облаке DH вместо рельефа рисует столбы): в выводе из повтора
-# Flashback DH рисует LOD поверх ближнего мира (кроны и стенки колонн полосами вниз, и в комнатах), вживую — нет.
+# машина с видеокартой). Моды войны (Almighty, Point Blank, Immersive Aircraft) и Distant Horizons берутся из каталога модов
+# всегда; без DH — INCOMING_DH= (пусто: в облаке DH вместо рельефа рисует столбы). Окно вывода — вдвое меньше кадра
+# (INCOMING_WINDOW): вывод Flashback пересоздаёт кадр игры в размер вывода, и при том же размере Iris оставляет LOD DH
+# глубину мира вместо своей — LOD ложится поверх ближнего мира (.claude/rules/trailer.md).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mode="${1:-}"
 shift || true
-export INCOMING_FLASHBACK=1 INCOMING_FILM=1
+export INCOMING_FLASHBACK=1 INCOMING_FILM=1 INCOMING_DH="${INCOMING_DH-1}"
 if [ -z "${INCOMING_CONNECTOR_CLEAN:-}" ]; then
   PRISM="$(python3 "$ROOT/tools/paths.py" PRISM 2>/dev/null || true)"
   CLEAN="$(ls "$PRISM"/libraries/net/minecraft/client/1.21.1-*/client-1.21.1-*-srg.jar 2>/dev/null | head -n1 || true)"
   if [ -n "$CLEAN" ]; then export INCOMING_CONNECTOR_CLEAN="$CLEAN"; fi
 fi
 case "$mode" in
-  record) export INCOMING_FILM_REPLAY=1 INCOMING_DH="${INCOMING_DH-1}" ;;
-  render) export INCOMING_SCENARIO=film INCOMING_DH= ;;
+  record) export INCOMING_FILM_REPLAY=1 ;;
+  render)
+    export INCOMING_SCENARIO=film
+    size="${INCOMING_SIZE:-1920x1080}"
+    export INCOMING_WINDOW="${INCOMING_WINDOW:-$(( ${size%x*} / 2 ))x$(( ${size#*x} / 2 ))}"
+    ;;
   *) echo "film.sh record|render [shaders]" >&2; exit 2 ;;
 esac
 exec "$ROOT/tools/trailer/record.sh" "$@"

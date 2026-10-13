@@ -30,15 +30,16 @@ import java.util.Locale;
  * Проверка каждого кадра вывода по данным игры, а не на глаз: в момент отрисовки кадра (конец мира) — где объект плана
  * на экране и какой он долей высоты кадра, закрыт ли он блоками (лучи к середине и краям) и дымом слоя эффектов
  * ({@link FxPool#transmittance}), какая доля кадра за дымом, все ли секции мира у камеры построены, слышен ли мотор
- * объекта. Строка JSON на кадр — {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
+ * объекта, со своей ли глубиной DH рисует LOD ({@link DhFrameDepth}). Строка JSON на кадр — {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
  */
 final class FrameQa {
     /**
      * Кадр: время (тик повтора с долей), всё построено, объект в кадре (с полями), где он (−1…1), доля высоты, видимая доля,
-     * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора, доля кадра за дымом.
+     * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора, доля кадра за дымом,
+     * глубина LOD DH ({@link DhFrameDepth#take}: 1 — своя, −1 — мира, 0 — LOD нет).
      */
     record Frame(double t, boolean ready, boolean in, double x, double y, double share, double seen, double clear, boolean cloud,
-                 boolean far, boolean drawn, double engine, boolean subjectFromEntity, double smoke) {
+                 boolean far, boolean drawn, double engine, boolean subjectFromEntity, double smoke, int dh) {
         /** Объект снят: в кадре, виден, не в облаках и не в тумане, его секция построена (если мир проверяется). */
         boolean visible() {
             return in && seen >= 0.4 && !cloud && !far && (READY <= 0 || drawn);
@@ -58,6 +59,9 @@ final class FrameQa {
      * медленнее кадров — там проверку мира снимают ({@code INCOMING_FILM_READY=0}), чтобы проверять остальное.
      */
     static final double READY = Double.parseDouble(System.getenv().getOrDefault("INCOMING_FILM_READY", "0.98"));
+
+    /** Distant Horizons стоит: глубину LOD проверяет {@link DhFrameDepth}. */
+    static final boolean DH = net.neoforged.fml.ModList.get().isLoaded("distanthorizons");
 
     private final Rig.Subject s;
     private final double clouds = Rig.cloudBase();
@@ -82,6 +86,8 @@ final class FrameQa {
         sound = new Recorder(dir, false);
         Minecraft.getInstance().getSoundManager().addListener(sound);
         sound.start(shot, 1, false);
+        // итог кадров до плана — не его
+        if (DH) DhFrameDepth.take();
     }
 
     List<Frame> frames() {
@@ -108,7 +114,9 @@ final class FrameQa {
 
     /** Кадр вывода нарисован: мир и слой эффектов уже в нём. */
     void onStage(RenderLevelStageEvent e) {
-        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || !FlashbackApi.exporting()) return;
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) return;
+        int dh = DH ? DhFrameDepth.take() : 0;
+        if (!FlashbackApi.exporting()) return;
         Minecraft mc = Minecraft.getInstance();
         double t = FlashbackApi.exportTick();
         if (Double.isNaN(t)) return;
@@ -191,15 +199,15 @@ final class FrameQa {
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
         double smoke = smokeShare(mc, cam, eye, tanX, tanY);
-        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke);
+        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"
-                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
-                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, eye.x, eye.y, eye.z, cam.getYRot(),
+                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
+                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, dh, eye.x, eye.y, eye.z, cam.getYRot(),
                     cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -242,16 +250,18 @@ final class FrameQa {
      * Итог по кадрам: мир построен (≥ {@link #READY} кадров и первые 10 — все); до удара объект в кадре, виден, не в дыму,
      * облаках и тумане у края прорисовки, в построенной секции и не мельче {@code minShare} высоты кадра — не меньше долей {@code need} за всё время до удара и за последнюю
      * секунду; удар в кадре, виден и не за дымом прежних ударов в первые 12 тиков; мотор (если нужен и {@code close}) слышен до удара;
-     * кадров, где больше половины кадра за дымом, до удара — не больше доли {@code need.smoky()}.
+     * кадров, где больше половины кадра за дымом, до удара — не больше доли {@code need.smoky()}; LOD DH с глубиной мира — ни в
+     * одном кадре.
      */
     Verdict verdict(double minShare, Coverage.Need need, boolean close) {
         int n = frames.size();
         if (n == 0) return new Verdict(false, "нет кадров", 0, 0, 0, 0, 0, 0);
         int ready = 0, firstReady = 0;
-        int pre = 0, preOk = 0, near = 0, nearOk = 0, key = 0, keyOk = 0, eng = 0, smoky = 0;
+        int pre = 0, preOk = 0, near = 0, nearOk = 0, key = 0, keyOk = 0, eng = 0, smoky = 0, dhWorld = 0;
         for (int i = 0; i < n; i++) {
             Frame f = frames.get(i);
             if (f.ready) ready++;
+            if (f.dh < 0) dhWorld++;
             if (i < 10 && f.ready) firstReady++;
             boolean good = f.visible() && f.clear >= 0.5 && f.share >= minShare;
             if (s.key < 0 || f.t < s.key) {
@@ -278,6 +288,7 @@ final class FrameQa {
         if (atKey < need.key()) why.append(String.format(Locale.ROOT, "удар виден %.0f%%; ", 100 * atKey));
         if (close && engine < need.engine()) why.append(String.format(Locale.ROOT, "мотор слышен %.0f%%; ", 100 * engine));
         if (rSmoky > need.smoky()) why.append(String.format(Locale.ROOT, "кадр в дыму %.0f%% до удара; ", 100 * rSmoky));
+        if (dhWorld > 0) why.append(String.format(Locale.ROOT, "LOD DH с глубиной мира в %d кадрах из %d; ", dhWorld, n));
         return new Verdict(why.isEmpty(), why.toString().trim(), rReady, approach, nearHit, atKey, engine, rSmoky);
     }
 }

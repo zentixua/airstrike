@@ -90,9 +90,11 @@ neoForge {
             if (System.getenv('INCOMING_WORLD')) systemProperty 'incoming.world', System.getenv('INCOMING_WORLD')
             // сценарий guide: только эти разделы (INCOMING_GUIDE=recipes,map — список в GuideShots)
             if (System.getenv('INCOMING_GUIDE')) systemProperty 'incoming.guide', System.getenv('INCOMING_GUIDE')
-            // размер окна: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720
+            // размер кадра: INCOMING_SIZE=1920x1080 (трейлер), по умолчанию 1280x720; окно — INCOMING_WINDOW, иначе он же
+            // (вывод из повторов — с окном другого размера: tools/trailer/film.sh)
             def size = (System.getenv('INCOMING_SIZE') ?: '1280x720').split('x')
-            programArguments.addAll '--width', size[0], '--height', size[1]
+            def window = (System.getenv('INCOMING_WINDOW') ?: size.join('x')).split('x')
+            programArguments.addAll '--width', window[0], '--height', window[1]
             // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
             systemProperty 'incoming.frame', size.join('x')
             if (System.getenv('INCOMING_CONNECTOR_CLEAN')) systemProperty 'connector.clean.path', System.getenv('INCOMING_CONNECTOR_CLEAN')

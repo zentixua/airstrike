@@ -14,7 +14,8 @@
 - `film.sh render` — по таблице `Coverage` каждый план выводится из своего повтора: камера сценария и запасные
   (штатив по кругу, погоня), повтор идёт вживую до начала плана (дым и огонь прежних ударов в кадре), Flashback выводит
   кадр на тик, каждый кадр проверяется по данным игры (мир построен, объект в кадре и его размер, блоки, дым, облака,
-  мотор). Не прошёл — следующий кандидат. Итог: `<папка>/render/report.jsonl`, `render/best.txt` (папка плана для
+  мотор, глубина LOD DH — в `qa.jsonl` поле `dh`: 1 — своя, −1 — мира, план не проходит). Окно клиента — вдвое меньше
+  кадра (`INCOMING_WINDOW`): вывод в размер окна под Iris кладёт LOD поверх ближнего мира. Не прошёл — следующий кандидат. Итог: `<папка>/render/report.jsonl`, `render/best.txt` (папка плана для
   `edit.py --rec`, PASS или FAIL с причиной), в папке кандидата — `qa.jsonl` (строка на кадр) и `timeline.jsonl`.
   Перезапуск после падения продолжает с неснятых планов (по `best.txt`).
 
@@ -65,8 +66,8 @@ INCOMING_WAR_PART=nukeB tools/laptop_job.sh film-rec -- tools/trailer/film.sh re
 INCOMING_WAR_PART=nukeC tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 INCOMING_WAR_PART=icbm  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 ```
-`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке. Вывод
-(`film.sh render`) идёт без DH: в выводе Flashback DH рисует LOD поверх ближнего мира.
+`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке. Копию мира
+каждой части не удалять до конца вывода: LOD DH повтора читаются из её `data` (без неё вывод падает на `SQLITE_IOERR`).
 Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Трейлер —
 только по-английски (`INCOMING_LANG=en_us`).
 

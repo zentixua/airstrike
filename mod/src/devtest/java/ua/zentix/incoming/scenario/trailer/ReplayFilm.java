@@ -79,11 +79,6 @@ public final class ReplayFilm {
     private record Scored(Rig.Candidate c, Rig.Score score) {}
 
     public ReplayFilm() {
-        // в кадрах вывода Flashback DH рисует LOD поверх ближнего мира (полосы вниз, слой крон и в комнатах): без него
-        if (net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) {
-            Incoming.LOG.error("SCENARIO film failed: Distant Horizons в выводе из повтора рисует LOD поверх ближнего мира — вывод без него (film.sh render)");
-            Runtime.getRuntime().halt(3);
-        }
         Path game = mc.gameDirectory.toPath();
         // пути полные: best.txt читают монтаж и скрипты не из каталога игры
         root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).toAbsolutePath().normalize();
@@ -132,6 +127,7 @@ public final class ReplayFilm {
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+        if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
     private Path zip(String replay) {
@@ -406,6 +402,13 @@ public final class ReplayFilm {
             Pose p0 = current.c.path().at(a);
             List<EventLog.Mark> marks = new ArrayList<>(data.marks);
             if (subject.key >= 0) marks.add(new EventLog.Mark(subject.key, "impact"));
+            // вывод пересоздаёт кадр игры в размер вывода; в том же размере Iris оставляет LOD DH глубину мира (DhFrameDepth)
+            var main = mc.getMainRenderTarget();
+            if (FrameQa.DH && main.width == width && main.height == height) {
+                Incoming.LOG.error("SCENARIO film failed: окно {}x{} — размер вывода, LOD DH лягут поверх ближнего мира (окно — INCOMING_WINDOW, film.sh render)",
+                        width, height);
+                Runtime.getRuntime().halt(3);
+            }
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
             flawless(true);
             FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
