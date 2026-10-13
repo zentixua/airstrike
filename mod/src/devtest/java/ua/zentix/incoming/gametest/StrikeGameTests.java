@@ -981,6 +981,103 @@ public final class StrikeGameTests {
         h.succeed();
     }
 
+    /**
+     * Цель команды «at x z» — место на земле ({@link Target.Ground}), как с карты пульта: высоту находит сервер, и у
+     * залпа с места пуска, и у одного снаряда. «at x y z» — точка как есть, и над землёй тоже. Ведущий высоты далёкого
+     * места не знает, а точка выше земли — взрыв в воздухе.
+     */
+    @GameTest(template = "runway", timeoutTicks = 20, batch = "command_place", skyAccess = true)
+    public static void commandAtPlaceTargetsGround(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Vec3 point = top(h, RUNWAY_TARGET);
+        Vec3 far = point.add(0, 0, -20_000);
+        String place = String.format(Locale.ROOT, " at %.2f %.2f", point.x, point.z);
+        java.util.function.Predicate<StrikeProjectile> near = f -> f.target() != null && flat(f.aimPoint(), point) < 2 + 5 * WeaponType.DRONE.spec().route().error();
+        StrikeGameTests.afterTest(h, () -> {
+            VirtualFlights.get(level).clear(level, near);
+            level.getEntitiesOfClass(StrikeProjectile.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+            level.getEntitiesOfClass(LauncherEntity.class, h.getBounds().inflate(64)).forEach(Entity::discard);
+        });
+
+        h.assertTrue(command(h, "incoming salvo drone 1 0" + place + fromArg(far)) == 1, "«at x z» с места пуска не принято");
+        assertOnGround(h, aimingAt(level, near), point, "залп «at x z»");
+        h.assertTrue(command(h, "incoming drone" + place) == 1, "«drone at x z» не принято");
+        assertOnGround(h, aimingAt(level, near), point, "«drone at x z»");
+
+        double air = point.y + 30;
+        h.assertTrue(command(h, "incoming salvo drone 1 0" + String.format(Locale.ROOT, " at %.2f %.2f %.2f", point.x, air, point.z) + fromArg(far)) == 1,
+                "«at x y z» не принято");
+        StrikeProjectile exact = aimingAt(level, near);
+        h.assertTrue(exact.target() instanceof Target.Point p && p.pos().y == air, "«at x y z» — не точка на своей высоте: " + exact.target());
+        h.succeed();
+    }
+
+    /**
+     * Залп с разбросом по далёкой точке, чей район к пуску ещё не загружен: снаряды бьют в землю у своих мест, а не в
+     * воздух на высоте центра. Центр — в 60 блоках над землёй, как высота, которую ведущий поставил наугад; место
+     * снаряда берёт высоту, как только его чанк готов.
+     */
+    @GameTest(template = "range", timeoutTicks = 20, batch = "spread_far_ground", skyAccess = true)
+    public static void salvoSpreadAtFarPointLandsOnGround(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        java.util.UUID owner = java.util.UUID.randomUUID();
+        Vec3 center = Vec3.atCenterOf(h.absolutePos(RANGE_CENTER)).add(5000, 60, 0);
+        h.assertFalse(Terrain.ready(level, BlockPos.containing(center)), "район цели уже загружен");
+        SalvoData.start(level, WeaponType.DRONE, 3, 20, new Target.Point(center), center, 0, owner, Loadout.Nuke.DEFAULT, Waypoints.NONE, null, false);
+        StrikeGameTests.afterTest(h, () -> {
+            SalvoData.get(level).cancel(level, owner, List.of());
+            VirtualFlights.get(level).clear(level, p -> owner.equals(p.ownerId()));
+            level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> owner.equals(p.ownerId())).forEach(Entity::discard);
+        });
+        h.runAfterDelay(3, () -> {
+            List<StrikeProjectile> fired = new ArrayList<>(VirtualFlights.get(level).flights());
+            fired.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), p -> true));
+            fired.removeIf(p -> !owner.equals(p.ownerId()));
+            h.assertTrue(!fired.isEmpty(), "залп не выпустил ни одного снаряда");
+            for (StrikeProjectile p : fired) {
+                h.assertTrue(p.target() instanceof Target.Ground, "снаряд залпа бьёт в точку на высоте центра: " + p.target());
+                Vec3 place = ((Target.Ground) p.target()).pos();
+                // чанк места готов (в игре его грузит район цели) — высота теперь его
+                level.getChunk(Mth.floor(place.x) >> 4, Mth.floor(place.z) >> 4);
+                double ground = surface(level, place);
+                Vec3 aim = p.target().resolve(level).orElseThrow();
+                h.assertTrue(Math.abs(aim.y - ground) < 1e-6 && aim.y < center.y - 30,
+                        "место снаряда не на земле: y " + aim.y + ", земля " + ground + ", центр " + center.y);
+            }
+            h.succeed();
+        });
+    }
+
+    /** Свой снаряд проверки (в мире или вне его) по предикату — ровно один; он же убирается, чтобы не мешать следующему. */
+    private static StrikeProjectile aimingAt(ServerLevel level, java.util.function.Predicate<StrikeProjectile> which) {
+        List<StrikeProjectile> found = new ArrayList<>(VirtualFlights.get(level).flights().stream().filter(which).toList());
+        found.addAll(level.getEntities(EntityTypeTest.forClass(StrikeProjectile.class), which));
+        if (found.size() != 1) throw new GameTestAssertException("снарядов у цели " + found.size() + " вместо одного");
+        StrikeProjectile p = found.getFirst();
+        VirtualFlights.get(level).clear(level, f -> f == p);
+        if (!p.isVirtual()) p.discard();
+        return p;
+    }
+
+    /**
+     * Цель снаряда — место на земле {@code at}: прицел с пуска — на верхе этой колонки, а само место (со сдвигом промаха)
+     * — на верхе своей.
+     */
+    private static void assertOnGround(GameTestHelper h, StrikeProjectile p, Vec3 at, String what) {
+        ServerLevel level = h.getLevel();
+        h.assertTrue(p.target() instanceof Target.Ground, what + ": цель не место на земле: " + p.target());
+        double here = surface(level, at);
+        h.assertTrue(Math.abs(p.aimPoint().y - here) < 1e-3, what + ": прицел y " + p.aimPoint().y + " не на земле " + here);
+        Vec3 place = ((Target.Ground) p.target()).pos();
+        Vec3 aim = p.target().resolve(level).orElseThrow();
+        h.assertTrue(Math.abs(aim.y - surface(level, place)) < 1e-6, what + ": место y " + aim.y + " не на земле " + surface(level, place));
+    }
+
+    /** Середина верхнего блока колонки (с листвой), как у места с карты. */
+    private static double surface(ServerLevel level, Vec3 column) {
+        return level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(column.x), Mth.floor(column.z)) - 0.5;
+    }
+
     /** Отказ приказа — «точка за границей мира» ({@code incoming.route.outside_world}). */
     private static boolean outsideWorld(@Nullable Component problem) {
         return problem != null && problem.getContents() instanceof TranslatableContents t && t.getKey().equals("incoming.route.outside_world");
@@ -997,7 +1094,7 @@ public final class StrikeGameTests {
     /**
      * Команда от консоли сервера, как её даёт ведущий: итог команды; −1 — не разобрана (нет такой ветки в дереве).
      */
-    private static int command(GameTestHelper h, String command) {
+    static int command(GameTestHelper h, String command) {
         net.minecraft.server.MinecraftServer server = h.getLevel().getServer();
         try {
             return server.getCommands().getDispatcher().execute(command,

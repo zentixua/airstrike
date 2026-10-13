@@ -54,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * /incoming — то же, что пульт, но для операторов и автоматизации (командные блоки, функции):
@@ -61,7 +62,8 @@ import java.util.Locale;
  *   /incoming drone|missile|bunker                   куда смотрю
  *   /incoming missile ENOTzRPG                       по игроку или мобу (у оператора снаряд идёт за ним)
  *   /incoming bunker at ~ ~-20 ~                     по точке
- *   /incoming salvo drone 6 25 [me|look|ник|at x y z] залп: сколько, разброс
+ *   /incoming missile at x z                         по месту на земле: высоту находит сервер, как у места с карты
+ *   /incoming salvo drone 6 25 [me|look|ник|at x y z|at x z] залп: сколько, разброс
  *          … [from x z] [via x z [x z …]]            место пуска (оператор) и точки маршрута, как на карте пульта;
  *                                                     один снаряд — salvo drone 1 0 …
  *   /incoming menu | clear | give [игроки] | help
@@ -72,7 +74,7 @@ import java.util.Locale;
  *   /incoming grid …                                  сеть и блэкаут ({@link GridCommand})
  *   /incoming launcher x y z                          стационарная пусковая (оператор): состояние;
  *          … fire | clear | load N | owner игрок|none   приказ по задаче, снять задачу, боеприпасы задачи, хозяин;
- *          … mission оружие N разброс x y z [via x z …] задача, как с пульта, без правил
+ *          … mission оружие N разброс x y z|x z [via x z …] задача, как с пульта, без правил
  * </pre>
  * Ник подсказывает Tab, регистр букв не важен. «shahed» — синоним drone. Команда игрока без
  * прав оператора бьёт по правилам пульта ({@link #rules}) и тратит боеприпасы из инвентаря ({@code strike.Munitions});
@@ -229,8 +231,9 @@ public final class IncomingCommand {
     private static LiteralArgumentBuilder<CommandSourceStack> weapon(String name, WeaponType w) {
         return Commands.literal(name)
                 .executes(ctx -> look(ctx, w, 1, 0, Path.NONE))
-                .then(Commands.literal("at").then(Commands.argument("pos", Vec3Argument.vec3())
-                        .executes(ctx -> at(ctx, w, 1, 0, Vec3Argument.getVec3(ctx, "pos"), Path.NONE))))
+                .then(Commands.literal("at")
+                        .then(Commands.argument("pos", Vec3Argument.vec3()).executes(ctx -> at(ctx, w, 1, 0, IncomingCommand::point, Path.NONE)))
+                        .then(Commands.argument("place", Vec2Argument.vec2()).executes(ctx -> at(ctx, w, 1, 0, IncomingCommand::ground, Path.NONE))))
                 .then(Commands.argument("target", EntityArgument.entity())
                         .executes(ctx -> entity(ctx, w, 1, 0, EntityArgument.getEntity(ctx, "target"), Path.NONE)));
     }
@@ -241,8 +244,11 @@ public final class IncomingCommand {
                         (ctx, path) -> me(ctx, w, count(ctx), spread(ctx), path))
                         .then(pathArgs(Commands.literal("me"), w, (ctx, path) -> me(ctx, w, count(ctx), spread(ctx), path)))
                         .then(pathArgs(Commands.literal("look"), w, (ctx, path) -> look(ctx, w, count(ctx), spread(ctx), path)))
-                        .then(Commands.literal("at").then(pathArgs(Commands.argument("pos", Vec3Argument.vec3()), w,
-                                (ctx, path) -> at(ctx, w, count(ctx), spread(ctx), Vec3Argument.getVec3(ctx, "pos"), path))))
+                        .then(Commands.literal("at")
+                                .then(pathArgs(Commands.argument("pos", Vec3Argument.vec3()), w,
+                                        (ctx, path) -> at(ctx, w, count(ctx), spread(ctx), IncomingCommand::point, path)))
+                                .then(pathArgs(Commands.argument("place", Vec2Argument.vec2()), w,
+                                        (ctx, path) -> at(ctx, w, count(ctx), spread(ctx), IncomingCommand::ground, path))))
                         .then(pathArgs(Commands.argument("target", EntityArgument.entity()), w,
                                 (ctx, path) -> entity(ctx, w, count(ctx), spread(ctx), EntityArgument.getEntity(ctx, "target"), path)))));
     }
@@ -320,8 +326,29 @@ public final class IncomingCommand {
         return fire(s, w, count, spread, new ServerActions.Aim(new Target.Point(s.getPosition()), s.getPosition(), null), Loadout.Nuke.DEFAULT, path);
     }
 
-    private static int at(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread, Vec3 pos, Path path) {
-        return fire(ctx.getSource(), w, count, spread, new ServerActions.Aim(new Target.Point(pos), pos, null), Loadout.Nuke.DEFAULT, path);
+    private static int at(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread, Place place, Path path) {
+        return fire(ctx.getSource(), w, count, spread, place.aim(ctx), Loadout.Nuke.DEFAULT, path);
+    }
+
+    /** Цель «at …» из команды. */
+    private interface Place {
+        ServerActions.Aim aim(CommandContext<CommandSourceStack> ctx);
+    }
+
+    /** «x y z» — сама точка, на этой высоте: в воздухе снаряд взорвётся в воздухе, под землёй бомба пробьётся к ней. */
+    private static ServerActions.Aim point(CommandContext<CommandSourceStack> ctx) {
+        Vec3 pos = Vec3Argument.getVec3(ctx, "pos");
+        return new ServerActions.Aim(new Target.Point(pos), pos, null);
+    }
+
+    /**
+     * «x z» — место на земле, как с карты пульта ({@link Target.Ground}): высоту находит сервер, когда чанк там готов
+     * (район цели снаряд грузит сам). Тот, кто даёт команду, высоты далёкого места не знает, а точка выше земли — это
+     * взрыв в воздухе.
+     */
+    private static ServerActions.Aim ground(CommandContext<CommandSourceStack> ctx) {
+        Vec3 p = column(ctx, "place");
+        return ServerActions.groundAim(ctx.getSource().getLevel(), p.x, p.z, Optional.empty());
     }
 
     private static int entity(CommandContext<CommandSourceStack> ctx, WeaponType w, int count, int spread, Entity target, Path path) {
@@ -390,14 +417,21 @@ public final class IncomingCommand {
         for (WeaponType w : WeaponType.values()) {
             if (!Mission.accepts(w)) continue;
             for (String name : names(w)) {
-                RequiredArgumentBuilder<CommandSourceStack, Coordinates> target = Commands.argument("pos", Vec3Argument.vec3())
-                        .executes(ctx -> launcherMission(ctx, w, Waypoints.NONE));
-                if (w.spec().route().waypoints()) target.then(via((ctx, path) -> launcherMission(ctx, w, path.via()), false));
                 mission.then(Commands.literal(name).then(Commands.argument("count", IntegerArgumentType.integer(1, Loadout.MAX_COUNT))
-                        .then(Commands.argument("spread", IntegerArgumentType.integer(0, Loadout.MAX_SPREAD)).then(target))));
+                        .then(Commands.argument("spread", IntegerArgumentType.integer(0, Loadout.MAX_SPREAD))
+                                .then(missionTarget(Commands.argument("pos", Vec3Argument.vec3()), w, IncomingCommand::point))
+                                .then(missionTarget(Commands.argument("place", Vec2Argument.vec2()), w, IncomingCommand::ground)))));
             }
         }
         return Commands.literal("launcher").requires(s -> s.hasPermission(2)).then(at.then(mission));
+    }
+
+    /** Цель задачи ({@code place} — точка или место на земле) и точки маршрута, если оружие по ним летает. */
+    private static RequiredArgumentBuilder<CommandSourceStack, Coordinates> missionTarget(RequiredArgumentBuilder<CommandSourceStack, Coordinates> node,
+                                                                                         WeaponType w, Place place) {
+        node.executes(ctx -> launcherMission(ctx, w, place, Waypoints.NONE));
+        if (w.spec().route().waypoints()) node.then(via((ctx, path) -> launcherMission(ctx, w, place, path.via()), false));
+        return node;
     }
 
     /** Пусковая в месте из команды: только в готовом чанке (ради команды его не грузим). */
@@ -416,16 +450,16 @@ public final class IncomingCommand {
         return be;
     }
 
-    private static int launcherMission(CommandContext<CommandSourceStack> ctx, WeaponType w, Waypoints via) throws CommandSyntaxException {
+    private static int launcherMission(CommandContext<CommandSourceStack> ctx, WeaponType w, Place place, Waypoints via) throws CommandSyntaxException {
         FixedLauncherBlockEntity be = idleLauncherAt(ctx);
-        Vec3 point = Vec3Argument.getVec3(ctx, "pos");
+        ServerActions.Aim aim = place.aim(ctx);
         CommandSourceStack s = ctx.getSource();
-        MutableComponent problem = ServerActions.routeProblem(s.getLevel(), null, false, w, new LaunchOrigin.Fixed(be.getBlockPos()), via, point);
+        MutableComponent problem = ServerActions.routeProblem(s.getLevel(), null, false, w, new LaunchOrigin.Fixed(be.getBlockPos()), via, aim.point());
         if (problem != null) {
             s.sendFailure(problem);
             return 0;
         }
-        be.setMission(new Mission(w, count(ctx), spread(ctx), new Target.Point(point), point, via));
+        be.setMission(new Mission(w, count(ctx), spread(ctx), aim.target(), aim.point(), via));
         s.sendSuccess(be::status, true);
         return 1;
     }
