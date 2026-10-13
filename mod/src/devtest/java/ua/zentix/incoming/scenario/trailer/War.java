@@ -36,6 +36,7 @@ import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.registry.ModBlocks;
 import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
+import ua.zentix.incoming.strike.WeaponType;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -230,8 +231,9 @@ final class War {
     }
 
     /** Снаряд игрока (по данным сервера — и вне мира) ближе {@code r} к точке. */
-    static boolean flightNear(Vec3 p, double r) {
-        for (var f : ClientFlights.all()) if (f.position(1).distanceTo(p) < r) return true;
+    /** Снаряд этого оружия ближе {@code r} к точке: чужие полёты (шахеды прошлых планов идут через весь город) не в счёт. */
+    static boolean flightNear(Vec3 p, double r, WeaponType weapon) {
+        for (var f : ClientFlights.all()) if (f.weapon() == weapon && f.position(1).distanceTo(p) < r) return true;
         return false;
     }
 
@@ -389,7 +391,7 @@ final class War {
                     Vec3 back = eye.subtract(T5.subtract(eye).multiply(1, 0, 1).normalize().scale(3.4)).add(0.9, 0.35, 0);
                     return CineCamera.track(back, () -> T5.add(0, -30, 0), 46);
                 })
-                .when(() -> flightNear(t5, 340), 3000)
+                .when(() -> flightNear(t5, 340, WeaponType.MISSILE), 3000)
                 .endWhen(hit(t5, 120), 40);
         film.run(() -> cast().remove("Ilya"));
 
@@ -401,7 +403,7 @@ final class War {
                 .onReady(() -> salvo("missile", 4, 30, hit, new Vec3(1500, 0, 300)))
                 .player(t -> new Pose(Vec3.ZERO, Film.yawTo(AVENUE, hit) - 25 + (float) CineCamera.smooth(t / 110) * 30,
                         -30 + (float) CineCamera.smooth(t / 110) * 12, 0, 70))
-                .when(() -> flightNear(at(hit), 1360), 3000);
+                .when(() -> flightNear(at(hit), 1360, WeaponType.MISSILE), 3000);
 
         // p15: люди бегут к спуску в метро, FPV ныряет за ними вниз по лестнице
         hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);
@@ -429,7 +431,7 @@ final class War {
                 .onReady(() -> salvo("missile", 2, 12, above, new Vec3(2000, 0, 270)))
                 .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 50,
                         () -> SUB_BOTTOM.add(-8, 3, 0), 72))
-                .when(() -> flightNear(above, 110), 3000);
+                .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000);
 
         // p18: FPV вырывается из метро на улицу, где ложится «Град», разворот над перекрёстком
         Vec3 crossing = new Vec3(3330.5, 0, 300.5);
@@ -456,7 +458,7 @@ final class War {
                     Vec3 floor = new Vec3(room.x, roomFloor, room.z);
                     return CineCamera.dolly(floor.add(0.2, 1.55, 1.4), floor.add(0.1, 1.57, 1.1), 40, () -> at(blast).add(0, 2, 0), 70);
                 })
-                .when(() -> flightNear(at(blast), 60), 3000);
+                .when(() -> flightNear(at(blast), 60, WeaponType.MISSILE), 3000);
 
         // p19: со спины человека на крыше: горизонт вспыхивает ударами (a), ракеты проходят над головой (b)
         // земли с крыши не видно за домами — горизонт вспыхивает верхними этажами башен
@@ -472,12 +474,12 @@ final class War {
                     for (int i = 0; i < towers.size(); i++) salvo("missile", 1, 0, towers.get(i), towers.get(i).add(60 - i * 40, 0, -800 - i * 40));
                 })
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> farA, 55))
-                .when(() -> flightNear(towers.get(0), 160), 3000);
+                .when(() -> flightNear(towers.get(0), 160, WeaponType.MISSILE), 3000);
         film.run(() -> cast().act("Oleg", lookUp(farA), true));
         film.shot("p19b").length(50).hidden()
                 .onReady(() -> salvo("missile", 4, 20, farB, behind(ROOF, at(farB), 900)))
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 2.6, 0.4, 1.3, () -> farA.add(0, 30, 0), 60))
-                .when(() -> flightNear(ROOF, 160), 3000)
+                .when(() -> flightNear(ROOF, 160, WeaponType.MISSILE), 3000)
                 .cue(10, () -> cast().act("Oleg", lookUp(farA.add(0, 120, 0)), true));
         film.run(() -> cast().remove("Oleg"));
     }
@@ -754,7 +756,7 @@ final class War {
         film.shot("p01b").length(60).hidden()
                 .onReady(() -> salvo("missile", 1, 0, T3, new Vec3(2350, 0, 600)))
                 .camera(() -> CineCamera.track(new Vec3(T3.x + 70, T3.y - 30, T3.z - 80), () -> T3, 42))
-                .when(() -> flightNear(T3, 200), 3000);
+                .when(() -> flightNear(T3, 200, WeaponType.MISSILE), 3000);
 
         // p24 и пик: аэродром — бипланы взлетают по тревоге (своя площадка)
         stageScene("airfield", AIRFIELD, -90);
@@ -906,7 +908,7 @@ final class War {
                 .player(t -> new Pose(Vec3.ZERO, Film.yawTo(spotter, T3), Film.pitchTo(spotter.add(0, 1.62, 0), T3), 0, 70))
                 .cue(0, () -> mc.options.keyUse.setDown(true))
                 .cueEnd(() -> mc.options.keyUse.setDown(false))
-                .when(() -> flightNear(T3, 90), 3000);
+                .when(() -> flightNear(T3, 90, WeaponType.MISSILE), 3000);
 
         // p34: с борта ракеты — пике, цель растёт, SIGNAL LOST (монтаж режет по отметке gone)
         Vec3 dive = new Vec3(3130.5, 0, 560.5);
@@ -964,7 +966,7 @@ final class War {
                     Vec3 c = cam.y > 0 ? g(t.add(cam)).add(0, cam.y, 0) : t.add(cam);
                     return CineCamera.track(c, () -> t.add(0, 6, 0), fov);
                 })
-                .when(() -> flightNear(at(target), weapon.equals("rocket") ? 300 : 120), 3000);
+                .when(() -> flightNear(at(target), weapon.equals("rocket") ? 300 : 120, WeaponType.valueOf(weapon.toUpperCase(Locale.ROOT))), 3000);
     }
 
     // ================================================================ IV: МБР и ядерный удар
