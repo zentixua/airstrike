@@ -510,6 +510,7 @@ def main():
     p.add_argument("--fov", type=float, default=70, help="угол обзора по вертикали у игроков, градусы")
     p.add_argument("--aspect", type=float, default=9 / 16, help="ширина кадра к высоте (вертикальный ролик — 9:16)")
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")
+    p.add_argument("--soft", type=int, default=2, help="луч чист, если листвы, стекла и воды на пути не больше стольких блоков")
     p.add_argument("--prefer", default="", help="повторы (часть имени, через запятую), чьи кандидаты идут первыми")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")

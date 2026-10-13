@@ -122,7 +122,7 @@ def main():
     width, height = (int(x) for x in a.size.split("x"))
     by_replay: dict[str, dict] = {}
     for c in chosen:
-        con = replaydb.connect(Path(c["db"]), argparse.Namespace(fov=70, aspect=width / height, center=0.7))
+        con = replaydb.connect(Path(c["db"]), argparse.Namespace(fov=70, aspect=width / height, center=0.7, soft=2))
         meta = json.loads(con.execute("SELECT json FROM meta").fetchone()[0])
         zip_path = Path(a.replays) / Path(meta["replay"]).name if a.replays else Path(meta["replay"])
         plan = by_replay.setdefault(c["replay"], {

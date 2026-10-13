@@ -31,7 +31,14 @@ neoForge {
             client()
             gameDirectory = project.file(project.findProperty('runDir') ?: 'run')
             ['replay', 'out', 'speed', 'viewers', 'every', 'range', 'subjects', 'ask', 'from', 'to', 'film'].each { key ->
-                if (project.findProperty(key) != null) systemProperty "replayscan.${key}", project.findProperty(key).toString()
+                def value = project.findProperty(key)
+                if (value == null) return
+                // пути — от каталога, где запущен Gradle (игра идёт в своём каталоге запуска)
+                if (key in ['replay', 'out', 'ask', 'film']) {
+                    def f = new File(value.toString())
+                    value = (f.absolute ? f : new File(gradle.startParameter.currentDir, value.toString())).absolutePath
+                }
+                systemProperty "replayscan.${key}", value.toString()
             }
             // Connector ищет «чистый» jar клиента, как в раскладке лаунчера (установщик NeoForge: libraries/net/minecraft/client/…-srg.jar)
             def clean = project.findProperty('connectorClean') ?: System.getenv('CONNECTOR_CLEAN')

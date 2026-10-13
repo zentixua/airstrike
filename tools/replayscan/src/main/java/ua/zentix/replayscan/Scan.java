@@ -125,7 +125,7 @@ final class Scan implements Closeable {
     private final List<Far> farNow = new ArrayList<>();
     private final List<Far> farNext = new ArrayList<>();
     private long eventSeq;
-    private boolean done;
+    private boolean done, closed;
     private final List<String> notes = new ArrayList<>();
     private int gaps;
 
@@ -199,8 +199,8 @@ final class Scan implements Closeable {
     /** Камера из файла {@code ask}: глаз, взгляд (не обязателен) и отрезок тиков. */
     private record Camera(String id, ResourceKey<Level> dim, Vec3 eye, float yaw, float pitch, boolean look, int from, int to) {}
 
-    /** Зритель тика: игрок записи, игрок или камера. */
-    private record Viewer(String id, ServerLevel level, Vec3 eye, float yaw, float pitch, boolean look) {}
+    /** Зритель тика: игрок записи, игрок или камера ({@code self} — id своей сущности, у камеры −1). */
+    private record Viewer(String id, int self, ServerLevel level, Vec3 eye, float yaw, float pitch, boolean look) {}
 
     Scan(Settings settings, FlashbackLink link, Logger log) throws IOException {
         this.settings = settings;
@@ -236,10 +236,12 @@ final class Scan implements Closeable {
     }
 
     /** Конец тика сервера повтора {@code t}. */
-    void tick(MinecraftServer server, int t) throws IOException, ReflectiveOperationException {
-        if (done) return;
+    synchronized void tick(MinecraftServer server, int t) throws IOException, ReflectiveOperationException {
+        if (done || closed) return;
         if (decoder == null) decoder = new Decoder(server.registryAccess());
-        if (t <= last) {
+        // тот же тик ещё раз: сервер повтора на паузе тикает, не двигая запись
+        if (t == last) return;
+        if (t < last) {
             // назад (перемотка): запись — с начала, без таблиц до t
             notes.add("seek back from " + last + " to " + t);
             timeline = new Timeline(file);
@@ -258,9 +260,9 @@ final class Scan implements Closeable {
         } else {
             if (last >= 0 && t > last + 1) gaps++;
             now = new ArrayList<>();
-            read(server, t, now, farNow, !seeking && t >= settings.from());
+            read(server, t, now, farNow, !seeking && inRange(t));
         }
-        boolean output = !seeking && t >= settings.from();
+        boolean output = !seeking && inRange(t);
         if (output) {
             for (Event e : now) {
                 if (e.measure && e.clear == Integer.MIN_VALUE) measure(server, e, false);
@@ -276,13 +278,18 @@ final class Scan implements Closeable {
         // события следующего тика — заранее: замеры у взрыва по миру до него
         next = new ArrayList<>();
         farNext.clear();
-        read(server, t + 1, next, farNext, true);
+        read(server, t + 1, next, farNext, inRange(t + 1));
         ahead = t + 1;
         for (Event e : next) {
             if (e.measure) measure(server, e, true);
         }
         int end = settings.to() > 0 ? Math.min(settings.to(), total()) : total();
         if (t >= end) done = true;
+    }
+
+    /** Тик в отрезке разбора ({@code from}…{@code to}): только его события и строки идут в таблицы. */
+    private boolean inRange(int t) {
+        return t >= settings.from() && (settings.to() <= 0 || t <= settings.to());
     }
 
     /** Действия до тика {@code t} включительно; события тика {@code t} — в {@code out}, если {@code emit}. */
@@ -565,7 +572,10 @@ final class Scan implements Closeable {
                 .add(k.firstPos.x).add(k.firstPos.y).add(k.firstPos.z).add(end.x).add(end.y).add(end.z).end();
     }
 
-    /** Глаза зрителей и что им видно: сущности и дальние снаряды — раз в {@code every} тиков, события — всегда. */
+    /**
+     * Глаза зрителей и что им видно: сущности — раз в {@code every} тиков, события и дальние снаряды — на каждый их
+     * пакет (пакеты дальних снарядов у мода идут раз в несколько тиков, и с {@code every} их тики могли бы не сойтись).
+     */
     private void look(MinecraftServer server, int t, List<Event> now) throws ReflectiveOperationException {
         int local = link.localPlayerId(server);
         List<Viewer> list = viewers(server, t, local);
@@ -578,15 +588,15 @@ final class Scan implements Closeable {
             for (Event e : now) {
                 if (e.measure && e.pos != null && e.dim == v.level.dimension()) see(t, v, axes, rays, "p", Long.toString(e.id), e.pos);
             }
+            for (Far f : farNow) {
+                if (f.dim == v.level.dimension()) see(t, v, axes, rays, "f", f.uuid, f.pos);
+            }
             if (!entitiesNow) continue;
             for (Tracked k : tracked.values()) {
                 if (k.lastSeen != t || k.dim != v.level.dimension() || !(k.subject || k.player)) continue;
                 Entity e = k.entity;
-                if (v.id.equals("recorder") && e.getId() == local) continue;
+                if (e.getId() == v.self) continue;
                 see(t, v, axes, rays, "e", Integer.toString(k.eid), e.getBoundingBox().getCenter());
-            }
-            for (Far f : farNow) {
-                if (f.dim == v.level.dimension()) see(t, v, axes, rays, "f", f.uuid, f.pos);
             }
         }
     }
@@ -603,7 +613,7 @@ final class Scan implements Closeable {
             cy = d.dot(axes[2]) / z;
         }
         Rays.Hit hit = rays.cast(v.eye, target, 1.0);
-        sight.add(t).add(v.id).add(kind).add(ref).add(dist).add(z).add(cx).add(cy).add(hit.hard()).add(hit.soft()).add(hit.unknown()).end();
+        sight.add(t).add(v.id).add(kind).add(ref).add(dist).add(v.look ? z : Double.NaN).add(cx).add(cy).add(hit.hard()).add(hit.soft()).add(hit.unknown()).end();
     }
 
     /** Взгляд, правая и верхняя оси камеры (поворот — как у игрока: yaw 0 — юг, pitch вниз — плюс). */
@@ -619,12 +629,12 @@ final class Scan implements Closeable {
         List<Viewer> list = new ArrayList<>();
         for (ServerLevel level : server.getAllLevels()) {
             Entity rec = local < 0 ? null : level.getEntity(local);
-            if (rec != null) list.add(new Viewer("recorder", level, rec.getEyePosition(), rec.getYRot(), rec.getXRot(), true));
+            if (rec != null) list.add(new Viewer("recorder", local, level, rec.getEyePosition(), rec.getYRot(), rec.getXRot(), true));
             if (settings.viewers().equals("players")) {
                 for (Tracked k : tracked.values()) {
                     if (!k.player || k.entity.getId() == local || k.entity.level() != level || k.lastSeen != t) continue;
                     Player pl = (Player) k.entity;
-                    list.add(new Viewer("player:" + pl.getGameProfile().getName(), level, pl.getEyePosition(), pl.getYHeadRot(), pl.getXRot(), true));
+                    list.add(new Viewer("player:" + pl.getGameProfile().getName(), pl.getId(), level, pl.getEyePosition(), pl.getYHeadRot(), pl.getXRot(), true));
                 }
             }
         }
@@ -637,7 +647,7 @@ final class Scan implements Closeable {
             boolean hold = t >= c.from - 200 && t <= c.to;
             if (hold && ticketed.add(c.id)) level.getChunkSource().addRegionTicket(ASK_TICKET, at, radius, at);
             if (!hold && ticketed.remove(c.id)) level.getChunkSource().removeRegionTicket(ASK_TICKET, at, radius, at);
-            if (t >= c.from && t <= c.to) list.add(new Viewer("ask:" + c.id, level, c.eye, c.yaw, c.pitch, c.look));
+            if (t >= c.from && t <= c.to) list.add(new Viewer("ask:" + c.id, -1, level, c.eye, c.yaw, c.pitch, c.look));
         }
         return list;
     }
@@ -658,12 +668,29 @@ final class Scan implements Closeable {
         return out;
     }
 
-    /** Таблицы закрыты, {@code meta.json} — что разобрано, сколько и чем. */
+    /**
+     * Таблицы закрыты, {@code meta.json} — что разобрано, сколько и чем. Один раз; зовётся и при выходе JVM (падение
+     * игры): ошибка одной таблицы не мешает закрыть остальные и записать {@code meta.json}.
+     */
     @Override
-    public void close() throws IOException {
-        for (Tracked k : tracked.values()) lifetime(k);
+    public synchronized void close() throws IOException {
+        if (closed) return;
+        closed = true;
+        IOException failed = null;
+        try {
+            for (Tracked k : tracked.values()) lifetime(k);
+        } catch (RuntimeException e) {
+            notes.add("entities at close: " + e);
+        }
         tracked.clear();
-        for (Csv c : List.of(events, blocks, far, tracks, entities, states, sight, viewers, time)) c.close();
+        for (Csv c : List.of(events, blocks, far, tracks, entities, states, sight, viewers, time)) {
+            try {
+                c.close();
+            } catch (IOException e) {
+                if (failed == null) failed = e;
+                notes.add("table: " + e);
+            }
+        }
         JsonObject meta = new JsonObject();
         meta.addProperty("replay", settings.replay().toString());
         meta.addProperty("complete", done);
@@ -707,10 +734,14 @@ final class Scan implements Closeable {
         JsonObject mods = new JsonObject();
         ModList.get().getMods().forEach(m -> mods.addProperty(m.getModId(), m.getVersion().toString()));
         meta.add("mods", mods);
-        Files.writeString(settings.out().resolve("meta.json"), new GsonBuilder().setPrettyPrinting().create().toJson(meta), StandardCharsets.UTF_8);
-        file.close();
+        try {
+            Files.writeString(settings.out().resolve("meta.json"), new GsonBuilder().setPrettyPrinting().create().toJson(meta), StandardCharsets.UTF_8);
+        } finally {
+            file.close();
+        }
         log.info("Replay scan: {} — {} of {} ticks, {} events, {} track rows, {} sight rows -> {}", settings.replay().getFileName(),
                 last, total(), events.rows(), tracks.rows(), sight.rows(), settings.out());
+        if (failed != null) throw failed;
     }
 
     private static JsonObject counts(Map<String, long[]> m) {

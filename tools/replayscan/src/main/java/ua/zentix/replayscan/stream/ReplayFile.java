@@ -3,7 +3,10 @@ package ua.zentix.replayscan.stream;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.io.BufferedInputStream;
 import java.io.Closeable;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +22,7 @@ import java.util.zip.ZipFile;
 
 /**
  * Повтор Flashback (0.39) как файл: zip с {@code metadata.json}, кусками записи {@code cN.flashback} и кэшем чанков
- * {@code level_chunk_caches/N}. Без Minecraft: только байты и тики (юнит-тесты — {@code ReplayFileTest}).
+ * {@code level_chunk_caches/N}. Без Minecraft: только байты и тики (юнит-тесты — {@code TimelineTest}).
  * <p>
  * Кусок: {@code int} {@link #MAGIC}, varint числа имён действий, имена (строки varint-длины), {@code int} длина снимка,
  * снимок (действия), затем действия до конца. Действие — varint номер имени, {@code int} длина тела, тело. Куски идут
@@ -96,24 +99,42 @@ public final class ReplayFile implements Closeable {
         int file = index / CHUNK_CACHE_SIZE;
         long[] places = chunkCaches.get(file);
         if (places == null) {
-            byte[] data = read(zip, "level_chunk_caches/" + file);
-            places = data == null ? new long[0] : chunkPlaces(data);
+            ZipEntry e = zip.getEntry("level_chunk_caches/" + file);
+            if (e == null) places = new long[0];
+            else try (InputStream in = zip.getInputStream(e)) {
+                places = chunkPlaces(in);
+            }
             chunkCaches.put(file, places);
         }
         int i = index - file * CHUNK_CACHE_SIZE;
         return i < places.length ? places[i] : Long.MIN_VALUE;
     }
 
-    static long[] chunkPlaces(byte[] data) {
+    /** Места чанков файла кэша потоком: из записи нужны только x и z, сами пакеты (сотни МБ на файл) не читаются. */
+    static long[] chunkPlaces(InputStream raw) throws IOException {
+        DataInputStream in = new DataInputStream(new BufferedInputStream(raw, 1 << 16));
         List<Long> out = new ArrayList<>();
-        Bytes b = new Bytes(data, 0, data.length);
-        while (b.remaining() >= 4) {
-            int size = b.readInt();
-            if (size < 0 || size > b.remaining()) break;
-            int end = b.pos + size;
-            b.readVarInt();
-            out.add(size >= 9 ? pack(b.readInt(), b.readInt()) : Long.MIN_VALUE);
-            b.pos = end;
+        try {
+            while (true) {
+                int size = in.readInt();
+                if (size < 0) break;
+                // varint id пакета, потом int x, int z
+                int read = 0;
+                boolean more = true;
+                while (more && read < size && read < 5) {
+                    more = (in.readUnsignedByte() & 0x80) != 0;
+                    read++;
+                }
+                long place = Long.MIN_VALUE;
+                if (!more && size - read >= 8) {
+                    place = pack(in.readInt(), in.readInt());
+                    read += 8;
+                }
+                in.skipNBytes(size - read);
+                out.add(place);
+            }
+        } catch (EOFException end) {
+            // конец файла (или обрезанная последняя запись — без места)
         }
         long[] places = new long[out.size()];
         for (int i = 0; i < places.length; i++) places[i] = out.get(i);

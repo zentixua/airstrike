@@ -120,7 +120,7 @@ def build() -> Path:
     s.blast(2000, "airstrike:nuke_detonation", (0.5, 64.0, 1200.0), None, clear=-1, solid=-1)
     tmp = Path(tempfile.mkdtemp(prefix="clips-test-"))
     s.write(tmp / "scan", 2100)
-    args = argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7)
+    args = argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7, soft=2)
     return replaydb.build(args)
 
 
@@ -128,7 +128,7 @@ class SelectTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.db = build()
-        cls.args = argparse.Namespace(fov=70, aspect=9 / 16, center=0.7)
+        cls.args = argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2)
         cls.r = clips.Replay(cls.db, cls.args)
 
     def test_flights(self):
@@ -200,7 +200,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, min_version="2.10.2", prefer=""))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer=""))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
