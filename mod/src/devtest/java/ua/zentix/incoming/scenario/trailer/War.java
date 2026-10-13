@@ -331,27 +331,32 @@ final class War {
                 CollisionContext.empty()));
         // блок у самой цели — её же стена (цель — середина блока за гранью)
         if (hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceTo(target) > 8) {
-            Film.Shot shot = film.replayShot != null ? film.replayShot : film.recording;
             Incoming.LOG.warn("SCENARIO film staging {}: цель {} закрыта от камеры {} — блок {} в {} блоках из {}",
-                    shot == null ? "-" : shot.name, xyz(target), xyz(eye), hit.getBlockPos().toShortString(),
+                    plan(), xyz(target), xyz(eye), hit.getBlockPos().toShortString(),
                     String.format(Locale.ROOT, "%.0f", hit.getLocation().distanceTo(eye)), String.format(Locale.ROOT, "%.0f", len));
         }
         double clouds = Rig.cloudBase();
         if (Rig.throughClouds(eye, target, clouds)) {
-            Film.Shot shot = film.replayShot != null ? film.replayShot : film.recording;
-            Incoming.LOG.warn("SCENARIO film staging {}: цель {} от камеры {} — через слой облаков ({})", shot == null ? "-" : shot.name,
+            Incoming.LOG.warn("SCENARIO film staging {}: цель {} от камеры {} — через слой облаков ({})", plan(),
                     xyz(target), xyz(eye), String.format(Locale.ROOT, "%.0f", clouds));
         }
         // луч по чанкам, которых у клиента нет, свободен — но их и не видно; у края прорисовки — туман
         boolean fog = Rig.beyondFog(eye, target);
         boolean missing = mc.level.getChunkSource().getChunkNow(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) == null;
         if (fog || missing) {
-            Film.Shot shot = film.replayShot != null ? film.replayShot : film.recording;
             Incoming.LOG.warn("SCENARIO film staging {}: цель {} в {} блоках от камеры {} — {} (прорисовка {} блоков)",
-                    shot == null ? "-" : shot.name, xyz(target), String.format(Locale.ROOT, "%.0f", Math.hypot(d.x, d.z)), xyz(eye),
+                    plan(), xyz(target), String.format(Locale.ROOT, "%.0f", Math.hypot(d.x, d.z)), xyz(eye),
                     fog ? "в тумане у края прорисовки" : "чанка цели у клиента ещё нет",
                     String.format(Locale.ROOT, "%.0f", mc.gameRenderer.getRenderDistance()));
         }
+    }
+
+    /**
+     * План, к которому идёт залп: шаг сценария, который сейчас идёт. Залп плана — в его {@code onReady}, на тик раньше,
+     * чем план начинает запись; {@code -} — залп вне плана.
+     */
+    private String plan() {
+        return film.steps.peek() instanceof Film.Shot s ? s.name : "-";
     }
 
     /** Пусковая на прямой через точку {@code over} к цели, в {@code d} блоках позади точки: снаряд пройдёт над ней. */
