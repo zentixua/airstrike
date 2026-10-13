@@ -1082,7 +1082,7 @@ final class War {
      */
     private void nukeFar() {
         detonate(FINAL_ROOF);
-        film.shot("p46").length(70).hidden()
+        film.shot("p46").length(100).hidden()
                 .camera(() -> CineCamera.track(FINAL_ROOF.add(3, 3, -10), () -> GZ.add(0, 480, 0), 60))
                 .when(() -> film.sinceDetonation() >= 0, 600);
         film.shot("p47").length(70).hidden()
