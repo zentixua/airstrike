@@ -119,6 +119,8 @@ final class War {
     static final Vec3 SUB_TOP = new Vec3(3362.5, 63, 269.5), SUB_BOTTOM = new Vec3(3392.5, 47, 269.5);
     /** Станция метро под ними по карте (светокамень, факелы и красные факелы). */
     static final BlockPos STATION_MIN = new BlockPos(3330, 20, 240), STATION_MAX = new BlockPos(3470, 64, 300);
+    /** Лампы станции в кадре p16 — ближе этого; поле зрения камеры по вертикали. */
+    private static final double STATION_RANGE = 64, STATION_FOV = 72;
     /** Улица у южного края площади (площадь — x 3110–3240, z 238–310, земля 62). */
     static final Vec3 AVENUE = new Vec3(3200.5, 0, 292.5);
     /** Эпицентр воздушного взрыва; крыша финала в ~900 блоках от него. */
@@ -168,6 +170,9 @@ final class War {
     /** Проверка ламп в кадре идущего плана ({@link #lampsFrom}). */
     @Nullable
     private LampsQa lampsQa;
+    /** Камера p16 ({@link #stationView}): у укрывшихся, где в кадре больше всего горящих ламп станции. */
+    @Nullable
+    private LampsQa.View stationView;
     @Nullable
     private FightQa fightQa;
     private Object frontMarkedIn;
@@ -1037,18 +1042,61 @@ final class War {
      * p16: метро изнутри, среди укрывшихся: удары наверху доходят глухо, ракета выбивает узел сети над станцией —
      * станция гаснет (её квартал сети — один), светит только спуск с улицы. Лампы в кадре — по данным (LampsQa).
      * Узел — на улице над станцией, среди высоток: ракета заходит туда, где над последним участком рельеф ниже всего
-     * ({@link #clearApproach}, маршрутом через точку), иначе бьёт в верх высоток с недолётом и узел цел.
+     * ({@link #clearApproach}, маршрутом через точку), иначе бьёт в верх высоток с недолётом и узел цел. Камера — у
+     * укрывшихся, туда, где в кадре больше всего горящих ламп станции ({@link #stationView}): от спуска к лестнице их в
+     * кадре две (запись на ноутбуке и netcup), гаснущей станции так не видно.
      */
     private void p16() {
         Vec3 above = SUB_BOTTOM.add(4, 17, 0);
         gridNode(above, 128);
+        film.run(this::stationView);
         film.shot("p16").length(60).hidden()
                 .onReady(() -> missileInto("p16", 2, 4, above, new Vec3(2000, 0, 270)))
-                .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 60,
-                        () -> SUB_BOTTOM.add(-8, 3, 0), 72))
+                .camera(this::stationCamera)
                 .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000)
-                .cue(0, () -> lampsFrom("p16", 64, 0.9))
+                .cue(0, () -> lampsFrom("p16", STATION_RANGE, 0.9))
                 .cueEnd(this::lampsEnd);
+    }
+
+    /**
+     * Место камеры p16 у укрывшихся (до 16 блоков от места, куда они сбежали) и направление, где в кадре горящих ламп
+     * сети станции с запасом и больше всего людей ({@link LampsQa#bestView}); меньше {@link LampsQa#MIN} — WARN.
+     */
+    private void stationView() {
+        // люди — там, куда бегут (metroCrowd): в части east план идёт сразу за p15, и часть их ещё на лестнице
+        Vec3 shelter = SUB_BOTTOM.add(6, 1.2, 0);
+        List<Vec3> people = new ArrayList<>();
+        for (var p : mc.level.players()) {
+            if (!p.getGameProfile().getName().startsWith("Run")) continue;
+            Vec3 chest = p.position().add(0, 1.2, 0);
+            people.add(chest.distanceTo(shelter) < 4 ? chest : shelter);
+        }
+        stationView = LampsQa.bestView(mc, shelter, 16, STATION_RANGE, STATION_FOV, people);
+        if (stationView == null || stationView.lamps() < LampsQa.MIN) {
+            Incoming.LOG.warn("SCENARIO film staging: p16 — ни с одного места у укрывшихся в кадре нет {} горящих ламп сети (лучший вид {})",
+                    LampsQa.MIN, stationView);
+        } else {
+            Incoming.LOG.info("SCENARIO film staging: p16 — камера {} курс {} наклон {}: ламп сети в кадре {}, людей {}", stationView.eye(),
+                    stationView.yaw(), stationView.pitch(), stationView.lamps(), stationView.people());
+        }
+    }
+
+    /** Камера p16: из выбранного места отъезд на 1,5 блока назад (вперёд, если сзади стена); мест нет — прежняя, к лестнице. */
+    private CineCamera.Path stationCamera() {
+        LampsQa.View v = stationView;
+        if (v == null) {
+            return CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 60, () -> SUB_BOTTOM.add(-8, 3, 0), STATION_FOV);
+        }
+        Vec3 f = v.forward(), at = v.eye().add(f.scale(12)), flat = new Vec3(f.x, 0, f.z).normalize().scale(1.5);
+        Vec3 to = open(v.eye(), v.eye().subtract(flat)) ? v.eye().subtract(flat) : open(v.eye(), v.eye().add(flat)) ? v.eye().add(flat) : v.eye();
+        return CineCamera.dolly(v.eye(), to, 60, () -> at, STATION_FOV);
+    }
+
+    /** Между точками нет блоков (с запасом на ширину камеры). */
+    private boolean open(Vec3 a, Vec3 b) {
+        Vec3 d = b.subtract(a).normalize().scale(0.4);
+        return mc.level.clip(new ClipContext(a, b.add(d), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty())).getType()
+                == HitResult.Type.MISS;
     }
 
     private void racks() {

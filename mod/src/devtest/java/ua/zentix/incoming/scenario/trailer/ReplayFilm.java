@@ -51,8 +51,8 @@ import java.util.stream.Stream;
  * <p>
  * Память: после открытия каждого повтора — гистограмма живых объектов ({@link HeapProbe}, сама делает полную сборку),
  * строка {@code SCENARIO film heap N <повтор>: куча живых … МБ; миров сервера …} (файл — {@code <вывод>/heap/histo-N-<повтор>.txt}):
- * прежние повторы должны уйти из памяти целиком — миров сервера не больше, чем у открытого, сервер и мир клиента по одному;
- * больше — WARN «прежние повторы в памяти». {@code INCOMING_FILM_LEAK=1} — ещё и выборка старых объектов JFR с путями до
+ * миров сервера больше, чем у открытого, — прежние повторы ещё в памяти; живого больше {@link #HEAP_SHARE} кучи — клиент
+ * уходит на границе повторов ({@link #restart}). {@code INCOMING_FILM_LEAK=1} — ещё и выборка старых объектов JFR с путями до
  * корней GC (строки {@code … holder}, файлы {@code heap/old-N.*}; {@code build.gradle} даёт JVM нужный для путей стек потока VM).
  * Миры повтора, которые Flashback закрывает без события выгрузки, получают его от {@link ReplayLevelUnload}.
  */
@@ -66,8 +66,11 @@ public final class ReplayFilm {
     private static final int DH_WAIT = 600;
     /** Ключи камеры — с запасом до начала (вывод ставит камеру и чуть раньше). */
     private static final int EXPORT_LEAD = 40;
-    /** Доля кучи, живого больше которой после открытия повтора клиент заменяется новым после этого повтора. */
-    private static final double HEAP_SHARE = 0.7;
+    /**
+     * Доля кучи, живого больше которой после открытия повтора клиент заменяется новым после этого повтора: вывод повтора
+     * сверх замера берёт ещё до 1,5 ГБ (чанки у камер, кадры), закрытый повтор остаётся в памяти на 0,4–0,6 ГБ.
+     */
+    private static final double HEAP_SHARE = 0.6;
 
     private final Minecraft mc = Minecraft.getInstance();
     private final Path root, replays, out;
@@ -82,9 +85,10 @@ public final class ReplayFilm {
     @Nullable
     private HeapProbe.OldObjects jfr;
     /**
-     * Почему клиент заменяется новым на границе повторов ({@code null} — не заменяется): прежние повторы не ушли из
-     * памяти или живого больше {@link #HEAP_SHARE} кучи. Оставшиеся планы снимает новый клиент ({@code film.sh} запускает
-     * его, пока есть файл {@code <вывод>/restart}), по {@code best.txt} — с того же места.
+     * Почему клиент заменяется новым на границе повторов ({@code null} — не заменяется): живого больше {@link #HEAP_SHARE}
+     * кучи. Закрытые повторы держат в памяти и моды (Create, Aeronautics — свои карты по миру сервера, без снятия), поэтому
+     * клиент уходит раз в несколько повторов. Оставшиеся планы снимает новый клиент ({@code film.sh} запускает его, пока
+     * есть файл {@code <вывод>/restart}), по {@code best.txt} — с того же места.
      */
     @Nullable
     private String restart;
@@ -206,8 +210,8 @@ public final class ReplayFilm {
     }
 
     /**
-     * Замер после открытия повтора: прежний закрыт, его серверу, мирам и чанкам в памяти места нет. Миров сервера — не
-     * больше, чем у открытого повтора, сервер и мир клиента — по одному; держатели — в выборке JFR, если она пишет.
+     * Замер после открытия повтора (прежний закрыт): живое после полной сборки, миры сервера и клиента, чанки; держатели —
+     * в выборке JFR, если она пишет. Живого больше {@link #HEAP_SHARE} кучи — клиент уйдёт на следующей границе повторов.
      */
     private void probeHeap() {
         String tag = "SCENARIO film heap " + ++opened;
@@ -221,12 +225,8 @@ public final class ReplayFilm {
             Incoming.LOG.info("{} {}: куча живых {} МБ из {}{}; миров сервера {} (у повтора {}), серверов {}, миров клиента {}, чанков {}, держателей чанков {}",
                     tag, openReplay, live, max, HeapProbe.pools(), servers, own, integrated, clients,
                     h.count("net.minecraft.world.level.chunk.LevelChunk"), h.count("net.minecraft.server.level.ChunkHolder"));
-            if (servers > own || integrated > 1 || clients > 1) {
-                Incoming.LOG.warn("{} {}: прежние повторы в памяти — миров сервера {} при {} у повтора, серверов {}, миров клиента {} ({})", tag, openReplay,
-                        servers, own, integrated, clients, h.file());
-                restart = "прежние повторы в памяти";
-            } else if (live > max * HEAP_SHARE) {
-                restart = "живого " + live + " МБ из " + max;
+            if (live > max * HEAP_SHARE) {
+                restart = "живого " + live + " МБ из " + max + (servers > own ? ", прежних миров сервера в памяти " + (servers - own) : "");
             }
         } catch (Exception | LinkageError ex) {
             Incoming.LOG.warn("{}: гистограммы нет", tag, ex);
@@ -450,7 +450,7 @@ public final class ReplayFilm {
         EventLog.Mark start = data.mark("start"), end = data.mark("end");
         int sa = start == null ? 0 : start.t(), sb = end == null ? data.ticks : end.t();
         a = sa;
-        b = sb;
+        b = spec.span() > 0 ? Math.min(sb, sa + spec.span()) : sb;
         if (subject.key >= 0) {
             // удар — то, ради чего план: окно держит его с запасом, даже если сценарий кончил план раньше удара
             a = Math.min(a, subject.key - Coverage.HIT_MARGIN);

@@ -18,12 +18,14 @@ final class Coverage {
      * План: {@code replay} — имя повтора (файлы {@code replays/<replay>.zip} и {@code .events.jsonl}), окно — как его снял
      * сценарий (отметки «start»…«end» журнала; там же камера сценария), а удар объекта — в нём с запасом
      * {@link #HIT_MARGIN}: сценарий кончает план по времени, а снаряд входит в цель, когда долетит. Повтор идёт вживую
-     * {@code warm} тиков до начала плана: дым, огонь и столбы прежних ударов — в кадре с первого кадра.
+     * {@code warm} тиков до начала плана: дым, огонь и столбы прежних ударов — в кадре с первого кадра. {@code span} —
+     * сколько тиков окна от начала берёт монтаж, если меньше записанного (0 — всё окно): проверка кадров — по тому, что
+     * войдёт в ролик.
      */
     record Spec(String shot, String replay, Function<EventLog.Data, Rig.Subject> subject, List<Rig.Kind> kinds, double minShare, Need need,
-                int warm) {
+                int warm, int span) {
         Spec(String shot, String replay, Function<EventLog.Data, Rig.Subject> subject, List<Rig.Kind> kinds, double minShare, Need need) {
-            this(shot, replay, subject, kinds, minShare, need, 100);
+            this(shot, replay, subject, kinds, minShare, need, 100, 0);
         }
     }
 
@@ -121,7 +123,7 @@ final class Coverage {
         own("p20", Rig.flight("rocket"), false, LAUNCH);
         // p21: с хребта — рой шахедов над камерой уходит к горящему городу и входит в дома; объект — первый удар роя
         // (шахеды проходят над камерой выше кадра и входят в него сверху, по пути к домам)
-        add(new Spec("p21", "p21", Rig.impact("drone", null, 0), List.of(Rig.own(false), tripod()), 0.004, new Need(0.4, 0, 0.6, 0), 300));
+        add(new Spec("p21", "p21", Rig.impact("drone", null, 0), List.of(Rig.own(false), tripod()), 0.004, new Need(0.4, 0, 0.6, 0), 300, 0));
         own("p01c", Rig.flight("rocket"), false, LAUNCH);
         own("p22a", Rig.flight("drone"), false, OVERHEAD);
         // b: перехваты и прорыв — удар шахеда, который ЗРК не сбили, в кадре
@@ -153,7 +155,9 @@ final class Coverage {
         // IV · конец света
         own("p40b", Rig.flight("rocket"), false, LAUNCH);
         own("p40c", Rig.flight("missile"), false, LAUNCH);
-        own("p41", Rig.flight("nuke"), false, LAUNCH);
+        // монтаж берёт первые 4,1 с из пяти; МБР входит в слой облаков (320) своим разгоном на ~2,7 с плана — дальше в кадре
+        // её след под облаками, «уходит в ночь»
+        add(new Spec("p41", "p41", Rig.flight("nuke"), List.of(Rig.own(false)), 0.004, LAUNCH, 100, 86));
         own("p42", Rig.flight("nuke"), false, new Need(0.7, 0, 0, 0));
         own("p44", Rig.scene(), false, SCENE);
         own("p45", Rig.nuke(300), false, SCENE.smokeIsSubject());
