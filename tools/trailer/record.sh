@@ -43,6 +43,17 @@ joinedFirstServer:true
 lang:${INCOMING_LANG:-ru_ru}
 renderClouds:"${INCOMING_CLOUDS:-true}"
 OPT
+# боты Almighty в войне (жители, расчёты, солдаты) — больше предела по умолчанию (bots.max = 8, «Already 8 bots»)
+if [ -n "${INCOMING_FILM:-}" ]; then
+  ALM="$RUN/config/almighty-common.toml"
+  mkdir -p "$RUN/config"
+  if [ -f "$ALM" ] && grep -q '^\[bots\]' "$ALM"; then
+    awk '/^\[/ { bots = ($0 == "[bots]") } bots && /^[[:space:]]*max[[:space:]]*=/ { sub(/=.*/, "= 100") } { print }' "$ALM" > "$ALM.tmp"
+    mv "$ALM.tmp" "$ALM"
+  else
+    printf '\n[bots]\n\tmax = 100\n' >> "$ALM"
+  fi
+fi
 export INCOMING_SIZE="${INCOMING_SIZE:-1920x1080}"
 W="${INCOMING_SIZE%x*}"; H="${INCOMING_SIZE#*x}"
 # кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)

@@ -84,7 +84,12 @@ final class Cast {
         p.addProperty("gamemode", "survival");
         p.addProperty("auto_respawn", false);
         if (skin != null) p.addProperty("skin", skin);
-        call("bot.spawn", p);
+        // бот — часть плана: не вошёл (предел bots.max Almighty, имя занято) — строка в лог записи, вход не ждать
+        call("bot.spawn", p).whenComplete((r, e) -> {
+            if (e == null) return;
+            joining.remove(name);
+            Incoming.LOG.error("SCENARIO film cast failed: бот {} не вошёл: {}", name, e.toString());
+        });
     }
 
     void remove(String name) {
