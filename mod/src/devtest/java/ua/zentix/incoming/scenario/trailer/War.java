@@ -732,16 +732,21 @@ final class War {
         stageScene("airship", airship, -90);
         clearSams(airship, 160);
 
-        // p25: снизу из двора: рой шахедов проходит над головой и уходит над крышами к цели (дома слева и снизу кадра)
+        // p25: из двора, длинный фокус навстречу рою: шахеды идут над крышами прямо на камеру. Залп шахедов выходит по
+        // одному раз в 1–2 с, поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук
         Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
         hiddenAt(street, swarm);
         film.shot("p25").length(60).hidden()
-                .onReady(() -> salvo("drone", 30, 70, swarm, behind(street, at(swarm), 900)))
+                .onReady(() -> {
+                    Vec3 dir = at(swarm).subtract(at(street)).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
+                    for (int i = -2; i <= 2; i++) salvo("drone", 6, 40, swarm, behind(street, at(swarm), 900).add(side.scale(i * 40)));
+                })
                 .camera(() -> {
                     Vec3 c = g(street).add(0, 1.4, 0);
-                    return CineCamera.track(c, () -> c.add(29, 72, 27.5), 60);
+                    Vec3 dir = at(swarm).subtract(c).multiply(1, 0, 1).normalize();
+                    return CineCamera.track(c, () -> c.subtract(dir.scale(100)).add(0, 36, 0), 30);  // на 20° вверх, над крышами
                 })
-                .when(() -> flightOver(at(street), 30, WeaponType.DRONE), 3000);
+                .when(() -> flightOver(at(street), 220, WeaponType.DRONE), 3000);
 
         // p01d: шахеды над головой игрока со стороны затылка
         // поле к западу от центра: над ним открытое небо
