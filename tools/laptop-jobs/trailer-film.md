@@ -85,23 +85,34 @@ W4=mod/run/scenario/film-war4
 for S in $(awk '$3 != "PASS" {print $1}' $W4/render/best.txt); do
   echo "== $S"; uv run tools/trailer/journal.py $W4/replays/$S.events.jsonl --region mod/run/scenario/saves/war4-retake/region
 done > $W4/journal.txt 2>&1
+python3 tools/trailer/drift.py $W4 > $W4/drift.txt
 ```
+`drift.txt` — у каких планов снаряд в журнале записи ушёл с пути (очередь мест до `22b2cfd` при отставании сервера:
+в записи 86 строк `Can't keep up`); камеры таких планов ставились по ушедшему месту, вывод показывает настоящее.
 
 ## 4. Монтаж
-Поверх всего `film-war2` (прежний вывод — запасной для плана, который теперь не прошёл): p03 с туманом c2 (новый
-вывод, если есть), `render-human`, `render-human2` (p01a и p42 — если в его отчёте PASS и дрожь объекта меньше, чем в
-`render-human`; иначе строку `$(rec $W2/render-human2/best.txt)` убрать), затем живые планы и вывод `film-war4`. Строки `best.txt` с «-» вместо папки — план
-не снят (причина в той же строке), в `--rec` их нет.
+Дубль плана — новейший прошедший проверку (PASS), а если у плана таких нет — новейший какой есть. Порядок дублей:
+`film-war2` (`render`, p03 с туманом c2, `render-human`, `render-human2`), затем живые планы и вывод `film-war4`.
+`render-human2` (p01a и p42) — если в его отчёте PASS и дрожь объекта меньше, чем в `render-human`; иначе оба
+`$(rec $W2/render-human2/best.txt …)` убрать. Строки `best.txt` с «-» вместо папки — план не снят (причина в той же
+строке), в `--rec` их нет.
 ```sh
 W2=mod/run/scenario/film-war2 W4=mod/run/scenario/film-war4
-rec() { [ -f "$1" ] && awk -v s="${2:-}" '$2 != "-" && (s == "" || $1 == s) {printf "--rec %s ", $2}' "$1"; }
-ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) \
-  $(rec $W2/render-fog-c2-alt110-d3.05-dist200/best.txt p03) $(rec $W2/render-fog-c2-human/best.txt p03) \
-  $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>"
+# rec <best.txt> [план] [итог]: папки дублей; второй проход — только PASS, он поверх первого
+rec() { [ -f "$1" ] && awk -v s="${2:-}" -v v="${3:-}" '$2 != "-" && (s == "" || $1 == s) && (v == "" || $3 == v) {printf "--rec %s ", $2}' "$1"; }
+FOG1=$W2/render-fog-c2-alt110-d3.05-dist200/best.txt FOG2=$W2/render-fog-c2-human/best.txt
+ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) $(rec $FOG1 p03) $(rec $FOG2 p03) \
+  $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) \
+  $(rec $W2/render/best.txt '' PASS) $(rec $FOG1 p03 PASS) $(rec $FOG2 p03 PASS) \
+  $(rec $W2/render-human/best.txt '' PASS) $(rec $W2/render-human2/best.txt '' PASS) $(rec $W4/render/best.txt '' PASS) \
+  --music <Juggernaut.mp3>"
 mkdir -p dist && echo "uv run tools/trailer/edit.py $ARGS" > dist/incoming-trailer-edit.sh
 uv run tools/trailer/edit.py $ARGS 2>&1 | tee dist/incoming-trailer-edit.log
 ```
-`dist/incoming-trailer-edit.sh` — монтаж как есть: правка по замечанию утром — эта строка с `--rec` нового дубля в конце.
+Живой план (кадры в `timeline.jsonl` папки записи, итог — таблицы hud/grid/fight отчёта) берётся из `film-war4`; если
+там он хуже, чем в `film-war2` (p34: «момент не наступил»), — `--take p34=$W2` в конце строки: дубль плана из этой
+папки, что бы ни дали `--rec`.
+`dist/incoming-trailer-edit.sh` — монтаж как есть: правка по замечанию утром — эта строка с `--take <план>=<папка дубля>` в конце.
 Звук пуска p01c (монтаж прежде писал «p01c: no sound:rocket.launch»): какие звуки есть в журнале выведенного p01c —
 ```sh
 grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/timeline.jsonl" | sort | uniq -c | sort -rn | head -20
@@ -109,5 +120,5 @@ grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/
 
 Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `dist/incoming-trailer-cuts.md` (время в трейлере → план,
 окно плана, откуда дубль), `dist/incoming-trailer-edit.sh`, `film-war4/render/report.md`, `film-war4/render/best.txt`,
-`film-war4/journal.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
+`film-war4/journal.txt`, `film-war4/drift.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
 ошибки из логов записи и вывода (`Exception`, `ERROR` мода).
