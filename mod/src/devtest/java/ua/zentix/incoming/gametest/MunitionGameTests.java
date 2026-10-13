@@ -38,6 +38,7 @@ import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.nuclear.NuclearEvents;
 import ua.zentix.incoming.registry.ModDataComponents;
 import ua.zentix.incoming.registry.ModItems;
+import ua.zentix.incoming.strike.ChunkTickets;
 import ua.zentix.incoming.strike.Loadout;
 import ua.zentix.incoming.strike.Munitions;
 import ua.zentix.incoming.strike.SalvoData;
@@ -226,9 +227,11 @@ public final class MunitionGameTests {
         p.moveTo(Vec3.atBottomCenterOf(h.absolutePos(new BlockPos(16, 4, 60))), 0, 0);
         int[] vetoed = {0};
         boolean[] crash = {false};
+        List<UUID> tried = new ArrayList<>();
         Consumer<EntityJoinLevelEvent> veto = e -> {
             if (e.getEntity() instanceof StrikeProjectile proj && p.getUUID().equals(proj.ownerId())) {
                 vetoed[0]++;
+                tried.add(proj.getUUID());
                 if (crash[0]) throw new IllegalStateException("проверка: пуск падает с ошибкой");
                 e.setCanceled(true);
             }
@@ -268,6 +271,8 @@ public final class MunitionGameTests {
         h.assertValueEqual(vetoed[0], 3, "шахед не пытался войти в мир");
         h.assertValueEqual(held(p, shahed), 1, "шахед после пуска с ошибкой");
         h.assertTrue(p.last("incoming.munitions.refunded") != null, "нет строки о возврате после ошибки");
+        // снаряд берёт тикеты своих чанков до входа в мир: не вошедший их отпускает, и упавший тоже
+        for (UUID id : tried) h.assertValueEqual(ChunkTickets.held(level, id), 0, "тикеты чанков не вошедшего в мир снаряда " + id);
         h.succeed();
     }
 
