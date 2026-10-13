@@ -160,6 +160,8 @@ class EditTest(unittest.TestCase):
         self.assertEqual(edit.caption("fly", {"weapon": "fly", "numbers": {"seconds": 30, "impacts": 0}})[0], "A slow camera flight during an air raid.")
         self.assertEqual(edit.caption("fly", {"weapon": "shahed", "numbers": {"seconds": 81, "passes": 9, "heat": 40}}),
                          ("FPV drone passes by 9 strikes during a raid of Shahed drones.", "Проходы FPV-дрона мимо ударов во время налёта (шахеды): 9."))
+        fpv = {"preview": "fly", "weapon": "shahed", "numbers": {"seconds": 81, "passes": 9}}
+        self.assertEqual(edit.shown(fpv, [{"name": f"fly-0-fpv{i}"} for i in (1, 2, 4)])["numbers"]["passes"], 3, "в подписи — вошедшие проходы")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху
