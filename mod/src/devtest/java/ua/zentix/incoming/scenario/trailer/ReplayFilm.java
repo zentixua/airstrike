@@ -92,7 +92,7 @@ public final class ReplayFilm {
 
     public ReplayFilm() {
         try {
-            // члены Flashback, которые зовёт вывод (и слушатели входа зрителя в потоке сервера повтора), на месте
+            // члены Flashback, которые зовёт вывод, на месте
             FlashbackApi.check();
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Flashback: нет " + e.getMessage(), e);
@@ -149,7 +149,6 @@ public final class ReplayFilm {
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
-        FlashbackApi.deferSnapshotPayloads();
         if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
@@ -159,6 +158,7 @@ public final class ReplayFilm {
 
     private void onScreen(ScreenEvent.Init.Post e) {
         if (state != State.TITLE || !(e.getScreen() instanceof TitleScreen)) return;
+        if (FrameQa.DH) DhGenerator.require();
         next();
     }
 
@@ -230,7 +230,6 @@ public final class ReplayFilm {
         switch (state) {
             case OPENING -> {
                 if (mc.level != null && mc.player != null && FlashbackApi.inReplay()) {
-                    FlashbackApi.releaseSnapshotPayloads();
                     // редактор Flashback не активен без интерфейса — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);

@@ -1,6 +1,7 @@
 package ua.zentix.incoming.scenario.trailer;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -18,6 +19,7 @@ import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
@@ -129,6 +131,12 @@ abstract class Film {
         NeoForge.EVENT_BUS.addListener(this::hideActor);
         NeoForge.EVENT_BUS.addListener(this::hideHand);
         NeoForge.EVENT_BUS.addListener(this::hideName);
+        if (REPLAY && net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) {
+            // до открытия мира (ClientScenario.onScreen): генератор DH писал бы LOD в базу мира с первого тика
+            NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, false, ScreenEvent.Init.Post.class, e -> {
+                if (e.getScreen() instanceof TitleScreen) DhGenerator.require();
+            });
+        }
     }
 
     // ================================================================ кто в кадре

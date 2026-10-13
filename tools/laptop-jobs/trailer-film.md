@@ -53,6 +53,9 @@ for P in all nukeB nukeC icbm p01e p37b; do
 done
 ```
 После каждой части в `mod/run/scenario/logs/latest.log`:
+- `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`: генератор DH выключен, LOD — только из базы мастера и
+  загруженных чанков (`record.sh` пишет это в `mod/run/scenario/config/DistantHorizons.toml`; без этой строки запись
+  не начинается — прислать лог);
 - нет `SCENARIO film cast failed` (боты войны: `record.sh` ставит `bots.max = 100`);
 - `SCENARIO film staging …` — только «в тумане у края прорисовки» или «чанка цели у клиента ещё нет» (цели дальше
   прорисовки), без «закрыта» и «через слой облаков»;
@@ -65,8 +68,9 @@ done
 INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 ```
 В логе:
-- `SCENARIO film: пакеты модов из снимка повтора (N) — зрителю в мире повтора` у повторов с Point Blank, без
-  `Failed to handle packet`, `DecoderException` и отключения от повтора;
+- `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`, как у записи;
+- нет `Failed to handle packet`, `DecoderException` и `повтор закрылся` (отключение от повтора; есть — прислать
+  стек целиком с 30 строками до него);
 - в `qa.jsonl` выводимых кандидатов `"dh":1` в каждом кадре; перед каждым выводом текстуры DH пересоздаются в размер
   окна (строки `SCENARIO film dh textures 960x540 …`), строк «текстуры LOD DH размера вывода» нет или они редки
   (такой кандидат не выводится — прислать их).

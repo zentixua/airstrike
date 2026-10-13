@@ -54,6 +54,21 @@ if [ -n "${INCOMING_FILM:-}" ]; then
     printf '\n[bots]\n\tmax = 100\n' >> "$ALM"
   fi
 fi
+# LOD Distant Horizons у съёмки — только из базы мира и загруженных чанков: генератор DH строил бы их, где их нет в базе,
+# рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md)
+if [ -n "${INCOMING_FILM:-}" ] && [ -n "${INCOMING_DH:-}" ]; then
+  DHC="$RUN/config/DistantHorizons.toml"
+  mkdir -p "$RUN/config"
+  touch "$DHC"
+  awk '
+    function keys() { print "\tgeneratorPlan = \"DISABLED\""; print "\tchunkGeneratorMode = \"PRE_EXISTING_ONLY\""; done = 1 }
+    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); gen = (h == "[common.worldGenerator]"); print; if (gen) keys(); next }
+    gen && /^[[:space:]]*(generatorPlan|chunkGeneratorMode)[[:space:]]*=/ { next }
+    { print }
+    END { if (!done) { print ""; print "[common.worldGenerator]"; keys() } }
+  ' "$DHC" > "$DHC.tmp"
+  mv "$DHC.tmp" "$DHC"
+fi
 export INCOMING_SIZE="${INCOMING_SIZE:-1920x1080}"
 W="${INCOMING_SIZE%x*}"; H="${INCOMING_SIZE#*x}"
 # кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)
