@@ -3,7 +3,6 @@ package ua.zentix.replayscan;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.PauseScreen;
-import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.common.Mod;
@@ -14,7 +13,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.slf4j.Logger;
 
 /**
- * Разбор повтора Flashback без окна (README.md): на экране заглавия клиент открывает повтор, пускает его с
+ * Разбор повтора Flashback без окна (README.md): после загрузки клиент открывает повтор, пускает его с
  * {@link Settings#speed} и не рисует; сервер повтора в конце каждого тика отдаёт мир {@link Scan}; дошёл до конца —
  * таблицы закрыты, игра выходит. Без {@code -Dreplayscan.replay} мод ничего не делает.
  */
@@ -53,8 +52,18 @@ public final class ReplayScan {
         try {
             switch (phase) {
                 case WAIT -> {
-                    if (!(mc.screen instanceof TitleScreen)) return;
+                    // загрузка кончилась: заглавие или экран поверх него (первый запуск — экран специальных
+                    // возможностей, у модов — свои), повтор их сменит
+                    if (mc.getOverlay() != null || mc.screen == null || mc.level != null) {
+                        stall(mc, "title screen did not appear");
+                        if (failure != null) {
+                            phase = Phase.CLOSING;
+                            finish();
+                        }
+                        return;
+                    }
                     // без паузы при потере фокуса (окна под xvfb нет), прорисовка — как у записи и не меньше
+                    mc.options.onboardAccessibility = false;
                     mc.options.pauseOnLostFocus = false;
                     mc.options.renderDistance().set(32);
                     mc.options.save();
