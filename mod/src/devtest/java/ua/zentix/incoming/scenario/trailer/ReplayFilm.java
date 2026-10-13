@@ -43,7 +43,8 @@ import java.util.stream.Stream;
  * Папка съёмки — {@code INCOMING_TRAILER_DIR} (как у записи): повторы в {@code replays/}, вывод в {@code render/<план>/<кандидат>/}
  * (кадры {@code frames/<план>/00000.png…} и {@code timeline.jsonl} — как у живой записи, монтаж берёт папку через
  * {@code --rec}), {@code qa.jsonl} — проверка по кадрам, {@code render/report.jsonl} — итоги, {@code render/best.txt} —
- * папки планов для монтажа. {@code INCOMING_FILM_SHOTS} — только эти планы; {@code INCOMING_FILM_TRIES} — сколько
+ * папки планов для монтажа; {@code INCOMING_FILM_OUT} — другая папка вывода вместо {@code render} (варианты плана с другими
+ * настройками шейдерпака из того же повтора). {@code INCOMING_FILM_SHOTS} — только эти планы; {@code INCOMING_FILM_TRIES} — сколько
  * кандидатов выводить (3), {@code INCOMING_FILM_HOLD} — тиков стоять в начале после постройки мира (20; Distant Horizons
  * строит LOD после перемотки ~60). Строки лога: {@code SCENARIO film …}, в конце {@code SCENARIO done}.
  */
@@ -106,7 +107,7 @@ public final class ReplayFilm {
         // пути полные: best.txt читают монтаж и скрипты не из каталога игры
         root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).toAbsolutePath().normalize();
         replays = root.resolve("replays");
-        out = root.resolve("render");
+        out = root.resolve(System.getenv().getOrDefault("INCOMING_FILM_OUT", "render"));
         String[] size = System.getenv().getOrDefault("INCOMING_SIZE", "1920x1080").split("x");
         width = Integer.parseInt(size[0]);
         height = Integer.parseInt(size[1]);

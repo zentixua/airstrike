@@ -104,7 +104,7 @@ if [ "${1:-}" = shaders ]; then
   # настройки шейдерпака у Iris — <пак>.txt рядом с ним: слой облаков Complementary (CLOUD_ALT1, толщина ±4,2, шаг
   # настройки 4) — над всем действием, его низ не ниже INCOMING_FILM_CLOUDS (по нему проверка кадра считает облака);
   # INCOMING_SHADER_OPTS — ещё настройки пака «ИМЯ=значение» через пробел (план со своими настройками выводится
-  # отдельным запуском с INCOMING_FILM_SHOTS)
+  # отдельным запуском с INCOMING_FILM_SHOTS в свою папку INCOMING_FILM_OUT)
   OPTS="$RUN/shaderpacks/$PACK.txt"
   : > "$OPTS"
   if [ -n "${INCOMING_FILM_CLOUDS:-}" ]; then

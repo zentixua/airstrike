@@ -8,7 +8,8 @@
 # Нужны Flashback 0.39 (Fabric), Flashback NeoForge Fixed, Sinytra Connector и Forgified Fabric API в каталоге модов
 # (INCOMING_MODS_DIR или инстанс) и «чистый» jar клиента для Connector (INCOMING_CONNECTOR_CLEAN, иначе — из
 # библиотек Prism). Остальное — как у record.sh (INCOMING_SIZE, INCOMING_WAR_PART, INCOMING_TRAILER_SHOTS,
-# INCOMING_FILM_SHOTS, INCOMING_RENDER_DISTANCE: у вывода — не меньше, чем у записи, иначе дальние чанки повтора
+# INCOMING_FILM_SHOTS, INCOMING_FILM_OUT (папка вывода вместо render: вариант плана, например с INCOMING_SHADER_OPTS),
+# INCOMING_RENDER_DISTANCE: у вывода — не меньше, чем у записи, иначе дальние чанки повтора
 # клиент выбросит), INCOMING_FILM_LIVE=0 — запись без кадров планов вживую (интерфейс, дальше прорисовки: их снимает
 # машина с видеокартой). Моды войны (Almighty, Point Blank, Immersive Aircraft) и Distant Horizons берутся из каталога модов
 # всегда; без DH — INCOMING_DH= (пусто: в облаке DH вместо рельефа рисует столбы). Окно вывода — вдвое меньше кадра

@@ -5,6 +5,11 @@
 и не во время его игры; тяжёлое — через `tools/laptop_job.sh`. Удалять на ноутбуке ничего нельзя без слова Артёма:
 прежние папки (`film-war`, `film-war-en`, `film-war-ru`, копии `zearth-film`) остаются как есть.
 
+Порядок: п. 0 и п. 1 — сразу, пока Артём играет (только файлы и чтение кода пака, без видеокарты); запись (п. 2) — как
+только его игра закрыта: ждать, пока нет процесса его клиента (`pgrep -f 'instances/Airstrike Pack'` пусто), и
+начинать без вопросов. Дальше всё подряд без пауз: варианты тумана плана 3 (п. 3), вывод (п. 4), монтаж (п. 5) —
+он ждёт только выбора тумана.
+
 Как устроено (подробно — шапки `tools/trailer/film.sh`, `ReplayFilm`, `Coverage`, `FrameQa`):
 - `film.sh record` — сценарий войны пишет каждый скрытый план повтором Flashback с журналом
   (`<папка>/replays/<план>.zip` и `.events.jsonl`: пути снарядов, удары, люди, кинокамера сценария по тикам, отметки).
@@ -34,7 +39,23 @@
 
 Лицензия Zearth: файлы карты не пушить и не распространять; наружу — только кадры трейлера и текстовые итоги.
 
-## 1. Запись
+## 1. Настройки тумана пака (пока Артём играет)
+План 3 по эталону: пролёт на рассвете на высоте 300 над туманом — город внизу в слое тумана, верхи небоскрёбов центра
+(до y 255) над ним в первом солнце. Камера сценария: от (2830, 300, 290) к (2905, 296, 352) за 60 тиков, взгляд на
+(3060, 200, 560), время 23300, облака — над камерой (`INCOMING_FILM_CLOUDS=320`). Туман под камерой может дать только
+шейдерпак (Complementary из инстанса): нужны его настройки, которые дают такой слой.
+
+Пак — `shaderPack=` в `config/iris.properties` инстанса, сам пак — в `shaderpacks/` инстанса (только читать; `record.sh`
+копирует его в `mod/run/scenario/shaderpacks`). Найти по коду пака всё, что управляет туманом и дымкой:
+`shaders/shaders.properties` (экраны настроек), `#define ИМЯ значение // [значения]` в `shaders/**/*.glsl`, подписи —
+`shaders/lang/en_us.lang`; имена и подписи с fog, mist, haze, atmosphere, altitude, height. Где туман по высоте (его
+верх, плотность, утро и погода) — прочитать код, который его считает. Выбрать до шести наборов настроек, которые по коду
+дают слой тумана с верхом между y 100 и 170 под камерой на 300 при ясной погоде утром.
+
+Прислать сразу, не дожидаясь записи: список настроек (имя, значения, по умолчанию, подпись, что делает по коду — в
+несколько слов) и наборы-кандидаты строкой `ИМЯ=значение ИМЯ=значение`.
+
+## 2. Запись
 Моды — каталог копии для съёмки (`mod/run/film-war/minecraft/mods`: Flashback 0.39.10, flashback_neoforge_fixed,
 Connector, Forgified Fabric API, Sodium 0.8.13, Iris, DH 3.3.3, Create, Sable, Aeronautics, IA, Point Blank, Almighty),
 без jar Incoming (его даёт сборка). Шейдерпак — аргумент `shaders` (Complementary из инстанса). Общие переменные:
@@ -45,7 +66,7 @@ export INCOMING_MODS_DIR=run/film-war/minecraft/mods INCOMING_SIZE=1920x1080 INC
 `INCOMING_FILM_CLOUDS` — низ слоя облаков Complementary над всем действием (проверка кадра считает взгляд через слой
 закрытым). Прорисовка 32 (410 блоков до тумана у края) — у записи и вывода одна.
 
-Части по очереди, каждая на своей свежей копии мастера (п. 0.3), папка записи одна:
+Части по очереди, каждая на своей свежей копии мастера (п. 0.3), папка записи одна (план 3 — в части `all`):
 ```sh
 for P in all nukeB nukeC icbm p01e p37b; do
   cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-$P && chmod -R u+w mod/run/scenario/saves/war2-$P
@@ -63,7 +84,22 @@ done
 Каждый новый повтор — проверка разбора, как на netcup (снимок Flashback может сломаться на 0x08000000): не разобрался —
 переписать его часть на новой копии мастера (прежнюю копию не удалять).
 
-## 2. Вывод
+## 3. Туман плана 3
+Сразу после записи, до вывода (тот же повтор `film-war2/replays/p03.zip`): по умолчанию и каждый набор из п. 1 —
+свой вывод плана 3 в свою папку (`INCOMING_FILM_OUT`; `INCOMING_SHADER_OPTS` — настройки пака на этот запуск):
+```sh
+for C in "default:" "<имя>:<ИМЯ=значение ИМЯ=значение>" …; do
+  N="${C%%:*}" O="${C#*:}"
+  INCOMING_SHADER_OPTS="$O" INCOMING_FILM_OUT="render-fog-$N" INCOMING_FILM_SHOTS=p03 INCOMING_FILM_TRIES=1 \
+    tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+done
+```
+У каждого кандидата — лист из трёх кадров вывода (первый, средний, последний) в ряд, по 640×360, одним JPEG до 1 МиБ.
+Прислать по каждому: строку настроек, итог `render-fog-<имя>/report.jsonl` и лист кадров; выбор придёт сообщением.
+Не ждать его: сразу п. 4.
+
+## 4. Вывод
+Все планы с настройками пака по умолчанию:
 ```sh
 INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 ```
@@ -77,10 +113,15 @@ INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh r
   окна (строки `SCENARIO film dh textures 960x540 …`), строк «текстуры LOD DH размера вывода» нет или они редки
   (такой кандидат не выводится — прислать их).
 
-## 3. Монтаж и отчёт
+## 5. Монтаж и отчёт
+План 3 — из выбранного варианта тумана (`<выбор>` — имя из сообщения): его папка идёт последним `--rec` и заменяет план
+3 вывода по умолчанию.
 ```sh
-uv run tools/trailer/edit.py --lang en --rec mod/run/scenario/film-war2 $(awk '{print "--rec " $2}' mod/run/scenario/film-war2/render/best.txt) --music <Juggernaut.mp3>
-python3 tools/trailer/report.py mod/run/scenario/film-war2/render --md mod/run/scenario/film-war2/render/report.md
+W=mod/run/scenario/film-war2
+uv run tools/trailer/edit.py --lang en --rec $W $(awk '{print "--rec " $2}' $W/render/best.txt) \
+  $(awk '$1 == "p03" {print "--rec " $2}' $W/render-fog-<выбор>/best.txt) --music <Juggernaut.mp3>
+python3 tools/trailer/report.py $W/render --md $W/render/report.md
 ```
 Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `render/report.md`, `render/report.jsonl`, `render/best.txt`,
-`hud.jsonl`, вывод `edit.py` (какие планы — заглушки), ошибки из логов записи и вывода (`Exception`, `ERROR` мода).
+`hud.jsonl`, `grid.jsonl`, `fight.jsonl`, вывод `edit.py` (какие планы — заглушки), ошибки из логов записи и вывода
+(`Exception`, `ERROR` мода).
