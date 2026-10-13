@@ -1019,11 +1019,15 @@ final class War {
             for (int i = 0; i < 4; i++) cast().remove("Crew" + i);
         });
         // p42: огненная точка МБР уходит в ночное небо — с реки, длинный фокус (с Востока за 4 км её не видно: сущность
-        // за дальностью прорисовки не рисуется)
+        // за дальностью прорисовки не рисуется); камера выше деревьев берега, фокус сужается с дальностью — МБР в кадре
+        // не тает в точку
         Vec3 riverCam = NIGHT_POST.add(220, 0, -160);
         film.shot("p42").length(60).hidden().noPrep()
-                .camera(() -> CineCamera.track(g(riverCam).add(0, 6, 0),
-                        film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 400, 0), 0.3), 24));
+                .camera(() -> {
+                    Vec3 from = g(riverCam).add(0, 14, 0);
+                    return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 150, 0), 0.5),
+                            film.rangeFov(from, () -> film.newest(IcbmEntity.class), 20, 7, 250));
+                });
 
         // p43: на Востоке ☢ MISSILE ATTACK ☢ и отсчёт; бой замирает, бойцы опускают оружие и смотрят вверх
         Vec3 c = SQUARE;
