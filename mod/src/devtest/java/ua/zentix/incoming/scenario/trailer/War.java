@@ -1,6 +1,9 @@
 package ua.zentix.incoming.scenario.trailer;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -20,9 +23,11 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.IncomingConfig;
+import ua.zentix.incoming.client.Keys;
 import ua.zentix.incoming.client.cam.ProjectileCamera;
 import ua.zentix.incoming.client.hud.Alerts;
 import ua.zentix.incoming.client.hud.ClientFlights;
@@ -39,6 +44,7 @@ import ua.zentix.incoming.entity.IcbmEntity;
 import ua.zentix.incoming.entity.InterceptorEntity;
 import ua.zentix.incoming.entity.RocketEntity;
 import ua.zentix.incoming.entity.StrikeProjectile;
+import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.registry.ModBlocks;
 import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
@@ -109,6 +115,8 @@ final class War {
     static final Vec3 BATTERY = new Vec3(-1490.5, 68, 525.5);
     /** Наводчик батареи и место расчёта ночью. */
     static final Vec3 POST = new Vec3(-1545.5, 68, 525.5), NIGHT_POST = new Vec3(-1460.5, 68, 525.5);
+    /** Расчёт пусковой МБР; первый — командир, его имя — в строке второго ключа (план 40). */
+    static final String[] CREW = {"Volkov", "Crew1", "Crew2", "Crew3"};
     /** Цель «Градов» батареи: позиции Востока за рекой (дальность «Града» — сотни блоков, не километры). */
     static final Vec3 ROCKET_TARGET = new Vec3(-650.5, 0, 560.5);
 
@@ -203,6 +211,9 @@ final class War {
             c.missileFlightTime.set(5);
             c.bomberFlightTime.set(5);
             c.nukeFlightTime.set(1100);
+            // ядерный удар не оператора (командир расчёта — бот, план 40): по правилам игрока и со вторым ключом
+            c.nukeOpsOnly.set(false);
+            c.designatorForEveryone.set(true);
             c.siren.set(true);
             c.maxSalvo.set(100);
         });
@@ -266,6 +277,13 @@ final class War {
     void hiddenAt(Vec3 p, Vec3 look) {
         film.run(() -> place(at(p).add(0, 20, 0), look));
         film.waitTicks(20);
+    }
+
+    /** Программа бота из одного шага. */
+    static JsonArray one(JsonObject step) {
+        JsonArray a = Cast.steps();
+        a.add(step);
+        return a;
     }
 
     static String xyz(Vec3 p) {
@@ -1407,14 +1425,21 @@ final class War {
         film.run(() -> Film.cmd("time set 17000"));
         // расчёт у пусковых ночью
         hiddenAt(NIGHT_POST, GZ);
+        // командир — на одной линии со столом МБР (в 30 блоках за его спиной) между рядами пусковых, z рядов ± 9
+        Vec3 cmdr = new Vec3(NIGHT_POST.x - 4, BATTERY_Y, NIGHT_POST.z), keyPost = cmdr.add(10, 0, 0), pad = cmdr.add(-30, 0, 0);
         film.run(() -> {
-            for (int i = 0; i < 4; i++) {
-                cast().spawn("Crew" + i, new Vec3(NIGHT_POST.x - 2 + i * 1.6, BATTERY_Y, NIGHT_POST.z - 3 + (i % 2) * 1.2), -90, null);
+            for (int i = 0; i < CREW.length; i++) {
+                Vec3 at = i == 0 ? cmdr : new Vec3(NIGHT_POST.x - 2 + i * 1.6, BATTERY_Y, NIGHT_POST.z - 3 + (i % 2) * 1.2);
+                cast().spawn(CREW[i], at, -90, null);
             }
         });
         settle();
         film.onServer(level -> {
-            for (int i = 0; i < 4; i++) film.armSoldier("Crew" + i, 0);
+            for (String c : CREW) film.armSoldier(c, 0);
+            // командир расчёта: в руке пульт с ядерным ударом, в запасе МБР (приказ не оператора оплачивается предметом)
+            cast().command("item replace entity " + CREW[0]
+                    + " hotbar.0 with incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
+            cast().command("give " + CREW[0] + " incoming:icbm 1");
         });
         // p40b, p40c: вспышки ночного боя у батареи (между цифрами отсчёта); пусковые поставила часть «west»
         film.run(this::reloadAll);
@@ -1433,24 +1458,43 @@ final class War {
                     return CineCamera.track(l.add(4, 1.0, -9), () -> l.add(14, 10, 0), 64);
                 })
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
-        // p53 (после титров): ключ, ☢ LAUNCH IN 3, отмена; p40a — отсчёт до пуска, по нулю МБР уходит на Восток
+        // p53 (после титров): ключ, ☢ LAUNCH IN 3, отмена — отсчёт показывает пульт того, кто запускает
         actor(NIGHT_POST, NIGHT_POST.add(100, 4, 0), "incoming:strike_designator[incoming:loadout={weapon:\"nuke\",count:1,spread:0}]");
         film.shot("p53").length(70).hud().player(t -> new Pose(Vec3.ZERO, -90, -6, 0, 70))
                 .cue(14, () -> NukeArming.toggle(() -> {}))
                 .cue(58, NukeArming::cancel);
-        film.shot("p40a").length(90).hud().player(t -> new Pose(Vec3.ZERO, -90, -6 + (float) t * 0.03f, 0, 70))
-                .cue(14, () -> NukeArming.toggle(() -> Film.cmd("incoming nuke at " + xyz(at(GZ)) + " 15 air")));
+        // p40a: второй ключ. Приказ на ядерный удар отдаёт командир расчёта — он не оператор, и мод ждёт второй ключ
+        // игрока рядом (NuclearKeys): глазами бойца в 10 блоках — просьба в чате, клавиша «Второй ключ», строка «повернул»,
+        // и за спиной командира со стола в 30 блоках уходит МБР (полёт не оператора — не меньше 90 с). Доли трека — на 1, 2
+        // и 3 с плана (edit.py): просьба, ключ, МБР.
+        actor(keyPost, cmdr.add(0, 1.4, 0), "incoming:strike_designator");
+        film.run(() -> {
+            // подпись клавиши в строке мода — буквой, а не «.» по умолчанию
+            Keys.SECOND_KEY.setKey(InputConstants.getKey("key.keyboard.k"));
+            KeyMapping.resetMapping();
+            cast().act(CREW[0], one(Cast.lookAt(keyPost.add(0, 1.6, 0))), true);
+        });
+        film.shot("p40a").length(90).chat()
+                .player(t -> {
+                    float yaw = Film.yawTo(keyPost, pad);
+                    // до пуска — командир и стол за ним; после — взгляд за МБР вверх
+                    IcbmEntity icbm = film.newest(IcbmEntity.class);
+                    float up = icbm == null ? -3 : Math.min(-3, Film.pitchTo(keyPost.add(0, 1.62, 0), icbm.position()) + 6);
+                    return new Pose(Vec3.ZERO, yaw, up, 0, 70);
+                })
+                .cue(14, () -> cast().act(CREW[0], one(Cast.step("chat", "/incoming nuke at " + xyz(at(GZ)) + " 15 air")), true))
+                .cue(36, () -> PacketDistributor.sendToServer(new C2S.NuclearKey()));
         // p41: тишина; МБР уходит в ночь за спиной расчёта, кран вверх
         film.shot("p41").length(100).hidden().noPrep()
                 .after(() -> film.newest(IcbmEntity.class) != null, 300)
                 .camera(() -> {
                     IcbmEntity icbm = film.newest(IcbmEntity.class);
-                    Vec3 pad = icbm != null ? icbm.position() : NIGHT_POST.add(-30, 0, 0);
+                    Vec3 from = icbm != null ? icbm.position() : pad;
                     return CineCamera.dolly(NIGHT_POST.add(16, 1.2, 6), NIGHT_POST.add(17, 12, 8), 100,
-                            film.smoothFocus(() -> film.newest(IcbmEntity.class), pad.add(0, 10, 0), 0.25), 62);
+                            film.smoothFocus(() -> film.newest(IcbmEntity.class), from.add(0, 10, 0), 0.25), 62);
                 });
         film.run(() -> {
-            for (int i = 0; i < 4; i++) cast().remove("Crew" + i);
+            for (String c : CREW) cast().remove(c);
         });
 
         // p43: на Востоке ☢ MISSILE ATTACK ☢ и отсчёт; бой замирает, бойцы опускают оружие и смотрят вверх

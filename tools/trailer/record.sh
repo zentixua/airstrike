@@ -43,16 +43,20 @@ joinedFirstServer:true
 lang:${INCOMING_LANG:-ru_ru}
 renderClouds:"${INCOMING_CLOUDS:-true}"
 OPT
-# боты Almighty в войне (жители, расчёты, солдаты) — больше предела по умолчанию (bots.max = 8, «Already 8 bots»)
+# боты Almighty в войне (жители, расчёты, солдаты) — больше предела по умолчанию (bots.max = 8, «Already 8 bots»), и
+# без пометки «[bot]» перед именем в чате: строки второго ключа (план 40) называют командира расчёта по имени
 if [ -n "${INCOMING_FILM:-}" ]; then
   ALM="$RUN/config/almighty-common.toml"
   mkdir -p "$RUN/config"
-  if [ -f "$ALM" ] && grep -q '^\[bots\]' "$ALM"; then
-    awk '/^\[/ { bots = ($0 == "[bots]") } bots && /^[[:space:]]*max[[:space:]]*=/ { sub(/=.*/, "= 100") } { print }' "$ALM" > "$ALM.tmp"
-    mv "$ALM.tmp" "$ALM"
-  else
-    printf '\n[bots]\n\tmax = 100\n' >> "$ALM"
-  fi
+  touch "$ALM"
+  awk '
+    function keys() { print "\tmax = 100"; print "\tmarker = \"\""; done = 1 }
+    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); bots = (h == "[bots]"); print; if (bots) keys(); next }
+    bots && /^[[:space:]]*(max|marker)[[:space:]]*=/ { next }
+    { print }
+    END { if (!done) { print ""; print "[bots]"; keys() } }
+  ' "$ALM" > "$ALM.tmp"
+  mv "$ALM.tmp" "$ALM"
 fi
 # LOD Distant Horizons у съёмки — только из базы мира и загруженных чанков: генератор DH строил бы их, где их нет в базе,
 # рельефом генератора мира (лес и море поверх города карты) и писал в базу мира (.claude/rules/trailer.md)
@@ -80,6 +84,8 @@ if [ "$FREE_GB" -lt "$NEED_GB" ]; then
 fi
 MC="$(python3 "$ROOT/tools/paths.py" MC)"
 GRADLE_ARGS=(runClientScenario --console=plain)
+# имя игрока съёмки — в строках чата (второй ключ в плане 40), а не «Dev» запуска из Gradle
+[ -n "${INCOMING_FILM:-}" ] && GRADLE_ARGS+=(-PscenarioUser=Sokol)
 # моды для запуска: INCOMING_MODS_DIR (каталог от mod/, например моды сборки для съёмки) или инстанс, без него — Modrinth
 if [ -n "${INCOMING_MODS_DIR:-}" ]; then
   GRADLE_ARGS+=(-PmcModsDir="$INCOMING_MODS_DIR")

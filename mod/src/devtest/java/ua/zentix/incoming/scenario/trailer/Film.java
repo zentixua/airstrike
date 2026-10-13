@@ -20,6 +20,7 @@ import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
@@ -69,6 +70,8 @@ abstract class Film {
 
     /** Интерфейс мода в кадре (прицел, камера снаряда, счётчик Гейгера); вспышки видны всегда. */
     boolean hud;
+    /** Чат игры в кадре (строки второго ключа), без прежних строк. */
+    boolean chat;
     /** Игрок виден как наводчик; иначе он невидимкой ходит за камерой, чтобы вокруг неё был загружен мир. */
     boolean actor = true;
     @Nullable
@@ -316,6 +319,7 @@ abstract class Film {
         private Path playerView;
         private boolean projectileCamera;
         private boolean hudOn;
+        private boolean chatOn;
         /** Снимать кадрами вживую и при записи повторов (без интерфейса мода): объект дальше прорисовки. */
         private boolean live;
         private boolean hiddenActor;
@@ -370,6 +374,13 @@ abstract class Film {
 
         Shot hud() {
             hudOn = true;
+            return this;
+        }
+
+        /** С интерфейсом и чатом игры: строки, которые мод пишет игроку в чат, — часть плана. */
+        Shot chat() {
+            hudOn = true;
+            chatOn = true;
             return this;
         }
 
@@ -497,6 +508,8 @@ abstract class Film {
                     }
                     waited = 0;
                     hud = hudOn;
+                    chat = chatOn;
+                    if (chatOn) mc.gui.getChat().clearMessages(false);
                     if (hiddenActor && actor) {
                         actor = false;
                         // без вещей: интерфейс оружия модов (Point Blank) рисуется и у невидимки с оружием в руке
@@ -898,12 +911,13 @@ abstract class Film {
         withPlayer((level, sp) -> sp.teleportTo(level, at.x, at.y, at.z, sp.getYRot(), sp.getXRot()));
     }
 
-    /** Интерфейс игры в кадре не нужен; интерфейс мода — только в планах «с интерфейсом», вспышки — всегда. */
+    /** Интерфейс игры в кадре не нужен; интерфейс мода — только в планах «с интерфейсом», чат — в планах с чатом, вспышки — всегда. */
     void layer(RenderGuiLayerEvent.Pre e) {
         if (!started) return;
         ResourceLocation id = e.getName();
         if (ALWAYS_LAYERS.contains(id)) return;
         if (hud && id.getNamespace().equals(Incoming.MOD_ID)) return;
+        if (chat && id.equals(VanillaGuiLayers.CHAT)) return;
         e.setCanceled(true);
     }
 
