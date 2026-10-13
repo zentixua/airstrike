@@ -993,7 +993,7 @@ final class War {
                 .cue(14, () -> NukeArming.toggle(() -> {}))
                 .cue(58, NukeArming::cancel);
         film.shot("p40a").length(90).hud().player(t -> new Pose(Vec3.ZERO, -90, -6 + (float) t * 0.03f, 0, 70))
-                .cue(14, () -> NukeArming.toggle(() -> Film.cmd("incoming nuke at " + xyz(at(GZ)) + " 150 air")));
+                .cue(14, () -> NukeArming.toggle(() -> Film.cmd("incoming nuke at " + xyz(at(GZ)) + " 15 air")));
         // p41: тишина; МБР уходит в ночь за спиной расчёта, кран вверх
         film.shot("p41").length(100).hidden().noPrep()
                 .after(() -> film.newest(IcbmEntity.class) != null, 300)
@@ -1074,7 +1074,7 @@ final class War {
         film.run(() -> Film.cmd("time set 17000"));
         hiddenAt(FINAL_ROOF, GZ);
         film.waitTicks(100);
-        film.run(() -> Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 150 air"));
+        film.run(() -> Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 15 air"));
         film.shot("p46").length(70).hidden()
                 .camera(() -> CineCamera.track(FINAL_ROOF.add(0, 4, -6), () -> GZ.add(0, 200, 0), 20))
                 .when(() -> film.sinceDetonation() >= 0, 600);
