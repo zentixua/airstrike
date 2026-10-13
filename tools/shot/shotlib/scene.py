@@ -106,23 +106,26 @@ class Trails:
     фазы `ignition` и `boost`; у МБР — весь полёт) и облако старта МБР (`Exhaust.launchCloud`). Кладёт их клиент, у
     которого есть сущность снаряда, — тики журнала, где место снаряда от сущности, а не от сервера. Они висят в воздухе
     полминуты и больше, их считает проверка кадров (`FxPool.transmittance`), лента шлейфа — нет. Клуб — гауссов шар
-    (σ = 0,55 радиуса квадрата), свет сквозь середину — как у частицы: 1 − непрозрачность (0,45, тает с 55 % жизни)."""
+    (σ = 0,55 радиуса квадрата), свет сквозь середину — как у частицы: 1 − непрозрачность (0,45, тает с 55 % жизни).
+    Ветер сносит клуб, как тик `FxParticle`: скорость += ветер, шаг, скорость × сопротивление; у облака старта
+    сопротивление 0,95 и 0,94 — сносит его вдвое быстрее следа (0,9)."""
     # оружие → (поперечник клуба вначале, в конце, жизнь, тиков): `Exhaust.rocket`, `booster`, `icbm`
     SPEC = {"rocket": (0.7, 3.6, 520.0), "missile": (0.5, 3.5, 320.0), "drone": (0.35, 2.45, 320.0),
             "loiter": (0.35, 2.45, 320.0), "nuke": (1.8, 8.0, 1050.0)}
     ALPHA = 0.45
-    WIND = (0.02, 0.0, 0.01)  # Fx.WIND_X, WIND_Z за тик при сопротивлении 0,9 — около 0,02 и 0,01 блока за тик
+    WIND = (0.0022, 0.0, 0.0011)  # Fx.WIND_X, WIND_Z: прибавка к скорости клуба за тик
+    DRAG = 0.9  # ClientWeaponSpec.Trail.DRAG
     t: np.ndarray = field(default_factory=lambda: np.zeros(0))
     pos: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     s0: np.ndarray = field(default_factory=lambda: np.zeros(0))
     s1: np.ndarray = field(default_factory=lambda: np.zeros(0))
     life: np.ndarray = field(default_factory=lambda: np.zeros(0))
     alpha: np.ndarray = field(default_factory=lambda: np.zeros(0))
-    rise: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    drag: np.ndarray = field(default_factory=lambda: np.zeros(0))
 
     @staticmethod
     def of(tracks: dict, lit: dict) -> "Trails":
-        ts, ps, a0, a1, lf, al, rs = [], [], [], [], [], [], []
+        ts, ps, a0, a1, lf, al, dr = [], [], [], [], [], [], []
         for tid, tr in tracks.items():
             spec = Trails.SPEC.get(tr.weapon)
             ticks = lit.get(tid, [])
@@ -134,7 +137,7 @@ class Trails:
             tt, pp = tt[ok], pp[ok]
             ts.append(tt)
             ps.append(pp)
-            for arr, v in ((a0, spec[0]), (a1, spec[1]), (lf, spec[2]), (al, Trails.ALPHA), (rs, 0.0)):
+            for arr, v in ((a0, spec[0]), (a1, spec[1]), (lf, spec[2]), (al, Trails.ALPHA), (dr, Trails.DRAG)):
                 arr.append(np.full(len(tt), v))
             if tr.weapon == "nuke" and len(tt) and tt[0] - tr.t[0] < 140:
                 # облако старта: кольцо до ~20 блоков у стола и столб над ним, первые 140 тиков полёта (`launchCloud`),
@@ -146,17 +149,22 @@ class Trails:
                     for rr in (6.0, 14.0, 22.0):
                         ts.append(np.array([t0 + rr]))
                         ps.append((pad + np.array([math.cos(ang) * rr, 2.0, math.sin(ang) * rr]))[None])
-                        for arr, v in ((a0, 8.0), (a1, 22.0), (lf, 760.0), (al, 0.85), (rs, 0.0)):
+                        for arr, v in ((a0, 8.0), (a1, 22.0), (lf, 760.0), (al, 0.85), (dr, 0.95)):
                             arr.append(np.array([v]))
                 for h in (6.0, 14.0, 22.0):
                     ts.append(np.array([t0 + h / 2]))
                     ps.append((pad + np.array([0, h, 0]))[None])
-                    for arr, v in ((a0, 6.0), (a1, 18.0), (lf, 700.0), (al, 0.8), (rs, 0.0)):
+                    for arr, v in ((a0, 6.0), (a1, 18.0), (lf, 700.0), (al, 0.8), (dr, 0.94)):
                         arr.append(np.array([v]))
         if not ts:
             return Trails()
         cat = np.concatenate
-        return Trails(cat(ts), cat(ps), cat(a0), cat(a1), cat(lf), cat(al), cat(rs))
+        return Trails(cat(ts), cat(ps), cat(a0), cat(a1), cat(lf), cat(al), cat(dr))
+
+    @staticmethod
+    def drift(age: np.ndarray, d: np.ndarray) -> np.ndarray:
+        """Сколько ветров (`WIND`) снесло клуб за age тиков при сопротивлении d: сумма шагов (1 − d^k)/(1 − d)."""
+        return np.maximum(0.0, (age - d * (1 - d ** age) / (1 - d)) / (1 - d))
 
     def puffs(self, t: float) -> np.ndarray:
         """Клубы в тик t: (n, 8), как у `Smoke.puffs`; «свой удар» у них — далеко (не свои никому)."""
@@ -173,7 +181,7 @@ class Trails:
         fade = np.clip(age / 2, 0, 1) * np.where(f < 0.55, 1.0, np.maximum(0, 1 - (f - 0.55) / 0.45))
         tau = -np.log(np.maximum(1e-3, 1 - self.alpha[alive] * fade))
         k = tau / (sigma * math.sqrt(2 * math.pi))
-        drift = np.maximum(0, age - 10)[:, None] * np.array(self.WIND)
+        drift = self.drift(age, self.drag[alive])[:, None] * np.array(self.WIND)
         p = self.pos[alive] + drift
         out = np.zeros((len(p), 8))
         out[:, :3], out[:, 3], out[:, 4], out[:, 5:8] = p, sigma, k, 1e9

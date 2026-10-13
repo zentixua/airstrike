@@ -323,7 +323,22 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
     qx = np.array([float(r.get("x", 9)) for r in rows])
     qy = np.array([float(r.get("y", 9)) for r in rows])
     qs = np.array([float(r.get("share", 0)) for r in rows])
+    # где объект у клиента вывода: место сущности (`FrameQa`, середина рамки) обратно из x, y и доли кадра — против места
+    # журнала. Журнал пишет записывающий клиент; где его место снаряда разошлось с тем, что показывает вывод (film-war4
+    # записан с изъяном очереди мест 52d661a: при отстающем сервере снаряд у клиента шёл по прямой прошлым шагом), камера
+    # по журналу смотрит не туда — по таким планам камеру ставить по другой записи
+    mn = 0.004
+    q_ent = np.array([bool(r.get("entity")) for r in rows])
+    th = np.tan(np.radians(fov) / 2)
+    back = have & q_ent & (qs >= mn) & (np.abs(qx) < 9) & ((t < p.key) if p.key >= 0 else True)
+    fw, rt, upv = C.basis(yaw, pitch, np.zeros_like(yaw))
+    zq = size / (2 * th * np.maximum(qs, 1e-6))
+    shown = eye + fw * zq[:, None] + rt * (qx * th * 16 / 9 * zq)[:, None] + upv * (qy * th * zq)[:, None]
+    off = np.linalg.norm(shown - tgt_, axis=1)[back]
     res = {"shot": name, "cand": cand, "frames": len(rows),
+           "off_n": int(back.sum()),
+           "off_med": round(float(np.median(off)), 2) if len(off) else math.nan,
+           "off_p90": round(float(np.percentile(off, 90)), 2) if len(off) else math.nan,
            "in_agree": float((mine_in == q_in).mean()),
            "vis_agree": float((mine_vis == q_vis).mean()),
            "vis_mine": float(mine_vis.mean()), "vis_qa": float(q_vis.mean()),
@@ -335,7 +350,6 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
            "smoke_mine_only": int((both & (smoke < 0.5) & (q_clear >= 0.5)).sum()),
            "smoke_qa_only": int((both & (smoke >= 0.5) & (q_clear < 0.5)).sum())}
     # итог плана, как `FrameQa.verdict`: доли до удара, за последнюю секунду и у удара — мерой и выводом
-    mn = 0.004
     for who, vis_, share_ in (("mine", mine_vis, sh), ("qa", q_vis, qs)):
         good = vis_ & (share_ >= mn)
         if p.key >= 0:
@@ -350,8 +364,15 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
         f"  доля ×{res['share_ratio']:.2f}  блоки: только мера {res['blocked_mine_only']}, только вывод "
         f"{res['blocked_qa_only']}  дым: только мера {res['smoke_mine_only']}, только вывод {res['smoke_qa_only']}"
         f"  итог (до удара/секунда/удар): мера {'/'.join(f'{x:.2f}' for x in res['verdict_mine'])}, вывод "
-        f"{'/'.join(f'{x:.2f}' for x in res['verdict_qa'])}")
+        f"{'/'.join(f'{x:.2f}' for x in res['verdict_qa'])}  объект от журнала: медиана {res['off_med']:.1f}, 90 % "
+        f"{res['off_p90']:.1f} блока ({res['off_n']} кадров)" + ("  ЖУРНАЛ СБИТ" if journal_off(res) else ""))
     return res
+
+
+def journal_off(res: dict) -> bool:
+    """Журнал плана разошёлся с выводом: в десятой части кадров с сущностью объект дальше 8 блоков от места журнала
+    (полшага рывка журнала до очереди мест — 1–2 блока)."""
+    return res.get("off_n", 0) >= 10 and res.get("off_p90", 0) > 8
 
 
 def cmd_check(args):
@@ -363,6 +384,8 @@ def cmd_check(args):
         keys = ("in_agree", "vis_agree")
         log("\nВсего кадров " + str(sum(r["frames"] for r in out)) + ": " + ", ".join(
             f"{k} {np.average([r[k] for r in out], weights=[r['frames'] for r in out]):.3f}" for k in keys))
+        off = sorted({r["shot"] for r in out if journal_off(r)})
+        log("Журнал сбит (объект в выводе дальше 8 блоков от журнала): " + (" ".join(off) if off else "нет"))
     with open(os.path.join(args.out, "check.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
 

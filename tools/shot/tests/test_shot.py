@@ -218,6 +218,18 @@ class MeasureTest(unittest.TestCase):
         self.assertGreater(int((np.abs(pf[:, 2] + 500) < 50).sum()), 30)
 
 
+    def test_wind_drift_is_the_particle_tick(self):
+        # снос клуба — как тик FxParticle: скорость += ветер, шаг, скорость × сопротивление
+        for d in (0.9, 0.95, 0.94):
+            x, v = 0.0, 0.0
+            for age in range(1, 401):
+                v += 1.0
+                x += v
+                v *= d
+                if age in (1, 10, 100, 400):
+                    self.assertAlmostEqual(float(S.Trails.drift(np.array([age], float), np.array([d]))[0]), x, places=6)
+
+
 class SolveTest(unittest.TestCase):
     def test_tripod_moves_off_the_wall(self):
         sc = wall_scene()
@@ -301,30 +313,38 @@ class SubjectTest(unittest.TestCase):
                 path = json.load(f)
             self.assertEqual(path["kind"], "path")
             # проверка кадров вывода (FrameQa) своей формулой: векторы камеры Minecraft, курс −90 — на восток
-            qa_dir = os.path.join(d, "render", "p99", "own-38mm")
-            os.makedirs(qa_dir)
+            # вторая камера — у вывода снаряд с середины пути уходит от журнала вбок (журнал с изъяном очереди мест)
             ty = math.tan(math.radians(35))
             tx = ty * 16 / 9
             eye = np.array([30.0, 70.0, 40.0])
             fwd, left, up = np.array([1.0, 0, 0]), np.array([0, 0, -1.0]), np.array([0, 1.0, 0])
-            with open(os.path.join(qa_dir, "qa.jsonl"), "w") as f:
-                for t in range(5, 99):
-                    k = (t - 5) / 94
-                    dd = np.array([90 - 40 * k, 100 - 36 * k, 40]) - eye
-                    z = float(dd @ fwd)
-                    x, y = -float(dd @ left) / z / tx, float(dd @ up) / z / ty
-                    f.write(json.dumps({"t": t, "in": abs(x) <= 0.92 and abs(y) <= 0.92, "x": x, "y": y,
-                                        "share": 3.5 / (2 * z * ty), "seen": 1.0, "clear": 1.0, "cloud": False,
-                                        "far": False, "cam": [*eye, -90.0, 0.0], "fov": 70.0}) + "\n")
-            shot.main(["check", os.path.join(qa_dir, "qa.jsonl"), "--regions", region, "--out", os.path.join(d, "chk"), "--replays", d,
-                       "--radius", "60"])
+            qas = []
+            for cand, aside in (("own-38mm", 0.0), ("own-off", 0.4)):
+                qa_dir = os.path.join(d, "render", "p99", cand)
+                os.makedirs(qa_dir)
+                qas.append(os.path.join(qa_dir, "qa.jsonl"))
+                with open(qas[-1], "w") as f:
+                    for t in range(5, 99):
+                        k = (t - 5) / 94
+                        dd = np.array([90 - 40 * k, 100 - 36 * k, 40 + aside * max(0, t - 40)]) - eye
+                        z = float(dd @ fwd)
+                        x, y = -float(dd @ left) / z / tx, float(dd @ up) / z / ty
+                        f.write(json.dumps({"t": t, "in": abs(x) <= 0.92 and abs(y) <= 0.92, "x": x, "y": y,
+                                            "share": round(3.5 / (2 * z * ty), 4), "seen": 1.0, "clear": 1.0, "cloud": False,
+                                            "far": False, "entity": True, "cam": [*eye, -90.0, 0.0], "fov": 70.0}) + "\n")
+            shot.main(["check", *qas, "--regions", region, "--out", os.path.join(d, "chk"), "--replays", d, "--radius", "60"])
             with open(os.path.join(d, "chk", "check.json"), encoding="utf-8") as f:
-                res = json.load(f)[0]
+                res, off = json.load(f)
             self.assertGreater(res["in_agree"], 0.98)
             self.assertLess(res["dx"], 0.01)
             self.assertLess(res["dy"], 0.01)
             self.assertAlmostEqual(res["share_ratio"], 1.0, places=2)
             self.assertGreater(res["blocked_mine_only"], 10)   # за стеной, а «вывод» тут нарочно всё видит
+            # место объекта у вывода обратно из кадра: совпадает с журналом, а у второй — в конце на ~23 блока вбок
+            self.assertLess(res["off_p90"], 0.5)
+            self.assertFalse(shot.journal_off(res))
+            self.assertGreater(off["off_p90"], 15)
+            self.assertTrue(shot.journal_off(off))
 
 
 class PickTest(unittest.TestCase):

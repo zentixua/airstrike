@@ -26,12 +26,18 @@ uv run tools/shot/shot.py check $W4/render/*/*/qa.jsonl --regions "$R" --out $OU
     2>&1 | tee $OUT/check-war4.log
 ```
 
+В конце `check-war4.log` — строка «Журнал сбит»: планы film-war4, где снаряд в выводе дальше 8 блоков от места журнала
+(журнал записан клиентом 52d661a с изъяном очереди мест: при отстающем сервере снаряд у клиента шёл по прямой прошлым
+шагом, а вывод на 345965c показывает его путь). Камера по такому журналу смотрит не туда.
+
 ## Шаг 2: планы и черновой показ (процессор)
+Каждый план — по обеим записям, где журнал есть: какую выводить, решает шаг 3.
 ```sh
 P2=""; P4=""
 for S in p01d p18 p25 p28 p37 p39c p01e p12 p19b p23b p29 p32 p38 p39b p40b p41; do
-  if [ -f $W4/replays/$S.events.jsonl ]; then P4="$P4 $W4/replays/$S.events.jsonl"
-  elif [ -f $W2/replays/$S.events.jsonl ]; then P2="$P2 $W2/replays/$S.events.jsonl"; else echo "нет журнала $S"; fi
+  [ -f $W4/replays/$S.events.jsonl ] && P4="$P4 $W4/replays/$S.events.jsonl"
+  [ -f $W2/replays/$S.events.jsonl ] && P2="$P2 $W2/replays/$S.events.jsonl"
+  [ -f $W4/replays/$S.events.jsonl ] || [ -f $W2/replays/$S.events.jsonl ] || echo "нет журнала $S"
 done
 uv run tools/shot/shot.py plan $P2 --regions "$R" --out $OUT/war2 --shown 1.5 --clouds 320 --previs all --every 3 \
     --size 640x360 2>&1 | tee $OUT/war2.log
@@ -47,7 +53,9 @@ uv run tools/shot/shot.py plan $P4 --regions "$R" --out $OUT/war4 --clouds 320 -
 ## Шаг 3: вывод спланированных камер (видеокарта)
 В рабочем дереве съёмки (там, где идёт `film.sh`), когда проход закончен: `git checkout <коммит>` (ветка трейлера и
 кандидат `-planned`; без файлов `planned/` вывод тот же, что на `345965c`), в конце — обратно `git checkout 345965c`.
-Планы — те, где у лучшей камеры в «Итоге» лога PASS (мера ждёт, что проверка кадров плана пройдёт):
+Планы — те, где у лучшей камеры в «Итоге» лога PASS (мера ждёт, что проверка кадров плана пройдёт): из film-war4,
+если там PASS и плана нет в строке «Журнал сбит» `check-war4.log` (и у плана в film-war4 был удар — p38 и p40b его
+не дождались), иначе из film-war2, если там PASS:
 ```sh
 cp -r $OUT/war2/planned $W2/; cp -r $OUT/war4/planned $W4/    # какие есть
 INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_SHOWN=1 INCOMING_FILM_OUT=render-planned INCOMING_FILM_TRIES=2 \
