@@ -11,6 +11,11 @@ base { archivesName = 'replayscan' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 repositories {
+    // Distant Horizons API (у DH своего maven нет; Modrinth отдаёт файлы проекта как maven)
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
     mavenCentral()
 }
 
@@ -67,6 +72,8 @@ tasks.register('copyRunMods', Sync) {
 tasks.matching { it.name == 'runClient' }.configureEach { dependsOn 'copyRunMods' }
 
 dependencies {
+    // Distant Horizons: только API для компиляции — проверка глубины LOD в кадрах съёмки, если DH стоит (film/DhDepth)
+    compileOnly "maven.modrinth:distanthorizonsapi:${dh_api_version}"
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
