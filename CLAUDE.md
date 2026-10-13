@@ -57,7 +57,8 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            запусков — fetch_runtime_mods.py (каталог игры из сборки — pack_dir.py в
                                            open-skies); клиент без окна
                                            и проверки — client_scenario.sh, prod_client.py, x11_record.py, nested_kwin.sh,
-                                           stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; ноутбук — laptop_job.sh,
+                                           stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; разбор повторов Flashback
+                                           в таблицы — replayscan/; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
                                            freesound.py, gen_textures.py, gen_particles.py, gen_models.py,
                                            gen_grid_assets.py; трейлер — trailer/
@@ -104,7 +105,8 @@ git commit
 CI (GitHub Actions, репозиторий публичный) гоняет то же один раз на коммит: push в `main` и PR (ветка без PR CI
 не запускает — PR открывать сразу, черновиком); jar — артефакт `incoming-jar`. Проверяется то, что изменилось
 (задача «Что изменилось»): правка только `tools/` (кроме `fetch_runtime_mods.py`, `paths.py`), `docs/`, `*.md` мод не
-собирает и GameTest не гоняет; `mod/`, CI и незнакомые пути — проверка целиком, ручной запуск (релиз) — всегда целиком.
+собирает и GameTest не гоняет (`tools/replayscan` — своя сборка и юнит-тесты); `mod/`, CI и незнакомые пути — проверка
+целиком, ручной запуск (релиз) — всегда целиком.
 GameTest идёт частями на шести машинах (`-PgametestShard=i/n`, `GameTestShards`: партия целиком в одной части, части
 равняются по `gametest-durations.json`; таблицу освежает `tools/gametest_durations.py` по логам частей, когда части
 заметно разошлись по времени). Слияние решает задача «Итог»: падает, если упала или отменена любая нужная проверка.
