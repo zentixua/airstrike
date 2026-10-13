@@ -94,7 +94,8 @@ abstract class Film {
      * INCOMING_FILM_REPLAY=1 — план пишется не кадрами, а повтором Flashback с журналом ({@link EventLog}):
      * {@code <папка записи>/replays/<план>.zip} и {@code <план>.events.jsonl}. Камеры по журналу и кадры выводит потом
      * {@link ReplayFilm} из повтора. Запись идёт от конца подготовки (мир прогружен) до конца плана и ещё {@link #TAIL}
-     * тиков: момент плана ({@code when}) и его конец — отметки «start» и «end» журнала.
+     * тиков: момент плана ({@code when}) и его конец — отметки «start» и «end» журнала. Планы с интерфейсом ({@code hud})
+     * снимаются кадрами вживую, как без повторов: интерфейс мода в повтор не пишется.
      */
     static final boolean REPLAY = System.getenv("INCOMING_FILM_REPLAY") != null;
     static final int TAIL = 100;
@@ -477,13 +478,15 @@ abstract class Film {
                 }
                 case 2 -> {
                     followCamera();
-                    if (REPLAY && selected() && replayShot != this) startReplay(this);
+                    // планы с интерфейсом (глаза игрока, экраны мода) снимаются кадрами вживую и при записи повторов
+                    boolean replay = REPLAY && !hudOn;
+                    if (replay && selected() && replayShot != this) startReplay(this);
                     if (!PREVIEW && when != null && !when.getAsBoolean()) {
                         if (++waited % 200 == 0) Incoming.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, waited);
                         if (waited < whenTimeout) return false;
                         Incoming.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
-                    if (REPLAY) {
+                    if (replay) {
                         if (replayShot == this) mark("start");
                     } else if (selected()) {
                         rec.start(name, PREVIEW ? Math.max(1, 1.5 * (length - 1)) : speed, hudOn);

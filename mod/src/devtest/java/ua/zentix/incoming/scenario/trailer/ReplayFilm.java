@@ -80,7 +80,8 @@ public final class ReplayFilm {
 
     public ReplayFilm() {
         Path game = mc.gameDirectory.toPath();
-        root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer"));
+        // пути полные: best.txt читают монтаж и скрипты не из каталога игры
+        root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).toAbsolutePath().normalize();
         replays = root.resolve("replays");
         out = root.resolve("render");
         String[] size = System.getenv().getOrDefault("INCOMING_SIZE", "1920x1080").split("x");
@@ -90,8 +91,22 @@ public final class ReplayFilm {
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
+        // снятые в прошлый запуск (render/best.txt) не переснимаются, если их не назвали: запуск после падения идёт дальше
+        java.util.Set<String> done = new java.util.HashSet<>();
+        try {
+            if (Files.exists(out.resolve("best.txt"))) {
+                for (String line : Files.readAllLines(out.resolve("best.txt"), StandardCharsets.UTF_8)) {
+                    String shot = line.split(" ", 2)[0];
+                    if (line.isBlank() || pick != null && pick.contains(shot)) continue;
+                    best.add(line);
+                    done.add(shot);
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         for (Coverage.Spec s : Coverage.all().values()) {
-            if (pick != null && !pick.contains(s.shot())) continue;
+            if (pick != null && !pick.contains(s.shot()) || done.contains(s.shot())) continue;
             if (!Files.exists(zip(s.replay()))) {
                 Incoming.LOG.warn("SCENARIO film {}: нет повтора {}", s.shot(), zip(s.replay()));
                 continue;
@@ -204,7 +219,7 @@ public final class ReplayFilm {
             }
             case WALKING -> {
                 if (standing != null) standAt(standing);
-                boolean ready = mc.levelRenderer.hasRenderedAllSections();
+                boolean ready = built();
                 int at = ticks - poseAt;
                 boolean last = walk.isEmpty();
                 if (at < (last ? Math.max(POSE_MIN, hold) : POSE_MIN) || !ready && at < POSE_MAX) return;
@@ -231,7 +246,7 @@ public final class ReplayFilm {
                 }
                 if (at > a) {
                     Incoming.LOG.warn("SCENARIO film {}: повтор ушёл за начало ({} > {}), вывод перемотает", spec.shot(), at, a);
-                } else if (!mc.levelRenderer.hasRenderedAllSections() && ticks - reachedAt < POSE_MAX) {
+                } else if (!built() && ticks - reachedAt < POSE_MAX) {
                     return;
                 }
                 export();
@@ -261,10 +276,16 @@ public final class ReplayFilm {
         }
         int total = FlashbackApi.totalTicks();
         // опора окна: удар; без удара — появление снаряда (пуск); у места — отметка «start» (момент плана)
-        EventLog.Mark start = data.mark("start");
-        int anchor = subject.key >= 0 ? subject.key : subject.entity != null ? subject.first : start == null ? 0 : start.t();
-        a = anchor - spec.pre();
-        b = anchor + spec.post();
+        EventLog.Mark start = data.mark("start"), end = data.mark("end");
+        if (spec.pre() < 0) {
+            // окно плана, как его снял сценарий (от «start» до «end»): камера сценария есть только в нём
+            a = start == null ? 0 : start.t();
+            b = end == null ? data.ticks : end.t();
+        } else {
+            int anchor = subject.key >= 0 ? subject.key : subject.entity != null ? subject.first : start == null ? 0 : start.t();
+            a = anchor - spec.pre();
+            b = anchor + spec.post();
+        }
         a = Math.max(a, 1);
         b = Math.min(b, Math.min(total, data.ticks) - 2);
         Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film shot %s: %s, ticks %d..%d (event %d at %s), replay %d ticks", spec.shot(),
@@ -279,9 +300,10 @@ public final class ReplayFilm {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
         List<Scored> all = new ArrayList<>();
         for (Rig.Kind k : spec.kinds()) {
-            for (Rig.Candidate c : k.candidates(subject, a, b, w)) all.add(new Scored(c, Rig.score(c, subject, a, b, w, earlier, spec.minShare())));
+            for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) all.add(new Scored(c, Rig.score(c, subject, a, b, w, earlier, spec.minShare())));
         }
-        all.sort(Comparator.comparingDouble((Scored s) -> -s.score.total()));
+        // камера сценария — первой (её задумали для плана), дальше — по оценке
+        all.sort(Comparator.comparing((Scored s) -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
         StringBuilder sb = new StringBuilder();
         for (Scored s : all) {
             sb.append(String.format(Locale.ROOT, "\n  %-36s %.3f (подлёт %.2f, удар %.2f, после %.2f, размер %.3f, дым %.2f) %s", s.c.name(), s.score.total(),
@@ -303,7 +325,10 @@ public final class ReplayFilm {
         current = candidates.poll();
         if (current == null) {
             // ни один не прошёл: в монтаж — лучший из выведенных, с причинами в отчёте
-            if (bestTry != null) best.add(spec.shot() + " " + dirOf(bestTry).toString() + " FAIL " + bestVerdict.why());
+            if (bestTry != null) {
+                best.add(spec.shot() + " " + dirOf(bestTry).toString() + " FAIL " + bestVerdict.why());
+                writeBest();
+            }
             next();
             return;
         }
@@ -311,13 +336,26 @@ public final class ReplayFilm {
         FlashbackApi.seek(Math.max(0, a - spec.warm()));
         stepped = -1;
         walk.clear();
+        // места пути камеры, где мир должен быть построен; у штатива это одно место
         int n = 6;
-        for (int i = 1; i <= n; i++) walk.add(current.c.path().at(a + (b - a) * i / (double) n));
-        walk.add(current.c.path().at(a));
+        Pose prev = current.c.path().at(a);
+        for (int i = 1; i <= n; i++) {
+            Pose p = current.c.path().at(a + (b - a) * i / (double) n);
+            if (p.pos().distanceTo(prev.pos()) > 2 || Math.abs(Mth.wrapDegrees(p.yaw() - prev.yaw())) > 10 || Math.abs(p.pitch() - prev.pitch()) > 10) {
+                walk.add(p);
+                prev = p;
+            }
+        }
+        if (!walk.isEmpty()) walk.add(current.c.path().at(a));
         standing = current.c.path().at(a);
         poseAt = ticks + SEEK_SETTLE;  // перемотка: мир повтора приходит заново
         go(State.WALKING);
         Incoming.LOG.info("SCENARIO film candidate {} {} score {}", spec.shot(), current.c.name(), String.format(Locale.ROOT, "%.3f", current.score.total()));
+    }
+
+    /** Мир у камеры построен; без проверки мира ({@link FrameQa#READY} = 0, облако) не ждём его. */
+    private boolean built() {
+        return FrameQa.READY <= 0 || mc.levelRenderer.hasRenderedAllSections();
     }
 
     private Path dirOf(Scored s) {
@@ -345,8 +383,11 @@ public final class ReplayFilm {
             FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y, p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
                     a, b, FPS, frames);
             go(State.EXPORTING);
-            Incoming.LOG.info("SCENARIO film export {} {}: ticks {}..{}, all sections {}", spec.shot(), current.c.name(), a, b,
-                    mc.levelRenderer.hasRenderedAllSections());
+            // люди у камеры у клиента повтора: статисты плана должны быть в мире повтора
+            String people = mc.level.players().stream().filter(pl -> pl.position().distanceTo(p0.pos()) < 128)
+                    .map(pl -> pl.getGameProfile().getName() + " " + War.xyz(pl.position())).toList().toString();
+            Incoming.LOG.info("SCENARIO film export {} {}: ticks {}..{}, all sections {}, people {}", spec.shot(), current.c.name(), a, b,
+                    mc.levelRenderer.hasRenderedAllSections(), people);
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
@@ -359,7 +400,7 @@ public final class ReplayFilm {
         FrameQa q = qa;
         qa = null;
         int frames = renumber(candDir.resolve("frames").resolve(spec.shot()));
-        FrameQa.Verdict v = q.verdict(spec.minShare(), spec.engine() && current.c.close());
+        FrameQa.Verdict v = q.verdict(spec.minShare(), spec.need(), current.c.close());
         Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film verdict %s %s: %s, %d frames (%d checked): мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f %s",
                 spec.shot(), current.c.name(), v.pass() ? "PASS" : "FAIL", frames, q.frames().size(), v.ready(), v.approach(), v.nearHit(), v.atKey(),
                 v.engine(), v.why()));
@@ -374,30 +415,34 @@ public final class ReplayFilm {
             next();
             return;
         }
-        writeBest();
         nextCandidate();
     }
 
-    private static final Object FLAWLESS = new Object();
+    /** Переключатель «flawless frames» Sodium для этого сценария; null — ещё не искали, пустой — Sodium нет. */
+    @Nullable
+    private static java.util.Optional<java.util.function.Consumer<Boolean>> flawless;
 
     /**
-     * Кадр — только когда мир в нём построен: «flawless frames» Sodium (так его включает для вывода Flashback на Fabric;
-     * на NeoForge этой связи нет — включаем сами, отражением). Без Sodium (ванильная отрисовка) — ничего: недостроенные
-     * кадры видит проверка.
+     * Кадр — только когда мир в нём построен: «flawless frames» Sodium (открытый {@code FlawlessFrames.getProvider()},
+     * так его включает вывод Flashback на Fabric; на NeoForge этой связи нет — включаем сами). Без Sodium (ванильная
+     * отрисовка) — ничего: недостроенные кадры видит проверка.
      */
     @SuppressWarnings("unchecked")
     private static void flawless(boolean on) {
-        try {
-            var f = Class.forName("net.caffeinemc.mods.sodium.client.util.FlawlessFrames").getDeclaredField("ACTIVE");
-            f.setAccessible(true);
-            java.util.Set<Object> active = (java.util.Set<Object>) f.get(null);
-            if (on) active.add(FLAWLESS);
-            else active.remove(FLAWLESS);
-        } catch (ClassNotFoundException e) {
-            if (on) Incoming.LOG.info("SCENARIO film: без Sodium — кадры не ждут мира, недостроенное видит проверка");
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            Incoming.LOG.warn("SCENARIO film: flawless frames Sodium не включились", e);
+        if (flawless == null) {
+            try {
+                var provider = (java.util.function.Function<String, java.util.function.Consumer<Boolean>>) Class
+                        .forName("net.caffeinemc.mods.sodium.client.util.FlawlessFrames").getMethod("getProvider").invoke(null);
+                flawless = java.util.Optional.of(provider.apply("incoming film"));
+            } catch (ClassNotFoundException e) {
+                flawless = java.util.Optional.empty();
+                Incoming.LOG.info("SCENARIO film: без Sodium — кадры не ждут мира, недостроенное видит проверка");
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                flawless = java.util.Optional.empty();
+                Incoming.LOG.warn("SCENARIO film: flawless frames Sodium не включились", e);
+            }
         }
+        flawless.ifPresent(c -> c.accept(on));
     }
 
     private static double rank(FrameQa.Verdict v) {

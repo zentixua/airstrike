@@ -3,6 +3,7 @@ package ua.zentix.incoming.scenario.trailer;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
@@ -31,9 +32,17 @@ import java.util.Locale;
  * {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
  */
 final class FrameQa {
-    /** Кадр: время (тик повтора с долей), всё построено, объект в кадре (с полями), где он (−1…1), доля высоты, видимая доля, свет сквозь дым, громкость мотора. */
+    /**
+     * Кадр: время (тик повтора с долей), всё построено, объект в кадре (с полями), где он (−1…1), доля высоты, видимая доля,
+     * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора.
+     */
     record Frame(double t, boolean ready, boolean in, double x, double y, double share, double seen, double clear, boolean cloud,
-                 double engine, boolean subjectFromEntity) {}
+                 boolean far, boolean drawn, double engine, boolean subjectFromEntity) {
+        /** Объект снят: в кадре, виден, не в облаках и не в тумане, его секция построена (если мир проверяется). */
+        boolean visible() {
+            return in && seen >= 0.4 && !cloud && !far && (READY <= 0 || drawn);
+        }
+    }
 
     record Verdict(boolean pass, String why, double ready, double approach, double nearHit, double atKey, double engine) {}
 
@@ -41,7 +50,7 @@ final class FrameQa {
      * Доля кадров с построенным миром, ниже которой план не годится. Облако (llvmpipe, без Sodium) строит секции
      * медленнее кадров — там проверку мира снимают ({@code INCOMING_FILM_READY=0}), чтобы проверять остальное.
      */
-    private static final double READY = Double.parseDouble(System.getenv().getOrDefault("INCOMING_FILM_READY", "0.98"));
+    static final double READY = Double.parseDouble(System.getenv().getOrDefault("INCOMING_FILM_READY", "0.98"));
 
     private final Rig.Subject s;
     private final double clouds = Rig.cloudBase();
@@ -113,7 +122,7 @@ final class FrameQa {
                 fromEntity = true;
             }
         }
-        boolean in = false, cloud = false;
+        boolean in = false, cloud = false, far = false, drawn = false;
         double x = 9, y = 9, share = 0, seen = 0, clear = 1;
         if (aim != null) {
             Vector3f f = cam.getLookVector(), u = cam.getUpVector(), l = cam.getLeftVector();
@@ -144,6 +153,10 @@ final class FrameQa {
                 }
                 seen = open / 5.0;
                 cloud = Rig.throughClouds(eye, aim, clouds);
+                far = Rig.beyondFog(eye, aim);
+                // сущность в непостроенной секции игра не рисует (LevelRenderer: isSectionCompiled), стену цели — тоже
+                BlockPos bp = BlockPos.containing(aim);
+                drawn = mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
                 // дым — только до удара: после него в кадре и должен быть огонь и дым самого удара
                 if (s.key < 0 || t < s.key) clear = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);
             }
@@ -155,15 +168,15 @@ final class FrameQa {
             }
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
-        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, engine, fromEntity);
+        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
         try {
             out.write(String.format(Locale.ROOT,
-                    "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"engine\":%.3f,\"entity\":%b,"
-                            + "\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
-                    t, ready, in, x, y, share, seen, clear, cloud, engine, fromEntity, eye.x, eye.y, eye.z, cam.getYRot(), cam.getXRot(),
+                    "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"
+                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
+                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, eye.x, eye.y, eye.z, cam.getYRot(), cam.getXRot(),
                     Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -181,11 +194,11 @@ final class FrameQa {
     }
 
     /**
-     * Итог по кадрам: мир построен (≥ 98 % кадров и первые 10 — все); до удара объект в кадре, виден, не в дыму и не
-     * мельче {@code minShare} высоты кадра — не меньше 60 % кадров и 75 % за последнюю секунду перед ударом; удар —
-     * в кадре и виден в первые 12 тиков; мотор (если {@code needEngine}) слышен в 60 % кадров до удара.
+     * Итог по кадрам: мир построен (≥ {@link #READY} кадров и первые 10 — все); до удара объект в кадре, виден, не в дыму,
+     * облаках и тумане у края прорисовки, в построенной секции и не мельче {@code minShare} высоты кадра — не меньше долей {@code need} за всё время до удара и за последнюю
+     * секунду; удар в кадре и виден в первые 12 тиков; мотор (если нужен и {@code close}) слышен до удара.
      */
-    Verdict verdict(double minShare, boolean needEngine) {
+    Verdict verdict(double minShare, Coverage.Need need, boolean close) {
         int n = frames.size();
         if (n == 0) return new Verdict(false, "нет кадров", 0, 0, 0, 0, 0);
         int ready = 0, firstReady = 0;
@@ -194,7 +207,7 @@ final class FrameQa {
             Frame f = frames.get(i);
             if (f.ready) ready++;
             if (i < 10 && f.ready) firstReady++;
-            boolean good = f.in && f.seen >= 0.4 && f.clear >= 0.5 && !f.cloud && f.share >= minShare;
+            boolean good = f.visible() && f.clear >= 0.5 && f.share >= minShare;
             if (s.key < 0 || f.t < s.key) {
                 pre++;
                 if (good) preOk++;
@@ -205,17 +218,17 @@ final class FrameQa {
                 }
             } else if (f.t <= s.key + 12) {
                 key++;
-                if (f.in && f.seen >= 0.4 && !f.cloud) keyOk++;
+                if (f.visible()) keyOk++;
             }
         }
         double rReady = (double) ready / n, approach = pre == 0 ? 1 : (double) preOk / pre, nearHit = near == 0 ? 1 : (double) nearOk / near;
         double atKey = key == 0 ? (s.key < 0 ? 1 : 0) : (double) keyOk / key, engine = pre == 0 ? 1 : (double) eng / pre;
         StringBuilder why = new StringBuilder();
         if (READY > 0 && (rReady < READY || firstReady < Math.min(10, n))) why.append(String.format(Locale.ROOT, "мир достраивается в кадре (%.0f%%); ", 100 * (1 - rReady)));
-        if (approach < 0.6) why.append(String.format(Locale.ROOT, "объект виден %.0f%% кадров до удара; ", 100 * approach));
-        if (nearHit < 0.75) why.append(String.format(Locale.ROOT, "в последнюю секунду до удара виден %.0f%%; ", 100 * nearHit));
-        if (atKey < 0.7) why.append(String.format(Locale.ROOT, "удар виден %.0f%%; ", 100 * atKey));
-        if (needEngine && engine < 0.6) why.append(String.format(Locale.ROOT, "мотор слышен %.0f%%; ", 100 * engine));
+        if (approach < need.approach()) why.append(String.format(Locale.ROOT, "объект виден %.0f%% кадров до удара; ", 100 * approach));
+        if (nearHit < need.near()) why.append(String.format(Locale.ROOT, "в последнюю секунду до удара виден %.0f%%; ", 100 * nearHit));
+        if (atKey < need.key()) why.append(String.format(Locale.ROOT, "удар виден %.0f%%; ", 100 * atKey));
+        if (close && engine < need.engine()) why.append(String.format(Locale.ROOT, "мотор слышен %.0f%%; ", 100 * engine));
         return new Verdict(why.isEmpty(), why.toString().trim(), rReady, approach, nearHit, atKey, engine);
     }
 }

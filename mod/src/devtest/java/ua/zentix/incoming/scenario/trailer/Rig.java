@@ -104,9 +104,8 @@ final class Rig {
             case "drone" -> 3.5;
             case "missile" -> 6;
             case "rocket" -> 3;
-            case "bomber" -> 40;
-            case "bunker_buster" -> 5;
-            case "icbm" -> 18;
+            case "bunker" -> 5;
+            case "nuke" -> 18;
             case "loiter" -> 2.5;
             default -> 4;
         };
@@ -118,7 +117,7 @@ final class Rig {
             case "rocket" -> 8;
             case "drone", "loiter" -> 12;
             case "missile" -> 18;
-            case "bunker_buster" -> 24;
+            case "bunker" -> 24;
             default -> 16;
         };
     }
@@ -149,9 +148,23 @@ final class Rig {
         };
     }
 
-    /** Неподвижное место (пейзаж, площадь); событие — отметка журнала {@code mark} или нет. */
+    /** Неподвижное место (пейзаж, площадь), без события. */
     static Function<EventLog.Data, Subject> place(Vec3 p, double size) {
         return d -> new Subject("место", null, size, t -> p, 0, d.ticks - 1, -1, null, 0);
+    }
+
+    /** План без объекта (цех, улица, пролёт): проверяется только мир — построен и без дыма на месте. */
+    static Function<EventLog.Data, Subject> scene() {
+        return d -> new Subject("сцена", null, 0, t -> null, 0, d.ticks - 1, -1, null, 0);
+    }
+
+    /** Ядерный подрыв журнала: событие — подрыв, объект — точка подрыва; поперечник шара — {@code size} блоков. */
+    static Function<EventLog.Data, Subject> nuke(double size) {
+        return d -> {
+            if (d.nukes.isEmpty()) return null;
+            EventLog.Nuke n = d.nukes.get(0);
+            return new Subject("ядерный подрыв", null, size, t -> n.burst(), n.t(), n.t(), n.t(), n.burst(), size);
+        };
     }
 
     // ================================================================ мир повтора
@@ -175,6 +188,19 @@ final class Rig {
         if (Double.isNaN(base)) return false;
         double lo = Math.min(from.y, to.y), hi = Math.max(from.y, to.y);
         return hi >= base - 1 && lo <= base + CLOUD_DEPTH;
+    }
+
+    /**
+     * Доля дальности прорисовки, дальше которой объект в тумане у её края: у ванили туман — последняя десятая доля, у
+     * шейдерпака (Complementary) — плавнее и раньше. Дальше прорисовки обычных чанков нет (у DH там только грубый рельеф
+     * без сущностей) — объект там не снят, даже если луч до него свободен.
+     */
+    static final double FOG = 0.8;
+
+    /** Объект дальше {@link #FOG} прорисовки по горизонтали (туман у ванили — цилиндр вокруг камеры). */
+    static boolean beyondFog(Vec3 eye, Vec3 p) {
+        double rd = Minecraft.getInstance().gameRenderer.getRenderDistance();
+        return Math.hypot(p.x - eye.x, p.z - eye.z) > FOG * rd;
     }
 
     /** Мир повтора у клиента: лучи и высоты только по готовым чанкам. */
@@ -222,9 +248,14 @@ final class Rig {
 
     /**
      * Камера плана по тикам повтора (с долей). {@code close} — камера у самого объекта (погоня, вид с борта): его мотор
-     * в таком плане должен быть слышен.
+     * в таком плане должен быть слышен. {@code designed} — камера сценария ({@link #own}): выводится первой, если оценка
+     * выше нуля.
      */
-    record Candidate(String name, CineCamera.Path path, double mm, boolean close) {}
+    record Candidate(String name, CineCamera.Path path, double mm, boolean close, boolean designed) {
+        Candidate(String name, CineCamera.Path path, double mm, boolean close) {
+            this(name, path, mm, close, false);
+        }
+    }
 
     /** Оценка кандидата по журналу и миру до вывода. */
     record Score(double total, double approach, double atKey, double after, double size, double smoke, boolean free, String why) {
@@ -233,7 +264,7 @@ final class Rig {
 
     /** Тип камеры: из объекта и окна — кандидаты. */
     interface Kind {
-        List<Candidate> candidates(Subject s, int a, int b, World w);
+        List<Candidate> candidates(Subject s, int a, int b, World w, EventLog.Data d);
     }
 
     /**
@@ -244,7 +275,7 @@ final class Rig {
      * отбирает оценка ({@link #score}): видно ли подлёт и удар с этого места.
      */
     static Kind tripod(double[] dists, double azStep, double[] elevs, double share) {
-        return (s, a, b, w) -> {
+        return (s, a, b, w, d) -> {
             List<Candidate> out = new ArrayList<>();
             Vec3 k = s.keyPos != null ? s.keyPos : s.aim((a + b) / 2.0);
             if (k == null) return out;
@@ -275,7 +306,7 @@ final class Rig {
      * {@code release} тиков до удара камера отпускает снаряд — тормозит на своём ходу и смотрит, как он входит в цель.
      */
     static Kind chase(double mm, double back, double up, double side, int release) {
-        return (s, a, b, w) -> {
+        return (s, a, b, w, d) -> {
             int rel = s.key >= 0 ? s.key - release : Integer.MAX_VALUE;
             Vec3[] cam = new Vec3[b - a + 61];
             Vec3 dir = s.heading();
@@ -311,7 +342,31 @@ final class Rig {
 
     /** Свой путь (пейзаж, кран): тот же разбор и проверка кадров. */
     static Kind fixed(String name, double mm, CineCamera.Path path) {
-        return (s, a, b, w) -> List.of(new Candidate(name, path, mm, false));
+        return (s, a, b, w, d) -> List.of(new Candidate(name, path, mm, false));
+    }
+
+    /**
+     * Камера, которую сценарий вёл при записи (кран, FPV, штатив за спиной): из журнала по тикам, между тиками — по прямой
+     * и кратчайшим поворотом. Оценка и проверка кадров — те же, что у камер по журналу. {@code close} — камера у самого
+     * объекта (FPV за снарядом): его мотор должен быть слышен.
+     */
+    static Kind own(boolean close) {
+        return (s, a, b, w, d) -> {
+            if (d.camera.isEmpty() || d.camera.floorKey(a) == null && d.camera.ceilingKey(a) == null) return List.of();
+            CineCamera.Path path = t -> {
+                var lo = d.camera.floorEntry((int) Math.floor(t));
+                var hi = d.camera.ceilingEntry((int) Math.ceil(t));
+                if (lo == null) return hi.getValue();
+                if (hi == null || hi.getKey().equals(lo.getKey())) return lo.getValue();
+                double k = (t - lo.getKey()) / (hi.getKey() - lo.getKey());
+                Pose p = lo.getValue(), q = hi.getValue();
+                return new Pose(p.pos().lerp(q.pos(), k), p.yaw() + Mth.wrapDegrees(q.yaw() - p.yaw()) * (float) k,
+                        Mth.lerp((float) k, p.pitch(), q.pitch()), Mth.lerp((float) k, p.roll(), q.roll()), Mth.lerp(k, p.fov(), q.fov()));
+            };
+            double fov = path.at(a).fov();
+            double mm = 12 / Math.tan(Math.toRadians(fov / 2));
+            return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm", mm), path, mm, close, true));
+        };
     }
 
     /**
@@ -343,7 +398,7 @@ final class Rig {
 
     /**
      * Насколько кадр кандидата снимет план, по журналу и миру повтора: доля времени до удара, когда снаряд в кадре
-     * (с полями), виден (луч до него свободен) и не мельче {@code minShare} высоты кадра; удар в кадре и виден
+     * (с полями), виден (луч до него свободен, ближе тумана у края прорисовки) и не мельче {@code minShare} высоты кадра; удар в кадре и виден
      * в первые полсекунды; камера в воздухе по всему пути; линия взгляда не идёт сквозь столбы дыма прежних ударов.
      */
     static Score score(Candidate c, Subject s, int a, int b, World w, List<EventLog.Flight> earlier, double minShare) {
@@ -359,7 +414,8 @@ final class Rig {
             boolean in = inFrame(p, aim, 0.85);
             double d = p.pos().distanceTo(aim);
             double share = s.aimSize(t) / (2 * d * Math.tan(Math.toRadians(p.fov() / 2)));
-            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, s.aimSize(t) * 0.4)) && !throughClouds(p.pos(), aim, w.clouds);
+            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, s.aimSize(t) * 0.4)) && !throughClouds(p.pos(), aim, w.clouds)
+                    && !beyondFog(p.pos(), aim);
             boolean smoky = smokeOnLine(p.pos(), aim, earlier, t);
             if (smoky) smokeHits++;
             if (s.key < 0 || t < s.key) {

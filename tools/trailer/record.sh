@@ -12,6 +12,8 @@ mkdir -p "$RUN/logs"
 # папка записи: INCOMING_TRAILER_DIR (по умолчанию trailer); переснять отдельные планы, не трогая основной дубль:
 #   INCOMING_TRAILER_SHOTS=bomb_bay,targets INCOMING_TRAILER_DIR=trailer-retake tools/trailer/record.sh shaders
 #   uv run tools/trailer/edit.py --rec mod/run/scenario/trailer --rec mod/run/scenario/trailer-retake
+# облака ванили — INCOMING_CLOUDS (true, fast, false: слой на высоте 192 закрывает верх башен центра и подлёт ракет;
+# у шейдерпака облака — его настройка, их высота для проверки кадров — INCOMING_FILM_CLOUDS)
 # язык игры — INCOMING_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
 #   INCOMING_LANG=en_us INCOMING_TRAILER_SHOTS=remote,scope,targets INCOMING_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
 export INCOMING_TRAILER_DIR="${INCOMING_TRAILER_DIR:-trailer}"
@@ -38,6 +40,7 @@ soundCategory_music:0.0
 tutorialStep:none
 joinedFirstServer:true
 lang:${INCOMING_LANG:-ru_ru}
+renderClouds:"${INCOMING_CLOUDS:-true}"
 OPT
 export INCOMING_SIZE="${INCOMING_SIZE:-1920x1080}"
 W="${INCOMING_SIZE%x*}"; H="${INCOMING_SIZE#*x}"

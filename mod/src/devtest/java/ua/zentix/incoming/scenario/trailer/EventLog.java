@@ -33,7 +33,8 @@ import java.util.UUID;
  * вывода. Тик журнала — тик повтора ({@link FlashbackApi#writtenTicks}): запись Flashback кончает тик клиента после
  * {@code ClientTickEvent.Post}, в котором журнал пишет тот же номер.
  * <p>
- * Строки JSON: {@code {"t":N,"me":[x,y,z],"p":[[имя,x,y,z],…]}} каждый тик (записывающий и люди);
+ * Строки JSON: {@code {"t":N,"me":[x,y,z],"cam":[x,y,z,yaw,pitch,roll,fov],"p":[[имя,x,y,z],…]}} каждый тик (записывающий,
+ * кинокамера плана, если она есть, и люди);
  * {@code {"t":N,"f":[[i,x,y,z,фаза,сущность],…]}} — где снаряды в тик N (пишется с отставанием {@link #LAG}); {@code {"t":N,"new":i,
  * "id":UUID,"weapon":…,"bomber":…}} — новый путь; {@code {"t":N,"impact":i,"pos":[…]}} — взрыв (путь кончился пакетом
  * взрыва) или {@code "lost"} — путь кончился без взрыва (ушёл из данных); {@code {"t":N,"nuke":[x,y,z],"kt":…}};
@@ -105,7 +106,11 @@ final class EventLog {
             }
         }
         Vec3 me = mc.player == null ? Vec3.ZERO : mc.player.position();
-        write(String.format(Locale.ROOT, "{\"t\":%d,\"me\":[%.1f,%.1f,%.1f],\"p\":[%s]}", t, me.x, me.y, me.z, people));
+        // кинокамера плана, как её поставил сценарий: свой путь плана повторяется в выводе как есть
+        CineCamera.Pose cam = CineCamera.pose();
+        String camLine = cam == null ? "" : String.format(Locale.ROOT, ",\"cam\":[%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.2f]",
+                cam.pos().x, cam.pos().y, cam.pos().z, cam.yaw(), cam.pitch(), cam.roll(), cam.fov());
+        write(String.format(Locale.ROOT, "{\"t\":%d,\"me\":[%.1f,%.1f,%.1f]%s,\"p\":[%s]}", t, me.x, me.y, me.z, camLine, people));
         for (var d : ClientNuclear.detonations()) {
             if (d.live && nukes.add(d.d.id())) {
                 Vec3 b = d.d.burst();
@@ -234,6 +239,8 @@ final class EventLog {
         final List<Flight> flights = new ArrayList<>();
         final Map<String, Map<Integer, Vec3>> people = new HashMap<>();
         final Map<Integer, Vec3> recorder = new HashMap<>();
+        /** Кинокамера плана по тикам, как её вёл сценарий при записи. */
+        final java.util.TreeMap<Integer, CineCamera.Pose> camera = new java.util.TreeMap<>();
         final List<Mark> marks = new ArrayList<>();
         final List<Nuke> nukes = new ArrayList<>();
         int ticks;
@@ -308,6 +315,11 @@ final class EventLog {
                 if (o.has("me")) {
                     JsonArray me = o.getAsJsonArray("me");
                     d.recorder.put(t, new Vec3(me.get(0).getAsDouble(), me.get(1).getAsDouble(), me.get(2).getAsDouble()));
+                }
+                if (o.has("cam")) {
+                    JsonArray c = o.getAsJsonArray("cam");
+                    d.camera.put(t, new CineCamera.Pose(new Vec3(c.get(0).getAsDouble(), c.get(1).getAsDouble(), c.get(2).getAsDouble()),
+                            c.get(3).getAsFloat(), c.get(4).getAsFloat(), c.get(5).getAsFloat(), c.get(6).getAsDouble()));
                 }
             } else if (o.has("nuke")) {
                 JsonArray p = o.getAsJsonArray("nuke");
