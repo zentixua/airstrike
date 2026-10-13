@@ -745,6 +745,19 @@ def strikes() -> Path:
 class FpvTest(unittest.TestCase):
     """Проходы FPV: что снимать (удар, снаряд, место для полёта) — здесь, путь — пилот съёмки."""
 
+    def test_room_counts_directions_in_a_row(self):
+        r = types.SimpleNamespace(seen_at=clips.Replay.seen_at, FPV_DIRS=16, FPV_ROOM=128.0)
+        chunks = [(cx, cz) for cx in range(-12, 12) for cz in range(-12, 12)]
+        hit = (1, 100, 0.5, 64.0, -0.5)
+
+        def room(keep) -> int:
+            return clips.Replay.fpv_room(r, {c: [(0, 10 ** 9)] for c in chunks if keep(c)}, hit, 50, 180)
+        self.assertEqual(room(lambda c: True), 16)
+        # полуплоскость z < 0: направления 8…15 и 0 — подряд через конец круга
+        self.assertEqual(room(lambda c: c[1] < 0), 9)
+        self.assertEqual(room(lambda c: c != (0, -1)), 0, "сам удар не в чанках")
+        self.assertEqual(clips.Replay.fpv_room(r, {c: [(0, 200)] for c in chunks}, hit, 50, 180), 0, "к концу прохода чанков уже нет")
+
     def test_fpv(self):
         r = clips.Replay(strikes(), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
         r.fpv_specs = [clips.fpv_spec("shots=4 seconds=9 time=night")]
@@ -773,10 +786,12 @@ class FpvTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             near = r.fpv()
         self.assertEqual([s.subject["uuid"] for s in near[0].shots], ["D-edge"], printed.getvalue())
-        self.assertIn("по 8 направлениям из 16 — снимается: место названо", printed.getvalue())
+        self.assertIn("по 8 направлениям подряд из 16 — снимается: место названо", printed.getvalue())
+        self.assertIn("тесных 0", printed.getvalue(), "снятый у названного места — не пропущенный")
         r.fpv_specs = [clips.fpv_spec("search=01:25/01:40 shots=1 seconds=9 time=night")]
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(r.fpv(), [], "не названо — тесный удар не берётся")
+        self.assertIn("тесно 1", printed.getvalue())
         hit = shots[1].subject["keys"][0]["id"]
         film_plan._HIT_WEAPONS[id(r.con)] = (object(), {hit: "icbm"})
         self.assertEqual(film_plan.hit_weapons(r.con)[hit], "shahed", "запись закрытой базы по тому же адресу — не этой")

@@ -1249,8 +1249,6 @@ class Replay:
         n = self.FPV_DIRS
         side = [ok((h[2] + self.FPV_ROOM * math.cos(2 * math.pi * j / n), h[3], h[4] + self.FPV_ROOM * math.sin(2 * math.pi * j / n)))
                 for j in range(n)]
-        if all(side):
-            return n
         best = run = 0
         for v in side + side:  # по кругу
             run = run + 1 if v else 0
@@ -1303,8 +1301,9 @@ class Replay:
                 for room, h, a, fl in sorted(tight, key=lambda c: (-c[0], -heat[c[1][0]], c[1][1])):
                     if len(chosen) < f["shots"] and not any(abs(a - c[1]) < d for c in chosen):
                         chosen.append((h, a, fl))
+                        cramped -= 1
                         print(f"{self.name}: FPV {f['spec']!r}: у удара {mmss(h[1])} ({fmt(h[2:5])}) чанки в {self.FPV_ROOM:.0f} "
-                              f"блоках только по {room} направлениям из {self.FPV_DIRS} — снимается: место названо")
+                              f"блоках только по {room} направлениям подряд из {self.FPV_DIRS} — снимается: место названо")
             if not chosen:
                 print(f"{self.name}: FPV {f['spec']!r}: ударов по земле со снарядом и местом для полёта нет "
                       f"(без снаряда {blind}, тесно {cramped})")
