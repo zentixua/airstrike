@@ -14,6 +14,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -319,44 +320,64 @@ final class War {
 
     /**
      * Цель залпа видна из кинокамеры плана? Нет — строка в лог до записи: удар за домом или за слоем облаков камера не
-     * снимет, и это видно сразу, а не после вывода.
+     * снимет, и это видно сразу, а не после вывода. Только у плана, которому удар нужен в кадре ({@link Coverage.Need}:
+     * {@code key} или {@code near}; пролёт над головой, пуск, улица — нет), и с любого места камеры за план: камера в пути
+     * (FPV из метро) при пуске бывает под землёй, а удар снимает с улицы. Строка — с места камеры при пуске.
      */
     void sightCheck(Vec3 target) {
         Pose cam = CineCamera.pose();
         if (cam == null || mc.level == null) return;
+        // залп плана — в его onReady, на тик раньше, чем план начинает запись: план — шаг сценария, который идёт
+        Film.Shot shot = film.steps.peek() instanceof Film.Shot s ? s : null;
+        Coverage.Spec spec = shot == null ? null : Coverage.all().get(shot.name);
+        if (spec != null && spec.need().key() == 0 && spec.need().near() == 0) return;
+        if (shot != null) {
+            for (Vec3 eye : shot.eyes(5)) if (sees(eye, target)) return;
+        } else if (sees(cam.pos(), target)) {
+            return;
+        }
+        String plan = shot == null ? "-" : shot.name;
         Vec3 eye = cam.pos(), d = target.subtract(eye);
-        double len = d.length(), spare = 4;
-        if (len <= spare) return;
-        var hit = mc.level.clip(new ClipContext(eye, eye.add(d.scale((len - spare) / len)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
-                CollisionContext.empty()));
-        // блок у самой цели — её же стена (цель — середина блока за гранью)
-        if (hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceTo(target) > 8) {
+        BlockHitResult hit = blocker(eye, target);
+        if (hit != null) {
             Incoming.LOG.warn("SCENARIO film staging {}: цель {} закрыта от камеры {} — блок {} в {} блоках из {}",
-                    plan(), xyz(target), xyz(eye), hit.getBlockPos().toShortString(),
-                    String.format(Locale.ROOT, "%.0f", hit.getLocation().distanceTo(eye)), String.format(Locale.ROOT, "%.0f", len));
+                    plan, xyz(target), xyz(eye), hit.getBlockPos().toShortString(),
+                    String.format(Locale.ROOT, "%.0f", hit.getLocation().distanceTo(eye)), String.format(Locale.ROOT, "%.0f", d.length()));
         }
         double clouds = Rig.cloudBase();
         if (Rig.throughClouds(eye, target, clouds)) {
-            Incoming.LOG.warn("SCENARIO film staging {}: цель {} от камеры {} — через слой облаков ({})", plan(),
+            Incoming.LOG.warn("SCENARIO film staging {}: цель {} от камеры {} — через слой облаков ({})", plan,
                     xyz(target), xyz(eye), String.format(Locale.ROOT, "%.0f", clouds));
         }
         // луч по чанкам, которых у клиента нет, свободен — но их и не видно; у края прорисовки — туман
-        boolean fog = Rig.beyondFog(eye, target);
-        boolean missing = mc.level.getChunkSource().getChunkNow(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) == null;
+        boolean fog = Rig.beyondFog(eye, target), missing = !chunkHere(target);
         if (fog || missing) {
             Incoming.LOG.warn("SCENARIO film staging {}: цель {} в {} блоках от камеры {} — {} (прорисовка {} блоков)",
-                    plan(), xyz(target), String.format(Locale.ROOT, "%.0f", Math.hypot(d.x, d.z)), xyz(eye),
+                    plan, xyz(target), String.format(Locale.ROOT, "%.0f", Math.hypot(d.x, d.z)), xyz(eye),
                     fog ? "в тумане у края прорисовки" : "чанка цели у клиента ещё нет",
                     String.format(Locale.ROOT, "%.0f", mc.gameRenderer.getRenderDistance()));
         }
     }
 
-    /**
-     * План, к которому идёт залп: шаг сценария, который сейчас идёт. Залп плана — в его {@code onReady}, на тик раньше,
-     * чем план начинает запись; {@code -} — залп вне плана.
-     */
-    private String plan() {
-        return film.steps.peek() instanceof Film.Shot s ? s.name : "-";
+    /** Удар в {@code target} виден из {@code eye}: не за блоками, не за облаками, не в тумане, чанк цели у клиента есть. */
+    private boolean sees(Vec3 eye, Vec3 target) {
+        return chunkHere(target) && blocker(eye, target) == null && !Rig.throughClouds(eye, target, Rig.cloudBase())
+                && !Rig.beyondFog(eye, target);
+    }
+
+    /** Блок на луче из {@code eye} к {@code target}, кроме стены самой цели (цель — середина блока за гранью). */
+    @Nullable
+    private BlockHitResult blocker(Vec3 eye, Vec3 target) {
+        Vec3 d = target.subtract(eye);
+        double len = d.length(), spare = 4;
+        if (len <= spare) return null;
+        BlockHitResult hit = mc.level.clip(new ClipContext(eye, eye.add(d.scale((len - spare) / len)), ClipContext.Block.VISUAL,
+                ClipContext.Fluid.NONE, CollisionContext.empty()));
+        return hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceTo(target) > 8 ? hit : null;
+    }
+
+    private boolean chunkHere(Vec3 p) {
+        return mc.level.getChunkSource().getChunkNow(Mth.floor(p.x) >> 4, Mth.floor(p.z) >> 4) != null;
     }
 
     /** Пусковая на прямой через точку {@code over} к цели, в {@code d} блоках позади точки: снаряд пройдёт над ней. */

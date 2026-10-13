@@ -592,6 +592,15 @@ abstract class Film {
         }
 
         /** Камера на кадр: кинокамера — по пути, вид игрока — поворот головы. */
+        /** Места камеры плана за план, через {@code every} тиков: новый путь камеры (у идущего — своё сглаживание крена). */
+        List<Vec3> eyes(int every) {
+            if (camera == null) return List.of();
+            Path p = camera.get();
+            List<Vec3> out = new ArrayList<>();
+            for (int t = 0; t <= length; t += every) out.add(p.at(t).pos());
+            return out;
+        }
+
         void applyCamera() {
             double time = time();
             if (path != null) CineCamera.apply(time);
