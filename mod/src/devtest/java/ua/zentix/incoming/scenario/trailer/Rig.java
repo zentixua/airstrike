@@ -57,6 +57,11 @@ final class Rig {
         final double keySize;
         /** Тики, где объект есть в журнале. */
         final int first, last;
+        /**
+         * Объект рисует мод после мира (ядерная картинка, {@code AFTER_LEVEL}): дальность прорисовки, её туман и облака
+         * шейдерпака его не закрывают, блоки — только загруженные у клиента.
+         */
+        boolean overlay;
 
         Subject(String what, @Nullable UUID entity, double size, DoubleFunction<Vec3> at, int first, int last, int key,
                 @Nullable Vec3 keyPos, double keySize) {
@@ -81,6 +86,11 @@ final class Rig {
             if (t < first) return at.apply(first);
             if (t > last) return key >= 0 && keyPos != null ? keyPos : at.apply(last);
             return at.apply(t);
+        }
+
+        Subject overlay() {
+            overlay = true;
+            return this;
         }
 
         /** Поперечник того, на что смотрит кадр в тик t. */
@@ -163,7 +173,7 @@ final class Rig {
         return d -> {
             if (d.nukes.isEmpty()) return null;
             EventLog.Nuke n = d.nukes.get(0);
-            return new Subject("ядерный подрыв", null, size, t -> n.burst(), n.t(), n.t(), n.t(), n.burst(), size);
+            return new Subject("ядерный подрыв", null, size, t -> n.burst(), n.t(), n.t(), n.t(), n.burst(), size).overlay();
         };
     }
 
@@ -228,6 +238,13 @@ final class Rig {
             if (!loaded(from) || !loaded(end)) return false;
             BlockHitResult hit = level.clip(new ClipContext(from, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
             return hit.getType() == HitResult.Type.MISS;
+        }
+
+        /** Прямая видимость до края прорисовки: дальше блоков у клиента нет (объект, который мод рисует поверх мира). */
+        boolean clearWithin(Vec3 from, Vec3 to, double spare) {
+            Vec3 d = to.subtract(from);
+            double h = Math.hypot(d.x, d.z), reach = FOG * Minecraft.getInstance().gameRenderer.getRenderDistance();
+            return h <= reach ? clear(from, to, spare) : clear(from, from.add(d.scale(reach / h)), 0);
         }
 
         /** Камера не в блоке и вокруг неё полблока воздуха. */
@@ -415,8 +432,9 @@ final class Rig {
             boolean in = inFrame(p, aim, 0.85);
             double d = p.pos().distanceTo(aim);
             double share = s.aimSize(t) / (2 * d * Math.tan(Math.toRadians(p.fov() / 2)));
-            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, s.aimSize(t) * 0.4)) && !throughClouds(p.pos(), aim, w.clouds)
-                    && !beyondFog(p.pos(), aim);
+            double spare = Math.max(2, s.aimSize(t) * 0.4);
+            boolean seen = in && (s.overlay ? w.clearWithin(p.pos(), aim, spare)
+                    : w.clear(p.pos(), aim, spare) && !throughClouds(p.pos(), aim, w.clouds) && !beyondFog(p.pos(), aim));
             boolean smoky = smokeOnLine(p.pos(), aim, earlier, t);
             if (smoky) smokeHits++;
             if (s.key < 0 || t < s.key) {

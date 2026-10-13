@@ -172,11 +172,12 @@ final class FrameQa {
                     if (hit.getType() == HitResult.Type.MISS) open++;
                 }
                 seen = open / 5.0;
-                cloud = Rig.throughClouds(eye, aim, clouds);
-                far = Rig.beyondFog(eye, aim);
+                // ядерную картинку мод рисует после мира: туман у края прорисовки и облака шейдерпака её не закрывают
+                cloud = !s.overlay && Rig.throughClouds(eye, aim, clouds);
+                far = !s.overlay && Rig.beyondFog(eye, aim);
                 // сущность в непостроенной секции игра не рисует (LevelRenderer: isSectionCompiled), стену цели — тоже
                 BlockPos bp = BlockPos.containing(aim);
-                drawn = mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
+                drawn = s.overlay || mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
                 // дым на луче к объекту; частицы ближе size·2+4 к нему не в счёт: у удара это его же огонь и дым
                 // (поперечник — шар удара), а дым прежних ударов между камерой и ударом закрывает и сам удар
                 clear = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);

@@ -47,12 +47,14 @@ def main():
     for s in shots:
         cands = [r for r in rows if r["shot"] == s]
         name, verdict, why = best.get(s, (None, "FAIL", "нет итога"))
-        r = next((c for c in cands if c["candidate"] == name), max(cands, key=lambda c: c["score"]))
+        # строка без камеры (ни один кандидат не прошёл оценку) — без camera, score и долей
+        r = next((c for c in cands if c.get("candidate") == name), None) \
+            or max(cands, key=lambda c: c.get("score", float("-inf")))
         passed += verdict == "PASS"
         no_key = r.get("event", -1) < 0
-        out.append(f"| {s} | {r['candidate']} | {verdict} | {pct(r['ready'])} | {pct(r['approach'])} | "
-                   f"{'—' if no_key else pct(r['near_hit'])} | {'—' if no_key else pct(r['at_key'])} | {pct(r['engine'])} | {pct(r.get('smoky'))} | "
-                   f"{len(cands)} | {why or r['why']} |")
+        out.append(f"| {s} | {r.get('candidate', '—')} | {verdict} | {pct(r.get('ready'))} | {pct(r.get('approach'))} | "
+                   f"{'—' if no_key else pct(r.get('near_hit'))} | {'—' if no_key else pct(r.get('at_key'))} | {pct(r.get('engine'))} | "
+                   f"{pct(r.get('smoky'))} | {len(cands)} | {why or r.get('why', '')} |")
     out.append("")
     out.append(f"Прошли проверку: {passed} из {len(shots)}.")
     text = "\n".join(out) + "\n"

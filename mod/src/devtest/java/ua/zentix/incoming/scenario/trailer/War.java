@@ -258,6 +258,20 @@ final class War {
         film.waitTicks(20);
     }
 
+    /**
+     * Первое место камеры из {@code spots}, где она не в блоке (как проверяет вывод, {@link Rig.World#free}): на крыше
+     * надстройки, которых по карте высот не видно.
+     */
+    Vec3 freeSpot(Vec3... spots) {
+        Rig.World w = new Rig.World();
+        for (Vec3 p : spots) {
+            if (w.free(p)) return p;
+            Incoming.LOG.info("SCENARIO film staging: место камеры {} в блоках", xyz(p));
+        }
+        Incoming.LOG.warn("SCENARIO film staging: все места камеры в блоках, беру {}", xyz(spots[0]));
+        return spots[0];
+    }
+
     static String xyz(Vec3 p) {
         return String.format(Locale.ROOT, "%.1f %.1f %.1f", p.x, p.y, p.z);
     }
@@ -1410,7 +1424,8 @@ final class War {
     private void nukeFar() {
         detonate(FINAL_ROOF);
         film.shot("p46").length(100).hidden()
-                .camera(() -> CineCamera.track(FINAL_ROOF.add(3, 3, -10), () -> GZ.add(0, 480, 0), 60))
+                .camera(() -> CineCamera.track(freeSpot(FINAL_ROOF.add(3, 3, -10), FINAL_ROOF.add(-7, 3.2, -6), FINAL_ROOF.add(-9, 5.5, -8),
+                        FINAL_ROOF.add(0, 8, -12)), () -> GZ.add(0, 480, 0), 60))
                 .when(() -> film.sinceDetonation() >= 0, 600);
         film.shot("p47").length(70).hidden()
                 .camera(() -> CineCamera.glide(WAVE_HIGH, WAVE_HIGH.add(6, -4, 8), 70, () -> at(WAVE_LOOK), 70))
