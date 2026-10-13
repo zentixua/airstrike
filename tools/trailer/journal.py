@@ -4,7 +4,7 @@
 # dependencies = ["numpy", "pillow"]
 # ///
 """Журнал плана (replays/<план>.events.jsonl) текстом: uv run tools/trailer/journal.py <журнал> [--region DIR] [--every N]
-[--tail N]. Печатает отметки, людей в начале плана, камеру сценария через N тиков (место, курс, наклон, угол кадра),
+[--tail N] [--weapon W]. Печатает отметки, людей в начале плана, камеру сценария через N тиков (место, курс, наклон, угол кадра),
 снаряды (появление, конец, удар) и каждый снаряд в окне плана относительно камеры: расстояние, высоту над камерой,
 угол от оси кадра и в кадре ли он (поля 0.85, как у Rig.inFrame). --region — папка region мира части: тики, где
 камера в блоках (как Rig.World.free: куб ±0,5 блока вокруг глаза), и блоки в углах куба. Почему план не прошёл
@@ -57,6 +57,7 @@ def main():
     ap.add_argument('--region', help='папка region мира, где план записан (копия части)')
     ap.add_argument('--every', type=int, default=5)
     ap.add_argument('--tail', type=int, default=100, help='тиков после отметки end')
+    ap.add_argument('--weapon', help='только снаряды этого оружия (drone, missile, rocket…); none — без снарядов')
     a = ap.parse_args()
     cams, people, marks, flights, pos = {}, {}, [], {}, {}
     for line in open(a.journal, encoding='utf-8'):
@@ -91,7 +92,7 @@ def main():
     print('снаряды:')
     for i, f in sorted(flights.items()):
         ps = pos.get(i, {})
-        if not ps:
+        if not ps or a.weapon and f.get('weapon') != a.weapon:
             continue
         t0, t1 = min(ps), max(ps)
         end_ = f.get('impact') or f.get('lost')
