@@ -9,12 +9,13 @@
 # (INCOMING_MODS_DIR или инстанс) и «чистый» jar клиента для Connector (INCOMING_CONNECTOR_CLEAN, иначе — из
 # библиотек Prism). Остальное — как у record.sh (INCOMING_SIZE, INCOMING_WAR_PART, INCOMING_TRAILER_SHOTS,
 # INCOMING_FILM_SHOTS, INCOMING_RENDER_DISTANCE: у вывода — не меньше, чем у записи, иначе дальние чанки повтора
-# клиент выбросит).
+# клиент выбросит). Моды войны (Almighty, Point Blank, Immersive Aircraft) и Distant Horizons берутся из каталога модов
+# всегда; без DH — INCOMING_DH= (пусто: в облаке DH вместо рельефа рисует столбы).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mode="${1:-}"
 shift || true
-export INCOMING_FLASHBACK=1
+export INCOMING_FLASHBACK=1 INCOMING_FILM=1 INCOMING_DH="${INCOMING_DH-1}"
 if [ -z "${INCOMING_CONNECTOR_CLEAN:-}" ]; then
   PRISM="$(python3 "$ROOT/tools/paths.py" PRISM 2>/dev/null || true)"
   CLEAN="$(ls "$PRISM"/libraries/net/minecraft/client/1.21.1-*/client-1.21.1-*-srg.jar 2>/dev/null | head -n1 || true)"

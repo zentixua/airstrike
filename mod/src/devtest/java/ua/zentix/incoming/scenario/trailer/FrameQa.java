@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -107,6 +108,19 @@ final class FrameQa {
         if (Double.isNaN(t)) return;
         Camera cam = e.getCamera();
         Vec3 eye = cam.getPosition();
+        if (frames.isEmpty()) {
+            // люди у камеры в первом кадре: рисует ли их игра и куда смотрят (статисты плана должны быть в кадре)
+            var disp = mc.getEntityRenderDispatcher();
+            List<String> people = new ArrayList<>();
+            for (Player pl : mc.level.players()) {
+                if (pl.isSpectator() || pl.position().distanceTo(eye) > 24) continue;
+                people.add(String.format(Locale.ROOT, "%s at %s: drawn %b, body %.0f, head %.0f",
+                        pl.getName().getString(), War.xyz(pl.position()), disp.shouldRender(pl, e.getFrustum(), eye.x, eye.y, eye.z),
+                        pl.yBodyRot, pl.getYHeadRot()));
+            }
+            ua.zentix.incoming.Incoming.LOG.info("SCENARIO film people in first frame (camera yaw {}): {}",
+                    String.format(Locale.ROOT, "%.0f", cam.getYRot()), people);
+        }
         Matrix4f proj = e.getProjectionMatrix();
         double tanY = 1 / proj.m11(), tanX = 1 / proj.m00();
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);

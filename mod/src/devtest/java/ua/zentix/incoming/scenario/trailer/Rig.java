@@ -171,7 +171,8 @@ final class Rig {
 
     /**
      * Слой облаков: облака не блоки и не частицы, но закрывают объект так же. Ваниль — высота облаков измерения (4 блока
-     * толщиной), шейдерпак хоста — свой слой около 190 ({@code INCOMING_FILM_CLOUDS} — его низ); NaN — облаков нет.
+     * толщиной), шейдерпак хоста — свой слой ({@code INCOMING_FILM_CLOUDS} — его низ; {@code tools/trailer/record.sh}
+     * ставит слой Complementary над ним); NaN — облаков нет.
      */
     static double cloudBase() {
         String env = System.getenv("INCOMING_FILM_CLOUDS");

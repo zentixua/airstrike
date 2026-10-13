@@ -362,8 +362,17 @@ public final class ReplayFilm {
         return out.resolve(spec.shot()).resolve(s.c.name());
     }
 
+    /**
+     * Камера Flashback — игрок-зритель повтора: место ключевого кадра и задания вывода — его ноги, глаз выше на рост
+     * глаз. Позы плана — места глаза, поэтому зрителю — ниже на рост глаз.
+     */
+    static double eyeHeight() {
+        var player = Minecraft.getInstance().player;
+        return player == null ? 1.62 : player.getEyeHeight();
+    }
+
     private void standAt(Pose p) {
-        mc.player.moveTo(p.pos().x, p.pos().y, p.pos().z, p.yaw(), p.pitch());
+        mc.player.moveTo(p.pos().x, p.pos().y - eyeHeight(), p.pos().z, p.yaw(), p.pitch());
         mc.player.setDeltaMovement(Vec3.ZERO);
     }
 
@@ -380,12 +389,13 @@ public final class ReplayFilm {
             if (subject.key >= 0) marks.add(new EventLog.Mark(subject.key, "impact"));
             qa = new FrameQa(subject, candDir, spec.shot(), a, marks);
             flawless(true);
-            FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y, p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
+            FlashbackApi.queuePng(spec.shot(), stateFile, new double[]{p0.pos().x, p0.pos().y - eyeHeight(), p0.pos().z, p0.yaw(), p0.pitch()}, width, height,
                     a, b, FPS, frames);
             go(State.EXPORTING);
             // люди у камеры у клиента повтора: статисты плана должны быть в мире повтора
             String people = mc.level.players().stream().filter(pl -> pl.position().distanceTo(p0.pos()) < 128)
-                    .map(pl -> pl.getGameProfile().getName() + " " + War.xyz(pl.position())).toList().toString();
+                    .map(pl -> pl.getGameProfile().getName() + " " + War.xyz(pl.position()) + (pl.isSpectator() ? " spectator" : "")
+                            + (pl.isInvisible() ? " invisible" : "")).toList().toString();
             Incoming.LOG.info("SCENARIO film export {} {}: ticks {}..{}, all sections {}, people {}", spec.shot(), current.c.name(), a, b,
                     mc.levelRenderer.hasRenderedAllSections(), people);
         } catch (IOException ex) {
@@ -470,13 +480,14 @@ public final class ReplayFilm {
     static String editorState(CineCamera.Path path, int a, int b) {
         JsonObject cam = new JsonObject(), fov = new JsonObject();
         float yaw = Float.NaN;
+        double eye = eyeHeight();
         for (int t = a - EXPORT_LEAD - 2; t <= b + 2; t++) {
             Pose p = path.at(t);
             yaw = Float.isNaN(yaw) ? p.yaw() : yaw + Mth.wrapDegrees(p.yaw() - yaw);
             JsonObject k = new JsonObject();
             JsonArray pos = new JsonArray();
             pos.add(p.pos().x);
-            pos.add(p.pos().y);
+            pos.add(p.pos().y - eye);
             pos.add(p.pos().z);
             k.add("position", pos);
             k.addProperty("yaw", yaw);

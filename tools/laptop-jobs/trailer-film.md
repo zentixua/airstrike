@@ -22,10 +22,11 @@ Connector, Forgified Fabric API, Sodium 0.8.13, Iris, DH 3.3.3, Create, Sable, A
 `nukeB`, `nukeC`, `icbm` — каждой своя свежая копия. Общие переменные:
 ```sh
 export INCOMING_MODS_DIR=run/film-war/minecraft/mods INCOMING_SIZE=1920x1080 INCOMING_RENDER_DISTANCE=32 \
-       INCOMING_TRAILER_DIR=film-war INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=190
+       INCOMING_TRAILER_DIR=film-war INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=320
 ```
-`INCOMING_FILM_CLOUDS` — низ слоя облаков шейдерпака (у Complementary около 190): линия взгляда через него считается
-закрытой. Если облака шейдерпака в кадрах на другой высоте — поставить её. Прорисовка 32: объект дальше 0,8 прорисовки
+`INCOMING_FILM_CLOUDS` — низ слоя облаков: `record.sh` с `shaders` ставит слой Complementary (`CLOUD_ALT1` в
+`mod/run/scenario/shaderpacks/<пак>.txt`) над этой высотой, выше всего действия (по умолчанию слой около 190 срезал
+верх башен и путь ракет), а проверка кадра считает линию взгляда через слой закрытой. Прорисовка 32: объект дальше 0,8 прорисовки
 (410 блоков) проверка считает скрытым туманом у её края, а цели телевиков — в 300–400 блоках (у плана 13 башня в 360).
 Запись и вывод — с одной прорисовкой.
 
@@ -44,7 +45,8 @@ INCOMING_FILM_SHOTS=p13 tools/laptop_job.sh film-render -- tools/trailer/film.sh
 Проверить в `mod/run/scenario/logs/latest.log`:
 - нет `flawless frames Sodium не включились` (Sodium ждёт мира перед каждым кадром);
 - `SCENARIO film verdict p13 own-35mm …` — PASS (камера сценария: за спиной жителя на крыше) или причины; `мир` (доля
-  кадров с построенным миром) — 1.00; в строке `SCENARIO film export p13` в `people` — Ilya (житель на крыше);
+  кадров с построенным миром) — 1.00; в строке `SCENARIO film people in first frame` — Ilya с `drawn true` (камера
+  Flashback ставится ногами, а не глазом: до исправления кадр был на 1,6 блока выше, житель выпадал из кадра);
 - Point Blank: если открытие повтора падает на `pointblank:…broadcastpacket`, вырезать эти пакеты из копий повторов
   (`epic-index/strip_payloads.py`, как для превью) и положить скрипт в `tools/trailer/strip_payloads.py` этой ветки
   (коммит в ветку), шаг вырезания — в `film.sh` перед выводом;
@@ -60,7 +62,8 @@ INCOMING_WAR_PART=nukeB tools/laptop_job.sh film-rec -- tools/trailer/film.sh re
 INCOMING_WAR_PART=nukeC tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 INCOMING_WAR_PART=icbm  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 ```
-`record.sh` чистит папку записи только у сценария `trailer`; у `film.sh` записи копятся в одной папке. Планы с текстом
+`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке.
+Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Планы с текстом
 игры по-русски — отдельной папкой, как раньше (`INCOMING_LANG=ru_ru`, `INCOMING_TRAILER_SHOTS` — планы с интерфейсом,
 `tools/trailer/record.sh shaders`).
 

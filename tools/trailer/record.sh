@@ -19,7 +19,8 @@ mkdir -p "$RUN/logs"
 export INCOMING_TRAILER_DIR="${INCOMING_TRAILER_DIR:-trailer}"
 # сценарий: trailer (запись) или film (вывод планов из повторов той же папки, tools/trailer/film.sh) — его папку не чистим
 export INCOMING_SCENARIO="${INCOMING_SCENARIO:-trailer}"
-if [ "$INCOMING_SCENARIO" = trailer ]; then rm -rf "${RUN:?}/$INCOMING_TRAILER_DIR"; fi
+# запись повторов (film.sh record) копит планы всех частей войны в одной папке — её не чистим
+if [ "$INCOMING_SCENARIO" = trailer ] && [ -z "${INCOMING_FILM_REPLAY:-}" ]; then rm -rf "${RUN:?}/$INCOMING_TRAILER_DIR"; fi
 # звук с устройства не нужен (игра идёт замедленно, дорожку собирает монтаж), но звуковой движок должен работать
 cat > "$RUN/alsoft.conf" <<CONF
 [general]
@@ -67,6 +68,13 @@ if [ "${1:-}" = shaders ]; then
   rm -rf "$RUN/shaderpacks/$PACK"
   cp -r "$MC/shaderpacks/$PACK" "$RUN/shaderpacks/"
   printf 'enableShaders=true\nshaderPack=%s\ndisableUpdateMessage=true\n' "$PACK" > "$RUN/config/iris.properties"
+  # настройки шейдерпака у Iris — <пак>.txt рядом с ним: слой облаков Complementary (CLOUD_ALT1, толщина ±4,2, шаг
+  # настройки 4) — над всем действием, его низ не ниже INCOMING_FILM_CLOUDS (по нему проверка кадра считает облака)
+  if [ -n "${INCOMING_FILM_CLOUDS:-}" ]; then
+    printf 'CLOUD_ALT1=%d\n' "$(( (INCOMING_FILM_CLOUDS + 8 + 3) / 4 * 4 ))" > "$RUN/shaderpacks/$PACK.txt"
+  else
+    rm -f "$RUN/shaderpacks/$PACK.txt"
+  fi
 else
   unset INCOMING_SHADERS
 fi
