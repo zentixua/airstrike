@@ -116,6 +116,7 @@ abstract class Film {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::logTick);
         NeoForge.EVENT_BUS.addListener(this::beforeFrame);
         NeoForge.EVENT_BUS.addListener(this::afterFrame);
+        NeoForge.EVENT_BUS.addListener(this::checkFrame);
         NeoForge.EVENT_BUS.addListener(CineCamera::angles);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOW, CineCamera::fov);
         NeoForge.EVENT_BUS.addListener(this::layer);
@@ -302,6 +303,15 @@ abstract class Film {
         private boolean prep = true;
         /** Ждать прогрузки почти на всю дальность прорисовки (общий план с высоты), а не только рядом с камерой. */
         private int readyChunks = 4;
+        /** Кадр дальше прорисовки: ждать и LOD Distant Horizons. */
+        private boolean distant;
+        /** Проверка кадров вживую ({@link HudQa}): оружие, точки целей, радиус, сколько ударов ждём. */
+        private WeaponType watchWeapon;
+        private List<Vec3> watchAims;
+        private double watchRadius;
+        private int watchCount;
+        @Nullable
+        private HudQa qa;
         private BooleanSupplier after, when, end;
         private int afterTimeout, whenTimeout, endDelay;
         private final List<Cue> cues = new ArrayList<>();
@@ -356,6 +366,27 @@ abstract class Film {
         /** Перед съёмкой ждать мир на {@code chunks} чанков вокруг камеры (не дальше прорисовки). */
         Shot readyChunks(int chunks) {
             readyChunks = chunks;
+            return this;
+        }
+
+        /**
+         * Объект плана дальше прорисовки (его рисует дальняя картинка мода поверх LOD Distant Horizons): перед съёмкой —
+         * ещё и LOD вокруг загружены (очередь загрузки DH пуста), иначе город вдали достраивался бы в кадре.
+         */
+        Shot distant() {
+            distant = true;
+            return this;
+        }
+
+        /**
+         * Проверка каждого кадра живой записи по данным игры ({@link HudQa}): снаряды {@code weapon}, нацеленные ближе
+         * {@code radius} к одной из точек {@code aims}, и их удары; в плане должно быть {@code count} ударов.
+         */
+        Shot watch(WeaponType weapon, double radius, int count, Vec3... aims) {
+            watchWeapon = weapon;
+            watchRadius = radius;
+            watchCount = count;
+            watchAims = List.of(aims);
             return this;
         }
 
@@ -469,7 +500,9 @@ abstract class Film {
                     // повтор: в снимок начала записи — все чанки прорисовки (дальняя цель телевика не догружается в кадре),
                     // а строить секции не нужно (кадры строит вывод); вживую — секции вокруг камеры построены
                     boolean replay = REPLAY && !hudOn;
-                    readyFor = (replay ? worldReady(Integer.MAX_VALUE, false) : worldReady(readyChunks, true)) ? readyFor + 1 : 0;
+                    boolean ready = replay ? worldReady(Integer.MAX_VALUE, false)
+                            : worldReady(readyChunks, true) && (!distant || ua.zentix.incoming.scenario.ClientScenario.dhIdle());
+                    readyFor = ready ? readyFor + 1 : 0;
                     if (readyFor >= 10 && waited >= 40 || waited > 1200) {
                         setFrozen(false);
                         phase = 2;
@@ -494,6 +527,7 @@ abstract class Film {
                     } else if (selected()) {
                         rec.start(name, PREVIEW ? Math.max(1, 1.5 * (length - 1)) : speed, hudOn);
                         recording = this;
+                        if (watchWeapon != null && !PREVIEW) qa = new HudQa(name, recordDir(), watchWeapon, watchAims, watchRadius, watchCount);
                         frameClock = 0;
                         setTickRate(Math.max(1, (float) (8 * rec.step())));
                     }
@@ -504,6 +538,7 @@ abstract class Film {
                 case 4 -> {
                     followCamera();
                     t++;
+                    if (qa != null) qa.tick(Film.this);
                     runCues();
                     if (!PREVIEW && end != null && endAt < 0 && end.getAsBoolean()) endAt = t + endDelay;
                     if (liveEnd < 0 && (t >= length || endAt >= 0 && t >= endAt)) {
@@ -512,6 +547,10 @@ abstract class Film {
                     }
                     if (liveEnd >= 0 && (replayShot != this || t >= liveEnd + TAIL)) {
                         if (replayShot == this) finishReplay();
+                        if (qa != null) {
+                            qa.close();
+                            qa = null;
+                        }
                         rec.stop();
                         recording = null;
                         idleTime = time();
@@ -549,9 +588,14 @@ abstract class Film {
 
     // ================================================================ повтор плана
 
+    /** Папка записи этой съёмки. */
+    java.nio.file.Path recordDir() {
+        return mc.gameDirectory.toPath().resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer"));
+    }
+
     /** Папка повторов и журналов этой съёмки. */
     java.nio.file.Path replayDir() {
-        return mc.gameDirectory.toPath().resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).resolve("replays");
+        return recordDir().resolve("replays");
     }
 
     /** Начать повтор плана: мир вокруг камеры прогружен, момент плана впереди. */
@@ -620,7 +664,7 @@ abstract class Film {
         if (!started) {
             started = true;
             // папка записи: дубль отдельных планов (INCOMING_TRAILER_SHOTS) — в свою папку, монтаж берёт их поверх основной
-            rec = new Recorder(mc.gameDirectory.toPath().resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")));
+            rec = new Recorder(recordDir());
             mc.getSoundManager().addListener(rec);
             mc.options.hideGui = false;
         }
@@ -715,6 +759,11 @@ abstract class Film {
         rec.frame(recording.time(), mc.gameRenderer.getMainCamera());
         FrameClock.advanceNext(rec.step());
         adaptTickRate();
+    }
+
+    /** Кадр видео живой записи нарисован: проверка плана по данным ({@link HudQa}). */
+    void checkFrame(net.neoforged.neoforge.client.event.RenderLevelStageEvent e) {
+        if (recording != null && frameReady && recording.qa != null) recording.qa.frame(e, recording.time());
     }
 
     /** Время текущего плана (для сглаживания взгляда). */

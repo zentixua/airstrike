@@ -6,6 +6,8 @@
 Берёт render/report.jsonl (строка на кандидата: камера, доли кадров, причина) и render/best.txt (выбранный кандидат
 плана). Доли — от кадров плана: «мир» — кадры с построенным миром, «до удара» — объект в кадре, виден и не мельче
 нормы, «последняя секунда» — то же за секунду до удара, «удар» — удар в кадре и виден, «мотор» — звук снаряда слышен.
+Планы, снятые вживую с проверкой кадров (HudQa), — из hud.jsonl папки записи (рядом с render): камера «hud», у снарядов
+дальше прорисовки «до удара» — худшая доля последней секунды, «удар» — худший из ударов плана.
 """
 import argparse
 import json
@@ -28,6 +30,15 @@ def main():
         parts = line.split(maxsplit=3)
         if len(parts) >= 3:
             best[parts[0]] = (Path(parts[1]).name, parts[2], parts[3] if len(parts) > 3 else "")
+    hud = a.render.parent / "hud.jsonl"
+    if hud.exists():
+        # живой план снимается заново целиком: последняя строка плана — его итог
+        for line in hud.read_text().splitlines():
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            rows = [x for x in rows if x["shot"] != r["shot"]] + [r]
+            best[r["shot"]] = ("hud", r["verdict"], r["why"])
     shots = list(dict.fromkeys(r["shot"] for r in rows))
     out = ["| План | Камера | Итог | Мир | До удара | Последняя секунда | Удар | Мотор | Кандидатов | Причина |",
            "|---|---|---|---|---|---|---|---|---|---|"]

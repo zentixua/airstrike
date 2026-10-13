@@ -83,6 +83,13 @@ final class War {
     /** Эпицентр воздушного взрыва; крыша финала в ~900 блоках от него. */
     static final Vec3 GZ = new Vec3(3300.5, 64, 640.5);
     static final Vec3 FINAL_ROOF = new Vec3(2849.5, 116, -157.5);
+    /**
+     * Наводчик на той же крыше смотрит в бинокль на башни центра за ~700 блоков — дальше прорисовки (32 чанка): башни
+     * рисует LOD Distant Horizons, ракеты, огненные шары и дым — дальняя картинка мода. По блокам (ray.py) с крыши видны
+     * T1 выше 134, T2 выше 175, T4 — верх 15 блоков; взгляд — на 19,5° восточнее юга и 7,5° вверх: все три верха и горки
+     * ракет над ними — в открытом квадрате окуляра (±8,6° при зуме 4).
+     */
+    static final Vec3 SKYLINE_POST = new Vec3(2850.5, 116, -156.5), SKYLINE_AIM = new Vec3(3084, 210, 503);
     /** Улица между домами в ~890 блоках от эпицентра, вдоль неё — на эпицентр. */
     static final Vec3 WAVE_STREET = new Vec3(2950.5, 64, -178.5);
     /** Взгорок к северо-западу, ~1250 блоков от эпицентра. */
@@ -111,6 +118,25 @@ final class War {
     private static Field bannerField;
     private int lastBanner;
     private Object frontMarkedIn;
+
+    /** Действие через столько тиков клиента. */
+    private static final class Delayed {
+        int ticks;
+        final Runnable action;
+
+        Delayed(int ticks, Runnable action) {
+            this.ticks = ticks;
+            this.action = action;
+        }
+    }
+
+    private final List<Delayed> delayed = new ArrayList<>();
+
+    /** Через {@code ticks} тиков клиента: пуски вразбивку (маршрут ракеты — на время полёта из настроек, залпы пришли бы разом). */
+    void later(int ticks, Runnable action) {
+        if (ticks <= 0) action.run();
+        else delayed.add(new Delayed(ticks, action));
+    }
 
     War(Trailer film) {
         this.film = film;
@@ -144,6 +170,7 @@ final class War {
         // один план для проверки съёмки из повтора (ReplayFilm)
         if (part.equals("p13")) p13();
         if (part.equals("p21")) ridge();
+        if (part.equals("p33")) skyline();
     }
 
     // ================================================================ мир и помощники
@@ -410,7 +437,13 @@ final class War {
 
     /** Отметки для монтажа: тревога ({@code siren}) и фронт ядерного взрыва у камеры ({@code front}), раз за план. */
     private void watch(ClientTickEvent.Post e) {
-        if (mc.level == null || film.rec == null) return;
+        if (mc.level == null) return;
+        if (!delayed.isEmpty()) {
+            List<Delayed> due = new ArrayList<>();
+            delayed.removeIf(d -> --d.ticks <= 0 && due.add(d));
+            due.forEach(d -> d.action.run());
+        }
+        if (film.rec == null) return;
         int b = banner();
         boolean rec = film.marking();
         if (rec && b > lastBanner) film.mark("siren");
@@ -934,13 +967,17 @@ final class War {
         BooleanSupplier[] landed = {null};
         film.shot("p21").length(170).hidden()
                 .onReady(() -> {
-                    marks.addAll(facades(RIDGE_HIGH, RIDGE_LOOK, 40, 5, 120, 330, 185));
+                    marks.addAll(facades(RIDGE_HIGH, RIDGE_LOOK, 40, 8, 120, 330, 185));
                     if (marks.isEmpty()) marks.add(RIDGE_LOOK);
                     for (int i = 0; i < Math.min(2, marks.size()); i++) salvo("missile", 1, 0, marks.get(i), new Vec3(2400, 0, -40 + i * 60));
+                    // рой — одиночными пусками: у залпа каждый снаряд заходит с курса ±35° и с разбросом бьёт в землю под
+                    // точкой, а одиночный идёт ровно с места пуска на свою грань — через камеру; пуски через 4 тика — поток
                     List<Vec3> swarm = marks.size() > 2 ? marks.subList(2, marks.size()) : marks;
-                    Vec3 dir = swarm.get(0).subtract(RIDGE_HIGH).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
-                    for (int i = -1; i <= 1; i++) {
-                        salvo("drone", 4, 12, swarm.get((i + 1) % swarm.size()), behind(RIDGE_HIGH, swarm.get(0), 900).add(side.scale(i * 30)));
+                    for (int i = 0; i < 12; i++) {
+                        Vec3 face = swarm.get(i % swarm.size());
+                        Vec3 dir = face.subtract(RIDGE_HIGH).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
+                        Vec3 from = behind(RIDGE_HIGH, face, 900).add(side.scale((i % 3 - 1) * 12));
+                        later(4 * i, () -> salvo("drone", 1, 0, face, from));
                     }
                 })
                 // подъём за 2 с — длина плана в монтаже; начало — первый шахед в 30 блоках от камеры: через полсекунды он
@@ -1098,15 +1135,7 @@ final class War {
                 })
                 .when(() -> film.nearest(RocketEntity.class, at(other), 180) != null, 3000);
 
-        // p33: в бинокль наводчика — ракета входит в башню вдали
-        Vec3 spotter = new Vec3(3175.5, 162, 352.5);
-        actor(spotter, T3, "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:1,spread:0}]");
-        film.shot("p33").length(40).hud()
-                .onReady(() -> salvo("missile", 1, 0, T3, new Vec3(2300, 0, 610)))
-                .player(t -> new Pose(Vec3.ZERO, Film.yawTo(spotter, T3), Film.pitchTo(spotter.add(0, 1.62, 0), T3), 0, 70))
-                .cue(0, () -> mc.options.keyUse.setDown(true))
-                .cueEnd(() -> mc.options.keyUse.setDown(false))
-                .when(() -> flightNear(T3, 90, WeaponType.MISSILE), 3000);
+        skyline();
 
         // p34: с борта ракеты — пике, цель растёт, SIGNAL LOST (монтаж режет по отметке gone)
         Vec3 dive = new Vec3(3130.5, 0, 560.5);
@@ -1153,6 +1182,29 @@ final class War {
         peak("p39c", T1.add(0, -40, 0), "missile", 4, 12, new Vec3(-60, -80, -50), 40);  // ниже облаков: верх T1 — над ними
         peak("p39d", new Vec3(3200.5, 0, 260.5), "rocket", 24, 24, new Vec3(-40, 14, 30), 50);
         film.run(() -> Film.cmd("weather clear"));
+    }
+
+    /**
+     * p33: в бинокль с крыши Востока — удары по башням центра за ~700 блоков, дальше прорисовки. Ракеты с запада идут
+     * поперёк кадра и бьют справа налево (T2, T4, T1) пусками через 8 тиков — три удара за секунду монтажа; звук удара
+     * идёт до крыши 2 с — монтаж режет раньше.
+     * Каждый кадр проверяется по путям ракет ({@link HudQa}): ракета перед ударом и удар в окуляре, не за рельефом.
+     */
+    private void skyline() {
+        actor(SKYLINE_POST, SKYLINE_AIM, "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:1,spread:0}]");
+        Vec3[] skyline = {T2, T4, T1};
+        film.shot("p33").length(140).hud().distant()
+                .onReady(() -> {
+                    for (int i = 0; i < skyline.length; i++) {
+                        Vec3 t = skyline[i];
+                        later(8 * i, () -> salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z)));
+                    }
+                })
+                .player(t -> new Pose(Vec3.ZERO, Film.yawTo(SKYLINE_POST, SKYLINE_AIM), Film.pitchTo(SKYLINE_POST.add(0, 1.62, 0), SKYLINE_AIM), 0, 70))
+                .cue(0, () -> mc.options.keyUse.setDown(true))
+                .cueEnd(() -> mc.options.keyUse.setDown(false))
+                .watch(WeaponType.MISSILE, 40, skyline.length, skyline)
+                .when(() -> flightNear(T2, 260, WeaponType.MISSILE), 3000);
     }
 
     /**

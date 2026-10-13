@@ -1600,7 +1600,7 @@ public final class ClientScenario {
     }
 
     /** DH не стоит или уже загрузил свои LOD вокруг: очередь загрузки пуста. */
-    private static boolean dhIdle() {
+    public static boolean dhIdle() {
         if (!net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) return true;
         try {
             Object ex = Class.forName("com.seibel.distanthorizons.core.util.threading.ThreadPoolUtil").getMethod("getRenderLoadingExecutor").invoke(null);
