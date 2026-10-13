@@ -59,8 +59,8 @@ import java.util.function.BooleanSupplier;
  * отметки {@link Film}).
  * <p>
  * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
- * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест); по умолчанию — всё, кроме {@code nukeB} и
- * {@code nukeC}.
+ * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
+ * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}.
  */
 final class War {
     // ================================================================ места Zearth (y = 0 — земля этой колонки)
@@ -136,6 +136,7 @@ final class War {
         if (all || part.equals("nuke")) nuke();
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
+        if (part.equals("icbm")) icbm();
     }
 
     // ================================================================ мир и помощники
@@ -1060,16 +1061,6 @@ final class War {
         film.run(() -> {
             for (int i = 0; i < 4; i++) cast().remove("Crew" + i);
         });
-        // p42: огненная точка МБР уходит в ночное небо — с реки, длинный фокус (с Востока за 4 км её не видно: сущность
-        // за дальностью прорисовки не рисуется); камера выше деревьев берега, фокус сужается с дальностью — МБР в кадре
-        // не тает в точку; взгляд прямо на МБР без сглаживания: МБР набирает до 25 блоков за тик, и сглаженный взгляд отстаёт за край кадра
-        Vec3 riverCam = NIGHT_POST.add(220, 0, -160);
-        film.shot("p42").length(60).hidden().noPrep()
-                .camera(() -> {
-                    Vec3 from = g(riverCam).add(0, 14, 0);
-                    return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 150, 0), 1),
-                            film.rangeFov(from, () -> film.newest(IcbmEntity.class), 20, 7, 250));
-                });
 
         // p43: на Востоке ☢ MISSILE ATTACK ☢ и отсчёт; бой замирает, бойцы опускают оружие и смотрят вверх
         Vec3 c = SQUARE;
@@ -1148,6 +1139,32 @@ final class War {
         film.shot("p48").length(100).hidden()
                 .camera(() -> CineCamera.track(g(WAVE_HILL).add(0, 18, 0), () -> GZ.add(-150, 150, -150), 24))
                 .when(() -> frontIn(at(WAVE_HILL)) < 70, 4000);
+    }
+
+    /**
+     * Часть icbm: огненная точка МБР уходит в ночное небо, издали с реки (p42). Своим пуском на свежей копии мира: в части
+     * nuke МБР, за которой смотрит p41, выходит за небо ({@code IcbmEntity}: выше потолка мира на 256) раньше, чем p41
+     * кончается. План начинается, когда МБР уже высоко, — после p41 в монтаже; подрыва не ждёт.
+     */
+    private void icbm() {
+        film.run(() -> Film.cmd("time set 17000"));
+        hiddenAt(NIGHT_POST, GZ);  // стол МБР — в 30 блоках позади запустившего
+        film.waitTicks(100);
+        film.run(() -> Film.cmd("incoming nuke at " + xyz(at(GZ)) + " 15 air"));
+        // над рекой в 200 блоках от стола: стол остаётся в дальности симуляции невидимки, которая ходит за камерой;
+        // фокус сужается с дальностью — МБР в кадре не тает в точку; взгляд прямо на МБР без сглаживания: она
+        // набирает до 25 блоков за тик, и сглаженный взгляд отстаёт за край кадра
+        Vec3 riverCam = NIGHT_POST.add(100.5, 0, -150.5);
+        film.shot("p42").length(60).hidden()
+                .after(() -> {
+                    IcbmEntity e = film.newest(IcbmEntity.class);
+                    return e != null && e.getY() > NIGHT_POST.y + 110;
+                }, 600)
+                .camera(() -> {
+                    Vec3 from = g(riverCam).add(0, 3, 0);
+                    return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 200, 0), 1),
+                            film.rangeFov(from, () -> film.newest(IcbmEntity.class), 20, 7, 250));
+                });
     }
 
     /** Ночь, невидимка у места первого плана, подрыв 15 кт над эпицентром (без полёта). */
