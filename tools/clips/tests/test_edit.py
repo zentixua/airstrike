@@ -74,8 +74,9 @@ class EditTest(unittest.TestCase):
         root = self.build(flash=True)
         live = root / "far-live.mp4"
         video(live, flash=True, ticks=440)
-        report = self.run_edit(root, "--clip", f"far={live}")
+        report = self.run_edit(root, "--clip", f"far={live}", "--soon")
         self.assertIn("## far — годится", report)
+        self.assertIn("coming soon to Modrinth and CurseForge", (root / "previews" / "far.txt").read_text(), "мод ещё не вышел")
         self.assertIn("снят не из повтора", report)
         self.assertAlmostEqual(edit.duration(root / "previews" / "far.mp4"), 22, delta=0.3)
         self.assertIn("Strikes far away through binoculars", (root / "previews" / "far.txt").read_text())
@@ -148,6 +149,8 @@ class EditTest(unittest.TestCase):
         self.assertEqual(ru, "Ударов вокруг игрока за 13 секунд: 6. Вид его глазами.")
         en, ru = edit.caption("pov", {"weapon": "shahed", "numbers": {"flyby": 2, "seconds": 10}})
         self.assertEqual(en, "Shahed drones overhead, seen through a player's eyes.")
+        en, ru = edit.caption("pov", {"weapon": "pov", "numbers": {"seconds": 17, "mark": "маркер 01:00.0"}})
+        self.assertEqual((en, ru), ("Seen through a player's eyes.", "Вид глазами игрока."), "отмеченный момент без найденных событий")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху
