@@ -81,7 +81,7 @@ def cameras(shot: dict) -> list[dict]:
     keys = s.get("keys", [])
     if cam["kind"] == "path":
         # и на 16 блоков выше: путь по карте бывает сквозь высотку
-        return [{"kind": "path", "keys": cam["keys"], "fov": cam["fov"], "rise": [0, 16]}]
+        return [{"kind": "path", "keys": cam["keys"], "fov": cam["fov"], "rise": cam.get("rise", [0, 16])}]
     if cam["kind"] == "pov":
         out = [{"kind": "pov", "player": cam["viewer"], "fov": 70}]
         if kind in ("impact", "shootdown") and keys:

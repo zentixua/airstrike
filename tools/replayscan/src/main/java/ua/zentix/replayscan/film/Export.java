@@ -210,7 +210,7 @@ final class Export {
                 k.add("position", pos);
                 k.addProperty("yaw", yaw);
                 k.addProperty("pitch", p.pitch());
-                k.addProperty("roll", 0);
+                k.addProperty("roll", path.roll(t));
                 k.addProperty("type", "camera");
                 k.addProperty("interpolation_type", "SMOOTH");
                 cam.add(Integer.toString(t), k);

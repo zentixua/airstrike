@@ -671,6 +671,28 @@ class HistoryTest(unittest.TestCase):
         day = self.fly((0, 400))[1].shots[0]
         self.assertNotIn("time", film_plan.film_shot(r.con, "fly-0", day.json()), "без time — время суток записи")
 
+    def test_fpv(self):
+        """FPV: проходы над самыми жаркими ударами, не перекрываются, по времени; крен в виражах, ночь, запас по высоте."""
+        r = clips.Replay(history((0, 2100)), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
+        r._view = (30, "test")  # прорисовка с запасом: курс прохода выбирается по ударам в кадре, не по чанкам
+        r.fpv_specs = [clips.fpv_spec("shots=2 seconds=9 time=night")]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            c = r.fpv()
+        self.assertEqual(len(c), 1, printed.getvalue())
+        shots = c[0].shots
+        self.assertEqual([s.a for s in shots], [1250 - 54, 1650 - 54], "удар — на 30 % прохода, проходы по времени")
+        self.assertEqual(c[0].preview, "fly")
+        cam = shots[1].camera
+        self.assertEqual((cam["time"], cam["rise"]), (18000, [0, 12, 24]))
+        rolls = [k["roll"] for k in cam["keys"]]
+        self.assertTrue(any(abs(x) > 3 for x in rolls) and all(abs(x) <= 30 for x in rolls), rolls)
+        self.assertGreaterEqual(len(shots[1].subject["keys"]), 2, "жаркий проход: удары 1650–1670 в кадре\n" + printed.getvalue())
+        k0 = cam["keys"][0]
+        self.assertAlmostEqual(k0["eye"][1] - 64, r.FPV_HIGH, delta=1, msg="начало — выше, потом пике к удару")
+        plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
+        self.assertEqual((plan["time"], plan["cameras"][0]["rise"]), (18000, [0, 12, 24]))
+        self.assertIn("roll", plan["cameras"][0]["keys"][0])
+
     def test_other_dimension_forgets(self):
         """Мир другого измерения сервер повтора закрывает, когда записавший уходит: там чанки только с последнего
         входа; верхний мир держит всё."""

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -161,5 +162,18 @@ class PlanTest {
         JsonObject pov = JsonParser.parseString(Export.editorState(null, 100, 120, 1.62, true, 18000)).getAsJsonObject();
         assertEquals(0, pov.getAsJsonArray("scenes").get(0).getAsJsonObject().getAsJsonArray("keyframeTracks").size());
         assertEquals(18000, pov.getAsJsonObject("replayVisuals").get("overrideTimeOfDay").getAsLong(), "ночь в выводе");
+    }
+
+    @Test
+    void pathRollReachesKeyframes() {
+        List<Plan.PathKey> keys = List.of(new Plan.PathKey(100, new Vec3(0, 80, 0), new Vec3(0, 70, 50), 0),
+                new Plan.PathKey(120, new Vec3(0, 80, 20), new Vec3(0, 70, 70), 20));
+        Cameras.Path path = Cameras.along(keys, 80);
+        assertEquals(10, path.roll(110), 1e-9, "крен — между ключами");
+        assertEquals(20, path.roll(130), 1e-9, "после последнего ключа — его");
+        JsonObject st = JsonParser.parseString(Export.editorState(path, 100, 120, 1.62, false, -1)).getAsJsonObject();
+        JsonObject cam = st.getAsJsonArray("scenes").get(0).getAsJsonObject().getAsJsonArray("keyframeTracks").get(0).getAsJsonObject()
+                .getAsJsonObject("keyframesByTick");
+        assertEquals(5, cam.getAsJsonObject("105").get("roll").getAsDouble(), 1e-6);
     }
 }

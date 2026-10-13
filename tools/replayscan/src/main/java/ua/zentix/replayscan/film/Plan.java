@@ -64,8 +64,8 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                   @Nullable Vec3 around, @Nullable Vec3 heading, double[] dist, double[] elev, double azStep, double share, double size,
                   double[] rise, List<PathKey> keys) {}
 
-    /** Ключ камеры {@code path}: тик повтора, глаз и точка, куда она смотрит. */
-    record PathKey(double t, Vec3 eye, Vec3 aim) {}
+    /** Ключ камеры {@code path}: тик повтора, глаз, точка, куда она смотрит, и крен (градусы, плюс — влево, как у Flashback). */
+    record PathKey(double t, Vec3 eye, Vec3 aim, double roll) {}
 
     /**
      * Пороги проверки по кадрам: доля кадров до первого события, где объект снят ({@code subject}), то же за последнюю
@@ -110,7 +110,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 JsonObject k = el.getAsJsonObject();
                 Vec3 eye = vec(k, "eye"), aim = vec(k, "aim");
                 if (eye == null || aim == null) throw new IllegalArgumentException("path key without eye or aim: " + k);
-                keys.add(new PathKey(k.get("t").getAsDouble(), eye, aim));
+                keys.add(new PathKey(k.get("t").getAsDouble(), eye, aim, dbl(k, "roll", 0)));
             }
             keys.sort(Comparator.comparingDouble(PathKey::t));
         }

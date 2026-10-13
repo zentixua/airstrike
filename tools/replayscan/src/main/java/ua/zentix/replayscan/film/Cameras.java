@@ -35,9 +35,13 @@ final class Cameras {
         }
     }
 
-    /** Камера по тикам повтора (с долей). */
+    /** Камера по тикам повтора (с долей); крен — градусы, плюс — влево (ключ камеры Flashback). */
     interface Path {
         Pose at(double t);
+
+        default double roll(double t) {
+            return 0;
+        }
     }
 
     /**
@@ -244,7 +248,7 @@ final class Cameras {
             case "path" -> {
                 // и выше на rise, где задано: путь, проложенный по карте, бывает сквозь высотку
                 for (double rise : c.keys().isEmpty() ? new double[0] : c.rise()) {
-                    List<Plan.PathKey> keys = c.keys().stream().map(k -> new Plan.PathKey(k.t(), k.eye().add(0, rise, 0), k.aim().add(0, rise, 0))).toList();
+                    List<Plan.PathKey> keys = c.keys().stream().map(k -> new Plan.PathKey(k.t(), k.eye().add(0, rise, 0), k.aim().add(0, rise, 0), k.roll())).toList();
                     String name = String.format(Locale.ROOT, "path-%.0f", c.fov()) + (rise > 0 ? String.format(Locale.ROOT, "-r%.0f", rise) : "");
                     out.add(new Candidate(name, along(keys, c.fov()), null, false, c.fov(), true, true));
                 }
@@ -259,15 +263,33 @@ final class Cameras {
      * рывков), до первого ключа — в первом, после последнего — в последнем.
      */
     static Path along(List<Plan.PathKey> keys, double fov) {
-        return t -> {
-            Plan.PathKey a = keys.get(0), b = a;
-            for (Plan.PathKey k : keys) {
-                if (k.t() <= t) a = k;
-                b = k;
-                if (k.t() >= t) break;
+        return new Path() {
+            @Override
+            public Pose at(double t) {
+                Plan.PathKey[] k = around(t);
+                double u = share(k, t);
+                return Pose.look(k[0].eye().lerp(k[1].eye(), u), k[0].aim().lerp(k[1].aim(), u), fov);
             }
-            double u = b.t() > a.t() ? Mth.clamp((t - a.t()) / (b.t() - a.t()), 0, 1) : 0;
-            return Pose.look(a.eye().lerp(b.eye(), u), a.aim().lerp(b.aim(), u), fov);
+
+            @Override
+            public double roll(double t) {
+                Plan.PathKey[] k = around(t);
+                return Mth.lerp(share(k, t), k[0].roll(), k[1].roll());
+            }
+
+            private Plan.PathKey[] around(double t) {
+                Plan.PathKey a = keys.get(0), b = a;
+                for (Plan.PathKey k : keys) {
+                    if (k.t() <= t) a = k;
+                    b = k;
+                    if (k.t() >= t) break;
+                }
+                return new Plan.PathKey[]{a, b};
+            }
+
+            private double share(Plan.PathKey[] k, double t) {
+                return k[1].t() > k[0].t() ? Mth.clamp((t - k[0].t()) / (k[1].t() - k[0].t()), 0, 1) : 0;
+            }
         };
     }
 
