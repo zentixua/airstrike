@@ -349,6 +349,7 @@ class PlanTest(unittest.TestCase):
         s = self.shots["drones-0-shootdown"]
         self.assertEqual([c["kind"] for c in s["cameras"]], ["pov", "tripod"], "глазами игрока, запасная — штатив у сбития")
         self.assertEqual(s["need"]["keys"], 1)
+        self.assertEqual(s["need"]["loud"], 3, "бой вокруг: громкое за кадром — до трёх на одно в кадре")
         self.assertGreater(len(s["subject"]["path"]), 5)
 
     def test_chaos_frames_area(self):
