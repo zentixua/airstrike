@@ -9,7 +9,8 @@
 нормы, «последняя секунда» — то же за секунду до удара, «удар» — удар в кадре, виден и не за дымом прежних ударов,
 «мотор» — звук снаряда слышен, «в дыму» — кадры до удара, где больше половины кадра за дымом.
 Планы, снятые вживую с проверкой кадров (HudQa), — из hud.jsonl папки записи (рядом с render): камера «hud», у снарядов
-дальше прорисовки «до удара» — худшая доля последней секунды, «удар» — худший из ударов плана. План из render/shots.txt
+дальше прорисовки «до удара» — худшая доля последней секунды, «удар» — худший из ударов плана. Отключение света в кадре
+(LampsQa: лампы сети перед камерой плана при записи) — своей таблицей из grid.jsonl папки записи. План из render/shots.txt
 (планы вывода) без строки в report.jsonl — «не выведен»: вывод до него не дошёл.
 """
 import argparse
@@ -68,6 +69,20 @@ def main():
                    f"{pct(r.get('smoky'))} | {sum('candidate' in c for c in cands)} | {why or r.get('why', '')} |")
     out.append("")
     out.append(f"Прошли проверку: {passed} из {len(shots)}.")
+    grid = a.render.parent / "grid.jsonl"
+    if grid.exists():
+        # отключение света в кадре (LampsQa при записи): последняя строка плана — его итог
+        last_grid = {}
+        for line in grid.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                last_grid[r["shot"]] = r
+        out += ["", "| План | Свет в кадре | Горели в начале | Погасли к концу | Первая погасла, тик | Причина |",
+                "|---|---|---|---|---|---|"]
+        for s, r in last_grid.items():
+            out.append(f"| {s} | {r['verdict']} | {r['lit_start']} | {r['unlit_end']} из {r['lamps_end']} | {r['dark_at']} | {r['why']} |")
+        out.append("")
+        out.append(f"Свет в кадре: прошли {sum(r['verdict'] == 'PASS' for r in last_grid.values())} из {len(last_grid)}.")
     text = "\n".join(out) + "\n"
     if a.md:
         a.md.write_text(text)

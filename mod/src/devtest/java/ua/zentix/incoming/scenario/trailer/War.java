@@ -15,6 +15,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DirectionalBlock;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.BlockHitResult;
@@ -44,6 +49,8 @@ import ua.zentix.incoming.entity.IcbmEntity;
 import ua.zentix.incoming.entity.InterceptorEntity;
 import ua.zentix.incoming.entity.RocketEntity;
 import ua.zentix.incoming.entity.StrikeProjectile;
+import ua.zentix.incoming.grid.Blackouts;
+import ua.zentix.incoming.grid.PowerGrid;
 import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.registry.ModBlocks;
 import ua.zentix.incoming.registry.ModItems;
@@ -86,6 +93,8 @@ final class War {
             T4 = new Vec3(3154.5, 234, 566.5), T5 = new Vec3(3061.5, 228, 715.5);
     /** Спуск в метро у депо: лестница вниз по +x от улицы до платформы. */
     static final Vec3 SUB_TOP = new Vec3(3362.5, 63, 269.5), SUB_BOTTOM = new Vec3(3392.5, 47, 269.5);
+    /** Станция метро под ними по карте (светокамень, факелы и красные факелы). */
+    static final BlockPos STATION_MIN = new BlockPos(3330, 20, 240), STATION_MAX = new BlockPos(3470, 64, 300);
     /** Улица у южного края площади (площадь — x 3110–3240, z 238–310, земля 62). */
     static final Vec3 AVENUE = new Vec3(3200.5, 0, 292.5);
     /** Эпицентр воздушного взрыва; крыша финала в ~900 блоках от него. */
@@ -127,6 +136,11 @@ final class War {
     private final List<BlockPos> missileRack = new ArrayList<>(), rocketRack = new ArrayList<>(), droneRack = new ArrayList<>();
     private static Field bannerField;
     private int lastBanner;
+    /** Узлы сети, которые поставила съёмка ({@link #gridNode}). */
+    private final List<Integer> gridNodes = new ArrayList<>();
+    /** Проверка ламп в кадре идущего плана ({@link #lampsFrom}). */
+    @Nullable
+    private LampsQa lampsQa;
     private Object frontMarkedIn;
 
     /** Действие через столько тиков клиента. */
@@ -518,6 +532,7 @@ final class War {
             due.forEach(d -> d.action.run());
         }
         if (film.rec == null) return;
+        if (lampsQa != null && film.marking()) lampsQa.tick(film);
         int b = banner();
         boolean rec = film.marking();
         if (rec && b > lastBanner) film.mark("siren");
@@ -664,6 +679,7 @@ final class War {
                 if (y > SUB_TOP.y + 2) continue;
                 crowd().add("Run" + i++, new Vec3(x, y, z), 3);
             }
+            wireStation(level);
         });
         settle();
         film.run(() -> film.withServer(s -> crowd().flee(SUB_TOP, 60, SUB_BOTTOM.add(6, 0, 0))));
@@ -674,13 +690,17 @@ final class War {
                         SUB_TOP.add(12, -4.6, 0), SUB_TOP.add(20, -10, 0), SUB_BOTTOM.add(0, 1.6, 0), SUB_BOTTOM.add(10, 1.6, 0)),
                         1.0, 5, 0.6, 0.05, 74));
 
-        // p16: метро изнутри: удары наверху доходят глухо
+        // p16: метро изнутри, среди укрывшихся: удары наверху доходят глухо, ракета выбивает узел сети над станцией —
+        // станция гаснет (её квартал сети — один), светит только спуск с улицы. Лампы в кадре — по данным (LampsQa)
         Vec3 above = SUB_BOTTOM.add(4, 17, 0);
-        film.shot("p16").length(50).hidden()
+        gridNode(above, 128);
+        film.shot("p16").length(60).hidden()
                 .onReady(() -> salvo("missile", 2, 12, above, new Vec3(2000, 0, 270)))
-                .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 50,
+                .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 60,
                         () -> SUB_BOTTOM.add(-8, 3, 0), 72))
-                .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000);
+                .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000)
+                .cue(0, () -> lampsFrom("p16", 64, 0.9))
+                .cueEnd(this::lampsEnd);
 
         // p18: FPV вырывается из метро на улицу, где ложится «Град», разворот над перекрёстком
         Vec3 crossing = new Vec3(3330.5, 0, 300.5);
@@ -695,6 +715,7 @@ final class War {
                 })
                 .when(() -> film.nearest(RocketEntity.class, at(crossing), 220) != null, 3000);
         film.run(() -> crowd().removeAll());
+        gridRestore();
 
         // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
         Vec3 room = new Vec3(3060.5, 0, 352.5);
@@ -882,6 +903,71 @@ final class War {
             for (int i = 0; i < 8; i++) cast().remove("Gunner" + i);
         });
         stageScene("factory", new Vec3(-1500.5, 68, 620.5), -90);
+    }
+
+    /**
+     * Узел сети на копии карты для съёмки (своей сети у Zearth нет): взрыв рядом выбивает его, и район {@code radius}
+     * гаснет каскадом мода ({@code Blackouts}). Высота y = 0 — земля. Узлы снимает {@link #gridRestore}.
+     */
+    private void gridNode(Vec3 p, int radius) {
+        film.onServer(level -> {
+            BlockPos at = BlockPos.containing(p.x, p.y <= 0 ? groundY(level, p.x, p.z) : p.y, p.z);
+            gridNodes.add(PowerGrid.get(level).addNode(at, radius, false).id());
+        });
+    }
+
+    /** Свет — обратно (за 10 с, как командой {@code grid restore}), узлы съёмки — прочь: дальше город снова в огнях. */
+    private void gridRestore() {
+        film.onServer(level -> {
+            Blackouts.restore(level, null, 0);
+            gridNodes.forEach(id -> PowerGrid.get(level).removeNode(id));
+            gridNodes.clear();
+        });
+    }
+
+    /** Лампы сети в кадре плана — с его начала ({@link LampsQa}); к концу должна погаснуть доля {@code need}. */
+    private void lampsFrom(String shot, double range, double need) {
+        Pose pose = CineCamera.pose();
+        if (pose == null) return;
+        lampsQa = new LampsQa(shot, need);
+        lampsQa.scan(mc, pose, range);
+    }
+
+    private void lampsEnd() {
+        if (lampsQa == null) return;
+        lampsQa.close(film.recordDir());
+        lampsQa = null;
+    }
+
+    /**
+     * Свет станции метро — в сети: факелы и красные факелы при блэкауте горят (не в сети мода), поэтому на копии карты
+     * для съёмки факел на полу становится фонарём, на стене — стержнем Края из той же стены. Без обновления соседей:
+     * фонарь не проверяет опору, красные цепи не трогаются. Чанки станции грузятся сразу (до записи плана).
+     */
+    private static int wireStation(ServerLevel level) {
+        int n = 0;
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
+        for (int cx = STATION_MIN.getX() >> 4; cx <= STATION_MAX.getX() >> 4; cx++) {
+            for (int cz = STATION_MIN.getZ() >> 4; cz <= STATION_MAX.getZ() >> 4; cz++) {
+                LevelChunk c = level.getChunk(cx, cz);
+                for (int x = Math.max(cx * 16, STATION_MIN.getX()); x <= Math.min(cx * 16 + 15, STATION_MAX.getX()); x++) {
+                    for (int z = Math.max(cz * 16, STATION_MIN.getZ()); z <= Math.min(cz * 16 + 15, STATION_MAX.getZ()); z++) {
+                        for (int y = STATION_MIN.getY(); y <= STATION_MAX.getY(); y++) {
+                            BlockState s = c.getBlockState(p.set(x, y, z));
+                            BlockState to = s.is(Blocks.TORCH) || s.is(Blocks.REDSTONE_TORCH) ? Blocks.LANTERN.defaultBlockState()
+                                    : s.is(Blocks.WALL_TORCH) || s.is(Blocks.REDSTONE_WALL_TORCH)
+                                    ? Blocks.END_ROD.defaultBlockState().setValue(DirectionalBlock.FACING, s.getValue(HorizontalDirectionalBlock.FACING))
+                                    : null;
+                            if (to == null) continue;
+                            level.setBlock(p, to, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+                            n++;
+                        }
+                    }
+                }
+            }
+        }
+        Incoming.LOG.info("SCENARIO film staging: станция метро — {} факелов заменено лампами сети", n);
+        return n;
     }
 
     /**
@@ -1314,13 +1400,19 @@ final class War {
         // за северным краем крыши ROOF (край — z 347), над площадью: площадь под камерой видна (над крышей край её закрывал)
         Vec3 nightCam = new Vec3(3175.5, 172, 343.5);
         hiddenAt(nightCam, night);
-        film.shot("p38").length(70).hidden()
+        // узел сети посреди площади: шахед роя без разброса бьёт в него, город гаснет кварталами по 60 блоков в секунду
+        // (каскад мода); план — с 1,5 с до этого удара (шахеды роя летят столько же и приходят с ним)
+        gridNode(night, 300);
+        film.shot("p38").length(90).hidden()
                 .onReady(() -> {
                     salvo("drone", 12, 60, night, new Vec3(2300, 0, 260));
+                    salvo("drone", 1, 0, night, new Vec3(2300, 0, 330));
                     salvo("rocket", 24, 50, night.add(40, 0, -50), new Vec3(2600, 0, 250));
                 })
                 .camera(() -> CineCamera.track(nightCam, () -> new Vec3(3180.5, 110, 260.5), 40))
-                .when(() -> film.nearest(DroneEntity.class, at(night), 250) != null, 3000);
+                .when(() -> flightEta(at(night), 2, WeaponType.DRONE) <= 1.5, 3000)
+                .cue(0, () -> lampsFrom("p38", 400, 0.5))
+                .cueEnd(this::lampsEnd);
 
         // p39: пик — короткие вспышки ночного боя (монтаж режет каждый дубль на несколько склеек)
         peak("p39a", new Vec3(2930.5, 0, 260.5), "rocket", 30, 30, new Vec3(-30, 2, 40), 70);
@@ -1328,6 +1420,7 @@ final class War {
         peak("p39c", T1.add(0, -40, 0), "missile", 4, 12, new Vec3(-60, -80, -50), 40);  // ниже облаков: верх T1 — над ними
         peak("p39d", new Vec3(3200.5, 0, 260.5), "rocket", 24, 24, new Vec3(-40, 14, 30), 50);
         film.run(() -> Film.cmd("weather clear"));
+        gridRestore();  // ядерный удар гасит город сам (план 46)
     }
 
     /**
