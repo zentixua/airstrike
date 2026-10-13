@@ -4,9 +4,10 @@
 # dependencies = ["numpy", "pillow"]
 # ///
 """Какие блоки стоят в рамке мира, по файлам регионов: uv run tools/trailer/blocks.py <region_dir> x0 y0 z0 x1 y1 z1
-[--match light,lantern,…] [--list N] [--grid S]. Печатает число блоков каждого id, чьё имя содержит одно из слов
+[--match light,lantern,…] [--list N] [--grid S] [--runs N]. Печатает число блоков каждого id, чьё имя содержит одно из слов
 --match (без --match — все id, кроме воздуха), их рамку и первые N мест; --grid S — карту сверху клетками S×S блоков
-(цифра — сколько совпадений в клетке, 9 — девять и больше). Постановка трейлера по данным мира: из чего лампы станции
+(цифра — сколько совпадений в клетке, 9 — девять и больше); --runs N — прямые участки совпадений вдоль x или z
+на одной высоте не короче N блоков (пути депо: где класть путь Create). Постановка трейлера по данным мира: из чего лампы станции
 и кварталов (гаснут ли при блэкауте мода), где рельсы депо."""
 import argparse, os, struct, sys, zlib, math
 import numpy as np
@@ -28,7 +29,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('region'); ap.add_argument('box', type=int, nargs=6)
     ap.add_argument('--match', default=''); ap.add_argument('--list', type=int, default=8)
-    ap.add_argument('--grid', type=int, default=0)
+    ap.add_argument('--grid', type=int, default=0); ap.add_argument('--runs', type=int, default=0)
     a = ap.parse_args()
     x0, y0, z0, x1, y1, z1 = a.box
     x0, x1 = sorted((x0, x1)); y0, y1 = sorted((y0, y1)); z0, z1 = sorted((z0, z1))
@@ -74,6 +75,24 @@ def main():
         xs, ys, zs = zip(*ps)
         print(f'{name}: {len(ps)}  x {min(xs)}..{max(xs)}  y {min(ys)}..{max(ys)}  z {min(zs)}..{max(zs)}')
         for p in sorted(ps, key=lambda p: (p[1], p[0], p[2]))[:a.list]: print(f'    {p[0]} {p[1]} {p[2]}')
+    if a.runs and found:
+        pts = {p for ps in found.values() for p in ps}
+        runs = []
+        for axis in (0, 2):
+            for p in pts:
+                prev = list(p); prev[axis] -= 1
+                if tuple(prev) in pts: continue
+                n = 1
+                while True:
+                    q = list(p); q[axis] += n
+                    if tuple(q) not in pts: break
+                    n += 1
+                if n >= a.runs:
+                    e = list(p); e[axis] += n - 1
+                    runs.append((n, 'x' if axis == 0 else 'z', p, tuple(e)))
+        runs.sort(key=lambda r: -r[0])
+        print(f'прямые участки от {a.runs} блоков: {len(runs)}')
+        for n, ax, p, e in runs[:40]: print(f'    {n:4d} вдоль {ax}: {p[0]} {p[1]} {p[2]} → {e[0]} {e[1]} {e[2]}')
     if a.grid and found:
         S = a.grid
         w, h = (x1 - x0) // S + 1, (z1 - z0) // S + 1

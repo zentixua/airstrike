@@ -4,11 +4,12 @@
 # dependencies = ["numpy", "pillow"]
 # ///
 """Место для камеры или наводчика по файлам регионов: uv run tools/trailer/perch.py <region_dir> --targets "x,y,z;x,y,z"
-[--rmin 250 --rmax 390] [--min-y 90] [--step 3] [--top 12]. Ищет крыши (верх колонки по карте высот MOTION_BLOCKING,
-ровный квадрат 3×3), с которых каждая цель видна лучом по блокам, на расстоянии rmin…rmax от
-первой цели по горизонтали (--near N: цель видна, если луч до первого блока доходит ближе N блоков к ней — грань
-башни у её середины тоже). Печатает лучшие: сколько целей видно, расстояния, ноги стоящего (x y z) и взгляд на первую
-цель. Так ставится наводчик с биноклем (цель мода — до 400 блоков, `Designator.RANGE`) — по миру, а не на глаз."""
+[--rmin 250 --rmax 390] [--reach 400] [--min-y 90] [--eye 1.62] [--step 3] [--top 12]. Ищет крыши (верх колонки по карте высот
+MOTION_BLOCKING, ровный квадрат 3×3), с которых каждая цель видна лучом по блокам, а глаз стоящего в rmin…rmax от первой
+цели (по прямой, как луч бинокля); --reach R — видимая цель дальше R от глаза не в счёт. --near N: цель видна, если луч
+до первого блока доходит ближе N блоков к ней (грань башни у её середины тоже). Печатает лучшие: сколько целей видно,
+расстояния от глаза, ноги стоящего (x y z) и взгляд на первую цель; --eye — высота глаза или камеры над крышей. Так ставится наводчик с биноклем (цель мода — до
+400 блоков от глаза, `Designator.RANGE`) — по миру, а не на глаз."""
 import argparse, math, os, struct, sys, zlib
 import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
@@ -88,6 +89,7 @@ def main():
     ap.add_argument('--rmin', type=float, default=250); ap.add_argument('--rmax', type=float, default=390)
     ap.add_argument('--min-y', type=int, default=90); ap.add_argument('--step', type=int, default=3)
     ap.add_argument('--top', type=int, default=12); ap.add_argument('--near', type=float, default=12)
+    ap.add_argument('--reach', type=float, default=0); ap.add_argument('--eye', type=float, default=1.62)
     a = ap.parse_args()
     ts = [tuple(float(v) for v in t.split(',')) for t in a.targets.split(';')]
     cx, cz = ts[0][0], ts[0][2]
@@ -96,22 +98,24 @@ def main():
     for x in range(int(cx) - r, int(cx) + r + 1, a.step):
         for z in range(int(cz) - r, int(cz) + r + 1, a.step):
             h = math.hypot(x + 0.5 - cx, z + 0.5 - cz)
-            if h < a.rmin or h > a.rmax: continue
+            if h > a.rmax: continue
             y = top(a.region, x, z)
             if y is None or y < a.min_y: continue
+            eye = (x + 0.5, y + 1 + a.eye, z + 0.5)
+            r0 = math.dist(eye, ts[0])
+            if r0 < a.rmin or r0 > a.rmax: continue
             # ровная крыша: квадрат 3×3 одной высоты, над ним два блока воздуха
             if any(top(a.region, x + i, z + j) != y for i in (-1, 0, 1) for j in (-1, 0, 1)): continue
             if solid(a.region, x, y + 1, z) or solid(a.region, x, y + 2, z): continue
-            eye = (x + 0.5, y + 1 + 1.62, z + 0.5)
-            seen = [clear(a.region, eye, t, a.near) for t in ts]
+            seen = [(not a.reach or math.dist(eye, t) <= a.reach) and clear(a.region, eye, t, a.near) for t in ts]
             if not any(seen): continue
-            out.append((sum(seen), -h, x, y + 1, z, seen, [math.dist(eye, t) for t in ts]))
+            out.append((sum(seen), -r0, x, y + 1, z, seen, [math.dist(eye, t) for t in ts]))
     out.sort(key=lambda o: (-o[0], o[1]))
     print(f'мест: {len(out)} (видна хотя бы одна цель); лучшие:')
     for n, _, x, y, z, seen, ds in out[:a.top]:
         t = ts[0]
-        yaw = math.degrees(math.atan2(t[2] - z - 0.5, t[0] - x - 0.5)) - 90
-        pitch = -math.degrees(math.atan2(t[1] - y - 1.62, math.hypot(t[0] - x - 0.5, t[2] - z - 0.5)))
+        yaw = (math.degrees(math.atan2(t[2] - z - 0.5, t[0] - x - 0.5)) - 90 + 180) % 360 - 180
+        pitch = -math.degrees(math.atan2(t[1] - y - a.eye, math.hypot(t[0] - x - 0.5, t[2] - z - 0.5)))
         vis = ''.join('+' if s else '-' for s in seen)
         print(f'  {x + 0.5:.1f} {y} {z + 0.5:.1f}  цели {vis}  до целей ' + ' '.join(f'{d:.0f}' for d in ds)
               + f'  взгляд yaw {yaw:.1f} pitch {pitch:.1f}')

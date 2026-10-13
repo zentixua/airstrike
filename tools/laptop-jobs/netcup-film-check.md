@@ -47,27 +47,42 @@ rm -rf mod/run/scenario/saves/$D
 кадров, например p33), строки `SCENARIO film verdict` и `SCENARIO film hud`, ошибки из лога (`Exception`, `ERROR` мода).
 
 ## 3. Карта для постановки (только чтение файлов регионов)
-Регион — `<мастер Zearth>/region` (`~/airstrike-work/zearth-master/region`; эталон не трогать). Скрипты — `uv run`
+Регион — `<мастер Zearth>/world/region` (`~/airstrike-work/zearth-master/Project Zearth/world/region`; эталон не трогать). Скрипты — `uv run`
 (numpy). Прислать вывод каждой команды как есть (текст; файлы карты наружу не уходят).
 ```sh
-R=~/airstrike-work/zearth-master/region
+R="$HOME/airstrike-work/zearth-master/Project Zearth/world/region"
 L=light,lantern,glowstone,froglight,shroomlight,end_rod,lamp,bulb,torch,candle,glow
 # p16: из чего свет станции метро (гаснут при блэкауте мода только лампы, не факелы)
-uv run tools/trailer/blocks.py $R 3330 20 240 3470 64 300 --match $L --list 5 --grid 8
+uv run tools/trailer/blocks.py "$R" 3330 20 240 3470 64 300 --match $L --list 5 --grid 8
 # p38: свет кварталов вокруг площади ночью
-uv run tools/trailer/blocks.py $R 3000 55 150 3400 260 450 --match $L --list 3 --grid 16
+uv run tools/trailer/blocks.py "$R" 3000 55 150 3400 260 450 --match $L --list 3 --grid 16
 # p04: пути депо (ванильные рельсы или пути Create)
-uv run tools/trailer/blocks.py $R 2700 40 -300 3700 110 900 --match rail,create:track --list 30 --grid 16
+uv run tools/trailer/blocks.py "$R" 2700 40 -300 3700 110 900 --match rail,create:track --list 30 --grid 16
 # p07: наводчик на крыше Востока в 250–380 блоках от башни T2 (грань башни видна; бинокль мода — до 400 блоков)
-uv run tools/trailer/perch.py $R --targets "3072.5,200,504.5" --rmin 250 --rmax 380 --min-y 90 --near 16
+uv run tools/trailer/perch.py "$R" --targets "3072.5,200,504.5" --rmin 250 --rmax 380 --min-y 90 --near 16
 # p33: крыша, с которой видны верхи трёх башен (T2, T1, T4), каждая ближе 400 блоков
-uv run tools/trailer/perch.py $R --targets "3072.5,255,504.5;3151.5,214,461.5;3154.5,234,566.5" --rmin 150 --rmax 320 --min-y 100 --near 10
+uv run tools/trailer/perch.py "$R" --targets "3072.5,255,504.5;3151.5,214,461.5;3154.5,234,566.5" --rmin 150 --rmax 320 --min-y 100 --near 10
 ```
 Для каждой группы рельсов из третьей команды (по карте `--grid`) — луч из камеры плана 4 на её середину:
-`uv run tools/trailer/ray.py $R 3116.5 68.1 306.5 <x> <y> <z> --fov 50`.
+`uv run tools/trailer/ray.py "$R" 3116.5 68.1 306.5 <x> <y> <z> --fov 50`.
 
 ## 4. Нагрузка уличного боя (≈100 ботов)
 Часть `streets` на свежей копии мастера (как в «Съёмка части»): бой на площади и на проспекте, 96 бойцов, планы
 p26–p30 и p01e. Прислать: строки `TRAILER … повтор записан` (там тик сервера в мс, наибольший, темп записи и число
 игроков), строки `SCENARIO film cast failed` (их не должно быть), `render/report.md`, время записи части от начала до
 конца и ошибки из лога. Если у бойцов в кадре нет огня (Point Blank) или их меньше 96 — так и написать.
+
+## 5. Депо для поезда Create (план 4), только чтение файлов регионов
+`perch.py` теперь меряет `--rmin`/`--rmax` от глаза до первой цели по прямой (как луч бинокля), `--reach` отсекает
+цели дальше от глаза, `--eye` — высота камеры над крышей. Регион и `uv run` — как в разделе 3.
+```sh
+R="$HOME/airstrike-work/zearth-master/Project Zearth/world/region"
+# прямые участки наземных путей (без метро: y от 58) у площади и депо — где класть путь Create
+uv run tools/trailer/blocks.py "$R" 3000 58 100 3700 90 450 --match rail --list 0 --runs 40 --grid 8
+```
+Для трёх самых длинных участков из этого вывода, ближе 350 блоков к площади (3175, 274): камера у площади, с которой
+видны и площадь, и середина участка (`<x> <y+2> <z>` — середина участка на высоте вагона):
+```sh
+uv run tools/trailer/perch.py "$R" --targets "3125.5,64,272.5;<x>,<y+2>,<z>" --rmin 10 --rmax 70 --min-y 58 --eye 5.5 --near 6 --step 2 --top 12
+```
+Прислать весь текст вывода (каждая команда, с её строкой команды).
