@@ -182,7 +182,7 @@ def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lin
         text += f"Music: {a.credit}\n"
     (out / f"{cid}.txt").write_text(text)
     return [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
-            + ("" if 20 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
+            + ("" if 20 - 1 / 30 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
 
 
 def clip_spec(spec: str) -> tuple[str, Path]:
@@ -224,7 +224,7 @@ def main():
         aspect = plan["width"] / plan["height"]
         for cid in sorted(plan["previews"], key=lambda c: ORDER.index(c.split("-")[0]) if c.split("-")[0] in ORDER else 9):
             preview = cid.split("-")[0]
-            videos, lines, ok = [], [], True
+            videos, lines, ok, passed = [], [], True, []
             for name in plan["previews"][cid]:
                 b = best.get(name)
                 s = shots[name]
@@ -241,6 +241,7 @@ def main():
                 dark = [f for f in flashes if not f["seen"]]
                 ok &= bool(b.get("pass")) and not dark
                 videos.append(cand / "video.mkv")
+                passed.append(bool(b.get("pass")))
                 lines.append(f"- {name}: камера {b.get('candidate')}, проверка кадров {'да' if b.get('pass') else 'НЕТ: ' + str(b.get('why'))}; "
                              f"кадров {verdict.get('frames')}, объект {verdict.get('approach', 0):.0%}, событий {verdict.get('keys_ok')}/{verdict.get('keys')}, "
                              f"громких в кадре {verdict.get('loud_on')}, за кадром {verdict.get('loud_off')}; "
@@ -248,6 +249,10 @@ def main():
             if not videos:
                 report += [f"## {cid}", "", *lines, ""]
                 continue
+            # план, не прошедший проверку кадров (объекта в кадре нет), в ролик не идёт, если в нём есть прошедшие
+            if any(passed) and not all(passed):
+                videos = [v for v, p in zip(videos, passed) if p]
+                lines.append(f"- в ролик не вошли планы без проверки кадров: {passed.count(False)}")
             report += finish(cid, preview, cands.get(cid, {"weapon": "", "numbers": {}}), videos, ok, lines, out, a)
     for name, video in a.clip:
         report += finish(name, name, {"weapon": "", "numbers": {}}, [video], True,

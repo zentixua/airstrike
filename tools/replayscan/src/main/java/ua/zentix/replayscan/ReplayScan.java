@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -37,12 +38,12 @@ public final class ReplayScan {
     private long lastProgress = System.nanoTime(), lastLog = System.nanoTime();
     private int lastTick = -1;
 
-    public ReplayScan() {
+    public ReplayScan(IEventBus modBus) {
         // съёмка по плану (README.md, «Съёмка») — вместо разбора
         String film = System.getProperty("replayscan.film");
         if (film != null && !film.isBlank()) {
             settings = null;
-            Film.start(Path.of(film));
+            Film.start(Path.of(film), modBus);
             return;
         }
         if (System.getProperty("replayscan.replay", "").isBlank()) {

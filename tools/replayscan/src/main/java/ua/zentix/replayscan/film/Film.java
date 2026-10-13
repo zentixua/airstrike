@@ -9,9 +9,11 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -85,7 +87,7 @@ public final class Film {
 
     private record Scored(Cameras.Candidate c, Cameras.Score score) {}
 
-    private Film(Plan plan) {
+    private Film(Plan plan, IEventBus modBus) {
         this.plan = plan;
         aspect = (double) plan.width() / plan.height();
         best = readBest(plan.out().resolve("best.json"));
@@ -101,16 +103,17 @@ public final class Film {
         }
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
-        Export.deferSnapshotPayloads();
+        // соединение зрителя повтора при настройке, до пакета входа: пакеты после входа ждут, пока у клиента нет мира
+        modBus.addListener(RegisterConfigurationTasksEvent.class, e -> ViewerHold.install(e.getListener().getConnection()));
     }
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
-    public static void start(Path file) {
+    public static void start(Path file, IEventBus modBus) {
         try {
             Export.check();
             Plan plan = Plan.read(file);
             Files.createDirectories(plan.out());
-            new Film(plan);
+            new Film(plan, modBus);
         } catch (ReflectiveOperationException | LinkageError e) {
             LOG.error("Film: Flashback 0.39 is required ({})", e.toString());
             exitWhenLoaded();
@@ -197,7 +200,7 @@ public final class Film {
             }
             case OPENING -> {
                 if (mc.level != null && mc.player != null && Export.inReplay()) {
-                    Export.releaseSnapshotPayloads();
+                    ViewerHold.release();
                     // редактор Flashback не активен с интерфейсом — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);

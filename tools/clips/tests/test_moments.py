@@ -176,6 +176,9 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(down.subject["uuid"], "D-down")
         self.assertEqual(down.subject["keys"], [{"t": 470, "pos": [0.5, 85.0, 60.0], "size": 8}])
         self.assertEqual(c[0].numbers["shot_down"], 1)
+        alone = [clips.Shot("shootdown", "shootdown", 1000, 1180, {}, {})]
+        clips.fill(alone)
+        self.assertEqual((alone[0].a, alone[0].b), (1000 - 88, 1180 + 132), "сбитие одно — и до него, и после")
         self.assertEqual(c[0].shots[0].camera, {"kind": "pov", "viewer": "recorder"})
         # пролёт — пока шахед в кадре, не по ближайшей точке за всю его жизнь
         fl = c[0].shots[0]

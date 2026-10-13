@@ -92,6 +92,15 @@ class EditTest(unittest.TestCase):
                 self.run_edit(root, "--clip", spec)
         self.assertFalse((root / "previews" / "rockets-0.mp4").exists(), "до проверки --clip ничего не собрано")
 
+    def test_failed_shot_left_out(self):
+        root = self.build(flash=True)
+        best = json.loads((root / "film" / "best.json").read_text())
+        best["rockets-0-launch"]["pass"] = False
+        (root / "film" / "best.json").write_text(json.dumps(best))
+        report = self.run_edit(root)
+        self.assertIn("в ролик не вошли планы без проверки кадров: 1", report)
+        self.assertAlmostEqual(edit.duration(root / "previews" / "rockets-0.mp4"), 3, delta=0.2, msg="только прошедший план")
+
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
         best = json.loads((root / "film" / "best.json").read_text())

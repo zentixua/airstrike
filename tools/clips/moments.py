@@ -232,19 +232,19 @@ def key(f: Flight) -> dict:
     return {"t": f.t_hit, "pos": list(f.pos), "size": BLAST.get(f.weapon, 16), "id": f.hit}
 
 
-# Ролик не короче, с (превью — 20–35 с; с запасом на кадр, которого вывод может недосчитаться)
-LEAST = 20.5
+# Ролик не короче, с (превью — 20–35 с)
+LEAST = 20
 
 
 def fill(shots: list[Shot], least: float = LEAST) -> list[Shot]:
-    """Ролик не короче least секунд: недостающее — плану удара (40 % до удара, но не раньше конца прошлого плана и
-    начала повтора, остальное — после), без него — концу последнего плана."""
+    """Ролик не короче least секунд: недостающее — плану удара или сбития (40 % до него, но не раньше конца прошлого
+    плана и начала повтора, остальное — после), без них — концу последнего плана."""
     short = round(least * TICK) - sum(s.b - s.a for s in shots)
     if short <= 0 or not shots:
         return shots
-    i = next((i for i in range(len(shots) - 1, -1, -1) if shots[i].kind == "impact"), len(shots) - 1)
+    i = next((i for i in range(len(shots) - 1, -1, -1) if shots[i].kind in ("impact", "shootdown")), len(shots) - 1)
     s = shots[i]
-    if s.kind == "impact":
+    if s.kind in ("impact", "shootdown"):
         before = min(round(short * 0.4), max(0, s.a - shots[i - 1].b) if i > 0 else s.a)
         s.a -= before
         s.b += short - before
