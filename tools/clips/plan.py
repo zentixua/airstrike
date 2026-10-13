@@ -5,10 +5,10 @@
 # ///
 """План съёмки превью из кандидатов (moments.py) — для съёмки replayscan (-Dreplayscan.film, README там).
 
-  uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--top 1] [--out <clips>/film]
+  uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--all pov] [--top 1] [--out <clips>/film]
          [--size 1080x1920] [--fps 60] [--replays <каталог копий>]
 
-Берёт по --top лучших кандидатов каждого ролика (или --pick), достаёт из базы пути снарядов (tracks и дальние
+Берёт по --top лучших кандидатов каждого ролика (или --pick и всех кандидатов роликов --all), достаёт из базы пути снарядов (tracks и дальние
 строки far), прежние удары (дым) и измерение и пишет план на каждый повтор: <out>/<повтор>/plan.json; вывод съёмки —
 <out>/<повтор>/film. <out>/runs.json — что запускать: повтор, план и версия Incoming записи (jar того дня).
 """
@@ -25,7 +25,7 @@ from moments import incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
 # за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен; громких
-# за кадром не больше `loud` на одно в кадре (по умолчанию 1)
+# за кадром не больше `loud` на одно в кадре (по умолчанию 1; меньше 0 — не проверяется)
 NEED = {
     "launch": {"subject": 0.6, "near": 0, "keys": 1, "share": 0.004},
     "flight": {"subject": 0.5, "near": 0, "keys": 1, "share": 0.004, "engine": 0.3},
@@ -36,6 +36,8 @@ NEED = {
     "chaos": {"subject": 0, "near": 0, "keys": 0.5, "share": 0},
     "far": {"subject": 0, "near": 0, "keys": 1, "share": 0},
     "nuke": {"subject": 0, "near": 0, "keys": 1, "share": 0},
+    # глазами игрока как есть: куда он смотрел, то и в кадре; громкое за кадром — его бой вокруг
+    "pov": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
 }
 
 
@@ -64,8 +66,8 @@ def dim_of(con, shot: dict) -> str:
 
 
 def cameras(shot: dict) -> list[dict]:
-    """Камеры плана: глаза игрока (с запасной свободной камерой у удара, сбития, пуска и хаоса) или свободная камера
-    по роду."""
+    """Камеры плана: глаза игрока (с запасной свободной камерой у удара, сбития, пуска и хаоса; у плана «глазами
+    игроков» — без запасной) или свободная камера по роду."""
     cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
     keys = s.get("keys", [])
     if cam["kind"] == "pov":
@@ -122,6 +124,7 @@ def main():
     p.add_argument("candidates")
     p.add_argument("--pick", default="", help="id кандидатов через запятую (по умолчанию — --top лучших каждого ролика)")
     p.add_argument("--top", type=int, default=1)
+    p.add_argument("--all", default="", help="ролики, у которых снимать всех кандидатов (через запятую; «глазами игроков» — pov)")
     p.add_argument("--out", default=None)
     p.add_argument("--size", default="1080x1920")
     p.add_argument("--fps", type=float, default=60)
@@ -134,7 +137,9 @@ def main():
     cands = json.loads(Path(a.candidates).read_text())
     out = Path(a.out) if a.out else Path(a.candidates).parent / "film"
     pick = [x for x in a.pick.split(",") if x]
-    chosen = [c for v in cands.values() for c in v if c["id"] in pick] if pick else [c for v in cands.values() for c in v[:a.top]]
+    every = [x for x in a.all.split(",") if x]
+    chosen = [c for k, v in cands.items() for c in v if c["id"] in pick or k in every] if pick or every \
+        else [c for v in cands.values() for c in v[:a.top]]
     width, height = (int(x) for x in a.size.split("x"))
     by_replay: dict[str, dict] = {}
     for c in chosen:

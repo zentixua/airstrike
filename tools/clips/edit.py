@@ -26,7 +26,9 @@ from pathlib import Path
 
 import numpy as np
 
-ORDER = ["rockets", "drones", "chaos", "far", "nuke"]
+ORDER = ["rockets", "drones", "chaos", "far", "nuke", "pov"]
+# Длина ролика, с: превью — 20–35, «глазами игроков» — отрезок одного игрока
+LENGTH = {"pov": (8, 20)}
 # Яркость (0–255) в рамке события сразу после него — на столько выше, чем до: вспышка видна
 FLASH = 18
 # Кадр проверки вспышки: видео уменьшается до этой ширины (оттенки серого)
@@ -179,14 +181,36 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
         ds = [str(x.get("dist", 0)) for x in strikes]
         return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away: each flash comes before its sound.",
                 f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках: каждая вспышка раньше своего звука.")
+    if preview == "pov":
+        return pov_caption(en, ru, n)
     if n.get("no_launch"):
         return ("A nuclear strike: flash, shock wave and mushroom cloud.", "Ядерный удар: вспышка, ударная волна и гриб.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
 
 
+def pov_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
+    """Подпись отрезка глазами игрока — по главному в нём: подрыв, сбитие, удары, пуск, пролёт."""
+    k, sec = n.get("ground", 0), round(n.get("seconds", 0))
+    if n.get("nuke"):
+        return "A nuclear strike, seen through a player's eyes.", "Ядерный удар глазами игрока."
+    if n.get("shot_down"):
+        return "A drone is shot down in front of a player, seen through their eyes.", "Дрон сбивают у игрока на глазах: вид его глазами."
+    if k > 1:
+        return (f"{k} strikes around a player in {sec} seconds, seen through their eyes.",
+                f"Ударов вокруг игрока за {sec} секунд: {k}. Вид его глазами.")
+    if k == 1:
+        return "A strike in front of a player, seen through their eyes.", "Удар у игрока на глазах: вид его глазами."
+    if n.get("launch"):
+        return f"{cap(en)}: the launch, seen through a player's eyes.", f"{cap(ru)}: пуск глазами игрока."
+    return f"{cap(en)} overhead, seen through a player's eyes.", f"{cap(ru)} над игроком: вид его глазами."
+
+
 def shown(cand: dict, kept: list[dict]) -> dict:
     """Числа кандидата для подписи — только о планах, которые вошли в ролик (план глазами одного игрока бывает слит из
     нескольких: `drones-0-flyby+shootdown`)."""
+    if cand.get("preview") == "pov":
+        # отрезок глазами игрока — один план, его события все
+        return cand
     n = dict(cand.get("numbers", {}))
     has = lambda part: any(part in s["name"].rsplit("-", 1)[-1].split("+") for s in kept)  # noqa: E731
     if not has("shootdown"):
@@ -213,8 +237,9 @@ def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lin
     if a.music and a.credit:
         text += f"Music: {a.credit}\n"
     (out / f"{cid}.txt").write_text(text)
+    lo, hi = LENGTH.get(preview, (20, 35))
     return [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
-            + ("" if 20 - 1 / 30 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
+            + ("" if lo - 1 / 30 <= length <= hi + 1 / 30 else f" (вне {lo}–{hi} с)") + f"; подпись — {cid}.txt.", *lines, ""]
 
 
 def clip_spec(spec: str) -> tuple[str, Path]:
