@@ -315,10 +315,55 @@ class SelectTest(unittest.TestCase):
                              "момент — 10 с до и 5 с после, с/по — как есть; время вне записи — не её")
             r.name = "test"
             self.assertTrue(all(x.numbers.get("mark") is None for x in r.pov()), "без времени в имени — без отметок по часам")
+            # время по шкале Flashback — без часов записи; ядерный подрыв в отрезке момента — и 10 с после вспышки
+            r.at = ["00:30", "01:35/01:40", "01:39"]
+            self.assertEqual([x[:2] for x in r.marks()], [(400, 700), (1780, 2100), (1900, 2000)])
         finally:
             r.meta, r.name, r.at = meta, name, at
             r.__dict__.pop("MARK", None)
             r.__dict__.pop("AFTER", None)
+
+    def test_timeline(self):
+        self.assertEqual(clips.timeline("25:02"), 30040)
+        self.assertEqual(clips.timeline("1:02:03.5"), (3723.5) * 20)
+        self.assertIsNone(clips.timeline("2026-10-14T19:05:30"))
+        self.assertIsNone(clips.timeline("25"))
+
+    def test_nuke_out_of_view(self):
+        """Подрыв в отрезке, которого зритель не видел (в метро): в числах — как далеко."""
+        c = self.r.pov_candidate("recorder", 1900, 2100, [], 1)
+        self.assertEqual(c.numbers["nuke_off"], 1200)
+        self.assertIn("ядерный подрыв в 1200 блоках вне кадра", c.summary)
+
+    def test_fly(self):
+        """Пролёт: камера по прямой, взгляд — к ударам окна (хаос: восемь ударов к юго-востоку), удары в кадре — события."""
+        with self.assertRaises(argparse.ArgumentTypeError):
+            clips.fly_spec("at=00:55/01:10 to=-100,100,0")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-100,100,0 speed=3")
+        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 look=south turn=25")
+        self.assertEqual((spec["a"], spec["b"], spec["to_at"], spec["look"]), (1100, 1400, 1250, 0.0))
+        r = self.r
+        r.fly_specs = [spec]
+        try:
+            c = r.fly()
+        finally:
+            r.fly_specs = []
+        self.assertEqual(len(c), 1)
+        shot = c[0].shots[0]
+        self.assertEqual((shot.kind, shot.a, shot.b), ("fly", 1100, 1400))
+        keys = shot.camera["keys"]
+        self.assertEqual([k["eye"] for k in keys], [[0, 100, 0], [-100, 100, 0]], "через to в to_at и дальше той же прямой")
+        yaw, pitch = c[0].numbers["yaw"], c[0].numbers["pitch"]
+        self.assertTrue(-25 <= yaw < 0, "удары к востоку от юга: курс к востоку, не дальше turn")
+        self.assertTrue(2 <= pitch <= 30)
+        d = [keys[0]["aim"][i] - keys[0]["eye"][i] for i in range(3)]
+        self.assertAlmostEqual(math.hypot(*d), 100, delta=0.1)
+        self.assertEqual(keys[1]["aim"][0] - keys[1]["eye"][0], keys[0]["aim"][0] - keys[0]["eye"][0], "взгляд постоянный")
+        self.assertGreaterEqual(c[0].numbers["impacts"], 6, "почти весь хаос в кадре")
+        self.assertEqual(len(shot.subject["keys"]), c[0].numbers["impacts"])
+        self.assertGreater(c[0].numbers["flights"], 0, "шахеды хаоса в кадре")
+        self.assertEqual(c[0].weapon, "shahed")
 
     def test_far(self):
         c = self.r.far()
@@ -387,7 +432,8 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0, star="", pov_top=15))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0, star="", pov_top=15,
+                                        fly=[clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-100,100,0")]))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
@@ -406,7 +452,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(burst["cameras"][0]["rise"], [0, 32, 96], "и над землёй: игрок бывает в метро")
 
     def test_every_preview_planned(self):
-        self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "pov-0", "rockets-0"])
+        self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "fly-0", "nuke-0", "pov-0", "rockets-0"])
         for names in self.plan["previews"].values():
             for n in names:
                 self.assertIn(n, self.shots)
@@ -463,6 +509,17 @@ class PlanTest(unittest.TestCase):
                 return ("minecraft:the_nether",) if "viewers" in self.q else None
         shot = {"camera": {"kind": "pov", "viewer": "recorder"}, "a": 10, "subject": {"keys": []}}
         self.assertEqual(film_plan.dim_of(Con(), shot), "minecraft:the_nether", "глазами игрока — его измерение, и без событий")
+
+    def test_fly_planned(self):
+        s = self.shots["fly-0-fly"]
+        self.assertEqual([c["kind"] for c in s["cameras"]], ["path"], "только путь, заданный человеком")
+        self.assertEqual(len(s["cameras"][0]["keys"]), 2)
+        self.assertEqual(s["cameras"][0]["rise"], [0, 16], "и выше: путь по карте бывает сквозь высотку")
+        self.assertEqual(s["cameras"][0]["fov"], 70)
+        self.assertTrue(s["far"])
+        self.assertEqual(s["dim"], DIM)
+        self.assertEqual(s["need"], film_plan.NEED["fly"])
+        self.assertTrue(s["subject"]["keys"], "удары в кадре — события плана")
 
     def test_chaos_frames_area(self):
         s = self.shots["chaos-0-chaos"]

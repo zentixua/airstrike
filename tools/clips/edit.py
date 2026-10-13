@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-ORDER = ["rockets", "drones", "chaos", "far", "nuke", "pov"]
+ORDER = ["rockets", "drones", "chaos", "far", "nuke", "pov", "fly"]
 # Длина ролика, с: превью — 20–35, «глазами игроков» — отрезок одного игрока
 LENGTH = {"pov": (8, 20)}
 # Яркость (0–255) в рамке события сразу после него — на столько выше, чем до: вспышка видна
@@ -186,6 +186,8 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
                 f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках: каждая вспышка раньше своего звука.")
     if preview == "pov":
         return pov_caption(en, ru, n)
+    if preview == "fly":
+        return fly_caption(en, ru, n)
     if n.get("no_launch"):
         return ("A nuclear strike: flash, shock wave and mushroom cloud.", "Ядерный удар: вспышка, ударная волна и гриб.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
@@ -196,6 +198,10 @@ def pov_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
     k, sec = n.get("ground", 0), round(n.get("seconds", 0))
     if n.get("nuke"):
         return "A nuclear strike, seen through a player's eyes.", "Ядерный удар глазами игрока."
+    if n.get("nuke_off"):
+        # подрыв не в кадре игрока (в метро, в доме): как далеко
+        d = n["nuke_off"]
+        return f"A nuclear strike {d} blocks away, through a player's eyes.", f"Ядерный удар в {d} блоках: вид глазами игрока."
     if n.get("shot_down"):
         return "A drone is shot down in front of a player, seen through their eyes.", "Дрон сбивают у игрока на глазах: вид его глазами."
     if k > 1:
@@ -211,11 +217,23 @@ def pov_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
     return "Seen through a player's eyes.", "Вид глазами игрока."
 
 
+def fly_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
+    """Подпись пролёта свободной камеры: удары в кадре и оружие налёта."""
+    k, sec = n.get("impacts", 0), round(n.get("seconds", 0))
+    raid_en, raid_ru = (f"a raid of {en}", f"налёта ({ru})") if en and en != "fly" else ("an air raid", "налёта")
+    if k > 1:
+        return (f"A slow camera flight during {raid_en}: {k} strikes in view in {sec} seconds.",
+                f"Медленный пролёт камеры во время {raid_ru}: ударов в кадре за {sec} секунд — {k}.")
+    if k == 1:
+        return f"A slow camera flight during {raid_en}: a strike in view.", f"Медленный пролёт камеры во время {raid_ru}: удар в кадре."
+    return f"A slow camera flight during {raid_en}.", f"Медленный пролёт камеры во время {raid_ru}."
+
+
 def shown(cand: dict, kept: list[dict]) -> dict:
     """Числа кандидата для подписи — только о планах, которые вошли в ролик (план глазами одного игрока бывает слит из
     нескольких: `drones-0-flyby+shootdown`)."""
-    if cand.get("preview") == "pov":
-        # отрезок глазами игрока — один план, его события все
+    if cand.get("preview") in ("pov", "fly"):
+        # отрезок глазами игрока и пролёт — один план, его события все
         return cand
     n = dict(cand.get("numbers", {}))
     has = lambda part: any(part in s["name"].rsplit("-", 1)[-1].split("+") for s in kept)  # noqa: E731

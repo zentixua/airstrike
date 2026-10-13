@@ -235,9 +235,10 @@ public final class Film {
                 }
                 Vec3 k = shot.subject().anchor(shot.a(), shot.b());
                 Cameras.World w = new Cameras.World(Cameras.cloudHeight(plan));
-                // мир — у глаза неподвижной камеры, а у ближнего плана и у места: дальнее место за чанками повтора не
-                // появится, а у глаза оно не нужно
-                Plan.Camera fixed = shot.cameras().stream().filter(c -> c.kind().equals("fixed") && c.eye() != null).findFirst().orElse(null);
+                // мир — у глаза неподвижной камеры (у летящей — в начале пути), а у ближнего плана и у места: дальнее
+                // место за чанками повтора не появится, а у глаза оно не нужно
+                Plan.Camera fixed = shot.cameras().stream().filter(c -> (c.kind().equals("fixed") || c.kind().equals("path")) && c.eye() != null)
+                        .findFirst().orElse(null);
                 boolean ready = (fixed == null || w.loaded(fixed.eye())) && (k == null || shot.far() && fixed != null || w.loaded(k));
                 if (!ready && waited() < WORLD_WAIT) {
                     if (fixed != null) standAt(Cameras.Pose.look(fixed.eye(), fixed.aim() != null ? fixed.aim() : k != null ? k : fixed.eye().add(0, 0, 1), 70));

@@ -82,6 +82,27 @@ class PlanTest {
     }
 
     @Test
+    void pathCameraFliesBetweenKeys() throws Exception {
+        Path f = Files.createTempFile("plan", ".json");
+        Files.writeString(f, """
+                {"replay": "r.zip", "out": "film", "shots": [{"name": "fly-0-fly", "a": 100, "b": 300, "far": true,
+                  "cameras": [{"kind": "path", "fov": 60, "rise": [0, 16], "keys": [{"t": 300, "eye": [200, 120, 0], "aim": [200, 100, 100]},
+                                                                  {"t": 100, "eye": [0, 120, 0], "aim": [0, 100, 100]}]}],
+                  "subject": {}, "need": {"subject": 0, "near": 0, "keys": 0, "share": 0}}]}
+                """);
+        Plan.Camera c = Plan.read(f).shots().get(0).cameras().get(0);
+        assertEquals(new Vec3(0, 120, 0), c.eye(), "глаз — первого по времени ключа");
+        Cameras.Path p = Cameras.along(c.keys(), c.fov());
+        assertEquals(100, p.at(200).pos().x, 1e-9);
+        assertEquals(0, p.at(50).pos().x, 1e-9, "до первого ключа — в нём");
+        assertEquals(200, p.at(400).pos().x, 1e-9, "после последнего — в нём");
+        assertEquals(0, p.at(150).yaw(), 1e-6, "взгляд на юг весь путь");
+        assertEquals(Math.toDegrees(Math.atan2(20, 100)), p.at(250).pitch(), 1e-4);
+        assertEquals(60, p.at(250).fov());
+        assertArrayEquals(new double[]{0, 16}, c.rise());
+    }
+
+    @Test
     void lensFitsEventWidth() {
         // огненный шар 18 блоков в 500 блоках — 12 % ширины вертикального кадра
         double fov = Cameras.fovFor(18, 500, 0.12, 9 / 16.0);
