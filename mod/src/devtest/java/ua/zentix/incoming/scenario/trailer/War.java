@@ -571,7 +571,7 @@ final class War {
                 .after(() -> film.newest(DroneEntity.class) != null, 200)
                 .camera(() -> film.chaseOf(film.newest(DroneEntity.class), 7, 2.4, -2.6, 16, 4, 62));
 
-        // p20: вся линия разом — кран над батареей
+        // p20: вся линия разом — кран над батареей с южного холма, выше дыма пусков
         film.run(this::reloadAll);
         film.waitTicks(60);
         film.shot("p20").length(50).hidden()
@@ -580,13 +580,13 @@ final class War {
                     fireAll(rocketRack);
                     fireAll(droneRack);
                 })
-                .camera(() -> CineCamera.dolly(new Vec3(-1498, 69.6, 543), new Vec3(-1502, 86, 545), 50,
-                        () -> new Vec3(-1478, 74, 522), 64))
+                .camera(() -> CineCamera.dolly(new Vec3(-1505, 98, 572), new Vec3(-1510, 112, 578), 50,
+                        () -> new Vec3(-1495, 70, 525), 64))
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
         // p21: с огромной высоты — дымные следы тянутся на восток
         film.shot("p21").length(30).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(-1600, 330, 470), new Vec3(-1590, 330, 472), 30,
-                        () -> new Vec3(-1200, 90, 525), 64));
+                .camera(() -> CineCamera.glide(new Vec3(-1590, 200, 480), new Vec3(-1580, 200, 482), 30,
+                        () -> new Vec3(-1350, 70, 525), 64));
 
         // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
         film.run(this::reloadAll);
@@ -599,19 +599,17 @@ final class War {
                 })
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
 
-        // p35: камера низко у пусковой, ракеты проносятся над ней и роняют ускорители
+        // p35: камера низко между рядами, к востоку от стреляющих: ракеты проносятся над ней и роняют ускорители
+        // (стреляет западная половина ряда — дым пусков остаётся в 20 блоках от камеры)
         film.shot("p35").length(35).hidden()
-                .onReady(() -> fireAll(missileRack))
-                .camera(() -> {
-                    Vec3 l = Vec3.atBottomCenterOf(missileRack.get(4));
-                    return CineCamera.track(l.add(16, 1.2, 8), () -> l.add(30, 18, 0), 78);
-                })
+                .onReady(() -> fireAll(missileRack.subList(0, 4)))
+                .camera(() -> CineCamera.track(new Vec3(-1470, 69.5, BATTERY.z), () -> new Vec3(-1510, 85, ROW_MISSILE), 70))
                 .when(() -> film.nearest(CruiseMissileEntity.class, BATTERY, 120) != null, 400);
 
         // p36: ответ Востока — шахеды накрывают батарею, расчёт бежит от пусковых
         film.shot("p36").length(50).hidden()
                 .onReady(() -> salvo("drone", 6, 24, BATTERY.add(10, 0, 0), new Vec3(-800, 0, 560)))
-                .camera(() -> CineCamera.track(new Vec3(-1430.5, 70, 540.5), () -> BATTERY.add(0, 4, 0), 30))  // восточный край полосы
+                .camera(() -> CineCamera.track(new Vec3(-1445.5, 72, 540.5), () -> BATTERY.add(0, 4, 0), 30))  // восточный край полосы
                 .when(() -> film.nearest(DroneEntity.class, BATTERY, 70) != null, 3000)
                 .cue(0, () -> film.withServer(s -> {
                     for (int i = 0; i < 8; i++) {
