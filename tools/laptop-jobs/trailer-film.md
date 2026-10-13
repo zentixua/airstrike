@@ -68,11 +68,13 @@ export INCOMING_MODS_DIR=run/film-war/minecraft/mods INCOMING_SIZE=1920x1080 INC
 
 Части по очереди, каждая на своей свежей копии мастера (п. 0.3), папка записи одна (план 3 — в части `all`):
 ```sh
-for P in all nukeB nukeC icbm p01e p37b; do
+for P in all nukeB nukeC icbm p01e p37b p16; do
   cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-$P && chmod -R u+w mod/run/scenario/saves/war2-$P
   INCOMING_WAR_PART=$P INCOMING_WORLD=war2-$P tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 done
 ```
+Часть `p16` пишет план 16 заново, поверх записанного в `all` (заход ракеты на узел над метро выбирается по рельефу:
+строка `SCENARIO film staging: p16 — заход на …`). Запись, начатая на прежнем коммите, переходит на новый между частями.
 После каждой части в `mod/run/scenario/logs/latest.log`:
 - `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`: генератор DH выключен, LOD — только из базы мастера и
   загруженных чанков (`record.sh` пишет это в `mod/run/scenario/config/DistantHorizons.toml`; без этой строки запись

@@ -24,6 +24,7 @@ import net.minecraft.world.level.block.DirectionalBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -84,7 +85,7 @@ import java.util.function.BooleanSupplier;
  * <p>
  * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
  * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест), {@code icbm} — своя МБР для p42; по умолчанию
- * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
+ * — всё, кроме {@code nukeB}, {@code nukeC} и {@code icbm}. Один план — {@code p03}, {@code p13}, {@code p16}, {@code p21}, {@code p33}, {@code p37b}, {@code p01e};
  * {@code streets} — уличный бой (площадь и проспект, около сотни ботов) с планами 26–30.
  */
 final class War {
@@ -223,6 +224,14 @@ final class War {
         // один план для проверки съёмки из повтора (ReplayFilm)
         if (part.equals("p03")) dawnFlight();
         if (part.equals("p13")) p13();
+        if (part.equals("p16")) {
+            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            metroCrowd();
+            film.waitTicks(120);  // люди внизу, как после p15
+            p16();
+            film.run(() -> crowd().removeAll());
+            gridRestore();
+        }
         if (part.equals("p21")) ridge();
         if (part.equals("streets")) {
             film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
@@ -344,6 +353,83 @@ final class War {
         Vec3 t = at(target);
         sightCheck(t);
         Film.cmd(String.format(Locale.ROOT, "incoming salvo %s %d %d at %s from %.1f %.1f", weapon, count, spread, xyz(t), from.x, from.z));
+    }
+
+    /**
+     * Залп ракет в цель на улице среди высоток: заход — с направления, где над последним участком рельеф ниже всего
+     * ({@link #clearApproach}), маршрутом через точку в {@link #APPROACH_LEG} блоках от цели на этом направлении, пуск —
+     * в {@link #APPROACH_FROM} на нём же. Без точки ракета заходит по взгляду стреляющего ({@code ServerActions.strike} —
+     * его поворот), а на маршруте держит 12 блоков над рельефом и с последних 160 блоков делает горку и пике: заход над
+     * высотками у цели кончается ударом в их верх с недолётом (p16 на netcup: обе ракеты — в 100–130 блоках от цели,
+     * на высоте 136–146, узел цел).
+     * Нет направления, где весь участок у клиента загружен, — как {@link #salvo} с места {@code fallback}.
+     */
+    private void missileInto(String shot, int count, int spread, Vec3 target, Vec3 fallback) {
+        Vec3 t = at(target);
+        double rd = mc.gameRenderer.getRenderDistance();
+        Vec3 dir = clearApproach(shot, t, Math.min(APPROACH_LEG, rd - 32), spread + 3);
+        if (dir == null) {
+            salvo("missile", count, spread, target, fallback);
+            return;
+        }
+        Vec3 via = t.add(dir.scale(APPROACH_LEG)), from = t.add(dir.scale(APPROACH_FROM));
+        sightCheck(t);
+        Film.cmd(String.format(Locale.ROOT, "incoming salvo missile %d %d at %s from %.1f %.1f via %.1f %.1f", count, spread, xyz(t), from.x,
+                from.z, via.x, via.z));
+    }
+
+    /** Последний участок ракеты до цели (точка маршрута) и место пуска, блоков от цели. */
+    private static final double APPROACH_LEG = 400, APPROACH_FROM = 1400;
+
+    /**
+     * Направление захода (единичный вектор от цели наружу) с самым низким рельефом над участком {@code reach} блоков до
+     * цели в полосе ±{@code half} блоков: по картам высот клиента ({@code MOTION_BLOCKING}), через 5°; направление, где
+     * какого-то чанка участка у клиента нет, не берётся. Строка {@code SCENARIO film staging: … заход …}; нет ни одного —
+     * WARN и null.
+     */
+    @Nullable
+    Vec3 clearApproach(String shot, Vec3 target, double reach, int half) {
+        if (mc.level == null) return null;
+        var chunks = mc.level.getChunkSource();
+        double best = Double.MAX_VALUE;
+        Vec3 bestDir = null;
+        int bestAz = -1, known = 0;
+        for (int az = 0; az < 360; az += 5) {
+            double r = Math.toRadians(az);
+            Vec3 dir = new Vec3(Math.cos(r), 0, Math.sin(r)), side = new Vec3(-dir.z, 0, dir.x);
+            int top = Integer.MIN_VALUE;
+            boolean loaded = true;
+            for (double d = 6; d <= reach && loaded; d += 2) {
+                for (int k = -half; k <= half; k++) {
+                    int bx = Mth.floor(target.x + dir.x * d + side.x * k), bz = Mth.floor(target.z + dir.z * d + side.z * k);
+                    if (chunks.getChunk(bx >> 4, bz >> 4, ChunkStatus.FULL, false) == null) {
+                        loaded = false;
+                        break;
+                    }
+                    top = Math.max(top, mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz));
+                }
+            }
+            if (!loaded) continue;
+            known++;
+            if (top < best) {
+                best = top;
+                bestDir = dir;
+                bestAz = az;
+            }
+        }
+        int column = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(target.x), Mth.floor(target.z));
+        if (bestDir == null) {
+            Incoming.LOG.warn("SCENARIO film staging: {} — заход на {} не выбрать: ни одного направления, где {} блоков у клиента загружены",
+                    shot, xyz(target), Math.round(reach));
+            return null;
+        }
+        Incoming.LOG.info("SCENARIO film staging: {} — заход на {} (верх колонки {}) с азимута {}° (x+ = 0°, z+ = 90°): рельеф до {} на {} блоков ±{}, направлений с данными {}",
+                shot, xyz(target), column, bestAz, Math.round(best), Math.round(reach), half, known);
+        if (best > target.y + 24) {
+            Incoming.LOG.warn("SCENARIO film staging: {} — над всеми заходами на {} рельеф не ниже {}: ракета может удариться с недолётом",
+                    shot, xyz(target), Math.round(best));
+        }
+        return bestDir;
     }
 
     /**
@@ -855,19 +941,7 @@ final class War {
                 .when(() -> flightEta(at(hit), 60, WeaponType.MISSILE) <= MISSILE_SIREN_S + 1.5, 3000);  // тревога — через 1,5 с
 
         // p15: люди бегут к спуску в метро, FPV ныряет за ними вниз по лестнице
-        hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);
-        film.onServer(level -> {
-            RandomSource r = RandomSource.create(15);
-            for (int i = 0, tries = 0; i < 25 && tries < 500; tries++) {
-                double x = SUB_TOP.x - 12 - r.nextDouble() * 24, z = SUB_TOP.z - 6 + r.nextDouble() * 12;
-                int y = groundY(level, x, z);
-                if (y > SUB_TOP.y + 2) continue;
-                crowd().add("Run" + i++, new Vec3(x, y, z), 3);
-            }
-            wireStation(level);
-        });
-        settle();
-        film.run(() -> film.withServer(s -> crowd().flee(SUB_TOP, 60, SUB_BOTTOM.add(6, 0, 0))));
+        metroCrowd();
         film.waitTicks(10);
         film.shot("p15").length(55).hidden()
                 .camera(() -> CineCamera.fpv(List.of(
@@ -875,17 +949,7 @@ final class War {
                         SUB_TOP.add(12, -4.6, 0), SUB_TOP.add(20, -10, 0), SUB_BOTTOM.add(0, 1.6, 0), SUB_BOTTOM.add(10, 1.6, 0)),
                         1.0, 5, 0.6, 0.05, 74));
 
-        // p16: метро изнутри, среди укрывшихся: удары наверху доходят глухо, ракета выбивает узел сети над станцией —
-        // станция гаснет (её квартал сети — один), светит только спуск с улицы. Лампы в кадре — по данным (LampsQa)
-        Vec3 above = SUB_BOTTOM.add(4, 17, 0);
-        gridNode(above, 128);
-        film.shot("p16").length(60).hidden()
-                .onReady(() -> salvo("missile", 2, 12, above, new Vec3(2000, 0, 270)))
-                .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 60,
-                        () -> SUB_BOTTOM.add(-8, 3, 0), 72))
-                .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000)
-                .cue(0, () -> lampsFrom("p16", 64, 0.9))
-                .cueEnd(this::lampsEnd);
+        p16();
 
         // p18: FPV вырывается из метро на улицу, где ложится «Град», разворот над перекрёстком
         Vec3 crossing = new Vec3(3330.5, 0, 300.5);
@@ -952,6 +1016,41 @@ final class War {
     // ================================================================ Запад: батарея, пуски
 
     /** Батарея на полосе: ряд крылатых ракет и ряд «Градов» с шахедами; ракеты и шахеды — по Востоку за 4,5 км. */
+    /** p15–p16: люди на улице у спуска в метро бегут вниз; станция переведена на лампы сети ({@link #wireStation}). */
+    private void metroCrowd() {
+        hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);
+        film.onServer(level -> {
+            RandomSource r = RandomSource.create(15);
+            for (int i = 0, tries = 0; i < 25 && tries < 500; tries++) {
+                double x = SUB_TOP.x - 12 - r.nextDouble() * 24, z = SUB_TOP.z - 6 + r.nextDouble() * 12;
+                int y = groundY(level, x, z);
+                if (y > SUB_TOP.y + 2) continue;
+                crowd().add("Run" + i++, new Vec3(x, y, z), 3);
+            }
+            wireStation(level);
+        });
+        settle();
+        film.run(() -> film.withServer(s -> crowd().flee(SUB_TOP, 60, SUB_BOTTOM.add(6, 0, 0))));
+    }
+
+    /**
+     * p16: метро изнутри, среди укрывшихся: удары наверху доходят глухо, ракета выбивает узел сети над станцией —
+     * станция гаснет (её квартал сети — один), светит только спуск с улицы. Лампы в кадре — по данным (LampsQa).
+     * Узел — на улице над станцией, среди высоток: ракета заходит туда, где над последним участком рельеф ниже всего
+     * ({@link #clearApproach}, маршрутом через точку), иначе бьёт в верх высоток с недолётом и узел цел.
+     */
+    private void p16() {
+        Vec3 above = SUB_BOTTOM.add(4, 17, 0);
+        gridNode(above, 128);
+        film.shot("p16").length(60).hidden()
+                .onReady(() -> missileInto("p16", 2, 4, above, new Vec3(2000, 0, 270)))
+                .camera(() -> CineCamera.dolly(SUB_BOTTOM.add(6, 1.6, 0), SUB_BOTTOM.add(7.5, 1.55, 0), 60,
+                        () -> SUB_BOTTOM.add(-8, 3, 0), 72))
+                .when(() -> flightNear(above, 110, WeaponType.MISSILE), 3000)
+                .cue(0, () -> lampsFrom("p16", 64, 0.9))
+                .cueEnd(this::lampsEnd);
+    }
+
     private void racks() {
         hiddenAt(BATTERY, BATTERY.add(60, 0, 0));
         film.onServer(level -> {
