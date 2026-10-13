@@ -122,9 +122,11 @@ def build() -> Path:
         s.blast(1200 + 20 * k, "airstrike:blast", b, uid, kind=0)
     # ядерный подрыв
     s.blast(2000, "airstrike:nuke_detonation", (0.5, 64.0, 1200.0), None, clear=-1, solid=-1)
-    # игроки рядом: живой (аккаунт Mojang — UUID версии 4) и бот Almighty (UUID по имени — версии 3)
+    # игроки рядом: живые (аккаунт Mojang — UUID версии 4; без входа Mojang — UUID ванили по нику) и бот Almighty (свой UUID
+    # по имени — тоже версии 3)
     s.entity("minecraft:player", "5a1f0c3e-2b7d-4c1e-9f00-1d2e3f405060", 0, 10, lambda t: (5.5, 71.0, 0.5), player=True, name="Friend")
-    s.entity("minecraft:player", "0b8e6a4c-1f2d-3a5b-8c7d-6e5f4a3b2c1d", 0, 10, lambda t: (8.5, 71.0, 0.5), player=True, name="Sever_1")
+    s.entity("minecraft:player", clips.offline_uuid("Guest"), 0, 10, lambda t: (6.5, 71.0, 0.5), player=True, name="Guest")
+    s.entity("minecraft:player", "7f1c2e3d-4b5a-3c6d-8e7f-9a0b1c2d3e4f", 0, 10, lambda t: (8.5, 71.0, 0.5), player=True, name="Sever_1")
     tmp = Path(tempfile.mkdtemp(prefix="clips-test-"))
     s.write(tmp / "scan", 2100)
     args = argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7, soft=2)
@@ -261,6 +263,8 @@ class SelectTest(unittest.TestCase):
         self.assertTrue(all(b0 <= a1 for (_, b0), (a1, _) in zip(spans, spans[1:])), "одни секунды — в одном кандидате")
         self.assertTrue(self.r.human("recorder"))
         self.assertTrue(self.r.human("player:Friend"))
+        self.assertTrue(self.r.human("player:Guest"), "без входа Mojang — тоже человек")
+        self.assertEqual(clips.offline_uuid("Notch"), "b50ad385-829d-3141-a216-7e7d7539ba7f", "как у ванили")
         self.assertFalse(self.r.human("player:Sever_1"), "бот")
         self.assertFalse(self.r.human("ask:0"))
 

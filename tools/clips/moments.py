@@ -19,10 +19,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -165,6 +167,14 @@ def flights(con) -> list[Flight]:
                           (hx, hy, hz) if hit is not None else None, bool(ground), t_kill, f_rows or 0, list(eids or []),
                           (kx, ky, kz) if t_kill is not None else None))
     return out
+
+
+def offline_uuid(name: str) -> str:
+    """UUID игрока без входа Mojang, как у ванили (`UUIDUtil.createOfflinePlayerUUID`: `UUID.nameUUIDFromBytes`)."""
+    h = bytearray(hashlib.md5(f"OfflinePlayer:{name}".encode()).digest())
+    h[6] = h[6] & 0x0F | 0x30
+    h[8] = h[8] & 0x3F | 0x80
+    return str(uuid.UUID(bytes=bytes(h)))
 
 
 def dist(a, b) -> float:
@@ -604,14 +614,15 @@ class Replay:
     WEIGHT = {"nuke": 6, "shootdown": 4, "impact": 1, "launch": 1.5, "flyby": 1}
 
     def human(self, viewer: str) -> bool:
-        """Зритель — живой игрок: записавший или аккаунт Mojang (UUID версии 4); боты Almighty и игроки без входа —
-        UUID версии 3 (по имени)."""
+        """Зритель — живой игрок: записавший, аккаунт Mojang (UUID версии 4) или игрок сервера без входа Mojang (UUID
+        ванили по имени, `OfflinePlayer:<ник>`); боты (Almighty и других модов) — свои UUID."""
         if viewer == "recorder":
             return True
         if not viewer.startswith("player:"):
             return False
-        r = self.con.execute("SELECT uuid FROM entities WHERE player = 1 AND name = ? LIMIT 1", [viewer[7:]]).fetchone()
-        return bool(r and r[0] and len(r[0]) == 36 and r[0][14] == "4")
+        name = viewer[7:]
+        r = self.con.execute("SELECT uuid FROM entities WHERE player = 1 AND name = ? LIMIT 1", [name]).fetchone()
+        return bool(r and r[0]) and (r[0][14:15] == "4" or r[0] == offline_uuid(name))
 
     def pov_events(self) -> dict[str, list[tuple]]:
         """Что видели живые игроки: зритель → [(тик, вес, род, оружие, событие для проверки кадров или None, снаряд)]."""
