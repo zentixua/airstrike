@@ -91,6 +91,23 @@ final class War {
     // ================================================================ места Zearth (y = 0 — земля этой колонки)
 
     static final Vec3 SQUARE = new Vec3(3175.5, 0, 274.5);
+    /**
+     * p26: путь FPV над площадью (точки — от середины площади, высота — над её землёй) и «Град» впереди камеры: камера
+     * идёт {@link #P26_SPEED} блока за тик, ракеты ложатся на {@link #P26_HIT}-м тике плана в {@link #P26_AHEAD} блоках
+     * пути впереди неё, на ничейной полосе между линиями боя: камера летит на удар и сквозь его дым.
+     */
+    static final List<Vec3> P26_PATH = List.of(new Vec3(-45, 7, 26), new Vec3(-25, 4.2, 16), new Vec3(-2, 3.6, 13), new Vec3(22, 4.5, 6),
+            new Vec3(38, 6, -12), new Vec3(32, 7, -34));
+    static final double P26_SPEED = 1.4, P26_AHEAD = 26;
+    static final int P26_HIT = 26;
+    /**
+     * p28: пакет «Града» по оси проспекта (z 331,5) — 24 точки через 2,4 блока от x 3064,5, между линиями второго боя;
+     * пуски батареи — через {@link #P28_GAP} тика: разрывы бегут от камеры по блоку за тик, камера (1,6) их догоняет.
+     * Первый — на {@link #P28_FIRST}-м тике плана, в 40 блоках перед камерой.
+     */
+    static final List<Vec3> P28_PACK = java.util.stream.IntStream.range(0, 24).mapToObj(i -> new Vec3(3064.5 + 2.4 * i, 0, 331.5)).toList();
+    static final double P28_GAP = 2.4;
+    static final int P28_FIRST = 6;
     static final Vec3 GOV = new Vec3(3225.5, 100, 128.5);
     /** Крыша высотки у площади (верх 161), южный край: вид на небоскрёбы центра. */
     static final Vec3 ROOF = new Vec3(3175.5, 162, 361.5);
@@ -150,6 +167,8 @@ final class War {
     /** Проверка ламп в кадре идущего плана ({@link #lampsFrom}). */
     @Nullable
     private LampsQa lampsQa;
+    @Nullable
+    private FightQa fightQa;
     private Object frontMarkedIn;
 
     /** Действие через столько тиков клиента. */
@@ -288,10 +307,15 @@ final class War {
 
     /** Игрок в кадре сам (его глаза, интерфейс мода, предмет в руке): творческий режим. */
     void actor(Vec3 p, Vec3 look, String item) {
+        actor(() -> p, () -> look, item);
+    }
+
+    /** То же, место и взгляд — к моменту шага (их находит сам сценарий по миру). */
+    void actor(java.util.function.Supplier<Vec3> p, java.util.function.Supplier<Vec3> look, String item) {
         film.run(() -> {
             film.actor = true;
             film.withPlayer((level, sp) -> sp.setGameMode(GameType.CREATIVE));
-            place(p, look);
+            place(p.get(), look.get());
             if (item != null) Film.cmd("item replace entity @s weapon.mainhand with " + item);
         });
         film.waitTicks(30);
@@ -433,6 +457,147 @@ final class War {
         return over.subtract(dir.scale(d));
     }
 
+    /** Место удара p26 по горизонтали (y = 0 — земля): точка пути FPV впереди камеры. */
+    static Vec3 p26Hit() {
+        Vec3 p = new CineCamera.Spline(P26_PATH).at(P26_SPEED * P26_HIT + P26_AHEAD);
+        return new Vec3(SQUARE.x + p.x, 0, SQUARE.z + p.z);
+    }
+
+    /**
+     * Батарея: по снаряду на каждую точку {@code targets} (y = 0 — земля) с места пуска со сдвигом {@code from} от своей
+     * точки: дальность у всех одна, время полёта одно, и снаряды ложатся в том порядке и с тем шагом, что пуски
+     * ({@code gap} тиков). Залп с одной пусковой так не ляжет: у неё пуски через 8–12 тиков ({@code WeaponSpec.Salvo}).
+     * Место пуска — дальше чанков, которые держат игрок съёмки и боты: там снаряд стартует вне мира сразу. В готовом чанке
+     * встала бы пусковая (места ближе {@code LaunchSite.PLACE_REUSE} — одна на всех), и пуски пошли бы её очередью —
+     * тогда строка {@code SCENARIO film staging}.
+     */
+    void battery(String weapon, List<Vec3> targets, Vec3 from, double gap) {
+        film.withServer(server -> {
+            ServerLevel level = server.overworld();
+            for (Vec3 t : targets) {
+                Vec3 f = t.add(from);
+                if (level.getChunkSource().getChunkNow(Mth.floor(f.x) >> 4, Mth.floor(f.z) >> 4) != null) {
+                    Incoming.LOG.warn("SCENARIO film staging: батарея — место пуска {} в готовом чанке: встанет пусковая, пуски — её очередью", xyz(f));
+                    break;
+                }
+            }
+        });
+        for (int i = 0; i < targets.size(); i++) {
+            Vec3 t = targets.get(i);
+            later((int) Math.round(gap * i), () -> salvo(weapon, 1, 0, t, t.add(from)));
+        }
+    }
+
+    /**
+     * Перезарядка оружия Point Blank в руке игрока съёмки — его клавишей, как у игрока (нажатие через обработчик клавиатуры:
+     * {@code KeyMapping} и событие клавиши NeoForge): автомат из команды приходит с пустым магазином.
+     */
+    private void reloadGun() {
+        for (KeyMapping k : mc.options.keyMappings) {
+            String id = (k.getName() + " " + k.getCategory()).toLowerCase(Locale.ROOT);
+            if (!id.contains("pointblank") || !k.getName().toLowerCase(Locale.ROOT).contains("reload")) continue;
+            InputConstants.Key key = k.getKey();
+            if (key.getType() != InputConstants.Type.KEYSYM) break;
+            long window = mc.getWindow().getWindow();
+            mc.keyboardHandler.keyPress(window, key.getValue(), 0, org.lwjgl.glfw.GLFW.GLFW_PRESS, 0);
+            later(3, () -> mc.keyboardHandler.keyPress(window, key.getValue(), 0, org.lwjgl.glfw.GLFW.GLFW_RELEASE, 0));
+            Incoming.LOG.info("SCENARIO film staging: перезарядка — клавиша {} ({})", k.getName(), key.getName());
+            return;
+        }
+        Incoming.LOG.warn("SCENARIO film staging: клавиши перезарядки Point Blank на клавиатуре нет");
+    }
+
+    /**
+     * Курс, с которого небо над глазом {@code eye} открыто: лучи по блокам у клиента через 5° по курсу на 8–28° над
+     * горизонтом до 150 блоков (луч в чанк, которого у клиента нет, — не открыт); курс — середина самого открытого
+     * сектора в 35°. Шахед пикирует под 18° ({@code DroneAutopilot}) — с этого курса его видно из глаз до удара.
+     */
+    float openSky(Vec3 eye) {
+        int n = 72;
+        int[] open = new int[n];
+        for (int i = 0; i < n; i++) {
+            for (int el = 8; el <= 28; el += 4) {
+                Vec3 end = eye.add(Vec3.directionFromRotation(-el, i * 5f).scale(150));
+                if (!chunkHere(end)) continue;
+                var hit = mc.level.clip(new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+                if (hit.getType() == HitResult.Type.MISS) open[i]++;
+            }
+        }
+        int best = 0, score = -1;
+        for (int i = 0; i < n; i++) {
+            int s = 0;
+            for (int k = -3; k <= 3; k++) s += open[Math.floorMod(i + k, n)];
+            if (s > score) {
+                score = s;
+                best = i;
+            }
+        }
+        Incoming.LOG.info("SCENARIO film staging: открытое небо из {} — курс {}°, открытых лучей {} из 42", xyz(eye), best * 5, score);
+        return best * 5f;
+    }
+
+    /**
+     * Места стрелка Запада для плана глазами бойца: клетки за линией баррикад Запада (x от c.x − 34 до c.x − 24), где
+     * можно стоять (не на баррикаде, воздух на два блока, не ближе 1,5 блока к посту бойца), — по числу бойцов Востока,
+     * чья грудь видна из глаз (лучи по блокам у клиента) в секторе ±35° к востоку. {@code n} лучших не ближе 6 блоков
+     * друг к другу: [место, точка взгляда — середина видимых бойцов Востока].
+     */
+    List<Vec3[]> firingSpots(Fight fight, Vec3 c, int n) {
+        record Spot(Vec3 at, Vec3 aim, int seen) {}
+        List<Spot> all = new ArrayList<>();
+        int east = 0;
+        for (Fight.Soldier s : fight.soldiers()) if (s.side == 1) east++;
+        for (int bx = Mth.floor(c.x) - 34; bx <= Mth.floor(c.x) - 24; bx++) {
+            for (int bz = Mth.floor(c.z) - 22; bz <= Mth.floor(c.z) + 24; bz++) {
+                int top = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz);
+                BlockPos feet = new BlockPos(bx, top, bz);
+                if (mc.level.getBlockState(feet.below()).is(Blocks.PACKED_MUD) || !mc.level.getBlockState(feet).isAir()
+                        || !mc.level.getBlockState(feet.above()).isAir()) continue;
+                Vec3 at = new Vec3(bx + 0.5, top, bz + 0.5);
+                if (fight.soldiers().stream().anyMatch(s -> Math.hypot(s.post.x - at.x, s.post.z - at.z) < 1.5)) continue;
+                Vec3 eye = at.add(0, 1.62, 0), sum = Vec3.ZERO;
+                int seen = 0;
+                for (Fight.Soldier s : fight.soldiers()) {
+                    if (s.side != 1) continue;
+                    Vec3 chest = s.post.add(0, 1.2, 0), d = chest.subtract(eye);
+                    if (Math.abs(Math.toDegrees(Math.atan2(d.z, d.x))) > 35) continue;
+                    var hit = mc.level.clip(new ClipContext(eye, chest, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+                    if (hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceTo(chest) >= 0.6) continue;
+                    seen++;
+                    sum = sum.add(chest);
+                }
+                if (seen > 0) all.add(new Spot(at, sum.scale(1.0 / seen), seen));
+            }
+        }
+        all.sort(Comparator.comparingInt((Spot s) -> -s.seen));
+        List<Vec3[]> out = new ArrayList<>();
+        for (Spot s : all) {
+            if (out.size() >= n) break;
+            if (out.stream().anyMatch(o -> o[0].distanceTo(s.at) < 6)) continue;
+            out.add(new Vec3[]{s.at, s.aim});
+            Incoming.LOG.info("SCENARIO film staging: место стрелка {} — видно бойцов Востока {} из {}", xyz(s.at), s.seen, east);
+        }
+        while (out.size() < n) {
+            Incoming.LOG.warn("SCENARIO film staging: место стрелка — нет ни одного с видом на бойцов Востока, беру за линией у середины");
+            out.add(new Vec3[]{new Vec3(c.x - 30, 0, c.z - 10 + out.size() * 9), at(new Vec3(c.x + 28, 0, c.z)).add(0, 1.4, 0)});
+        }
+        return out;
+    }
+
+    /**
+     * Место бойца на мостовой у {@code (x, z)}: высота улицы {@code street} (±1 — не на фонаре или машине), клетка
+     * свободна; иначе — ближайшее такое же вдоль улицы: до 8 блоков от середины боя ({@code away} — куда это) и до 2 к ней.
+     */
+    @Nullable
+    private static Vec3 streetSpot(ServerLevel level, double x, double z, int street, int away, java.util.Set<BlockPos> taken) {
+        for (int k : new int[]{0, 1, 2, -1, 3, -2, 4, 5, 6, 7, 8}) {
+            double px = x + k * away;
+            int y = groundY(level, px, z);
+            if (Math.abs(y - street) <= 1 && taken.add(BlockPos.containing(px, y, z))) return new Vec3(px, y, z);
+        }
+        return null;
+    }
+
     /** Снаряд этого оружия ближе {@code r} к точке: чужие полёты (шахеды прошлых планов идут через весь город) не в счёт. */
     static boolean flightNear(Vec3 p, double r, WeaponType weapon) {
         for (var f : ClientFlights.all()) if (f.weapon() == weapon && f.position(1).distanceTo(p) < r) return true;
@@ -544,6 +709,7 @@ final class War {
         Cursor.tick();
         if (film.rec == null) return;
         if (lampsQa != null && film.marking()) lampsQa.tick(film);
+        if (fightQa != null && film.marking()) fightQa.tick(film);
         int b = banner();
         boolean rec = film.marking();
         if (rec && b > lastBanner) film.mark("siren");
@@ -1263,13 +1429,16 @@ final class War {
             avenue.range = 150;
             int street = groundY(level, line.x, line.z);
             int n = 0;
+            java.util.Set<BlockPos> taken = new java.util.HashSet<>();
             for (int side = 0; side < 2; side++) {
+                int placed = 0;
                 for (int rank = 0; rank < 6; rank++) {
                     for (int k = 0; k < 4; k++) {
                         double z = 328.0 + k * 2.1 + (rank % 2) * 0.7;
                         double x = side == 0 ? line.x - 42 - rank * 4 - (k % 2) : line.x + 42 + rank * 4 + (k % 2);
-                        if (Math.abs(groundY(level, x, z) - street) > 1) continue;
-                        Vec3 at = new Vec3(x, groundY(level, x, z), z);
+                        Vec3 at = streetSpot(level, x, z, street, side == 0 ? -1 : 1, taken);
+                        if (at == null) continue;
+                        placed++;
                         // у стен перед первым рядом — баррикады, середина улицы открыта: ряды стреляют друг мимо друга
                         if (rank == 0 && (k == 0 || k == 3)) barricade(at.add(side == 0 ? 2 : -2, 0, 0));
                         String name = (side == 0 ? "AvW" : "AvE") + n++;
@@ -1277,6 +1446,7 @@ final class War {
                         avenue.add(name, side, at, new Vec3(side == 0 ? 1 : -1, 0, 0));
                     }
                 }
+                if (placed < 24) Incoming.LOG.warn("SCENARIO film staging: проспект — {} бойцов на стороне {} из 24", placed, side == 0 ? "запада" : "востока");
             }
         });
         settle();
@@ -1292,55 +1462,70 @@ final class War {
         fight();
         Vec3 c = SQUARE;
 
-        // p26: FPV низко над уличным боем, рядом ложится «Град», камеру бросает
+        // p26: FPV низко над уличным боем, рядом ложится «Град», камеру бросает. Три ракеты батареей (ложатся разом,
+        // рассеивание «Града» — своё) в точку пути впереди камеры (P26_PATH); план начинается за P26_HIT тиков до удара
+        Vec3 hit26 = p26Hit();
         film.shot("p26").length(100).hidden()
-                .onReady(() -> salvo("rocket", 6, 8, c.add(-8, 0, 14), new Vec3(2650, 0, 314)))
+                .onReady(() -> battery("rocket", List.of(hit26, hit26.add(-4, 0, 3), hit26.add(3, 0, -4)), new Vec3(-700, 0, 30), 0))
                 .camera(() -> {
                     double y = g(c).y;
                     // по открытой площади (x 3130–3220, z 240–300) южнее башни-фонтана: дома и башня — вне пути
-                    return CineCamera.fpv(List.of(new Vec3(c.x - 45, y + 7, c.z + 26), new Vec3(c.x - 25, y + 4.2, c.z + 16),
-                            new Vec3(c.x - 2, y + 3.6, c.z + 13), new Vec3(c.x + 22, y + 4.5, c.z + 6), new Vec3(c.x + 38, y + 6, c.z - 12),
-                            new Vec3(c.x + 32, y + 7, c.z - 34)), 1.4, 7, 1.0, 0.12, 78);
+                    return CineCamera.fpv(P26_PATH.stream().map(q -> new Vec3(c.x + q.x, y + q.y, c.z + q.z)).toList(), P26_SPEED, 7, 1.0, 0.12, 78);
                 })
-                .when(() -> film.nearest(RocketEntity.class, at(c), 260) != null, 3000);
+                .when(() -> flightEta(at(hit26), 20, WeaponType.ROCKET) <= P26_HIT / 20.0, 3000);
 
-        // p27: твоими глазами — перестрелка (a, c), на дороге рвутся снаряды (b)
+        // p27: твоими глазами — перестрелка через площадь (a, c), на дороге рвутся снаряды (b). Игрок съёмки — стрелок
+        // Запада за линией баррикад: места — где из глаз видно больше всего бойцов Востока (firingSpots), с патронами и
+        // перезарядкой клавишей мода; проверка по данным — FightQa (автомат в руке, выстрелы по звуку, Восток в кадре)
+        List<Vec3[]> spots27 = new ArrayList<>();
+        film.run(() -> spots27.addAll(firingSpots(street, c, 3)));
+        List<String> foes = new ArrayList<>();
+        film.run(() -> street.soldiers().stream().filter(s -> s.side == 1).forEach(s -> foes.add(s.name)));
         for (String take : new String[]{"a", "b", "c"}) {
             int k = take.charAt(0) - 'a';
-            Vec3 pos = new Vec3(c.x - 30, 0, c.z - 10 + k * 9);
-            Vec3 aim = new Vec3(c.x + 28, 0, c.z - 6 + k * 6);
-            actor(pos, aim, "pointblank:ak47");
+            actor(() -> spots27.get(k)[0], () -> spots27.get(k)[1], "pointblank:ak47");
+            film.run(() -> {
+                Film.cmd("give @s pointblank:ammo762 512");
+                reloadGun();
+            });
+            film.waitTicks(70);
             Film.Shot shot = film.shot("p27" + take).length(40).hud()
                     .player(t -> {
-                        Vec3 a = at(aim).add(0, 1.4, 0);
+                        Vec3 a = spots27.get(k)[1];
                         return new Pose(Vec3.ZERO, Film.yawTo(mc.player.position(), a) + (float) Math.sin(t / 13) * 3,
                                 Film.pitchTo(mc.player.getEyePosition(), a) + (float) Math.sin(t / 7) * 1.2f, 0, 70);
                     })
+                    .cue(0, () -> fightQa = new FightQa("p27" + take, "pointblank:ak47", foes, 70))
                     .cue(3, () -> mc.options.keyAttack.setDown(true))
                     .cue(22, () -> mc.options.keyAttack.setDown(false))
                     .cue(27, () -> mc.options.keyAttack.setDown(true))
-                    .cueEnd(() -> mc.options.keyAttack.setDown(false));
+                    .cueEnd(() -> {
+                        mc.options.keyAttack.setDown(false);
+                        if (fightQa != null) fightQa.close(film.recordDir());
+                        fightQa = null;
+                    });
             if (k == 1) {
+                // три ракеты батареей ложатся на дорогу перед стрелком на 12-м тике плана
                 Vec3 road = c.add(10, 0, 4);
-                shot.onReady(() -> salvo("rocket", 4, 10, road, new Vec3(2700, 0, 300)))
-                        .when(() -> film.nearest(RocketEntity.class, at(road), 200) != null, 3000);
+                shot.onReady(() -> battery("rocket", List.of(road, road.add(-5, 0, 4), road.add(4, 0, -5)), new Vec3(-700, 0, 25), 4))
+                        .when(() -> flightEta(at(road), 20, WeaponType.ROCKET) <= 0.6, 3000);
             }
         }
 
         // p28: FPV над перекрёстком, по улице бежит пакет «Града», разрывы прямо под камерой
-        // вдоль проспекта (z 327–335, открыт от x 3012 на восток): пакет ложится на улицу под камерой
+        // вдоль проспекта (z 327–335, открыт от x 3012 на восток): пакет — батареей по оси проспекта (P28_PACK)
         Vec3 cross = new Vec3(3022.5, 0, 331.5), line = new Vec3(3090.5, 0, 331.5);
         avenueFight(line);
         hiddenAt(cross, line);
         film.shot("p28").length(85).hidden()
-                .onReady(() -> salvo("rocket", 24, 30, line, new Vec3(2400, 0, 338)))
+                .onReady(() -> battery("rocket", P28_PACK, new Vec3(-690, 0, 6.5), P28_GAP))
                 .camera(() -> {
                     double y = g(cross).y;
                     return CineCamera.fpv(List.of(new Vec3(cross.x - 8, y + 16, cross.z), new Vec3(cross.x + 20, y + 14, cross.z + 0.5),
                             new Vec3(cross.x + 50, y + 13, cross.z - 0.5), new Vec3(cross.x + 90, y + 12, cross.z + 0.5),
                             new Vec3(cross.x + 150, y + 14, cross.z)), 1.6, 8, 1.1, 0.1, 76);
                 })
-                .when(() -> film.nearest(RocketEntity.class, at(line), 250) != null, 3000);
+                .when(() -> flightEta(at(P28_PACK.get(0)), 25, WeaponType.ROCKET) <= P28_FIRST / 20.0, 3000);
 
         // p29: боец прижался к стене; из-за плеча — шахед проносится над ним и входит в дом напротив
         Vec3 wall = new Vec3(3080.5, 0, 334.5), house = new Vec3(3175.5, 120, 353.5);
@@ -1348,12 +1533,15 @@ final class War {
         film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
         settle();
         film.onServer(level -> film.armSoldier("Vlad", 1));
-        // удар — в грань, которую видит камера из-за плеча (по лучу в момент пуска)
+        // удар — в грань дома напротив, которую камера из-за плеча видит в 40–110 блоках (веер лучей в момент пуска):
+        // луч прямо на высотку за улицей упирался в стену, у которой стоит боец, и шахед входил в неё у камеры
         Vec3[] house29 = {house};
         film.shot("p29").length(50).hidden()
                 .onReady(() -> {
                     Pose cam = CineCamera.pose();
-                    if (cam != null) house29[0] = visible(cam.pos(), house);
+                    List<Vec3> faces = cam == null ? List.of() : facades(cam.pos(), house, 50, 1, 40, 110, Rig.cloudBase() - 6);
+                    if (!faces.isEmpty()) house29[0] = faces.get(0);
+                    else Incoming.LOG.warn("SCENARIO film staging p29: грани дома напротив из камеры нет, цель {}", xyz(house));
                     salvo("drone", 1, 0, house29[0], behind(wall, house29[0], 700));
                 })
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Vlad"), 2.3, 0.2, 1.2, () -> house29[0], 60))
@@ -1363,12 +1551,18 @@ final class War {
             if (avenue != null) for (Fight.Soldier s : avenue.soldiers()) cast().remove(s.name);
         });
 
-        // p30: глазами бойца — он поднимает голову, шахед пикирует прямо в камеру (монтаж режет на ударе)
+        // p30: глазами бойца — он поднимает голову, шахед пикирует прямо в камеру (монтаж режет на ударе). Боец смотрит
+        // туда, где небо над ним открыто (openSky), шахед заходит оттуда же: пике видно из глаз до самого удара
         Vec3 eyeSpot = new Vec3(3150.5, 0, 300.5);
-        film.run(() -> cast().spawn("Sasha", g(eyeSpot), -90, null));
+        float[] yaw30 = {-90};
+        hiddenAt(eyeSpot, eyeSpot.add(30, 0, 0));
+        film.run(() -> {
+            yaw30[0] = openSky(g(eyeSpot).add(0, 1.62, 0));
+            cast().spawn("Sasha", g(eyeSpot), yaw30[0], null);
+        });
         settle();
         film.shot("p30").length(80).hidden()
-                .onReady(() -> salvo("drone", 1, 0, eyeSpot, new Vec3(2450, 0, 318)))
+                .onReady(() -> salvo("drone", 1, 0, eyeSpot, eyeSpot.add(Vec3.directionFromRotation(0, yaw30[0]).scale(900))))
                 .camera(() -> CineCamera.eyes(() -> film.bot("Sasha"), 72))
                 .when(() -> flightOver(at(eyeSpot), 120, WeaponType.DRONE), 3000)
                 .cue(0, () -> film.withServer(s -> trackLook("Sasha", DroneEntity.class, 80)))

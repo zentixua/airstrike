@@ -83,6 +83,21 @@ def main():
             out.append(f"| {s} | {r['verdict']} | {r['lit_start']} | {r['unlit_end']} из {r['lamps_end']} | {r['dark_at']} | {r['why']} |")
         out.append("")
         out.append(f"Свет в кадре: прошли {sum(r['verdict'] == 'PASS' for r in last_grid.values())} из {len(last_grid)}.")
+    fight = a.render.parent / "fight.jsonl"
+    if fight.exists():
+        # бой глазами игрока (FightQa при записи): оружие в руке, противники в кадре, выстрелы; последняя строка плана — итог
+        last_fight = {}
+        for line in fight.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                last_fight[r["shot"]] = r
+        out += ["", "| План | Бой | Оружие в руке | Противников в кадре | ≥3 в кадре | Выстрелов / тиков атаки | Звуки | Причина |",
+                "|---|---|---|---|---|---|---|---|"]
+        for s, r in last_fight.items():
+            out.append(f"| {s} | {r['verdict']} | {r['armed']} из {r['ticks']} | {r['foes_min']}–{r['foes_max']} | {pct(r['foes_share'])} | "
+                       f"{r['shots']} / {r['attack']} | {r['sounds']} | {r['why']} |")
+        out.append("")
+        out.append(f"Бой глазами игрока: прошли {sum(r['verdict'] == 'PASS' for r in last_fight.values())} из {len(last_fight)}.")
     text = "\n".join(out) + "\n"
     if a.md:
         a.md.write_text(text)

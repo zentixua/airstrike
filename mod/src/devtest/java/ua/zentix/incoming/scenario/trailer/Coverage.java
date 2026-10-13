@@ -135,9 +135,9 @@ final class Coverage {
         own("p01d", Rig.flight("drone"), false, OVERHEAD);
         own("p01a", Rig.impact("missile", War.T2, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(28, 9, 1.8, 2.4, 20));
         own("p01b", Rig.impact("missile", War.T3, 0), false, new Need(0.5, 0.6, 0.7, 0), tripod());
-        own("p26", Rig.impact("rocket", War.SQUARE.add(-8, 0, 14), 0), true, new Need(0, 0, 0.4, 0));
-        own("p28", Rig.impact("rocket", new Vec3(3090.5, 0, 331.5), 0), true, new Need(0, 0, 0.4, 0));
-        own("p29", Rig.impact("drone", new Vec3(3175.5, 120, 353.5), 0), false, new Need(0.3, 0.5, 0.7, 0));
+        own("p26", Rig.impact("rocket", War.p26Hit(), 0), true, new Need(0, 0, 0.4, 0));
+        own("p28", Rig.impact("rocket", War.P28_PACK.get(0), 0), true, new Need(0, 0, 0.4, 0));
+        own("p29", Rig.impact("drone", null, 0), false, new Need(0.3, 0.5, 0.7, 0));
         own("p30", Rig.impact("drone", new Vec3(3150.5, 0, 300.5), 0), false, new Need(0.3, 0.6, 0, 0));
         own("p01e", Rig.impact("rocket", new Vec3(3175.5, 0, 252.5), 0), false, HIT);
         own("p31", Rig.impact("drone", War.T4, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(26, 6, 1.2, -1.6, 12));
