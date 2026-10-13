@@ -101,21 +101,30 @@ public final class Film {
         }
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+        Export.deferSnapshotPayloads();
     }
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
     public static void start(Path file) {
         try {
+            Export.check();
             Plan plan = Plan.read(file);
             Files.createDirectories(plan.out());
             new Film(plan);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            LOG.error("Film: Flashback 0.39 is required ({})", e.toString());
+            exitWhenLoaded();
         } catch (IOException | RuntimeException e) {
             LOG.error("Film: cannot read plan {}", file, e);
-            // клиент без окна сам не выйдет: выход, как только игра загрузилась
-            NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
-                if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
-            });
+            exitWhenLoaded();
         }
+    }
+
+    /** Клиент без окна сам не выйдет: выход, как только игра загрузилась. */
+    private static void exitWhenLoaded() {
+        NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
+            if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
+        });
     }
 
     /** План уже снят: в {@code best.json} прошёл проверку с теми же тиками и первым событием. */
@@ -188,6 +197,7 @@ public final class Film {
             }
             case OPENING -> {
                 if (mc.level != null && mc.player != null && Export.inReplay()) {
+                    Export.releaseSnapshotPayloads();
                     // редактор Flashback не активен с интерфейсом — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);

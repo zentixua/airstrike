@@ -3,12 +3,21 @@ package ua.zentix.replayscan.film;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.OnDatapackSyncEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Constructor;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
@@ -99,6 +108,85 @@ final class Export {
         } catch (ReflectiveOperationException e) {
             throw fail("goToReplayTick", e);
         }
+    }
+
+    /** Пакеты модов из снимка повтора, снятые со входа зрителя; только в потоке сервера повтора. */
+    private static final List<Object> held = new ArrayList<>();
+
+    /**
+     * Пакеты модов из снимка начала повтора — клиенту, когда у него есть мир повтора. Flashback шлёт их зрителю при входе
+     * ({@code sendLevelInfo}, сразу за пакетом входа), а клиент разбирает их в принудительном тике
+     * {@code Minecraft.setLevel} при входе, до {@code Minecraft.level}: декодер, которому нужен мир клиента (Point Blank,
+     * состояние оружия в руке других игроков), падает, и клиент отключается от повтора. Поэтому на время входа зрителя
+     * (от {@code OnDatapackSyncEvent} до {@code PlayerLoggedInEvent}, вокруг {@code sendLevelInfo}) их список пуст,
+     * а {@link #releaseSnapshotPayloads} шлёт их зрителю, когда мир у клиента есть.
+     */
+    static void deferSnapshotPayloads() {
+        NeoForge.EVENT_BUS.addListener(OnDatapackSyncEvent.class, e -> {
+            List<Object> list = snapshotPayloads(e.getPlayer());
+            if (list == null) return;
+            held.clear();
+            held.addAll(list);
+            list.clear();
+        });
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, e -> {
+            // список — обратно: Flashback шлёт его и при каждом следующем sendLevelInfo (возрождение, смена измерения)
+            List<Object> list = snapshotPayloads(e.getEntity());
+            if (list != null) list.addAll(0, held);
+        });
+    }
+
+    /** Зритель в мире повтора: пакеты модов из снимка — ему (в потоке сервера повтора, до перемотки к плану). */
+    static void releaseSnapshotPayloads() {
+        if (!(server() instanceof MinecraftServer s)) return;
+        s.execute(() -> {
+            if (held.isEmpty()) return;
+            for (ServerPlayer p : s.getPlayerList().getPlayers()) {
+                if (snapshotPayloads(p) == null) continue;
+                for (Object o : held) p.connection.send(new ClientboundCustomPayloadPacket((CustomPacketPayload) o));
+            }
+            Film.LOG.info("Film: mod payloads from the replay snapshot ({}) sent to the viewer in the replay level", held.size());
+            held.clear();
+        });
+    }
+
+    /** Список пакетов модов снимка ({@code ReplayServer.customPacketsInSnapshot}), если {@code p} — зритель повтора. */
+    @SuppressWarnings("unchecked")
+    private static @Nullable List<Object> snapshotPayloads(Player p) {
+        try {
+            if (!(p instanceof ServerPlayer sp) || !c("playback.ReplayPlayer").isInstance(sp)) return null;
+            if (!c("playback.ReplayServer").isInstance(sp.server)) return null;
+            return (List<Object>) sp.server.getClass().getField("customPacketsInSnapshot").get(sp.server);
+        } catch (ReflectiveOperationException e) {
+            throw fail("ReplayServer.customPacketsInSnapshot", e);
+        }
+    }
+
+    /**
+     * Члены Flashback, которые зовёт съёмка (и слушатели входа зрителя в потоке сервера повтора), на месте: иначе съёмка
+     * упала бы посреди повтора или на сервере повтора.
+     */
+    static void check() throws ReflectiveOperationException {
+        Class<?> flashback = peek("Flashback");
+        flashback.getMethod("openReplayWorld", Path.class);
+        flashback.getMethod("isInReplay");
+        flashback.getMethod("getReplayServer");
+        flashback.getField("EXPORT_JOB");
+        Class<?> server = peek("playback.ReplayServer");
+        server.getField("replayPaused");
+        server.getField("customPacketsInSnapshot");
+        for (String m : List.of("getReplayTick", "getTotalReplayTicks", "getLocalPlayerId")) server.getMethod(m);
+        server.getMethod("goToReplayTick", int.class);
+        peek("playback.ReplayPlayer");
+        Class<?> queue = peek("exporting.ExportJobQueue");
+        queue.getField("queuedJobs");
+        queue.getField("drainingQueue");
+        peek("state.EditorState").getMethod("load", Path.class);
+    }
+
+    /** Класс Flashback без инициализации: проверка идёт при создании мода, до клиента. */
+    private static Class<?> peek(String name) throws ClassNotFoundException {
+        return Class.forName(P + name, false, Export.class.getClassLoader());
     }
 
     static boolean exporting() {
