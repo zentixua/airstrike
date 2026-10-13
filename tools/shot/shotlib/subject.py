@@ -42,24 +42,35 @@ def _cam_pose(sc: Scene, t: int):
     return sc.cams.pos[i], sc.cam_look[i]
 
 
-def _in_frame(sc: Scene, t: int, p: np.ndarray, margin: float = 0.85) -> bool:
+def _in_frame(sc: Scene, t: int, p: np.ndarray, margin: float = 0.85, haze: bool = True) -> bool:
+    """Точка в кадре камеры сценария (с полями) и, с `haze`, ближе тумана у края прорисовки и не за слоем облаков — как
+    `Rig.inFrame`, `beyondFog`, `throughClouds` у выбора объекта трейлера."""
     if sc.cams is None or sc.cam_look is None or p is None or np.isnan(p).any():
         return False
     eye, (yaw, pitch, roll, fov) = _cam_pose(sc, t)
-    u, v, z = C.project(eye[None, None], np.array([[yaw]]), np.array([[pitch]]), np.array([[roll]]), fov, 16 / 9,
+    u, v, z = C.project(eye[None, None], np.array([[yaw]]), np.array([[pitch]]), np.array([[0.0]]), fov, 16 / 9,
                         np.asarray(p)[None, None])
     far = np.hypot(p[0] - eye[0], p[2] - eye[2]) > sc.fog
-    return bool(z[0, 0] > 0 and abs(u[0, 0]) <= margin and abs(v[0, 0]) <= margin and not far)
+    lo, hi = min(eye[1], p[1]), max(eye[1], p[1])
+    cloud = not np.isnan(sc.clouds) and hi >= sc.clouds - 1 and lo <= sc.clouds + 6
+    inside = bool(z[0, 0] > 0.1 and abs(u[0, 0]) <= margin and abs(v[0, 0]) <= margin)
+    return inside and not (haze and (far or cloud))
 
 
-def _framed(sc: Scene, tr: Track, a: int, b: int) -> float:
-    """Сколько тиков окна камера сценария держит снаряд в кадре (как `Rig.framed`)."""
+def _framed(sc: Scene, tr: Track, a: int, b: int, size: bool = False) -> float:
+    """Сколько тиков окна камера сценария держит снаряд в кадре (как `Rig.framed`); `size` — сумма его долей высоты
+    кадра за эти тики (при равенстве тиков трейлер берёт крупнее)."""
     if sc.cams is None:
         return 0.0
-    n = 0
+    n = 0.0
     for t in range(max(a, tr.first), min(b, tr.last) + 1):
-        if _in_frame(sc, t, tr.at(np.array([t]))[0]):
-            n += 1
+        at = tr.at(np.array([t]))[0]
+        if _in_frame(sc, t, at):
+            if size:
+                eye, look = _cam_pose(sc, t)
+                n += float(C.share(size_of(tr.weapon), float(np.linalg.norm(at - eye)), look[3]))
+            else:
+                n += 1
     return n
 
 
@@ -106,21 +117,26 @@ def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
             raise SystemExit(f"{sel}: удара в окне {a0}..{b0} нет")
         tr = hits[0]
         if kind == "framed" and sc.cams is not None:
-            tr = max(hits, key=lambda x: (_in_frame(sc, hit(x).t, hit(x).pos), _framed(sc, x, a0, hit(x).t)))
+            # как `Rig.framedImpact`: удар в кадре в свой тик (без тумана и облаков), потом тики в кадре до удара
+            tr = max(hits, key=lambda x: (_in_frame(sc, hit(x).t, hit(x).pos, haze=False), _framed(sc, x, a0, hit(x).t)))
         p = with_key(tr, hit(tr), f"{tr.weapon} → удар")
     elif kind in ("flight", "launch"):
-        # только снаряды, что есть в окне: снаряд вне окна дал бы план без объекта
-        cand = [tr for tr in _of(sc, weapon) if len(tr.t) and tr.last >= a0 and tr.first <= b0]
+        # как `Rig.flight`/`launch`: все полёты (пуск — появившиеся в окне у пусковой), первый по появлению, а с камерой
+        # сценария — тот, что она держит в кадре дольше всех, при равенстве — крупнее (из равных — первый)
+        cand = [tr for tr in _of(sc, weapon) if len(tr.t)]
         if kind == "launch":
             r = float(rad or 150)
             cand = [tr for tr in cand if a0 - 40 <= tr.first <= b0 and near is not None
                     and np.hypot(*(tr.pos[0, [0, 2]] - near)) <= r]
         cand.sort(key=lambda tr: tr.first)
         if not cand:
-            raise SystemExit(f"{sel}: в окне {a0}..{b0} полёта нет (журнал не записал снаряд — чинить постановку)")
+            raise SystemExit(f"{sel}: полёта нет")
         tr = cand[0]
         if sc.cams is not None:
-            tr = max(cand, key=lambda x: _framed(sc, x, a0, b0))
+            tr = max(cand, key=lambda x: (_framed(sc, x, a0, b0), _framed(sc, x, a0, b0, size=True)))
+        # снаряд вне окна — у вывода план без объекта
+        if tr.last < a0 or tr.first > b0:
+            raise SystemExit(f"{sel}: в окне {a0}..{b0} полёта нет (журнал не записал снаряд — чинить постановку)")
         p = Pick(tr.weapon, tr, -1, None, size_of(tr.weapon), 0.0, a0, b0)
     elif kind == "scene":
         raise SystemExit("план-сцена без объекта: камеру выбирает сценарий")

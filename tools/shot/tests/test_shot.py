@@ -190,7 +190,26 @@ class SolveTest(unittest.TestCase):
         spec = V.Spec("t", 40, 140, sc.tracks["1"], keys=[(120, np.array([70.0, 64.0, 30.0]), 12.0)], style="tripod", size=3.5)
         r = V.solve(sc, spec, log=lambda *_: None)
         self.assertGreater(r.report["subject_framed"], 0.8)
-        self.assertLess(r.parts["keys"], 10)
+        self.assertGreaterEqual(r.report["key"], 0.7)
+
+    def test_need_is_the_measure(self):
+        # штатив смотрит на место удара, снаряд входит в кадр в конце: удару (HIT) этого хватает, ведению (STRIKE) — нет
+        sc = wall_scene()
+        key = np.array([70.0, 64.0, 30.0])
+        eye = np.array([60.0, 66.0, -20.0])
+        n = 101
+        P = np.repeat(eye[None, None], n, 1)
+        yaw, pitch = C.angles(key + np.array([0, 4.0, 0]) - eye)
+        ang = (np.full((1, n), yaw), np.full((1, n), pitch), np.zeros((1, n)))
+        got = {}
+        for name, need in (("hit", (0, 0, 0.6)), ("strike", (0.6, 0.75, 0.7))):
+            spec = V.Spec("t", 40, 140, sc.tracks["1"], keys=[(120, key, 12.0)], style="tripod", size=3.5, need=need)
+            e = V.evaluate(sc, spec, V.STYLES["tripod"], P, 20.0, fine=True, angles=ang)
+            got[name] = (float(e.cost[0]), V.report(spec, e, 20.0))
+        self.assertTrue(got["hit"][1]["pass"])
+        self.assertFalse(got["strike"][1]["pass"])
+        self.assertLess(got["strike"][1]["approach"], 0.6)
+        self.assertLess(got["hit"][0] + 5, got["strike"][0])
 
     def test_fpv_is_flyable(self):
         sc = wall_scene()
@@ -272,6 +291,23 @@ class SubjectTest(unittest.TestCase):
             self.assertLess(res["dy"], 0.01)
             self.assertAlmostEqual(res["share_ratio"], 1.0, places=2)
             self.assertGreater(res["blocked_mine_only"], 10)   # за стеной, а «вывод» тут нарочно всё видит
+
+
+class PickTest(unittest.TestCase):
+    def test_flight_tie_goes_to_the_larger(self):
+        # оба дрона в кадре всё окно: как `Rig.flight`, берётся крупнее в кадре (ближе к камере), а не первый
+        with tempfile.TemporaryDirectory() as d:
+            ev = os.path.join(d, "p98.events.jsonl")
+            with open(ev, "w") as f:
+                f.write(json.dumps({"t": 0, "mark": "start"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 1, "id": "far", "weapon": "drone"}) + "\n")
+                f.write(json.dumps({"t": 1, "new": 2, "id": "near", "weapon": "drone"}) + "\n")
+                for t in range(1, 60):
+                    f.write(json.dumps({"t": t, "f": [[1, 200, 70, t * 0.2, "cruise", 7], [2, 80, 70, t * 0.2, "cruise", 7]],
+                                        "cam": [30, 70, 5, -90, 0, 0, 70]}) + "\n")
+                f.write(json.dumps({"t": 60, "mark": "end"}) + "\n")
+            sc = S.from_eventlog(ev, W.empty((0, 0, 0), (1, 1, 1)))
+            self.assertEqual(J.pick(sc, "flight:drone").track.id, "2")
 
 
 def lines(path):

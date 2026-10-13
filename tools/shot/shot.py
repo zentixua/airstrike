@@ -128,16 +128,33 @@ def styles_for(p: J.Pick) -> list[str]:
     return ["fpv", "drone", "tripod"]
 
 
-def spec_for(name: str, p: J.Pick, style: str) -> V.Spec:
+# что план обязан показать, если в таблице нет (`Coverage.Need.STRIKE` без мотора): до удара, последняя секунда, удар
+STRIKE = (0.6, 0.75, 0.7)
+
+
+def spec_for(name: str, p: J.Pick, style: str, need=None) -> V.Spec:
     keys = [(p.key, p.key_pos, p.key_size)] if p.key >= 0 and p.key_pos is not None else []
-    return V.Spec(name, p.a, p.b, p.track, keys=keys, style=style, size=p.size, overlay=p.overlay)
+    return V.Spec(name, p.a, p.b, p.track, keys=keys, style=style, size=p.size, overlay=p.overlay,
+                  need=tuple(need or STRIKE)[:3])
 
 
 def line(name: str, r: V.Result) -> str:
     rep = r.report
-    return (f"{name:8s} мера {r.cost:8.2f}  в кадре и виден {rep.get('subject_framed', 0):.2f}  в кадре "
-            f"{rep.get('subject_in_frame', 0):.2f}  виден {rep.get('subject_visible', 0):.2f}  доля {rep.get('share_median', 0):.3f}"
-            f"  fov {r.fov:4.0f}  поворот до {rep['pan_max_deg_s']:5.0f}°/с  крен до {rep['roll_max_deg']:4.0f}°")
+    verdict = ("PASS" if rep.get("pass") else "FAIL") + f" {rep.get('margin', 0):+.2f}"
+    hold = " держит удар" if rep.get("hold") else ""
+    return (f"{name:8s} мера {r.cost:8.2f}  {verdict}  до удара {rep.get('approach', 0):.2f}  секунда "
+            f"{rep.get('near', 0):.2f}  удар {rep.get('key', 0):.2f}  | в кадре и виден {rep.get('subject_framed', 0):.2f}"
+            f"  доля {rep.get('share_median', 0):.3f}  fov {r.fov:4.0f}  поворот до {rep['pan_max_deg_s']:5.0f}°/с"
+            f"  крен до {rep['roll_max_deg']:4.0f}°{hold}")
+
+
+def choose(planned: dict, order: list[str]) -> str:
+    """Какую камеру выводить: первое по замыслу тело (`order` — порядок тел плана: FPV, дрон, штатив…), которое проходит
+    проверку с запасом; ни одно не проходит — то, которому до нужного меньше всех не хватает."""
+    ok = [k for k in order if k in planned and planned[k].report.get("margin", -1) >= 0.05]
+    if ok:
+        return ok[0]
+    return max(planned, key=lambda k: (planned[k].report.get("margin", -1), -planned[k].cost))
 
 
 def plan_one(path: str, args, table: dict):
@@ -162,12 +179,14 @@ def plan_one(path: str, args, table: dict):
         S.smooth_tracks(sc, args.shown)
     p.track = sc.tracks.get(p.track.id) if p.track is not None else None
     results: dict[str, V.Result] = {}
-    own = own_result(sc, spec_for(name, p, "tripod"))
+    need = entry.get("need")
+    own = own_result(sc, spec_for(name, p, "tripod", need))
     if own is not None:
         results["own"] = own
-    for st in (args.styles.split(",") if args.styles else styles_for(p)):
+    order = args.styles.split(",") if args.styles else entry.get("styles") or styles_for(p)
+    for st in order:
         t0 = time.time()
-        r = V.solve(sc, spec_for(name, p, st), iters=args.iters, log=lambda *_: None)
+        r = V.solve_best(sc, spec_for(name, p, st, need), iters=args.iters, log=lambda *_: None)
         log(f"  {st}: {time.time() - t0:.1f} с")
         results[st] = r
         X.write_all(r, os.path.join(out, st))
@@ -178,12 +197,14 @@ def plan_one(path: str, args, table: dict):
             f.write(f"{name} {p.what} окно {p.a}..{p.b}\n" + "\n".join(rows) + "\n")
         log("\n".join("  " + r for r in rows))
         return name, results, "own"
-    best = max(planned, key=lambda k: (round(planned[k].report.get("subject_framed", 0), 2), -planned[k].cost))
+    best = choose(planned, order)
     rows.append(f"лучшая: {best}")
     # камера для вывода трейлера (ReplayFilm, кандидат `<тело>-planned`): <out>/planned/<план>.camera.jsonl
     os.makedirs(os.path.join(args.out, "planned"), exist_ok=True)
+    rb = planned[best].report
     X.write_camera(planned[best], os.path.join(args.out, "planned", f"{name}.camera.jsonl"),
-                   {"body": best, "shot": name, "framed": planned[best].report.get("subject_framed", 0)})
+                   {"body": best, "shot": name, "framed": rb.get("subject_framed", 0), "pass": rb.get("pass"),
+                    "approach": rb.get("approach"), "near": rb.get("near"), "key": rb.get("key")})
     text = "\n".join(rows)
     with open(os.path.join(out, "summary.txt"), "w", encoding="utf-8") as f:
         f.write(f"{name} {p.what} окно {p.a}..{p.b}\n{text}\n")
@@ -208,12 +229,13 @@ def cmd_plan(args):
             name, results, best = plan_one(path, args, table)
             r = results[best]
             o = results.get("own")
-            summary.append(f"{name:6s} лучшая {best:7s} {r.report.get('subject_framed', 0):.2f}"
-                           + (f"  (камера сценария {o.report.get('subject_framed', 0):.2f})" if o else ""))
+            verdict = lambda rep: ("PASS" if rep.get("pass") else "FAIL") + f" {rep.get('margin', 0):+.2f}"  # noqa: E731
+            summary.append(f"{name:6s} лучшая {best:7s} {verdict(r.report)}"
+                           + (f"  (камера сценария {verdict(o.report)})" if o else ""))
         except SystemExit as e:
             log(f"  {os.path.basename(path)}: {e}")
             summary.append(f"{os.path.basename(path)}: {e}")
-    log("\nИтог (доля окна, где объект в кадре, виден и читается):\n" + "\n".join(summary))
+    log("\nИтог (пройдёт ли проверку кадров плана и с каким запасом до нужного):\n" + "\n".join(summary))
 
 
 # ---------------------------------------------------------------- сверка меры с проверкой кадров вывода
@@ -230,6 +252,8 @@ def subject_at(p: J.Pick, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         pos = p.track.at(tt)
         if p.key >= 0 and p.key_pos is not None:
             pos[t > p.track.last] = p.key_pos
+    elif p.key_pos is not None:
+        pos[:] = p.key_pos  # подрыв: место известно и до него (`Rig.nuke`: at(t) — место подрыва)
     if p.key >= 0 and p.key_pos is not None:
         after = t >= p.key
         lift = np.minimum(1, (t[after] - p.key) / 40.0) * p.key_size * 0.4
@@ -310,10 +334,23 @@ def check_one(qa_path: str, args, table: dict) -> dict | None:
            "blocked_qa_only": int((q_in & mine_in & (occ < 0.5) & (q_seen < 0.6)).sum()),
            "smoke_mine_only": int((both & (smoke < 0.5) & (q_clear >= 0.5)).sum()),
            "smoke_qa_only": int((both & (smoke >= 0.5) & (q_clear < 0.5)).sum())}
+    # итог плана, как `FrameQa.verdict`: доли до удара, за последнюю секунду и у удара — мерой и выводом
+    mn = 0.004
+    for who, vis_, share_ in (("mine", mine_vis, sh), ("qa", q_vis, qs)):
+        good = vis_ & (share_ >= mn)
+        if p.key >= 0:
+            pre, near, key = t < p.key, (t >= p.key - 20) & (t < p.key), (t >= p.key) & (t <= p.key + 12)
+        else:
+            pre, near, key = np.ones(len(t), bool), np.zeros(len(t), bool), np.zeros(len(t), bool)
+        res[f"verdict_{who}"] = [round(float(good[pre].mean()), 3) if pre.any() else 1.0,
+                                 round(float(good[near].mean()), 3) if near.any() else 1.0,
+                                 round(float(vis_[key].mean()), 3) if key.any() else (0.0 if p.key >= 0 else 1.0)]
     log(f"{name:6s} {cand:28s} кадров {res['frames']:4d}  в кадре совпало {res['in_agree']:.2f}  виден совпало "
         f"{res['vis_agree']:.2f} (мера {res['vis_mine']:.2f}, вывод {res['vis_qa']:.2f})  место ±{res['dx']:.3f}/{res['dy']:.3f}"
         f"  доля ×{res['share_ratio']:.2f}  блоки: только мера {res['blocked_mine_only']}, только вывод "
-        f"{res['blocked_qa_only']}  дым: только мера {res['smoke_mine_only']}, только вывод {res['smoke_qa_only']}")
+        f"{res['blocked_qa_only']}  дым: только мера {res['smoke_mine_only']}, только вывод {res['smoke_qa_only']}"
+        f"  итог (до удара/секунда/удар): мера {'/'.join(f'{x:.2f}' for x in res['verdict_mine'])}, вывод "
+        f"{'/'.join(f'{x:.2f}' for x in res['verdict_qa'])}")
     return res
 
 
@@ -335,7 +372,7 @@ def cmd_demo(args):
     p = J.Pick("missile → удар", sc.tracks["m1"], t_hit, face, S.size_of("missile"), S.blast_of("missile"),
                t_hit - 140, t_hit + 40)
     for st in (args.styles.split(",") if args.styles else ["fpv", "drone", "tripod"]):
-        r = V.solve(sc, spec_for("demo", p, st), iters=args.iters, log=log)
+        r = V.solve_best(sc, spec_for("demo", p, st), iters=args.iters, log=log)
         log(line(st, r))
         X.write_all(r, os.path.join(args.out, st))
         if args.previs != "none":

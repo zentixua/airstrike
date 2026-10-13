@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -43,7 +43,7 @@ class Style:
 STYLES = {
     # FPV: квадрокоптер, крен и кивок — из ускорения (как у пилота), низко и быстро, летит туда, куда смотрит
     "fpv": Style("fpv", vmax=1.5, amax=0.045, jerk=10.0, clear=3.0, look_sigma=3, spring_hz=0, damping=1, anticipate=0,
-                 yaw_rate=4.0, alt=(5, 40), sideways=45, bank=1.0, step=12, sigma=6),
+                 yaw_rate=4.0, alt=(5, 40), sideways=45, bank=1.0, step=24, sigma=4),
     # кинодрон: плавно, медленно, взгляд на подвесе (без крена)
     "drone": Style("drone", vmax=0.9, amax=0.03, jerk=12.0, clear=4.0, look_sigma=5, spring_hz=0.7, damping=0.9,
                    anticipate=4, yaw_rate=3.0, alt=(10, 120), step=20, sigma=10),
@@ -76,6 +76,10 @@ class Spec:
     frame_bias: tuple = (0.0, 0.0)  # куда в кадре ставить объект (u, v)
     reach: float = 160.0         # дальше этого от удара взгляд держит сторону подлёта, а не сам снаряд
     overlay: bool = False        # объект рисуется поверх мира (ядерный подрыв): туман, облака и чужие чанки не закрывают
+    # что план обязан показать (`Coverage.Need` трейлера): доля кадров до удара, где объект в кадре, виден и читается;
+    # то же за последнюю секунду; удар в кадре и виден в первые 12 тиков
+    need: tuple = (0.6, 0.75, 0.7)
+    hold: bool = False           # взгляд держит место удара, снаряд сам входит в кадр (иначе ведёт снаряд)
 
 
 # ---------------------------------------------------------------- куда смотрит кадр
@@ -88,8 +92,16 @@ def aim_points(spec: Spec, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.n
     subj = np.full((n, 3), np.nan)
     size = np.full(n, spec.size)
     if spec.subject is not None:
-        subj = spec.subject.at(ts)
+        tr = spec.subject
+        subj = tr.at(np.clip(ts, tr.first, tr.last))
+        # как `Rig.Subject.aim`: до появления — место появления, после пути — место удара
+        if spec.keys:
+            subj[ts > tr.last] = np.asarray(spec.keys[0][1], dtype=np.float64)
+    elif spec.keys:
+        subj[:] = np.asarray(spec.keys[0][1], dtype=np.float64)
     aim = subj.copy()
+    if spec.subject is not None:
+        aim[(ts < spec.subject.first) | (ts > spec.subject.last)] = np.nan
     if spec.subject is not None and len(spec.subject.t) > 1:
         ahead = spec.subject.at(np.minimum(ts + spec.lead, spec.subject.last))
         ok = ~np.isnan(ahead[:, 0]) & ~np.isnan(subj[:, 0])
@@ -107,19 +119,31 @@ def aim_points(spec: Spec, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.n
             dn = np.stack([dn[:, 0], up, dn[:, 2]], axis=1)
             dn /= np.linalg.norm(dn, axis=1, keepdims=True)
             aim[far] = k + dn * spec.reach
-    for (tk, pos, sz) in spec.keys:
+    for i, (tk, pos, sz) in enumerate(spec.keys):
         pos = np.asarray(pos, dtype=np.float64)
         fire = pos + np.array([0, sz * 0.35, 0])
-        # последние 1,5 с до удара: в кадре и объект, и место удара; после — шар и столб над местом
-        pre = (ts >= tk - 30) & (ts < tk)
-        k = ((ts[pre] - (tk - 30)) / 30.0)[:, None]
-        have = ~np.isnan(aim[pre, 0])
-        blend = np.where(have[:, None], aim[pre] * (1 - 0.5 * k) + fire * 0.5 * k, fire)
-        aim[pre] = blend
+        if spec.hold and i == 0:
+            # держит место удара: снаряд сам входит в кадр; последнюю секунду — между снарядом и местом
+            early = ts < tk - 20
+            aim[early] = fire
+            last = (ts >= tk - 20) & (ts < tk)
+            have = ~np.isnan(aim[last, 0])
+            aim[last] = np.where(have[:, None], 0.5 * (aim[last] + fire), fire)
+        else:
+            # последние 1,5 с до удара: в кадре и объект, и место удара; после — шар и столб над местом
+            pre = (ts >= tk - 30) & (ts < tk)
+            k = ((ts[pre] - (tk - 30)) / 30.0)[:, None]
+            have = ~np.isnan(aim[pre, 0])
+            blend = np.where(have[:, None], aim[pre] * (1 - 0.5 * k) + fire * 0.5 * k, fire)
+            aim[pre] = blend
         post = (ts >= tk) & (ts <= tk + 60)
         aim[post] = fire + np.array([0, 1, 0]) * np.minimum(ts[post] - tk, 40)[:, None] * 0.1 * sz / 10
-        subj[post] = fire
-        size[post] = sz
+        if i == 0:
+            # как проверка кадров: после удара объект — место удара, шар поднимается до 0,4 поперечника за 2 с
+            after = ts >= tk
+            lift = np.minimum(1, (ts[after] - tk) / 40.0) * sz * 0.4
+            subj[after] = pos + np.stack([np.zeros_like(lift), lift, np.zeros_like(lift)], axis=1)
+            size[after] = sz
     # нет объекта и событий — держим последнюю известную точку
     if np.isnan(aim[:, 0]).all():
         return aim, subj, size
@@ -130,13 +154,23 @@ def aim_points(spec: Spec, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.n
     return aim, subj, size
 
 
-def look(style: Style, P: np.ndarray, aim: np.ndarray):
-    """Взгляд тела из мест P (s, n, 3) на точки aim (n, 3): курс, тангаж, крен (s, n)."""
+def look(style: Style, P: np.ndarray, aim: np.ndarray, ahead: np.ndarray | None = None):
+    """Взгляд тела из мест P (s, n, 3) на точки aim (n, 3): курс, тангаж, крен (s, n). `ahead` (n,) — доля взгляда
+    вперёд по курсу (FPV после удара: пилот уходит от шара и смотрит, куда летит), 12° вниз."""
     n = P.shape[1]
     if style.anticipate:
         idx = np.minimum(np.arange(n) + style.anticipate, n - 1)
         aim = aim[idx]
-    yaw, pitch = C.angles(aim[None, :, :] - P)
+    d = aim[None, :, :] - P
+    if ahead is not None and ahead.any():
+        v = C.gauss(C.deriv(P), 4.0, axis=1)
+        vh = np.stack([v[..., 0], np.zeros_like(v[..., 0]), v[..., 2]], axis=-1)
+        vh /= np.maximum(np.linalg.norm(vh, axis=-1, keepdims=True), 1e-6)
+        fwd = vh * math.cos(math.radians(12)) - np.array([0, 1, 0]) * math.sin(math.radians(12))
+        dn = d / np.maximum(np.linalg.norm(d, axis=-1, keepdims=True), 1e-6)
+        w = ahead[None, :, None]
+        d = dn * (1 - w) + fwd * w
+    yaw, pitch = C.angles(d)
     yaw = C.unwrap_deg(yaw, axis=1)
     yaw = C.gauss(yaw, style.look_sigma, axis=1)
     pitch = C.gauss(pitch, style.look_sigma, axis=1)
@@ -231,7 +265,7 @@ def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, 
 def _unknown_below(world: W.World, eye, yaw, pitch, roll, fov, aspect, reach=128.0, step=4.0):
     """Доля лучей у нижнего края кадра (три), которые упираются в неизвестный чанк раньше блока."""
     f, r, u = C.basis(yaw, pitch, roll)
-    th = math.tan(math.radians(1.0)) if False else np.tan(np.radians(fov) / 2)
+    th = np.tan(np.radians(fov) / 2)
     bad = np.zeros(yaw.shape)
     for sx in (-0.9, 0.0, 0.9):
         dirn = f + r * (sx * th * aspect)[..., None] - u * (0.92 * th)[..., None]
@@ -264,19 +298,54 @@ def _haze(scene: Scene, eye: np.ndarray, tgt: np.ndarray, overlay: bool = False)
     return (far | cloud).astype(np.float64)
 
 
+def phases(spec: Spec, ts: np.ndarray) -> dict:
+    """Части окна, как их считает проверка кадров (`FrameQa.verdict`): до удара, последняя секунда до него, удар и 12
+    тиков после; без удара всё окно — «до удара»."""
+    if spec.keys:
+        tk = spec.keys[0][0]
+        return {"pre": ts < tk, "near": (ts >= tk - 20) & (ts < tk), "key": (ts >= tk) & (ts <= tk + 12)}
+    return {"pre": np.ones(len(ts), dtype=bool), "near": np.zeros(len(ts), dtype=bool),
+            "key": np.zeros(len(ts), dtype=bool)}
+
+
+def _sideways_allowed(style: Style, spec: Spec, ts: np.ndarray) -> np.ndarray:
+    """У FPV — насколько взгляд может уходить от курса, ° по тикам: на подлёте почти по курсу, у удара — доворот на шар
+    на пролёте мимо (облёт с рысканием), потом снова вперёд (те же доли, что у пилота превью, `Pilot.CRAB_*`)."""
+    out = np.full(len(ts), float(style.sideways))
+    if spec.keys and style.sideways < 180:
+        tk = spec.keys[0][0]
+        out[:] = 30.0
+        out[ts < tk - 30] = 20.0
+        out[(ts >= tk - 30) & (ts <= tk + 30)] = 60.0
+    return out
+
+
+def _ahead(style: Style, spec: Spec, ts: np.ndarray) -> np.ndarray | None:
+    if style.bank <= 0 or not spec.keys:
+        return None
+    tk = spec.keys[0][0]
+    return np.clip((ts - tk - 15) / 30.0, 0, 1)
+
+
 def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, fine: bool = False,
              angles: tuple | None = None) -> Eval:
     """Мера путей P (s, n, 3) за тики окна; `fine` — каждый тик и подробно (итог), иначе через тик (поиск).
-    `angles` — свои курс, тангаж и крен (s, n) вместо взгляда тела: так меряется готовая камера (камера сценария)."""
+    `angles` — свои курс, тангаж и крен (s, n) вместо взгляда тела: так меряется готовая камера (камера сценария).
+
+    Главное в мере — то же, что решает проверка кадров вывода: доли кадров до удара, за последнюю секунду и у удара, где
+    объект в кадре, виден и читается, против того, что план обязан показать (`Spec.need`), с запасом 0,1. Остальное —
+    как снимает человек: объект держится в кадре и сверх нужного (у FPV — слабее: он летит туда, куда смотрит),
+    композиция, размер, тело в своих пределах."""
     s, n, _ = P.shape
     ts = np.arange(spec.a, spec.a + n)
     aim, subj, size = aim_points(spec, ts)
-    yaw, pitch, roll = look(style, P, aim) if angles is None else angles
+    yaw, pitch, roll = look(style, P, aim, _ahead(style, spec, ts)) if angles is None else angles
     step = 1 if fine else 2
     sel = np.arange(0, n, step)
     Ps = P[:, sel]
-    w = world = scene.world
+    w = scene.world
     parts = {}
+    ph = {k: v[sel] for k, v in phases(spec, ts).items()}
 
     # тело: не в блоках и с воздухом вокруг; над землёй в пределах стиля
     clear = w.clearance(Ps)
@@ -304,7 +373,8 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
             vh = np.degrees(np.arctan2(-v[..., 0], v[..., 2]))
             off = np.abs((yaw - vh + 180) % 360 - 180)
             moving = sp > 0.3
-            parts["sideways"] = (moving * (np.maximum(0, off - style.sideways) / 30) ** 2).mean(1)
+            allow = _sideways_allowed(style, spec, ts)[None]
+            parts["sideways"] = (moving * (np.maximum(0, off - allow) / 30) ** 2).mean(1)
     # повороты взгляда: скорость и плавность
     dyaw = np.abs(np.gradient(yaw, axis=1))
     dpitch = np.abs(np.gradient(pitch, axis=1))
@@ -312,69 +382,87 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
     acc = np.abs(np.gradient(np.gradient(yaw, axis=1), axis=1)) + np.abs(np.gradient(np.gradient(pitch, axis=1), axis=1))
     parts["pan"] = ((np.maximum(0, rate - style.yaw_rate) / style.yaw_rate) ** 2 * 12 + (acc / style.yaw_rate) ** 2 * 0.5).mean(1)
 
-    # объект: в кадре, виден, размер
+    # объект: в кадре, виден, читается — по кадрам; доли по частям окна против нужного
+    Y, Pi, R = yaw[:, sel], pitch[:, sel], roll[:, sel]
     have = ~np.isnan(subj[sel, 0])
-    if have.any():
-        Y, Pi, R = yaw[:, sel], pitch[:, sel], roll[:, sel]
-        sub = np.where(have[:, None], subj[sel], aim[sel])
-        uu, vv, z = C.project(Ps, Y, Pi, R, fov, spec.aspect, sub[None])
-        bu, bv = spec.frame_bias
-        out = (np.maximum(0, np.abs(uu - bu) - 0.72) ** 2 + np.maximum(0, np.abs(vv - bv) - 0.72) ** 2) * 30 + (z <= 0) * 30
-        comp = ((uu - bu) ** 2 + (vv - bv) ** 2) * 0.4
-        sz = size[sel]
-        sh = C.share(sz[None], np.maximum(z, 0.1), fov, spec.aspect)
-        mn, good, mx = spec.share
-        small = np.log(np.maximum(1e-6, mn) / np.maximum(sh, 1e-6))
-        big = np.log(np.maximum(sh, 1e-6) / mx)
-        sizec = np.maximum(0, small) ** 2 * 4 + np.maximum(0, big) ** 2 * 4 + np.log(np.maximum(sh, 1e-6) / good) ** 2 * 0.15
-        spare = (sz / 2 + 1.5)[None].repeat(s, 0)
-        occ = _sight(w, Ps, np.broadcast_to(sub[None], Ps.shape), spare, unknown_blocks=not spec.overlay)
-        puffs_t = [scene.puffs(float(t)) for t in ts[sel]]
-        T = np.ones((s, len(sel)))
-        for i, pf in enumerate(puffs_t):
-            if len(pf):
-                T[:, i] = transmittance(pf, Ps[:, i], np.broadcast_to(sub[i], Ps[:, i].shape), spare=float(sz[i]))
-        vis = (1 - occ) * T * (1 - _haze(scene, Ps, np.broadcast_to(sub[None], Ps.shape), spec.overlay))
-        hv = have[None]
-        parts["frame"] = (hv * out).sum(1) / max(1, have.sum())
-        parts["compose"] = (hv * comp).sum(1) / max(1, have.sum())
-        parts["size"] = (hv * sizec).sum(1) / max(1, have.sum())
-        parts["hidden"] = (hv * (1 - vis) * 6).sum(1) / max(1, have.sum())
-        if fine:
-            parts["_u"], parts["_v"], parts["_share"], parts["_vis"], parts["_occ"], parts["_smoke"] = uu, vv, sh, vis, occ, T
-            parts["_have"] = have
-    else:
-        for k in ("frame", "compose", "size", "hidden"):
-            parts[k] = np.zeros(s)
+    sub = np.where(have[:, None], subj[sel], aim[sel])
+    sub = np.nan_to_num(sub)  # объекта нет совсем (без пути и удара): кадры не в счёт (`hv`)
+    uu, vv, z = C.project(Ps, Y, Pi, R, fov, spec.aspect, sub[None])
+    bu, bv = spec.frame_bias
+    edge = np.maximum(np.abs(uu - bu), np.abs(vv - bv))
+    g_in = np.clip(1 - (edge - 0.85) / 0.1, 0, 1) * (z > 0.1)
+    sz = size[sel]
+    sh = C.share(sz[None], np.maximum(z, 0.1), fov, spec.aspect)
+    mn, good, mx = spec.share
+    g_size = np.clip(1 + np.log(np.maximum(sh, 1e-9) / mn) / math.log(2), 0, 1)
+    spare = (sz / 2 + 1.5)[None].repeat(s, 0)
+    occ = _sight(w, Ps, np.broadcast_to(sub[None], Ps.shape), spare, unknown_blocks=not spec.overlay)
+    T = np.ones((s, len(sel)))
+    for i, t in enumerate(ts[sel]):
+        pf = scene.puffs(float(t))
+        if len(pf):
+            T[:, i] = transmittance(pf, Ps[:, i], np.broadcast_to(sub[i], Ps[:, i].shape), spare=float(sz[i] * 2 + 4))
+    vis = (1 - occ) * T * (1 - _haze(scene, Ps, np.broadcast_to(sub[None], Ps.shape), spec.overlay))
+    g_vis = np.clip((vis - 0.3) / 0.4, 0, 1)
+    hv = have[None].astype(np.float64)
+    g = g_in * g_vis * g_size * hv
 
-    # события: каждое в кадре и видно в первые 12 тиков
-    keyc = np.zeros(s)
-    for (tk, pos, sz) in spec.keys:
-        i0 = int(tk - spec.a)
-        if i0 < 0 or i0 >= n:
+    def frac(mask):
+        return (g[:, mask].mean(1) if mask.any() else None)
+
+    f_pre, f_near = frac(ph["pre"]), frac(ph["near"])
+    # удар: место удара (шар) в кадре и видно в первые 12 тиков — без размера
+    f_key = None
+    if spec.keys:
+        tk, pos, ksz = spec.keys[0]
+        ii = np.flatnonzero((ts >= tk) & (ts <= tk + 12))
+        if len(ii):
+            fire = np.asarray(pos) + np.array([0, ksz * 0.35, 0])
+            ku, kv, kz = C.project(P[:, ii], yaw[:, ii], pitch[:, ii], roll[:, ii], fov, spec.aspect, fire[None, None])
+            kin = np.clip(1 - (np.maximum(np.abs(ku), np.abs(kv)) - 0.85) / 0.1, 0, 1) * (kz > 0.1)
+            kocc = _sight(w, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), np.full((s, len(ii)), 3.0),
+                          unknown_blocks=not spec.overlay)
+            pf = scene.puffs(float(tk))
+            kT = transmittance(pf, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spare=ksz) if len(pf) else 1.0
+            kvis = (1 - kocc) * kT * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spec.overlay))
+            f_key = (kin * np.clip((kvis - 0.3) / 0.4, 0, 1)).mean(1)
+            if fine:
+                parts["_kseen"] = (np.maximum(np.abs(ku), np.abs(kv)) <= 0.92) & (kz > 0.1) & (kvis > 0.5)
+    cost_need = np.zeros(s)
+    keep = 0.4 if style.bank > 0 else 1.0
+    for f, nd, wk in ((f_pre, spec.need[0], keep), (f_near, spec.need[1], keep), (f_key, spec.need[2], 2.0)):
+        if f is None:
             continue
-        ii = np.arange(i0, min(n, i0 + 13))
-        fire = np.asarray(pos) + np.array([0, sz * 0.35, 0])
-        uu, vv, z = C.project(P[:, ii], yaw[:, ii], pitch[:, ii], roll[:, ii], fov, spec.aspect, fire[None, None])
-        inn = (np.abs(uu) <= 0.9) & (np.abs(vv) <= 0.9) & (z > 0)
-        occ = _sight(w, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), np.full((s, len(ii)), 3.0),
-                     unknown_blocks=not spec.overlay)
-        pf = scene.puffs(float(tk))
-        T = transmittance(pf, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spare=sz) if len(pf) else 1.0
-        seen = inn * (1 - occ) * T * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spec.overlay))
-        keyc += (1 - seen.mean(1)) * 40
-    parts["keys"] = keyc
+        target = min(1.0, nd + 0.1) if nd > 0 else 0.0
+        cost_need = cost_need + 80 * np.maximum(0, target - f) ** 2 + wk * (1 - f)
+    parts["need"] = cost_need
+    # поиску — плавный след: объект за краем кадра (вне кадра доля плоская)
+    parts["frame"] = (hv * np.minimum(np.maximum(0, edge - 0.85), 3) ** 2).mean(1) * 0.05
+    # композиция и размер — где объект в кадре
+    comp = ((uu - bu) ** 2 + (vv - bv) ** 2) * 0.4
+    sizec = (np.maximum(0, np.log(np.maximum(sh, 1e-6) / mx)) ** 2 * 4
+             + np.log(np.maximum(sh, 1e-6) / good) ** 2 * 0.15)
+    wt = g_in * hv
+    parts["compose"] = (wt * comp).sum(1) / np.maximum(1, wt.sum(1))
+    parts["size"] = (wt * sizec).sum(1) / np.maximum(1, wt.sum(1))
+    if fine:
+        parts["_u"], parts["_v"], parts["_share"], parts["_vis"], parts["_occ"], parts["_smoke"] = uu, vv, sh, vis, occ, T
+        parts["_have"], parts["_sel_ts"], parts["_z"] = have, ts[sel], z
+        parts["_fpre"], parts["_fnear"], parts["_fkey"] = f_pre, f_near, f_key
+
     # не в огне: после удара камера дальше полутора шаров от его места (шар во весь кадр и камера в нём — брак)
-    near = np.zeros(s)
-    for (tk, pos, sz) in spec.keys:
+    near_c = np.zeros(s)
+    for (tk, pos, sz_) in spec.keys:
         ii = np.flatnonzero((ts >= tk - 5) & (ts <= tk + 60))
         if len(ii):
             dist = np.linalg.norm(P[:, ii] - np.asarray(pos)[None, None], axis=-1)
-            near += ((np.maximum(0, 1.5 * sz - dist) / sz) ** 2 * 20).mean(1)
-    parts["blast"] = near
-    # крен: кинематографичный FPV кренится в вираже, но не лежит на боку
+            near_c += ((np.maximum(0, 1.5 * sz_ - dist) / sz_) ** 2 * 20).mean(1)
+    parts["blast"] = near_c
+    # крен: кинематографичный FPV кренится в вираже, но не лежит на боку и не качается
     if style.bank > 0:
-        parts["roll"] = ((np.maximum(0, np.abs(roll) - 20) / 10) ** 2 * 4).mean(1)
+        droll = np.abs(np.gradient(roll, axis=1))
+        parts["roll"] = ((np.maximum(0, np.abs(roll) - 20) / 10) ** 2 * 4
+                         + (np.maximum(0, droll - 1.5) / 1.5) ** 2 * 2).mean(1)
 
     # низ кадра — не в неизвестных чанках
     sel4 = np.arange(0, n, 4 if not fine else 1)
@@ -432,16 +520,16 @@ def seeds(scene: Scene, spec: Spec, style: Style, n: int, m: int) -> list[np.nda
                 out.append(np.repeat(eye[None], m, 0))
         return out
     head0 = _approach_heading(spec, tk)
-    speed = {"fpv": 1.3, "drone": 0.45}.get(style.name, 0.5)
-    pass_at = 0.62  # доля окна, где камера ближе всего к удару
+    speed = {"fpv": 1.1, "drone": 0.45}.get(style.name, 0.5)
+    # ближе всего к удару — через столько тиков после него: у FPV удар впереди, мимо шара — на пролёте (`Pilot.PASS`)
+    pass_after = 24 if style.bank > 0 and spec.keys else 0
     for j in range(16):
         head = 22.5 * j + (head0 or 0)
         f = C.forward(head, 0)
         side_vec = np.array([-f[2], 0, f[0]])
         for side in (-1, 1):
             for beside, up in ((18, 14), (34, 24), (55, 40)):
-                along = (np.arange(n) - (tk - spec.a + (pass_at - 0.5) * 0)) * speed
-                along = along - along[int(np.clip(tk - spec.a, 0, n - 1))]
+                along = (ts - tk - pass_after) * speed
                 base = K + side * beside * side_vec + np.array([0, up, 0])
                 path = base[None] + along[:, None] * f[None]
                 # высота над землёй под путём не меньше 6
@@ -550,20 +638,41 @@ def solve(scene: Scene, spec: Spec, iters: int = 10, samples: int = 48, keep: in
                   {k: (v[0] if hasattr(v, "__len__") and not k.startswith("_") else v) for k, v in e.parts.items()}, rep)
 
 
+def solve_best(scene: Scene, spec: Spec, iters: int = 10, log=print) -> Result:
+    """Лучшая камера тела по обоим замыслам взгляда — вести снаряд или держать место удара (снаряд сам входит в кадр):
+    какой из них лучше, решает мера."""
+    best = None
+    for hold in ((False, True) if spec.keys else (False,)):
+        r = solve(scene, replace(spec, hold=hold), iters=iters, log=log)
+        r.report["hold"] = hold
+        if best is None or r.cost < best.cost:
+            best = r
+    return best
+
+
 def report(spec: Spec, e: Eval, fov: float) -> dict:
-    """Итог плана по тикам, как его будет считать проверка кадров: доли и худшие места."""
+    """Итог плана по тикам, как его будет считать проверка кадров (`FrameQa.verdict`): доли до удара, за последнюю секунду
+    и у удара против нужного плану, пройдёт ли; доли по всему окну и худшие повороты."""
     p = e.parts
     out = {"shot": spec.name, "fov": round(fov, 1), "cost": round(float(e.cost[0]), 3),
            "parts": {k: round(float(v[0]), 3) for k, v in p.items() if not k.startswith("_")}}
     if "_have" in p:
         have = p["_have"]
-        u, v, sh, vis = p["_u"][0], p["_v"][0], p["_share"][0], p["_vis"][0]
-        inframe = (np.abs(u) <= 1) & (np.abs(v) <= 1)
+        u, v, z, sh, vis = p["_u"][0], p["_v"][0], p["_z"][0], p["_share"][0], p["_vis"][0]
+        inframe = (np.abs(u) <= 0.92) & (np.abs(v) <= 0.92) & (z > 0.1) & have
         good = inframe & (vis > 0.5) & (sh >= spec.share[0])
         out["subject_framed"] = round(float(good[have].mean()) if have.any() else 1.0, 3)
         out["subject_in_frame"] = round(float(inframe[have].mean()) if have.any() else 1.0, 3)
         out["subject_visible"] = round(float((vis > 0.5)[have].mean()) if have.any() else 1.0, 3)
         out["share_median"] = round(float(np.median(sh[have])) if have.any() else 0.0, 4)
+        ph = phases(spec, p["_sel_ts"])
+        approach = float(good[ph["pre"]].mean()) if ph["pre"].any() else 1.0
+        near = float(good[ph["near"]].mean()) if ph["near"].any() else 1.0
+        key = float(p["_kseen"][0].mean()) if "_kseen" in p else (0.0 if spec.keys else 1.0)
+        got = (approach, near, key)
+        out["approach"], out["near"], out["key"] = (round(x, 3) for x in got)
+        out["margin"] = round(min(g - nd for g, nd in zip(got, spec.need)), 3)
+        out["pass"] = bool(out["margin"] >= 0)
     yaw = p["_yaw"][0]
     pitch = p["_pitch"][0]
     rate = np.hypot(np.gradient(yaw), np.gradient(pitch)) * 20
