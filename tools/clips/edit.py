@@ -134,6 +134,12 @@ def assemble(videos: list[Path], out: Path, music: Path | None):
     loudnorm(inputs + ["-i", str(music)], graph, "mix", out, [])
 
 
+def cap(s: str) -> str:
+    """Первая буква — заглавная, остальное как есть («Град», МБР, B-2; `str.capitalize` их портит)."""
+    i = next((j for j, ch in enumerate(s) if ch.isalpha()), len(s))
+    return s[:i] + s[i:i + 1].upper() + s[i + 1:]
+
+
 def caption(preview: str, cand: dict) -> tuple[str, str]:
     """Подпись EN/RU по данным кандидата (оружие, расстояния); без рекламных слов."""
     w = cand["weapon"].split("+")
@@ -142,17 +148,17 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     n = cand["numbers"]
     if preview == "rockets":
         if n.get("no_launch"):
-            return (f"{en.capitalize()}: flight and impacts on the ground.", f"{ru.capitalize()}: полёт и удары по земле.")
-        return (f"{en.capitalize()}: launch, flight and impacts on the ground.", f"{ru.capitalize()}: пуск, полёт и удары по земле.")
+            return (f"{cap(en)}: flight and impacts on the ground.", f"{cap(ru)}: полёт и удары по земле.")
+        return (f"{cap(en)}: launch, flight and impacts on the ground.", f"{cap(ru)}: пуск, полёт и удары по земле.")
     if preview == "drones":
         if n.get("shot_down") and n.get("ground"):
-            return (f"{en.capitalize()} over the players: one is shot down, the rest hit the streets nearby.",
-                    f"{ru.capitalize()} над игроками: один сбивают, остальные бьют по соседним улицам.")
+            return (f"{cap(en)} over the players: one is shot down, the rest hit the streets nearby.",
+                    f"{cap(ru)} над игроками: один сбивают, остальные бьют по соседним улицам.")
         if n.get("shot_down"):
-            return (f"{en.capitalize()} over the players: one is shot down in front of them.",
-                    f"{ru.capitalize()} над игроками: один сбивают у них на глазах.")
-        return (f"{en.capitalize()} fly over the players and hit the streets nearby.",
-                f"{ru.capitalize()} пролетают над игроками и бьют по соседним улицам.")
+            return (f"{cap(en)} over the players: one is shot down in front of them.",
+                    f"{cap(ru)} над игроками: один сбивают у них на глазах.")
+        return (f"{cap(en)} fly over the players and hit the streets nearby.",
+                f"{cap(ru)} пролетают над игроками и бьют по соседним улицам.")
     if preview == "chaos":
         k, sec = n.get("ground") or n.get("ground_in_frame"), n.get("seconds", 20)
         return (f"{k} ground strikes in {sec} seconds, one camera.", f"Ударов по земле за {sec} секунд: {k}. Одна камера.")
@@ -163,11 +169,13 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
                     "Удары вдали в бинокль: каждая вспышка раньше своего звука.")
         if len(strikes) == 1:
             d = strikes[0].get("dist", 0)
-            return (f"A strike {d} blocks away through binoculars: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
-                    f"Удар в {d} блоках в бинокль: сначала вспышка, звук — через {strikes[0].get('boom_after_s', 0)} с.")
+            return (f"A strike {d} blocks away: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
+                    f"Удар в {d} блоках: сначала вспышка, звук — через {strikes[0].get('boom_after_s', 0)} с.")
         ds = [str(x.get("dist", 0)) for x in strikes]
-        return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away through binoculars: each flash comes before its sound.",
-                f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках в бинокль: каждая вспышка раньше своего звука.")
+        return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away: each flash comes before its sound.",
+                f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках: каждая вспышка раньше своего звука.")
+    if n.get("no_launch"):
+        return ("A nuclear strike: flash, shock wave and mushroom cloud.", "Ядерный удар: вспышка, ударная волна и гриб.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
 
 
@@ -183,6 +191,9 @@ def shown(cand: dict, kept: list[dict]) -> dict:
         n["ground"] = 0
     if not has("launch"):
         n["no_launch"] = True
+    if n.get("strikes"):
+        # удары издалека — по одному на план far<i>, по порядку
+        n["strikes"] = [x for i, x in enumerate(n["strikes"]) if has(f"far{i + 1}")]
     return {**cand, "numbers": n}
 
 
