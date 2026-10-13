@@ -95,7 +95,6 @@ final class Coverage {
 
     // объективы по типу камеры: дальний штатив 85–135 мм, штатив и кран 35–50, погоня 24–35; камеры сценария — со своими
     static {
-        Vec3 battery = War.BATTERY;
         // I · подготовка
         own("p03", Rig.scene(), false, SCENE);
         own("p04", Rig.scene(), false, SCENE);
@@ -145,7 +144,9 @@ final class Coverage {
         own("p31", Rig.impact("drone", War.T4, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(26, 6, 1.2, -1.6, 12));
         own("p32", Rig.impact("rocket", new Vec3(3010.5, 0, 640.5), 0), true, new Need(0, 0, 0.5, 0));
         own("p35", Rig.flight("missile"), false, OVERHEAD);
-        own("p36", Rig.impact("drone", battery.add(10, 0, 0), 0), false, new Need(0.5, 0.6, 0.7, 0), Rig.own(false, 45), tripod());
+        // камера сценария ведёт шахед, ближайший к батарее, а удар ближе всех к её центру — часто другой шахед залпа (netcup:
+        // объект в кадре 0 %): объект — удар того шахеда, которого камера снимает лучше всех
+        own("p36", Rig.framedImpact("drone"), false, new Need(0.5, 0.6, 0.7, 0), Rig.own(false, 45), tripod());
         own("p37", Rig.impact("bunker", new Vec3(3360.5, 0, 470.5), 0), false, new Need(0.3, 0, 0.5, 0));
         own("p38", Rig.flight("drone"), false, OVERHEAD);
         own("p39a", Rig.impact("rocket", new Vec3(2930.5, 0, 260.5), 0), false, HIT);
