@@ -73,6 +73,8 @@ def cameras(shot: dict) -> list[dict]:
                         "follow": True, "size": 12})
         return out
     rig = cam.get("rig")
+    # длинный объектив с места игрока: подрыв бывает за чанками повтора (ядерка вдали), место игрока — в них
+    lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": cam["lens"]["aim"], "fov": cam["lens"]["fov"]}] if cam.get("lens") else []
     if rig == "lens":
         return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"]}]
     if rig == "wide":
@@ -81,8 +83,8 @@ def cameras(shot: dict) -> list[dict]:
                  "follow": False, "size": 2 * spread + 30}]
     around = s.get("launch") if cam.get("around") == "launch" else keys[0]["pos"] if keys else s.get("centre")
     size = keys[0]["size"] if keys else 12
-    return [{"kind": "tripod", "around": around, "dist": cam["dist"], "elev": cam["elev"], "share": cam.get("share", 0.3),
-             "follow": kind != "nuke", "size": size}]
+    return lens + [{"kind": "tripod", "around": around, "dist": cam["dist"], "elev": cam["elev"], "share": cam.get("share", 0.3),
+                    "follow": kind != "nuke", "size": size}]
 
 
 def film_shot(con, cid: str, shot: dict) -> dict:

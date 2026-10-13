@@ -22,6 +22,8 @@ uv run tools/clips/moments.py <база войны> <базы 06.10 09:59, 16:31
 uv run tools/clips/plan.py $T/clips/candidates.json --replays <каталог копий повторов>
 ```
 Итог: `$T/clips/candidates.md` (кандидаты и почему), `$T/clips/film/runs.json` (повтор, план, версия Incoming).
+Планы, написанные прежним коммитом, — заново этим (`plan.py` выше): у ядерки теперь сперва длинный объектив с места
+игрока.
 Строка `в журнале игры нет опор часов этого повтора` — имя файла повтора не совпало с ключом в журнале: прислать имена
 файлов повторов.
 
@@ -31,7 +33,8 @@ uv run tools/clips/plan.py $T/clips/candidates.json --replays <каталог к
 Horizons из той же копии.
 
 ## 4. Съёмка (видеокарта)
-По одному повтору за раз:
+Только после исправления вывода Flashback с Distant Horizons (тред трейлера: LOD поверх ближнего мира) — с ним же в
+клиенте съёмки. По одному повтору за раз:
 ```sh
 tools/laptop_job.sh tiktok-film -- tools/prod_client.py --no-copy --dir <клиент> --incoming-jar <jar Incoming> \
   --jvm -Xmx12g --prop replayscan.film=$PWD/$T/clips/film/<повтор>/plan.json
