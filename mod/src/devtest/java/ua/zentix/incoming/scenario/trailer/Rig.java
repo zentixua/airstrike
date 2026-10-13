@@ -7,9 +7,11 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 
@@ -330,18 +332,30 @@ final class Rig {
             return hit.getType() == HitResult.Type.MISS;
         }
 
-        /** Камера не в блоке и вокруг неё полблока воздуха. */
+        /** Камера не в блоке и вокруг неё полблока воздуха ({@link #blocking}). */
         boolean free(Vec3 p) {
-            if (!loaded(p)) return false;
-            for (double dx : new double[]{-0.5, 0.5}) {
-                for (double dy : new double[]{-0.5, 0.5}) {
-                    for (double dz : new double[]{-0.5, 0.5}) {
-                        BlockPos b = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
-                        if (!level.getBlockState(b).getCollisionShape(level, b).isEmpty()) return false;
-                    }
+            return loaded(p) && blocking(level, p) == null;
+        }
+
+        /** Полкуба вокруг камеры: столько воздуха до блоков у неё должно быть. */
+        static final double CLEAR = 0.5;
+
+        /**
+         * Блок, чья форма столкновения задевает куб ±{@link #CLEAR} вокруг {@code p}; null — куб свободен. Форма, а не
+         * клетка блока: ковёр под ногами статиста (1/16 блока) камеру в 0,9 блока над ним не закрывает (p01d).
+         */
+        @Nullable
+        static BlockPos blocking(net.minecraft.world.level.Level level, Vec3 p) {
+            AABB box = new AABB(p.x - CLEAR, p.y - CLEAR, p.z - CLEAR, p.x + CLEAR, p.y + CLEAR, p.z + CLEAR);
+            for (BlockPos b : BlockPos.betweenClosed(Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
+                    Mth.floor(box.maxX), Mth.floor(box.maxY), Mth.floor(box.maxZ))) {
+                VoxelShape shape = level.getBlockState(b).getCollisionShape(level, b);
+                if (shape.isEmpty()) continue;
+                for (AABB part : shape.toAabbs()) {
+                    if (part.move(b).intersects(box)) return b.immutable();
                 }
             }
-            return true;
+            return null;
         }
     }
 
@@ -541,6 +555,8 @@ final class Rig {
         private int n, ok, keyN, keyOk, afterN, afterOk, smokeHits;
         private double sizeSum;
         private boolean inBlocks, outside;
+        /** Где камера впервые в блоках: тик, место, блок — в причину оценки. */
+        private String blockedAt = "";
 
         Tally(Candidate c, Subject s, int a, int b, List<EventLog.Flight> earlier, double minShare) {
             this.c = c;
@@ -598,7 +614,12 @@ final class Rig {
                     return false;
                 }
             }
-            if (!w.free(cam)) inBlocks = true;
+            BlockPos wall = World.blocking(w.level, cam);
+            if (wall != null && !inBlocks) {
+                inBlocks = true;
+                blockedAt = String.format(Locale.ROOT, " (тик %d у %s: %s %s)", t, War.xyz(cam),
+                        w.level.getBlockState(wall).getBlock().getName().getString(), War.xyz(Vec3.atLowerCornerOf(wall)));
+            }
             if (aim == null) return true;
             double share = s.aimSize(t) / (2 * cam.distanceTo(aim) * Math.tan(Math.toRadians(p.fov() / 2)));
             boolean smoky = smokeOnLine(cam, aim, earlier, t);
@@ -624,7 +645,7 @@ final class Rig {
             double meanShare = n == 0 ? 0 : sizeSum / n;
             double smoke = (double) smokeHits / Math.max(1, n + keyN + afterN);
             StringBuilder why = new StringBuilder();
-            if (inBlocks) why.append(" камера в блоках;");
+            if (inBlocks) why.append(" камера в блоках").append(blockedAt).append(';');
             if (outside) why.append(" камера вне мира повтора;");
             if (!rejected() && atKey < 0.5) why.append(" удар не виден;");
             double total = rejected() ? -1 : approach * 0.45 + atKey * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;

@@ -5,9 +5,14 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Marker;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.jetbrains.annotations.Nullable;
+import ua.zentix.incoming.Incoming;
 
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
@@ -185,9 +190,13 @@ final class CineCamera {
      * FPV: полёт по точкам (сплайн Катмулла — Рома через все) с постоянной скоростью {@code speed} блоков за тик,
      * взгляд — на путь через {@code lookAhead} блоков, крен — в поворот, как у дрона ({@code bank} — градусов крена на
      * градус поворота за тик), лёгкая тряска ({@code shake} блоков). Путь кончился — камера висит в последней точке.
+     * Камера не входит в блоки ({@link Clear}): точки пути — по плану места, а ступени, потолок спуска и углы домов —
+     * какие есть в мире (p15, p18: FPV по лестнице метро задевал ступени, потолок и забор).
      */
     static Path fpv(java.util.List<Vec3> points, double speed, double lookAhead, double bank, double shake, double fov) {
         Spline s = new Spline(points);
+        Clear clear = new Clear(t -> s.at(t * speed).add(new Vec3(Math.sin(t * 1.7) + Math.sin(t * 3.1) * 0.5,
+                Math.sin(t * 2.3 + 1) + Math.sin(t * 4.3) * 0.4, Math.cos(t * 1.9) * 0.6).scale(shake)));
         final double[] roll = {0, -1};
         return t -> {
             double d = t * speed;
@@ -200,10 +209,121 @@ final class CineCamera {
             double k = roll[1] < 0 ? 1 : Mth.clamp(1 - Math.pow(0.8, Math.max(0, t - roll[1])), 0, 1);
             roll[0] = Mth.lerp(k, roll[0], want);
             roll[1] = t;
-            Vec3 jitter = new Vec3(Math.sin(t * 1.7) + Math.sin(t * 3.1) * 0.5, Math.sin(t * 2.3 + 1) + Math.sin(t * 4.3) * 0.4,
-                    Math.cos(t * 1.9) * 0.6).scale(shake);
-            return Pose.look(p.add(jitter), ahead, (float) roll[0], fov);
+            return Pose.look(clear.at(t), ahead, (float) roll[0], fov);
         };
+    }
+
+    // ---------------------------------------------------------------- камера не в блоках
+
+    /** Дальше этого камеру из блоков не выталкивает, блоков; шаг поиска — восьмая блока. */
+    static final double PUSH = 1.5;
+    /** Сдвиги поиска свободного места, от ближних к дальним. */
+    private static final java.util.List<Vec3> NUDGES = nudges();
+
+    private static java.util.List<Vec3> nudges() {
+        java.util.List<Vec3> out = new java.util.ArrayList<>();
+        int n = (int) Math.round(PUSH * 8);
+        for (int x = -n; x <= n; x++) {
+            for (int y = -n; y <= n; y++) {
+                for (int z = -n; z <= n; z++) {
+                    Vec3 v = new Vec3(x / 8.0, y / 8.0, z / 8.0);
+                    if (v.lengthSqr() <= PUSH * PUSH) out.add(v);
+                }
+            }
+        }
+        out.sort(java.util.Comparator.comparingDouble(Vec3::lengthSqr));
+        return out;
+    }
+
+    /**
+     * Ближайшее к {@code p} место камеры, где вокруг неё полблока воздуха ({@link Rig.World#blocking}), не дальше
+     * {@link #PUSH}: свободное {@code p} — как есть; сдвинутое — откуда виден {@code from} (камера не уходит сквозь потолок
+     * спуска на улицу и сквозь стену к голове статиста), а нет такого — ближайшее свободное. null — свободного нет.
+     */
+    @Nullable
+    static Vec3 nearestFree(Level level, Vec3 p, @Nullable Vec3 from) {
+        if (Rig.World.blocking(level, p) == null) return p;
+        Vec3 loose = null;
+        for (Vec3 n : NUDGES) {
+            Vec3 q = p.add(n);
+            if (Rig.World.blocking(level, q) != null) continue;
+            if (from == null || open(level, from, q)) return q;
+            if (loose == null) loose = q;
+        }
+        return loose;
+    }
+
+    /** Между точками нет блоков (формы столкновения). */
+    static boolean open(Level level, Vec3 a, Vec3 b) {
+        return level.clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty())).getType()
+                == HitResult.Type.MISS;
+    }
+
+    /**
+     * Путь камеры не в блоках: место пути {@code place} (без состояния — тот же тик даёт то же место) в целый тик
+     * сдвигается к ближайшему свободному ({@link #nearestFree}, видно место прошлого тика), сдвиг сглажен по соседним
+     * тикам ±{@link #EASE} — камера отходит от стены плавно, а не прыжком; где сглаженного мало, — сдвиг самого тика.
+     * Между тиками — по прямой. Мир — клиента; сдвиг тика считается, когда чанк его места у клиента есть, и помнится:
+     * запись, журнал и вывод видят один путь.
+     */
+    static final class Clear {
+        static final int EASE = 3;
+        private final java.util.function.DoubleFunction<Vec3> place;
+        private final java.util.Map<Integer, Vec3> raw = new java.util.HashMap<>(), eased = new java.util.HashMap<>();
+        private boolean warned;
+
+        Clear(java.util.function.DoubleFunction<Vec3> place) {
+            this.place = place;
+        }
+
+        Vec3 at(double t) {
+            int i = Mth.floor(t);
+            Vec3 a = eased(i), b = eased(i + 1);
+            Vec3 p = place.apply(t);
+            return a == null || b == null ? p : p.add(a.lerp(b, t - i));
+        }
+
+        /** Сглаженный сдвиг тика: из сдвигов соседей — с наибольшим весом (вес убывает к краю окна). */
+        @Nullable
+        private Vec3 eased(int i) {
+            Vec3 got = eased.get(i);
+            if (got != null) return got;
+            Level level = Minecraft.getInstance().level;
+            if (level == null) return null;
+            Vec3 best = Vec3.ZERO;
+            double most = 0;
+            // по порядку тиков: место прошлого тика — для проверки, что сдвиг его видит
+            for (int j = i - EASE; j <= i + EASE; j++) {
+                Vec3 r = raw(level, j);
+                if (r == null) return null;
+                double w = 1 - Math.abs(i - j) / (EASE + 1.0);
+                if (r.length() * w > most) {
+                    most = r.length() * w;
+                    best = r.scale(w);
+                }
+            }
+            if (Rig.World.blocking(level, place.apply(i).add(best)) != null) best = raw(level, i);
+            eased.put(i, best);
+            return best;
+        }
+
+        @Nullable
+        private Vec3 raw(Level level, int i) {
+            Vec3 got = raw.get(i);
+            if (got != null) return got;
+            Vec3 p = place.apply(i);
+            if (level.getChunkSource().getChunkNow(Mth.floor(p.x) >> 4, Mth.floor(p.z) >> 4) == null) return null;
+            Vec3 before = raw.get(i - 1);
+            Vec3 q = nearestFree(level, p, before == null ? null : place.apply(i - 1).add(before));
+            if (q == null) {
+                if (!warned) Incoming.LOG.warn("SCENARIO film camera: у {} в {} блоках нет места без блоков", War.xyz(p), PUSH);
+                warned = true;
+                q = p;
+            }
+            Vec3 off = q.subtract(p);
+            raw.put(i, off);
+            return off;
+        }
     }
 
     /** Сплайн по точкам, параметр — пройденный путь в блоках (таблица длин по отрезкам). */
@@ -263,9 +383,11 @@ final class CineCamera {
 
     /**
      * Из-за плеча: позади головы по её курсу ({@code back}), выше ({@code up}), сбоку ({@code side}, плюс — правое
-     * плечо), взгляд — туда же, куда смотрит сущность, или на точку {@code at}, если она есть.
+     * плечо), взгляд — туда же, куда смотрит сущность, или на точку {@code at}, если она есть. Место в блоках (стена за
+     * спиной, перила) — ближайшее свободное, откуда видны глаза ({@link #nearestFree}).
      */
     static Path shoulder(Supplier<Entity> who, double back, double up, double side, @Nullable Supplier<Vec3> at, double fov) {
+        final Vec3[] last = {null, null};
         return t -> {
             Entity e = who.get();
             if (e == null) return pose != null ? pose : new Pose(Vec3.ZERO, 0, 0, 0, fov);
@@ -275,6 +397,14 @@ final class CineCamera {
             Vec3 flat = new Vec3(look.x, 0, look.z).normalize();
             Vec3 right = new Vec3(-flat.z, 0, flat.x);
             Vec3 from = eye.subtract(flat.scale(back)).add(0, up, 0).add(right.scale(side));
+            // статист стоит: место то же — сдвиг тот же
+            if (from.equals(last[0])) {
+                from = last[1];
+            } else {
+                Vec3 free = nearestFree(e.level(), from, eye);
+                last[0] = from;
+                last[1] = from = free != null ? free : from;
+            }
             return Pose.look(from, at != null ? at.get() : eye.add(look.scale(30)), 0, fov);
         };
     }
