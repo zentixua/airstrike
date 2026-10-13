@@ -50,6 +50,8 @@ public final class ReplayFilm {
     private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300;
     /** Оценка у камеры кандидата: тиков стоять там до первой проверки и сколько ждать её мира. */
     private static final int STOP_SETTLE = 10, STOP_WAIT = 200;
+    /** Сколько ждать до вывода, пока DH нарисует LOD в окне и пересоздаст текстуры не в размер вывода ({@link DhFrameDepth#recreatedBy}). */
+    private static final int DH_WAIT = 600;
     /** Ключи камеры — с запасом до начала (вывод ставит камеру и чуть раньше). */
     private static final int EXPORT_LEAD = 40;
 
@@ -303,6 +305,15 @@ public final class ReplayFilm {
                 if (at > a) {
                     Incoming.LOG.warn("SCENARIO film {}: повтор ушёл за начало ({} > {}), вывод перемотает", spec.shot(), at, a);
                 } else if (!built() && ticks - reachedAt < POSE_MAX) {
+                    return;
+                }
+                if (FrameQa.DH && !DhFrameDepth.recreatedBy(width, height)) {
+                    // текстуры LOD DH ещё размера вывода: вывод их не пересоздаст, и Iris оставит LOD глубину мира
+                    if (waited() < DH_WAIT) return;
+                    String why = "текстуры LOD DH размера вывода: DH не нарисовал LOD в окне за " + DH_WAIT + " тиков";
+                    Incoming.LOG.warn("SCENARIO film {} {}: {}", spec.shot(), current.c.name(), why);
+                    report(current, null, why);
+                    nextCandidate();
                     return;
                 }
                 export();

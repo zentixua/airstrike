@@ -1,96 +1,80 @@
-# Задание ноутбуку: трейлер — планы из повторов с проверкой каждого кадра
+# Задание ноутбуку: трейлер — запись и вывод войны на мастер-копии Zearth (film-war2)
 
-Ветка `claude/project-thread-zrl8cc` (zentixua/incoming), коммит — в сообщении координатора. Всё — в копии для съёмки и
+Ветка `claude/project-thread-45f5nj` (zentixua/incoming), коммит — в сообщении координатора. Всё — в копии для съёмки и
 своём рабочем дереве (как прежние съёмки трейлера): инстанс, сервер и миры Артёма не трогать; видеокарта — одна задача
-и не во время его игры; тяжёлое — через `tools/laptop_job.sh`.
+и не во время его игры; тяжёлое — через `tools/laptop_job.sh`. Удалять на ноутбуке ничего нельзя без слова Артёма:
+прежние папки (`film-war`, `film-war-en`, `film-war-ru`, копии `zearth-film`) остаются как есть.
 
 Как устроено (подробно — шапки `tools/trailer/film.sh`, `ReplayFilm`, `Coverage`, `FrameQa`):
 - `film.sh record` — сценарий войны пишет каждый скрытый план повтором Flashback с журналом
-  (`<папка>/replays/<план>.zip` и `.events.jsonl`: пути снарядов, удары, люди, кинокамера сценария по тикам, отметки);
-  планы с интерфейсом (p07–p09, p14, p27, p33, p34, p40a, p43, p53) снимаются кадрами вживую, как раньше. План 33 —
-  удары в бинокль по башням за 700 блоков, дальше прорисовки (башни — LOD Distant Horizons, ракеты и удары — дальняя
-  картинка мода): перед ним клиент ждёт загрузки LOD, а каждый кадр проверяется вживую (`HudQa`) — строка
-  `SCENARIO film hud p33 …` (PASS или причины) и `<папка>/hud.jsonl`, его читает `report.py`.
-- `film.sh render` — по таблице `Coverage` каждый план выводится из своего повтора: камера сценария и запасные
-  (штатив по кругу, погоня), повтор идёт вживую до начала плана (дым и огонь прежних ударов в кадре), Flashback выводит
-  кадр на тик, каждый кадр проверяется по данным игры (мир построен, объект в кадре и его размер, блоки, дым, облака,
-  мотор, глубина LOD DH — в `qa.jsonl` поле `dh`: 1 — своя, −1 — мира, план не проходит). Окно клиента — вдвое меньше
-  кадра (`INCOMING_WINDOW`): вывод в размер окна под Iris кладёт LOD поверх ближнего мира. Не прошёл — следующий кандидат. Итог: `<папка>/render/report.jsonl`, `render/best.txt` (папка плана для
-  `edit.py --rec`, PASS или FAIL с причиной), в папке кандидата — `qa.jsonl` (строка на кадр) и `timeline.jsonl`.
+  (`<папка>/replays/<план>.zip` и `.events.jsonl`: пути снарядов, удары, люди, кинокамера сценария по тикам, отметки).
+  Планы с интерфейсом (p07–p09, p14, p27, p33, p34, p40a, p43, p53) снимаются кадрами вживую в том же проходе,
+  по-английски. p33 (удары в бинокль за 700 блоков) и p37b (закат с вершины) — дальше прорисовки: каждый их кадр
+  проверяется вживую (`HudQa`), итог — строка `SCENARIO film hud …` и `<папка>/hud.jsonl`.
+- `film.sh render` — каждый план выводится из своего повтора по таблице `Coverage`: камера сценария и запасные (штатив,
+  погоня), повтор идёт вживую до начала плана, Flashback выводит кадр на тик, каждый кадр проверяется по данным игры
+  (мир построен, объект в кадре и его размер, блоки, дым, облака, мотор, глубина LOD DH — в `qa.jsonl` поле `dh`:
+  1 — своя, −1 — мира, план не проходит). Окно клиента — вдвое меньше кадра (`INCOMING_WINDOW`, ставит `film.sh`).
+  Не прошёл — следующий кандидат. Итог: `<папка>/render/report.jsonl`, `render/best.txt` (папка плана для
+  `edit.py --rec`, PASS или FAIL с причиной), `render/shots.txt`; в папке кандидата — `qa.jsonl` и `timeline.jsonl`.
   Перезапуск после падения продолжает с неснятых планов (по `best.txt`).
 
-Моды: каталог модов копии для съёмки (`mod/run/film-war/minecraft/mods`: Flashback 0.39.10, flashback_neoforge_fixed,
-Connector, Forgified Fabric API, Sodium 0.8.13, Iris, DH 3.3.3, Create, Sable, Aeronautics, IA, Point Blank) —
-`INCOMING_MODS_DIR` (путь от `mod/`), без jar Incoming (его даёт сборка). Шейдерпак — аргумент `shaders`
-(Complementary из инстанса, как у прошлых съёмок). Мир — свежая копия полной Zearth (`INCOMING_WORLD`), для частей
-`nukeB`, `nukeC`, `icbm` — каждой своя свежая копия. Общие переменные:
+## 0. Мастер-копия Zearth
+Мастер приходит с netcup (все чанки сгенерированы, LOD DH построены с той же карты, DH 3.3.3) вместе с sha256.
+1. Сверить sha256 со значением из сообщения координатора; не сошлось — остановиться и сообщить.
+2. Положить мастер в `mod/run/zearth-master` (папка мира: `level.dat`, `region/`, `data/` с базой DH) и сделать его
+   только для чтения: `chmod -R a-w mod/run/zearth-master`. Сам мастер не открывать в игре.
+3. Копия на часть — свежая, из мастера, в каталог миров сценария:
+   ```sh
+   cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-<часть> && chmod -R u+w mod/run/scenario/saves/war2-<часть>
+   ```
+   Перед каждой копией — свободного места не меньше размера мастера и ещё 20 ГБ; не хватает — остановиться и
+   сообщить. Копии частей держать до конца вывода: повтор читает LOD DH из `<копия>/data` (без неё вывод падает на
+   `SQLITE_IOERR`).
+
+Лицензия Zearth: файлы карты не пушить и не распространять; наружу — только кадры трейлера и текстовые итоги.
+
+## 1. Запись
+Моды — каталог копии для съёмки (`mod/run/film-war/minecraft/mods`: Flashback 0.39.10, flashback_neoforge_fixed,
+Connector, Forgified Fabric API, Sodium 0.8.13, Iris, DH 3.3.3, Create, Sable, Aeronautics, IA, Point Blank, Almighty),
+без jar Incoming (его даёт сборка). Шейдерпак — аргумент `shaders` (Complementary из инстанса). Общие переменные:
 ```sh
 export INCOMING_MODS_DIR=run/film-war/minecraft/mods INCOMING_SIZE=1920x1080 INCOMING_RENDER_DISTANCE=32 \
-       INCOMING_TRAILER_DIR=film-war INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=320
+       INCOMING_TRAILER_DIR=film-war2 INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=320
 ```
-`INCOMING_FILM_CLOUDS` — низ слоя облаков: `record.sh` с `shaders` ставит слой Complementary (`CLOUD_ALT1` в
-`mod/run/scenario/shaderpacks/<пак>.txt`) над этой высотой, выше всего действия (по умолчанию слой около 190 срезал
-верх башен и путь ракет), а проверка кадра считает линию взгляда через слой закрытой. Прорисовка 32: объект дальше 0,8 прорисовки
-(410 блоков) проверка считает скрытым туманом у её края, а цели телевиков — в 300–400 блоках (у плана 13 башня в 360).
-Запись и вывод — с одной прорисовкой.
+`INCOMING_FILM_CLOUDS` — низ слоя облаков Complementary над всем действием (проверка кадра считает взгляд через слой
+закрытым). Прорисовка 32 (410 блоков до тумана у края) — у записи и вывода одна.
 
-## 0. Карта всей Zearth (для мест камер вне города)
+Части по очереди, каждая на своей свежей копии мастера (п. 0.3), папка записи одна:
 ```sh
-uv run tools/trailer/zmap.py <копия Zearth>/region zearth-map.png --scale 8
+for P in all nukeB nukeC icbm p01e p37b; do
+  cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-$P && chmod -R u+w mod/run/scenario/saves/war2-$P
+  INCOMING_WAR_PART=$P INCOMING_WORLD=war2-$P tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+done
 ```
-Прислать `zearth-map.png`, `zearth-map_h.npy`, `zearth-map.json` и вывод (самые высокие точки). Файлы — только во
-временную передачу (лицензия Zearth: без распространения), после разбора они удаляются.
+После каждой части в `mod/run/scenario/logs/latest.log`:
+- нет `SCENARIO film cast failed` (боты войны: `record.sh` ставит `bots.max = 100`);
+- `SCENARIO film staging …` — только «в тумане у края прорисовки» или «чанка цели у клиента ещё нет» (цели дальше
+  прорисовки), без «закрыта» и «через слой облаков»;
+- у p33 и p37b — `SCENARIO film hud … PASS` (или причины — прислать).
+Каждый новый повтор — проверка разбора, как на netcup (снимок Flashback может сломаться на 0x08000000): не разобрался —
+переписать его часть на новой копии мастера (прежнюю копию не удалять).
 
-## 1. Проба на одном плане (p13)
-```sh
-INCOMING_WAR_PART=p13 tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-INCOMING_FILM_SHOTS=p13 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
-```
-Проверить в `mod/run/scenario/logs/latest.log`:
-- нет `flawless frames Sodium не включились` (Sodium ждёт мира перед каждым кадром);
-- `SCENARIO film verdict p13 own-35mm …` — PASS (камера сценария: за спиной жителя на крыше) или причины; `мир` (доля
-  кадров с построенным миром) — 1.00; в строке `SCENARIO film people in first frame` — Ilya с `drawn true` (камера
-  Flashback ставится ногами, а не глазом: до исправления кадр был на 1,6 блока выше, житель выпадал из кадра);
-- Point Blank: если открытие повтора падает на `pointblank:…broadcastpacket`, вырезать эти пакеты из копий повторов
-  (`epic-index/strip_payloads.py`, как для превью) и положить скрипт в `tools/trailer/strip_payloads.py` этой ветки
-  (коммит в ветку), шаг вырезания — в `film.sh` перед выводом;
-- дальний рельеф DH в кадрах вывода (за 24 чанками): есть или нет.
-Прислать: `render/report.jsonl`, `qa.jsonl` лучшего кандидата, лист 6 кадров лучшего (равномерно), выдержку лога
-(`SCENARIO film`, ошибки).
-
-## 2. Вся война
-Если проба прошла (или причины понятны и не в съёмке): запись всех частей — каждая на свежей копии Zearth, папка одна:
-```sh
-INCOMING_WAR_PART=all   tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-INCOMING_WAR_PART=nukeB tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-INCOMING_WAR_PART=nukeC tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-INCOMING_WAR_PART=icbm  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-```
-`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке. Копию мира
-каждой части не удалять до конца вывода: LOD DH повтора читаются из её `data` (без неё вывод падает на `SQLITE_IOERR`).
-Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Трейлер —
-только по-английски (`INCOMING_LANG=en_us`).
-
-Потом вывод всех планов:
+## 2. Вывод
 ```sh
 INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 ```
+В логе:
+- `SCENARIO film: пакеты модов из снимка повтора (N) — зрителю в мире повтора` у повторов с Point Blank, без
+  `Failed to handle packet`, `DecoderException` и отключения от повтора;
+- в `qa.jsonl` выводимых кандидатов `"dh":1` в каждом кадре; перед каждым выводом текстуры DH пересоздаются в размер
+  окна (строки `SCENARIO film dh textures 960x540 …`), строк «текстуры LOD DH размера вывода» нет или они редки
+  (такой кандидат не выводится — прислать их).
 
-План 37b — закат с вершины в 1,2 км от города (город — LOD DH, ракеты и удары — дальняя картинка мода): снимается
-вживую, как p33, своей частью на свежей копии Zearth в ту же папку (его `hud.jsonl` читает `report.py`):
+## 3. Монтаж и отчёт
 ```sh
-INCOMING_WAR_PART=p37b tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-```
-В логе — `SCENARIO film hud p37b …` (PASS или причины); строки `SCENARIO film staging p37b` — только «в тумане у края
-прорисовки» или «чанка цели у клиента ещё нет» (цели дальше прорисовки), без «закрыта» и «через слой облаков».
-
-## 3. Монтаж
-```sh
-uv run tools/trailer/edit.py --lang en --rec <папка планов с интерфейсом> $(awk '{print "--rec " $2}' mod/run/scenario/film-war/render/best.txt) --music <Juggernaut.mp3>
-```
-Отчёт по планам:
-```sh
-python3 tools/trailer/report.py mod/run/scenario/film-war/render --md mod/run/scenario/film-war/render/report.md
+uv run tools/trailer/edit.py --lang en --rec mod/run/scenario/film-war2 $(awk '{print "--rec " $2}' mod/run/scenario/film-war2/render/best.txt) --music <Juggernaut.mp3>
+python3 tools/trailer/report.py mod/run/scenario/film-war2/render --md mod/run/scenario/film-war2/render/report.md
 ```
 Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `render/report.md`, `render/report.jsonl`, `render/best.txt`,
-`hud.jsonl`, `qa/p33.jsonl` и `qa/p37b.jsonl`, вывод `edit.py` (какие планы — заглушки).
+`hud.jsonl`, вывод `edit.py` (какие планы — заглушки), ошибки из логов записи и вывода (`Exception`, `ERROR` мода).
