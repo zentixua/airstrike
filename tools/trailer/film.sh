@@ -14,7 +14,8 @@
 # машина с видеокартой). Моды войны (Almighty, Point Blank, Immersive Aircraft) и Distant Horizons берутся из каталога модов
 # всегда; без DH — INCOMING_DH= (пусто: в облаке DH вместо рельефа рисует столбы). Окно вывода — вдвое меньше кадра
 # (INCOMING_WINDOW): вывод Flashback пересоздаёт кадр игры в размер вывода, и при том же размере Iris оставляет LOD DH
-# глубину мира вместо своей — LOD ложится поверх ближнего мира (.claude/rules/trailer.md).
+# глубину мира вместо своей — LOD ложится поверх ближнего мира (.claude/rules/trailer.md). Клиент вывода, у которого
+# прежние повторы остались в памяти, уходит на границе повторов, и film.sh запускает новый (строка SCENARIO film restart).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 mode="${1:-}"
@@ -34,4 +35,19 @@ case "$mode" in
     ;;
   *) echo "film.sh record|render [shaders]" >&2; exit 2 ;;
 esac
+if [ "$mode" = render ]; then
+  # клиент, у которого память не вернулась после закрытия повтора, уходит на границе повторов и оставляет файл restart
+  # в папке вывода (ReplayFilm): остальные планы снимает новый клиент, по best.txt — с того же места
+  dir="${INCOMING_TRAILER_DIR:-trailer}"
+  case "$dir" in /*) ;; *) dir="$ROOT/mod/run/scenario/$dir" ;; esac
+  marker="$dir/${INCOMING_FILM_OUT:-render}/restart"
+  while :; do
+    rm -f "$marker"
+    "$ROOT/tools/trailer/record.sh" "$@"
+    [ -f "$marker" ] || exit 0
+    echo "film.sh: новый клиент вывода ($(cat "$marker"))" >&2
+    # снятое прежним клиентом (best.txt) новый не переснимает, даже названное в INCOMING_FILM_SHOTS
+    export INCOMING_FILM_RESUME=1
+  done
+fi
 exec "$ROOT/tools/trailer/record.sh" "$@"

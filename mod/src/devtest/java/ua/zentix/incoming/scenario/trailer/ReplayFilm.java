@@ -66,6 +66,8 @@ public final class ReplayFilm {
     private static final int DH_WAIT = 600;
     /** Ключи камеры — с запасом до начала (вывод ставит камеру и чуть раньше). */
     private static final int EXPORT_LEAD = 40;
+    /** Доля кучи, живого больше которой после открытия повтора клиент заменяется новым после этого повтора. */
+    private static final double HEAP_SHARE = 0.7;
 
     private final Minecraft mc = Minecraft.getInstance();
     private final Path root, replays, out;
@@ -79,6 +81,13 @@ public final class ReplayFilm {
     private int opened;
     @Nullable
     private HeapProbe.OldObjects jfr;
+    /**
+     * Почему клиент заменяется новым на границе повторов ({@code null} — не заменяется): прежние повторы не ушли из
+     * памяти или живого больше {@link #HEAP_SHARE} кучи. Оставшиеся планы снимает новый клиент ({@code film.sh} запускает
+     * его, пока есть файл {@code <вывод>/restart}), по {@code best.txt} — с того же места.
+     */
+    @Nullable
+    private String restart;
 
     private enum State { TITLE, OPENING, SETTLING, SEEKING, SCORING, WALKING, WARMING, EXPORTING, DONE }
 
@@ -128,13 +137,15 @@ public final class ReplayFilm {
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
-        // снятые в прошлый запуск (render/best.txt) не переснимаются, если их не назвали: запуск после падения идёт дальше
+        // снятые в прошлый запуск (render/best.txt) не переснимаются, если их не назвали: запуск после падения идёт дальше;
+        // новый клиент того же вывода (film.sh, INCOMING_FILM_RESUME) не переснимает и названные
+        boolean resume = System.getenv("INCOMING_FILM_RESUME") != null;
         java.util.Set<String> done = new java.util.HashSet<>();
         try {
             if (Files.exists(out.resolve("best.txt"))) {
                 for (String line : Files.readAllLines(out.resolve("best.txt"), StandardCharsets.UTF_8)) {
                     String shot = line.split(" ", 2)[0];
-                    if (line.isBlank() || pick != null && pick.contains(shot)) continue;
+                    if (line.isBlank() || pick != null && pick.contains(shot) && !resume) continue;
                     best.add(line);
                     done.add(shot);
                 }
@@ -206,12 +217,16 @@ public final class ReplayFilm {
             long own = server == null ? 1 : server.levelKeys().size();
             long servers = h.count("net.minecraft.server.level.ServerLevel"), clients = h.count("net.minecraft.client.multiplayer.ClientLevel"),
                     integrated = h.count("net.minecraft.client.server.IntegratedServer");
-            Incoming.LOG.info("{} {}: куча живых {} МБ{}; миров сервера {} (у повтора {}), серверов {}, миров клиента {}, чанков {}, держателей чанков {}",
-                    tag, openReplay, HeapProbe.heapUsedMb(), HeapProbe.pools(), servers, own, integrated, clients,
+            long live = HeapProbe.heapUsedMb(), max = Runtime.getRuntime().maxMemory() >> 20;
+            Incoming.LOG.info("{} {}: куча живых {} МБ из {}{}; миров сервера {} (у повтора {}), серверов {}, миров клиента {}, чанков {}, держателей чанков {}",
+                    tag, openReplay, live, max, HeapProbe.pools(), servers, own, integrated, clients,
                     h.count("net.minecraft.world.level.chunk.LevelChunk"), h.count("net.minecraft.server.level.ChunkHolder"));
             if (servers > own || integrated > 1 || clients > 1) {
                 Incoming.LOG.warn("{} {}: прежние повторы в памяти — миров сервера {} при {} у повтора, серверов {}, миров клиента {} ({})", tag, openReplay,
                         servers, own, integrated, clients, h.file());
+                restart = "прежние повторы в памяти";
+            } else if (live > max * HEAP_SHARE) {
+                restart = "живого " + live + " МБ из " + max;
             }
         } catch (Exception | LinkageError ex) {
             Incoming.LOG.warn("{}: гистограммы нет", tag, ex);
@@ -260,6 +275,18 @@ public final class ReplayFilm {
         if (spec.replay().equals(openReplay) && FlashbackApi.inReplay()) {
             go(State.SEEKING);
             startShot();
+            return;
+        }
+        if (restart != null) {
+            // граница повторов: остальное — новому клиенту, этот уходит, не набирая памяти дальше
+            queue.addFirst(spec);
+            try {
+                Files.writeString(out.resolve("restart"), restart + "\n", StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            Incoming.LOG.warn("SCENARIO film restart: {} — планов осталось {}, их снимет новый клиент (film.sh)", restart, queue.size());
+            finish();
             return;
         }
         openReplay = spec.replay();
