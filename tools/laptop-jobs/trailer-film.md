@@ -90,6 +90,19 @@ python3 tools/trailer/drift.py $W4 > $W4/drift.txt
 `drift.txt` — у каких планов снаряд в журнале записи ушёл с пути (очередь мест до `22b2cfd` при отставании сервера:
 в записи 86 строк `Can't keep up`); камеры таких планов ставились по ушедшему месту, вывод показывает настоящее.
 
+## 3в. p34 заново (запись одной сцены)
+p34 (с борта ракеты, 1:07) не снимался ни разу: камера снаряда включалась до пуска, полёта ещё не было, план ждал
+момент и шёл заглушкой. Исправлено, сцена `scene:p34` — одна p34 у поста бинокля p33; рабочее дерево — на коммит из сообщения координатора и сборка,
+после вывода `render-human2`, до монтажа. Свободного места — как в п. 2.
+```sh
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war5-p34 && chmod -R u+w mod/run/scenario/saves/war5-p34
+INCOMING_TRAILER_DIR=film-war5 INCOMING_WAR_PART=scene:p34 INCOMING_WORLD=war5-p34 \
+  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+```
+В логе: нет `TRAILER p34: момент не наступил`; есть отметки `video` и `gone` у p34 в `film-war5/timeline.jsonl`
+(`grep '"shot":"p34"' mod/run/scenario/film-war5/timeline.jsonl | grep -c '"type":"frame"'` — кадры). Прислать строки
+`TRAILER p34` и `SCENARIO film` из лога.
+
 ## 4. Монтаж
 Дубль плана — новейший прошедший проверку (PASS), а если у плана таких нет — новейший какой есть. Порядок дублей:
 `film-war2` (`render`, p03 с туманом c2, `render-human`, `render-human2`), затем живые планы и вывод `film-war4`.
@@ -105,7 +118,7 @@ ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) $(rec $FOG1 p03) $(rec $FOG
   $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) \
   $(rec $W2/render/best.txt '' PASS) $(rec $FOG1 p03 PASS) $(rec $FOG2 p03 PASS) \
   $(rec $W2/render-human/best.txt '' PASS) $(rec $W2/render-human2/best.txt '' PASS) $(rec $W4/render/best.txt '' PASS) \
-  --music <Juggernaut.mp3>"
+  $([ -f mod/run/scenario/film-war5/timeline.jsonl ] && echo --take p34=mod/run/scenario/film-war5) --music <Juggernaut.mp3>"
 mkdir -p dist && echo "uv run tools/trailer/edit.py $ARGS" > dist/incoming-trailer-edit.sh
 uv run tools/trailer/edit.py $ARGS 2>&1 | tee dist/incoming-trailer-edit.log
 ```
