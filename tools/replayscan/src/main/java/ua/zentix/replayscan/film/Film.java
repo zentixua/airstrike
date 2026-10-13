@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -39,13 +40,18 @@ import java.util.stream.Stream;
  * <p>
  * Вывод: {@code <out>/<план>/<камера>/} — {@code video.mkv}, {@code state.json} (состояние редактора), {@code qa.jsonl},
  * {@code sounds.jsonl}, {@code verdict.json}; {@code <out>/report.jsonl} — каждый выведенный кандидат,
- * {@code <out>/best.json} — план → лучший. Планы, которые уже есть в {@code best.json}, не переснимаются: запуск после
- * падения идёт дальше. Строки лога — {@code Film: …}, в конце клиент выходит.
+ * {@code <out>/best.json} — план → лучший (с тиками плана). Планы, которые в {@code best.json} прошли проверку с теми же
+ * тиками, не переснимаются: запуск после падения идёт дальше, а не прошедшие и изменённые планы снимаются снова. Строки
+ * лога — {@code Film: …}, в конце клиент выходит; план не читается — выходит сразу.
  */
 public final class Film {
     static final Logger LOG = LogUtils.getLogger();
-    /** Тиков: открытие повтора, после открытия, после перемотки, мир у места, стоять в точке пути, найти игрока. */
-    private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300, PLAYER_WAIT = 400;
+    /**
+     * Тиков: открытие повтора, после открытия, после перемотки, мир у места, стоять в точке пути, найти игрока, начало
+     * задания вывода.
+     */
+    private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300, PLAYER_WAIT = 400,
+            EXPORT_WAIT = 1200;
 
     private enum State { TITLE, OPENING, SETTLING, SEEKING, WALKING, WARMING, EXPORTING, DONE }
 
@@ -73,7 +79,7 @@ public final class Film {
     private Cameras.Pose standing;
     @Nullable
     private UUID povId;
-    private int poseAt, stepped, reachedAt;
+    private int poseAt, stepped, reachedAt, seenAt;
 
     private record Scored(Cameras.Candidate c, Cameras.Score score) {}
 
@@ -82,7 +88,7 @@ public final class Film {
         aspect = (double) plan.width() / plan.height();
         best = readBest(plan.out().resolve("best.json"));
         for (Plan.Shot s : plan.shots()) {
-            if (best.has(s.name())) continue;
+            if (filmed(s)) continue;
             queue.add(s);
         }
         LOG.info("Film: {} -> {}, {} shots to film: {}", plan.replay(), plan.out(), queue.size(), queue.stream().map(Plan.Shot::name).toList());
@@ -99,7 +105,19 @@ public final class Film {
             new Film(plan);
         } catch (IOException | RuntimeException e) {
             LOG.error("Film: cannot read plan {}", file, e);
+            // клиент без окна сам не выйдет: выход, как только игра загрузилась
+            NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
+                if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
+            });
         }
+    }
+
+    /** План уже снят: в {@code best.json} прошёл проверку с теми же тиками и первым событием. */
+    private boolean filmed(Plan.Shot s) {
+        if (!best.has(s.name())) return false;
+        JsonObject o = best.getAsJsonObject(s.name());
+        return o.has("pass") && o.get("pass").getAsBoolean() && o.has("a") && o.get("a").getAsInt() == s.a()
+                && o.has("b") && o.get("b").getAsInt() == s.b() && o.has("first") && o.get("first").getAsInt() == s.subject().firstKey();
     }
 
     private static JsonObject readBest(Path file) {
@@ -178,7 +196,7 @@ public final class Film {
                     return;
                 }
                 Vec3 k = shot.subject().anchor(shot.a(), shot.b());
-                Cameras.World w = new Cameras.World();
+                Cameras.World w = new Cameras.World(Cameras.cloudHeight(plan));
                 if (k != null && !w.loaded(k) && waited() < WORLD_WAIT) {
                     standAt(Cameras.Pose.look(k.add(0, 30, -30), k, 70));
                     return;
@@ -214,8 +232,20 @@ public final class Film {
             case WARMING -> {
                 // повтор вживую по тику до начала плана, как идёт сам вывод: события модов живые (дым, столбы, огонь);
                 // вывод с того же места не перематывает и частиц не чистит
+                if (waited() > shot.warm() * 4 + POSE_MAX + PLAYER_WAIT) {
+                    report(current, null, "replay did not reach the start in " + waited() + " ticks");
+                    nextCandidate();
+                    return;
+                }
                 if (current.c.player() != null) {
-                    if (watch() == null) return;
+                    if (watch() == null) {
+                        // игрок записи ушёл из мира клиента (смерть, другое измерение, дальше прорисовки)
+                        if (ticks - seenAt > PLAYER_WAIT) {
+                            report(current, null, "player " + current.c.player() + " lost before the start");
+                            nextCandidate();
+                        }
+                        return;
+                    }
                 } else {
                     standAt(standing);
                 }
@@ -239,7 +269,13 @@ public final class Film {
                     if (current.c.gui()) mc.options.hideGui = false;
                     return;
                 }
-                if (!Export.jobs().isEmpty()) return;
+                if (!Export.jobs().isEmpty()) {
+                    if (waited() > EXPORT_WAIT) {
+                        Export.jobs().clear();
+                        throw new IllegalStateException("export did not start in " + EXPORT_WAIT + " ticks");
+                    }
+                    return;
+                }
                 done();
             }
             default -> {
@@ -294,8 +330,7 @@ public final class Film {
     /** План не снят совсем (нет камеры, другое измерение): в итог с причиной. */
     private void fail(String why) {
         LOG.warn("Film: {}: {}", shot.name(), why);
-        JsonObject o = new JsonObject();
-        o.addProperty("pass", false);
+        JsonObject o = entry(false);
         o.addProperty("why", why);
         best.add(shot.name(), o);
         writeBest();
@@ -304,11 +339,13 @@ public final class Film {
 
     /** Следующий кандидат: перемотка до начала с запасом на живой повтор, путь камеры (секции мира строятся), вывод. */
     private void nextCandidate() {
+        // после чужого игрока или оборванного вывода: камера — снова зритель, интерфейс скрыт
+        if (mc.player != null && mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
+        mc.options.hideGui = true;
         current = candidates.poll();
         if (current == null) {
             // ни один не прошёл: в итог — лучший из выведенных с причинами
-            JsonObject o = new JsonObject();
-            o.addProperty("pass", false);
+            JsonObject o = entry(false);
             if (bestTry != null) {
                 o.addProperty("dir", dirOf(bestTry).toString());
                 o.addProperty("candidate", bestTry.c.name());
@@ -326,6 +363,7 @@ public final class Film {
         stepped = -1;
         walk.clear();
         povId = null;
+        seenAt = ticks;
         poseAt = ticks + SEEK_SETTLE;
         if (current.c.path() != null) {
             // места пути камеры, где мир должен быть построен; у неподвижной камеры это одно место
@@ -380,6 +418,7 @@ public final class Film {
             if (povId.equals(p.getUUID())) target = p;
         }
         if (target == null) return null;
+        seenAt = ticks;
         if (mc.getCameraEntity() != target) mc.setCameraEntity(target);
         mc.player.moveTo(target.getX(), target.getY(), target.getZ(), target.getYRot(), target.getXRot());
         mc.player.setDeltaMovement(Vec3.ZERO);
@@ -453,8 +492,7 @@ public final class Film {
             bestVerdict = v;
         }
         if (v.pass()) {
-            JsonObject o = new JsonObject();
-            o.addProperty("pass", true);
+            JsonObject o = entry(true);
             o.addProperty("dir", dir.toString());
             o.addProperty("candidate", current.c.name());
             best.add(shot.name(), o);
@@ -483,9 +521,22 @@ public final class Film {
         }
     }
 
+    /** Запись итога плана: прошёл ли он и его тики (по ним запуск заново узнаёт тот же план). */
+    private JsonObject entry(boolean pass) {
+        JsonObject o = new JsonObject();
+        o.addProperty("pass", pass);
+        o.addProperty("a", shot.a());
+        o.addProperty("b", shot.b());
+        o.addProperty("first", shot.subject().firstKey());
+        return o;
+    }
+
+    /** {@code best.json} — через временный файл: падение посреди записи не оставляет обрезанный файл. */
     private void writeBest() {
         try {
-            Files.writeString(plan.out().resolve("best.json"), new GsonBuilder().setPrettyPrinting().create().toJson(best), StandardCharsets.UTF_8);
+            Path file = plan.out().resolve("best.json"), tmp = plan.out().resolve("best.json.tmp");
+            Files.writeString(tmp, new GsonBuilder().setPrettyPrinting().create().toJson(best), StandardCharsets.UTF_8);
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }

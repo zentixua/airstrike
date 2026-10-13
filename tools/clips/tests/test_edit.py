@@ -38,7 +38,8 @@ class EditTest(unittest.TestCase):
         plan = {"width": 1080, "height": 1920, "fps": 20, "out": str(root / "film"), "previews": {"rockets-0": [s["name"] for s in shots]},
                 "shots": [{k: v for k, v in s.items() if k != "dir"} for s in shots]}
         (root / "plan.json").write_text(json.dumps(plan))
-        (root / "film" / "best.json").write_text(json.dumps({s["name"]: {"pass": True, "dir": s["dir"], "candidate": "pov-x"} for s in shots}))
+        (root / "film" / "best.json").write_text(json.dumps({s["name"]: {"pass": True, "dir": s["dir"], "candidate": "pov-x", "a": s["a"], "b": s["b"]}
+                                                            for s in shots}))
         (root / "runs.json").write_text(json.dumps([{"plan": str(root / "plan.json")}]))
         return root
 
@@ -68,6 +69,22 @@ class EditTest(unittest.TestCase):
         report = self.run_edit(self.build(flash=False))
         self.assertIn("ЕСТЬ ЗАМЕЧАНИЯ", report)
         self.assertIn("вспышка видна 0/1", report)
+
+    def test_shot_of_other_plan_not_used(self):
+        root = self.build(flash=True)
+        best = json.loads((root / "film" / "best.json").read_text())
+        best["rockets-0-impact"]["a"] = A - 200
+        (root / "film" / "best.json").write_text(json.dumps(best))
+        report = self.run_edit(root)
+        self.assertIn("rockets-0-impact: не снят — снят по другому плану", report)
+        self.assertIn("ЕСТЬ ЗАМЕЧАНИЯ", report)
+
+    def test_captions(self):
+        en, ru = edit.caption("far", {"weapon": "missile+grad", "numbers": {"strikes": [{"dist": 400}, {"dist": 650}, {"dist": 900}]}})
+        self.assertIn("Strikes 400, 650 and 900 blocks away", en)
+        self.assertIn("Удары в 400, 650 и 900 блоках", ru)
+        en, ru = edit.caption("chaos", {"weapon": "grad", "numbers": {"ground": 21, "seconds": 20}})
+        self.assertEqual(ru, "Ударов по земле за 20 секунд: 21. Одна камера.")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху

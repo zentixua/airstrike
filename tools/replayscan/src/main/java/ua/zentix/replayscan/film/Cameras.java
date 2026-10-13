@@ -1,5 +1,6 @@
 package ua.zentix.replayscan.film;
 
+import net.minecraft.client.CloudStatus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -49,9 +50,31 @@ final class Cameras {
         static final Score DESIGNED = new Score(1, 1, 1, 1, 1, 0, "designed camera");
     }
 
-    /** Мир повтора у клиента: лучи и высоты только по готовым чанкам (у клиента чанка нет — нет и блоков). */
+    /** Толщина слоя облаков, блоков. */
+    static final double CLOUD_DEPTH = 6;
+
+    /** Низ облаков в кадре: из плана (слой шейдерпака), иначе облака измерения; облака выключены — NaN. */
+    static double cloudHeight(Plan plan) {
+        if (!Double.isNaN(plan.clouds())) return plan.clouds();
+        Minecraft mc = Minecraft.getInstance();
+        return mc.options.getCloudsType() == CloudStatus.OFF ? Double.NaN : mc.level.effects().getCloudHeight();
+    }
+
+    /** Отрезок взгляда проходит слоем облаков низом {@code clouds} (или камера в нём). */
+    static boolean throughClouds(double clouds, Vec3 from, Vec3 to) {
+        if (Double.isNaN(clouds)) return false;
+        return Math.max(from.y, to.y) >= clouds - 1 && Math.min(from.y, to.y) <= clouds + CLOUD_DEPTH;
+    }
+
+    /** Мир повтора у клиента: лучи и высоты только по готовым чанкам (у клиента чанка нет — нет и блоков), облака. */
     static final class World {
         final ClientLevel level = Minecraft.getInstance().level;
+        /** Низ облаков ({@link #cloudHeight}). */
+        final double clouds;
+
+        World(double clouds) {
+            this.clouds = clouds;
+        }
 
         boolean loaded(Vec3 p) {
             return level.getChunkSource().getChunkNow(Mth.floor(p.x) >> 4, Mth.floor(p.z) >> 4) != null;
@@ -133,7 +156,8 @@ final class Cameras {
                     for (double side = 0; side < 360; side += c.azStep()) {
                         for (double elev : c.elev()) {
                             double r = Math.toRadians(side);
-                            // от места навстречу подлёту, повёрнутое на side: 0 — снаряд летит в камеру, 90 — поперёк кадра
+                            // от места назад по курсу подлёта, повёрнутое на side: 0 — камера на пути подлёта, снаряд
+                            // летит от неё к месту; 90 — поперёк кадра; 180 — летит в камеру
                             Vec3 dir = new Vec3(-h.x * Math.cos(r) + h.z * Math.sin(r), 0, -h.z * Math.cos(r) - h.x * Math.sin(r));
                             Vec3 spot = k.add(dir.scale(dist));
                             double g = w.ground(spot.x, spot.z);
@@ -193,7 +217,7 @@ final class Cameras {
             boolean in = inFrame(p, aim, 0.85, aspect);
             double z = p.pos().distanceTo(aim);
             double share = size / (2 * z * Math.tan(Math.toRadians(p.fov() / 2)) * aspect);
-            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, size * 0.4), shot.far());
+            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, size * 0.4), shot.far()) && !throughClouds(w.clouds, p.pos(), aim);
             boolean smoky = smokeOnLine(p.pos(), aim, shot.smoke(), t);
             if (smoky) smokeHits++;
             if (first < 0 || t < first) {

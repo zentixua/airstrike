@@ -50,6 +50,11 @@ class PlanTest {
         assertEquals(1, s.need().loud(), "громкого за кадром не больше, чем в кадре — по умолчанию");
         assertTrue(p.loud().matcher("incoming:blast.near").find());
         assertFalse(p.loud().matcher("incoming:drone.engine").find());
+        // звук полёта «Града» — подлёт, не мотор; взрыв звуком полёта не считается
+        assertTrue(p.engine().matcher("incoming:rocket.incoming").find());
+        assertTrue(p.engine().matcher("airstrike:drone.engine").find());
+        assertTrue(p.engine().matcher("incoming:loiter.dive").find());
+        assertFalse(p.engine().matcher("incoming:rocket.blast").find());
     }
 
     @Test
@@ -69,6 +74,8 @@ class PlanTest {
         assertEquals(100, s.aim(400).z, 1e-9);
         // подлёт — с севера на юг
         assertEquals(1, s.heading().z, 1e-6);
+        // скорость по пути: 40 блоков к югу и 4 вниз за 20 тиков
+        assertEquals(Math.hypot(40, 4) / 20, s.speed(150), 1e-9);
     }
 
     @Test

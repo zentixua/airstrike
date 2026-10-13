@@ -112,10 +112,13 @@ POV = {
     "launch": """
         SELECT viewer, uuid, first AS t, dist0 AS dist, seen, samples FROM launches
         WHERE dist0 BETWEEN 30 AND 200 AND samples > 0 AND seen >= 0.8 * samples""",
-    # пролёт: в 10–60 блоках, в кадре и открыт ≥ 1.5 с
+    # пролёт: в 10–60 блоках, в кадре и открыт ≥ 1.5 с; первый и последний тик в кадре и ближе всего в кадре
     "flyby": """
-        SELECT f.viewer, e.uuid, f.t_in AS t, f.closest AS dist, f.seen_ticks, f.t_closest
-        FROM flybys f JOIN entities e ON e.eid = f.eid
+        WITH v AS (
+          SELECT viewer, ref, min(t) AS t_in, max(t) AS t_out, min(dist) AS closest FROM sight
+          WHERE kind = 'e' AND dist BETWEEN 10 AND 60 AND in_frame(cx, cy, 1) GROUP BY viewer, ref)
+        SELECT f.viewer, e.uuid, v.t_in AS t, v.closest AS dist, f.seen_ticks, v.t_out
+        FROM flybys f JOIN entities e ON e.eid = f.eid JOIN v ON v.viewer = f.viewer AND v.ref = CAST(f.eid AS VARCHAR)
         WHERE f.seen_ticks >= 30 AND f.closest >= 10""",
 }
 
@@ -224,6 +227,7 @@ class Replay:
 
     def __init__(self, db: Path, a):
         self.db = db
+        self.aspect = a.aspect
         self.con = replaydb.connect(db, a)
         meta = json.loads(self.con.execute("SELECT json FROM meta").fetchone()[0])
         self.con.execute(f"SET VARIABLE every = {int(meta.get('every', 2))}")
@@ -278,9 +282,10 @@ class Replay:
         return Shot(name, "launch", f.first - 30, f.first + after, cam,
                     {"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4), "launch": list(f.launch)}, why)
 
-    def flyby_shot(self, name: str, f: Flight, row) -> Shot:
-        viewer, _, t_in, closest, seen, t_closest = row
-        return Shot(name, "flight", t_in - 20, t_closest + 30, {"kind": "pov", "viewer": viewer},
+    def flyby_shot(self, name: str, f: Flight, row, longest: int = 160) -> Shot:
+        """Пролёт глазами игрока: от входа в кадр до выхода из него (кружащий «Ланцет» — не дольше longest тиков)."""
+        viewer, _, t_in, closest, seen, t_out = row
+        return Shot(name, "flight", t_in - 20, min(t_out, t_in + longest) + 20, {"kind": "pov", "viewer": viewer},
                     {"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4)},
                     f"глазами {viewer}: пролёт в {closest:.0f} блоках, виден {seen / TICK:.1f} с")
 
@@ -313,7 +318,7 @@ class Replay:
         return out
 
     def best_hit(self, hits: list[Flight]) -> Flight:
-        """Удар залпа для плана удара: тот, что лучше всех виден глазами игрока, иначе с наибольшей воронкой, первый."""
+        """Удар залпа для плана удара: первый из видных глазами игрока, иначе первый."""
         seen = [f for f in hits if self.best_pov("impact", f.hit, f.t_hit, 3)]
         return min(seen or hits, key=lambda f: f.t_hit)
 
@@ -344,8 +349,8 @@ class Replay:
                                  shots))
         return out
 
-    def chaos(self, window: int = 200, radius: float = 110) -> list[Candidate]:
-        """3 — хаос: 10 с, в которых больше всего ударов по земле в одном месте (один широкий план), и такие же окна
+    def chaos(self, window: int = 400, radius: float = 110) -> list[Candidate]:
+        """3 — хаос: 20 с, в которых больше всего ударов по земле в одном месте (один широкий план), и такие же окна
         глазами игроков."""
         hits = sorted((f for f in self.fl if f.ground and f.t_hit is not None), key=lambda f: f.t_hit)
         out = []
@@ -371,8 +376,8 @@ class Replay:
                           {"keys": [key(h) for h in group], "centre": [cx, cy, cz], "spread": spread},
                           f"{n} ударов по земле за {window / TICK:.0f} с в круге {spread:.0f} блоков")]
             out.append(Candidate("chaos", self.name, str(self.db), n + (1 if len(weapons) > 1 else 0), t0, "+".join(weapons),
-                                 f"{n} ударов по земле за 10 с с {mmss(t0)} ({', '.join(weapons)}), разброс {spread:.0f} блоков",
-                                 {"ground": n, "spread": round(spread), "weapons": weapons}, shots))
+                                 f"{n} ударов по земле за {window / TICK:.0f} с с {mmss(t0)} ({', '.join(weapons)}), разброс {spread:.0f} блоков",
+                                 {"ground": n, "spread": round(spread), "weapons": weapons, "seconds": window // TICK}, shots))
         # глазами игроков: окна, где ударов по земле в кадре больше всего, а громкого за кадром меньше, чем в кадре
         rows = self.pov["impact"]
         for viewer in sorted({r[0] for r in rows}):
@@ -385,11 +390,11 @@ class Replay:
                 if off > on:
                     continue
                 out.append(Candidate("chaos", self.name, str(self.db), n + 0.5, t0, "pov",
-                                     f"глазами {viewer}: {n} ударов по земле в кадре за 10 с с {mmss(t0)}, громких за кадром {off}",
-                                     {"ground_in_frame": n, "loud_on": on, "loud_off": off},
+                                     f"глазами {viewer}: {n} ударов по земле в кадре за {window / TICK:.0f} с с {mmss(t0)}, громких за кадром {off}",
+                                     {"ground_in_frame": n, "loud_on": on, "loud_off": off, "seconds": window // TICK},
                                      [Shot("chaos", "chaos", t0 - 40, t0 + window + 40, {"kind": "pov", "viewer": viewer},
                                            {"keys": []}, "окно хаоса глазами игрока")]))
-        return dedupe(out, 400)
+        return dedupe(out, 2 * window)
 
     def far(self) -> list[Candidate]:
         """4 — издалека: удары в 300–1500 блоках от игрока, вспышка раньше грохота, рядом по времени тихо; камера —
@@ -410,7 +415,8 @@ class Replay:
                 drawn = self.con.execute("SELECT count(*) FROM far WHERE uuid = ? AND t BETWEEN ? AND ?",
                                          [f.uuid, t - 120, t]).fetchone()[0]
             size = BLAST.get(weapon, 16)
-            fov = math.degrees(2 * math.atan(size / (2 * d * 0.12)))
+            # шар — 12 % ширины кадра: угол по вертикали (как Cameras.fovFor)
+            fov = math.degrees(2 * math.atan(size / (2 * d * 0.12) / self.aspect))
             score = 2 - min(other, 4) / 2 + min(drawn, 30) / 15 + (1 if place == "ground" else 0) + min(d, 900) / 900
             shot = Shot("far", "far", t - 120, int(heard) + 60,
                         {"kind": "auto", "rig": "lens", "eye": [ex, ey, ez], "fov": round(max(8.0, min(20.0, fov)), 1)},
@@ -422,7 +428,25 @@ class Replay:
                                  f"рядом громких {other}, путь вдали {drawn} записей" + ("" if place == "ground" else ", земля — проверить по DH"),
                                  {"dist": round(d), "boom_after_s": round((heard - t) / TICK, 1), "other_loud": other,
                                   "far_rows": drawn, "place": place}, [shot]))
-        return dedupe(out, 200)
+        return self.far_reel(dedupe(out, 200))
+
+    @staticmethod
+    def far_reel(single: list[Candidate], longest: float = 35, most: int = 3) -> list[Candidate]:
+        """Ролик «издалека» — несколько дальних ударов подряд (по времени): лучшие, пока ролик не длиннее longest с."""
+        if len(single) < 2:
+            return single
+        pick: list[Candidate] = []
+        for c in sorted(single, key=lambda c: -c.score):
+            s = c.shots[0]
+            if len(pick) < most and sum(p.shots[0].b - p.shots[0].a for p in pick) + s.b - s.a <= longest * TICK:
+                pick.append(c)
+        pick.sort(key=lambda c: c.t)
+        shots = [Shot(f"far{i + 1}", c.shots[0].kind, c.shots[0].a, c.shots[0].b, c.shots[0].camera, c.shots[0].subject, c.shots[0].why)
+                 for i, c in enumerate(pick)]
+        reel = Candidate("far", pick[0].replay, pick[0].db, sum(c.score for c in pick), pick[0].t, "+".join(sorted({c.weapon for c in pick})),
+                         f"{len(pick)} дальних удара: " + "; ".join(c.summary for c in pick),
+                         {"strikes": [c.numbers for c in pick]}, shots)
+        return [reel] + single
 
     def nuke(self) -> list[Candidate]:
         """5 — ядерный удар: подрыв, пуск МБР, если он в мире клиента, и игроки, которые смотрели."""
@@ -432,16 +456,18 @@ class Replay:
             icbm = [f for f in self.fl if f.weapon == "icbm" and f.first <= t <= f.last + 40]
             shots = []
             up = [f for f in icbm if f.launched]
+            # ролик не длиннее 35 с: пуск 6 с, глазами игрока 12 с, свободная камера 15 с (та же вспышка с другой стороны)
             if up:
-                shots.append(self.launch_shot("launch", up[0], after=140))
-            views = self.con.execute("""SELECT viewer, dist, cx, cy, clear FROM impact_views WHERE id = ? AND viewer NOT LIKE 'ask:%'
-                                        ORDER BY in_frame(cx, cy, 1) DESC, dist""", [hid]).fetchall()
-            seen = [v for v in views if v[2] is not None and abs(v[2]) <= 1 and v[3] is not None]
+                shots.append(self.launch_shot("launch", up[0], after=90))
+            views = self.con.execute("""SELECT viewer, dist, coalesce(in_frame(cx, cy, 1), false) FROM impact_views
+                                        WHERE id = ? AND viewer NOT LIKE 'ask:%' ORDER BY 3 DESC, dist""", [hid]).fetchall()
+            # огненный шар над домами: в кадре достаточно, луча к земле не нужно
+            seen = [v for v in views if v[2]]
             keys = [{"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}]
             if seen:
-                shots.append(Shot("burst-pov", "nuke", t - 60, t + 400, {"kind": "pov", "viewer": seen[0][0]}, {"keys": keys},
+                shots.append(Shot("burst-pov", "nuke", t - 40, t + 200, {"kind": "pov", "viewer": seen[0][0]}, {"keys": keys},
                                   f"глазами {seen[0][0]}: подрыв в {seen[0][1]:.0f} блоках"))
-            shots.append(Shot("burst", "nuke", t - 60, t + 600,
+            shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500),
                               {"kind": "auto", "rig": "tripod", "dist": [400, 700, 1000], "elev": [4, 10], "share": 0.35},
                               {"keys": keys}, "свободная камера: вспышка, волна, гриб"))
             score = 3 + bool(up) + bool(seen) + 0.5 * len(views)
@@ -473,8 +499,9 @@ def clock(r: Replay, anchors: list[dict]) -> list[tuple[int, datetime]]:
             t = r.con.execute("SELECT min(t) FROM events WHERE regexp_matches(src, ?)", [an["src"]]).fetchone()[0]
         at = an["at"]
         if at == "name":
-            m = re.search(r"(\d{4}-\d\d-\d\d)T(\d\d)_(\d\d)_(\d\d)", r.name)
-            at = m and f"{m[1]}T{m[2]}:{m[3]}:{m[4]}"
+            # секунды 00 Flashback в имени не пишет (LocalDateTime.toString)
+            m = re.search(r"(\d{4}-\d\d-\d\d)T(\d\d)_(\d\d)(?:_(\d\d))?", r.name)
+            at = m and f"{m[1]}T{m[2]}:{m[3]}:{m[4] or '00'}"
         if t is None or not at:
             print(f"{r.name}: опоры {an} в базе нет — не берётся")
             continue

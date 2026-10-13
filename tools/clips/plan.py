@@ -93,10 +93,11 @@ def film_shot(con, cid: str, shot: dict) -> dict:
         subject["path"] = path_of(con, s["uuid"], a, b)
     if s.get("centre"):
         subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
-    smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND t BETWEEN ? AND ? ORDER BY t",
-                        [a - 1200, b]).fetchall()
+    dim = dim_of(con, shot)
+    smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+                        [dim, a - 1200, b]).fetchall()
     far = kind in ("far", "nuke")
-    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim_of(con, shot), "warm": 200, "hold": 100 if far else 20,
+    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
             "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
 
@@ -124,7 +125,8 @@ def main():
     for c in chosen:
         con = replaydb.connect(Path(c["db"]), argparse.Namespace(fov=70, aspect=width / height, center=0.7, soft=2))
         meta = json.loads(con.execute("SELECT json FROM meta").fetchone()[0])
-        zip_path = Path(a.replays) / Path(meta["replay"]).name if a.replays else Path(meta["replay"])
+        # путь — от каталога запуска: клиент съёмки читает план из своего каталога игры
+        zip_path = (Path(a.replays) / Path(meta["replay"]).name if a.replays else Path(meta["replay"])).resolve()
         plan = by_replay.setdefault(c["replay"], {
             "replay": str(zip_path), "out": str((out / c["replay"] / "film").resolve()), "width": width, "height": height,
             "fps": a.fps, "bitrate": a.bitrate, "tries": a.tries, "shots": [], "incoming": incoming_version(meta),

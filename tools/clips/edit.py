@@ -81,6 +81,9 @@ def flash_check(shot: dict, cand: Path, fps: float, aspect: float) -> list[dict]
     h, w = frames.shape[1:]
     out = []
     for k in keys:
+        # событие до начала плана (продолжение другого плана) вспышкой в нём не проверить
+        if not shot["a"] <= k["t"] <= shot["b"]:
+            continue
         before, after = [], []
         for f in qa:
             # кадр видео k — тик повтора a + k·20/fps (вывод Flashback)
@@ -141,12 +144,17 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
         return (f"{en.capitalize()} fly over the players and hit the streets nearby.",
                 f"{ru.capitalize()} пролетают над игроками и бьют по соседним улицам.")
     if preview == "chaos":
-        k = n.get("ground") or n.get("ground_in_frame")
-        return (f"{k} strikes in ten seconds, one camera.", f"{k} ударов за десять секунд, одна камера.")
+        k, sec = n.get("ground") or n.get("ground_in_frame"), n.get("seconds", 20)
+        return (f"{k} ground strikes in {sec} seconds, one camera.", f"Ударов по земле за {sec} секунд: {k}. Одна камера.")
     if preview == "far":
-        d = n.get("dist", 0)
-        return (f"A strike {d} blocks away through binoculars: the flash comes first, the sound {n.get('boom_after_s', 0)} s later.",
-                f"Удар в {d} блоках в бинокль: сначала вспышка, звук — через {n.get('boom_after_s', 0)} с.")
+        strikes = n.get("strikes") or [n]
+        if len(strikes) == 1:
+            d = strikes[0].get("dist", 0)
+            return (f"A strike {d} blocks away through binoculars: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
+                    f"Удар в {d} блоках в бинокль: сначала вспышка, звук — через {strikes[0].get('boom_after_s', 0)} с.")
+        ds = [str(x.get("dist", 0)) for x in strikes]
+        return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away through binoculars: each flash comes before its sound.",
+                f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках в бинокль: каждая вспышка раньше своего звука.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
 
 
@@ -173,13 +181,17 @@ def main():
             videos, lines, ok = [], [], True
             for name in plan["previews"][cid]:
                 b = best.get(name)
-                if not b or "dir" not in b:
-                    lines.append(f"- {name}: не снят — {b.get('why') if b else 'нет в best.json'}")
+                s = shots[name]
+                cand = Path(b["dir"]) if b and "dir" in b else None
+                why = (b.get("why") if b else "нет в best.json") if cand is None \
+                    else "снят по другому плану (тики не те)" if (b.get("a"), b.get("b")) != (s["a"], s["b"]) \
+                    else "нет видео или проверки кадров" if not (cand / "video.mkv").is_file() or not (cand / "qa.jsonl").is_file() else None
+                if why:
+                    lines.append(f"- {name}: не снят — {why}")
                     ok = False
                     continue
-                cand = Path(b["dir"])
                 verdict = json.loads((cand / "verdict.json").read_text()) if (cand / "verdict.json").exists() else {}
-                flashes = flash_check(shots[name], cand, plan["fps"], aspect)
+                flashes = flash_check(s, cand, plan["fps"], aspect)
                 dark = [f for f in flashes if not f["seen"]]
                 ok &= bool(b.get("pass")) and not dark
                 videos.append(cand / "video.mkv")

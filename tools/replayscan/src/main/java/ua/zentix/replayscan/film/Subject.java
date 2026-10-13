@@ -75,6 +75,12 @@ final class Subject {
         return new Vec3(path[i][1], path[i][2], path[i][3]);
     }
 
+    /** Скорость снаряда по пути в тик t, блоков за тик; без пути — 0. */
+    double speed(double t) {
+        if (path.length < 2) return 0;
+        return pathAt(t).distanceTo(pathAt(t - 1));
+    }
+
     double pathFirst() {
         return path.length == 0 ? Double.NaN : path[0][0];
     }

@@ -164,6 +164,10 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual([s.kind for s in c[0].shots], ["flight", "impact"])
         self.assertEqual(c[0].shots[0].camera, {"kind": "pov", "viewer": "recorder"})
+        # пролёт — пока шахед в кадре, не по ближайшей точке за всю его жизнь
+        fl = c[0].shots[0]
+        self.assertLess(fl.a, fl.b)
+        self.assertLessEqual(fl.b - fl.a, 200)
 
     def test_air_burst_never_selected(self):
         for kind in ("rockets", "drones", "chaos", "far"):
@@ -174,8 +178,9 @@ class SelectTest(unittest.TestCase):
     def test_chaos(self):
         c = [c for c in self.r.chaos() if c.weapon != "pov"]
         self.assertTrue(c)
-        self.assertGreaterEqual(c[0].numbers["ground"], 8)
+        self.assertEqual(max(x.numbers["ground"] for x in c), 8)
         self.assertEqual(c[0].shots[0].camera["rig"], "wide")
+        self.assertEqual(c[0].numbers["seconds"], 20)
 
     def test_far(self):
         c = self.r.far()
@@ -192,6 +197,17 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual(c[0].t, 2000)
         self.assertEqual(c[0].shots[-1].kind, "nuke")
+        self.assertLessEqual(sum(x.b - x.a for x in c[0].shots), 35 * clips.TICK, "ролик не длиннее 35 с")
+
+    def test_far_reel(self):
+        def one(t, score):
+            shot = clips.Shot("far", "far", t - 120, t + 80, {"kind": "auto", "rig": "lens"}, {"keys": []}, "")
+            return clips.Candidate("far", "r", "db", score, t, "missile", f"удар {t}", {"dist": t}, [shot])
+        reel = clips.Replay.far_reel([one(5000, 3), one(1000, 2), one(9000, 1), one(3000, 0.5)])
+        self.assertEqual([s.name for s in reel[0].shots], ["far1", "far2", "far3"])
+        self.assertEqual([s.a for s in reel[0].shots], [880, 4880, 8880], "три лучших — по времени")
+        self.assertEqual([x["dist"] for x in reel[0].numbers["strikes"]], [1000, 5000, 9000])
+        self.assertEqual(len(reel), 5, "и каждый удар отдельно")
 
     def test_notes_mark_candidates_by_game_log(self):
         # подрыв ядерки (тик 2000) — в 23:10:35 по журналу сервера; конец записи (2100) — в 23:10:40

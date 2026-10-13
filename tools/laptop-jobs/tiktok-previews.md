@@ -37,8 +37,8 @@ tools/laptop_job.sh tiktok-film -- tools/prod_client.py --no-copy --dir <кли�
   --jvm -Xmx12g --prop replayscan.film=$PWD/$T/clips/film/<повтор>/plan.json
 ```
 Успех: в `<клиент>/logs/latest.log` — `Film: done`, у каждого плана строка `Film: verdict <план> <камера>: PASS`;
-`$T/clips/film/<повтор>/film/best.json` — все планы. Клиент выходит сам. Упал — запуск заново продолжит с того плана,
-которого нет в `best.json`.
+`$T/clips/film/<повтор>/film/best.json` — все планы. Клиент выходит сам. Упал — запуск заново снимает только планы, не
+прошедшие проверку или изменённые; прошедшие остаются.
 
 ## 5. Монтаж
 ```sh

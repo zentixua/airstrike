@@ -2,7 +2,6 @@ package ua.zentix.replayscan.film;
 
 import com.google.gson.JsonObject;
 import net.minecraft.client.Camera;
-import net.minecraft.client.CloudStatus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
@@ -37,7 +36,8 @@ final class FrameLog {
     static final int KEY_CHECK = 12;
     /** Доля дальности прорисовки, дальше которой объект в тумане у её края (у шейдерпака туман раньше и плавнее). */
     static final double FOG = 0.8;
-    static final double CLOUD_DEPTH = 6;
+    /** Скорость звука, блоков за тик: мотор мода звучит из точки, где снаряд был, когда звук вышел. */
+    static final double SOUND = 17.15;
 
     private final Subject s;
     private final Plan.Shot shot;
@@ -58,8 +58,7 @@ final class FrameLog {
         this.pov = pov;
         this.smoke = smoke;
         Minecraft mc = Minecraft.getInstance();
-        clouds = !Double.isNaN(plan.clouds()) ? plan.clouds()
-                : mc.options.getCloudsType() == CloudStatus.OFF ? Double.NaN : mc.level.effects().getCloudHeight();
+        clouds = Cameras.cloudHeight(plan);
         keyN = new int[s.keys.size()];
         keyOk = new int[s.keys.size()];
         out = Files.newBufferedWriter(dir.resolve("qa.jsonl"), StandardCharsets.UTF_8);
@@ -87,10 +86,12 @@ final class FrameLog {
         Vec3 aim = s.aim(t);
         double size = s.aimSize(t);
         boolean fromEntity = false;
+        double speed = s.speed(t);
         if (s.uuid != null && before) {
             Entity ent = entity(mc);
             if (ent != null && !ent.isRemoved()) {
                 aim = ent.getPosition(partial).add(0, ent.getBbHeight() / 2, 0);
+                speed = Math.max(speed, ent.getDeltaMovement().length());
                 fromEntity = true;
             }
         }
@@ -107,7 +108,7 @@ final class FrameLog {
             }
             if (in) {
                 seen = open(mc, eye, aim, right, up, size, 5);
-                cloud = clouds(eye, aim);
+                cloud = Cameras.throughClouds(clouds, eye, aim);
                 fog = !shot.far() && beyondFog(mc, eye, aim);
                 BlockPos bp = BlockPos.containing(aim);
                 // сущность в непостроенной секции игра не рисует (isSectionCompiled), стену цели — тоже
@@ -117,7 +118,9 @@ final class FrameLog {
                 if (shot.far()) unknown = unknown(mc, eye, aim);
             }
         }
-        double engine = s.uuid != null && before ? sounds.engine(aim, Math.max(8, 2 * s.size)) : 0;
+        // источник мотора отстаёт от снаряда на путь, пройденный, пока звук шёл к камере
+        double engine = s.uuid != null && before && aim != null
+                ? sounds.engine(aim, Math.max(8, 2 * s.size) + 1.2 * speed * aim.distanceTo(eye) / SOUND) : 0;
         boolean isPov = pov != null && mc.getCameraEntity() != null && pov.equals(mc.getCameraEntity().getUUID());
         boolean built = mc.levelRenderer.hasRenderedAllSections();
 
@@ -130,7 +133,7 @@ final class FrameLog {
             Vec3 d = p.subtract(eye);
             double z = d.dot(fwd);
             boolean kin = z > 0.1 && Math.abs(d.dot(right) / z / tanX) <= 1 && Math.abs(d.dot(up) / z / tanY) <= 1;
-            boolean vis = kin && open(mc, eye, p, right, up, k.size(), 3) >= 0.6 && !clouds(eye, p) && (shot.far() || !beyondFog(mc, eye, p));
+            boolean vis = kin && open(mc, eye, p, right, up, k.size(), 3) >= 0.6 && !Cameras.throughClouds(clouds, eye, p) && (shot.far() || !beyondFog(mc, eye, p));
             keyN[i]++;
             if (vis) keyOk[i]++;
             keys.append(keys.isEmpty() ? "" : ",").append('[').append(i).append(',').append(vis ? 1 : 0).append(']');
@@ -204,12 +207,6 @@ final class FrameLog {
         return (double) open / pts.length;
     }
 
-    /** Отрезок взгляда проходит слоем облаков (или камера в нём). */
-    private boolean clouds(Vec3 from, Vec3 to) {
-        if (Double.isNaN(clouds)) return false;
-        return Math.max(from.y, to.y) >= clouds - 1 && Math.min(from.y, to.y) <= clouds + CLOUD_DEPTH;
-    }
-
     /** Дальше {@link #FOG} прорисовки по горизонтали (туман у ванили — цилиндр вокруг камеры). */
     private static boolean beyondFog(Minecraft mc, Vec3 eye, Vec3 p) {
         return Math.hypot(p.x - eye.x, p.z - eye.z) > FOG * mc.gameRenderer.getRenderDistance();
@@ -250,11 +247,15 @@ final class FrameLog {
         double rReady = frames == 0 ? 0 : (double) readyN / frames, approach = pre == 0 ? 1 : (double) preOk / pre;
         double nearHit = near == 0 ? 1 : (double) nearOk / near, engine = pre == 0 ? 1 : (double) eng / pre;
         double povShare = frames == 0 ? 0 : (double) povN / frames;
-        int keysOk = 0;
+        // события плана — те, что в его тиках (план может начаться после события: продолжение другого плана)
+        int keysOk = 0, keysIn = 0;
         for (int i = 0; i < keyN.length; i++) {
+            Subject.Key k = s.keys.get(i);
+            if (k.t() < shot.a() || k.t() > shot.b()) continue;
+            keysIn++;
             if (keyN[i] > 0 && (double) keyOk[i] / keyN[i] >= 0.5) keysOk++;
         }
-        double keys = keyN.length == 0 ? 1 : (double) keysOk / keyN.length;
+        double keys = keysIn == 0 ? 1 : (double) keysOk / keysIn;
         boolean loudOk = sounds.loudOff <= need.loud() * sounds.loudOn;
         StringBuilder why = new StringBuilder();
         if (frames == 0) why.append("no frames; ");
@@ -263,7 +264,7 @@ final class FrameLog {
         if (isPovShot && povShare < 0.98) why.append(String.format(Locale.ROOT, "camera is the player in %.0f%% of frames; ", 100 * povShare));
         if (approach < need.subject()) why.append(String.format(Locale.ROOT, "subject shown in %.0f%% of frames before the event; ", 100 * approach));
         if (nearHit < need.near()) why.append(String.format(Locale.ROOT, "in the last second before the event: %.0f%%; ", 100 * nearHit));
-        if (keys < need.keys()) why.append(String.format(Locale.ROOT, "events seen: %d of %d; ", keysOk, keyN.length));
+        if (keys < need.keys()) why.append(String.format(Locale.ROOT, "events seen: %d of %d; ", keysOk, keysIn));
         if (engine < need.engine()) why.append(String.format(Locale.ROOT, "engine heard in %.0f%% of frames; ", 100 * engine));
         if (!loudOk) why.append(String.format(Locale.ROOT, "loud sounds off screen %d, on screen %d; ", sounds.loudOff, sounds.loudOn));
         JsonObject n = new JsonObject();
@@ -273,7 +274,7 @@ final class FrameLog {
         n.addProperty("approach", approach);
         n.addProperty("near", nearHit);
         n.addProperty("keys_ok", keysOk);
-        n.addProperty("keys", keyN.length);
+        n.addProperty("keys", keysIn);
         n.addProperty("engine", engine);
         n.addProperty("loud_on", sounds.loudOn);
         n.addProperty("loud_off", sounds.loudOff);

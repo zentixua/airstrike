@@ -31,6 +31,11 @@ import java.util.regex.Pattern;
  */
 record Plan(Path replay, Path out, int width, int height, double fps, int bitrate, int tries, double ready, double clouds, int distance,
             Pattern loud, Pattern engine, List<Shot> shots) {
+    /**
+     * Звуки полёта снаряда по умолчанию (id Incoming 2.x и 3.x): моторы, пике, свист ракеты, падение бомбы, подлёт
+     * «Града»; взрывы сюда не входят.
+     */
+    static final String ENGINE = "(?i)engine|dive|whistle|bomb\\.fall|rocket\\.incoming";
 
     /**
      * План ролика: отрезок тиков повтора, объект, камеры по порядку (первые — заданные, дальше — лучшие по оценке) и
@@ -69,7 +74,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 num(o, "width", 1080), num(o, "height", 1920), dbl(o, "fps", 60), num(o, "bitrate", 40_000_000), num(o, "tries", 3),
                 dbl(o, "ready", 0.98), o.has("clouds") && !o.get("clouds").isJsonNull() ? o.get("clouds").getAsDouble() : Double.NaN,
                 num(o, "distance", 32), Pattern.compile(str(o, "loud", "(?i)blast|explo|boom|detonat|nuke")),
-                Pattern.compile(str(o, "engine", "(?i)engine")), shots);
+                Pattern.compile(str(o, "engine", ENGINE)), shots);
     }
 
     private static Shot shot(JsonObject s) {
