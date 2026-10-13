@@ -107,11 +107,6 @@ final class Subject {
         return keys.isEmpty() ? size : keys.get(0).size();
     }
 
-    /** Кадр в тик t смотрит на сам снаряд (не на событие и не на место). */
-    boolean onProjectile(double t) {
-        return keyAt(t) == null && path.length > 0 && t >= pathFirst() - 1 && t <= pathLast() + 1;
-    }
-
     /** Курс подлёта к первому событию по горизонтали (по пути за 40 тиков до него); без пути — на север. */
     Vec3 heading() {
         if (path.length < 2) return new Vec3(0, 0, -1);

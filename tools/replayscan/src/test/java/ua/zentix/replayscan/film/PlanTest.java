@@ -59,7 +59,6 @@ class PlanTest {
         // путь отсортирован: 150 — между 140 и 160
         assertEquals(60, s.aim(150).z, 1e-9);
         assertEquals(3, s.aimSize(150));
-        assertTrue(s.onProjectile(150));
         // до появления — место первой точки пути
         assertEquals(0, s.aim(100).z, 1e-9);
         // событие: смотрим на него, шар поднимается
