@@ -1076,7 +1076,7 @@ final class War {
         film.waitTicks(100);
         film.run(() -> Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 150 air"));
         film.shot("p46").length(70).hidden()
-                .camera(() -> CineCamera.track(FINAL_ROOF.add(-3, 4, -2), () -> GZ.add(0, 200, 0), 20))
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(0, 4, -6), () -> GZ.add(0, 200, 0), 20))
                 .when(() -> film.sinceDetonation() >= 0, 600);
         film.shot("p49").length(70).hidden()
                 .camera(() -> {
