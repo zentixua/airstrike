@@ -23,6 +23,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.block.BaseFireBlock;
@@ -32,6 +33,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
@@ -372,8 +374,8 @@ public final class Warheads {
     }
 
     /**
-     * Ударная волна дошла: отбрасывает от эпицентра, контузия у тех, кто рядом.
-     * Сидящих в транспорте и на сиденьях не трогаем.
+     * Ударная волна дошла: отбрасывает от эпицентра, контузия у тех, кто рядом; кого она достаёт — {@code filter}
+     * (у наземного взрыва — по воздуху, {@link #reaches}). Сидящих в транспорте и на сиденьях не трогаем.
      *
      * @param band номер пояса фронта: 1 — первый тик пути фронта ({@link #FRONT_SPEED} блоков), 2 — второй …
      */
@@ -393,6 +395,27 @@ public final class Warheads {
             e.hurtMarked = true;
             if (e instanceof Player p) effects.accept(p, band);
         }
+    }
+
+    /** Первые столько блоков прямой от взрыва луч фронта не смотрит ({@link #reaches}). */
+    static final double FRONT_START = 1.5;
+
+    /**
+     * Волна наземного взрыва дошла до сущности по воздуху: прямая от взрыва к её глазам или к середине не упирается в
+     * блоки. Земля и стены держат взрыв: под землёй и за глухой стеной волна в воздухе не толкает и не оглушает (толчок
+     * под землёй — у бомбы в грунте). Первые {@link #FRONT_START} блока прямой не смотрятся: точка удара — у грани блока,
+     * в который вошёл снаряд, а свою порцию взрыва он теряет позже. Где прямая выходит из готовых чанков, луча нет (блок
+     * там грузил бы чанк прямо в тике) — волна считается дошедшей.
+     */
+    static boolean reaches(ServerLevel level, Vec3 c, LivingEntity e) {
+        for (Vec3 p : new Vec3[]{e.getEyePosition(), e.getBoundingBox().getCenter()}) {
+            Vec3 d = p.subtract(c);
+            double len = d.length();
+            if (len <= FRONT_START || !Terrain.readyAlong(level, c, p)) return true;
+            Vec3 from = c.add(d.scale(FRONT_START / len));
+            if (level.clip(new ClipContext(from, p, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, e)).getType() == HitResult.Type.MISS) return true;
+        }
+        return false;
     }
 
     static void effect(Player p, Holder<MobEffect> effect, int seconds) {
@@ -534,7 +557,7 @@ public final class Warheads {
                 for (Secondary s : MISSILE_SECONDARIES) {
                     if (s.tick() == t) explode(level, area, main, pos.add(s.dx(), s.dy(), s.dz()), s.power(), false, direct, owner, null);
                 }
-                push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> true, (p, band) -> {
+                push(level, pos, t, new double[]{1.4, 1.0, 0.6}, e -> reaches(level, pos, e), (p, band) -> {
                     if (band == 1) {
                         effect(p, MobEffects.CONFUSION, 10);
                         effect(p, MobEffects.DARKNESS, 3);
@@ -556,7 +579,7 @@ public final class Warheads {
                     }
                     default -> {}
                 }
-                push(level, pos, t, new double[]{1.1, 0.7}, e -> true, (p, band) -> effect(p, MobEffects.CONFUSION, band == 1 ? 7 : 4));
+                push(level, pos, t, new double[]{1.1, 0.7}, e -> reaches(level, pos, e), (p, band) -> effect(p, MobEffects.CONFUSION, band == 1 ? 7 : 4));
             }
             return t < 12;
         }
