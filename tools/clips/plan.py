@@ -128,7 +128,8 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
             "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
-            "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
+            "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", ""),
+            **({"time": shot["camera"]["time"]} if "time" in shot["camera"] else {})}
 
 
 def main():

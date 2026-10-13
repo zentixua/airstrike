@@ -191,9 +191,10 @@ final class Export {
      * Состояние редактора Flashback (как его хранит Flashback): одна сцена; у камеры по ключевым кадрам — дорожки камеры и
      * угла кадра с ключом на каждый тик окна (курс без скачка через ±180°; место ключа — ноги зрителя, на {@code eye} ниже
      * глаза); глазами игрока — без дорожек. Интерфейс повтора (чат, табло, имена) скрыт, панель предметов — только
-     * с {@code gui}, зрители повтора не видны.
+     * с {@code gui}, зрители повтора не видны; {@code time} не меньше 0 — время суток (окно Visuals Flashback: во время
+     * вывода Flashback берёт его из состояния задания).
      */
-    static String editorState(@Nullable Cameras.Path path, int a, int b, double eye, boolean gui) {
+    static String editorState(@Nullable Cameras.Path path, int a, int b, double eye, boolean gui, long time) {
         JsonArray tracks = new JsonArray();
         if (path != null) {
             JsonObject cam = new JsonObject(), fov = new JsonObject();
@@ -226,6 +227,7 @@ final class Export {
         for (String k : List.of("showChat", "showBossBar", "showTitleText", "showScoreboard", "showActionBar")) visuals.addProperty(k, false);
         visuals.addProperty("showHotbar", gui);
         visuals.addProperty("renderNametags", false);
+        if (time >= 0) visuals.addProperty("overrideTimeOfDay", time);
         JsonObject scene = new JsonObject();
         scene.addProperty("name", "film");
         scene.add("keyframeTracks", tracks);

@@ -657,6 +657,20 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(n["ground"], 3, "удары у порта в 1650–1690 — в кадре\n" + printed)
         self.assertIn("то же место в", printed)
 
+    def test_search_night(self):
+        """search — тот же пролёт в то время, где в кадре больше всего ударов (весь в чанках); time — ночь в плане."""
+        r, c, printed = self.fly((0, 400), "at=00:10/00:25 from=-580,90,-40 to=-620,90,-40 look=south search=00:00/01:45 time=night")
+        shot = c.shots[0]
+        self.assertTrue(1390 <= shot.a <= 1650, printed)
+        self.assertEqual(c.numbers["moved"], shot.a - 200)
+        self.assertEqual(c.numbers["covered"], c.numbers["checks"], printed)
+        self.assertEqual(c.numbers["ground"], 3, "удары у порта в 1650–1690 — в кадре\n" + printed)
+        self.assertIn("больше всего ударов в кадре", printed)
+        self.assertEqual(shot.camera["time"], 18000)
+        self.assertEqual(film_plan.film_shot(r.con, "fly-0", shot.json())["time"], 18000, "время суток — в план съёмки")
+        day = self.fly((0, 400))[1].shots[0]
+        self.assertNotIn("time", film_plan.film_shot(r.con, "fly-0", day.json()), "без time — время суток записи")
+
     def test_other_dimension_forgets(self):
         """Мир другого измерения сервер повтора закрывает, когда записавший уходит: там чанки только с последнего
         входа; верхний мир держит всё."""

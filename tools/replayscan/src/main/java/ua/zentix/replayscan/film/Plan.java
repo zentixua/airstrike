@@ -46,9 +46,10 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * @param hold тиков стоять у камеры после постройки мира (Distant Horizons строит дальний рельеф после перемотки)
      * @param far  объект дальше прорисовки: туман у её края и секции объекта не проверяются, луч — по готовым чанкам
      * @param smoke прежние удары {@code [t, x, y, z]} — столбы дыма для оценки камер до вывода
+     * @param time  время суток в выводе (тики дня, как у {@code /time set}: 18000 — полночь), меньше 0 — как в записи
      */
     record Shot(String name, int a, int b, String dim, int warm, int hold, boolean far, List<Camera> cameras, Subject subject,
-                List<double[]> smoke, Need need) {}
+                List<double[]> smoke, Need need, long time) {}
 
     /**
      * Камера: {@code pov} — глазами игрока ({@code player}: {@code recorder}, ник или UUID); {@code fixed} — неподвижная
@@ -97,7 +98,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 dbl(n, "loud", 1));
         return new Shot(s.get("name").getAsString(), s.get("a").getAsInt(), s.get("b").getAsInt(), str(s, "dim", "minecraft:overworld"),
                 num(s, "warm", 200), num(s, "hold", 20), s.has("far") && s.get("far").getAsBoolean(), cams, subject(s.getAsJsonObject("subject")),
-                smoke, need);
+                smoke, need, s.has("time") ? s.get("time").getAsLong() : -1);
     }
 
     private static Camera camera(JsonObject c) {
