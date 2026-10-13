@@ -557,7 +557,7 @@ final class War {
         hiddenAt(SQUARE, GOV);
         film.onServer(level -> {
             RandomSource r = RandomSource.create(4);
-            for (int i = 0, tries = 0; i < 18 && tries < 400; tries++) {
+            for (int i = 0, tries = 0; i < 40 && tries < 900; tries++) {
                 double x = 3040 + r.nextDouble() * 170, z = 222 + r.nextDouble() * 100;
                 int y = groundY(level, x, z);
                 if (y > 66) continue;  // крыша, а не площадь
@@ -635,8 +635,8 @@ final class War {
         hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);
         film.onServer(level -> {
             RandomSource r = RandomSource.create(15);
-            for (int i = 0, tries = 0; i < 10 && tries < 200; tries++) {
-                double x = SUB_TOP.x - 12 - r.nextDouble() * 16, z = SUB_TOP.z - 6 + r.nextDouble() * 12;
+            for (int i = 0, tries = 0; i < 25 && tries < 500; tries++) {
+                double x = SUB_TOP.x - 12 - r.nextDouble() * 24, z = SUB_TOP.z - 6 + r.nextDouble() * 12;
                 int y = groundY(level, x, z);
                 if (y > SUB_TOP.y + 2) continue;
                 crowd().add("Run" + i++, new Vec3(x, y, z), 3);
@@ -1056,16 +1056,21 @@ final class War {
             // бой и статисты — с сервером, а он есть только после входа в мир
             street = new Fight(cast(), server());
             street.spread = 4;
-            for (int i = 0; i < 8; i++) {
-                double z = c.z - 24 + i * 7 + (i % 2) * 1.5;
-                double wx = c.x - 26 - (i % 3) * 3, ex = c.x + 26 + (i % 3) * 3;
-                Vec3 w = new Vec3(wx, groundY(level, wx, z), z), e = new Vec3(ex, groundY(level, ex, z + 2), z + 2);
-                barricade(w.add(2, 0, 0));
-                barricade(e.add(-2, 0, 0));
-                cast().spawn("West" + i, w, -90, null);
-                cast().spawn("East" + i, e, 90, null);
-                street.add("West" + i, 0, w, new Vec3(1, 0, 0));
-                street.add("East" + i, 1, e, new Vec3(-1, 0, 0));
+            // три линии на сторону по 8 бойцов: задние — на 6 и 12 блоков дальше и сдвинуты вдоль фронта (стреляют мимо
+            // своих); вся линия — на открытой площади (x 3130–3220, z 240–300)
+            for (int rank = 0, n = 0; rank < 3; rank++) {
+                for (int i = 0; i < 8; i++, n++) {
+                    double z = c.z - 24 + i * 7 + (i % 2) * 1.5 + rank * 7 / 3.0;
+                    double back = 26 + (i % 3) * 3 + rank * 6;
+                    double wx = c.x - back, ex = c.x + back;
+                    Vec3 w = new Vec3(wx, groundY(level, wx, z), z), e = new Vec3(ex, groundY(level, ex, z + 2), z + 2);
+                    barricade(w.add(2, 0, 0));
+                    barricade(e.add(-2, 0, 0));
+                    cast().spawn("West" + n, w, -90, null);
+                    cast().spawn("East" + n, e, 90, null);
+                    street.add("West" + n, 0, w, new Vec3(1, 0, 0));
+                    street.add("East" + n, 1, e, new Vec3(-1, 0, 0));
+                }
             }
         });
         settle();
