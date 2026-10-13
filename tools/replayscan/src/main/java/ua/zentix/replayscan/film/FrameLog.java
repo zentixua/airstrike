@@ -6,10 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
@@ -27,16 +24,16 @@ import java.util.UUID;
 /**
  * Проверка каждого кадра вывода по данным игры, а не на глаз: в момент отрисовки кадра (конец мира) — где объект на
  * экране и какую долю ширины кадра он занимает, закрыт ли он блоками (лучи к середине и краям), дымом слоя эффектов
- * ({@link Smoke}), облаками или туманом у края прорисовки, построена ли его секция и весь мир у камеры, слышен ли его
- * мотор, видно ли каждое событие в первые 12 тиков; у плана глазами игрока — камера ли это игрок; со своей ли глубиной
- * Distant Horizons рисует LOD ({@link DhDepth}). Строка JSON на кадр — {@code qa.jsonl}; итог ({@link #verdict}) — по
- * порогам плана, без просмотра кадров.
+ * ({@link Smoke}), облаками или туманом у края прорисовки, нарисован ли он (секция сущности построена; снаряд без
+ * сущности у клиента рисует Incoming по пути от сервера) и построен ли весь мир у камеры, слышен ли его мотор, видно ли
+ * каждое событие в первые 12 тиков; у плана глазами игрока — камера ли это игрок; со своей ли глубиной Distant Horizons
+ * рисует LOD ({@link DhDepth}). Лучи и кадр — те же, что у оценки камер ({@link Cameras.View}, {@link Cameras#open},
+ * {@link Cameras#keySeen}). Строка JSON на кадр — {@code qa.jsonl}; итог ({@link #verdict}) — по порогам плана, без
+ * просмотра кадров.
  */
 final class FrameLog {
     /** Сколько тиков после события оно проверяется: вспышка и огненный шар. */
     static final int KEY_CHECK = 12;
-    /** Доля дальности прорисовки, дальше которой объект в тумане у её края (у шейдерпака туман раньше и плавнее). */
-    static final double FOG = 0.8;
     /** Скорость звука, блоков за тик: мотор мода звучит из точки, где снаряд был, когда звук вышел. */
     static final double SOUND = 17.15;
     /** Distant Horizons стоит: глубину его LOD в кадре проверяет {@link DhDepth}. */
@@ -86,6 +83,7 @@ final class FrameLog {
         Vec3 fwd = vec(cam.getLookVector()), up = vec(cam.getUpVector()), right = vec(cam.getLeftVector()).scale(-1);
         Matrix4f proj = e.getProjectionMatrix();
         double tanY = 1 / proj.m11(), tanX = 1 / proj.m00();
+        Cameras.View view = new Cameras.View(eye, fwd, right, up, tanX, tanY);
         sounds.camera(eye, fwd, right, up, tanX, tanY);
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
         int first = s.firstKey();
@@ -115,12 +113,15 @@ final class FrameLog {
                 share = size / (2 * z * tanX);
             }
             if (in) {
-                seen = open(mc, eye, aim, right, up, size, 5);
+                seen = Cameras.open(mc.level, eye, aim, right, up, size, 5);
                 cloud = Cameras.throughClouds(clouds, eye, aim);
-                fog = !shot.far() && beyondFog(mc, eye, aim);
+                fog = !shot.far() && Cameras.beyondFog(eye, aim);
                 BlockPos bp = BlockPos.containing(aim);
-                // сущность в непостроенной секции игра не рисует (isSectionCompiled), стену цели — тоже
-                drawn = shot.far() || mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
+                // сущность в непостроенной секции игра не рисует (isSectionCompiled), стену цели — тоже; снаряд, которого
+                // у клиента нет (ушёл из сущностей записавшего, за чанки повтора), рисует Incoming по пути от сервера
+                // (дальние строки пути) — секции ему не нужны
+                boolean byServer = s.uuid != null && before && !fromEntity && t >= s.pathFirst() && t <= s.pathLast();
+                drawn = shot.far() || byServer || mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
                 // дым — только до события: после него в кадре и должны быть огонь и дым самого удара
                 if (before) clear = smoke.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);
                 if (shot.far()) unknown = unknown(mc, eye, aim);
@@ -137,11 +138,7 @@ final class FrameLog {
         for (int i = 0; i < s.keys.size(); i++) {
             Subject.Key k = s.keys.get(i);
             if (t < k.t() || t > k.t() + KEY_CHECK) continue;
-            Vec3 p = k.pos().add(0, Math.min(1, (t - k.t()) / 40.0) * k.size() * 0.4, 0);
-            Vec3 d = p.subtract(eye);
-            double z = d.dot(fwd);
-            boolean kin = z > 0.1 && Math.abs(d.dot(right) / z / tanX) <= 1 && Math.abs(d.dot(up) / z / tanY) <= 1;
-            boolean vis = kin && open(mc, eye, p, right, up, k.size(), 3) >= 0.6 && !Cameras.throughClouds(clouds, eye, p) && (shot.far() || !beyondFog(mc, eye, p));
+            boolean vis = Cameras.keySeen(mc.level, clouds, shot.far(), view, Cameras.keyPoint(k, t), k.size());
             keyN[i]++;
             if (vis) keyOk[i]++;
             keys.append(keys.isEmpty() ? "" : ",").append('[').append(i).append(',').append(vis ? 1 : 0).append(']');
@@ -191,34 +188,6 @@ final class FrameLog {
             }
         }
         return null;
-    }
-
-    /**
-     * Доля открытых лучей от глаза к предмету поперечником {@code size}: к середине и к краям поперёк взгляда ({@code rays}
-     * — 3: середина и бока, 5: ещё верх и низ); последние {@code max(1.5, 0.4·size)} блоков у предмета не в счёт.
-     */
-    private static double open(Minecraft mc, Vec3 eye, Vec3 at, Vec3 right, Vec3 up, double size, int rays) {
-        Vec3 r = right.scale(size * 0.35), u = up.scale(size * 0.35);
-        Vec3[] pts = rays == 3 ? new Vec3[]{at, at.add(r), at.subtract(r)} : new Vec3[]{at, at.add(r), at.subtract(r), at.add(u), at.subtract(u)};
-        double spare = Math.max(1.5, size * 0.4);
-        int open = 0;
-        for (Vec3 p : pts) {
-            Vec3 d = p.subtract(eye);
-            double len = d.length();
-            if (len <= spare) {
-                open++;
-                continue;
-            }
-            var hit = mc.level.clip(new ClipContext(eye, eye.add(d.scale((len - spare) / len)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
-                    CollisionContext.empty()));
-            if (hit.getType() == HitResult.Type.MISS) open++;
-        }
-        return (double) open / pts.length;
-    }
-
-    /** Дальше {@link #FOG} прорисовки по горизонтали (туман у ванили — цилиндр вокруг камеры). */
-    private static boolean beyondFog(Minecraft mc, Vec3 eye, Vec3 p) {
-        return Math.hypot(p.x - eye.x, p.z - eye.z) > FOG * mc.gameRenderer.getRenderDistance();
     }
 
     /** Где на луче к дальнему объекту начинается чанк, которого у клиента нет (дальше — только рельеф DH); −1 — нет. */

@@ -103,6 +103,9 @@ def build() -> Path:
         a, m, b = (0.5 + 10 * k, 85.0, 90.0), (0.5 + 10 * k, 85.0, -20.0), (30.0 + 10 * k, 64.5, 120.0)
         s.entity("airstrike:drone", uid, 380 + k, 520 + k, chain(line(a, m, 380 + k, 450 + k), line(m, b, 450 + k, 520 + k), 450 + k))
         s.blast(520 + k, "airstrike:blast", b, uid, kind=0)
+    # шахед того же залпа сбит зенитной ракетой в 60 блоках перед записавшим
+    s.entity("airstrike:drone", "D-down", 383, 470, line((0.5, 85.0, 150.0), (0.5, 85.0, 60.0), 383, 470))
+    s.blast(470, "airstrike:intercept", (0.5, 85.0, 60.0), "D-down", clear=-1, solid=-1)
     # ракета, взорвавшаяся в воздухе (до земли 40 блоков)
     s.entity("airstrike:cruise_missile", "M-air", 600, 700, line((0.5, 120.0, 0.5), (10.0, 110.0, 150.0), 600, 700))
     s.blast(700, "airstrike:blast", (10.0, 110.0, 150.0), "M-air", clear=40, solid=7, kind=1)
@@ -158,16 +161,64 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(launch.camera["kind"], "pov", "пуск в 100 блоках прямо перед записавшим")
         self.assertEqual(impact.camera["kind"], "pov")
         self.assertEqual(impact.subject["keys"][0]["t"], 300)
+        # превью не короче 20 с: недостающее — плану удара, до удара — не раньше конца пуска
+        self.assertGreaterEqual(sum(s.b - s.a for s in c.shots), clips.LEAST * clips.TICK)
+        self.assertGreaterEqual(impact.a, launch.b)
+        self.assertLess(impact.a, 300 - 60, "удар — и с подлёта")
 
     def test_drones(self):
         c = self.r.drones()
         self.assertEqual(len(c), 1)
-        self.assertEqual([s.kind for s in c[0].shots], ["flight", "impact"])
+        self.assertEqual([(s.name, s.kind) for s in c[0].shots], [("flyby+shootdown+impact", "shootdown")],
+                         "пролёт, сбитие и удар глазами записавшего — один план, без повтора одних секунд")
+        down = c[0].shots[0]
+        self.assertEqual(down.camera, {"kind": "pov", "viewer": "recorder"})
+        self.assertLessEqual(down.a, 470 - 120)
+        self.assertGreaterEqual(down.b, 520 + 100, "до конца удара")
+        self.assertEqual(down.subject["uuid"], "D-down")
+        self.assertIn({"t": 470, "pos": [0.5, 85.0, 60.0], "size": 8}, down.subject["keys"])
+        self.assertEqual([k["t"] for k in down.subject["keys"]][-2:], [470, 520])
+        self.assertEqual(c[0].numbers["shot_down"], 1)
+        alone = [clips.Shot("shootdown", "shootdown", 1000, 1180, {}, {})]
+        clips.fill(alone)
+        self.assertEqual((alone[0].a, alone[0].b), (1000 - 88, 1180 + 132), "сбитие одно — и до него, и после")
         self.assertEqual(c[0].shots[0].camera, {"kind": "pov", "viewer": "recorder"})
         # пролёт — пока шахед в кадре, не по ближайшей точке за всю его жизнь
-        fl = c[0].shots[0]
+        fl = self.r.flyby_shot("flyby", self.r.by_uuid["D-0"], next(r for r in self.r.pov["flyby"] if r[1] == "D-0"))
         self.assertLess(fl.a, fl.b)
         self.assertLessEqual(fl.b - fl.a, 200)
+        self.assertGreaterEqual(sum(s.b - s.a for s in c[0].shots), clips.LEAST * clips.TICK, "превью не короче 20 с")
+        eye, other = {"kind": "pov", "viewer": "v"}, {"kind": "pov", "viewer": "w"}
+        three = clips.distinct([clips.Shot("flyby", "flight", 100, 300, eye, {"uuid": "a"}),
+                                clips.Shot("impact", "impact", 220, 380, eye, {"uuid": "b", "keys": [{"t": 280}]}),
+                                clips.Shot("shootdown", "shootdown", 220, 400, eye, {"uuid": "c", "keys": [{"t": 340}]})])
+        self.assertEqual([(s.name, s.kind, s.a, s.b, s.subject["uuid"], [k["t"] for k in s.subject["keys"]]) for s in three],
+                         [("flyby+impact+shootdown", "shootdown", 100, 400, "c", [280, 340])], "одни глаза — один план, события все")
+        apart = clips.distinct([clips.Shot("flyby", "flight", 100, 300, eye, {}), clips.Shot("shootdown", "shootdown", 300, 470, eye, {}),
+                                clips.Shot("impact", "impact", 350, 500, other, {})])
+        self.assertEqual([s.name for s in apart], ["flyby", "shootdown", "impact"], "встык и чужими глазами — отдельные планы")
+
+    def test_shot_down_star(self):
+        f, t, pos, view = self.r.downs[0]
+        self.assertEqual((f.uuid, t, view[0]), ("D-down", 470, "recorder"))
+        self.assertGreaterEqual(view[1], 2 * clips.TICK)
+        plain = self.r.drones()[0].score
+        star = clips.Replay(self.db, argparse.Namespace(**vars(self.args), star="recorder"))
+        self.assertAlmostEqual(star.drones()[0].score, plain + 4, msg="сбитие у зрителя --star — первым")
+        star.con.close()
+
+    def test_fill_without_impact(self):
+        shots = [clips.Shot("flight", "flight", 100, 200, {}, {}), clips.Shot("chaos", "chaos", 300, 350, {}, {})]
+        clips.fill(shots)
+        self.assertEqual([(s.a, s.b) for s in shots], [(100, 200), (300, 350 + round(clips.LEAST * clips.TICK) - 150)],
+                         "без удара — концу последнего")
+        first = [clips.Shot("impact", "impact", 10, 170, {}, {})]
+        clips.fill(first)
+        self.assertEqual(first[0].a, 0, "не раньше начала повтора")
+        self.assertEqual(clips.fill([]), [])
+        long = [clips.Shot("chaos", "chaos", 0, 500, {}, {})]
+        clips.fill(long)
+        self.assertEqual((long[0].a, long[0].b), (0, 500), "длинный не трогается")
 
     def test_air_burst_never_selected(self):
         for kind in ("rockets", "drones", "chaos", "far"):
@@ -180,7 +231,13 @@ class SelectTest(unittest.TestCase):
         self.assertTrue(c)
         self.assertEqual(max(x.numbers["ground"] for x in c), 8)
         self.assertEqual(c[0].shots[0].camera["rig"], "wide")
+        self.assertIn(60, c[0].shots[0].camera["elev"], "и сверху: удары в улицах")
         self.assertEqual(c[0].numbers["seconds"], 20)
+        pov = [c for c in self.r.chaos() if c.weapon == "pov"]
+        self.assertTrue(pov)
+        keys = pov[0].shots[0].subject["keys"]
+        self.assertGreaterEqual(len(keys), 4, "удары в кадре — события плана")
+        self.assertEqual(len(keys[0]["pos"]), 3)
 
     def test_far(self):
         c = self.r.far()
@@ -191,6 +248,7 @@ class SelectTest(unittest.TestCase):
         self.assertTrue(f.shots[0].subject["ground_check"], "чанк удара неизвестен — землю проверяет вывод")
         self.assertGreater(f.numbers["far_rows"], 20)
         self.assertLessEqual(f.shots[0].camera["fov"], 20)
+        self.assertEqual(f.shots[0].camera["rise"], [0, 24], "и над крышами")
 
     def test_nuke(self):
         c = self.r.nuke()
@@ -248,7 +306,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0, star=""))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
@@ -264,6 +322,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual([c["kind"] for c in burst["cameras"]], ["fixed", "tripod"], "объектив с места игрока, потом штатив")
         self.assertEqual(burst["cameras"][0]["eye"], [EYE[0], EYE[1], EYE[2] + 2])
         self.assertEqual(burst["cameras"][0]["aim"], [0.5, 94.0, 1200.0])
+        self.assertEqual(burst["cameras"][0]["rise"], [0, 32, 96], "и над землёй: игрок бывает в метро")
 
     def test_every_preview_planned(self):
         self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "rockets-0"])
@@ -284,12 +343,20 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(s["far"])
         self.assertEqual(s["cameras"][0]["kind"], "fixed")
         self.assertEqual(s["cameras"][0]["aim"], "subject")
+        self.assertEqual(s["cameras"][0]["rise"], [0, 24])
         self.assertGreater(len(s["subject"]["path"]), 5, "путь только дальними строками")
 
     def test_old_versions_skipped(self):
         self.assertLess(clips.version_key("2.10.0"), clips.version_key("2.10.2"))
         self.assertLess(clips.version_key("2.10.3"), clips.version_key("3.0.0"))
         self.assertEqual(clips.incoming_version({"mods": {"airstrike": "2.5.0"}}), "2.5.0")
+
+    def test_shootdown_planned(self):
+        s = self.shots["drones-0-flyby+shootdown+impact"]
+        self.assertEqual([c["kind"] for c in s["cameras"]], ["pov", "tripod"], "глазами игрока, запасная — штатив у сбития")
+        self.assertEqual(s["need"]["keys"], 1)
+        self.assertEqual(s["need"]["loud"], 3, "бой вокруг: громкое за кадром — до трёх на одно в кадре")
+        self.assertGreater(len(s["subject"]["path"]), 5)
 
     def test_chaos_frames_area(self):
         s = self.shots["chaos-0-chaos"]

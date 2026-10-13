@@ -101,6 +101,30 @@ final class Export {
         }
     }
 
+    /**
+     * Члены Flashback, которые зовёт съёмка, на месте: иначе съёмка упала бы посреди повтора.
+     */
+    static void check() throws ReflectiveOperationException {
+        Class<?> flashback = peek("Flashback");
+        flashback.getMethod("openReplayWorld", Path.class);
+        flashback.getMethod("isInReplay");
+        flashback.getMethod("getReplayServer");
+        flashback.getField("EXPORT_JOB");
+        Class<?> server = peek("playback.ReplayServer");
+        server.getField("replayPaused");
+        for (String m : List.of("getReplayTick", "getTotalReplayTicks", "getLocalPlayerId")) server.getMethod(m);
+        server.getMethod("goToReplayTick", int.class);
+        Class<?> queue = peek("exporting.ExportJobQueue");
+        queue.getField("queuedJobs");
+        queue.getField("drainingQueue");
+        peek("state.EditorState").getMethod("load", Path.class);
+    }
+
+    /** Класс Flashback без инициализации: проверка идёт при создании мода, до клиента. */
+    private static Class<?> peek(String name) throws ClassNotFoundException {
+        return Class.forName(P + name, false, Export.class.getClassLoader());
+    }
+
     static boolean exporting() {
         try {
             return c("Flashback").getField("EXPORT_JOB").get(null) != null;

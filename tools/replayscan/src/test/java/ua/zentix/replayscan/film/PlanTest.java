@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -22,7 +23,7 @@ class PlanTest {
                "far": false, "why": "test",
                "cameras": [{"kind": "pov", "player": "player:ZentixUA", "fov": 70},
                            {"kind": "tripod", "around": [0, 64, 100], "dist": [60, 90], "elev": [6, 16], "share": 0.3, "follow": true, "size": 8},
-                           {"kind": "fixed", "eye": [0, 80, 0], "aim": "subject", "fov": 12}],
+                           {"kind": "fixed", "eye": [0, 80, 0], "aim": "subject", "fov": 12, "rise": [0, 24]}],
                "subject": {"size": 3, "uuid": "00000000-0000-0000-0000-000000000001",
                            "path": [[120, 0, 80, 0], [160, 0, 72, 80], [140, 0, 76, 40]],
                            "keys": [{"t": 170, "pos": [0, 64, 100], "size": 8}]},
@@ -46,6 +47,8 @@ class PlanTest {
         assertEquals("player:ZentixUA", s.cameras().get(0).player());
         assertTrue(s.cameras().get(1).follow());
         assertTrue(s.cameras().get(2).follow(), "aim: subject — камера ведёт объект");
+        assertArrayEquals(new double[]{0, 24}, s.cameras().get(2).rise());
+        assertArrayEquals(new double[]{0}, s.cameras().get(1).rise(), "без rise — сам глаз");
         assertEquals(0.5, s.need().near());
         assertEquals(1, s.need().loud(), "громкого за кадром не больше, чем в кадре — по умолчанию");
         assertTrue(p.loud().matcher("incoming:blast.near").find());
@@ -92,10 +95,33 @@ class PlanTest {
         Cameras.Pose p = Cameras.Pose.look(Vec3.ZERO, new Vec3(0, 0, 100), 70);
         assertEquals(0, p.yaw(), 1e-6, "взгляд на юг — yaw 0");
         // на 30 блоков вбок в 100 блоках: в широком кадре есть, в вертикальном (tan 0.7·0.5625 = 0.39 > 0.3) — тоже
-        assertTrue(Cameras.inFrame(p, new Vec3(30, 0, 100), 1, 9 / 16.0));
+        assertTrue(Cameras.View.of(p, 9 / 16.0).in(new Vec3(30, 0, 100), 1));
         // на 50 вбок — только в широком
-        assertFalse(Cameras.inFrame(p, new Vec3(50, 0, 100), 1, 9 / 16.0));
-        assertTrue(Cameras.inFrame(p, new Vec3(50, 0, 100), 1, 16 / 9.0));
+        assertFalse(Cameras.View.of(p, 9 / 16.0).in(new Vec3(50, 0, 100), 1));
+        assertTrue(Cameras.View.of(p, 16 / 9.0).in(new Vec3(50, 0, 100), 1));
+    }
+
+    @Test
+    void viewOfPoseMatchesFrame() {
+        // кадр оценки — тот же, что у вывода: точка у края по ширине, доля ширины кадра у предмета
+        Cameras.Pose p = Cameras.Pose.look(new Vec3(0, 64, 0), new Vec3(0, 64, 100), 70);
+        Cameras.View v = Cameras.View.of(p, 9 / 16.0);
+        double edge = 100 * Math.tan(Math.toRadians(35)) * 9 / 16.0;
+        assertTrue(v.in(new Vec3(edge * 0.99, 64, 100), 1));
+        assertFalse(v.in(new Vec3(edge * 1.01, 64, 100), 1));
+        assertFalse(v.in(new Vec3(edge * 0.9, 64, 100), Cameras.SAFE), "поле оценки уже кадра");
+        assertFalse(v.in(new Vec3(0, 64, -100), 1), "за камерой");
+        assertEquals(0.5, v.share(new Vec3(0, 64, 100), edge), 1e-9);
+        assertEquals(1, v.right().dot(new Vec3(-1, 0, 0)), 1e-9, "взгляд на юг: вправо — запад");
+        assertEquals(1, v.up().y, 1e-9);
+    }
+
+    @Test
+    void keyPointRises() {
+        Subject.Key k = new Subject.Key(100, new Vec3(0, 64, 0), 20);
+        assertEquals(64, Cameras.keyPoint(k, 100).y, 1e-9);
+        assertEquals(64 + 20 * 0.4 * 0.5, Cameras.keyPoint(k, 120).y, 1e-9);
+        assertEquals(64 + 20 * 0.4, Cameras.keyPoint(k, 200).y, 1e-9, "не выше 0.4 поперечника");
     }
 
     @Test

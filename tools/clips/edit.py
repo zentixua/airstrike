@@ -134,6 +134,12 @@ def assemble(videos: list[Path], out: Path, music: Path | None):
     loudnorm(inputs + ["-i", str(music)], graph, "mix", out, [])
 
 
+def cap(s: str) -> str:
+    """Первая буква — заглавная, остальное как есть («Град», МБР, B-2; `str.capitalize` их портит)."""
+    i = next((j for j, ch in enumerate(s) if ch.isalpha()), len(s))
+    return s[:i] + s[i:i + 1].upper() + s[i + 1:]
+
+
 def caption(preview: str, cand: dict) -> tuple[str, str]:
     """Подпись EN/RU по данным кандидата (оружие, расстояния); без рекламных слов."""
     w = cand["weapon"].split("+")
@@ -141,10 +147,23 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     ru = " и ".join(WEAPON.get(x, (x, x))[1] for x in w)
     n = cand["numbers"]
     if preview == "rockets":
-        return (f"{en.capitalize()}: launch, flight and impacts on the ground.", f"{ru.capitalize()}: пуск, полёт и удары по земле.")
+        hit = n.get("ground", 1) != 0
+        if n.get("no_launch"):
+            return ((f"{cap(en)}: flight and impacts on the ground.", f"{cap(ru)}: полёт и удары по земле.") if hit
+                    else (f"{cap(en)} in flight.", f"{cap(ru)} в полёте."))
+        return ((f"{cap(en)}: launch, flight and impacts on the ground.", f"{cap(ru)}: пуск, полёт и удары по земле.") if hit
+                else (f"{cap(en)}: launch and flight.", f"{cap(ru)}: пуск и полёт."))
     if preview == "drones":
-        return (f"{en.capitalize()} fly over the players and hit the streets nearby.",
-                f"{ru.capitalize()} пролетают над игроками и бьют по соседним улицам.")
+        if n.get("shot_down") and n.get("ground"):
+            return (f"{cap(en)} over the players: one is shot down, the rest hit the streets nearby.",
+                    f"{cap(ru)} над игроками: один сбивают, остальные бьют по соседним улицам.")
+        if n.get("shot_down"):
+            return (f"{cap(en)} over the players: one is shot down in front of them.",
+                    f"{cap(ru)} над игроками: один сбивают у них на глазах.")
+        if n.get("ground"):
+            return (f"{cap(en)} fly over the players and hit the streets nearby.",
+                    f"{cap(ru)} пролетают над игроками и бьют по соседним улицам.")
+        return (f"{cap(en)} fly low over the players.", f"{cap(ru)} пролетают низко над игроками.")
     if preview == "chaos":
         k, sec = n.get("ground") or n.get("ground_in_frame"), n.get("seconds", 20)
         return (f"{k} ground strikes in {sec} seconds, one camera.", f"Ударов по земле за {sec} секунд: {k}. Одна камера.")
@@ -155,12 +174,31 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
                     "Удары вдали в бинокль: каждая вспышка раньше своего звука.")
         if len(strikes) == 1:
             d = strikes[0].get("dist", 0)
-            return (f"A strike {d} blocks away through binoculars: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
-                    f"Удар в {d} блоках в бинокль: сначала вспышка, звук — через {strikes[0].get('boom_after_s', 0)} с.")
+            return (f"A strike {d} blocks away: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
+                    f"Удар в {d} блоках: сначала вспышка, звук — через {strikes[0].get('boom_after_s', 0)} с.")
         ds = [str(x.get("dist", 0)) for x in strikes]
-        return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away through binoculars: each flash comes before its sound.",
-                f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках в бинокль: каждая вспышка раньше своего звука.")
+        return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away: each flash comes before its sound.",
+                f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках: каждая вспышка раньше своего звука.")
+    if n.get("no_launch"):
+        return ("A nuclear strike: flash, shock wave and mushroom cloud.", "Ядерный удар: вспышка, ударная волна и гриб.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
+
+
+def shown(cand: dict, kept: list[dict]) -> dict:
+    """Числа кандидата для подписи — только о планах, которые вошли в ролик (план глазами одного игрока бывает слит из
+    нескольких: `drones-0-flyby+shootdown`)."""
+    n = dict(cand.get("numbers", {}))
+    has = lambda part: any(part in s["name"].rsplit("-", 1)[-1].split("+") for s in kept)  # noqa: E731
+    if not has("shootdown"):
+        n["shot_down"] = 0
+    if cand.get("preview", "") in ("drones", "rockets") and not has("impact"):
+        n["ground"] = 0
+    if not has("launch"):
+        n["no_launch"] = True
+    if n.get("strikes"):
+        # удары издалека — по одному на план far<i>, по порядку
+        n["strikes"] = [x for i, x in enumerate(n["strikes"]) if has(f"far{i + 1}")]
+    return {**cand, "numbers": n}
 
 
 def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lines: list[str], out: Path, a) -> list[str]:
@@ -176,7 +214,7 @@ def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lin
         text += f"Music: {a.credit}\n"
     (out / f"{cid}.txt").write_text(text)
     return [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
-            + ("" if 20 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
+            + ("" if 20 - 1 / 30 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
 
 
 def clip_spec(spec: str) -> tuple[str, Path]:
@@ -218,7 +256,7 @@ def main():
         aspect = plan["width"] / plan["height"]
         for cid in sorted(plan["previews"], key=lambda c: ORDER.index(c.split("-")[0]) if c.split("-")[0] in ORDER else 9):
             preview = cid.split("-")[0]
-            videos, lines, ok = [], [], True
+            videos, names, lines, ok, passed = [], [], [], True, []
             for name in plan["previews"][cid]:
                 b = best.get(name)
                 s = shots[name]
@@ -235,6 +273,8 @@ def main():
                 dark = [f for f in flashes if not f["seen"]]
                 ok &= bool(b.get("pass")) and not dark
                 videos.append(cand / "video.mkv")
+                names.append(name)
+                passed.append(bool(b.get("pass")))
                 lines.append(f"- {name}: камера {b.get('candidate')}, проверка кадров {'да' if b.get('pass') else 'НЕТ: ' + str(b.get('why'))}; "
                              f"кадров {verdict.get('frames')}, объект {verdict.get('approach', 0):.0%}, событий {verdict.get('keys_ok')}/{verdict.get('keys')}, "
                              f"громких в кадре {verdict.get('loud_on')}, за кадром {verdict.get('loud_off')}; "
@@ -242,7 +282,12 @@ def main():
             if not videos:
                 report += [f"## {cid}", "", *lines, ""]
                 continue
-            report += finish(cid, preview, cands.get(cid, {"weapon": "", "numbers": {}}), videos, ok, lines, out, a)
+            # план, не прошедший проверку кадров (объекта в кадре нет), в ролик не идёт, если в нём есть прошедшие
+            if any(passed) and not all(passed):
+                videos = [v for v, p in zip(videos, passed) if p]
+                names = [n for n, p in zip(names, passed) if p]
+                lines.append(f"- в ролик не вошли планы без проверки кадров: {passed.count(False)}")
+            report += finish(cid, preview, shown(cands.get(cid, {"weapon": "", "numbers": {}}), [shots[n] for n in names]), videos, ok, lines, out, a)
     for name, video in a.clip:
         report += finish(name, name, {"weapon": "", "numbers": {}}, [video], True,
                          [f"- снят не из повтора: {video} (проверка кадров — его съёмки)"], out, a)

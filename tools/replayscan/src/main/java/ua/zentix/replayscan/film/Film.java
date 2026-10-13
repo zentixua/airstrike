@@ -5,10 +5,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -17,6 +19,7 @@ import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,9 +37,11 @@ import java.util.stream.Stream;
  * Съёмка по плану ({@code -Dreplayscan.film=<план>}, README.md): клиент открывает повтор, и для каждого плана ставит
  * камеры-кандидаты (глаза игрока, неподвижная, штатив по кругу), оценивает их по миру повтора ({@link Cameras#score}),
  * выводит лучшие по очереди видео Flashback с проверкой каждого кадра ({@link FrameLog}); первый, прошедший проверку, —
- * план; не прошёл ни один — в итоге лучший из выведенных с причинами. Перед выводом зритель проходит путь камеры
- * (секции мира строятся там, куда камера посмотрит), стоит у начала, пока мир не построен, и повтор идёт по тику
- * {@code warm} тиков до начала — дым и огонь прежних ударов в кадре, как в игре.
+ * план; не прошёл ни один — в итоге лучший из выведенных с причинами. Оценке нужен мир у камер: зритель сперва стоит у
+ * глаза неподвижной камеры плана (дальний план — за чанками повтора, его камера — в них), без неё — у главного места.
+ * Перед выводом зритель проходит путь камеры (секции мира строятся там, куда камера посмотрит), стоит у начала, пока мир
+ * не построен, и повтор идёт по тику {@code warm} тиков до начала — дым и огонь прежних ударов в кадре, как в игре;
+ * с Distant Horizons вывод ждёт ещё, пока текстуры DH не в размере кадра ({@link DhDepth}).
  * <p>
  * Вывод: {@code <out>/<план>/<камера>/} — {@code video.mkv}, {@code state.json} (состояние редактора), {@code qa.jsonl},
  * {@code sounds.jsonl}, {@code verdict.json}; {@code <out>/report.jsonl} — каждый выведенный кандидат,
@@ -80,10 +85,12 @@ public final class Film {
     @Nullable
     private UUID povId;
     private int poseAt, stepped, reachedAt, seenAt, progressAt;
+    /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
+    private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
 
     private record Scored(Cameras.Candidate c, Cameras.Score score) {}
 
-    private Film(Plan plan) {
+    private Film(Plan plan, IEventBus modBus) {
         this.plan = plan;
         aspect = (double) plan.width() / plan.height();
         best = readBest(plan.out().resolve("best.json"));
@@ -97,23 +104,36 @@ public final class Film {
             DhDepth.subscribe();
             LOG.info("Film: depth of Distant Horizons LODs checked in every frame");
         }
+        // пакеты зрителю повтора после входа — когда у клиента есть мир (до onTick: отпуск и OPENING — в одном тике)
+        ViewerHold.register(modBus);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
     }
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
-    public static void start(Path file) {
+    public static void start(Path file, IEventBus modBus) {
+        try {
+            Export.check();
+        } catch (ReflectiveOperationException | LinkageError e) {
+            LOG.error("Film: Flashback 0.39 is required ({})", e.toString());
+            exitWhenLoaded();
+            return;
+        }
         try {
             Plan plan = Plan.read(file);
             Files.createDirectories(plan.out());
-            new Film(plan);
-        } catch (IOException | RuntimeException e) {
-            LOG.error("Film: cannot read plan {}", file, e);
-            // клиент без окна сам не выйдет: выход, как только игра загрузилась
-            NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
-                if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
-            });
+            new Film(plan, modBus);
+        } catch (IOException | RuntimeException | LinkageError e) {
+            LOG.error("Film: cannot start with plan {}", file, e);
+            exitWhenLoaded();
         }
+    }
+
+    /** Клиент без окна сам не выйдет: выход, как только игра загрузилась. */
+    private static void exitWhenLoaded() {
+        NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
+            if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
+        });
     }
 
     /** План уже снят: в {@code best.json} прошёл проверку с теми же тиками и первым событием. */
@@ -181,16 +201,19 @@ public final class Film {
                 mc.options.pauseOnLostFocus = false;
                 mc.options.renderDistance().set(plan.distance());
                 mc.options.save();
+                levelBefore = new WeakReference<>(mc.level);
                 Export.open(plan.replay());
                 go(State.OPENING);
             }
             case OPENING -> {
-                if (mc.level != null && mc.player != null && Export.inReplay()) {
+                // мир повтора (не прежний), и его зритель прошёл вход — пакеты после входа ему
+                if (mc.level != null && mc.level != levelBefore.get() && mc.player != null && Export.inReplay()
+                        && ViewerHold.releasedFor(mc.getConnection())) {
                     // редактор Flashback не активен с интерфейсом — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);
                 } else if (waited() > OPEN_WAIT) {
-                    LOG.error("Film: replay {} did not open", plan.replay());
+                    LOG.error("Film: replay {} did not open (viewer packets: {})", plan.replay(), ViewerHold.state());
                     finish();
                 }
             }
@@ -205,8 +228,13 @@ public final class Film {
                 }
                 Vec3 k = shot.subject().anchor(shot.a(), shot.b());
                 Cameras.World w = new Cameras.World(Cameras.cloudHeight(plan));
-                if (k != null && !w.loaded(k) && waited() < WORLD_WAIT) {
-                    standAt(Cameras.Pose.look(k.add(0, 30, -30), k, 70));
+                // мир — у глаза неподвижной камеры, а у ближнего плана и у места: дальнее место за чанками повтора не
+                // появится, а у глаза оно не нужно
+                Plan.Camera fixed = shot.cameras().stream().filter(c -> c.kind().equals("fixed") && c.eye() != null).findFirst().orElse(null);
+                boolean ready = (fixed == null || w.loaded(fixed.eye())) && (k == null || shot.far() && fixed != null || w.loaded(k));
+                if (!ready && waited() < WORLD_WAIT) {
+                    if (fixed != null) standAt(Cameras.Pose.look(fixed.eye(), fixed.aim() != null ? fixed.aim() : k != null ? k : fixed.eye().add(0, 0, 1), 70));
+                    else standAt(Cameras.Pose.look(k.add(0, 30, -30), k, 70));
                     return;
                 }
                 solve(w);
@@ -222,7 +250,7 @@ public final class Film {
                         return;
                     }
                     if (ticks - poseAt < Math.max(POSE_MIN, shot.hold()) || !built() && ticks - poseAt < POSE_MAX) return;
-                    go(State.WARMING);
+                    warm();
                     return;
                 }
                 standAt(standing);
@@ -235,7 +263,7 @@ public final class Film {
                     poseAt = ticks;
                     return;
                 }
-                go(State.WARMING);
+                warm();
             }
             case WARMING -> {
                 // повтор вживую по тику до начала плана, как идёт сам вывод: события модов живые (дым, столбы, огонь);
@@ -266,8 +294,10 @@ public final class Film {
                     reachedAt = ticks;
                     return;
                 }
-                if (at > shot.a()) LOG.warn("Film: {}: replay went past the start ({} > {}), export will seek", shot.name(), at, shot.a());
-                else if (!built() && ticks - reachedAt < POSE_MAX) return;
+                boolean past = at > shot.a(), waiting = ticks - reachedAt < POSE_MAX;
+                if (waiting && (!past && !built() || dhAtFrame())) return;
+                if (past) LOG.warn("Film: {}: replay went past the start ({} > {}), export will seek", shot.name(), at, shot.a());
+                if (dhAtFrame()) LOG.warn("Film: {}: Distant Horizons textures are still {}x{}, the frame size, after {} ticks", shot.name(), plan.width(), plan.height(), POSE_MAX);
                 export();
             }
             case EXPORTING -> {
@@ -291,6 +321,20 @@ public final class Film {
         }
     }
 
+    /** Живой повтор до начала плана; ожидание мира и текстур DH у начала считается отсюда. */
+    private void warm() {
+        reachedAt = ticks;
+        go(State.WARMING);
+    }
+
+    /**
+     * Текстуры Distant Horizons — в размере кадра плана: вывод в этом размере не пересоздаст их, и Iris оставит LOD глубину
+     * мира ({@link DhDepth}). Они в нём после прошлого вывода, пока DH не нарисует LOD в окне.
+     */
+    private boolean dhAtFrame() {
+        return FrameLog.DH && DhDepth.textureIs(plan.width(), plan.height());
+    }
+
     // ================================================================ планы и кандидаты
 
     private void nextShot() {
@@ -310,7 +354,10 @@ public final class Film {
         LOG.info("Film: shot {} ticks {}..{}, first event {}", shot.name(), shot.a(), shot.b(), key);
     }
 
-    /** Кандидаты всех камер плана и их оценка; камеры плана (глаза игрока, неподвижная) — первыми, дальше — по оценке. */
+    /**
+     * Кандидаты всех камер плана и их оценка; сперва те, что по оценке пройдут проверку, в них — камеры плана (глаза
+     * игрока, неподвижная), потом штативы, по итогу оценки; потом так же не прошедшие.
+     */
     private void solve(Cameras.World w) {
         List<Scored> designed = new ArrayList<>(), rest = new ArrayList<>();
         for (Plan.Camera cam : shot.cameras()) {
@@ -319,15 +366,21 @@ public final class Film {
                 (c.designed() ? designed : rest).add(s);
             }
         }
-        rest.sort(Comparator.comparingDouble(s -> -s.score.total()));
+        Comparator<Scored> order = Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparingDouble(s -> -s.score.total());
+        designed.sort(order);
+        rest.sort(order);
         StringBuilder sb = new StringBuilder();
-        for (Scored s : rest.subList(0, Math.min(8, rest.size()))) {
-            sb.append(String.format(Locale.ROOT, "\n  %-32s %.3f (approach %.2f, event %.2f, after %.2f, size %.3f, smoke %.2f) %s", s.c.name(),
-                    s.score.total(), s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.score.why()));
+        for (Scored s : Stream.concat(designed.stream(), rest.stream().limit(8)).toList()) {
+            sb.append(String.format(Locale.ROOT, "\n  %-32s %.3f %s (approach %.2f, near %.2f, events %.2f, after %.2f, size %.3f, smoke %.2f) %s",
+                    s.c.name(), s.score.total(), s.score.pass() ? "pass" : "fail", s.score.approach(), s.score.near(), s.score.keys(), s.score.after(),
+                    s.score.size(), s.score.smoke(), s.score.why()));
         }
         LOG.info("Film: {}: {} designed and {} scored cameras, best:{}", shot.name(), designed.size(), rest.size(), sb);
         candidates.clear();
-        Stream.concat(designed.stream(), rest.stream()).filter(s -> s.score.total() > 0).limit(plan.tries()).forEach(candidates::add);
+        // неподвижная камера плана, которая по оценке не пройдёт, не занимает места штатива, который пройдёт
+        Stream.concat(designed.stream(), rest.stream())
+                .sorted(Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparing(s -> !s.c.designed()).thenComparingDouble(s -> -s.score.total()))
+                .filter(s -> s.score.total() > 0).limit(plan.tries()).forEach(candidates::add);
         if (candidates.isEmpty()) {
             fail("no camera scored above zero");
             return;

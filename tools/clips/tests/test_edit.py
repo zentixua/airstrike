@@ -92,6 +92,19 @@ class EditTest(unittest.TestCase):
                 self.run_edit(root, "--clip", spec)
         self.assertFalse((root / "previews" / "rockets-0.mp4").exists(), "до проверки --clip ничего не собрано")
 
+    def test_failed_shot_left_out(self):
+        root = self.build(flash=True)
+        best = json.loads((root / "film" / "best.json").read_text())
+        best["rockets-0-launch"]["pass"] = False
+        (root / "film" / "best.json").write_text(json.dumps(best))
+        report = self.run_edit(root)
+        self.assertIn("в ролик не вошли планы без проверки кадров: 1", report)
+        self.assertAlmostEqual(edit.duration(root / "previews" / "rockets-0.mp4"), 3, delta=0.2, msg="только прошедший план")
+        text = (root / "previews" / "rockets-0.txt").read_text()
+        self.assertIn("flight and impacts", text)
+        self.assertNotIn("launch", text, "подпись — без пуска, которого нет")
+        self.assertNotIn("пуск", text)
+
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
         best = json.loads((root / "film" / "best.json").read_text())
@@ -105,8 +118,28 @@ class EditTest(unittest.TestCase):
         en, ru = edit.caption("far", {"weapon": "missile+grad", "numbers": {"strikes": [{"dist": 400}, {"dist": 650}, {"dist": 900}]}})
         self.assertIn("Strikes 400, 650 and 900 blocks away", en)
         self.assertIn("Удары в 400, 650 и 900 блоках", ru)
+        far = edit.shown({"preview": "far", "weapon": "grad", "numbers": {"strikes": [{"dist": 875}, {"dist": 579}, {"dist": 1075}]}},
+                         [{"name": "far-0-far1"}, {"name": "far-0-far3"}])
+        self.assertEqual(edit.caption("far", far)[0], "Strikes 875 and 1075 blocks away: each flash comes before its sound.",
+                         "удара плана, не вошедшего в ролик, в подписи нет")
+        en, ru = edit.caption("rockets", {"weapon": "grad", "numbers": {}})
+        self.assertTrue(ru.startswith("«Град»: пуск"), ru)
+        en, ru = edit.caption("nuke", edit.shown({"preview": "nuke", "weapon": "icbm", "numbers": {}}, [{"name": "nuke-0-burst"}]))
+        self.assertEqual(en, "A nuclear strike: flash, shock wave and mushroom cloud.", "пуска в ролике нет")
         en, ru = edit.caption("chaos", {"weapon": "grad", "numbers": {"ground": 21, "seconds": 20}})
         self.assertEqual(ru, "Ударов по земле за 20 секунд: 21. Одна камера.")
+        en, ru = edit.caption("drones", {"weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}})
+        self.assertEqual(en, "Shahed drones over the players: one is shot down, the rest hit the streets nearby.")
+        self.assertEqual(ru, "Шахеды над игроками: один сбивают, остальные бьют по соседним улицам.")
+        cand = {"preview": "drones", "weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}}
+        merged = edit.shown(cand, [{"name": "drones-0-shootdown+impact"}])
+        self.assertEqual(merged["numbers"]["ground"], 3, "удар — в плане, слитом со сбитием")
+        alone = edit.shown(cand, [{"name": "drones-0-shootdown"}])
+        self.assertEqual(alone["numbers"]["ground"], 0, "удара в ролике нет")
+        en, ru = edit.caption("drones", edit.shown(cand, [{"name": "drones-0-flyby"}]))
+        self.assertEqual(en, "Shahed drones fly low over the players.", "ни сбития, ни удара в ролике — о них ни слова")
+        en, ru = edit.caption("rockets", edit.shown({"preview": "rockets", "weapon": "grad", "numbers": {"ground": 8}}, [{"name": "rockets-0-launch"}]))
+        self.assertEqual(en, "Grad rockets: launch and flight.")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху

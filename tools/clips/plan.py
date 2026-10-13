@@ -24,12 +24,16 @@ import replaydb  # noqa: E402
 from moments import incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
-# за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен
+# за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен; громких
+# за кадром не больше `loud` на одно в кадре (по умолчанию 1)
 NEED = {
     "launch": {"subject": 0.6, "near": 0, "keys": 1, "share": 0.004},
     "flight": {"subject": 0.5, "near": 0, "keys": 1, "share": 0.004, "engine": 0.3},
     "impact": {"subject": 0.4, "near": 0.5, "keys": 1, "share": 0.004},
-    "chaos": {"subject": 0, "near": 0, "keys": 0.7, "share": 0},
+    # глазами игрока, который сбивает: дрон в кадре не всё время до сбития, вокруг идёт бой — взрывы за кадром слышны
+    "shootdown": {"subject": 0.25, "near": 0, "keys": 1, "share": 0.004, "loud": 3},
+    # хаос — много ударов сразу: превью хватает половины видных
+    "chaos": {"subject": 0, "near": 0, "keys": 0.5, "share": 0},
     "far": {"subject": 0, "near": 0, "keys": 1, "share": 0},
     "nuke": {"subject": 0, "near": 0, "keys": 1, "share": 0},
 }
@@ -60,23 +64,32 @@ def dim_of(con, shot: dict) -> str:
 
 
 def cameras(shot: dict) -> list[dict]:
-    """Камеры плана: глаза игрока (с запасной свободной камерой у удара и пуска) или свободная камера по роду."""
+    """Камеры плана: глаза игрока (с запасной свободной камерой у удара, сбития, пуска и хаоса) или свободная камера
+    по роду."""
     cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
     keys = s.get("keys", [])
     if cam["kind"] == "pov":
         out = [{"kind": "pov", "player": cam["viewer"], "fov": 70}]
-        if kind == "impact" and keys:
+        if kind in ("impact", "shootdown") and keys:
             out.append({"kind": "tripod", "around": keys[0]["pos"], "dist": [60, 90, 130], "elev": [6, 16, 28], "share": 0.3,
                         "follow": True, "size": keys[0]["size"]})
+        if kind == "chaos" and keys:
+            # запасная — широкий план над ударами окна
+            xs, zs = [k["pos"][0] for k in keys], [k["pos"][2] for k in keys]
+            centre = [sum(xs) / len(xs), sum(k["pos"][1] for k in keys) / len(keys), sum(zs) / len(zs)]
+            spread = max(max(xs) - min(xs), max(zs) - min(zs)) / 2
+            out.append({"kind": "tripod", "around": centre, "dist": [max(90, 2.5 * spread), max(140, 3.5 * spread)],
+                        "elev": [12, 25, 40], "share": 0.85, "follow": False, "size": 2 * spread + 30})
         if kind == "launch" and s.get("launch"):
             out.append({"kind": "tripod", "around": s["launch"], "dist": [35, 55, 80], "elev": [3, 10], "share": 0.15,
                         "follow": True, "size": 12})
         return out
     rig = cam.get("rig")
     # длинный объектив с места игрока: подрыв бывает за чанками повтора (ядерка вдали), место игрока — в них
-    lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": cam["lens"]["aim"], "fov": cam["lens"]["fov"]}] if cam.get("lens") else []
+    lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": cam["lens"]["aim"], "fov": cam["lens"]["fov"],
+             "rise": cam["lens"].get("rise", [0])}] if cam.get("lens") else []
     if rig == "lens":
-        return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"]}]
+        return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"], "rise": cam.get("rise", [0])}]
     if rig == "wide":
         spread = s.get("spread", 60)
         return [{"kind": "tripod", "around": s["centre"], "dist": cam["dist"], "elev": cam["elev"], "share": 0.85,
