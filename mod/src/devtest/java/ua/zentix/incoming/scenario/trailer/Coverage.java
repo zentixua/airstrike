@@ -32,9 +32,22 @@ final class Coverage {
     /**
      * Что план обязан показать (доли кадров, {@link FrameQa#verdict}): объект до удара в кадре и виден ({@code approach}),
      * то же за последнюю секунду до удара ({@code near}), удар в кадре и виден в первые 12 тиков ({@code key}), мотор
-     * объекта слышен до удара у камеры рядом с ним ({@code engine}, 0 — не нужен).
+     * объекта слышен до удара у камеры рядом с ним ({@code engine}, 0 — не нужен); кадров, где больше половины кадра
+     * за дымом, до удара не больше доли {@code smoky}: дым прежних ударов не должен закрывать то, что план показывает.
      */
-    record Need(double approach, double near, double key, double engine) {
+    record Need(double approach, double near, double key, double engine, double smoky) {
+        /** Кадров в дыму — не больше четверти плана. */
+        static final double SMOKY = 0.25;
+
+        Need(double approach, double near, double key, double engine) {
+            this(approach, near, key, engine, SMOKY);
+        }
+
+        /** Дым и пыль во весь кадр — и есть то, что план показывает (ядерный подрыв, стена волны). */
+        Need smokeIsSubject() {
+            return new Need(approach, near, key, engine, 1);
+        }
+
         /** Снаряд ведётся весь план и входит в цель. */
         static final Need STRIKE = new Need(0.6, 0.75, 0.7, 0.6);
         /** Снаряд мелькает (проходит над камерой, из-за спины): главное — удар, перед ним снаряд хоть мельком. */
@@ -141,12 +154,12 @@ final class Coverage {
         own("p41", Rig.flight("nuke", 0), false, LAUNCH);
         own("p42", Rig.flight("nuke", 0), false, new Need(0.7, 0, 0, 0));
         own("p44", Rig.scene(), false, SCENE);
-        own("p45", Rig.nuke(300), false, SCENE);
-        own("p46", Rig.nuke(300), false, SCENE);
-        own("p47", Rig.scene(), false, SCENE);
-        own("p48", Rig.scene(), false, SCENE);
-        own("p49", Rig.scene(), false, SCENE);
-        own("p50", Rig.scene(), false, SCENE);
+        own("p45", Rig.nuke(300), false, SCENE.smokeIsSubject());
+        own("p46", Rig.nuke(300), false, SCENE.smokeIsSubject());
+        own("p47", Rig.scene(), false, SCENE.smokeIsSubject());
+        own("p48", Rig.scene(), false, SCENE.smokeIsSubject());
+        own("p49", Rig.scene(), false, SCENE.smokeIsSubject());
+        own("p50", Rig.scene(), false, SCENE.smokeIsSubject());
     }
 
     private Coverage() {}

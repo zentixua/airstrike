@@ -411,9 +411,9 @@ public final class ReplayFilm {
         qa = null;
         int frames = renumber(candDir.resolve("frames").resolve(spec.shot()));
         FrameQa.Verdict v = q.verdict(spec.minShare(), spec.need(), current.c.close());
-        Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film verdict %s %s: %s, %d frames (%d checked): мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f %s",
+        Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film verdict %s %s: %s, %d frames (%d checked): мир %.2f, подлёт %.2f, перед ударом %.2f, удар %.2f, мотор %.2f, в дыму %.2f %s",
                 spec.shot(), current.c.name(), v.pass() ? "PASS" : "FAIL", frames, q.frames().size(), v.ready(), v.approach(), v.nearHit(), v.atKey(),
-                v.engine(), v.why()));
+                v.engine(), v.smoky(), v.why()));
         report(current, v, v.why());
         if (bestTry == null || rank(v) > rank(bestVerdict)) {
             bestTry = current;
@@ -456,7 +456,7 @@ public final class ReplayFilm {
     }
 
     private static double rank(FrameQa.Verdict v) {
-        return v.ready() + v.approach() + v.nearHit() + v.atKey() + v.engine() * 0.5;
+        return v.ready() + v.approach() + v.nearHit() + v.atKey() + v.engine() * 0.5 + (1 - v.smoky()) * 0.5;
     }
 
     /** Flashback нумерует кадры с 1, живая запись и монтаж — с 0. */
@@ -556,6 +556,7 @@ public final class ReplayFilm {
             o.addProperty("near_hit", v.nearHit());
             o.addProperty("at_key", v.atKey());
             o.addProperty("engine", v.engine());
+            o.addProperty("smoky", v.smoky());
         } else {
             o.addProperty("pass", false);
         }

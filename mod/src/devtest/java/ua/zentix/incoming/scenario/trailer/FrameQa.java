@@ -29,23 +29,29 @@ import java.util.Locale;
 /**
  * Проверка каждого кадра вывода по данным игры, а не на глаз: в момент отрисовки кадра (конец мира) — где объект плана
  * на экране и какой он долей высоты кадра, закрыт ли он блоками (лучи к середине и краям) и дымом слоя эффектов
- * ({@link FxPool#transmittance}), все ли секции мира у камеры построены, слышен ли мотор объекта. Строка JSON на кадр —
- * {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
+ * ({@link FxPool#transmittance}), какая доля кадра за дымом, все ли секции мира у камеры построены, слышен ли мотор
+ * объекта. Строка JSON на кадр — {@code qa.jsonl}; итог плана ({@link #verdict}) — по порогам, без просмотра кадров.
  */
 final class FrameQa {
     /**
      * Кадр: время (тик повтора с долей), всё построено, объект в кадре (с полями), где он (−1…1), доля высоты, видимая доля,
-     * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора.
+     * свет сквозь дым, облака, туман у края прорисовки, секция объекта построена, громкость мотора, доля кадра за дымом.
      */
     record Frame(double t, boolean ready, boolean in, double x, double y, double share, double seen, double clear, boolean cloud,
-                 boolean far, boolean drawn, double engine, boolean subjectFromEntity) {
+                 boolean far, boolean drawn, double engine, boolean subjectFromEntity, double smoke) {
         /** Объект снят: в кадре, виден, не в облаках и не в тумане, его секция построена (если мир проверяется). */
         boolean visible() {
             return in && seen >= 0.4 && !cloud && !far && (READY <= 0 || drawn);
         }
     }
 
-    record Verdict(boolean pass, String why, double ready, double approach, double nearHit, double atKey, double engine) {}
+    /** {@code smoky} — доля кадров плана до удара (без удара — всех), где больше половины кадра за дымом. */
+    record Verdict(boolean pass, String why, double ready, double approach, double nearHit, double atKey, double engine, double smoky) {}
+
+    /** Кадр за дымом: больше этой доли лучей сетки {@link #smokeShare} (5 из 9). */
+    static final double SMOKY_FRAME = 0.5;
+    /** Сетка лучей дыма — в долях полукадра от середины. */
+    private static final double GRID = 0.6;
 
     /**
      * Доля кадров с построенным миром, ниже которой план не годится. Облако (llvmpipe, без Sodium) строит секции
@@ -171,8 +177,9 @@ final class FrameQa {
                 // сущность в непостроенной секции игра не рисует (LevelRenderer: isSectionCompiled), стену цели — тоже
                 BlockPos bp = BlockPos.containing(aim);
                 drawn = mc.level.isOutsideBuildHeight(bp) || mc.levelRenderer.isSectionCompiled(bp);
-                // дым — только до удара: после него в кадре и должен быть огонь и дым самого удара
-                if (s.key < 0 || t < s.key) clear = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);
+                // дым на луче к объекту; частицы ближе size·2+4 к нему не в счёт: у удара это его же огонь и дым
+                // (поперечник — шар удара), а дым прежних ударов между камерой и ударом закрывает и сам удар
+                clear = FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, size * 2 + 4);
             }
         }
         double engine = 0;
@@ -182,19 +189,42 @@ final class FrameQa {
             }
         }
         boolean ready = mc.levelRenderer.hasRenderedAllSections();
-        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity);
+        double smoke = smokeShare(mc, cam, eye, tanX, tanY);
+        Frame fr = new Frame(t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke);
         frames.add(fr);
         sound.frame(t - start, cam);
         while (!marks.isEmpty() && marks.peekFirst().t() <= t) sound.mark(marks.pollFirst().what());
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,\"far\":%b,"
-                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
-                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, eye.x, eye.y, eye.z, cam.getYRot(), cam.getXRot(),
-                    Math.toDegrees(2 * Math.atan(tanY))));
+                            + "\"drawn\":%b,\"engine\":%.3f,\"entity\":%b,\"smoke\":%.2f,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.1f}\n",
+                    t, ready, in, x, y, share, seen, clear, cloud, far, drawn, engine, fromEntity, smoke, eye.x, eye.y, eye.z, cam.getYRot(),
+                    cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
+    }
+
+    /**
+     * Доля кадра за дымом слоя эффектов: девять лучей сеткой (±{@link #GRID} полукадра) до первого блока, а мимо блоков —
+     * до тумана у края прорисовки ({@link Rig#FOG}); луч за дымом, если сквозь дым проходит меньше половины света.
+     */
+    private static double smokeShare(Minecraft mc, Camera cam, Vec3 eye, double tanX, double tanY) {
+        Vector3f f = cam.getLookVector(), u = cam.getUpVector(), l = cam.getLeftVector();
+        double reach = Rig.FOG * mc.gameRenderer.getRenderDistance();
+        int behind = 0;
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                // точка кадра (x вправо, y вверх): вправо — против левого вектора камеры
+                double rx = i * GRID * tanX, ry = j * GRID * tanY;
+                Vec3 dir = new Vec3(f.x() - rx * l.x() + ry * u.x(), f.y() - rx * l.y() + ry * u.y(), f.z() - rx * l.z() + ry * u.z()).normalize();
+                Vec3 end = eye.add(dir.scale(reach));
+                var hit = mc.level.clip(new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+                if (hit.getType() != HitResult.Type.MISS) end = hit.getLocation();
+                if (FxPool.INSTANCE.transmittance(eye.x, eye.y, eye.z, end.x, end.y, end.z, 0) < 0.5) behind++;
+            }
+        }
+        return behind / 9.0;
     }
 
     void close() {
@@ -210,13 +240,14 @@ final class FrameQa {
     /**
      * Итог по кадрам: мир построен (≥ {@link #READY} кадров и первые 10 — все); до удара объект в кадре, виден, не в дыму,
      * облаках и тумане у края прорисовки, в построенной секции и не мельче {@code minShare} высоты кадра — не меньше долей {@code need} за всё время до удара и за последнюю
-     * секунду; удар в кадре и виден в первые 12 тиков; мотор (если нужен и {@code close}) слышен до удара.
+     * секунду; удар в кадре, виден и не за дымом прежних ударов в первые 12 тиков; мотор (если нужен и {@code close}) слышен до удара;
+     * кадров, где больше половины кадра за дымом, до удара — не больше доли {@code need.smoky()}.
      */
     Verdict verdict(double minShare, Coverage.Need need, boolean close) {
         int n = frames.size();
-        if (n == 0) return new Verdict(false, "нет кадров", 0, 0, 0, 0, 0);
+        if (n == 0) return new Verdict(false, "нет кадров", 0, 0, 0, 0, 0, 0);
         int ready = 0, firstReady = 0;
-        int pre = 0, preOk = 0, near = 0, nearOk = 0, key = 0, keyOk = 0, eng = 0;
+        int pre = 0, preOk = 0, near = 0, nearOk = 0, key = 0, keyOk = 0, eng = 0, smoky = 0;
         for (int i = 0; i < n; i++) {
             Frame f = frames.get(i);
             if (f.ready) ready++;
@@ -225,6 +256,7 @@ final class FrameQa {
             if (s.key < 0 || f.t < s.key) {
                 pre++;
                 if (good) preOk++;
+                if (f.smoke > SMOKY_FRAME) smoky++;
                 if (f.engine >= 0.02) eng++;
                 if (s.key >= 0 && f.t >= s.key - 20) {
                     near++;
@@ -232,17 +264,19 @@ final class FrameQa {
                 }
             } else if (f.t <= s.key + 12) {
                 key++;
-                if (f.visible()) keyOk++;
+                if (f.visible() && f.clear >= 0.5) keyOk++;
             }
         }
         double rReady = (double) ready / n, approach = pre == 0 ? 1 : (double) preOk / pre, nearHit = near == 0 ? 1 : (double) nearOk / near;
         double atKey = key == 0 ? (s.key < 0 ? 1 : 0) : (double) keyOk / key, engine = pre == 0 ? 1 : (double) eng / pre;
+        double rSmoky = pre == 0 ? 0 : (double) smoky / pre;
         StringBuilder why = new StringBuilder();
         if (READY > 0 && (rReady < READY || firstReady < Math.min(10, n))) why.append(String.format(Locale.ROOT, "мир достраивается в кадре (%.0f%%); ", 100 * (1 - rReady)));
         if (approach < need.approach()) why.append(String.format(Locale.ROOT, "объект виден %.0f%% кадров до удара; ", 100 * approach));
         if (nearHit < need.near()) why.append(String.format(Locale.ROOT, "в последнюю секунду до удара виден %.0f%%; ", 100 * nearHit));
         if (atKey < need.key()) why.append(String.format(Locale.ROOT, "удар виден %.0f%%; ", 100 * atKey));
         if (close && engine < need.engine()) why.append(String.format(Locale.ROOT, "мотор слышен %.0f%%; ", 100 * engine));
-        return new Verdict(why.isEmpty(), why.toString().trim(), rReady, approach, nearHit, atKey, engine);
+        if (rSmoky > need.smoky()) why.append(String.format(Locale.ROOT, "кадр в дыму %.0f%% до удара; ", 100 * rSmoky));
+        return new Verdict(why.isEmpty(), why.toString().trim(), rReady, approach, nearHit, atKey, engine, rSmoky);
     }
 }
