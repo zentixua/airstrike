@@ -236,6 +236,19 @@ final class War {
         return false;
     }
 
+    /** Тревога у цели крылатой ракеты — за столько секунд до удара ({@code WeaponSpec.MISSILE}). */
+    static final double MISSILE_SIREN_S = WeaponType.MISSILE.spec().sirenLead() / 20.0;
+
+    /**
+     * Секунд до удара ближайшего снаряда этого оружия с целью ближе {@code r} к точке; нет такого — бесконечность.
+     * Ракета летит не короче заданного времени (обходом), поэтому момент тревоги по расстоянию не угадать.
+     */
+    static double flightEta(Vec3 p, double r, WeaponType weapon) {
+        double best = Double.POSITIVE_INFINITY;
+        for (var f : ClientFlights.all()) if (f.weapon() == weapon && f.target().distanceTo(p) < r) best = Math.min(best, f.etaSeconds(1));
+        return best;
+    }
+
     /** То же по горизонтали: снаряд над точкой на любой высоте. */
     static boolean flightOver(Vec3 p, double r) {
         for (var f : ClientFlights.all()) {
@@ -402,7 +415,7 @@ final class War {
                 .onReady(() -> salvo("missile", 4, 30, hit, new Vec3(1500, 0, 300)))
                 .player(t -> new Pose(Vec3.ZERO, Film.yawTo(AVENUE, hit) - 25 + (float) CineCamera.smooth(t / 110) * 30,
                         -30 + (float) CineCamera.smooth(t / 110) * 12, 0, 70))
-                .when(() -> flightNear(at(hit), 1360, WeaponType.MISSILE), 3000);
+                .when(() -> flightEta(at(hit), 60, WeaponType.MISSILE) <= MISSILE_SIREN_S + 1.5, 3000);  // тревога — через 1,5 с
 
         // p15: люди бегут к спуску в метро, FPV ныряет за ними вниз по лестнице
         hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);

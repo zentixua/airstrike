@@ -971,7 +971,7 @@ class SoundBank:
             index = json.load(open(os.path.join(root, "indexes", conf["asset_index"] + ".json")))["objects"]
             self.vanilla = {k: os.path.join(root, "objects", v["hash"][:2], v["hash"]) for k, v in index.items()}
         else:
-            print(f"  ! нет {props} (собрать мод: ./gradlew build) — ванильные звуки не будут слышны")
+            print(f"  ! нет {props} (./gradlew downloadAssets — индекс ресурсов игры; ./gradlew build его не пишет) — ванильные звуки не будут слышны")
         self.cache = {}
 
     def load(self, loc):
