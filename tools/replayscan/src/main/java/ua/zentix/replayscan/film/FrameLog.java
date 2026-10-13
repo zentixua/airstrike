@@ -47,18 +47,22 @@ final class FrameLog {
     @Nullable
     private final UUID pov;
     private final Smoke smoke;
+    /** Путь камеры плана (у глаз игрока — нет): крен кадра. */
+    @Nullable
+    private final Cameras.Path path;
     private final Sounds sounds;
     private final Writer out;
     private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside, lowOut;
     private final int[] keyN, keyOk;
     private int entityId = -1;
 
-    FrameLog(Subject s, Plan.Shot shot, Plan plan, @Nullable UUID pov, Smoke smoke, Path dir) throws IOException {
+    FrameLog(Subject s, Plan.Shot shot, Plan plan, @Nullable UUID pov, @Nullable Cameras.Path path, Smoke smoke, Path dir) throws IOException {
         this.s = s;
         this.shot = shot;
         this.ready = plan.ready();
         this.pov = pov;
         this.smoke = smoke;
+        this.path = path;
         Minecraft mc = Minecraft.getInstance();
         clouds = Cameras.cloudHeight(plan);
         keyN = new int[s.keys.size()];
@@ -81,11 +85,12 @@ final class FrameLog {
         Minecraft mc = Minecraft.getInstance();
         Camera cam = e.getCamera();
         Vec3 eye = cam.getPosition();
-        // копии: векторы камеры — её живые поля
-        Vec3 fwd = vec(cam.getLookVector()), up = vec(cam.getUpVector()), right = vec(cam.getLeftVector()).scale(-1);
+        // копии: векторы камеры — её живые поля; крен ключа Flashback кладёт поверх них (Cameras.View.rolled)
         Matrix4f proj = e.getProjectionMatrix();
         double tanY = 1 / proj.m11(), tanX = 1 / proj.m00();
-        Cameras.View view = new Cameras.View(eye, fwd, right, up, tanX, tanY);
+        Cameras.View view = new Cameras.View(eye, vec(cam.getLookVector()), vec(cam.getLeftVector()).scale(-1), vec(cam.getUpVector()), tanX, tanY)
+                .rolled(path == null ? 0 : path.roll(t));
+        Vec3 fwd = view.fwd(), up = view.up(), right = view.right();
         sounds.camera(eye, fwd, right, up, tanX, tanY);
         float partial = e.getPartialTick().getGameTimeDeltaPartialTick(false);
         int first = s.firstKey();

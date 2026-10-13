@@ -219,14 +219,23 @@ def direction(yaw: float, pitch: float) -> tuple[float, float, float]:
     return -math.sin(y) * math.cos(p), -math.sin(p), math.cos(y) * math.cos(p)
 
 
-def frame(cam: tuple, tan_x: float, tan_y: float, p) -> tuple[float, float] | None:
-    """Место точки p в кадре камеры (x, y, z, курс, наклон): доли полукадра вправо и вверх; за камерой — None
-    (тот же кадр, что у вывода: Cameras.View)."""
-    x, y, z, yaw, pitch = cam
+def axes(yaw: float, pitch: float, roll: float = 0.0) -> tuple[tuple, tuple, tuple]:
+    """Вперёд, вправо и вверх камеры; крен — градусы, плюс — влево, как у ключа Flashback (Cameras.View.rolled)."""
     fwd = direction(yaw, pitch)
     yr = math.radians(yaw)
     right = (-math.cos(yr), 0.0, -math.sin(yr))
     up = (right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0])
+    if roll:
+        c, s = math.cos(math.radians(roll)), math.sin(math.radians(roll))
+        right, up = tuple(right[i] * c + up[i] * s for i in range(3)), tuple(up[i] * c - right[i] * s for i in range(3))
+    return fwd, right, up
+
+
+def frame(cam: tuple, tan_x: float, tan_y: float, p) -> tuple[float, float] | None:
+    """Место точки p в кадре камеры (x, y, z, курс, наклон[, крен]): доли полукадра вправо и вверх; за камерой — None
+    (тот же кадр, что у вывода: Cameras.View)."""
+    x, y, z, yaw, pitch, *roll = cam
+    fwd, right, up = axes(yaw, pitch, roll[0] if roll else 0.0)
     d = (p[0] - x, p[1] - y, p[2] - z)
     depth = sum(u * v for u, v in zip(d, fwd))
     if depth <= 0.1:
@@ -241,9 +250,9 @@ def bearing(eye, p) -> tuple[float, float, float]:
     return math.degrees(math.atan2(-dx, dz)), math.degrees(math.atan2(-dy, flat)), math.hypot(flat, dy)
 
 
-def in_view(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, p, safe: float = 0.85) -> bool:
+def in_view(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, p, safe: float = 0.85, roll: float = 0.0) -> bool:
     """Точка в кадре с полями (доля полукадра safe, как у оценки камер съёмки: Cameras.SAFE)."""
-    c = frame((*eye, yaw, pitch), tan_x, tan_y, p)
+    c = frame((*eye, yaw, pitch, roll), tan_x, tan_y, p)
     return c is not None and abs(c[0]) <= safe and abs(c[1]) <= safe
 
 
@@ -263,14 +272,12 @@ def aim_flight(eye, rel: list[tuple], look: float, turn: float, tan_x: float, ta
     return look + best, pitch
 
 
-def ground_points(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, ground: float, near: float) -> list[tuple]:
+def ground_points(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, ground: float, near: float,
+                  roll: float = 0.0) -> list[tuple]:
     """Где лучи нижней половины кадра (нижний край и середина её, слева, посередине, справа) встречают землю на высоте
     ground не дальше near блоков от глаза: там у повтора должны быть чанки (иначе — рельеф Distant Horizons без воды и
     пещеры или пусто)."""
-    fwd = direction(yaw, pitch)
-    yr = math.radians(yaw)
-    right = (-math.cos(yr), 0.0, -math.sin(yr))
-    up = (right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0])
+    fwd, right, up = axes(yaw, pitch, roll)
     out = []
     for sy in (-0.95, -0.5):
         for sx in (-0.9, 0.0, 0.9):
@@ -1019,11 +1026,11 @@ class Replay:
         """Чанк места q (x, y, z) у мира повтора в тик t."""
         return any(a <= t < b for a, b in seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), ()))
 
-    def fly_search(self, f: dict, path, aimed, missing, allhits: list, hit_t: list, tan_x: float) -> int:
-        """`search`: сдвиг пролёта во времени (тиков, кратно секунде), при котором он — в окне поиска, весь в чанках
-        повтора и в кадре больше всего ударов (потом — по земле). Сперва — грубо: удары окна в секторе взгляда
-        (`look` ± `turn` и полкадра) не дальше FLY_SEEN блоков; полностью — FLY_TOP лучших. Нет такого — 0."""
-        a0, b0 = f["a"], f["b"]
+    def fly_search(self, f: dict, a0: int, b0: int, focus0, path, aimed, missing, allhits: list, hit_t: list, tan_x: float) -> int:
+        """`search`: сдвиг пролёта [a0, b0] во времени (тиков, кратно секунде), при котором он — в окне поиска, весь в
+        чанках повтора и в кадре больше всего ударов (потом — по земле). Сперва — грубо: глаз в чанках, удары окна в
+        секторе взгляда (`look` ± `turn` и полкадра) не дальше FLY_SEEN блоков; полностью — FLY_TOP лучших, взгляд —
+        как у пролёта (`focus0` со сдвигом), поэтому найденное окно `fly` получает в чанках. Нет такого — 0."""
         s0, s1 = max(0, f["search"][0]), min(self.meta.get("total_ticks") or 10 ** 9, f["search"][1])
         half_x = math.degrees(math.atan(tan_x))
         rough = []
@@ -1035,16 +1042,14 @@ class Replay:
                 _, t, x, y, z, _ = allhits[i]
                 hyaw, _, d = bearing(eye(t), (x, y, z))
                 n += d <= self.FLY_SEEN and abs(wrap(hyaw - f["look"])) <= f["turn"] + half_x
-            rough.append((n, dt))
+            # глаз не в чанках — окно не годится: иначе лучшие грубые окна — все в налёте до того, как записавший там был
+            if n and not missing(eye, None, 0, start, start + b0 - a0, stop=True):
+                rough.append((n, dt))
         best = None
         for n, dt in sorted(rough, key=lambda r: (-r[0], abs(r[1])))[:self.FLY_TOP]:
-            if not n:
-                break
             eye = path(1.0, (0.0, 0.0), dt)
-            if missing(eye, None, 0, a0 + dt, b0 + dt, stop=True):
-                continue
-            _, yaw, pitch, shown = aimed(eye, a0 + dt, b0 + dt, None)
-            if missing(eye, yaw, pitch, a0 + dt, b0 + dt, stop=True):
+            _, yaw, pitch, shown = aimed(eye, a0 + dt, b0 + dt, (focus0[0] + dt, focus0[1] + dt) if focus0 else None)
+            if not shown or missing(eye, yaw, pitch, a0 + dt, b0 + dt, stop=True):
                 continue
             score = (len(shown), sum(r[3] == "ground" for r in shown))
             if best is None or score > best[0]:
@@ -1114,7 +1119,7 @@ class Replay:
             speed, shift, moved = 1.0, (0.0, 0.0), 0
             if f.get("search"):
                 # окно поиска — весь в чанках повтора: обход ниже (медленнее, сдвиг, другое время) ему не нужен
-                moved = self.fly_search(f, path, aimed, missing, allhits, hit_t, tan_x)
+                moved = self.fly_search(f, a0, b0, focus0, path, aimed, missing, allhits, hit_t, tan_x)
             eye = path(speed, shift, moved)
             rel, yaw, pitch, shown = aimed(eye, a0 + moved, b0 + moved, (focus0[0] + moved, focus0[1] + moved) if focus0 else None)
             lost = missing(eye, yaw, pitch, a0 + moved, b0 + moved)
@@ -1308,18 +1313,18 @@ class Replay:
                     pose = self.fpv_pose(h[2:5], head, side, a, d, f["speed"])
                     ok = True
                     for t in range(a, a + d + 1, TICK):
-                        eye, aim, _ = pose(t)
+                        eye, aim, roll = pose(t)
                         yaw, pitch, _ = bearing(eye, aim)
-                        if not all(self.seen_at(seen, q, t) for q in (eye, *ground_points(eye, yaw, pitch, tan_x, tan_y, h[3], self.FLY_NEAR))):
+                        if not all(self.seen_at(seen, q, t) for q in (eye, *ground_points(eye, yaw, pitch, tan_x, tan_y, h[3], self.FLY_NEAR, roll))):
                             ok = False
                             break
                     if not ok:
                         continue
                     framed = []
                     for o in around(h, a):
-                        eye, aim, _ = pose(o[1])
+                        eye, aim, roll = pose(o[1])
                         yaw, pitch, _ = bearing(eye, aim)
-                        if in_view(eye, yaw, pitch, tan_x, tan_y, o[2:5]):
+                        if in_view(eye, yaw, pitch, tan_x, tan_y, o[2:5], roll=roll):
                             framed.append(o)
                     score = (len(framed), sum(o[5] == "ground" for o in framed), -j)
                     if best is None or score > best[0]:

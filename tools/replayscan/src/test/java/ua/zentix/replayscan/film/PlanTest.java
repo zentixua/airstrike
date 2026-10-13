@@ -176,4 +176,15 @@ class PlanTest {
                 .getAsJsonObject("keyframesByTick");
         assertEquals(5, cam.getAsJsonObject("105").get("roll").getAsDouble(), 1e-6);
     }
+
+    @Test
+    void rollTiltsFrameLikeFlashback() {
+        // на юг, крен 30° влево: верх кадра клонится влево (на восток, +x), точка справа на горизонте — ниже середины
+        Cameras.View v = Cameras.View.of(new Cameras.Pose(Vec3.ZERO, 0, 0, 90), 1).rolled(30);
+        assertEquals(0.5, v.up().x, 1e-9);
+        assertEquals(Math.cos(Math.toRadians(30)), v.up().y, 1e-9);
+        Vec3 d = new Vec3(-5, 0, 10);
+        assertEquals(-0.5 * Math.sin(Math.toRadians(30)), d.dot(v.up()) / d.dot(v.fwd()), 1e-9);
+        assertEquals(0.5 * Math.cos(Math.toRadians(30)), d.dot(v.right()) / d.dot(v.fwd()), 1e-9);
+    }
 }

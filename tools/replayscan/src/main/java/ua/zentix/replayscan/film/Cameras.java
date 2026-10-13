@@ -79,6 +79,16 @@ final class Cameras {
             return new View(p.pos(), fwd, right, right.cross(fwd).normalize(), ty * aspect, ty);
         }
 
+        /**
+         * Кадр с креном (градусы, плюс — влево, как у ключа Flashback): Flashback поворачивает поворот камеры вокруг её
+         * оси вперёд ({@code rotateZ}) после того, как камера посчитала свои векторы, — у них крена нет.
+         */
+        View rolled(double roll) {
+            if (roll == 0) return this;
+            double c = Math.cos(Math.toRadians(roll)), s = Math.sin(Math.toRadians(roll));
+            return new View(eye, fwd, right.scale(c).add(up.scale(s)), up.scale(c).subtract(right.scale(s)), tanX, tanY);
+        }
+
         /** Точка в кадре (доля полукадра {@code safe}: 1 — до края). */
         boolean in(Vec3 at, double safe) {
             Vec3 d = at.subtract(eye);
@@ -366,7 +376,7 @@ final class Cameras {
             if (!before && k != null && t <= k.t() + FrameLog.KEY_CHECK) continue;
             samples++;
             double size = s.aimSize(t);
-            View v = View.of(p, aspect);
+            View v = View.of(p, aspect).rolled(c.path().roll(t));
             boolean seen = v.in(aim, SAFE) && w.open(v, aim, size, 5) >= 0.4 && !throughClouds(w.clouds, p.pos(), aim)
                     && (shot.far() || !beyondFog(p.pos(), aim));
             boolean smoky = smokeOnLine(p.pos(), aim, shot.smoke(), t);
@@ -393,7 +403,7 @@ final class Cameras {
             keysIn++;
             int seen = 0;
             for (int t = k.t(); t <= k.t() + FrameLog.KEY_CHECK; t++) {
-                if (keySeen(w.level, w.clouds, shot.far(), View.of(c.path().at(t), aspect), keyPoint(k, t), k.size())) seen++;
+                if (keySeen(w.level, w.clouds, shot.far(), View.of(c.path().at(t), aspect).rolled(c.path().roll(t)), keyPoint(k, t), k.size())) seen++;
             }
             if (seen * 2 >= FrameLog.KEY_CHECK + 1) keysOk++;
         }

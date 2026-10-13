@@ -682,7 +682,7 @@ public final class Film {
             Files.createDirectories(dir);
             Path stateFile = dir.resolve("state.json");
             Files.writeString(stateFile, Export.editorState(current.c.path(), shot.a(), shot.b(), eyeHeight(), current.c.gui(), shot.time()), StandardCharsets.UTF_8);
-            log = new FrameLog(shot.subject(), shot, plan, current.c.player() != null ? povId : null, smoke, dir);
+            log = new FrameLog(shot.subject(), shot, plan, current.c.player() != null ? povId : null, current.c.path(), smoke, dir);
             Export.flawless(true);
             if (current.c.player() != null) mc.options.fov().set((int) Math.round(current.c.fov()));
             Vec3 at = mc.player.position();

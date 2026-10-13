@@ -613,10 +613,12 @@ class PlanTest(unittest.TestCase):
 PORT = (-600.5, 71.62, 0.5)
 
 
-def history(visit: tuple[int, int]) -> Path:
-    """Записавший у порта (PORT) в тики visit, остальное время — у EYE; удары по земле у порта в 1250 и 1650–1690;
-    обновления блоков — до 10 чанков от него (его прорисовка)."""
+def history(visit: tuple[int, int], early: int = 0) -> Path:
+    """Записавший у порта (PORT) в тики visit, остальное время — у EYE; удары по земле у порта в 1250 и 1650–1690 (и
+    early ударов там же с тика 100, раз в 20 тиков); обновления блоков — до 10 чанков от него (его прорисовка)."""
     s = Scan()
+    for t in [100 + 20 * i for i in range(early)]:
+        s.blast(t, "airstrike:blast", (-600.0, 64.0, 80.0), None)
     for t in (1250, 1650, 1670, 1690):
         s.blast(t, "airstrike:blast", (-600.0, 64.0, 80.0 + (t - 1650) / 4), None)
     track = lambda t: PORT if visit[0] <= t < visit[1] else EYE  # noqa: E731
@@ -632,8 +634,8 @@ class HistoryTest(unittest.TestCase):
     """Сервер повтора не забывает чанков: у пролёта в мире всё, что запись прислала до него, а не только вокруг
     записавшего сейчас; прорисовка — по обновлениям блоков."""
 
-    def fly(self, visit, spec="at=01:00/01:15 from=-580,90,-40 to=-620,90,-40 look=south"):
-        r = clips.Replay(history(visit), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
+    def fly(self, visit, spec="at=01:00/01:15 from=-580,90,-40 to=-620,90,-40 look=south", early: int = 0):
+        r = clips.Replay(history(visit, early), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
         r.fly_specs = [clips.fly_spec(spec)]
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             c = r.fly()
@@ -671,6 +673,24 @@ class HistoryTest(unittest.TestCase):
         day = self.fly((0, 400))[1].shots[0]
         self.assertNotIn("time", film_plan.film_shot(r.con, "fly-0", day.json()), "без time — время суток записи")
 
+    def test_search_skips_unseen_bursts(self):
+        """Налёт до того, как записавший был у порта, — больше ударов, но не в чанках: поиск берёт окно в чанках."""
+        r, c, printed = self.fly((1600, 1800), "at=00:10/00:25 from=-580,90,-40 to=-620,90,-40 look=south search=00:00/01:45", early=50)
+        shot = c.shots[0]
+        self.assertTrue(1600 <= shot.a <= 1650, printed)
+        self.assertEqual((c.numbers["moved"], c.numbers["covered"]), (shot.a - 200, c.numbers["checks"]), printed)
+        self.assertEqual(c.numbers["ground"], 3, printed)
+        self.assertIn("больше всего ударов в кадре", printed, "окно нашёл поиск, а не обход «то же место в другое время»")
+
+    def test_search_with_focus(self):
+        """search с focus: окно поиска — с тем же взглядом, что у пролёта (focus со сдвигом), — весь в чанках."""
+        r, c, printed = self.fly((0, 400), "at=00:10/00:25 from=-580,90,-40 to=-620,90,-40 focus=00:20/00:24 look=south "
+                                           "search=00:00/01:45")
+        shot = c.shots[0]
+        self.assertIn("больше всего ударов в кадре", printed)
+        self.assertEqual((c.numbers["moved"], c.numbers["covered"]), (shot.a - 200, c.numbers["checks"]), printed)
+        self.assertNotIn("скорость ×", printed, "найденное окно — без обхода медленнее или сдвигом")
+
     def test_fpv(self):
         """FPV: проходы над самыми жаркими ударами, не перекрываются, по времени; крен в виражах, ночь, запас по высоте."""
         r = clips.Replay(history((0, 2100)), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
@@ -692,6 +712,13 @@ class HistoryTest(unittest.TestCase):
         plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
         self.assertEqual((plan["time"], plan["cameras"][0]["rise"]), (18000, [0, 12, 24]))
         self.assertIn("roll", plan["cameras"][0]["keys"][0])
+
+    def test_roll_frame(self):
+        """Крен плюс — влево, как у ключа Flashback (Cameras.View.rolled): точка справа на горизонте — ниже середины."""
+        x, y = clips.frame((0, 0, 0, 0, 0, 30), 1, 1, (-5, 0, 10))
+        self.assertAlmostEqual(x, 0.5 * math.cos(math.radians(30)))
+        self.assertAlmostEqual(y, -0.5 * math.sin(math.radians(30)))
+        self.assertEqual(clips.frame((0, 0, 0, 0, 0), 1, 1, (-5, 0, 10)), (0.5, 0.0), "без крена — как было")
 
     def test_other_dimension_forgets(self):
         """Мир другого измерения сервер повтора закрывает, когда записавший уходит: там чанки только с последнего
