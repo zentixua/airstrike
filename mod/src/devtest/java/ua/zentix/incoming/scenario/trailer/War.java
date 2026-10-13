@@ -80,8 +80,11 @@ final class War {
     static final Vec3 WAVE_STREET = new Vec3(2950.5, 64, -178.5);
     /** Взгорок к северо-западу, ~1250 блоков от эпицентра. */
     static final Vec3 WAVE_HILL = new Vec3(2600.5, 0, -400.5);
-    /** Камера над аэропортом в ~1075 блоках от эпицентра, высоко; под ней — городок в ~780 блоках, через него идёт стена. */
-    static final Vec3 WAVE_HIGH = new Vec3(2780, 330, -300), WAVE_TOWN = new Vec3(2923, 0, -42);
+    /**
+     * Камера над аэропортом в ~1075 блоках от эпицентра, высоко; под ней — городок в ~780 блоках, через него идёт стена;
+     * взгляд — на ~620 блоков от эпицентра, вверху кадра горизонт.
+     */
+    static final Vec3 WAVE_HIGH = new Vec3(2780, 330, -300), WAVE_TOWN = new Vec3(2923, 0, -42), WAVE_LOOK = new Vec3(3000.5, 0, 98.5);
     /** Малый аэропорт Востока: торец полосы, полоса на восток. */
     static final Vec3 AIRFIELD = new Vec3(2836.5, 67, -216.5);
 
@@ -253,12 +256,14 @@ final class War {
         };
     }
 
-    /** Тиков до прихода фронта ядерного взрыва в точку (уже прошёл — меньше нуля; подрыва нет — очень много). */
+    /**
+     * Тиков до прихода фронта ядерного взрыва в точку (уже прошёл — меньше нуля; подрыва нет — очень много): по
+     * расстоянию до точки подрыва, как руины и стена пыли (воздушный подрыв 15 кт — в ~590 блоках над землёй).
+     */
     static double frontIn(Vec3 p) {
         double best = Double.MAX_VALUE;
         for (var a : ClientNuclear.detonations()) {
-            double d = Math.hypot(p.x - a.d.burst().x, p.z - a.d.burst().z);
-            best = Math.min(best, a.d.arrivalTicks(d) - a.ticks(0));
+            best = Math.min(best, a.d.arrivalTicks(p.distanceTo(a.d.burst())) - a.ticks(0));
         }
         return best;
     }
@@ -1078,10 +1083,10 @@ final class War {
     private void nukeFar() {
         detonate(FINAL_ROOF);
         film.shot("p46").length(70).hidden()
-                .camera(() -> CineCamera.track(FINAL_ROOF.add(0, 4, -6), () -> GZ.add(0, 200, 0), 20))
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(3, 3, -10), () -> GZ.add(0, 480, 0), 60))
                 .when(() -> film.sinceDetonation() >= 0, 600);
         film.shot("p47").length(70).hidden()
-                .camera(() -> CineCamera.glide(WAVE_HIGH, WAVE_HIGH.add(6, -4, 8), 70, () -> at(WAVE_TOWN), 70))
+                .camera(() -> CineCamera.glide(WAVE_HIGH, WAVE_HIGH.add(6, -4, 8), 70, () -> at(WAVE_LOOK), 70))
                 .when(() -> frontIn(at(WAVE_TOWN)) < 25, 4000);
     }
 

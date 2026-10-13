@@ -225,8 +225,11 @@ public final class ClientNuclear {
         Vec3 eye = mc.gameRenderer.getMainCamera().getPosition();
         Sightline.Heights heights = ground(level);
         double near = mc.options.getEffectiveRenderDistance() * 16.0;
+        // мир заморожен (/tick freeze): подрыв стоит, как частицы и руины на сервере (их время — часы мира)
+        boolean runs = level.tickRateManager().runsNormally();
         for (Iterator<Active> it = DETONATIONS.values().iterator(); it.hasNext(); ) {
             Active a = it.next();
+            if (!runs) continue;
             a.age++;
             a.sounds.tick();
             // пыль у земли встаёт на рельеф там, где будет к концу следующего кадра
