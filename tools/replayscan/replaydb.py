@@ -101,11 +101,13 @@ def build(a) -> Path:
     return db
 
 
-# вторичные подрывы удара: взрывы игры (без пакета мода) не дальше и не позже этого от пакета мода — его ступени
-# (у крылатой ракеты Incoming — до 10,6 блока и 9 тиков от точки удара)
-STAGE_REACH, STAGE_TICKS = 12, 10
-# грунт в точке по серверу: Incoming кладёт в пакет взрыва «material» — из чего блок в точке удара или под ней;
-# 8 — гравий, им же сервер отвечает за воздух, за блоки без своего грунта и за неготовый чанк
+# вторичные подрывы удара: взрывы игры (без пакета мода) не дальше и не позже этого от пакета мода — его ступени.
+# У крылатой ракеты Incoming они до 10,6 блока от точки удара, на 3–9 тике таймлайна, а пакет игры уходит, когда
+# ступень снята, — под бюджетом тика: на занятом сервере (залп) позже девятого тика
+STAGE_REACH, STAGE_TICKS = 12, 20
+# грунт в точке по серверу: Incoming кладёт в пакет взрыва «material» — из чего блок в точке удара или под ней
+# (вода — тоже: удар у поверхности); 8 — гравий, им же сервер отвечает за воздух, за блоки без своего грунта и за
+# неготовый чанк (сам гравий у него — камень)
 MATERIAL_SRC, MATERIAL_UNSURE = r"^(airstrike|incoming):(blast|bunker_impact)$", 8
 
 
@@ -126,8 +128,8 @@ def impacts(con):
     for e, t, dim, src, x, y, z, size, uuid, clear, solid, pre, data in rows:
         g = None
         if src == "ClientboundExplodePacket":
-            # ступень удара: ближайший пакет мода в STAGE_REACH блоках и STAGE_TICKS тиках
-            near = [(d2, g) for g in groups if g["anchor"] and g["dim"] == dim and 0 <= t - g["t"] <= STAGE_TICKS
+            # ступень удара: ближайший пакет мода в STAGE_REACH блоках и STAGE_TICKS тиках после него
+            near = [(d2, g) for g in groups if g["anchor"] and g["dim"] == dim and 0 <= t - g["anchor_t"] <= STAGE_TICKS
                     and (d2 := (x - g["x"]) ** 2 + (y - g["y"]) ** 2 + (z - g["z"]) ** 2) <= STAGE_REACH ** 2]
             g = min(near, key=lambda n: n[0])[1] if near else None
         if g is None:
@@ -137,7 +139,8 @@ def impacts(con):
                       and (uuid is None or g["uuid"] is None or uuid == g["uuid"])), None)
         if g is None:
             g = {"id": len(groups), "t": t, "t1": t, "dim": dim, "x": x, "y": y, "z": z, "events": [], "srcs": set(),
-                 "power": 0.0, "uuid": None, "clear": None, "solid": None, "pre": 0, "anchor": False, "material": None}
+                 "power": 0.0, "uuid": None, "clear": None, "solid": None, "pre": 0, "anchor": False, "anchor_t": None,
+                 "material": None}
             groups.append(g)
         if g["material"] is None and data and re.match(MATERIAL_SRC, src):
             g["material"] = material(data)
@@ -147,7 +150,7 @@ def impacts(con):
         g["power"] = max(g["power"], size)
         # место удара — по пакету мода (точка попадания), иначе по первому взрыву
         if src != "ClientboundExplodePacket" and not g["anchor"]:
-            g["x"], g["y"], g["z"], g["anchor"] = x, y, z, True
+            g["x"], g["y"], g["z"], g["anchor"], g["anchor_t"] = x, y, z, True, t
         g["uuid"] = g["uuid"] or uuid
         if clear is not None and clear >= 0 and (g["clear"] is None or pre > g["pre"] or (pre == g["pre"] and clear < g["clear"])):
             g["clear"], g["pre"] = clear, max(g["pre"], pre)
