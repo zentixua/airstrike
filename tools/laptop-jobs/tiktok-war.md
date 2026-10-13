@@ -6,7 +6,7 @@
 Пути — от `/mnt/data/projects/airstrike`, `JAVA_HOME` — `java-runtime-delta` из Prism,
 `W=/mnt/data/projects/airstrike/mod/run/claude-work`, `T=$W/tiktok/war`, `R=2026-10-09T15_24_55`.
 
-`$T/clips`…`$T/clips6` — не трогать. Снимается в `$T/clips7`. Артём 13.10: ролик из нескольких проходов камеры, как у
+`$T/clips`…`$T/clips7` — не трогать. Снимается в `$T/clips8`. Артём 13.10: ролик из нескольких проходов камеры, как у
 FPV-дрона, ночью (время суток Flashback — огни снарядов видны), низко над самыми жаркими ударами; один проход — у
 ударов по порту 25:17–25:21, остальные — где ударов больше всего за всю запись. Монтаж под музыку — в облаке, поэтому
 каждый проход выдаётся отдельным видео. Прошлая съёмка (`clips5`): проходы по заданной линии влетали в столб дыма
@@ -28,20 +28,22 @@ grep -n camera_shake $C                                              # camera_sh
 
 ## 2. Моменты и план
 ```sh
-uv run $S/clips/moments.py $W/replayscan/out/$R/replay.duckdb --out $T/clips7 --pov-top 0 \
+uv run $S/clips/moments.py $W/replayscan/out/$R/replay.duckdb --out $T/clips8 --pov-top 0 \
   --fpv 'search=25:14/25:26 near=-320,-405,90 shots=1 seconds=9 time=night' \
-  --fpv 'shots=8 seconds=9 time=night' | tee $T/moments7.txt
-uv run $S/clips/plan.py $T/clips7/candidates.json --all fly --replays $W/replayscan/replays
-python3 -c "import json; s=json.load(open('$T/clips7/film/$R/plan.json'))['shots']; print([(x['name'], x['a'], x['b'], x.get('time'), x['cameras'][0]['kind'], len(x['smoke'])) for x in s])"
+  --fpv 'shots=8 seconds=9 time=night' | tee $T/moments8.txt
+uv run $S/clips/plan.py $T/clips8/candidates.json --all fly --replays $W/replayscan/replays
+python3 -c "import json; s=json.load(open('$T/clips8/film/$R/plan.json'))['shots']; print([(x['name'], x['a'], x['b'], x.get('time'), x['cameras'][0]['kind'], len(x['smoke'])) for x in s])"
 ```
-В `moments7.txt` — строки «FPV …» и «проход N: <с>–<по>: FPV мимо удара …» (до девяти проходов: один у порта в
+В `moments8.txt` — строки «FPV …» и «проход N: <с>–<по>: FPV мимо удара …» (до девяти проходов: один у порта в
 25:1x и восемь самых жарких). У каждого плана в выводе последней команды `time` 18000 и камера `pilot`. Проходов
-меньше — так и снимать, в отчёт — строка «пропущено ударов без снаряда …, тесных …».
+меньше — так и снимать, в отчёт — строка «пропущено ударов без снаряда …, тесных …». Строка «у удара … чанки в 128 блоках
+только по N направлениям из 16 — снимается: место названо» — проход у порта, где записавший не облетал всё вокруг:
+снимать как есть.
 
 ## 3. Съёмка (видеокарта)
 ```sh
-$S/laptop_job.sh tiktok-war7 -- python3 $S/prod_client.py --no-copy --dir $G --incoming-jar $J --jvm=-Xmx12g \
-  --prop replayscan.film=$T/clips7/film/$R/plan.json
+$S/laptop_job.sh tiktok-war8 -- python3 $S/prod_client.py --no-copy --dir $G --incoming-jar $J --jvm=-Xmx12g \
+  --prop replayscan.film=$T/clips8/film/$R/plan.json
 ```
 Успех: в `$G/logs/latest.log` — `Film: done`; перед каждым планом — `Film: <план>: replay played from the start to
 tick …` (строки `replay stopped at tick … on the way` нет), `Film: <план>: pilot planned 3 flights past the hit …` и над
@@ -51,20 +53,20 @@ tick …` (строки `replay stopped at tick … on the way` нет), `Film: 
 
 ## 4. Видео проходов и выдача
 ```sh
-uv run $S/clips/edit.py $T/clips7/film --out $T/clips7/out --soon
-mkdir -p $T/clips7/passes && python3 - <<EOF
+uv run $S/clips/edit.py $T/clips8/film --out $T/clips8/out --soon
+mkdir -p $T/clips8/passes && python3 - <<EOF
 import json, os, subprocess
-for name, b in json.load(open("$T/clips7/film/$R/film/best.json")).items():
+for name, b in json.load(open("$T/clips8/film/$R/film/best.json")).items():
     # и не прошедшие проверку: ночью низ кадра за чанками бывает не виден — решает монтаж по кадрам
     if b.get("dir") and os.path.exists(b["dir"] + "/video.mkv"):
-        out = "$T/clips7/passes/" + name + ("" if b.get("pass") else "-FAIL") + ".mp4"
+        out = "$T/clips8/passes/" + name + ("" if b.get("pass") else "-FAIL") + ".mp4"
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", b["dir"] + "/video.mkv", "-c:v", "libx264", "-preset", "slow",
                         "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", out], check=True)
         print(name, b.get("candidate"), b.get("pass"))
 EOF
-ls -la $T/clips7/passes
+ls -la $T/clips8/passes
 ```
-В файлы проекта: каждый `$T/clips7/passes/*.mp4` (проход ~9 с; больше 20 МиБ — CRF 23), `report.md`, `moments7.txt`.
-Прислать: `report.md`, строки «проход» из `moments7.txt`, строки `Film: verdict`, `replay played from the start`,
+В файлы проекта: каждый `$T/clips8/passes/*.mp4` (проход ~9 с; больше 20 МиБ — CRF 23), `report.md`, `moments8.txt`.
+Прислать: `report.md`, строки «проход» из `moments8.txt`, строки `Film: verdict`, `replay played from the start`,
 `pilot planned` и строки полётов над ними (`pilot-h…`),
 ошибки (`Exception`, `ERROR`) лога съёмки; по кадру из 1, 3, 5 и 7 с каждого прохода (`ffmpeg -ss <с> -frames:v 1`).

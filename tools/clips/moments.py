@@ -1232,9 +1232,28 @@ class Replay:
     # Проход FPV: удар — на доле FPV_LEAD прохода; путь камеры прокладывает съёмка (replayscan, Pilot): летит, как пилот
     # FPV-дрона, по миру повтора у клиента — рельеф, дым ударов, снаряд, — и здесь его нет. Здесь — что снимать: удар
     # по земле снаряда, чей путь известен (он влетает в кадр), жаркий — ударов (любых) не дальше FPV_HEAT блоков от него
-    # за время прохода, и с местом для полёта: чанки повтора не ближе FPV_ROOM блоков от удара во все стороны в начале и
-    # в конце прохода (с запасом FPV_MARGIN чанков к прорисовке записавшего).
+    # за время прохода, и с местом для полёта: сам удар в чанках повтора и вокруг него в FPV_ROOM блоках чанки хотя бы
+    # с одной стороны — подряд FPV_SIDE направлений из FPV_DIRS (полкруга: пилот проходит вдоль края чанков), в начале и
+    # в конце прохода, с запасом FPV_MARGIN чанков к прорисовке записавшего. Место, названное человеком (`near`), без
+    # такого удара снимается у удара, где места больше всего: решает пилот и проверка кадров.
     FPV_LEAD, FPV_HEAT, FPV_ROOM, FPV_MARGIN = 0.45, 200.0, 128.0, 2
+    FPV_DIRS, FPV_SIDE = 16, 9
+
+    def fpv_room(self, seen: dict, h, a: int, d: int) -> int:
+        """Сколько направлений подряд (из FPV_DIRS) вокруг удара h в FPV_ROOM блоках — в чанках повтора и в начале, и в
+        конце прохода; сам удар не в чанках — 0."""
+        def ok(q) -> bool:
+            return all(self.seen_at(seen, q, t) for t in (a, a + d))
+        if not ok(h[2:5]):
+            return 0
+        n = self.FPV_DIRS
+        side = [ok((h[2] + self.FPV_ROOM * math.cos(2 * math.pi * j / n), h[3], h[4] + self.FPV_ROOM * math.sin(2 * math.pi * j / n)))
+                for j in range(n)]
+        best = run = 0
+        for v in side + side:  # по кругу
+            run = run + 1 if v else 0
+            best = max(best, run)
+        return min(best, n)
 
     def fpv(self) -> list[Candidate]:
         """8 — проходы FPV (`--fpv`): мимо самых жарких ударов по земле окна, не перекрываются по времени. Один кандидат —
@@ -1259,8 +1278,7 @@ class Replay:
                 return [hits[i] for i in range(bisect.bisect_left(ts, a), bisect.bisect_right(ts, a + d))]
 
             heat = {h[0]: sum(math.hypot(o[2] - h[2], o[4] - h[4]) <= self.FPV_HEAT for o in around(h[1] - lead)) for h in ground}
-            ring = [(math.cos(math.radians(a)), math.sin(math.radians(a))) for a in range(0, 360, 45)]
-            chosen, blind, cramped = [], 0, 0
+            chosen, tight, blind, cramped = [], [], 0, 0
             for h in sorted(ground, key=lambda h: (-heat[h[0]], h[1])):
                 if len(chosen) >= f["shots"]:
                     break
@@ -1271,11 +1289,21 @@ class Replay:
                 if fl is None or fl.uuid is None:
                     blind += 1
                     continue
-                room = [(h[2] + self.FPV_ROOM * c, h[3], h[4] + self.FPV_ROOM * z) for c, z in ring] + [h[2:5]]
-                if not all(self.seen_at(seen, q, t) for q in room for t in (a, a + d)):
+                room = self.fpv_room(seen, h, a, d)
+                if room < self.FPV_SIDE:
                     cramped += 1
+                    if room:
+                        tight.append((room, h, a, fl))
                     continue
                 chosen.append((h, a, fl))
+            if not chosen and near is not None and tight:
+                # место назвал человек: удар, где места больше всего
+                for room, h, a, fl in sorted(tight, key=lambda c: (-c[0], -heat[c[1][0]], c[1][1])):
+                    if len(chosen) < f["shots"] and not any(abs(a - c[1]) < d for c in chosen):
+                        chosen.append((h, a, fl))
+                        cramped -= 1
+                        print(f"{self.name}: FPV {f['spec']!r}: у удара {mmss(h[1])} ({fmt(h[2:5])}) чанки в {self.FPV_ROOM:.0f} "
+                              f"блоках только по {room} направлениям подряд из {self.FPV_DIRS} — снимается: место названо")
             if not chosen:
                 print(f"{self.name}: FPV {f['spec']!r}: ударов по земле со снарядом и местом для полёта нет "
                       f"(без снаряда {blind}, тесно {cramped})")

@@ -22,16 +22,24 @@ class PilotTest {
 
     /** Шахед с запада: 2,1 блока за тик, пикирует последние 40 тиков. */
     private static Subject shahed() {
+        return shahed(-1, 0);
+    }
+
+    /** Шахед, который прилетает со стороны {@code (fx, fz)} (единичный вектор от удара). */
+    private static Subject shahed(double fx, double fz) {
         List<double[]> path = new ArrayList<>();
         for (int t = 40; t <= HIT; t += 2) {
-            double x = 0.5 - 2.1 * (HIT - t), y = t < HIT - 40 ? 95 : 64 + 31 * (HIT - t) / 40.0;
-            path.add(new double[]{t, x, y, 0.5});
+            double r = 2.1 * (HIT - t), y = t < HIT - 40 ? 95 : 64 + 31 * (HIT - t) / 40.0;
+            path.add(new double[]{t, 0.5 + fx * r, y, 0.5 + fz * r});
         }
         return new Subject("00000000-0000-0000-0000-000000000001", 3.5, path, List.of(new Subject.Key(HIT, HIT_POS, 12)), null, 0);
     }
 
     private static Pilot pilot(Pilot.Terrain terrain, List<Plume> extra) {
-        Subject s = shahed();
+        return pilot(terrain, extra, shahed());
+    }
+
+    private static Pilot pilot(Pilot.Terrain terrain, List<Plume> extra, Subject s) {
         Subject.Key main = Pilot.mainKey(s, A, B);
         assertNotNull(main);
         List<Plume> plumes = new ArrayList<>(extra);
@@ -118,6 +126,25 @@ class PilotTest {
             int out = 0, n = 0;
             for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
             // вывод не пропускает план, где так больше 2 % кадров
+            assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
+        }
+    }
+
+    @Test
+    void passesAlongTheEdgeOfTheReplayChunks() {
+        // удар в 40 блоках от края: за z = 40 у клиента чанков нет (порт у моря, куда записавший не ходил); шахед летит
+        // вдоль края, потом — с той стороны, где чанков нет, и край ближе (32 блока: запас moments.py к прорисовке)
+        edge(40, shahed());
+        edge(32, shahed(0, 1));
+    }
+
+    private static void edge(double at, Subject shell) {
+        Pilot.Terrain t = (x, z) -> z >= at ? Double.NaN : 64;
+        Pilot p = pilot(t, List.of(), shell);
+        for (Pilot.Flight f : p.plan(2)) {
+            Pilot.Track tr = check(p, f);
+            int out = 0, n = 0;
+            for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
             assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
         }
     }
