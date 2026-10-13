@@ -177,27 +177,39 @@ class Eval:
     parts: dict
 
 
-def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, step: float = 1.5):
+def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, maxit: int = 160):
     """Закрытие отрезков глаз → цель (…, 3): 1 — непрозрачный блок или неизвестный чанк на пути, иначе по листве и
-    стеклу; последние `spare` блоков у цели не в счёт."""
+    стеклу; последние `spare` блоков у цели не в счёт. Шаг — по расстоянию до ближайшего блока (в пустом воздухе —
+    десятки блоков за шаг), у блоков — по блоку."""
+    shape = np.broadcast_shapes(eye.shape, tgt.shape)[:-1]
+    eye = np.broadcast_to(eye, shape + (3,)).reshape(-1, 3)
+    tgt = np.broadcast_to(tgt, shape + (3,)).reshape(-1, 3)
+    spare = np.broadcast_to(spare, shape).reshape(-1)
     d = tgt - eye
     L = np.linalg.norm(d, axis=-1)
     reach = np.maximum(L - spare, 0)
-    kmax = int(np.nanmax(reach) / step) + 1 if np.isfinite(np.nanmax(reach)) else 1
-    kmax = min(kmax, 400)
-    blocked = np.zeros(L.shape, dtype=bool)
-    soft = np.zeros(L.shape)
-    u = d / np.maximum(L, 1e-9)[..., None]
-    for k in range(1, kmax + 1):
-        s = k * step
-        live = s < reach
-        if not live.any():
+    u = d / np.maximum(L, 1e-9)[:, None]
+    blocked = np.zeros(len(L), dtype=bool)
+    soft = np.zeros(len(L))
+    s = np.full(len(L), 0.5)
+    live = np.flatnonzero(s < reach)
+    sky = world.sky_y
+    for _ in range(maxit):
+        if not len(live):
             break
-        p = eye + u * s
+        p = eye[live] + u[live] * s[live, None]
         kind = world.kind_at(p)
-        blocked |= live & ((kind == W.OPAQUE) | (kind == W.UNKNOWN))
-        soft += live * (kind == W.SOFT)
-    return np.where(blocked, 1.0, np.minimum(1.0, soft * 0.3))
+        hit = (kind == W.OPAQUE) | (kind == W.UNKNOWN)
+        blocked[live[hit]] = True
+        soft[live] += kind == W.SOFT
+        jump = np.maximum(1.0, world.clearance(p) - 1.0)
+        jump[kind == W.SOFT] = 1.0
+        out_up = p[:, 1] >= sky
+        jump[out_up] = np.maximum(jump[out_up], 16.0)
+        s[live] += jump
+        live = live[~hit & (s[live] < reach[live])]
+    out = np.where(blocked, 1.0, np.minimum(1.0, soft * 0.2))
+    return out.reshape(shape)
 
 
 def _unknown_below(world: W.World, eye, yaw, pitch, roll, fov, aspect, reach=128.0, step=4.0):
