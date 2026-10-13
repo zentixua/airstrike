@@ -37,7 +37,7 @@ echo "$NUKE"                                                        # один i
 uv run $S/clips/plan.py $T/clips/candidates.json --all pov,fly --pick "$NUKE" --replays $W/replayscan/replays
 ```
 В `$T/clips/candidates.md`: «6. Глазами игроков» — три отрезка глазами recorder (22:04–22:19, 23:47–24:02,
-53:00–53:26, у третьего — «ядерный подрыв в N блоках вне кадра»), «7. Пролёт камеры» — один; в `moments.txt` — курс и
+53:00–53:26), «7. Пролёт камеры» — один; в `moments.txt` — курс и
 наклон пролёта и каждый удар окна (расстояние, в кадре ли). В кадре пролёта нет ни одного удара 25:16–25:22 —
 шаг 2 ещё раз с `turn=45`; и тогда нет — пролёт не снимать (`plan.py … --all pov`), в отчёт — `moments.txt`.
 
@@ -48,7 +48,7 @@ $S/laptop_job.sh tiktok-war -- python3 $S/prod_client.py --no-copy --dir $G --in
   --prop replayscan.film=$T/clips/film/$R/plan.json
 ```
 Успех: в `$G/logs/latest.log` — `Film: done`; у каждого плана — `Film: verdict <план> <камера>: PASS` (в `verdict.json`
-— `dh_world` 0), у отрезков глазами — `Film: the replay viewer spectates recorder on the replay server`; в `qa.jsonl`
+— `dh_world` 0), у отрезков глазами — `Film: the replay viewer spectates ZentixUA on the replay server`; в `qa.jsonl`
 пролёта и ядерки снаружи — `"dh":1`. Не прошедший план не доводить: в отчёт его `why`.
 
 ## 4. Монтаж и выдача

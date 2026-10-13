@@ -3,8 +3,10 @@
   uv run --with 'duckdb>=1.1,<2' python -m unittest discover -s tools/clips/tests
 """
 import argparse
+import contextlib
 import csv
 import gzip
+import io
 import json
 import math
 import sys
@@ -334,6 +336,23 @@ class SelectTest(unittest.TestCase):
         c = self.r.pov_candidate("recorder", 1900, 2100, [], 1)
         self.assertEqual(c.numbers["nuke_off"], 1200)
         self.assertIn("ядерный подрыв в 1200 блоках вне кадра", c.summary)
+        self.assertIn("nuke", [e[2] for e in self.r.pov_events()["recorder"]], "в кадре, луч чист — видел")
+        # лицом к подрыву, но за блоками (в метро): не видел
+        self.r.con.execute("UPDATE sight SET hard = 3 WHERE kind = 'p' AND ref IN (SELECT CAST(u.e AS VARCHAR) FROM impacts i, "
+                           "unnest(i.events) AS u(e) WHERE i.srcs LIKE '%nuke_detonation%')")
+        try:
+            self.assertNotIn("nuke", [e[2] for e in self.r.pov_events()["recorder"]])
+        finally:
+            self.r.con.execute("UPDATE sight SET hard = -1 WHERE kind = 'p' AND hard = 3")
+
+    def test_timeline_needs_one_recording(self):
+        argv = sys.argv
+        sys.argv = ["moments.py", "a.duckdb", "b.duckdb", "--at", "25:02"]
+        try:
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                clips.main()
+        finally:
+            sys.argv = argv
 
     def test_fly(self):
         """Пролёт: камера по прямой, взгляд — к ударам окна (хаос: восемь ударов к юго-востоку), удары в кадре — события."""

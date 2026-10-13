@@ -685,6 +685,10 @@ class Replay:
     # называет сам момент; ядерный подрыв за NUKE_BEFORE тиков до маркера — отрезок со вспышки и не короче AFTER после
     # неё (волна идёт долго). Маркеры, которые Flashback ставит сам (смена измерения), — не отметки игрока
     MARK = {"marker": (300, 40), "at": (200, 100)}
+    NUKE_SEEN = """
+        SELECT DISTINCT v.viewer FROM impact_views v WHERE v.id = ? AND in_frame(v.cx, v.cy, 1) AND NOT coalesce((
+          SELECT bool_and(coalesce(s.hard, -1) >= 0) FROM impacts i, unnest(i.events) AS u(e)
+          JOIN sight s ON s.kind = 'p' AND s.ref = CAST(u.e AS VARCHAR) WHERE i.id = v.id AND s.viewer = v.viewer), false)"""
     NUKE_BEFORE = 1200
     AUTO_MARKERS = {"Changed Dimension"}
 
@@ -757,7 +761,9 @@ class Replay:
             f = self.by_uuid.get(ref)
             add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, ref)
         for hid, t, x, y, z in nukes:
-            for (v,) in self.con.execute("SELECT DISTINCT viewer FROM impact_views WHERE id = ? AND in_frame(cx, cy, 1)", [hid]).fetchall():
+            # в кадре и не за блоками: игрок в метро, лицом к подрыву, видит стену (лучи к событиям подрыва — все упёрлись в
+            # блоки); лучей нет (дальше разбора) — в кадре значит видел
+            for (v,) in self.con.execute(self.NUKE_SEEN, [hid]).fetchall():
                 add(v, t, self.WEIGHT["nuke"], "nuke", "icbm", {"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}, None)
         return {v: sorted(e, key=lambda e: e[0]) for v, e in out.items() if self.human(v)}
 
@@ -1019,7 +1025,11 @@ def main():
                    help="пролёт свободной камеры: 'at=25:02/25:40 from=x,y,z to=x,y,z [to_at=25:32] [look=south] [turn=25] [fov=70]'")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
-    select(p.parse_args())
+    a = p.parse_args()
+    # время по шкале Flashback и пролёт — в своей записи: в другой (длиннее) то же время — не тот момент
+    if len(a.db) > 1 and (a.fly or any(timeline(x) is not None for spec in a.at for x in spec.split("/"))):
+        p.error("время по шкале Flashback (--at 25:02) и --fly — для одной записи: дайте одну базу")
+    select(a)
 
 
 if __name__ == "__main__":

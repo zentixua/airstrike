@@ -167,22 +167,27 @@ final class Cameras {
 
         /** Камера не в блоке и вокруг неё полблока воздуха; чанка нет — не знаем. */
         boolean free(Vec3 p) {
-            if (!loaded(p)) return false;
-            for (double dx : new double[]{-0.5, 0.5}) {
-                for (double dy : new double[]{-0.5, 0.5}) {
-                    for (double dz : new double[]{-0.5, 0.5}) {
-                        BlockPos b = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
-                        if (!level.getBlockState(b).getCollisionShape(level, b).isEmpty()) return false;
-                    }
-                }
-            }
-            return true;
+            return loaded(p) && !inBlocks(level, p);
         }
 
         /** Доля открытых лучей из глаза кадра к предмету ({@link Cameras#open}). */
         double open(View v, Vec3 at, double size, int rays) {
             return Cameras.open(level, v.eye(), at, v.right(), v.up(), size, rays);
         }
+    }
+
+    /** Камера в блоке: ближе полублока от неё есть блок (по чанкам клиента: чанка нет — блоков нет). */
+    static boolean inBlocks(ClientLevel level, Vec3 p) {
+        for (double dx : new double[]{-0.5, 0.5}) {
+            for (double dy : new double[]{-0.5, 0.5}) {
+                for (double dz : new double[]{-0.5, 0.5}) {
+                    BlockPos b = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
+                    if (level.getChunkSource().getChunkNow(b.getX() >> 4, b.getZ() >> 4) == null) continue;
+                    if (!level.getBlockState(b).getCollisionShape(level, b).isEmpty()) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
