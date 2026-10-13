@@ -76,5 +76,9 @@ INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh r
 ```sh
 uv run tools/trailer/edit.py --lang en --rec <папка планов с интерфейсом> $(awk '{print "--rec " $2}' mod/run/scenario/film-war/render/best.txt) --music <Juggernaut.mp3>
 ```
-(та же команда с `--lang ru` и русской папкой интерфейса). Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ),
-`render/report.jsonl`, `render/best.txt`, вывод `edit.py` (какие планы — заглушки).
+(та же команда с `--lang ru` и русской папкой интерфейса), отчёт по планам:
+```sh
+python3 tools/trailer/report.py mod/run/scenario/film-war/render --md mod/run/scenario/film-war/render/report.md
+```
+Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `render/report.md`, `render/report.jsonl`, `render/best.txt`,
+вывод `edit.py` (какие планы — заглушки).

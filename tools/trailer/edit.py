@@ -355,7 +355,8 @@ def anchor(shot, spec):
 @dataclass
 class Clip:
     shot: str           # в таблице — буква дубля («b» → p10b), "" — план целиком (p13) или полное имя (p40a)
-    at: object = 0.0    # откуда в плане (секунды игры или якорь, см. anchor)
+    at: object = None   # откуда в плане (секунды игры или якорь, см. anchor); None — удар плана (отметка «impact»
+                        # вывода из повтора) на HIT_LAND склейки, без удара — начало плана
     dur: float = None   # длительность в трейлере, с; None — остаток плана (поровну между такими склейками)
     note: str = ""      # что в этой склейке (подпись заглушки)
     land: object = 0.0  # где в склейке окажется момент at: секунды от её начала или «end»
@@ -412,6 +413,7 @@ class Hit:
 
 
 END = 130.0  # 2:10
+HIT_LAND = 0.6  # где в склейке ложится удар плана, если склейка не задаёт своего якоря
 
 # 53 плана по таблице сценария (страница сценария, версия 9): время, кадр, что в кадре. Start, I, II — 2.39:1, с плана 15 — 16:9.
 # пик (план 39): 19 склеек из ночных дублей пика (p39a–d) и чужих планов с другого их места — дубль, секунда
@@ -461,7 +463,8 @@ PLANS = [
     ]),
     # Волна 2 · Небо
     Plan(20, "0:38", "Запад бьёт всей линией: пусковые и «Грады» разом"),
-    Plan(21, "0:40", "С хребта к востоку от города: камера поднимается над кронами, рой шахедов идёт к горящему городу"),
+    Plan(21, "0:40", "С хребта к востоку от города: камера поднимается над кронами, рой шахедов идёт к горящему городу",
+         [Clip("", 0.0, None, "подъём над хребтом, рой над головой уходит к городу")]),
     Plan(22, "0:42", "ЗРК: перехватчики из стаканов", [
         Clip("a", 0.0, None, "перехватчики уходят вертикально, шахед разлетается"),
         Clip("b", 0.0, None, "промах, шахед входит в крышу"),
@@ -637,6 +640,10 @@ def resolve(edit, shots, slowmo=False):
             continue
         s = shots[c.shot]
         c.rate = s.speed if slowmo and s.speed < 1 else 1.0
+        if c.at is None:
+            # удар — то, ради чего план: он в склейке, после него — огонь и звук
+            impact = any(m == "impact" for _, m in s.marks)
+            c.at, c.land = ("mark:impact", round(HIT_LAND * c.dur, 3)) if impact else (0.0, 0.0)
         moment = anchor(s, c.at)
         if c.sync is not None:
             lead = c.sync - c.start
@@ -1011,11 +1018,16 @@ def _gain_pan(cam, pos, volume, rng, relative, linear):
 
 # фон мира, который в трейлере только мешает (пещерный гул, спавнер испытаний под землёй)
 SKIP_SOUNDS = ("minecraft:ambient.", "minecraft:block.trial_spawner", "minecraft:music")
+# голос снаряда: мотор, вой пике, свист — под ним музыка уходит вниз (DUCK_DB), иначе в погоне его не слышно
+CRAFT_SOUNDS = (".engine", ".dive", ".whistle")
+DUCK_DB = 9.0
 
 
 def render_sfx(edit, shots, total, bank):
-    """Звук игры по монтажу: каждый звук плана, попавший в склейку, — с громкостью и панорамой по камере."""
+    """Звук игры по монтажу: каждый звук плана, попавший в склейку, — с громкостью и панорамой по камере. Второй
+    результат — громкость голоса снарядов (CRAFT_SOUNDS) по отсчётам, для ухода музыки под него."""
     out = np.zeros((int(total * SR) + SR, 2), np.float32)
+    craft = np.zeros(len(out), np.float32)
     for c in edit:
         if not isinstance(c, Clip) or c.sfx <= 0 or c.shot not in shots:
             continue
@@ -1090,7 +1102,15 @@ def render_sfx(edit, shots, total, bank):
             i0 = int((c.start + (seg_start - lo) / c.rate) * SR)
             out[i0:i0 + n, 0] += y * left
             out[i0:i0 + n, 1] += y * right
-    return out
+            if e["event"].startswith("incoming:") and any(k in e["event"] for k in CRAFT_SOUNDS):
+                craft[i0:i0 + n] += np.abs(y)
+    return out, craft
+
+
+def smooth(a, k):
+    """Скользящее среднее за O(n) (np.convolve на 6 млн отсчётов — минуты)."""
+    c = np.concatenate(([0.0], np.cumsum(np.pad(a, (k // 2, k - 1 - k // 2), mode="edge"), dtype=np.float64)))
+    return ((c[k:] - c[:-k]) / k).astype(np.float32)
 
 
 WHISTLE = "incoming:sounds/missile_whistle.ogg"  # далёкий свист старта — звук самого мода
@@ -1168,12 +1188,17 @@ SFX_WITH_MUSIC, SFX_ALONE = 0.9, 1.3  # звук игры под музыкой 
 
 def mix(edit, hits, shots, total, music_path):
     bank = SoundBank()
-    sfx = render_sfx(edit, shots, total, bank)
+    sfx, craft = render_sfx(edit, shots, total, bank)
     music, env = music_track(total, music_path)
-    k = int(0.3 * SR)                      # громкость звука игры меняется плавно
-    c = np.concatenate(([0.0], np.cumsum(np.pad(env, (k // 2, k - 1 - k // 2), mode="edge"), dtype=np.float64)))
-    env = ((c[k:] - c[:-k]) / k).astype(np.float32)  # скользящее среднее за O(n): np.convolve на 6 млн отсчётов — минуты
+    env = smooth(env, int(0.3 * SR))       # громкость звука игры меняется плавно
     sfx *= (SFX_ALONE + (SFX_WITH_MUSIC - SFX_ALONE) * env)[:, None]
+    # голос снаряда (средний модуль за 50 мс) от половины громкости музыки и громче — музыка уходит вниз на DUCK_DB,
+    # тише — меньше; назад плавно (0,3 с)
+    level = smooth(np.abs(music).mean(axis=1) * 0.55, int(0.05 * SR)) + 1e-4
+    voice = smooth(craft * SFX_WITH_MUSIC, int(0.05 * SR))
+    want = np.clip(2 * voice / level, 0, 1)
+    want = np.maximum(want, smooth(want, int(0.3 * SR)))
+    music *= (10 ** (-DUCK_DB / 20 * want))[:, None]
     rng = np.random.default_rng(20261012)
     extra = np.zeros_like(music)
     cuts = sorted(h.at for h in hits if h.kind == "cut")

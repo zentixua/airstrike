@@ -104,9 +104,10 @@ final class Coverage {
         own("p19b", Rig.flight("missile", 0), false, OVERHEAD);
         // III · война
         own("p20", Rig.flight("rocket", 0), false, LAUNCH);
-        // p21: с хребта — рой шахедов над камерой уходит к горящему городу и входит в дома
-        add(new Spec("p21", "p21", Rig.impact("drone", War.RIDGE_LOOK, 0), WHOLE, WHOLE, List.of(Rig.own(false), tripod()), 0.004,
-                new Need(0.5, 0, 0.6, 0), 300));
+        // p21: с хребта — рой шахедов над камерой уходит к горящему городу и входит в дома; объект — первый удар роя
+        // (шахеды проходят над камерой один за другим, первый в кадре — после пролёта над головой)
+        add(new Spec("p21", "p21", Rig.impact("drone", null, 0), WHOLE, WHOLE, List.of(Rig.own(false), tripod()), 0.004,
+                new Need(0.4, 0, 0.6, 0), 300));
         own("p01c", Rig.flight("rocket", 0), false, LAUNCH);
         own("p22a", Rig.flight("drone", 0), false, OVERHEAD);
         own("p22b", Rig.flight("drone", 0), false, OVERHEAD);
