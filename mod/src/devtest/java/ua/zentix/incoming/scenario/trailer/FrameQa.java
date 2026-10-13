@@ -247,6 +247,27 @@ final class FrameQa {
     }
 
     /**
+     * Почему объект не снят: у каждого кадра — первая причина по порядку проверки, доля от {@code of} кадров (за камерой,
+     * вне кадра, дальше тумана у края прорисовки, в облаках, за блоками, секция не построена, за дымом, мельче нормы).
+     */
+    private static String lost(List<Frame> lost, int of, double minShare) {
+        String[] names = {"за камерой", "вне кадра", "в тумане у края прорисовки", "в облаках", "за блоками", "секция не построена", "за дымом",
+                "мельче нормы"};
+        int[] count = new int[names.length];
+        for (Frame f : lost) {
+            int why = !f.in ? (f.x == 9 ? 0 : 1) : f.far ? 2 : f.cloud ? 3 : f.seen < 0.4 ? 4 : READY > 0 && !f.drawn ? 5 : f.clear < 0.5 ? 6
+                    : f.share < minShare ? 7 : -1;
+            if (why >= 0) count[why]++;
+        }
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < names.length; i++) {
+            if (count[i] == 0) continue;
+            b.append(b.isEmpty() ? " (" : ", ").append(String.format(Locale.ROOT, "%s %.0f%%", names[i], 100.0 * count[i] / of));
+        }
+        return b.isEmpty() ? "" : b.append(')').toString();
+    }
+
+    /**
      * Итог по кадрам: мир построен (≥ {@link #READY} кадров и первые 10 — все); до удара объект в кадре, виден, не в дыму,
      * облаках и тумане у края прорисовки, в построенной секции и не мельче {@code minShare} высоты кадра — не меньше долей {@code need} за всё время до удара и за последнюю
      * секунду; удар в кадре, виден и не за дымом прежних ударов в первые 12 тиков; мотор (если нужен и {@code close}) слышен до удара;
@@ -258,6 +279,7 @@ final class FrameQa {
         if (n == 0) return new Verdict(false, "нет кадров", 0, 0, 0, 0, 0, 0);
         int ready = 0, firstReady = 0;
         int pre = 0, preOk = 0, near = 0, nearOk = 0, key = 0, keyOk = 0, eng = 0, smoky = 0, dhWorld = 0;
+        List<Frame> preLost = new ArrayList<>(), nearLost = new ArrayList<>(), keyLost = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             Frame f = frames.get(i);
             if (f.ready) ready++;
@@ -267,15 +289,18 @@ final class FrameQa {
             if (s.key < 0 || f.t < s.key) {
                 pre++;
                 if (good) preOk++;
+                else preLost.add(f);
                 if (f.smoke > SMOKY_FRAME) smoky++;
                 if (f.engine >= 0.02) eng++;
                 if (s.key >= 0 && f.t >= s.key - 20) {
                     near++;
                     if (good) nearOk++;
+                    else nearLost.add(f);
                 }
             } else if (f.t <= s.key + 12) {
                 key++;
                 if (f.visible() && f.clear >= 0.5) keyOk++;
+                else keyLost.add(f);
             }
         }
         double rReady = (double) ready / n, approach = pre == 0 ? 1 : (double) preOk / pre, nearHit = near == 0 ? 1 : (double) nearOk / near;
@@ -283,9 +308,9 @@ final class FrameQa {
         double rSmoky = pre == 0 ? 0 : (double) smoky / pre;
         StringBuilder why = new StringBuilder();
         if (READY > 0 && (rReady < READY || firstReady < Math.min(10, n))) why.append(String.format(Locale.ROOT, "мир достраивается в кадре (%.0f%%); ", 100 * (1 - rReady)));
-        if (approach < need.approach()) why.append(String.format(Locale.ROOT, "объект виден %.0f%% кадров до удара; ", 100 * approach));
-        if (nearHit < need.near()) why.append(String.format(Locale.ROOT, "в последнюю секунду до удара виден %.0f%%; ", 100 * nearHit));
-        if (atKey < need.key()) why.append(String.format(Locale.ROOT, "удар виден %.0f%%; ", 100 * atKey));
+        if (approach < need.approach()) why.append(String.format(Locale.ROOT, "объект виден %.0f%% кадров до удара%s; ", 100 * approach, lost(preLost, pre, minShare)));
+        if (nearHit < need.near()) why.append(String.format(Locale.ROOT, "в последнюю секунду до удара виден %.0f%%%s; ", 100 * nearHit, lost(nearLost, near, minShare)));
+        if (atKey < need.key()) why.append(String.format(Locale.ROOT, "удар виден %.0f%%%s; ", 100 * atKey, lost(keyLost, key, 0)));
         if (close && engine < need.engine()) why.append(String.format(Locale.ROOT, "мотор слышен %.0f%%; ", 100 * engine));
         if (rSmoky > need.smoky()) why.append(String.format(Locale.ROOT, "кадр в дыму %.0f%% до удара; ", 100 * rSmoky));
         if (dhWorld > 0) why.append(String.format(Locale.ROOT, "LOD DH с глубиной мира в %d кадрах из %d; ", dhWorld, n));

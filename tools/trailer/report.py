@@ -8,7 +8,8 @@
 нормы, «последняя секунда» — то же за секунду до удара, «удар» — удар в кадре, виден и не за дымом прежних ударов,
 «мотор» — звук снаряда слышен, «в дыму» — кадры до удара, где больше половины кадра за дымом.
 Планы, снятые вживую с проверкой кадров (HudQa), — из hud.jsonl папки записи (рядом с render): камера «hud», у снарядов
-дальше прорисовки «до удара» — худшая доля последней секунды, «удар» — худший из ударов плана.
+дальше прорисовки «до удара» — худшая доля последней секунды, «удар» — худший из ударов плана. План из render/shots.txt
+(планы вывода) без строки в report.jsonl — «не выведен»: вывод до него не дошёл.
 """
 import argparse
 import json
@@ -41,20 +42,27 @@ def main():
             rows = [x for x in rows if x["shot"] != r["shot"]] + [r]
             best[r["shot"]] = ("hud", r["verdict"], r["why"])
     shots = list(dict.fromkeys(r["shot"] for r in rows))
+    planned = a.render / "shots.txt"
+    if planned.exists():
+        missing = [s for s in planned.read_text().split() if s not in shots]
+        rows += [{"shot": s, "pass": False, "why": "не выведен: вывод до плана не дошёл"} for s in missing]
+        shots += missing
     out = ["| План | Камера | Итог | Мир | До удара | Последняя секунда | Удар | Мотор | В дыму | Кандидатов | Причина |",
            "|---|---|---|---|---|---|---|---|---|---|---|"]
     passed = 0
     for s in shots:
         cands = [r for r in rows if r["shot"] == s]
-        name, verdict, why = best.get(s, (None, "FAIL", "нет итога"))
-        # строка без камеры (ни один кандидат не прошёл оценку) — без camera, score и долей
+        name, verdict, why = best.get(s, (None, "FAIL", ""))
+        # строка без камеры (план не снят: нет объекта, камеры, повтор закрылся) — без camera, score и долей; таких
+        # строк несколько — последняя
+        scored = [c for c in cands if "score" in c]
         r = next((c for c in cands if c.get("candidate") == name), None) \
-            or max(cands, key=lambda c: c.get("score", float("-inf")))
+            or (max(scored, key=lambda c: c["score"]) if scored else cands[-1])
         passed += verdict == "PASS"
         no_key = r.get("event", -1) < 0
         out.append(f"| {s} | {r.get('candidate', '—')} | {verdict} | {pct(r.get('ready'))} | {pct(r.get('approach'))} | "
                    f"{'—' if no_key else pct(r.get('near_hit'))} | {'—' if no_key else pct(r.get('at_key'))} | {pct(r.get('engine'))} | "
-                   f"{pct(r.get('smoky'))} | {len(cands)} | {why or r.get('why', '')} |")
+                   f"{pct(r.get('smoky'))} | {sum('candidate' in c for c in cands)} | {why or r.get('why', '')} |")
     out.append("")
     out.append(f"Прошли проверку: {passed} из {len(shots)}.")
     text = "\n".join(out) + "\n"

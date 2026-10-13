@@ -148,14 +148,44 @@ final class Rig {
         };
     }
 
-    /** Полёт снаряда без удара в кадре: первый по времени появления ({@code nth} — какой по счёту). */
-    static Function<EventLog.Data, Subject> flight(String weapon, int nth) {
+    /**
+     * Полёт снаряда без удара в кадре: тот, что камера сценария держит в кадре дольше всех в окне плана (отметки
+     * «start»…«end»; при равенстве — крупнее в кадре). Пусковые выпускают десятки снарядов, повтор начинается посреди
+     * полёта прежних, а камера плана смотрит на свои: первый по появлению часто не в кадре. Без камеры в журнале — первый
+     * по появлению.
+     */
+    static Function<EventLog.Data, Subject> flight(String weapon) {
         return d -> {
             List<EventLog.Flight> all = d.of(weapon).stream().filter(f -> !f.at.isEmpty()).sorted(Comparator.comparingInt(EventLog.Flight::first)).toList();
-            if (all.size() <= nth) return null;
-            EventLog.Flight f = all.get(nth);
+            if (all.isEmpty()) return null;
+            CineCamera.Path cam = recorded(d);
+            EventLog.Flight f = all.get(0);
+            if (cam != null) {
+                EventLog.Mark start = d.mark("start"), end = d.mark("end");
+                int a = start == null ? 0 : start.t(), b = end == null ? d.ticks - 1 : end.t();
+                double clouds = cloudBase();
+                // ровно — первый по появлению (max оставляет первый из равных)
+                f = all.stream().max(Comparator.comparingDouble((EventLog.Flight x) -> framed(x, cam, a, b, clouds, false))
+                        .thenComparingDouble(x -> framed(x, cam, a, b, clouds, true))).orElseThrow();
+            }
             return new Subject(weapon, f.id, sizeOf(weapon), f::pos, f.first(), f.last(), -1, null, 0);
         };
+    }
+
+    /**
+     * Сколько тиков окна снаряд в кадре камеры (с полями, ближе тумана у края прорисовки, не в облаках); {@code size} —
+     * сумма его долей высоты кадра за эти тики.
+     */
+    private static double framed(EventLog.Flight f, CineCamera.Path cam, int a, int b, double clouds, boolean size) {
+        double sum = 0;
+        double across = sizeOf(f.weapon);
+        for (int t = Math.max(a, f.first()); t <= Math.min(b, f.last()); t++) {
+            Pose p = cam.at(t);
+            Vec3 at = f.pos(t);
+            if (at == null || !inFrame(p, at, 0.85) || beyondFog(p.pos(), at) || throughClouds(p.pos(), at, clouds)) continue;
+            sum += size ? across / (2 * p.pos().distanceTo(at) * Math.tan(Math.toRadians(p.fov() / 2))) : 1;
+        }
+        return sum;
     }
 
     /** Неподвижное место (пейзаж, площадь), без события. */
@@ -229,22 +259,51 @@ final class Rig {
             return level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z));
         }
 
-        /** Прямая видимость: блоков между точками нет (последние {@code spare} блоков у цели не в счёт). */
-        boolean clear(Vec3 from, Vec3 to, double spare) {
+        /** Все чанки под отрезком у клиента готовы: колонки чанков, которые он пересекает (обход сетки по порядку). */
+        boolean loadedAlong(Vec3 from, Vec3 to) {
+            double x0 = from.x / 16, z0 = from.z / 16, dx = to.x / 16 - x0, dz = to.z / 16 - z0;
+            int cx = Mth.floor(x0), cz = Mth.floor(z0), steps = Math.abs(Mth.floor(to.x / 16) - cx) + Math.abs(Mth.floor(to.z / 16) - cz);
+            int sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+            // доля отрезка до следующей границы чанка по x и по z и шаг этой доли на чанк
+            double ix = dx == 0 ? Double.POSITIVE_INFINITY : Math.abs(1 / dx), iz = dz == 0 ? Double.POSITIVE_INFINITY : Math.abs(1 / dz);
+            double nx = dx == 0 ? Double.POSITIVE_INFINITY : (dx > 0 ? cx + 1 - x0 : x0 - cx) * ix;
+            double nz = dz == 0 ? Double.POSITIVE_INFINITY : (dz > 0 ? cz + 1 - z0 : z0 - cz) * iz;
+            for (int i = 0; ; i++) {
+                if (level.getChunkSource().getChunkNow(cx, cz) == null) return false;
+                if (i == steps) return true;
+                if (nx < nz) {
+                    nx += ix;
+                    cx += sx;
+                } else {
+                    nz += iz;
+                    cz += sz;
+                }
+            }
+        }
+
+        /**
+         * Конец луча видимости из {@code from} к {@code to}: без последних {@code spare} блоков у цели; {@code reach} — не
+         * дальше {@link #FOG} прорисовки (объект, который мод рисует поверх мира: дальше блоков у клиента нет). null — цель
+         * ближе, луч не нужен.
+         */
+        @Nullable
+        static Vec3 sightEnd(Vec3 from, Vec3 to, double spare, boolean reach) {
             Vec3 d = to.subtract(from);
+            if (reach) {
+                double h = Math.hypot(d.x, d.z), max = FOG * Minecraft.getInstance().gameRenderer.getRenderDistance();
+                if (h > max) return from.add(d.scale(max / h));
+            }
             double len = d.length();
-            if (len < spare + 0.5) return true;
-            Vec3 end = from.add(d.scale((len - spare) / len));
+            return len < spare + 0.5 ? null : from.add(d.scale((len - spare) / len));
+        }
+
+        /** Прямая видимость: блоков между точками нет (луч — {@link #sightEnd}). */
+        boolean clear(Vec3 from, Vec3 to, double spare, boolean reach) {
+            Vec3 end = sightEnd(from, to, spare, reach);
+            if (end == null) return true;
             if (!loaded(from) || !loaded(end)) return false;
             BlockHitResult hit = level.clip(new ClipContext(from, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
             return hit.getType() == HitResult.Type.MISS;
-        }
-
-        /** Прямая видимость до края прорисовки: дальше блоков у клиента нет (объект, который мод рисует поверх мира). */
-        boolean clearWithin(Vec3 from, Vec3 to, double spare) {
-            Vec3 d = to.subtract(from);
-            double h = Math.hypot(d.x, d.z), reach = FOG * Minecraft.getInstance().gameRenderer.getRenderDistance();
-            return h <= reach ? clear(from, to, spare) : clear(from, from.add(d.scale(reach / h)), 0);
         }
 
         /** Камера не в блоке и вокруг неё полблока воздуха. */
@@ -370,20 +429,27 @@ final class Rig {
      */
     static Kind own(boolean close) {
         return (s, a, b, w, d) -> {
-            if (d.camera.isEmpty() || d.camera.floorKey(a) == null && d.camera.ceilingKey(a) == null) return List.of();
-            CineCamera.Path path = t -> {
-                var lo = d.camera.floorEntry((int) Math.floor(t));
-                var hi = d.camera.ceilingEntry((int) Math.ceil(t));
-                if (lo == null) return hi.getValue();
-                if (hi == null || hi.getKey().equals(lo.getKey())) return lo.getValue();
-                double k = (t - lo.getKey()) / (hi.getKey() - lo.getKey());
-                Pose p = lo.getValue(), q = hi.getValue();
-                return new Pose(p.pos().lerp(q.pos(), k), p.yaw() + Mth.wrapDegrees(q.yaw() - p.yaw()) * (float) k,
-                        Mth.lerp((float) k, p.pitch(), q.pitch()), Mth.lerp((float) k, p.roll(), q.roll()), Mth.lerp(k, p.fov(), q.fov()));
-            };
+            CineCamera.Path path = recorded(d);
+            if (path == null) return List.of();
             double fov = path.at(a).fov();
             double mm = 12 / Math.tan(Math.toRadians(fov / 2));
             return List.of(new Candidate(String.format(Locale.ROOT, "own-%.0fmm", mm), path, mm, close, true));
+        };
+    }
+
+    /** Камера сценария по журналу (вне журнала — ближайшая поза); null — сценарий камеру не вёл. */
+    @Nullable
+    static CineCamera.Path recorded(EventLog.Data d) {
+        if (d.camera.isEmpty()) return null;
+        return t -> {
+            var lo = d.camera.floorEntry((int) Math.floor(t));
+            var hi = d.camera.ceilingEntry((int) Math.ceil(t));
+            if (lo == null) return hi.getValue();
+            if (hi == null || hi.getKey().equals(lo.getKey())) return lo.getValue();
+            double k = (t - lo.getKey()) / (hi.getKey() - lo.getKey());
+            Pose p = lo.getValue(), q = hi.getValue();
+            return new Pose(p.pos().lerp(q.pos(), k), p.yaw() + Mth.wrapDegrees(q.yaw() - p.yaw()) * (float) k,
+                    Mth.lerp((float) k, p.pitch(), q.pitch()), Mth.lerp((float) k, p.roll(), q.roll()), Mth.lerp(k, p.fov(), q.fov()));
         };
     }
 
@@ -418,24 +484,83 @@ final class Rig {
      * Насколько кадр кандидата снимет план, по журналу и миру повтора: доля времени до удара, когда снаряд в кадре
      * (с полями), виден (луч до него свободен, ближе тумана у края прорисовки) и не мельче {@code minShare} высоты кадра; удар в кадре и виден
      * в первые полсекунды; камера в воздухе по всему пути; линия взгляда не идёт сквозь столбы дыма прежних ударов.
+     * <p>
+     * Образцы — тик через тик окна, и каждый идёт в счёт, только когда у клиента есть все чанки, которые он читает: место
+     * камеры и луч до объекта. Мир повтора приходит только вокруг его зрителя, поэтому {@link ReplayFilm} водит зрителя по
+     * камерам, чьи образцы ждут мира ({@link #waiting}), пока не решены все. Камера, чей чанк у зрителя рядом так и не
+     * пришёл, — вне мира повтора: кадр без мира, кандидат отпадает, как камера в блоках.
      */
-    static Score score(Candidate c, Subject s, int a, int b, World w, List<EventLog.Flight> earlier, double minShare) {
-        int n = 0, ok = 0, keyN = 0, keyOk = 0, afterN = 0, afterOk = 0;
-        double sizeSum = 0, smokeHits = 0;
-        boolean free = true;
-        StringBuilder why = new StringBuilder();
-        for (int t = a; t <= b; t += 2) {
+    static final class Tally {
+        final Candidate c;
+        private final Subject s;
+        private final List<EventLog.Flight> earlier;
+        private final double minShare;
+        /** Тики образцов, которые ждут мира. */
+        private final java.util.ArrayDeque<Integer> pending = new java.util.ArrayDeque<>();
+        private int n, ok, keyN, keyOk, afterN, afterOk, smokeHits;
+        private double sizeSum;
+        private boolean inBlocks, outside;
+
+        Tally(Candidate c, Subject s, int a, int b, List<EventLog.Flight> earlier, double minShare) {
+            this.c = c;
+            this.s = s;
+            this.earlier = earlier;
+            this.minShare = minShare;
+            for (int t = a; t <= b; t += 2) pending.add(t);
+        }
+
+        /** Камера в блоках или вне мира повтора: кандидат отпал, остальное не важно. */
+        boolean rejected() {
+            return inBlocks || outside;
+        }
+
+        /** Первый образец, который ждёт мира (зрителю — к его камере); −1 — все в счёте. */
+        int waiting() {
+            return pending.isEmpty() ? -1 : pending.peekFirst();
+        }
+
+        /**
+         * В счёт — образцы, чей мир уже у клиента. {@code stop} — где стоит зритель, когда мир у него пришёл весь, сколько
+         * придёт: чанк ближе {@code radius} к нему, которого нет, — вне мира повтора (камера там — кандидат отпадает,
+         * луч туда — объект не виден); null — образцы без мира ждут дальше.
+         */
+        void evaluate(World w, @Nullable Vec3 stop, double radius) {
+            for (var it = pending.iterator(); it.hasNext() && !rejected(); ) {
+                if (sample(it.next(), w, stop, radius)) it.remove();
+            }
+            if (rejected()) pending.clear();
+        }
+
+        private static boolean near(@Nullable Vec3 stop, Vec3 p, double radius) {
+            return stop != null && Math.hypot(p.x - stop.x, p.z - stop.z) <= radius;
+        }
+
+        /** @return образец в счёте; false — нужного чанка у клиента нет, а зритель стоит не рядом с ним */
+        private boolean sample(int t, World w, @Nullable Vec3 stop, double radius) {
             Pose p = c.path().at(t);
+            Vec3 cam = p.pos();
+            if (!w.loaded(cam)) {
+                if (!near(stop, cam, radius)) return false;
+                outside = true;
+                return true;
+            }
             Vec3 aim = s.aim(t);
-            if (!w.free(p.pos())) free = false;
-            if (aim == null) continue;
-            boolean in = inFrame(p, aim, 0.85);
-            double d = p.pos().distanceTo(aim);
-            double share = s.aimSize(t) / (2 * d * Math.tan(Math.toRadians(p.fov() / 2)));
-            double spare = Math.max(2, s.aimSize(t) * 0.4);
-            boolean seen = in && (s.overlay ? w.clearWithin(p.pos(), aim, spare)
-                    : w.clear(p.pos(), aim, spare) && !throughClouds(p.pos(), aim, w.clouds) && !beyondFog(p.pos(), aim));
-            boolean smoky = smokeOnLine(p.pos(), aim, earlier, t);
+            boolean in = aim != null && inFrame(p, aim, 0.85);
+            boolean seen = false;
+            double spare = aim == null ? 0 : Math.max(2, s.aimSize(t) * 0.4);
+            // луч — к объекту в кадре, что не в облаках и ближе тумана у края прорисовки; к объекту поверх мира — до её края
+            if (in && (s.overlay || !throughClouds(cam, aim, w.clouds) && !beyondFog(cam, aim))) {
+                Vec3 end = World.sightEnd(cam, aim, spare, s.overlay);
+                if (end == null || w.loadedAlong(cam, end)) {
+                    seen = w.clear(cam, aim, spare, s.overlay);
+                } else if (!near(stop, end, radius)) {
+                    return false;
+                }
+            }
+            if (!w.free(cam)) inBlocks = true;
+            if (aim == null) return true;
+            double share = s.aimSize(t) / (2 * cam.distanceTo(aim) * Math.tan(Math.toRadians(p.fov() / 2)));
+            boolean smoky = smokeOnLine(cam, aim, earlier, t);
             if (smoky) smokeHits++;
             if (s.key < 0 || t < s.key) {
                 n++;
@@ -448,16 +573,22 @@ final class Rig {
                 afterN++;
                 if (seen) afterOk++;
             }
+            return true;
         }
-        double approach = n == 0 ? 1 : (double) ok / n;
-        double atKey = keyN == 0 ? 1 : (double) keyOk / keyN;
-        double after = afterN == 0 ? 1 : (double) afterOk / afterN;
-        double meanShare = n == 0 ? 0 : sizeSum / n;
-        double smoke = smokeHits / Math.max(1, n + keyN + afterN);
-        if (!free) why.append(" камера в блоках;");
-        if (atKey < 0.5) why.append(" удар не виден;");
-        double total = !free ? -1 : approach * 0.45 + atKey * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;
-        return new Score(total, approach, atKey, after, meanShare, smoke, free, why.toString().trim());
+
+        Score score() {
+            double approach = n == 0 ? 1 : (double) ok / n;
+            double atKey = keyN == 0 ? 1 : (double) keyOk / keyN;
+            double after = afterN == 0 ? 1 : (double) afterOk / afterN;
+            double meanShare = n == 0 ? 0 : sizeSum / n;
+            double smoke = (double) smokeHits / Math.max(1, n + keyN + afterN);
+            StringBuilder why = new StringBuilder();
+            if (inBlocks) why.append(" камера в блоках;");
+            if (outside) why.append(" камера вне мира повтора;");
+            if (!rejected() && atKey < 0.5) why.append(" удар не виден;");
+            double total = rejected() ? -1 : approach * 0.45 + atKey * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;
+            return new Score(total, approach, atKey, after, meanShare, smoke, !rejected(), why.toString().trim());
+        }
     }
 
     /** Точка в кадре позы (доля полукадра {@code safe}: 1 — до края). */

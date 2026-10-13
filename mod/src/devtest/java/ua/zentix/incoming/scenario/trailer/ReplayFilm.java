@@ -47,6 +47,8 @@ public final class ReplayFilm {
     private static final double FPS = 60;
     /** Тиков после открытия повтора до работы, ожидания перемотки и мира; сколько стоять в точке пути. */
     private static final int OPEN_WAIT = 4800, SETTLE = 60, SEEK_SETTLE = 30, WORLD_WAIT = 600, POSE_MIN = 6, POSE_MAX = 300;
+    /** Оценка у камеры кандидата: тиков стоять там до первой проверки и сколько ждать её мира. */
+    private static final int STOP_SETTLE = 10, STOP_WAIT = 200;
     /** Ключи камеры — с запасом до начала (вывод ставит камеру и чуть раньше). */
     private static final int EXPORT_LEAD = 40;
 
@@ -56,7 +58,7 @@ public final class ReplayFilm {
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
 
-    private enum State { TITLE, OPENING, SETTLING, SEEKING, SOLVING, WALKING, WARMING, EXPORTING, DONE }
+    private enum State { TITLE, OPENING, SETTLING, SEEKING, SCORING, WALKING, WARMING, EXPORTING, DONE }
 
     private State state = State.TITLE;
     private int ticks, stateAt;
@@ -68,6 +70,11 @@ public final class ReplayFilm {
     private Rig.Subject subject;
     private int a, b;
     private final ArrayDeque<Scored> candidates = new ArrayDeque<>();
+    /** Оценка кандидатов; образец, ради мира которого зритель стоит у его камеры, и с какого тика. */
+    private final List<Rig.Tally> tallies = new ArrayList<>();
+    private Rig.Tally target;
+    private int targetTick, stopAt;
+    private Pose stop;
     private Scored current, bestTry;
     private FrameQa.Verdict bestVerdict;
     private FrameQa qa;
@@ -121,6 +128,10 @@ public final class ReplayFilm {
         Incoming.LOG.info("SCENARIO film {} shots: {}", queue.size(), queue.stream().map(Coverage.Spec::shot).toList());
         try {
             Files.createDirectories(out);
+            // планы этого вывода (и снятые прошлым запуском): план без строки в report.jsonl отчёт называет невыведенным
+            List<String> shots = new ArrayList<>(done);
+            queue.forEach(q -> shots.add(q.shot()));
+            Files.write(out.resolve("shots.txt"), shots.stream().sorted().toList(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -155,6 +166,8 @@ public final class ReplayFilm {
     /** Следующий план: открыть его повтор (если открыт другой) и перейти к разбору. */
     private void next() {
         spec = queue.poll();
+        subject = null;
+        a = b = -1;
         if (spec == null) {
             finish();
             return;
@@ -179,15 +192,29 @@ public final class ReplayFilm {
             tick();
         } catch (RuntimeException ex) {
             Incoming.LOG.error("SCENARIO film failed: {}", spec == null ? "-" : spec.shot(), ex);
-            if (qa != null) {
-                qa.close();
-                qa = null;
-            }
-            next();
+            fail("ошибка вывода: " + ex);
         }
     }
 
+    /** План не снят: строка в отчёт (план не теряется), дальше — следующий. */
+    private void fail(String why) {
+        if (qa != null) {
+            qa.close();
+            qa = null;
+        }
+        flawless(false);
+        if (spec != null) report(null, null, why);
+        next();
+    }
+
     private void tick() {
+        if (state != State.OPENING && !FlashbackApi.inReplay()) {
+            // клиент отключился от повтора (ошибка разбора пакета повтора и т. п.; причина — в логе выше)
+            Incoming.LOG.error("SCENARIO film failed: {}: повтор {} закрылся", spec.shot(), openReplay);
+            openReplay = null;
+            fail("повтор закрылся: клиент отключился от него");
+            return;
+        }
         switch (state) {
             case OPENING -> {
                 if (mc.level != null && mc.player != null && FlashbackApi.inReplay()) {
@@ -197,7 +224,7 @@ public final class ReplayFilm {
                 } else if (waited() > OPEN_WAIT) {
                     Incoming.LOG.error("SCENARIO film failed: повтор {} не открылся", openReplay);
                     openReplay = null;
-                    next();
+                    fail("повтор не открылся");
                 }
             }
             case SETTLING -> {
@@ -215,8 +242,25 @@ public final class ReplayFilm {
                     standAt(Pose.look(k.add(0, 30, -30), k, 0, 70));
                     return;
                 }
-                go(State.SOLVING);
-                solve(w);
+                plan(w);
+            }
+            case SCORING -> {
+                // зритель у камеры образца, который ждёт мира: в счёт — всё, чей мир пришёл; ждём мир этого образца
+                standAt(stop);
+                int at = ticks - stopAt;
+                if (at < STOP_SETTLE) return;
+                Rig.World w = new Rig.World();
+                for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
+                if (target.waiting() == targetTick && at < STOP_WAIT) return;
+                if (target.waiting() == targetTick) {
+                    // мир у зрителя пришёл весь, сколько придёт: чего рядом нет, того нет в повторе
+                    // (до края прорисовки без двух чанков; луч образца у камеры, где стоит зритель, — не дальше FOG прорисовки)
+                    double rd = Minecraft.getInstance().gameRenderer.getRenderDistance(), radius = Math.max(rd - 32, Rig.FOG * rd);
+                    Incoming.LOG.warn("SCENARIO film {}: мир у {} не пришёл за {} тиков — чего в {} блоках нет, нет в повторе", spec.shot(),
+                            War.xyz(stop.pos()), STOP_WAIT, Math.round(radius));
+                    for (Rig.Tally t : tallies) t.evaluate(w, stop.pos(), radius);
+                }
+                nextStop();
             }
             case WALKING -> {
                 if (standing != null) standAt(standing);
@@ -276,27 +320,25 @@ public final class ReplayFilm {
             return;
         }
         int total = FlashbackApi.totalTicks();
-        // опора окна: удар; без удара — появление снаряда (пуск); у места — отметка «start» (момент плана)
+        // окно плана, как его снял сценарий (от «start» до «end»): камера сценария — в нём и в хвосте повтора после него
         EventLog.Mark start = data.mark("start"), end = data.mark("end");
-        if (spec.pre() < 0) {
-            // окно плана, как его снял сценарий (от «start» до «end»): камера сценария есть только в нём
-            a = start == null ? 0 : start.t();
-            b = end == null ? data.ticks : end.t();
-        } else {
-            int anchor = subject.key >= 0 ? subject.key : subject.entity != null ? subject.first : start == null ? 0 : start.t();
-            a = anchor - spec.pre();
-            b = anchor + spec.post();
+        int sa = start == null ? 0 : start.t(), sb = end == null ? data.ticks : end.t();
+        a = sa;
+        b = sb;
+        if (subject.key >= 0) {
+            // удар — то, ради чего план: окно держит его с запасом, даже если сценарий кончил план раньше удара
+            a = Math.min(a, subject.key - Coverage.HIT_MARGIN);
+            b = Math.max(b, subject.key + Coverage.HIT_MARGIN);
         }
         a = Math.max(a, 1);
         b = Math.min(b, Math.min(total, data.ticks) - 2);
-        Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film shot %s: %s, ticks %d..%d (event %d at %s), replay %d ticks", spec.shot(),
-                subject.what, a, b, subject.key, subject.keyPos, total));
+        Incoming.LOG.info(String.format(Locale.ROOT, "SCENARIO film shot %s: %s, ticks %d..%d (plan %d..%d, event %d at %s), replay %d ticks", spec.shot(),
+                subject.what, a, b, sa, sb, subject.key, subject.keyPos, total));
         FlashbackApi.seek(subject.key >= 0 ? Math.max(a, subject.key - 5) : a);
         bestTry = null;
         bestVerdict = null;
     }
 
-    /** Кандидаты всех типов камеры плана, оценка по миру повтора и журналу, лучшие — в очередь вывода. */
     /**
      * Где нужен мир повтора для оценки камер: у события; у объекта, который мод рисует поверх мира (ядерный подрыв в ~900
      * блоках от крыши), — у камеры сценария: у самого подрыва мир камеры за прорисовкой выгружен, и оценка сочла бы её
@@ -311,12 +353,42 @@ public final class ReplayFilm {
         return subject.keyPos != null ? subject.keyPos : subject.at.apply((a + b) / 2.0);
     }
 
-    private void solve(Rig.World w) {
+    /**
+     * Кандидаты всех типов камеры плана (мир повтора — у события) и их оценка: что уже у клиента, сразу; образцы, чьих
+     * чанков нет, — со зрителем у их камеры ({@link #nextStop}).
+     */
+    private void plan(Rig.World w) {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
-        List<Scored> all = new ArrayList<>();
+        tallies.clear();
         for (Rig.Kind k : spec.kinds()) {
-            for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) all.add(new Scored(c, Rig.score(c, subject, a, b, w, earlier, spec.minShare())));
+            for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) tallies.add(new Rig.Tally(c, subject, a, b, earlier, spec.minShare()));
         }
+        for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
+        nextStop();
+    }
+
+    /** Зритель — к камере первого образца, который ждёт мира; ждать некого — выбор кандидатов. */
+    private void nextStop() {
+        for (Rig.Tally t : tallies) {
+            int tick = t.waiting();
+            if (tick < 0) continue;
+            target = t;
+            targetTick = tick;
+            stop = t.c.path().at(tick);
+            stopAt = ticks;
+            go(State.SCORING);
+            Incoming.LOG.info("SCENARIO film {}: оценка у камеры {} (тик {}) {}", spec.shot(), t.c.name(), tick, War.xyz(stop.pos()));
+            return;
+        }
+        solve();
+    }
+
+    /** Оценки кандидатов готовы: лучшие — в очередь вывода. */
+    private void solve() {
+        List<Scored> all = new ArrayList<>();
+        for (Rig.Tally t : tallies) all.add(new Scored(t.c, t.score()));
+        tallies.clear();
+        target = null;
         // камера сценария — первой (её задумали для плана), дальше — по оценке
         all.sort(Comparator.comparing((Scored s) -> !(s.c.designed() && s.score.total() > 0)).thenComparingDouble(s -> -s.score.total()));
         StringBuilder sb = new StringBuilder();
