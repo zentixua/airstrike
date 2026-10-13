@@ -619,9 +619,11 @@ class Replay:
     WEIGHT = {"nuke": 6, "shootdown": 4, "impact": 1, "launch": 1.5, "flyby": 1}
     AFTER = {"nuke": 200}
     # Отмеченный записавшим момент — тиков до и после отметки: маркер Flashback жмут сразу после момента, время по часам
-    # называет сам момент; ядерный подрыв за NUKE_BEFORE тиков до маркера — отрезок со вспышки (волна идёт долго)
+    # называет сам момент; ядерный подрыв за NUKE_BEFORE тиков до маркера — отрезок со вспышки и не короче AFTER после
+    # неё (волна идёт долго). Маркеры, которые Flashback ставит сам (смена измерения), — не отметки игрока
     MARK = {"marker": (300, 40), "at": (200, 100)}
     NUKE_BEFORE = 1200
+    AUTO_MARKERS = {"Changed Dimension"}
 
     def marks(self) -> list[tuple[int, int, str]]:
         """Моменты, которые отметил записавший: (начало, конец, откуда) — маркеры Flashback (`markers` в метаданных
@@ -630,11 +632,14 @@ class Replay:
         total = self.meta.get("total_ticks") or 0
         nukes = [t for (t,) in self.con.execute("SELECT t FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%'").fetchall()]
         out = []
-        for key in self.meta.get("replay_meta", {}).get("markers", {}):
+        for key, marker in self.meta.get("replay_meta", {}).get("markers", {}).items():
+            if (marker or {}).get("description") in self.AUTO_MARKERS:
+                continue
             m = int(key)
             before, after = self.MARK["marker"]
-            a = min([m - before] + [t - 3 * TICK for t in nukes if m - self.NUKE_BEFORE <= t <= m])
-            out.append((a, m + after, f"маркер {mmss(m)}"))
+            flash = [t for t in nukes if m - self.NUKE_BEFORE <= t <= m]
+            out.append((min([m - before] + [t - 3 * TICK for t in flash]), max([m + after] + [t + self.AFTER["nuke"] for t in flash]),
+                        f"маркер {mmss(m)}"))
         anchors = clock(self, [{"end": True, "at": "name"}]) if self.at else []
         for spec in self.at if anchors else []:
             first, _, last = spec.partition("/")

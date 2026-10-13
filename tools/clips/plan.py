@@ -54,6 +54,11 @@ def path_of(con, uuid: str, a: int, b: int) -> list[list[float]]:
 
 def dim_of(con, shot: dict) -> str:
     s = shot["subject"]
+    if shot["camera"]["kind"] == "pov":
+        # глазами игрока — его измерение в начале плана (отмеченный момент бывает без событий)
+        r = con.execute("SELECT dim FROM viewers WHERE viewer = ? AND t >= ? ORDER BY t LIMIT 1", [shot["camera"]["viewer"], shot["a"]]).fetchone()
+        if r:
+            return r[0]
     if s.get("uuid"):
         r = con.execute("SELECT dim FROM entities WHERE uuid = ? LIMIT 1", [s["uuid"]]).fetchone()
         if r:

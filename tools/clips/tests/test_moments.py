@@ -279,13 +279,20 @@ class SelectTest(unittest.TestCase):
             self.r.pov_events = real
         self.assertTrue(self.r.human("recorder"))
         self.assertTrue(self.r.human("player:Friend"))
+        self.assertTrue(self.r.human("player:Guest"), "без входа Mojang — тоже человек")
+        self.assertEqual(clips.offline_uuid("Notch"), "b50ad385-829d-3141-a216-7e7d7539ba7f", "как у ванили")
+        self.assertFalse(self.r.human("player:Sever_1"), "бот")
+        self.assertFalse(self.r.human("ask:0"))
 
     def test_pov_marked(self):
         """Отмеченные записавшим моменты: маркеры Flashback и время по часам — только они, глазами записавшего."""
         r = self.r
         meta, name, at = dict(r.meta), r.name, r.at
         try:
-            r.meta["replay_meta"] = {"markers": {"500": {"colour": 16777215}, "2060": {"colour": 16711680}}}
+            r.meta["replay_meta"] = {"markers": {"1500": {"colour": 11141290, "description": "Changed Dimension"}}}
+            self.assertTrue(all("mark" not in x.numbers for x in r.pov()), "смена измерения — маркер самого Flashback, не отметка")
+            r.meta["replay_meta"] = {"markers": {"500": {"colour": 16777215}, "2060": {"colour": 16711680},
+                                                 "1500": {"colour": 11141290, "description": "Changed Dimension"}}}
             c = r.pov()
             self.assertEqual([(x.shots[0].a, x.shots[0].b) for x in c], [(200, 540), (1760, 2100)],
                              "маркер — сразу после момента, 15 с до него и 2 с после; не дальше конца записи")
@@ -295,9 +302,11 @@ class SelectTest(unittest.TestCase):
             self.assertEqual(c[0].numbers["shot_down"], 1, "события отрезка — для подписи и проверки кадров")
             self.assertIn({"t": 470, "pos": [0.5, 85.0, 60.0], "size": 8}, c[0].shots[0].subject["keys"])
             self.assertEqual(c[1].numbers["nuke"], 1)
-            r.MARK = {**r.MARK, "marker": (100, 40)}
-            self.assertEqual(r.marks()[1][:2], (1940, 2100), "ядерный подрыв за минуту до маркера — отрезок со вспышки")
-            del r.MARK
+            r.MARK, r.AFTER = {**r.MARK, "marker": (0, 10)}, {"nuke": 60}
+            r.meta["replay_meta"] = {"markers": {"700": {"colour": 16711680}, "2005": {"colour": 16711680}}}
+            self.assertEqual([x[:2] for x in r.marks()], [(700, 710), (1940, 2060)],
+                             "ядерный подрыв за минуту до маркера — отрезок со вспышки и не короче хвоста подрыва")
+            del r.MARK, r.AFTER
             # время по часам: запись сохранена в 19:10:00 (2100 тиков — с 19:08:15)
             r.meta.pop("replay_meta")
             r.name, r.at = "2026-10-14T19_10_00", ["2026-10-14T19:09:00", "2026-10-14T19:08:20/2026-10-14T19:08:30", "2026-10-14T20:00:00"]
@@ -309,11 +318,7 @@ class SelectTest(unittest.TestCase):
         finally:
             r.meta, r.name, r.at = meta, name, at
             r.__dict__.pop("MARK", None)
-
-        self.assertTrue(self.r.human("player:Guest"), "без входа Mojang — тоже человек")
-        self.assertEqual(clips.offline_uuid("Notch"), "b50ad385-829d-3141-a216-7e7d7539ba7f", "как у ванили")
-        self.assertFalse(self.r.human("player:Sever_1"), "бот")
-        self.assertFalse(self.r.human("ask:0"))
+            r.__dict__.pop("AFTER", None)
 
     def test_far(self):
         c = self.r.far()
@@ -448,6 +453,16 @@ class PlanTest(unittest.TestCase):
         self.assertEqual([c["kind"] for c in s["cameras"]], ["pov"], "без запасной камеры")
         self.assertEqual(s["need"]["loud"], -1, "громкое за кадром — бой вокруг игрока, не проверяется")
         self.assertEqual(s["need"]["subject"], 0)
+
+        class Con:  # база, где записавший в начале плана — в Незере
+            def execute(self, q, args):
+                self.q = q
+                return self
+
+            def fetchone(self):
+                return ("minecraft:the_nether",) if "viewers" in self.q else None
+        shot = {"camera": {"kind": "pov", "viewer": "recorder"}, "a": 10, "subject": {"keys": []}}
+        self.assertEqual(film_plan.dim_of(Con(), shot), "minecraft:the_nether", "глазами игрока — его измерение, и без событий")
 
     def test_chaos_frames_area(self):
         s = self.shots["chaos-0-chaos"]
