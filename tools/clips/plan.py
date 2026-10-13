@@ -8,11 +8,9 @@
   uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--top 1] [--out <clips>/film]
          [--size 1080x1920] [--fps 60] [--replays <каталог копий>]
 
-Берёт по --top лучших кандидатов каждого ролика (или --pick; ролики --skip — нет), достаёт из базы пути снарядов (tracks и дальние
+Берёт по --top лучших кандидатов каждого ролика (или --pick), достаёт из базы пути снарядов (tracks и дальние
 строки far), прежние удары (дым) и измерение и пишет план на каждый повтор: <out>/<повтор>/plan.json; вывод съёмки —
 <out>/<повтор>/film. <out>/runs.json — что запускать: повтор, план и версия Incoming записи (jar того дня).
-Повтор выводится без Distant Horizons (в выводе Flashback он рисует LOD поверх ближнего мира), и мир в нём — только чанки
-записавшего игрока: «издалека» (удары в 300–1500 блоках на рельефе DH) из повтора не снять, по умолчанию он пропущен.
 """
 from __future__ import annotations
 
@@ -75,7 +73,7 @@ def cameras(shot: dict) -> list[dict]:
                         "follow": True, "size": 12})
         return out
     rig = cam.get("rig")
-    # длинный объектив с места игрока: цель может быть за чанками повтора (ядерка вдали), камера — в них
+    # длинный объектив с места игрока: подрыв бывает за чанками повтора (ядерка вдали), место игрока — в них
     lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": "subject", "fov": cam["lens"]["fov"]}] if cam.get("lens") else []
     if rig == "lens":
         return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"]}]
@@ -101,7 +99,7 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
                         [dim, a - 1200, b]).fetchall()
     far = kind in ("far", "nuke")
-    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 20,
+    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
             "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
 
@@ -111,7 +109,6 @@ def main():
     p.add_argument("candidates")
     p.add_argument("--pick", default="", help="id кандидатов через запятую (по умолчанию — --top лучших каждого ролика)")
     p.add_argument("--top", type=int, default=1)
-    p.add_argument("--skip", default="far", help="ролики, которые из повторов не снимаются (через запятую)")
     p.add_argument("--out", default=None)
     p.add_argument("--size", default="1080x1920")
     p.add_argument("--fps", type=float, default=60)
@@ -124,9 +121,7 @@ def main():
     cands = json.loads(Path(a.candidates).read_text())
     out = Path(a.out) if a.out else Path(a.candidates).parent / "film"
     pick = [x for x in a.pick.split(",") if x]
-    skip = {x for x in a.skip.split(",") if x}
-    chosen = [c for v in cands.values() for c in v if c["id"] in pick] if pick \
-        else [c for k, v in cands.items() if k not in skip for c in v[:a.top]]
+    chosen = [c for v in cands.values() for c in v if c["id"] in pick] if pick else [c for v in cands.values() for c in v[:a.top]]
     width, height = (int(x) for x in a.size.split("x"))
     by_replay: dict[str, dict] = {}
     for c in chosen:
