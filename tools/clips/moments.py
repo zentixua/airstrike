@@ -86,7 +86,8 @@ hitp AS (
     ELSE h.group_place END AS place
   FROM hit h),
 kill AS (
-  SELECT uuid, min(t) AS t_kill FROM impact_kinds WHERE intercept AND uuid IS NOT NULL GROUP BY uuid)
+  SELECT uuid, min(t) AS t_kill, arg_min(x, t) AS kx, arg_min(y, t) AS ky, arg_min(z, t) AS kz
+  FROM impact_kinds WHERE intercept AND uuid IS NOT NULL GROUP BY uuid)
 SELECT coalesce(n.uuid, f.uuid) AS uuid, coalesce(n.weapon, f.weapon) AS weapon, coalesce(n.dim, f.dim) AS dim,
        least(n.e_first, f.f_first) AS first, greatest(n.e_last, f.f_last) AS last,
        n.e_first, n.e_last, n.eid0, n.eids, f.f_first, f.f_last, coalesce(f.f_rows, 0) AS f_rows,
@@ -94,7 +95,7 @@ SELECT coalesce(n.uuid, f.uuid) AS uuid, coalesce(n.weapon, f.weapon) AS weapon,
        n.ex AS lx, n.ey AS ly, n.ez AS lz,
        k.id AS hit, k.t AS t_hit, k.place, k.x AS hx, k.y AS hy, k.z AS hz, k.power, k.broken,
        coalesce(known_ground(k.place, k.clear, k.solid, k.broken), false) AS ground,
-       c.t_kill
+       c.t_kill, c.kx, c.ky, c.kz
 FROM ent n FULL OUTER JOIN fr f ON f.uuid = n.uuid
 LEFT JOIN start s ON s.uuid = n.uuid
 LEFT JOIN hitp k ON k.uuid = coalesce(n.uuid, f.uuid)
@@ -105,7 +106,7 @@ LEFT JOIN kill c ON c.uuid = coalesce(n.uuid, f.uuid);
 POV = {
     # удар по земле в кадре, луч чист, 40–300 блоков
     "impact": """
-        SELECT viewer, id, t, dist, cx, cy, in_frame(cx, cy, getvariable('center')) AS centered, heard
+        SELECT viewer, id, t, dist, cx, cy, in_frame(cx, cy, getvariable('center')) AS centered, heard, x, y, z
         FROM impact_views
         WHERE place = 'ground' AND dist BETWEEN 40 AND 300 AND in_frame(cx, cy, 1) AND coalesce(clear, false)""",
     # пуск: 30–200 блоков, в середине кадра и не закрыт ≥ 80 % первых 3 с
@@ -121,6 +122,13 @@ POV = {
         FROM flybys f JOIN entities e ON e.eid = f.eid JOIN v ON v.viewer = f.viewer AND v.ref = CAST(f.eid AS VARCHAR)
         WHERE f.seen_ticks >= 30 AND f.closest >= 10""",
 }
+
+# Сбитый снаряд глазами игроков: в кадре и не закрыт, в 8–200 блоках, в [t − 120, t] (t — сбит)
+SHOT_DOWN = """
+    SELECT viewer, count(*) * getvariable('every') AS seen, max(t) AS t_last, min(dist) AS closest FROM sight
+    WHERE kind = 'e' AND list_contains(?, ref) AND t BETWEEN ? AND ? AND viewer NOT LIKE 'ask:%'
+      AND dist BETWEEN 8 AND 200 AND in_frame(cx, cy, 1) AND clear_ray(hard, unknown, soft)
+    GROUP BY viewer"""
 
 # Громкие события у зрителя: удары (не перехваты), их звук приходит через dist / 17.15 тиков
 LOUD = """
@@ -144,16 +152,18 @@ class Flight:
     killed: int | None
     f_rows: int
     eids: list = field(default_factory=list)
+    kill_pos: tuple | None = None
 
 
 def flights(con) -> list[Flight]:
     con.execute(FLIGHTS)
     out = []
     for r in con.execute("""SELECT uuid, weapon, first, last, launched, lx, ly, lz, hit, t_hit, place, hx, hy, hz, ground, t_kill,
-                                   f_rows, eids FROM flights WHERE weapon IS NOT NULL ORDER BY first""").fetchall():
-        uuid, weapon, first, last, launched, lx, ly, lz, hit, t_hit, place, hx, hy, hz, ground, t_kill, f_rows, eids = r
+                                   f_rows, eids, kx, ky, kz FROM flights WHERE weapon IS NOT NULL ORDER BY first""").fetchall():
+        uuid, weapon, first, last, launched, lx, ly, lz, hit, t_hit, place, hx, hy, hz, ground, t_kill, f_rows, eids, kx, ky, kz = r
         out.append(Flight(uuid, weapon, first, last, bool(launched), (lx, ly, lz) if launched else None, hit, t_hit, place,
-                          (hx, hy, hz) if hit is not None else None, bool(ground), t_kill, f_rows or 0, list(eids or [])))
+                          (hx, hy, hz) if hit is not None else None, bool(ground), t_kill, f_rows or 0, list(eids or []),
+                          (kx, ky, kz) if t_kill is not None else None))
     return out
 
 
@@ -222,20 +232,20 @@ def key(f: Flight) -> dict:
     return {"t": f.t_hit, "pos": list(f.pos), "size": BLAST.get(f.weapon, 16), "id": f.hit}
 
 
-# Ролик не короче, с (превью — 20–35 с)
-LEAST = 20
+# Ролик не короче, с (превью — 20–35 с; с запасом на кадр, которого вывод может недосчитаться)
+LEAST = 20.5
 
 
 def fill(shots: list[Shot], least: float = LEAST) -> list[Shot]:
-    """Ролик не короче least секунд: недостающее — плану удара (40 % до удара, но не раньше конца прошлого плана,
-    остальное — после), без него — концу последнего плана."""
+    """Ролик не короче least секунд: недостающее — плану удара (40 % до удара, но не раньше конца прошлого плана и
+    начала повтора, остальное — после), без него — концу последнего плана."""
     short = round(least * TICK) - sum(s.b - s.a for s in shots)
-    if short <= 0:
+    if short <= 0 or not shots:
         return shots
     i = next((i for i in range(len(shots) - 1, -1, -1) if shots[i].kind == "impact"), len(shots) - 1)
     s = shots[i]
     if s.kind == "impact":
-        before = min(round(short * 0.4), max(0, s.a - shots[i - 1].b) if i > 0 else round(short * 0.4))
+        before = min(round(short * 0.4), max(0, s.a - shots[i - 1].b) if i > 0 else s.a)
         s.a -= before
         s.b += short - before
     else:
@@ -259,6 +269,25 @@ class Replay:
         self.salvos = salvos(self.fl)
         self.pov = {k: self.con.execute(q).fetchall() for k, q in POV.items()}
         self.loud = self.con.execute(LOUD).fetchall()
+        self.star = [x for x in getattr(a, "star", "").split(",") if x]
+        self.downs = [d for f in self.fl if (d := self.shot_down(f))]
+
+    def shot_down(self, f: Flight):
+        """Дрон, сбитый у игрока на глазах: (снаряд, тик, место, взгляд) или None. Сбит — зенитной ракетой (kill) или
+        огнём игроков (взведённый дрон подрывается, где его настигли: взрыв в воздухе); зритель видел его не меньше 2 с
+        из последних 6 с и в момент сбития; сперва зрители --star, потом кто видел дольше."""
+        if f.weapon not in ("shahed", "lancet") or f.ground or not f.eids:
+            return None
+        if f.killed is not None and f.kill_pos:
+            t, pos = f.killed, f.kill_pos
+        elif f.place == "air" and f.t_hit is not None:
+            t, pos = f.t_hit, f.pos
+        else:
+            return None
+        rows = [r for r in self.con.execute(SHOT_DOWN, [[str(e) for e in f.eids], t - 120, t]).fetchall()
+                if r[1] >= 2 * TICK and r[2] >= t - 10]
+        rows.sort(key=lambda r: (r[0] not in self.star, -r[1], r[3]))
+        return (f, t, pos, rows[0]) if rows else None
 
     def quiet(self, viewer: str, a: int, b: int) -> tuple[int, int]:
         """Громких событий, дошедших до зрителя в [a, b]: в кадре и за кадром."""
@@ -303,6 +332,13 @@ class Replay:
         return Shot(name, "launch", f.first - 30, f.first + after, cam,
                     {"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4), "launch": list(f.launch)}, why)
 
+    def shot_down_shot(self, name: str, down) -> Shot:
+        """Сбитие глазами игрока: 6 с до него (дрон в кадре) и 3 с после."""
+        f, t, pos, (viewer, seen, _, closest) = down
+        return Shot(name, "shootdown", t - 120, t + 60, {"kind": "pov", "viewer": viewer},
+                    {"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4), "keys": [{"t": t, "pos": list(pos), "size": 8}]},
+                    f"глазами {viewer}: {f.weapon} сбит в {closest:.0f} блоках, виден {seen / TICK:.1f} с")
+
     def flyby_shot(self, name: str, f: Flight, row, longest: int = 160) -> Shot:
         """Пролёт глазами игрока: от входа в кадр до выхода из него (кружащий «Ланцет» — не дольше longest тиков)."""
         viewer, _, t_in, closest, seen, t_out = row
@@ -345,31 +381,44 @@ class Replay:
         return min(seen or hits, key=lambda f: f.t_hit)
 
     def drones(self) -> list[Candidate]:
-        """2 — шахеды и «Ланцеты»: пролёт рядом с игроком и удары по земле рядом с ним."""
+        """2 — шахеды и «Ланцеты»: пролёт рядом с игроком, сбитие у него на глазах и удары по земле рядом с ним."""
         out = []
         for g in self.salvos:
             if g[0].weapon not in ("shahed", "lancet"):
                 continue
+            ids = {f.uuid for f in g}
             hits = [f for f in g if f.ground and f.t_hit is not None]
             flybys = [r for f in g for r in self.pov["flyby"] if r[1] == f.uuid]
-            if not hits or not flybys:
+            downs = sorted((d for d in self.downs if d[0].uuid in ids), key=lambda d: (d[3][0] not in self.star, -d[3][1]))
+            if not (hits or downs) or not (flybys or downs):
                 continue
-            row = min(flybys, key=lambda r: (r[3], -r[4]))
-            f = self.by_uuid[row[1]]
             shots = []
             up = [x for x in g if x.launched]
             if up:
                 shots.append(self.launch_shot("launch", min(up, key=lambda x: x.first)))
-            shots.append(self.flyby_shot("flyby", f, row))
-            after = [h for h in hits if h.t_hit >= row[2]] or hits
-            shots.append(self.impact_shot("impact", self.best_hit(after)))
+            row = min(flybys, key=lambda r: (r[3], -r[4])) if flybys else None
+            if row:
+                shots.append(self.flyby_shot("flyby", self.by_uuid[row[1]], row))
+            if downs:
+                shots.append(self.shot_down_shot("shootdown", downs[0]))
+            if hits:
+                t0 = row[2] if row else downs[0][1]
+                shots.append(self.impact_shot("impact", self.best_hit([h for h in hits if h.t_hit >= t0] or hits)))
+            # после пуска — пролёт, сбитие и удар в том порядке, в каком кончились в игре
+            k = 1 if up else 0
+            shots[k:] = sorted(shots[k:], key=lambda s: s.b)
             fill(shots)
-            score = (min(len(hits), 6) / 6 * 2 + min(row[4], 80) / 80 * 2 + (60 - min(row[3], 60)) / 60
-                     + (shots[-1].camera["kind"] == "pov") + 0.5 * bool(up))
-            out.append(Candidate("drones", self.name, str(self.db), score, row[2], g[0].weapon,
-                                 f"{len(g)} × {g[0].weapon}: пролёт в {row[3]:.0f} блоках у {row[0]} {mmss(row[2])}, {len(hits)} по земле",
-                                 {"projectiles": len(g), "ground": len(hits), "closest": round(row[3]), "flyby_s": row[4] / TICK},
-                                 shots))
+            star = bool(downs) and downs[0][3][0] in self.star
+            score = (min(len(hits), 6) / 6 * 2 + (min(row[4], 80) / 80 * 2 + (60 - min(row[3], 60)) / 60 if row else 0)
+                     + (shots[-1].camera["kind"] == "pov") + 0.5 * bool(up) + 2 * bool(downs) + 4 * star)
+            t = row[2] if row else downs[0][1]
+            what = [f"пролёт в {row[3]:.0f} блоках у {row[0]} {mmss(row[2])}"] if row else []
+            if downs:
+                what.append(f"сбит у {downs[0][3][0]} {mmss(downs[0][1])}")
+            what.append(f"{len(hits)} по земле")
+            out.append(Candidate("drones", self.name, str(self.db), score, t, g[0].weapon, f"{len(g)} × {g[0].weapon}: " + ", ".join(what),
+                                 {"projectiles": len(g), "ground": len(hits), "closest": round(row[3]) if row else None,
+                                  "flyby_s": row[4] / TICK if row else 0, "shot_down": len(downs)}, shots))
         return out
 
     def chaos(self, window: int = 400, radius: float = 110) -> list[Candidate]:
@@ -404,21 +453,28 @@ class Replay:
                                  {"ground": n, "spread": round(spread), "weapons": weapons, "seconds": window // TICK}, shots))
         # глазами игроков: окна, где ударов по земле в кадре больше всего, а громкого за кадром меньше, чем в кадре
         rows = self.pov["impact"]
+        weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
         for viewer in sorted({r[0] for r in rows}):
-            ts = sorted(r[2] for r in rows if r[0] == viewer)
-            for i, t0 in enumerate(ts):
-                n = sum(1 for t in ts[i:] if t - t0 < window)
+            seen = sorted((r for r in rows if r[0] == viewer), key=lambda r: r[2])
+            for i, first in enumerate(seen):
+                t0 = first[2]
+                group = [r for r in seen[i:] if r[2] - t0 < window]
+                n = len(group)
                 if n < 4:
                     continue
                 on, off = self.quiet(viewer, t0, t0 + window)
                 if off > on:
                     continue
-                out.append(Candidate("chaos", self.name, str(self.db), n + 0.5, t0, "pov",
+                # глазами игрока — первыми: удары так, как их видел игрок
+                out.append(Candidate("chaos", self.name, str(self.db), n + 2, t0, "pov",
                                      f"глазами {viewer}: {n} ударов по земле в кадре за {window / TICK:.0f} с с {mmss(t0)}, громких за кадром {off}",
                                      {"ground_in_frame": n, "loud_on": on, "loud_off": off, "seconds": window // TICK},
                                      [Shot("chaos", "chaos", t0 - 40, t0 + window + 40, {"kind": "pov", "viewer": viewer},
-                                           {"keys": []}, "окно хаоса глазами игрока")]))
-        return dedupe(out, 2 * window)
+                                           {"keys": [{"t": r[2], "pos": [r[8], r[9], r[10]], "size": BLAST.get(weapon.get(r[1]), 16), "id": r[1]}
+                                                     for r in group]},
+                                           "окно хаоса глазами игрока")]))
+        # широкий план и глаза игрока — каждый своим отбором: окно глазами игрока не уступает широкому рядом
+        return dedupe([c for c in out if c.weapon != "pov"], 2 * window) + dedupe([c for c in out if c.weapon == "pov"], 2 * window)
 
     def far(self) -> list[Candidate]:
         """4 — издалека: удары в 300–1500 блоках от игрока, вспышка раньше грохота, рядом по времени тихо; камера —
@@ -636,6 +692,7 @@ def main():
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")
     p.add_argument("--soft", type=int, default=2, help="луч чист, если листвы, стекла и воды на пути не больше стольких блоков")
     p.add_argument("--prefer", default="", help="повторы (часть имени, через запятую), чьи кандидаты идут первыми")
+    p.add_argument("--star", default="", help="зрители (player:<ник>, через запятую), чьи сбития дронов идут первыми")
     p.add_argument("--notes", help="журнал игры: опоры часов повторов и отрезки с тем, что происходило (README.md)")
     p.add_argument("--note-bonus", type=float, default=1.0, help="прибавка к счёту кандидата в отрезке журнала")
     p.add_argument("--min-version", default="2.10.2",

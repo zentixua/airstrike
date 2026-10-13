@@ -143,6 +143,12 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     if preview == "rockets":
         return (f"{en.capitalize()}: launch, flight and impacts on the ground.", f"{ru.capitalize()}: пуск, полёт и удары по земле.")
     if preview == "drones":
+        if n.get("shot_down") and n.get("ground"):
+            return (f"{en.capitalize()} over the players: one is shot down, the rest hit the streets nearby.",
+                    f"{ru.capitalize()} над игроками: один сбивают, остальные бьют по соседним улицам.")
+        if n.get("shot_down"):
+            return (f"{en.capitalize()} over the players: one is shot down in front of them.",
+                    f"{ru.capitalize()} над игроками: один сбивают у них на глазах.")
         return (f"{en.capitalize()} fly over the players and hit the streets nearby.",
                 f"{ru.capitalize()} пролетают над игроками и бьют по соседним улицам.")
     if preview == "chaos":

@@ -226,6 +226,8 @@ final class Cameras {
                             double g = w.ground(spot.x, spot.z);
                             if (Double.isNaN(g)) continue;
                             Vec3 eye = new Vec3(spot.x, Math.max(g + 2, k.y + dist * Math.tan(Math.toRadians(elev))), spot.z);
+                            // над облаками событий не видно
+                            if (!Double.isNaN(w.clouds) && eye.y >= w.clouds - 2) continue;
                             Path p = c.follow() ? follow(t -> eye, s, a, b, 6, fov) : t -> Pose.look(eye, k.add(0, size * 0.25, 0), fov);
                             out.add(new Candidate(String.format(Locale.ROOT, "tripod-f%.0f-d%.0f-a%.0f-e%.0f", fov, dist, side, elev), p, null,
                                     false, fov, false));

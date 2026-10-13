@@ -107,6 +107,9 @@ class EditTest(unittest.TestCase):
         self.assertIn("Удары в 400, 650 и 900 блоках", ru)
         en, ru = edit.caption("chaos", {"weapon": "grad", "numbers": {"ground": 21, "seconds": 20}})
         self.assertEqual(ru, "Ударов по земле за 20 секунд: 21. Одна камера.")
+        en, ru = edit.caption("drones", {"weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}})
+        self.assertEqual(en, "Shahed drones over the players: one is shot down, the rest hit the streets nearby.")
+        self.assertEqual(ru, "Шахеды над игроками: один сбивают, остальные бьют по соседним улицам.")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху

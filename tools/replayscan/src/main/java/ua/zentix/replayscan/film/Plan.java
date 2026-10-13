@@ -102,7 +102,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
                 vec(c, "around"), c.has("heading") ? new Vec3(arr(c.getAsJsonArray("heading"))[0], 0, arr(c.getAsJsonArray("heading"))[1]) : null,
                 c.has("dist") ? arr(c.getAsJsonArray("dist")) : new double[]{60, 90, 130},
                 c.has("elev") ? arr(c.getAsJsonArray("elev")) : new double[]{6, 16, 28}, dbl(c, "az_step", 30), dbl(c, "share", 0.25),
-                dbl(c, "size", 0), c.has("rise") ? arr(c.getAsJsonArray("rise")) : new double[]{0});
+                dbl(c, "size", 0), c.has("rise") && c.get("rise").isJsonArray() && !c.getAsJsonArray("rise").isEmpty() ? arr(c.getAsJsonArray("rise")) : new double[]{0});
     }
 
     private static Subject subject(JsonObject s) {

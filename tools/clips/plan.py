@@ -29,7 +29,9 @@ NEED = {
     "launch": {"subject": 0.6, "near": 0, "keys": 1, "share": 0.004},
     "flight": {"subject": 0.5, "near": 0, "keys": 1, "share": 0.004, "engine": 0.3},
     "impact": {"subject": 0.4, "near": 0.5, "keys": 1, "share": 0.004},
-    "chaos": {"subject": 0, "near": 0, "keys": 0.7, "share": 0},
+    "shootdown": {"subject": 0.4, "near": 0, "keys": 1, "share": 0.004},
+    # хаос — много ударов сразу: превью хватает половины видных
+    "chaos": {"subject": 0, "near": 0, "keys": 0.5, "share": 0},
     "far": {"subject": 0, "near": 0, "keys": 1, "share": 0},
     "nuke": {"subject": 0, "near": 0, "keys": 1, "share": 0},
 }
@@ -65,9 +67,16 @@ def cameras(shot: dict) -> list[dict]:
     keys = s.get("keys", [])
     if cam["kind"] == "pov":
         out = [{"kind": "pov", "player": cam["viewer"], "fov": 70}]
-        if kind == "impact" and keys:
+        if kind in ("impact", "shootdown") and keys:
             out.append({"kind": "tripod", "around": keys[0]["pos"], "dist": [60, 90, 130], "elev": [6, 16, 28], "share": 0.3,
                         "follow": True, "size": keys[0]["size"]})
+        if kind == "chaos" and keys:
+            # запасная — широкий план над ударами окна
+            xs, zs = [k["pos"][0] for k in keys], [k["pos"][2] for k in keys]
+            centre = [sum(xs) / len(xs), sum(k["pos"][1] for k in keys) / len(keys), sum(zs) / len(zs)]
+            spread = max(max(xs) - min(xs), max(zs) - min(zs)) / 2
+            out.append({"kind": "tripod", "around": centre, "dist": [max(90, 2.5 * spread), max(140, 3.5 * spread)],
+                        "elev": [12, 25, 40], "share": 0.85, "follow": False, "size": 2 * spread + 30})
         if kind == "launch" and s.get("launch"):
             out.append({"kind": "tripod", "around": s["launch"], "dist": [35, 55, 80], "elev": [3, 10], "share": 0.15,
                         "follow": True, "size": 12})

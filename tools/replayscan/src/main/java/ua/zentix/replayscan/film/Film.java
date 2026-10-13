@@ -344,8 +344,8 @@ public final class Film {
     }
 
     /**
-     * Кандидаты всех камер плана и их оценка; камеры плана (глаза игрока, неподвижная) — первыми, дальше — штативы; в
-     * каждой группе сперва те, что по оценке пройдут проверку, — по итогу оценки.
+     * Кандидаты всех камер плана и их оценка; сперва те, что по оценке пройдут проверку, в них — камеры плана (глаза
+     * игрока, неподвижная), потом штативы, по итогу оценки; потом так же не прошедшие.
      */
     private void solve(Cameras.World w) {
         List<Scored> designed = new ArrayList<>(), rest = new ArrayList<>();
@@ -366,7 +366,10 @@ public final class Film {
         }
         LOG.info("Film: {}: {} designed and {} scored cameras, best:{}", shot.name(), designed.size(), rest.size(), sb);
         candidates.clear();
-        Stream.concat(designed.stream(), rest.stream()).filter(s -> s.score.total() > 0).limit(plan.tries()).forEach(candidates::add);
+        // неподвижная камера плана, которая по оценке не пройдёт, не занимает места штатива, который пройдёт
+        Stream.concat(designed.stream(), rest.stream())
+                .sorted(Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparing(s -> !s.c.designed()).thenComparingDouble(s -> -s.score.total()))
+                .filter(s -> s.score.total() > 0).limit(plan.tries()).forEach(candidates::add);
         if (candidates.isEmpty()) {
             fail("no camera scored above zero");
             return;
