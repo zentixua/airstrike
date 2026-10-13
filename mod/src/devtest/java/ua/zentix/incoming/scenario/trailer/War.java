@@ -1159,7 +1159,7 @@ final class War {
                 .after(() -> {
                     IcbmEntity e = film.newest(IcbmEntity.class);
                     return e != null && e.getY() > NIGHT_POST.y + 110;
-                }, 600)
+                }, 3000)  // ждём по тикам клиента, а сервер после пуска готовит руины и отстаёт
                 .camera(() -> {
                     Vec3 from = g(riverCam).add(0, 3, 0);
                     return CineCamera.track(from, film.smoothFocus(() -> film.newest(IcbmEntity.class), NIGHT_POST.add(0, 200, 0), 1),
