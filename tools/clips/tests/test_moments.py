@@ -279,6 +279,37 @@ class SelectTest(unittest.TestCase):
             self.r.pov_events = real
         self.assertTrue(self.r.human("recorder"))
         self.assertTrue(self.r.human("player:Friend"))
+
+    def test_pov_marked(self):
+        """Отмеченные записавшим моменты: маркеры Flashback и время по часам — только они, глазами записавшего."""
+        r = self.r
+        meta, name, at = dict(r.meta), r.name, r.at
+        try:
+            r.meta["replay_meta"] = {"markers": {"500": {"colour": 16777215}, "2060": {"colour": 16711680}}}
+            c = r.pov()
+            self.assertEqual([(x.shots[0].a, x.shots[0].b) for x in c], [(200, 540), (1760, 2100)],
+                             "маркер — сразу после момента, 15 с до него и 2 с после; не дальше конца записи")
+            self.assertTrue(all(x.shots[0].camera == {"kind": "pov", "viewer": "recorder"} for x in c))
+            self.assertGreater(c[0].score, c[1].score, "по порядку записи")
+            self.assertEqual(c[0].numbers["mark"], "маркер 00:25.0")
+            self.assertEqual(c[0].numbers["shot_down"], 1, "события отрезка — для подписи и проверки кадров")
+            self.assertIn({"t": 470, "pos": [0.5, 85.0, 60.0], "size": 8}, c[0].shots[0].subject["keys"])
+            self.assertEqual(c[1].numbers["nuke"], 1)
+            r.MARK = {**r.MARK, "marker": (100, 40)}
+            self.assertEqual(r.marks()[1][:2], (1940, 2100), "ядерный подрыв за минуту до маркера — отрезок со вспышки")
+            del r.MARK
+            # время по часам: запись сохранена в 19:10:00 (2100 тиков — с 19:08:15)
+            r.meta.pop("replay_meta")
+            r.name, r.at = "2026-10-14T19_10_00", ["2026-10-14T19:09:00", "2026-10-14T19:08:20/2026-10-14T19:08:30", "2026-10-14T20:00:00"]
+            c = r.pov()
+            self.assertEqual([(x.shots[0].a, x.shots[0].b) for x in c], [(100, 300), (700, 1000)],
+                             "момент — 10 с до и 5 с после, с/по — как есть; время вне записи — не её")
+            r.name = "test"
+            self.assertTrue(all(x.numbers.get("mark") is None for x in r.pov()), "без времени в имени — без отметок по часам")
+        finally:
+            r.meta, r.name, r.at = meta, name, at
+            r.__dict__.pop("MARK", None)
+
         self.assertTrue(self.r.human("player:Guest"), "без входа Mojang — тоже человек")
         self.assertEqual(clips.offline_uuid("Notch"), "b50ad385-829d-3141-a216-7e7d7539ba7f", "как у ванили")
         self.assertFalse(self.r.human("player:Sever_1"), "бот")

@@ -7,7 +7,7 @@
 цепочки «пуск → полёт → удар по земле» и окна хаоса, дальние удары и ядерные подрывы, с камерой на каждый план, и
 отрезки глазами живых игроков (только их камерой).
 
-  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--pov-top 15] [--notes журнал.json]
+  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--pov-top 15] [--notes журнал.json] [--at время]...
 
 Пишет `candidates.json` (что читает plan.py) и `candidates.md` (таблица для выбора). Камера плана — глаза игрока
 повтора (`pov`), если данные показывают, что он смотрел туда, иначе — место, которое подберёт вывод (`auto`: штатив
@@ -302,6 +302,7 @@ class Replay:
         self.views = {k: self.con.execute(q).fetchall() for k, q in POV.items()}
         self.loud = self.con.execute(LOUD).fetchall()
         self.star = [x for x in getattr(a, "star", "").split(",") if x]
+        self.at = getattr(a, "at", None) or []
         self.watched: dict[str, list] = {}
         self.downs = [d for f in self.fl if (d := self.shot_down(f))]
 
@@ -617,6 +618,33 @@ class Replay:
     # и ближе 120 блоков — больше), пуск и пролёт рядом; сколько тиков отрезка нужно после события
     WEIGHT = {"nuke": 6, "shootdown": 4, "impact": 1, "launch": 1.5, "flyby": 1}
     AFTER = {"nuke": 200}
+    # Отмеченный записавшим момент — тиков до и после отметки: маркер Flashback жмут сразу после момента, время по часам
+    # называет сам момент; ядерный подрыв за NUKE_BEFORE тиков до маркера — отрезок со вспышки (волна идёт долго)
+    MARK = {"marker": (300, 40), "at": (200, 100)}
+    NUKE_BEFORE = 1200
+
+    def marks(self) -> list[tuple[int, int, str]]:
+        """Моменты, которые отметил записавший: (начало, конец, откуда) — маркеры Flashback (`markers` в метаданных
+        записи, тик → маркер) и время по часам `--at` (`2026-10-14T19:05:30` — момент, `…/…` — с и по; часы записи —
+        по времени сохранения в имени файла, это её конец)."""
+        total = self.meta.get("total_ticks") or 0
+        nukes = [t for (t,) in self.con.execute("SELECT t FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%'").fetchall()]
+        out = []
+        for key in self.meta.get("replay_meta", {}).get("markers", {}):
+            m = int(key)
+            before, after = self.MARK["marker"]
+            a = min([m - before] + [t - 3 * TICK for t in nukes if m - self.NUKE_BEFORE <= t <= m])
+            out.append((a, m + after, f"маркер {mmss(m)}"))
+        anchors = clock(self, [{"end": True, "at": "name"}]) if self.at else []
+        for spec in self.at if anchors else []:
+            first, _, last = spec.partition("/")
+            t0, t1 = (tick_at(anchors, datetime.fromisoformat(x)) for x in (first, last or first))
+            if not last:
+                before, after = self.MARK["at"]
+                t0, t1 = t0 - before, t1 + after
+            if t1 > 0 and t0 < total:
+                out.append((round(t0), round(t1), f"время {spec}"))
+        return sorted((max(0, a), min(total, b), why) for a, b, why in out)
 
     def human(self, viewer: str) -> bool:
         """Зритель — живой игрок: записавший, аккаунт Mojang (UUID версии 4) или игрок сервера без входа Mojang (UUID
@@ -660,7 +688,13 @@ class Replay:
     def pov(self, longest: int = 300, shortest: int = 200, lead: int = 60, tail: int = 80) -> list[Candidate]:
         """6 — глазами игроков: отрезки 10–15 с, где живой игрок видел больше всего (вес событий в отрезке), только
         камерой игрока — как он сам двигал взгляд; после ядерного подрыва — 10 с (волна и гриб). Из перекрывающихся
-        отрезков (и разных игроков в одни секунды) — лучший; у края записи отрезок сдвигается, а не урезается."""
+        отрезков (и разных игроков в одни секунды) — лучший; у края записи отрезок сдвигается, а не урезается.
+        В записи с отмеченными моментами (`marks`) — только они, глазами записавшего, по порядку."""
+        marked = self.marks()
+        if marked:
+            events = self.pov_events().get("recorder", [])
+            return [self.pov_candidate("recorder", a, b, [e for e in events if a <= e[0] <= b], 1000 - k, why)
+                    for k, (a, b, why) in enumerate(marked)]
         out = []
         total = self.meta.get("total_ticks") or 10 ** 9
         after = lambda e: self.AFTER.get(e[2], tail)  # noqa: E731
@@ -683,23 +717,28 @@ class Replay:
                     a, b = 0, b - a
                 if b > total:
                     a, b = max(0, a - (b - total)), total
-                kinds = [e[2] for e in group]
-                keys = [e[4] for e in group if e[4]]
-                subject = next((e[5] for e in group if e[2] == "shootdown"), None) or next((e[5] for e in group if e[5]), None)
-                weapons = sorted({e[3] for e in group if e[3]})
-                n = {k: kinds.count(k) for k in ("impact", "shootdown", "nuke", "launch", "flyby")}
-                what = [x for x in (n["nuke"] and "ядерный подрыв", n["shootdown"] and f"сбитие × {n['shootdown']}",
-                                    n["impact"] and f"ударов по земле в кадре {n['impact']}", n["launch"] and f"пусков {n['launch']}",
-                                    n["flyby"] and f"пролётов рядом {n['flyby']}") if x]
-                f = self.by_uuid.get(subject) if subject else None
-                shot = Shot("pov", "pov", a, b, {"kind": "pov", "viewer": viewer},
-                            {"keys": keys, **({"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4)} if f else {})},
-                            f"глазами {viewer}: " + ", ".join(what))
-                out.append(Candidate("pov", self.name, str(self.db), sum(e[1] for e in group), a, "+".join(weapons) or "pov",
-                                     f"глазами {viewer} {mmss(a)}–{mmss(b)}: " + ", ".join(what) + (f" ({', '.join(weapons)})" if weapons else ""),
-                                     {"viewer": viewer, "ground": n["impact"], "shot_down": n["shootdown"], "nuke": n["nuke"],
-                                      "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1)}, [shot]))
+                out.append(self.pov_candidate(viewer, a, b, group, sum(e[1] for e in group)))
         return dedupe(out, longest)
+
+    def pov_candidate(self, viewer: str, a: int, b: int, group: list[tuple], score: float, mark: str | None = None) -> Candidate:
+        """Отрезок [a, b] глазами зрителя: события в нём (из pov_events) — ключи кадров, объект и числа подписи."""
+        kinds = [e[2] for e in group]
+        keys = [e[4] for e in group if e[4]]
+        subject = next((e[5] for e in group if e[2] == "shootdown"), None) or next((e[5] for e in group if e[5]), None)
+        weapons = sorted({e[3] for e in group if e[3]})
+        n = {k: kinds.count(k) for k in ("impact", "shootdown", "nuke", "launch", "flyby")}
+        what = [x for x in (mark, n["nuke"] and "ядерный подрыв", n["shootdown"] and f"сбитие × {n['shootdown']}",
+                            n["impact"] and f"ударов по земле в кадре {n['impact']}", n["launch"] and f"пусков {n['launch']}",
+                            n["flyby"] and f"пролётов рядом {n['flyby']}") if x]
+        f = self.by_uuid.get(subject) if subject else None
+        shot = Shot("pov", "pov", a, b, {"kind": "pov", "viewer": viewer},
+                    {"keys": keys, **({"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4)} if f else {})},
+                    f"глазами {viewer}: " + ", ".join(what))
+        return Candidate("pov", self.name, str(self.db), score, a, "+".join(weapons) or "pov",
+                         f"глазами {viewer} {mmss(a)}–{mmss(b)}: " + ", ".join(what) + (f" ({', '.join(weapons)})" if weapons else ""),
+                         {"viewer": viewer, "ground": n["impact"], "shot_down": n["shootdown"], "nuke": n["nuke"],
+                          "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
+                          **({"mark": mark} if mark else {})}, [shot])
 
 
 def dedupe(cands: list[Candidate], gap: int) -> list[Candidate]:
@@ -823,6 +862,9 @@ def main():
     p.add_argument("--star", default="", help="зрители (player:<ник>, через запятую), чьи сбития дронов идут первыми")
     p.add_argument("--notes", help="журнал игры: опоры часов повторов и отрезки с тем, что происходило (README.md)")
     p.add_argument("--note-bonus", type=float, default=1.0, help="прибавка к счёту кандидата в отрезке журнала")
+    p.add_argument("--at", action="append", default=[],
+                   help="момент глазами записавшего по часам: 2026-10-14T19:05:30 (или с/по через /); запись с отмеченными "
+                        "моментами (и маркерами Flashback) даёт «глазами игроков» только их")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
     select(p.parse_args())

@@ -41,6 +41,9 @@ WEAPON = {
 }
 TAIL_EN = "Incoming mod for Minecraft Java 1.21.1, free on Modrinth and CurseForge."
 TAIL_RU = "Мод Incoming для Minecraft Java 1.21.1, бесплатно на Modrinth и CurseForge."
+# до выпуска на Modrinth и CurseForge (--soon)
+SOON_EN = "Incoming is a mod for Minecraft Java 1.21.1, coming soon to Modrinth and CurseForge."
+SOON_RU = "Incoming — мод для Minecraft Java 1.21.1, скоро на Modrinth и CurseForge."
 TAGS = "#minecraft #minecraftmods #moddedminecraft #майнкрафт #моды"
 
 
@@ -202,7 +205,10 @@ def pov_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
         return "A strike in front of a player, seen through their eyes.", "Удар у игрока на глазах: вид его глазами."
     if n.get("launch"):
         return f"{cap(en)}: the launch, seen through a player's eyes.", f"{cap(ru)}: пуск глазами игрока."
-    return f"{cap(en)} overhead, seen through a player's eyes.", f"{cap(ru)} над игроком: вид его глазами."
+    if n.get("flyby"):
+        return f"{cap(en)} overhead, seen through a player's eyes.", f"{cap(ru)} над игроком: вид его глазами."
+    # отмеченный игроком момент, в котором данные повтора ничего из своих родов не нашли
+    return "Seen through a player's eyes.", "Вид глазами игрока."
 
 
 def shown(cand: dict, kept: list[dict]) -> dict:
@@ -233,11 +239,13 @@ def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lin
         assemble(videos, tuned, Path(a.music))
     length = duration(clean)
     en, ru = caption(preview, cand)
-    text = f"{en} {TAIL_EN}\n{ru} {TAIL_RU}\n{TAGS}\n"
+    tail_en, tail_ru = (SOON_EN, SOON_RU) if a.soon else (TAIL_EN, TAIL_RU)
+    text = f"{en} {tail_en}\n{ru} {tail_ru}\n{TAGS}\n"
     if a.music and a.credit:
         text += f"Music: {a.credit}\n"
     (out / f"{cid}.txt").write_text(text)
-    lo, hi = LENGTH.get(preview, (20, 35))
+    # отмеченный игроком момент — такой длины, как он отметил
+    lo, hi = (0, math.inf) if cand.get("numbers", {}).get("mark") else LENGTH.get(preview, (20, 35))
     return [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
             + ("" if lo - 1 / 30 <= length <= hi + 1 / 30 else f" (вне {lo}–{hi} с)") + f"; подпись — {cid}.txt.", *lines, ""]
 
@@ -262,6 +270,7 @@ def main():
     p.add_argument("--out", default=None)
     p.add_argument("--music", default=None, help="трек для версии с музыкой (CC BY и т. п.)")
     p.add_argument("--credit", default="", help="строка автора трека для подписи")
+    p.add_argument("--soon", action="store_true", help="мод ещё не вышел: в подписи «скоро на Modrinth и CurseForge»")
     p.add_argument("--clip", action="append", default=[], type=clip_spec,
                    help="far=<видео> или nuke=<видео>: ролик, снятый не из повтора, со звуком игры")
     a = p.parse_args()

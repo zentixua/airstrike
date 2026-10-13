@@ -7,6 +7,7 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 /**
@@ -86,6 +88,9 @@ public final class Film {
     private Cameras.Pose standing;
     @Nullable
     private UUID povId;
+    /** Поиск игрока плана на сервере повтора ({@link #lookup}); null — не идёт. */
+    @Nullable
+    private CompletableFuture<UUID> povLookup;
     private int poseAt, stepped, reachedAt, seenAt, progressAt;
     /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
     private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
@@ -427,6 +432,7 @@ public final class Film {
         stepped = -1;
         walk.clear();
         povId = null;
+        povLookup = null;
         seenAt = ticks;
         poseAt = ticks + SEEK_SETTLE;
         if (current.c.path() != null) {
@@ -469,13 +475,21 @@ public final class Film {
     }
 
     /**
-     * План глазами игрока: камера клиента — этот игрок, и зритель повтора на сервере повтора смотрит его глазами
-     * ({@link #spectate}). Сущность после перемотки появляется не сразу и бывает новой — ищется каждый тик. null — игрока нет.
+     * План глазами игрока: зритель повтора на сервере повтора смотрит его глазами ({@link #spectate}), и камера клиента —
+     * этот игрок. Игрок ищется на сервере: после перемотки зритель стоит там, где был прошлый план, и игрока дальше
+     * слежения его клиент не получит, пока сервер не перенесёт зрителя к нему. Сущность после перемотки появляется не сразу
+     * и бывает новой — ищется каждый тик. null — игрока нет (ещё).
      */
     @Nullable
     private Entity watch() {
-        if (povId == null) povId = resolve(current.c.player());
-        if (povId == null) return null;
+        if (povId == null) {
+            if (povLookup == null) povLookup = lookup(current.c.player());
+            if (!povLookup.isDone()) return null;
+            povId = povLookup.getNow(null);
+            povLookup = null;
+            if (povId == null) return null;
+        }
+        spectate(povId);
         Player target = null;
         for (Player p : mc.level.players()) {
             if (povId.equals(p.getUUID())) target = p;
@@ -485,7 +499,6 @@ public final class Film {
         if (mc.getCameraEntity() != target) mc.setCameraEntity(target);
         mc.player.moveTo(target.getX(), target.getY(), target.getZ(), target.getYRot(), target.getXRot());
         mc.player.setDeltaMovement(Vec3.ZERO);
-        spectate(povId);
         return target;
     }
 
@@ -494,7 +507,8 @@ public final class Film {
      * Flashback (команда {@code spectate}): {@code ServerPlayer.setCamera}. Иначе сервер держит зрителя там, где клиент
      * последний раз прислал его место, — клиент не шлёт его, пока камера не он сам ({@code LocalPlayer.isControlledCamera}), —
      * а звуки повтора Flashback рассылает по месту зрителя на сервере: выстрелы и шаги игрока до кадра не доходили.
-     * Сервер сам ведёт зрителя за камерой каждый тик ({@code ServerPlayer.tick}), а Flashback после перемотки снова
+     * Сервер переносит зрителя к камере ({@code ServerPlayer.setCamera}: тогда клиент и получает игрока, если тот был
+     * дальше слежения) и сам ведёт его за ней каждый тик ({@code ServerPlayer.tick}), а Flashback после перемотки снова
      * садит его в ту же сущность (по её UUID) и шлёт ему её инвентарь.
      */
     private void spectate(@Nullable UUID id) {
@@ -514,22 +528,32 @@ public final class Film {
         });
     }
 
-    /** {@code recorder} — записавший игрок (его id в повторе), иначе UUID или ник игрока в мире повтора. */
-    @Nullable
-    private UUID resolve(String who) {
-        if (who.equals("recorder")) {
-            Entity e = mc.level.getEntity(Export.localPlayerId());
-            return e instanceof Player ? e.getUUID() : null;
-        }
+    /**
+     * UUID игрока плана — на сервере повтора, где есть все игроки мира повтора: {@code recorder} — записавший (его id
+     * сущности в повторе), иначе UUID или ник. null в будущем — игрока там (ещё) нет.
+     */
+    private CompletableFuture<UUID> lookup(String who) {
         String name = who.startsWith("player:") ? who.substring(7) : who;
         try {
-            return UUID.fromString(name);
+            return CompletableFuture.completedFuture(UUID.fromString(name));
         } catch (IllegalArgumentException notUuid) {
-            for (Player p : mc.level.players()) {
-                if (p.getGameProfile().getName().equalsIgnoreCase(name)) return p.getUUID();
+            // записавший или ник
+        }
+        MinecraftServer server = Export.server();
+        if (server == null) return CompletableFuture.completedFuture(null);
+        int local = who.equals("recorder") ? Export.localPlayerId() : -1;
+        return CompletableFuture.supplyAsync(() -> {
+            for (ServerLevel level : server.getAllLevels()) {
+                if (local >= 0) {
+                    if (level.getEntity(local) instanceof Player p) return p.getUUID();
+                    continue;
+                }
+                for (Entity e : level.getAllEntities()) {
+                    if (e instanceof Player p && p.getGameProfile().getName().equalsIgnoreCase(name)) return p.getUUID();
+                }
             }
             return null;
-        }
+        }, server);
     }
 
     // ================================================================ вывод
