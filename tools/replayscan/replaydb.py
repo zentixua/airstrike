@@ -17,6 +17,7 @@ sight.csv); «в середине кадра» — то же с долей --cen
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -100,37 +101,68 @@ def build(a) -> Path:
     return db
 
 
+# вторичные подрывы удара: взрывы игры (без пакета мода) не дальше и не позже этого от пакета мода — его ступени.
+# У крылатой ракеты Incoming они до 10,6 блока от точки удара, на 3–9 тике таймлайна, а пакет игры уходит, когда
+# ступень снята, — под бюджетом тика: на занятом сервере (залп) позже девятого тика
+STAGE_REACH, STAGE_TICKS = 12, 20
+# грунт в точке по серверу: Incoming кладёт в пакет взрыва «material» — из чего блок в точке удара или под ней
+# (вода — тоже: удар у поверхности); 8 — гравий, им же сервер отвечает за воздух, за блоки без своего грунта и за
+# неготовый чанк (сам гравий у него — камень)
+MATERIAL_SRC, MATERIAL_UNSURE = r"^(airstrike|incoming):(blast|bunker_impact)$", 8
+
+
+def material(data: str) -> int | None:
+    try:
+        m = json.loads(data).get("material")
+    except (ValueError, AttributeError):
+        return None
+    return m if isinstance(m, int) else None
+
+
 def impacts(con):
     """Удары: взрывы одного удара (пакет мода и пакеты взрыва игры, ступени взрыва) — одной строкой, с родом места."""
-    rows = con.execute("SELECT e, t, dim, src, x, y, z, coalesce(size, 0), uuid, clear, solid, pre FROM blasts ORDER BY t, e").fetchall()
+    # в тике пакеты модов — раньше взрывов игры: ступени находят свой удар
+    rows = con.execute("SELECT e, t, dim, src, x, y, z, coalesce(size, 0), uuid, clear, solid, pre, data FROM blasts "
+                       "ORDER BY t, src = 'ClientboundExplodePacket', e").fetchall()
     groups: list[dict] = []
-    for e, t, dim, src, x, y, z, size, uuid, clear, solid, pre in rows:
-        # снаряд взрыва (uuid пакета мода): разные снаряды залпа рядом — разные удары
-        g = next((g for g in reversed(groups) if g["dim"] == dim and t - g["t1"] <= 3
-                  and (x - g["x"]) ** 2 + (y - g["y"]) ** 2 + (z - g["z"]) ** 2 <= 36
-                  and (uuid is None or g["uuid"] is None or uuid == g["uuid"])), None)
+    for e, t, dim, src, x, y, z, size, uuid, clear, solid, pre, data in rows:
+        g = None
+        if src == "ClientboundExplodePacket":
+            # ступень удара: ближайший пакет мода в STAGE_REACH блоках и STAGE_TICKS тиках после него
+            near = [(d2, g) for g in groups if g["anchor"] and g["dim"] == dim and 0 <= t - g["anchor_t"] <= STAGE_TICKS
+                    and (d2 := (x - g["x"]) ** 2 + (y - g["y"]) ** 2 + (z - g["z"]) ** 2) <= STAGE_REACH ** 2]
+            g = min(near, key=lambda n: n[0])[1] if near else None
+        if g is None:
+            # снаряд взрыва (uuid пакета мода): разные снаряды залпа рядом — разные удары
+            g = next((g for g in reversed(groups) if g["dim"] == dim and t - g["t1"] <= 3
+                      and (x - g["x"]) ** 2 + (y - g["y"]) ** 2 + (z - g["z"]) ** 2 <= 36
+                      and (uuid is None or g["uuid"] is None or uuid == g["uuid"])), None)
         if g is None:
             g = {"id": len(groups), "t": t, "t1": t, "dim": dim, "x": x, "y": y, "z": z, "events": [], "srcs": set(),
-                 "power": 0.0, "uuid": None, "clear": None, "solid": None, "pre": 0, "anchor": False}
+                 "power": 0.0, "uuid": None, "clear": None, "solid": None, "pre": 0, "anchor": False, "anchor_t": None,
+                 "material": None}
             groups.append(g)
-        g["t1"] = t
+        if g["material"] is None and data and re.match(MATERIAL_SRC, src):
+            g["material"] = material(data)
+        g["t1"] = max(g["t1"], t)
         g["events"].append(e)
         g["srcs"].add(src)
         g["power"] = max(g["power"], size)
         # место удара — по пакету мода (точка попадания), иначе по первому взрыву
         if src != "ClientboundExplodePacket" and not g["anchor"]:
-            g["x"], g["y"], g["z"], g["anchor"] = x, y, z, True
+            g["x"], g["y"], g["z"], g["anchor"], g["anchor_t"] = x, y, z, True, t
         g["uuid"] = g["uuid"] or uuid
         if clear is not None and clear >= 0 and (g["clear"] is None or pre > g["pre"] or (pre == g["pre"] and clear < g["clear"])):
             g["clear"], g["pre"] = clear, max(g["pre"], pre)
         if solid is not None and solid >= 0 and (g["solid"] is None or solid < g["solid"]):
             g["solid"] = solid
     con.execute("CREATE TABLE impacts (id INTEGER, t INTEGER, t1 INTEGER, dim VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, power DOUBLE, "
-                "uuid VARCHAR, clear INTEGER, solid DOUBLE, pre INTEGER, intercept BOOLEAN, srcs VARCHAR, events BIGINT[])")
+                "uuid VARCHAR, clear INTEGER, solid DOUBLE, pre INTEGER, material INTEGER, intercept BOOLEAN, srcs VARCHAR, events BIGINT[])")
     if groups:
-        con.executemany("INSERT INTO impacts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        con.executemany("INSERT INTO impacts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         [(g["id"], g["t"], g["t1"], g["dim"], g["x"], g["y"], g["z"], g["power"], g["uuid"], g["clear"], g["solid"], g["pre"],
-                          any(s.endswith(":intercept") for s in g["srcs"]), ",".join(sorted(g["srcs"])), g["events"]) for g in groups])
+                          g["material"], any(s.endswith(":intercept") for s in g["srcs"]), ",".join(sorted(g["srcs"])), g["events"])
+                         for g in groups])
     # воронка: блоки, ставшие воздухом в 6 блоках от места за 20 тиков после удара
     con.execute("""
         CREATE TABLE craters AS
@@ -142,10 +174,11 @@ def impacts(con):
         CREATE OR REPLACE VIEW impact_kinds AS
         SELECT i.*, coalesce(c.broken, 0) AS broken,
           CASE WHEN i.intercept THEN 'intercept'
-               WHEN (i.solid IS NOT NULL AND i.solid <= 2.5) OR (i.clear IS NOT NULL AND i.clear <= 2) OR coalesce(c.broken, 0) > 0 THEN 'ground'
+               WHEN (i.solid IS NOT NULL AND i.solid <= 2.5) OR (i.clear IS NOT NULL AND i.clear <= 2) OR coalesce(c.broken, 0) > 0
+                 OR coalesce(i.material, {UNSURE}) <> {UNSURE} THEN 'ground'
                WHEN i.solid IS NOT NULL AND i.clear IS NOT NULL THEN 'air'
                ELSE 'unknown' END AS place
-        FROM impacts i LEFT JOIN craters c ON c.id = i.id""")
+        FROM impacts i LEFT JOIN craters c ON c.id = i.id""".replace("{UNSURE}", str(MATERIAL_UNSURE)))
     # удар глазами зрителя: геометрия по глазу тика удара, луч — лучший из лучей событий удара
     con.execute("""
         CREATE OR REPLACE VIEW impact_views AS
