@@ -19,20 +19,16 @@
    $W/replayscan-wt/mod/gradlew -p $W/replayscan-wt/tools/replayscan build   # → tools/replayscan/build/libs/replayscan-1.0.0.jar
    ```
 2. Каталоги игры — `$W/replayscan/game/<версия>`: копия (`cp -a --reflink=auto`) `$W/epic-index/render/<версия>`
-   (2.10.2, 2.10.3) и для записей 12.10 — `$W/release-media/prod` (`game/3.0`), без `saves`,
-   `flashback`, `logs`, `screenshots`, `crash-reports`, `audio.wav`. В каждой копии:
+   (2.10.2, 2.10.3), без `saves`, `flashback`, `logs`, `screenshots`, `crash-reports`, `audio.wav`. В каждой копии:
    - jar мода дня (`airstrike-*.jar` или `incoming-*.jar`) — из `mods/` в `day/`: `prod_client.py --no-copy` стирает
      `incoming-*.jar` в `mods/` и кладёт тот, что дан `--incoming-jar`;
    - jar разбора — в `mods/`;
    - `config/iris.properties`: `enableShaders=false`.
-   Для 12.10 нужен jar Incoming, с которым шла запись (в `release-media/prod/mods`, если его не меняли после записи;
-   иначе — выпуск v3.0.1).
 3. Копии повторов — `$W/replayscan/replays/`: готовые копии из `$W/epic-index/render/<версия>/flashback/replays/`
    (уже без пакетов Point Blank, путь DH — на копию); остальные — как `render_windows.replay_copy`:
    `patch_replay.py` (путь DH → `$W/release-media/dh-airstrike-overworld`; нет `distantHorizonPaths` — шаг не нужен),
    затем `strip_payloads.py <src> <dst> pointblank:mainheldsimplifiedstatebroadcastpacket` (`$W/epic-index`).
-   Источники: повторы Артёма — `flashback/replays/` инстанса «Airstrike Pack», записи 12.10 —
-   `$W/release-media/prod/flashback/replays/`.
+   Источник — `flashback/replays/` инстанса «Airstrike Pack».
 
 ## Разбор одного повтора
 ```sh
@@ -54,12 +50,11 @@ rm -f $G/audio.wav
 строк. Иначе — первые строки `ERROR` и исключения из лога и `errors` из `meta.json`; один повтор запуска, не больше.
 
 ## Порядок
-Только последние игры (Артём: ранние версии мода не разбирать, самое интересное — в последних играх):
+Только игры 06.10 (Артём: ранние версии мода и записи 12.10 без него не разбирать):
 1. `2026-10-09T15_24_55` (2.10.3, 60 мин) — война 06.10 с Артёмом, MartinFrances и ClyuDan, самая интересная игра.
    Она же проба: через 10 минут — скорость по строкам `tick N of M` и память клиента; после конца — итог `build`,
    `seconds`, размер `out/$R`, роды ударов.
-2. Три записи 12.10 (`game/3.0`): 19_40_18, 20_36_54, 20_44_14.
-3. 06.10 09:59 (2.10.2), 06.10 16:31 (2.10.3).
+2. 06.10 09:59 (2.10.2), 06.10 16:31 (2.10.3).
 
 ## Отчёт
 После каждого повтора — координатору одна строка: путь `replay.duckdb`, `complete`, тики и минуты разбора, роды
