@@ -65,7 +65,8 @@ INCOMING_WAR_PART=nukeB tools/laptop_job.sh film-rec -- tools/trailer/film.sh re
 INCOMING_WAR_PART=nukeC tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 INCOMING_WAR_PART=icbm  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 ```
-`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке.
+`record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке. Копию мира
+каждой части не удалять до конца вывода: LOD DH повтора читаются из её `data` (без неё вывод падает на `SQLITE_IOERR`).
 Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Трейлер —
 только по-английски (`INCOMING_LANG=en_us`).
 
