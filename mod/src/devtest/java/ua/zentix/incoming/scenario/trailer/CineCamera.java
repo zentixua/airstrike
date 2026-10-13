@@ -189,9 +189,11 @@ final class CineCamera {
     /**
      * FPV: полёт по точкам (сплайн Катмулла — Рома через все) с постоянной скоростью {@code speed} блоков за тик,
      * взгляд — на путь через {@code lookAhead} блоков, крен — в поворот, как у дрона ({@code bank} — градусов крена на
-     * градус поворота за тик), лёгкая тряска ({@code shake} блоков). Путь кончился — камера висит в последней точке.
-     * Камера не входит в блоки ({@link Clear}): точки пути — по плану места, а ступени, потолок спуска и углы домов —
-     * какие есть в мире (p15, p18: FPV по лестнице метро задевал ступени, потолок и забор).
+     * градус поворота за тик), лёгкая тряска ({@code shake} блоков). Путь кончился — камера висит в последней точке и
+     * смотрит, куда летела ({@link Spline#beyond}): взгляд на саму точку крутило бы тряской (p32 — кадр на каждый тик в
+     * другую сторону, пока «Град» ложится после конца пути). Камера не входит в блоки ({@link Clear}): точки пути — по
+     * плану места, а ступени, потолок спуска и углы домов — какие есть в мире (p15, p18: FPV по лестнице метро задевал
+     * ступени, потолок и забор).
      */
     static Path fpv(java.util.List<Vec3> points, double speed, double lookAhead, double bank, double shake, double fov) {
         Spline s = new Spline(points);
@@ -200,9 +202,9 @@ final class CineCamera {
         final double[] roll = {0, -1};
         return t -> {
             double d = t * speed;
-            Vec3 p = s.at(d), ahead = s.at(d + lookAhead);
+            Vec3 p = s.beyond(d), ahead = s.beyond(d + lookAhead);
             // поворот за тик — по направлениям пути на шаг вперёд
-            Vec3 d0 = s.at(d + speed).subtract(p), d1 = s.at(d + 2 * speed).subtract(s.at(d + speed));
+            Vec3 d0 = s.beyond(d + speed).subtract(p), d1 = s.beyond(d + 2 * speed).subtract(s.beyond(d + speed));
             double turn = Math.toDegrees(Mth.atan2(d0.x * d1.z - d0.z * d1.x, d0.x * d1.x + d0.z * d1.z));
             double want = Mth.clamp(turn * bank, -40, 40);
             // крен сглажен по времени плана (камера не дёргается на стыках отрезков)
@@ -356,6 +358,16 @@ final class CineCamera {
             }
             double f = len[hi] == len[lo] ? 0 : (dist - len[lo]) / (len[hi] - len[lo]);
             return raw((lo + f) / STEPS);
+        }
+
+        /** Как {@link #at}, а за концами пути — по прямой его последнего (первого) блока: направление там то же. */
+        Vec3 beyond(double dist) {
+            double len = length();
+            if (dist <= len && dist >= 0) return at(dist);
+            boolean end = dist > len;
+            Vec3 edge = at(end ? len : 0), in = at(end ? len - 1 : 1);
+            Vec3 dir = edge.subtract(in);
+            return dir.lengthSqr() < 1e-9 ? edge : edge.add(dir.normalize().scale(end ? dist - len : -dist));
         }
 
         private Vec3 raw(double u) {

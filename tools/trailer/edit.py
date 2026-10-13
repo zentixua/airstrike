@@ -11,7 +11,8 @@
 """Монтаж трейлера «Война двух городов» (~2:10) из записи tools/trailer/record.sh: 53 плана по таблице сценария
 (rows-v8), склейки — на доли «Juggernaut» (Scott Buckley, CC BY 4.0) там, где она играет; цвет, кинокаше 2.39:1 в
 старте и актах I–II (план 14 раскрывается до 16:9), чат ИИ-ведущего, логотип и конечный титр; звук игры собирается
-заново из журнала (те же файлы мода, громкость по расстоянию до камеры, панорама, Доплер) и кладётся под музыку.
+заново из журнала (те же файлы мода, громкость по расстоянию до камеры, панорама, Доплер) и кладётся под музыку;
+других звуков в ролике нет.
 
     uv run tools/trailer/edit.py [--lang en|ru] [--draft] [--rec ПАПКА …] [--music ФАЙЛ] [--out ФАЙЛ]
     --lang   — слова на экране: en (по умолчанию, Modrinth и YouTube) или ru
@@ -368,6 +369,8 @@ class Clip:
     flash: bool = False  # белая вспышка на склейке
     zoom: tuple = (1.0, 1.0)  # наезд: масштаб в начале и в конце
     sfx: float = 1.0    # громкость звука игры
+    ring: float = 0.0   # удар звучит после склейки столько, с: звуки удара (HIT_SOUNDS), начатые в ней или до HIT_LATE
+                        # после неё (звук мода идёт от места удара со скоростью звука), склейка не обрывает
     frame_y: float = 0.5  # какая полоса плана видна в окне 2.39:1: 0 — верхняя, 0.5 — середина
     rate: float = 1.0   # заполняется: секунд игры на секунду трейлера (1 — скорость игры; --slowmo — как снят)
     plan: int = 0       # заполняется: номер плана
@@ -404,18 +407,9 @@ class Text:
     row: int = 0        # строка чата снизу
 
 
-@dataclass
-class Hit:
-    """Звук трейлера поверх: удар (boom), нарастание к моменту (riser), свист склейки (whoosh), тик (tick), далёкий
-    свист снаряда (whistle), обрыв (cut) — звуки монтажа, начатые раньше, обрываются."""
-    at: float
-    kind: str
-    dur: float = 1.0
-    gain: float = 1.0
-
-
 END = 130.0  # 2:10
 HIT_LAND = 0.6  # где в склейке ложится удар плана, если склейка не задаёт своего якоря
+HIT_RING = 0.8  # сколько удар склейки холодного начала и пика звучит после неё, с (Clip.ring)
 
 # 53 плана по таблице сценария (страница сценария, версия 9): время, кадр, что в кадре. Start, I, II — 2.39:1, с плана 15 — 16:9.
 # пик (план 39): 19 склеек из ночных дублей пика (p39a–d) и чужих планов с другого их места — дубль, секунда
@@ -427,11 +421,11 @@ PLANS = [
     # ---- Старт: без музыки, только звук игры; каждая склейка на взрыв; первый кадр — обложка
     Plan(1, "0:00", "Пять самых горячих кадров ролика подряд, по секунде", [
         Clip("a", 0.0, 1.0, "FPV с крылатой ракетой между небоскрёбами"),
-        Clip("b", "mark:gone-0.05", 1.0, "удар"),
+        Clip("b", "mark:gone-0.05", 1.0, "удар", ring=HIT_RING),
         Clip("c", "sound:rocket.launch-0.05", 1.0, "залп «Града» изнутри, 40 хвостов вокруг камеры"),
         Clip("d", 0.0, 1.0, "шахеды над головой игрока со стороны затылка"),
-        Clip("e", "mark:gone-0.2", None, "ковёр разрывов бежит на камеру"),
-        Fill(0.1, 255),  # белая вспышка на 6 кадров, на ней — обрыв
+        Clip("e", "mark:gone-0.2", None, "ковёр разрывов бежит на камеру", ring=HIT_RING),
+        Fill(0.1, 255),  # белая вспышка на 6 кадров, на ней звук обрывается
     ]),
     Plan(2, "0:04.4", "Чёрный экран, две строки ИИ-ведущего в чате", [Fill()]),  # строки — TEXTS["chat"]
     # ---- I · Перед ударом: трек входит на долю, склейки на его доли, «FIRE» обрывает музыку
@@ -503,10 +497,11 @@ PLANS = [
         Clip("p37b", "mark:impact", 1.92, "с вершины: ракеты бьют в башни на горизонте", land=0.6),
         Clip("", "mark:dark", None, "ночь, дождь: рой выбивает узел сети, город гаснет кварталами", land=0.15),
     ]),
-    # пик: 20 склеек, 12 по доле и 8 по полудоле — всё чаще к отсчёту; удар на каждой склейке
+    # пик: 20 склеек, 12 по доле и 8 по полудоле — всё чаще к отсчёту; удар на каждой склейке — свой, из записи плана,
+    # и звучит поверх следующих склеек (склейка в 0,24 с короче, чем звук удара доходит до камеры)
     Plan(39, "1:15", "Пик: все виды оружия, пуски и прилёты вперемешку",
-         [Clip(shot, at, 0.48 if i < 12 else 0.24, f"пик {i + 1}/20") for i, (shot, at) in enumerate(PEAK)]
-         + [Clip("p39a", 3.0, None, "пик 20/20: ковёр разрывов на камеру")], grid=4),
+         [Clip(shot, at, 0.48 if i < 12 else 0.24, f"пик {i + 1}/20", ring=HIT_RING) for i, (shot, at) in enumerate(PEAK)]
+         + [Clip("p39a", 3.0, None, "пик 20/20: ковёр разрывов на камеру", ring=HIT_RING)], grid=4),
     # второй ключ на три сильные доли: просьба командира в чате, ключ повёрнут, МБР уходит; между ними вспышки боя;
     # на третьей всё обрывается
     Plan(40, "1:22.6", "Второй ключ: просьба, ключ, пуск МБР, вспышки боя", [
@@ -573,8 +568,9 @@ def parse_time(s):
 def build_edit(lang="en"):
     """
     Монтажный лист по PLANS: начало плана — по таблице, на долю трека, если там играет музыка; склейки внутри — по
-    своим длительностям, тоже на доли (сетка плана). Возвращает склейки, титры, звуки монтажа, длину и раскрытие
-    кадра (план 14).
+    своим длительностям, тоже на доли (сетка плана). Возвращает склейки, титры, обрывы звука в тишину, длину и
+    раскрытие кадра (план 14). Звук трейлера — только звуки записи планов (мод и ваниль) и музыка, своих звуков монтаж
+    не добавляет.
     """
     starts = [p.start if isinstance(p.start, float) else snap(parse_time(p.start)) for p in PLANS] + [END]
     starts = [frame_time(t) for t in starts]
@@ -622,25 +618,11 @@ def build_edit(lang="en"):
         Text(p52 + 0.2, p53 - p52 - 0.4, L["end"], "end", fade=0.4),
     ]
     flash = next(c for c in edit if isinstance(c, Fill) and c.level > 0 and c.plan == 1)
-    hits = [
-        # старт: удар на каждой склейке, на вспышке — обрыв в тишину, тиканье и далёкий свист до входа трека
-        *[Hit(c.start, "boom", 1.2, 0.45) for c in edit if c.plan == 1 and isinstance(c, Clip) and c.start > 0],
-        Hit(flash.start, "cut"),
-        Hit(AT1 - 2 * BEAT / 2, "tick", 0.1, 0.4),
-        Hit(AT1 - BEAT / 2, "tick", 0.1, 0.4),
-        Hit(p2, "whistle", AT1 - p2, 0.45),
-        # «FIRE»: нарастание к нажатию, удар на пуск
-        Hit(FIRE_AT, "riser", 2.0, 0.5),
-        Hit(FIRE_AT, "boom", 2.5, 0.8),
-        # пик: удар на каждой склейке; на «1» всё обрывается
-        *[Hit(c.start, "boom", 0.8, 0.3) for c in edit if c.plan == 39],
-        Hit(OUT3_AT + RING, "cut"),
-        # после титров: тиканье пульта, обрыв на «2»
-        *[Hit(t, "tick", 0.1, 0.35) for t in np.arange(p53 + 0.5, total - 0.2, 0.5)],
-        Hit(total - 0.2, "cut"),
-    ]
+    # обрывы в тишину: звук удара, который звучит после своей склейки (Clip.ring), кончается на них — белая вспышка
+    # холодного начала и «1» в конце пика (дальше — тишина плана 41)
+    cuts = [flash.start, OUT3_AT + RING]
     p14 = next(c for c in edit if c.plan == 14 and isinstance(c, Clip))
-    return edit, texts, hits, total, p14
+    return edit, texts, cuts, total, p14
 
 
 def resolve(edit, shots, slowmo=False):
@@ -1031,11 +1013,17 @@ SKIP_SOUNDS = ("minecraft:ambient.", "minecraft:block.trial_spawner", "minecraft
 # голос снаряда: мотор, вой пике, свист — под ним музыка уходит вниз (DUCK_DB), иначе в погоне его не слышно
 CRAFT_SOUNDS = (".engine", ".dive", ".whistle")
 DUCK_DB = 9.0
+# звуки удара (Clip.ring): взрывы мода; звук идёт от места удара со скоростью звука (17,15 блока за тик), и удар в
+# конце короткой склейки доходит до камеры уже после неё — такие берутся, если начались не позже HIT_LATE после неё
+HIT_SOUNDS = ("incoming:blast.", "incoming:rocket.blast", "incoming:bomb.impact")
+HIT_LATE = 0.3  # ~100 блоков
+RING_FADE = 0.25  # спад удара в конце Clip.ring, с
 
 
-def render_sfx(edit, shots, total, bank):
-    """Звук игры по монтажу: каждый звук плана, попавший в склейку, — с громкостью и панорамой по камере. Второй
-    результат — громкость голоса снарядов (CRAFT_SOUNDS) по отсчётам, для ухода музыки под него."""
+def render_sfx(edit, shots, total, bank, cuts=()):
+    """Звук игры по монтажу: каждый звук плана, попавший в склейку, — с громкостью и панорамой по камере; удар склейки
+    с Clip.ring звучит и после неё (камера — её последний кадр), до ближайшего обрыва cuts. Второй результат — громкость
+    голоса снарядов (CRAFT_SOUNDS) по отсчётам, для ухода музыки под него."""
     out = np.zeros((int(total * SR) + SR, 2), np.float32)
     craft = np.zeros(len(out), np.float32)
     for c in edit:
@@ -1044,6 +1032,10 @@ def render_sfx(edit, shots, total, bank):
         s = shots[c.shot]
         lo, hi = c.src, c.src + c.dur * c.rate     # секунды игры
         stretch = c.rate ** -0.35 if c.rate < 1 else 1.0  # замедленный план (--slowmo) — звук ниже и длиннее
+        # звук удара после склейки: не дальше ring и ближайшего обрыва (время трейлера → игры)
+        cut = min((t for t in cuts if t >= c.start + c.dur - 1e-6), default=total)
+        ring_end = hi + max(0.0, min(c.ring, cut - c.start - c.dur)) * c.rate
+        k_last = s.frame_at(hi)
         for e in s.sounds:
             if e["event"].startswith(SKIP_SOUNDS):
                 continue
@@ -1054,10 +1046,11 @@ def render_sfx(edit, shots, total, bank):
             stop = s.sec(s.stops[e["id"]]) if e["id"] in s.stops else None
             base_pitch = max(0.5, min(2.0, e["pitch"])) / stretch
             length = (stop - t0) if stop is not None else len(data) / SR / base_pitch * (1 if not e["loop"] else 1e9)
-            if t0 + length < lo - 0.05 or t0 > hi:
+            rings = c.ring > 0 and not e["loop"] and e["event"].startswith(HIT_SOUNDS) and lo <= t0 <= hi + HIT_LATE * c.rate
+            if t0 + length < lo - 0.05 or t0 > hi and not rings:
                 continue
             seg_start = max(t0, lo)
-            seg_end = min(hi, t0 + length)
+            seg_end = min(ring_end if rings else hi, t0 + length)
             if seg_end <= seg_start:
                 continue
             n = int((seg_end - seg_start) / c.rate * SR)
@@ -1078,7 +1071,7 @@ def render_sfx(edit, shots, total, bank):
                 else:
                     pos, vol, pitch = e["pos"], e["volume"], e["pitch"]
                     lpg, lph = e.get("lp", (1, 1))
-                g, p, dist = _gain_pan(s.cam(k), pos, vol, e["range"], e["relative"], e["linear"])
+                g, p, dist = _gain_pan(s.cam(min(k, k_last)), pos, vol, e["range"], e["relative"], e["linear"])
                 gains.append(g * lpg)
                 highs.append(lph)
                 pans.append(p)
@@ -1102,6 +1095,9 @@ def render_sfx(edit, shots, total, bank):
                 cutoff = max(900.0, 16000.0 / (1 + dist / 120))
                 y = sosfilt(butter(2, cutoff, "low", fs=SR, output="sos"), y)
             y = y * g * c.sfx
+            if rings and seg_end > hi and seg_end < t0 + length:  # удар после склейки кончается спадом, а не обрывом
+                k = min(n, int(RING_FADE / c.rate * SR))
+                y[-k:] *= np.linspace(1, 0, k)
             # склейка: короткие подъём и спад, чтобы не щёлкало
             ramp = min(n, int(0.012 * SR))
             if ramp > 1:
@@ -1121,51 +1117,6 @@ def smooth(a, k):
     """Скользящее среднее за O(n) (np.convolve на 6 млн отсчётов — минуты)."""
     c = np.concatenate(([0.0], np.cumsum(np.pad(a, (k // 2, k - 1 - k // 2), mode="edge"), dtype=np.float64)))
     return ((c[k:] - c[:-k]) / k).astype(np.float32)
-
-
-WHISTLE = "incoming:sounds/missile_whistle.ogg"  # далёкий свист старта — звук самого мода
-
-
-def synth_hit(kind, dur, rng, bank=None):
-    """Звуки монтажа: низкий удар (boom), нарастающий шум (riser), свист (whoosh), тик (tick), далёкий свист снаряда
-    (whistle — файл мода, издалека: глухо и всё громче)."""
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    if kind == "boom":
-        f = 55 * np.exp(-t * 1.6) + 28
-        body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 1.3)
-        noise = sosfilt(butter(2, 180, "low", fs=SR, output="sos"), rng.standard_normal(n)) * np.exp(-t * 3) * 0.6
-        y = np.tanh((body + noise) * 1.8)
-        return np.stack([y, y], 1)
-    if kind == "riser":
-        noise = rng.standard_normal(n)
-        out = np.zeros(n)
-        for a, b in zip(range(0, n, 2048), range(2048, n + 2048, 2048)):
-            fc = 300 + 6000 * (a / n) ** 2
-            seg = sosfilt(butter(2, [fc, min(fc * 2.5, SR / 2 - 100)], "band", fs=SR, output="sos"), noise[a:b])
-            out[a:b] = seg
-        env = (t / dur) ** 2.2
-        y = out * env * 0.8
-        return np.stack([y * 0.9, y], 1)
-    if kind == "whoosh":
-        noise = sosfilt(butter(2, [400, 3000], "band", fs=SR, output="sos"), rng.standard_normal(n))
-        env = np.sin(np.pi * np.clip(t / dur, 0, 1)) ** 2
-        y = noise * env * 0.6
-        return np.stack([y, y], 1)
-    if kind == "tick":
-        click = np.sin(2 * np.pi * 2300 * t) * np.exp(-t * 180) + rng.standard_normal(n) * np.exp(-t * 900) * 0.4
-        y = sosfilt(butter(2, 900, "high", fs=SR, output="sos"), click)
-        return np.stack([y, y], 1)
-    if kind == "whistle":
-        data = bank.load(WHISTLE) if bank else None
-        if data is None or len(data) < n:  # без файла мода — тон, сползающий вниз
-            f = 1500 - 300 * t / dur
-            data = np.sin(2 * np.pi * np.cumsum(f) / SR) * 0.5
-        y = sosfilt(butter(2, 2500, "low", fs=SR, output="sos"), data[:n]) * (t / dur) ** 2.5
-        k = min(n, int(0.05 * SR))
-        y[-k:] *= np.linspace(1, 0, k)
-        return np.stack([y, y], 1)
-    raise ValueError(kind)
 
 
 def music_track(total, path):
@@ -1196,9 +1147,10 @@ def music_track(total, path):
 SFX_WITH_MUSIC, SFX_ALONE = 0.9, 1.3  # звук игры под музыкой и там, где её нет
 
 
-def mix(edit, hits, shots, total, music_path):
+def mix(edit, cuts, shots, total, music_path):
+    """Звук трейлера: звуки записи планов по монтажу (render_sfx) и музыка; своих звуков монтаж не добавляет."""
     bank = SoundBank()
-    sfx, craft = render_sfx(edit, shots, total, bank)
+    sfx, craft = render_sfx(edit, shots, total, bank, cuts)
     music, env = music_track(total, music_path)
     env = smooth(env, int(0.3 * SR))       # громкость звука игры меняется плавно
     sfx *= (SFX_ALONE + (SFX_WITH_MUSIC - SFX_ALONE) * env)[:, None]
@@ -1209,25 +1161,7 @@ def mix(edit, hits, shots, total, music_path):
     want = np.clip(2 * voice / level, 0, 1)
     want = np.maximum(want, smooth(want, int(0.3 * SR)))
     music *= (10 ** (-DUCK_DB / 20 * want))[:, None]
-    rng = np.random.default_rng(20261012)
-    extra = np.zeros_like(music)
-    cuts = sorted(h.at for h in hits if h.kind == "cut")
-    for h in hits:
-        if h.kind == "cut":
-            continue
-        y = synth_hit(h.kind, h.dur, rng, bank) * h.gain
-        i = int(h.at * SR)
-        if h.kind == "riser":  # нарастание кончается в момент удара
-            i = max(0, i - len(y))
-        # обрыв: звук монтажа, начатый раньше, кончается на нём
-        stop = next((int(c * SR) for c in cuts if c * SR > i), None)
-        if stop is not None and i + len(y) > stop:
-            y = y[:stop - i].copy()
-            f = min(len(y), int(0.015 * SR))
-            y[-f:] *= np.linspace(1, 0, f)[:, None]
-        n = min(len(y), len(extra) - i)
-        extra[i:i + n] += y[:n]
-    out = music * 0.55 + sfx + extra * 0.6
+    out = music * 0.55 + sfx
     # мягкий ограничитель
     peak = np.max(np.abs(out)) + 1e-9
     out = np.tanh(out * (1.4 / max(1.0, peak * 0.7))) * 0.95
@@ -1255,7 +1189,7 @@ def main():
     shots = pick_takes([load_recording(rec) for rec in args.rec or [REC]], GAME_LANG[args.lang])
     for v in FONTS.values():  # скачать до рабочих процессов
         fetch(*v)
-    edit, texts, hits, total, p14 = build_edit(args.lang)
+    edit, texts, cuts, total, p14 = build_edit(args.lang)
     used = {c.shot for c in edit if isinstance(c, Clip)}
     print("планы:", ", ".join(f"{s.name} {s.duration:.1f}с" for s in shots.values()) or "нет")
     missing = [c.shot for c in edit if isinstance(c, Clip) and c.shot not in shots]
@@ -1280,7 +1214,7 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     audio = os.path.join(CACHE, "trailer-audio.wav")
     print("звук…")
-    sf.write(audio, mix(edit, hits, shots, total, music), SR, subtype="PCM_16")
+    sf.write(audio, mix(edit, cuts, shots, total, music), SR, subtype="PCM_16")
     print(f"картинка: {int(total * FPS)} кадров {size[0]}×{size[1]}…")
     cmd = [ffmpeg(), "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(FPS),
            "-i", "-", "-i", audio, "-c:v", "libx264", "-preset", "veryfast" if args.draft else args.preset, "-crf", "23" if args.draft else "15",

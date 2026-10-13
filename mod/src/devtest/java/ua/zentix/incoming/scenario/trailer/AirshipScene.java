@@ -31,6 +31,7 @@ import net.neoforged.neoforge.items.IItemHandler;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import ua.zentix.incoming.Incoming;
+import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.flight.FlightTrack;
 import ua.zentix.incoming.client.flight.FlightTracks;
 import ua.zentix.incoming.compat.SubLevels;
@@ -42,6 +43,7 @@ import ua.zentix.incoming.registry.ModItems;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Path;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 import ua.zentix.incoming.strike.WeaponType;
+import ua.zentix.incoming.target.TargetPicker;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -66,6 +68,8 @@ import static ua.zentix.incoming.scenario.trailer.Cast.fmt;
  */
 final class AirshipScene {
     private static final String GUNNER = "SkyGunner";
+    /** Сколько тиков ждать, пока под прицелом наводчика дирижабль, а не сущность на луче. */
+    private static final int AIM_TRIES = 100;
     /** Масса дирижабля по меткам Sable (оболочка 0.25, доски 0.5, …): горелки ставятся по ней, после сборки — по настоящей. */
     private static final double MASS = 212;
     /** Подъём на единицу горячего воздуха (Aeronautics, {@code hot_air_strength}). */
@@ -216,8 +220,19 @@ final class AirshipScene {
             propellers(level);
             aim(centre(level));
         });
-        // взгляд бот поворачивает в своём тике: приказ «по взгляду» — после него
+        // взгляд бот поворачивает в своём тике: приказ «по взгляду» — после него. Приказ бьёт в то, что под прицелом
+        // ({@code TargetPicker}): сущность на луче (шахед, перехватчик ЗРК) берётся раньше аппарата, и ракета p23b уходила
+        // мимо дирижабля (13.10). Пуск — когда под прицелом аппарат; нет — взгляд снова на середину оболочки
         film.waitTicks(3);
+        waitServer(level -> {
+            ServerPlayer gunner = cast().player(GUNNER);
+            if (gunner == null) return false;
+            TargetPicker.Pick pick = TargetPicker.pick(level, gunner, gunner.getEyePosition(), gunner.getLookAngle(),
+                    IncomingConfig.SERVER.aimRange.get());
+            if (pick != null && pick.kind() == TargetPicker.Kind.AIRCRAFT) return true;
+            aim(centre(level));
+            return false;
+        }, AIM_TRIES, "дирижабль под прицелом наводчика");
         film.onServer(level -> {
             // в кадре FPV ракета приходит сверху справа и пикирует на аппарат, с земли — из-за дирижабля
             Vec3 c = centre(level), site = ship(side * 300, 0, 330), via = ship(side * 170, 0, 187);

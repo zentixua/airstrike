@@ -1,136 +1,69 @@
-# Задание ноутбуку: трейлер — запись и вывод войны на мастер-копии Zearth (film-war2)
+# Задание ноутбуку: трейлер — перезапись исправленных планов и их вывод (film-war3)
 
-Ветка `claude/project-thread-xnjd1k` (zentixua/incoming; прежде — `claude/project-thread-45f5nj`), коммит — в сообщении координатора. Всё — в копии для съёмки и
-своём рабочем дереве (как прежние съёмки трейлера): инстанс, сервер и миры Артёма не трогать; видеокарта — одна задача
-и не во время его игры; тяжёлое — через `tools/laptop_job.sh`. Удалять на ноутбуке ничего нельзя без слова Артёма:
-прежние папки (`film-war`, `film-war-en`, `film-war-ru`, копии `zearth-film`) остаются как есть.
+Ветка `claude/project-thread-xnjd1k` (zentixua/incoming), коммит — в сообщении координатора. Всё — в рабочем дереве
+съёмки (как прежние задания): инстанс, сервер и миры Артёма не трогать; видеокарта — одна задача и не во время его игры
+(`pgrep -f 'instances/Airstrike Pack'` пусто — начинать без вопросов); тяжёлое — через `tools/laptop_job.sh`. Удалять
+на ноутбуке ничего нельзя без слова Артёма: `film-war2` и её миры `war2-<часть>` остаются как есть — новая запись идёт
+в свою папку `film-war3`, монтаж берёт её планы поверх `film-war2`.
 
-Порядок: п. 0 и п. 1 — сразу, пока Артём играет (только файлы и чтение кода пака, без видеокарты); запись (п. 2) — как
-только его игра закрыта: ждать, пока нет процесса его клиента (`pgrep -f 'instances/Airstrike Pack'` пусто), и
-начинать без вопросов. Дальше всё подряд без пауз: варианты тумана плана 3 (п. 3), вывод (п. 4), монтаж (п. 5) —
-он ждёт только выбора тумана.
+Что изменилось (подробно — `.claude/rules/trailer.md`): p12, p01d — поток шахедов ровно над камерой, план — с шахеда,
+вошедшего в кадр; p13 — житель у края кадра; p15, p18 — FPV у конца пути смотрит, куда летел; p19b — ракеты потоком
+над крышей; p23b — ракета, только когда под прицелом наводчика дирижабль; p29 — место бойца, где из-за плеча открыто
+небо; p32 — «Град» батареей в улицу впереди FPV; p38, p39b — рой батареей навстречу камере, «Град» p38 к удару по
+узлу; p01e — объект плана — первый удар в окне (только вывод). Новое в логе записи: `SCENARIO film camera <план>`
+(камера сценария в блоках) и `TRAILER airship: не дождались: дирижабль под прицелом наводчика` — прислать, если есть.
 
-Как устроено (подробно — шапки `tools/trailer/film.sh`, `ReplayFilm`, `Coverage`, `FrameQa`):
-- `film.sh record` — сценарий войны пишет каждый скрытый план повтором Flashback с журналом
-  (`<папка>/replays/<план>.zip` и `.events.jsonl`: пути снарядов, удары, люди, кинокамера сценария по тикам, отметки).
-  Планы с интерфейсом (p07–p09, p14, p27, p33, p34, p40a, p43, p53) снимаются кадрами вживую в том же проходе,
-  по-английски. p33 (удары в бинокль за 700 блоков) и p37b (закат с вершины) — дальше прорисовки: каждый их кадр
-  проверяется вживую (`HudQa`), итог — строка `SCENARIO film hud …` и `<папка>/hud.jsonl`.
-- `film.sh render` — каждый план выводится из своего повтора по таблице `Coverage`: камера сценария и запасные (штатив,
-  погоня), повтор идёт вживую до начала плана, Flashback выводит кадр на тик, каждый кадр проверяется по данным игры
-  (мир построен, объект в кадре и его размер, блоки, дым, облака, мотор, глубина LOD DH — в `qa.jsonl` поле `dh`:
-  1 — своя, −1 — мира, план не проходит). Окно клиента — вдвое меньше кадра (`INCOMING_WINDOW`, ставит `film.sh`).
-  Не прошёл — следующий кандидат. Итог: `<папка>/render/report.jsonl`, `render/best.txt` (папка плана для
-  `edit.py --rec`, PASS или FAIL с причиной), `render/shots.txt`; в папке кандидата — `qa.jsonl` и `timeline.jsonl`.
-  Перезапуск после падения продолжает с неснятых планов (по `best.txt`).
-
-## 0. Мастер-копия Zearth
-Мастер приходит с netcup (все чанки сгенерированы, LOD DH построены с той же карты, DH 3.3.3) вместе с sha256.
-1. Сверить sha256 со значением из сообщения координатора; не сошлось — остановиться и сообщить.
-2. Положить мастер в `mod/run/zearth-master` (папка мира: `level.dat`, `region/`, `data/` с базой DH) и сделать его
-   только для чтения: `chmod -R a-w mod/run/zearth-master`. Сам мастер не открывать в игре.
-3. Копия на часть — свежая, из мастера, в каталог миров сценария:
-   ```sh
-   cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-<часть> && chmod -R u+w mod/run/scenario/saves/war2-<часть>
-   ```
-   Перед каждой копией — свободного места не меньше размера мастера и ещё 20 ГБ; не хватает — остановиться и
-   сообщить. Копии частей держать до конца вывода: повтор читает LOD DH из `<копия>/data` (без неё вывод падает на
-   `SQLITE_IOERR`).
-
-Лицензия Zearth: файлы карты не пушить и не распространять; наружу — только кадры трейлера и текстовые итоги.
-
-## 1. Настройки тумана пака (пока Артём играет)
-План 3 по эталону: пролёт на рассвете на высоте 300 над туманом — город внизу в слое тумана, верхи небоскрёбов центра
-(до y 255) над ним в первом солнце. Камера сценария: от (2830, 300, 290) к (2905, 296, 352) за 60 тиков, взгляд на
-(3060, 200, 560), время 23300, облака — над камерой (`INCOMING_FILM_CLOUDS=320`). Туман под камерой может дать только
-шейдерпак (Complementary из инстанса): нужны его настройки, которые дают такой слой.
-
-Пак — `shaderPack=` в `config/iris.properties` инстанса, сам пак — в `shaderpacks/` инстанса (только читать; `record.sh`
-копирует его в `mod/run/scenario/shaderpacks`). Найти по коду пака всё, что управляет туманом и дымкой:
-`shaders/shaders.properties` (экраны настроек), `#define ИМЯ значение // [значения]` в `shaders/**/*.glsl`, подписи —
-`shaders/lang/en_us.lang`; имена и подписи с fog, mist, haze, atmosphere, altitude, height. Где туман по высоте (его
-верх, плотность, утро и погода) — прочитать код, который его считает. Выбрать до шести наборов настроек, которые по коду
-дают слой тумана с верхом между y 100 и 170 под камерой на 300 при ясной погоде утром.
-
-Прислать сразу, не дожидаясь записи: список настроек (имя, значения, по умолчанию, подпись, что делает по коду — в
-несколько слов) и наборы-кандидаты строкой `ИМЯ=значение ИМЯ=значение`.
-
-## 2. Запись
-Моды — каталог копии для съёмки (`mod/run/film-war/minecraft/mods`: Flashback 0.39.10, flashback_neoforge_fixed,
-Connector, Forgified Fabric API, Sodium 0.8.13, Iris, DH 3.3.3, Create, Sable, Aeronautics, IA, Point Blank, Almighty),
-без jar Incoming (его даёт сборка). Шейдерпак — аргумент `shaders` (Complementary из инстанса). Общие переменные:
+## 1. Запись
+Одна часть `retake` на свежей копии мастера: сцены всех исправленных планов в порядке части `all` (город к плану уже
+горит, как в `all`), пишутся только названные планы. Свободного места перед копией — не меньше размера мастера и ещё
+20 ГБ; не хватает — остановиться и сообщить.
 ```sh
 export INCOMING_MODS_DIR=run/film-war/minecraft/mods INCOMING_SIZE=1920x1080 INCOMING_RENDER_DISTANCE=32 \
-       INCOMING_TRAILER_DIR=film-war2 INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=320
+       INCOMING_TRAILER_DIR=film-war3 INCOMING_LANG=en_us INCOMING_FILM_CLOUDS=320
+cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war3-retake && chmod -R u+w mod/run/scenario/saves/war3-retake
+INCOMING_WAR_PART=retake INCOMING_WORLD=war3-retake \
+INCOMING_TRAILER_SHOTS=p12,p13,p15,p18,p19b,p23b,p01d,p29,p32,p38,p39b \
+  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 ```
-`INCOMING_FILM_CLOUDS` — низ слоя облаков Complementary над всем действием (проверка кадра считает взгляд через слой
-закрытым). Прорисовка 32 (410 блоков до тумана у края) — у записи и вывода одна.
+В `mod/run/scenario/logs/latest.log`, как в прошлых записях: `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`,
+нет `SCENARIO film cast failed`; прислать все строки `SCENARIO film staging`, `SCENARIO film camera`, `TRAILER airship`
+и `TRAILER … момент не наступил`. Каждый новый повтор — проверка разбора, как раньше: не разобрался — переписать часть
+на новой копии мастера (прежнюю не удалять).
 
-Части по очереди, каждая на своей свежей копии мастера (п. 0.3), папка записи одна (план 3 — в части `all`):
+## 2. Журналы
+По каждому записанному плану — журнал текстом (без игры), одним файлом:
 ```sh
-for P in all nukeB nukeC icbm p01e p37b p16; do
-  cp -r --reflink=auto mod/run/zearth-master mod/run/scenario/saves/war2-$P && chmod -R u+w mod/run/scenario/saves/war2-$P
-  INCOMING_WAR_PART=$P INCOMING_WORLD=war2-$P tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
-done
+W3=mod/run/scenario/film-war3
+for S in p12 p13 p15 p18 p19b p23b p01d p29 p32 p38 p39b; do
+  echo "== $S"; uv run tools/trailer/journal.py $W3/replays/$S.events.jsonl --region mod/run/scenario/saves/war3-retake/region
+done > $W3/journal.txt 2>&1
 ```
-Часть `p16` пишет план 16 заново, поверх записанного в `all` (заход ракеты на узел над метро выбирается по рельефу:
-строка `SCENARIO film staging: p16 — заход на …`; камера — где в кадре больше всего горящих ламп станции: строка
-`SCENARIO film staging: p16 — камера …`, без WARN «ни с одного места»; `SCENARIO film grid p16: PASS`). Запись, начатая
-на прежнем коммите, переходит на новый между частями.
-После каждой части в `mod/run/scenario/logs/latest.log`:
-- `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`: генератор DH выключен, LOD — только из базы мастера и
-  загруженных чанков (`record.sh` пишет это в `mod/run/scenario/config/DistantHorizons.toml`; без этой строки запись
-  не начинается — прислать лог);
-- нет `SCENARIO film cast failed` (боты войны: `record.sh` ставит `bots.max = 100`);
-- `SCENARIO film staging …` — только «в тумане у края прорисовки» или «чанка цели у клиента ещё нет» (цели дальше
-  прорисовки), без «закрыта» и «через слой облаков»;
-- у p33 и p37b — `SCENARIO film hud … PASS` (или причины — прислать).
-Каждый новый повтор — проверка разбора, как на netcup (снимок Flashback может сломаться на 0x08000000): не разобрался —
-переписать его часть на новой копии мастера (прежнюю копию не удалять).
 
-## 3. Туман плана 3
-Сразу после записи, до вывода (тот же повтор `film-war2/replays/p03.zip`): по умолчанию и каждый набор из п. 1 —
-свой вывод плана 3 в свою папку (`INCOMING_FILM_OUT`; `INCOMING_SHADER_OPTS` — настройки пака на этот запуск):
+## 3. Вывод
+Сразу после записи, с настройками пака по умолчанию: исправленные планы из `film-war3` и p01e из повтора `film-war2`
+в свою папку вывода (`render-p01e`: прежний вывод `film-war2/render` не трогается).
 ```sh
-for C in "default:" "<имя>:<ИМЯ=значение ИМЯ=значение>" …; do
-  N="${C%%:*}" O="${C#*:}"
-  INCOMING_SHADER_OPTS="$O" INCOMING_FILM_OUT="render-fog-$N" INCOMING_FILM_SHOTS=p03 INCOMING_FILM_TRIES=1 \
-    tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
-done
+INCOMING_TRAILER_DIR=film-war3 INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p12,p13,p15,p18,p19b,p23b,p01d,p29,p32,p38,p39b \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_OUT=render-p01e INCOMING_FILM_TRIES=2 INCOMING_FILM_SHOTS=p01e \
+  tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 ```
-У каждого кандидата — лист из трёх кадров вывода (первый, средний, последний) в ряд, по 640×360, одним JPEG до 1 МиБ.
-Прислать по каждому: строку настроек, итог `render-fog-<имя>/report.jsonl` и лист кадров; выбор придёт сообщением.
-Не ждать его: сразу п. 4.
+В логе — то же, что в прошлом выводе: `dh generator DISABLED PRE_EXISTING_ONLY`; нет `Failed to handle packet`,
+`DecoderException`, `повтор закрылся` (есть — стек целиком с 30 строками до него); строки `SCENARIO film heap` и
+`SCENARIO film restart` — прислать; `"dh":1` в `qa.jsonl` выводимых кандидатов.
 
-## 4. Вывод
-Все планы с настройками пака по умолчанию:
+## 4. Монтаж и отчёт
+Планы `film-war2` (с туманом p03 — папка выбранного варианта `c2-alt110-d3.05-dist200`), поверх — p01e из `render-p01e`
+и планы `film-war3`. Строки `best.txt` с «-» вместо папки — план не снят (причина в той же строке), в `--rec` их нет.
 ```sh
-INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+W2=mod/run/scenario/film-war2 W3=mod/run/scenario/film-war3 FOG=$W2/render-fog-<папка варианта c2>
+uv run tools/trailer/edit.py --lang en --rec $W2 $(awk '$2 != "-" {print "--rec " $2}' $W2/render/best.txt) \
+  $(awk '$1 == "p03" && $2 != "-" {print "--rec " $2}' $FOG/best.txt) \
+  $(awk '$2 != "-" {print "--rec " $2}' $W2/render-p01e/best.txt) \
+  --rec $W3 $(awk '$2 != "-" {print "--rec " $2}' $W3/render/best.txt) --music <Juggernaut.mp3>
+python3 tools/trailer/report.py $W3/render --md $W3/render/report.md
+python3 tools/trailer/report.py $W2/render-p01e --md $W2/render-p01e/report.md
 ```
-В логе:
-- `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`, как у записи;
-- на каждый открытый повтор — `SCENARIO film: зрителю повтора после входа — N пакетов (модов M), когда у клиента есть
-  мир`, без `пакет входа зрителя прошёл мимо удержания`;
-- нет `Failed to handle packet`, `DecoderException` и `повтор закрылся` (отключение от повтора; есть — прислать
-  стек целиком с 30 строками до него);
-- память: на каждый открытый повтор — `SCENARIO film heap N <повтор>: куча живых … МБ из …; миров сервера …` (после
-  полной сборки). Закрытые повторы остаются в памяти (их держат Create и Aeronautics), живое растёт от повтора к
-  повтору: когда его больше 60 % кучи, клиент уходит на границе повторов (`SCENARIO film restart: живого …`), `film.sh`
-  сам запускает новый, и он продолжает по `best.txt`. Это штатно, вывод не останавливать; прислать строки `SCENARIO film
-  heap` и `SCENARIO film restart` (сколько раз клиент сменился) и `OutOfMemoryError`, если был;
-- в `qa.jsonl` выводимых кандидатов `"dh":1` в каждом кадре; перед каждым выводом текстуры DH пересоздаются в размер
-  окна (строки `SCENARIO film dh textures 960x540 …`), строк «текстуры LOD DH размера вывода» нет или они редки
-  (такой кандидат не выводится — прислать их).
-
-## 5. Монтаж и отчёт
-План 3 — из выбранного варианта тумана (`<выбор>` — имя из сообщения): его папка идёт последним `--rec` и заменяет план
-3 вывода по умолчанию.
-```sh
-W=mod/run/scenario/film-war2
-uv run tools/trailer/edit.py --lang en --rec $W $(awk '{print "--rec " $2}' $W/render/best.txt) \
-  $(awk '$1 == "p03" {print "--rec " $2}' $W/render-fog-<выбор>/best.txt) --music <Juggernaut.mp3>
-python3 tools/trailer/report.py $W/render --md $W/render/report.md
-```
-Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `render/report.md`, `render/report.jsonl`, `render/best.txt`,
-`hud.jsonl`, `grid.jsonl`, `fight.jsonl`, вывод `edit.py` (какие планы — заглушки), ошибки из логов записи и вывода
-(`Exception`, `ERROR` мода).
+Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), оба `report.md`, `film-war3/render/best.txt`,
+`film-war2/render-p01e/best.txt`, `film-war3/journal.txt`, вывод `edit.py` (какие планы — заглушки), строки из п. 1
+и п. 3, ошибки из логов записи и вывода (`Exception`, `ERROR` мода).

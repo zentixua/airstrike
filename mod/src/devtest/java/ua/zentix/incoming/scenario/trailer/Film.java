@@ -341,6 +341,8 @@ abstract class Film {
         private Runnable atEnd, atPrepare, atReady;
 
         private int phase, waited, readyFor, t, endAt = -1, liveEnd = -1;
+        /** Камера плана уже была в блоках (строка — раз на план). */
+        private boolean inBlocks;
         private Path path;
 
         Shot(String name) {
@@ -491,6 +493,20 @@ abstract class Film {
             return playerView != null;
         }
 
+        /**
+         * Камера сценария в блоках ({@link Rig.World#blocking}) — строка {@code SCENARIO film camera} уже при записи, раз на
+         * план: проверка кадров вывода такую камеру не возьмёт, и план останется без камеры (13.10: p15, p18, p01d).
+         */
+        private void checkCamera() {
+            Pose pose = CineCamera.pose();
+            if (inBlocks || pose == null || mc.level == null || !selected()) return;
+            BlockPos b = Rig.World.blocking(mc.level, pose.pos());
+            if (b == null) return;
+            inBlocks = true;
+            Incoming.LOG.warn("SCENARIO film camera {}: камера в блоках на тике {} — {} у {} ({})", name, t,
+                    mc.level.getBlockState(b).getBlock().getName().getString(), b.toShortString(), War.xyz(pose.pos()));
+        }
+
         /** Время плана с долей тика: кадр после тика n показывает мир между тиками n−1 и n. */
         double time() {
             if (phase < 4) return 0;
@@ -577,6 +593,7 @@ abstract class Film {
                 case 4 -> {
                     followCamera();
                     t++;
+                    checkCamera();
                     if (qa != null) qa.tick(Film.this);
                     runCues();
                     if (!PREVIEW && end != null && endAt < 0 && end.getAsBoolean()) endAt = t + endDelay;

@@ -442,6 +442,7 @@ public final class ReplayFilm {
         if (subject == null) {
             Incoming.LOG.error("SCENARIO film failed: {}: в журнале нет объекта", spec.shot());
             report(null, null, "в журнале нет объекта");
+            noTake("в журнале нет объекта");
             next();
             return;
         }
@@ -526,7 +527,12 @@ public final class ReplayFilm {
         candidates.clear();
         all.stream().filter(s -> s.score.total() > 0).limit(tries).forEach(candidates::add);
         if (candidates.isEmpty()) {
-            report(null, null, "нет камеры с оценкой выше нуля");
+            Scored top = all.isEmpty() ? null : all.get(0);
+            String why = "нет камеры с оценкой выше нуля" + (top == null ? ": кандидатов нет"
+                    : String.format(Locale.ROOT, ", лучшая %s %.3f (подлёт %.2f, удар %.2f) %s", top.c.name(), top.score.total(),
+                    top.score.approach(), top.score.atKey(), top.score.why()).trim());
+            report(null, null, why);
+            noTake(why);
             next();
             return;
         }
@@ -541,6 +547,8 @@ public final class ReplayFilm {
             if (bestTry != null) {
                 best.add(spec.shot() + " " + dirOf(bestTry).toString() + " FAIL " + bestVerdict.why());
                 writeBest();
+            } else {
+                noTake("ни один кандидат не выведен: " + lastWhy);
             }
             next();
             return;
@@ -757,7 +765,21 @@ public final class ReplayFilm {
         return t;
     }
 
+    /**
+     * План не снят (нет объекта, ни одной камеры с оценкой выше нуля, ни один кандидат не выведен): строка FAIL без папки
+     * ({@code -}) в {@code best.txt}. Без неё план пропадал из итога молча: монтаж ставил заглушку, отчёт не знал почему,
+     * а продолжение вывода снимало его заново.
+     */
+    private void noTake(String why) {
+        best.add(spec.shot() + " - FAIL " + why);
+        writeBest();
+    }
+
+    /** Причина последнего кандидата, который не дошёл до вывода или не прошёл. */
+    private String lastWhy = "";
+
     private void report(@Nullable Scored c, @Nullable FrameQa.Verdict v, String why) {
+        lastWhy = why;
         JsonObject o = new JsonObject();
         o.addProperty("shot", spec.shot());
         o.addProperty("run", run);

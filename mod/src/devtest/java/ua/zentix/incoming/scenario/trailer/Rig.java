@@ -214,6 +214,23 @@ final class Rig {
         };
     }
 
+    /**
+     * Первый удар снаряда {@code weapon} в окне плана (отметки «start»…«end» с запасом {@link Coverage#HIT_MARGIN}): монтаж
+     * ставит склейку по первой отметке «gone» плана (p01e — «ковёр разрывов бежит на камеру»), а удар залпа «Града»,
+     * ближайший к точке цели, ложился за окном (13.10: через 32 тика после «end»), и объекта у плана не было.
+     */
+    static Function<EventLog.Data, Subject> firstImpact(String weapon) {
+        return d -> {
+            EventLog.Mark start = d.mark("start"), end = d.mark("end");
+            int a = start == null ? 0 : start.t(), b = end == null ? d.ticks - 1 : end.t();
+            return d.of(weapon).stream().filter(f -> f.impact >= a && f.impact <= b + Coverage.HIT_MARGIN && f.impactPos != null)
+                    .min(Comparator.comparingInt((EventLog.Flight f) -> f.impact))
+                    .map(f -> new Subject(weapon + " → удар", f.id, sizeOf(weapon), f::pos, f.first(), f.last(), f.impact, f.impactPos,
+                            blastOf(weapon)))
+                    .orElse(null);
+        };
+    }
+
     /** Неподвижное место (пейзаж, площадь), без события. */
     static Function<EventLog.Data, Subject> place(Vec3 p, double size) {
         return d -> new Subject("место", null, size, t -> p, 0, d.ticks - 1, -1, null, 0);

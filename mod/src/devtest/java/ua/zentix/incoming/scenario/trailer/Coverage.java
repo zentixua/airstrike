@@ -83,10 +83,15 @@ final class Coverage {
 
     /** План сценария как есть (окно и камера — из записи) с проверкой кадров; {@code more} — запасные камеры. */
     private static void own(String shot, Function<EventLog.Data, Rig.Subject> subject, boolean close, Need need, Rig.Kind... more) {
+        own(shot, 0, subject, close, need, more);
+    }
+
+    /** То же, монтаж берёт первые {@code span} тиков окна (0 — всё окно). */
+    private static void own(String shot, int span, Function<EventLog.Data, Rig.Subject> subject, boolean close, Need need, Rig.Kind... more) {
         List<Rig.Kind> kinds = new java.util.ArrayList<>();
         kinds.add(Rig.own(close));
         kinds.addAll(List.of(more));
-        add(new Spec(shot, shot, subject, kinds, 0.004, need));
+        add(new Spec(shot, shot, subject, kinds, 0.004, need, 100, span));
     }
 
     private static Rig.Kind tripod() {
@@ -108,7 +113,8 @@ final class Coverage {
         own("p10c", Rig.flight("drone"), false, LAUNCH, Rig.own(false, 45), tripod());
         own("p11", Rig.flight("drone"), true, FOLLOW, Rig.chase(28, 8, 2, -2, 0));
         // II · первый удар
-        own("p12", Rig.flight("drone"), false, OVERHEAD);
+        // монтаж берёт секунду (план 12 — с 0:20 до 0:21): шахеды потока — над камерой в эти 30 тиков
+        own("p12", 30, Rig.flight("drone"), false, OVERHEAD);
         // p13: ракета над крышей уходит в башню — камера сценария за спиной жителя; запасные — штатив по кругу и погоня
         own("p13", Rig.impact("missile", War.P13_HIT, 0), false, Need.GLIMPSE, tripod(), Rig.chase(35, 16, 3, 3, 30));
         own("p15", Rig.scene(), false, SCENE);
@@ -117,7 +123,8 @@ final class Coverage {
         own("p17", Rig.impact("missile", new Vec3(3062.5, 0, 338.5), 0), false, SCENE);
         own("p18", Rig.impact("rocket", new Vec3(3330.5, 0, 300.5), 0), true, new Need(0, 0, 0.4, 0));
         own("p19a", Rig.impact("missile", null, 0), false, HIT, Rig.own(false, 30));
-        own("p19b", Rig.flight("missile"), false, OVERHEAD, Rig.own(false, 30));
+        // половина плана 19 (полторы секунды)
+        own("p19b", 40, Rig.flight("missile"), false, OVERHEAD, Rig.own(false, 30), Rig.own(false, 24));
         // III · война
         own("p20", Rig.flight("rocket"), false, LAUNCH);
         // p21: с хребта — рой шахедов над камерой уходит к горящему городу и входит в дома; объект — первый удар роя
@@ -133,24 +140,27 @@ final class Coverage {
         own("p24b", Rig.scene(), false, SCENE);
         own("p24c", Rig.scene(), false, SCENE);
         own("p25", Rig.flight("drone"), false, new Need(0.5, 0, 0, 0));
-        own("p01d", Rig.flight("drone"), false, OVERHEAD);
+        // секунда холодного начала (план 1, склейка d)
+        own("p01d", 30, Rig.flight("drone"), false, OVERHEAD);
         own("p01a", Rig.impact("missile", War.T2, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(28, 9, 1.8, 2.4, 20));
         own("p01b", Rig.impact("missile", War.T3, 0), false, new Need(0.5, 0.6, 0.7, 0), tripod());
         own("p26", Rig.impact("rocket", War.p26Hit(), 0), true, new Need(0, 0, 0.4, 0));
         own("p28", Rig.impact("rocket", War.P28_PACK.get(0), 0), true, new Need(0, 0, 0.4, 0));
         own("p29", Rig.impact("drone", null, 0), false, new Need(0.3, 0.5, 0.7, 0));
         own("p30", Rig.impact("drone", new Vec3(3150.5, 0, 300.5), 0), false, new Need(0.3, 0.6, 0, 0));
-        own("p01e", Rig.impact("rocket", new Vec3(3175.5, 0, 252.5), 0), false, HIT);
+        own("p01e", Rig.firstImpact("rocket"), false, HIT);
         own("p31", Rig.impact("drone", War.T4, 0), true, new Need(0.75, 0.75, 0.6, 0.6), Rig.chase(26, 6, 1.2, -1.6, 12));
-        own("p32", Rig.impact("rocket", new Vec3(3010.5, 0, 640.5), 0), true, new Need(0, 0, 0.5, 0));
+        // пакет батареей в улицу впереди FPV: объект — удар, который камера снимает лучше всех
+        own("p32", Rig.framedImpact("rocket"), true, new Need(0, 0, 0.5, 0));
         own("p35", Rig.flight("missile"), false, OVERHEAD);
         // камера сценария ведёт шахед, ближайший к батарее, а удар ближе всех к её центру — часто другой шахед залпа (netcup:
         // объект в кадре 0 %): объект — удар того шахеда, которого камера снимает лучше всех
         own("p36", Rig.framedImpact("drone"), false, new Need(0.5, 0.6, 0.7, 0), Rig.own(false, 45), tripod());
         own("p37", Rig.impact("bunker", new Vec3(3360.5, 0, 470.5), 0), false, new Need(0.3, 0, 0.5, 0));
-        own("p38", Rig.flight("drone"), false, OVERHEAD);
+        own("p38", Rig.flight("drone"), false, OVERHEAD, Rig.own(false, 24));
         own("p39a", Rig.impact("rocket", new Vec3(2930.5, 0, 260.5), 0), false, HIT);
-        own("p39b", Rig.impact("drone", new Vec3(3110.5, 0, 410.5), 0), false, HIT);
+        // шахеды батареей по местам, видимым из камеры: объект — удар, который камера снимает лучше всех
+        own("p39b", Rig.framedImpact("drone"), false, HIT);
         own("p39c", Rig.impact("missile", War.T1.add(0, -40, 0), 0), false, HIT);
         own("p39d", Rig.impact("rocket", new Vec3(3200.5, 0, 260.5), 0), false, HIT);
         // IV · конец света

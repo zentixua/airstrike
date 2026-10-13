@@ -55,9 +55,11 @@ import ua.zentix.incoming.entity.DroneEntity;
 import ua.zentix.incoming.entity.FlightPhase;
 import ua.zentix.incoming.entity.IcbmEntity;
 import ua.zentix.incoming.entity.InterceptorEntity;
+import ua.zentix.incoming.entity.LauncherEntity;
 import ua.zentix.incoming.entity.RocketEntity;
 import ua.zentix.incoming.entity.StrikeProjectile;
 import ua.zentix.incoming.grid.Blackouts;
+import ua.zentix.incoming.guidance.Ballistics;
 import ua.zentix.incoming.grid.PowerGrid;
 import ua.zentix.incoming.net.C2S;
 import ua.zentix.incoming.registry.ModBlocks;
@@ -228,11 +230,53 @@ final class War {
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
         if (part.equals("icbm")) icbm();
-        // один план для проверки съёмки из повтора (ReplayFilm)
+        // один план или одна сцена для проверки съёмки из повтора (ReplayFilm) и короткой перезаписи
         if (part.equals("p03")) dawnFlight();
-        if (part.equals("p13")) p13();
+        if (part.equals("p12")) {
+            day();
+            p12();
+        }
+        if (part.equals("p13")) {
+            day();
+            p13();
+        }
+        if (part.equals("metro")) {
+            day();
+            metro();
+        }
+        if (part.equals("p19")) {
+            day();
+            p19();
+        }
+        if (part.equals("airship")) {
+            day();
+            airship();
+        }
+        if (part.equals("p01d")) {
+            day();
+            p01d();
+        }
+        if (part.equals("p32")) {
+            day();
+            p32();
+        }
+        if (part.equals("night")) night();
+        // перезапись исправленных планов (INCOMING_TRAILER_SHOTS) на одной копии мира, в порядке части all: город к плану
+        // уже горит от прежних ударов, как в записи all
+        if (part.equals("retake")) {
+            day();
+            p12();
+            p13();
+            metro();
+            p19();
+            airship();
+            p01d();
+            streets();
+            p32();
+            night();
+        }
         if (part.equals("p16")) {
-            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            day();
             metroCrowd();
             film.waitTicks(120);  // люди внизу, как после p15
             p16();
@@ -241,15 +285,15 @@ final class War {
         }
         if (part.equals("p21")) ridge();
         if (part.equals("streets")) {
-            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            day();
             streets();
         }
         if (part.equals("p01e")) {
-            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            day();
             carpet();
         }
         if (part.equals("p33")) {
-            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            day();
             skyline();
         }
         if (part.equals("p37b")) {
@@ -258,6 +302,11 @@ final class War {
             burnSkyline();
             summit();
         }
+    }
+
+    /** Днём, как в части east (отдельная сцена на своей копии мира). */
+    private void day() {
+        film.run(() -> Film.cmd("time set 1000"));
     }
 
     // ================================================================ мир и помощники
@@ -399,7 +448,14 @@ final class War {
      */
     @Nullable
     Vec3 clearApproach(String shot, Vec3 target, double reach, int half) {
+        return clearApproach(shot, target, reach, half, null, 180);
+    }
+
+    /** То же только среди направлений не дальше {@code maxDev} градусов от {@code prefer} (от цели наружу; null — любые). */
+    @Nullable
+    Vec3 clearApproach(String shot, Vec3 target, double reach, int half, @Nullable Vec3 prefer, double maxDev) {
         if (mc.level == null) return null;
+        Vec3 pref = prefer == null ? null : prefer.multiply(1, 0, 1).normalize();
         var chunks = mc.level.getChunkSource();
         double best = Double.MAX_VALUE;
         Vec3 bestDir = null;
@@ -407,6 +463,7 @@ final class War {
         for (int az = 0; az < 360; az += 5) {
             double r = Math.toRadians(az);
             Vec3 dir = new Vec3(Math.cos(r), 0, Math.sin(r)), side = new Vec3(-dir.z, 0, dir.x);
+            if (pref != null && dir.dot(pref) < Math.cos(Math.toRadians(maxDev)) - 1e-9) continue;
             int top = Integer.MIN_VALUE;
             boolean loaded = true;
             for (double d = 6; d <= reach && loaded; d += 2) {
@@ -824,6 +881,81 @@ final class War {
         return false;
     }
 
+    /**
+     * Снаряд этого оружия в кадре камеры плана (поля 0,8) ближе {@code r} блоков к ней: план начинается, когда он вошёл в
+     * кадр. Пролёт из-за спины по месту снаряда не ждать: шахед в 75–95 блоках над камерой входил в кадр из-за плеча сверху
+     * через 3–4 с после того, как прошёл над ней, — окно плана к тому времени кончалось (p01d, p12 13.10).
+     */
+    static boolean flightInFrame(WeaponType weapon, double r) {
+        Pose cam = CineCamera.pose();
+        if (cam == null) return false;
+        for (var f : ClientFlights.all()) {
+            Vec3 q = f.position(1);
+            if (f.weapon() == weapon && q.distanceTo(cam.pos()) < r && Rig.inFrame(cam, q, 0.8)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Поток над точкой: по снаряду на каждую цель {@code targets} (y = 0 — земля) одиночным пуском из места в {@code d}
+     * блоках за {@code over} на прямой к своей цели — каждый проходит ровно над {@code over}, — пуски через {@code gap}
+     * тиков. Залп (count > 1) так не пройдёт: у залпа каждый снаряд заходит своим курсом ±35°, а пусковая выпускает шахеды
+     * по одному раз в 1–2 с (p01d, p19b 13.10: над камерой — ни одного).
+     */
+    void stream(String weapon, List<Vec3> targets, Vec3 over, double d, int gap) {
+        for (int i = 0; i < targets.size(); i++) {
+            Vec3 t = targets.get(i);
+            later(gap * i, () -> salvo(weapon, 1, 0, t, behind(over, at(t), d)));
+        }
+    }
+
+    /**
+     * До {@code n} самых низких колонок (земля, где стоять) в полосе ±{@code half} блоков вдоль прямой из {@code from} к
+     * {@code toward} на {@code dmin}–{@code dmax} блоков, не ближе 8 блоков друг к другу; чанки грузятся сразу (сценарию
+     * можно). Шахед идёт на 45 блоков выше цели: цель на крыше высотки (p12: y 119) вела его над окраиной в 80–95 блоках
+     * над камерой.
+     */
+    List<Vec3> lowGround(Vec3 from, Vec3 toward, double dmin, double dmax, double half, int n) {
+        MinecraftServer s = server();
+        java.util.function.Supplier<List<Vec3>> find = () -> {
+            ServerLevel level = s.overworld();
+            Vec3 dir = toward.subtract(from).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
+            List<Vec3> all = new ArrayList<>();
+            for (double d = dmin; d <= dmax; d += 4) {
+                for (double k = -half; k <= half; k += 4) {
+                    Vec3 p = from.add(dir.scale(d)).add(side.scale(k));
+                    all.add(new Vec3(Math.floor(p.x) + 0.5, groundY(level, p.x, p.z), Math.floor(p.z) + 0.5));
+                }
+            }
+            all.sort(Comparator.comparingDouble(Vec3::y));
+            List<Vec3> out = new ArrayList<>();
+            for (Vec3 p : all) {
+                if (out.size() >= n) break;
+                if (out.stream().allMatch(o -> o.distanceTo(p) >= 8)) out.add(p);
+            }
+            return out;
+        };
+        List<Vec3> out = s.isSameThread() ? find.get() : s.submit(find::get).join();
+        Incoming.LOG.info("SCENARIO film staging: низкие места от {} к {} — {}", xyz(from), xyz(toward), out.stream().map(War::xyz).toList());
+        return out;
+    }
+
+    /** {@code action} — в первый тик, когда {@code ready} верно (проверка раз в тик клиента, не дольше {@code max} тиков). */
+    void once(String what, BooleanSupplier ready, int max, Runnable action) {
+        if (ready.getAsBoolean()) {
+            action.run();
+        } else if (max <= 0) {
+            Incoming.LOG.warn("SCENARIO film staging: не дождались — {}", what);
+        } else {
+            later(1, () -> once(what, ready, max - 1, action));
+        }
+    }
+
+    /** Время полёта «Града» из {@code from} в {@code to}, тиков, — как его считает сама ракета ({@code RocketEntity.etaTicks}). */
+    static int rocketTicks(Vec3 from, Vec3 to) {
+        return Ballistics.ticksFor(from, to, LauncherEntity.elevation(WeaponType.ROCKET), RocketEntity.MIN_FLIGHT);
+    }
+
     /** Снаряд в мире был ближе {@code r} к точке и пропал (взрыв): конец плана. На каждый план — своё. */
     BooleanSupplier hit(Vec3 p, double r) {
         boolean[] seen = {false};
@@ -960,21 +1092,33 @@ final class War {
     // ================================================================ II · первый удар по Востоку, тревога
 
     private void firstStrike() {
-        // p12: окраина — шахеды проходят низко над жителем со стороны затылка, он поднимает голову
+        p12();
+        p13();
+        alarm();
+    }
+
+    /**
+     * p12: окраина — шахеды проходят низко над жителем со стороны затылка, он поднимает голову. Поток из-за спины ровно
+     * над ним ({@link #stream}) в самые низкие места улицы впереди ({@link #lowGround}): шахед идёт на 45 блоков выше цели, а
+     * цель на высотке вела его в 80–95 блоках над камерой, и в кадр он входил через 4 с после пролёта. План начинается,
+     * когда первый вошёл в кадр ({@link #flightInFrame}).
+     */
+    private void p12() {
         Vec3 resident = new Vec3(2905.5, 0, 418.5), droneTarget = new Vec3(3070.5, 0, 418.5);
         hiddenAt(resident, droneTarget);
         film.run(() -> cast().spawn("Hans", g(resident), -90, null));
         settle();
+        List<Vec3> low = new ArrayList<>();
         film.shot("p12").length(45).hidden()
-                .onReady(() -> salvo("drone", 3, 10, droneTarget, behind(resident, droneTarget, 700)))
+                .onReady(() -> {
+                    low.clear();
+                    low.addAll(lowGround(g(resident), droneTarget, 110, 200, 12, 4));
+                    stream("drone", low, at(resident), 700, 14);
+                })
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Hans"), 2.2, -0.35, 0.7, () -> at(droneTarget).add(0, 40, 0), 62))
-                .when(() -> flightOver(at(resident), 70, WeaponType.DRONE), 3000)
+                .when(() -> flightInFrame(WeaponType.DRONE, 250), 3000)
                 .cue(8, () -> cast().act("Hans", lookUp(at(droneTarget).add(0, 60, 0)), true));
         film.run(() -> cast().remove("Hans"));
-
-        p13();
-
-        alarm();
     }
 
     /**
@@ -990,14 +1134,20 @@ final class War {
         hiddenAt(P13_ROOF, P13_HIT);
         film.run(() -> cast().spawn("Ilya", P13_ROOF, Film.yawTo(P13_ROOF, P13_HIT), null));
         settle();
+        // голова — на башню и шагом бота: поворот при входе повтор не всегда передаёт (13.10: житель лицом в камеру)
+        film.run(() -> cast().act("Ilya", one(Cast.lookAt(P13_HIT)), true));
+        film.waitTicks(10);
         film.shot("p13").length(140).hidden()
                 // из-за спины камеры: ракета проходит над крышей и уходит в грань, которую видит камера
                 .onReady(() -> salvo("missile", 1, 0, P13_HIT, behind(P13_ROOF, P13_HIT, 1200)))
                 .camera(() -> {
                     Vec3 eye = P13_ROOF.add(0, 1.62, 0);
-                    Vec3 back = eye.subtract(P13_HIT.subtract(eye).multiply(1, 0, 1).normalize().scale(3.4)).add(0.9, 0.35, 0);
-                    // взгляд ниже грани: житель внизу кадра, удар — в верхней трети
-                    return CineCamera.track(back, () -> P13_HIT.add(0, -40, 0), 38);
+                    Vec3 fwd = P13_HIT.subtract(eye).multiply(1, 0, 1).normalize(), right = new Vec3(-fwd.z, 0, fwd.x);
+                    // житель — у правого края нижней трети, середина кадра (стадион, город) открыта: посередине его голова
+                    // закрывала стадион; взгляд ниже грани — удар в верхней трети
+                    Vec3 back = eye.subtract(fwd.scale(3.4)).add(right.scale(-1.3)).add(0, 0.35, 0);
+                    Vec3 free = mc.level == null ? null : CineCamera.nearestFree(mc.level, back, eye);
+                    return CineCamera.track(free != null ? free : back, () -> P13_HIT.add(0, -40, 0), 38);
                 })
                 .when(() -> flightNear(P13_HIT, 340, WeaponType.MISSILE), 3000)
                 .endWhen(hit(P13_HIT, 120), 40);
@@ -1016,6 +1166,27 @@ final class War {
                         -30 + (float) CineCamera.smooth(t / 110) * 12, 0, 70))
                 .when(() -> flightEta(at(hit), 60, WeaponType.MISSILE) <= MISSILE_SIREN_S + 1.5, 3000);  // тревога — через 1,5 с
 
+        metro();
+
+        // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
+        Vec3 room = new Vec3(3060.5, 0, 352.5);
+        // на тротуаре перед окном; ракета идёт вдоль улицы с востока (с запада её пике задевает дом в 98 блоков высотой)
+        Vec3 blast = new Vec3(3062.5, 0, 338.5);
+        hiddenAt(room, blast);
+        film.onServer(level -> buildRoom(level, room));
+        film.shot("p17").length(40).hidden()
+                .onReady(() -> salvo("missile", 1, 0, blast, new Vec3(3900, 0, 338.5)))
+                .camera(() -> {
+                    Vec3 floor = new Vec3(room.x, roomFloor, room.z);
+                    return CineCamera.dolly(floor.add(0.2, 1.55, 1.4), floor.add(0.1, 1.57, 1.1), 40, () -> at(blast).add(0, 2, 0), 70);
+                })
+                .when(() -> flightNear(at(blast), 60, WeaponType.MISSILE), 3000);
+
+        p19();
+    }
+
+    /** p15–p18: люди бегут в метро (p15), станция гаснет (p16), FPV вылетает из метро под «Град» (p18). */
+    private void metro() {
         // p15: люди бегут к спуску в метро, FPV ныряет за ними вниз по лестнице
         metroCrowd();
         film.waitTicks(10);
@@ -1041,23 +1212,13 @@ final class War {
                 .when(() -> film.nearest(RocketEntity.class, at(crossing), 220) != null, 3000);
         film.run(() -> crowd().removeAll());
         gridRestore();
+    }
 
-        // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
-        Vec3 room = new Vec3(3060.5, 0, 352.5);
-        // на тротуаре перед окном; ракета идёт вдоль улицы с востока (с запада её пике задевает дом в 98 блоков высотой)
-        Vec3 blast = new Vec3(3062.5, 0, 338.5);
-        hiddenAt(room, blast);
-        film.onServer(level -> buildRoom(level, room));
-        film.shot("p17").length(40).hidden()
-                .onReady(() -> salvo("missile", 1, 0, blast, new Vec3(3900, 0, 338.5)))
-                .camera(() -> {
-                    Vec3 floor = new Vec3(room.x, roomFloor, room.z);
-                    return CineCamera.dolly(floor.add(0.2, 1.55, 1.4), floor.add(0.1, 1.57, 1.1), 40, () -> at(blast).add(0, 2, 0), 70);
-                })
-                .when(() -> flightNear(at(blast), 60, WeaponType.MISSILE), 3000);
-
-        // p19: со спины человека на крыше: горизонт вспыхивает ударами (a), ракеты проходят над головой (b). Крыша — та же,
-        // что в p13 (оттуда башни видны ниже облаков); удары — в грани, которые камера видит, по лучам в момент пуска
+    /**
+     * p19: со спины человека на крыше: горизонт вспыхивает ударами (a), ракеты проходят над головой (b). Крыша — та же,
+     * что в p13 (оттуда башни видны ниже облаков); удары — в грани, которые камера видит, по лучам в момент пуска.
+     */
+    private void p19() {
         Vec3 roof19 = P13_ROOF, farA = T2.add(0, -75, 0);
         Vec3 farB = roof19.add(farA.subtract(roof19).multiply(1, 0, 1).normalize().scale(700)).multiply(1, 0, 1);  // за башнями на той же линии
         List<Vec3> towers = new ArrayList<>();
@@ -1081,17 +1242,30 @@ final class War {
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 5, 0.8, 1.6, () -> farA, Rig.fov(50)))
                 .when(() -> !towers.isEmpty() && flightNear(towers.get(0), 160, WeaponType.MISSILE), 3000);
         film.run(() -> cast().act("Oleg", lookUp(farA), true));
+        // b: четыре ракеты потоком ровно над крышей ({@link #stream}) в грани башен, которые камера видит (не те, где били
+        // ракеты a): залп заходил курсами ±35° и проходил в 150 блоках сбоку, а над городом ракета идёт ниже глаз жителя —
+        // взгляд на farA (не выше): 35 мм, в кадре от −8° до 24°. План — с ракеты, вошедшей в кадр
+        List<Vec3> streak = new ArrayList<>();
         film.shot("p19b").length(50).hidden()
-                .onReady(() -> salvo("missile", 4, 20, farB, behind(roof19, at(farB), 900)))
-                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 5, 0.8, 1.6, () -> farA.add(0, 30, 0), Rig.fov(50)))
-                .when(() -> flightNear(roof19, 160, WeaponType.MISSILE), 3000)
+                .onReady(() -> {
+                    Pose cam = CineCamera.pose();
+                    Vec3 eye = cam == null ? roof19.add(0, 2, 0) : cam.pos();
+                    streak.clear();
+                    for (Vec3 f : facades(eye, farA, 30, 10, 12, 200, 380, 185)) {
+                        if (streak.size() < 4 && towers.stream().allMatch(t -> t.distanceTo(f) >= 30)) streak.add(f);
+                    }
+                    if (streak.isEmpty()) {
+                        Incoming.LOG.warn("SCENARIO film staging p19b: граней башен из камеры нет, цель {}", xyz(farB));
+                        streak.add(farB);
+                    }
+                    stream("missile", streak, roof19, 900, 12);
+                })
+                .camera(() -> CineCamera.shoulder(() -> film.bot("Oleg"), 5, 0.8, 1.6, () -> farA, Rig.fov(35)))
+                .when(() -> flightInFrame(WeaponType.MISSILE, 400), 3000)
                 .cue(10, () -> cast().act("Oleg", lookUp(farA.add(0, 120, 0)), true));
         film.run(() -> cast().remove("Oleg"));
     }
 
-    // ================================================================ Запад: батарея, пуски
-
-    /** Батарея на полосе: ряд крылатых ракет и ряд «Градов» с шахедами; ракеты и шахеды — по Востоку за 4,5 км. */
     /** p15–p16: люди на улице у спуска в метро бегут вниз; станция переведена на лампы сети ({@link #wireStation}). */
     private void metroCrowd() {
         hiddenAt(SUB_TOP.add(-30, 0, 0), SUB_TOP);
@@ -1170,6 +1344,9 @@ final class War {
                 == HitResult.Type.MISS;
     }
 
+    // ================================================================ Запад: батарея, пуски
+
+    /** Батарея на полосе: ряд крылатых ракет и ряд «Градов» с шахедами; ракеты и шахеды — по Востоку за 4,5 км. */
     private void racks() {
         hiddenAt(BATTERY, BATTERY.add(60, 0, 0));
         film.onServer(level -> {
@@ -1503,10 +1680,7 @@ final class War {
 
         clearSams(SQUARE, 96);
 
-        // p23: дирижабль (своя сцена)
-        Vec3 airship = new Vec3(3000.5, 150, 380.5);  // южнее T2: заход ракеты не задевает башню
-        stageScene("airship", airship, -90);
-        clearSams(airship, 160);
+        airship();
 
         // p25: из двора, длинный фокус на рой: шахеды идут над крышами к камере. Залп шахедов выходит по одному раз
         // в 1–2 с, поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук; камера
@@ -1526,18 +1700,7 @@ final class War {
                 })
                 .when(() -> flightOver(at(street), 220, WeaponType.DRONE), 3000);
 
-        // p01d: шахеды над головой игрока со стороны затылка
-        // поле к западу от центра: над ним открытое небо
-        Vec3 man = new Vec3(2905.5, 0, 300.5), past = new Vec3(3085.5, 0, 300.5);
-        hiddenAt(man, past);
-        film.run(() -> cast().spawn("Pyotr", g(man), Film.yawTo(man, past), null));
-        settle();
-        film.shot("p01d").length(40).hidden()
-                .onReady(() -> salvo("drone", 5, 14, past, behind(man, at(past), 700)))
-                .camera(() -> CineCamera.shoulder(() -> film.bot("Pyotr"), 1.9, -0.2, 0.6, () -> at(past).add(0, 55, 0), 70))
-                .when(() -> flightOver(at(man), 60, WeaponType.DRONE), 3000)
-                .cue(6, () -> cast().act("Pyotr", lookUp(at(past).add(0, 90, 0)), true));
-        film.run(() -> cast().remove("Pyotr"));
+        p01d();
 
         // p01a, p01b: FPV с крылатой ракетой между небоскрёбами — и удар в башню
         hiddenAt(T2.add(-200, -150, 0), T2);
@@ -1557,6 +1720,36 @@ final class War {
 
         // p24 и пик: аэродром — бипланы взлетают по тревоге (своя площадка)
         stageScene("airfield", AIRFIELD, -90);
+    }
+
+    /** p23: дирижабль (своя сцена). */
+    private void airship() {
+        Vec3 airship = new Vec3(3000.5, 150, 380.5);  // южнее T2: заход ракеты не задевает башню
+        stageScene("airship", airship, -90);
+        clearSams(airship, 160);
+    }
+
+    /**
+     * p01d: шахеды над головой игрока со стороны затылка; поле к западу от центра — над ним открытое небо. Как p12: поток
+     * ровно над ним в низкие места впереди, план — с шахеда, вошедшего в кадр (залп из пяти шёл курсами ±35°, над камерой —
+     * один, в 75 блоках выше, и в кадр он вошёл через 2,7 с после начала плана).
+     */
+    private void p01d() {
+        Vec3 man = new Vec3(2905.5, 0, 300.5), past = new Vec3(3085.5, 0, 300.5);
+        hiddenAt(man, past);
+        film.run(() -> cast().spawn("Pyotr", g(man), Film.yawTo(man, past), null));
+        settle();
+        List<Vec3> low = new ArrayList<>();
+        film.shot("p01d").length(40).hidden()
+                .onReady(() -> {
+                    low.clear();
+                    low.addAll(lowGround(g(man), past, 110, 200, 12, 5));
+                    stream("drone", low, at(man), 700, 10);
+                })
+                .camera(() -> CineCamera.shoulder(() -> film.bot("Pyotr"), 1.9, -0.2, 0.6, () -> at(past).add(0, 55, 0), 70))
+                .when(() -> flightInFrame(WeaponType.DRONE, 250), 3000)
+                .cue(6, () -> cast().act("Pyotr", lookUp(at(past).add(0, 90, 0)), true));
+        film.run(() -> cast().remove("Pyotr"));
     }
 
     /**
@@ -1756,28 +1949,31 @@ final class War {
                 })
                 .when(() -> flightEta(at(P28_PACK.get(0)), 25, WeaponType.ROCKET) <= P28_FIRST / 20.0, 3000);
 
-        // p29: боец прижался к стене; из-за плеча — шахед проносится над ним и входит в дом напротив
+        // p29: боец прижался к стене; из-за плеча — шахед проносится над ним и входит в дом напротив. Место бойца — у стены,
+        // где из камеры за его плечом к дому открыто небо ({@link #shoulderSpot}): 13.10 над ним был карниз в 3 блоках от
+        // камеры, и шахед весь заход и удар был за ним. Камера стоит (боец с оружием может повернуться), удар — в грань дома,
+        // которую она видит в 30–100 блоках (веер лучей в момент пуска, на 80° и до 24° вверх), шахед — ровно над ней
         Vec3 wall = new Vec3(3080.5, 0, 334.5), house = new Vec3(3175.5, 120, 353.5);
         hiddenAt(wall, house);
-        film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
+        Vec3[] spot29 = {null}, cam29 = {null};
+        film.run(() -> {
+            spot29[0] = shoulderSpot("p29", wall, house, 8, P29_BACK, P29_UP, P29_SIDE);
+            cam29[0] = shoulderCam(spot29[0], house, P29_BACK, P29_UP, P29_SIDE);
+            cast().spawn("Vlad", spot29[0], Film.yawTo(spot29[0], house), null);
+        });
         settle();
         film.onServer(level -> film.armSoldier("Vlad", 1));
-        // удар — в грань дома напротив, которую камера из-за плеча видит в 30–100 блоках (веер лучей в момент пуска, на 80°
-        // и до 24° вверх): луч прямо на высотку за улицей упирался в стену, у которой стоит боец, и шахед входил в неё у
-        // камеры; веер на 50° и до 8° вверх в записи 13.10 грани не нашёл, и цель осталась на высотке за навесом над
-        // бойцом (блок в 5 блоках от камеры)
+        film.run(() -> cast().act("Vlad", one(Cast.lookAt(house)), true));
         Vec3[] house29 = {house};
         film.shot("p29").length(50).hidden()
                 .onReady(() -> {
-                    Pose cam = CineCamera.pose();
                     double clouds = Rig.cloudBase();
-                    List<Vec3> faces = cam == null ? List.of()
-                            : facades(cam.pos(), house, 80, 24, 1, 30, 100, (Double.isNaN(clouds) ? 192 : clouds) - 6);
+                    List<Vec3> faces = facades(cam29[0], house, 80, 24, 1, 30, 100, (Double.isNaN(clouds) ? 192 : clouds) - 6);
                     if (!faces.isEmpty()) house29[0] = faces.get(0);
                     else Incoming.LOG.warn("SCENARIO film staging p29: грани дома напротив из камеры нет, цель {}", xyz(house));
-                    salvo("drone", 1, 0, house29[0], behind(wall, house29[0], 700));
+                    salvo("drone", 1, 0, house29[0], behind(cam29[0], house29[0], 700));
                 })
-                .camera(() -> CineCamera.shoulder(() -> film.bot("Vlad"), 2.3, 0.2, 1.2, () -> house29[0], 60))
+                .camera(() -> CineCamera.track(cam29[0], () -> house29[0], 60))
                 .when(() -> film.nearest(DroneEntity.class, house29[0], 70) != null, 3000);
         film.run(() -> {
             cast().remove("Vlad");
@@ -1805,6 +2001,78 @@ final class War {
         carpet();
     }
 
+    /** p29: камера за плечом бойца — назад, вверх, вправо от глаз, блоков. */
+    static final double P29_BACK = 2.3, P29_UP = 0.2, P29_SIDE = 1.2;
+
+    /**
+     * Место бойца у стены для плана из-за плеча: клетки в радиусе {@code r} от {@code wall} на уровне улицы (земля — самая
+     * частая в круге, не выше её на блок: без навеса и крыльца), где камера за его плечом ({@link #shoulderCam}) не в
+     * блоках, а к дому {@code house} над ним открыто небо: лучи по блокам у клиента на 4–28° над горизонтом в секторе ±20°
+     * не упираются ближе 30 блоков. Лучшая — где таких лучей больше, при равенстве — ближе к {@code wall}; строка
+     * {@code SCENARIO film staging}. Нет ни одной — земля у {@code wall} и WARN.
+     */
+    Vec3 shoulderSpot(String shot, Vec3 wall, Vec3 house, int r, double back, double up, double side) {
+        MinecraftServer srv = server();
+        java.util.function.Supplier<List<Vec3>> cols = () -> {
+            ServerLevel level = srv.overworld();
+            List<Vec3> out = new ArrayList<>();
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (dx * dx + dz * dz > r * r) continue;
+                    double x = Math.floor(wall.x) + dx + 0.5, z = Math.floor(wall.z) + dz + 0.5;
+                    out.add(new Vec3(x, groundY(level, x, z), z));
+                }
+            }
+            return out;
+        };
+        List<Vec3> all = srv.isSameThread() ? cols.get() : srv.submit(cols::get).join();
+        java.util.Map<Double, Long> heights = all.stream().collect(java.util.stream.Collectors.groupingBy(Vec3::y, java.util.stream.Collectors.counting()));
+        double street = heights.entrySet().stream().max(java.util.Map.Entry.comparingByValue()).map(java.util.Map.Entry::getKey).orElse(wall.y);
+        Vec3 best = null;
+        int bestOpen = -1, rays = 0;
+        double bestDist = 0;
+        for (Vec3 p : all) {
+            if (p.y > street + 1 || p.y < street - 1) continue;
+            Vec3 cam = shoulderCam(p, house, back, up, side);
+            if (!chunkHere(cam) || Rig.World.blocking(mc.level, cam) != null) continue;
+            int open = 0;
+            rays = 0;
+            float yaw0 = Film.yawTo(cam, house);
+            for (int dy = -20; dy <= 20; dy += 10) {
+                for (int el = 4; el <= 28; el += 6) {
+                    rays++;
+                    Vec3 dir = Vec3.directionFromRotation(-el, yaw0 + dy);
+                    var hit = mc.level.clip(new ClipContext(cam, cam.add(dir.scale(30)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+                            CollisionContext.empty()));
+                    if (hit.getType() == HitResult.Type.MISS) open++;
+                }
+            }
+            double d = Math.hypot(p.x - wall.x, p.z - wall.z);
+            if (open > bestOpen || open == bestOpen && d < bestDist) {
+                best = p;
+                bestOpen = open;
+                bestDist = d;
+            }
+        }
+        if (best == null) {
+            Incoming.LOG.warn("SCENARIO film staging {}: у {} нет места бойца, где камера за плечом не в блоках", shot, xyz(wall));
+            return g(wall);
+        }
+        Incoming.LOG.info("SCENARIO film staging {}: место бойца {} ({} блоков от {}), открытых лучей к дому {} из {}", shot, xyz(best),
+                String.format(Locale.ROOT, "%.1f", bestDist), xyz(wall), bestOpen, rays);
+        if (bestOpen < rays * 0.8) {
+            Incoming.LOG.warn("SCENARIO film staging {}: небо к дому из-за плеча закрыто: открытых лучей {} из {}", shot, bestOpen, rays);
+        }
+        return best;
+    }
+
+    /** Камера за плечом бойца, стоящего в {@code feet} лицом к {@code house}: как {@link CineCamera#shoulder}. */
+    static Vec3 shoulderCam(Vec3 feet, Vec3 house, double back, double up, double side) {
+        Vec3 eye = feet.add(0, 1.62, 0);
+        Vec3 flat = house.subtract(eye).multiply(1, 0, 1).normalize(), right = new Vec3(-flat.z, 0, flat.x);
+        return eye.subtract(flat.scale(back)).add(0, up, 0).add(right.scale(side));
+    }
+
     /** p01e: ковёр разрывов бежит прямо на камеру. */
     private void carpet() {
         Vec3 carpet = new Vec3(3175.5, 0, 252.5);
@@ -1827,15 +2095,7 @@ final class War {
                         new Vec3(1, 0, 0), 6, 1.2, -1.6, 12, 0, 70))
                 .when(() -> film.nearest(DroneEntity.class, into, 90) != null, 3000)
                 .endWhen(hit(into, 400), 14);
-        // p32: …и вылетает над другой улицей, куда как раз ложится «Град»
-        Vec3 other = new Vec3(3010.5, 0, 640.5);
-        film.shot("p32").length(35).hidden()
-                .onReady(() -> salvo("rocket", 16, 20, other, new Vec3(2400, 0, 640)))
-                .camera(() -> {
-                    Vec3 o = at(other);
-                    return CineCamera.fpv(List.of(o.add(40, 34, -50), o.add(14, 26, -20), o.add(-6, 22, 4), o.add(-30, 20, 30)), 1.5, 8, 0.8, 0.1, 76);
-                })
-                .when(() -> film.nearest(RocketEntity.class, at(other), 180) != null, 3000);
+        p32();
 
         skyline();
 
@@ -1863,7 +2123,78 @@ final class War {
 
         summit();
 
-        // p38: ночь, дождь: рой шахедов, перехваты в небе, ночной «Град» подсвечивает облака
+        night();
+    }
+
+    /**
+     * p32: …FPV вылетает над другой улицей, куда как раз ложится «Град». Пакет — батареей в улицу под путём камеры впереди
+     * неё в тик удара ({@link #streetAhead}), заход — вдоль пути из-за камеры: залп с запада бил в верх высоток вдоль
+     * улицы, а удар, ближайший к её точке, ложился за камерой, когда путь уже кончился (13.10). Удар — на {@link #P32_HIT}
+     * тике плана.
+     */
+    private void p32() {
+        Vec3 other = new Vec3(3010.5, 0, 640.5);
+        hiddenAt(other.add(40, 0, -50), other);
+        List<Vec3> pack = new ArrayList<>();
+        film.shot("p32").length(35).hidden()
+                .onReady(() -> {
+                    List<Vec3> path = p32Path(at(other));
+                    pack.clear();
+                    pack.addAll(streetAhead("p32", path, P32_SPEED, P32_HIT, P32_AHEAD, P32_FOV, 8));
+                    if (pack.isEmpty()) pack.add(at(other));
+                    CineCamera.Spline s = new CineCamera.Spline(path);
+                    Vec3 along = s.at(s.length()).subtract(s.at(0)).multiply(1, 0, 1).normalize();
+                    battery("rocket", pack, along.scale(-700), 2);
+                })
+                .camera(() -> CineCamera.fpv(p32Path(at(other)), P32_SPEED, P32_AHEAD, 0.8, 0.1, P32_FOV))
+                .when(() -> !pack.isEmpty() && flightEta(pack.get(0), 12, WeaponType.ROCKET) <= P32_HIT / 20.0, 3000);
+    }
+
+    static final double P32_SPEED = 1.5, P32_AHEAD = 8, P32_FOV = 76;
+    static final int P32_HIT = 16;
+
+    /** Путь FPV p32 от точки улицы {@code o} (на земле). */
+    static List<Vec3> p32Path(Vec3 o) {
+        return List.of(o.add(40, 34, -50), o.add(14, 26, -20), o.add(-6, 22, 4), o.add(-30, 20, 30));
+    }
+
+    /**
+     * До {@code n} мест удара на улице под путём FPV впереди камеры в тик {@code hit} плана: колонки под путём (за его
+     * концом — по прямой) в 25–110 блоках впереди, земля — из самых низких (улица, не крыши), в кадре камеры в тот тик
+     * (поля 0,7) и видны из неё (луч по блокам у клиента), не ближе 6 блоков друг к другу; строка
+     * {@code SCENARIO film staging}, нет ни одного — WARN.
+     */
+    List<Vec3> streetAhead(String shot, List<Vec3> path, double speed, int hit, double lookAhead, double fov, int n) {
+        CineCamera.Spline s = new CineCamera.Spline(path);
+        double d0 = speed * hit;
+        Vec3 eye = s.at(d0);
+        Pose pose = Pose.look(eye, s.beyond(d0 + lookAhead), 0, fov);
+        List<Vec3> cols = new ArrayList<>();
+        for (double d = d0 + 25; d <= d0 + 110; d += 3) cols.add(s.beyond(d));
+        MinecraftServer srv = server();
+        java.util.function.Supplier<List<Vec3>> ground = () -> cols.stream()
+                .map(c -> new Vec3(c.x, groundY(srv.overworld(), c.x, c.z) + 0.5, c.z)).toList();
+        List<Vec3> spots = srv.isSameThread() ? ground.get() : srv.submit(ground::get).join();
+        double low = spots.stream().mapToDouble(Vec3::y).min().orElse(0);
+        List<Vec3> out = new ArrayList<>();
+        for (Vec3 p : spots) {
+            if (out.size() >= n) break;
+            if (p.y <= low + 2 && Rig.inFrame(pose, p, 0.7) && sees(eye, p) && out.stream().allMatch(o -> o.distanceTo(p) >= 6)) out.add(p);
+        }
+        if (out.isEmpty()) {
+            Incoming.LOG.warn("SCENARIO film staging {}: улицы под путём впереди камеры {} в кадре не видно (земля до {})", shot, xyz(eye),
+                    String.format(Locale.ROOT, "%.0f", low));
+        } else {
+            Incoming.LOG.info("SCENARIO film staging {}: удары на улице впереди камеры {} — {}", shot, xyz(eye), out.stream().map(War::xyz).toList());
+        }
+        return out;
+    }
+
+    /**
+     * p38 и пик (p39): ночь, дождь. p38 — рой шахедов идёт на камеру и пикирует на площадь, удар по узлу сети гасит город,
+     * за площадью ложится «Град».
+     */
+    private void night() {
         film.run(() -> {
             Film.cmd("time set 13300");  // сразу после заката: небо ещё синее, город уже в огнях (в полночь под шейдером кадр чёрный)
             Film.cmd("weather rain");
@@ -1873,13 +2204,30 @@ final class War {
         Vec3 nightCam = new Vec3(3175.5, 172, 343.5);
         hiddenAt(nightCam, night);
         // узел сети посреди площади: шахед роя без разброса бьёт в него, город гаснет кварталами по 60 блоков в секунду
-        // (каскад мода); план — с 1,5 с до этого удара (шахеды роя летят столько же и приходят с ним)
+        // (каскад мода); план — с 1,5 с до этого удара. Рой — батареей из-за площади навстречу камере (заход, где рельеф
+        // над пике ниже, в 35° от взгляда): кадр смотрит за площадь, и шахеды пикируют сквозь него сверху вниз. Залп
+        // выходил с пусковой по одному раз в 1–2 с и с запада, поперёк взгляда: в окне — два шахеда, оба под кадром
+        // (13.10). Шахеды — через 5 тиков, узел — третьим. «Град» — пуском, когда до удара по узлу на полсекунды меньше,
+        // чем летит «Град», и ложится через полсекунды после него: залп ложился за 300 тиков до плана
         gridNode(night, 300);
+        List<Vec3> swarm = new ArrayList<>();
         film.shot("p38").length(90).hidden()
                 .onReady(() -> {
-                    salvo("drone", 12, 60, night, new Vec3(2300, 0, 260));
-                    salvo("drone", 1, 0, night, new Vec3(2300, 0, 330));
-                    salvo("rocket", 24, 50, night.add(40, 0, -50), new Vec3(2600, 0, 250));
+                    Vec3 away = at(night).subtract(nightCam).multiply(1, 0, 1).normalize(), side = new Vec3(-away.z, 0, away.x);
+                    Vec3 dir = clearApproach("p38", at(night), 140, 10, away, 35);
+                    if (dir == null) dir = away;
+                    swarm.clear();
+                    for (double[] q : P38_SWARM) {
+                        swarm.add(q[0] == 0 && q[1] == 0 ? night : new Vec3(night.x + side.x * q[0] + away.x * q[1], 0, night.z + side.z * q[0] + away.z * q[1]));
+                    }
+                    battery("drone", swarm, dir.scale(900), 5);
+                    Vec3 grad = night.add(40, 0, -50), off = new Vec3(-700, 0, 0);
+                    List<Vec3> pack = new ArrayList<>();
+                    RandomSource r = RandomSource.create(38);
+                    for (int i = 0; i < 16; i++) pack.add(grad.add(r.nextDouble() * 50 - 25, 0, r.nextDouble() * 50 - 25));
+                    int fly = rocketTicks(at(grad).add(off), at(grad));
+                    once("p38: «Град» к удару по узлу", () -> flightEta(at(night), 2, WeaponType.DRONE) <= fly / 20.0 - 0.5, 1500,
+                            () -> battery("rocket", pack, off, 2));
                 })
                 .camera(() -> CineCamera.track(nightCam, () -> new Vec3(3180.5, 110, 260.5), 40))
                 .when(() -> flightEta(at(night), 2, WeaponType.DRONE) <= 1.5, 3000)
@@ -1894,6 +2242,13 @@ final class War {
         film.run(() -> Film.cmd("weather clear"));
         gridRestore();  // ядерный удар гасит город сам (план 46)
     }
+
+    /**
+     * Рой p38: места ударов от узла сети — вбок и за площадь (от камеры), блоков; узел ({0, 0}) — третий. Дальние выше в
+     * кадре: их удары тоже в нём.
+     */
+    private static final double[][] P38_SWARM = {{-30, 30}, {24, 12}, {0, 0}, {-12, 40}, {34, 24}, {-36, 8}, {12, 46}, {-22, 18},
+            {28, 38}, {6, 22}, {-6, 52}, {40, 6}, {-40, 36}};
 
     /**
      * p33: в бинокль с крыши Востока — удары по башням центра в 220–310 блоках, дальше прорисовки. Ракеты с запада идут
@@ -2067,19 +2422,48 @@ final class War {
     private void peak(String name, Vec3 target, String weapon, int count, int spread, Vec3 cam, double fov) {
         hiddenAt(target.add(cam.x, 0, cam.z), target);
         Vec3[] aim = {null};
+        boolean drones = weapon.equals("drone");
         film.shot(name).length(80).hidden()
                 .onReady(() -> {
                     Pose p = CineCamera.pose();
                     aim[0] = p == null ? at(target) : visible(p.pos(), at(target));
-                    salvo(weapon, count, spread, aim[0], behind(at(target).add(cam), aim[0], 900));
+                    if (drones && p != null) peakDrones(name, p.pos(), aim[0], count, spread);
+                    else salvo(weapon, count, spread, aim[0], behind(at(target).add(cam), aim[0], 900));
                 })
                 .camera(() -> {
                     Vec3 t = at(target);
                     Vec3 c = cam.y > 0 ? g(t.add(cam)).add(0, cam.y, 0) : t.add(cam);
                     return CineCamera.track(c, () -> (aim[0] != null ? aim[0] : t).add(0, 6, 0), fov);
                 })
-                .when(() -> flightNear(aim[0] != null ? aim[0] : at(target), weapon.equals("rocket") ? 300 : 120,
+                // места шахедов — на видимых гранях (ближе к камере, чем цель): радиус с запасом
+                .when(() -> drones ? flightEta(aim[0] != null ? aim[0] : at(target), 100, WeaponType.DRONE) <= PEAK_FIRST / 20.0
+                        : flightNear(aim[0] != null ? aim[0] : at(target), weapon.equals("rocket") ? 300 : 120,
                         WeaponType.valueOf(weapon.toUpperCase(Locale.ROOT))), 3000);
+    }
+
+    /**
+     * Шахеды пика: первый удар — на этом тике плана, следующие — через {@link #PEAK_GAP}: восемь ударов с 0,55 по 2,65 с, в
+     * каждой склейке монтажа (дубль режется с 0,4, 1,6 и 2,6 с, {@code PEAK} в {@code tools/trailer/edit.py}) — удар.
+     */
+    static final int PEAK_FIRST = 11, PEAK_GAP = 6;
+
+    /**
+     * Шахеды пика батареей: пусковая выпускает их по одному раз в 1–2 с, а залп заходит курсами ±35° (p39b 13.10: в окне —
+     * один шахед, и тот через камеру в дом за ней; удар у цели — за камерой). Поэтому — по шахеду на место у цели, видимое
+     * из камеры {@code eye} (в {@code spread} блоках вбок и ±6 вглубь), с дальней от камеры стороны (заход, где рельеф над
+     * пике ниже, в 45° от взгляда): пике навстречу камере, удары — в кадре через {@link #PEAK_GAP} тиков.
+     */
+    private void peakDrones(String name, Vec3 eye, Vec3 aim, int count, int spread) {
+        Vec3 away = aim.subtract(eye).multiply(1, 0, 1).normalize(), side = new Vec3(-away.z, 0, away.x);
+        Vec3 dir = clearApproach(name, aim, 140, 6, away, 45);
+        if (dir == null) dir = away;
+        List<Vec3> pts = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            double lat = ((i * 0.618) % 1 - 0.5) * spread, deep = (i % 3 - 1) * 6;
+            Vec3 ground = at(new Vec3(aim.x + side.x * lat + away.x * deep, 0, aim.z + side.z * lat + away.z * deep));
+            pts.add(visible(eye, ground));
+        }
+        battery("drone", pts, dir.scale(900), PEAK_GAP);
     }
 
     // ================================================================ IV: МБР и ядерный удар
