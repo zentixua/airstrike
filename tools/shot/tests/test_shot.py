@@ -200,6 +200,23 @@ class MeasureTest(unittest.TestCase):
         self.assertGreater(aside, 0.99)
         self.assertEqual(len(sc.trails.puffs(700.0)), 0)
 
+    def test_trail_only_where_the_client_had_the_projectile(self):
+        # два «Града» на ускорителе (фаза 2): у первого место от сущности клиента, у второго — от сервера (далеко от
+        # записывающего, клубов в повторе нет); МБР кладёт клубы и без фазы, облако старта — если сущность была с начала
+        rows = [{"t": 0, "new": 1, "weapon": "rocket"}, {"t": 0, "new": 2, "weapon": "rocket"}, {"t": 0, "new": 3, "weapon": "nuke"}]
+        for t in range(30):
+            rows.append({"t": t, "f": [[1, t * 3.0, 100.0, 0.0, 2, 1], [2, t * 3.0, 100.0, 500.0, 2, 0],
+                                       [3, 0.0, 70.0 + t * 2, -500.0, 3, 1]]})
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "p.events.jsonl")
+            with open(path, "w") as f:
+                f.write("\n".join(json.dumps(r) for r in rows))
+            sc = S.from_eventlog(path, wall_scene().world)
+        pf = sc.trails.puffs(40.0)
+        self.assertTrue((np.abs(pf[:, 2]) < 50).any())
+        self.assertFalse((np.abs(pf[:, 2] - 500) < 50).any())
+        self.assertGreater(int((np.abs(pf[:, 2] + 500) < 50).sum()), 30)
+
 
 class SolveTest(unittest.TestCase):
     def test_tripod_moves_off_the_wall(self):

@@ -103,7 +103,8 @@ class Smoke:
 @dataclass
 class Trails:
     """Клубы объёма у горящего двигателя (`Exhaust.volume` мода: клуб за тик у сопла, пока горит ускоритель —
-    фазы `ignition` и `boost`; у МБР — весь подъём) и облако старта МБР (`Exhaust.launchCloud`). Они висят в воздухе
+    фазы `ignition` и `boost`; у МБР — весь полёт) и облако старта МБР (`Exhaust.launchCloud`). Кладёт их клиент, у
+    которого есть сущность снаряда, — тики журнала, где место снаряда от сущности, а не от сервера. Они висят в воздухе
     полминуты и больше, их считает проверка кадров (`FxPool.transmittance`), лента шлейфа — нет. Клуб — гауссов шар
     (σ = 0,55 радиуса квадрата), свет сквозь середину — как у частицы: 1 − непрозрачность (0,45, тает с 55 % жизни)."""
     # оружие → (поперечник клуба вначале, в конце, жизнь, тиков): `Exhaust.rocket`, `booster`, `icbm`
@@ -135,10 +136,11 @@ class Trails:
             ps.append(pp)
             for arr, v in ((a0, spec[0]), (a1, spec[1]), (lf, spec[2]), (al, Trails.ALPHA), (rs, 0.0)):
                 arr.append(np.full(len(tt), v))
-            if tr.weapon == "nuke" and len(tt):
-                # облако старта: кольцо до ~20 блоков у стола и столб над ним, 140 тиков подпитки (`launchCloud`)
-                pad = tr.pos[0] - np.array([0, 9.0, 0])
-                t0 = float(tr.t[0])
+            if tr.weapon == "nuke" and len(tt) and tt[0] - tr.t[0] < 140:
+                # облако старта: кольцо до ~20 блоков у стола и столб над ним, первые 140 тиков полёта (`launchCloud`),
+                # если сущность у клиента уже была; стол — 9 блоков под ракетой в первый тик у клиента
+                pad = pp[0] - np.array([0, 9.0, 0])
+                t0 = float(tt[0])
                 for j in range(8):
                     ang = j * math.pi / 4
                     for rr in (6.0, 14.0, 22.0):
@@ -292,8 +294,14 @@ def read_eventlog(path: str):
             if "f" in d:
                 for e in d["f"]:
                     pts.setdefault(int(e[0]), []).append((t, e[1], e[2], e[3]))
+                    # клубы кладёт клиент, у которого есть сущность снаряда (шестое поле — 1); место по данным
+                    # сервера (0) — снаряд далеко от записывающего, дыма у него в повторе нет
+                    if len(e) > 5 and int(e[5]) == 0:
+                        continue
+                    info = flights.setdefault(int(e[0]), {})
+                    info.setdefault("seen", []).append(t)
                     if len(e) > 4 and str(e[4]).lower() in LIT:
-                        flights.setdefault(int(e[0]), {}).setdefault("lit", []).append(t)
+                        info.setdefault("lit", []).append(t)
             if "impact" in d and d.get("pos"):
                 impacts.append((t, int(d["impact"]), d["pos"]))
             if "cam" in d and d["cam"]:
@@ -336,12 +344,9 @@ def from_eventlog(path: str, wld: W.World) -> Scene:
         sc.cam_look = a[:, 4:]
     sc.marks = sorted(marks)
     sc.nukes = [(int(t), np.array(p, dtype=np.float64), float(kt)) for t, p, kt in nukes]
-    lit = {str(i): info.get("lit", []) for i, info in flights.items()}
-    for tid, tr in sc.tracks.items():
-        if tr.weapon == "nuke":
-            # МБР: след весь подъём до слоя облаков и выше — пока путь идёт вверх
-            up = np.flatnonzero(np.gradient(tr.pos[:, 1]) > 0.05) if len(tr.t) > 2 else np.zeros(0, int)
-            lit[tid] = list(tr.t[up])
+    # МБР кладёт клуб каждый тик, пока сущность у клиента (`Exhaust.icbm`, без фазы), остальные — пока горит ускоритель
+    lit = {str(i): info.get("seen" if sc.tracks.get(str(i)) is not None and sc.tracks[str(i)].weapon == "nuke" else "lit", [])
+           for i, info in flights.items()}
     sc.trails = Trails.of(sc.tracks, lit)
     return sc
 
