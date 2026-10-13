@@ -258,29 +258,6 @@ final class War {
         film.waitTicks(20);
     }
 
-    /**
-     * Место камеры у {@code want}, ближайшее из сетки вокруг (до 8 блоков вбок, до 8 вверх): не в блоке, как проверяет
-     * вывод ({@link Rig.World#free}), и вид на {@code look} не закрыт рядом (64 блока: дальние чанки у клиента ещё могут
-     * грузиться). На крыше надстройки, которых по карте высот не видно: камера, поставленная по числам, оказывалась в блоке.
-     */
-    Vec3 cameraSpot(Vec3 want, Vec3 look) {
-        Rig.World w = new Rig.World();
-        List<Vec3> spots = new ArrayList<>();
-        for (int dy = 0; dy <= 8; dy++) {
-            for (int dx = -8; dx <= 8; dx++) {
-                for (int dz = -8; dz <= 8; dz++) spots.add(want.add(dx, dy, dz));
-            }
-        }
-        spots.sort(Comparator.comparingDouble(want::distanceToSqr));
-        for (Vec3 p : spots) {
-            if (!w.free(p) || !w.clear(p, p.add(look.subtract(p).normalize().scale(64)), 0)) continue;
-            if (p != spots.get(0)) Incoming.LOG.info("SCENARIO film staging: место камеры {} занято или вид закрыт, беру {}", xyz(want), xyz(p));
-            return p;
-        }
-        Incoming.LOG.warn("SCENARIO film staging: у {} нет свободного места камеры с видом на {}", xyz(want), xyz(look));
-        return want;
-    }
-
     static String xyz(Vec3 p) {
         return String.format(Locale.ROOT, "%.1f %.1f %.1f", p.x, p.y, p.z);
     }
@@ -1414,7 +1391,7 @@ final class War {
             roof.watch(GZ.add(0, 300, 0), 30);
         });
         film.shot("p45").length(80).hidden()
-                .camera(() -> CineCamera.track(cameraSpot(FINAL_ROOF.add(-7, 3.2, -6), GZ.add(0, 250, 0)), () -> GZ.add(0, 250, 0), 60))
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(-7, 3.2, -6), () -> GZ.add(0, 250, 0), 60))
                 .when(() -> film.warningTicks() < 30, 4000)
                 .cue(31, () -> film.withServer(s -> roof.cower(GZ)));
         film.shot("p50").length(320).hidden().noPrep()
@@ -1433,7 +1410,7 @@ final class War {
     private void nukeFar() {
         detonate(FINAL_ROOF);
         film.shot("p46").length(100).hidden()
-                .camera(() -> CineCamera.track(cameraSpot(FINAL_ROOF.add(3, 3, -10), GZ.add(0, 480, 0)), () -> GZ.add(0, 480, 0), 60))
+                .camera(() -> CineCamera.track(FINAL_ROOF.add(3, 3, -10), () -> GZ.add(0, 480, 0), 60))
                 .when(() -> film.sinceDetonation() >= 0, 600);
         film.shot("p47").length(70).hidden()
                 .camera(() -> CineCamera.glide(WAVE_HIGH, WAVE_HIGH.add(6, -4, 8), 70, () -> at(WAVE_LOOK), 70))

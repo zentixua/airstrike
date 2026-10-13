@@ -208,7 +208,7 @@ public final class ReplayFilm {
             case SEEKING -> {
                 // мир у места события: чанки повтора пришли
                 if (waited() < SEEK_SETTLE) return;
-                Vec3 k = subject.keyPos != null ? subject.keyPos : subject.at.apply((a + b) / 2.0);
+                Vec3 k = seekPoint();
                 Rig.World w = new Rig.World();
                 if (k != null && !w.loaded(k) && waited() < WORLD_WAIT) {
                     standAt(Pose.look(k.add(0, 30, -30), k, 0, 70));
@@ -296,6 +296,20 @@ public final class ReplayFilm {
     }
 
     /** Кандидаты всех типов камеры плана, оценка по миру повтора и журналу, лучшие — в очередь вывода. */
+    /**
+     * Где нужен мир повтора для оценки камер: у события; у объекта, который мод рисует поверх мира (ядерный подрыв в ~900
+     * блоках от крыши), — у камеры сценария: у самого подрыва мир камеры за прорисовкой выгружен, и оценка сочла бы её
+     * в блоках и вид закрытым.
+     */
+    @Nullable
+    private Vec3 seekPoint() {
+        if (subject.overlay && !data.camera.isEmpty()) {
+            var e = data.camera.ceilingEntry(a);
+            return (e != null ? e : data.camera.lastEntry()).getValue().pos();
+        }
+        return subject.keyPos != null ? subject.keyPos : subject.at.apply((a + b) / 2.0);
+    }
+
     private void solve(Rig.World w) {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
         List<Scored> all = new ArrayList<>();
