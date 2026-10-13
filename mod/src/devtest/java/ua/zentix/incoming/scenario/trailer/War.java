@@ -55,8 +55,9 @@ import java.util.function.BooleanSupplier;
  * начала или с отметки ({@code siren} — тревога над игроком, {@code front} — фронт ядерного взрыва у камеры, и
  * отметки {@link Film}).
  * <p>
- * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} — вторая
- * ядерка на свежей копии мира (планы волны с других мест); по умолчанию — всё, кроме {@code nukeB}.
+ * {@code INCOMING_WAR_PART} — снять только часть: {@code east}, {@code west}, {@code nuke}; {@code nukeB} и {@code nukeC} —
+ * ещё по ядерке, каждая на свежей копии мира (планы волны с других мест); по умолчанию — всё, кроме {@code nukeB} и
+ * {@code nukeC}.
  */
 final class War {
     // ================================================================ места Zearth (y = 0 — земля этой колонки)
@@ -79,6 +80,8 @@ final class War {
     static final Vec3 WAVE_STREET = new Vec3(2950.5, 64, -178.5);
     /** Взгорок к северо-западу, ~1250 блоков от эпицентра. */
     static final Vec3 WAVE_HILL = new Vec3(2600.5, 0, -400.5);
+    /** Камера над аэропортом в ~1075 блоках от эпицентра, высоко; под ней — городок в ~780 блоках, через него идёт стена. */
+    static final Vec3 WAVE_HIGH = new Vec3(2780, 330, -300), WAVE_TOWN = new Vec3(2923, 0, -42);
     /** Малый аэропорт Востока: торец полосы, полоса на восток. */
     static final Vec3 AIRFIELD = new Vec3(2836.5, 67, -216.5);
 
@@ -125,7 +128,8 @@ final class War {
             fight();
         }
         if (all || part.equals("nuke")) nuke();
-        if (part.equals("nukeB")) nukeWave();
+        if (part.equals("nukeB")) nukeFar();
+        if (part.equals("nukeC")) nukeNear();
     }
 
     // ================================================================ мир и помощники
@@ -1067,28 +1071,40 @@ final class War {
     }
 
     /**
-     * Вторая ядерка на свежей копии мира: гриб над городом с той же крыши (p46), стена между домами на камеру (p49),
-     * стена пыли по рельефу с высоты (p47), волна закрывает горизонт с взгорка (p48) — по порядку прихода фронта.
+     * Волна после ядерки — ещё два подрыва, каждый на свежей копии мира: вдали фронт идёт ~3 блока за тик, и планы,
+     * которым нужна стена у разных мест, в одном подрыве не помещаются. Часть nukeB: гриб над городом с той же крыши (p46),
+     * стена пыли катится через городок с высоты (p47).
      */
-    private void nukeWave() {
-        film.run(() -> Film.cmd("time set 17000"));
-        hiddenAt(FINAL_ROOF, GZ);
-        film.waitTicks(100);
-        film.run(() -> Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 15 air"));
+    private void nukeFar() {
+        detonate(FINAL_ROOF);
         film.shot("p46").length(70).hidden()
                 .camera(() -> CineCamera.track(FINAL_ROOF.add(0, 4, -6), () -> GZ.add(0, 200, 0), 20))
                 .when(() -> film.sinceDetonation() >= 0, 600);
+        film.shot("p47").length(70).hidden()
+                .camera(() -> CineCamera.glide(WAVE_HIGH, WAVE_HIGH.add(6, -4, 8), 70, () -> at(WAVE_TOWN), 70))
+                .when(() -> frontIn(at(WAVE_TOWN)) < 25, 4000);
+    }
+
+    /** Часть nukeC: стена между домами на камеру (p49), волна закрывает горизонт с взгорка (p48) — по порядку прихода. */
+    private void nukeNear() {
+        detonate(WAVE_STREET);
         film.shot("p49").length(70).hidden()
                 .camera(() -> {
                     Vec3 dir = GZ.subtract(WAVE_STREET).multiply(1, 0, 1).normalize();
                     return CineCamera.track(WAVE_STREET.add(0, 1.5, 0), () -> WAVE_STREET.add(dir.scale(80)).add(0, 12, 0), 72);
                 })
                 .when(() -> frontIn(WAVE_STREET) < 45, 4000);
-        film.shot("p47").length(55).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(2950, 420, 120), new Vec3(2962, 418, 128), 55, () -> GZ.add(-250, 0, -250), 70));
         film.shot("p48").length(100).hidden()
                 .camera(() -> CineCamera.track(g(WAVE_HILL).add(0, 18, 0), () -> GZ.add(-150, 150, -150), 24))
                 .when(() -> frontIn(at(WAVE_HILL)) < 70, 4000);
+    }
+
+    /** Ночь, невидимка у места первого плана, подрыв 15 кт над эпицентром (без полёта). */
+    private void detonate(Vec3 watch) {
+        film.run(() -> Film.cmd("time set 17000"));
+        hiddenAt(watch, GZ);
+        film.waitTicks(100);
+        film.run(() -> Film.cmd("incoming nuke now at " + xyz(at(GZ)) + " 15 air"));
     }
 
     // ================================================================ постройки
