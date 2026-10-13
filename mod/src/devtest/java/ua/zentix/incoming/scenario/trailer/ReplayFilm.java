@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
@@ -12,13 +13,13 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,6 +74,8 @@ public final class ReplayFilm {
     // план в работе
     private Coverage.Spec spec;
     private String openReplay;
+    /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
+    private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
     private EventLog.Data data;
     private Rig.Subject subject;
     private int a, b;
@@ -148,11 +151,11 @@ public final class ReplayFilm {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        // пакеты зрителю повтора после входа — когда у клиента есть мир (до onTick: отпуск и OPENING — в одном тике)
+        ViewerHold.register(modBus);
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
-        // соединение зрителя повтора при настройке, до пакета входа: пакеты после входа ждут, пока у клиента нет мира
-        modBus.addListener(RegisterConfigurationTasksEvent.class, e -> ViewerHold.install(e.getListener().getConnection()));
         if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
@@ -196,6 +199,7 @@ public final class ReplayFilm {
         openReplay = spec.replay();
         Path zip = zip(spec.replay());
         // вне события: открытие повтора меняет экран и мир
+        levelBefore = new WeakReference<>(mc.level);
         mc.tell(() -> FlashbackApi.openReplay(zip));
         go(State.OPENING);
         Incoming.LOG.info("SCENARIO film open {}", zip);
@@ -233,13 +237,15 @@ public final class ReplayFilm {
         }
         switch (state) {
             case OPENING -> {
-                if (mc.level != null && mc.player != null && FlashbackApi.inReplay()) {
-                    ViewerHold.release();
+                // мир нового повтора (не прежний: задача открытия ещё не прошла, а тиков за кадр бывает несколько),
+                // и его зритель прошёл вход — пакеты после входа ему
+                if (mc.level != null && mc.level != levelBefore.get() && mc.player != null && FlashbackApi.inReplay()
+                        && ViewerHold.releasedFor(mc.getConnection())) {
                     // редактор Flashback не активен без интерфейса — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);
                 } else if (waited() > OPEN_WAIT) {
-                    Incoming.LOG.error("SCENARIO film failed: повтор {} не открылся", openReplay);
+                    Incoming.LOG.error("SCENARIO film failed: повтор {} не открылся (пакеты зрителя: {})", openReplay, ViewerHold.state());
                     openReplay = null;
                     fail("повтор не открылся");
                 }
