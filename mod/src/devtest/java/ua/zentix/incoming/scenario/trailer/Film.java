@@ -90,6 +90,20 @@ abstract class Film {
     java.util.Map<Integer, String> seen = java.util.Map.of();
     final java.util.Set<Integer> released = new java.util.HashSet<>();
 
+    /**
+     * INCOMING_FILM_REPLAY=1 — план пишется не кадрами, а повтором Flashback с журналом ({@link EventLog}):
+     * {@code <папка записи>/replays/<план>.zip} и {@code <план>.events.jsonl}. Камеры по журналу и кадры выводит потом
+     * {@link ReplayFilm} из повтора. Запись идёт от конца подготовки (мир прогружен) до конца плана и ещё {@link #TAIL}
+     * тиков: момент плана ({@code when}) и его конец — отметки «start» и «end» журнала.
+     */
+    static final boolean REPLAY = System.getenv("INCOMING_FILM_REPLAY") != null;
+    static final int TAIL = 100;
+    /** План, который сейчас пишется повтором, и его журнал. */
+    @Nullable
+    Shot replayShot;
+    @Nullable
+    EventLog events;
+
     interface Step {
         /** @return шаг закончен */
         boolean tick();
@@ -97,6 +111,8 @@ abstract class Film {
 
     Film() {
         NeoForge.EVENT_BUS.addListener(this::onTick);
+        // журнал — после путей мода (FlightTracks.tick в тике клиента)
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::logTick);
         NeoForge.EVENT_BUS.addListener(this::beforeFrame);
         NeoForge.EVENT_BUS.addListener(this::afterFrame);
         NeoForge.EVENT_BUS.addListener(CineCamera::angles);
@@ -290,7 +306,7 @@ abstract class Film {
         private final List<Cue> cues = new ArrayList<>();
         private Runnable atEnd, atPrepare, atReady;
 
-        private int phase, waited, readyFor, t, endAt = -1;
+        private int phase, waited, readyFor, t, endAt = -1, liveEnd = -1;
         private Path path;
 
         Shot(String name) {
@@ -461,12 +477,15 @@ abstract class Film {
                 }
                 case 2 -> {
                     followCamera();
+                    if (REPLAY && selected() && replayShot != this) startReplay(this);
                     if (!PREVIEW && when != null && !when.getAsBoolean()) {
                         if (++waited % 200 == 0) Incoming.LOG.info("TRAILER {}: ждём момент ({} тиков)", name, waited);
                         if (waited < whenTimeout) return false;
                         Incoming.LOG.warn("TRAILER {}: момент не наступил, снимаем как есть", name);
                     }
-                    if (selected()) {
+                    if (REPLAY) {
+                        if (replayShot == this) mark("start");
+                    } else if (selected()) {
                         rec.start(name, PREVIEW ? Math.max(1, 1.5 * (length - 1)) : speed, hudOn);
                         recording = this;
                         frameClock = 0;
@@ -481,7 +500,12 @@ abstract class Film {
                     t++;
                     runCues();
                     if (!PREVIEW && end != null && endAt < 0 && end.getAsBoolean()) endAt = t + endDelay;
-                    if (t >= length || endAt >= 0 && t >= endAt) {
+                    if (liveEnd < 0 && (t >= length || endAt >= 0 && t >= endAt)) {
+                        liveEnd = t;
+                        if (replayShot == this) mark("end");
+                    }
+                    if (liveEnd >= 0 && (replayShot != this || t >= liveEnd + TAIL)) {
+                        if (replayShot == this) finishReplay();
                         rec.stop();
                         recording = null;
                         idleTime = time();
@@ -517,6 +541,72 @@ abstract class Film {
         }
     }
 
+    // ================================================================ повтор плана
+
+    /** Папка повторов и журналов этой съёмки. */
+    java.nio.file.Path replayDir() {
+        return mc.gameDirectory.toPath().resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).resolve("replays");
+    }
+
+    /** Начать повтор плана: мир вокруг камеры прогружен, момент плана впереди. */
+    void startReplay(Shot shot) {
+        if (replayShot != null) finishReplay();
+        FlashbackApi.startRecording();
+        events = new EventLog(replayDir().resolve(shot.name + ".events.jsonl"));
+        replayShot = shot;
+        frameClock = 0;
+        Incoming.LOG.info("TRAILER {}: повтор пишется", shot.name);
+    }
+
+    void finishReplay() {
+        Shot shot = replayShot;
+        replayShot = null;
+        events.close();
+        events = null;
+        java.nio.file.Path zip = replayDir().resolve(shot.name + ".zip");
+        FlashbackApi.finishRecording(zip, shot.name);
+        Incoming.LOG.info("TRAILER {}: повтор записан, {}", shot.name, zip);
+        setTickRate(20);
+    }
+
+    /** Идёт запись плана (кадрами или повтором): отметки для монтажа и камер пишутся. */
+    boolean marking() {
+        return rec.recording() || events != null;
+    }
+
+    /** Отметка в текущий момент: в журнал кадров и в журнал повтора. */
+    void mark(String what) {
+        if (rec.recording()) rec.mark(what);
+        if (events != null) events.mark(FlashbackApi.writtenTicks(), what);
+    }
+
+    /** Тик журнала повтора: после всего тика клиента, под номером тика, который запишет повтор. */
+    void logTick(ClientTickEvent.Post e) {
+        if (events != null) events.tick(FlashbackApi.writtenTicks());
+    }
+
+    /**
+     * Повтор пишет тик на каждый тик клиента, а клиент между двумя кадрами разбирает пакеты один раз: тиков сервера
+     * в секунду не больше кадров (иначе за кадр — несколько тиков без новых пакетов, и в повторе всё движется рывками)
+     * и не больше, чем сервер успевает.
+     */
+    void adaptReplayRate() {
+        long now = System.nanoTime();
+        if (frameClock == 0) {
+            frameClock = now;
+            frameCount = 0;
+            return;
+        }
+        if (++frameCount < 10) return;
+        double fps = frameCount / ((now - frameClock) / 1e9);
+        frameClock = now;
+        frameCount = 0;
+        double mspt = mc.getSingleplayerServer().getAverageTickTimeNanos() / 1e6;
+        double capacity = mspt <= 0 ? 20 : 1000 / mspt;
+        float want = (float) Mth.clamp(Math.min(fps * 0.85, capacity * 0.8), 2, 20);
+        if (Math.abs(want - tickRate) / tickRate > 0.1) setTickRate(want);
+    }
+
     // ================================================================ события игры
 
     void onTick(ClientTickEvent.Post e) {
@@ -530,21 +620,21 @@ abstract class Film {
         }
         if (detonationTime < 0 && !ClientNuclear.detonations().isEmpty()) {
             detonationTime = mc.level.getGameTime();
-            if (rec.recording()) rec.mark("detonation");
+            if (marking()) mark("detonation");
         }
         boolean viewing = ProjectileCamera.isViewing(), camera = ProjectileCamera.isActive();
-        markImpacts(rec.recording());
-        if (rec.recording() && viewing && !wasViewing) rec.mark("video");
+        markImpacts(marking());
+        if (marking() && viewing && !wasViewing) mark("video");
         if (!viewing) {
             closeMarked = false;
-        } else if (rec.recording() && !closeMarked && mc.getCameraEntity() instanceof StrikeProjectile p
+        } else if (marking() && !closeMarked && mc.getCameraEntity() instanceof StrikeProjectile p
                 && ua.zentix.incoming.client.hud.ClientFlights.find(p.getUUID()) instanceof ua.zentix.incoming.client.hud.ClientFlights.Tracked f
                 && p.position().distanceTo(f.target()) < CLOSE_RANGE) {
-            rec.mark("close");
+            mark("close");
             closeMarked = true;
         }
         // камера снаряда вернулась к игроку: дальше в плане — вид от первого лица, монтаж режет до этой отметки
-        if (rec.recording() && !camera && cameraWasActive) rec.mark("exit");
+        if (marking() && !camera && cameraWasActive) mark("exit");
         wasViewing = viewing;
         cameraWasActive = camera;
         while (!steps.isEmpty()) {
@@ -562,13 +652,13 @@ abstract class Film {
         java.util.Map<Integer, String> now = new java.util.HashMap<>();
         for (Entity e : mc.level.entitiesForRendering()) {
             if (e instanceof BomberEntity b) {
-                if (b.flightPhase() == FlightPhase.EGRESS && released.add(b.getId()) && mark) rec.mark("release");
+                if (b.flightPhase() == FlightPhase.EGRESS && released.add(b.getId()) && mark) mark("release");
             } else if (e instanceof StrikeProjectile p && p.isActive()) {
                 now.put(e.getId(), e.getType().toShortString());
             }
         }
         for (var e : seen.entrySet()) {
-            if (mark && !now.containsKey(e.getKey())) rec.mark("gone:" + e.getValue());
+            if (mark && !now.containsKey(e.getKey())) mark("gone:" + e.getValue());
         }
         seen = now;
     }
@@ -614,6 +704,7 @@ abstract class Film {
     }
 
     void afterFrame(RenderFrameEvent.Post e) {
+        if (replayShot != null) adaptReplayRate();
         if (recording == null || !frameReady) return;
         rec.frame(recording.time(), mc.gameRenderer.getMainCamera());
         FrameClock.advanceNext(rec.step());

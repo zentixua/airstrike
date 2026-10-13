@@ -113,6 +113,20 @@ public final class FxPool {
         return refused[b.ordinal()];
     }
 
+    /**
+     * Доля света, которая проходит от глаза до точки сквозь дым и огонь пула (1 — чисто, 0 — закрыто), для сценариев:
+     * клуб на луче закрывает его на свою непрозрачность в последнем кадре; клубы ближе {@code spare} к точке не в счёт
+     * (свой шлейф снаряда, его же огненный шар).
+     */
+    public double transmittance(double ex, double ey, double ez, double tx, double ty, double tz, double spare) {
+        double light = 1;
+        for (int i = 0; i < count; i++) {
+            float c = parts[i].cover(ex, ey, ez, tx, ty, tz, spare);
+            if (c > 0) light *= 1 - c;
+        }
+        return light;
+    }
+
     /** Сколько живых частиц ближе {@code radius} к точке и в конусе {@code cos} вокруг направления (для сценариев). */
     public int near(double ex, double ey, double ez, double lx, double ly, double lz, double radius, double cos) {
         int n = 0;

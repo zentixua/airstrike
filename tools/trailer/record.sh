@@ -15,7 +15,9 @@ mkdir -p "$RUN/logs"
 # язык игры — INCOMING_LANG (по умолчанию ru_ru); планы с текстом игры в кадре для английского ролика — en_us:
 #   INCOMING_LANG=en_us INCOMING_TRAILER_SHOTS=remote,scope,targets INCOMING_TRAILER_DIR=trailer-en tools/trailer/record.sh shaders
 export INCOMING_TRAILER_DIR="${INCOMING_TRAILER_DIR:-trailer}"
-rm -rf "${RUN:?}/$INCOMING_TRAILER_DIR"
+# сценарий: trailer (запись) или film (вывод планов из повторов той же папки, tools/trailer/film.sh) — его папку не чистим
+export INCOMING_SCENARIO="${INCOMING_SCENARIO:-trailer}"
+if [ "$INCOMING_SCENARIO" = trailer ]; then rm -rf "${RUN:?}/$INCOMING_TRAILER_DIR"; fi
 # звук с устройства не нужен (игра идёт замедленно, дорожку собирает монтаж), но звуковой движок должен работать
 cat > "$RUN/alsoft.conf" <<CONF
 [general]
@@ -37,7 +39,6 @@ tutorialStep:none
 joinedFirstServer:true
 lang:${INCOMING_LANG:-ru_ru}
 OPT
-export INCOMING_SCENARIO=trailer
 export INCOMING_SIZE="${INCOMING_SIZE:-1920x1080}"
 W="${INCOMING_SIZE%x*}"; H="${INCOMING_SIZE#*x}"
 # кадры PNG: ~1.2 байта на пиксель, ~12 000 кадров (720p — 11 ГБ, 1080p — ~30 ГБ)

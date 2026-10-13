@@ -137,6 +137,8 @@ final class War {
         if (part.equals("nukeB")) nukeFar();
         if (part.equals("nukeC")) nukeNear();
         if (part.equals("icbm")) icbm();
+        // один план для проверки съёмки из повтора (ReplayFilm)
+        if (part.equals("p13")) p13();
     }
 
     // ================================================================ мир и помощники
@@ -322,12 +324,12 @@ final class War {
     private void watch(ClientTickEvent.Post e) {
         if (mc.level == null || film.rec == null) return;
         int b = banner();
-        boolean rec = film.rec.recording();
-        if (rec && b > lastBanner) film.rec.mark("siren");
+        boolean rec = film.marking();
+        if (rec && b > lastBanner) film.mark("siren");
         lastBanner = b;
         if (rec && film.recording != null && frontMarkedIn != film.recording
                 && frontIn(mc.gameRenderer.getMainCamera().getPosition()) <= 0) {
-            film.rec.mark("front");
+            film.mark("front");
             frontMarkedIn = film.recording;
         }
     }
@@ -413,6 +415,12 @@ final class War {
                 .cue(8, () -> cast().act("Hans", lookUp(at(droneTarget).add(0, 60, 0)), true));
         film.run(() -> cast().remove("Hans"));
 
+        p13();
+
+        alarm();
+    }
+
+    private void p13() {
         // p13: тихое утро, житель на крыше, впереди небоскрёбы; ракета мелькает над крышами и входит в башню за ~370 блоков
         hiddenAt(ROOF, T5);
         film.run(() -> cast().spawn("Ilya", ROOF, Film.yawTo(ROOF, T5), null));
@@ -429,7 +437,10 @@ final class War {
                 .when(() -> flightNear(t5, 340, WeaponType.MISSILE), 3000)
                 .endWhen(hit(t5, 120), 40);
         film.run(() -> cast().remove("Ilya"));
+    }
 
+    /** p14–p19: тревога на улицах, метро, удары в городе. */
+    private void alarm() {
         // p14: на улице сирена — следующие ракеты идут сюда; первый кадр с интерфейсом: ⚠ MISSILE THREAT ⚠ (отметка siren)
         Vec3 hit = new Vec3(3140.5, 0, 300.5);
         film.run(() -> place(AVENUE, at(hit).add(0, 40, 0)));

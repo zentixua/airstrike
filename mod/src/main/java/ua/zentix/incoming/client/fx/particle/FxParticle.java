@@ -240,6 +240,24 @@ public final class FxParticle {
         return t * t * (3 - 2 * t);
     }
 
+    /**
+     * Насколько клуб закрывает отрезок от глаза до точки (для сценариев): непрозрачность последнего кадра там, где
+     * отрезок проходит сквозь плотную часть клуба, к краю квадрата — на нет; светящиеся частицы (искры, вспышки) и клубы
+     * ближе {@code spare} к точке — 0.
+     */
+    float cover(double ex, double ey, double ez, double tx, double ty, double tz, double spare) {
+        if (kind.additive || aCol <= 0.004f) return 0;
+        double dx = tx - ex, dy = ty - ey, dz = tz - ez, len2 = dx * dx + dy * dy + dz * dz;
+        double u = len2 < 1e-9 ? 0 : Mth.clamp(((x - ex) * dx + (y - ey) * dy + (z - ez) * dz) / len2, 0, 1);
+        double cx = ex + dx * u - x, cy = ey + dy * u - y, cz = ez + dz * u - z;
+        double miss = Math.sqrt(cx * cx + cy * cy + cz * cz);
+        double ox = x - tx, oy = y - ty, oz = z - tz;
+        if (ox * ox + oy * oy + oz * oz < spare * spare) return 0;
+        double r = quadSize / 2, dense = r * DENSE;
+        if (miss >= r) return 0;
+        return aCol * (float) (miss <= dense ? 1 : 1 - (miss - dense) / (r - dense));
+    }
+
     /** Свой квадрат в кадр (координаты — от камеры); прозрачный — не пишется. */
     void emit(FxFrame frame, FxQuads out, float partial) {
         update(partial);

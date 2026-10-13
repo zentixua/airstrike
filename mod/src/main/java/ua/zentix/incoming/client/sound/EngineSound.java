@@ -235,6 +235,11 @@ public final class EngineSound extends AbstractTickableSoundInstance implements 
         stop();
     }
 
+    /** Снаряд, чей это мотор (для сценариев: слышно ли снаряд в кадре). */
+    public java.util.UUID trackId() {
+        return track.id;
+    }
+
     @Override
     public float lowpassGain() {
         return filterGain;

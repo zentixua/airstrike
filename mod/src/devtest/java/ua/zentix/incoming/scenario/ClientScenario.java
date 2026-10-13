@@ -128,6 +128,10 @@ public final class ClientScenario {
             new LeakCheck(); // заходы в мир и замеры памяти в меню — свои (LeakCheck), мир открывает он сам на каждый заход
             return;
         }
+        if ("film".equals(scenario)) {
+            new ua.zentix.incoming.scenario.trailer.ReplayFilm(); // планы трейлера из повторов Flashback (tools/trailer/film.sh)
+            return;
+        }
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         if ("trailer".equals(scenario)) {
             new ua.zentix.incoming.scenario.trailer.Trailer(); // свой сценарий и запись (tools/trailer)

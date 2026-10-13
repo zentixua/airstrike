@@ -56,6 +56,7 @@ def filmModPatterns = System.getenv('INCOMING_FILM') ? ['almighty-*.jar', 'point
         'immersive_aircraft-neoforge-*.jar'] : []
 // GameTest с Lithium, как у хоста (-PwithLithium): проверка совместимости руками, в CI её нет
 def lithiumModPatterns = project.hasProperty('withLithium') ? ['lithium-neoforge-*.jar'] : []
+def flashbackModPatterns = System.getenv('INCOMING_FLASHBACK') ? ['Flashback-*.jar', 'flashback_neoforge_fixed-*.jar', 'connector-*.jar', 'forgified-fabric-api-*.jar'] : []
 
 // каталог клиента сценария; в мультиплеере у каждого клиента свой (tools/mp_scenario.sh)
 def scenarioDir = project.findProperty('scenarioDir') ?: 'run/scenario'
@@ -94,6 +95,7 @@ neoForge {
             programArguments.addAll '--width', size[0], '--height', size[1]
             // трейлер проверяет, что кадр ровно такой (окно в KWin иначе уменьшается на заголовок)
             systemProperty 'incoming.frame', size.join('x')
+            if (System.getenv('INCOMING_CONNECTOR_CLEAN')) systemProperty 'connector.clean.path', System.getenv('INCOMING_CONNECTOR_CLEAN')
             environment 'ALSOFT_CONF', project.file('run/scenario/alsoft.conf').absolutePath
             // паузы сборщика мусора — чтобы отличать их от медленного кода (run/scenario/logs/gc.log)
             jvmArgument "-Xlog:gc:file=${project.file("${scenarioDir}/logs/gc.log").absolutePath}:time,uptime"
@@ -284,7 +286,7 @@ tasks.register('rigLaunch') {
 // Копирует моды сборки в каталог запуска: FML сам распакует вложенные jar (Flywheel, Ponder, Veil…)
 def copyRuntimeMods = { String runDir ->
     tasks.register("copyRuntimeMods_${runDir}", Sync) {
-        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns + filmModPatterns
+        def patterns = runDir == 'scenario' ? runtimeModPatterns + shaderModPatterns + dhModPatterns + filmModPatterns + flashbackModPatterns
                 : runDir in ['gametest', 'scenario-sweep', 'scenario-record'] ? runtimeModPatterns + lithiumModPatterns : runtimeModPatterns
         from(mcModsDir) { patterns.each { include it } }
         into({ "${project.findProperty(runDir + 'Dir') ?: 'run/' + runDir}/mods" })
