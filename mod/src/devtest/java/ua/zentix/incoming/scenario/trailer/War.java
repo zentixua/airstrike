@@ -571,7 +571,7 @@ final class War {
                 .after(() -> film.newest(DroneEntity.class) != null, 200)
                 .camera(() -> film.chaseOf(film.newest(DroneEntity.class), 7, 2.4, -2.6, 16, 4, 62));
 
-        // p20: вся линия разом — кран над батареей с южного холма, выше дыма пусков
+        // p20: вся линия разом — кран над батареей с юго-востока, выше холма и дыма пусков (ряды идут по диагонали кадра)
         film.run(this::reloadAll);
         film.waitTicks(60);
         film.shot("p20").length(50).hidden()
@@ -580,12 +580,12 @@ final class War {
                     fireAll(rocketRack);
                     fireAll(droneRack);
                 })
-                .camera(() -> CineCamera.dolly(new Vec3(-1505, 98, 572), new Vec3(-1510, 112, 578), 50,
-                        () -> new Vec3(-1495, 70, 525), 64))
+                .camera(() -> CineCamera.dolly(new Vec3(-1440, 108, 575), new Vec3(-1446, 122, 580), 50,
+                        () -> new Vec3(-1490, 70, 525), 64))
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
-        // p21: с огромной высоты — дымные следы тянутся на восток
+        // p21: с огромной высоты — дымные следы тянутся на восток (ниже облаков: слой облаков шейдерпака — около 190)
         film.shot("p21").length(30).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(-1590, 200, 480), new Vec3(-1580, 200, 482), 30,
+                .camera(() -> CineCamera.glide(new Vec3(-1590, 165, 480), new Vec3(-1580, 165, 482), 30,
                         () -> new Vec3(-1350, 70, 525), 64));
 
         // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
