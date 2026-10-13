@@ -696,15 +696,17 @@ final class War {
         });
         Vec3 drones = new Vec3(3170.5, 0, 250.5);
         for (String take : new String[]{"a", "b"}) {
-            Vec3 from = take.equals("a") ? new Vec3(3150.5, 0, 298.5) : new Vec3(3218.5, 0, 270.5);  // площадь, без домов и деревьев
+            // a — у самих стаканов, широко: пуск и уход вверх; b — издали, длинный фокус: перехват
+            boolean near = take.equals("a");
+            Vec3 from = near ? samA.add(-8, 0, 10) : new Vec3(3218.5, 0, 270.5);  // площадь, без домов и деревьев
             film.shot("p22" + take).length(50).hidden()
                     .onReady(() -> salvo("drone", 4, 30, drones, new Vec3(2400, 0, 250)))
                     .camera(() -> {
-                        Vec3 c = g(from).add(0, 1.6, 0);
+                        Vec3 c = g(from).add(0, near ? 1.2 : 1.6, 0);
                         return CineCamera.track(c, film.smoothFocus(() -> {
                             InterceptorEntity i = film.nearest(InterceptorEntity.class, at(drones), 300);
                             return i != null ? i : film.nearest(DroneEntity.class, at(drones), 300);
-                        }, at(drones).add(0, 40, 0), 0.25), 34);
+                        }, near ? at(samA).add(0, 3, 0) : at(drones).add(0, 40, 0), 0.25), near ? 62 : 34);
                     })
                     .when(() -> film.nearest(InterceptorEntity.class, at(drones), 300) != null, 3000);
         }
@@ -798,9 +800,10 @@ final class War {
                 .onReady(() -> salvo("rocket", 6, 8, c.add(-8, 0, 14), new Vec3(2650, 0, 314)))
                 .camera(() -> {
                     double y = g(c).y;
-                    return CineCamera.fpv(List.of(new Vec3(c.x - 50, y + 7, c.z - 30), new Vec3(c.x - 26, y + 4.2, c.z - 14),
-                            new Vec3(c.x - 4, y + 3.6, c.z - 2), new Vec3(c.x + 20, y + 4.5, c.z + 12), new Vec3(c.x + 30, y + 6, c.z + 36),
-                            new Vec3(c.x + 10, y + 7, c.z + 60)), 1.4, 7, 1.0, 0.12, 78);
+                    // по открытой площади (x 3130–3220, z 240–300) южнее башни-фонтана: дома и башня — вне пути
+                    return CineCamera.fpv(List.of(new Vec3(c.x - 45, y + 7, c.z + 26), new Vec3(c.x - 25, y + 4.2, c.z + 16),
+                            new Vec3(c.x - 2, y + 3.6, c.z + 13), new Vec3(c.x + 22, y + 4.5, c.z + 6), new Vec3(c.x + 38, y + 6, c.z - 12),
+                            new Vec3(c.x + 32, y + 7, c.z - 34)), 1.4, 7, 1.0, 0.12, 78);
                 })
                 .when(() -> film.nearest(RocketEntity.class, at(c), 260) != null, 3000);
 
@@ -929,7 +932,7 @@ final class War {
 
         // p38: ночь, дождь: рой шахедов, перехваты в небе, ночной «Град» подсвечивает облака
         film.run(() -> {
-            Film.cmd("time set 18000");
+            Film.cmd("time set 13300");  // сразу после заката: небо ещё синее, город уже в огнях (в полночь под шейдером кадр чёрный)
             Film.cmd("weather rain");
         });
         Vec3 night = new Vec3(3180.5, 0, 300.5);
