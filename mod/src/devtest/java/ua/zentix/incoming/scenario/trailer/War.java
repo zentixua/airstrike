@@ -276,6 +276,30 @@ final class War {
             throughFire();
             nuke();
         }
+        // одна сцена перезаписи на своей копии мастера — правка плана по замечанию (с INCOMING_TRAILER_SHOTS пишется
+        // только он, остальные планы сцены идут без записи): INCOMING_WAR_PART=scene:<сцена>
+        if (part.startsWith("scene:")) {
+            day();
+            switch (part.substring("scene:".length())) {
+                case "dawnSquare" -> dawnSquare();
+                case "firstStrike" -> firstStrike();
+                case "battery" -> battery();
+                case "sky" -> sky();
+                case "airship" -> airship();
+                case "p25" -> p25();
+                case "p01d" -> p01d();
+                case "streets" -> streets();
+                case "throughFire" -> throughFire();
+                case "nuke" -> {
+                    // пусковые и бой на площади — как после сцен батареи и улиц
+                    racks();
+                    fight();
+                    nuke();
+                }
+                default -> throw new IllegalArgumentException("INCOMING_WAR_PART=" + part
+                        + ": сцены — dawnSquare, firstStrike, battery, sky, airship, p25, p01d, streets, throughFire, nuke");
+            }
+        }
         if (part.equals("p16")) {
             day();
             metroCrowd();

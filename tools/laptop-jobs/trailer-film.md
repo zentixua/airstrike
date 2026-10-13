@@ -79,15 +79,19 @@ done > $W4/journal.txt 2>&1
 ```sh
 W2=mod/run/scenario/film-war2 W4=mod/run/scenario/film-war4
 rec() { [ -f "$1" ] && awk -v s="${2:-}" '$2 != "-" && (s == "" || $1 == s) {print "--rec " $2}' "$1"; }
-uv run tools/trailer/edit.py --lang en --rec $W2 $(rec $W2/render/best.txt) \
+ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) \
   $(rec $W2/render-fog-c2-alt110-d3.05-dist200/best.txt p03) $(rec $W2/render-fog-c2-human/best.txt p03) \
-  $(rec $W2/render-human/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>
+  $(rec $W2/render-human/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>"
+mkdir -p dist && echo "uv run tools/trailer/edit.py $ARGS" > dist/incoming-trailer-edit.sh
+uv run tools/trailer/edit.py $ARGS 2>&1 | tee dist/incoming-trailer-edit.log
 ```
+`dist/incoming-trailer-edit.sh` — монтаж как есть: правка по замечанию утром — эта строка с `--rec` нового дубля в конце.
 Звук пуска p01c (монтаж прежде писал «p01c: no sound:rocket.launch»): какие звуки есть в журнале выведенного p01c —
 ```sh
 grep -o '"event":"[^"]*"' "$(awk '$1 == "p01c" {print $2}' $W4/render/best.txt)/timeline.jsonl" | sort | uniq -c | sort -rn | head -20
 ```
 
-Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `film-war4/render/report.md`, `film-war4/render/best.txt`,
-`film-war4/journal.txt`, весь вывод `edit.py` (заглушки и предупреждения), счёт звуков p01c, строки из п. 2 и п. 3,
+Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `dist/incoming-trailer-cuts.md` (время в трейлере → план,
+окно плана, откуда дубль), `dist/incoming-trailer-edit.sh`, `film-war4/render/report.md`, `film-war4/render/best.txt`,
+`film-war4/journal.txt`, `dist/incoming-trailer-edit.log`, счёт звуков p01c, строки из п. 2 и п. 3,
 ошибки из логов записи и вывода (`Exception`, `ERROR` мода).

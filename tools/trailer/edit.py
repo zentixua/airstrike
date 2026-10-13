@@ -237,6 +237,7 @@ class Shot:
     count: int = 0
     hud: bool = False       # в кадре текст интерфейса игры
     lang: str = "ru_ru"     # язык игры при съёмке (записи до этого поля — только ru_ru)
+    rec: str = ""           # папка записи или кандидата вывода, откуда дубль (таблица склеек)
 
     def sec(self, ticks):
         """Время игры от начала плана, с (по нему — якоря и звук; кадры — в frame_at)."""
@@ -277,7 +278,7 @@ def load_recording(rec=REC):
                 continue
             kind, name = e["type"], e["shot"]
             if kind == "shot":
-                shots[name] = Shot(name, e["speed"], hud=e.get("hud", False), lang=e.get("lang", "ru_ru"))
+                shots[name] = Shot(name, e["speed"], hud=e.get("hud", False), lang=e.get("lang", "ru_ru"), rec=rec)
                 continue
             s = shots[name]
             if kind == "frame":
@@ -680,6 +681,22 @@ def print_edit(edit, shots):
         names = " ".join((c.shot + ("" if c.shot in shots else "?")) if isinstance(c, Clip)
                          else ("белый" if c.level else "чёрный") for c in cs)
         print(f"  {n:2d} {fmt_time(a)}–{fmt_time(b)} {b - a:5.2f} с  {names}")
+
+
+def write_cuts(path, edit, shots):
+    """Таблица склеек рядом с роликом: время в трейлере → план, откуда дубль и какое окно плана. По ней замечание
+    «на 1:02 …» сразу находит план и его кандидата; другой кандидат плана — его папка последним --rec."""
+    rows = ["| Время | План | Склейка | Окно плана, с | Откуда |", "|---|---|---|---|---|"]
+    for c in edit:
+        span = f"{fmt_time(c.start)}–{fmt_time(c.start + c.dur)}"
+        if isinstance(c, Fill):
+            rows.append(f"| {span} | {c.plan} | {'белый' if c.level else 'чёрный'} | | |")
+            continue
+        s = shots.get(c.shot)
+        window = f"{c.src:.2f}–{c.src + c.dur * c.rate:.2f}" if s else ""
+        rows.append(f"| {span} | {c.plan} | {c.shot}{'' if s else ' (заглушка)'} | {window} | {s.rec if s else ''} |")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(rows) + "\n")
 
 
 # ---------------------------------------------------------------- картинка
@@ -1212,6 +1229,9 @@ def main():
     if args.draft:
         size = (960, 540)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    cuts_md = os.path.splitext(args.out)[0] + "-cuts.md"
+    write_cuts(cuts_md, edit, shots)
+    print("склейки (время → план, откуда):", cuts_md)
     audio = os.path.join(CACHE, "trailer-audio.wav")
     print("звук…")
     sf.write(audio, mix(edit, cuts, shots, total, music), SR, subtype="PCM_16")

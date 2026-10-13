@@ -76,6 +76,8 @@ public final class ReplayFilm {
     private final Minecraft mc = Minecraft.getInstance();
     private final Path root, replays, out;
     private final int width, height, tries, hold;
+    /** Только кандидаты с такими именами (INCOMING_FILM_CAMERA), null — все. */
+    private final @Nullable java.util.regex.Pattern cameraFilter;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -139,6 +141,9 @@ public final class ReplayFilm {
         width = Integer.parseInt(size[0]);
         height = Integer.parseInt(size[1]);
         tries = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_TRIES", "3"));
+        // правка одного плана другой камерой: имена кандидатов (регулярное выражение, список — render/<план>/candidates.txt)
+        String camera = System.getenv("INCOMING_FILM_CAMERA");
+        cameraFilter = camera == null || camera.isBlank() ? null : java.util.regex.Pattern.compile(camera);
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
@@ -518,7 +523,9 @@ public final class ReplayFilm {
     /** Оценки кандидатов готовы: лучшие — в очередь вывода. */
     private void solve() {
         List<Scored> all = new ArrayList<>();
-        for (Rig.Tally t : tallies) all.add(new Scored(t.c, t.score()));
+        for (Rig.Tally t : tallies) {
+            if (cameraFilter == null || cameraFilter.matcher(t.c.name()).matches()) all.add(new Scored(t.c, t.score()));
+        }
         tallies.clear();
         target = null;
         // камера сценария — первой (её задумали для плана), дальше — по оценке
@@ -529,6 +536,13 @@ public final class ReplayFilm {
                     s.score.approach(), s.score.atKey(), s.score.after(), s.score.size(), s.score.smoke(), s.score.why()));
         }
         Incoming.LOG.info("SCENARIO film solve {}: {} candidates{}", spec.shot(), all.size(), sb);
+        // все оценённые камеры плана — для правки по замечанию другой камерой (INCOMING_FILM_CAMERA)
+        try {
+            Files.createDirectories(out.resolve(spec.shot()));
+            Files.writeString(out.resolve(spec.shot()).resolve("candidates.txt"), sb.toString().strip() + "\n", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            Incoming.LOG.warn("SCENARIO film {}: candidates.txt не записан: {}", spec.shot(), e.toString());
+        }
         candidates.clear();
         all.stream().filter(s -> s.score.total() > 0).limit(tries).forEach(candidates::add);
         if (candidates.isEmpty()) {
