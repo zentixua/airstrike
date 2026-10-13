@@ -58,7 +58,7 @@ B-2 с бетонобойной бомбой, залпы с разбросом, 
                                            open-skies); клиент без окна
                                            и проверки — client_scenario.sh, prod_client.py, x11_record.py, nested_kwin.sh,
                                            stress.sh, mp_scenario.sh, rig_procs.sh, free_port.py; разбор повторов Flashback
-                                           в таблицы — replayscan/; ноутбук — laptop_job.sh,
+                                           в таблицы и съёмка — replayscan/, короткие ролики — clips/; ноутбук — laptop_job.sh,
                                            laptop-jobs/, logtime.py; CI — gametest_durations.py; ресурсы — build_sounds.py,
                                            freesound.py, gen_textures.py, gen_particles.py, gen_models.py,
                                            gen_grid_assets.py; трейлер — trailer/
