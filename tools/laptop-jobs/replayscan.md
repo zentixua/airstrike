@@ -1,6 +1,6 @@
 # Задание ноутбуку: повторы Flashback — в базы (tools/replayscan)
 
-Ветка `claude/project-thread-a9cwbq` (zentixua/incoming), коммит — в сообщении координатора. Цель — разобрать повторы
+Коммит zentixua/incoming — в сообщении координатора. Цель — разобрать повторы
 игр самой игрой (`tools/replayscan/README.md`) в таблицы и базу DuckDB: события, пути снарядов, удары по земле, в
 воздухе и перехваты, видимость глазами всех игроков. Базы нужны треду «Превью TikTok» для выбора моментов.
 
@@ -14,7 +14,7 @@
 ## Подготовка (один раз)
 1. Рабочее дерево и сборка:
    ```sh
-   git fetch origin claude/project-thread-a9cwbq
+   git fetch origin <коммит>
    git worktree add --detach $W/replayscan-wt <коммит>
    $W/replayscan-wt/mod/gradlew -p $W/replayscan-wt/tools/replayscan build   # → tools/replayscan/build/libs/replayscan-1.0.0.jar
    ```

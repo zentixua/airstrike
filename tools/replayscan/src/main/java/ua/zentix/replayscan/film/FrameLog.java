@@ -74,7 +74,7 @@ final class FrameLog {
     /** Кадр вывода нарисован: мир и слой эффектов уже в нём. */
     void onStage(RenderLevelStageEvent e) {
         if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) return;
-        // глубина LOD этого кадра: 1 — своя, −1 — мира, 0 — LOD нет (снимается и в кадрах не вывода)
+        // глубина LOD этого кадра (DhDepth.take: 1 — своя, −1 — мира); снимается и в кадрах не вывода
         int dh = DH ? DhDepth.take() : 0;
         if (!Export.exporting()) return;
         double t = Export.exportTick();
