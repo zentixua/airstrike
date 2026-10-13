@@ -16,21 +16,25 @@ python3 -m venv ~/claude/shotenv && ~/claude/shotenv/bin/pip install -q numpy sc
 ```
 
 ## Запуск
-Журналы — все `*.events.jsonl` записей проверки (`mod/run/scenario/check-*/`), карта — `~/trailer-war/region`.
-Туман края прорисовки при проверке — 24 чанка (0,8 × 24 × 16 = 307 блоков), облака — 320:
+Журналы — все `*.events.jsonl` записей проверки (`mod/run/scenario/check-*/`), карта — `region` мира проверки
+(`~/trailer-war/server/world/region`). Туман края прорисовки при проверке — 24 чанка (0,8 × 24 × 16 = 307 блоков),
+облака — 320. Сперва мера против вывода (камера каждого кадра из `qa.jsonl` — та же мера, что у планировщика), потом
+планы заново:
 ```sh
 cd ~/claude/shot-wt
-EV=$(find <рабочее дерево incoming>/mod/run/scenario/check-* -name '*.events.jsonl' | sort)
-~/claude/shotenv/bin/python tools/shot/shot.py plan $EV --regions ~/trailer-war/region --out ~/claude/shot-check \
-    --fog 307 --clouds 320 --previs none 2>&1 | tee ~/claude/shot-check.log
+R=~/trailer-war/server/world/region
+QA=$(find <рабочие деревья incoming>/mod/run/scenario/check-* -path '*/render/*/qa.jsonl' | sort)
+~/claude/shotenv/bin/python tools/shot/shot.py check $QA --regions $R --out ~/claude/shot-check --fog 307 --clouds 320 \
+    2>&1 | tee ~/claude/shot-check.log
+EV=$(find <рабочие деревья incoming>/mod/run/scenario/check-* -name '*.events.jsonl' | sort)
+~/claude/shotenv/bin/python tools/shot/shot.py plan $EV --regions $R --out ~/claude/shot-check --fog 307 --clouds 320 \
+    --previs none 2>&1 | tee -a ~/claude/shot-check.log
 ```
-План без объекта (сцена, пролёт) пишет «… нет» и пропускается — так и надо.
+План-сцена и план без снаряда в окне пишут причину и пропускаются — так и надо.
 
 ## Прислать (текстом)
-1. Из `~/claude/shot-check.log`: строки каждого плана (камеры `own`, `fpv`, `drone`, `tripod`, `tracker`, «лучшая») и
-   «Итог» целиком; время каждого плана.
-2. Для сравнения — вердикты вывода тех же планов: `render/best.txt` каждой части `check-*` (строки PASS/FAIL с
-   причинами) и, где есть, строку `SCENARIO film solve <план>` с первой (выбранной) камерой.
+1. Из `~/claude/shot-check.log`: все строки `check` (план, камера, совпадения, место, доля, блоки, дым) и «Всего кадров».
+2. Строки планов (`own`, камеры, «лучшая») и «Итог» целиком; время каждого плана.
 3. Ошибки Python, если были, — целиком.
 
 ## После
