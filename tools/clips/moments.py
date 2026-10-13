@@ -6,21 +6,25 @@
 """Отбор моментов для коротких роликов (README.md): по базам разбора повторов (tools/replayscan/replaydb.py) —
 цепочки «пуск → полёт → удар по земле» и окна хаоса, дальние удары и ядерные подрывы, с камерой на каждый план.
 
-  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8]
+  uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--notes журнал.json]
 
 Пишет `candidates.json` (что читает plan.py) и `candidates.md` (таблица для выбора). Камера плана — глаза игрока
 повтора (`pov`), если данные показывают, что он смотрел туда, иначе — место, которое подберёт вывод (`auto`: штатив
 по кругу у события, проверка лучами по миру повтора и каждого кадра — режим film мода replayscan).
 Числа — из данных повтора: удар по земле — у поверхности (replaydb: impact_kinds.place = ground), в кадре — по месту
 в плоскости кадра, луч — по блокам мира повтора; громкие события за кадром считаются по приходу звука.
+Журнал игры (`--notes`, README.md) — что в какое время происходило по журналам сервера: кандидат в отрезке журнала
+получает его строку и прибавку к счёту, отбор по данным повтора остаётся тем же.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -457,6 +461,54 @@ def dedupe(cands: list[Candidate], gap: int) -> list[Candidate]:
     return out
 
 
+def clock(r: Replay, anchors: list[dict]) -> list[tuple[int, datetime]]:
+    """Опоры часов повтора — тик и время по журналу сервера: конец записи (`end`) или первое событие с `src` по
+    регулярному выражению (подрыв ядерки). `at: name` — время из имени файла (Flashback называет запись временем
+    сохранения, `2026-10-06T09_59_12`; запись, сохранённая позже восстановлением, этой опоры не годится)."""
+    out = []
+    for an in anchors:
+        if an.get("end"):
+            t = r.meta.get("total_ticks")
+        else:
+            t = r.con.execute("SELECT min(t) FROM events WHERE regexp_matches(src, ?)", [an["src"]]).fetchone()[0]
+        at = an["at"]
+        if at == "name":
+            m = re.search(r"(\d{4}-\d\d-\d\d)T(\d\d)_(\d\d)_(\d\d)", r.name)
+            at = m and f"{m[1]}T{m[2]}:{m[3]}:{m[4]}"
+        if t is None or not at:
+            print(f"{r.name}: опоры {an} в базе нет — не берётся")
+            continue
+        out.append((int(t), datetime.fromisoformat(at)))
+    return sorted(out)
+
+
+def tick_at(anchors: list[tuple[int, datetime]], when: datetime) -> float:
+    """Тик повтора во время when: между опорами — по прямой, за краями — 20 тиков в секунду от ближней."""
+    t0, w0 = min(anchors, key=lambda an: abs((an[1] - when).total_seconds()))
+    for (ta, wa), (tb, wb) in zip(anchors, anchors[1:]):
+        if wa <= when <= wb and wb > wa:
+            return ta + (tb - ta) * (when - wa).total_seconds() / (wb - wa).total_seconds()
+    return t0 + (when - w0).total_seconds() * TICK
+
+
+def annotate(r: Replay, cands: list[Candidate], notes: dict, bonus: float) -> None:
+    """Строки журнала игры — кандидатам повтора, чей тик в их отрезке (`from`–`to`)."""
+    if not notes:
+        return
+    anchors = next((clock(r, an) for k, an in notes.get("replays", {}).items() if k in r.name), [])
+    if not anchors:
+        print(f"{r.name}: в журнале игры нет опор часов этого повтора — без строк журнала")
+        return
+    spans = [(tick_at(anchors, datetime.fromisoformat(m["from"])), tick_at(anchors, datetime.fromisoformat(m["to"])), m["what"])
+             for m in notes.get("moments", [])]
+    for c in cands:
+        hit = [what for a, b, what in spans if a <= c.t <= b]
+        if hit:
+            c.score += bonus
+            c.summary += " — по журналу: " + "; ".join(hit)
+            c.numbers["notes"] = hit
+
+
 PREVIEWS = {"rockets": "1. Ракеты и «Град»", "drones": "2. Шахеды и «Ланцеты»", "chaos": "3. Хаос",
             "far": "4. Издалека", "nuke": "5. Ядерный удар"}
 
@@ -473,6 +525,7 @@ def version_key(v: str) -> tuple:
 
 def select(a):
     picked: dict[str, list[Candidate]] = {k: [] for k in PREVIEWS}
+    notes = json.loads(Path(a.notes).read_text()) if a.notes else {}
     for db in a.db:
         r = Replay(Path(db), a)
         v = incoming_version(r.meta)
@@ -480,8 +533,10 @@ def select(a):
             print(f"{db}: Incoming {v} старше {a.min_version} — пропущен")
             r.con.close()
             continue
-        for k in PREVIEWS:
-            picked[k] += getattr(r, k)()
+        found = {k: getattr(r, k)() for k in PREVIEWS}
+        annotate(r, [c for v in found.values() for c in v], notes, a.note_bonus)
+        for k, v in found.items():
+            picked[k] += v
         r.con.close()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -512,6 +567,8 @@ def main():
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")
     p.add_argument("--soft", type=int, default=2, help="луч чист, если листвы, стекла и воды на пути не больше стольких блоков")
     p.add_argument("--prefer", default="", help="повторы (часть имени, через запятую), чьи кандидаты идут первыми")
+    p.add_argument("--notes", help="журнал игры: опоры часов повторов и отрезки с тем, что происходило (README.md)")
+    p.add_argument("--note-bonus", type=float, default=1.0, help="прибавка к счёту кандидата в отрезке журнала")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
     select(p.parse_args())

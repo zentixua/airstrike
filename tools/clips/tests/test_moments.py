@@ -76,7 +76,8 @@ class Scan:
                 w.writerow(header)
                 for r in self.rows[name]:
                     w.writerow(["" if v is None else v for v in r])
-        (out / "meta.json").write_text(json.dumps({"replay": str(out / "test.zip"), "complete": True, "every": 2, "rows": {}}))
+        (out / "meta.json").write_text(json.dumps({"replay": str(out / "test.zip"), "complete": True, "every": 2, "rows": {},
+                                                       "total_ticks": ticks}))
 
 
 def line(a, b, t0, t1):
@@ -192,6 +193,28 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(c[0].t, 2000)
         self.assertEqual(c[0].shots[-1].kind, "nuke")
 
+    def test_notes_mark_candidates_by_game_log(self):
+        # подрыв ядерки (тик 2000) — в 23:10:35 по журналу сервера; конец записи (2100) — в 23:10:40
+        notes = {"replays": {"test": [{"src": "nuke_detonation", "at": "2026-10-06T23:10:35"},
+                                      {"end": True, "at": "2026-10-06T23:10:40"}]},
+                 "moments": [{"from": "2026-10-06T23:10:30", "to": "2026-10-06T23:10:38", "what": "ядерка над городом"}]}
+        anchors = clips.clock(self.r, notes["replays"]["test"])
+        self.assertEqual([t for t, _ in anchors], [2000, 2100])
+        at = lambda s: clips.datetime.fromisoformat(s)  # noqa: E731
+        self.assertAlmostEqual(clips.tick_at(anchors, at("2026-10-06T23:10:37.5")), 2050)
+        self.assertAlmostEqual(clips.tick_at(anchors, at("2026-10-06T23:10:30")), 1900, msg="до опор — 20 тиков в секунду")
+        cands = self.r.nuke()
+        before = cands[0].score
+        clips.annotate(self.r, cands, notes, 1.0)
+        self.assertEqual(cands[0].numbers["notes"], ["ядерка над городом"])
+        self.assertAlmostEqual(cands[0].score, before + 1)
+        self.r.name = "2026-10-06T23_10_40"
+        self.assertEqual(clips.clock(self.r, [{"end": True, "at": "name"}])[0][1], at("2026-10-06T23:10:40"))
+        self.r.name = "test"
+        far = [c for c in self.r.rockets() if c.t < 1900]
+        clips.annotate(self.r, far, notes, 1.0)
+        self.assertTrue(far and all("notes" not in c.numbers for c in far), "вне отрезка — без строки журнала")
+
 
 class PlanTest(unittest.TestCase):
     """План съёмки из кандидатов: пути из базы, события, камеры и пороги по роду плана."""
@@ -200,7 +223,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer=""))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
