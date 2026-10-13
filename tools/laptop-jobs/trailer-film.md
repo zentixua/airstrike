@@ -55,6 +55,11 @@ INCOMING_TRAILER_DIR=film-war4 INCOMING_WAR_PART=retake INCOMING_WORLD=war4-reta
 проверка разбора, как раньше: не разобрался — переписать часть на новой копии мастера (прежнюю не удалять).
 
 ## 3. Вывод записи
+Перед выводом — рабочее дерево съёмки на коммит из последнего сообщения координатора (не раньше `22b2cfd`; запись,
+если ещё идёт, не прерывать — переход только между шагами) и сборка заново. В `22b2cfd` исправлена очередь мест
+снаряда у клиента: при сервере медленнее 20 тиков в секунду снаряд у клиента (и в повторе) уходил по прямой с пути;
+пакеты в повторах те же, место в выводе — уже по серверу. Из лога записи прислать все строки `Can't keep up`
+(время и сколько мс): где они, места в журнале могли разойтись с выводом — проверка кадров это ловит.
 Сразу после записи, с настройками пака по умолчанию, все планы `film-war4`:
 ```sh
 INCOMING_TRAILER_DIR=film-war4 INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
@@ -63,6 +68,16 @@ python3 tools/trailer/report.py mod/run/scenario/film-war4/render --md mod/run/s
 В логе — то же, что в прошлом выводе: `dh generator DISABLED PRE_EXISTING_ONLY`; нет `Failed to handle packet`,
 `DecoderException`, `повтор закрылся` (есть — стек целиком с 30 строками до него); строки `SCENARIO film heap` и
 `SCENARIO film restart` — прислать; `"dh":1` в `qa.jsonl` выводимых кандидатов.
+
+p01a и p42 из `film-war2` — ещё раз, с местом снаряда, как его показывает повтор (`INCOMING_FILM_SHOWN=1`: журналы
+`film-war2` записаны до очереди мест, камера сценария вела рывки журнала — в `render-human` дрожь объекта 14,4 и 4,6 %
+полукадра/кадр² при ≤ 1,6 у остальных), в свою папку `render-human2`:
+```sh
+INCOMING_TRAILER_DIR=film-war2 INCOMING_FILM_OUT=render-human2 INCOMING_FILM_SHOTS=p01a,p42 INCOMING_FILM_SHOWN=1 \
+INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
+python3 tools/trailer/report.py mod/run/scenario/film-war2/render-human2 --md mod/run/scenario/film-war2/render-human2/report.md
+```
+Прислать `render-human2/report.md` и `qa.jsonl` выведенных кандидатов p01a и p42 из `render-human` и `render-human2`.
 
 Журналы — по каждому плану, где итог вывода (п. 3) не PASS, текстом одним файлом:
 ```sh
@@ -74,14 +89,15 @@ done > $W4/journal.txt 2>&1
 
 ## 4. Монтаж
 Поверх всего `film-war2` (прежний вывод — запасной для плана, который теперь не прошёл): p03 с туманом c2 (новый
-вывод, если есть), `render-human`, затем живые планы и вывод `film-war4`. Строки `best.txt` с «-» вместо папки — план
+вывод, если есть), `render-human`, `render-human2` (p01a и p42 — если в его отчёте PASS и дрожь объекта меньше, чем в
+`render-human`; иначе строку `$(rec $W2/render-human2/best.txt)` убрать), затем живые планы и вывод `film-war4`. Строки `best.txt` с «-» вместо папки — план
 не снят (причина в той же строке), в `--rec` их нет.
 ```sh
 W2=mod/run/scenario/film-war2 W4=mod/run/scenario/film-war4
-rec() { [ -f "$1" ] && awk -v s="${2:-}" '$2 != "-" && (s == "" || $1 == s) {print "--rec " $2}' "$1"; }
+rec() { [ -f "$1" ] && awk -v s="${2:-}" '$2 != "-" && (s == "" || $1 == s) {printf "--rec %s ", $2}' "$1"; }
 ARGS="--lang en --rec $W2 $(rec $W2/render/best.txt) \
   $(rec $W2/render-fog-c2-alt110-d3.05-dist200/best.txt p03) $(rec $W2/render-fog-c2-human/best.txt p03) \
-  $(rec $W2/render-human/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>"
+  $(rec $W2/render-human/best.txt) $(rec $W2/render-human2/best.txt) --rec $W4 $(rec $W4/render/best.txt) --music <Juggernaut.mp3>"
 mkdir -p dist && echo "uv run tools/trailer/edit.py $ARGS" > dist/incoming-trailer-edit.sh
 uv run tools/trailer/edit.py $ARGS 2>&1 | tee dist/incoming-trailer-edit.log
 ```
