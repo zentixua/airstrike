@@ -11,6 +11,7 @@ import json
 import math
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -67,9 +68,9 @@ class Scan:
         self.see("recorder", t, "p", str(e), p)
         return e
 
-    def write(self, out: Path, ticks: int):
+    def write(self, out: Path, ticks: int, track=lambda t: EYE):
         for t in range(ticks):
-            self.rows["viewers"].append([t, "recorder", DIM, *EYE, 0.0, 0.0])
+            self.rows["viewers"].append([t, "recorder", DIM, *track(t), 0.0, 0.0])
         out.mkdir(parents=True, exist_ok=True)
         for name, columns in replaydb.TABLES.items():
             header = [c.split()[0] for c in columns.split(", ")]
@@ -381,7 +382,8 @@ class SelectTest(unittest.TestCase):
             clips.fly_spec("at=00:55/01:10 to=-100,100,0")
         with self.assertRaises(argparse.ArgumentTypeError):
             clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-100,100,0 speed=3")
-        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 look=south turn=25")
+        # прорисовка записавшего — 25 чанков: весь путь в чанках повтора (их проверка — test_fly_stays_in_recorder_chunks)
+        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 look=south turn=25 reach=400")
         self.assertEqual((spec["a"], spec["b"], spec["to_at"], spec["look"]), (1100, 1400, 1250, 0.0))
         r = self.r
         r.fly_specs = [spec]
@@ -406,9 +408,9 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(c[0].weapon, "shahed")
 
     def test_fly_stays_in_recorder_chunks(self):
-        """Чанки повтора — только вокруг записавшего: путь, у которого глаз или низ кадра дальше reach, сдвигается (и
-        медленнее), пока весь не встанет в них."""
-        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 reach=60")
+        """Чанки повтора — где записавший уже был (reach — его прорисовка): путь, у которого глаз или земля в нижней
+        половине кадра вне них, медленнее и чуть сдвинут, пока весь не встанет в них."""
+        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 reach=64")
         r = self.r
         r.fly_specs = [spec]
         try:
@@ -417,15 +419,17 @@ class SelectTest(unittest.TestCase):
         finally:
             r.fly_specs = []
         n = c[0].numbers
-        self.assertTrue(n["shift"] != [0.0, 0.0] or n["speed"] < 1, n)
-        self.assertIn("уходил из чанков записавшего", printed.getvalue())
-        keys = c[0].shots[0].camera["keys"]
-        half = spec["fov"] / 2
+        self.assertTrue(n["shift"] != [0.0, 0.0] or n["speed"] < 1, printed.getvalue())
+        self.assertEqual((n["view"], n["moved"], n["covered"]), (4, 0, n["checks"]), printed.getvalue())
+        self.assertIn("в чанках повтора не был", printed.getvalue())
+        seen = r.seen_chunks(DIM, 4)
+        shot = c[0].shots[0]
+        keys = shot.camera["keys"]
+        tan_y = math.tan(math.radians(spec["fov"] / 2))
         for k in range(0, 301, 20):
             e = [keys[0]["eye"][i] + (keys[1]["eye"][i] - keys[0]["eye"][i]) * k / 300 for i in range(3)]
-            low = clips.low_point(e, n["yaw"], n["pitch"], half, 63)
-            for q in (e, low):
-                self.assertLessEqual(math.hypot(q[0] - EYE[0], q[2] - EYE[2]), 60.5, f"{k}: {q}")
+            for q in (e, *clips.ground_points(e, n["yaw"], n["pitch"], tan_y * 9 / 16, tan_y, 63, r.FLY_NEAR)):
+                self.assertTrue(r.seen_at(seen, q, shot.a + k), f"{k}: {q}")
 
     def test_far(self):
         c = self.r.far()
@@ -604,6 +608,77 @@ class PlanTest(unittest.TestCase):
         self.assertGreaterEqual(len(s["subject"]["keys"]), 4)
         self.assertIn("area", s["subject"])
 
+
+
+PORT = (-600.5, 71.62, 0.5)
+
+
+def history(visit: tuple[int, int]) -> Path:
+    """Записавший у порта (PORT) в тики visit, остальное время — у EYE; удары по земле у порта в 1250 и 1650–1690;
+    обновления блоков — до 10 чанков от него (его прорисовка)."""
+    s = Scan()
+    for t in (1250, 1650, 1670, 1690):
+        s.blast(t, "airstrike:blast", (-600.0, 64.0, 80.0 + (t - 1650) / 4), None)
+    track = lambda t: PORT if visit[0] <= t < visit[1] else EYE  # noqa: E731
+    for t in range(0, 2100, 7):
+        p = track(t)
+        s.rows["blocks"].append([t, DIM, math.floor(p[0]) + 16 * (t % 11), 64, math.floor(p[2]), "minecraft:air"])
+    tmp = Path(tempfile.mkdtemp(prefix="clips-history-"))
+    s.write(tmp / "scan", 2100, track)
+    return replaydb.build(argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7, soft=2))
+
+
+class HistoryTest(unittest.TestCase):
+    """Сервер повтора не забывает чанков: у пролёта в мире всё, что запись прислала до него, а не только вокруг
+    записавшего сейчас; прорисовка — по обновлениям блоков."""
+
+    def fly(self, visit, spec="at=01:00/01:15 from=-580,90,-40 to=-620,90,-40 look=south"):
+        r = clips.Replay(history(visit), argparse.Namespace(fov=70, aspect=9 / 16, center=0.7, soft=2))
+        r.fly_specs = [clips.fly_spec(spec)]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            c = r.fly()
+        return r, c[0], printed.getvalue()
+
+    def test_seen_before(self):
+        r, c, printed = self.fly((0, 400))
+        self.assertEqual(r.view_radius()[0], 10, "прорисовка — по обновлениям блоков")
+        n = c.numbers
+        self.assertEqual((n["speed"], n["shift"], n["moved"], n["covered"]), (1.0, [0.0, 0.0], 0, n["checks"]),
+                         "записавший ушёл к EYE, но порт уже в мире повтора: путь как задан\n" + printed)
+        self.assertIn("чанки у from — с 00:00.0", printed)
+        self.assertEqual(n["ground"], 1, printed)
+
+    def test_seen_later(self):
+        r, c, printed = self.fly((1600, 1800))
+        n = c.numbers
+        shot = c.shots[0]
+        self.assertTrue(1600 <= shot.a <= 1650 and n["moved"] == shot.a - 1200, printed)
+        self.assertEqual(n["covered"], n["checks"], printed)
+        self.assertEqual(n["ground"], 3, "удары у порта в 1650–1690 — в кадре\n" + printed)
+        self.assertIn("то же место в", printed)
+
+    def test_other_dimension_forgets(self):
+        """Мир другого измерения сервер повтора закрывает, когда записавший уходит: там чанки только с последнего
+        входа; верхний мир держит всё."""
+        class Con:
+            def execute(self, q):
+                return self
+
+            def fetchall(self):
+                return [(0, DIM, 0.5, 0.5), (100, NETHER, 0.5, 0.5), (200, DIM, 0.5, 0.5),
+                        (300, NETHER, 1000.5, 0.5), (400, DIM, 0.5, 0.5)]
+        r = types.SimpleNamespace(con=Con())
+        nether = clips.Replay.seen_chunks(r, NETHER, 2)
+        self.assertEqual(nether[(0, 0)], [(100, 200)])
+        self.assertEqual(nether[(62, 0)], [(300, 400)])
+        self.assertFalse(clips.Replay.seen_at(nether, (0.5, 64, 0.5), 300), "второй вход — далеко, у (0, 0) мира нет")
+        self.assertTrue(clips.Replay.seen_at(nether, (0.5, 64, 0.5), 150))
+        top = clips.Replay.seen_chunks(r, DIM, 2)
+        self.assertEqual(top[(0, 0)], [(0, 10 ** 9)])
+        self.assertTrue(clips.Replay.seen_at(top, (0.5, 64, 0.5), 350), "в Незере верхний мир остаётся")
+
+
+NETHER = "minecraft:the_nether"
 
 if __name__ == "__main__":
     unittest.main()

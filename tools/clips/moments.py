@@ -263,15 +263,24 @@ def aim_flight(eye, rel: list[tuple], look: float, turn: float, tan_x: float, ta
     return look + best, pitch
 
 
-def low_point(eye, yaw: float, pitch: float, half_y: float, ground: float):
-    """Где низ кадра (середина нижнего края) встречает землю на высоте ground; низ кадра выше горизонта — сам глаз."""
-    down = pitch + half_y
-    h = eye[1] - ground
-    if down <= 0 or h <= 0:
-        return eye
-    d = h / math.tan(math.radians(min(89.0, down)))
-    y = math.radians(yaw)
-    return eye[0] - math.sin(y) * d, ground, eye[2] + math.cos(y) * d
+def ground_points(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, ground: float, near: float) -> list[tuple]:
+    """Где лучи нижней половины кадра (нижний край и середина её, слева, посередине, справа) встречают землю на высоте
+    ground не дальше near блоков от глаза: там у повтора должны быть чанки (иначе — рельеф Distant Horizons без воды и
+    пещеры или пусто)."""
+    fwd = direction(yaw, pitch)
+    yr = math.radians(yaw)
+    right = (-math.cos(yr), 0.0, -math.sin(yr))
+    up = (right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0])
+    out = []
+    for sy in (-0.95, -0.5):
+        for sx in (-0.9, 0.0, 0.9):
+            d = [fwd[i] + right[i] * sx * tan_x + up[i] * sy * tan_y for i in range(3)]
+            if d[1] >= 0 or eye[1] <= ground:
+                continue
+            k = (eye[1] - ground) / -d[1]
+            if math.hypot(d[0] * k, d[2] * k) <= near:
+                out.append((eye[0] + d[0] * k, ground, eye[2] + d[2] * k))
+    return out
 
 
 def fmt(p) -> str:
@@ -286,7 +295,7 @@ def fly_spec(spec: str) -> dict:
     """`--fly`: `at=<с>/<по> from=x,y,z to=x,y,z [to_at=<время>] [focus=<с>/<по>] [look=south|<курс>] [turn=25]
     [fov=70] [dim=minecraft:overworld] [reach=<блоков>] [ground=63]` — время по шкале Flashback; камера проходит `to` в
     `to_at` (по умолчанию — в конце) и летит дальше той же прямой; удары в окне `focus` — в кадре прежде остальных;
-    `reach` — сколько блоков от записавшего у повтора есть чанки (по умолчанию 128),
+    `reach` — дальность прорисовки записавшего в блоках (по умолчанию — по обновлениям блоков в записи),
     `ground` — высота земли или воды под пролётом."""
     try:
         kv = dict(part.split("=", 1) for part in spec.split())
@@ -898,103 +907,210 @@ class Replay:
                           "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
                           **({"nuke_off": off[0]} if off else {}), **({"mark": mark} if mark else {})}, [shot])
 
-    # Пролёт уходит из чанков записавшего: скорость пути (доля заданной) и сдвиг (блоков, шаг) — первые, при которых он в них
+    # Чанки повтора — то, что запись прислала до тика (сервер повтора их не забывает, съёмка идёт с начала; мир другого
+    # измерения — только с последнего входа, `seen_chunks`): всё, что было не дальше прорисовки записавшего от него; её
+    # нет в разборе (пакет входа — только в снимке), поэтому — по обновлениям блоков: сервер шлёт их только в чанки,
+    # которые клиент держит (99,9 % из них — не дальше). Прорисовка не больше 32 чанков (и чанк-два слежения сверх неё):
+    # дальше — не прорисовка (место записавшего отстало при телепорте), такие строки не в счёт
+    VIEW_MAX = 34
+    VIEW = f"""
+        WITH r AS (SELECT t, dim, x, z FROM viewers WHERE viewer = 'recorder'),
+        d AS (SELECT sqrt(power(floor(b.x / 16.0) - floor(r.x / 16.0), 2) + power(floor(b.z / 16.0) - floor(r.z / 16.0), 2)) AS k
+              FROM blocks b ASOF JOIN r ON b.dim = r.dim AND b.t >= r.t)
+        SELECT count(*), quantile_cont(k, 0.999) FROM d WHERE k <= {VIEW_MAX}"""
+    # без обновлений блоков (меньше VIEW_ROWS) — 8 чанков: с запасом для обычной прорисовки
+    VIEW_DEFAULT, VIEW_ROWS = 8, 200
+    # Чанки нужны под глазом и там, где лучи нижней половины кадра встречают землю ближе FLY_NEAR блоков
+    FLY_NEAR = 192.0
+    # удары «у пути» — для вывода: когда там прилетало
+    FLY_AROUND = 250.0
+    # Пролёт не в чанках повтора: скорость пути (доля заданной) и сдвиг (блоков, шаг) — первые, при которых он в них;
+    # сдвиг маленький: путь задан человеком (порт, улица), а дальше — уже другое время, не другое место
     FLY_SPEEDS = (1.0, 0.8, 0.65, 0.5, 0.4, 0.3)
-    # Чанки повтора вокруг записавшего, блоков (без reach): его дальности прорисовки в разборе нет (пакет входа — только
-    # в снимке начала куска, в ленту не идёт); 8 чанков — с запасом для обычной дальности сервера, меньше — ловит
-    # проверка кадров (low_out)
-    FLY_REACH = 128.0
-    FLY_SHIFT, FLY_STEP = 640, 16
+    FLY_SHIFT, FLY_STEP = 64, 16
+
+    def view_radius(self) -> tuple[int, str]:
+        """Прорисовка записавшего в чанках и откуда она (по обновлениям блоков или по умолчанию)."""
+        if not hasattr(self, "_view"):
+            n, q = self.con.execute(self.VIEW).fetchone()
+            self._view = (min(self.VIEW_MAX, max(2, math.ceil(q))), f"по {n} обновлениям блоков") if n >= self.VIEW_ROWS and q is not None \
+                else (self.VIEW_DEFAULT, "по умолчанию: обновлений блоков мало")
+        return self._view
+
+    def seen_chunks(self, dim: str, radius: int) -> dict[tuple[int, int], list[tuple[int, int]]]:
+        """Чанк → отрезки тиков [с, по), когда он у мира повтора есть: записавший был от него не дальше radius чанков.
+        Верхний мир сервер повтора держит весь запуск; мир другого измерения он закрывает, когда записавший уходит
+        оттуда, — там чанки только с последнего входа."""
+        key = (dim, radius)
+        self._seen = getattr(self, "_seen", {})
+        if key in self._seen:
+            return self._seen[key]
+        disk = [(dx, dz) for dx in range(-radius, radius + 1) for dz in range(-radius, radius + 1) if dx * dx + dz * dz <= radius * radius]
+        rows = self.con.execute("SELECT t, dim, x, z FROM viewers WHERE viewer = 'recorder' ORDER BY t").fetchall()
+        keep = dim == "minecraft:overworld"
+        out: dict[tuple[int, int], list[tuple[int, int]]] = {}
+        first: dict[tuple[int, int], int] = {}
+        fresh: dict[tuple[int, int], list] = {}
+        prev = None
+
+        def close(until: int):
+            for c, t in first.items():
+                out.setdefault(c, []).append((t, until))
+            first.clear()
+
+        for t, d, x, z in rows:
+            if d != dim:
+                if prev is not None and not keep:
+                    close(t)
+                prev = None
+                continue
+            c = (math.floor(x) >> 4, math.floor(z) >> 4)
+            if c == prev:
+                continue
+            offs = disk
+            if prev is not None and abs(c[0] - prev[0]) <= 2 and abs(c[1] - prev[1]) <= 2:
+                dd = (c[0] - prev[0], c[1] - prev[1])
+                if dd not in fresh:
+                    old = {(dx - dd[0], dz - dd[1]) for dx, dz in disk}
+                    fresh[dd] = [o for o in disk if o not in old]
+                offs = fresh[dd]
+            for dx, dz in offs:
+                first.setdefault((c[0] + dx, c[1] + dz), t)
+            prev = c
+        close(10 ** 9)
+        self._seen[key] = out
+        return out
+
+    @staticmethod
+    def seen_at(seen: dict, q, t: float) -> bool:
+        """Чанк места q (x, y, z) у мира повтора в тик t."""
+        return any(a <= t < b for a, b in seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), ()))
 
     def fly(self) -> list[Candidate]:
         """7 — пролёт свободной камеры (`--fly`, время по шкале Flashback): глаз — по прямой из `from` через `to` (в
         `to_at`) и дальше; взгляд — постоянный (`aim_flight`): в сторону `look`, повёрнутый не дальше `turn` туда, где в
-        кадре больше ударов окна `focus`, потом ударов по земле, потом всех; наклон — к ним. Чанки повтора — только
-        вокруг записавшего: глаз и низ кадра дальше `reach` от него — под камерой рельеф Distant Horizons (у моря — дно и
-        пещеры без воды) или пусто; тогда путь медленнее (вокруг середины окна `focus`) и сдвинут — первые скорость и
-        сдвиг, при которых он в чанках, а ударов `focus` в кадре не меньше. Удары в кадре — события плана, снаряды в
-        кадре — в числах; кадр — в его тики, как у вывода."""
+        кадре больше ударов окна `focus`, потом ударов по земле, потом всех; наклон — к ним. Чанки повтора — то, что
+        запись прислала до тика (`seen_chunks`): под глазом и на земле в нижней половине кадра их нет — там рельеф
+        Distant Horizons (у моря — дно и пещеры без воды) или пусто; тогда путь медленнее (вокруг середины окна `focus`)
+        и чуть сдвинут, а не встаёт и так — то же место в другое время записи, где оно в чанках и ударов по земле в
+        кадре больше всего. Удары в кадре — события плана, снаряды в кадре — в числах; кадр — в его тики, как у вывода."""
         out = []
         weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
         for k, f in enumerate(self.fly_specs):
-            a, b, total = f["a"], f["b"], self.meta.get("total_ticks") or 10 ** 9
-            if a >= total:
+            a0, b0, total = f["a"], f["b"], self.meta.get("total_ticks") or 10 ** 9
+            if a0 >= total:
                 print(f"{self.name}: пролёт {f['spec']!r} после конца записи ({mmss(total)}) — не берётся")
                 continue
-            b = min(b, total)
+            b0 = min(b0, total)
             p0, p1, span = f["from"], f["to"], f["to_at"] - f["a"]
             vel = [(p1[i] - p0[i]) / span for i in range(3)]
-            mid = (f["focus"][0] + f["focus"][1]) / 2 if f.get("focus") else (a + b) / 2
-            centre = [p0[i] + vel[i] * (mid - a) for i in range(3)]
+            mid = (f["focus"][0] + f["focus"][1]) / 2 if f.get("focus") else (a0 + b0) / 2
+            centre = [p0[i] + vel[i] * (mid - a0) for i in range(3)]
             tan_y = math.tan(math.radians(f["fov"] / 2))
             tan_x = tan_y * self.aspect
-            hits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? AND t BETWEEN ? AND ? ORDER BY t",
-                                    [f["dim"], a, b]).fetchall()
-            in_focus = lambda r: bool(f.get("focus")) and f["focus"][0] <= r[1] <= f["focus"][1]  # noqa: E731
+            radius, source = (math.ceil(f["reach"] / 16), "задана") if f.get("reach") else self.view_radius()
+            seen = self.seen_chunks(f["dim"], radius)
+            allhits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? ORDER BY t", [f["dim"]]).fetchall()
+            hit_t = [r[1] for r in allhits]
 
-            def path(speed: float, shift: tuple[float, float]):
-                return lambda t: (centre[0] + vel[0] * speed * (t - mid) + shift[0], centre[1] + vel[1] * speed * (t - mid),
-                                  centre[2] + vel[2] * speed * (t - mid) + shift[1])
+            def path(speed: float, shift: tuple[float, float], moved: int = 0):
+                return lambda t: (centre[0] + vel[0] * speed * (t - moved - mid) + shift[0], centre[1] + vel[1] * speed * (t - moved - mid),
+                                  centre[2] + vel[2] * speed * (t - moved - mid) + shift[1])
 
-            def aimed(eye):
+            def aimed(eye, a: int, b: int, focus):
+                hits = allhits[bisect.bisect_left(hit_t, a):bisect.bisect_right(hit_t, b)]
                 rel = [(hid, t, (x, y, z), place, *bearing(eye(t), (x, y, z))) for hid, t, x, y, z, place in hits]
-                yaw, pitch = aim_flight(eye, rel, f["look"], f["turn"], tan_x, tan_y, f.get("focus"))
-                return rel, yaw, pitch, sum(in_focus(r) and in_view(eye(r[1]), yaw, pitch, tan_x, tan_y, r[2]) for r in rel)
+                yaw, pitch = aim_flight(eye, rel, f["look"], f["turn"], tan_x, tan_y, focus)
+                framed = [r for r in rel if in_view(eye(r[1]), yaw, pitch, tan_x, tan_y, r[2])]
+                return rel, yaw, pitch, framed
 
-            # где записавший (у повтора чанки только вокруг него): на сколько глаз и низ кадра дальше reach от него
-            track = self.con.execute("SELECT t, x, z FROM viewers WHERE viewer = 'recorder' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
-                                     [f["dim"], a - 40, b + 40]).fetchall()
-            reach = f.get("reach") or self.FLY_REACH
-            times = [r[0] for r in track]
-            checks = list(range(a, b + 1, 20))
-            near = [track[min(range(max(0, i - 1), min(len(track), i + 1)), key=lambda j: abs(track[j][0] - t))]
-                    for t, i in ((t, bisect.bisect_left(times, t)) for t in checks)] if track else []
-
-            def beyond(eye, yaw: float, pitch: float) -> float:
-                worst = -math.inf
-                for t, (_, rx, rz) in zip(checks, near):
+            def missing(eye, yaw: float | None, pitch: float, a: int, b: int, stop: bool = False) -> int:
+                """Сколько проверок (раз в секунду) не в чанках повтора: глаз, а с курсом — и земля в нижней половине кадра."""
+                n = 0
+                for t in range(a, b + 1, TICK):
                     e = eye(t)
-                    lo = low_point(e, yaw, pitch, f["fov"] / 2, f["ground"])
-                    worst = max(worst, math.hypot(e[0] - rx, e[2] - rz), math.hypot(lo[0] - rx, lo[2] - rz))
-                return worst - reach
+                    pts = [e] if yaw is None else [e, *ground_points(e, yaw, pitch, tan_x, tan_y, f["ground"], self.FLY_NEAR)]
+                    if not all(self.seen_at(seen, q, t) for q in pts):
+                        n += 1
+                        if stop:
+                            return n
+                return n
 
-            speed, shift = 1.0, (0.0, 0.0)
+            def counts(framed, focus) -> tuple[int, int, int]:
+                return (sum(bool(focus) and focus[0] <= r[1] <= focus[1] for r in framed), sum(r[3] == "ground" for r in framed), len(framed))
+
+            focus0 = f.get("focus")
+            speed, shift, moved = 1.0, (0.0, 0.0), 0
             eye = path(speed, shift)
-            rel, yaw, pitch, framed_focus = aimed(eye)
-            over = beyond(eye, yaw, pitch) if near else -math.inf
-            if over > 0:
+            rel, yaw, pitch, shown = aimed(eye, a0, b0, focus0)
+            lost = missing(eye, yaw, pitch, a0, b0)
+            first_at = lambda q: next(iter(seen.get((math.floor(q[0]) >> 4, math.floor(q[2]) >> 4), ())), (None,))[0]  # noqa: E731
+            print(f"{self.name}: пролёт {mmss(a0)}–{mmss(b0)}: прорисовка записавшего {radius} чанков ({source}); чанки у from — "
+                  + (f"с {mmss(first_at(p0))}" if first_at(p0) is not None else "ни разу") + ", у to — "
+                  + (f"с {mmss(first_at(p1))}" if first_at(p1) is not None else "ни разу"))
+            track = self.con.execute("SELECT t, x, z FROM viewers WHERE viewer = 'recorder' AND dim = ? ORDER BY t", [f["dim"]]).fetchall()
+            for name, q in (("from", p0), ("to", p1)):
+                if track:
+                    t, x, z = min(track, key=lambda r: math.hypot(r[1] - q[0], r[2] - q[2]))
+                    print(f"  записавший ближе всего к {name}: {mmss(t)}, {math.hypot(x - q[0], z - q[2]):.0f} блоков")
+            # удары по земле у пути за всю запись, по минутам: когда там прилетало
+            seg = (p1[0] - p0[0], p1[2] - p0[2])
+            along = lambda x, z: min(1.0, max(0.0, ((x - p0[0]) * seg[0] + (z - p0[2]) * seg[1]) / max(1e-9, seg[0] ** 2 + seg[1] ** 2)))  # noqa: E731
+            near = [t for _, t, x, _, z, place in allhits if place == "ground"
+                    and math.hypot(x - p0[0] - seg[0] * along(x, z), z - p0[2] - seg[1] * along(x, z)) <= self.FLY_AROUND]
+            by_min: dict[int, int] = {}
+            for t in near:
+                by_min[t // (60 * TICK)] = by_min.get(t // (60 * TICK), 0) + 1
+            print(f"  удары по земле не дальше {self.FLY_AROUND:.0f} блоков от пути from–to за всю запись: "
+                  + (", ".join(f"{m}:xx ×{n}" for m, n in sorted(by_min.items())) or "нет"))
+            if lost:
+                base = counts(shown, focus0)
+                best = None
                 grid = sorted(((x, z) for x in range(-self.FLY_SHIFT, self.FLY_SHIFT + 1, self.FLY_STEP)
                                for z in range(-self.FLY_SHIFT, self.FLY_SHIFT + 1, self.FLY_STEP)), key=lambda o: math.hypot(*o))
-                best = None
                 for v in self.FLY_SPEEDS:
-                    tried = 0
                     for o in grid:
                         e = path(v, o)
-                        if beyond(e, yaw, pitch) > 0:
+                        if missing(e, yaw, pitch, a0, b0, stop=True):
                             continue
-                        r2, y2, p2, n2 = aimed(e)
-                        tried += 1
-                        if beyond(e, y2, p2) <= 0 and n2 >= framed_focus:
-                            best = (v, o, e, r2, y2, p2, n2)
-                            break
-                        if tried >= 40:
+                        r2, y2, p2, s2 = aimed(e, a0, b0, focus0)
+                        if not missing(e, y2, p2, a0, b0, stop=True) and counts(s2, focus0)[0] >= base[0]:
+                            best = (v, o, e, r2, y2, p2, s2)
                             break
                     if best:
                         break
                 if best:
-                    speed, shift, eye, rel, yaw, pitch, framed_focus = best
-                    print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)} уходил из чанков записавшего на {over:.0f} блоков (их у повтора — "
-                          f"до {reach:.0f} блоков от него): скорость ×{speed:g}, сдвиг ({shift[0]:+.0f}, {shift[1]:+.0f})")
+                    speed, shift, eye, rel, yaw, pitch, shown = best
+                    print(f"  в чанках повтора не был в {lost} из {(b0 - a0) // TICK + 1} проверок: скорость ×{speed:g}, "
+                          f"сдвиг ({shift[0]:+.0f}, {shift[1]:+.0f})")
                 else:
-                    print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)} уходит из чанков записавшего на {over:.0f} блоков (их у повтора — "
-                          f"до {reach:.0f} блоков от него), и ни медленнее, ни сдвигом до {self.FLY_SHIFT} блоков в них не встаёт: "
-                          f"низ кадра — рельеф Distant Horizons")
+                    # то же место в другое время: путь и окна — со сдвигом во времени, весь в чанках, ударов по земле в кадре больше
+                    found = None
+                    for dt in sorted(range(-a0, total - b0 + 1, TICK), key=abs):
+                        e = path(1.0, (0.0, 0.0), dt)
+                        if missing(e, None, 0, a0 + dt, b0 + dt, stop=True):
+                            continue
+                        foc = (focus0[0] + dt, focus0[1] + dt) if focus0 else None
+                        r2, y2, p2, s2 = aimed(e, a0 + dt, b0 + dt, foc)
+                        score = counts(s2, foc)[1:]
+                        if score[0] and not missing(e, y2, p2, a0 + dt, b0 + dt, stop=True) and (found is None or score > found[0]):
+                            found = (score, dt, e, r2, y2, p2, s2)
+                    if found:
+                        _, moved, eye, rel, yaw, pitch, shown = found
+                        print(f"  в {mmss(a0)}–{mmss(b0)} не в чанках повтора ({lost} из {(b0 - a0) // TICK + 1} проверок), ни "
+                              f"медленнее, ни сдвигом до {self.FLY_SHIFT} блоков: то же место в {mmss(a0 + moved)}–{mmss(b0 + moved)} "
+                              f"({'+' if moved >= 0 else '−'}{mmss(abs(moved))}), там в чанках")
+                    else:
+                        print(f"  в {mmss(a0)}–{mmss(b0)} не в чанках повтора ({lost} из {(b0 - a0) // TICK + 1} проверок), и ни "
+                              f"медленнее, ни сдвигом, ни в другое время с ударами по земле в кадре в них не встаёт: под камерой "
+                              f"рельеф Distant Horizons")
+            a, b = a0 + moved, b0 + moved
+            focus = (focus0[0] + moved, focus0[1] + moved) if focus0 else None
+            in_focus = [r for r in rel if focus and focus[0] <= r[1] <= focus[1]]
 
-            def framed(yaw: float, t: float, pos) -> bool:
+            def framed(t: float, pos) -> bool:
                 return in_view(eye(t), yaw, pitch, tan_x, tan_y, pos)
 
-            focus = [r for r in rel if in_focus(r)]
-            shown = [r for r in rel if framed(yaw, r[1], r[2])]
             keys = [{"t": t, "pos": list(pos), "size": BLAST.get(weapon.get(hid, ""), 16), "id": hid} for hid, t, pos, *_ in shown]
             # снаряды в кадре: пути сущностей и дальние строки, раз в 10 тиков
             rows = self.con.execute("""
@@ -1003,7 +1119,7 @@ class Replay:
                 UNION ALL
                 SELECT uuid, t, x, y, z FROM far WHERE src LIKE '%:far_flights' AND dim = ? AND t BETWEEN ? AND ? AND t % 10 = 0""",
                                     [f["dim"], a, b, f["dim"], a, b]).fetchall()
-            flown = {u for u, t, x, y, z in rows if u in self.by_uuid and framed(yaw, t, (x, y, z))}
+            flown = {u for u, t, x, y, z in rows if u in self.by_uuid and framed(t, (x, y, z))}
             weapons = sorted({self.by_uuid[u].weapon for u in flown} | {weapon[r[0]] for r in shown if r[0] in weapon})
             look = direction(yaw, pitch)
             path_cam = {"kind": "path", "fov": f["fov"], "dim": f["dim"],
@@ -1011,23 +1127,25 @@ class Replay:
                                  for t in (a, b)]}
             ground = sum(r[3] == "ground" for r in shown)
             why = (f"свободная камера: {fmt(eye(a))} → {fmt(eye(b))}, курс {yaw:.0f}°, наклон {pitch:.0f}°; ударов в кадре {len(shown)} "
-                   f"из {len(rel)} (по земле {ground}" + (f"; {mmss(f['focus'][0])}–{mmss(f['focus'][1])}: "
-                   f"{sum(r in shown for r in focus)} из {len(focus)}" if f.get("focus") else "") + f"), снарядов в кадре {len(flown)}")
+                   f"из {len(rel)} (по земле {ground}" + (f"; {mmss(focus[0])}–{mmss(focus[1])}: "
+                   f"{sum(r in shown for r in in_focus)} из {len(in_focus)}" if focus else "") + f"), снарядов в кадре {len(flown)}")
             print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)}: {why}")
-            if track:
-                print(f"  записавший: {fmt((track[0][1], track[0][2]))} → {fmt((track[-1][1], track[-1][2]))}; глаз и низ кадра — "
-                      f"не дальше {beyond(eye, yaw, pitch) + reach:.0f} блоков от него (чанки повтора — до {reach:.0f})")
+            left = missing(eye, yaw, pitch, a, b)
+            print(f"  в чанках повтора — {(b - a) // TICK + 1 - left} из {(b - a) // TICK + 1} проверок (глаз и земля нижней "
+                  f"половины кадра ближе {self.FLY_NEAR:.0f} блоков)")
             for hid, t, pos, place, hyaw, _, d in rel:
                 print(f"  удар {mmss(t)} {place:<9} {weapon.get(hid, '?'):<8} {d:6.0f} блоков, курс на него {hyaw:5.0f}°,"
                       f" {'в кадре' if any(r[0] == hid for r in shown) else 'вне кадра'}")
-            if f.get("focus") and not focus:
-                print(f"  в окне {mmss(f['focus'][0])}–{mmss(f['focus'][1])} ударов нет")
-            elif f.get("focus") and not any(r in shown for r in focus):
-                print(f"  в окне {mmss(f['focus'][0])}–{mmss(f['focus'][1])} ни одного удара в кадре — нужен другой look или turn")
+            if focus and not in_focus:
+                print(f"  в окне {mmss(focus[0])}–{mmss(focus[1])} ударов нет")
+            elif focus and not any(r in shown for r in in_focus):
+                print(f"  в окне {mmss(focus[0])}–{mmss(focus[1])} ни одного удара в кадре — нужен другой look или turn")
             out.append(Candidate("fly", self.name, str(self.db), 1000 - k, a, "+".join(weapons) or "fly",
                                  f"пролёт {mmss(a)}–{mmss(b)}: {why}",
                                  {"seconds": round((b - a) / TICK, 1), "ground": ground, "impacts": len(shown), "flights": len(flown),
-                                  "yaw": round(yaw, 1), "pitch": round(pitch, 1), "speed": speed, "shift": list(shift), "mark": f["spec"]},
+                                  "yaw": round(yaw, 1), "pitch": round(pitch, 1), "speed": speed, "shift": list(shift),
+                                  "moved": moved, "covered": (b - a) // TICK + 1 - left, "checks": (b - a) // TICK + 1,
+                                  "view": radius, "mark": f["spec"]},
                                  [Shot("fly", "fly", a, b, path_cam, {"keys": keys}, why)]))
         return out
 
