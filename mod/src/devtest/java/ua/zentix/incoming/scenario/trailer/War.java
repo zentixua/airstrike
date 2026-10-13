@@ -442,7 +442,7 @@ final class War {
 
         // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
         Vec3 room = new Vec3(3060.5, 0, 352.5);
-        Vec3 blast = new Vec3(3062.5, 0, 331.5);  // на улице перед окном: вспышка видна в окне целиком
+        Vec3 blast = new Vec3(3062.5, 0, 338.5);  // на тротуаре перед окном, за стеной улицы не спрятан
         hiddenAt(room, blast);
         film.onServer(level -> buildRoom(level, room));
         film.shot("p17").length(40).hidden()
@@ -928,7 +928,7 @@ final class War {
             Film.cmd("weather rain");
         });
         Vec3 night = new Vec3(3180.5, 0, 300.5);
-        Vec3 nightCam = new Vec3(3175.5, 164, 350.5);  // северный край крыши ROOF: площадь и небо над ней
+        Vec3 nightCam = new Vec3(3175.5, 170, 350.5);  // над северным краем крыши ROOF: площадь и небо над ней
         hiddenAt(nightCam, night);
         film.shot("p38").length(70).hidden()
                 .onReady(() -> {
@@ -1130,5 +1130,9 @@ final class War {
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:red_bed[facing=east,part=foot]", x - 2, y, z + 1));
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:bookshelf", x + 2, y, z + 2));
         cast().command(String.format(Locale.ROOT, "setblock %d %d %d minecraft:potted_fern", x + 2, y, z - 2));
+        // двор перед окном: деревья и живая изгородь закрывали бы вид
+        for (String tag : new String[]{"#minecraft:leaves", "#minecraft:logs"})
+            cast().command(String.format(Locale.ROOT, "fill %d %d %d %d %d %d minecraft:air replace %s", x - 8, y - 1, z - 14,
+                    x + 8, y + 12, z - 4, tag));
     }
 }
