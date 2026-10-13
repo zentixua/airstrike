@@ -46,9 +46,12 @@ with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, 'w', zipfile.ZIP_STORED, 
             if not os.path.isdir(path):
                 print(key, 'нет каталога', path, '- у этого измерения не будет LOD')
                 continue
-            if not os.path.isdir(copy):
-                subprocess.run(['cp', '-a', '--reflink=auto', path, copy], check=True)
-            print(key, path, '->', copy, *(subprocess.run(['du', '-s', d], capture_output=True, text=True).stdout.split()[0] for d in (path, copy)))
+            if os.path.isdir(copy):
+                print(key, '->', copy, '(копия уже есть)')
+                continue
+            subprocess.run(['cp', '-a', '--reflink=auto', path, copy], check=True)
+            size = lambda d: sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(d) for f in fs)
+            print(key, path, '->', copy, 'байт:', size(path), size(copy))
         if not dh:
             print('нет distantHorizonPaths: в кадре не будет LOD')
         zout.writestr('metadata.json', json.dumps(meta, indent=2))
@@ -56,7 +59,7 @@ EOF
 python3 $W/epic-index/strip_payloads.py $T/replays/$N.dh.zip $T/replays/$N.zip pointblank:mainheldsimplifiedstatebroadcastpacket
 rm $T/replays/$N.dh.zip
 ```
-Числа `du -s` источника и копии LOD — равны; нет `distantHorizonPaths` или каталога-источника — сказать в отчёте.
+Байт в источнике и в новой копии LOD — поровну; нет `distantHorizonPaths` или каталога-источника — сказать в отчёте.
 
 ## 3. Разбор (видеокарта не нужна)
 На время разбора в `$T/game/config/iris.properties` — `enableShaders=false`. На каждый повтор:
