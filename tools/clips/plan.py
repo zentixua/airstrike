@@ -74,9 +74,10 @@ def cameras(shot: dict) -> list[dict]:
         return out
     rig = cam.get("rig")
     # длинный объектив с места игрока: подрыв бывает за чанками повтора (ядерка вдали), место игрока — в них
-    lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": cam["lens"]["aim"], "fov": cam["lens"]["fov"]}] if cam.get("lens") else []
+    lens = [{"kind": "fixed", "eye": cam["lens"]["eye"], "aim": cam["lens"]["aim"], "fov": cam["lens"]["fov"],
+             "rise": cam["lens"].get("rise", [0])}] if cam.get("lens") else []
     if rig == "lens":
-        return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"]}]
+        return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"], "rise": cam.get("rise", [0])}]
     if rig == "wide":
         spread = s.get("spread", 60)
         return [{"kind": "tripod", "around": s["centre"], "dist": cam["dist"], "elev": cam["elev"], "share": 0.85,

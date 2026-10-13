@@ -222,6 +222,27 @@ def key(f: Flight) -> dict:
     return {"t": f.t_hit, "pos": list(f.pos), "size": BLAST.get(f.weapon, 16), "id": f.hit}
 
 
+# Ролик не короче, с (превью — 20–35 с)
+LEAST = 20
+
+
+def fill(shots: list[Shot], least: float = LEAST) -> list[Shot]:
+    """Ролик не короче least секунд: недостающее — плану удара (40 % до удара, но не раньше конца прошлого плана,
+    остальное — после), без него — концу последнего плана."""
+    short = round(least * TICK) - sum(s.b - s.a for s in shots)
+    if short <= 0:
+        return shots
+    i = next((i for i in range(len(shots) - 1, -1, -1) if shots[i].kind == "impact"), len(shots) - 1)
+    s = shots[i]
+    if s.kind == "impact":
+        before = min(round(short * 0.4), max(0, s.a - shots[i - 1].b) if i > 0 else round(short * 0.4))
+        s.a -= before
+        s.b += short - before
+    else:
+        s.b += short
+    return shots
+
+
 class Replay:
     """Одна база: снаряды, залпы и взгляды игроков; отбор кандидатов под каждый ролик."""
 
@@ -309,6 +330,7 @@ class Replay:
             if flyby:
                 shots.append(self.flyby_shot("flight", self.by_uuid[flyby[1]], flyby))
             shots.append(self.impact_shot("impact", self.best_hit(hits)))
+            fill(shots)
             score = (min(len(hits), 8) / 8 * 3 + len(up) / len(g) + (shots[0].camera["kind"] == "pov")
                      + (shots[-1].camera["kind"] == "pov") + (1 if fly <= 25 * TICK else 0.5 if fly <= 45 * TICK else 0))
             out.append(Candidate("rockets", self.name, str(self.db), score, first.first, g[0].weapon,
@@ -341,6 +363,7 @@ class Replay:
             shots.append(self.flyby_shot("flyby", f, row))
             after = [h for h in hits if h.t_hit >= row[2]] or hits
             shots.append(self.impact_shot("impact", self.best_hit(after)))
+            fill(shots)
             score = (min(len(hits), 6) / 6 * 2 + min(row[4], 80) / 80 * 2 + (60 - min(row[3], 60)) / 60
                      + (shots[-1].camera["kind"] == "pov") + 0.5 * bool(up))
             out.append(Candidate("drones", self.name, str(self.db), score, row[2], g[0].weapon,
@@ -372,7 +395,8 @@ class Replay:
             weapons = sorted({h.weapon for h in group})
             shots = [Shot("chaos", "chaos", t0 - 40, max(h.t_hit for h in group) + 80,
                           {"kind": "auto", "rig": "wide", "dist": [max(90, 2.5 * spread), max(140, 3.5 * spread)],
-                           "elev": [12, 25, 40]},
+                           # сверху (60°) видны удары в улицах и траншеях, которые сбоку закрывают дома
+                           "elev": [12, 25, 40, 60]},
                           {"keys": [key(h) for h in group], "centre": [cx, cy, cz], "spread": spread},
                           f"{n} ударов по земле за {window / TICK:.0f} с в круге {spread:.0f} блоков")]
             out.append(Candidate("chaos", self.name, str(self.db), n + (1 if len(weapons) > 1 else 0), t0, "+".join(weapons),
@@ -418,8 +442,9 @@ class Replay:
             # шар — 12 % ширины кадра: угол по вертикали (как Cameras.fovFor)
             fov = math.degrees(2 * math.atan(size / (2 * d * 0.12) / self.aspect))
             score = 2 - min(other, 4) / 2 + min(drawn, 30) / 15 + (1 if place == "ground" else 0) + min(d, 900) / 900
+            # и над крышами: за домом или в низине игрок удара не видел бы
             shot = Shot("far", "far", t - 120, int(heard) + 60,
-                        {"kind": "auto", "rig": "lens", "eye": [ex, ey, ez], "fov": round(max(8.0, min(20.0, fov)), 1)},
+                        {"kind": "auto", "rig": "lens", "eye": [ex, ey, ez], "fov": round(max(8.0, min(20.0, fov)), 1), "rise": [0, 24]},
                         {"uuid": f.uuid if f else None, "weapon": weapon, "size": SIZE.get(weapon, 4),
                          "keys": [{"t": t, "pos": [x, y, z], "size": size, "id": hid}], "ground_check": place != "ground"},
                         f"от {viewer}: {d:.0f} блоков, грохот через {(heard - t) / TICK:.1f} с, других громких рядом {other}")
@@ -482,8 +507,9 @@ class Replay:
                 d = max(50.0, dist(at, (x, y, z)))
                 fov = math.degrees(2 * math.atan(BLAST["icbm"] / (2 * d * 0.35) / self.aspect))
                 # взгляд — в точку над подрывом, не за объектом: ключ подрыва к t+60 опускал бы кадр, пока гриб растёт
+                # и над землёй под ним: игрок бывает в доме или метро, а сверху — горизонт
                 cam["lens"] = {"eye": [round(v, 2) for v in at], "aim": [x, y + 0.25 * BLAST["icbm"], z],
-                               "fov": round(max(12.0, min(70.0, fov)), 1)}
+                               "fov": round(max(12.0, min(70.0, fov)), 1), "rise": [0, 32, 96]}
             shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500), cam, {"keys": keys},
                               "свободная камера: вспышка, волна, гриб"))
             score = 3 + bool(up) + bool(seen) + 0.5 * len(views)

@@ -18,8 +18,9 @@ import java.util.Locale;
 
 /**
  * Камеры плана: кандидаты по его описанию ({@link Plan.Camera}) и их оценка по миру повтора до вывода — объект в кадре
- * и не за домом, событие видно, камера не в блоках, дым прежних ударов не на линии взгляда, размер в кадре не мельче
- * порога. Вывод потом проверяет то же по каждому кадру ({@link FrameLog}).
+ * и не за домом, события видны, камера не в блоках, дым прежних ударов не на линии взгляда, размер в кадре не мельче
+ * порога. Вывод потом проверяет то же по каждому кадру ({@link FrameLog}) теми же лучами и тем же кадром ({@link View},
+ * {@link #open}, {@link #keySeen}): оценка предсказывает его итог, а не догадывается о нём.
  */
 final class Cameras {
     private Cameras() {}
@@ -45,13 +46,90 @@ final class Cameras {
      */
     record Candidate(String name, @Nullable Path path, @Nullable String player, boolean gui, double fov, boolean designed) {}
 
-    /** Оценка кандидата: итог (меньше нуля — не годится) и из чего он. */
-    record Score(double total, double approach, double atKey, double after, double size, double smoke, String why) {
-        static final Score DESIGNED = new Score(1, 1, 1, 1, 1, 0, "designed camera");
+    /**
+     * Оценка кандидата: итог (меньше нуля — не годится), из чего он и пройдёт ли вывод пороги плана ({@code pass}: объект
+     * до события, за последнюю секунду и события — не меньше долей {@link Plan.Need}).
+     */
+    record Score(double total, double approach, double near, double keys, double after, double size, double smoke, boolean pass, String why) {
+        static final Score DESIGNED = new Score(1, 1, 1, 1, 1, 1, 0, true, "designed camera");
     }
 
     /** Толщина слоя облаков, блоков. */
     static final double CLOUD_DEPTH = 6;
+    /** Доля дальности прорисовки, дальше которой объект в тумане у её края (у шейдерпака туман раньше и плавнее). */
+    static final double FOG = 0.8;
+    /** Поле кадра, в котором оценка держит объект (вывод — {@link FrameLog}: 0.92): камера ведёт путь, а не сущность. */
+    static final double SAFE = 0.85;
+
+    /**
+     * Кадр камеры: глаз, оси (вперёд, вправо, вверх) и тангенсы половины угла по ширине и высоте. Вывод строит его по
+     * камере и проекции кадра, оценка — по позе и сторонам кадра.
+     */
+    record View(Vec3 eye, Vec3 fwd, Vec3 right, Vec3 up, double tanX, double tanY) {
+        static View of(Pose p, double aspect) {
+            Vec3 fwd = Vec3.directionFromRotation(p.pitch(), p.yaw());
+            Vec3 right = fwd.cross(new Vec3(0, 1, 0));
+            right = right.lengthSqr() < 1e-8 ? new Vec3(1, 0, 0) : right.normalize();
+            double ty = Math.tan(Math.toRadians(p.fov() / 2));
+            return new View(p.pos(), fwd, right, right.cross(fwd).normalize(), ty * aspect, ty);
+        }
+
+        /** Точка в кадре (доля полукадра {@code safe}: 1 — до края). */
+        boolean in(Vec3 at, double safe) {
+            Vec3 d = at.subtract(eye);
+            double z = d.dot(fwd);
+            return z > 0.1 && Math.abs(d.dot(right) / z) <= tanX * safe && Math.abs(d.dot(up) / z) <= tanY * safe;
+        }
+
+        /** Доля ширины кадра, которую занимает предмет поперечником {@code size} в точке {@code at}. */
+        double share(Vec3 at, double size) {
+            double z = at.subtract(eye).dot(fwd);
+            return z <= 0.1 ? 0 : size / (2 * z * tanX);
+        }
+    }
+
+    /**
+     * Доля открытых лучей от глаза к предмету поперечником {@code size}: к середине и к краям поперёк взгляда ({@code rays}
+     * — 3: середина и бока, 5: ещё верх и низ); последние {@code max(1.5, 0.4·size)} блоков у предмета не в счёт. Лучи —
+     * по блокам клиента: где у него нет чанка (за чанками повтора), там воздух, а рельеф дальше рисует Distant Horizons.
+     */
+    static double open(ClientLevel level, Vec3 eye, Vec3 at, Vec3 right, Vec3 up, double size, int rays) {
+        Vec3 r = right.scale(size * 0.35), u = up.scale(size * 0.35);
+        Vec3[] pts = rays == 3 ? new Vec3[]{at, at.add(r), at.subtract(r)} : new Vec3[]{at, at.add(r), at.subtract(r), at.add(u), at.subtract(u)};
+        double spare = Math.max(1.5, size * 0.4);
+        int open = 0;
+        for (Vec3 p : pts) {
+            Vec3 d = p.subtract(eye);
+            double len = d.length();
+            if (len <= spare) {
+                open++;
+                continue;
+            }
+            var hit = level.clip(new ClipContext(eye, eye.add(d.scale((len - spare) / len)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+                    CollisionContext.empty()));
+            if (hit.getType() == HitResult.Type.MISS) open++;
+        }
+        return (double) open / pts.length;
+    }
+
+    /** Дальше {@link #FOG} прорисовки по горизонтали (туман у ванили — цилиндр вокруг камеры). */
+    static boolean beyondFog(Vec3 eye, Vec3 p) {
+        return Math.hypot(p.x - eye.x, p.z - eye.z) > FOG * Minecraft.getInstance().gameRenderer.getRenderDistance();
+    }
+
+    /**
+     * Событие поперечником {@code size} в точке {@code p} видно в кадре {@code v}: в кадре до края, открыты не меньше 0.6
+     * лучей к середине и бокам, не сквозь облака низом {@code clouds} и не в тумане у края прорисовки (дальнее — без
+     * тумана). Так его считает и вывод, и оценка.
+     */
+    static boolean keySeen(ClientLevel level, double clouds, boolean far, View v, Vec3 p, double size) {
+        return v.in(p, 1) && open(level, v.eye(), p, v.right(), v.up(), size, 3) >= 0.6 && !throughClouds(clouds, v.eye(), p) && (far || !beyondFog(v.eye(), p));
+    }
+
+    /** Где событие в тик {@code t}: огненный шар поднимается на 0.4 поперечника за 40 тиков. */
+    static Vec3 keyPoint(Subject.Key k, double t) {
+        return k.pos().add(0, Math.min(1, (t - k.t()) / 40.0) * k.size() * 0.4, 0);
+    }
 
     /** Низ облаков в кадре: из плана (слой шейдерпака), иначе облака измерения; облака выключены — NaN. */
     static double cloudHeight(Plan plan) {
@@ -86,32 +164,7 @@ final class Cameras {
             return level.getHeight(Heightmap.Types.MOTION_BLOCKING, Mth.floor(x), Mth.floor(z));
         }
 
-        /**
-         * Луч свободен до {@code spare} блоков от цели. Чанки на луче без готового чанка: у объекта в прорисовке — закрыт
-         * (не знаем); у дальнего ({@code far}) — луч смотрится до первого такого чанка, дальше рельеф DH лучом не проверить.
-         */
-        boolean clear(Vec3 from, Vec3 to, double spare, boolean far) {
-            Vec3 d = to.subtract(from);
-            double len = d.length();
-            if (len < spare + 0.5) return true;
-            double limit = len - spare;
-            Vec3 dir = d.scale(1 / len);
-            double reach = 0;
-            while (reach < limit) {
-                double next = Math.min(limit, reach + 8);
-                if (!loaded(from.add(dir.scale(next)))) {
-                    if (!far) return false;
-                    break;
-                }
-                reach = next;
-            }
-            if (reach <= 0) return far;
-            var hit = level.clip(new ClipContext(from, from.add(dir.scale(reach)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
-                    CollisionContext.empty()));
-            return hit.getType() == HitResult.Type.MISS;
-        }
-
-        /** Камера не в блоке и вокруг неё полблока воздуха. */
+        /** Камера не в блоке и вокруг неё полблока воздуха; чанка нет — не знаем. */
         boolean free(Vec3 p) {
             if (!loaded(p)) return false;
             for (double dx : new double[]{-0.5, 0.5}) {
@@ -123,6 +176,11 @@ final class Cameras {
                 }
             }
             return true;
+        }
+
+        /** Доля открытых лучей из глаза кадра к предмету ({@link Cameras#open}). */
+        double open(View v, Vec3 at, double size, int rays) {
+            return Cameras.open(level, v.eye(), at, v.right(), v.up(), size, rays);
         }
     }
 
@@ -141,10 +199,15 @@ final class Cameras {
         switch (c.kind()) {
             case "pov" -> out.add(new Candidate("pov-" + c.player().replaceAll("[^A-Za-z0-9_.-]", "_"), null, c.player(), c.gui(), c.fov(), true));
             case "fixed" -> {
-                Vec3 eye = c.eye(), at = c.aim() != null ? c.aim() : s.anchor(a, b);
-                if (eye == null || at == null && !c.follow()) return out;
-                Path p = c.follow() ? follow(t -> eye, s, a, b, 3, c.fov()) : t -> Pose.look(eye, at, c.fov());
-                out.add(new Candidate(String.format(Locale.ROOT, "fixed-%.0f", c.fov()), p, null, false, c.fov(), true));
+                Vec3 at = c.aim() != null ? c.aim() : s.anchor(a, b);
+                if (c.eye() == null || at == null && !c.follow()) return out;
+                // над глазом, где задано: место игрока бывает в доме или метро, а над крышами — горизонт
+                for (double rise : c.rise()) {
+                    Vec3 eye = settle(lift(c.eye(), rise, w), at, w);
+                    Path p = c.follow() ? follow(t -> eye, s, a, b, 3, c.fov()) : t -> Pose.look(eye, at, c.fov());
+                    String name = String.format(Locale.ROOT, "fixed-%.0f", c.fov()) + (rise > 0 ? String.format(Locale.ROOT, "-r%.0f", rise) : "");
+                    out.add(new Candidate(name, p, null, false, c.fov(), true));
+                }
             }
             case "tripod" -> {
                 Vec3 k = c.around() != null ? c.around() : s.anchor(a, b);
@@ -175,6 +238,31 @@ final class Cameras {
         return out;
     }
 
+    /** Глаз на {@code rise} блоков выше земли под ним (не ниже самого глаза); 0 — сам глаз. */
+    static Vec3 lift(Vec3 eye, double rise, World w) {
+        if (rise <= 0) return eye;
+        double g = w.ground(eye.x, eye.z);
+        return new Vec3(eye.x, Math.max(eye.y, Double.isNaN(g) ? eye.y : g) + rise, eye.z);
+    }
+
+    /**
+     * Ближайшее к глазу место в воздухе ({@link World#free}): глаз игрока стоит у стены или под потолком ближе полублока —
+     * вверх до 2 блоков и к цели ({@code toward}; null — только вверх) до 3 по горизонтали; не нашлось — сам глаз (оценка
+     * его отвергнет).
+     */
+    static Vec3 settle(Vec3 eye, @Nullable Vec3 toward, World w) {
+        if (w.free(eye)) return eye;
+        Vec3 d = toward == null ? Vec3.ZERO : toward.subtract(eye).multiply(1, 0, 1);
+        Vec3 dir = d.lengthSqr() < 1e-6 ? Vec3.ZERO : d.normalize();
+        for (double up = 0; up <= 2; up += 0.5) {
+            for (double fwd = 0; fwd <= 3; fwd += 0.5) {
+                Vec3 p = eye.add(dir.scale(fwd)).add(0, up, 0);
+                if (w.free(p)) return p;
+            }
+        }
+        return eye;
+    }
+
     /**
      * Камера в {@code place(t)} ведёт взгляд за объектом, как оператор: взгляд догоняет цель с запаздыванием {@code lag}
      * тиков (таблица с шагом в тик от окна с запасом — одинаково в оценке и выводе).
@@ -198,13 +286,16 @@ final class Cameras {
     }
 
     /**
-     * Оценка кандидата до вывода: доля времени до события, когда объект в кадре (с полями), виден, не мельче
-     * {@code minShare} ширины кадра и не в дыму прежних ударов; события в кадре и видны в первые 12 тиков; камера в
-     * воздухе по всему пути.
+     * Оценка кандидата до вывода теми же лучами и кадром, что у вывода ({@link FrameLog}): до события — доля тиков, когда
+     * объект в кадре (с полями {@link #SAFE}), виден (лучи к середине и краям — не меньше 0.4, не сквозь облака и не в
+     * тумане), не мельче {@code share} ширины кадра и не в дыму прежних ударов, — за всё время и за последнюю секунду;
+     * каждое событие плана — в кадре и видно хотя бы в половине первых 12 тиков ({@link #keySeen}); после событий —
+     * объект виден; камера в воздухе по всему пути. {@code pass} — эти доли не меньше порогов плана.
      */
     static Score score(Candidate c, Subject s, Plan.Shot shot, double aspect, World w) {
         if (c.path() == null) return Score.DESIGNED;
-        int n = 0, ok = 0, keyN = 0, keyOk = 0, afterN = 0, afterOk = 0;
+        Plan.Need need = shot.need();
+        int n = 0, ok = 0, nearN = 0, nearOk = 0, afterN = 0, afterOk = 0, samples = 0;
         double sizeSum = 0, smokeHits = 0;
         boolean free = true;
         int first = s.firstKey();
@@ -213,43 +304,53 @@ final class Cameras {
             if (!w.free(p.pos())) free = false;
             Vec3 aim = s.aim(t);
             if (aim == null) continue;
+            Subject.Key k = s.keyAt(t);
+            boolean before = first < 0 || t < first;
+            // первые тики событий — в счёте событий ниже
+            if (!before && k != null && t <= k.t() + FrameLog.KEY_CHECK) continue;
+            samples++;
             double size = s.aimSize(t);
-            boolean in = inFrame(p, aim, 0.85, aspect);
-            double z = p.pos().distanceTo(aim);
-            double share = size / (2 * z * Math.tan(Math.toRadians(p.fov() / 2)) * aspect);
-            boolean seen = in && w.clear(p.pos(), aim, Math.max(2, size * 0.4), shot.far()) && !throughClouds(w.clouds, p.pos(), aim);
+            View v = View.of(p, aspect);
+            boolean seen = v.in(aim, SAFE) && w.open(v, aim, size, 5) >= 0.4 && !throughClouds(w.clouds, p.pos(), aim)
+                    && (shot.far() || !beyondFog(p.pos(), aim));
             boolean smoky = smokeOnLine(p.pos(), aim, shot.smoke(), t);
             if (smoky) smokeHits++;
-            if (first < 0 || t < first) {
+            if (before) {
+                double share = v.share(aim, size);
+                boolean good = seen && share >= need.share() && !smoky;
                 n++;
-                if (seen && share >= shot.need().share() && !smoky) ok++;
                 sizeSum += share;
-            } else if (s.keyAt(t) != null && t <= s.keyAt(t).t() + 12) {
-                keyN++;
-                if (seen && !smoky) keyOk++;
+                if (good) ok++;
+                if (first >= 0 && t >= first - 20) {
+                    nearN++;
+                    if (good) nearOk++;
+                }
             } else {
                 afterN++;
                 if (seen) afterOk++;
             }
         }
-        double approach = n == 0 ? 1 : (double) ok / n, atKey = keyN == 0 ? 1 : (double) keyOk / keyN, after = afterN == 0 ? 1 : (double) afterOk / afterN;
-        double meanShare = n == 0 ? 0 : sizeSum / n, smoke = smokeHits / Math.max(1, n + keyN + afterN);
-        String why = (free ? "" : "camera inside blocks; ") + (atKey < 0.5 ? "event not seen" : "");
-        double total = !free ? -1 : approach * 0.45 + atKey * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;
-        return new Score(total, approach, atKey, after, meanShare, smoke, why.trim());
-    }
-
-    /** Точка в кадре позы (доля полукадра {@code safe}: 1 — до края). */
-    static boolean inFrame(Pose p, Vec3 at, double safe, double aspect) {
-        Vec3 fwd = Vec3.directionFromRotation(p.pitch(), p.yaw());
-        Vec3 d = at.subtract(p.pos());
-        double z = d.dot(fwd);
-        if (z <= 0.1) return false;
-        Vec3 right = fwd.cross(new Vec3(0, 1, 0));
-        right = right.lengthSqr() < 1e-8 ? new Vec3(1, 0, 0) : right.normalize();
-        Vec3 up = right.cross(fwd).normalize();
-        double ty = Math.tan(Math.toRadians(p.fov() / 2)), tx = ty * aspect;
-        return Math.abs(d.dot(right) / z) <= tx * safe && Math.abs(d.dot(up) / z) <= ty * safe;
+        // события плана, как их считает вывод: каждое — в кадре и видно хотя бы в половине своих первых тиков
+        int keysIn = 0, keysOk = 0;
+        for (Subject.Key k : s.keys) {
+            if (k.t() < shot.a() || k.t() > shot.b()) continue;
+            keysIn++;
+            int seen = 0;
+            for (int t = k.t(); t <= k.t() + FrameLog.KEY_CHECK; t++) {
+                if (keySeen(w.level, w.clouds, shot.far(), View.of(c.path().at(t), aspect), keyPoint(k, t), k.size())) seen++;
+            }
+            if (seen * 2 >= FrameLog.KEY_CHECK + 1) keysOk++;
+        }
+        double approach = n == 0 ? 1 : (double) ok / n, near = nearN == 0 ? 1 : (double) nearOk / nearN;
+        double keys = keysIn == 0 ? 1 : (double) keysOk / keysIn, after = afterN == 0 ? 1 : (double) afterOk / afterN;
+        double meanShare = n == 0 ? 0 : sizeSum / n, smoke = smokeHits / Math.max(1, samples);
+        boolean pass = free && approach >= need.subject() && near >= need.near() && keys >= need.keys();
+        String why = (free ? "" : "camera inside blocks; ")
+                + (keys < need.keys() ? String.format(Locale.ROOT, "events seen: %d of %d; ", keysOk, keysIn) : "")
+                + (approach < need.subject() ? String.format(Locale.ROOT, "subject shown in %.0f%% before the event; ", 100 * approach) : "")
+                + (near < need.near() ? String.format(Locale.ROOT, "in the last second before the event: %.0f%%; ", 100 * near) : "");
+        double total = !free ? -1 : approach * 0.45 + keys * 0.35 + after * 0.1 + Math.min(1, meanShare / 0.06) * 0.1 - smoke * 0.3;
+        return new Score(total, approach, near, keys, after, meanShare, smoke, pass, why.trim());
     }
 
     /**
