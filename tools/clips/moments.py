@@ -485,7 +485,10 @@ def select(a):
         r.con.close()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    result = {k: [c.json(i) for i, c in enumerate(sorted(v, key=lambda c: -c.score)[:a.top])] for k, v in picked.items()}
+    # главный повтор (--prefer) — первым, остальные дополняют, где в нём нет подходящего
+    prefer = [x for x in a.prefer.split(",") if x]
+    first = lambda c: not any(x in c.replay for x in prefer)  # noqa: E731
+    result = {k: [c.json(i) for i, c in enumerate(sorted(v, key=lambda c: (first(c), -c.score))[:a.top])] for k, v in picked.items()}
     (out / "candidates.json").write_text(json.dumps(result, ensure_ascii=False, indent=1))
     lines = ["# Кандидаты моментов", "", f"Базы: {', '.join(Path(d).parent.name for d in a.db)}. Кадр {a.fov:.0f}° по вертикали, "
              f"стороны {a.aspect:.4g}.", ""]
@@ -507,6 +510,7 @@ def main():
     p.add_argument("--fov", type=float, default=70, help="угол обзора по вертикали у игроков, градусы")
     p.add_argument("--aspect", type=float, default=9 / 16, help="ширина кадра к высоте (вертикальный ролик — 9:16)")
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")
+    p.add_argument("--prefer", default="", help="повторы (часть имени, через запятую), чьи кандидаты идут первыми")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
     select(p.parse_args())

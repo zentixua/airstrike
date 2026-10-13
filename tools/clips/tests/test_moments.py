@@ -200,7 +200,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, min_version="2.10.2"))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, min_version="2.10.2", prefer=""))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
