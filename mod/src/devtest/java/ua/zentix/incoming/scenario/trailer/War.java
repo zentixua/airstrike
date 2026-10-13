@@ -250,8 +250,9 @@ final class War {
     }
 
     /** То же по горизонтали: снаряд над точкой на любой высоте. */
-    static boolean flightOver(Vec3 p, double r) {
+    static boolean flightOver(Vec3 p, double r, WeaponType weapon) {
         for (var f : ClientFlights.all()) {
+            if (f.weapon() != weapon) continue;
             Vec3 q = f.position(1);
             if (Math.hypot(q.x - p.x, q.z - p.z) < r) return true;
         }
@@ -386,7 +387,7 @@ final class War {
         film.shot("p12").length(45).hidden()
                 .onReady(() -> salvo("drone", 3, 10, droneTarget, behind(resident, droneTarget, 700)))
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Hans"), 2.2, -0.35, 0.7, () -> at(droneTarget).add(0, 40, 0), 62))
-                .when(() -> flightOver(at(resident), 70), 3000)
+                .when(() -> flightOver(at(resident), 70, WeaponType.DRONE), 3000)
                 .cue(8, () -> cast().act("Hans", lookUp(at(droneTarget).add(0, 60, 0)), true));
         film.run(() -> cast().remove("Hans"));
 
@@ -731,16 +732,16 @@ final class War {
         stageScene("airship", airship, -90);
         clearSams(airship, 160);
 
-        // p25: с улицы снизу, длинный фокус: рой шахедов над крышами
+        // p25: снизу из двора: рой шахедов проходит над головой и уходит над крышами к цели (дома слева и снизу кадра)
         Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
         hiddenAt(street, swarm);
-        film.shot("p25").length(50).hidden()
+        film.shot("p25").length(60).hidden()
                 .onReady(() -> salvo("drone", 30, 70, swarm, behind(street, at(swarm), 900)))
                 .camera(() -> {
                     Vec3 c = g(street).add(0, 1.4, 0);
-                    return CineCamera.track(c, film.smoothFocus(() -> film.nearest(DroneEntity.class, c, 200), c.add(6, 60, 25), 0.15), 22);
+                    return CineCamera.track(c, () -> c.add(29, 72, 27.5), 60);
                 })
-                .when(() -> flightOver(at(street), 150), 3000);
+                .when(() -> flightOver(at(street), 30, WeaponType.DRONE), 3000);
 
         // p01d: шахеды над головой игрока со стороны затылка
         // поле к западу от центра: над ним открытое небо
@@ -751,7 +752,7 @@ final class War {
         film.shot("p01d").length(40).hidden()
                 .onReady(() -> salvo("drone", 5, 14, past, behind(man, at(past), 700)))
                 .camera(() -> CineCamera.shoulder(() -> film.bot("Pyotr"), 1.9, -0.2, 0.6, () -> at(past).add(0, 55, 0), 70))
-                .when(() -> flightOver(at(man), 60), 3000)
+                .when(() -> flightOver(at(man), 60, WeaponType.DRONE), 3000)
                 .cue(6, () -> cast().act("Pyotr", lookUp(at(past).add(0, 90, 0)), true));
         film.run(() -> cast().remove("Pyotr"));
 
@@ -876,7 +877,7 @@ final class War {
         film.shot("p30").length(80).hidden()
                 .onReady(() -> salvo("drone", 1, 0, eyeSpot, new Vec3(2450, 0, 318)))
                 .camera(() -> CineCamera.eyes(() -> film.bot("Sasha"), 72))
-                .when(() -> flightOver(at(eyeSpot), 120), 3000)
+                .when(() -> flightOver(at(eyeSpot), 120, WeaponType.DRONE), 3000)
                 .cue(0, () -> film.withServer(s -> trackLook("Sasha", DroneEntity.class, 80)))
                 .endWhen(hit(eyeSpot, 200), 4);
         film.run(() -> cast().remove("Sasha"));
