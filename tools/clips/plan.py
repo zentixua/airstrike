@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "replayscan"))
 import replaydb  # noqa: E402
+from moments import incoming_version  # noqa: E402
 
 # Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
 # за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен
@@ -98,11 +99,6 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim_of(con, shot), "warm": 200, "hold": 100 if far else 20,
             "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
-
-
-def incoming_version(meta: dict) -> str | None:
-    mods = meta.get("mods", {})
-    return mods.get("incoming") or mods.get("airstrike")
 
 
 def main():

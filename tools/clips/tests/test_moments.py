@@ -200,7 +200,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, min_version="2.10.2"))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
@@ -231,6 +231,11 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(s["cameras"][0]["kind"], "fixed")
         self.assertEqual(s["cameras"][0]["aim"], "subject")
         self.assertGreater(len(s["subject"]["path"]), 5, "путь только дальними строками")
+
+    def test_old_versions_skipped(self):
+        self.assertLess(clips.version_key("2.10.0"), clips.version_key("2.10.2"))
+        self.assertLess(clips.version_key("2.10.3"), clips.version_key("3.0.0"))
+        self.assertEqual(clips.incoming_version({"mods": {"airstrike": "2.5.0"}}), "2.5.0")
 
     def test_chaos_frames_area(self):
         s = self.shots["chaos-0-chaos"]

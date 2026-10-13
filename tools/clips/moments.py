@@ -461,10 +461,25 @@ PREVIEWS = {"rockets": "1. Ракеты и «Град»", "drones": "2. Шахе
             "far": "4. Издалека", "nuke": "5. Ядерный удар"}
 
 
+def incoming_version(meta: dict) -> str | None:
+    """Версия Incoming записи (мод того дня в разборе; до 3.0 его id — airstrike)."""
+    mods = meta.get("mods", {})
+    return mods.get("incoming") or mods.get("airstrike")
+
+
+def version_key(v: str) -> tuple:
+    return tuple(int(x) if x.isdigit() else 0 for x in v.split("-")[0].split("."))
+
+
 def select(a):
     picked: dict[str, list[Candidate]] = {k: [] for k in PREVIEWS}
     for db in a.db:
         r = Replay(Path(db), a)
+        v = incoming_version(r.meta)
+        if v and version_key(v) < version_key(a.min_version):
+            print(f"{db}: Incoming {v} старше {a.min_version} — пропущен")
+            r.con.close()
+            continue
         for k in PREVIEWS:
             picked[k] += getattr(r, k)()
         r.con.close()
@@ -492,6 +507,8 @@ def main():
     p.add_argument("--fov", type=float, default=70, help="угол обзора по вертикали у игроков, градусы")
     p.add_argument("--aspect", type=float, default=9 / 16, help="ширина кадра к высоте (вертикальный ролик — 9:16)")
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")
+    p.add_argument("--min-version", default="2.10.2",
+                   help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
     select(p.parse_args())
 
 
