@@ -111,6 +111,8 @@ public final class Film {
     private int primed, primeGoal, primeTo, primeStart;
     /** Шаг уже посылался снова после остановки повтора. */
     private boolean primeRetried;
+    /** Чанков у места плана у клиента (для пилота) и с какого тика их столько. */
+    private int nearChunks = -1, nearSince;
     /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
     private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
 
@@ -316,6 +318,16 @@ public final class Film {
                 Plan.Camera fixed = shot.cameras().stream().filter(c -> (c.kind().equals("fixed") || c.kind().equals("path")) && c.eye() != null)
                         .findFirst().orElse(null);
                 boolean ready = (fixed == null || w.loaded(fixed.eye())) && (k == null || shot.far() && fixed != null || w.loaded(k));
+                // пилот прокладывает путь по рельефу вокруг удара: чанки там приходят от сервера повтора не сразу —
+                // ждать, пока их число не меняется PILOT_SETTLE тиков
+                if (ready && k != null && shot.cameras().stream().anyMatch(c -> c.kind().equals("pilot"))) {
+                    int n = loadedAround(w, k, PILOT_CHUNKS);
+                    if (n != nearChunks) {
+                        nearChunks = n;
+                        nearSince = ticks;
+                    }
+                    if (ticks - nearSince < PILOT_SETTLE) ready = false;
+                }
                 if (!ready && waited() < WORLD_WAIT) {
                     if (fixed != null) standAt(Cameras.Pose.look(fixed.eye(), fixed.aim() != null ? fixed.aim() : k != null ? k : fixed.eye().add(0, 0, 1), 70));
                     else standAt(Cameras.Pose.look(k.add(0, 30, -30), k, 70));
@@ -405,6 +417,19 @@ public final class Film {
         }
     }
 
+    /** Пилот: радиус чанков у удара, которые он ждёт; сколько тиков их число не должно меняться. */
+    private static final int PILOT_CHUNKS = 16, PILOT_SETTLE = 40;
+
+    private static int loadedAround(Cameras.World w, Vec3 k, int radius) {
+        int n = 0;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (w.loaded(k.add(dx * 16, 0, dz * 16))) n++;
+            }
+        }
+        return n;
+    }
+
     /** Живой повтор до начала плана; ожидание мира и текстур DH у начала считается отсюда. */
     private void warm() {
         reachedAt = ticks;
@@ -424,6 +449,7 @@ public final class Film {
     private void nextShot() {
         shot = queue.poll();
         current = null;
+        nearChunks = -1;
         bestTry = null;
         bestVerdict = null;
         if (shot == null) {
@@ -467,7 +493,7 @@ public final class Film {
     private void solve(Cameras.World w) {
         List<Scored> designed = new ArrayList<>(), rest = new ArrayList<>();
         for (Plan.Camera cam : shot.cameras()) {
-            for (Cameras.Candidate c : Cameras.of(cam, shot.subject(), shot.a(), shot.b(), aspect, w)) {
+            for (Cameras.Candidate c : Cameras.of(cam, shot, aspect, w)) {
                 Scored s = new Scored(c, Cameras.score(c, shot.subject(), shot, aspect, w));
                 (c.designed() ? designed : rest).add(s);
             }
