@@ -12,8 +12,8 @@
 <film> — каталог plan.py (runs.json, <повтор>/plan.json, <повтор>/film/best.json). Кроме проверки кадров съёмки
 (qa.jsonl, verdict.json) — ещё одна, по самим кадрам видео: вспышка каждого события видна там, где игра его рисует
 (яркость в рамке события сразу после него выше, чем до), — она ловит то, чего лучи по блокам не видят (рельеф
-Distant Horizons, дым, шейдеры). Нужен ffmpeg. `--clip <ролик>=<видео>` — ролик, снятый не из повтора (живьём, со своей проверкой кадров):
-та же громкость, версия с музыкой и подписи.
+Distant Horizons, дым, шейдеры). Нужен ffmpeg. `--clip far=<видео>` (или `nuke=`) — ролик, снятый не из повтора
+(живьём, со своей проверкой кадров, со звуком игры): та же громкость, версия с музыкой и подписи.
 """
 from __future__ import annotations
 
@@ -179,14 +179,32 @@ def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lin
             + ("" if 20 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
 
 
+def clip_spec(spec: str) -> tuple[str, Path]:
+    """`<ролик>=<видео>` для --clip: подпись без чисел повтора есть только у «издалека» и ядерки."""
+    name, sep, video = spec.partition("=")
+    if not sep or name not in ("far", "nuke"):
+        raise argparse.ArgumentTypeError(f"{spec!r}: нужно far=<видео> или nuke=<видео>")
+    return name, Path(video)
+
+
+def has_audio(f: Path) -> bool:
+    out = run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(f)],
+              text=True).stdout
+    return bool(out.strip())
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("film")
     p.add_argument("--out", default=None)
     p.add_argument("--music", default=None, help="трек для версии с музыкой (CC BY и т. п.)")
     p.add_argument("--credit", default="", help="строка автора трека для подписи")
-    p.add_argument("--clip", action="append", default=[], help="<ролик>=<видео>: ролик, снятый не из повтора (например far=far.mp4)")
+    p.add_argument("--clip", action="append", default=[], type=clip_spec,
+                   help="far=<видео> или nuke=<видео>: ролик, снятый не из повтора, со звуком игры")
     a = p.parse_args()
+    for name, video in a.clip:
+        if not video.is_file() or not has_audio(video):
+            p.error(f"--clip {name}: {video} — нет файла или звука в нём")
     film = Path(a.film)
     out = Path(a.out) if a.out else film / "previews"
     out.mkdir(parents=True, exist_ok=True)
@@ -225,12 +243,8 @@ def main():
                 report += [f"## {cid}", "", *lines, ""]
                 continue
             report += finish(cid, preview, cands.get(cid, {"weapon": "", "numbers": {}}), videos, ok, lines, out, a)
-    for spec in a.clip:
-        preview, video = spec.split("=", 1)
-        if not Path(video).is_file():
-            report += [f"## {preview}", "", f"- нет ролика {video}", ""]
-            continue
-        report += finish(preview, preview, {"weapon": "", "numbers": {}}, [Path(video)], True,
+    for name, video in a.clip:
+        report += finish(name, name, {"weapon": "", "numbers": {}}, [video], True,
                          [f"- снят не из повтора: {video} (проверка кадров — его съёмки)"], out, a)
     (out / "report.md").write_text("\n".join(report))
     print(out / "report.md")

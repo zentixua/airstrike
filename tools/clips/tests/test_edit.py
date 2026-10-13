@@ -80,6 +80,18 @@ class EditTest(unittest.TestCase):
         self.assertAlmostEqual(edit.duration(root / "previews" / "far.mp4"), 22, delta=0.3)
         self.assertIn("Strikes far away through binoculars", (root / "previews" / "far.txt").read_text())
 
+    def test_clip_checked_before_work(self):
+        root = self.build(flash=True)
+        live = root / "live.mp4"
+        video(live, flash=True, ticks=440)
+        mute = root / "mute.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-i", str(live), "-an", "-c", "copy", str(mute)], check=True)
+        # подписи без чисел повтора нет у других роликов; ролик без звука не склеить со звуком
+        for spec in (f"rockets={live}", str(live), f"far={mute}", f"far={root / 'none.mp4'}"):
+            with self.subTest(spec=spec), self.assertRaises(SystemExit):
+                self.run_edit(root, "--clip", spec)
+        self.assertFalse((root / "previews" / "rockets-0.mp4").exists(), "до проверки --clip ничего не собрано")
+
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
         best = json.loads((root / "film" / "best.json").read_text())

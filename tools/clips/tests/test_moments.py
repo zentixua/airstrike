@@ -197,10 +197,12 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual(c[0].t, 2000)
         self.assertEqual(c[0].shots[-1].kind, "nuke")
-        # подрыв в 1200 блоках, за чанками повтора: объектив с места игрока, шар — 35 % ширины кадра
+        # подрыв в 1200 блоках, за чанками повтора: объектив с места игрока — на 2 блока к подрыву (не в его голове),
+        # шар — 35 % ширины кадра: 2·atan(120 / (2 · 1197.5 · 0.35) / 0.5625)
         lens = c[0].shots[-1].camera["lens"]
-        self.assertEqual(lens["eye"], list(EYE))
-        self.assertGreater(lens["fov"], 12)
+        self.assertEqual(lens["eye"], [EYE[0], EYE[1], EYE[2] + 2])
+        self.assertEqual(lens["aim"], [0.5, 64.0 + 30, 1200.0], "взгляд — над подрывом, неподвижно")
+        self.assertAlmostEqual(lens["fov"], 28.6, delta=0.1)
         self.assertLessEqual(sum(x.b - x.a for x in c[0].shots), 35 * clips.TICK, "ролик не длиннее 35 с")
 
     def test_far_reel(self):
@@ -260,7 +262,8 @@ class PlanTest(unittest.TestCase):
     def test_nuke_lens_first(self):
         burst = self.shots["nuke-0-burst"]
         self.assertEqual([c["kind"] for c in burst["cameras"]], ["fixed", "tripod"], "объектив с места игрока, потом штатив")
-        self.assertEqual(burst["cameras"][0]["eye"], list(EYE))
+        self.assertEqual(burst["cameras"][0]["eye"], [EYE[0], EYE[1], EYE[2] + 2])
+        self.assertEqual(burst["cameras"][0]["aim"], [0.5, 94.0, 1200.0])
 
     def test_every_preview_planned(self):
         self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "rockets-0"])

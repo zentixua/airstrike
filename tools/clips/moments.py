@@ -473,12 +473,17 @@ class Replay:
             if seen:
                 shots.append(Shot("burst-pov", "nuke", t - 40, t + 200, {"kind": "pov", "viewer": seen[0][0]}, {"keys": keys},
                                   f"глазами {seen[0][0]}: подрыв в {seen[0][1]:.0f} блоках"))
-            # свободная камера: объектив с места игрока (шар — 35 % ширины кадра), иначе штатив у подрыва — в чанках повтора
-            cam = {"kind": "auto", "rig": "tripod", "dist": [120, 200, 300], "elev": [4, 10], "share": 0.35}
+            # свободная камера: объектив с места игрока (шар — 35 % ширины кадра), иначе штатив у подрыва
+            cam = {"kind": "auto", "rig": "tripod", "dist": [400, 700, 1000], "elev": [4, 10], "share": 0.35}
             if eye:
-                d = max(50.0, dist(eye, (x, y, z)))
+                # на 2 блока к подрыву: в глазу камера была бы внутри головы игрока (его модель в выводе видна)
+                flat = math.hypot(x - eye[0], z - eye[2]) or 1.0
+                at = (eye[0] + 2 * (x - eye[0]) / flat, eye[1], eye[2] + 2 * (z - eye[2]) / flat)
+                d = max(50.0, dist(at, (x, y, z)))
                 fov = math.degrees(2 * math.atan(BLAST["icbm"] / (2 * d * 0.35) / self.aspect))
-                cam["lens"] = {"eye": list(eye), "fov": round(max(12.0, min(70.0, fov)), 1)}
+                # взгляд — в точку над подрывом, не за объектом: ключ подрыва к t+60 опускал бы кадр, пока гриб растёт
+                cam["lens"] = {"eye": [round(v, 2) for v in at], "aim": [x, y + 0.25 * BLAST["icbm"], z],
+                               "fov": round(max(12.0, min(70.0, fov)), 1)}
             shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500), cam, {"keys": keys},
                               "свободная камера: вспышка, волна, гриб"))
             score = 3 + bool(up) + bool(seen) + 0.5 * len(views)
