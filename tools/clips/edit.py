@@ -141,6 +141,8 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     ru = " и ".join(WEAPON.get(x, (x, x))[1] for x in w)
     n = cand["numbers"]
     if preview == "rockets":
+        if n.get("no_launch"):
+            return (f"{en.capitalize()}: flight and impacts on the ground.", f"{ru.capitalize()}: полёт и удары по земле.")
         return (f"{en.capitalize()}: launch, flight and impacts on the ground.", f"{ru.capitalize()}: пуск, полёт и удары по земле.")
     if preview == "drones":
         if n.get("shot_down") and n.get("ground"):
@@ -167,6 +169,21 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
         return (f"Strikes {', '.join(ds[:-1])} and {ds[-1]} blocks away through binoculars: each flash comes before its sound.",
                 f"Удары в {', '.join(ds[:-1])} и {ds[-1]} блоках в бинокль: каждая вспышка раньше своего звука.")
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
+
+
+def shown(cand: dict, kept: list[dict]) -> dict:
+    """Числа кандидата для подписи — только о планах, которые вошли в ролик (удар глазами сбившего бывает событием
+    плана сбития)."""
+    n = dict(cand.get("numbers", {}))
+    has = lambda part: any(s["name"].endswith(f"-{part}") for s in kept)  # noqa: E731
+    if not has("shootdown"):
+        n["shot_down"] = 0
+    hit = has("impact") or any(s["name"].endswith("-shootdown") and len(s.get("subject", {}).get("keys", [])) > 1 for s in kept)
+    if cand.get("preview", "") == "drones" and not hit:
+        n["ground"] = 0
+    if not has("launch"):
+        n["no_launch"] = True
+    return {**cand, "numbers": n}
 
 
 def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lines: list[str], out: Path, a) -> list[str]:
@@ -224,7 +241,7 @@ def main():
         aspect = plan["width"] / plan["height"]
         for cid in sorted(plan["previews"], key=lambda c: ORDER.index(c.split("-")[0]) if c.split("-")[0] in ORDER else 9):
             preview = cid.split("-")[0]
-            videos, lines, ok, passed = [], [], True, []
+            videos, names, lines, ok, passed = [], [], [], True, []
             for name in plan["previews"][cid]:
                 b = best.get(name)
                 s = shots[name]
@@ -241,6 +258,7 @@ def main():
                 dark = [f for f in flashes if not f["seen"]]
                 ok &= bool(b.get("pass")) and not dark
                 videos.append(cand / "video.mkv")
+                names.append(name)
                 passed.append(bool(b.get("pass")))
                 lines.append(f"- {name}: камера {b.get('candidate')}, проверка кадров {'да' if b.get('pass') else 'НЕТ: ' + str(b.get('why'))}; "
                              f"кадров {verdict.get('frames')}, объект {verdict.get('approach', 0):.0%}, событий {verdict.get('keys_ok')}/{verdict.get('keys')}, "
@@ -252,8 +270,9 @@ def main():
             # план, не прошедший проверку кадров (объекта в кадре нет), в ролик не идёт, если в нём есть прошедшие
             if any(passed) and not all(passed):
                 videos = [v for v, p in zip(videos, passed) if p]
+                names = [n for n, p in zip(names, passed) if p]
                 lines.append(f"- в ролик не вошли планы без проверки кадров: {passed.count(False)}")
-            report += finish(cid, preview, cands.get(cid, {"weapon": "", "numbers": {}}), videos, ok, lines, out, a)
+            report += finish(cid, preview, shown(cands.get(cid, {"weapon": "", "numbers": {}}), [shots[n] for n in names]), videos, ok, lines, out, a)
     for name, video in a.clip:
         report += finish(name, name, {"weapon": "", "numbers": {}}, [video], True,
                          [f"- снят не из повтора: {video} (проверка кадров — его съёмки)"], out, a)

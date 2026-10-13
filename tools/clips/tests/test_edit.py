@@ -100,6 +100,7 @@ class EditTest(unittest.TestCase):
         report = self.run_edit(root)
         self.assertIn("в ролик не вошли планы без проверки кадров: 1", report)
         self.assertAlmostEqual(edit.duration(root / "previews" / "rockets-0.mp4"), 3, delta=0.2, msg="только прошедший план")
+        self.assertIn("flight and impacts", (root / "previews" / "rockets-0.txt").read_text(), "подпись — без пуска, которого нет")
 
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
@@ -119,6 +120,11 @@ class EditTest(unittest.TestCase):
         en, ru = edit.caption("drones", {"weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}})
         self.assertEqual(en, "Shahed drones over the players: one is shot down, the rest hit the streets nearby.")
         self.assertEqual(ru, "Шахеды над игроками: один сбивают, остальные бьют по соседним улицам.")
+        cand = {"preview": "drones", "weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}}
+        merged = edit.shown(cand, [{"name": "drones-0-shootdown", "subject": {"keys": [{"t": 1}, {"t": 2}]}}])
+        self.assertEqual(merged["numbers"]["ground"], 3, "удар — событие плана сбития")
+        alone = edit.shown(cand, [{"name": "drones-0-shootdown", "subject": {"keys": [{"t": 1}]}}])
+        self.assertEqual(alone["numbers"]["ground"], 0, "удара в ролике нет")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху

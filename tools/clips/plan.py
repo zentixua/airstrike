@@ -29,7 +29,8 @@ NEED = {
     "launch": {"subject": 0.6, "near": 0, "keys": 1, "share": 0.004},
     "flight": {"subject": 0.5, "near": 0, "keys": 1, "share": 0.004, "engine": 0.3},
     "impact": {"subject": 0.4, "near": 0.5, "keys": 1, "share": 0.004},
-    "shootdown": {"subject": 0.4, "near": 0, "keys": 1, "share": 0.004},
+    # глазами игрока, который сбивает: дрон в кадре не всё время до сбития
+    "shootdown": {"subject": 0.25, "near": 0, "keys": 1, "share": 0.004},
     # хаос — много ударов сразу: превью хватает половины видных
     "chaos": {"subject": 0, "near": 0, "keys": 0.5, "share": 0},
     "far": {"subject": 0, "near": 0, "keys": 1, "share": 0},
@@ -62,7 +63,8 @@ def dim_of(con, shot: dict) -> str:
 
 
 def cameras(shot: dict) -> list[dict]:
-    """Камеры плана: глаза игрока (с запасной свободной камерой у удара и пуска) или свободная камера по роду."""
+    """Камеры плана: глаза игрока (с запасной свободной камерой у удара, сбития, пуска и хаоса) или свободная камера
+    по роду."""
     cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
     keys = s.get("keys", [])
     if cam["kind"] == "pov":

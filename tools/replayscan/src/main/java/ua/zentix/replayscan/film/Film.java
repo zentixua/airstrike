@@ -114,12 +114,15 @@ public final class Film {
     public static void start(Path file, IEventBus modBus) {
         try {
             Export.check();
-            Plan plan = Plan.read(file);
-            Files.createDirectories(plan.out());
-            new Film(plan, modBus);
         } catch (ReflectiveOperationException | LinkageError e) {
             LOG.error("Film: Flashback 0.39 is required ({})", e.toString());
             exitWhenLoaded();
+            return;
+        }
+        try {
+            Plan plan = Plan.read(file);
+            Files.createDirectories(plan.out());
+            new Film(plan, modBus);
         } catch (IOException | RuntimeException e) {
             LOG.error("Film: cannot read plan {}", file, e);
             exitWhenLoaded();

@@ -193,7 +193,7 @@ def mmss(t: int) -> str:
 class Shot:
     """План ролика: что снимать (снаряд и событие), когда и чем (камера)."""
     name: str
-    kind: str          # launch | flight | impact | chaos | far | nuke
+    kind: str          # launch | flight | shootdown | impact | chaos | far | nuke
     a: int             # тики повтора
     b: int
     camera: dict       # {"kind": "pov", "viewer": "recorder" | "player:<ник>"} | {"kind": "auto", …}
@@ -236,6 +236,27 @@ def key(f: Flight) -> dict:
 LEAST = 20
 
 
+def distinct(shots: list[Shot]) -> list[Shot]:
+    """Одни глаза дважды подряд не показываются: пролёт, перекрытый сбитием глазами того же игрока, не берётся (сбитие
+    и так показывает дрон до него); удар глазами того же игрока начинается с конца прошлого плана, если до удара
+    остаётся не меньше секунды, иначе он — событие прошлого плана, продлённого до конца удара."""
+    out: list[Shot] = []
+    for s in shots:
+        p = out[-1] if out else None
+        if p and p.camera.get("kind") == "pov" and p.camera == s.camera and s.a < p.b:
+            if p.kind == "flight" and s.kind == "shootdown":
+                out[-1] = s
+                continue
+            if s.kind == "impact" and s.subject["keys"][0]["t"] - p.b >= TICK:
+                s.a = p.b
+            elif s.kind == "impact" and p.kind in ("shootdown", "impact"):
+                p.b = max(p.b, s.b)
+                p.subject = {**p.subject, "keys": p.subject.get("keys", []) + s.subject["keys"]}
+                continue
+        out.append(s)
+    return out
+
+
 def fill(shots: list[Shot], least: float = LEAST) -> list[Shot]:
     """Ролик не короче least секунд: недостающее — плану удара или сбития (40 % до него, но не раньше конца прошлого
     плана и начала повтора, остальное — после), без них — концу последнего плана."""
@@ -274,7 +295,7 @@ class Replay:
 
     def shot_down(self, f: Flight):
         """Дрон, сбитый у игрока на глазах: (снаряд, тик, место, взгляд) или None. Сбит — зенитной ракетой (kill) или
-        огнём игроков (взведённый дрон подрывается, где его настигли: взрыв в воздухе); зритель видел его не меньше 2 с
+        огнём игроков (взведённый дрон подрывается, где его настигли: взрыв в воздухе); зритель видел его не меньше 3 с
         из последних 6 с и в момент сбития; сперва зрители --star, потом кто видел дольше."""
         if f.weapon not in ("shahed", "lancet") or f.ground or not f.eids:
             return None
@@ -285,7 +306,7 @@ class Replay:
         else:
             return None
         rows = [r for r in self.con.execute(SHOT_DOWN, [[str(e) for e in f.eids], t - 120, t]).fetchall()
-                if r[1] >= 2 * TICK and r[2] >= t - 10]
+                if r[1] >= 3 * TICK and r[2] >= t - 10]
         rows.sort(key=lambda r: (r[0] not in self.star, -r[1], r[3]))
         return (f, t, pos, rows[0]) if rows else None
 
@@ -407,8 +428,10 @@ class Replay:
             # после пуска — пролёт, сбитие и удар в том порядке, в каком кончились в игре
             k = 1 if up else 0
             shots[k:] = sorted(shots[k:], key=lambda s: s.b)
+            shots = distinct(shots)
             fill(shots)
             star = bool(downs) and downs[0][3][0] in self.star
+            row = row if any(s.kind == "flight" for s in shots) else None
             score = (min(len(hits), 6) / 6 * 2 + (min(row[4], 80) / 80 * 2 + (60 - min(row[3], 60)) / 60 if row else 0)
                      + (shots[-1].camera["kind"] == "pov") + 0.5 * bool(up) + 2 * bool(downs) + 4 * star)
             t = row[2] if row else downs[0][1]

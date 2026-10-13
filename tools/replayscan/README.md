@@ -154,9 +154,8 @@ uv run tools/replayscan/replaydb.py sql <db> "SELECT … FROM impact_views"
 сервер повтора — в том же процессе и шлёт зрителю сразу за входом. Пакет мода, чей разбор читает мир клиента (Point
 Blank — оружие в руке других игроков), падал, и клиент выходил из повтора. Поэтому всё, что сервер повтора шлёт зрителю
 после пакета входа, ждёт в канале этого соединения на сервере (в том же порядке), пока клиент не прошёл вход по нему же
-(его игрок и мир; `ViewerHold`,
-строка `Film: replay viewer got … packets held after login …`). `ignoredCustomPayloads` Flashback для этого не годится —
-он выбросил бы пакеты и из самого повтора.
+(его игрок и мир; `ViewerHold`, строка `Film: replay viewer got … packets held after login …`). `ignoredCustomPayloads`
+Flashback для этого не годится — он выбросил бы пакеты и из самого повтора.
 
 План (`plan.json`): `replay`, `out`, `width`, `height`, `fps`, `bitrate`, `tries` (сколько камер пробовать на план),
 `ready` (доля кадров с построенным миром, 0 — не проверять), `clouds` (низ облаков шейдерпака), `distance` (прорисовка),
