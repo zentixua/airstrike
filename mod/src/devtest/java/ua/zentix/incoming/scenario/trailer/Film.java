@@ -416,13 +416,14 @@ abstract class Film {
 
         /**
          * Проверка каждого кадра живой записи по данным игры ({@link HudQa}): снаряды {@code weapon}, нацеленные ближе
-         * {@code radius} к одной из точек {@code aims}, и их удары; в плане должно быть {@code count} ударов.
+         * {@code radius} к одной из точек {@code aims}, и их удары; в плане должно быть {@code count} ударов. Точки — сам
+         * массив, не копия: план уточняет их по миру перед пуском ({@code onReady}), и проверка ждёт уже те ракеты.
          */
         Shot watch(WeaponType weapon, double radius, int count, Vec3... aims) {
             watchWeapon = weapon;
             watchRadius = radius;
             watchCount = count;
-            watchAims = List.of(aims);
+            watchAims = java.util.Arrays.asList(aims);
             return this;
         }
 

@@ -38,6 +38,8 @@ import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.Keys;
 import ua.zentix.incoming.client.cam.ProjectileCamera;
+import ua.zentix.incoming.client.flight.FlightTrack;
+import ua.zentix.incoming.client.flight.FlightTracks;
 import ua.zentix.incoming.client.hud.Alerts;
 import ua.zentix.incoming.client.hud.ClientFlights;
 import ua.zentix.incoming.client.nuclear.ClientNuclear;
@@ -246,7 +248,10 @@ final class War {
             film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
             carpet();
         }
-        if (part.equals("p33")) skyline();
+        if (part.equals("p33")) {
+            film.run(() -> Film.cmd("time set 1000"));  // днём, как в части east
+            skyline();
+        }
         if (part.equals("p37b")) {
             // своя копия мира: город на горизонте уже горит, как к закату после частей west и east
             film.run(() -> Film.cmd("time set 12400"));
@@ -458,11 +463,16 @@ final class War {
      * прорисовки, не выше {@code ymax} (под слоем облаков), не ближе 25 блоков друг к другу, самые дальние — первыми.
      */
     List<Vec3> facades(Vec3 eye, Vec3 toward, double span, int n, double dmin, double dmax, double ymax) {
+        return facades(eye, toward, span, 8, n, dmin, dmax, ymax);
+    }
+
+    /** То же, веер — от горизонта вверх на {@code rise} градусов. */
+    List<Vec3> facades(Vec3 eye, Vec3 toward, double span, double rise, int n, double dmin, double dmax, double ymax) {
         List<Vec3> hits = new ArrayList<>();
         if (mc.level == null) return hits;
         float yaw0 = Film.yawTo(eye, toward);
         for (double yaw = yaw0 - span / 2; yaw <= yaw0 + span / 2; yaw += 1.5) {
-            for (double pitch = 0; pitch <= 8; pitch += 2) {
+            for (double pitch = 0; pitch <= rise; pitch += 2) {
                 Vec3 dir = Vec3.directionFromRotation((float) -pitch, (float) yaw);
                 var hit = mc.level.clip(new ClipContext(eye, eye.add(dir.scale(dmax)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
                         CollisionContext.empty()));
@@ -581,22 +591,64 @@ final class War {
     }
 
     /**
-     * Перезарядка оружия Point Blank в руке игрока съёмки — его клавишей, как у игрока (нажатие через обработчик клавиатуры:
-     * {@code KeyMapping} и событие клавиши NeoForge): автомат из команды приходит с пустым магазином.
+     * Перезарядка оружия Point Blank в руке игрока съёмки — его клавишей, как у игрока: автомат из команды приходит с
+     * пустым магазином.
      */
     private void reloadGun() {
+        gunKey("reload", "перезарядка");
+    }
+
+    /**
+     * Огонь очередью из автомата Point Blank в руке игрока съёмки: режим огня — клавишей мода, как у игрока. Автомат из
+     * команды стреляет одиночными (первый режим в его списке): удержание атаки дало бы один выстрел. Режим читается из
+     * предмета ({@code GunItem.getFireModeInstance}, отражением: мод есть только в запуске съёмки) раз в 10 тиков, всего
+     * {@code tries} раз: не очередь — нажать клавишу (режимы идут по кругу), режима ещё нет (мод не дал предмету свои
+     * данные) — ждать. Магазин у каждого режима свой — перезаряжать после.
+     */
+    private void autoFire(int tries) {
+        String mode = fireMode();
+        if ("AUTOMATIC".equals(mode)) {
+            Incoming.LOG.info("SCENARIO film staging: режим огня — очередь");
+            return;
+        }
+        if (tries <= 0 || mode != null && !gunKey("firemode", "режим огня")) {
+            Incoming.LOG.warn("SCENARIO film staging: режим огня {} — очередь не включилась", mode);
+            return;
+        }
+        later(10, () -> autoFire(tries - 1));
+    }
+
+    /** Режим огня оружия Point Blank в руке игрока съёмки ({@code FireMode}: SINGLE, AUTOMATIC…); не оружие мода — null. */
+    @Nullable
+    private String fireMode() {
+        try {
+            Object m = Class.forName("com.vicmatskiv.pointblank.item.GunItem").getMethod("getFireModeInstance", ItemStack.class)
+                    .invoke(null, mc.player.getMainHandItem());
+            return m == null ? null : String.valueOf(m.getClass().getMethod("getType").invoke(m));
+        } catch (ReflectiveOperationException | LinkageError e) {
+            Incoming.LOG.warn("SCENARIO film staging: режим огня Point Blank не прочитать — {}", e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * Нажать клавишу Point Blank, в имени которой есть {@code name}, через обработчик клавиатуры ({@code KeyMapping} и
+     * событие клавиши NeoForge), как у игрока; нет такой на клавиатуре — строка WARN и false.
+     */
+    private boolean gunKey(String name, String what) {
         for (KeyMapping k : mc.options.keyMappings) {
             String id = (k.getName() + " " + k.getCategory()).toLowerCase(Locale.ROOT);
-            if (!id.contains("pointblank") || !k.getName().toLowerCase(Locale.ROOT).contains("reload")) continue;
+            if (!id.contains("pointblank") || !k.getName().toLowerCase(Locale.ROOT).contains(name)) continue;
             InputConstants.Key key = k.getKey();
             if (key.getType() != InputConstants.Type.KEYSYM) break;
             long window = mc.getWindow().getWindow();
             mc.keyboardHandler.keyPress(window, key.getValue(), 0, org.lwjgl.glfw.GLFW.GLFW_PRESS, 0);
             later(3, () -> mc.keyboardHandler.keyPress(window, key.getValue(), 0, org.lwjgl.glfw.GLFW.GLFW_RELEASE, 0));
-            Incoming.LOG.info("SCENARIO film staging: перезарядка — клавиша {} ({})", k.getName(), key.getName());
-            return;
+            Incoming.LOG.info("SCENARIO film staging: {} — клавиша {} ({})", what, k.getName(), key.getName());
+            return true;
         }
-        Incoming.LOG.warn("SCENARIO film staging: клавиши перезарядки Point Blank на клавиатуре нет");
+        Incoming.LOG.warn("SCENARIO film staging: клавиши «{}» Point Blank на клавиатуре нет", what);
+        return false;
     }
 
     /**
@@ -628,17 +680,29 @@ final class War {
         return best * 5f;
     }
 
+    /** Столько бойцов Востока должно быть видно с места стрелка: в кадре их нужно {@link FightQa#MIN_FOES}, бой их двигает. */
+    static final int SPOT_FOES = FightQa.MIN_FOES + 3;
+
     /**
-     * Места стрелка Запада для плана глазами бойца: клетки за линией баррикад Запада (x от c.x − 34 до c.x − 24), где
-     * можно стоять (не на баррикаде, воздух на два блока, не ближе 1,5 блока к посту бойца), — по числу бойцов Востока,
-     * чья грудь видна из глаз (лучи по блокам у клиента) в секторе ±35° к востоку. {@code n} лучших не ближе 6 блоков
-     * друг к другу: [место, точка взгляда — середина видимых бойцов Востока].
+     * Место стрелка Запада для дубля плана глазами бойца: клетки за линией баррикад Запада (x от c.x − 34 до c.x − 24),
+     * где можно стоять (не на баррикаде, воздух на два блока, не ближе 1,5 блока к посту бойца), — по живым бойцам
+     * Востока, чья грудь видна из глаз (лучи по блокам у клиента) в секторе ±35° к востоку, как их считает
+     * {@link FightQa}: и у поста, и там, где боец сейчас (перебежки — до {@code Fight.roam} от поста). Не ближе 6 блоков
+     * к местам прошлых дублей {@code taken}, если где-то вдали от них видно не меньше {@link #SPOT_FOES}; иначе — лучшее
+     * и рядом с ними (строка WARN). Ответ — [место, точка взгляда — середина видимых бойцов Востока].
      */
-    List<Vec3[]> firingSpots(Fight fight, Vec3 c, int n) {
-        record Spot(Vec3 at, Vec3 aim, int seen) {}
-        List<Spot> all = new ArrayList<>();
-        int east = 0;
-        for (Fight.Soldier s : fight.soldiers()) if (s.side == 1) east++;
+    Vec3[] firingSpot(Fight fight, Vec3 c, List<Vec3[]> taken) {
+        record Spot(Vec3 at, Vec3 aim, int seen, int score) {}
+        // бойцы, которых клиент не видит (далеко от игрока), — только у поста
+        List<Vec3> posts = new ArrayList<>(), now = new ArrayList<>();
+        for (Fight.Soldier s : fight.soldiers()) {
+            if (s.side != 1) continue;
+            Entity e = film.bot(s.name);
+            if (e != null && !e.isAlive()) continue;
+            posts.add(s.post.add(0, 1.2, 0));
+            now.add(e == null ? null : e.position().add(0, 1.2, 0));
+        }
+        Spot best = null, near = null;
         for (int bx = Mth.floor(c.x) - 34; bx <= Mth.floor(c.x) - 24; bx++) {
             for (int bz = Mth.floor(c.z) - 22; bz <= Mth.floor(c.z) + 24; bz++) {
                 int top = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz);
@@ -648,32 +712,39 @@ final class War {
                 Vec3 at = new Vec3(bx + 0.5, top, bz + 0.5);
                 if (fight.soldiers().stream().anyMatch(s -> Math.hypot(s.post.x - at.x, s.post.z - at.z) < 1.5)) continue;
                 Vec3 eye = at.add(0, 1.62, 0), sum = Vec3.ZERO;
-                int seen = 0;
-                for (Fight.Soldier s : fight.soldiers()) {
-                    if (s.side != 1) continue;
-                    Vec3 chest = s.post.add(0, 1.2, 0), d = chest.subtract(eye);
-                    if (Math.abs(Math.toDegrees(Math.atan2(d.z, d.x))) > 35) continue;
-                    var hit = mc.level.clip(new ClipContext(eye, chest, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
-                    if (hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceTo(chest) >= 0.6) continue;
-                    seen++;
-                    sum = sum.add(chest);
+                int seen = 0, score = 0;
+                for (int i = 0; i < posts.size(); i++) {
+                    Vec3 live = now.get(i) == null ? posts.get(i) : now.get(i);
+                    boolean atPost = openTo(eye, posts.get(i)), atLive = openTo(eye, live);
+                    if (atPost) sum = sum.add(posts.get(i));
+                    if (atLive) sum = sum.add(live);
+                    score += (atPost ? 1 : 0) + (atLive ? 1 : 0);
+                    if (atPost && atLive) seen++;
                 }
-                if (seen > 0) all.add(new Spot(at, sum.scale(1.0 / seen), seen));
+                if (score == 0) continue;
+                Spot sp = new Spot(at, sum.scale(1.0 / score), seen, score);
+                if (near == null || sp.score > near.score) near = sp;
+                if (sp.seen >= SPOT_FOES && taken.stream().allMatch(o -> o[0].distanceTo(at) >= 6) && (best == null || sp.score > best.score)) best = sp;
             }
         }
-        all.sort(Comparator.comparingInt((Spot s) -> -s.seen));
-        List<Vec3[]> out = new ArrayList<>();
-        for (Spot s : all) {
-            if (out.size() >= n) break;
-            if (out.stream().anyMatch(o -> o[0].distanceTo(s.at) < 6)) continue;
-            out.add(new Vec3[]{s.at, s.aim});
-            Incoming.LOG.info("SCENARIO film staging: место стрелка {} — видно бойцов Востока {} из {}", xyz(s.at), s.seen, east);
+        if (best == null && near != null) {
+            best = near;
+            Incoming.LOG.warn("SCENARIO film staging: место стрелка — вдали от прошлых дублей нет места, откуда видно {} бойцов Востока, беру лучшее", SPOT_FOES);
         }
-        while (out.size() < n) {
+        if (best == null) {
             Incoming.LOG.warn("SCENARIO film staging: место стрелка — нет ни одного с видом на бойцов Востока, беру за линией у середины");
-            out.add(new Vec3[]{new Vec3(c.x - 30, 0, c.z - 10 + out.size() * 9), at(new Vec3(c.x + 28, 0, c.z)).add(0, 1.4, 0)});
+            return new Vec3[]{new Vec3(c.x - 30, 0, c.z - 10 + taken.size() * 9), at(new Vec3(c.x + 28, 0, c.z)).add(0, 1.4, 0)};
         }
-        return out;
+        Incoming.LOG.info("SCENARIO film staging: место стрелка {} — видно бойцов Востока {} из {} (у поста и сейчас)", xyz(best.at), best.seen, posts.size());
+        return new Vec3[]{best.at, best.aim};
+    }
+
+    /** Грудь бойца {@code chest} видна из глаз {@code eye} в секторе ±35° к востоку (лучи по блокам у клиента). */
+    private boolean openTo(Vec3 eye, Vec3 chest) {
+        Vec3 d = chest.subtract(eye);
+        if (Math.abs(Math.toDegrees(Math.atan2(d.z, d.x))) > 35) return false;
+        var hit = mc.level.clip(new ClipContext(eye, chest, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, CollisionContext.empty()));
+        return hit.getType() == HitResult.Type.MISS || hit.getLocation().distanceTo(chest) < 0.6;
     }
 
     /**
@@ -1630,19 +1701,22 @@ final class War {
                 .when(() -> flightEta(at(hit26), 20, WeaponType.ROCKET) <= P26_HIT / 20.0, 3000);
 
         // p27: твоими глазами — перестрелка через площадь (a, c), на дороге рвутся снаряды (b). Игрок съёмки — стрелок
-        // Запада за линией баррикад: места — где из глаз видно больше всего бойцов Востока (firingSpots), с патронами и
-        // перезарядкой клавишей мода; проверка по данным — FightQa (автомат в руке, выстрелы по звуку, Восток в кадре)
+        // Запада за линией баррикад: место на каждый дубль — где из глаз видно больше всего бойцов Востока сейчас
+        // (firingSpot), автомат — очередью, с патронами и перезарядкой клавишами мода; проверка по данным — FightQa
+        // (автомат в руке, выстрелы по звуку, Восток в кадре)
         List<Vec3[]> spots27 = new ArrayList<>();
-        film.run(() -> spots27.addAll(firingSpots(street, c, 3)));
         List<String> foes = new ArrayList<>();
         film.run(() -> street.soldiers().stream().filter(s -> s.side == 1).forEach(s -> foes.add(s.name)));
         for (String take : new String[]{"a", "b", "c"}) {
             int k = take.charAt(0) - 'a';
+            film.run(() -> spots27.add(firingSpot(street, c, spots27)));
             actor(() -> spots27.get(k)[0], () -> spots27.get(k)[1], "pointblank:ak47");
             film.run(() -> {
                 Film.cmd("give @s pointblank:ammo762 512");
-                reloadGun();
+                autoFire(6);
             });
+            film.waitTicks(65);
+            film.run(this::reloadGun);
             film.waitTicks(70);
             Film.Shot shot = film.shot("p27" + take).length(40).hud()
                     .player(t -> {
@@ -1688,13 +1762,17 @@ final class War {
         film.run(() -> cast().spawn("Vlad", g(wall), Film.yawTo(wall, house), null));
         settle();
         film.onServer(level -> film.armSoldier("Vlad", 1));
-        // удар — в грань дома напротив, которую камера из-за плеча видит в 40–110 блоках (веер лучей в момент пуска):
-        // луч прямо на высотку за улицей упирался в стену, у которой стоит боец, и шахед входил в неё у камеры
+        // удар — в грань дома напротив, которую камера из-за плеча видит в 30–100 блоках (веер лучей в момент пуска, на 80°
+        // и до 24° вверх): луч прямо на высотку за улицей упирался в стену, у которой стоит боец, и шахед входил в неё у
+        // камеры; веер на 50° и до 8° вверх в записи 13.10 грани не нашёл, и цель осталась на высотке за навесом над
+        // бойцом (блок в 5 блоках от камеры)
         Vec3[] house29 = {house};
         film.shot("p29").length(50).hidden()
                 .onReady(() -> {
                     Pose cam = CineCamera.pose();
-                    List<Vec3> faces = cam == null ? List.of() : facades(cam.pos(), house, 50, 1, 40, 110, Rig.cloudBase() - 6);
+                    double clouds = Rig.cloudBase();
+                    List<Vec3> faces = cam == null ? List.of()
+                            : facades(cam.pos(), house, 80, 24, 1, 30, 100, (Double.isNaN(clouds) ? 192 : clouds) - 6);
                     if (!faces.isEmpty()) house29[0] = faces.get(0);
                     else Incoming.LOG.warn("SCENARIO film staging p29: грани дома напротив из камеры нет, цель {}", xyz(house));
                     salvo("drone", 1, 0, house29[0], behind(wall, house29[0], 700));
@@ -1818,9 +1896,10 @@ final class War {
     }
 
     /**
-     * p33: в бинокль с крыши Востока — удары по башням центра за ~700 блоков, дальше прорисовки. Ракеты с запада идут
-     * поперёк кадра и бьют справа налево (T2, T4, T1) пусками через 8 тиков — три удара за секунду монтажа; звук удара
-     * идёт до крыши 2 с — монтаж режет раньше.
+     * p33: в бинокль с крыши Востока — удары по башням центра в 220–310 блоках, дальше прорисовки. Ракеты с запада идут
+     * поперёк кадра справа налево и бьют справа налево (T2, T1, T4) пусками через 14 тиков; звук удара идёт до крыши
+     * около секунды — монтаж режет раньше. Бинокль ведёт за ракетами ({@link #scopeFollow}): в окуляр (±8° при
+     * увеличении 4) три башни разом не входят, а ракета за последнюю секунду проходит поперёк кадра 12°.
      * Каждый кадр проверяется по путям ракет ({@link HudQa}): ракета перед ударом и удар в окуляре, не за рельефом.
      */
     private void skyline() {
@@ -1829,10 +1908,6 @@ final class War {
         Vec3[] aims = new Vec3[towers.length];
         for (int i = 0; i < towers.length; i++) aims[i] = new Vec3(towers[i].x, UNDER_CLOUDS, towers[i].z);
         actor(SKYLINE_POST, aims[0].lerp(aims[1], 0.5), "incoming:strike_designator[incoming:loadout={weapon:\"missile\",count:1,spread:0}]");
-        // окуляр сперва — на T2 и T1, через 12 тиков после удара по T2 (удар виден, KEY в HudQa) за 6 тиков переходит на T1
-        // и T4: удар по T1 в кадре в обоих положениях, ракета на T4 — последние 11 тиков до удара (через 14 тиков после T1)
-        int[] hitAt = {-1};
-        boolean[] flying = {false};
         film.shot("p33").length(100).hud().readyChunks(26).distant()
                 .onReady(() -> {
                     for (int i = 0; i < towers.length; i++) {
@@ -1840,18 +1915,71 @@ final class War {
                         later(14 * i, () -> salvo("missile", 1, 0, t, new Vec3(t.x - 1500, 0, t.z)));
                     }
                 })
-                .player(t -> {
-                    boolean now = flightEta(aims[0], 6, WeaponType.MISSILE) < Double.POSITIVE_INFINITY;
-                    if (flying[0] && !now && hitAt[0] < 0) hitAt[0] = (int) t;
-                    flying[0] |= now;
-                    double s = hitAt[0] < 0 ? 0 : CineCamera.smooth(Mth.clamp((t - hitAt[0] - 12) / 6, 0, 1));
-                    Vec3 look = aims[0].lerp(aims[1], 0.5).lerp(aims[1].lerp(aims[2], 0.5), s);
-                    return new Pose(Vec3.ZERO, Film.yawTo(SKYLINE_POST, look), Film.pitchTo(eye, look), 0, 70);
-                })
+                .player(scopeFollow(eye, aims, 40, () -> aims[0].lerp(aims[1], 0.5)))
                 .cue(0, () -> mc.options.keyUse.setDown(true))
                 .cueEnd(() -> mc.options.keyUse.setDown(false))
                 .watch(WeaponType.MISSILE, 40, towers.length, aims)
                 .when(() -> flightEta(aims[0], 6, WeaponType.MISSILE) <= 1.5, 3000);
+    }
+
+    /** Бинокль ведёт ракету, которой до удара не больше стольких тиков ({@link HudQa#NEAR} и запас на вход в кадр)… */
+    private static final int SCOPE_NEAR = HudQa.NEAR + 4;
+    /** …и её удар столько тиков ({@link HudQa#KEY} и запас); точка входит в расчёт и уходит из него за столько тиков. */
+    private static final int SCOPE_HIT = HudQa.KEY + 4, SCOPE_RAMP = 5;
+
+    /**
+     * Взгляд в бинокль за ударами крылатых ракет по точкам {@code aims} (ближе {@code radius}) из глаза {@code eye}: каждая
+     * ракета — последние {@link #SCOPE_NEAR} тиков до удара, её удар — {@link #SCOPE_HIT} тиков после. Где они, — по путям
+     * ({@link FlightTrack}: по ним мод рисует снаряды дальше прорисовки и их же проверяет {@link HudQa}), до удара —
+     * по расстоянию до точки удара на скорости пике. Взгляд — средний из направлений на эти точки; вес точки растёт и
+     * спадает за {@link #SCOPE_RAMP} тиков, взгляд догоняет за 2 тика: без рывков, как ведут рукой. Таких точек нет —
+     * на ракету, ближайшую к удару, нет и её — прежний взгляд, до первой ракеты — {@code start}. Шаг взгляда — по
+     * времени плана (кадры вживую идут с постоянным шагом), а не по числу вызовов.
+     */
+    private CineCamera.Path scopeFollow(Vec3 eye, Vec3[] aims, double radius, java.util.function.Supplier<Vec3> start) {
+        Vec3[] want = {null}, cur = {null};
+        double[] last = {0};
+        double dive = WeaponType.MISSILE.spec().airframe().diveSpeed();
+        return t -> {
+            Vec3 w = scopeLook(eye, aims, radius, dive);
+            if (w != null) want[0] = w;
+            else if (want[0] == null) want[0] = start.get().subtract(eye).normalize();
+            // до записи время плана стоит на нуле: взгляд сразу там, куда нужно
+            cur[0] = cur[0] == null || t <= 0 ? want[0] : cur[0].lerp(want[0], 1 - Math.exp(-Math.max(0, t - last[0]) / 2)).normalize();
+            last[0] = t;
+            Vec3 look = eye.add(cur[0].scale(100));
+            return new Pose(Vec3.ZERO, Film.yawTo(eye, look), Film.pitchTo(eye, look), 0, 70);
+        };
+    }
+
+    /** Куда смотреть сейчас ({@link #scopeFollow}): единичное направление из {@code eye}; ракет плана нет — null. */
+    @Nullable
+    private static Vec3 scopeLook(Vec3 eye, Vec3[] aims, double radius, double dive) {
+        double now = FlightTracks.now() - 1 + CineCamera.partial(), soonest = Double.POSITIVE_INFINITY;
+        Vec3 sum = Vec3.ZERO, next = null;
+        double[] p = new double[3];
+        for (FlightTrack f : FlightTracks.all()) {
+            if (f.weapon != WeaponType.MISSILE || f.bomber) continue;
+            Vec3 aim = f.aim(now);
+            if (aim == null || java.util.Arrays.stream(aims).noneMatch(a -> a.distanceTo(aim) < radius)) continue;
+            if (f.isDead() && now >= f.deathTick()) {
+                double age = now - f.deathTick();
+                if (age > SCOPE_HIT) continue;
+                f.at(f.deathTick(), p);
+                sum = sum.add(new Vec3(p[0], p[1], p[2]).subtract(eye).normalize().scale(Mth.clamp((SCOPE_HIT - age) / SCOPE_RAMP, 0, 1)));
+                continue;
+            }
+            if (!f.predict(now, p)) continue;
+            Vec3 at = new Vec3(p[0], p[1], p[2]);
+            double left = at.distanceTo(aim) / dive;
+            sum = sum.add(at.subtract(eye).normalize().scale(Mth.clamp((SCOPE_NEAR - left) / SCOPE_RAMP, 0, 1)));
+            if (left < soonest) {
+                soonest = left;
+                next = at;
+            }
+        }
+        if (sum.lengthSqr() > 1e-6) return sum.normalize();
+        return next == null ? null : next.subtract(eye).normalize();
     }
 
     /**
