@@ -82,15 +82,74 @@ final class Operator {
     static final double FLYING = 0.8;
 
     /** Кандидат, снятый человеком; имя — то же. */
-    static Rig.Candidate human(Rig.Candidate c, EventLog.Data d, int a, int b) {
+    static Rig.Candidate human(Rig.Candidate c, Rig.Subject subject, EventLog.Data d, int a, int b) {
         Style st = style(c, a, b);
-        CineCamera.Path path = humanize(c.path(), st, c.name().hashCode(), d, a - LEAD, b + TAIL);
+        CineCamera.Path path = humanize(onShown(c, subject, d, a, b), st, c.name().hashCode(), d, a - LEAD, b + TAIL);
         return new Rig.Candidate(c.name(), path, c.mm(), c.close(), c.designed());
     }
 
     /** Запасной кандидат — путь как есть (камера сценария без рук): если с руками объект уходит из кадра. */
-    static Rig.Candidate raw(Rig.Candidate c) {
-        return new Rig.Candidate(c.name() + "-raw", c.path(), c.mm(), c.close(), false);
+    static Rig.Candidate raw(Rig.Candidate c, Rig.Subject subject, EventLog.Data d, int a, int b) {
+        return new Rig.Candidate(c.name() + "-raw", onShown(c, subject, d, a, b), c.mm(), c.close(), false);
+    }
+
+    /**
+     * Путь камеры сценария ({@code own…}) — на места объекта, как их покажет повтор: камера сценария вела объект там, где
+     * он был у записывающего клиента, а журнал до очереди мест ({@link Shown}) записал там рывки, которых в повторе нет —
+     * на тиках рывков объект уходил по кадру (p01a — 14 % полукадра, p42 — 5 %). Камера, которая едет за объектом (погоня,
+     * FPV), сдвигается с ним; камера, которая на него смотрит, доворачивает на него. Что из двух — одно на весь план: смена
+     * посреди плана дёрнула бы фон. Между тиками сдвиг — по доле тика, как объект в кадре. Журнал с очередью и чужие
+     * кандидаты (их пути и так по показанным местам) — как есть.
+     */
+    static CineCamera.Path onShown(Rig.Candidate c, Rig.Subject subject, EventLog.Data d, int a, int b) {
+        CineCamera.Path in = c.path();
+        if (!c.name().startsWith("own") || subject.entity == null) return in;
+        EventLog.Flight f = d.flights.stream().filter(x -> subject.entity.equals(x.id)).findFirst().orElse(null);
+        if (f == null) return in;
+        boolean ride = rides(in, f, a, b);
+        return t -> {
+            Pose p = in.at(t);
+            int k = (int) Math.floor(t);
+            double u = t - k;
+            double[] r0 = f.raw.get(k), s0 = f.at.get(k), r1 = f.raw.get(k + 1), s1 = f.at.get(k + 1);
+            if (r0 == null || s0 == null) return p;
+            if (r1 == null || s1 == null) {
+                r1 = r0;
+                s1 = s0;
+            }
+            Vec3 rec = lerp(r0, r1, u), shown = lerp(s0, s1, u), shift = shown.subtract(rec);
+            if (shift.lengthSqr() < 1e-12) return p;
+            Vec3 pos = p.pos();
+            if (ride) return new Pose(pos.add(shift), p.yaw(), p.pitch(), p.roll(), p.fov());
+            // смотрит на объект (он в кадре): поворот — на угол между прежним и показанным направлением к нему
+            Vec3 look = Vec3.directionFromRotation(p.pitch(), p.yaw()), to = rec.subtract(pos);
+            if (to.lengthSqr() < 1e-6 || look.dot(to.normalize()) < Math.cos(Math.toRadians(p.fov()))) return p;
+            float yaw = p.yaw() + Mth.wrapDegrees(Film.yawTo(pos, shown) - Film.yawTo(pos, rec));
+            float pitch = p.pitch() + Film.pitchTo(pos, shown) - Film.pitchTo(pos, rec);
+            return new Pose(pos, yaw, pitch, p.roll(), p.fov());
+        };
+    }
+
+    private static Vec3 lerp(double[] p, double[] q, double u) {
+        return new Vec3(p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u, p[2] + (q[2] - p[2]) * u);
+    }
+
+    /**
+     * Камера едет с объектом: на большинстве тиков окна, где он движется (от 0,3 блока за тик), её средняя скорость за ±3
+     * тика — как у него (разница меньше трети).
+     */
+    private static boolean rides(CineCamera.Path in, EventLog.Flight f, int from, int to) {
+        int moving = 0, with = 0;
+        for (int t = from; t <= to; t++) {
+            double[] a = f.at.get(t - 3), b = f.at.get(t + 3);
+            if (a == null || b == null) continue;
+            Vec3 v = new Vec3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).scale(1 / 6.0);
+            if (v.length() < 0.3) continue;
+            moving++;
+            Vec3 cv = in.at(t + 3).pos().subtract(in.at(t - 3).pos()).scale(1 / 6.0);
+            if (cv.subtract(v).length() < v.length() / 3) with++;
+        }
+        return moving > 0 && with * 2 > moving;
     }
 
     static CineCamera.Path humanize(CineCamera.Path in, Style st, long seed, EventLog.Data d, int from, int to) {

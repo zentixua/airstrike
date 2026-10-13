@@ -169,7 +169,11 @@ final class EventLog {
         final String weapon;
         final boolean bomber;
         final int born;
+        /** Место по тикам, как его покажет клиент повтора (у журнала до очереди мест — {@link Shown}): по нему ставятся камеры. */
         final java.util.TreeMap<Integer, double[]> at = new java.util.TreeMap<>();
+        /** Место, как его записал журнал (у записывающего клиента), и тики, записанные по пакетам дальних полётов. */
+        final java.util.TreeMap<Integer, double[]> raw = new java.util.TreeMap<>();
+        final Set<Integer> server = new HashSet<>();
         final Map<Integer, Integer> phase = new HashMap<>();
         /** Тик взрыва (−1 — не взорвался в записи) и его место. */
         int impact = -1;
@@ -271,7 +275,11 @@ final class EventLog {
         }
     }
 
-    static Data read(Path file) throws IOException {
+    /**
+     * Журнал повтора. {@code beforeQueue} — журнал записан до очереди мест ({@link Shown}, film-war2 и раньше): место
+     * снаряда в кадре восстанавливается; журнал с очередью уже пишет его как есть (через {@link Shown} он исказился бы).
+     */
+    static Data read(Path file, boolean beforeQueue) throws IOException {
         Data d = new Data();
         Map<Integer, Flight> byIndex = new HashMap<>();
         for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
@@ -301,8 +309,9 @@ final class EventLog {
                         JsonArray a = e.getAsJsonArray();
                         Flight f = byIndex.get(a.get(0).getAsInt());
                         if (f == null) continue;
-                        f.at.put(t, new double[]{a.get(1).getAsDouble(), a.get(2).getAsDouble(), a.get(3).getAsDouble()});
+                        f.raw.put(t, new double[]{a.get(1).getAsDouble(), a.get(2).getAsDouble(), a.get(3).getAsDouble()});
                         f.phase.put(t, a.get(4).getAsInt());
+                        if (a.size() > 5 && a.get(5).getAsInt() == 0) f.server.add(t);
                     }
                 }
                 if (o.has("p")) {
@@ -328,6 +337,7 @@ final class EventLog {
                 d.marks.add(new Mark(t, o.get("mark").getAsString()));
             }
         }
+        for (Flight f : d.flights) f.at.putAll(beforeQueue ? Shown.asShown(f.raw, f.server) : f.raw);
         return d;
     }
 }

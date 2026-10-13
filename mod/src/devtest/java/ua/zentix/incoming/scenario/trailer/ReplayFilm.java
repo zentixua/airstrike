@@ -78,6 +78,8 @@ public final class ReplayFilm {
     private final int width, height, tries, hold;
     /** Только кандидаты с такими именами (INCOMING_FILM_CAMERA), null — все. */
     private final @Nullable java.util.regex.Pattern cameraFilter;
+    /** Журналы записаны до очереди мест мода (film-war2 и раньше): место снаряда в кадре — {@link Shown}. */
+    private final boolean beforeQueue;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
     /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
@@ -144,6 +146,7 @@ public final class ReplayFilm {
         // правка одного плана другой камерой: имена кандидатов (регулярное выражение, список — render/<план>/candidates.txt)
         String camera = System.getenv("INCOMING_FILM_CAMERA");
         cameraFilter = camera == null || camera.isBlank() ? null : java.util.regex.Pattern.compile(camera);
+        beforeQueue = System.getenv("INCOMING_FILM_SHOWN") != null;
         hold = Integer.parseInt(System.getenv().getOrDefault("INCOMING_FILM_HOLD", "20"));
         String only = System.getenv("INCOMING_FILM_SHOTS");
         List<String> pick = only == null || only.isBlank() ? null : Arrays.asList(only.split(","));
@@ -440,7 +443,7 @@ public final class ReplayFilm {
     /** Повтор открыт: журнал, объект и окно, перемотка к событию. */
     private void startShot() {
         try {
-            data = EventLog.read(replays.resolve(spec.replay() + ".events.jsonl"));
+            data = EventLog.read(replays.resolve(spec.replay() + ".events.jsonl"), beforeQueue);
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
@@ -496,8 +499,8 @@ public final class ReplayFilm {
         for (Rig.Kind k : spec.kinds()) {
             for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) {
                 // в вывод — как снял бы человек (Operator); камера сценария как есть — запасной, если с руками объект уходит
-                tallies.add(new Rig.Tally(Operator.human(c, data, a, b), subject, a, b, earlier, spec.minShare()));
-                if (c.designed() && c.name().startsWith("own")) tallies.add(new Rig.Tally(Operator.raw(c), subject, a, b, earlier, spec.minShare()));
+                tallies.add(new Rig.Tally(Operator.human(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
+                if (c.designed() && c.name().startsWith("own")) tallies.add(new Rig.Tally(Operator.raw(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
             }
         }
         for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
