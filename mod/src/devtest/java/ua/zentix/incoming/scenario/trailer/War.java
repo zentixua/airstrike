@@ -16,6 +16,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.IncomingConfig;
 import ua.zentix.incoming.client.cam.ProjectileCamera;
 import ua.zentix.incoming.client.hud.Alerts;
@@ -40,6 +41,7 @@ import ua.zentix.incoming.strike.WeaponType;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
@@ -247,6 +249,25 @@ final class War {
         double best = Double.POSITIVE_INFINITY;
         for (var f : ClientFlights.all()) if (f.weapon() == weapon && f.target().distanceTo(p) < r) best = Math.min(best, f.etaSeconds(1));
         return best;
+    }
+
+    /**
+     * Середина стаи: среднее место {@code n} ближайших к точке снарядов этого оружия не дальше {@code r}; нет — null.
+     * Шахеды идут к цели не прямо (обход и заход с тыла, {@code drone_flight_time}), поэтому камера ищет их, а не ждёт.
+     */
+    @Nullable
+    static Vec3 swarmCentre(Vec3 p, double r, int n, WeaponType weapon) {
+        List<Vec3> near = new ArrayList<>();
+        for (var f : ClientFlights.all()) {
+            Vec3 q = f.position(1);
+            if (f.weapon() == weapon && q.distanceTo(p) < r) near.add(q);
+        }
+        if (near.isEmpty()) return null;
+        near.sort(Comparator.comparingDouble(q -> q.distanceToSqr(p)));
+        Vec3 sum = Vec3.ZERO;
+        int k = Math.min(n, near.size());
+        for (int i = 0; i < k; i++) sum = sum.add(near.get(i));
+        return sum.scale(1.0 / k);
     }
 
     /** То же по горизонтали: снаряд над точкой на любой высоте. */
@@ -732,8 +753,9 @@ final class War {
         stageScene("airship", airship, -90);
         clearSams(airship, 160);
 
-        // p25: из двора, длинный фокус навстречу рою: шахеды идут над крышами прямо на камеру. Залп шахедов выходит по
-        // одному раз в 1–2 с, поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук
+        // p25: из двора, длинный фокус на рой: шахеды идут над крышами к камере. Залп шахедов выходит по одному раз
+        // в 1–2 с, поэтому рой — пять залпов с пусковых рядом (параллельные потоки), а не один в 30 штук; камера
+        // держит середину ближайших шести
         Vec3 swarm = new Vec3(3250.5, 0, 560.5), street = new Vec3(3058.5, 0, 378.5);
         hiddenAt(street, swarm);
         film.shot("p25").length(60).hidden()
@@ -744,7 +766,8 @@ final class War {
                 .camera(() -> {
                     Vec3 c = g(street).add(0, 1.4, 0);
                     Vec3 dir = at(swarm).subtract(c).multiply(1, 0, 1).normalize();
-                    return CineCamera.track(c, () -> c.subtract(dir.scale(100)).add(0, 36, 0), 30);  // на 20° вверх, над крышами
+                    return CineCamera.track(c, film.smoothFocus(() -> swarmCentre(c, 400, 6, WeaponType.DRONE),
+                            c.subtract(dir.scale(100)).add(0, 36, 0), 0.2), 34);
                 })
                 .when(() -> flightOver(at(street), 220, WeaponType.DRONE), 3000);
 
