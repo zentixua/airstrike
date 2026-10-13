@@ -7,10 +7,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent;
 import org.jetbrains.annotations.Nullable;
 import ua.zentix.incoming.Incoming;
 import ua.zentix.incoming.scenario.trailer.CineCamera.Pose;
@@ -90,7 +92,7 @@ public final class ReplayFilm {
 
     private record Scored(Rig.Candidate c, Rig.Score score) {}
 
-    public ReplayFilm() {
+    public ReplayFilm(IEventBus modBus) {
         try {
             // члены Flashback, которые зовёт вывод, на месте
             FlashbackApi.check();
@@ -149,6 +151,8 @@ public final class ReplayFilm {
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+        // соединение зрителя повтора при настройке, до пакета входа: пакеты после входа ждут, пока у клиента нет мира
+        modBus.addListener(RegisterConfigurationTasksEvent.class, e -> ViewerHold.install(e.getListener().getConnection()));
         if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
@@ -230,6 +234,7 @@ public final class ReplayFilm {
         switch (state) {
             case OPENING -> {
                 if (mc.level != null && mc.player != null && FlashbackApi.inReplay()) {
+                    ViewerHold.release();
                     // редактор Flashback не активен без интерфейса — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);

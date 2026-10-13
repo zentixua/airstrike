@@ -69,6 +69,8 @@ INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh r
 ```
 В логе:
 - `SCENARIO film dh generator DISABLED PRE_EXISTING_ONLY`, как у записи;
+- на каждый открытый повтор — `SCENARIO film: зрителю повтора после входа — N пакетов (модов M), когда у клиента есть
+  мир`, без `пакет входа зрителя прошёл мимо удержания`;
 - нет `Failed to handle packet`, `DecoderException` и `повтор закрылся` (отключение от повтора; есть — прислать
   стек целиком с 30 строками до него);
 - в `qa.jsonl` выводимых кандидатов `"dh":1` в каждом кадре; перед каждым выводом текстуры DH пересоздаются в размер

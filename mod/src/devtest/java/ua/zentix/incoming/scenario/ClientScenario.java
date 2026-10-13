@@ -129,7 +129,7 @@ public final class ClientScenario {
             return;
         }
         if ("film".equals(scenario)) {
-            new ua.zentix.incoming.scenario.trailer.ReplayFilm(); // планы трейлера из повторов Flashback (tools/trailer/film.sh)
+            new ua.zentix.incoming.scenario.trailer.ReplayFilm(modBus); // планы трейлера из повторов Flashback (tools/trailer/film.sh)
             return;
         }
         NeoForge.EVENT_BUS.addListener(this::onScreen);
