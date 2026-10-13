@@ -79,6 +79,11 @@ public final class ReplayFilm {
     private record Scored(Rig.Candidate c, Rig.Score score) {}
 
     public ReplayFilm() {
+        // в кадрах вывода Flashback DH рисует LOD поверх ближнего мира (полосы вниз, слой крон и в комнатах): без него
+        if (net.neoforged.fml.ModList.get().isLoaded("distanthorizons")) {
+            Incoming.LOG.error("SCENARIO film failed: Distant Horizons в выводе из повтора рисует LOD поверх ближнего мира — вывод без него (film.sh render)");
+            Runtime.getRuntime().halt(3);
+        }
         Path game = mc.gameDirectory.toPath();
         // пути полные: best.txt читают монтаж и скрипты не из каталога игры
         root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).toAbsolutePath().normalize();
