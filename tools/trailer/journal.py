@@ -7,8 +7,8 @@
 [--tail N] [--weapon W]. Печатает отметки, людей в начале плана, камеру сценария через N тиков (место, курс, наклон, угол кадра),
 снаряды (появление, конец, удар) и каждый снаряд в окне плана относительно камеры: расстояние, высоту над камерой,
 угол от оси кадра и в кадре ли он (поля 0.85, как у Rig.inFrame). --region — папка region мира части: тики, где
-камера в блоках (как Rig.World.free: куб ±0,5 блока вокруг глаза), и блоки в углах куба. Почему план не прошёл
-проверку вывода — по данным записи, без игры."""
+камера в блоках (как Rig.World.free: куб ±0,5 блока вокруг глаза), и блоки в углах куба, а у снаряда и удара — первый
+блок на луче из камеры (за блоками ли он). Почему план не прошёл проверку вывода — по данным записи, без игры."""
 import argparse, json, math, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -23,6 +23,25 @@ PASSABLE = ('air', 'light', 'short_grass', 'tall_grass', 'grass', 'fern', 'large
 def passable(name):
     n = name.split(':')[-1]
     return n.endswith('air') or any(n == p or n.endswith('_' + p) or p in n for p in PASSABLE)
+
+
+def sight(region, a, b, near=1.5):
+    """Первый блок с формой на отрезке камера → объект (без последних near блоков у объекта) или None."""
+    from ray import block
+    d = math.dist(a, b)
+    if d <= near:
+        return None
+    v = [(b[i] - a[i]) / d for i in range(3)]
+    last, t = None, 0.3
+    while t < d - near:
+        c = tuple(math.floor(a[i] + v[i] * t) for i in range(3))
+        if c != last:
+            last = c
+            bl = block(region, *c)
+            if bl == '?' or not passable(bl):
+                return f'за {bl.split(":")[-1]}@{c[0]},{c[1]},{c[2]} в {t:.0f} бл'
+        t += 0.2
+    return None
 
 
 def look(yaw, pitch):
@@ -107,9 +126,19 @@ def main():
                 continue
             c, s = cams[t], ps[t]
             d = math.dist(c[:3], s[:3])
-            rows.append(f'{t}: {d:.0f} бл, выше камеры {s[1] - c[1]:+.0f}, {in_frame(c, s)}, фаза {s[3]}')
+            seen = sight(a.region, c[:3], s[:3]) if a.region else None
+            rows.append(f'{t}: {d:.0f} бл, выше камеры {s[1] - c[1]:+.0f}, {in_frame(c, s)}, фаза {s[3]}'
+                        + (f', {seen}' if seen else ''))
         for r in rows:
             print('     ', r)
+        if 'impact' in f:
+            t, at = f['impact']
+            ct = min(cams, key=lambda k: abs(k - t)) if cams else None
+            if ct is not None and start - a.every <= t <= end + a.tail:
+                c = cams[ct]
+                seen = sight(a.region, c[:3], at) if a.region else None
+                print(f'      удар {t} из камеры {ct}: {math.dist(c[:3], at):.0f} бл, {in_frame(c, at)}'
+                      + (f', {seen or "луч чист"}' if a.region else ''))
     if a.region:
         from ray import block
         print('камера в блоках (куб ±0,5 у глаза):')
