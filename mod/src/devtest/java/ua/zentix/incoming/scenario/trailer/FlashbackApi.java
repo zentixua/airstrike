@@ -1,9 +1,21 @@
 package ua.zentix.incoming.scenario.trailer;
 
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.OnDatapackSyncEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import org.jetbrains.annotations.Nullable;
+import ua.zentix.incoming.Incoming;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -155,6 +167,58 @@ final class FlashbackApi {
         seek(tick);
     }
 
+    /** Пакеты модов из снимка повтора, снятые со входа зрителя; только в потоке сервера повтора. */
+    private static final List<Object> held = new ArrayList<>();
+
+    /**
+     * Пакеты модов из снимка начала повтора — клиенту, когда у него есть мир повтора. Flashback шлёт их зрителю при входе
+     * ({@code sendLevelInfo}, сразу за пакетом входа), а клиент разбирает их в принудительном тике
+     * {@code Minecraft.setLevel} при входе, до {@code Minecraft.level}: декодер, которому нужен мир клиента (Point Blank,
+     * состояние оружия в руке других игроков), падает, и клиент отключается от повтора. Поэтому на время входа зрителя
+     * (от {@code OnDatapackSyncEvent} до {@code PlayerLoggedInEvent}, вокруг {@code sendLevelInfo}) их список пуст,
+     * а {@link #releaseSnapshotPayloads} шлёт их зрителю, когда мир у клиента есть.
+     */
+    static void deferSnapshotPayloads() {
+        NeoForge.EVENT_BUS.addListener(OnDatapackSyncEvent.class, e -> {
+            List<Object> list = snapshotPayloads(e.getPlayer());
+            if (list == null) return;
+            held.clear();
+            held.addAll(list);
+            list.clear();
+        });
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, e -> {
+            // список — обратно: Flashback шлёт его и при каждом следующем sendLevelInfo (возрождение, смена измерения)
+            List<Object> list = snapshotPayloads(e.getEntity());
+            if (list != null) list.addAll(0, held);
+        });
+    }
+
+    /** Зритель в мире повтора: пакеты модов из снимка — ему (в потоке сервера повтора, до перемотки к плану). */
+    static void releaseSnapshotPayloads() {
+        if (!(server() instanceof MinecraftServer s)) return;
+        s.execute(() -> {
+            if (held.isEmpty()) return;
+            for (ServerPlayer p : s.getPlayerList().getPlayers()) {
+                if (snapshotPayloads(p) == null) continue;
+                for (Object o : held) p.connection.send(new ClientboundCustomPayloadPacket((CustomPacketPayload) o));
+            }
+            Incoming.LOG.info("SCENARIO film: пакеты модов из снимка повтора ({}) — зрителю в мире повтора", held.size());
+            held.clear();
+        });
+    }
+
+    /** Список пакетов модов снимка ({@code ReplayServer.customPacketsInSnapshot}), если {@code p} — зритель повтора. */
+    @SuppressWarnings("unchecked")
+    private static @Nullable List<Object> snapshotPayloads(Player p) {
+        try {
+            if (!(p instanceof ServerPlayer sp) || !c("playback.ReplayPlayer").isInstance(sp)) return null;
+            if (!c("playback.ReplayServer").isInstance(sp.server)) return null;
+            return (List<Object>) sp.server.getClass().getField("customPacketsInSnapshot").get(sp.server);
+        } catch (ReflectiveOperationException e) {
+            throw fail("ReplayServer.customPacketsInSnapshot", e);
+        }
+    }
+
     // ================================================================ вывод
 
     static boolean exporting() {
@@ -234,6 +298,8 @@ final class FlashbackApi {
         Class<?> server = c("playback.ReplayServer");
         server.getField("replayPaused");
         server.getMethod("goToReplayTick", int.class);
+        server.getField("customPacketsInSnapshot");
+        c("playback.ReplayPlayer");
         c("exporting.ExportJobQueue").getField("queuedJobs");
         Method load = c("state.EditorState").getMethod("load", Path.class);
         if (load == null) throw new NoSuchMethodException("EditorState.load");

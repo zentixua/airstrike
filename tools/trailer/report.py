@@ -3,8 +3,9 @@
 
     python3 tools/trailer/report.py <папка записи>/render [--md отчёт.md]
 
-Берёт render/report.jsonl (строка на кандидата: камера, доли кадров, причина) и render/best.txt (выбранный кандидат
-плана). Доли — от кадров плана: «мир» — кадры с построенным миром, «до удара» — объект в кадре, виден и не мельче
+Берёт render/report.jsonl (строка на кандидата: камера, доли кадров, причина, метка вывода run) и render/best.txt
+(выбранный кандидат плана). report.jsonl копит строки всех выводов: у плана в счёт — только строки его последнего
+вывода. Доли — от кадров плана: «мир» — кадры с построенным миром, «до удара» — объект в кадре, виден и не мельче
 нормы, «последняя секунда» — то же за секунду до удара, «удар» — удар в кадре, виден и не за дымом прежних ударов,
 «мотор» — звук снаряда слышен, «в дыму» — кадры до удара, где больше половины кадра за дымом.
 Планы, снятые вживую с проверкой кадров (HudQa), — из hud.jsonl папки записи (рядом с render): камера «hud», у снарядов
@@ -27,6 +28,8 @@ def main():
     ap.add_argument("--md", type=Path)
     a = ap.parse_args()
     rows = [json.loads(l) for l in (a.render / "report.jsonl").read_text().splitlines() if l.strip()]
+    last = {r["shot"]: r.get("run") for r in rows}
+    rows = [r for r in rows if r.get("run") == last[r["shot"]]]
     best = {}
     for line in (a.render / "best.txt").read_text().splitlines():
         parts = line.split(maxsplit=3)
@@ -56,7 +59,7 @@ def main():
         # строка без камеры (план не снят: нет объекта, камеры, повтор закрылся) — без camera, score и долей; таких
         # строк несколько — последняя
         scored = [c for c in cands if "score" in c]
-        r = next((c for c in cands if c.get("candidate") == name), None) \
+        r = next((c for c in reversed(cands) if c.get("candidate") == name), None) \
             or (max(scored, key=lambda c: c["score"]) if scored else cands[-1])
         passed += verdict == "PASS"
         no_key = r.get("event", -1) < 0

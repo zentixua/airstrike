@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,6 +58,8 @@ public final class ReplayFilm {
     private final int width, height, tries, hold;
     private final ArrayDeque<Coverage.Spec> queue = new ArrayDeque<>();
     private final List<String> best = new ArrayList<>();
+    /** Метка этого вывода в строках report.jsonl: файл копит строки всех выводов, отчёт берёт последний вывод плана. */
+    private final String run = Instant.now().toString();
 
     private enum State { TITLE, OPENING, SETTLING, SEEKING, SCORING, WALKING, WARMING, EXPORTING, DONE }
 
@@ -86,6 +89,12 @@ public final class ReplayFilm {
     private record Scored(Rig.Candidate c, Rig.Score score) {}
 
     public ReplayFilm() {
+        try {
+            // члены Flashback, которые зовёт вывод (и слушатели входа зрителя в потоке сервера повтора), на месте
+            FlashbackApi.check();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Flashback: нет " + e.getMessage(), e);
+        }
         Path game = mc.gameDirectory.toPath();
         // пути полные: best.txt читают монтаж и скрипты не из каталога игры
         root = game.resolve(System.getenv().getOrDefault("INCOMING_TRAILER_DIR", "trailer")).toAbsolutePath().normalize();
@@ -138,6 +147,7 @@ public final class ReplayFilm {
         NeoForge.EVENT_BUS.addListener(this::onScreen);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
+        FlashbackApi.deferSnapshotPayloads();
         if (FrameQa.DH) DhFrameDepth.subscribe();
     }
 
@@ -218,6 +228,7 @@ public final class ReplayFilm {
         switch (state) {
             case OPENING -> {
                 if (mc.level != null && mc.player != null && FlashbackApi.inReplay()) {
+                    FlashbackApi.releaseSnapshotPayloads();
                     // редактор Flashback не активен без интерфейса — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);
@@ -634,6 +645,7 @@ public final class ReplayFilm {
     private void report(@Nullable Scored c, @Nullable FrameQa.Verdict v, String why) {
         JsonObject o = new JsonObject();
         o.addProperty("shot", spec.shot());
+        o.addProperty("run", run);
         o.addProperty("replay", spec.replay());
         o.addProperty("a", a);
         o.addProperty("b", b);
