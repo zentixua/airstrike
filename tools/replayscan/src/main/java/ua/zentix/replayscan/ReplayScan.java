@@ -11,11 +11,15 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.slf4j.Logger;
+import ua.zentix.replayscan.film.Film;
+
+import java.nio.file.Path;
 
 /**
  * Разбор повтора Flashback без окна (README.md): после загрузки клиент открывает повтор, пускает его с
  * {@link Settings#speed} и не рисует; сервер повтора в конце каждого тика отдаёт мир {@link Scan}; дошёл до конца —
- * таблицы закрыты, игра выходит. Без {@code -Dreplayscan.replay} мод ничего не делает.
+ * таблицы закрыты, игра выходит. С {@code -Dreplayscan.film} — съёмка по плану ({@link Film}); без этих свойств мод
+ * ничего не делает.
  */
 @Mod(value = "replayscan", dist = Dist.CLIENT)
 public final class ReplayScan {
@@ -34,6 +38,13 @@ public final class ReplayScan {
     private int lastTick = -1;
 
     public ReplayScan() {
+        // съёмка по плану (README.md, «Съёмка») — вместо разбора
+        String film = System.getProperty("replayscan.film");
+        if (film != null && !film.isBlank()) {
+            settings = null;
+            Film.start(Path.of(film));
+            return;
+        }
         settings = Settings.read(FMLPaths.GAMEDIR.get());
         if (settings == null) return;
         try {
