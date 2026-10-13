@@ -143,6 +143,7 @@ final class War {
         if (part.equals("icbm")) icbm();
         // один план для проверки съёмки из повтора (ReplayFilm)
         if (part.equals("p13")) p13();
+        if (part.equals("p21")) ridge();
     }
 
     // ================================================================ мир и помощники
@@ -305,10 +306,13 @@ final class War {
                     xyz(target), xyz(eye), String.format(Locale.ROOT, "%.0f", clouds));
         }
         // луч по чанкам, которых у клиента нет, свободен — но их и не видно; у края прорисовки — туман
-        if (Rig.beyondFog(eye, target) || mc.level.getChunkSource().getChunkNow(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) == null) {
+        boolean fog = Rig.beyondFog(eye, target);
+        boolean missing = mc.level.getChunkSource().getChunkNow(Mth.floor(target.x) >> 4, Mth.floor(target.z) >> 4) == null;
+        if (fog || missing) {
             Film.Shot shot = film.replayShot != null ? film.replayShot : film.recording;
-            Incoming.LOG.warn("SCENARIO film staging {}: цель {} в {} блоках от камеры {} — у края прорисовки ({} блоков) или за ним",
+            Incoming.LOG.warn("SCENARIO film staging {}: цель {} в {} блоках от камеры {} — {} (прорисовка {} блоков)",
                     shot == null ? "-" : shot.name, xyz(target), String.format(Locale.ROOT, "%.0f", Math.hypot(d.x, d.z)), xyz(eye),
+                    fog ? "в тумане у края прорисовки" : "чанка цели у клиента ещё нет",
                     String.format(Locale.ROOT, "%.0f", mc.gameRenderer.getRenderDistance()));
         }
     }
@@ -730,11 +734,6 @@ final class War {
                 .camera(() -> CineCamera.dolly(new Vec3(-1440, 108, 575), new Vec3(-1446, 122, 580), 50,
                         () -> new Vec3(-1490, 70, 525), 64))
                 .when(() -> film.nearest(RocketEntity.class, BATTERY, 140) != null, 400);
-        // p21: с огромной высоты — дымные следы тянутся на восток (ниже облаков: слой облаков шейдерпака — около 190)
-        film.shot("p21").length(30).hidden().noPrep()
-                .camera(() -> CineCamera.glide(new Vec3(-1590, 165, 480), new Vec3(-1580, 165, 482), 30,
-                        () -> new Vec3(-1350, 70, 525), 64));
-
         // p01c: «Град» изнутри — сорок огненных хвостов вокруг камеры
         film.run(this::reloadAll);
         film.waitTicks(60);
@@ -910,8 +909,45 @@ final class War {
                 .camera(() -> CineCamera.track(new Vec3(T3.x + 70, T3.y - 30, T3.z - 80), () -> T3, 42))
                 .when(() -> flightNear(T3, 200, WeaponType.MISSILE), 3000);
 
+        ridge();
+
         // p24 и пик: аэродром — бипланы взлетают по тревоге (своя площадка)
         stageScene("airfield", AIRFIELD, -90);
+    }
+
+    /**
+     * Хребет к востоку от города (плато ~109 между городом и морем): камера поднимается из травы на краю плато и
+     * открывает северо-восток города, рой шахедов идёт из-за хребта над камерой к домам. Начало подъёма: склон и кусты
+     * закрывают город (лучи: трава в 2–11 блоках), конец — над кронами, город целиком.
+     */
+    static final Vec3 RIDGE_LOW = new Vec3(3614, 110.4, -60), RIDGE_HIGH = new Vec3(3585, 132, -63), RIDGE_LOOK = new Vec3(3360, 120, -35);
+
+    /**
+     * p21: дома сперва поджигают две ракеты с запада (до плана: в кадре уже огонь и дым), рой — три потока шахедов из-за
+     * хребта (шахеды выходят по одному раз в 1–2 с). Места ударов — грани домов, которые камера видит из конца подъёма.
+     */
+    private void ridge() {
+        hiddenAt(RIDGE_HIGH, RIDGE_LOOK);
+        List<Vec3> marks = new ArrayList<>();
+        BooleanSupplier[] landed = {null};
+        film.shot("p21").length(170).hidden()
+                .onReady(() -> {
+                    marks.addAll(facades(RIDGE_HIGH, RIDGE_LOOK, 40, 5, 120, 330, 185));
+                    if (marks.isEmpty()) marks.add(RIDGE_LOOK);
+                    for (int i = 0; i < Math.min(2, marks.size()); i++) salvo("missile", 1, 0, marks.get(i), new Vec3(2400, 0, -40 + i * 60));
+                    List<Vec3> swarm = marks.size() > 2 ? marks.subList(2, marks.size()) : marks;
+                    Vec3 dir = swarm.get(0).subtract(RIDGE_HIGH).multiply(1, 0, 1).normalize(), side = new Vec3(-dir.z, 0, dir.x);
+                    for (int i = -1; i <= 1; i++) {
+                        salvo("drone", 4, 12, swarm.get((i + 1) % swarm.size()), behind(RIDGE_HIGH, swarm.get(0), 900).add(side.scale(i * 30)));
+                    }
+                })
+                .camera(() -> CineCamera.dolly(RIDGE_LOW, RIDGE_HIGH, 70, () -> RIDGE_LOOK, 37.8))
+                .when(() -> flightOver(RIDGE_HIGH, 70, WeaponType.DRONE), 3000)
+                .endWhen(() -> {
+                    if (marks.isEmpty()) return false;
+                    if (landed[0] == null) landed[0] = hit(marks.get(marks.size() > 2 ? 2 : 0), 150);
+                    return landed[0].getAsBoolean();
+                }, 40);
     }
 
     // ================================================================ волна 3: улица

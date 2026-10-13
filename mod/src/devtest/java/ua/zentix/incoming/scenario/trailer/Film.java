@@ -466,7 +466,10 @@ abstract class Film {
                 }
                 case 1 -> {
                     followCamera();
-                    readyFor = worldReady(readyChunks) ? readyFor + 1 : 0;
+                    // повтор: в снимок начала записи — все чанки прорисовки (дальняя цель телевика не догружается в кадре),
+                    // а строить секции не нужно (кадры строит вывод); вживую — секции вокруг камеры построены
+                    boolean replay = REPLAY && !hudOn;
+                    readyFor = (replay ? worldReady(Integer.MAX_VALUE, false) : worldReady(readyChunks, true)) ? readyFor + 1 : 0;
                     if (readyFor >= 10 && waited >= 40 || waited > 1200) {
                         setFrozen(false);
                         phase = 2;
@@ -781,7 +784,8 @@ abstract class Film {
      * первый план в свежем мире иначе снимал бы деревню на «острове» над пустотой; видео с борта — вся прорисовка (ракета
      * смотрит за деревню). Остальным хватает 4: пока ждём дальние, снаряд уже долетает, и план удара снимался бы без удара.
      */
-    boolean worldReady(int chunks) {
+    /** Чанки в {@code chunks} от камеры (не дальше прорисовки без двух) у клиента; {@code render} — и секции построены. */
+    boolean worldReady(int chunks, boolean render) {
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         int cx = Mth.floor(cam.x) >> 4, cz = Mth.floor(cam.z) >> 4;
         int r = Math.max(4, Math.min(chunks, mc.options.getEffectiveRenderDistance() - 2));
@@ -790,7 +794,7 @@ abstract class Film {
                 if (!mc.level.getChunkSource().hasChunk(cx + dx, cz + dz)) return false;
             }
         }
-        return mc.levelRenderer.hasRenderedAllSections();
+        return !render || mc.levelRenderer.hasRenderedAllSections();
     }
 
     /** Невидимый игрок держится рядом с кинокамерой: сервер шлёт мир вокруг игрока, а не вокруг камеры. */
