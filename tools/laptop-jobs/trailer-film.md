@@ -66,22 +66,29 @@ INCOMING_WAR_PART=nukeC tools/laptop_job.sh film-rec -- tools/trailer/film.sh re
 INCOMING_WAR_PART=icbm  tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
 ```
 `record.sh` чистит папку записи только у живой съёмки трейлера; повторы `film.sh record` копятся в одной папке.
-Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Планы с текстом
-игры по-русски — отдельной папкой, как раньше (`INCOMING_LANG=ru_ru`, `INCOMING_TRAILER_SHOTS` — планы с интерфейсом,
-`tools/trailer/record.sh shaders`).
+Записи прежних коммитов годятся, если в них не менялись планы: вывод (`film.sh render`) — всегда с этого коммита. Трейлер —
+только по-английски (`INCOMING_LANG=en_us`).
 
 Потом вывод всех планов:
 ```sh
 INCOMING_FILM_TRIES=2 tools/laptop_job.sh film-render -- tools/trailer/film.sh render shaders
 ```
 
+План 37b — закат с вершины в 1,2 км от города (город — LOD DH, ракеты и удары — дальняя картинка мода): снимается
+вживую, как p33, своей частью на свежей копии Zearth в ту же папку (его `hud.jsonl` читает `report.py`):
+```sh
+INCOMING_WAR_PART=p37b tools/laptop_job.sh film-rec -- tools/trailer/film.sh record shaders
+```
+В логе — `SCENARIO film hud p37b …` (PASS или причины); строки `SCENARIO film staging p37b` — только «в тумане у края
+прорисовки» или «чанка цели у клиента ещё нет» (цели дальше прорисовки), без «закрыта» и «через слой облаков».
+
 ## 3. Монтаж
 ```sh
 uv run tools/trailer/edit.py --lang en --rec <папка планов с интерфейсом> $(awk '{print "--rec " $2}' mod/run/scenario/film-war/render/best.txt) --music <Juggernaut.mp3>
 ```
-(та же команда с `--lang ru` и русской папкой интерфейса), отчёт по планам:
+Отчёт по планам:
 ```sh
 python3 tools/trailer/report.py mod/run/scenario/film-war/render --md mod/run/scenario/film-war/render/report.md
 ```
 Прислать: `dist/incoming-trailer-lite.mp4` (до 20 МиБ), `render/report.md`, `render/report.jsonl`, `render/best.txt`,
-`hud.jsonl` и `qa/p33.jsonl` (английской и русской папок), вывод `edit.py` (какие планы — заглушки).
+`hud.jsonl`, `qa/p33.jsonl` и `qa/p37b.jsonl`, вывод `edit.py` (какие планы — заглушки).
