@@ -52,20 +52,22 @@ def project(eye, yaw, pitch, roll, fov, aspect, p):
     d = np.asarray(p) - np.asarray(eye)
     z = (d * f).sum(-1)
     th = np.tan(np.radians(fov) / 2)
-    zz = np.where(z > 1e-6, z, 1e-6)
-    return (d * r).sum(-1) / zz / (th * aspect), (d * u).sum(-1) / zz / th, z
+    # у самой плоскости кадра и позади деление дало бы бесконечность: место — не дальше 20 полукадров
+    zz = np.where(z > 0.1, z, 0.1)
+    u_ = np.clip((d * r).sum(-1) / zz / (th * aspect), -20, 20)
+    v_ = np.clip((d * u).sum(-1) / zz / th, -20, 20)
+    return u_, v_, z
 
 
-def share(size, depth, fov, aspect):
-    """Доля ширины кадра под предметом поперечника size на глубине depth."""
+def share(size, depth, fov, aspect=None):
+    """Доля высоты кадра под предметом поперечника size на глубине depth (как `share` проверки кадров FrameQa)."""
     th = np.tan(np.radians(fov) / 2)
-    return size / np.maximum(depth, 1e-6) / (2 * th * aspect)
+    return size / np.maximum(depth, 0.1) / (2 * th)
 
 
-def fov_for(size, dist, want, aspect):
-    """Угол кадра (по вертикали), при котором предмет size на расстоянии dist — доля want ширины кадра."""
-    half_w = size / (2 * want * max(dist, 1e-6))
-    return math.degrees(2 * math.atan(half_w / aspect))
+def fov_for(size, dist, want, aspect=None):
+    """Угол кадра (по вертикали), при котором предмет size на расстоянии dist — доля want высоты кадра."""
+    return math.degrees(2 * math.atan(size / (2 * want * max(dist, 1e-6))))
 
 
 def gauss(x, sigma, axis=-1):

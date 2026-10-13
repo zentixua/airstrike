@@ -10,6 +10,7 @@
 ```sh
 uv run tools/shot/shot.py plan <план>.events.jsonl --regions <мир>/region --out <папка> [--styles fpv,tripod]
 uv run tools/shot/shot.py demo --out <папка>          # тестовый квартал без карты
+uv run tools/shot/shot.py check <трейлер>/render/*/*/qa.jsonl --regions <мир>/region --out <папка>  # мера ↔ вывод
 uv run --with numpy --with scipy --with pillow python -m unittest discover -s tools/shot/tests
 ```
 
@@ -26,6 +27,11 @@ uv run --with numpy --with scipy --with pillow python -m unittest discover -s to
 - Выдача плана: `<план>/<тело>/camera.jsonl` — поза на тик повтора (`t`, `pos`, `yaw`, `pitch`, `roll`, `fov` по
   вертикали; углы — как у Minecraft: курс 0 — юг, тангаж плюс — вниз, крен плюс — влево), `path-camera.json` — камера
   `path` плана replayscan, `predicted.jsonl`, `report.json`, `summary.txt`; с `--previs` — `sheet.jpg`, `previs.mp4`.
+- `check` — сверка меры с проверкой кадров вывода (`FrameQa`): камера каждого кадра из `qa.jsonl`, объект — тот же,
+  что у плана; по кадрам — совпало ли «в кадре» и «виден», место в кадре, доля кадра, кто из двоих видит блоки или дым
+  на линии. Так мера проверяется на настоящих выводах, а не верится на слово.
+- Журнал, записанный до очереди мест мода (film-war2 и раньше), — с `--shown 1.5`: пути снарядов сглаживаются, как их
+  показывает повтор (`Shown` трейлера).
 - Карта рамки (`world.npz`) — данные карты: остаётся на машине, где лежит мир (Zearth наружу не выносится; наружу —
   `summary.txt` и черновые кадры).
 

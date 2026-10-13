@@ -247,6 +247,31 @@ class SubjectTest(unittest.TestCase):
             with open(os.path.join(out, "p99", "tripod", "path-camera.json"), encoding="utf-8") as f:
                 path = json.load(f)
             self.assertEqual(path["kind"], "path")
+            # проверка кадров вывода (FrameQa) своей формулой: векторы камеры Minecraft, курс −90 — на восток
+            qa_dir = os.path.join(d, "render", "p99", "own-38mm")
+            os.makedirs(qa_dir)
+            ty = math.tan(math.radians(35))
+            tx = ty * 16 / 9
+            eye = np.array([30.0, 70.0, 40.0])
+            fwd, left, up = np.array([1.0, 0, 0]), np.array([0, 0, -1.0]), np.array([0, 1.0, 0])
+            with open(os.path.join(qa_dir, "qa.jsonl"), "w") as f:
+                for t in range(5, 99):
+                    k = (t - 5) / 94
+                    dd = np.array([90 - 40 * k, 100 - 36 * k, 40]) - eye
+                    z = float(dd @ fwd)
+                    x, y = -float(dd @ left) / z / tx, float(dd @ up) / z / ty
+                    f.write(json.dumps({"t": t, "in": abs(x) <= 0.92 and abs(y) <= 0.92, "x": x, "y": y,
+                                        "share": 3.5 / (2 * z * ty), "seen": 1.0, "clear": 1.0, "cloud": False,
+                                        "far": False, "cam": [*eye, -90.0, 0.0], "fov": 70.0}) + "\n")
+            shot.main(["check", os.path.join(qa_dir, "qa.jsonl"), "--regions", region, "--out", os.path.join(d, "chk"), "--replays", d,
+                       "--radius", "60"])
+            with open(os.path.join(d, "chk", "check.json"), encoding="utf-8") as f:
+                res = json.load(f)[0]
+            self.assertGreater(res["in_agree"], 0.98)
+            self.assertLess(res["dx"], 0.01)
+            self.assertLess(res["dy"], 0.01)
+            self.assertAlmostEqual(res["share_ratio"], 1.0, places=2)
+            self.assertGreater(res["blocked_mine_only"], 10)   # за стеной, а «вывод» тут нарочно всё видит
 
 
 def lines(path):

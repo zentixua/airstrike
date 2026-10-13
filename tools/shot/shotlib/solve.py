@@ -69,12 +69,13 @@ class Spec:
     keys: list = field(default_factory=list)  # [(t, pos (3,), size)]
     style: str = "fpv"
     size: float = 4.0            # поперечник объекта
-    share: tuple = (0.004, 0.04, 0.6)   # доля ширины кадра: не меньше (`minShare` трейлера), хорошо, не больше
+    share: tuple = (0.004, 0.07, 0.8)   # доля высоты кадра: не меньше (`minShare` трейлера), хорошо, не больше
     fov: float = 0.0             # 0 — по размеру объекта у события
     aspect: float = 16 / 9
     lead: float = 12.0           # смотрит на место объекта через столько тиков (воздух перед ним в кадре)
     frame_bias: tuple = (0.0, 0.0)  # куда в кадре ставить объект (u, v)
     reach: float = 160.0         # дальше этого от удара взгляд держит сторону подлёта, а не сам снаряд
+    overlay: bool = False        # объект рисуется поверх мира (ядерный подрыв): туман, облака и чужие чанки не закрывают
 
 
 # ---------------------------------------------------------------- куда смотрит кадр
@@ -191,7 +192,8 @@ class Eval:
     parts: dict
 
 
-def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, maxit: int = 160):
+def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, maxit: int = 160,
+           unknown_blocks: bool = True):
     """Закрытие отрезков глаз → цель (…, 3): 1 — непрозрачный блок или неизвестный чанк на пути, иначе по листве и
     стеклу; последние `spare` блоков у цели не в счёт. Шаг — по расстоянию до ближайшего блока (в пустом воздухе —
     десятки блоков за шаг), у блоков — по блоку."""
@@ -213,7 +215,7 @@ def _sight(world: W.World, eye: np.ndarray, tgt: np.ndarray, spare: np.ndarray, 
             break
         p = eye[live] + u[live] * s[live, None]
         kind = world.kind_at(p)
-        hit = (kind == W.OPAQUE) | (kind == W.UNKNOWN)
+        hit = (kind == W.OPAQUE) | ((kind == W.UNKNOWN) & unknown_blocks)
         blocked[live[hit]] = True
         soft[live] += kind == W.SOFT
         jump = np.maximum(1.0, world.clearance(p) - 1.0)
@@ -248,9 +250,11 @@ def _unknown_below(world: W.World, eye, yaw, pitch, roll, fov, aspect, reach=128
     return bad / 3.0
 
 
-def _haze(scene: Scene, eye: np.ndarray, tgt: np.ndarray) -> np.ndarray:
+def _haze(scene: Scene, eye: np.ndarray, tgt: np.ndarray, overlay: bool = False) -> np.ndarray:
     """1 — отрезок глаз → цель (…, 3) кончается в тумане края прорисовки или идёт слоем облаков (как `Rig.beyondFog`,
     `Rig.throughClouds` трейлера), иначе 0."""
+    if overlay:
+        return np.zeros(np.broadcast_shapes(eye.shape, tgt.shape)[:-1])
     far = np.hypot(tgt[..., 0] - eye[..., 0], tgt[..., 2] - eye[..., 2]) > scene.fog
     if math.isnan(scene.clouds):
         return far.astype(np.float64)
@@ -306,7 +310,7 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
     dpitch = np.abs(np.gradient(pitch, axis=1))
     rate = np.hypot(dyaw, dpitch)
     acc = np.abs(np.gradient(np.gradient(yaw, axis=1), axis=1)) + np.abs(np.gradient(np.gradient(pitch, axis=1), axis=1))
-    parts["pan"] = ((np.maximum(0, rate - style.yaw_rate) / style.yaw_rate) ** 2 * 3 + (acc / style.yaw_rate) ** 2 * 0.5).mean(1)
+    parts["pan"] = ((np.maximum(0, rate - style.yaw_rate) / style.yaw_rate) ** 2 * 12 + (acc / style.yaw_rate) ** 2 * 0.5).mean(1)
 
     # объект: в кадре, виден, размер
     have = ~np.isnan(subj[sel, 0])
@@ -324,13 +328,13 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
         big = np.log(np.maximum(sh, 1e-6) / mx)
         sizec = np.maximum(0, small) ** 2 * 4 + np.maximum(0, big) ** 2 * 4 + np.log(np.maximum(sh, 1e-6) / good) ** 2 * 0.15
         spare = (sz / 2 + 1.5)[None].repeat(s, 0)
-        occ = _sight(w, Ps, np.broadcast_to(sub[None], Ps.shape), spare)
+        occ = _sight(w, Ps, np.broadcast_to(sub[None], Ps.shape), spare, unknown_blocks=not spec.overlay)
         puffs_t = [scene.puffs(float(t)) for t in ts[sel]]
         T = np.ones((s, len(sel)))
         for i, pf in enumerate(puffs_t):
             if len(pf):
                 T[:, i] = transmittance(pf, Ps[:, i], np.broadcast_to(sub[i], Ps[:, i].shape), spare=float(sz[i]))
-        vis = (1 - occ) * T * (1 - _haze(scene, Ps, np.broadcast_to(sub[None], Ps.shape)))
+        vis = (1 - occ) * T * (1 - _haze(scene, Ps, np.broadcast_to(sub[None], Ps.shape), spec.overlay))
         hv = have[None]
         parts["frame"] = (hv * out).sum(1) / max(1, have.sum())
         parts["compose"] = (hv * comp).sum(1) / max(1, have.sum())
@@ -353,10 +357,11 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
         fire = np.asarray(pos) + np.array([0, sz * 0.35, 0])
         uu, vv, z = C.project(P[:, ii], yaw[:, ii], pitch[:, ii], roll[:, ii], fov, spec.aspect, fire[None, None])
         inn = (np.abs(uu) <= 0.9) & (np.abs(vv) <= 0.9) & (z > 0)
-        occ = _sight(w, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), np.full((s, len(ii)), 3.0))
+        occ = _sight(w, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), np.full((s, len(ii)), 3.0),
+                     unknown_blocks=not spec.overlay)
         pf = scene.puffs(float(tk))
         T = transmittance(pf, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spare=sz) if len(pf) else 1.0
-        seen = inn * (1 - occ) * T * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape)))
+        seen = inn * (1 - occ) * T * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape), spec.overlay))
         keyc += (1 - seen.mean(1)) * 40
     parts["keys"] = keyc
     # не в огне: после удара камера дальше полутора шаров от его места (шар во весь кадр и камера в нём — брак)
@@ -369,7 +374,7 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
     parts["blast"] = near
     # крен: кинематографичный FPV кренится в вираже, но не лежит на боку
     if style.bank > 0:
-        parts["roll"] = ((np.maximum(0, np.abs(roll) - 20) / 10) ** 2).mean(1)
+        parts["roll"] = ((np.maximum(0, np.abs(roll) - 20) / 10) ** 2 * 4).mean(1)
 
     # низ кадра — не в неизвестных чанках
     sel4 = np.arange(0, n, 4 if not fine else 1)
@@ -483,7 +488,7 @@ def choose_fov(spec: Spec, style: Style, P: np.ndarray) -> float:
     tk, K, sz = _key_point(spec)
     i = int(np.clip(tk - spec.a, 0, len(P) - 1))
     d = float(np.linalg.norm(P[i] - K))
-    want = {"fpv": 0.06, "drone": 0.08, "handheld": 0.1, "tripod": 0.18, "tracker": 0.16}.get(style.name, 0.1)
+    want = {"fpv": 0.1, "drone": 0.14, "handheld": 0.18, "tripod": 0.3, "tracker": 0.28}.get(style.name, 0.18)
     f = C.fov_for(max(sz, spec.size), d, want, spec.aspect)
     lo, hi = {"fpv": (68, 84), "drone": (50, 80), "handheld": (40, 70), "tripod": (8, 60), "tracker": (5, 40)}[style.name]
     return float(np.clip(f, lo, hi))

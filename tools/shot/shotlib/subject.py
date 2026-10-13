@@ -23,6 +23,7 @@ class Pick:
     key_size: float
     a: int
     b: int
+    overlay: bool = False  # рисуется поверх мира (ядерный подрыв)
 
 
 def window(sc: Scene) -> tuple[int, int]:
@@ -108,23 +109,26 @@ def pick(sc: Scene, sel: str, span: int = 0) -> Pick:
             tr = max(hits, key=lambda x: (_in_frame(sc, hit(x).t, hit(x).pos), _framed(sc, x, a0, hit(x).t)))
         p = with_key(tr, hit(tr), f"{tr.weapon} → удар")
     elif kind in ("flight", "launch"):
-        cand = [tr for tr in _of(sc, weapon) if len(tr.t)]
+        # только снаряды, что есть в окне: снаряд вне окна дал бы план без объекта
+        cand = [tr for tr in _of(sc, weapon) if len(tr.t) and tr.last >= a0 and tr.first <= b0]
         if kind == "launch":
             r = float(rad or 150)
             cand = [tr for tr in cand if a0 - 40 <= tr.first <= b0 and near is not None
                     and np.hypot(*(tr.pos[0, [0, 2]] - near)) <= r]
         cand.sort(key=lambda tr: tr.first)
         if not cand:
-            raise SystemExit(f"{sel}: полёта нет")
+            raise SystemExit(f"{sel}: в окне {a0}..{b0} полёта нет (журнал не записал снаряд — чинить постановку)")
         tr = cand[0]
         if sc.cams is not None:
             tr = max(cand, key=lambda x: _framed(sc, x, a0, b0))
         p = Pick(tr.weapon, tr, -1, None, size_of(tr.weapon), 0.0, a0, b0)
+    elif kind == "scene":
+        raise SystemExit("план-сцена без объекта: камеру выбирает сценарий")
     elif kind == "nuke":
         if not sc.nukes:
             raise SystemExit("подрыва в журнале нет")
         t, pos, kt = sc.nukes[0]
-        p = Pick("ядерный подрыв", None, t, pos, 300.0, 300.0, a0, b0)
+        p = Pick("ядерный подрыв", None, t, pos, 300.0, 300.0, a0, b0, overlay=True)
     else:
         raise SystemExit(f"не знаю объект «{kind}»")
     if p.key >= 0:

@@ -234,6 +234,16 @@ def from_eventlog(path: str, wld: W.World) -> Scene:
     return sc
 
 
+def smooth_tracks(sc: Scene, sigma: float):
+    """Журнал до очереди мест мода (13.10, film-war2 и раньше): место снаряда у записывающего клиента то стоит, то
+    прыгает на два шага, а повтор с нынешним модом показывает его ровно (`Shown` трейлера прогоняет пакеты очередью).
+    Здесь — гаусс по тикам: для взгляда камеры этого хватает (рывок — полшага, взгляд и так сглажен)."""
+    from scipy.ndimage import gaussian_filter1d
+    for tr in sc.tracks.values():
+        if len(tr.t) > 4:
+            tr.pos = gaussian_filter1d(tr.pos, sigma, axis=0, mode="nearest")
+
+
 def _near_ground(wld: W.World, p: np.ndarray) -> bool:
     """Удар у поверхности: блок не дальше 3 блоков вниз (иначе — в воздухе: дыма столбом нет)."""
     probe = np.array([p - np.array([0, k, 0]) for k in (0, 1, 2, 3)])
