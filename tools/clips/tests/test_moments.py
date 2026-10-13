@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE.parent.parent / "replayscan"))
 import replaydb  # noqa: E402
 import moments as clips  # noqa: E402
+import plan as film_plan  # noqa: E402
 
 DIM = "minecraft:overworld"
 EYE = (0.5, 71.62, 0.5)  # глаз записавшего; смотрит на юг (yaw 0), вдоль +z
@@ -190,6 +191,54 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual(c[0].t, 2000)
         self.assertEqual(c[0].shots[-1].kind, "nuke")
+
+
+class PlanTest(unittest.TestCase):
+    """План съёмки из кандидатов: пути из базы, события, камеры и пороги по роду плана."""
+
+    @classmethod
+    def setUpClass(cls):
+        db = build()
+        cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7))
+        argv = sys.argv
+        sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
+        try:
+            film_plan.main()
+        finally:
+            sys.argv = argv
+        runs = json.loads((cls.out / "film" / "runs.json").read_text())
+        cls.plan = json.loads(Path(runs[0]["plan"]).read_text())
+        cls.shots = {s["name"]: s for s in cls.plan["shots"]}
+
+    def test_every_preview_planned(self):
+        self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "rockets-0"])
+        for names in self.plan["previews"].values():
+            for n in names:
+                self.assertIn(n, self.shots)
+
+    def test_impact_has_path_and_key(self):
+        s = self.shots["rockets-0-impact"]
+        self.assertGreater(len(s["subject"]["path"]), 5, "путь ракеты из tracks")
+        self.assertEqual(len(s["subject"]["keys"]), 1)
+        self.assertLessEqual(s["subject"]["path"][0][0], s["subject"]["keys"][0]["t"])
+        self.assertIn(s["cameras"][-1]["kind"], ("tripod", "pov"))
+        self.assertEqual(s["need"]["keys"], 1)
+
+    def test_far_uses_lens_and_far_rows(self):
+        s = self.shots["far-0-far"]
+        self.assertTrue(s["far"])
+        self.assertEqual(s["cameras"][0]["kind"], "fixed")
+        self.assertEqual(s["cameras"][0]["aim"], "subject")
+        self.assertGreater(len(s["subject"]["path"]), 5, "путь только дальними строками")
+
+    def test_chaos_frames_area(self):
+        s = self.shots["chaos-0-chaos"]
+        cam = s["cameras"][0]
+        self.assertEqual(cam["kind"], "tripod")
+        self.assertFalse(cam["follow"])
+        self.assertGreaterEqual(len(s["subject"]["keys"]), 4)
+        self.assertIn("area", s["subject"])
 
 
 if __name__ == "__main__":
