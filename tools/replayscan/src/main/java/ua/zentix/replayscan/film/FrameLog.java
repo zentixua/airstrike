@@ -47,7 +47,7 @@ final class FrameLog {
     private final Smoke smoke;
     private final Sounds sounds;
     private final Writer out;
-    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld;
+    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld, inside;
     private final int[] keyN, keyOk;
     private int entityId = -1;
 
@@ -132,6 +132,8 @@ final class FrameLog {
                 ? sounds.engine(aim, Math.max(8, 2 * s.size) + 1.2 * speed * aim.distanceTo(eye) / SOUND) : 0;
         boolean isPov = pov != null && mc.getCameraEntity() != null && pov.equals(mc.getCameraEntity().getUUID());
         boolean built = mc.levelRenderer.hasRenderedAllSections();
+        // свободная камера в блоке (путь плана идёт и там, где при оценке чанков ещё не было)
+        boolean blocked = pov == null && Cameras.inBlocks(mc.level, eye);
 
         // события в первые тики: каждое — в кадре и не закрыто
         StringBuilder keys = new StringBuilder();
@@ -149,6 +151,7 @@ final class FrameLog {
         if (frames <= 10 && built) firstReady++;
         if (isPov) povN++;
         if (dh < 0) dhWorld++;
+        if (blocked) inside++;
         if (aim != null && before) {
             boolean good = in && seen >= 0.4 && clear >= 0.5 && !cloud && !fog && (drawn || ready <= 0) && share >= shot.need().share();
             pre++;
@@ -161,9 +164,9 @@ final class FrameLog {
         }
         try {
             out.write(String.format(Locale.ROOT,
-                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
+                    "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"inside\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
                             + "\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
-                    t, built, isPov, in, x, y, share, seen, clear, cloud, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
+                    t, built, isPov, blocked, in, x, y, share, seen, clear, cloud, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
                     cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -219,7 +222,7 @@ final class FrameLog {
      * виден, не в дыму, облаках и тумане, в построенной секции и не мельче порога — не меньше долей плана за всё время
      * и за последнюю секунду; каждое событие видно в первые {@link #KEY_CHECK} тиков (доля событий — по плану);
      * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок; LOD Distant
-     * Horizons с глубиной мира — ни в одном кадре.
+     * Horizons с глубиной мира и свободная камера в блоке — ни в одном кадре.
      */
     Verdict verdict(boolean isPovShot) {
         Plan.Need need = shot.need();
@@ -246,6 +249,7 @@ final class FrameLog {
         if (keys < need.keys()) why.append(String.format(Locale.ROOT, "events seen: %d of %d; ", keysOk, keysIn));
         if (engine < need.engine()) why.append(String.format(Locale.ROOT, "engine heard in %.0f%% of frames; ", 100 * engine));
         if (!loudOk) why.append(String.format(Locale.ROOT, "loud sounds off screen %d, on screen %d; ", sounds.loudOff, sounds.loudOn));
+        if (inside > 0) why.append(String.format(Locale.ROOT, "camera inside blocks in %d of %d frames; ", inside, frames));
         if (dhWorld > 0) why.append(String.format(Locale.ROOT, "Distant Horizons LODs drawn with the world's depth in %d of %d frames; ", dhWorld, frames));
         JsonObject n = new JsonObject();
         n.addProperty("frames", frames);
@@ -260,6 +264,7 @@ final class FrameLog {
         n.addProperty("loud_off", sounds.loudOff);
         n.addProperty("smoke_checked", smoke.available());
         if (DH) n.addProperty("dh_world", dhWorld);
+        n.addProperty("inside", inside);
         double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1);
         return new Verdict(why.isEmpty(), why.toString().trim(), rank, n);
     }

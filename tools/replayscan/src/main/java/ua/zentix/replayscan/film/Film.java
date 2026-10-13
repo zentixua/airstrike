@@ -235,9 +235,10 @@ public final class Film {
                 }
                 Vec3 k = shot.subject().anchor(shot.a(), shot.b());
                 Cameras.World w = new Cameras.World(Cameras.cloudHeight(plan));
-                // мир — у глаза неподвижной камеры, а у ближнего плана и у места: дальнее место за чанками повтора не
-                // появится, а у глаза оно не нужно
-                Plan.Camera fixed = shot.cameras().stream().filter(c -> c.kind().equals("fixed") && c.eye() != null).findFirst().orElse(null);
+                // мир — у глаза неподвижной камеры (у летящей — в начале пути), а у ближнего плана и у места: дальнее
+                // место за чанками повтора не появится, а у глаза оно не нужно
+                Plan.Camera fixed = shot.cameras().stream().filter(c -> (c.kind().equals("fixed") || c.kind().equals("path")) && c.eye() != null)
+                        .findFirst().orElse(null);
                 boolean ready = (fixed == null || w.loaded(fixed.eye())) && (k == null || shot.far() && fixed != null || w.loaded(k));
                 if (!ready && waited() < WORLD_WAIT) {
                     if (fixed != null) standAt(Cameras.Pose.look(fixed.eye(), fixed.aim() != null ? fixed.aim() : k != null ? k : fixed.eye().add(0, 0, 1), 70));
@@ -373,7 +374,8 @@ public final class Film {
                 (c.designed() ? designed : rest).add(s);
             }
         }
-        Comparator<Scored> order = Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparingDouble(s -> -s.score.total());
+        // пути плана (и их копии выше) — в порядке плана: выше — только запасной, если путь не годится
+        Comparator<Scored> order = Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparingDouble(s -> s.c.roam() ? 0 : -s.score.total());
         designed.sort(order);
         rest.sort(order);
         StringBuilder sb = new StringBuilder();
@@ -386,7 +388,8 @@ public final class Film {
         candidates.clear();
         // неподвижная камера плана, которая по оценке не пройдёт, не занимает места штатива, который пройдёт
         Stream.concat(designed.stream(), rest.stream())
-                .sorted(Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparing(s -> !s.c.designed()).thenComparingDouble(s -> -s.score.total()))
+                .sorted(Comparator.<Scored, Boolean>comparing(s -> !s.score.pass()).thenComparing(s -> !s.c.designed())
+                        .thenComparingDouble(s -> s.c.roam() ? 0 : -s.score.total()))
                 .filter(s -> s.score.total() > 0).limit(plan.tries()).forEach(candidates::add);
         if (candidates.isEmpty()) {
             fail("no camera scored above zero");

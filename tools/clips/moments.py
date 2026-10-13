@@ -8,6 +8,7 @@
 отрезки глазами живых игроков (только их камерой).
 
   uv run tools/clips/moments.py <база.duckdb>... [--out каталог] [--top 8] [--pov-top 15] [--notes журнал.json] [--at время]...
+         [--fly 'at=25:02/25:40 from=x,y,z to=x,y,z ...']...
 
 Пишет `candidates.json` (что читает plan.py) и `candidates.md` (таблица для выбора). Камера плана — глаза игрока
 повтора (`pov`), если данные показывают, что он смотрел туда, иначе — место, которое подберёт вывод (`auto`: штатив
@@ -200,14 +201,106 @@ def mmss(t: int) -> str:
     return f"{int(t // 1200):02d}:{(t % 1200) / 20:04.1f}"
 
 
+def timeline(x: str) -> float | None:
+    """Тик по шкале Flashback: `25:02`, `25:02.5` или `1:02:03` (время от начала записи); не такое время — None."""
+    m = re.fullmatch(r"(?:(\d+):)?(\d+):(\d\d(?:\.\d+)?)", x.strip())
+    return None if not m else (int(m[1] or 0) * 3600 + int(m[2]) * 60 + float(m[3])) * TICK
+
+
+def wrap(deg: float) -> float:
+    """Угол в −180…180°."""
+    return (deg + 180) % 360 - 180
+
+
+def direction(yaw: float, pitch: float) -> tuple[float, float, float]:
+    """Взгляд по курсу и наклону, как у игрока: курс 0 — юг, 90 — запад; наклон вниз — плюс."""
+    y, p = math.radians(yaw), math.radians(pitch)
+    return -math.sin(y) * math.cos(p), -math.sin(p), math.cos(y) * math.cos(p)
+
+
+def frame(cam: tuple, tan_x: float, tan_y: float, p) -> tuple[float, float] | None:
+    """Место точки p в кадре камеры (x, y, z, курс, наклон): доли полукадра вправо и вверх; за камерой — None
+    (тот же кадр, что у вывода: Cameras.View)."""
+    x, y, z, yaw, pitch = cam
+    fwd = direction(yaw, pitch)
+    yr = math.radians(yaw)
+    right = (-math.cos(yr), 0.0, -math.sin(yr))
+    up = (right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0])
+    d = (p[0] - x, p[1] - y, p[2] - z)
+    depth = sum(u * v for u, v in zip(d, fwd))
+    if depth <= 0.1:
+        return None
+    return sum(u * v for u, v in zip(d, right)) / depth / tan_x, sum(u * v for u, v in zip(d, up)) / depth / tan_y
+
+
+def bearing(eye, p) -> tuple[float, float, float]:
+    """Курс на точку (как у игрока), угол вниз на неё и расстояние."""
+    dx, dy, dz = p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]
+    flat = math.hypot(dx, dz)
+    return math.degrees(math.atan2(-dx, dz)), math.degrees(math.atan2(-dy, flat)), math.hypot(flat, dy)
+
+
+def in_view(eye, yaw: float, pitch: float, tan_x: float, tan_y: float, p, safe: float = 0.85) -> bool:
+    """Точка в кадре с полями (доля полукадра safe, как у оценки камер съёмки: Cameras.SAFE)."""
+    c = frame((*eye, yaw, pitch), tan_x, tan_y, p)
+    return c is not None and abs(c[0]) <= safe and abs(c[1]) <= safe
+
+
+def aim_flight(eye, rel: list[tuple], look: float, turn: float, tan_x: float, tan_y: float,
+               focus: tuple[int, int] | None = None) -> tuple[float, float]:
+    """Курс и наклон пролёта (постоянные): от look не дальше turn — туда, где в кадре больше ударов окна focus, потом
+    ударов по земле, потом всех (при равенстве — ближе к look); наклон — медиана углов вниз на удары окна (без окна —
+    все), до которых камера может повернуть, 2–30°. eye(t) — глаз в тик t, rel — (id, t, место, род, курс, угол вниз,
+    расстояние)."""
+    half_x = math.degrees(math.atan(tan_x))
+    foc = [r for r in rel if focus and focus[0] <= r[1] <= focus[1]]
+    sector = [r for r in (foc or rel) if abs(wrap(r[4] - look)) <= turn + half_x]
+    pitch = min(30.0, max(2.0, sorted(r[5] for r in sector)[len(sector) // 2])) if sector else 10.0
+    seen = lambda yaw, rs: sum(in_view(eye(r[1]), yaw, pitch, tan_x, tan_y, r[2]) for r in rs)  # noqa: E731
+    ground = [r for r in rel if r[3] == "ground"]
+    best = max(range(-int(turn), int(turn) + 1), key=lambda o: (seen(look + o, foc), seen(look + o, ground), seen(look + o, rel), -abs(o)))
+    return look + best, pitch
+
+
+def fmt(p) -> str:
+    return "(" + ", ".join(f"{v:.0f}" for v in p) + ")"
+
+
+# Куда смотрит пролёт: курс как у игрока (0 — юг, 90 — запад)
+LOOK = {"south": 0.0, "west": 90.0, "north": 180.0, "east": -90.0}
+
+
+def fly_spec(spec: str) -> dict:
+    """`--fly`: `at=<с>/<по> from=x,y,z to=x,y,z [to_at=<время>] [focus=<с>/<по>] [look=south|<курс>] [turn=25]
+    [fov=70] [dim=minecraft:overworld]` — время по шкале Flashback; камера проходит `to` в `to_at` (по умолчанию — в
+    конце) и летит дальше той же прямой; удары в окне `focus` — в кадре прежде остальных."""
+    try:
+        kv = dict(part.split("=", 1) for part in spec.split())
+        first, _, last = kv.pop("at").partition("/")
+        a, b = timeline(first), timeline(last)
+        to_at = timeline(kv.pop("to_at")) if "to_at" in kv else b
+        pts = [tuple(float(v) for v in kv.pop(k).split(",")) for k in ("from", "to")]
+        look = kv.pop("look", "south")
+        focus = [timeline(x) for x in kv.pop("focus").split("/")] if "focus" in kv else None
+        out = {"a": round(a), "b": round(b), "from": pts[0], "to": pts[1], "to_at": round(to_at),
+               "focus": (round(focus[0]), round(focus[-1])) if focus else None,
+               "look": LOOK[look] if look in LOOK else float(look), "turn": float(kv.pop("turn", 25)),
+               "fov": float(kv.pop("fov", 70)), "dim": kv.pop("dim", "minecraft:overworld"), "spec": spec}
+    except (KeyError, ValueError, TypeError) as e:
+        raise argparse.ArgumentTypeError(f"--fly {spec!r}: {e!r} (README.md)") from e
+    if kv or len(out["from"]) != 3 or len(out["to"]) != 3 or not out["a"] < out["b"] or out["to_at"] <= out["a"]:
+        raise argparse.ArgumentTypeError(f"--fly {spec!r}: лишние ключи {sorted(kv)} или не те время и точки (README.md)")
+    return out
+
+
 @dataclass
 class Shot:
     """План ролика: что снимать (снаряд и событие), когда и чем (камера)."""
     name: str
-    kind: str          # launch | flight | shootdown | impact | chaos | far | nuke | pov (отрезок глазами игрока)
+    kind: str          # launch | flight | shootdown | impact | chaos | far | nuke | pov (отрезок глазами игрока) | fly (пролёт)
     a: int             # тики повтора
     b: int
-    camera: dict       # {"kind": "pov", "viewer": "recorder" | "player:<ник>"} | {"kind": "auto", …}
+    camera: dict       # {"kind": "pov", "viewer": "recorder" | "player:<ник>"} | {"kind": "auto", …} | {"kind": "path", "keys", …}
     subject: dict      # {"uuid", "weapon"} и/или {"keys": [{"t", "pos", "size"}]}
     why: str = ""
 
@@ -303,6 +396,7 @@ class Replay:
         self.loud = self.con.execute(LOUD).fetchall()
         self.star = [x for x in getattr(a, "star", "").split(",") if x]
         self.at = getattr(a, "at", None) or []
+        self.fly_specs = getattr(a, "fly", None) or []
         self.watched: dict[str, list] = {}
         self.downs = [d for f in self.fl if (d := self.shot_down(f))]
 
@@ -622,13 +716,17 @@ class Replay:
     # называет сам момент; ядерный подрыв за NUKE_BEFORE тиков до маркера — отрезок со вспышки и не короче AFTER после
     # неё (волна идёт долго). Маркеры, которые Flashback ставит сам (смена измерения), — не отметки игрока
     MARK = {"marker": (300, 40), "at": (200, 100)}
+    NUKE_SEEN = """
+        SELECT DISTINCT v.viewer FROM impact_views v WHERE v.id = ? AND in_frame(v.cx, v.cy, 1) AND NOT coalesce((
+          SELECT bool_and(coalesce(s.hard, -1) BETWEEN 0 AND 16) FROM impacts i, unnest(i.events) AS u(e)
+          JOIN sight s ON s.kind = 'p' AND s.ref = CAST(u.e AS VARCHAR) WHERE i.id = v.id AND s.viewer = v.viewer), false)"""
     NUKE_BEFORE = 1200
     AUTO_MARKERS = {"Changed Dimension"}
 
     def marks(self) -> list[tuple[int, int, str]]:
         """Моменты, которые отметил записавший: (начало, конец, откуда) — маркеры Flashback (`markers` в метаданных
-        записи, тик → маркер) и время по часам `--at` (`2026-10-14T19:05:30` — момент, `…/…` — с и по; часы записи —
-        по времени сохранения в имени файла, это её конец)."""
+        записи, тик → маркер) и время `--at`: по шкале Flashback (`25:02`) или по часам (`2026-10-14T19:05:30`; часы
+        записи — по времени сохранения в имени файла, это её конец); одно время — момент, `…/…` — с и по."""
         total = self.meta.get("total_ticks") or 0
         nukes = [t for (t,) in self.con.execute("SELECT t FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%'").fetchall()]
         out = []
@@ -640,13 +738,21 @@ class Replay:
             flash = [t for t in nukes if m - self.NUKE_BEFORE <= t <= m]
             out.append((min([m - before] + [t - 3 * TICK for t in flash]), max([m + after] + [t + self.AFTER["nuke"] for t in flash]),
                         f"маркер {mmss(m)}"))
-        anchors = clock(self, [{"end": True, "at": "name"}]) if self.at else []
-        for spec in self.at if anchors else []:
+        anchors = None
+        for spec in self.at:
             first, _, last = spec.partition("/")
-            t0, t1 = (tick_at(anchors, datetime.fromisoformat(x)) for x in (first, last or first))
+            ends = [timeline(x) for x in (first, last or first)]
+            if None in ends:
+                anchors = clock(self, [{"end": True, "at": "name"}]) if anchors is None else anchors
+                if not anchors:
+                    continue
+                ends = [tick_at(anchors, datetime.fromisoformat(x)) if t is None else t for x, t in zip((first, last or first), ends)]
+            t0, t1 = ends
             if not last:
+                # момент: до и после него; ядерный подрыв в этом отрезке — и не меньше AFTER после вспышки
                 before, after = self.MARK["at"]
                 t0, t1 = t0 - before, t1 + after
+                t1 = max([t1] + [t + self.AFTER["nuke"] for t in nukes if t0 <= t <= t1])
             if t1 > 0 and t0 < total:
                 out.append((round(t0), round(t1), f"время {spec}"))
         return sorted((max(0, a), min(total, b), why) for a, b, why in out)
@@ -686,7 +792,10 @@ class Replay:
             f = self.by_uuid.get(ref)
             add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, ref)
         for hid, t, x, y, z in nukes:
-            for (v,) in self.con.execute("SELECT DISTINCT viewer FROM impact_views WHERE id = ? AND in_frame(cx, cy, 1)", [hid]).fetchall():
+            # в кадре и не за стеной у самого игрока: в метро лицом к подрыву он видит стену (все лучи к событиям подрыва
+            # упёрлись в блоки ближе 16 блоков); дома далеко на луче к земле не в счёт — шар встаёт над крышами; лучей нет
+            # (дальше разбора) — в кадре значит видел
+            for (v,) in self.con.execute(self.NUKE_SEEN, [hid]).fetchall():
                 add(v, t, self.WEIGHT["nuke"], "nuke", "icbm", {"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}, None)
         return {v: sorted(e, key=lambda e: e[0]) for v, e in out.items() if self.human(v)}
 
@@ -735,6 +844,13 @@ class Replay:
         what = [x for x in (mark, n["nuke"] and "ядерный подрыв", n["shootdown"] and f"сбитие × {n['shootdown']}",
                             n["impact"] and f"ударов по земле в кадре {n['impact']}", n["launch"] and f"пусков {n['launch']}",
                             n["flyby"] and f"пролётов рядом {n['flyby']}") if x]
+        # ядерный подрыв в отрезке, которого зритель не видел (в метро, в доме): в подписи — как далеко
+        off = [] if n["nuke"] else [round(dist(eye, (x, y, z))) for t, x, y, z, dim in self.con.execute(
+            "SELECT t, x, y, z, dim FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' AND t BETWEEN ? AND ? ORDER BY t", [a, b]).fetchall()
+            if (eye := self.con.execute("SELECT x, y, z FROM viewers WHERE viewer = ? AND dim = ? ORDER BY abs(t - ?) LIMIT 1",
+                                        [viewer, dim, t]).fetchone())]
+        if off:
+            what.insert(1 if mark else 0, f"ядерный подрыв в {off[0]} блоках вне кадра")
         f = self.by_uuid.get(subject) if subject else None
         shot = Shot("pov", "pov", a, b, {"kind": "pov", "viewer": viewer},
                     {"keys": keys, **({"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4)} if f else {})},
@@ -743,7 +859,65 @@ class Replay:
                          f"глазами {viewer} {mmss(a)}–{mmss(b)}: " + ", ".join(what) + (f" ({', '.join(weapons)})" if weapons else ""),
                          {"viewer": viewer, "ground": n["impact"], "shot_down": n["shootdown"], "nuke": n["nuke"],
                           "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
-                          **({"mark": mark} if mark else {})}, [shot])
+                          **({"nuke_off": off[0]} if off else {}), **({"mark": mark} if mark else {})}, [shot])
+
+    def fly(self) -> list[Candidate]:
+        """7 — пролёт свободной камеры (`--fly`, время по шкале Flashback): глаз — по прямой из `from` через `to` (в
+        `to_at`) и дальше; взгляд — постоянный (`aim_flight`): в сторону `look`, повёрнутый не дальше `turn` туда, где в
+        кадре больше ударов окна `focus`, потом ударов по земле, потом всех; наклон — к ним. Удары в кадре — события
+        плана, снаряды в кадре — в числах; кадр — в его тики, как у вывода."""
+        out = []
+        weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
+        for k, f in enumerate(self.fly_specs):
+            a, b, total = f["a"], f["b"], self.meta.get("total_ticks") or 10 ** 9
+            if a >= total:
+                print(f"{self.name}: пролёт {f['spec']!r} после конца записи ({mmss(total)}) — не берётся")
+                continue
+            b = min(b, total)
+            p0, p1, span = f["from"], f["to"], f["to_at"] - f["a"]
+            eye = lambda t: tuple(p0[i] + (p1[i] - p0[i]) * (t - f["a"]) / span for i in range(3))  # noqa: E731
+            tan_y = math.tan(math.radians(f["fov"] / 2))
+            tan_x = tan_y * self.aspect
+            hits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+                                    [f["dim"], a, b]).fetchall()
+            rel = [(hid, t, (x, y, z), place, *bearing(eye(t), (x, y, z))) for hid, t, x, y, z, place in hits]
+            yaw, pitch = aim_flight(eye, rel, f["look"], f["turn"], tan_x, tan_y, f.get("focus"))
+
+            def framed(yaw: float, t: float, pos) -> bool:
+                return in_view(eye(t), yaw, pitch, tan_x, tan_y, pos)
+
+            focus = [r for r in rel if f.get("focus") and f["focus"][0] <= r[1] <= f["focus"][1]]
+            shown = [r for r in rel if framed(yaw, r[1], r[2])]
+            keys = [{"t": t, "pos": list(pos), "size": BLAST.get(weapon.get(hid, ""), 16), "id": hid} for hid, t, pos, *_ in shown]
+            # снаряды в кадре: пути сущностей и дальние строки, раз в 10 тиков
+            rows = self.con.execute("""
+                SELECT e.uuid, k.t, k.x, k.y, k.z FROM tracks k JOIN subjects e ON e.eid = k.eid
+                WHERE e.dim = ? AND k.t BETWEEN ? AND ? AND k.t % 10 = 0 AND e.type NOT LIKE '%launcher%'
+                UNION ALL
+                SELECT uuid, t, x, y, z FROM far WHERE src LIKE '%:far_flights' AND dim = ? AND t BETWEEN ? AND ? AND t % 10 = 0""",
+                                    [f["dim"], a, b, f["dim"], a, b]).fetchall()
+            flown = {u for u, t, x, y, z in rows if u in self.by_uuid and framed(yaw, t, (x, y, z))}
+            weapons = sorted({self.by_uuid[u].weapon for u in flown} | {weapon[r[0]] for r in shown if r[0] in weapon})
+            look = direction(yaw, pitch)
+            path = {"kind": "path", "fov": f["fov"], "dim": f["dim"],
+                    "keys": [{"t": t, "eye": [round(v, 2) for v in eye(t)], "aim": [round(eye(t)[i] + 100 * look[i], 2) for i in range(3)]}
+                             for t in (a, b)]}
+            ground = sum(r[3] == "ground" for r in shown)
+            why = (f"свободная камера: {fmt(eye(a))} → {fmt(eye(b))}, курс {yaw:.0f}°, наклон {pitch:.0f}°; ударов в кадре {len(shown)} "
+                   f"из {len(rel)} (по земле {ground}" + (f"; {mmss(f['focus'][0])}–{mmss(f['focus'][1])}: "
+                   f"{sum(r in shown for r in focus)} из {len(focus)}" if f.get("focus") else "") + f"), снарядов в кадре {len(flown)}")
+            print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)}: {why}")
+            for hid, t, pos, place, hyaw, _, d in rel:
+                print(f"  удар {mmss(t)} {place:<9} {weapon.get(hid, '?'):<8} {d:6.0f} блоков, курс на него {hyaw:5.0f}°,"
+                      f" {'в кадре' if any(r[0] == hid for r in shown) else 'вне кадра'}")
+            if f.get("focus") and not any(r in shown for r in focus):
+                print(f"  в окне {mmss(f['focus'][0])}–{mmss(f['focus'][1])} ни одного удара в кадре — нужен другой look или turn")
+            out.append(Candidate("fly", self.name, str(self.db), 1000 - k, a, "+".join(weapons) or "fly",
+                                 f"пролёт {mmss(a)}–{mmss(b)}: {why}",
+                                 {"seconds": round((b - a) / TICK, 1), "ground": ground, "impacts": len(shown), "flights": len(flown),
+                                  "yaw": round(yaw, 1), "pitch": round(pitch, 1), "mark": f["spec"]},
+                                 [Shot("fly", "fly", a, b, path, {"keys": keys}, why)]))
+        return out
 
 
 def dedupe(cands: list[Candidate], gap: int) -> list[Candidate]:
@@ -805,7 +979,7 @@ def annotate(r: Replay, cands: list[Candidate], notes: dict, bonus: float) -> No
 
 
 PREVIEWS = {"rockets": "1. Ракеты и «Град»", "drones": "2. Шахеды и «Ланцеты»", "chaos": "3. Хаос",
-            "far": "4. Издалека", "nuke": "5. Ядерный удар", "pov": "6. Глазами игроков"}
+            "far": "4. Издалека", "nuke": "5. Ядерный удар", "pov": "6. Глазами игроков", "fly": "7. Пролёт камеры"}
 
 
 def incoming_version(meta: dict) -> str | None:
@@ -868,11 +1042,17 @@ def main():
     p.add_argument("--notes", help="журнал игры: опоры часов повторов и отрезки с тем, что происходило (README.md)")
     p.add_argument("--note-bonus", type=float, default=1.0, help="прибавка к счёту кандидата в отрезке журнала")
     p.add_argument("--at", action="append", default=[],
-                   help="момент глазами записавшего по часам: 2026-10-14T19:05:30 (или с/по через /); запись с отмеченными "
-                        "моментами (и маркерами Flashback) даёт «глазами игроков» только их")
+                   help="момент глазами записавшего: по шкале Flashback 25:02 или по часам 2026-10-14T19:05:30 (или с/по "
+                        "через /); запись с отмеченными моментами (и маркерами Flashback) даёт «глазами игроков» только их")
+    p.add_argument("--fly", action="append", default=[], type=fly_spec,
+                   help="пролёт свободной камеры: 'at=25:02/25:40 from=x,y,z to=x,y,z [to_at=25:32] [look=south] [turn=25] [fov=70]'")
     p.add_argument("--min-version", default="2.10.2",
                    help="записи старых версий Incoming не берутся: ролики показывают мод, каким он стал")
-    select(p.parse_args())
+    a = p.parse_args()
+    # время по шкале Flashback и пролёт — в своей записи: в другой (длиннее) то же время — не тот момент
+    if len(a.db) > 1 and (a.fly or any(timeline(x) is not None for spec in a.at for x in spec.split("/"))):
+        p.error("время по шкале Flashback (--at 25:02) и --fly — для одной записи: дайте одну базу")
+    select(a)
 
 
 if __name__ == "__main__":

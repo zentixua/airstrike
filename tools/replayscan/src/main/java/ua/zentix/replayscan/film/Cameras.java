@@ -42,9 +42,10 @@ final class Cameras {
 
     /**
      * Кандидат: камера по ключевым кадрам ({@code path}) или глаза игрока ({@code player}, пути нет — камера Flashback
-     * становится этим игроком). {@code designed} — камера задана планом и выводится первой, если не отвергнута.
+     * становится этим игроком). {@code designed} — камера задана планом и выводится первой, если не отвергнута;
+     * {@code roam} — путь задан планом и идёт и там, где у клиента нет чанков (в блоках камера — только где чанк есть).
      */
-    record Candidate(String name, @Nullable Path path, @Nullable String player, boolean gui, double fov, boolean designed) {}
+    record Candidate(String name, @Nullable Path path, @Nullable String player, boolean gui, double fov, boolean designed, boolean roam) {}
 
     /**
      * Оценка кандидата: итог (меньше нуля — не годится), из чего он и пройдёт ли вывод пороги плана ({@code pass}: объект
@@ -166,22 +167,27 @@ final class Cameras {
 
         /** Камера не в блоке и вокруг неё полблока воздуха; чанка нет — не знаем. */
         boolean free(Vec3 p) {
-            if (!loaded(p)) return false;
-            for (double dx : new double[]{-0.5, 0.5}) {
-                for (double dy : new double[]{-0.5, 0.5}) {
-                    for (double dz : new double[]{-0.5, 0.5}) {
-                        BlockPos b = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
-                        if (!level.getBlockState(b).getCollisionShape(level, b).isEmpty()) return false;
-                    }
-                }
-            }
-            return true;
+            return loaded(p) && !inBlocks(level, p);
         }
 
         /** Доля открытых лучей из глаза кадра к предмету ({@link Cameras#open}). */
         double open(View v, Vec3 at, double size, int rays) {
             return Cameras.open(level, v.eye(), at, v.right(), v.up(), size, rays);
         }
+    }
+
+    /** Камера в блоке: ближе полублока от неё есть блок (по чанкам клиента: чанка нет — блоков нет). */
+    static boolean inBlocks(ClientLevel level, Vec3 p) {
+        for (double dx : new double[]{-0.5, 0.5}) {
+            for (double dy : new double[]{-0.5, 0.5}) {
+                for (double dz : new double[]{-0.5, 0.5}) {
+                    BlockPos b = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
+                    if (level.getChunkSource().getChunkNow(b.getX() >> 4, b.getZ() >> 4) == null) continue;
+                    if (!level.getBlockState(b).getCollisionShape(level, b).isEmpty()) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -197,7 +203,7 @@ final class Cameras {
     static List<Candidate> of(Plan.Camera c, Subject s, int a, int b, double aspect, World w) {
         List<Candidate> out = new ArrayList<>();
         switch (c.kind()) {
-            case "pov" -> out.add(new Candidate("pov-" + c.player().replaceAll("[^A-Za-z0-9_.-]", "_"), null, c.player(), c.gui(), c.fov(), true));
+            case "pov" -> out.add(new Candidate("pov-" + c.player().replaceAll("[^A-Za-z0-9_.-]", "_"), null, c.player(), c.gui(), c.fov(), true, false));
             case "fixed" -> {
                 Vec3 at = c.aim() != null ? c.aim() : s.anchor(a, b);
                 if (c.eye() == null || at == null && !c.follow()) return out;
@@ -206,7 +212,7 @@ final class Cameras {
                     Vec3 eye = settle(lift(c.eye(), rise, w), at, w);
                     Path p = c.follow() ? follow(t -> eye, s, a, b, 3, c.fov()) : t -> Pose.look(eye, at, c.fov());
                     String name = String.format(Locale.ROOT, "fixed-%.0f", c.fov()) + (rise > 0 ? String.format(Locale.ROOT, "-r%.0f", rise) : "");
-                    out.add(new Candidate(name, p, null, false, c.fov(), true));
+                    out.add(new Candidate(name, p, null, false, c.fov(), true, false));
                 }
             }
             case "tripod" -> {
@@ -230,14 +236,39 @@ final class Cameras {
                             if (!Double.isNaN(w.clouds) && eye.y >= w.clouds - 2) continue;
                             Path p = c.follow() ? follow(t -> eye, s, a, b, 6, fov) : t -> Pose.look(eye, k.add(0, size * 0.25, 0), fov);
                             out.add(new Candidate(String.format(Locale.ROOT, "tripod-f%.0f-d%.0f-a%.0f-e%.0f", fov, dist, side, elev), p, null,
-                                    false, fov, false));
+                                    false, fov, false, false));
                         }
                     }
+                }
+            }
+            case "path" -> {
+                // и выше на rise, где задано: путь, проложенный по карте, бывает сквозь высотку
+                for (double rise : c.keys().isEmpty() ? new double[0] : c.rise()) {
+                    List<Plan.PathKey> keys = c.keys().stream().map(k -> new Plan.PathKey(k.t(), k.eye().add(0, rise, 0), k.aim().add(0, rise, 0))).toList();
+                    String name = String.format(Locale.ROOT, "path-%.0f", c.fov()) + (rise > 0 ? String.format(Locale.ROOT, "-r%.0f", rise) : "");
+                    out.add(new Candidate(name, along(keys, c.fov()), null, false, c.fov(), true, true));
                 }
             }
             default -> throw new IllegalArgumentException("unknown camera " + c.kind());
         }
         return out;
+    }
+
+    /**
+     * Камера летит по ключам плана: глаз и точка взгляда — по прямой между соседними ключами (ровный ход, курс без
+     * рывков), до первого ключа — в первом, после последнего — в последнем.
+     */
+    static Path along(List<Plan.PathKey> keys, double fov) {
+        return t -> {
+            Plan.PathKey a = keys.get(0), b = a;
+            for (Plan.PathKey k : keys) {
+                if (k.t() <= t) a = k;
+                b = k;
+                if (k.t() >= t) break;
+            }
+            double u = b.t() > a.t() ? Mth.clamp((t - a.t()) / (b.t() - a.t()), 0, 1) : 0;
+            return Pose.look(a.eye().lerp(b.eye(), u), a.aim().lerp(b.aim(), u), fov);
+        };
     }
 
     /** Глаз на {@code rise} блоков выше земли под ним (не ниже самого глаза); 0 — сам глаз. */
@@ -292,7 +323,8 @@ final class Cameras {
      * объект в кадре (с полями {@link #SAFE}), виден (лучи к середине и краям — не меньше 0.4, не сквозь облака и не в
      * тумане), не мельче {@code share} ширины кадра и не в дыму прежних ударов, — за всё время и за последнюю секунду;
      * каждое событие плана — в кадре и видно хотя бы в половине первых 12 тиков ({@link #keySeen}); после событий —
-     * объект виден; камера в воздухе по всему пути. {@code pass} — эти доли не меньше порогов плана.
+     * объект виден; камера в воздухе по всему пути (путь плана, {@code roam}, — там, где у клиента есть чанк). {@code pass} —
+     * эти доли не меньше порогов плана.
      */
     static Score score(Candidate c, Subject s, Plan.Shot shot, double aspect, World w) {
         if (c.path() == null) return Score.DESIGNED;
@@ -303,7 +335,7 @@ final class Cameras {
         int first = s.firstKey();
         for (int t = shot.a(); t <= shot.b(); t += 2) {
             Pose p = c.path().at(t);
-            if (!w.free(p.pos())) free = false;
+            if (c.roam() ? w.loaded(p.pos()) && !w.free(p.pos()) : !w.free(p.pos())) free = false;
             Vec3 aim = s.aim(t);
             if (aim == null) continue;
             Subject.Key k = s.keyAt(t);

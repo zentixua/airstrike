@@ -5,7 +5,7 @@
 # ///
 """План съёмки превью из кандидатов (moments.py) — для съёмки replayscan (-Dreplayscan.film, README там).
 
-  uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--all pov] [--top 1] [--out <clips>/film]
+  uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--all pov,fly] [--top 1] [--out <clips>/film]
          [--size 1080x1920] [--fps 60] [--replays <каталог копий>]
 
 Берёт по --top лучших кандидатов каждого ролика (или --pick и всех кандидатов роликов --all), достаёт из базы пути снарядов (tracks и дальние
@@ -38,6 +38,8 @@ NEED = {
     "nuke": {"subject": 0, "near": 0, "keys": 1, "share": 0},
     # глазами игрока как есть: куда он смотрел, то и в кадре; громкое за кадром — его бой вокруг
     "pov": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
+    # пролёт по пути, заданному человеком: удары в кадре считаются, но не решают; громкое за кадром — налёт вокруг
+    "fly": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1},
 }
 
 
@@ -54,6 +56,8 @@ def path_of(con, uuid: str, a: int, b: int) -> list[list[float]]:
 
 def dim_of(con, shot: dict) -> str:
     s = shot["subject"]
+    if shot["camera"].get("dim"):
+        return shot["camera"]["dim"]
     if shot["camera"]["kind"] == "pov":
         # глазами игрока — его измерение в начале плана (отмеченный момент бывает без событий)
         r = con.execute("SELECT dim FROM viewers WHERE viewer = ? AND t >= ? ORDER BY t LIMIT 1", [shot["camera"]["viewer"], shot["a"]]).fetchone()
@@ -72,9 +76,12 @@ def dim_of(con, shot: dict) -> str:
 
 def cameras(shot: dict) -> list[dict]:
     """Камеры плана: глаза игрока (с запасной свободной камерой у удара, сбития, пуска и хаоса; у плана «глазами
-    игроков» — без запасной) или свободная камера по роду."""
+    игроков» — без запасной), камера по пути (пролёт) или свободная камера по роду."""
     cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
     keys = s.get("keys", [])
+    if cam["kind"] == "path":
+        # и на 16 блоков выше: путь по карте бывает сквозь высотку
+        return [{"kind": "path", "keys": cam["keys"], "fov": cam["fov"], "rise": [0, 16]}]
     if cam["kind"] == "pov":
         out = [{"kind": "pov", "player": cam["viewer"], "fov": 70}]
         if kind in ("impact", "shootdown") and keys:
@@ -118,7 +125,7 @@ def film_shot(con, cid: str, shot: dict) -> dict:
     dim = dim_of(con, shot)
     smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
                         [dim, a - 1200, b]).fetchall()
-    far = kind in ("far", "nuke")
+    far = kind in ("far", "nuke", "fly")
     return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
             "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
             "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
@@ -129,7 +136,8 @@ def main():
     p.add_argument("candidates")
     p.add_argument("--pick", default="", help="id кандидатов через запятую (по умолчанию — --top лучших каждого ролика)")
     p.add_argument("--top", type=int, default=1)
-    p.add_argument("--all", default="", help="ролики, у которых снимать всех кандидатов (через запятую; «глазами игроков» — pov)")
+    p.add_argument("--all", default="", help="ролики, у которых снимать всех кандидатов (через запятую; «глазами игроков» — pov, "
+                                             "пролёты — fly)")
     p.add_argument("--out", default=None)
     p.add_argument("--size", default="1080x1920")
     p.add_argument("--fps", type=float, default=60)

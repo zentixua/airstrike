@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -54,11 +55,16 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * в {@code eye}, смотрит в точку {@code aim} или ведёт объект ({@code follow}), {@code rise} — кандидаты на столько блоков
      * над землёй под глазом (0 — сам глаз); {@code tripod} — штатив по кругу
      * у {@code around}: расстояния {@code dist}, углы над точкой {@code elev}, шаг по кругу {@code azStep}, объектив —
-     * так, чтобы событие поперечником {@code size} было {@code share} ширины кадра.
+     * так, чтобы событие поперечником {@code size} было {@code share} ширины кадра; {@code path} — летит по ключам
+     * {@code keys} (глаз и точка взгляда по прямой между ключами; {@code eye} и {@code aim} — первого ключа), {@code rise}
+     * — кандидаты того же пути на столько блоков выше.
      */
     record Camera(String kind, @Nullable String player, boolean gui, double fov, @Nullable Vec3 eye, @Nullable Vec3 aim, boolean follow,
                   @Nullable Vec3 around, @Nullable Vec3 heading, double[] dist, double[] elev, double azStep, double share, double size,
-                  double[] rise) {}
+                  double[] rise, List<PathKey> keys) {}
+
+    /** Ключ камеры {@code path}: тик повтора, глаз и точка, куда она смотрит. */
+    record PathKey(double t, Vec3 eye, Vec3 aim) {}
 
     /**
      * Пороги проверки по кадрам: доля кадров до первого события, где объект снят ({@code subject}), то же за последнюю
@@ -97,12 +103,24 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
     private static Camera camera(JsonObject c) {
         String kind = c.get("kind").getAsString();
         boolean subjectAim = c.has("aim") && c.get("aim").isJsonPrimitive();
+        List<PathKey> keys = new ArrayList<>();
+        if (c.has("keys")) {
+            for (JsonElement el : c.getAsJsonArray("keys")) {
+                JsonObject k = el.getAsJsonObject();
+                Vec3 eye = vec(k, "eye"), aim = vec(k, "aim");
+                if (eye == null || aim == null) throw new IllegalArgumentException("path key without eye or aim: " + k);
+                keys.add(new PathKey(k.get("t").getAsDouble(), eye, aim));
+            }
+            keys.sort(Comparator.comparingDouble(PathKey::t));
+        }
+        Vec3 eye = keys.isEmpty() ? vec(c, "eye") : keys.get(0).eye(), aim = keys.isEmpty() ? subjectAim ? null : vec(c, "aim") : keys.get(0).aim();
         return new Camera(kind, c.has("player") ? c.get("player").getAsString() : null, c.has("gui") && c.get("gui").getAsBoolean(),
-                dbl(c, "fov", 70), vec(c, "eye"), subjectAim ? null : vec(c, "aim"), subjectAim || c.has("follow") && c.get("follow").getAsBoolean(),
+                dbl(c, "fov", 70), eye, aim, subjectAim || c.has("follow") && c.get("follow").getAsBoolean(),
                 vec(c, "around"), c.has("heading") ? new Vec3(arr(c.getAsJsonArray("heading"))[0], 0, arr(c.getAsJsonArray("heading"))[1]) : null,
                 c.has("dist") ? arr(c.getAsJsonArray("dist")) : new double[]{60, 90, 130},
                 c.has("elev") ? arr(c.getAsJsonArray("elev")) : new double[]{6, 16, 28}, dbl(c, "az_step", 30), dbl(c, "share", 0.25),
-                dbl(c, "size", 0), c.has("rise") && c.get("rise").isJsonArray() && !c.getAsJsonArray("rise").isEmpty() ? arr(c.getAsJsonArray("rise")) : new double[]{0});
+                dbl(c, "size", 0), c.has("rise") && c.get("rise").isJsonArray() && !c.getAsJsonArray("rise").isEmpty() ? arr(c.getAsJsonArray("rise")) : new double[]{0},
+                keys);
     }
 
     private static Subject subject(JsonObject s) {

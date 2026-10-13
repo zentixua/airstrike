@@ -151,6 +151,13 @@ class EditTest(unittest.TestCase):
         self.assertEqual(en, "Shahed drones overhead, seen through a player's eyes.")
         en, ru = edit.caption("pov", {"weapon": "pov", "numbers": {"seconds": 17, "mark": "маркер 01:00.0"}})
         self.assertEqual((en, ru), ("Seen through a player's eyes.", "Вид глазами игрока."), "отмеченный момент без найденных событий")
+        en, ru = edit.caption("pov", {"weapon": "pov", "numbers": {"seconds": 24, "nuke_off": 640, "mark": "время 53:02/53:26"}})
+        self.assertEqual((en, ru), ("A nuclear strike 640 blocks away, through a player's eyes.", "Ядерный удар в 640 блоках: вид глазами игрока."))
+        fly = {"preview": "fly", "weapon": "missile+shahed", "numbers": {"seconds": 38, "impacts": 5, "ground": 4}}
+        self.assertIs(edit.shown(fly, [{"name": "fly-0-fly"}]), fly, "пролёт — один план")
+        self.assertEqual(edit.caption("fly", fly), ("A slow camera flight during a raid of cruise missiles and Shahed drones: 5 strikes in view in 38 seconds.",
+                                                    "Медленный пролёт камеры во время налёта (крылатые ракеты и шахеды): ударов в кадре за 38 секунд — 5."))
+        self.assertEqual(edit.caption("fly", {"weapon": "fly", "numbers": {"seconds": 30, "impacts": 0}})[0], "A slow camera flight during an air raid.")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху
