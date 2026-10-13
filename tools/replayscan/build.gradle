@@ -36,7 +36,8 @@ neoForge {
             def clean = project.findProperty('connectorClean') ?: System.getenv('CONNECTOR_CLEAN')
             if (clean) systemProperty 'connector.clean.path', clean.toString()
             programArguments.addAll '--width', '640', '--height', '360'
-            jvmArgument '-Xmx6g'
+            // память клиента (-Pxmx): мир повтора со всей сборкой и долгая запись — больше 6 ГБ
+            jvmArgument "-Xmx${project.findProperty('xmx') ?: '6g'}"
         }
         configureEach {
             logLevel = org.slf4j.event.Level.INFO

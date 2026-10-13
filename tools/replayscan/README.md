@@ -33,8 +33,11 @@ NeoForge (`java -jar neoforge-21.1.259-installer.jar --installClient <катал
 cd tools/replayscan
 CONNECTOR_CLEAN=<каталог>/libraries/net/minecraft/client/1.21.1-20240808.144430/client-1.21.1-20240808.144430-srg.jar \
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ../../mod/gradlew -p . runClient \
-  -PmodsDir=<моды> -Preplay=<копия повтора>.zip [-Pout=<каталог>] [-Pask=cameras.json] [-Pfrom=… -Pto=…]
+  -PmodsDir=<моды> -Preplay=<копия повтора>.zip [-Pout=<каталог>] [-Pask=cameras.json] [-Pfrom=… -Pto=…] \
+  [-PrunDir=<каталог игры>] [-Pxmx=8g]
 ```
+Каждый разбор — в своём `runDir` (туда же кладутся моды и `config/`); два запуска Gradle в одном каталоге проекта
+не идут одновременно — для разборов рядом нужны копии `tools/replayscan`.
 
 **Полная сборка** (как у игрока, `tools/prod_client.py`: копия инстанса, без Prism): сначала копия, в её `mods` —
 jar разбора, потом запуск без сценария — клиент идёт в меню, и разбор начинается сам:
