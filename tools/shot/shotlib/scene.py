@@ -100,11 +100,91 @@ class Smoke:
         return np.array(out, dtype=np.float64).reshape(-1, 8)
 
 
+@dataclass
+class Trails:
+    """Клубы объёма у горящего двигателя (`Exhaust.volume` мода: клуб за тик у сопла, пока горит ускоритель —
+    фазы `ignition` и `boost`; у МБР — весь подъём) и облако старта МБР (`Exhaust.launchCloud`). Они висят в воздухе
+    полминуты и больше, их считает проверка кадров (`FxPool.transmittance`), лента шлейфа — нет. Клуб — гауссов шар
+    (σ = 0,55 радиуса квадрата), свет сквозь середину — как у частицы: 1 − непрозрачность (0,45, тает с 55 % жизни)."""
+    # оружие → (поперечник клуба вначале, в конце, жизнь, тиков): `Exhaust.rocket`, `booster`, `icbm`
+    SPEC = {"rocket": (0.7, 3.6, 520.0), "missile": (0.5, 3.5, 320.0), "drone": (0.35, 2.45, 320.0),
+            "loiter": (0.35, 2.45, 320.0), "nuke": (1.8, 8.0, 1050.0)}
+    ALPHA = 0.45
+    WIND = (0.02, 0.0, 0.01)  # Fx.WIND_X, WIND_Z за тик при сопротивлении 0,9 — около 0,02 и 0,01 блока за тик
+    t: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    pos: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
+    s0: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    s1: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    life: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    alpha: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    rise: np.ndarray = field(default_factory=lambda: np.zeros(0))
+
+    @staticmethod
+    def of(tracks: dict, lit: dict) -> "Trails":
+        ts, ps, a0, a1, lf, al, rs = [], [], [], [], [], [], []
+        for tid, tr in tracks.items():
+            spec = Trails.SPEC.get(tr.weapon)
+            ticks = lit.get(tid, [])
+            if spec is None or not len(ticks):
+                continue
+            tt = np.array(sorted(set(ticks)), dtype=np.float64)
+            pp = tr.at(tt)
+            ok = ~np.isnan(pp[:, 0])
+            tt, pp = tt[ok], pp[ok]
+            ts.append(tt)
+            ps.append(pp)
+            for arr, v in ((a0, spec[0]), (a1, spec[1]), (lf, spec[2]), (al, Trails.ALPHA), (rs, 0.0)):
+                arr.append(np.full(len(tt), v))
+            if tr.weapon == "nuke" and len(tt):
+                # облако старта: кольцо до ~20 блоков у стола и столб над ним, 140 тиков подпитки (`launchCloud`)
+                pad = tr.pos[0] - np.array([0, 9.0, 0])
+                t0 = float(tr.t[0])
+                for j in range(8):
+                    ang = j * math.pi / 4
+                    for rr in (6.0, 14.0, 22.0):
+                        ts.append(np.array([t0 + rr]))
+                        ps.append((pad + np.array([math.cos(ang) * rr, 2.0, math.sin(ang) * rr]))[None])
+                        for arr, v in ((a0, 8.0), (a1, 22.0), (lf, 760.0), (al, 0.85), (rs, 0.0)):
+                            arr.append(np.array([v]))
+                for h in (6.0, 14.0, 22.0):
+                    ts.append(np.array([t0 + h / 2]))
+                    ps.append((pad + np.array([0, h, 0]))[None])
+                    for arr, v in ((a0, 6.0), (a1, 18.0), (lf, 700.0), (al, 0.8), (rs, 0.0)):
+                        arr.append(np.array([v]))
+        if not ts:
+            return Trails()
+        cat = np.concatenate
+        return Trails(cat(ts), cat(ps), cat(a0), cat(a1), cat(lf), cat(al), cat(rs))
+
+    def puffs(self, t: float) -> np.ndarray:
+        """Клубы в тик t: (n, 8), как у `Smoke.puffs`; «свой удар» у них — далеко (не свои никому)."""
+        if not len(self.t):
+            return np.zeros((0, 8))
+        age = t - self.t
+        alive = (age >= 0) & (age < self.life)
+        if not alive.any():
+            return np.zeros((0, 8))
+        age, life = age[alive], self.life[alive]
+        f = age / life
+        quad = self.s0[alive] + (self.s1[alive] - self.s0[alive]) * (1 - (1 - f) ** 3)
+        sigma = np.maximum(0.55 * quad / 2, 0.2)
+        fade = np.clip(age / 2, 0, 1) * np.where(f < 0.55, 1.0, np.maximum(0, 1 - (f - 0.55) / 0.45))
+        tau = -np.log(np.maximum(1e-3, 1 - self.alpha[alive] * fade))
+        k = tau / (sigma * math.sqrt(2 * math.pi))
+        drift = np.maximum(0, age - 10)[:, None] * np.array(self.WIND)
+        p = self.pos[alive] + drift
+        out = np.zeros((len(p), 8))
+        out[:, :3], out[:, 3], out[:, 4], out[:, 5:8] = p, sigma, k, 1e9
+        return out[fade > 0.01]
+
+
 def transmittance(puffs: np.ndarray, a: np.ndarray, b: np.ndarray, spare: float = 0.0) -> np.ndarray:
     """Доля света по отрезкам a→b (…, 3) сквозь клубы (n, 5 или 8); у конца b не считаются `spare` блоков (огонь самой
     цели) и клубы удара ближе `Smoke.own` к b (её же дым, как `Plume.blocks`)."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
+    both = np.broadcast_shapes(a.shape, b.shape)
+    a, b = np.broadcast_to(a, both), np.broadcast_to(b, both)
     if len(puffs) == 0:
         return np.ones(a.shape[:-1])
     d = b - a
@@ -122,19 +202,26 @@ def transmittance(puffs: np.ndarray, a: np.ndarray, b: np.ndarray, spare: float 
     k = np.clip(((puffs[:, :3] - am) @ seg) / max(float(seg @ seg), 1e-9), 0, 1)
     miss = np.linalg.norm(puffs[:, :3] - (am + k[:, None] * seg), axis=1)
     puffs = puffs[miss < spread + 3.5 * puffs[:, 3]]
-    for c in puffs:
-        p, s, k = c[:3], c[3], c[4]
-        if len(c) >= 8:
-            mine = np.linalg.norm(b - c[5:8], axis=-1) <= Smoke.own
-            if np.all(mine):
-                continue
+    if not len(puffs):
+        return np.ones(a.shape[:-1])
+    shape = a.shape[:-1]
+    A, U = a.reshape(-1, 3), u.reshape(-1, 3)
+    E, B = end.reshape(-1), b.reshape(-1, 3)
+    tau = np.zeros(len(A))
+    for i in range(0, len(puffs), 512):
+        c = puffs[i:i + 512]
+        p, s, k = c[:, :3], c[:, 3], c[:, 4]
+        k = np.broadcast_to(k, (len(A), len(c)))
+        if c.shape[1] >= 8:
+            mine = np.linalg.norm(B[:, None, :] - c[None, :, 5:8], axis=-1) <= Smoke.own
             k = k * ~mine
-        w = p - a
-        along = (w * u).sum(-1)
+        w = p[None] - A[:, None]
+        along = (w * U[:, None]).sum(-1)
         miss2 = (w * w).sum(-1) - along ** 2
         g = np.exp(-np.maximum(miss2, 0) / (2 * s * s))
-        span = 0.5 * (erf((end - along) / (sqrt(2) * s)) - erf((0 - along) / (sqrt(2) * s)))
-        tau += k * s * sqrt(2 * pi) * g * span
+        span = 0.5 * (erf((E[:, None] - along) / (sqrt(2) * s)) - erf((0 - along) / (sqrt(2) * s)))
+        tau += (k * s * sqrt(2 * pi) * g * span).sum(1)
+    tau = tau.reshape(shape)
     return np.exp(-tau)
 
 
@@ -151,15 +238,30 @@ class Scene:
     nukes: list[tuple[int, np.ndarray, float]] = field(default_factory=list)
     clouds: float = math.nan  # низ слоя облаков (NaN — нет), толщина — 6 блоков (`Rig.CLOUD_DEPTH`)
     fog: float = 410.0        # дальше этого по горизонтали объект в тумане края прорисовки (0,8 × 32 чанка, `Rig.FOG`)
+    trails: Trails = field(default_factory=Trails)
+    _puffs: dict = field(default_factory=dict, repr=False, compare=False)
 
     def puffs(self, t: float) -> np.ndarray:
-        return self.smoke.puffs(self.impacts, t)
+        """Клубы дыма в тик t (дым ударов и шлейфы ускорителей); поиск спрашивает одни и те же тики сотни раз."""
+        got = self._puffs.get(t)
+        if got is None:
+            a = self.smoke.puffs(self.impacts, t)
+            b = self.trails.puffs(t)
+            got = np.concatenate([a, b]) if len(b) else a
+            if len(self._puffs) > 4000:
+                self._puffs.clear()
+            self._puffs[t] = got
+        return got
 
     def mark(self, name: str) -> int | None:
         return next((t for t, m in self.marks if m == name), None)
 
 
 # ---------------------------------------------------------------- журнал плана трейлера (EventLog)
+
+
+# фазы, в которых горит ускоритель (`FlightPhase.boosterLit`); у МБР след — весь подъём
+LIT = {"ignition", "boost"}
 
 
 def read_eventlog(path: str):
@@ -185,10 +287,12 @@ def read_eventlog(path: str):
             if t is None:
                 continue
             if "new" in d:
-                flights[d["new"]] = {"id": d.get("id"), "weapon": d.get("weapon") or "", "t": t}
+                flights.setdefault(int(d["new"]), {}).update({"id": d.get("id"), "weapon": d.get("weapon") or "", "t": t})
             if "f" in d:
                 for e in d["f"]:
                     pts.setdefault(int(e[0]), []).append((t, e[1], e[2], e[3]))
+                    if len(e) > 4 and str(e[4]).lower() in LIT:
+                        flights.setdefault(int(e[0]), {}).setdefault("lit", []).append(t)
             if "impact" in d and d.get("pos"):
                 impacts.append((t, int(d["impact"]), d["pos"]))
             if "cam" in d and d["cam"]:
@@ -231,6 +335,13 @@ def from_eventlog(path: str, wld: W.World) -> Scene:
         sc.cam_look = a[:, 4:]
     sc.marks = sorted(marks)
     sc.nukes = [(int(t), np.array(p, dtype=np.float64), float(kt)) for t, p, kt in nukes]
+    lit = {str(i): info.get("lit", []) for i, info in flights.items()}
+    for tid, tr in sc.tracks.items():
+        if tr.weapon == "nuke":
+            # МБР: след весь подъём до слоя облаков и выше — пока путь идёт вверх
+            up = np.flatnonzero(np.gradient(tr.pos[:, 1]) > 0.05) if len(tr.t) > 2 else np.zeros(0, int)
+            lit[tid] = list(tr.t[up])
+    sc.trails = Trails.of(sc.tracks, lit)
     return sc
 
 

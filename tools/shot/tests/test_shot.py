@@ -183,6 +183,23 @@ class MeasureTest(unittest.TestCase):
         self.assertLess(float(t_through), 0.2)
         self.assertGreater(float(t_clear), 0.99)
 
+    def test_booster_trail_hides_what_is_behind_it(self):
+        # «Град» на ускорителе 40 тиков по прямой вдоль x: след висит; луч вдоль следа закрыт, поперёк — когда клубы
+        # разрослись и сошлись (через 15 с), мимо — чист; через 600 тиков след растаял
+        sc = wall_scene()
+        ts = np.arange(0, 41)
+        sc.tracks["9"] = S.Track("9", "rocket", ts, np.stack([ts * 3.0, np.full(41, 120.0), np.full(41, 0.0)], 1))
+        sc.trails = S.Trails.of(sc.tracks, {"9": list(ts)})
+        pf = sc.puffs(80.0)
+        along = float(S.transmittance(pf, np.array([-20.0, 120.0, 0.0]), np.array([140.0, 120.0, 0.0])))
+        late = sc.puffs(320.0)
+        across = float(S.transmittance(late, np.array([60.0, 120.0, -30.0]), np.array([60.0, 120.0, 30.0])))
+        aside = float(S.transmittance(late, np.array([60.0, 140.0, -30.0]), np.array([60.0, 140.0, 30.0])))
+        self.assertLess(along, 0.05)
+        self.assertLess(across, 0.9)
+        self.assertGreater(aside, 0.99)
+        self.assertEqual(len(sc.trails.puffs(700.0)), 0)
+
 
 class SolveTest(unittest.TestCase):
     def test_tripod_moves_off_the_wall(self):

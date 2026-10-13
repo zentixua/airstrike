@@ -145,15 +145,32 @@ def frame(scene: Scene, eye, yaw, pitch, roll, fov, t: float, size=(480, 270), t
     if len(puffs):
         tau = np.zeros(len(dirs))
         from scipy.special import erf
+        end_all = np.where(np.isfinite(depth), depth, 4000)
+        px_all, py_all = X.reshape(-1), Y.reshape(-1)
         for p in puffs:
             c, s, k = p[:3], p[3], p[4]
             wv = c - eye
-            along = dirs @ wv
+            # только пиксели около клуба на экране (шлейфы — тысячи клубов): 3σ вокруг его места
+            z = float(wv @ f)
+            dist = float(np.linalg.norm(wv))
+            if dist > 3 * s:
+                if z <= 0:
+                    continue
+                cu, cv = float(wv @ r) / z / (th * aspect), float(wv @ u) / z / th
+                ru, rv = 3 * s / z / (th * aspect), 3 * s / z / th
+                if abs(cu) - ru > 1 or abs(cv) - rv > 1:
+                    continue
+                idx = np.flatnonzero((np.abs(px_all - cu) <= ru) & (np.abs(py_all - cv) <= rv))
+                if not len(idx):
+                    continue
+            else:
+                idx = np.arange(len(dirs))
+            along = dirs[idx] @ wv
             miss2 = (wv * wv).sum() - along ** 2
             g = np.exp(-np.maximum(miss2, 0) / (2 * s * s))
-            end = np.where(np.isfinite(depth), depth, 4000)
+            end = end_all[idx]
             span = 0.5 * (erf((end - along) / (math.sqrt(2) * s)) - erf((0 - along) / (math.sqrt(2) * s)))
-            tau += k * s * math.sqrt(2 * math.pi) * g * span
+            tau[idx] += k * s * math.sqrt(2 * math.pi) * g * span
         a = (1 - np.exp(-tau))[:, None]
         img = img * (1 - a) + np.array([70, 66, 62]) * a
 
