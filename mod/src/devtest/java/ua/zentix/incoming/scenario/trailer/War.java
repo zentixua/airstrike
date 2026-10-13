@@ -230,7 +230,6 @@ final class War {
         return over.subtract(dir.scale(d));
     }
 
-    /** Снаряд игрока (по данным сервера — и вне мира) ближе {@code r} к точке. */
     /** Снаряд этого оружия ближе {@code r} к точке: чужие полёты (шахеды прошлых планов идут через весь город) не в счёт. */
     static boolean flightNear(Vec3 p, double r, WeaponType weapon) {
         for (var f : ClientFlights.all()) if (f.weapon() == weapon && f.position(1).distanceTo(p) < r) return true;
@@ -449,11 +448,12 @@ final class War {
 
         // p17: из квартиры через окно: вспышка удара, стекло влетает в комнату
         Vec3 room = new Vec3(3060.5, 0, 352.5);
-        Vec3 blast = new Vec3(3062.5, 0, 338.5);  // на тротуаре перед окном, за стеной улицы не спрятан
+        // на тротуаре перед окном; ракета идёт вдоль улицы с востока (с запада её пике задевает дом в 98 блоков высотой)
+        Vec3 blast = new Vec3(3062.5, 0, 338.5);
         hiddenAt(room, blast);
         film.onServer(level -> buildRoom(level, room));
         film.shot("p17").length(40).hidden()
-                .onReady(() -> salvo("missile", 1, 0, blast, new Vec3(2200, 0, 318)))
+                .onReady(() -> salvo("missile", 1, 0, blast, new Vec3(3900, 0, 338.5)))
                 .camera(() -> {
                     Vec3 floor = new Vec3(room.x, roomFloor, room.z);
                     return CineCamera.dolly(floor.add(0.2, 1.55, 1.4), floor.add(0.1, 1.57, 1.1), 40, () -> at(blast).add(0, 2, 0), 70);
