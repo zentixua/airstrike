@@ -1,4 +1,4 @@
-# Задание ноутбуку: война 06.10 — превью TikTok, ночные проходы FPV над ударами и сбитие глазами игроков
+# Задание ноутбуку: война 06.10 — превью TikTok, ночные проходы FPV мимо самых жарких ударов
 
 Коммит zentixua/incoming — в сообщении координатора. Повтор — копия войны `2026-10-09T15_24_55` (Incoming 2.10.3).
 На видеокарте — одна тяжёлая задача (между частями трейлера, не рядом с ними), не во время игры Артёма
@@ -6,11 +6,12 @@
 Пути — от `/mnt/data/projects/airstrike`, `JAVA_HOME` — `java-runtime-delta` из Prism,
 `W=/mnt/data/projects/airstrike/mod/run/claude-work`, `T=$W/tiktok/war`, `R=2026-10-09T15_24_55`.
 
-`$T/clips`…`$T/clips3` — не трогать. Снимается в `$T/clips5`. Артём 13.10: ролик из нескольких проходов камеры, как у
+`$T/clips`…`$T/clips5` — не трогать. Снимается в `$T/clips6`. Артём 13.10: ролик из нескольких проходов камеры, как у
 FPV-дрона, ночью (время суток Flashback — огни снарядов видны), низко над самыми жаркими ударами; один проход — у
 ударов по порту 25:17–25:21, остальные — где ударов больше всего за всю запись. Монтаж под музыку — в облаке, поэтому
-каждый проход выдаётся отдельным видео. И сбитие шахеда у Мартина (23:53.0) — с рукой и оружием в кадре, глазами
-MartinFrances и глазами записавшего (ZentixUA, он был рядом): в ролик пойдут те глаза, где оружие в руке видно лучше.
+каждый проход выдаётся отдельным видео. Прошлая съёмка (`clips5`): проходы над самым ударом влетали в его столб дыма
+(кадр чёрный), а три из четырёх выходили низом кадра за чанки повтора; теперь проход — сбоку от удара, мимо дыма, в
+чанках — и на самой высокой запасной камере, проходов — восемь (в ролик пойдут лучшие).
 
 ## 1. Сборка
 ```sh
@@ -22,30 +23,20 @@ rm $G/mods/replayscan-*.jar && cp $S/replayscan/build/libs/replayscan-1.0.0.jar 
 
 ## 2. Моменты и план
 ```sh
-uv run $S/clips/moments.py $W/replayscan/out/$R/replay.duckdb --out $T/clips5 --pov-top 0 \
-  --fpv 'search=25:00/25:40 near=-215,-600,500 shots=1 seconds=9 time=night' \
-  --fpv 'shots=4 seconds=9 time=night' | tee $T/moments5.txt
-uv run $S/clips/plan.py $T/clips5/candidates.json --all fly --replays $W/replayscan/replays
-python3 - <<EOF   # сбитие 23:48.5–23:58.5 глазами игрока, с рукой и панелью предметов (gui)
-import json
-p = "$T/clips5/film/$R/plan.json"
-plan = json.load(open(p))
-for name, player in (("shoot-martin", "MartinFrances"), ("shoot-zentix", "recorder")):
-    plan["shots"].append({"name": name, "a": 28570, "b": 28770, "dim": "minecraft:overworld", "warm": 200, "hold": 20, "far": False,
-                          "cameras": [{"kind": "pov", "player": player, "fov": 70, "gui": True}], "subject": {"size": 4, "keys": []},
-                          "need": {"subject": 0, "near": 0, "keys": 0, "share": 0, "loud": -1}, "why": "shootdown through " + player})
-json.dump(plan, open(p, "w"), ensure_ascii=False, indent=1)
-EOF
-python3 -c "import json; s=json.load(open('$T/clips5/film/$R/plan.json'))['shots']; print([(x['name'], x['a'], x['b'], x.get('time')) for x in s])"
+uv run $S/clips/moments.py $W/replayscan/out/$R/replay.duckdb --out $T/clips6 --pov-top 0 \
+  --fpv 'search=25:14/25:26 near=-320,-405,90 shots=1 seconds=9 time=night' \
+  --fpv 'shots=8 seconds=9 time=night' | tee $T/moments6.txt
+uv run $S/clips/plan.py $T/clips6/candidates.json --all fly --replays $W/replayscan/replays
+python3 -c "import json; s=json.load(open('$T/clips6/film/$R/plan.json'))['shots']; print([(x['name'], x['a'], x['b'], x.get('time')) for x in s])"
 ```
-В `moments5.txt` — строки «FPV …» и «проход N: <с>–<по>: FPV над ударом …» (пять проходов: один у порта в 25:1x и
-четыре самых жарких). У каждого плана `fly-…` в выводе последней команды `time` 18000, у `shoot-martin` и
-`shoot-zentix` — `None`. Проходов меньше — так и снимать, в отчёт — строки «ни одним курсом не в чанках повтора».
+В `moments6.txt` — строки «FPV …» и «проход N: <с>–<по>: FPV мимо удара …» (до девяти проходов: один у порта в
+25:1x и восемь самых жарких). У каждого плана в выводе последней команды `time` 18000. Проходов меньше — так и
+снимать, в отчёт — строки «ни одним курсом и стороной».
 
 ## 3. Съёмка (видеокарта)
 ```sh
-$S/laptop_job.sh tiktok-war5 -- python3 $S/prod_client.py --no-copy --dir $G --incoming-jar $J --jvm=-Xmx12g \
-  --prop replayscan.film=$T/clips5/film/$R/plan.json
+$S/laptop_job.sh tiktok-war6 -- python3 $S/prod_client.py --no-copy --dir $G --incoming-jar $J --jvm=-Xmx12g \
+  --prop replayscan.film=$T/clips6/film/$R/plan.json
 ```
 Успех: в `$G/logs/latest.log` — `Film: done`; перед каждым планом — `Film: <план>: replay played from the start to
 tick …` (строки `replay stopped at tick … on the way` нет); у каждого — `Film: verdict <план> <камера>: PASS` (в
@@ -54,19 +45,19 @@ tick …` (строки `replay stopped at tick … on the way` нет); у ка
 
 ## 4. Видео проходов и выдача
 ```sh
-uv run $S/clips/edit.py $T/clips5/film --out $T/clips5/out --soon
-mkdir -p $T/clips5/passes && python3 - <<EOF
-import json, subprocess
-for name, b in json.load(open("$T/clips5/film/$R/film/best.json")).items():
-    if b.get("pass") and b.get("dir"):
+uv run $S/clips/edit.py $T/clips6/film --out $T/clips6/out --soon
+mkdir -p $T/clips6/passes && python3 - <<EOF
+import json, os, subprocess
+for name, b in json.load(open("$T/clips6/film/$R/film/best.json")).items():
+    # и не прошедшие проверку: ночью низ кадра за чанками бывает не виден — решает монтаж по кадрам
+    if b.get("dir") and os.path.exists(b["dir"] + "/video.mkv"):
+        out = "$T/clips6/passes/" + name + ("" if b.get("pass") else "-FAIL") + ".mp4"
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", b["dir"] + "/video.mkv", "-c:v", "libx264", "-preset", "slow",
-                        "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "$T/clips5/passes/" + name + ".mp4"], check=True)
-        print(name, b.get("candidate"))
+                        "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", out], check=True)
+        print(name, b.get("candidate"), b.get("pass"))
 EOF
-ls -la $T/clips5/passes
+ls -la $T/clips6/passes
 ```
-В файлы проекта: каждый `$T/clips5/passes/*.mp4` (проход ~9 с, сбитие 10 с; больше 20 МиБ — CRF 23),
-`$T/clips5/out/fly-*.mp4` (склейка без музыки), `report.md`, `moments5.txt`. Прислать: `report.md`, строки «проход» из
-`moments5.txt`, строки `Film: verdict`, `replay played from the start`, ошибки (`Exception`, `ERROR`) лога съёмки; по
-кадру из середины каждого прохода (`ffmpeg -ss 4.5 -frames:v 1`), у `shoot-*` — кадры в 2, 4 и 4.5 с (рука с оружием
-и сбитие).
+В файлы проекта: каждый `$T/clips6/passes/*.mp4` (проход ~9 с; больше 20 МиБ — CRF 23), `report.md`, `moments6.txt`.
+Прислать: `report.md`, строки «проход» из `moments6.txt`, строки `Film: verdict`, `replay played from the start`,
+ошибки (`Exception`, `ERROR`) лога съёмки; по кадру из 1, 3, 5 и 7 с каждого прохода (`ffmpeg -ss <с> -frames:v 1`).

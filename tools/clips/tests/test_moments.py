@@ -709,6 +709,12 @@ class HistoryTest(unittest.TestCase):
         self.assertGreaterEqual(len(shots[1].subject["keys"]), 2, "жаркий проход: удары 1650–1670 в кадре\n" + printed.getvalue())
         k0 = cam["keys"][0]
         self.assertAlmostEqual(k0["eye"][1] - 64, r.FPV_HIGH, delta=1, msg="начало — выше, потом пике к удару")
+        blasts = [(t, (-600.0, 64.0, 80.0 + (t - 1650) / 4)) for t in (1250, 1650, 1670, 1690)]
+        for k in cam["keys"]:
+            for t, b in blasts:
+                if k["t"] - 1200 <= t <= k["t"] - 10:
+                    self.assertGreater(math.hypot(k["eye"][0] - b[0], k["eye"][2] - b[2]), r.FPV_SMOKE[0],
+                                       f"глаз в {k['t']} — в столбе дыма удара {t}: мимо удара, не над ним")
         plan = film_plan.film_shot(r.con, "fly-0", shots[1].json())
         self.assertEqual((plan["time"], plan["cameras"][0]["rise"]), (18000, [0, 12, 24]))
         self.assertIn("roll", plan["cameras"][0]["keys"][0])

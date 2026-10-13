@@ -1228,17 +1228,24 @@ class Replay:
                                  [Shot("fly", "fly", a, b, path_cam, {"keys": keys}, why)]))
         return out + self.fpv()
 
-    # Проход FPV: удар — на доле FPV_LEAD прохода, над ним камера — на FPV_PASS (на FPV_LOW блоков выше удара, начало — на
-    # FPV_HIGH); путь — прямая курса с покачиванием вбок на FPV_SWAY блоков; до удара взгляд — на него, после — вперёд, на
-    # FPV_AHEAD° вниз; крен — как у дрона в вираже (тангенс — скорость × угловая скорость курса пути / g), не больше
-    # FPV_ROLL°. Жарко — ударов (любых) не дальше FPV_HEAT блоков от удара за время прохода; курсов — FPV_HEADINGS.
+    # Проход FPV: удар — на доле FPV_LEAD прохода, мимо него камера — на FPV_PASS (на FPV_LOW блоков выше удара и в
+    # FPV_BESIDE блоках сбоку: над самим ударом — его столб дыма, кадр чёрный; начало — на FPV_HIGH); путь — прямая курса с
+    # покачиванием вбок на FPV_SWAY блоков; до удара взгляд — на него, после — вперёд, на FPV_AHEAD° вниз; крен — как у
+    # дрона в вираже (тангенс — скорость × угловая скорость курса пути / g), не больше FPV_ROLL°. Жарко — ударов (любых) не
+    # дальше FPV_HEAT блоков от удара за время прохода; курсов — FPV_HEADINGS, сторон — две. Запасные камеры съёмки — выше
+    # на FPV_RISE: в чанках повтора проход должен быть и на самой высокой (её низ кадра видит дальше), с запасом
+    # FPV_MARGIN чанков к прорисовке записавшего (она — оценка). Столб дыма — как у оценки камер съёмки
+    # (Cameras.smokeOnLine): над ударом по земле FPV_SMOKE[1] блоков, FPV_SMOKE[2] тиков; глаз ближе FPV_SMOKE[0] блоков к
+    # нему — в дыму; таких ключей у прохода — не больше FPV_SMOKY.
     FPV_LEAD, FPV_PASS = 0.3, 0.62
-    FPV_HIGH, FPV_LOW, FPV_SWAY, FPV_AHEAD, FPV_ROLL = 60.0, 22.0, 12.0, 10.0, 30.0
+    FPV_HIGH, FPV_LOW, FPV_BESIDE, FPV_SWAY, FPV_AHEAD, FPV_ROLL = 60.0, 22.0, 30.0, 12.0, 10.0, 30.0
     FPV_HEAT, FPV_HEADINGS, FPV_KEY = 200.0, 12, 4
+    FPV_RISE, FPV_MARGIN = (0, 12, 24), 2
+    FPV_SMOKE, FPV_SMOKY = (14.0, 55.0, 1200), 2
 
     @classmethod
     def fpv_pose(cls, hit, head: float, side: int, a: int, d: int, speed: float):
-        """Проход над ударом hit (x, y, z) курсом head: t → (глаз, точка взгляда, крен)."""
+        """Проход мимо удара hit (x, y, z) курсом head, сбоку side (±1): t → (глаз, точка взгляда, крен)."""
         fwd = direction(head, 0)
         norm = (-fwd[2], 0.0, fwd[0])
         span = speed * d
@@ -1249,7 +1256,7 @@ class Replay:
 
         def place(s: float):
             along = (s - cls.FPV_PASS) * span
-            sway = side * cls.FPV_SWAY * math.sin(2 * math.pi * 0.8 * (s - cls.FPV_PASS))
+            sway = side * (cls.FPV_BESIDE + cls.FPV_SWAY * math.sin(2 * math.pi * 0.8 * (s - cls.FPV_PASS)))
             up = cls.FPV_LOW + (cls.FPV_HIGH - cls.FPV_LOW) * (1 - smooth(s / cls.FPV_PASS)) if s <= cls.FPV_PASS \
                 else cls.FPV_LOW + 8 * smooth((s - cls.FPV_PASS) / (1 - cls.FPV_PASS))
             return (hit[0] + fwd[0] * along + norm[0] * sway, hit[1] + up, hit[2] + fwd[2] * along + norm[2] * sway)
@@ -1288,9 +1295,18 @@ class Replay:
             tan_y = math.tan(math.radians(f["fov"] / 2))
             tan_x = tan_y * self.aspect
             radius, source = self.view_radius()
-            seen = self.seen_chunks(f["dim"], radius)
+            seen = self.seen_chunks(f["dim"], max(2, radius - self.FPV_MARGIN))
             hits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? ORDER BY t", [f["dim"]]).fetchall()
             ts = [h[1] for h in hits]
+            smoke_r, smoke_h, smoke_t = self.FPV_SMOKE
+
+            def smoky(eye, t: int) -> bool:
+                """Глаз в столбе дыма удара по земле (Cameras.smokeOnLine)."""
+                for i in range(bisect.bisect_left(ts, t - smoke_t), bisect.bisect_right(ts, t - 10)):
+                    o = hits[i]
+                    if o[5] == "ground" and o[3] - 2 <= eye[1] <= o[3] + smoke_h and math.hypot(eye[0] - o[2], eye[2] - o[4]) <= smoke_r:
+                        return True
+                return False
             near = f["near"]
             ground = [h for h in hits if h[5] == "ground" and s0 + lead <= h[1] <= s1 - (d - lead)
                       and (near is None or math.hypot(h[2] - near[0], h[4] - near[1]) <= near[2])]
@@ -1306,33 +1322,42 @@ class Replay:
                 a = h[1] - lead
                 if any(abs(a - c[1]) < d for c in chosen) or any(x < a + d and a < y for x, y in taken):
                     continue
-                side = 1 if len(chosen) % 2 == 0 else -1
-                best = None
+                prefer = 1 if len(chosen) % 2 == 0 else -1
+                best, lost, smoked = None, 0, 0
                 for j in range(self.FPV_HEADINGS):
-                    head = 360.0 * j / self.FPV_HEADINGS
-                    pose = self.fpv_pose(h[2:5], head, side, a, d, f["speed"])
-                    ok = True
-                    for t in range(a, a + d + 1, TICK):
-                        eye, aim, roll = pose(t)
-                        yaw, pitch, _ = bearing(eye, aim)
-                        if not all(self.seen_at(seen, q, t) for q in (eye, *ground_points(eye, yaw, pitch, tan_x, tan_y, h[3], self.FLY_NEAR, roll))):
-                            ok = False
-                            break
-                    if not ok:
-                        continue
-                    framed = []
-                    for o in around(h, a):
-                        eye, aim, roll = pose(o[1])
-                        yaw, pitch, _ = bearing(eye, aim)
-                        if in_view(eye, yaw, pitch, tan_x, tan_y, o[2:5], roll=roll):
-                            framed.append(o)
-                    score = (len(framed), sum(o[5] == "ground" for o in framed), -j)
-                    if best is None or score > best[0]:
-                        best = (score, head, pose, framed)
+                    for side in (prefer, -prefer):
+                        head = 360.0 * j / self.FPV_HEADINGS
+                        pose = self.fpv_pose(h[2:5], head, side, a, d, f["speed"])
+                        ok = True
+                        for t in range(a, a + d + 1, TICK):
+                            eye, aim, roll = pose(t)
+                            yaw, pitch, _ = bearing(eye, aim)
+                            high = (eye[0], eye[1] + max(self.FPV_RISE), eye[2])
+                            if not all(self.seen_at(seen, q, t) for q in (eye, high, *ground_points(high, yaw, pitch, tan_x, tan_y, h[3], self.FLY_NEAR, roll))):
+                                ok = False
+                                break
+                        if not ok:
+                            lost += 1
+                            continue
+                        smoke = sum(smoky(pose(t)[0], t) for t in range(a, a + d + 1, self.FPV_KEY))
+                        if smoke > self.FPV_SMOKY:
+                            smoked += 1
+                            continue
+                        framed = []
+                        for o in around(h, a):
+                            eye, aim, roll = pose(o[1])
+                            yaw, pitch, _ = bearing(eye, aim)
+                            if in_view(eye, yaw, pitch, tan_x, tan_y, o[2:5], roll=roll):
+                                framed.append(o)
+                        score = (len(framed), sum(o[5] == "ground" for o in framed), -smoke, side == prefer, -j)
+                        if best is None or score > best[0]:
+                            best = (score, head, side, pose, framed)
                 if best:
-                    chosen.append((h, a, side, *best))
+                    score, head, side, pose, framed = best
+                    chosen.append((h, a, side, score, head, pose, framed))
                 else:
-                    print(f"{self.name}: FPV у удара {mmss(h[1])} ({fmt(h[2:5])}): ни одним курсом не в чанках повтора")
+                    print(f"{self.name}: FPV у удара {mmss(h[1])} ({fmt(h[2:5])}): ни одним курсом и стороной — не в чанках повтора "
+                          f"{lost}, в дыму {smoked}")
             if not chosen:
                 print(f"{self.name}: FPV {f['spec']!r}: ударов по земле в чанках повтора нет — не берётся")
                 continue
@@ -1344,14 +1369,15 @@ class Replay:
                 for t in list(range(a, a + d, self.FPV_KEY)) + [a + d]:
                     eye, aim, roll = pose(t)
                     keys.append({"t": t, "eye": [round(v, 2) for v in eye], "aim": [round(v, 2) for v in aim], "roll": round(roll, 1)})
-                cam = {"kind": "path", "fov": f["fov"], "dim": f["dim"], "rise": [0, 12, 24], "keys": keys,
+                cam = {"kind": "path", "fov": f["fov"], "dim": f["dim"], "rise": list(self.FPV_RISE), "keys": keys,
                        **({"time": f["time"]} if f.get("time") is not None else {})}
                 subject = {"keys": [{"t": o[1], "pos": list(o[2:5]), "size": BLAST.get(weapon.get(o[0], ""), 16), "id": o[0]} for o in framed]}
                 what = sorted({weapon.get(o[0], "?") for o in framed})
                 weapons |= {w for w in what if w != "?"}
                 n_framed += len(framed)
                 n_ground += score[1]
-                why = (f"FPV над ударом {mmss(h[1])} {weapon.get(h[0], '?')} в {fmt(h[2:5])}: курс {head:.0f}°, рядом ударов "
+                why = (f"FPV мимо удара {mmss(h[1])} {weapon.get(h[0], '?')} в {fmt(h[2:5])}: курс {head:.0f}°, "
+                       f"{'справа' if side > 0 else 'слева'}, в дыму {-score[2]} ключей, рядом ударов "
                        f"{heat[h[0]]}, в кадре {len(framed)} (по земле {score[1]}: {', '.join(what)})")
                 print(f"  проход {i + 1}: {mmss(a)}–{mmss(a + d)}: {why}")
                 shots.append(Shot(f"fpv{i + 1}", "fly", a, a + d, cam, subject, why))
