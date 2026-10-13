@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import math
@@ -262,6 +263,17 @@ def aim_flight(eye, rel: list[tuple], look: float, turn: float, tan_x: float, ta
     return look + best, pitch
 
 
+def low_point(eye, yaw: float, pitch: float, half_y: float, ground: float):
+    """Где низ кадра (середина нижнего края) встречает землю на высоте ground; низ кадра выше горизонта — сам глаз."""
+    down = pitch + half_y
+    h = eye[1] - ground
+    if down <= 0 or h <= 0:
+        return eye
+    d = h / math.tan(math.radians(min(89.0, down)))
+    y = math.radians(yaw)
+    return eye[0] - math.sin(y) * d, ground, eye[2] + math.cos(y) * d
+
+
 def fmt(p) -> str:
     return "(" + ", ".join(f"{v:.0f}" for v in p) + ")"
 
@@ -272,8 +284,10 @@ LOOK = {"south": 0.0, "west": 90.0, "north": 180.0, "east": -90.0}
 
 def fly_spec(spec: str) -> dict:
     """`--fly`: `at=<с>/<по> from=x,y,z to=x,y,z [to_at=<время>] [focus=<с>/<по>] [look=south|<курс>] [turn=25]
-    [fov=70] [dim=minecraft:overworld]` — время по шкале Flashback; камера проходит `to` в `to_at` (по умолчанию — в
-    конце) и летит дальше той же прямой; удары в окне `focus` — в кадре прежде остальных."""
+    [fov=70] [dim=minecraft:overworld] [reach=<блоков>] [ground=63]` — время по шкале Flashback; камера проходит `to` в
+    `to_at` (по умолчанию — в конце) и летит дальше той же прямой; удары в окне `focus` — в кадре прежде остальных;
+    `reach` — сколько блоков от записавшего у повтора есть чанки (по умолчанию 128),
+    `ground` — высота земли или воды под пролётом."""
     try:
         kv = dict(part.split("=", 1) for part in spec.split())
         first, _, last = kv.pop("at").partition("/")
@@ -285,7 +299,8 @@ def fly_spec(spec: str) -> dict:
         out = {"a": round(a), "b": round(b), "from": pts[0], "to": pts[1], "to_at": round(to_at),
                "focus": (round(focus[0]), round(focus[-1])) if focus else None,
                "look": LOOK[look] if look in LOOK else float(look), "turn": float(kv.pop("turn", 25)),
-               "fov": float(kv.pop("fov", 70)), "dim": kv.pop("dim", "minecraft:overworld"), "spec": spec}
+               "fov": float(kv.pop("fov", 70)), "dim": kv.pop("dim", "minecraft:overworld"),
+               "reach": float(kv.pop("reach")) if "reach" in kv else None, "ground": float(kv.pop("ground", 63)), "spec": spec}
     except (KeyError, ValueError, TypeError) as e:
         raise argparse.ArgumentTypeError(f"--fly {spec!r}: {e!r} (README.md)") from e
     if kv or len(out["from"]) != 3 or len(out["to"]) != 3 or not out["a"] < out["b"] or out["to_at"] <= out["a"]:
@@ -663,6 +678,18 @@ class Replay:
                          {"strikes": [c.numbers for c in pick]}, shots)
         return [reel] + single
 
+    def fireball(self, t: int) -> float | None:
+        """Наибольший радиус огненного шара подрыва в тик t, блоков (FireballModel.maxRadius: 0.07·Y^0.4 км воздушный,
+        0.088·Y^0.4 км наземный, × масштаб эффектов) — по пакету подрыва; без мощности в нём — None."""
+        r = self.con.execute("SELECT data FROM events WHERE src LIKE '%:nuke_detonation' AND t BETWEEN ? AND ? AND data IS NOT NULL "
+                             "ORDER BY abs(t - ?) LIMIT 1", [t - 5, t + 5, t]).fetchone()
+        num = lambda key: re.search(rf'"{key}"\s*:\s*(-?[\d.eE+-]+)', r[0]) if r else None  # noqa: E731
+        y, scale = num("yieldKt"), num("scale")
+        if not y:
+            return None
+        surface = bool(r and re.search(r'"surface"\s*:\s*true', r[0]))
+        return (88 if surface else 70) * float(y[1]) ** 0.4 * (float(scale[1]) if scale else 1.0)
+
     def nuke(self) -> list[Candidate]:
         """5 — ядерный удар: подрыв, пуск МБР, если он в мире клиента, и игроки, которые смотрели."""
         out = []
@@ -686,18 +713,28 @@ class Replay:
             if seen:
                 shots.append(Shot("burst-pov", "nuke", t - 40, t + 200, {"kind": "pov", "viewer": seen[0][0]}, {"keys": keys},
                                   f"глазами {seen[0][0]}: подрыв в {seen[0][1]:.0f} блоках"))
-            # свободная камера: объектив с места игрока (шар — 35 % ширины кадра), иначе штатив у подрыва
+            # свободная камера: объектив с места игрока, иначе штатив у подрыва
             cam = {"kind": "auto", "rig": "tripod", "dist": [400, 700, 1000], "elev": [4, 10], "share": 0.35}
             if eye:
                 # на 2 блока к подрыву: в глазу камера была бы внутри головы игрока (его модель в выводе видна)
                 flat = math.hypot(x - eye[0], z - eye[2]) or 1.0
                 at = (eye[0] + 2 * (x - eye[0]) / flat, eye[1], eye[2] + 2 * (z - eye[2]) / flat)
                 d = max(50.0, dist(at, (x, y, z)))
-                fov = math.degrees(2 * math.atan(BLAST["icbm"] / (2 * d * 0.35) / self.aspect))
+                r = self.fireball(t)
+                if r:
+                    # шар по мощности подрыва: в кадре (на 80 % его) — от земли под ним до двух радиусов над ним и 2.6
+                    # радиуса в ширину; взгляд — в середину
+                    tan = max(1.5 * r / (d * 0.8), 1.3 * r / (d * 0.8 * self.aspect))
+                    fov, lift = math.degrees(2 * math.atan(tan)), 0.5 * r
+                else:
+                    # мощность неизвестна: шар — 35 % ширины кадра
+                    fov, lift = math.degrees(2 * math.atan(BLAST["icbm"] / (2 * d * 0.35) / self.aspect)), 0.25 * BLAST["icbm"]
                 # взгляд — в точку над подрывом, не за объектом: ключ подрыва к t+60 опускал бы кадр, пока гриб растёт
                 # и над землёй под ним: игрок бывает в доме или метро, а сверху — горизонт
-                cam["lens"] = {"eye": [round(v, 2) for v in at], "aim": [x, y + 0.25 * BLAST["icbm"], z],
-                               "fov": round(max(12.0, min(70.0, fov)), 1), "rise": [0, 32, 96]}
+                cam["lens"] = {"eye": [round(v, 2) for v in at], "aim": [x, round(y + lift, 2), z],
+                               "fov": round(max(12.0, min(80.0, fov)), 1), "rise": [0, 32, 96]}
+                print(f"{self.name}: ядерный подрыв {mmss(t)}: шар до {f'{r:.0f} блоков' if r else '? (мощности в пакете нет)'}, "
+                      f"объектив {cam['lens']['fov']:g}° с места игрока в {d:.0f} блоках")
             shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500), cam, {"keys": keys},
                               "свободная камера: вспышка, волна, гриб"))
             score = 3 + bool(up) + bool(seen) + 0.5 * len(views)
@@ -861,11 +898,22 @@ class Replay:
                           "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1),
                           **({"nuke_off": off[0]} if off else {}), **({"mark": mark} if mark else {})}, [shot])
 
+    # Пролёт уходит из чанков записавшего: скорость пути (доля заданной) и сдвиг (блоков, шаг) — первые, при которых он в них
+    FLY_SPEEDS = (1.0, 0.8, 0.65, 0.5, 0.4, 0.3)
+    # Чанки повтора вокруг записавшего, блоков (без reach): его дальности прорисовки в разборе нет (пакет входа — только
+    # в снимке начала куска, в ленту не идёт); 8 чанков — с запасом для обычной дальности сервера, меньше — ловит
+    # проверка кадров (low_out)
+    FLY_REACH = 128.0
+    FLY_SHIFT, FLY_STEP = 640, 16
+
     def fly(self) -> list[Candidate]:
         """7 — пролёт свободной камеры (`--fly`, время по шкале Flashback): глаз — по прямой из `from` через `to` (в
         `to_at`) и дальше; взгляд — постоянный (`aim_flight`): в сторону `look`, повёрнутый не дальше `turn` туда, где в
-        кадре больше ударов окна `focus`, потом ударов по земле, потом всех; наклон — к ним. Удары в кадре — события
-        плана, снаряды в кадре — в числах; кадр — в его тики, как у вывода."""
+        кадре больше ударов окна `focus`, потом ударов по земле, потом всех; наклон — к ним. Чанки повтора — только
+        вокруг записавшего: глаз и низ кадра дальше `reach` от него — под камерой рельеф Distant Horizons (у моря — дно и
+        пещеры без воды) или пусто; тогда путь медленнее (вокруг середины окна `focus`) и сдвинут — первые скорость и
+        сдвиг, при которых он в чанках, а ударов `focus` в кадре не меньше. Удары в кадре — события плана, снаряды в
+        кадре — в числах; кадр — в его тики, как у вывода."""
         out = []
         weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
         for k, f in enumerate(self.fly_specs):
@@ -875,18 +923,77 @@ class Replay:
                 continue
             b = min(b, total)
             p0, p1, span = f["from"], f["to"], f["to_at"] - f["a"]
-            eye = lambda t: tuple(p0[i] + (p1[i] - p0[i]) * (t - f["a"]) / span for i in range(3))  # noqa: E731
+            vel = [(p1[i] - p0[i]) / span for i in range(3)]
+            mid = (f["focus"][0] + f["focus"][1]) / 2 if f.get("focus") else (a + b) / 2
+            centre = [p0[i] + vel[i] * (mid - a) for i in range(3)]
             tan_y = math.tan(math.radians(f["fov"] / 2))
             tan_x = tan_y * self.aspect
             hits = self.con.execute("SELECT id, t, x, y, z, place FROM impact_kinds WHERE dim = ? AND t BETWEEN ? AND ? ORDER BY t",
                                     [f["dim"], a, b]).fetchall()
-            rel = [(hid, t, (x, y, z), place, *bearing(eye(t), (x, y, z))) for hid, t, x, y, z, place in hits]
-            yaw, pitch = aim_flight(eye, rel, f["look"], f["turn"], tan_x, tan_y, f.get("focus"))
+            in_focus = lambda r: bool(f.get("focus")) and f["focus"][0] <= r[1] <= f["focus"][1]  # noqa: E731
+
+            def path(speed: float, shift: tuple[float, float]):
+                return lambda t: (centre[0] + vel[0] * speed * (t - mid) + shift[0], centre[1] + vel[1] * speed * (t - mid),
+                                  centre[2] + vel[2] * speed * (t - mid) + shift[1])
+
+            def aimed(eye):
+                rel = [(hid, t, (x, y, z), place, *bearing(eye(t), (x, y, z))) for hid, t, x, y, z, place in hits]
+                yaw, pitch = aim_flight(eye, rel, f["look"], f["turn"], tan_x, tan_y, f.get("focus"))
+                return rel, yaw, pitch, sum(in_focus(r) and in_view(eye(r[1]), yaw, pitch, tan_x, tan_y, r[2]) for r in rel)
+
+            # где записавший (у повтора чанки только вокруг него): на сколько глаз и низ кадра дальше reach от него
+            track = self.con.execute("SELECT t, x, z FROM viewers WHERE viewer = 'recorder' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+                                     [f["dim"], a - 40, b + 40]).fetchall()
+            reach = f.get("reach") or self.FLY_REACH
+            times = [r[0] for r in track]
+            checks = list(range(a, b + 1, 20))
+            near = [track[min(range(max(0, i - 1), min(len(track), i + 1)), key=lambda j: abs(track[j][0] - t))]
+                    for t, i in ((t, bisect.bisect_left(times, t)) for t in checks)] if track else []
+
+            def beyond(eye, yaw: float, pitch: float) -> float:
+                worst = -math.inf
+                for t, (_, rx, rz) in zip(checks, near):
+                    e = eye(t)
+                    lo = low_point(e, yaw, pitch, f["fov"] / 2, f["ground"])
+                    worst = max(worst, math.hypot(e[0] - rx, e[2] - rz), math.hypot(lo[0] - rx, lo[2] - rz))
+                return worst - reach
+
+            speed, shift = 1.0, (0.0, 0.0)
+            eye = path(speed, shift)
+            rel, yaw, pitch, framed_focus = aimed(eye)
+            over = beyond(eye, yaw, pitch) if near else -math.inf
+            if over > 0:
+                grid = sorted(((x, z) for x in range(-self.FLY_SHIFT, self.FLY_SHIFT + 1, self.FLY_STEP)
+                               for z in range(-self.FLY_SHIFT, self.FLY_SHIFT + 1, self.FLY_STEP)), key=lambda o: math.hypot(*o))
+                best = None
+                for v in self.FLY_SPEEDS:
+                    tried = 0
+                    for o in grid:
+                        e = path(v, o)
+                        if beyond(e, yaw, pitch) > 0:
+                            continue
+                        r2, y2, p2, n2 = aimed(e)
+                        tried += 1
+                        if beyond(e, y2, p2) <= 0 and n2 >= framed_focus:
+                            best = (v, o, e, r2, y2, p2, n2)
+                            break
+                        if tried >= 40:
+                            break
+                    if best:
+                        break
+                if best:
+                    speed, shift, eye, rel, yaw, pitch, framed_focus = best
+                    print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)} уходил из чанков записавшего на {over:.0f} блоков (их у повтора — "
+                          f"до {reach:.0f} блоков от него): скорость ×{speed:g}, сдвиг ({shift[0]:+.0f}, {shift[1]:+.0f})")
+                else:
+                    print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)} уходит из чанков записавшего на {over:.0f} блоков (их у повтора — "
+                          f"до {reach:.0f} блоков от него), и ни медленнее, ни сдвигом до {self.FLY_SHIFT} блоков в них не встаёт: "
+                          f"низ кадра — рельеф Distant Horizons")
 
             def framed(yaw: float, t: float, pos) -> bool:
                 return in_view(eye(t), yaw, pitch, tan_x, tan_y, pos)
 
-            focus = [r for r in rel if f.get("focus") and f["focus"][0] <= r[1] <= f["focus"][1]]
+            focus = [r for r in rel if in_focus(r)]
             shown = [r for r in rel if framed(yaw, r[1], r[2])]
             keys = [{"t": t, "pos": list(pos), "size": BLAST.get(weapon.get(hid, ""), 16), "id": hid} for hid, t, pos, *_ in shown]
             # снаряды в кадре: пути сущностей и дальние строки, раз в 10 тиков
@@ -899,24 +1006,29 @@ class Replay:
             flown = {u for u, t, x, y, z in rows if u in self.by_uuid and framed(yaw, t, (x, y, z))}
             weapons = sorted({self.by_uuid[u].weapon for u in flown} | {weapon[r[0]] for r in shown if r[0] in weapon})
             look = direction(yaw, pitch)
-            path = {"kind": "path", "fov": f["fov"], "dim": f["dim"],
-                    "keys": [{"t": t, "eye": [round(v, 2) for v in eye(t)], "aim": [round(eye(t)[i] + 100 * look[i], 2) for i in range(3)]}
-                             for t in (a, b)]}
+            path_cam = {"kind": "path", "fov": f["fov"], "dim": f["dim"],
+                        "keys": [{"t": t, "eye": [round(v, 2) for v in eye(t)], "aim": [round(eye(t)[i] + 100 * look[i], 2) for i in range(3)]}
+                                 for t in (a, b)]}
             ground = sum(r[3] == "ground" for r in shown)
             why = (f"свободная камера: {fmt(eye(a))} → {fmt(eye(b))}, курс {yaw:.0f}°, наклон {pitch:.0f}°; ударов в кадре {len(shown)} "
                    f"из {len(rel)} (по земле {ground}" + (f"; {mmss(f['focus'][0])}–{mmss(f['focus'][1])}: "
                    f"{sum(r in shown for r in focus)} из {len(focus)}" if f.get("focus") else "") + f"), снарядов в кадре {len(flown)}")
             print(f"{self.name}: пролёт {mmss(a)}–{mmss(b)}: {why}")
+            if track:
+                print(f"  записавший: {fmt((track[0][1], track[0][2]))} → {fmt((track[-1][1], track[-1][2]))}; глаз и низ кадра — "
+                      f"не дальше {beyond(eye, yaw, pitch) + reach:.0f} блоков от него (чанки повтора — до {reach:.0f})")
             for hid, t, pos, place, hyaw, _, d in rel:
                 print(f"  удар {mmss(t)} {place:<9} {weapon.get(hid, '?'):<8} {d:6.0f} блоков, курс на него {hyaw:5.0f}°,"
                       f" {'в кадре' if any(r[0] == hid for r in shown) else 'вне кадра'}")
-            if f.get("focus") and not any(r in shown for r in focus):
+            if f.get("focus") and not focus:
+                print(f"  в окне {mmss(f['focus'][0])}–{mmss(f['focus'][1])} ударов нет")
+            elif f.get("focus") and not any(r in shown for r in focus):
                 print(f"  в окне {mmss(f['focus'][0])}–{mmss(f['focus'][1])} ни одного удара в кадре — нужен другой look или turn")
             out.append(Candidate("fly", self.name, str(self.db), 1000 - k, a, "+".join(weapons) or "fly",
                                  f"пролёт {mmss(a)}–{mmss(b)}: {why}",
                                  {"seconds": round((b - a) / TICK, 1), "ground": ground, "impacts": len(shown), "flights": len(flown),
-                                  "yaw": round(yaw, 1), "pitch": round(pitch, 1), "mark": f["spec"]},
-                                 [Shot("fly", "fly", a, b, path, {"keys": keys}, why)]))
+                                  "yaw": round(yaw, 1), "pitch": round(pitch, 1), "speed": speed, "shift": list(shift), "mark": f["spec"]},
+                                 [Shot("fly", "fly", a, b, path_cam, {"keys": keys}, why)]))
         return out
 
 

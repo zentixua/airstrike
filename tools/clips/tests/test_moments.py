@@ -405,6 +405,28 @@ class SelectTest(unittest.TestCase):
         self.assertGreater(c[0].numbers["flights"], 0, "шахеды хаоса в кадре")
         self.assertEqual(c[0].weapon, "shahed")
 
+    def test_fly_stays_in_recorder_chunks(self):
+        """Чанки повтора — только вокруг записавшего: путь, у которого глаз или низ кадра дальше reach, сдвигается (и
+        медленнее), пока весь не встанет в них."""
+        spec = clips.fly_spec("at=00:55/01:10 from=0,100,0 to=-50,100,0 to_at=01:02.5 reach=60")
+        r = self.r
+        r.fly_specs = [spec]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                c = r.fly()
+        finally:
+            r.fly_specs = []
+        n = c[0].numbers
+        self.assertTrue(n["shift"] != [0.0, 0.0] or n["speed"] < 1, n)
+        self.assertIn("уходил из чанков записавшего", printed.getvalue())
+        keys = c[0].shots[0].camera["keys"]
+        half = spec["fov"] / 2
+        for k in range(0, 301, 20):
+            e = [keys[0]["eye"][i] + (keys[1]["eye"][i] - keys[0]["eye"][i]) * k / 300 for i in range(3)]
+            low = clips.low_point(e, n["yaw"], n["pitch"], half, 63)
+            for q in (e, low):
+                self.assertLessEqual(math.hypot(q[0] - EYE[0], q[2] - EYE[2]), 60.5, f"{k}: {q}")
+
     def test_far(self):
         c = self.r.far()
         far = [x for x in c if x.numbers["dist"] > 700]
@@ -428,6 +450,19 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(lens["aim"], [0.5, 64.0 + 30, 1200.0], "взгляд — над подрывом, неподвижно")
         self.assertAlmostEqual(lens["fov"], 28.6, delta=0.1)
         self.assertLessEqual(sum(x.b - x.a for x in c[0].shots), 35 * clips.TICK, "ролик не длиннее 35 с")
+
+    def test_nuke_lens_by_yield(self):
+        """Мощность подрыва в пакете: объектив — по радиусу шара (20 кт в воздухе — 232 блока), шар с подъёмом в кадре."""
+        self.r.con.execute("UPDATE events SET data = '{\"detonation\": {\"yieldKt\": 20.0, \"surface\": false, \"scale\": 1.0}}' "
+                           "WHERE src = 'airstrike:nuke_detonation'")
+        try:
+            lens = self.r.nuke()[0].shots[-1].camera["lens"]
+        finally:
+            self.r.con.execute("UPDATE events SET data = '{\"kind\": 0}' WHERE src = 'airstrike:nuke_detonation'")
+        r = 70 * 20 ** 0.4
+        d = math.dist((EYE[0], EYE[1], EYE[2] + 2), (0.5, 64.0, 1200.0))
+        self.assertAlmostEqual(lens["fov"], round(math.degrees(2 * math.atan(1.3 * r / (d * 0.8 * 9 / 16))), 1), delta=0.05)
+        self.assertAlmostEqual(lens["aim"][1], 64.0 + r / 2, delta=0.01)
 
     def test_far_reel(self):
         def one(t, score):
