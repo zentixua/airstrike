@@ -123,8 +123,8 @@ public final class Film {
             Plan plan = Plan.read(file);
             Files.createDirectories(plan.out());
             new Film(plan, modBus);
-        } catch (IOException | RuntimeException e) {
-            LOG.error("Film: cannot read plan {}", file, e);
+        } catch (IOException | RuntimeException | LinkageError e) {
+            LOG.error("Film: cannot start with plan {}", file, e);
             exitWhenLoaded();
         }
     }

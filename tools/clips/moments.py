@@ -236,23 +236,23 @@ def key(f: Flight) -> dict:
 LEAST = 20
 
 
+# род слитого плана — важнейшего из слитых
+RANK = {"launch": 0, "flight": 1, "impact": 2, "shootdown": 3}
+
+
 def distinct(shots: list[Shot]) -> list[Shot]:
-    """Одни глаза дважды подряд не показываются: пролёт, перекрытый сбитием глазами того же игрока, не берётся (сбитие
-    и так показывает дрон до него); удар глазами того же игрока начинается с конца прошлого плана, если до удара
-    остаётся не меньше секунды, иначе он — событие прошлого плана, продлённого до конца удара."""
+    """Одни глаза подряд — один план: план глазами того же игрока, что начинается раньше конца прошлого, сливается с ним
+    (имя — имена слитых через «+», род, камера и объект — важнейшего: сбитие, удар, пролёт, пуск; события — все), так
+    одни и те же секунды не показываются дважды."""
     out: list[Shot] = []
     for s in shots:
         p = out[-1] if out else None
         if p and p.camera.get("kind") == "pov" and p.camera == s.camera and s.a < p.b:
-            if p.kind == "flight" and s.kind == "shootdown":
-                out[-1] = s
-                continue
-            if s.kind == "impact" and s.subject["keys"][0]["t"] - p.b >= TICK:
-                s.a = p.b
-            elif s.kind == "impact" and p.kind in ("shootdown", "impact"):
-                p.b = max(p.b, s.b)
-                p.subject = {**p.subject, "keys": p.subject.get("keys", []) + s.subject["keys"]}
-                continue
+            top = s if RANK.get(s.kind, 0) >= RANK.get(p.kind, 0) else p
+            keys = (p.subject.get("keys") or []) + (s.subject.get("keys") or [])
+            out[-1] = Shot(f"{p.name}+{s.name}", top.kind, min(p.a, s.a), max(p.b, s.b), top.camera, {**top.subject, "keys": keys},
+                           "; ".join(x for x in (p.why, s.why) if x))
+            continue
         out.append(s)
     return out
 
@@ -431,7 +431,7 @@ class Replay:
             shots = distinct(shots)
             fill(shots)
             star = bool(downs) and downs[0][3][0] in self.star
-            row = row if any(s.kind == "flight" for s in shots) else None
+            row = row if any("flyby" in s.name.split("+") for s in shots) else None
             score = (min(len(hits), 6) / 6 * 2 + (min(row[4], 80) / 80 * 2 + (60 - min(row[3], 60)) / 60 if row else 0)
                      + (shots[-1].camera["kind"] == "pov") + 0.5 * bool(up) + 2 * bool(downs) + 4 * star)
             t = row[2] if row else downs[0][1]

@@ -147,9 +147,12 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     ru = " и ".join(WEAPON.get(x, (x, x))[1] for x in w)
     n = cand["numbers"]
     if preview == "rockets":
+        hit = n.get("ground", 1) != 0
         if n.get("no_launch"):
-            return (f"{cap(en)}: flight and impacts on the ground.", f"{cap(ru)}: полёт и удары по земле.")
-        return (f"{cap(en)}: launch, flight and impacts on the ground.", f"{cap(ru)}: пуск, полёт и удары по земле.")
+            return ((f"{cap(en)}: flight and impacts on the ground.", f"{cap(ru)}: полёт и удары по земле.") if hit
+                    else (f"{cap(en)} in flight.", f"{cap(ru)} в полёте."))
+        return ((f"{cap(en)}: launch, flight and impacts on the ground.", f"{cap(ru)}: пуск, полёт и удары по земле.") if hit
+                else (f"{cap(en)}: launch and flight.", f"{cap(ru)}: пуск и полёт."))
     if preview == "drones":
         if n.get("shot_down") and n.get("ground"):
             return (f"{cap(en)} over the players: one is shot down, the rest hit the streets nearby.",
@@ -157,8 +160,10 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
         if n.get("shot_down"):
             return (f"{cap(en)} over the players: one is shot down in front of them.",
                     f"{cap(ru)} над игроками: один сбивают у них на глазах.")
-        return (f"{cap(en)} fly over the players and hit the streets nearby.",
-                f"{cap(ru)} пролетают над игроками и бьют по соседним улицам.")
+        if n.get("ground"):
+            return (f"{cap(en)} fly over the players and hit the streets nearby.",
+                    f"{cap(ru)} пролетают над игроками и бьют по соседним улицам.")
+        return (f"{cap(en)} fly low over the players.", f"{cap(ru)} пролетают низко над игроками.")
     if preview == "chaos":
         k, sec = n.get("ground") or n.get("ground_in_frame"), n.get("seconds", 20)
         return (f"{k} ground strikes in {sec} seconds, one camera.", f"Ударов по земле за {sec} секунд: {k}. Одна камера.")
@@ -180,14 +185,13 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
 
 
 def shown(cand: dict, kept: list[dict]) -> dict:
-    """Числа кандидата для подписи — только о планах, которые вошли в ролик (удар глазами сбившего бывает событием
-    плана сбития)."""
+    """Числа кандидата для подписи — только о планах, которые вошли в ролик (план глазами одного игрока бывает слит из
+    нескольких: `drones-0-flyby+shootdown`)."""
     n = dict(cand.get("numbers", {}))
-    has = lambda part: any(s["name"].endswith(f"-{part}") for s in kept)  # noqa: E731
+    has = lambda part: any(part in s["name"].rsplit("-", 1)[-1].split("+") for s in kept)  # noqa: E731
     if not has("shootdown"):
         n["shot_down"] = 0
-    hit = has("impact") or any(s["name"].endswith("-shootdown") and len(s.get("subject", {}).get("keys", [])) > 1 for s in kept)
-    if cand.get("preview", "") == "drones" and not hit:
+    if cand.get("preview", "") in ("drones", "rockets") and not has("impact"):
         n["ground"] = 0
     if not has("launch"):
         n["no_launch"] = True

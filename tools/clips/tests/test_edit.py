@@ -100,7 +100,10 @@ class EditTest(unittest.TestCase):
         report = self.run_edit(root)
         self.assertIn("в ролик не вошли планы без проверки кадров: 1", report)
         self.assertAlmostEqual(edit.duration(root / "previews" / "rockets-0.mp4"), 3, delta=0.2, msg="только прошедший план")
-        self.assertIn("flight and impacts", (root / "previews" / "rockets-0.txt").read_text(), "подпись — без пуска, которого нет")
+        text = (root / "previews" / "rockets-0.txt").read_text()
+        self.assertIn("flight and impacts", text)
+        self.assertNotIn("launch", text, "подпись — без пуска, которого нет")
+        self.assertNotIn("пуск", text)
 
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
@@ -129,10 +132,14 @@ class EditTest(unittest.TestCase):
         self.assertEqual(en, "Shahed drones over the players: one is shot down, the rest hit the streets nearby.")
         self.assertEqual(ru, "Шахеды над игроками: один сбивают, остальные бьют по соседним улицам.")
         cand = {"preview": "drones", "weapon": "shahed", "numbers": {"shot_down": 1, "ground": 3}}
-        merged = edit.shown(cand, [{"name": "drones-0-shootdown", "subject": {"keys": [{"t": 1}, {"t": 2}]}}])
-        self.assertEqual(merged["numbers"]["ground"], 3, "удар — событие плана сбития")
-        alone = edit.shown(cand, [{"name": "drones-0-shootdown", "subject": {"keys": [{"t": 1}]}}])
+        merged = edit.shown(cand, [{"name": "drones-0-shootdown+impact"}])
+        self.assertEqual(merged["numbers"]["ground"], 3, "удар — в плане, слитом со сбитием")
+        alone = edit.shown(cand, [{"name": "drones-0-shootdown"}])
         self.assertEqual(alone["numbers"]["ground"], 0, "удара в ролике нет")
+        en, ru = edit.caption("drones", edit.shown(cand, [{"name": "drones-0-flyby"}]))
+        self.assertEqual(en, "Shahed drones fly low over the players.", "ни сбития, ни удара в ролике — о них ни слова")
+        en, ru = edit.caption("rockets", edit.shown({"preview": "rockets", "weapon": "grad", "numbers": {"ground": 8}}, [{"name": "rockets-0-launch"}]))
+        self.assertEqual(en, "Grad rockets: launch and flight.")
 
     def test_projection_matches_game_axes(self):
         # взгляд на юг: точка восточнее (+x) — слева, выше — вверху
