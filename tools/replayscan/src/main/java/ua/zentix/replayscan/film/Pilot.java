@@ -142,6 +142,20 @@ final class Pilot {
         }
 
         /**
+         * Событие поперечником {@code size} в {@code k} видно, как его считает вывод ({@link Cameras#keySeen}): в кадре и
+         * открыты не меньше двух лучей из трёх — к середине и к бокам на 0,35 поперечника поперёк взгляда; последние
+         * {@code max(1.5, 0.4·size)} блоков у события не в счёт. Рельеф — столбцами, а не формами блоков.
+         */
+        boolean seen(Cameras.View v, Vec3 k, double size) {
+            if (!v.in(k, 1)) return false;
+            Vec3 r = v.right().scale(size * 0.35);
+            double spare = Math.max(1.5, size * 0.4);
+            int open = 0;
+            for (Vec3 q : new Vec3[]{k, k.add(r), k.subtract(r)}) if (!hides(v.eye(), q, spare)) open++;
+            return open >= 2;
+        }
+
+        /**
          * Низ кадра (лучи у нижнего края: слева, посередине, справа) на земле за чанками повтора — как {@code low_out}
          * вывода ({@link FrameLog}); сколько таких лучей.
          */
@@ -153,7 +167,8 @@ final class Pilot {
                 double last = SEA;
                 for (double k = 0; k <= LOW_NEAR; k += 4) {
                     double x = v.eye().x + d.x * k, y = v.eye().y + d.y * k, z = v.eye().z + d.z * k;
-                    double g = ground(x, z);
+                    // верхний блок столбца, как у вывода (LevelChunk.getHeight), а не место над ним
+                    double g = ground(x, z) - 1;
                     if (Double.isNaN(g)) {
                         if (v.eye().y + d.y * LOW_NEAR <= last + 1) out++;
                         break;
@@ -492,7 +507,7 @@ final class Pilot {
         for (int t = main.t() + 2; t <= Math.min(b, main.t() + FrameLog.KEY_CHECK); t += 2) {
             int i = t - tr.from();
             Vec3 k = Cameras.keyPoint(main, t);
-            if (!view(tr, i).in(k, 1) || grid.hides(tr.pos()[i], k, Math.max(1.5, main.size() * 0.4))) {
+            if (!grid.seen(view(tr, i), k, main.size())) {
                 j += 20;
                 if (tally != null) tally.missed++;
             }

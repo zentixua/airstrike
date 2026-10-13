@@ -57,7 +57,7 @@ class PilotTest {
         for (int t = HIT; t <= HIT + FrameLog.KEY_CHECK; t++) {
             int i = t - tr.from();
             Vec3 k = Cameras.keyPoint(p.main, t);
-            if (p.view(tr, i).in(k, 1) && !p.grid.hides(tr.pos()[i], k, 4.8)) seen++;
+            if (p.grid.seen(p.view(tr, i), k, p.main.size())) seen++;
         }
         assertTrue(seen >= FrameLog.KEY_CHECK, f.name() + ": the hit is in frame in " + seen + " of its first ticks");
         double d = tr.pos()[HIT - tr.from()].distanceTo(HIT_POS);
@@ -117,7 +117,8 @@ class PilotTest {
             Pilot.Track tr = check(p, f);
             int out = 0, n = 0;
             for (int s = A; s <= B; s += 2, n++) if (p.grid.lowOut(p.view(tr, s - tr.from())) > 0) out++;
-            assertTrue(out <= n / 10, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
+            // вывод не пропускает план, где так больше 2 % кадров
+            assertTrue(out <= n / 50, f.name() + ": frame bottom off chunks in " + out + " of " + n + " samples");
         }
     }
 

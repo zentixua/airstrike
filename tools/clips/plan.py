@@ -120,14 +120,16 @@ def cameras(shot: dict) -> list[dict]:
                     "follow": kind != "nuke", "size": size}]
 
 
-_HIT_WEAPONS: dict[int, dict] = {}
+_HIT_WEAPONS: dict[int, tuple] = {}
 
 
 def hit_weapons(con) -> dict:
-    """Удар (id) → оружие его снаряда; один раз на базу."""
-    if id(con) not in _HIT_WEAPONS:
-        _HIT_WEAPONS[id(con)] = {f.hit: f.weapon for f in flights(con) if f.hit is not None}
-    return _HIT_WEAPONS[id(con)]
+    """Удар (id) → оружие его снаряда; один раз на базу. Запись держит и саму базу: адрес закрытой занимает следующая,
+    и по одному `id` ей досталось бы чужое оружие."""
+    hit = _HIT_WEAPONS.get(id(con))
+    if hit is None or hit[0] is not con:
+        hit = _HIT_WEAPONS[id(con)] = (con, {f.hit: f.weapon for f in flights(con) if f.hit is not None})
+    return hit[1]
 
 
 def film_shot(con, cid: str, shot: dict) -> dict:

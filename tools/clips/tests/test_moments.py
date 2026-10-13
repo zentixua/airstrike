@@ -764,6 +764,9 @@ class FpvTest(unittest.TestCase):
         self.assertTrue(plan["subject"]["path"] and plan["subject"]["path"][-1][0] == 1200, "путь снаряда до удара — пилоту")
         self.assertIn([400, -600.5, 64.0, 60.5, 12], plan["smoke"], "дым прежних ударов — с поперечником шара шахеда")
         self.assertIn([1200, -600.5, 64.0, 60.5, 12], plan["smoke"], "и ударов прохода")
+        hit = shots[1].subject["keys"][0]["id"]
+        film_plan._HIT_WEAPONS[id(r.con)] = (object(), {hit: "icbm"})
+        self.assertEqual(film_plan.hit_weapons(r.con)[hit], "shahed", "запись закрытой базы по тому же адресу — не этой")
 
 
 NETHER = "minecraft:the_nether"

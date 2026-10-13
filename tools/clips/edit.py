@@ -221,6 +221,11 @@ def fly_caption(en: str, ru: str, n: dict) -> tuple[str, str]:
     """Подпись пролёта свободной камеры: удары в кадре и оружие налёта."""
     k, sec = n.get("impacts", 0), round(n.get("seconds", 0))
     raid_en, raid_ru = (f"a raid of {en}", f"налёта ({ru})") if en and en != "fly" else ("an air raid", "налёта")
+    if n.get("passes"):
+        # проходы FPV — склейка проходов мимо ударов
+        p = n["passes"]
+        return ((f"FPV drone passes by {p} strikes during {raid_en}." if p > 1 else f"An FPV drone pass by a strike during {raid_en}."),
+                (f"Проходы FPV-дрона мимо ударов во время {raid_ru}: {p}." if p > 1 else f"Проход FPV-дрона мимо удара во время {raid_ru}."))
     if k > 1:
         return (f"A slow camera flight during {raid_en}: {k} strikes in view in {sec} seconds.",
                 f"Медленный пролёт камеры во время {raid_ru}: ударов в кадре за {sec} секунд — {k}.")
