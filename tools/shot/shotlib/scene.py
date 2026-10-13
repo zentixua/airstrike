@@ -67,37 +67,42 @@ class Impact:
 
 @dataclass
 class Smoke:
-    """Дым ударов: столб клубов над каждым ударом по земле, растёт и редеет, сносится ветром. Клуб — гауссово облако:
-    свет сквозь него на отрезке считается точно (интеграл гаусса по прямой). Числа — по эффектам Incoming
-    (`BlastEffects`: клубы ~R, живут 240–380 тиков) с запасом: столб выше и дольше, как дальняя картинка мода."""
-    life: float = 700.0
-    height: float = 3.2      # высота столба — доля огненного шара удара на подъём
-    rise: float = 0.08       # блоков за тик
-    wind: tuple = (0.02, 0.0, 0.01)  # снос, блоков за тик
-    density: float = 0.22    # оптическая плотность в середине клуба на блок
+    """Дым ударов по земле — столб модели `Plume` превью (replayscan, по `BlastEffects` мода): радиус
+    max(8, 0,75 шара) раздувается за 20 тиков, верх — шар сразу, пыль за 5 с до 30 блоков, ось сносит ветер после 20
+    тиков, живёт 500 тиков. Столб — стопка гауссовых клубов (σ = 0,6 радиуса): свет сквозь неё считается точно, через
+    середину столба поперёк — около e⁻³."""
+    life: float = 500.0
+    wind: tuple = (0.015, 0.0, 0.0073)  # Plume.WIND_X, WIND_Z, блоков за тик
+    own: float = 12.0                   # Plume.OWN: дым ближе этого к цели — её же удар
+
+    def radius(self, size: float, age: float) -> float:
+        return max(8.0, 0.75 * size) * min(1.0, 0.45 + age / 36)
+
+    def top(self, size: float, age: float) -> float:
+        return max(0.8 * size, 30 * min(1.0, age / 100))
 
     def puffs(self, impacts: list[Impact], t: float) -> np.ndarray:
-        """Клубы в тик t: (n, 5) — x, y, z, сигма, плотность."""
+        """Клубы в тик t: (n, 8) — x, y, z, сигма, плотность на блок, место удара (x, y, z)."""
         out = []
         for im in impacts:
             age = t - im.t
-            if not im.ground or age < 2 or age > self.life:
+            if not im.ground or age < 0 or age > self.life:
                 continue
-            r = im.blast
-            fade = 1.0 if age < self.life * 0.45 else max(0.0, 1 - (age - self.life * 0.45) / (self.life * 0.55))
-            top = min(r * self.height, r * 0.6 + self.rise * age)
-            n = max(2, int(top / max(2.0, r * 0.5)) + 1)
-            drift = np.array(self.wind) * age
-            for k in range(n):
-                h = top * k / max(1, n - 1)
-                sigma = r * (0.35 + 0.25 * min(1.0, age / 120)) * (1 + 0.5 * h / max(1.0, top))
-                c = im.pos + np.array([0, r * 0.3 + h, 0]) + drift * (0.3 + h / max(1.0, top))
-                out.append((c[0], c[1], c[2], sigma, self.density * fade))
-        return np.array(out, dtype=np.float64).reshape(-1, 5)
+            size = im.blast
+            r, top = self.radius(size, age), self.top(size, age)
+            sigma = 0.6 * r
+            base = im.pos + np.array(self.wind) * max(0.0, age - 20)
+            n = max(1, int(math.ceil(top / sigma)) + 1)
+            k = 3.0 / (6.3 * sigma)
+            for j in range(n):
+                c = base + np.array([0, top * j / max(1, n - 1), 0])
+                out.append((c[0], c[1], c[2], sigma, k, im.pos[0], im.pos[1], im.pos[2]))
+        return np.array(out, dtype=np.float64).reshape(-1, 8)
 
 
 def transmittance(puffs: np.ndarray, a: np.ndarray, b: np.ndarray, spare: float = 0.0) -> np.ndarray:
-    """Доля света по отрезкам a→b (…, 3) сквозь клубы (n, 5); у конца b не считаются `spare` блоков (огонь самой цели)."""
+    """Доля света по отрезкам a→b (…, 3) сквозь клубы (n, 5 или 8); у конца b не считаются `spare` блоков (огонь самой
+    цели) и клубы удара ближе `Smoke.own` к b (её же дым, как `Plume.blocks`)."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     if len(puffs) == 0:
@@ -119,6 +124,11 @@ def transmittance(puffs: np.ndarray, a: np.ndarray, b: np.ndarray, spare: float 
     puffs = puffs[miss < spread + 3.5 * puffs[:, 3]]
     for c in puffs:
         p, s, k = c[:3], c[3], c[4]
+        if len(c) >= 8:
+            mine = np.linalg.norm(b - c[5:8], axis=-1) <= Smoke.own
+            if np.all(mine):
+                continue
+            k = k * ~mine
         w = p - a
         along = (w * u).sum(-1)
         miss2 = (w * w).sum(-1) - along ** 2

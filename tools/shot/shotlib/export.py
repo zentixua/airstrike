@@ -19,9 +19,12 @@ def poses(result) -> list[dict]:
     return out
 
 
-def write_camera(result, path: str):
-    """camera.jsonl: строка на тик — место глаза, курс, тангаж, крен (плюс — влево), угол кадра по вертикали."""
+def write_camera(result, path: str, header: dict | None = None):
+    """camera.jsonl: строка на тик — место глаза, курс, тангаж, крен (плюс — влево, как ключи Flashback; у CineCamera
+    трейлера плюс — вправо), угол кадра по вертикали; `header` — первой строкой (тело камеры для вывода)."""
     with open(path, "w", encoding="utf-8") as f:
+        if header:
+            f.write(json.dumps(header, ensure_ascii=False) + "\n")
         for p in poses(result):
             f.write(json.dumps(p) + "\n")
 

@@ -234,14 +234,24 @@ class SubjectTest(unittest.TestCase):
             out = os.path.join(d, "out")
             shot.main(["plan", ev, "--regions", region, "--out", out, "--styles", "tripod", "--previs", "none",
                        "--radius", "60", "--iters", "3"])
-            rows = open(os.path.join(out, "p99", "summary.txt"), encoding="utf-8").read()
+            with open(os.path.join(out, "p99", "summary.txt"), encoding="utf-8") as f:
+                rows = f.read()
             self.assertIn("own", rows)
             self.assertIn("лучшая: tripod", rows)
-            cam = [json.loads(x) for x in open(os.path.join(out, "p99", "tripod", "camera.jsonl"))]
+            cam = lines(os.path.join(out, "p99", "tripod", "camera.jsonl"))
             self.assertEqual(cam[0]["t"], 1)
             self.assertEqual(len(cam), 119)
-            path = json.load(open(os.path.join(out, "p99", "tripod", "path-camera.json")))
+            planned = lines(os.path.join(out, "planned", "p99.camera.jsonl"))
+            self.assertEqual(planned[0]["body"], "tripod")
+            self.assertEqual(len(planned), 120)
+            with open(os.path.join(out, "p99", "tripod", "path-camera.json"), encoding="utf-8") as f:
+                path = json.load(f)
             self.assertEqual(path["kind"], "path")
+
+
+def lines(path):
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(x) for x in f if x.strip()]
 
 
 class CameraTest(unittest.TestCase):

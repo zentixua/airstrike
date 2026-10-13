@@ -74,6 +74,7 @@ class Spec:
     aspect: float = 16 / 9
     lead: float = 12.0           # смотрит на место объекта через столько тиков (воздух перед ним в кадре)
     frame_bias: tuple = (0.0, 0.0)  # куда в кадре ставить объект (u, v)
+    reach: float = 160.0         # дальше этого от удара взгляд держит сторону подлёта, а не сам снаряд
 
 
 # ---------------------------------------------------------------- куда смотрит кадр
@@ -92,6 +93,19 @@ def aim_points(spec: Spec, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.n
         ahead = spec.subject.at(np.minimum(ts + spec.lead, spec.subject.last))
         ok = ~np.isnan(ahead[:, 0]) & ~np.isnan(subj[:, 0])
         aim[ok] = subj[ok] + 0.6 * (ahead[ok] - subj[ok])
+    # снаряд ещё далеко от удара (за туманом у места событий): кадр держит сторону, откуда он придёт, на высоте до
+    # 30° над местом удара, а не небо прямо над ним
+    for (tk, pos, sz) in spec.keys[:1]:
+        k = np.asarray(pos, dtype=np.float64)
+        d = aim - k
+        far = np.linalg.norm(d, axis=1) > spec.reach
+        if far.any():
+            dn = d[far] / np.linalg.norm(d[far], axis=1, keepdims=True)
+            h = np.hypot(dn[:, 0], dn[:, 2])
+            up = np.minimum(dn[:, 1], np.tan(np.radians(30)) * h)
+            dn = np.stack([dn[:, 0], up, dn[:, 2]], axis=1)
+            dn /= np.linalg.norm(dn, axis=1, keepdims=True)
+            aim[far] = k + dn * spec.reach
     for (tk, pos, sz) in spec.keys:
         pos = np.asarray(pos, dtype=np.float64)
         fire = pos + np.array([0, sz * 0.35, 0])
@@ -345,6 +359,17 @@ def evaluate(scene: Scene, spec: Spec, style: Style, P: np.ndarray, fov: float, 
         seen = inn * (1 - occ) * T * (1 - _haze(scene, P[:, ii], np.broadcast_to(fire, P[:, ii].shape)))
         keyc += (1 - seen.mean(1)) * 40
     parts["keys"] = keyc
+    # не в огне: после удара камера дальше полутора шаров от его места (шар во весь кадр и камера в нём — брак)
+    near = np.zeros(s)
+    for (tk, pos, sz) in spec.keys:
+        ii = np.flatnonzero((ts >= tk - 5) & (ts <= tk + 60))
+        if len(ii):
+            dist = np.linalg.norm(P[:, ii] - np.asarray(pos)[None, None], axis=-1)
+            near += ((np.maximum(0, 1.5 * sz - dist) / sz) ** 2 * 20).mean(1)
+    parts["blast"] = near
+    # крен: кинематографичный FPV кренится в вираже, но не лежит на боку
+    if style.bank > 0:
+        parts["roll"] = ((np.maximum(0, np.abs(roll) - 20) / 10) ** 2).mean(1)
 
     # низ кадра — не в неизвестных чанках
     sel4 = np.arange(0, n, 4 if not fine else 1)

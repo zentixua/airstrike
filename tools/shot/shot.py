@@ -11,7 +11,8 @@
 
 На каждый план — `<out>/<план>/`: `summary.txt` (строка на камеру: мера, объект в кадре и виден, доля кадра, повороты;
 `own` — камера сценария той же мерой), `<тело>/camera.jsonl` (поза на тик: `t`, `pos`, `yaw`, `pitch`, `roll`, `fov`),
-`<тело>/path-camera.json` (камера `path` для replayscan), `predicted.jsonl` (что мера ждёт от кадра — сверка с
+`<тело>/path-camera.json` (камера `path` для replayscan), лучшая — ещё и `<out>/planned/<план>.camera.jsonl` (кандидат
+`<тело>-planned` вывода трейлера: папку `planned` — в папку трейлера), `predicted.jsonl` (что мера ждёт от кадра — сверка с
 qa.jsonl вывода), `report.json`; с `--previs` — `sheet.jpg`, `previs.mp4`, кадры. Карта рамки кэшируется в
 `<out>/<план>/world.npz` (данные карты: не выносить с машины, где лежит мир).
 """
@@ -162,6 +163,10 @@ def plan_one(path: str, args, table: dict):
     planned = {k: r for k, r in results.items() if k != "own"}
     best = max(planned, key=lambda k: (round(planned[k].report.get("subject_framed", 0), 2), -planned[k].cost))
     rows.append(f"лучшая: {best}")
+    # камера для вывода трейлера (ReplayFilm, кандидат `<тело>-planned`): <out>/planned/<план>.camera.jsonl
+    os.makedirs(os.path.join(args.out, "planned"), exist_ok=True)
+    X.write_camera(planned[best], os.path.join(args.out, "planned", f"{name}.camera.jsonl"),
+                   {"body": best, "shot": name, "framed": planned[best].report.get("subject_framed", 0)})
     text = "\n".join(rows)
     with open(os.path.join(out, "summary.txt"), "w", encoding="utf-8") as f:
         f.write(f"{name} {p.what} окно {p.a}..{p.b}\n{text}\n")
