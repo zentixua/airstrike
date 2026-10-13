@@ -109,6 +109,14 @@ def transmittance(puffs: np.ndarray, a: np.ndarray, b: np.ndarray, spare: float 
     tau = np.zeros(a.shape[:-1])
     from math import sqrt, pi
     from scipy.special import erf
+    # клубы далеко от всех отрезков не считаются: отрезок «среднего» глаза к «средней» цели и разброс концов
+    am, bm = a.reshape(-1, 3).mean(0), b.reshape(-1, 3).mean(0)
+    spread = max(float(np.linalg.norm(a.reshape(-1, 3) - am, axis=1).max()),
+                 float(np.linalg.norm(b.reshape(-1, 3) - bm, axis=1).max()))
+    seg = bm - am
+    k = np.clip(((puffs[:, :3] - am) @ seg) / max(float(seg @ seg), 1e-9), 0, 1)
+    miss = np.linalg.norm(puffs[:, :3] - (am + k[:, None] * seg), axis=1)
+    puffs = puffs[miss < spread + 3.5 * puffs[:, 3]]
     for c in puffs:
         p, s, k = c[:3], c[3], c[4]
         w = p - a
