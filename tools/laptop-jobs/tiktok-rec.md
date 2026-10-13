@@ -23,15 +23,40 @@ cp $S/replayscan/build/libs/replayscan-1.0.0.jar $T/game/mods/
 Zearth — карта, генератор мира рисовал бы LOD леса и моря поверх неё.
 
 ## 2. Копии повторов
-Повторы — `"$MC"/flashback/replays/<имя>.zip` из сообщения координатора. LOD — то, что видел Артём: каталог из
-`distantHorizonPaths` в `metadata.json` повтора (`unzip -p <zip> metadata.json`), копией в `$T/dh/`
-(`cp -a --reflink=auto`; один каталог у нескольких повторов — одна копия). Затем, как в `replayscan.md`:
+Повторы — `"$MC"/flashback/replays/<имя>.zip` из сообщения координатора; копии — под тем же именем (часы записи для
+`--at` — время в имени файла). LOD — то, что видел Артём: каждый каталог из `distantHorizonPaths` в `metadata.json`
+повтора — своей копией в `$T/dh/` (одна копия на все повторы с тем же каталогом), путь в копии повтора — на неё (как
+`patch_replay.py`, но у каждого измерения свой каталог). Потом — без пакетов Point Blank, как в `replayscan.md`:
 ```sh
-python3 $W/epic-index/patch_replay.py "$MC/flashback/replays/$N.zip" $T/replays/$N.dh.zip $T/dh/<каталог>
+mkdir -p $T/replays $T/dh
+python3 - "$MC/flashback/replays/$N.zip" $T/replays/$N.dh.zip $T/dh <<'EOF'
+import hashlib, json, os, shutil, subprocess, sys, zipfile
+src, dst, root = sys.argv[1:4]
+with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, 'w', zipfile.ZIP_STORED, allowZip64=True) as zout:
+    for info in zin.infolist():
+        if info.filename != 'metadata.json':
+            with zin.open(info) as fin, zout.open(zipfile.ZipInfo(info.filename, info.date_time), 'w', force_zip64=True) as fout:
+                shutil.copyfileobj(fin, fout, 1 << 24)
+            continue
+        meta = json.loads(zin.read(info))
+        dh = meta.get('distantHorizonPaths') or {}
+        for key, path in dh.items():
+            copy = os.path.join(root, key.replace(':', '_').replace('/', '_') + '-' + hashlib.sha1(path.encode()).hexdigest()[:8])
+            dh[key] = copy
+            if not os.path.isdir(path):
+                print(key, 'нет каталога', path, '- у этого измерения не будет LOD')
+                continue
+            if not os.path.isdir(copy):
+                subprocess.run(['cp', '-a', '--reflink=auto', path, copy], check=True)
+            print(key, path, '->', copy, *(subprocess.run(['du', '-s', d], capture_output=True, text=True).stdout.split()[0] for d in (path, copy)))
+        if not dh:
+            print('нет distantHorizonPaths: в кадре не будет LOD')
+        zout.writestr('metadata.json', json.dumps(meta, indent=2))
+EOF
 python3 $W/epic-index/strip_payloads.py $T/replays/$N.dh.zip $T/replays/$N.zip pointblank:mainheldsimplifiedstatebroadcastpacket
 rm $T/replays/$N.dh.zip
 ```
-Нет `distantHorizonPaths` — шаг `patch_replay.py` не нужен (сказать в отчёте: тогда в кадре нет LOD).
+Числа `du -s` источника и копии LOD — равны; нет `distantHorizonPaths` или каталога-источника — сказать в отчёте.
 
 ## 3. Разбор (видеокарта не нужна)
 На время разбора в `$T/game/config/iris.properties` — `enableShaders=false`. На каждый повтор:
@@ -46,11 +71,13 @@ uv run $S/replayscan/replaydb.py build $T/out/$N
 
 ## 4. Моменты и планы
 ```sh
-uv run $S/clips/moments.py $T/out/*/replay.duckdb --out $T/clips [--at <время из сообщения>]...
+uv run $S/clips/moments.py $T/out/*/replay.duckdb --out $T/clips --pov-top 50 [--at <время>]...
 uv run $S/clips/plan.py $T/clips/candidates.json --all pov
 ```
 Запись с отметками (маркеры Flashback «Создать маркер», время `--at`) даёт только их, глазами Артёма; запись без
-отметок — лучшие отрезки глазами живых игроков. Раздел «6. Глазами игроков» из `$T/clips/candidates.md` — в отчёт.
+отметок — лучшие отрезки глазами живых игроков. Время — местное, как назвал Артём, с датой: `--at 2026-10-13T17:05:30`
+(момент: 10 с до, 5 с после) или `--at 2026-10-13T17:05:00/2026-10-13T17:06:10` (как есть). Раздел «6. Глазами
+игроков» из `$T/clips/candidates.md` — в отчёт; отмеченных моментов в нём столько же, сколько отметок.
 
 ## 5. Съёмка (видеокарта)
 `enableShaders=true` в `$T/game/config/iris.properties`; шейдерпак — как у Артёма, у него выключены — Complementary
@@ -60,7 +87,8 @@ $S/laptop_job.sh tiktok-rec -- python3 $S/prod_client.py --no-copy --dir $T/game
   --incoming-jar $T/game/day/incoming-3.0.1.jar --jvm=-Xmx12g --prop replayscan.film=<plan из runs.json>
 ```
 Успех: в `$T/game/logs/latest.log` — `Film: done`; у каждого плана — `Film: the replay viewer spectates <игрок> on the
-replay server` и `Film: verdict <план> <камера>: PASS`, в его `qa.jsonl` — `"dh":1`. Не прошедший план не доводить.
+replay server` и `Film: verdict <план> <камера>: PASS` (в `verdict.json` — `dh_world` 0); у повтора с копией LOD в
+`qa.jsonl` — `"dh":1` (иначе в отчёт: LOD нет). Не прошедший план не доводить.
 
 ## 6. Монтаж и выдача
 ```sh
