@@ -25,15 +25,16 @@ neoForge {
         minecraftVersion = project.parchment_minecraft_version
     }
     runs {
-        // клиент без окна (xvfb-run): открывает повтор, проигрывает его и выходит; свойства — -P<имя> → replayscan.<имя>
+        // клиент без окна (xvfb-run): открывает повтор, проигрывает его (или снимает по плану -Pfilm) и выходит; свойства —
+        // -P<имя> → replayscan.<имя>
         client {
             client()
             gameDirectory = project.file(project.findProperty('runDir') ?: 'run')
-            ['replay', 'out', 'speed', 'viewers', 'every', 'range', 'subjects', 'ask', 'from', 'to'].each { key ->
+            ['replay', 'out', 'speed', 'viewers', 'every', 'range', 'subjects', 'ask', 'from', 'to', 'film'].each { key ->
                 def value = project.findProperty(key)
                 if (value == null) return
                 // пути — от каталога, где запущен Gradle (игра идёт в своём каталоге запуска)
-                if (key in ['replay', 'out', 'ask']) {
+                if (key in ['replay', 'out', 'ask', 'film']) {
                     def f = new File(value.toString())
                     value = (f.absolute ? f : new File(gradle.startParameter.currentDir, value.toString())).absolutePath
                 }

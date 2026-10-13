@@ -549,9 +549,16 @@ public final class ServerActions {
 
     /** Место с карты: x и z из подсказки, высота — {@link Target.Ground#at} (верх по карте клиента — оценка). */
     public static Aim groundAim(ServerLevel level, C2S.AimHint h) {
-        Target.Ground ground = Target.Ground.at(level, h.point().x, h.point().z, h.mapSurface());
-        return new Aim(ground, ground.pos(), Component.translatable("incoming.target.map_point",
-                Mth.floor(h.point().x), Mth.floor(h.point().z)));
+        return groundAim(level, h.point().x, h.point().z, h.mapSurface());
+    }
+
+    /**
+     * Место на земле (x, z) — с карты пульта или из команды: высота — {@link Target.Ground#at}, оценка до готового чанка
+     * ({@code mapSurface} — верх по карте клиента).
+     */
+    public static Aim groundAim(ServerLevel level, double x, double z, Optional<Integer> mapSurface) {
+        Target.Ground ground = Target.Ground.at(level, x, z, mapSurface);
+        return new Aim(ground, ground.pos(), Component.translatable("incoming.target.map_point", Mth.floor(x), Mth.floor(z)));
     }
 
     /** Цель по режиму экрана пульта. */

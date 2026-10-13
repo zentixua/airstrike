@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["duckdb>=1.1,<2"]
+# ///
+"""План съёмки превью из кандидатов (moments.py) — для съёмки replayscan (-Dreplayscan.film, README там).
+
+  uv run tools/clips/plan.py <clips>/candidates.json [--pick rockets-0,drones-1] [--top 1] [--out <clips>/film]
+         [--size 1080x1920] [--fps 60] [--replays <каталог копий>]
+
+Берёт по --top лучших кандидатов каждого ролика (или --pick), достаёт из базы пути снарядов (tracks и дальние
+строки far), прежние удары (дым) и измерение и пишет план на каждый повтор: <out>/<повтор>/plan.json; вывод съёмки —
+<out>/<повтор>/film. <out>/runs.json — что запускать: повтор, план и версия Incoming записи (jar того дня).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "replayscan"))
+import replaydb  # noqa: E402
+from moments import incoming_version  # noqa: E402
+
+# Пороги проверки кадров по роду плана (README replayscan, «Съёмка»): доля кадров до события, где снят объект; то же
+# за последнюю секунду; доля событий, видных в первые 12 тиков; наименьшая доля ширины кадра; мотор слышен
+NEED = {
+    "launch": {"subject": 0.6, "near": 0, "keys": 1, "share": 0.004},
+    "flight": {"subject": 0.5, "near": 0, "keys": 1, "share": 0.004, "engine": 0.3},
+    "impact": {"subject": 0.4, "near": 0.5, "keys": 1, "share": 0.004},
+    "chaos": {"subject": 0, "near": 0, "keys": 0.7, "share": 0},
+    "far": {"subject": 0, "near": 0, "keys": 1, "share": 0},
+    "nuke": {"subject": 0, "near": 0, "keys": 1, "share": 0},
+}
+
+
+def path_of(con, uuid: str, a: int, b: int) -> list[list[float]]:
+    """Путь снаряда в [a − 60, b + 60]: места сущности (tracks), где её нет — дальние строки (far)."""
+    rows = con.execute("""
+        SELECT k.t, k.x, k.y, k.z FROM tracks k JOIN entities e ON e.eid = k.eid
+        WHERE e.uuid = ? AND k.t BETWEEN ? AND ? ORDER BY k.t""", [uuid, a - 60, b + 60]).fetchall()
+    seen = {r[0] for r in rows}
+    far = con.execute("SELECT t, x, y, z FROM far WHERE uuid = ? AND t BETWEEN ? AND ? ORDER BY t", [uuid, a - 60, b + 60]).fetchall()
+    out = sorted([list(r) for r in rows] + [list(r) for r in far if r[0] not in seen])
+    return [[t, round(x, 2), round(y, 2), round(z, 2)] for t, x, y, z in out]
+
+
+def dim_of(con, shot: dict) -> str:
+    s = shot["subject"]
+    if s.get("uuid"):
+        r = con.execute("SELECT dim FROM entities WHERE uuid = ? LIMIT 1", [s["uuid"]]).fetchone()
+        if r:
+            return r[0]
+    for k in s.get("keys", []):
+        r = con.execute("SELECT dim FROM impacts WHERE id = ?", [k.get("id")]).fetchone()
+        if r:
+            return r[0]
+    return "minecraft:overworld"
+
+
+def cameras(shot: dict) -> list[dict]:
+    """Камеры плана: глаза игрока (с запасной свободной камерой у удара и пуска) или свободная камера по роду."""
+    cam, s, kind = shot["camera"], shot["subject"], shot["kind"]
+    keys = s.get("keys", [])
+    if cam["kind"] == "pov":
+        out = [{"kind": "pov", "player": cam["viewer"], "fov": 70}]
+        if kind == "impact" and keys:
+            out.append({"kind": "tripod", "around": keys[0]["pos"], "dist": [60, 90, 130], "elev": [6, 16, 28], "share": 0.3,
+                        "follow": True, "size": keys[0]["size"]})
+        if kind == "launch" and s.get("launch"):
+            out.append({"kind": "tripod", "around": s["launch"], "dist": [35, 55, 80], "elev": [3, 10], "share": 0.15,
+                        "follow": True, "size": 12})
+        return out
+    rig = cam.get("rig")
+    if rig == "lens":
+        return [{"kind": "fixed", "eye": cam["eye"], "aim": "subject", "fov": cam["fov"]}]
+    if rig == "wide":
+        spread = s.get("spread", 60)
+        return [{"kind": "tripod", "around": s["centre"], "dist": cam["dist"], "elev": cam["elev"], "share": 0.85,
+                 "follow": False, "size": 2 * spread + 30}]
+    around = s.get("launch") if cam.get("around") == "launch" else keys[0]["pos"] if keys else s.get("centre")
+    size = keys[0]["size"] if keys else 12
+    return [{"kind": "tripod", "around": around, "dist": cam["dist"], "elev": cam["elev"], "share": cam.get("share", 0.3),
+             "follow": kind != "nuke", "size": size}]
+
+
+def film_shot(con, cid: str, shot: dict) -> dict:
+    a, b, kind, s = shot["a"], shot["b"], shot["kind"], shot["subject"]
+    subject = {"size": s.get("size", 4), "keys": [{"t": k["t"], "pos": k["pos"], "size": k["size"]} for k in s.get("keys", [])]}
+    if s.get("uuid"):
+        subject["uuid"] = s["uuid"]
+        subject["path"] = path_of(con, s["uuid"], a, b)
+    if s.get("centre"):
+        subject["area"] = {"pos": s["centre"], "size": 2 * s.get("spread", 60)}
+    dim = dim_of(con, shot)
+    smoke = con.execute("SELECT t, x, y, z FROM impact_kinds WHERE place = 'ground' AND dim = ? AND t BETWEEN ? AND ? ORDER BY t",
+                        [dim, a - 1200, b]).fetchall()
+    far = kind in ("far", "nuke")
+    return {"name": f"{cid}-{shot['name']}", "a": a, "b": b, "dim": dim, "warm": 200, "hold": 100 if far else 20,
+            "far": far, "cameras": cameras(shot), "subject": subject, "smoke": [[t, x, y, z] for t, x, y, z in smoke],
+            "need": NEED.get(kind, NEED["impact"]), "why": shot.get("why", "")}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("candidates")
+    p.add_argument("--pick", default="", help="id кандидатов через запятую (по умолчанию — --top лучших каждого ролика)")
+    p.add_argument("--top", type=int, default=1)
+    p.add_argument("--out", default=None)
+    p.add_argument("--size", default="1080x1920")
+    p.add_argument("--fps", type=float, default=60)
+    p.add_argument("--bitrate", type=int, default=40_000_000)
+    p.add_argument("--tries", type=int, default=3)
+    p.add_argument("--clouds", type=float, default=None, help="низ облаков шейдерпака (по умолчанию — ванильные)")
+    p.add_argument("--replays", default=None, help="каталог копий повторов (по умолчанию — путь из разбора)")
+    a = p.parse_args()
+
+    cands = json.loads(Path(a.candidates).read_text())
+    out = Path(a.out) if a.out else Path(a.candidates).parent / "film"
+    pick = [x for x in a.pick.split(",") if x]
+    chosen = [c for v in cands.values() for c in v if c["id"] in pick] if pick else [c for v in cands.values() for c in v[:a.top]]
+    width, height = (int(x) for x in a.size.split("x"))
+    by_replay: dict[str, dict] = {}
+    for c in chosen:
+        con = replaydb.connect(Path(c["db"]), argparse.Namespace(fov=70, aspect=width / height, center=0.7, soft=2))
+        meta = json.loads(con.execute("SELECT json FROM meta").fetchone()[0])
+        # путь — от каталога запуска: клиент съёмки читает план из своего каталога игры
+        zip_path = (Path(a.replays) / Path(meta["replay"]).name if a.replays else Path(meta["replay"])).resolve()
+        plan = by_replay.setdefault(c["replay"], {
+            "replay": str(zip_path), "out": str((out / c["replay"] / "film").resolve()), "width": width, "height": height,
+            "fps": a.fps, "bitrate": a.bitrate, "tries": a.tries, "shots": [], "incoming": incoming_version(meta),
+            "previews": {}})
+        if a.clouds is not None:
+            plan["clouds"] = a.clouds
+        plan["previews"][c["id"]] = [f"{c['id']}-{s['name']}" for s in c["shots"]]
+        plan["shots"] += [film_shot(con, c["id"], s) for s in c["shots"]]
+        con.close()
+    runs = []
+    for name, plan in by_replay.items():
+        d = out / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1))
+        runs.append({"replay": plan["replay"], "plan": str((d / "plan.json").resolve()), "incoming": plan["incoming"],
+                     "shots": len(plan["shots"]), "previews": plan["previews"]})
+    (out / "runs.json").write_text(json.dumps(runs, ensure_ascii=False, indent=1))
+    for r in runs:
+        print(f"{r['plan']}: {r['shots']} shots, Incoming {r['incoming']}, {', '.join(r['previews'])}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
