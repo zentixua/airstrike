@@ -564,6 +564,42 @@ final class Rig {
     }
 
     /**
+     * Камера, спланированная до вывода по сцене плана ({@code tools/shot}: карта, пути, удары, дым, туман — одной мерой с
+     * {@link FrameQa}): поза на тик повтора из {@code file} (строки {@code t}, {@code pos}, {@code yaw}, {@code pitch},
+     * {@code roll}, {@code fov}; первая — {@code body}: тело камеры). Крен там — как у ключей Flashback (плюс — влево), у
+     * {@link CineCamera} плюс — вправо. Имя кандидата — по телу ({@code tripod-planned}, {@code track-planned} — стиль рук
+     * {@link Operator} по имени; FPV — {@code close}). Нет файла — кандидатов нет.
+     */
+    static Kind planned(java.nio.file.Path file) {
+        return (s, a, b, w, d) -> {
+            if (!java.nio.file.Files.isRegularFile(file)) return List.of();
+            java.util.TreeMap<Integer, Pose> poses = new java.util.TreeMap<>();
+            String body = "planned";
+            try {
+                for (String line : java.nio.file.Files.readAllLines(file)) {
+                    if (line.isBlank()) continue;
+                    com.google.gson.JsonObject o = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
+                    if (o.has("body")) body = o.get("body").getAsString();
+                    if (!o.has("t")) continue;
+                    com.google.gson.JsonArray p = o.getAsJsonArray("pos");
+                    poses.put(o.get("t").getAsInt(), new Pose(new Vec3(p.get(0).getAsDouble(), p.get(1).getAsDouble(), p.get(2).getAsDouble()),
+                            o.get("yaw").getAsFloat(), o.get("pitch").getAsFloat(), -o.get("roll").getAsFloat(), o.get("fov").getAsDouble()));
+                }
+            } catch (java.io.IOException | RuntimeException e) {
+                ua.zentix.incoming.Incoming.LOG.warn("SCENARIO film: камера по сцене {} не прочитана: {}", file, e.toString());
+                return List.of();
+            }
+            if (poses.isEmpty()) return List.of();
+            double mm = 12 / Math.tan(Math.toRadians(poses.firstEntry().getValue().fov() / 2));
+            String name = switch (body) {
+                case "tracker" -> "track-planned";
+                default -> body + "-planned";
+            };
+            return List.of(new Candidate(name, between(poses), mm, body.equals("fpv"), true));
+        };
+    }
+
+    /**
      * Запасная к камере сценария: тот же путь и взгляд, другой объектив {@code mm} (план с длинным фокусом теряет объект —
      * тот же план шире). Оценка и проверка — как у остальных запасных.
      */
@@ -584,9 +620,14 @@ final class Rig {
     @Nullable
     static CineCamera.Path recorded(EventLog.Data d) {
         if (d.camera.isEmpty()) return null;
+        return between(d.camera);
+    }
+
+    /** Путь по позам на тики: между тиками — по прямой и кратчайшим поворотом, до первой и после последней — крайняя. */
+    static CineCamera.Path between(java.util.NavigableMap<Integer, Pose> poses) {
         return t -> {
-            var lo = d.camera.floorEntry((int) Math.floor(t));
-            var hi = d.camera.ceilingEntry((int) Math.ceil(t));
+            var lo = poses.floorEntry((int) Math.floor(t));
+            var hi = poses.ceilingEntry((int) Math.ceil(t));
             if (lo == null) return hi.getValue();
             if (hi == null || hi.getKey().equals(lo.getKey())) return lo.getValue();
             double k = (t - lo.getKey()) / (hi.getKey() - lo.getKey());

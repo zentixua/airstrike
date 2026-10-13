@@ -496,11 +496,17 @@ public final class ReplayFilm {
     private void plan(Rig.World w) {
         List<EventLog.Flight> earlier = data.flights.stream().filter(f -> f.impact >= 0 && f.impact < (subject.key >= 0 ? subject.key : b)).toList();
         tallies.clear();
-        for (Rig.Kind k : spec.kinds()) {
+        List<Rig.Kind> kinds = new ArrayList<>(spec.kinds());
+        // камера, спланированная по сцене до вывода (tools/shot), — если для плана она есть
+        kinds.add(Rig.planned(root.resolve("planned").resolve(spec.shot() + ".camera.jsonl")));
+        for (Rig.Kind k : kinds) {
             for (Rig.Candidate c : k.candidates(subject, a, b, w, data)) {
-                // в вывод — как снял бы человек (Operator); камера сценария как есть — запасной, если с руками объект уходит
+                // в вывод — как снял бы человек (Operator); камера сценария и спланированная как есть — запасной, если с
+                // руками объект уходит
                 tallies.add(new Rig.Tally(Operator.human(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
-                if (c.designed() && c.name().startsWith("own")) tallies.add(new Rig.Tally(Operator.raw(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
+                if (c.designed() && (c.name().startsWith("own") || c.name().endsWith("-planned"))) {
+                    tallies.add(new Rig.Tally(Operator.raw(c, subject, data, a, b), subject, a, b, earlier, spec.minShare()));
+                }
             }
         }
         for (Rig.Tally t : tallies) t.evaluate(w, null, 0);
