@@ -197,6 +197,10 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(len(c), 1)
         self.assertEqual(c[0].t, 2000)
         self.assertEqual(c[0].shots[-1].kind, "nuke")
+        # подрыв в 1200 блоках, за чанками повтора: объектив с места игрока, шар — 35 % ширины кадра
+        lens = c[0].shots[-1].camera["lens"]
+        self.assertEqual(lens["eye"], list(EYE))
+        self.assertGreater(lens["fov"], 12)
         self.assertLessEqual(sum(x.b - x.a for x in c[0].shots), 35 * clips.TICK, "ролик не длиннее 35 с")
 
     def test_far_reel(self):
@@ -244,7 +248,7 @@ class PlanTest(unittest.TestCase):
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
         clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0))
         argv = sys.argv
-        sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
+        sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1", "--skip", ""]
         try:
             film_plan.main()
         finally:
@@ -252,6 +256,19 @@ class PlanTest(unittest.TestCase):
         runs = json.loads((cls.out / "film" / "runs.json").read_text())
         cls.plan = json.loads(Path(runs[0]["plan"]).read_text())
         cls.shots = {s["name"]: s for s in cls.plan["shots"]}
+
+    def test_far_skipped_by_default(self):
+        out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
+        argv = sys.argv
+        sys.argv = ["plan.py", str(self.out / "candidates.json"), "--top", "1", "--out", str(out)]
+        try:
+            film_plan.main()
+        finally:
+            sys.argv = argv
+        plan = json.loads(Path(json.loads((out / "runs.json").read_text())[0]["plan"]).read_text())
+        self.assertNotIn("far-0", plan["previews"], "без DH «издалека» из повтора не снимается")
+        burst = next(s for s in plan["shots"] if s["name"] == "nuke-0-burst")
+        self.assertEqual([c["kind"] for c in burst["cameras"]], ["fixed", "tripod"])
 
     def test_every_preview_planned(self):
         self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "rockets-0"])

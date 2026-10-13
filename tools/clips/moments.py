@@ -453,8 +453,8 @@ class Replay:
     def nuke(self) -> list[Candidate]:
         """5 — ядерный удар: подрыв, пуск МБР, если он в мире клиента, и игроки, которые смотрели."""
         out = []
-        for hid, t, x, y, z in self.con.execute(
-                "SELECT id, t, x, y, z FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' ORDER BY t").fetchall():
+        for hid, t, x, y, z, dim in self.con.execute(
+                "SELECT id, t, x, y, z, dim FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' ORDER BY t").fetchall():
             icbm = [f for f in self.fl if f.weapon == "icbm" and f.first <= t <= f.last + 40]
             shots = []
             up = [f for f in icbm if f.launched]
@@ -463,15 +463,24 @@ class Replay:
                 shots.append(self.launch_shot("launch", up[0], after=90))
             views = self.con.execute("""SELECT viewer, dist, coalesce(in_frame(cx, cy, 1), false) FROM impact_views
                                         WHERE id = ? AND viewer NOT LIKE 'ask:%' ORDER BY 3 DESC, dist""", [hid]).fetchall()
+            # место игрока у подрыва (рядом никого — записавшего): длинный объектив оттуда (подрыв бывает за чанками
+            # повтора, место игрока — в них)
+            eye = self.con.execute("""SELECT x, y, z FROM viewers WHERE viewer = ? AND dim = ? ORDER BY abs(t - ?) LIMIT 1""",
+                                   [views[0][0] if views else "recorder", dim, t]).fetchone()
             # огненный шар над домами: в кадре достаточно, луча к земле не нужно
             seen = [v for v in views if v[2]]
             keys = [{"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}]
             if seen:
                 shots.append(Shot("burst-pov", "nuke", t - 40, t + 200, {"kind": "pov", "viewer": seen[0][0]}, {"keys": keys},
                                   f"глазами {seen[0][0]}: подрыв в {seen[0][1]:.0f} блоках"))
-            shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500),
-                              {"kind": "auto", "rig": "tripod", "dist": [400, 700, 1000], "elev": [4, 10], "share": 0.35},
-                              {"keys": keys}, "свободная камера: вспышка, волна, гриб"))
+            # свободная камера: объектив с места игрока (шар — 35 % ширины кадра), иначе штатив у подрыва — в чанках повтора
+            cam = {"kind": "auto", "rig": "tripod", "dist": [120, 200, 300], "elev": [4, 10], "share": 0.35}
+            if eye:
+                d = max(50.0, dist(eye, (x, y, z)))
+                fov = math.degrees(2 * math.atan(BLAST["icbm"] / (2 * d * 0.35) / self.aspect))
+                cam["lens"] = {"eye": list(eye), "fov": round(max(12.0, min(70.0, fov)), 1)}
+            shots.append(Shot("burst", "nuke", t - 30, t + (270 if seen else 500), cam, {"keys": keys},
+                              "свободная камера: вспышка, волна, гриб"))
             score = 3 + bool(up) + bool(seen) + 0.5 * len(views)
             out.append(Candidate("nuke", self.name, str(self.db), score, t, "icbm",
                                  f"подрыв {mmss(t)}" + (f", пуск МБР в мире {mmss(up[0].first)}" if up else "")

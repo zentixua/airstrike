@@ -7,11 +7,13 @@
 склейками, звук игры −14 LUFS, пики не выше −1 dBTP; рядом — версия с тихой музыкой, подписи EN/RU и отчёт.
 
   uv run tools/clips/edit.py <film> [--music трек.mp3 --credit "строка автора"] [--out <film>/previews]
+                            [--clip far=<готовый ролик.mp4>]
 
 <film> — каталог plan.py (runs.json, <повтор>/plan.json, <повтор>/film/best.json). Кроме проверки кадров съёмки
 (qa.jsonl, verdict.json) — ещё одна, по самим кадрам видео: вспышка каждого события видна там, где игра его рисует
-(яркость в рамке события сразу после него выше, чем до), — она ловит то, чего лучи по блокам не видят (рельеф
-Distant Horizons, дым, шейдеры). Нужен ffmpeg.
+(яркость в рамке события сразу после него выше, чем до), — она ловит то, чего лучи по блокам не видят (дым,
+шейдеры). Нужен ffmpeg. `--clip <ролик>=<видео>` — ролик, снятый не из повтора (живьём, со своей проверкой кадров):
+та же громкость, версия с музыкой и подписи.
 """
 from __future__ import annotations
 
@@ -148,6 +150,9 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
         return (f"{k} ground strikes in {sec} seconds, one camera.", f"Ударов по земле за {sec} секунд: {k}. Одна камера.")
     if preview == "far":
         strikes = n.get("strikes") or [n]
+        if not strikes[0]:
+            return ("Strikes far away through binoculars: each flash comes before its sound.",
+                    "Удары вдали в бинокль: каждая вспышка раньше своего звука.")
         if len(strikes) == 1:
             d = strikes[0].get("dist", 0)
             return (f"A strike {d} blocks away through binoculars: the flash comes first, the sound {strikes[0].get('boom_after_s', 0)} s later.",
@@ -158,12 +163,29 @@ def caption(preview: str, cand: dict) -> tuple[str, str]:
     return ("A nuclear strike: launch, flash, shock wave and mushroom cloud.", "Ядерный удар: пуск, вспышка, ударная волна и гриб.")
 
 
+def finish(cid: str, preview: str, cand: dict, videos: list[Path], ok: bool, lines: list[str], out: Path, a) -> list[str]:
+    """Ролик из видео планов: чистый, с музыкой, подпись; строки отчёта."""
+    clean, tuned = out / f"{cid}.mp4", out / f"{cid}-music.mp4"
+    assemble(videos, clean, None)
+    if a.music:
+        assemble(videos, tuned, Path(a.music))
+    length = duration(clean)
+    en, ru = caption(preview, cand)
+    text = f"{en} {TAIL_EN}\n{ru} {TAIL_RU}\n{TAGS}\n"
+    if a.music and a.credit:
+        text += f"Music: {a.credit}\n"
+    (out / f"{cid}.txt").write_text(text)
+    return [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
+            + ("" if 20 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("film")
     p.add_argument("--out", default=None)
     p.add_argument("--music", default=None, help="трек для версии с музыкой (CC BY и т. п.)")
     p.add_argument("--credit", default="", help="строка автора трека для подписи")
+    p.add_argument("--clip", action="append", default=[], help="<ролик>=<видео>: ролик, снятый не из повтора (например far=far.mp4)")
     a = p.parse_args()
     film = Path(a.film)
     out = Path(a.out) if a.out else film / "previews"
@@ -202,18 +224,14 @@ def main():
             if not videos:
                 report += [f"## {cid}", "", *lines, ""]
                 continue
-            clean, tuned = out / f"{cid}.mp4", out / f"{cid}-music.mp4"
-            assemble(videos, clean, None)
-            if a.music:
-                assemble(videos, tuned, Path(a.music))
-            length = duration(clean)
-            en, ru = caption(preview, cands.get(cid, {"weapon": "", "numbers": {}}))
-            text = f"{en} {TAIL_EN}\n{ru} {TAIL_RU}\n{TAGS}\n"
-            if a.music and a.credit:
-                text += f"Music: {a.credit}\n"
-            (out / f"{cid}.txt").write_text(text)
-            report += [f"## {cid} — {'годится' if ok else 'ЕСТЬ ЗАМЕЧАНИЯ'}", "", f"Файл {clean.name}, {length:.1f} с"
-                       + ("" if 20 <= length <= 35 else " (вне 20–35 с)") + f"; подпись — {cid}.txt.", *lines, ""]
+            report += finish(cid, preview, cands.get(cid, {"weapon": "", "numbers": {}}), videos, ok, lines, out, a)
+    for spec in a.clip:
+        preview, video = spec.split("=", 1)
+        if not Path(video).is_file():
+            report += [f"## {preview}", "", f"- нет ролика {video}", ""]
+            continue
+        report += finish(preview, preview, {"weapon": "", "numbers": {}}, [Path(video)], True,
+                         [f"- снят не из повтора: {video} (проверка кадров — его съёмки)"], out, a)
     (out / "report.md").write_text("\n".join(report))
     print(out / "report.md")
 

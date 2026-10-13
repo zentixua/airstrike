@@ -70,6 +70,16 @@ class EditTest(unittest.TestCase):
         self.assertIn("ЕСТЬ ЗАМЕЧАНИЯ", report)
         self.assertIn("вспышка видна 0/1", report)
 
+    def test_clip_filmed_live(self):
+        root = self.build(flash=True)
+        live = root / "far-live.mp4"
+        video(live, flash=True, ticks=440)
+        report = self.run_edit(root, "--clip", f"far={live}")
+        self.assertIn("## far — годится", report)
+        self.assertIn("снят не из повтора", report)
+        self.assertAlmostEqual(edit.duration(root / "previews" / "far.mp4"), 22, delta=0.3)
+        self.assertIn("Strikes far away through binoculars", (root / "previews" / "far.txt").read_text())
+
     def test_shot_of_other_plan_not_used(self):
         root = self.build(flash=True)
         best = json.loads((root / "film" / "best.json").read_text())

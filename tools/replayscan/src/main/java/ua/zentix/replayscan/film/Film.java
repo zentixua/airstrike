@@ -9,6 +9,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -99,17 +100,27 @@ public final class Film {
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
     public static void start(Path file) {
+        // в выводе Flashback DH рисует LOD поверх ближнего мира (полосы вниз от крон, и в комнатах): съёмка — без него
+        if (ModList.get().isLoaded("distanthorizons")) {
+            LOG.error("Film: Distant Horizons draws its LODs over the near world in Flashback export; film without it");
+            stopWhenLoaded();
+            return;
+        }
         try {
             Plan plan = Plan.read(file);
             Files.createDirectories(plan.out());
             new Film(plan);
         } catch (IOException | RuntimeException e) {
             LOG.error("Film: cannot read plan {}", file, e);
-            // клиент без окна сам не выйдет: выход, как только игра загрузилась
-            NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
-                if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
-            });
+            stopWhenLoaded();
         }
+    }
+
+    /** Клиент без окна сам не выйдет: выход, как только игра загрузилась. */
+    private static void stopWhenLoaded() {
+        NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post t) -> {
+            if (Minecraft.getInstance().getOverlay() == null) Minecraft.getInstance().stop();
+        });
     }
 
     /** План уже снят: в {@code best.json} прошёл проверку с теми же тиками и первым событием. */

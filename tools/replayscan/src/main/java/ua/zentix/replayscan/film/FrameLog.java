@@ -212,7 +212,7 @@ final class FrameLog {
         return Math.hypot(p.x - eye.x, p.z - eye.z) > FOG * mc.gameRenderer.getRenderDistance();
     }
 
-    /** Где на луче к дальнему объекту начинается чанк, которого у клиента нет (дальше — только рельеф DH); −1 — нет. */
+    /** Где на луче к дальнему объекту начинается чанк, которого у клиента нет (дальше мира у клиента нет: повтор выводится без DH); −1 — нет. */
     private static double unknown(Minecraft mc, Vec3 eye, Vec3 at) {
         Vec3 d = at.subtract(eye);
         double len = d.length();
