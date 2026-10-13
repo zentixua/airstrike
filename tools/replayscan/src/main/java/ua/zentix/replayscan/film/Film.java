@@ -93,6 +93,10 @@ public final class Film {
         }
         LOG.info("Film: {} -> {}, {} shots to film: {}", plan.replay(), plan.out(), queue.size(), queue.stream().map(Plan.Shot::name).toList());
         LOG.info("Film: smoke of the effects layer {}", smoke.available() ? "checked" : "not checked (Incoming effects layer not found)");
+        if (FrameLog.DH) {
+            DhDepth.subscribe();
+            LOG.info("Film: depth of Distant Horizons LODs checked in every frame");
+        }
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
     }
@@ -169,6 +173,10 @@ public final class Film {
             case TITLE -> {
                 // загрузка кончилась: заглавие или экран поверх него; повтор их сменит
                 if (mc.getOverlay() != null || mc.screen == null || mc.level != null) return;
+                if (windowIsFrame()) {
+                    finish();
+                    return;
+                }
                 mc.options.onboardAccessibility = false;
                 mc.options.pauseOnLostFocus = false;
                 mc.options.renderDistance().set(plan.distance());
@@ -445,8 +453,24 @@ public final class Film {
 
     // ================================================================ вывод
 
+    /**
+     * Окно игры — размер кадра плана, а Distant Horizons стоит: вывод Flashback пересоздаёт кадр игры в размер вывода, в том
+     * же размере Iris оставляет LOD глубину мира, и они ложатся поверх ближнего мира ({@link DhDepth}). Тогда не снимаем.
+     */
+    private boolean windowIsFrame() {
+        var main = mc.getMainRenderTarget();
+        if (!FrameLog.DH || main.width != plan.width() || main.height != plan.height()) return false;
+        LOG.error("Film: the window is {}x{}, the frame size, and Distant Horizons is loaded: its LODs would be drawn over the near world; "
+                + "open the client at another size", main.width, main.height);
+        return true;
+    }
+
     /** Задание вывода: состояние редактора, видео, проверка каждого кадра. */
     private void export() {
+        if (windowIsFrame()) {
+            finish();
+            return;
+        }
         try {
             deleteTree(dir);
             Files.createDirectories(dir);

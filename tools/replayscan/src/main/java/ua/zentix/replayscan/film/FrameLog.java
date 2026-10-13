@@ -28,8 +28,9 @@ import java.util.UUID;
  * Проверка каждого кадра вывода по данным игры, а не на глаз: в момент отрисовки кадра (конец мира) — где объект на
  * экране и какую долю ширины кадра он занимает, закрыт ли он блоками (лучи к середине и краям), дымом слоя эффектов
  * ({@link Smoke}), облаками или туманом у края прорисовки, построена ли его секция и весь мир у камеры, слышен ли его
- * мотор, видно ли каждое событие в первые 12 тиков; у плана глазами игрока — камера ли это игрок. Строка JSON на
- * кадр — {@code qa.jsonl}; итог ({@link #verdict}) — по порогам плана, без просмотра кадров.
+ * мотор, видно ли каждое событие в первые 12 тиков; у плана глазами игрока — камера ли это игрок; со своей ли глубиной
+ * Distant Horizons рисует LOD ({@link DhDepth}). Строка JSON на кадр — {@code qa.jsonl}; итог ({@link #verdict}) — по
+ * порогам плана, без просмотра кадров.
  */
 final class FrameLog {
     /** Сколько тиков после события оно проверяется: вспышка и огненный шар. */
@@ -38,6 +39,8 @@ final class FrameLog {
     static final double FOG = 0.8;
     /** Скорость звука, блоков за тик: мотор мода звучит из точки, где снаряд был, когда звук вышел. */
     static final double SOUND = 17.15;
+    /** Distant Horizons стоит: глубину его LOD в кадре проверяет {@link DhDepth}. */
+    static final boolean DH = net.neoforged.fml.ModList.get().isLoaded("distanthorizons");
 
     private final Subject s;
     private final Plan.Shot shot;
@@ -47,7 +50,7 @@ final class FrameLog {
     private final Smoke smoke;
     private final Sounds sounds;
     private final Writer out;
-    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng;
+    private int frames, readyN, firstReady, povN, pre, preOk, near, nearOk, eng, dhWorld;
     private final int[] keyN, keyOk;
     private int entityId = -1;
 
@@ -64,11 +67,16 @@ final class FrameLog {
         out = Files.newBufferedWriter(dir.resolve("qa.jsonl"), StandardCharsets.UTF_8);
         sounds = new Sounds(dir.resolve("sounds.jsonl"), plan.loud(), plan.engine(), Export::exportTick);
         mc.getSoundManager().addListener(sounds);
+        // проходы LOD до плана — не его
+        if (DH) DhDepth.take();
     }
 
     /** Кадр вывода нарисован: мир и слой эффектов уже в нём. */
     void onStage(RenderLevelStageEvent e) {
-        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || !Export.exporting()) return;
+        if (e.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) return;
+        // глубина LOD этого кадра: 1 — своя, −1 — мира, 0 — LOD нет (снимается и в кадрах не вывода)
+        int dh = DH ? DhDepth.take() : 0;
+        if (!Export.exporting()) return;
         double t = Export.exportTick();
         if (Double.isNaN(t)) return;
         Minecraft mc = Minecraft.getInstance();
@@ -143,6 +151,7 @@ final class FrameLog {
         if (built) readyN++;
         if (frames <= 10 && built) firstReady++;
         if (isPov) povN++;
+        if (dh < 0) dhWorld++;
         if (aim != null && before) {
             boolean good = in && seen >= 0.4 && clear >= 0.5 && !cloud && !fog && (drawn || ready <= 0) && share >= shot.need().share();
             pre++;
@@ -156,8 +165,8 @@ final class FrameLog {
         try {
             out.write(String.format(Locale.ROOT,
                     "{\"t\":%.3f,\"ready\":%b,\"pov\":%b,\"in\":%b,\"x\":%.3f,\"y\":%.3f,\"share\":%.4f,\"seen\":%.2f,\"clear\":%.2f,\"cloud\":%b,"
-                            + "\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
-                    t, built, isPov, in, x, y, share, seen, clear, cloud, fog, drawn, fromEntity, engine, unknown, keys, eye.x, eye.y, eye.z,
+                            + "\"fog\":%b,\"drawn\":%b,\"entity\":%b,\"engine\":%.3f,\"unknown\":%.0f,\"keys\":[%s],\"dh\":%d,\"cam\":[%.2f,%.2f,%.2f,%.1f,%.1f],\"fov\":%.2f}\n",
+                    t, built, isPov, in, x, y, share, seen, clear, cloud, fog, drawn, fromEntity, engine, unknown, keys, dh, eye.x, eye.y, eye.z,
                     cam.getYRot(), cam.getXRot(), Math.toDegrees(2 * Math.atan(tanY))));
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -240,7 +249,8 @@ final class FrameLog {
      * Итог по кадрам: мир построен (не меньше {@code ready} кадров и первые 10 — все); до первого события объект в кадре,
      * виден, не в дыму, облаках и тумане, в построенной секции и не мельче порога — не меньше долей плана за всё время
      * и за последнюю секунду; каждое событие видно в первые {@link #KEY_CHECK} тиков (доля событий — по плану);
-     * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок.
+     * мотор слышен; громкого за кадром не больше, чем в кадре; у плана глазами игрока камера — этот игрок; LOD Distant
+     * Horizons с глубиной мира — ни в одном кадре.
      */
     Verdict verdict(boolean isPovShot) {
         Plan.Need need = shot.need();
@@ -267,6 +277,7 @@ final class FrameLog {
         if (keys < need.keys()) why.append(String.format(Locale.ROOT, "events seen: %d of %d; ", keysOk, keysIn));
         if (engine < need.engine()) why.append(String.format(Locale.ROOT, "engine heard in %.0f%% of frames; ", 100 * engine));
         if (!loudOk) why.append(String.format(Locale.ROOT, "loud sounds off screen %d, on screen %d; ", sounds.loudOff, sounds.loudOn));
+        if (dhWorld > 0) why.append(String.format(Locale.ROOT, "Distant Horizons LODs drawn with the world's depth in %d of %d frames; ", dhWorld, frames));
         JsonObject n = new JsonObject();
         n.addProperty("frames", frames);
         n.addProperty("ready", rReady);
@@ -279,6 +290,7 @@ final class FrameLog {
         n.addProperty("loud_on", sounds.loudOn);
         n.addProperty("loud_off", sounds.loudOff);
         n.addProperty("smoke_checked", smoke.available());
+        if (DH) n.addProperty("dh_world", dhWorld);
         double rank = rReady + approach + nearHit + keys + 0.5 * engine + (loudOk ? 0.5 : 0) + (isPovShot ? povShare : 1);
         return new Verdict(why.isEmpty(), why.toString().trim(), rank, n);
     }
