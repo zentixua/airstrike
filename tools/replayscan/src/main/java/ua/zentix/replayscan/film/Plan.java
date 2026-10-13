@@ -64,7 +64,7 @@ record Plan(Path replay, Path out, int width, int height, double fps, int bitrat
      * Пороги проверки по кадрам: доля кадров до первого события, где объект снят ({@code subject}), то же за последнюю
      * секунду до него ({@code near}), доля событий, снятых в первые 12 тиков ({@code keys}), наименьшая доля ширины кадра
      * ({@code share}), доля кадров со слышным мотором ({@code engine}), громкого за кадром не больше {@code loud} громкого
-     * в кадре.
+     * в кадре (меньше 0 — не проверяется).
      */
     record Need(double subject, double near, double keys, double share, double engine, double loud) {}
 

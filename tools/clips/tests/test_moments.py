@@ -122,6 +122,9 @@ def build() -> Path:
         s.blast(1200 + 20 * k, "airstrike:blast", b, uid, kind=0)
     # ядерный подрыв
     s.blast(2000, "airstrike:nuke_detonation", (0.5, 64.0, 1200.0), None, clear=-1, solid=-1)
+    # игроки рядом: живой (аккаунт Mojang — UUID версии 4) и бот Almighty (UUID по имени — версии 3)
+    s.entity("minecraft:player", "5a1f0c3e-2b7d-4c1e-9f00-1d2e3f405060", 0, 10, lambda t: (5.5, 71.0, 0.5), player=True, name="Friend")
+    s.entity("minecraft:player", "0b8e6a4c-1f2d-3a5b-8c7d-6e5f4a3b2c1d", 0, 10, lambda t: (8.5, 71.0, 0.5), player=True, name="Sever_1")
     tmp = Path(tempfile.mkdtemp(prefix="clips-test-"))
     s.write(tmp / "scan", 2100)
     args = argparse.Namespace(dir=str(tmp / "scan"), db=None, fov=70, aspect=9 / 16, center=0.7, soft=2)
@@ -184,7 +187,7 @@ class SelectTest(unittest.TestCase):
         self.assertEqual((alone[0].a, alone[0].b), (1000 - 88, 1180 + 132), "сбитие одно — и до него, и после")
         self.assertEqual(c[0].shots[0].camera, {"kind": "pov", "viewer": "recorder"})
         # пролёт — пока шахед в кадре, не по ближайшей точке за всю его жизнь
-        fl = self.r.flyby_shot("flyby", self.r.by_uuid["D-0"], next(r for r in self.r.pov["flyby"] if r[1] == "D-0"))
+        fl = self.r.flyby_shot("flyby", self.r.by_uuid["D-0"], next(r for r in self.r.views["flyby"] if r[1] == "D-0"))
         self.assertLess(fl.a, fl.b)
         self.assertLessEqual(fl.b - fl.a, 200)
         self.assertGreaterEqual(sum(s.b - s.a for s in c[0].shots), clips.LEAST * clips.TICK, "превью не короче 20 с")
@@ -238,6 +241,28 @@ class SelectTest(unittest.TestCase):
         keys = pov[0].shots[0].subject["keys"]
         self.assertGreaterEqual(len(keys), 4, "удары в кадре — события плана")
         self.assertEqual(len(keys[0]["pos"]), 3)
+
+    def test_pov(self):
+        c = self.r.pov()
+        self.assertTrue(c)
+        self.assertTrue(all(len(x.shots) == 1 and x.shots[0].camera == {"kind": "pov", "viewer": "recorder"} for x in c),
+                        "только глазами игрока, одним планом")
+        for x in c:
+            s = x.shots[0]
+            self.assertEqual(s.kind, "pov")
+            self.assertGreaterEqual(s.b - s.a, 200, "не короче 10 с")
+            self.assertLessEqual(s.b - s.a, 300, "не длиннее 15 с")
+            self.assertTrue(all(s.a <= k["t"] <= s.b for k in s.subject["keys"]))
+        down = next(x for x in c if x.numbers["shot_down"])
+        self.assertIn({"t": 470, "pos": [0.5, 85.0, 60.0], "size": 8}, down.shots[0].subject["keys"])
+        self.assertEqual(down.shots[0].subject["uuid"], "D-down", "объект — сбитый дрон")
+        self.assertEqual(c[0].score, max(x.score for x in c))
+        spans = sorted((x.shots[0].a, x.shots[0].b) for x in c)
+        self.assertTrue(all(b0 <= a1 for (_, b0), (a1, _) in zip(spans, spans[1:])), "одни секунды — в одном кандидате")
+        self.assertTrue(self.r.human("recorder"))
+        self.assertTrue(self.r.human("player:Friend"))
+        self.assertFalse(self.r.human("player:Sever_1"), "бот")
+        self.assertFalse(self.r.human("ask:0"))
 
     def test_far(self):
         c = self.r.far()
@@ -306,7 +331,7 @@ class PlanTest(unittest.TestCase):
     def setUpClass(cls):
         db = build()
         cls.out = Path(tempfile.mkdtemp(prefix="clips-plan-"))
-        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0, star=""))
+        clips.select(argparse.Namespace(db=[str(db)], out=str(cls.out), top=8, fov=70, aspect=9 / 16, center=0.7, soft=2, min_version="2.10.2", prefer="", notes=None, note_bonus=1.0, star="", pov_top=15))
         argv = sys.argv
         sys.argv = ["plan.py", str(cls.out / "candidates.json"), "--top", "1"]
         try:
@@ -325,7 +350,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(burst["cameras"][0]["rise"], [0, 32, 96], "и над землёй: игрок бывает в метро")
 
     def test_every_preview_planned(self):
-        self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "rockets-0"])
+        self.assertEqual(sorted(self.plan["previews"]), ["chaos-0", "drones-0", "far-0", "nuke-0", "pov-0", "rockets-0"])
         for names in self.plan["previews"].values():
             for n in names:
                 self.assertIn(n, self.shots)
@@ -357,6 +382,21 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(s["need"]["keys"], 1)
         self.assertEqual(s["need"]["loud"], 3, "бой вокруг: громкое за кадром — до трёх на одно в кадре")
         self.assertGreater(len(s["subject"]["path"]), 5)
+
+    def test_pov_planned(self):
+        argv = sys.argv
+        sys.argv = ["plan.py", str(self.out / "candidates.json"), "--all", "pov", "--out", str(self.out / "pov")]
+        try:
+            film_plan.main()
+        finally:
+            sys.argv = argv
+        plan = json.loads(Path(json.loads((self.out / "pov" / "runs.json").read_text())[0]["plan"]).read_text())
+        pov = json.loads((self.out / "candidates.json").read_text())["pov"]
+        self.assertEqual(sorted(plan["previews"]), sorted(c["id"] for c in pov), "--all: все кандидаты «глазами игроков», и только они")
+        s = self.shots["pov-0-pov"]
+        self.assertEqual([c["kind"] for c in s["cameras"]], ["pov"], "без запасной камеры")
+        self.assertEqual(s["need"]["loud"], -1, "громкое за кадром — бой вокруг игрока, не проверяется")
+        self.assertEqual(s["need"]["subject"], 0)
 
     def test_chaos_frames_area(self):
         s = self.shots["chaos-0-chaos"]

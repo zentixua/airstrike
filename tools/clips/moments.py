@@ -288,7 +288,7 @@ class Replay:
         self.fl = flights(self.con)
         self.by_uuid = {f.uuid: f for f in self.fl}
         self.salvos = salvos(self.fl)
-        self.pov = {k: self.con.execute(q).fetchall() for k, q in POV.items()}
+        self.views = {k: self.con.execute(q).fetchall() for k, q in POV.items()}
         self.loud = self.con.execute(LOUD).fetchall()
         self.star = [x for x in getattr(a, "star", "").split(",") if x]
         self.downs = [d for f in self.fl if (d := self.shot_down(f))]
@@ -320,7 +320,7 @@ class Replay:
 
     def best_pov(self, kind: str, ref, near: int, slack: int = 40):
         """Лучший взгляд игрока на событие: удар (id), пуск или пролёт (uuid) около тика near."""
-        rows = [r for r in self.pov[kind] if r[1] == ref and abs(r[2] - near) <= slack]
+        rows = [r for r in self.views[kind] if r[1] == ref and abs(r[2] - near) <= slack]
         if kind == "impact":
             rows.sort(key=lambda r: (not r[6], r[3]))      # в середине кадра, ближе
         elif kind == "launch":
@@ -383,7 +383,7 @@ class Replay:
             hit = min(hits, key=lambda f: f.t_hit)
             fly = hit.t_hit - first.first
             shots = [self.launch_shot("launch", first)]
-            flyby = next((r for f in g for r in self.pov["flyby"] if r[1] == f.uuid), None)
+            flyby = next((r for f in g for r in self.views["flyby"] if r[1] == f.uuid), None)
             if flyby:
                 shots.append(self.flyby_shot("flight", self.by_uuid[flyby[1]], flyby))
             shots.append(self.impact_shot("impact", self.best_hit(hits)))
@@ -409,7 +409,7 @@ class Replay:
                 continue
             ids = {f.uuid for f in g}
             hits = [f for f in g if f.ground and f.t_hit is not None]
-            flybys = [r for f in g for r in self.pov["flyby"] if r[1] == f.uuid]
+            flybys = [r for f in g for r in self.views["flyby"] if r[1] == f.uuid]
             downs = sorted((d for d in self.downs if d[0].uuid in ids), key=lambda d: (d[3][0] not in self.star, -d[3][1]))
             if not (hits or downs) or not (flybys or downs):
                 continue
@@ -475,7 +475,7 @@ class Replay:
                                  f"{n} ударов по земле за {window / TICK:.0f} с с {mmss(t0)} ({', '.join(weapons)}), разброс {spread:.0f} блоков",
                                  {"ground": n, "spread": round(spread), "weapons": weapons, "seconds": window // TICK}, shots))
         # глазами игроков: окна, где ударов по земле в кадре больше всего, а громкого за кадром меньше, чем в кадре
-        rows = self.pov["impact"]
+        rows = self.views["impact"]
         weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
         for viewer in sorted({r[0] for r in rows}):
             seen = sorted((r for r in rows if r[0] == viewer), key=lambda r: r[2])
@@ -599,6 +599,74 @@ class Replay:
         return out
 
 
+    # Глазами игрока — что делает момент (вес): ядерный подрыв, сбитие дрона, удар по земле в кадре (в середине кадра
+    # и ближе 120 блоков — больше), пуск и пролёт рядом
+    WEIGHT = {"nuke": 6, "shootdown": 4, "impact": 1, "launch": 1.5, "flyby": 1}
+
+    def human(self, viewer: str) -> bool:
+        """Зритель — живой игрок: записавший или аккаунт Mojang (UUID версии 4); боты Almighty и игроки без входа —
+        UUID версии 3 (по имени)."""
+        if viewer == "recorder":
+            return True
+        if not viewer.startswith("player:"):
+            return False
+        r = self.con.execute("SELECT uuid FROM entities WHERE player = 1 AND name = ? LIMIT 1", [viewer[7:]]).fetchone()
+        return bool(r and r[0] and len(r[0]) == 36 and r[0][14] == "4")
+
+    def pov_events(self) -> dict[str, list[tuple]]:
+        """Что видели живые игроки: зритель → [(тик, вес, род, оружие, событие для проверки кадров или None, снаряд)]."""
+        weapon = {f.hit: f.weapon for f in self.fl if f.hit is not None}
+        out: dict[str, list[tuple]] = {}
+        add = lambda v, *e: out.setdefault(v, []).append(e)  # noqa: E731
+        for v, hid, t, d, _, _, centered, _, x, y, z in self.views["impact"]:
+            w = weapon.get(hid, "")
+            add(v, t, self.WEIGHT["impact"] + 0.5 * bool(centered) + 0.5 * (d <= 120), "impact", w,
+                {"t": t, "pos": [x, y, z], "size": BLAST.get(w, 16), "id": hid}, None)
+        for f, t, pos, (v, *_) in self.downs:
+            add(v, t, self.WEIGHT["shootdown"], "shootdown", f.weapon, {"t": t, "pos": list(pos), "size": 8}, f.uuid)
+        for v, uuid, t_in, closest, _, t_out in self.views["flyby"]:
+            f = self.by_uuid.get(uuid)
+            add(v, (t_in + t_out) // 2, self.WEIGHT["flyby"] + 0.5 * (closest <= 30), "flyby", f.weapon if f else "", None, uuid)
+        for v, uuid, t, *_ in self.views["launch"]:
+            f = self.by_uuid.get(uuid)
+            add(v, t, self.WEIGHT["launch"], "launch", f.weapon if f else "", None, uuid)
+        for hid, t, x, y, z in self.con.execute(
+                "SELECT id, t, x, y, z FROM impact_kinds WHERE srcs LIKE '%nuke_detonation%' ORDER BY t").fetchall():
+            for (v,) in self.con.execute("SELECT DISTINCT viewer FROM impact_views WHERE id = ? AND in_frame(cx, cy, 1)", [hid]).fetchall():
+                add(v, t, self.WEIGHT["nuke"], "nuke", "icbm", {"t": t, "pos": [x, y, z], "size": BLAST["icbm"], "id": hid}, None)
+        return {v: sorted(e, key=lambda e: e[0]) for v, e in out.items() if self.human(v)}
+
+    def pov(self, longest: int = 300, shortest: int = 200, lead: int = 60, tail: int = 80) -> list[Candidate]:
+        """6 — глазами игроков: отрезки 10–15 с, где живой игрок видел больше всего (вес событий в отрезке), только
+        камерой игрока — как он сам двигал взгляд; после ядерного подрыва — 10 с (волна и гриб). Из перекрывающихся
+        отрезков (и разных игроков в одни секунды) — лучший."""
+        out = []
+        for viewer, events in self.pov_events().items():
+            for i, first in enumerate(events):
+                group = [e for e in events[i:] if e[0] - first[0] <= longest - lead - tail]
+                a, b = first[0] - lead, min(first[0] - lead + longest, group[-1][0] + (200 if group[-1][2] == "nuke" else tail))
+                if b - a < shortest:
+                    a, b = a - (shortest - (b - a)) // 2, a - (shortest - (b - a)) // 2 + shortest
+                a = max(0, a)
+                kinds = [e[2] for e in group]
+                keys = [e[4] for e in group if e[4]]
+                subject = next((e[5] for e in group if e[2] == "shootdown"), None) or next((e[5] for e in group if e[5]), None)
+                weapons = sorted({e[3] for e in group if e[3]})
+                n = {k: kinds.count(k) for k in ("impact", "shootdown", "nuke", "launch", "flyby")}
+                what = [x for x in (n["nuke"] and "ядерный подрыв", n["shootdown"] and f"сбитие × {n['shootdown']}",
+                                    n["impact"] and f"ударов по земле в кадре {n['impact']}", n["launch"] and f"пусков {n['launch']}",
+                                    n["flyby"] and f"пролётов рядом {n['flyby']}") if x]
+                f = self.by_uuid.get(subject) if subject else None
+                shot = Shot("pov", "pov", a, b, {"kind": "pov", "viewer": viewer},
+                            {"keys": keys, **({"uuid": f.uuid, "weapon": f.weapon, "size": SIZE.get(f.weapon, 4)} if f else {})},
+                            f"глазами {viewer}: " + ", ".join(what))
+                out.append(Candidate("pov", self.name, str(self.db), sum(e[1] for e in group), a, "+".join(weapons) or "pov",
+                                     f"глазами {viewer} {mmss(a)}–{mmss(b)}: " + ", ".join(what) + (f" ({', '.join(weapons)})" if weapons else ""),
+                                     {"viewer": viewer, "ground": n["impact"], "shot_down": n["shootdown"], "nuke": n["nuke"],
+                                      "launch": n["launch"], "flyby": n["flyby"], "seconds": round((b - a) / TICK, 1)}, [shot]))
+        return dedupe(out, longest)
+
+
 def dedupe(cands: list[Candidate], gap: int) -> list[Candidate]:
     """Из кандидатов одного повтора ближе gap тиков друг к другу — лучший."""
     out: list[Candidate] = []
@@ -658,7 +726,7 @@ def annotate(r: Replay, cands: list[Candidate], notes: dict, bonus: float) -> No
 
 
 PREVIEWS = {"rockets": "1. Ракеты и «Град»", "drones": "2. Шахеды и «Ланцеты»", "chaos": "3. Хаос",
-            "far": "4. Издалека", "nuke": "5. Ядерный удар"}
+            "far": "4. Издалека", "nuke": "5. Ядерный удар", "pov": "6. Глазами игроков"}
 
 
 def incoming_version(meta: dict) -> str | None:
@@ -688,10 +756,11 @@ def select(a):
         r.con.close()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    # главный повтор (--prefer) — первым, остальные дополняют, где в нём нет подходящего
+    # главный повтор (--prefer) — первым, остальные дополняют, где в нём нет подходящего; глазами игроков — лучшие из всех
     prefer = [x for x in a.prefer.split(",") if x]
-    first = lambda c: not any(x in c.replay for x in prefer)  # noqa: E731
-    result = {k: [c.json(i) for i, c in enumerate(sorted(v, key=lambda c: (first(c), -c.score))[:a.top])] for k, v in picked.items()}
+    first = lambda c: c.preview != "pov" and not any(x in c.replay for x in prefer)  # noqa: E731
+    result = {k: [c.json(i) for i, c in enumerate(sorted(v, key=lambda c: (first(c), -c.score))[:a.pov_top if k == "pov" else a.top])]
+              for k, v in picked.items()}
     (out / "candidates.json").write_text(json.dumps(result, ensure_ascii=False, indent=1))
     lines = ["# Кандидаты моментов", "", f"Базы: {', '.join(Path(d).parent.name for d in a.db)}. Кадр {a.fov:.0f}° по вертикали, "
              f"стороны {a.aspect:.4g}.", ""]
@@ -710,6 +779,7 @@ def main():
     p.add_argument("db", nargs="+", help="базы replaydb (replay.duckdb)")
     p.add_argument("--out", default="clips")
     p.add_argument("--top", type=int, default=8, help="кандидатов на ролик")
+    p.add_argument("--pov-top", type=int, default=15, help="кандидатов «глазами игроков» (каждый — свой ролик)")
     p.add_argument("--fov", type=float, default=70, help="угол обзора по вертикали у игроков, градусы")
     p.add_argument("--aspect", type=float, default=9 / 16, help="ширина кадра к высоте (вертикальный ролик — 9:16)")
     p.add_argument("--center", type=float, default=0.7, help="доля кадра для «в середине»")

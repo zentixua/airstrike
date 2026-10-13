@@ -6,6 +6,8 @@ import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -402,6 +404,7 @@ public final class Film {
     private void nextCandidate() {
         // после чужого игрока или оборванного вывода: камера — снова зритель, интерфейс скрыт
         if (mc.player != null && mc.getCameraEntity() != mc.player) mc.setCameraEntity(mc.player);
+        spectate(null);
         mc.options.hideGui = true;
         current = candidates.poll();
         if (current == null) {
@@ -466,9 +469,8 @@ public final class Film {
     }
 
     /**
-     * План глазами игрока: камера клиента — этот игрок (как кнопка «Spectate» Flashback; команда {@code spectate} сервером
-     * повтора не исполняется — игрока записи есть только у клиента), зритель повтора стоит у него. Сущность после
-     * перемотки появляется не сразу и бывает новой — ищется каждый тик. null — игрока нет.
+     * План глазами игрока: камера клиента — этот игрок, и зритель повтора на сервере повтора смотрит его глазами
+     * ({@link #spectate}). Сущность после перемотки появляется не сразу и бывает новой — ищется каждый тик. null — игрока нет.
      */
     @Nullable
     private Entity watch() {
@@ -483,7 +485,33 @@ public final class Film {
         if (mc.getCameraEntity() != target) mc.setCameraEntity(target);
         mc.player.moveTo(target.getX(), target.getY(), target.getZ(), target.getYRot(), target.getXRot());
         mc.player.setDeltaMovement(Vec3.ZERO);
+        spectate(povId);
         return target;
+    }
+
+    /**
+     * Зритель повтора на сервере повтора смотрит глазами сущности {@code id} (null — своими), как после кнопки «Spectate»
+     * Flashback (команда {@code spectate}): {@code ServerPlayer.setCamera}. Иначе сервер держит зрителя там, где клиент
+     * последний раз прислал его место, — клиент не шлёт его, пока камера не он сам ({@code LocalPlayer.isControlledCamera}), —
+     * а звуки повтора Flashback рассылает по месту зрителя на сервере: выстрелы и шаги игрока до кадра не доходили.
+     * Сервер сам ведёт зрителя за камерой каждый тик ({@code ServerPlayer.tick}), а Flashback после перемотки снова
+     * садит его в ту же сущность (по её UUID) и шлёт ему её инвентарь.
+     */
+    private void spectate(@Nullable UUID id) {
+        MinecraftServer server = Export.server();
+        if (server == null || mc.player == null) return;
+        UUID viewer = mc.player.getUUID();
+        server.execute(() -> {
+            ServerPlayer me = server.getPlayerList().getPlayer(viewer);
+            if (me == null) return;
+            // сущность после перемотки появляется на сервере не сразу — следующий тик
+            Entity target = id == null ? me : me.serverLevel().getEntity(id);
+            if (target == null || me.getCamera() == target) return;
+            double away = me.position().distanceTo(target.position());
+            me.setCamera(id == null ? null : target);
+            if (id != null) LOG.info("Film: the replay viewer spectates {} on the replay server ({} blocks away)", target.getScoreboardName(),
+                    String.format(Locale.ROOT, "%.0f", away));
+        });
     }
 
     /** {@code recorder} — записавший игрок (его id в повторе), иначе UUID или ник игрока в мире повтора. */
@@ -547,7 +575,10 @@ public final class Film {
     private void done() {
         Export.flawless(false);
         mc.options.hideGui = true;
-        if (current.c.player() != null) mc.setCameraEntity(mc.player);
+        if (current.c.player() != null) {
+            mc.setCameraEntity(mc.player);
+            spectate(null);
+        }
         FrameLog l = log;
         log = null;
         l.close();

@@ -235,7 +235,7 @@ final class FrameLog {
             if (keyN[i] > 0 && (double) keyOk[i] / keyN[i] >= 0.5) keysOk++;
         }
         double keys = keysIn == 0 ? 1 : (double) keysOk / keysIn;
-        boolean loudOk = sounds.loudOff <= need.loud() * sounds.loudOn;
+        boolean loudOk = need.loud() < 0 || sounds.loudOff <= need.loud() * sounds.loudOn;
         StringBuilder why = new StringBuilder();
         if (frames == 0) why.append("no frames; ");
         if (ready > 0 && (rReady < ready || firstReady < Math.min(10, frames)))
