@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -13,12 +14,12 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -84,6 +85,8 @@ public final class Film {
     @Nullable
     private UUID povId;
     private int poseAt, stepped, reachedAt, seenAt, progressAt;
+    /** Мир клиента до открытия повтора: открытие идёт задачей клиента, а тики могут идти ещё в прежнем мире. */
+    private WeakReference<ClientLevel> levelBefore = new WeakReference<>(null);
 
     private record Scored(Cameras.Candidate c, Cameras.Score score) {}
 
@@ -101,10 +104,10 @@ public final class Film {
             DhDepth.subscribe();
             LOG.info("Film: depth of Distant Horizons LODs checked in every frame");
         }
+        // пакеты зрителю повтора после входа — когда у клиента есть мир (до onTick: отпуск и OPENING — в одном тике)
+        ViewerHold.register(modBus);
         NeoForge.EVENT_BUS.addListener(this::onTick);
         NeoForge.EVENT_BUS.addListener(this::onStage);
-        // соединение зрителя повтора при настройке, до пакета входа: пакеты после входа ждут, пока у клиента нет мира
-        modBus.addListener(RegisterConfigurationTasksEvent.class, e -> ViewerHold.install(e.getListener().getConnection()));
     }
 
     /** Съёмка по плану {@code file}: подписки на тик клиента и кадр; дальше всё идёт само. */
@@ -195,17 +198,19 @@ public final class Film {
                 mc.options.pauseOnLostFocus = false;
                 mc.options.renderDistance().set(plan.distance());
                 mc.options.save();
+                levelBefore = new WeakReference<>(mc.level);
                 Export.open(plan.replay());
                 go(State.OPENING);
             }
             case OPENING -> {
-                if (mc.level != null && mc.player != null && Export.inReplay()) {
-                    ViewerHold.release();
+                // мир повтора (не прежний), и его зритель прошёл вход — пакеты после входа ему
+                if (mc.level != null && mc.level != levelBefore.get() && mc.player != null && Export.inReplay()
+                        && ViewerHold.releasedFor(mc.getConnection())) {
                     // редактор Flashback не активен с интерфейсом — только так задание вывода начинается
                     mc.options.hideGui = true;
                     go(State.SETTLING);
                 } else if (waited() > OPEN_WAIT) {
-                    LOG.error("Film: replay {} did not open", plan.replay());
+                    LOG.error("Film: replay {} did not open (viewer packets: {})", plan.replay(), ViewerHold.state());
                     finish();
                 }
             }
